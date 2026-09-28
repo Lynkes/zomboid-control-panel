@@ -29,9 +29,10 @@ import {
   lifecycleInProgressResponse,
 } from "../services/lifecycleCoordinator.js";
 import {
-  getEffectiveMethod,
+  findNoSteamWorkshopConflicts,
   launchLooksNoSteam,
   newProfileConflictsWithWorkshop,
+  noSteamSiblingConflictResponse,
   noSteamWorkshopConflictResponse,
   reconcileBridge,
 } from "../services/bridgeDelivery.js";
@@ -1173,7 +1174,9 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
 
     // Same rule as PUT /:id: the game folder decides the PanelBridge
     // delivery, so a new profile on a folder that gets it from the Steam
-    // Workshop can't be one that launches without Steam.
+    // Workshop can't be one that launches without Steam (useNoSteam, or an
+    // installPath naming a -nosteam launcher script). PUT's other direction
+    // can't happen here: a new profile is never Workshop by its own choice.
     const launchCandidate = { installPath: config.installPath, useNoSteam: config.useNoSteam === true };
     if (
       !isRemote &&
@@ -1486,22 +1489,22 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
     // download it: launched without Steam it starts with no bridge and, with
     // the item still listed in Mods=, refuses every join. Switching delivery
     // back to panel-installed has to come first (Settings › PanelBridge).
-    // Judged on the record AFTER this edit (useNoSteam, a -nosteam start
-    // command, or a move into a Workshop game folder all count), and only
-    // when the edit creates the conflict: the edit dialog saves the whole
-    // record, so a profile already in that state must stay renameable.
+    // Judged on the records AFTER this edit, both ways round: this profile
+    // turning no-Steam or moving into a Workshop game folder, and a Workshop
+    // profile moving (installPath, serverPath, remote to local) into a
+    // folder another profile launches without Steam from -- the folder
+    // decides, so that profile would turn Workshop too. Only conflicts the
+    // edit creates count: the edit dialog saves the whole record, so a
+    // profile already in that state must stay renameable.
     if (["useNoSteam", "startCommand", "installPath", "serverPath", "isRemote"].some((key) => key in updates)) {
       const target = await getServer(serverId);
-      const merged = target ? { ...target, ...updates } : null;
-      if (merged && launchLooksNoSteam(merged)) {
-        const allServers = await getServers();
-        const mergedAll = allServers.map((candidate) =>
-          String(candidate.id) === String(serverId) ? merged : candidate,
-        );
-        const alreadyConflicting =
-          launchLooksNoSteam(target) && getEffectiveMethod(target, allServers) === "workshop";
-        if (getEffectiveMethod(merged, mergedAll) === "workshop" && !alreadyConflicting) {
+      if (target) {
+        const conflicts = findNoSteamWorkshopConflicts(target, { ...target, ...updates }, await getServers());
+        if (conflicts.self) {
           return res.status(409).json(noSteamWorkshopConflictResponse());
+        }
+        if (conflicts.siblings.length > 0) {
+          return res.status(409).json(noSteamSiblingConflictResponse(conflicts.siblings));
         }
       }
     }

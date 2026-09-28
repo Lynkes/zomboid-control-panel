@@ -2157,18 +2157,25 @@ export const ErrorCode = Object.freeze({
   /** server/routes/panelBridge.js -- POST /install-mod-auto, the target
    * server gets PanelBridge from the Steam Workshop. Carries {{serverName}}. */
   PANELBRIDGE_DELIVERY_WORKSHOP_ACTIVE: "PANELBRIDGE_DELIVERY_WORKSHOP_ACTIVE",
-  /** server/routes/servers.js -- PUT /:id, the edit would make a server
-   * whose effective PanelBridge delivery is the Steam Workshop launch
-   * without Steam (useNoSteam, a -nosteam start command, or a move into a
-   * Workshop game folder). */
+  /** server/routes/servers.js -- PUT /:id and POST /, and
+   * server/routes/server.js -- POST /install and /quick-setup: the profile
+   * being saved or set up would launch without Steam (useNoSteam, a
+   * -nosteam start command or launcher, a move into a Workshop game folder)
+   * while its effective PanelBridge delivery is the Steam Workshop. */
   SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE: "SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE",
+  /** server/routes/servers.js -- PUT /:id, the edit moves a server whose
+   * PanelBridge comes from the Steam Workshop (installPath, serverPath, or
+   * remote to local) into a game folder other profiles launch without Steam
+   * from; they would turn Workshop too. Carries {{names}} (those profiles'
+   * display names, comma-separated). */
+  SERVER_NOSTEAM_SIBLING_CONFLICTS_WITH_WORKSHOP_BRIDGE: "SERVER_NOSTEAM_SIBLING_CONFLICTS_WITH_WORKSHOP_BRIDGE",
   /** server/routes/panelBridge.js -- POST /install-mod-auto, the Install
    * button's copy of PanelBridge.lua failed (reconcile warning
    * installFailed). */
   PANELBRIDGE_INSTALL_FAILED: "PANELBRIDGE_INSTALL_FAILED",
   /** server/routes/panelBridge.js -- POST /install-mod-auto, the reconcile
-   * behind the Install button wasn't done after 15 s; it keeps running in
-   * the background. */
+   * behind the Install button wasn't done after 10 s
+   * (MANUAL_INSTALL_WAIT_MS); it keeps running in the background. */
   PANELBRIDGE_INSTALL_STILL_RUNNING: "PANELBRIDGE_INSTALL_STILL_RUNNING",
 });
 

@@ -171,6 +171,21 @@ describe("to Local, automatic", () => {
     expect(plan).toMatchObject({ from: "local", blocked: null, restartRequired: true });
     expect(plan.steps.map((step) => step.kind)).toEqual(["installFile", "iniRemove", "iniRemove", "recordMethod"]);
   });
+
+  // The removal takes the entries out of EVERY Mods=/WorkshopItems= line
+  // (the game applies the last one), `\`-prefixed item ids included, so the
+  // preview and the clean-up offer look at every line the same way.
+  it("lists what the removal takes from a duplicated key's later line, and offers the clean-up for it", async () => {
+    fs.writeFileSync(files.iniPath, `Mods=A\nMods=${MOD}\nWorkshopItems=1\nWorkshopItems=\\${WS_ID}\nDoLuaChecksum=false\n`);
+    const server = makeServer(files);
+    dbState.servers = [server];
+    const plan = await planDeliverySwitch(server, "local", deps);
+    expect(plan.blocked).toBeNull();
+    expect(plan.steps.filter((step) => step.kind === "iniRemove").map((step) => `${step.key}=${step.value}`)).toEqual([
+      `Mods=${MOD}`,
+      `WorkshopItems=${WS_ID}`,
+    ]);
+  });
 });
 
 describe("guided (remote) plans", () => {

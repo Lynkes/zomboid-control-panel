@@ -4,20 +4,28 @@
  * (services/bridgeDelivery.js) own reading, locking, backing up and writing,
  * and hand these functions LF-normalized content.
  *
- * Every key match uses the same anchored `^[ \t]*Key[ \t]*=` shape as
- * iniKeyWrite.js and mods.js, so a key name that merely appears inside
- * another field's free text (PublicDescription, ServerWelcomeMessage) is
- * never read or rewritten. The one exception is getEffectiveChecksum(),
- * which answers what the GAME reads and so follows its stricter parser.
+ * Two readings, on purpose:
+ *   - the WRITERS (and parseIniList) find a key with the same anchored
+ *     `^[ \t]*Key[ \t]*=` shape as iniKeyWrite.js and mods.js, so a key name
+ *     that merely appears inside another field's free text
+ *     (PublicDescription, ServerWelcomeMessage) is never read or rewritten;
+ *   - hasBridgeEntries(), readGameIniList() and getEffectiveChecksum()
+ *     answer what the GAME reads, following 42.20's own parser, because
+ *     those answers decide what the operator is told and whether a write is
+ *     accepted. Every write is re-read with them.
  *
- * List entries are compared the way the game compares them: split on `;`,
- * trimmed, empty entries dropped, and every backslash stripped (GameServer
- * removes `\` from Mods= before resolving ids, so `\ZomboidControlPanelBridge`
- * and `ZomboidControlPanelBridge` are the same mod). Entries this module
- * adds are written bare, the mods.js convention. Entries it does not own are
- * left byte-for-byte as they were, in their original order.
+ * List entries are compared the way GameServer.main reads them: split on
+ * `;`, trimmed, empty entries dropped. Mods= also loses every backslash
+ * first (`\ZomboidControlPanelBridge` is the same mod); WorkshopItems= does
+ * not -- a token counts only when it is a valid Steam id as it stands, so
+ * `\3712345678` downloads nothing. Entries this module adds are written bare,
+ * the mods.js convention. Entries it does not own are left byte-for-byte as
+ * they were, in their original order.
  */
 import { escapeRegExp } from "./regex.js";
+
+// SteamUtils.isValidSteamID's upper bound (an unsigned 64-bit id).
+const MAX_STEAM_ID = 18446744073709551615n;
 
 function keyLinePattern(key, flags = "m") {
   return new RegExp(`^([ \\t]*)${escapeRegExp(key)}([ \\t]*)=(.*)$`, flags);
@@ -33,61 +41,128 @@ function appendKeyLine(content, key, value) {
   return text.endsWith("\n") ? `${text}${key}=${value}\n` : `${text}\n${key}=${value}`;
 }
 
-function normalizeEntry(entry) {
-  return String(entry).replace(/\\/g, "").trim();
+// Java's String.trim(): every char up to U+0020 comes off both ends.
+function javaTrim(text) {
+  let start = 0;
+  let end = text.length;
+  while (start < end && text.charCodeAt(start) <= 0x20) start++;
+  while (end > start && text.charCodeAt(end - 1) <= 0x20) end--;
+  return text.slice(start, end);
+}
+
+// SteamUtils.isValidSteamID + convertStringToSteamID: `new BigInteger(s)`,
+// so an optional sign and decimal digits and nothing else (no backslash, no
+// inner space), within 0..2^64-1. Returns the id in its plain decimal form
+// (`03712345678` is item 3712345678 to the game), or null for a token the
+// game drops. ASCII digits only: the other Unicode digits BigInteger also
+// takes are read as "not this id", which at worst adds a bare copy.
+function steamIdOf(token) {
+  if (!/^[+-]?[0-9]+$/.test(token)) return null;
+  const id = BigInt(token.replace(/^\+/, ""));
+  return id >= 0n && id <= MAX_STEAM_ID ? id.toString() : null;
+}
+
+// One list token as GameServer.main reads it (42.20, offsets 1575-1661 and
+// 1774-1867): Mods= tokens lose every backslash, then are trimmed;
+// WorkshopItems= tokens are only trimmed, and a valid Steam id compares in
+// its plain decimal form. Anything else is compared as trimmed text.
+function entryId(key, raw) {
+  if (key === "WorkshopItems") {
+    const token = javaTrim(String(raw));
+    return steamIdOf(token) ?? token;
+  }
+  return javaTrim(String(raw).replace(/\\/g, ""));
 }
 
 // The raw, non-empty tokens of one list value, each paired with its
 // normalized form. Raw tokens are kept so a rewrite never reformats an entry
 // the panel doesn't own (a `\`-prefixed id stays `\`-prefixed).
-function splitListValue(value) {
+function splitListValue(key, value) {
   return String(value)
     .split(";")
-    .map((raw) => ({ raw: raw.trim(), id: normalizeEntry(raw) }))
+    .map((raw) => ({ raw: raw.trim(), id: entryId(key, raw) }))
     .filter((token) => token.id.length > 0);
 }
 
-// Reads the FIRST `key` line by default -- the line every panel writer
-// (mods.js, the helpers below) edits. `{ last: true }` reads the line the
-// game actually applies instead: ConfigFile.read keeps every line and
-// ServerOptions.loadServerTextFile parses them in order, so with a
-// duplicated key the last assignment wins. Identical for a file without
-// duplicates.
-export function parseIniList(content, key, { last = false } = {}) {
-  const text = String(content ?? "");
-  let match = null;
-  if (last) {
-    const pattern = keyLinePattern(key, "gm");
-    for (let next = pattern.exec(text); next !== null; next = pattern.exec(text)) match = next;
-  } else {
-    match = keyLinePattern(key).exec(text);
-  }
+// Reads the FIRST `key` line -- the line every panel writer (mods.js, the
+// helpers below) edits. What the game applies is readGameIniList().
+export function parseIniList(content, key) {
+  const match = keyLinePattern(key).exec(String(content ?? ""));
   if (!match) return { present: false, entries: [] };
-  return { present: true, entries: splitListValue(match[3]).map((token) => token.id) };
+  return { present: true, entries: splitListValue(key, match[3]).map((token) => token.id) };
 }
 
-export function hasBridgeEntries(content, modId, workshopId, options = {}) {
-  const mods = parseIniList(content, "Mods", options).entries;
-  const items = parseIniList(content, "WorkshopItems", options).entries;
+// Every assignment the game reads from a server .ini, in file order.
+// ConfigFile.read (42.20): BufferedReader lines (\n, \r or \r\n), each
+// trimmed with Java's trim(); blank lines, `#` lines and lines without "="
+// are skipped; then split("=") with no per-part trim. The option name is the
+// text before the first "=" exactly -- `Mods =x` names an option "Mods " the
+// game doesn't have and ignores -- and the value is the text up to the next
+// "=" ("" when there is none). ServerOptions.loadServerTextFile then applies
+// the known names in order, so with a duplicated key the last line wins.
+function gameAssignments(content) {
+  const assignments = [];
+  for (const rawLine of String(content ?? "").split(/\r\n|\r|\n/)) {
+    const line = javaTrim(rawLine);
+    if (!line || line.startsWith("#") || !line.includes("=")) continue;
+    const [key, value = ""] = line.split("=");
+    assignments.push([key, value]);
+  }
+  return assignments;
+}
+
+// The list the game ends up with for Mods= or WorkshopItems=: the value of
+// the last line it reads for the key (see gameAssignments), split and
+// filtered the way GameServer.main does it (see entryId). WorkshopItems=
+// keeps only valid Steam ids, in plain decimal form.
+export function readGameIniList(content, key) {
+  let value = null;
+  for (const [name, text] of gameAssignments(content)) {
+    if (name === key) value = text;
+  }
+  if (value === null) return { present: false, entries: [] };
+  const entries = [];
+  for (const raw of value.split(";")) {
+    if (key === "WorkshopItems") {
+      const id = steamIdOf(javaTrim(raw));
+      if (id !== null) entries.push(id);
+    } else {
+      const id = entryId(key, raw);
+      if (id) entries.push(id);
+    }
+  }
+  return { present: true, entries };
+}
+
+// Whether the game will load the bridge from this file: its mod id in the
+// Mods= list and its item id in the WorkshopItems= list the game reads.
+export function hasBridgeEntries(content, modId, workshopId) {
+  const id = workshopId ? steamIdOf(javaTrim(String(workshopId))) : null;
   return {
-    mods: mods.includes(modId),
-    workshopItems: Boolean(workshopId) && items.includes(String(workshopId)),
+    mods: readGameIniList(content, "Mods").entries.includes(modId),
+    workshopItems: id !== null && readGameIniList(content, "WorkshopItems").entries.includes(id),
   };
 }
 
 // Appends `value` to the first `key` line (the one mods.js edits too), or
-// adds a `key=value` line when the key is missing entirely. A no-op when the
-// entry is already listed. The game applies the LAST line of a duplicated
+// adds a `key=value` line when the key is missing entirely. A rewritten line
+// always reads `key=` with nothing before the "=": `Mods =…` is a different
+// option to the game (see gameAssignments), so such a line is rewritten even
+// when it already lists the entry. A no-op when the entry is already listed
+// on a line the game reads. The game applies the LAST line of a duplicated
 // key, so callers refuse to add entries to such a file at all (§6.7).
 function addListEntry(content, key, value) {
   const pattern = keyLinePattern(key);
   const match = pattern.exec(content);
   if (!match) return appendKeyLine(content, key, value);
-  const tokens = splitListValue(match[3]);
-  if (tokens.some((token) => token.id === value)) return content;
+  const id = entryId(key, value);
+  const listed = splitListValue(key, match[3]).some((token) => token.id === id);
+  if (listed && match[2] === "") return content;
   const existing = match[3].trim().replace(/;+$/, "").trim();
-  const nextValue = existing ? `${existing};${value}` : value;
-  return content.replace(pattern, () => `${match[1]}${key}${match[2]}=${nextValue}`);
+  let nextValue = value;
+  if (listed) nextValue = existing;
+  else if (existing) nextValue = `${existing};${value}`;
+  return content.replace(pattern, () => `${match[1]}${key}=${nextValue}`);
 }
 
 export function addBridgeEntries(content, modId, workshopId) {
@@ -96,16 +171,25 @@ export function addBridgeEntries(content, modId, workshopId) {
   return next;
 }
 
-// Removes exact (normalized) matches of `values` from EVERY `key` line, not
+// What a removal matches: the entry's normalized form, backslashes dropped
+// for WorkshopItems= too. The game ignores a `\3712345678` token, but taking
+// it out along with the real one is always safe.
+function removalId(key, raw) {
+  return entryId(key, String(raw).replace(/\\/g, ""));
+}
+
+// Removes matches of `values` (see removalId) from EVERY `key` line, not
 // just the first: a removal is always safe to over-apply, and a duplicated
 // key is exactly where a leftover entry would otherwise survive. Lines with
-// nothing to remove are returned untouched.
+// nothing to remove are returned untouched, and a line that loses an entry
+// keeps its own spacing around "=": taking an entry out of a line the game
+// ignores must not make the game start reading the rest of it.
 export function removeIniListEntries(content, key, values) {
-  const targets = new Set((values || []).filter(Boolean).map((value) => normalizeEntry(value)));
+  const targets = new Set((values || []).filter(Boolean).map((value) => removalId(key, value)));
   if (targets.size === 0) return String(content ?? "");
   return String(content ?? "").replace(keyLinePattern(key, "gm"), (line, indent, spacing, value) => {
-    const tokens = splitListValue(value);
-    const kept = tokens.filter((token) => !targets.has(token.id));
+    const tokens = splitListValue(key, value);
+    const kept = tokens.filter((token) => !targets.has(removalId(key, token.raw)));
     if (kept.length === tokens.length) return line;
     return `${indent}${key}${spacing}=${kept.map((token) => token.raw).join(";")}`;
   });
@@ -116,22 +200,19 @@ export function removeBridgeEntries(content, modId, workshopIds) {
   return removeIniListEntries(withoutMod, "WorkshopItems", workshopIds || []);
 }
 
-// Java's String.trim(): every char up to U+0020 comes off both ends.
-function javaTrim(text) {
-  let start = 0;
-  let end = text.length;
-  while (start < end && text.charCodeAt(start) <= 0x20) start++;
-  while (end > start && text.charCodeAt(end - 1) <= 0x20) end--;
-  return text.slice(start, end);
+// Whether removeIniListEntries() would take `value` out of any `key` line:
+// what a switch to panel-installed previews, offers and checks, so the
+// preview lists exactly what the apply removes.
+export function listsIniEntry(content, key, value) {
+  const text = String(content ?? "");
+  return removeIniListEntries(text, key, [value]) !== text;
 }
 
 // Whether the game will compare players' Lua files, read exactly the way
 // 42.20 reads the file, because this answer decides both the status the
 // operator sees and whether a switch to Local writes DoLuaChecksum=false:
-//   - ConfigFile.read trims the whole line, skips blank and `#` lines, then
-//     split("=") with no per-part trim: the key must be exactly
-//     "DoLuaChecksum" (so `DoLuaChecksum =` is some other, unknown option)
-//     and the value is the text between the first "=" and the next one;
+//   - the key must be exactly "DoLuaChecksum" (see gameAssignments, so
+//     `DoLuaChecksum =` is some other, unknown option);
 //   - ServerOptions starts from the default (true) and parses every line in
 //     order; BooleanConfigOption accepts true/false/1/0 ignoring case and
 //     ignores anything else (` false`, `yes`, empty), keeping the value
@@ -140,10 +221,7 @@ function javaTrim(text) {
 // setChecksumFalse() rewrites them into a form the game reads.
 export function getEffectiveChecksum(content) {
   let effective = true;
-  for (const rawLine of String(content ?? "").split("\n")) {
-    const line = javaTrim(rawLine);
-    if (!line || line.startsWith("#") || !line.includes("=")) continue;
-    const [key, value = ""] = line.split("=");
+  for (const [key, value] of gameAssignments(content)) {
     if (key !== "DoLuaChecksum") continue;
     const lower = value.toLowerCase();
     if (lower === "true" || lower === "1") effective = true;
@@ -180,14 +258,16 @@ export function setChecksumFalse(content) {
 // length), or restores a `key=value` line when the line is gone. Used by the
 // mods.js guard to undo a removal of an entry the operator can't see is
 // managed elsewhere; never called to add an entry that wasn't there before.
+// Like addListEntry, the rewritten line reads `key=`.
 export function insertIniListEntry(content, key, value, index) {
   const text = String(content ?? "");
   const pattern = keyLinePattern(key);
   const match = pattern.exec(text);
   if (!match) return appendKeyLine(text, key, value);
-  const tokens = splitListValue(match[3]);
-  if (tokens.some((token) => token.id === value)) return text;
+  const tokens = splitListValue(key, match[3]);
+  const id = entryId(key, value);
+  if (tokens.some((token) => token.id === id)) return text;
   const raws = tokens.map((token) => token.raw);
   raws.splice(Math.max(0, Math.min(index, raws.length)), 0, value);
-  return text.replace(pattern, () => `${match[1]}${key}${match[2]}=${raws.join(";")}`);
+  return text.replace(pattern, () => `${match[1]}${key}=${raws.join(";")}`);
 }

@@ -23,8 +23,8 @@ const MAX_LINE_CHARS = 300;
 // step actually crashed.
 //
 // Returns null if no log; otherwise { ids, results, crashed, logMtime }.
-// Exported for direct testing (same reason getServerProcessState is
-// exported below) -- GET /diagnostics' full handler has enough of its own
+// Exported for direct testing (same reason routes/debug.js exports
+// getServerProcessState) -- GET /diagnostics' full handler has enough of its own
 // dependency surface (req.app-injected services, several other database/
 // init.js lookups) that reaching this one check through a real route
 // invocation is its own, much larger undertaking; testing the function
@@ -92,7 +92,6 @@ export async function scanWorkshopFailures(zPath) {
     logMtime: stat.mtime,
   };
 }
-
 
 // Synchronous twin of the tail read above, for callers that sit inside a
 // synchronous status computation (bridgeDisk.detectWorkshopItem). 256 KB is

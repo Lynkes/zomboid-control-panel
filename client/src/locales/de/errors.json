@@ -508,6 +508,7 @@
   "PANELBRIDGE_DELIVERY_INSTALL_FAILED": "PanelBridge.lua konnte nicht in den Spielordner kopiert werden. Es wurde nichts geändert.",
   "PANELBRIDGE_DELIVERY_WORKSHOP_ACTIVE": "{{serverName}} bezieht PanelBridge aus dem Steam Workshop, daher kopiert das Panel PanelBridge.lua nicht in seinen Spielordner. Stelle ihn zuerst unter Einstellungen › PanelBridge wieder auf „vom Panel installiert“ um.",
   "SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE": "Dieser Server bezieht PanelBridge aus dem Steam Workshop, und dafür wird Steam benötigt. Stelle PanelBridge unter Einstellungen › PanelBridge auf „vom Panel installiert“ um, bevor du „Ohne Steam starten“ aktivierst.",
+  "SERVER_NOSTEAM_SIBLING_CONFLICTS_WITH_WORKSHOP_BRIDGE": "Dieser Server bezieht PanelBridge aus dem Steam Workshop, und dafür wird Steam benötigt; alle Server, die sich einen Spielordner teilen, beziehen es auf dieselbe Weise. Diese Server in diesem Ordner starten ohne Steam: {{names}}. Stelle zuerst PanelBridge dieses Servers unter Einstellungen › PanelBridge auf „vom Panel installiert“ um, oder lass sie mit Steam starten.",
   "PANELBRIDGE_INSTALL_FAILED": "PanelBridge.lua konnte nicht in den Spielordner kopiert werden. Den Grund findest du im Panel-Protokoll.",
   "PANELBRIDGE_INSTALL_STILL_RUNNING": "Die Installation von PanelBridge dauert länger als üblich und läuft im Hintergrund weiter. Sieh gleich noch einmal nach."
 }

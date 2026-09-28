@@ -28,7 +28,8 @@
  *   I7 reconcile never throws and never holds a launch longer than 15 s;
  *   I8 Workshop is unavailable without Steam, below Build 42, or without an
  *      item id (and PUT/POST /api/servers and the setup routes refuse a
- *      profile that launches without Steam in a Workshop game folder).
+ *      profile that launches without Steam in a Workshop game folder, and
+ *      PUT refuses moving a Workshop profile next to one that does).
  */
 import fs from "fs";
 import path from "path";
@@ -69,7 +70,9 @@ import {
   getEffectiveChecksum,
   hasBridgeEntries,
   insertIniListEntry,
+  listsIniEntry,
   parseIniList,
+  readGameIniList,
   removeBridgeEntries,
   removeIniListEntries,
   setChecksumFalse,
@@ -205,25 +208,67 @@ export function launchLooksNoSteam(server) {
   return false;
 }
 
-// I8 for a profile setup is about to create or rewrite (POST /api/servers,
-// the setup wizard, quick setup), which has no row yet: a non-remote
-// profile on a game folder another profile switched to Steam Workshop
-// delivery is Workshop too (the folder decides), so it must not launch
-// without Steam. Its launch would archive the shared loose file and skip
-// its own ini (reconcile's noSteam warning): no bridge at all.
-export function newProfileConflictsWithWorkshop(candidate, allServers) {
-  if (!candidate || candidate.isRemote) return false;
-  const pseudo = { ...candidate, id: null, isRemote: false };
-  return launchLooksNoSteam(pseudo) && getEffectiveMethod(pseudo, allServers) === "workshop";
+// The profiles of `server`'s install group that launch without Steam while
+// the group gets PanelBridge from the Workshop. Each one's launch archives
+// the shared loose file and skips its own ini (reconcile's noSteam
+// warning): it runs with no bridge at all. A remote profile is its own group.
+function noSteamWorkshopMembers(server, allServers) {
+  if (!server || getEffectiveMethod(server, allServers) !== "workshop") return [];
+  return getInstallGroup(server, allServers).filter((member) => launchLooksNoSteam(member));
 }
 
-// The 409 body for that conflict, shared by PUT/POST /api/servers and the
-// two setup routes.
+/**
+ * I8 for a change to the server profiles: `before` is the stored record
+ * (null for a profile that has no row yet: POST /api/servers, the setup
+ * wizard, quick setup) and `after` the record as it would be saved.
+ * Returns the profiles the change would leave launching without Steam in a
+ * game folder that gets PanelBridge from the Steam Workshop, split into
+ * `self` (the changed profile: useNoSteam, a -nosteam start command or
+ * launcher, a move into a Workshop folder) and `siblings` (a Workshop
+ * profile moved -- installPath, serverPath, or remote to local -- into a
+ * folder another profile launches without Steam from: the folder decides,
+ * so that one turns Workshop too). Only conflicts the change creates count:
+ * the edit dialog saves the whole record, so a profile already in that
+ * state must stay renameable.
+ */
+export function findNoSteamWorkshopConflicts(before, after, allServers) {
+  const all = allServers || [];
+  const isChanged = (member) => member === after || (before !== null && sameServer(member, before));
+  const afterAll = before ? all.map((candidate) => (sameServer(candidate, before) ? after : candidate)) : all;
+  const conflictedBefore = (member) => {
+    const prior = isChanged(member) ? before : member;
+    return Boolean(prior) && launchLooksNoSteam(prior) && getEffectiveMethod(prior, all) === "workshop";
+  };
+  const created = noSteamWorkshopMembers(after, afterAll).filter((member) => !conflictedBefore(member));
+  return { self: created.some(isChanged), siblings: created.filter((member) => !isChanged(member)) };
+}
+
+// The same check for a profile about to be created, which has no row yet.
+// A new profile is never Workshop by its own choice, so only `self` can
+// apply to it.
+export function newProfileConflictsWithWorkshop(candidate, allServers) {
+  if (!candidate || candidate.isRemote) return false;
+  return findNoSteamWorkshopConflicts(null, { ...candidate, id: null, isRemote: false }, allServers).self;
+}
+
+// The 409 body for a changed profile that would launch without Steam in a
+// Workshop game folder: PUT/POST /api/servers and the two setup routes.
 export function noSteamWorkshopConflictResponse() {
   return {
     error:
       "This server gets PanelBridge from the Steam Workshop, which needs Steam. Switch PanelBridge to panel-installed in Settings › PanelBridge before turning on Launch without Steam.",
     code: ErrorCode.SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE,
+  };
+}
+
+// The 409 body when the edit is a Workshop profile moving next to profiles
+// that launch without Steam (PUT /api/servers/:id), naming them.
+export function noSteamSiblingConflictResponse(siblings) {
+  const names = (siblings || []).map(displayName).join(", ");
+  return {
+    error: `This server gets PanelBridge from the Steam Workshop, which needs Steam, and every server sharing a game folder gets it the same way. These servers in that folder launch without Steam: ${names}. First switch this server's PanelBridge to panel-installed in Settings › PanelBridge, or have them launch with Steam.`,
+    code: ErrorCode.SERVER_NOSTEAM_SIBLING_CONFLICTS_WITH_WORKSHOP_BRIDGE,
+    params: { names },
   };
 }
 
@@ -489,14 +534,16 @@ function groupIniTargets(ctx) {
   return { targets, missing };
 }
 
+// Whether a switch to Local would take anything out of a group ini: the
+// same matching the removal uses, on every Mods=/WorkshopItems= line (the
+// removal cleans duplicates too, and the game reads the last one).
 function bridgeEntriesPresent(ctx) {
   const ids = knownWorkshopIds(ctx.effectiveWorkshopId, ctx.group);
   return groupIniTargets(ctx).targets.some(({ iniPath }) => {
     const text = readIniTextSafe(iniPath);
     if (text === null) return false;
-    if (parseIniList(text, "Mods").entries.includes(BRIDGE_MOD_ID)) return true;
-    const items = parseIniList(text, "WorkshopItems").entries;
-    return ids.some((id) => items.includes(id));
+    if (listsIniEntry(text, "Mods", BRIDGE_MOD_ID)) return true;
+    return ids.some((id) => listsIniEntry(text, "WorkshopItems", id));
   });
 }
 
@@ -598,12 +645,11 @@ async function statusFromContext(ctx) {
           installDir: ctx.installDir,
           looseFiles: listLooseBridgeFiles(ctx.installDir),
           iniPath: ctx.iniPath,
-          // As the game reads them: with a duplicated key the last line is
-          // the one that takes effect, whatever the first one lists.
+          // As the game reads them (bridgeIni.hasBridgeEntries): the last
+          // line of a duplicated key, `Mods =` ignored, a `\`-prefixed
+          // WorkshopItems id not counted.
           iniEntries:
-            ctx.iniText !== null
-              ? hasBridgeEntries(ctx.iniText, BRIDGE_MOD_ID, effectiveWorkshopId, { last: true })
-              : null,
+            ctx.iniText !== null ? hasBridgeEntries(ctx.iniText, BRIDGE_MOD_ID, effectiveWorkshopId) : null,
           workshopItem: effectiveWorkshopId
             ? detectWorkshopItem(ctx.installDir, effectiveWorkshopId, { zomboidDataPath: server.zomboidDataPath })
             : null,
@@ -710,12 +756,14 @@ function buildSteps(ctx, to, warnings) {
     for (const { server, iniPath } of targets) {
       const text = readIniTextSafe(iniPath) ?? "";
       const serverName = displayName(server);
-      if (parseIniList(text, "Mods").entries.includes(BRIDGE_MOD_ID)) {
+      // Exactly what removeBridgeEntries() will take out, from every line.
+      if (listsIniEntry(text, "Mods", BRIDGE_MOD_ID)) {
         steps.push({ kind: "iniRemove", key: "Mods", value: BRIDGE_MOD_ID, file: iniPath, serverName });
       }
-      const items = parseIniList(text, "WorkshopItems").entries;
       for (const id of ids) {
-        if (items.includes(id)) steps.push({ kind: "iniRemove", key: "WorkshopItems", value: id, file: iniPath, serverName });
+        if (listsIniEntry(text, "WorkshopItems", id)) {
+          steps.push({ kind: "iniRemove", key: "WorkshopItems", value: id, file: iniPath, serverName });
+        }
       }
       if (getEffectiveChecksum(text)) {
         steps.push({
@@ -964,11 +1012,18 @@ export async function applyDeliverySwitch(
           await editIni(
             iniPath,
             (text) => setChecksumFalse(removeBridgeEntries(text, BRIDGE_MOD_ID, ids)),
+            // Nothing left for the removal to take out, the game reads
+            // neither entry (a line only it sees would still name the mod),
+            // and it reads the check as off.
             (text) => {
-              const mods = parseIniList(text, "Mods").entries;
-              const items = parseIniList(text, "WorkshopItems").entries;
+              const mods = readGameIniList(text, "Mods").entries;
+              const items = readGameIniList(text, "WorkshopItems").entries;
               return (
-                !mods.includes(BRIDGE_MOD_ID) && !ids.some((entry) => items.includes(entry)) && !getEffectiveChecksum(text)
+                !listsIniEntry(text, "Mods", BRIDGE_MOD_ID) &&
+                !ids.some((entry) => listsIniEntry(text, "WorkshopItems", entry)) &&
+                !mods.includes(BRIDGE_MOD_ID) &&
+                !ids.some((entry) => items.includes(entry)) &&
+                !getEffectiveChecksum(text)
               );
             },
             undo,
@@ -1101,7 +1156,17 @@ async function reconcileWorkshopIni(fresh, id, actions, warnings) {
         migrated = withoutOld !== next;
         next = withoutOld;
       }
-      if (next === text) return;
+      if (next === text) {
+        // Nothing to write, but the writers read the file more loosely than
+        // the game does: a value the game cuts short (`Mods=A=B;…`) or a
+        // line only the game sees still leaves the bridge unloaded.
+        const present = hasBridgeEntries(text, BRIDGE_MOD_ID, id);
+        if (!present.mods || !present.workshopItems) {
+          log.warn(`${iniPath} lists PanelBridge's entries in a form the game doesn't read; fix it in Server Config › INI (raw)`);
+          warnings.push("iniWriteFailed");
+        }
+        return;
+      }
       await writeIniWithBackup(iniPath, next);
       const present = hasBridgeEntries(readIni(iniPath).text, BRIDGE_MOD_ID, id);
       if (!present.mods || !present.workshopItems) {

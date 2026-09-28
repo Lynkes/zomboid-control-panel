@@ -251,6 +251,15 @@ describe("states: Steam Workshop", () => {
     const { disk } = await statusFor(switchedToWorkshop());
     expect(disk.iniEntries).toEqual({ mods: true, workshopItems: false });
   });
+
+  it.each([
+    ["a `Key =` line (an option the game doesn't have)", `Mods =${MOD}\r\nWorkshopItems=${WS_ID}\r\n`, { mods: false, workshopItems: true }],
+    ["a `\\`-prefixed item id (not a Steam id to the game)", `Mods=\\${MOD}\r\nWorkshopItems=\\${WS_ID}\r\n`, { mods: true, workshopItems: false }],
+  ])("reports %s as missing", async (_label, ini, expected) => {
+    fs.writeFileSync(files.iniPath, ini);
+    const { disk } = await statusFor(switchedToWorkshop());
+    expect(disk.iniEntries).toEqual(expected);
+  });
 });
 
 describe("install groups", () => {
@@ -261,6 +270,27 @@ describe("install groups", () => {
     dbState.servers = [local, workshop];
     const status = await getDeliveryStatus(local, deps());
     expect(status).toMatchObject({ method: "workshop", ownMethod: "local", sharedWith: [{ id: "s2", name: "Workshop Two" }] });
+  });
+
+  // With no published release id, a profile that joined the folder later
+  // (no switch record of its own) uses the id its Workshop sibling switched
+  // with: the one already in the inis, and the one to look for on disk.
+  it("takes the item id from a sibling's switch record when no release id is published", async () => {
+    useRelease(null);
+    const other = createServerFiles(root, { key: "s2", installDir: files.installDir });
+    const local = makeServer(files, { id: "s1", name: "Joined Later" });
+    const workshop = makeServer(other, {
+      id: "s2",
+      name: "Switched",
+      isActive: false,
+      bridgeDelivery: "workshop",
+      bridgeDeliverySwitch: { to: "workshop", at: "2026-01-01T00:00:00.000Z", by: "admin", bridgeStartedAt: null, workshopId: "999" },
+    });
+    dbState.servers = [local, workshop];
+    fs.writeFileSync(files.iniPath, `Mods=${MOD}\r\nWorkshopItems=999\r\n`);
+    const status = await getDeliveryStatus(local, deps());
+    expect(status).toMatchObject({ method: "workshop", effectiveWorkshopId: "999", release: { status: "not-published" } });
+    expect(status.disk.iniEntries).toEqual({ mods: true, workshopItems: true });
   });
 });
 

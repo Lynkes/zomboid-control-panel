@@ -113,7 +113,7 @@ vi.mock("../utils/fileWriteQueue.js", async (importOriginal) => {
   };
 });
 
-const { applyDeliverySwitch, getDeliveryStatus, reconcileBridge, withDeliveryLock } = await import(
+const { applyDeliverySwitch, getDeliveryStatus, planDeliverySwitch, reconcileBridge, withDeliveryLock } = await import(
   "../services/bridgeDelivery.js"
 );
 const { _resetWorkshopReleaseCacheForTests } = await import("../services/bridgeWorkshopRelease.js");
@@ -335,6 +335,46 @@ describe("switch to Workshop", () => {
     const error = await applyDeliverySwitch(dbState.servers[0], "workshop", { expectedFrom: "local", deps }).catch((e) => e);
     expect(error.params).toEqual({ fileName: "second.ini" });
   });
+
+  // I1 as the GAME sees it (42.20): `WorkshopItems =` is an option it
+  // doesn't have, and it drops a `\`-prefixed item id. A panel that read
+  // them loosely would put the mod in Mods= only and report success.
+  it("writes the entries in a form the game reads, and previews exactly those steps", async () => {
+    fs.writeFileSync(one.iniPath, "Mods=OtherMod\r\nWorkshopItems =111\r\n");
+    fs.writeFileSync(two.iniPath, `Mods=OtherMod\r\nWorkshopItems=111;\\${WS_ID}\r\n`);
+    const plan = await planDeliverySwitch(dbState.servers[0], "workshop", deps);
+    expect(plan.steps.filter((step) => step.kind === "iniAdd").map((step) => `${step.key}@${path.basename(step.file)}`)).toEqual([
+      "Mods@servertest.ini",
+      "WorkshopItems@servertest.ini",
+      "Mods@second.ini",
+      "WorkshopItems@second.ini",
+    ]);
+
+    const result = await applyDeliverySwitch(dbState.servers[0], "workshop", { expectedFrom: "local", deps });
+
+    expect(readText(one.iniPath)).toBe(`Mods=OtherMod;${MOD}\nWorkshopItems=111;${WS_ID}\n`);
+    expect(readText(two.iniPath)).toBe(`Mods=OtherMod;${MOD}\nWorkshopItems=111;\\${WS_ID};${WS_ID}\n`);
+    expect(result.status.disk.iniEntries).toEqual({ mods: true, workshopItems: true });
+  });
+
+  it("fails and restores everything when the game still wouldn't read the entries after the write", async () => {
+    // The game's Mods= value stops at the second "=": the appended entry
+    // lands after it, where only a loose reading would find it.
+    fs.writeFileSync(two.iniPath, "Mods=A=B\r\nWorkshopItems=111\r\n");
+    const files = snapshotFiles(trackedPaths());
+    const db = JSON.stringify(dbState.servers);
+
+    const error = await applyDeliverySwitch(dbState.servers[0], "workshop", { expectedFrom: "local", deps }).catch((e) => e);
+
+    expect(error).toMatchObject({
+      code: "PANELBRIDGE_DELIVERY_INI_WRITE_FAILED",
+      params: { fileName: "second.ini" },
+      restored: true,
+    });
+    expect(trace.order).not.toContain("archive");
+    expect(snapshotFiles(trackedPaths())).toEqual(files);
+    expect(JSON.stringify(dbState.servers)).toBe(db);
+  });
 });
 
 describe("switch to Local", () => {
@@ -389,6 +429,30 @@ describe("switch to Local", () => {
     const error = await applyDeliverySwitch(dbState.servers[0], "local", { expectedFrom: "workshop", deps }).catch((e) => e);
     expect(error).toMatchObject({ code: "PANELBRIDGE_DELIVERY_INSTALL_FAILED", status: 500, restored: true });
     expect(trace.order).toEqual(["install"]);
+    expect(snapshotFiles(trackedPaths())).toEqual(files);
+    expect(JSON.stringify(dbState.servers)).toBe(db);
+  });
+
+  // Without the old bytes a later failure couldn't be undone, so an
+  // unreadable existing file stops the switch before the install.
+  it("stops before touching anything when the PanelBridge.lua already there can't be read", async () => {
+    const target = writeLoose(one.installDir, "media/lua/server/PanelBridge.lua", 'local VERSION = "0.0.1"\n');
+    const files = snapshotFiles(trackedPaths());
+    const db = JSON.stringify(dbState.servers);
+    const readFileSync = fs.readFileSync;
+    const spy = vi.spyOn(fs, "readFileSync").mockImplementation((file, ...rest) => {
+      // Only the apply's own byte copy (no encoding) of the file it replaces.
+      if (rest.length === 0 && path.resolve(String(file)) === path.resolve(target)) throw new Error("EACCES");
+      return readFileSync.call(fs, file, ...rest);
+    });
+    let error;
+    try {
+      error = await applyDeliverySwitch(dbState.servers[0], "local", { expectedFrom: "workshop", deps }).catch((e) => e);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(error).toMatchObject({ code: "PANELBRIDGE_DELIVERY_INSTALL_FAILED", status: 500, restored: true });
+    expect(trace.order).toEqual([]);
     expect(snapshotFiles(trackedPaths())).toEqual(files);
     expect(JSON.stringify(dbState.servers)).toBe(db);
   });

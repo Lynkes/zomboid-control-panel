@@ -8,7 +8,9 @@ import {
   getEffectiveChecksum,
   hasBridgeEntries,
   insertIniListEntry,
+  listsIniEntry,
   parseIniList,
+  readGameIniList,
   removeBridgeEntries,
   setChecksumFalse,
 } from "../utils/bridgeIni.js";
@@ -35,28 +37,68 @@ describe("parseIniList / hasBridgeEntries", () => {
     expect(hasBridgeEntries(content, MOD, ID)).toEqual({ mods: true, workshopItems: true });
   });
 
-  it("drops empty entries and trims whitespace, and tolerates spaces around =", () => {
+  it("drops empty entries and trims whitespace; the writers' reading finds a `Key =` line too", () => {
     expect(parseIniList("Mods = a ; ;b;;\n", "Mods").entries).toEqual(["a", "b"]);
   });
 
   it("reports a missing key as not present", () => {
     expect(parseIniList("PVP=true\n", "WorkshopItems")).toEqual({ present: false, entries: [] });
+    expect(readGameIniList("PVP=true\n", "WorkshopItems")).toEqual({ present: false, entries: [] });
     expect(hasBridgeEntries("PVP=true\n", MOD, ID)).toEqual({ mods: false, workshopItems: false });
   });
 
   it("never reads a key name that only appears inside another field's text", () => {
     const content = `PublicDescription=Mods=${MOD}\nMods=Other\n`;
     expect(parseIniList(content, "Mods").entries).toEqual(["Other"]);
+    expect(readGameIniList(content, "Mods").entries).toEqual(["Other"]);
   });
 
-  it("reads the first line by default and, with { last: true }, the line the game applies", () => {
-    // The game parses every line in order, so the last duplicate wins.
+  it("parseIniList reads the first line (the one the writers edit); the game applies the last", () => {
+    // ServerOptions parses every line in order, so the last duplicate wins.
     const content = `Mods=${MOD}\nWorkshopItems=111;${ID}\nWorkshopItems=111\n`;
     expect(parseIniList(content, "WorkshopItems").entries).toEqual(["111", ID]);
-    expect(parseIniList(content, "WorkshopItems", { last: true }).entries).toEqual(["111"]);
-    expect(hasBridgeEntries(content, MOD, ID)).toEqual({ mods: true, workshopItems: true });
-    expect(hasBridgeEntries(content, MOD, ID, { last: true })).toEqual({ mods: true, workshopItems: false });
-    expect(parseIniList("PVP=true\n", "Mods", { last: true })).toEqual({ present: false, entries: [] });
+    expect(readGameIniList(content, "WorkshopItems").entries).toEqual(["111"]);
+    expect(hasBridgeEntries(content, MOD, ID)).toEqual({ mods: true, workshopItems: false });
+  });
+});
+
+// 42.20, javap: ConfigFile.read trims each line (Java trim), skips blank,
+// `#` and "="-less lines, then split("=") with no per-part trim, so the
+// option name must be exactly "Mods"/"WorkshopItems" and the value ends at
+// the next "=". GameServer.main then strips every "\" from Mods= only;
+// WorkshopItems= tokens are trimmed and must pass SteamUtils.isValidSteamID
+// (new BigInteger(token)) as they stand.
+describe("hasBridgeEntries / readGameIniList: as the game reads the file", () => {
+  it.each([
+    ["plain lines", `Mods=${MOD}\nWorkshopItems=${ID}\n`, true, true],
+    ["a backslash-prefixed mod id (Mods= loses every \\)", `Mods=\\${MOD}\nWorkshopItems=${ID}\n`, true, true],
+    ["a backslash-prefixed item id (not a Steam id)", `Mods=${MOD}\nWorkshopItems=111;\\${ID}\n`, true, false],
+    ["whitespace before = on Mods (option \"Mods \")", `Mods =${MOD}\nWorkshopItems=${ID}\n`, false, true],
+    ["whitespace before = on WorkshopItems", `Mods=${MOD}\nWorkshopItems\t=111;${ID}\n`, true, false],
+    ["indented lines (the whole line is trimmed)", `  Mods=${MOD}\n\u000bWorkshopItems=${ID}\n`, true, true],
+    ["spaces around each token", `Mods= A ; ${MOD} \nWorkshopItems= ${ID} ;\n`, true, true],
+    ["an item id with a leading zero (the same number)", `Mods=${MOD}\nWorkshopItems=0${ID}\n`, true, true],
+    ["an item id with trailing junk", `Mods=${MOD}\nWorkshopItems=${ID}x\n`, true, false],
+    ["a commented-out line", `#Mods=${MOD}\nWorkshopItems=${ID}\n`, false, true],
+    ["a second = cutting the value short", `Mods=A=B;${MOD}\nWorkshopItems=${ID}\n`, false, true],
+    ["a duplicated key (the last line wins)", `Mods=${MOD}\nMods=A\nWorkshopItems=${ID}\n`, false, true],
+    ["a lone CR ending a line", `Mods=${MOD}\rWorkshopItems=${ID}\n`, true, true],
+  ])("%s", (_label, content, mods, workshopItems) => {
+    expect(hasBridgeEntries(content, MOD, ID)).toEqual({ mods, workshopItems });
+  });
+
+  it("keeps only valid Steam ids in WorkshopItems, in plain decimal form", () => {
+    const content = "WorkshopItems=1;18446744073709551616;-5;+7;\\8;0042;x9;18446744073709551615\n";
+    expect(readGameIniList(content, "WorkshopItems").entries).toEqual(["1", "7", "42", "18446744073709551615"]);
+  });
+
+  it("ignores a `Key =` line entirely rather than reading its value", () => {
+    expect(readGameIniList("Mods = a;b\n", "Mods")).toEqual({ present: false, entries: [] });
+    expect(readGameIniList("Mods = a;b\nMods=c\n", "Mods").entries).toEqual(["c"]);
+  });
+
+  it("does not count a bridge id that is missing or unusable", () => {
+    expect(hasBridgeEntries(`Mods=${MOD}\nWorkshopItems=${ID}\n`, MOD, null)).toEqual({ mods: true, workshopItems: false });
   });
 });
 
@@ -76,13 +118,33 @@ describe("addBridgeEntries", () => {
     expect(parseIniList(next, "WorkshopItems").entries).toEqual([ID]);
   });
 
-  it("never duplicates an entry already present (including a backslash-prefixed one)", () => {
-    const content = `Mods=\\${MOD}\nWorkshopItems=${ID}\n`;
+  it("never duplicates an entry the game already reads (a backslash-prefixed mod id, a zero-padded item id)", () => {
+    const content = `Mods=\\${MOD}\nWorkshopItems=0${ID}\n`;
     expect(addBridgeEntries(content, MOD, ID)).toBe(content);
   });
 
   it("does not add a WorkshopItems entry without an id", () => {
     expect(addBridgeEntries("Mods=\nWorkshopItems=\n", MOD, null)).toBe(`Mods=${MOD}\nWorkshopItems=\n`);
+  });
+
+  // A `Key =` line is an option the game doesn't have: appending to it
+  // as-is would "succeed" and change nothing the game reads.
+  it("rewrites a `Key =` line as `Key=` so the game reads it", () => {
+    const next = addBridgeEntries(`Mods=OtherMod\nWorkshopItems =111\n`, MOD, ID);
+    expect(next).toBe(`Mods=OtherMod;${MOD}\nWorkshopItems=111;${ID}\n`);
+    expect(hasBridgeEntries(next, MOD, ID)).toEqual({ mods: true, workshopItems: true });
+  });
+
+  it("rewrites the key even when that line already lists the entry", () => {
+    const next = addBridgeEntries(`\tMods \t= A;${MOD}\nWorkshopItems=${ID}\n`, MOD, ID);
+    expect(next).toBe(`\tMods=A;${MOD}\nWorkshopItems=${ID}\n`);
+    expect(hasBridgeEntries(next, MOD, ID)).toEqual({ mods: true, workshopItems: true });
+  });
+
+  it("adds the bare item id next to a backslash-prefixed one the game drops", () => {
+    const next = addBridgeEntries(`Mods=OtherMod\nWorkshopItems=111;\\${ID}\n`, MOD, ID);
+    expect(next).toBe(`Mods=OtherMod;${MOD}\nWorkshopItems=111;\\${ID};${ID}\n`);
+    expect(hasBridgeEntries(next, MOD, ID)).toEqual({ mods: true, workshopItems: true });
   });
 });
 
@@ -105,6 +167,24 @@ describe("removeBridgeEntries", () => {
   it("leaves a file without the entries byte-for-byte unchanged", () => {
     const content = "Mods = A ; B\nWorkshopItems=1\n";
     expect(removeBridgeEntries(content, MOD, [ID])).toBe(content);
+  });
+
+  // Over-removal is safe: a `\`-prefixed or zero-padded copy of the item id
+  // goes too. A `Key =` line keeps its spacing, so a line the game ignored
+  // doesn't start counting because an entry left it.
+  it("removes every spelling of the item id, and keeps a `Key =` line's spacing", () => {
+    const content = `Mods =A;${MOD}\nWorkshopItems=\\${ID};0${ID};1\n`;
+    expect(removeBridgeEntries(content, MOD, [ID])).toBe("Mods =A\nWorkshopItems=1\n");
+  });
+});
+
+describe("listsIniEntry", () => {
+  it("is true exactly when the removal would take the entry out of some line", () => {
+    expect(listsIniEntry(`Mods=A\nMods=${MOD}\n`, "Mods", MOD)).toBe(true);
+    expect(listsIniEntry(`WorkshopItems=\\${ID}\n`, "WorkshopItems", ID)).toBe(true);
+    expect(listsIniEntry(`Mods = ${MOD}\n`, "Mods", MOD)).toBe(true);
+    expect(listsIniEntry(`Mods=A;${MOD}Extra\n`, "Mods", MOD)).toBe(false);
+    expect(listsIniEntry("PVP=true\n", "WorkshopItems", ID)).toBe(false);
   });
 });
 
@@ -171,6 +251,10 @@ describe("insertIniListEntry", () => {
 
   it("restores a missing line", () => {
     expect(parseIniList(insertIniListEntry("PVP=true", "WorkshopItems", ID, 0), "WorkshopItems").entries).toEqual([ID]);
+  });
+
+  it("writes the key back as `Key=`, a line the game reads", () => {
+    expect(insertIniListEntry("WorkshopItems = 1;2\n", "WorkshopItems", ID, 1)).toBe(`WorkshopItems=1;${ID};2\n`);
   });
 });
 

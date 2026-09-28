@@ -169,6 +169,32 @@ describe("Steam Workshop", () => {
     expect(fs.statSync(files.iniPath).mtimeMs).toBe(before);
   });
 
+  // The two shapes the game reads differently from a loose parser: a
+  // `WorkshopItems =` line is an option it doesn't have, and a `\`-prefixed
+  // item id isn't a Steam id to it. Both must heal at the next launch, or
+  // every join is refused with ModRequired.
+  it("rewrites a `Key =` line the game ignores and adds the bare id next to a `\\` one", async () => {
+    fs.writeFileSync(files.iniPath, `Mods =OtherMod;${MOD}\r\nWorkshopItems=111;\\${WS_ID}\r\n`);
+    const server = workshopServer();
+    dbState.servers = [server];
+    const result = await reconcileBridge(server, { reason: "launch" });
+    expect(result.warnings).toEqual([]);
+    expect(result.actions.map((action) => action.kind)).toEqual(["iniEntriesAdded"]);
+    expect(readText(files.iniPath)).toBe(`Mods=OtherMod;${MOD}\nWorkshopItems=111;\\${WS_ID};${WS_ID}\n`);
+  });
+
+  it("warns when the entries are listed in a form the game doesn't read and there is nothing to add", async () => {
+    // "Mods=A=B;…": the game's value stops at the second "=", so it reads
+    // Mods=[A]; the writers see the bridge already listed.
+    fs.writeFileSync(files.iniPath, `Mods=A=B;${MOD}\r\nWorkshopItems=${WS_ID}\r\n`);
+    const before = fs.readFileSync(files.iniPath);
+    const server = workshopServer();
+    dbState.servers = [server];
+    const result = await reconcileBridge(server, { reason: "launch" });
+    expect(result.warnings).toEqual(["iniWriteFailed"]);
+    expect(fs.readFileSync(files.iniPath)).toEqual(before);
+  });
+
   it("migrates the recorded item id to this release's id", async () => {
     fs.writeFileSync(files.iniPath, `Mods=${MOD}\r\nWorkshopItems=111;999\r\n`);
     const server = workshopServer({}, { workshopId: "999" });

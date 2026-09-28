@@ -508,6 +508,7 @@
   "PANELBRIDGE_DELIVERY_INSTALL_FAILED": "Pa t kapab kopye PanelBridge.lua nan dosye jwèt la. Anyen pa chanje.",
   "PANELBRIDGE_DELIVERY_WORKSHOP_ACTIVE": "{{serverName}} resevwa PanelBridge nan Steam Workshop, kidonk panèl la pa kopye PanelBridge.lua nan dosye jwèt li. Anvan sa, remete l sou enstalasyon pa panèl la nan Paramèt › PanelBridge.",
   "SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE": "Sèvè sa a resevwa PanelBridge nan Steam Workshop, e sa bezwen Steam. Mete PanelBridge sou enstalasyon pa panèl la nan Paramèt › PanelBridge anvan ou aktive Lanse san Steam.",
+  "SERVER_NOSTEAM_SIBLING_CONFLICTS_WITH_WORKSHOP_BRIDGE": "Sèvè sa a resevwa PanelBridge nan Steam Workshop, e sa bezwen Steam; tout sèvè ki pataje yon dosye jwèt resevwa l menm jan an. Sèvè sa yo nan dosye sa a lanse san Steam: {{names}}. Anvan sa, mete PanelBridge sèvè sa a sou enstalasyon pa panèl la nan Paramèt › PanelBridge, oswa fè yo lanse ak Steam.",
   "PANELBRIDGE_INSTALL_FAILED": "Pa t kapab kopye PanelBridge.lua nan dosye jwèt la. Tcheke jounal panèl la pou wè rezon an.",
   "PANELBRIDGE_INSTALL_STILL_RUNNING": "Enstalasyon PanelBridge la ap pran plis tan pase dabitid, epi l ap kontinye an background. Tcheke ankò nan yon ti moman."
 }

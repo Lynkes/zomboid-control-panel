@@ -508,6 +508,7 @@
   "PANELBRIDGE_DELIVERY_INSTALL_FAILED": "تعذّر نسخ PanelBridge.lua إلى مجلد اللعبة. لم يتغيّر شيء.",
   "PANELBRIDGE_DELIVERY_WORKSHOP_ACTIVE": "يحصل {{serverName}} على PanelBridge من ورشة Steam، لذا لا تنسخ اللوحة PanelBridge.lua إلى مجلد لعبته. أعِده أولًا إلى التثبيت عبر اللوحة من الإعدادات › PanelBridge.",
   "SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE": "يحصل هذا الخادم على PanelBridge من ورشة Steam، وهذا يتطلب Steam. حوّل PanelBridge إلى التثبيت عبر اللوحة من الإعدادات › PanelBridge قبل تفعيل «التشغيل بدون Steam».",
+  "SERVER_NOSTEAM_SIBLING_CONFLICTS_WITH_WORKSHOP_BRIDGE": "يحصل هذا الخادم على PanelBridge من ورشة Steam، وهذا يتطلب Steam، وكل الخوادم التي تتشارك مجلد لعبة تحصل عليه بالطريقة نفسها. الخوادم التالية في ذلك المجلد تُشغَّل بدون Steam: {{names}}. حوّل أولًا PanelBridge لهذا الخادم إلى التثبيت عبر اللوحة من الإعدادات › PanelBridge، أو اجعلها تُشغَّل عبر Steam.",
   "PANELBRIDGE_INSTALL_FAILED": "تعذّر نسخ PanelBridge.lua إلى مجلد اللعبة. راجع سجل اللوحة لمعرفة السبب.",
   "PANELBRIDGE_INSTALL_STILL_RUNNING": "يستغرق تثبيت PanelBridge وقتًا أطول من المعتاد ويستمر في الخلفية. تحقّق مجددًا بعد قليل."
 }
