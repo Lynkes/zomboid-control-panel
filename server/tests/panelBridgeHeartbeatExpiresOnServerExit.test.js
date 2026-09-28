@@ -195,7 +195,7 @@ describe("PanelBridge.markServerRunning -- a running server is not described as 
       // ageSeconds: the same age as a number, for the client to word in
       // its own units -- "20m" is English and reads as metres in pt-BR.
       params: { age: "20m", ageSeconds: 20 * 60 },
-      text: "The game server started 20m ago, but PanelBridge has not reported yet. It reports once the world has loaded; if it stays silent, check that PanelBridge is in the server's active mod list.",
+      text: "The game server started 20m ago, but PanelBridge has not reported yet. It reports once the world has loaded; if it stays silent, see “How PanelBridge is installed” in Settings › PanelBridge.",
     });
     expect(diagnostics.issues.map((issue) => issue.key)).not.toContain("serverExited");
     // Still not a live connection: nothing the mod wrote is newer than the exit.

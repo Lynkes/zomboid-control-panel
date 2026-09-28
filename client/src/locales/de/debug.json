@@ -1157,7 +1157,7 @@
             "warn": {
               "label": "Mod nicht verbunden",
               "message": "PanelBridge läuft, aber die Mod im Spiel hat status.json noch nicht geschrieben. Spieler, Fahrzeuge und Safehouses erscheinen dann nicht.",
-              "hint": "Starte den PZ-Server und stelle sicher, dass die PanelBridge-Mod in der aktiven Modliste enthalten ist."
+              "hint": "Starte den PZ-Server. Bleibt PanelBridge stumm, nachdem die Welt geladen ist, sieh unter Einstellungen › PanelBridge bei „Wie PanelBridge installiert wird“ nach."
             }
           },
           "heartbeat": {

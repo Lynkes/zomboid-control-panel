@@ -1157,7 +1157,7 @@
             "warn": {
               "label": "Mod pa konekte",
               "message": "PanelBridge ap fonksyone men mod nan jwèt la poko ekri status.json. Jwè, veyikil ak kay sekirize pa ap parèt.",
-              "hint": "Demare sèvè PZ a epi konfime mod PanelBridge nan lis mod aktif yo."
+              "hint": "Demare sèvè PZ a. Si PanelBridge rete an silans apre mond lan fin chaje, gade “Kijan PanelBridge enstale” nan Paramèt › PanelBridge."
             }
           },
           "heartbeat": {

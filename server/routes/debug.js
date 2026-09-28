@@ -5878,7 +5878,7 @@ router.get("/worldmap", requirePermission("diagnostics.manage"), async (req, res
           "PanelBridge is running but the in-game mod has not written status.json yet. Players, vehicles and safehouses will not appear.",
           {
             category: "worldmap",
-            hint: "Start the PZ server and confirm the PanelBridge mod is in the active mod list.",
+            hint: "Start the PZ server. If PanelBridge stays silent once the world has loaded, see “How PanelBridge is installed” in Settings › PanelBridge.",
           },
         ),
       );

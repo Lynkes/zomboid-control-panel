@@ -1162,7 +1162,7 @@
             "warn": {
               "label": "Mod não conectado",
               "message": "O PanelBridge está em execução, mas o mod no jogo ainda não gravou status.json. Jogadores, veículos e bases não vão aparecer.",
-              "hint": "Inicie o servidor do PZ e confirme que o mod PanelBridge está na lista de mods ativos."
+              "hint": "Inicie o servidor do PZ. Se o PanelBridge continuar em silêncio depois que o mundo carregar, veja “Como o PanelBridge é instalado” em Configurações › PanelBridge."
             }
           },
           "heartbeat": {

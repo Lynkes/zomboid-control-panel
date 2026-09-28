@@ -452,7 +452,7 @@
       "statusFileMissing": "Falta el archivo de estado. Inicia el servidor del juego con PanelBridge habilitado.",
       "statusFileStale": "El archivo de estado está desactualizado ({{age}}) — ¿está en ejecución el servidor de PZ?",
       "serverExited": "El servidor de juego se ha detenido. PanelBridge se reconectará cuando el servidor vuelva a iniciarse.",
-      "bridgeSilentSinceStart": "El servidor de juego se inició hace {{age}}, pero PanelBridge todavía no ha informado. Informa en cuanto termina de cargar el mundo; si sigue sin responder, comprueba que PanelBridge esté en la lista de mods activos del servidor.",
+      "bridgeSilentSinceStart": "El servidor de juego se inició hace {{age}}, pero PanelBridge todavía no ha informado. Informa en cuanto termina de cargar el mundo; si sigue sin responder, consulta «Cómo se instala PanelBridge» en Ajustes › PanelBridge.",
       "statusFileMetadataFailed": "No se pudieron leer los metadatos del archivo de estado: {{error}}",
       "healthy": "La conexión del archivo del bridge parece saludable."
     },

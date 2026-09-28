@@ -609,7 +609,7 @@ class PanelBridge extends EventEmitter {
           const age = formatAge(silentMs);
           pushIssue(
             'bridgeSilentSinceStart',
-            `The game server started ${age} ago, but PanelBridge has not reported yet. It reports once the world has loaded; if it stays silent, check that PanelBridge is in the server's active mod list.`,
+            `The game server started ${age} ago, but PanelBridge has not reported yet. It reports once the world has loaded; if it stays silent, see “How PanelBridge is installed” in Settings › PanelBridge.`,
             { age, ...ageSecondsParam(silentMs) },
           );
         } else if (exitedServerWrite) {

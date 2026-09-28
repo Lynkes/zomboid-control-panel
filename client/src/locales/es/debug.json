@@ -1162,7 +1162,7 @@
             "warn": {
               "label": "Mod no conectado",
               "message": "PanelBridge se está ejecutando, pero el mod del juego aún no ha escrito status.json. No aparecerán jugadores, vehículos ni refugios.",
-              "hint": "Iniciar el servidor de PZ y confirmar que el mod PanelBridge esté en la lista de mods activos."
+              "hint": "Iniciar el servidor de PZ. Si PanelBridge sigue sin responder cuando el mundo ya ha cargado, consultar «Cómo se instala PanelBridge» en Ajustes › PanelBridge."
             }
           },
           "heartbeat": {

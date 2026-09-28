@@ -1157,7 +1157,7 @@
             "warn": {
               "label": "模组未连接",
               "message": "PanelBridge 正在运行，但游戏内模组尚未写入 status.json。玩家、载具和安全屋将不会显示。",
-              "hint": "启动 PZ 服务器，并确认 PanelBridge 模组在活动模组列表中。"
+              "hint": "启动 PZ 服务器。如果世界加载完成后 PanelBridge 仍没有报告，请查看「设置 › PanelBridge」中的「PanelBridge 安装方式」。"
             }
           },
           "heartbeat": {
