@@ -237,7 +237,12 @@
     "showAllOptions": "Montre tout opsyon",
     "noMatches": "Pa gen paramèt ki koresponn ak “{{query}}”{{suffix}}",
     "noMatchesInModified": " nan opsyon modifye",
-    "clearSearch": "Efase rechèch"
+    "clearSearch": "Efase rechèch",
+    "enumBridgeOutdatedTitle": "Sèvè sa a ap itilize yon ansyen vèsyon PanelBridge",
+    "enumBridgeOutdatedDesc": "Vèsyon sa a sove dènye chwa yon paramèt ki gen lis tankou chwa ki anvan l la, kidonk panèl la p ap voye yon dènye chwa jiskaske yo mete PanelBridge ajou epi sèvè a redemare. Paramèt › PanelBridge montre sa sèvè sa a bezwen. Si chwa yon paramèt pa ka parèt nan yon lis, tape nimewo chwa a (1 se premye a).",
+    "enumLastChoiceHeldBack": "Ou pa ka chwazi dènye chwa a ({{max}}) isit la jiskaske yo mete PanelBridge ajou.",
+    "enumLastChoiceItem": "Chwa {{value}}",
+    "enumTooManyChoices": "Twòp chwa pou mete nan yon lis. Tape nimewo chwa a (1 se premye a)."
   },
   "stickySaveBar": {
     "unsavedChange_one": "{{count}} chanjman ki pa sove",
@@ -375,6 +380,8 @@
     "copyFailed": "Pa t kapab kopye kontni nan clipboard.",
     "optionUpdatedTitle": "Opsyon Mete Ajou",
     "optionUpdatedDesc": "{{option}} defini avèk siksè",
+    "enumLastChoiceRefusedTitle": "Mete PanelBridge ajou anvan",
+    "enumLastChoiceRefusedDesc": "{{option}} pa t chanje. Ansyen vèsyon PanelBridge sèvè sa a ap itilize a ta sove dènye chwa a ({{max}}) tankou chwa ki anvan l la.",
     "bridgeUnverifiedDesc": "{{action}} te voye, men mod la pa t kapab konfime li te fè efè.",
     "bridgeOldBridgeDesc": "{{action}} ka te fonksyone, men vèsyon mod PanelBridge sa a pa rapòte si li te fè sa. Mete mod la ajou pou konfime rezilta yo.",
     "appliedNotSavedTitle": "Aplike, men pa sove",

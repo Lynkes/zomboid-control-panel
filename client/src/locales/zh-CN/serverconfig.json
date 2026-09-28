@@ -237,7 +237,12 @@
     "showAllOptions": "显示所有选项",
     "noMatches": "没有设置匹配“{{query}}”{{suffix}}",
     "noMatchesInModified": "（在已修改的选项中）",
-    "clearSearch": "清除搜索"
+    "clearSearch": "清除搜索",
+    "enumBridgeOutdatedTitle": "此服务器运行的是旧版 PanelBridge",
+    "enumBridgeOutdatedDesc": "它会把列表设置的最后一个选项保存为前一个选项，因此在 PanelBridge 更新且服务器重启之前，面板不会发送最后一个选项。「设置 › PanelBridge」会显示此服务器需要做什么。无法列出选项的设置需输入选项编号（1 表示第一个）。",
+    "enumLastChoiceHeldBack": "在 PanelBridge 更新之前，无法在此选择最后一个选项（{{max}}）。",
+    "enumLastChoiceItem": "选项 {{value}}",
+    "enumTooManyChoices": "选项过多，无法列出。输入选项编号（1 表示第一个）。"
   },
   "stickySaveBar": {
     "unsavedChange_one": "{{count}} 项未保存的更改",
@@ -370,6 +375,8 @@
     "copyFailed": "复制内容到剪贴板失败。",
     "optionUpdatedTitle": "选项已更新",
     "optionUpdatedDesc": "{{option}} 设置成功",
+    "enumLastChoiceRefusedTitle": "先更新 PanelBridge",
+    "enumLastChoiceRefusedDesc": "{{option}} 未更改。此服务器运行的旧版 PanelBridge 会把最后一个选项（{{max}}）保存为前一个选项。",
     "bridgeUnverifiedDesc": "{{action}} 已发送，但模组无法确认是否生效。",
     "bridgeOldBridgeDesc": "{{action}} 可能已生效，但此版本的 PanelBridge 模组不会回报结果。请更新模组以确认结果。",
     "appliedNotSavedTitle": "已应用，但未保存",

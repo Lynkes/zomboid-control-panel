@@ -5223,20 +5223,12 @@ handlers.getAllSandboxOptions = function(args)
         info.shortName = safeStr(function() return opt:getShortName() end)
         -- Get the table/page name (mod or category grouping)
         info.tableName = safeStr(function() return opt:getTableName() end)
-        -- Get the tooltip/translation key
+        -- Get the tooltip text (not a translation key).
+        -- B42 getTooltip already returns translated text, including defaults.
+        -- Translating it again treats literal percentages as format strings.
         info.tooltip = safeStr(function() return opt:getTooltip() end)
-        -- Try to resolve tooltip via PZ translation (getText returns the translated string)
-        if info.tooltip then
-            pcall(function()
-                local translated = getText(info.tooltip)
-                if translated and translated ~= info.tooltip and translated ~= "" then
-                    info.tooltipText = translated
-                end
-            end)
-            -- If getText didn't work, check if tooltip already contains plain text (not a key)
-            if not info.tooltipText and info.tooltip:find(" ") then
-                info.tooltipText = info.tooltip
-            end
+        if info.tooltip and info.tooltip ~= "" then
+            info.tooltipText = info.tooltip
         end
         -- Get the translated name if available
         info.translatedName = safeStr(function() return opt:getTranslatedName() end)
@@ -5274,12 +5266,14 @@ handlers.getAllSandboxOptions = function(args)
                     local numVals = tonumber(PanelBridge.tryGet(opt, "getNumValues"))
                     if numVals and numVals > 0 then
                         info.enumValues = {}
+                        -- Mod Settings compares against this cap to spot an old bridge
+                        -- (BRIDGE_ENUM_LABEL_CAP in ServerConfig.tsx); keep them equal.
                         local cap = math.min(numVals, 50)
-                        for i = 0, cap - 1 do
+                        -- B42 translation indices and selected values are 1..N.
+                        -- Keep missing labels in place so later choices never shift.
+                        for i = 1, cap do
                             local translated = PanelBridge.tryGet(opt, "getValueTranslationByIndexOrNull", i)
-                            if translated ~= nil then
-                                table.insert(info.enumValues, tostring(translated))
-                            end
+                            table.insert(info.enumValues, translated ~= nil and tostring(translated) or tostring(i))
                         end
                     end
                 end)
@@ -5300,11 +5294,14 @@ handlers.getAllSandboxOptions = function(args)
                 info.type = className
             end
         end)
-        -- Get min/max for numeric types
-        local minValue = PanelBridge.tryGet(opt, "getMin")
-        if type(minValue) == "number" then info.min = minValue end
-        local maxValue = PanelBridge.tryGet(opt, "getMax")
-        if type(maxValue) == "number" then info.max = maxValue end
+        -- B42 booleans/strings do not implement numeric bounds. Even a caught
+        -- missing Java method emits a trace, so do not probe those types.
+        if info.type == "number" or info.type == "enum" then
+            local minValue = PanelBridge.tryGet(opt, "getMin")
+            if type(minValue) == "number" then info.min = minValue end
+            local maxValue = PanelBridge.tryGet(opt, "getMax")
+            if type(maxValue) == "number" then info.max = maxValue end
+        end
         -- Get default value
         local defaultValue = PanelBridge.tryGet(opt, "getDefaultValue")
         if defaultValue ~= nil then
@@ -5531,10 +5528,15 @@ handlers.setSandboxOption = function(args)
         local intVal = tonumber(newValue)
         if not intVal then return false, nil, "Invalid enum value" end
         intVal = math.floor(intVal)
-        -- Bounds-check against getNumValues if available
+        -- Enum values are 1..N: EnumConfigOption(name, N, default) builds an
+        -- IntegerConfigOption with min 1 and max N, and getNumValues() returns
+        -- that max. Reject anything outside it. Clamping here once turned the
+        -- last choice N into N-1, which then read back as a confirmed write.
         local numVals = tonumber(PanelBridge.tryGet(targetOpt, "getNumValues"))
-        if numVals and intVal >= numVals then intVal = numVals - 1 end
-        if intVal < 0 then intVal = 0 end
+        if intVal < 1 or (numVals and intVal > numVals) then
+            local range = numVals and ("1.." .. tostring(math.floor(numVals))) or "enum values start at 1"
+            return false, nil, "Enum value " .. tostring(intVal) .. " is out of range (" .. range .. ")"
+        end
         appliedValue = intVal
         ok, err = pcall(function() targetOpt:setValue(intVal) end)
     elseif optType == "integer" then

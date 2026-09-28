@@ -237,7 +237,12 @@
     "showAllOptions": "Show all options",
     "noMatches": "No settings match “{{query}}”{{suffix}}",
     "noMatchesInModified": " in modified options",
-    "clearSearch": "Clear search"
+    "clearSearch": "Clear search",
+    "enumBridgeOutdatedTitle": "This server runs an older PanelBridge",
+    "enumBridgeOutdatedDesc": "It saves the last choice of a list setting as the one before it, so the panel won't send a last choice until PanelBridge is updated and the server restarts. Settings › PanelBridge shows what this server needs. Where a setting's choices can't be listed, type the choice's number (1 is the first).",
+    "enumLastChoiceHeldBack": "The last choice ({{max}}) can't be picked here until PanelBridge is updated.",
+    "enumLastChoiceItem": "Choice {{value}}",
+    "enumTooManyChoices": "Too many choices to list. Type the choice's number (1 is the first)."
   },
   "stickySaveBar": {
     "unsavedChange_one": "{{count}} unsaved change",
@@ -375,6 +380,8 @@
     "copyFailed": "Failed to copy content to clipboard.",
     "optionUpdatedTitle": "Option Updated",
     "optionUpdatedDesc": "{{option}} set successfully",
+    "enumLastChoiceRefusedTitle": "Update PanelBridge first",
+    "enumLastChoiceRefusedDesc": "{{option}} wasn't changed. The older PanelBridge this server runs would save the last choice ({{max}}) as the one before it.",
     "bridgeUnverifiedDesc": "{{action}} was sent, but the mod could not confirm it took effect.",
     "bridgeOldBridgeDesc": "{{action}} may have worked, but this PanelBridge mod version doesn't report back whether it did. Update the mod to confirm results.",
     "appliedNotSavedTitle": "Applied, but not saved",

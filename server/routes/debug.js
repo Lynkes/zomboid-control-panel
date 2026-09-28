@@ -13,6 +13,7 @@ import { getDiskFree } from "../utils/diskSpace.js";
 import { resolveLaunchMode } from "../services/serverManager.js";
 import { scanWorkshopFailures } from "../utils/workshopLogScan.js";
 import { resolveInstallDir } from "../services/panelBridgeInstaller.js";
+import { compareModVersions } from "../utils/embeddedLua.js";
 import { detectWorkshopItem, listLooseBridgeFiles } from "../services/bridgeDisk.js";
 import { describeDelivery } from "../services/bridgeDelivery.js";
 import { BRIDGE_MOD_ID } from "../services/bridgeDeliveryContract.js";
@@ -719,6 +720,15 @@ const SUPPORT_INI_KEYS = [
 const SANDBOX_DIAGNOSTIC_MAX_LOG_BYTES = 512 * 1024;
 const SANDBOX_DIAGNOSTIC_MAX_EXCERPTS = 8;
 const SANDBOX_DIAGNOSTIC_MAX_MODS = 500;
+// PanelBridge releases in this range read every enum's labels from index 0.
+// Build 42 enum labels run 1..N (EnumConfigOption is an IntegerConfigOption
+// with min 1), so getValueTranslationByIndexOrNull(0) threw
+// ArrayIndexOutOfBoundsException on every getAllSandboxOptions call, with or
+// without mods installed. 1.7.40 and older called a getValueName method that
+// doesn't exist, behind a field test that never passed, so they never read
+// labels at all. Later bridges read 1..N only.
+const SANDBOX_ENUM_INDEX_ZERO_FIRST_BRIDGE = "1.7.45";
+const SANDBOX_ENUM_INDEX_ZERO_LAST_BRIDGE = "1.7.70";
 
 async function readTailText(filePath, maxBytes = SANDBOX_DIAGNOSTIC_MAX_LOG_BYTES) {
   let handle = null;
@@ -886,6 +896,26 @@ async function buildSandboxOptionsDiagnostics(activeServer, knownSecrets = []) {
   const pzVersion = logText?.match(/\bversion=([^\s]+)\s+b[0-9a-f]+/i)?.[1] || null;
   const bridgeVersion = logText?.match(/\[PanelBridge\]\s+Initializing v([^\s]+)/i)?.[1] || null;
   const detected = exceptionCount > 0;
+  // A bridge that makes the index-0 read is the likely cause. null: the log
+  // has no PanelBridge line, so no telling.
+  const bridgeReadsIndexZero = bridgeVersion
+    ? compareModVersions(bridgeVersion, SANDBOX_ENUM_INDEX_ZERO_FIRST_BRIDGE) >= 0
+      && compareModVersions(bridgeVersion, SANDBOX_ENUM_INDEX_ZERO_LAST_BRIDGE) <= 0
+    : null;
+  // exceptionCount counts every ArrayIndexOutOfBoundsException line, so only
+  // blame the bridge outright when the log also names the enum label read.
+  const namesEnumLabelRead = lines.some((line) => /getValueTranslationByIndexOrNull/.test(line));
+  const blameBridge = bridgeReadsIndexZero === true && namesEnumLabelRead;
+  const indexZeroRange = `${SANDBOX_ENUM_INDEX_ZERO_FIRST_BRIDGE} to ${SANDBOX_ENUM_INDEX_ZERO_LAST_BRIDGE}`;
+  const modNote = "The PZ stack does not include the option name. Candidate mods are listed below from installed mod.info and sandbox-option metadata.";
+  let note = modNote;
+  if (blameBridge) {
+    note = `PanelBridge ${bridgeVersion} reads enum labels from index 0, but Build 42 enum labels run 1..N, so PanelBridge itself raises this exception on every getAllSandboxOptions call. It does not point to a mod, so no candidate mods are listed. Updating PanelBridge past ${SANDBOX_ENUM_INDEX_ZERO_LAST_BRIDGE} and restarting the game server stops it.`;
+  } else if (bridgeReadsIndexZero === true) {
+    note = `PanelBridge ${bridgeVersion} reads enum labels from index 0, which raises this exception, but no log line names getValueTranslationByIndexOrNull, so it may come from somewhere else. ${modNote}`;
+  } else if (bridgeReadsIndexZero === null) {
+    note = `The log does not show the PanelBridge version. PanelBridge releases ${indexZeroRange} raise this exception themselves on every getAllSandboxOptions call (they read enum labels from index 0), so rule that out first. ${modNote}`;
+  }
   return {
     available: true,
     serverName,
@@ -904,12 +934,15 @@ async function buildSandboxOptionsDiagnostics(activeServer, knownSecrets = []) {
           actionCount,
           excerpts,
           optionName: null,
-          note: "The PZ stack does not include the option name. Candidate mods are listed below from installed mod.info and sandbox-option metadata.",
+          likelyCause: blameBridge ? "panelbridge-enum-index-zero" : "unknown",
+          note,
         }
       : { exceptionCount: 0, actionCount },
-    candidateMods: installedMods.filter(
-      (mod) => mod.configuredIds.length > 0 || mod.sandboxOptionFiles.length > 0,
-    ),
+    candidateMods: detected && blameBridge
+      ? []
+      : installedMods.filter(
+          (mod) => mod.configuredIds.length > 0 || mod.sandboxOptionFiles.length > 0,
+        ),
     installedMods,
     logFiles: logText ? [logPath] : [],
   };
