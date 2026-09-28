@@ -42,7 +42,9 @@
     "runsSchedule": "Runs {{schedule}} · keep {{count}}",
     "noScheduled": "No scheduled backups",
     "toggleAria": "Toggle scheduled backups",
-    "lastScheduledAttemptFailed": "Last scheduled attempt failed ({{time}}): {{message}}"
+    "lastScheduledAttemptFailed": "Last scheduled attempt failed ({{time}}): {{message}}",
+    "deferredForRestart": "Due since {{time}} — waiting for the server restart to finish",
+    "lastScheduledSkippedForRestart": "Last scheduled backup skipped for a restart ({{time}})"
   },
   "schedule": {
     "every15Min": "every 15 minutes",
@@ -57,6 +59,8 @@
     "daily6am": "daily at 6 AM",
     "dailyNoon": "daily at noon",
     "daily6pm": "daily at 6 PM",
+    "customOption": "Custom (cron expression)",
+    "custom": "on a custom schedule ({{cron}})",
     "none": "No schedule"
   },
   "settingsPanel": {
@@ -67,8 +71,27 @@
     "frequencyHelp": "How often to automatically create backups",
     "maxBackupsLabel": "Maximum Backups to Keep",
     "maxBackupsHelp": "Oldest backups will be auto-deleted when limit is reached",
+    "customLabel": "Cron expression",
+    "customPlaceholder": "e.g., 30 3 * * *",
+    "customHint": "Format: minute hour day month weekday. \"{{example}}\" runs every day at 3:30. At most once every 5 minutes.",
+    "customValid": "Valid schedule",
+    "customInvalid": "Not a valid cron expression",
+    "nextRun": "Next backup: {{date}}",
+    "timezoneNotice": "Schedule times are in the panel's timezone, {{tz}} (change it under Scheduled Tasks).",
+    "scheduledBackupsOff": "Scheduled backups are off — this schedule takes effect once you turn them on.",
     "savesLabel": "Saves: {{path}}",
     "saveButton": "Save Settings"
+  },
+  "restartOverlap": {
+    "title": "Backups overlap a scheduled restart",
+    "task": "Some scheduled backups land inside the scheduled restart \"{{name}}\" (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "taskAll": "Every scheduled backup lands inside the scheduled restart \"{{name}}\" (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "taskUnnamed": "Some scheduled backups land inside a scheduled restart (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "taskUnnamedAll": "Every scheduled backup lands inside a scheduled restart (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "autoRestart": "Some scheduled backups land inside the periodic auto-restart (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "autoRestartAll": "Every scheduled backup lands inside the periodic auto-restart (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "consequence": "Those backups wait for the restart to finish, so they run up to about {{minutes}} min late. To keep them on time, schedule backups at least {{minutes}} min after a restart's scheduled time (for example, with restarts on the hour, back up at {{exampleTime}}).",
+    "consequenceNoExample": "Those backups wait for the restart to finish, so they run up to about {{minutes}} min late. To keep them on time, schedule backups at least {{minutes}} min after a restart's scheduled time."
   },
   "progress": {
     "startingFallback": "Starting backup...",

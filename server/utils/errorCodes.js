@@ -519,6 +519,11 @@ export const ErrorCode = Object.freeze({
    * policy chunks.js's shared CHUNKS_STALE_SERVER_SCAN already follows for
    * its own 2 delete routes). */
   BACKUP_ACTIVE_SERVER_CHANGED: "BACKUP_ACTIVE_SERVER_CHANGED",
+  /** server/routes/backup.js (sites: POST /settings, POST
+   * /validate-schedule) -- isCronTooFrequent() rejects a backup schedule
+   * firing more than once every 5 minutes. Its own code rather than
+   * SCHEDULER_CRON_TOO_FREQUENT, whose translated text says "Tasks". */
+  BACKUP_SCHEDULE_TOO_FREQUENT: "BACKUP_SCHEDULE_TOO_FREQUENT",
   /** server/routes/backup.js -- POST /api/backup/upload, active server is
    * remote. Distinct from the create/restore remote-refusal codes above --
    * own wording, own call site. */
@@ -1860,12 +1865,17 @@ export const ErrorCode = Object.freeze({
    * POST /validate-cron) -- node-cron's own cron.validate() rejects the
    * expression. Identical meaning at all three sites; the raw English text
    * differs at the validate-cron site (a shorter preview-only phrasing) but
-   * the client translates by this code, not the raw string, so that's fine. */
+   * the client translates by this code, not the raw string, so that's fine.
+   * Also server/routes/backup.js (POST /settings, POST /validate-schedule)
+   * for the backup schedule: the same check, and the translated text names
+   * no task, so it reads right there too. */
   SCHEDULER_INVALID_CRON_EXPRESSION: "SCHEDULER_INVALID_CRON_EXPRESSION",
   /** server/routes/scheduler.js (sites: POST /tasks, PUT /tasks/:id,
    * POST /validate-cron) -- a 6-field (seconds-precision) cron expression;
    * the panel only supports the standard 5-field form. Identical
-   * wording/meaning all three sites, shared code. */
+   * wording/meaning all three sites, shared code. Also server/routes/
+   * backup.js (POST /settings, POST /validate-schedule), same reasoning as
+   * SCHEDULER_INVALID_CRON_EXPRESSION above. */
   SCHEDULER_CRON_SECONDS_UNSUPPORTED: "SCHEDULER_CRON_SECONDS_UNSUPPORTED",
   /** server/routes/scheduler.js (sites: POST /tasks, PUT /tasks/:id,
    * POST /validate-cron) -- isCronTooFrequent() rejects a schedule firing

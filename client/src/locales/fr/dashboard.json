@@ -211,6 +211,8 @@
     "reviewMods": "Vérifier les mods",
     "noBackups": "Aucune sauvegarde",
     "backupAttemptFailing": "Sauvegarde planifiée en échec",
+    "backupSkippedForRestart": "Sauvegarde planifiée sautée pendant un redémarrage",
+    "backupSkippedForRestartHelp": "Elle est arrivée à échéance pendant le redémarrage du serveur et ne s'est pas exécutée. Les sauvegardes planifiées attendent désormais la fin d'un redémarrage au lieu d'être sautées : la prochaine s'exécutera normalement et effacera cet avertissement. Créer une sauvegarde maintenant l'efface aussi.",
     "reviewBackups": "Vérifier les sauvegardes",
     "modUpdatesWaiting_many": "{{count}} mises à jour de mods en attente"
   },
@@ -338,6 +340,7 @@
     "backupsStoredLast_one": "{{count}} stockée, dernière {{age}}",
     "backupsStoredLast_other": "{{count}} stockées, dernière {{age}}",
     "backupsAttemptFailed": "tentative échouée, {{age}}",
+    "backupsSkippedForRestart": "sautée (redémarrage), {{age}}",
     "scheduleNoneActive": "aucune active",
     "scheduleActive_one": "{{count}} active",
     "scheduleActive_other": "{{count}} actives",

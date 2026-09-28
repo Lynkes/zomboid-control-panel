@@ -168,6 +168,8 @@
     "reviewMods": "查看模组",
     "noBackups": "暂无备份",
     "backupAttemptFailing": "计划备份失败",
+    "backupSkippedForRestart": "计划备份因重启被跳过",
+    "backupSkippedForRestartHelp": "它在服务器重启期间到期，因此没有运行。计划备份现在会等待重启完成，而不是被跳过，因此下一次备份会照常运行并清除此提示。现在创建一次备份也可以清除它。",
     "reviewBackups": "查看备份"
   },
   "panelUpdateBanner": {
@@ -293,6 +295,7 @@
     "backupsStoredLast_one": "已存储 {{count}} 个，最近 {{age}}",
     "backupsStoredLast_other": "已存储 {{count}} 个，最近 {{age}}",
     "backupsAttemptFailed": "尝试失败，{{age}}",
+    "backupsSkippedForRestart": "因重启跳过，{{age}}",
     "scheduleNoneActive": "无生效任务",
     "scheduleActive_one": "{{count}} 个生效中",
     "scheduleActive_other": "{{count}} 个生效中"

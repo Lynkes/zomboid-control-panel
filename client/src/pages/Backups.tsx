@@ -20,6 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { NumberInput } from '@/components/NumberInput'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
 import { HelpTip } from '@/components/HelpTip'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -52,6 +53,33 @@ import { DisabledReason } from '@/components/DisabledReason'
 import { useAuth } from '@/contexts/AuthContext'
 import { EmptyState } from '@/components/EmptyState'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { BackupRestartOverlapNotice } from '@/components/BackupRestartOverlapNotice'
+import { scheduledBackupHealth } from '@/lib/scheduledBackupHealth'
+import { isolateLtrForRtl } from '@/lib/paramTranslation'
+import { useBackupScheduleCheck, precheckBackupSchedule, backupScheduleErrorText } from '@/hooks/useBackupScheduleCheck'
+import { BackupScheduleNextRun, BackupScheduleValidity } from '@/components/BackupSchedulePreview'
+
+// The Backup Frequency presets, in menu order -- one list for the <Select>
+// and describeSchedule() so the two can't disagree about which expressions
+// have a friendly name.
+const SCHEDULE_PRESETS = [
+  ['*/15 * * * *', 'schedule.every15Min'],
+  ['*/30 * * * *', 'schedule.every30Min'],
+  ['0 * * * *', 'schedule.everyHour'],
+  ['0 */2 * * *', 'schedule.every2Hours'],
+  ['0 */4 * * *', 'schedule.every4Hours'],
+  ['0 */6 * * *', 'schedule.every6Hours'],
+  ['0 */8 * * *', 'schedule.every8Hours'],
+  ['0 */12 * * *', 'schedule.every12Hours'],
+  ['0 0 * * *', 'schedule.dailyMidnight'],
+  ['0 6 * * *', 'schedule.daily6am'],
+  ['0 12 * * *', 'schedule.dailyNoon'],
+  ['0 18 * * *', 'schedule.daily6pm'],
+] as const
+const PRESET_CRONS = new Set<string>(SCHEDULE_PRESETS.map(([cron]) => cron))
+// Radix <Select> values must be non-empty strings and can't collide with a
+// real cron expression.
+const CUSTOM_SCHEDULE_VALUE = 'custom'
 
 interface BackupProgress {
   phase: 'preparing' | 'archiving' | 'finalizing' | 'complete' | 'error'
@@ -156,6 +184,20 @@ export default function Backups() {
   // Settings state
   const [showSettings, setShowSettings] = useState(false)
   const [backupSchedule, setBackupSchedule] = useState('0 */6 * * *')
+  // Custom cron option (2026-09-27 community request): the frequency menu
+  // only offered presets, while Settings > Backups has always taken a raw
+  // cron expression -- the two pages edit the same saved schedule, so a
+  // custom one set there showed up here as an empty menu. `customSchedule`
+  // is the menu's own "Custom" choice; `customCron` is what's typed.
+  const [customSchedule, setCustomSchedule] = useState(false)
+  const [customCron, setCustomCron] = useState('')
+  // The last schedule loaded from the server. Status refetches happen on
+  // their own (a scheduled backup finishing, another tab's save) -- only a
+  // CHANGED saved schedule may overwrite the form, never one the operator
+  // is halfway through typing.
+  const loadedScheduleRef = useRef<string | null>(null)
+  // Same rule for the other field in that form, Maximum Backups to Keep.
+  const loadedMaxBackupsRef = useRef<number | null>(null)
   const [backupMaxCount, setBackupMaxCount] = useState(10)
   const [savingSettings, setSavingSettings] = useState(false)
 
@@ -178,8 +220,17 @@ export default function Backups() {
     try {
       const status = await backupApi.getStatus()
       setBackupStatus(status)
-      setBackupSchedule(status.schedule)
-      setBackupMaxCount(status.maxBackups)
+      if (loadedScheduleRef.current !== status.schedule) {
+        loadedScheduleRef.current = status.schedule
+        setBackupSchedule(status.schedule)
+        const isPreset = PRESET_CRONS.has(status.schedule)
+        setCustomSchedule(!isPreset)
+        setCustomCron(isPreset ? '' : status.schedule)
+      }
+      if (loadedMaxBackupsRef.current !== status.maxBackups) {
+        loadedMaxBackupsRef.current = status.maxBackups
+        setBackupMaxCount(status.maxBackups)
+      }
       setLoadError(null)
       setBackupStatusLoadError(false)
       // The server's own backupInProgress mutex (backupService.js) is the
@@ -278,14 +329,29 @@ export default function Backups() {
         progressTimeoutRef.current = setTimeout(() => setBackupProgress(null), 2000)
       } else if (data.phase === 'error') {
         setCreatingBackup(false)
+        // Only a MANUAL backup reports here: scheduled runs, held-for-a-
+        // restart ones included, call createBackup() without `io` and emit
+        // no backup:progress at all -- 'backup:deferred' below and the
+        // 15 s re-check while one waits keep the Auto-Backup card current
+        // for those. A failed manual run still changes the status (its
+        // backupInProgress flag, which the page reads back for a run
+        // started in another tab), so re-read it like 'complete' does.
+        fetchBackupStatus()
         progressTimeoutRef.current = setTimeout(() => setBackupProgress(null), 3000)
       }
     }
 
+    // A scheduled backup starting to wait on a restart, or that wait ending
+    // (scheduler.js _emitBackupDeferralChanged()) -- a change to
+    // backupDeferredSince that no progress event announces.
+    const handleBackupDeferred = () => { void fetchBackupStatus() }
+
     socket.on('backup:progress', handleBackupProgress)
+    socket.on('backup:deferred', handleBackupDeferred)
 
     return () => {
       socket.off('backup:progress', handleBackupProgress)
+      socket.off('backup:deferred', handleBackupDeferred)
       // Clear timeout on unmount
       if (progressTimeoutRef.current) {
         clearTimeout(progressTimeoutRef.current)
@@ -316,6 +382,19 @@ export default function Backups() {
     }, 10000)
     return () => clearInterval(interval)
   }, [creatingBackup, fetchBackups])
+
+  // A scheduled backup held for a restart (backupDeferredSince) announces
+  // each change on 'backup:deferred' (above) -- but a socket that dropped
+  // and reconnected meanwhile misses it, and a restart that hangs is exactly
+  // when the operator is watching this page. So while the card says
+  // "waiting", it also re-checks on its own, and can't keep saying so after
+  // the wait is over.
+  const backupDeferred = Boolean(backupStatus?.enabled && backupStatus.backupDeferredSince)
+  useEffect(() => {
+    if (!backupDeferred) return
+    const interval = setInterval(() => { void fetchBackupStatus() }, 15000)
+    return () => clearInterval(interval)
+  }, [backupDeferred, fetchBackupStatus])
 
   // See serverChangedSinceLoad's own comment above for why this exists.
   useEffect(() => {
@@ -623,8 +702,48 @@ export default function Backups() {
     }
   }
 
+  // What Save stores: the typed expression in Custom mode, else the preset.
+  const scheduleToSave = customSchedule ? customCron.trim() : backupSchedule
+  // Live preview of the schedule being edited (POST /backup/validate-schedule):
+  // validity for a custom expression, next run, and the scheduled restarts it
+  // would land inside -- through the same hook as Settings > Backups'
+  // Schedule field, so the two editors can't disagree. The newest verdict
+  // stays on screen while the check for a newer edit is pending (dimmed and
+  // aria-busy) instead of the whole preview collapsing on every keystroke
+  // and moving the Save button with it. Only while the settings panel is
+  // open, the only place it shows; never for a role without backups.manage
+  // (the endpoint's own gate) -- the panel shows the saved schedule's
+  // overlaps instead (below).
+  const { check: shownScheduleCheck, pending: scheduleCheckPending } =
+    useBackupScheduleCheck(scheduleToSave, showSettings && canManageBackups)
+  // Until the panel has a verdict of its own -- the first check after it
+  // opens, or never, for a role that can't run it -- the saved schedule's
+  // overlaps from GET /status stand in, so opening the panel doesn't drop
+  // the warning the page was already showing and bring it back a round
+  // trip later. None while scheduled backups are off: no scheduled backup
+  // runs to land inside anything (GET /status sends none then either), and
+  // "every scheduled backup lands inside..." under an Auto-Backup card that
+  // says "Off" would be false.
+  const panelRestartOverlaps = !backupStatus?.enabled
+    ? undefined
+    : shownScheduleCheck
+      ? shownScheduleCheck.valid ? shownScheduleCheck.restartOverlaps : undefined
+      : scheduleToSave === backupStatus.schedule ? backupStatus.restartOverlaps : undefined
+
+  const handleFrequencyChange = (value: string) => {
+    if (value === CUSTOM_SCHEDULE_VALUE) {
+      setCustomSchedule(true)
+      // Start from whatever was selected: turning "0 */4 * * *" into
+      // "30 */4 * * *" beats typing an expression from nothing.
+      setCustomCron((previous) => previous || backupSchedule)
+      return
+    }
+    setCustomSchedule(false)
+    setBackupSchedule(value)
+  }
+
   const handleSaveSettings = async () => {
-    if (!canManageBackups) return
+    if (!canManageBackups || savingSettings) return
     // pz-bughunt round 17: backupApi.updateSettings() resolves "the active
     // server" server-side with no server id -- schedule/maxBackups shown
     // here were loaded for whichever server was active at that time.
@@ -636,14 +755,34 @@ export default function Backups() {
       })
       return
     }
+    // Busy from here, before the first await: the custom-schedule pre-check
+    // below is a round trip of its own, and a Save button left enabled
+    // during it lets a double click send two POST /backup/settings.
     setSavingSettings(true)
     try {
+      // A custom expression is checked against the server's own validator
+      // first, the same pre-check Scheduler.tsx runs before saving a task,
+      // so a typo gets its specific reason ("more often than every 5
+      // minutes") instead of a generic failed save. Unreachable pre-check:
+      // fall through and let POST /settings -- which applies the identical
+      // rules -- decide.
+      if (customSchedule) {
+        const rejected = await precheckBackupSchedule(scheduleToSave)
+        if (rejected) {
+          toast({
+            title: t('toasts.planUpdateFailedTitle'),
+            description: backupScheduleErrorText(rejected, t('settingsPanel.customInvalid')),
+            variant: 'destructive',
+          })
+          return
+        }
+      }
       // pz-bughunt round 18: expectedServerId is defense in depth alongside
       // the serverChangedSinceLoad guard above -- see server/routes/
       // backup.js's POST /settings for the server-side check this enables.
       await backupApi.updateSettings({
         enabled: backupStatus?.enabled || false,
-        schedule: backupSchedule,
+        schedule: scheduleToSave,
         maxBackups: backupMaxCount,
       }, activeServerId)
       await fetchBackupStatus()
@@ -733,10 +872,24 @@ export default function Backups() {
   // succeeding -- lastBackup only updates on a SUCCESSFUL run, so a run of
   // failures (bad cron, unreachable backupsPath, disk full) leaves this
   // card looking identical to a healthy one. Surface the newest scheduled
-  // attempt specifically when it failed.
-  const lastScheduledAttemptFailed = Boolean(
-    backupStatus?.enabled && backupStatus?.lastScheduledBackupAttempt && !backupStatus.lastScheduledBackupAttempt.success
-  )
+  // attempt specifically when it failed -- unless a backup has succeeded
+  // since, or it was only skipped for a restart (worded as that, not as a
+  // failure); see scheduledBackupHealth(), which the Dashboard shares.
+  const scheduledHealth = scheduledBackupHealth(backupStatus?.enabled, backupStatus?.lastScheduledBackupAttempt)
+  const lastScheduledAttemptFailed = scheduledHealth === 'failing'
+  const lastScheduledSkippedForRestart = scheduledHealth === 'skippedForRestart'
+  const backupDeferredSince = backupStatus?.enabled ? backupStatus.backupDeferredSince ?? null : null
+  // The two restart lines on the Auto-Backup card. Their point is the tail
+  // ("waiting for the restart", "skipped for a restart"), which a one-line
+  // truncate in that narrow card (the lg four-column grid, or beside the
+  // switch on a phone) cuts off first -- so they wrap to two lines, and
+  // carry the full text as a title like the failed-attempt line does.
+  const deferredForRestartLine = backupDeferredSince
+    ? t('statusCards.deferredForRestart', { time: formatDate(backupDeferredSince) })
+    : null
+  const skippedForRestartLine = lastScheduledSkippedForRestart && backupStatus?.lastScheduledBackupAttempt
+    ? t('statusCards.lastScheduledSkippedForRestart', { time: formatDate(backupStatus.lastScheduledBackupAttempt.executedAt) })
+    : null
   // bug-hunt-2026-09-08 (honest-unknown class): backupStatus is null both
   // before the first fetch resolves and after a confirmed failure -- only
   // the latter gets this treatment (matching Settings.tsx's own scheduled-
@@ -744,26 +897,16 @@ export default function Backups() {
   // "on schedule" copy rather than flashing "couldn't check" for a moment.
   const statusUnknown = !backupStatus && backupStatusLoadError
 
-  // Translate the small set of cron presets we expose into a human label.
-  // Falls back to the raw cron string for anything custom so the user
-  // still gets meaningful information without us shipping a full parser.
+  // Translate the cron presets we expose into a human label. Anything else
+  // is a custom expression, shown as one ("on a custom schedule (…)") rather
+  // than a bare cron string that reads like a glitch in the sentence around
+  // it -- no full cron-to-prose parser; the settings panel's next-run line
+  // is where a custom schedule gets spelled out.
   const describeSchedule = (cron: string | undefined): string => {
     if (!cron) return t('schedule.none')
-    const map: Record<string, string> = {
-      '*/15 * * * *': t('schedule.every15Min'),
-      '*/30 * * * *': t('schedule.every30Min'),
-      '0 * * * *': t('schedule.everyHour'),
-      '0 */2 * * *': t('schedule.every2Hours'),
-      '0 */4 * * *': t('schedule.every4Hours'),
-      '0 */6 * * *': t('schedule.every6Hours'),
-      '0 */8 * * *': t('schedule.every8Hours'),
-      '0 */12 * * *': t('schedule.every12Hours'),
-      '0 0 * * *': t('schedule.dailyMidnight'),
-      '0 6 * * *': t('schedule.daily6am'),
-      '0 12 * * *': t('schedule.dailyNoon'),
-      '0 18 * * *': t('schedule.daily6pm'),
-    }
-    return map[cron] || cron
+    const preset = SCHEDULE_PRESETS.find(([presetCron]) => presetCron === cron)
+    // Isolated in Arabic: a bare cron in an RTL sentence reads reversed.
+    return preset ? t(preset[1]) : t('schedule.custom', { cron: isolateLtrForRtl(cron) })
   }
 
   const totalSize = useMemo(() => {
@@ -945,7 +1088,7 @@ export default function Backups() {
             <div
               className={cn(
                 'grid place-items-center w-10 h-10 rounded-md border shrink-0',
-                lastScheduledAttemptFailed
+                lastScheduledAttemptFailed || lastScheduledSkippedForRestart
                   ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400'
                   : backupStatus?.enabled
                   ? 'border-primary/30 bg-primary/[0.06] text-primary'
@@ -953,7 +1096,7 @@ export default function Backups() {
               )}
               aria-hidden="true"
             >
-              {lastScheduledAttemptFailed ? <AlertTriangle className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
+              {lastScheduledAttemptFailed || lastScheduledSkippedForRestart ? <AlertTriangle className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('statusCards.autoBackup')}</p>
@@ -966,6 +1109,16 @@ export default function Backups() {
               {statusUnknown ? (
                 <p className="text-[11px] text-muted-foreground/80 truncate">
                   {t('backups.statusLoadFailed', { ns: 'settings' })}
+                </p>
+              ) : deferredForRestartLine ? (
+                // Checked first: whatever the last attempt said, a backup is
+                // due right now and only waiting for a restart to end.
+                <p className="text-[11px] text-muted-foreground/80 line-clamp-2" title={deferredForRestartLine}>
+                  {deferredForRestartLine}
+                </p>
+              ) : skippedForRestartLine ? (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 line-clamp-2" title={skippedForRestartLine}>
+                  {skippedForRestartLine}
                 </p>
               ) : lastScheduledAttemptFailed ? (
                 <p
@@ -998,6 +1151,15 @@ export default function Backups() {
       </div>
       )}
 
+      {/* The saved schedule's restart collisions. While the settings panel is
+          open it shows the same notice for the schedule being edited
+          instead (starting from this one -- see panelRestartOverlaps), so
+          the two never sit on screen together. Neutral here, a warning in
+          the panel -- see BackupRestartOverlapNotice's `tone`. */}
+      {!showSettings && backupStatus?.enabled && (
+        <BackupRestartOverlapNotice overlaps={backupStatus.restartOverlaps} tone="neutral" />
+      )}
+
       {/* Settings Panel (collapsible) */}
       {showSettings && (
         <Card className="border-primary/15">
@@ -1012,28 +1174,51 @@ export default function Backups() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="backup-schedule">{t('settingsPanel.frequencyLabel')}</Label>
-                <Select value={backupSchedule} onValueChange={setBackupSchedule}>
+                <Select value={customSchedule ? CUSTOM_SCHEDULE_VALUE : backupSchedule} onValueChange={handleFrequencyChange}>
                   <SelectTrigger id="backup-schedule" className="w-full">
                     <SelectValue placeholder={t('settingsPanel.frequencyPlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="*/15 * * * *">{t('schedule.every15Min')}</SelectItem>
-                    <SelectItem value="*/30 * * * *">{t('schedule.every30Min')}</SelectItem>
-                    <SelectItem value="0 * * * *">{t('schedule.everyHour')}</SelectItem>
-                    <SelectItem value="0 */2 * * *">{t('schedule.every2Hours')}</SelectItem>
-                    <SelectItem value="0 */4 * * *">{t('schedule.every4Hours')}</SelectItem>
-                    <SelectItem value="0 */6 * * *">{t('schedule.every6Hours')}</SelectItem>
-                    <SelectItem value="0 */8 * * *">{t('schedule.every8Hours')}</SelectItem>
-                    <SelectItem value="0 */12 * * *">{t('schedule.every12Hours')}</SelectItem>
-                    <SelectItem value="0 0 * * *">{t('schedule.dailyMidnight')}</SelectItem>
-                    <SelectItem value="0 6 * * *">{t('schedule.daily6am')}</SelectItem>
-                    <SelectItem value="0 12 * * *">{t('schedule.dailyNoon')}</SelectItem>
-                    <SelectItem value="0 18 * * *">{t('schedule.daily6pm')}</SelectItem>
+                    {SCHEDULE_PRESETS.map(([cron, labelKey]) => (
+                      <SelectItem key={cron} value={cron}>{t(labelKey)}</SelectItem>
+                    ))}
+                    <SelectItem value={CUSTOM_SCHEDULE_VALUE}>{t('schedule.customOption')}</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
                   {t('settingsPanel.frequencyHelp')}
                 </p>
+                {/* In the frequency column, right under the menu that
+                    reveals it -- not after the whole grid, where a phone's
+                    single column put it below Maximum Backups and Tab
+                    reached that field first. */}
+                {customSchedule && (
+                  <div className="space-y-2 pt-1">
+                    <Label htmlFor="backup-schedule-cron">{t('settingsPanel.customLabel')}</Label>
+                    <Input
+                      id="backup-schedule-cron"
+                      value={customCron}
+                      onChange={(e) => setCustomCron(e.target.value)}
+                      placeholder={t('settingsPanel.customPlaceholder')}
+                      // A cron is left-to-right in every language; in an RTL
+                      // page its neutral '*' and '/' would otherwise lay out
+                      // reversed as it's typed.
+                      dir="ltr"
+                      className="font-mono"
+                      maxLength={100}
+                      aria-describedby="backup-schedule-cron-hint"
+                    />
+                    <p id="backup-schedule-cron-hint" className="text-xs text-muted-foreground">
+                      {t('settingsPanel.customHint', { example: isolateLtrForRtl('30 3 * * *') })}
+                    </p>
+                    <BackupScheduleValidity check={shownScheduleCheck} pending={scheduleCheckPending} />
+                  </div>
+                )}
+                <BackupScheduleNextRun
+                  check={shownScheduleCheck}
+                  pending={scheduleCheckPending}
+                  backupsEnabled={backupStatus?.enabled}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="backup-max">{t('settingsPanel.maxBackupsLabel')}</Label>
@@ -1051,6 +1236,14 @@ export default function Backups() {
                 </p>
               </div>
             </div>
+            {/* The timezone line is already on screen, in the next-run
+                block above, whenever the panel has a verdict to show it. */}
+            <BackupRestartOverlapNotice
+              overlaps={panelRestartOverlaps}
+              live
+              stale={scheduleCheckPending}
+              hideTimeZone={Boolean(shownScheduleCheck?.valid)}
+            />
             <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 text-xs text-muted-foreground">
                 {backupStatus?.savesPath && (

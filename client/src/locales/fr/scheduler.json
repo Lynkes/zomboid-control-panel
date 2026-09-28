@@ -234,6 +234,8 @@
     "backupHealthTitle": "État de la sauvegarde planifiée",
     "backupLastAttemptOk": "Dernière tentative réussie · {{date}}",
     "backupLastAttemptFailed": "Dernière tentative échouée · {{date}} — {{reason}}",
+    "backupLastAttemptSkippedForRestart": "Dernière tentative sautée pendant un redémarrage · {{date}}",
+    "backupRecoveredSince": "Une sauvegarde a réussi depuis · {{date}}",
     "backupNoAttemptYet": "Aucune sauvegarde planifiée n'a encore été exécutée",
     "backupNextRun": "Prochaine exécution · {{date}}",
     "savedDesc": "Les planifications s'exécutent maintenant dans {{tz}}.",

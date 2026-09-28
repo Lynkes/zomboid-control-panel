@@ -230,6 +230,8 @@
     "backupHealthTitle": "備份排程狀態",
     "backupLastAttemptOk": "上次嘗試成功 · {{date}}",
     "backupLastAttemptFailed": "上次嘗試失敗 · {{date}} — {{reason}}",
+    "backupLastAttemptSkippedForRestart": "上次嘗試因重新啟動而略過 · {{date}}",
+    "backupRecoveredSince": "此後已有備份成功 · {{date}}",
     "backupNoAttemptYet": "尚未執行過排程備份",
     "backupNextRun": "下次執行 · {{date}}",
     "savedDesc": "計劃現在按 {{tz}} 執行。",

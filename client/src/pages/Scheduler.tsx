@@ -69,6 +69,8 @@ import { NumberInput } from '@/components/NumberInput'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { DisabledReason } from '@/components/DisabledReason'
 import { HelpTip } from '@/components/HelpTip'
+import { BackupRestartOverlapNotice } from '@/components/BackupRestartOverlapNotice'
+import { scheduledBackupHealth } from '@/lib/scheduledBackupHealth'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
 
@@ -1444,23 +1446,60 @@ export default function Scheduler() {
           {status?.backupScheduleEnabled && (
             <div className="mt-2 space-y-1 rounded-md border border-border/50 bg-muted/20 px-3 py-2">
               <p className="text-xs font-medium text-foreground/80">{t('timezone.backupHealthTitle')}</p>
-              {backupStatus?.lastScheduledBackupAttempt ? (
-                <p className={`flex items-center gap-1 text-xs ${backupStatus.lastScheduledBackupAttempt.success ? 'text-muted-foreground' : 'text-destructive'}`}>
-                  {backupStatus.lastScheduledBackupAttempt.success ? (
-                    <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
-                  ) : (
-                    <XCircle className="w-3 h-3 shrink-0" aria-hidden="true" />
-                  )}
-                  <span className="truncate">
-                    {backupStatus.lastScheduledBackupAttempt.success
-                      ? t('timezone.backupLastAttemptOk', { date: new Date(backupStatus.lastScheduledBackupAttempt.executedAt).toLocaleString(i18n.language) })
-                      : t('timezone.backupLastAttemptFailed', {
-                          date: new Date(backupStatus.lastScheduledBackupAttempt.executedAt).toLocaleString(i18n.language),
-                          reason: backupStatus.lastScheduledBackupAttempt.message || t('scheduledTasks.lastRunFailedUnknownReason'),
-                        })}
-                  </span>
-                </p>
-              ) : (
+              {backupStatus?.lastScheduledBackupAttempt ? (() => {
+                const attempt = backupStatus.lastScheduledBackupAttempt
+                const date = new Date(attempt.executedAt).toLocaleString(i18n.language)
+                // Colour from scheduledBackupHealth(), the same verdict the
+                // Dashboard and Backups page use, so the three can't
+                // disagree: a restart skip (panels up to v1.3.8 dropped a
+                // backup that landed on a restart) is amber, a real failure
+                // red -- and either one is muted once any backup has
+                // succeeded since (recoveredAt), which is exactly what the
+                // Dashboard tells the operator to do. The line itself stays:
+                // it's still this schedule's history, just not a live problem,
+                // and the line under it says why.
+                const health = scheduledBackupHealth(true, attempt)
+                const recoveredAt = attempt.success ? null : attempt.recoveredAt ?? null
+                const text = attempt.success
+                  ? t('timezone.backupLastAttemptOk', { date })
+                  : attempt.skipReason === 'restart'
+                    ? t('timezone.backupLastAttemptSkippedForRestart', { date })
+                    : t('timezone.backupLastAttemptFailed', {
+                        date,
+                        reason: attempt.message || t('scheduledTasks.lastRunFailedUnknownReason'),
+                      })
+                return (
+                  <>
+                    <p className={cn(
+                      'flex items-center gap-1 text-xs',
+                      health === 'skippedForRestart'
+                        ? 'text-amber-600 dark:text-amber-400'
+                        : health === 'failing'
+                          ? 'text-destructive'
+                          : 'text-muted-foreground',
+                    )}>
+                      {attempt.success ? (
+                        <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
+                      ) : attempt.skipReason === 'restart' ? (
+                        <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                      ) : (
+                        <XCircle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                      )}
+                      <span className="truncate" title={text}>{text}</span>
+                    </p>
+                    {/* Its own line rather than a suffix: the failure line
+                        above truncates, and a long reason would cut this off. */}
+                    {recoveredAt && (
+                      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
+                        <span className="truncate">
+                          {t('timezone.backupRecoveredSince', { date: new Date(recoveredAt).toLocaleString(i18n.language) })}
+                        </span>
+                      </p>
+                    )}
+                  </>
+                )
+              })() : (
                 <p className="text-xs text-muted-foreground">{t('timezone.backupNoAttemptYet')}</p>
               )}
               {status.backupNextRun && (
@@ -1469,6 +1508,12 @@ export default function Scheduler() {
                   <span className="truncate">{t('timezone.backupNextRun', { date: new Date(status.backupNextRun).toLocaleString(i18n.language) })}</span>
                 </p>
               )}
+              {/* This page is where restarts get scheduled, so it's where an
+                  operator stacking one on top of the backup schedule needs to
+                  hear that those backups will wait for it and run late.
+                  No timezone line of its own: this card is the timezone
+                  card, and says which zone is in effect just above. */}
+              <BackupRestartOverlapNotice overlaps={backupStatus?.restartOverlaps} hideTimeZone className="mt-2" />
             </div>
           )}
         </CardContent>

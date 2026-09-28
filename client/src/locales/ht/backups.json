@@ -42,7 +42,9 @@
     "runsSchedule": "Fonksyone {{schedule}} · kenbe {{count}}",
     "noScheduled": "Pa gen kopi sovgad pwograme",
     "toggleAria": "Aktive/dezaktive kopi sovgad pwograme",
-    "lastScheduledAttemptFailed": "Dènye tantativ pwograme echwe ({{time}}): {{message}}"
+    "lastScheduledAttemptFailed": "Dènye tantativ pwograme echwe ({{time}}): {{message}}",
+    "deferredForRestart": "Te dwe fèt {{time}} — ap tann sèvè a fin redemare",
+    "lastScheduledSkippedForRestart": "Dènye kopi sovgad pwograme a sote pandan yon redemaraj ({{time}})"
   },
   "schedule": {
     "every15Min": "chak 15 minit",
@@ -57,6 +59,8 @@
     "daily6am": "chak jou a 6è nan maten",
     "dailyNoon": "chak jou a midi",
     "daily6pm": "chak jou a 6è nan aswè",
+    "customOption": "Pèsonalize (ekspresyon cron)",
+    "custom": "sou yon orè pèsonalize ({{cron}})",
     "none": "Pa gen orè"
   },
   "settingsPanel": {
@@ -67,8 +71,27 @@
     "frequencyHelp": "Kantite fwa pou kreye kopi sovgad otomatikman",
     "maxBackupsLabel": "Maksimòm Kopi Sovgad pou Kenbe",
     "maxBackupsHelp": "Kopi sovgad ki pi ansyen yo ap efase otomatikman lè limit la rive",
+    "customLabel": "Ekspresyon cron",
+    "customPlaceholder": "pa egzanp: 30 3 * * *",
+    "customHint": "Fòma: minit èdtan jou mwa jou semèn. \"{{example}}\" kouri chak jou a 3:30. Pa plis pase yon fwa chak 5 minit.",
+    "customValid": "Orè valid",
+    "customInvalid": "Se pa yon ekspresyon cron valid",
+    "nextRun": "Pwochen kopi sovgad: {{date}}",
+    "timezoneNotice": "Lè yo nan orè a swiv fizo orè panèl la, {{tz}} (ou ka chanje l nan Tach Pwograme).",
+    "scheduledBackupsOff": "Kopi sovgad pwograme yo dezaktive — orè sa a ap aplike depi ou aktive yo.",
     "savesLabel": "Sovgad: {{path}}",
     "saveButton": "Sove Paramèt"
+  },
+  "restartOverlap": {
+    "title": "Kopi sovgad yo tonbe sou yon redemaraj pwograme",
+    "task": "Kèk kopi sovgad pwograme tonbe pandan redemaraj pwograme \"{{name}}\" (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "taskAll": "Tout kopi sovgad pwograme yo tonbe pandan redemaraj pwograme \"{{name}}\" (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "taskUnnamed": "Kèk kopi sovgad pwograme tonbe pandan yon redemaraj pwograme (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "taskUnnamedAll": "Tout kopi sovgad pwograme yo tonbe pandan yon redemaraj pwograme (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "autoRestart": "Kèk kopi sovgad pwograme tonbe pandan redemaraj peryodik la (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "autoRestartAll": "Tout kopi sovgad pwograme yo tonbe pandan redemaraj peryodik la (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "consequence": "Kopi sovgad sa yo tann redemaraj la fini, kidonk yo ka kouri jiska anviwon {{minutes}} min an reta. Pou yo kouri alè, pwograme kopi sovgad yo omwen {{minutes}} min apre lè yon redemaraj pwograme (pa egzanp, si redemaraj yo fèt lè a jis, fè kopi sovgad la a {{exampleTime}}).",
+    "consequenceNoExample": "Kopi sovgad sa yo tann redemaraj la fini, kidonk yo ka kouri jiska anviwon {{minutes}} min an reta. Pou yo kouri alè, pwograme kopi sovgad yo omwen {{minutes}} min apre lè yon redemaraj pwograme."
   },
   "progress": {
     "startingFallback": "Ap kòmanse kopi sovgad...",

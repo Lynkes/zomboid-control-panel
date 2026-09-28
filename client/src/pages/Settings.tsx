@@ -125,6 +125,13 @@ import { useTheme, type ThemeName } from "@/contexts/ThemeContext";
 import { platformTranslationKey, useRuntimeInfo } from "@/hooks/useRuntimeInfo";
 import { useRequestGuard } from "@/hooks/useRequestGuard";
 import { BridgeStatusBadge } from "@/components/BridgeStatusBadge";
+import { BackupRestartOverlapNotice } from "@/components/BackupRestartOverlapNotice";
+import { BackupScheduleNextRun, BackupScheduleValidity } from "@/components/BackupSchedulePreview";
+import {
+  backupScheduleErrorText,
+  precheckBackupSchedule,
+  useBackupScheduleCheck,
+} from "@/hooks/useBackupScheduleCheck";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
@@ -442,6 +449,7 @@ export default function Settings() {
   const canManageDiagnostics = can("diagnostics.manage"); // Access tab: Reload CORS Rules, Clear Blocked Log
   const canConfigureServerSettings = can("server.configure"); // Connection tab: Test (RCON recheck)
   const canSetupBridge = can("bridge.setup"); // Bridge tab: every write action on it
+  const canManageBackups = can("backups.manage"); // Backups tab: the Schedule field's live check (POST /backup/validate-schedule is gated on it)
 
   // Change password state
   const [currentPassword, setCurrentPassword] = useState("");
@@ -1955,33 +1963,26 @@ export default function Settings() {
     }
   };
 
-  // Basic cron validation helper
-  const isValidCron = (cron: string): boolean => {
-    const parts = cron.trim().split(/\s+/);
-    if (parts.length !== 5) return false;
-
-    const patterns = [
-      /^(\*|\d+|\*\/\d+|\d+-\d+|\d+(,\d+)*)$/, // minute
-      /^(\*|\d+|\*\/\d+|\d+-\d+|\d+(,\d+)*)$/, // hour
-      /^(\*|\d+|\*\/\d+|\d+-\d+|\d+(,\d+)*)$/, // day of month
-      /^(\*|\d+|\*\/\d+|\d+-\d+|\d+(,\d+)*)$/, // month
-      /^(\*|\d+|\*\/\d+|\d+-\d+|\d+(,\d+)*)$/, // day of week
-    ];
-
-    return parts.every((part, i) => patterns[i].test(part));
-  };
+  // The Schedule field below edits the same saved schedule as the Backups
+  // page's Backup Frequency picker, and is judged by the same server check
+  // (useBackupScheduleCheck): live as it's typed, and again on Save. It used
+  // to be a local regex here -- no numeric bounds, no month/weekday names,
+  // no 5-minute floor -- so "99 * * * *" passed and then failed to save,
+  // "0 3 * * MON" was refused though the Backups page and the server accept
+  // it, and the two editors disagreed about the one setting they share.
+  // Only while the field is on screen: this tab, scheduled backups on.
+  // Computed on every render of the whole page, not just this tab's -- a
+  // status payload without a schedule (fetchBackupStatus() copies whatever
+  // came back) must not take every other tab down with it.
+  const backupScheduleInput = (backupSchedule ?? "").trim();
+  const { check: backupScheduleCheck, pending: backupScheduleCheckPending } =
+    useBackupScheduleCheck(
+      backupScheduleInput,
+      activeSection === "backups" && Boolean(backupStatus?.enabled) && canManageBackups,
+    );
 
   const handleSaveBackupSettings = async () => {
-    // Validate cron expression before saving
-    if (!isValidCron(backupSchedule)) {
-      toast({
-        title: t("toasts.invalidSchedule.title"),
-        description: t("toasts.invalidSchedule.description"),
-        variant: "destructive",
-      });
-      return;
-    }
-
+    if (backupLoading) return;
     if (backupPanelServerChanged) {
       toast({
         title: settingsFallback(
@@ -1996,14 +1997,31 @@ export default function Settings() {
       });
       return;
     }
+    // Busy before the first await: the pre-check below is a round trip of
+    // its own, and a Save left enabled during it lets a double click send
+    // two POST /backup/settings.
     setBackupLoading(true);
     try {
+      // Same pre-check as the Backups page's Save, so a bad expression gets
+      // the server's specific reason ("more often than every 5 minutes")
+      // rather than a generic failed save. If the check itself can't run,
+      // the save goes ahead and POST /backup/settings -- identical rules --
+      // decides.
+      const rejected = await precheckBackupSchedule(backupScheduleInput);
+      if (rejected) {
+        toast({
+          title: t("toasts.invalidSchedule.title"),
+          description: backupScheduleErrorText(rejected, t("toasts.invalidSchedule.description")),
+          variant: "destructive",
+        });
+        return;
+      }
       // pz-bughunt round 18: expectedServerId is defense in depth alongside
       // backupPanelServerChanged above.
       await backupApi.updateSettings(
         {
           enabled: backupStatus?.enabled || false,
-          schedule: backupSchedule,
+          schedule: backupScheduleInput,
           maxBackups: backupMaxCount,
         },
         backupActiveServerId,
@@ -5626,12 +5644,25 @@ export default function Settings() {
                           value={backupSchedule}
                           onChange={(e) => setBackupSchedule(e.target.value)}
                           placeholder="0 */6 * * *"
+                          // Left-to-right in every language, as on the
+                          // Backups page: in an RTL page a cron's neutral
+                          // '*' and '/' would otherwise lay out reversed.
+                          dir="ltr"
                           className="font-mono"
                           maxLength={100}
+                          aria-describedby="backup-schedule-help"
                         />
-                        <p className="text-xs text-muted-foreground">
+                        <p id="backup-schedule-help" className="text-xs text-muted-foreground">
                           {t("backups.scheduleHelp")}
                         </p>
+                        {/* The Backups page's custom-cron field shows the
+                            same two things, from the same check. */}
+                        <BackupScheduleValidity check={backupScheduleCheck} pending={backupScheduleCheckPending} />
+                        <BackupScheduleNextRun
+                          check={backupScheduleCheck}
+                          pending={backupScheduleCheckPending}
+                          backupsEnabled={backupStatus.enabled}
+                        />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="backup-max">{t("backups.maxBackupsLabel")}</Label>
@@ -5648,6 +5679,23 @@ export default function Settings() {
                           {t("backups.maxBackupsHelp")}
                         </p>
                       </div>
+                      {/* This field edits the same schedule as the Backups
+                          page, so it warns about the same restart
+                          collisions, the same way: for what is typed, from
+                          the live check, with the saved schedule's (GET
+                          /backup/status) standing in until that check has
+                          answered. */}
+                      <BackupRestartOverlapNotice
+                        overlaps={
+                          backupScheduleCheck
+                            ? backupScheduleCheck.valid ? backupScheduleCheck.restartOverlaps : undefined
+                            : backupScheduleInput === backupStatus.schedule ? backupStatus.restartOverlaps : undefined
+                        }
+                        live
+                        stale={backupScheduleCheckPending}
+                        hideTimeZone={Boolean(backupScheduleCheck?.valid)}
+                        className="sm:col-span-2"
+                      />
                       <div className="sm:col-span-2">
                         <DisabledReason reason={backupPanelServerChanged ? t("toasts.backupPanelServerChanged.description") : null}>
                           <Button

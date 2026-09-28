@@ -168,6 +168,8 @@
     "reviewMods": "Mods überprüfen",
     "noBackups": "Keine Backups",
     "backupAttemptFailing": "Geplantes Backup schlägt fehl",
+    "backupSkippedForRestart": "Geplantes Backup wegen Neustart übersprungen",
+    "backupSkippedForRestartHelp": "Es war fällig, während der Server neu startete, und lief deshalb nicht. Geplante Backups warten jetzt, bis ein Neustart abgeschlossen ist, statt übersprungen zu werden – das nächste läuft also normal und lässt diese Meldung verschwinden. Wenn du jetzt ein Backup erstellst, verschwindet sie ebenfalls.",
     "reviewBackups": "Backups überprüfen"
   },
   "panelUpdateBanner": {
@@ -293,6 +295,7 @@
     "backupsStoredLast_one": "{{count}} gespeichert, zuletzt {{age}}",
     "backupsStoredLast_other": "{{count}} gespeichert, zuletzt {{age}}",
     "backupsAttemptFailed": "Versuch fehlgeschlagen, {{age}}",
+    "backupsSkippedForRestart": "wegen Neustart übersprungen, {{age}}",
     "scheduleNoneActive": "keine aktiv",
     "scheduleActive_one": "{{count}} aktiv",
     "scheduleActive_other": "{{count}} aktiv"

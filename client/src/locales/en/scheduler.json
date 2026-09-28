@@ -209,6 +209,8 @@
     "backupHealthTitle": "Backup schedule health",
     "backupLastAttemptOk": "Last attempt succeeded · {{date}}",
     "backupLastAttemptFailed": "Last attempt failed · {{date}} — {{reason}}",
+    "backupLastAttemptSkippedForRestart": "Last attempt skipped for a restart · {{date}}",
+    "backupRecoveredSince": "A backup has succeeded since · {{date}}",
     "backupNoAttemptYet": "No scheduled backup has run yet",
     "backupNextRun": "Next run · {{date}}",
     "savedDesc": "Schedules now run in {{tz}}.",

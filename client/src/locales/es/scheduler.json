@@ -234,6 +234,8 @@
     "backupHealthTitle": "Estado de la copia de seguridad programada",
     "backupLastAttemptOk": "Último intento correcto · {{date}}",
     "backupLastAttemptFailed": "Último intento fallido · {{date}} — {{reason}}",
+    "backupLastAttemptSkippedForRestart": "Último intento omitido por un reinicio · {{date}}",
+    "backupRecoveredSince": "Desde entonces se completó una copia de seguridad · {{date}}",
     "backupNoAttemptYet": "Todavía no se ha ejecutado ninguna copia de seguridad programada",
     "backupNextRun": "Próxima ejecución · {{date}}",
     "savedDesc": "Los horarios ahora se ejecutan en {{tz}}.",

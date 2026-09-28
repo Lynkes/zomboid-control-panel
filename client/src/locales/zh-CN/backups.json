@@ -42,7 +42,9 @@
     "runsSchedule": "{{schedule}}运行 · 保留 {{count}} 份",
     "noScheduled": "没有计划备份",
     "toggleAria": "切换计划备份",
-    "lastScheduledAttemptFailed": "上次计划任务失败（{{time}}）：{{message}}"
+    "lastScheduledAttemptFailed": "上次计划任务失败（{{time}}）：{{message}}",
+    "deferredForRestart": "应于 {{time}} 运行——正在等待服务器重启完成",
+    "lastScheduledSkippedForRestart": "上次计划备份因重启被跳过（{{time}}）"
   },
   "schedule": {
     "every15Min": "每 15 分钟",
@@ -57,6 +59,8 @@
     "daily6am": "每天 6 点",
     "dailyNoon": "每天正午",
     "daily6pm": "每天 18 点",
+    "customOption": "自定义（cron 表达式）",
+    "custom": "按自定义计划（{{cron}}）",
     "none": "无计划"
   },
   "settingsPanel": {
@@ -67,8 +71,27 @@
     "frequencyHelp": "自动创建备份的频率",
     "maxBackupsLabel": "最大保留备份数",
     "maxBackupsHelp": "达到数量上限后，最旧的备份将被自动删除",
+    "customLabel": "cron 表达式",
+    "customPlaceholder": "例如：30 3 * * *",
+    "customHint": "格式：分钟 小时 日 月 星期。“{{example}}”表示每天 3:30 运行。最多每 5 分钟一次。",
+    "customValid": "计划有效",
+    "customInvalid": "不是有效的 cron 表达式",
+    "nextRun": "下次备份：{{date}}",
+    "timezoneNotice": "计划时间按面板时区 {{tz}} 计算（可在“计划任务”中更改）。",
+    "scheduledBackupsOff": "计划备份已关闭——开启后才会按此计划运行。",
     "savesLabel": "存档：{{path}}",
     "saveButton": "保存设置"
+  },
+  "restartOverlap": {
+    "title": "备份与计划重启时间重叠",
+    "task": "部分计划备份落在计划重启“{{name}}”期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "taskAll": "所有计划备份都落在计划重启“{{name}}”期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "taskUnnamed": "部分计划备份落在某个计划重启期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "taskUnnamedAll": "所有计划备份都落在某个计划重启期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "autoRestart": "部分计划备份落在定期自动重启期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "autoRestartAll": "所有计划备份都落在定期自动重启期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "consequence": "这些备份会等到重启完成后再运行，因此最多会晚约 {{minutes}} 分钟。若要准时运行，请把备份安排在重启计划时间之后至少 {{minutes}} 分钟（例如，重启在整点时，在 {{exampleTime}} 备份）。",
+    "consequenceNoExample": "这些备份会等到重启完成后再运行，因此最多会晚约 {{minutes}} 分钟。若要准时运行，请把备份安排在重启计划时间之后至少 {{minutes}} 分钟。"
   },
   "progress": {
     "startingFallback": "正在开始备份…",

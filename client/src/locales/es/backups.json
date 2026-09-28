@@ -43,7 +43,9 @@
     "runsSchedule": "Se ejecuta {{schedule}} · conservar {{count}}",
     "noScheduled": "No hay copias de seguridad programadas",
     "toggleAria": "Alternar copias de seguridad programadas",
-    "lastScheduledAttemptFailed": "El último intento programado falló ({{time}}): {{message}}"
+    "lastScheduledAttemptFailed": "El último intento programado falló ({{time}}): {{message}}",
+    "deferredForRestart": "Pendiente desde {{time}}: esperando a que termine el reinicio del servidor",
+    "lastScheduledSkippedForRestart": "Última copia de seguridad programada omitida por un reinicio ({{time}})"
   },
   "schedule": {
     "every15Min": "cada 15 minutos",
@@ -58,6 +60,8 @@
     "daily6am": "diariamente a las 6 a. m.",
     "dailyNoon": "diariamente a mediodía",
     "daily6pm": "diariamente a las 6 p. m.",
+    "customOption": "Personalizado (expresión cron)",
+    "custom": "con un horario personalizado ({{cron}})",
     "none": "Sin horario"
   },
   "settingsPanel": {
@@ -68,8 +72,27 @@
     "frequencyHelp": "Con qué frecuencia se crean copias de seguridad automáticamente",
     "maxBackupsLabel": "Máximo de copias de seguridad a conservar",
     "maxBackupsHelp": "Las copias de seguridad más antiguas se eliminarán automáticamente al alcanzar el límite",
+    "customLabel": "Expresión cron",
+    "customPlaceholder": "p. ej., 30 3 * * *",
+    "customHint": "Formato: minuto hora día mes día de la semana. «{{example}}» se ejecuta todos los días a las 3:30. Como máximo una vez cada 5 minutos.",
+    "customValid": "Horario válido",
+    "customInvalid": "No es una expresión cron válida",
+    "nextRun": "Próxima copia de seguridad: {{date}}",
+    "timezoneNotice": "Los horarios usan la zona horaria del panel, {{tz}} (se cambia en Tareas programadas).",
+    "scheduledBackupsOff": "Las copias de seguridad programadas están desactivadas: esta programación se aplicará en cuanto las actives.",
     "savesLabel": "Partidas guardadas: {{path}}",
     "saveButton": "Guardar ajustes"
+  },
+  "restartOverlap": {
+    "title": "Las copias de seguridad coinciden con un reinicio programado",
+    "task": "Algunas copias de seguridad programadas caen dentro del reinicio programado «{{name}}» (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "taskAll": "Todas las copias de seguridad programadas caen dentro del reinicio programado «{{name}}» (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "taskUnnamed": "Algunas copias de seguridad programadas caen dentro de un reinicio programado (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "taskUnnamedAll": "Todas las copias de seguridad programadas caen dentro de un reinicio programado (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "autoRestart": "Algunas copias de seguridad programadas caen dentro del reinicio periódico (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "autoRestartAll": "Todas las copias de seguridad programadas caen dentro del reinicio periódico (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "consequence": "Esas copias esperan a que termine el reinicio, así que se ejecutan con hasta unos {{minutes}} min de retraso. Para que se ejecuten a tiempo, prográmalas al menos {{minutes}} min después de la hora programada de un reinicio (por ejemplo, con reinicios a la hora en punto, programa las copias a las hh{{exampleTime}}).",
+    "consequenceNoExample": "Esas copias esperan a que termine el reinicio, así que se ejecutan con hasta unos {{minutes}} min de retraso. Para que se ejecuten a tiempo, prográmalas al menos {{minutes}} min después de la hora programada de un reinicio."
   },
   "progress": {
     "startingFallback": "Iniciando copia de seguridad…",

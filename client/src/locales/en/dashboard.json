@@ -168,6 +168,8 @@
     "reviewMods": "Review mods",
     "noBackups": "No backups",
     "backupAttemptFailing": "Scheduled backup failing",
+    "backupSkippedForRestart": "Scheduled backup skipped for a restart",
+    "backupSkippedForRestartHelp": "It came due while the server was restarting, so it didn't run. Scheduled backups now wait for a restart to finish instead of being skipped, so the next one runs as usual and clears this warning. Creating a backup now clears it too.",
     "reviewBackups": "Review backups"
   },
   "panelUpdateBanner": {
@@ -293,6 +295,7 @@
     "backupsStoredLast_one": "{{count}} stored, last {{age}}",
     "backupsStoredLast_other": "{{count}} stored, last {{age}}",
     "backupsAttemptFailed": "attempt failed, {{age}}",
+    "backupsSkippedForRestart": "skipped for restart, {{age}}",
     "scheduleNoneActive": "none active",
     "scheduleActive_one": "{{count}} active",
     "scheduleActive_other": "{{count}} active"

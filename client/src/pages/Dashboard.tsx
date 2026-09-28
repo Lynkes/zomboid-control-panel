@@ -22,8 +22,9 @@ import {
 import {
   serverApi, rconApi, playersApi, panelBridgeApi, backupApi, configApi, serversApi, debugApi,
   panelUpdateApi, modsApi, schedulerApi, ServerInstance, PanelUpdateStatus, ComposedServerStatus,
-  MountDiscoveryCandidate,
+  MountDiscoveryCandidate, ScheduledBackupAttempt,
 } from '@/lib/api'
+import { scheduledBackupHealth } from '@/lib/scheduledBackupHealth'
 import { useRuntimeInfo } from '@/hooks/useRuntimeInfo'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
@@ -325,7 +326,7 @@ export default function Dashboard() {
     // BackupStatus (see that page's lastScheduledAttemptFailed), so this
     // page's wording can't drift from that one's.
     backupsEnabled: boolean
-    lastScheduledBackupAttempt: { success: boolean; message: string | null; executedAt: string } | null
+    lastScheduledBackupAttempt: ScheduledBackupAttempt | null
   }>({
     lastBackup: null, backupCount: 0, modUpdatesAvailable: 0, modsTracked: 0,
     scheduledTasksCount: 0, nextRun: null, errorCount: null, schedulerLoaded: false,
@@ -1134,6 +1135,24 @@ export default function Dashboard() {
     return { name: player.name, since: formatSinceJoined(t, joined) }
   })
 
+  // Shared by the verdict and the Backups row below -- see
+  // scheduledBackupHealth() for what each state means and why a manual
+  // backup now clears a failed scheduled attempt.
+  const backupHealth = scheduledBackupHealth(maintenance.backupsEnabled, maintenance.lastScheduledBackupAttempt)
+  // One click that fixes both backup verdicts that have no deeper cause to
+  // chase: an empty archive, and a scheduled backup a restart skipped (any
+  // later successful backup clears that one).
+  const createBackupVerdictAction = {
+    label: t('actions.createBackup'),
+    onClick: () => {
+      if (!canManageBackups) return
+      void handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))
+    },
+    busy: loading === 'Create backup',
+    disabled: loading !== null || !canManageBackups,
+    reason: !canManageBackups ? t('actions.noPermissionCreateBackup') : undefined,
+  }
+
   /* One verdict at a time, highest severity wins. Calm states say nothing at all. */
   const verdict: Verdict = (() => {
     // status.serverPathConfigured (server-side rename of `configured`, see
@@ -1259,14 +1278,32 @@ export default function Dashboard() {
     // lib/api.ts). Checked ahead of the empty-archive case: a specific "why
     // it's failing" beats a generic "you have none yet" whenever both would
     // otherwise be true at once.
-    if (maintenance.schedulerLoaded && !activeServer?.isRemote
-      && maintenance.backupsEnabled && maintenance.lastScheduledBackupAttempt
-      && !maintenance.lastScheduledBackupAttempt.success) {
+    if (maintenance.schedulerLoaded && !activeServer?.isRemote && backupHealth === 'failing') {
       return {
         level: 'warning',
         headline: t('verdict.backupAttemptFailing'),
-        detail: maintenance.lastScheduledBackupAttempt.message || undefined,
+        detail: maintenance.lastScheduledBackupAttempt?.message || undefined,
         action: { label: t('verdict.reviewBackups'), to: '/backups' },
+      }
+    }
+    // A backup a restart pushed aside is not a broken backup (2026-09-27
+    // Discord report: "Scheduled backup failing -- Skipped: a restart was in
+    // progress", on every tick, because a restart schedule fired at the same
+    // times). Still worth a warning -- that backup didn't happen -- but it
+    // says what actually happened and offers the click that clears it,
+    // instead of sending the operator to hunt for a fault that isn't there.
+    // The why goes in a HelpTip like the RCON verdict's, not in `detail`:
+    // that slot is drawn as faint 10px log text, for raw server messages.
+    if (maintenance.schedulerLoaded && !activeServer?.isRemote && backupHealth === 'skippedForRestart') {
+      return {
+        level: 'warning',
+        headline: t('verdict.backupSkippedForRestart'),
+        headlineHelp: (
+          <HelpTip label={t('verdict.backupSkippedForRestart')} className="ms-1.5 align-[-2px]">
+            {t('verdict.backupSkippedForRestartHelp')}
+          </HelpTip>
+        ),
+        action: createBackupVerdictAction,
       }
     }
     /* Game errors are reported by the Errors row, which is already coloured by
@@ -1275,35 +1312,29 @@ export default function Dashboard() {
       return {
         level: 'warning',
         headline: t('verdict.noBackups'),
-        action: {
-          label: t('actions.createBackup'),
-          onClick: () => {
-            if (!canManageBackups) return
-            void handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))
-          },
-          busy: loading === 'Create backup',
-          disabled: loading !== null || !canManageBackups,
-          reason: !canManageBackups ? t('actions.noPermissionCreateBackup') : undefined,
-        },
+        action: createBackupVerdictAction,
       }
     }
     return { level: 'calm' }
   })()
 
   /* Readiness numbers live on the thing you act on, not in a read-only panel. */
-  // Same condition as the verdict's own backup-attempt-failing case above --
-  // an active scheduler failure outranks even a healthy-looking stored count,
-  // since a past success doesn't mean the NEXT scheduled attempt will land.
-  const backupAttemptFailed = Boolean(
-    maintenance.backupsEnabled && maintenance.lastScheduledBackupAttempt && !maintenance.lastScheduledBackupAttempt.success,
-  )
-  const backupState = backupAttemptFailed && maintenance.lastScheduledBackupAttempt
-    ? t('workItems.backupsAttemptFailed', { age: formatAge(t, maintenance.lastScheduledBackupAttempt.executedAt) })
-    : maintenance.lastBackup
-      ? t('workItems.backupsStoredLast', { count: maintenance.backupCount, age: formatAge(t, maintenance.lastBackup.created) })
-      : maintenance.backupCount > 0
-        ? t('workItems.backupsStored', { count: maintenance.backupCount })
-        : t('workItems.backupsNoneYet')
+  // Same states as the verdict's own backup cases above -- an active
+  // scheduler failure outranks even a healthy-looking stored count, since a
+  // past success doesn't mean the NEXT scheduled attempt will land.
+  const backupAttemptFailed = backupHealth === 'failing'
+  const lastAttemptAge = maintenance.lastScheduledBackupAttempt
+    ? formatAge(t, maintenance.lastScheduledBackupAttempt.executedAt)
+    : null
+  const backupState = backupAttemptFailed && lastAttemptAge
+    ? t('workItems.backupsAttemptFailed', { age: lastAttemptAge })
+    : backupHealth === 'skippedForRestart' && lastAttemptAge
+      ? t('workItems.backupsSkippedForRestart', { age: lastAttemptAge })
+      : maintenance.lastBackup
+        ? t('workItems.backupsStoredLast', { count: maintenance.backupCount, age: formatAge(t, maintenance.lastBackup.created) })
+        : maintenance.backupCount > 0
+          ? t('workItems.backupsStored', { count: maintenance.backupCount })
+          : t('workItems.backupsNoneYet')
 
   /* A count of tasks is trivia. The next time something will happen is the
      thing that decides whether you can walk away from the server. */
@@ -1357,7 +1388,7 @@ export default function Dashboard() {
       id: 'backups',
       to: '/backups', icon: Archive, label: t('workItems.backups'),
       state: backupState,
-      tone: backupAttemptFailed ? 'bad' : maintenance.backupCount === 0 ? 'warning' : 'good',
+      tone: backupAttemptFailed ? 'bad' : backupHealth === 'skippedForRestart' || maintenance.backupCount === 0 ? 'warning' : 'good',
     },
     { id: 'config', to: '/server-config', icon: Server, label: t('workItems.config') },
   ]

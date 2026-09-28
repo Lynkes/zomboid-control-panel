@@ -10,7 +10,7 @@ export type TranslationParams = Record<string, string | number>
 // rendering defect, not a swapped-arguments bug. This resolver interpolates
 // into a PLAIN STRING (`translated.message` is text, not JSX), so the
 // `<bdi>` element this floor uses everywhere else doesn't apply here --
-// U+2066 FIRST STRONG ISOLATE / U+2069 POP DIRECTIONAL ISOLATE are the same
+// U+2066 LEFT-TO-RIGHT ISOLATE / U+2069 POP DIRECTIONAL ISOLATE are the same
 // isolation mechanism `<bdi>` uses under the hood, invisible, zero-width,
 // and safe to embed directly in a string that ends up as React text
 // content. Applied here, at the one shared interpolation point every
@@ -18,7 +18,7 @@ export type TranslationParams = Record<string, string | number>
 // each call site -- this is a systemic shape (disk space, heap, host
 // memory, and any future diagnostic message all interpolate a pre-
 // formatted "value + unit" string next to another one), not a one-off.
-const BIDI_ISOLATE_START = '⁦' // FIRST STRONG ISOLATE
+const BIDI_ISOLATE_START = '⁦' // LEFT-TO-RIGHT ISOLATE (U+2066)
 const BIDI_ISOLATE_END = '⁩' // POP DIRECTIONAL ISOLATE
 
 const PLACEHOLDER_NAME_RE = /\{\{\s*(\w+)\s*\}\}/g
@@ -101,4 +101,16 @@ export function resolveRegisteredTranslation(
         : resolvedValue
   }
   return i18n.t(key, { ns, ...resolved })
+}
+
+// For a value a call site interpolates through plain t() rather than
+// resolveRegisteredTranslation() -- a cron expression above all: it is
+// nothing but digits and the bidi-neutral '*', '/', ',' and '-', so inside
+// an RTL (ar) sentence "30 */4 * * *" is laid out as "* * * 4/* 30".
+// Wrapped in the same U+2066/U+2069 pair as above -- a left-to-right
+// isolate, which is what a cron needs (it has no strong character a
+// first-strong isolate could go by) -- and likewise only in an RTL
+// language, so every LTR string stays byte-identical.
+export function isolateLtrForRtl(value: string): string {
+  return isRTL(getCurrentLanguage()) ? `${BIDI_ISOLATE_START}${value}${BIDI_ISOLATE_END}` : value
 }

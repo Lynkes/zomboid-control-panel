@@ -64,7 +64,16 @@ describe("Scheduler: scheduled-backup skip note is cause-agnostic, not hardcoded
 
     await scheduler.setupBackupSchedule();
     expect(capturedBackupCallback).toBeTypeOf("function");
-    await capturedBackupCallback();
+    // The tick's same-second-restart settle (_onScheduledBackupTick()) is a
+    // real timer -- skipped past rather than waited out.
+    vi.useFakeTimers();
+    try {
+      const tick = capturedBackupCallback();
+      await vi.advanceTimersByTimeAsync(10 * 1000);
+      await tick;
+    } finally {
+      vi.useRealTimers();
+    }
     scheduler.backupJob?.stop();
 
     const call = logScheduleExecution.mock.calls.find(
