@@ -12,7 +12,6 @@
  * fails validation stays invalid even with the override set: a corrupted
  * or foreign document is a broken install, not something to paper over.
  */
-/* global PANEL_BRIDGE_WORKSHOP_JSON -- esbuild define (build.js), guarded with typeof */
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
