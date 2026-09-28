@@ -406,6 +406,40 @@ describe("Linux managed-service lifecycle", () => {
       expect(status.scanFailed).toBe(true);
       expect(status.running).toBe(false);
     });
+
+    // openrc-run.sh's _status(): 0 started, 3 stopped, 4 stopping, 8
+    // starting, 16 inactive, 32 crashed. Only 3 is a confirmed stop. A unit's
+    // confirmed answer outvotes RCON and PanelBridge in the status watchdog,
+    // so reading "stopping" as stopped announced a stop while the JVM (and
+    // its RCON and mod) were still shutting down.
+    it("does not report a service that is still stopping (exit 4) as a confirmed stop", async () => {
+      const status = await openrcLifecycle(
+        vi.fn(async () => ({ code: 4, stdout: "", stderr: " * status: stopping" })),
+      ).status();
+
+      expect(status).toMatchObject({ running: false, scanFailed: true, activeState: "deactivating" });
+    });
+
+    it("reports a service that is still starting (exit 8) as running, like systemd's activating", async () => {
+      const status = await openrcLifecycle(
+        vi.fn(async () => ({ code: 8, stdout: "", stderr: " * status: starting" })),
+      ).status();
+
+      expect(status).toMatchObject({ running: true, scanFailed: false, activeState: "activating" });
+    });
+
+    it("reports scanFailed for OpenRC states that say nothing reliable about the process (inactive, crashed, anything else)", async () => {
+      for (const [code, stderr] of [
+        [16, " * status: inactive"],
+        [32, " * status: crashed"],
+        [1, " * rc-service: service `zomboid-panel-server-alpha-1' does not exist"],
+      ]) {
+        const status = await openrcLifecycle(vi.fn(async () => ({ code, stdout: "", stderr }))).status();
+
+        expect(status, `exit ${code}`).toMatchObject({ running: false, scanFailed: true, activeState: "unknown" });
+        expect(status.error, `exit ${code}`).toBe(stderr.trim());
+      }
+    });
   });
 
   // 2026-09-08 harden-updater dispatch: status()'s scanFailed fix above only
@@ -480,6 +514,29 @@ describe("Linux managed-service lifecycle", () => {
       });
       // Shortcut taken -- only the one inspect() probe, no stop command issued.
       expect(execFile).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not confirm 'already stopped' while the service is still stopping -- issues the stop and waits for exit 3", async () => {
+      const codes = [4, 0, 4, 3];
+      const execFile = vi.fn(async (_command, args) =>
+        args.includes("stop") ? { code: 0, stdout: "", stderr: "" } : { code: codes.shift(), stdout: "", stderr: "" },
+      );
+      const lifecycle = new LinuxServiceLifecycle(server, "openrc", {
+        platform: "linux",
+        containerized: false,
+        fileExists: () => true,
+        readFile: () => `X-Zomboid-Panel-Server-ID: ${server.id}`,
+        execFile,
+        sleep: async () => {},
+      });
+
+      const result = await lifecycle.run("stop");
+
+      expect(result).toMatchObject({ success: true, confirmed: true });
+      expect(result.message).not.toBe("Server is already stopped");
+      expect(execFile).toHaveBeenCalledWith("rc-service", ["--user", "zomboid-panel-server-alpha-1", "stop"]);
+      // The pre-check (4), then the confirmation poll through 0 and 4 until 3.
+      expect(codes).toEqual([]);
     });
   });
 

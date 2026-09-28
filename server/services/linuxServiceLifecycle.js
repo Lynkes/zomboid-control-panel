@@ -360,6 +360,16 @@ function parseSystemdShow(stdout) {
   return values;
 }
 
+// openrc-run.sh's _status() exit codes that say something definite about
+// the service, as the systemd ActiveState inspect() reports for them. Any
+// code not listed here is "unknown" -- see inspect()'s OpenRC branch.
+const OPENRC_STATUS_ACTIVE_STATES = Object.freeze({
+  0: "active", // started
+  3: "inactive", // stopped
+  4: "deactivating", // stopping
+  8: "activating", // starting
+});
+
 export class LinuxServiceLifecycle {
   constructor(server, provider, options = {}) {
     if (!isManagedLifecycleProvider(provider)) {
@@ -480,21 +490,37 @@ export class LinuxServiceLifecycle {
     // activeState: "inactive", so status()'s `scanFailed: activeState ===
     // "unknown"` could never fire for OpenRC no matter what actually failed.
     const execFailed = Boolean(status.execFailed);
-    const running = registered && !execFailed && status.code === 0;
+    // `rc-service <svc> status` exits with openrc-run.sh's _status() code,
+    // and only 0 (started) and 3 (stopped) are settled answers. Every other
+    // code used to collapse into "inactive" -- a confirmed stop -- which is
+    // wrong for the transitional ones: while a Stop is still in progress
+    // (4) the JVM, its RCON listener and the PanelBridge mod can all still
+    // be up, and since a managed unit's own answer outvotes RCON and
+    // PanelBridge (serverStatusModel.js's isHostSignalAuthoritative), the
+    // watchdog announced "stopped" before the process had exited. So these
+    // map onto the systemd ActiveStates the rest of this file already
+    // handles: 4 -> "deactivating" (status() reports scanFailed, run()
+    // skips its "already stopped" shortcut) and 8 -> "activating"
+    // (running, as systemd reports a unit mid-start). 16 (inactive: OpenRC
+    // parked the start until a dependency comes up), 32 (crashed: the
+    // service is still marked started but the supervise-daemon it recorded
+    // is gone, and a child orphaned by that is not accounted for) and any
+    // other code (rc-service itself failing) say nothing reliable about the
+    // game process, so they are "unknown", never a confident stop.
+    const activeState = !registered
+      ? "not-found"
+      : execFailed
+        ? "unknown"
+        : OPENRC_STATUS_ACTIVE_STATES[status.code] || "unknown";
+    const running = ["active", "activating"].includes(activeState);
     const mainPid = running && markerMatches ? this.readSupervisedChildPid() : null;
     return {
       registered,
       running,
-      activeState: !registered
-        ? "not-found"
-        : execFailed
-          ? "unknown"
-          : status.code === 0
-            ? "active"
-            : "inactive",
+      activeState,
       markerMatches,
       ...(mainPid ? { mainPid } : {}),
-      error: execFailed || (status.code !== 0 && status.code !== 3)
+      error: activeState === "unknown"
         ? status.stderr.trim().slice(0, 300)
         : null,
     };

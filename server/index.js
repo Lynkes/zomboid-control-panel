@@ -3143,6 +3143,29 @@ export async function checkServerStatusNow(detectionReason = "watchdog") {
     // transitioned.
     const reannounceAfterUnknown = lastObservationWasUnknown;
     lastObservationWasUnknown = false;
+    // A stopped verdict that is new -- a running -> stopped transition, or
+    // this panel process's first observation (a panel restarted minutes
+    // after a quiet stop) -- means the PanelBridge heartbeat on disk was
+    // written by a process that is gone, and must stop counting as a live
+    // mod now, not up to five minutes from now (PanelBridge.markServerExited()).
+    // Not repeated on every stopped tick, so a live mod the scan can't
+    // attribute is never re-expired every 10s. Ordered BEFORE the
+    // server:status emit below: every page refetches the composed status
+    // (host/RCON/PanelBridge) on that push, and it must already read
+    // PanelBridge offline when they do.
+    if (running === false && lastKnownRunning !== false) {
+      panelBridge.markServerExited();
+    }
+    // The other half: a running server stops being described as stopped in
+    // the bridge diagnostics (PanelBridge.markServerRunning()), while the
+    // exited write itself stays dead until the new process writes. Every
+    // running tick rather than only a transition: a restart that pushes its
+    // own verified transitions can stop and relaunch the server between two
+    // ticks, so this watchdog never sees it stopped. Idempotent, and it
+    // never changes whether the mod counts as connected.
+    if (running === true) {
+      panelBridge.markServerRunning();
+    }
     if (runningChanged || phaseChanged || reannounceAfterUnknown) {
       log.info(
         runningChanged || phaseChanged

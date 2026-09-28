@@ -50,6 +50,7 @@ import { ProgressCode } from "../utils/progressCodes.js";
 import { invalidateMapFolderScan } from "./chunks.js";
 import { emitActionResult } from "./scheduler.js";
 import { autoInstallBridgeIfNeeded } from "../services/panelBridgeInstaller.js";
+import panelBridge from "../services/panelBridge.js";
 import { parseBoundedInteger } from "../utils/queryNumbers.js";
 import { confineToRoots } from "../utils/browseRoots.js";
 import { isContainerized } from "../utils/dockerDetect.js";
@@ -2105,6 +2106,23 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
   }
 });
 
+// The panel has just confirmed the active game server gone: a Docker or
+// systemd/openrc stop that only returns once it is, a kill that
+// serverManager.stopServer() confirmed, or the graceful-stop poll's
+// completed scan no longer finding the process. The mod's last status.json
+// write is from that process, so expire it now (PanelBridge.markServerExited())
+// instead of leaving it to the watchdog, which only does so on a stopped
+// VERDICT -- and while that heartbeat still read live, the verdict itself
+// ORed it back in as "running" whenever the host signal was not the final
+// word (a scan that failed right after the stop, a systemd server the plain
+// scan answered for), so PanelBridge Up and Stop stayed on screen for up to
+// five minutes. Called before checkServerStatusNow() so that re-check, and
+// the composed status every client refetches on its push, already read
+// PanelBridge offline.
+function expireExitedServerHeartbeat() {
+  panelBridge.markServerExited();
+}
+
 // Stop server (graceful via RCON)
 router.post("/stop", requirePermission("server.control"), async (req, res) => {
   // See /start's comment above for why this is fetched before the lock.
@@ -2191,6 +2209,7 @@ router.post("/stop", requirePermission("server.control"), async (req, res) => {
       // not just accepted, so this claim (including clearing serverManager's
       // cached run state) is honest as-is.
       serverManager?.markServerStopped?.();
+      expireExitedServerHeartbeat();
       const io = req.app.get("io");
       const checkServerStatusNow = req.app.get("checkServerStatusNow");
       if (typeof checkServerStatusNow === "function") {
@@ -2335,6 +2354,7 @@ function monitorGracefulStop({
       const forced = await serverManager.stopServer({ serverId });
       if (forced?.success && forced.confirmed !== false) {
         serverManager?.markServerStopped?.();
+        expireExitedServerHeartbeat();
         announceStopped("graceful-stop-escalated");
         await logServerEventBestEffort(
           "server_stop",
@@ -2363,7 +2383,16 @@ function monitorGracefulStop({
     try {
       const details = await serverManager.getServerProcessDetails();
       if (details && !details.scanFailed && details.running === false) {
+        // Still under the lifecycle lock, so the active server -- whose
+        // bridge this is -- cannot have been switched since the stop.
+        expireExitedServerHeartbeat();
         releaseLifecycleLock();
+        // This poll is the first thing to see the process gone. Without
+        // the nudge the stop reached clients only on the watchdog's next
+        // 10s tick whenever the one-shot RCON-disconnect re-check (3s after
+        // the connection drops) still caught PZ mid-save -- Stop stayed on
+        // screen that long after the process had already exited.
+        announceStopped("graceful-stop-confirmed");
         return;
       }
     } catch (error) {
@@ -2490,6 +2519,7 @@ router.post("/force-stop", requirePermission("server.control"), async (req, res)
     }
 
     serverManager?.markServerStopped?.();
+    expireExitedServerHeartbeat();
 
     const io = req.app.get("io");
     const checkServerStatusNow = req.app.get("checkServerStatusNow");

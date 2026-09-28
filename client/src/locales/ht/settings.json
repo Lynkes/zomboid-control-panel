@@ -399,6 +399,8 @@
       "fileNotReadable": "{{filename}} pa ka li: {{error}}",
       "statusFileMissing": "Fichye estati a manke. Demare sèvè jwèt la ak PanelBridge aktive.",
       "statusFileStale": "Fichye estati a demode ({{age}}) — èske sèvè PZ a ap kouri?",
+      "serverExited": "Sèvè jwèt la sispann. PanelBridge ap rekonekte lè sèvè a demare ankò.",
+      "bridgeSilentSinceStart": "Sèvè jwèt la te demare gen {{age}}, men PanelBridge poko voye okenn rapò. Li voye rapò lè mond lan fin chaje; si li rete an silans, verifye si PanelBridge nan lis mod aktif sèvè a.",
       "statusFileMetadataFailed": "Pa t ka li metadone fichye estati a: {{error}}",
       "healthy": "Koneksyon fichye bridge la sanble an sante."
     },

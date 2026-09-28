@@ -451,6 +451,8 @@
       "fileNotReadable": "{{filename}} n'est pas lisible : {{error}}",
       "statusFileMissing": "Le fichier de statut est manquant. Démarrez le serveur PZ avec PanelBridge activé.",
       "statusFileStale": "Le fichier de statut est obsolète ({{age}}) — le serveur PZ est-il en cours d'exécution ?",
+      "serverExited": "Le serveur de jeu est arrêté. PanelBridge se reconnectera au prochain démarrage du serveur.",
+      "bridgeSilentSinceStart": "Le serveur de jeu a démarré il y a {{age}}, mais PanelBridge n'a encore rien transmis. Il transmet son statut une fois le monde chargé ; s'il reste silencieux, vérifiez que PanelBridge figure dans la liste des mods actifs du serveur.",
       "statusFileMetadataFailed": "Impossible de lire les métadonnées du fichier de statut : {{error}}",
       "healthy": "La connexion au fichier du bridge semble saine."
     },
