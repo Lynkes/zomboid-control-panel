@@ -15,11 +15,14 @@ import {
   Check,
   Upload,
   FileText,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { NumberInput } from '@/components/NumberInput'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
 import { HelpTip } from '@/components/HelpTip'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -44,7 +47,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { useToast } from '@/components/ui/use-toast'
 import { useSocket } from '@/contexts/SocketContext'
-import { backupApi, serversApi, BackupStatus, ServerBackupArchive, BackupHistoryRecord, BackupSnapshot } from '@/lib/api'
+import { backupApi, serversApi, BackupStatus, ServerBackupArchive, BackupHistoryRecord, BackupSnapshot, type BackupScheduleValidation } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { PageHeader } from '@/components/PageHeader'
@@ -52,6 +55,31 @@ import { DisabledReason } from '@/components/DisabledReason'
 import { useAuth } from '@/contexts/AuthContext'
 import { EmptyState } from '@/components/EmptyState'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { BackupRestartOverlapNotice } from '@/components/BackupRestartOverlapNotice'
+import { scheduledBackupHealth } from '@/lib/scheduledBackupHealth'
+import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
+
+// The Backup Frequency presets, in menu order -- one list for the <Select>
+// and describeSchedule() so the two can't disagree about which expressions
+// have a friendly name.
+const SCHEDULE_PRESETS = [
+  ['*/15 * * * *', 'schedule.every15Min'],
+  ['*/30 * * * *', 'schedule.every30Min'],
+  ['0 * * * *', 'schedule.everyHour'],
+  ['0 */2 * * *', 'schedule.every2Hours'],
+  ['0 */4 * * *', 'schedule.every4Hours'],
+  ['0 */6 * * *', 'schedule.every6Hours'],
+  ['0 */8 * * *', 'schedule.every8Hours'],
+  ['0 */12 * * *', 'schedule.every12Hours'],
+  ['0 0 * * *', 'schedule.dailyMidnight'],
+  ['0 6 * * *', 'schedule.daily6am'],
+  ['0 12 * * *', 'schedule.dailyNoon'],
+  ['0 18 * * *', 'schedule.daily6pm'],
+] as const
+const PRESET_CRONS = new Set<string>(SCHEDULE_PRESETS.map(([cron]) => cron))
+// Radix <Select> values must be non-empty strings and can't collide with a
+// real cron expression.
+const CUSTOM_SCHEDULE_VALUE = 'custom'
 
 interface BackupProgress {
   phase: 'preparing' | 'archiving' | 'finalizing' | 'complete' | 'error'
@@ -156,6 +184,26 @@ export default function Backups() {
   // Settings state
   const [showSettings, setShowSettings] = useState(false)
   const [backupSchedule, setBackupSchedule] = useState('0 */6 * * *')
+  // Custom cron option (2026-09-27 community request): the frequency menu
+  // only offered presets, while Settings > Backups has always taken a raw
+  // cron expression -- the two pages edit the same saved schedule, so a
+  // custom one set there showed up here as an empty menu. `customSchedule`
+  // is the menu's own "Custom" choice; `customCron` is what's typed.
+  const [customSchedule, setCustomSchedule] = useState(false)
+  const [customCron, setCustomCron] = useState('')
+  // The last schedule loaded from the server. Status refetches happen on
+  // their own (a scheduled backup finishing, another tab's save) -- only a
+  // CHANGED saved schedule may overwrite the form, never one the operator
+  // is halfway through typing.
+  const loadedScheduleRef = useRef<string | null>(null)
+  // Live preview of the schedule being edited (POST /backup/validate-schedule):
+  // validity for a custom expression, next run, and the scheduled restarts it
+  // would land inside. Advisory -- same contract as the Scheduler page's cron
+  // preview: never blocks Save on its own, the server re-validates.
+  // Keyed by the schedule it answers for, so a verdict for what was typed a
+  // moment ago is never shown against what is typed now.
+  const [scheduleCheck, setScheduleCheck] = useState<{ schedule: string; result: BackupScheduleValidation } | null>(null)
+  const scheduleCheckIdRef = useRef(0)
   const [backupMaxCount, setBackupMaxCount] = useState(10)
   const [savingSettings, setSavingSettings] = useState(false)
 
@@ -178,7 +226,13 @@ export default function Backups() {
     try {
       const status = await backupApi.getStatus()
       setBackupStatus(status)
-      setBackupSchedule(status.schedule)
+      if (loadedScheduleRef.current !== status.schedule) {
+        loadedScheduleRef.current = status.schedule
+        setBackupSchedule(status.schedule)
+        const isPreset = PRESET_CRONS.has(status.schedule)
+        setCustomSchedule(!isPreset)
+        setCustomCron(isPreset ? '' : status.schedule)
+      }
       setBackupMaxCount(status.maxBackups)
       setLoadError(null)
       setBackupStatusLoadError(false)
@@ -623,6 +677,63 @@ export default function Backups() {
     }
   }
 
+  // What Save stores: the typed expression in Custom mode, else the preset.
+  const scheduleToSave = customSchedule ? customCron.trim() : backupSchedule
+  const currentScheduleCheck = scheduleCheck?.schedule === scheduleToSave ? scheduleCheck.result : null
+
+  // A rejected schedule, in the operator's language: the registered error
+  // code's translation, else the server's own sentence.
+  const scheduleCheckError = (check: { error?: string; code?: string }): string =>
+    (check.code && resolveRegisteredTranslation('errors', check.code, undefined)) ||
+    check.error ||
+    t('settingsPanel.customInvalid')
+
+  // Preview the schedule being edited as it changes. Debounced by the
+  // effect's own cleanup, with a generation counter so a slow answer can't
+  // land over a newer one -- the same shape as Scheduler.tsx's cron preview.
+  // Only while the settings panel is open: that's the only place it shows.
+  useEffect(() => {
+    if (!showSettings || !scheduleToSave) return
+    const checkId = ++scheduleCheckIdRef.current
+    const timer = setTimeout(() => {
+      backupApi.validateSchedule(scheduleToSave)
+        .then((result) => {
+          if (scheduleCheckIdRef.current !== checkId) return
+          setScheduleCheck({ schedule: scheduleToSave, result })
+        })
+        // Advisory only -- a failed preview says nothing about the schedule
+        // itself, so it just shows nothing; Save still validates server-side.
+        .catch(() => {
+          if (scheduleCheckIdRef.current !== checkId) return
+          setScheduleCheck(null)
+        })
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [showSettings, scheduleToSave])
+
+  const handleFrequencyChange = (value: string) => {
+    if (value === CUSTOM_SCHEDULE_VALUE) {
+      setCustomSchedule(true)
+      // Start from whatever was selected: turning "0 */4 * * *" into
+      // "30 */4 * * *" beats typing an expression from nothing.
+      setCustomCron((previous) => previous || backupSchedule)
+      return
+    }
+    setCustomSchedule(false)
+    setBackupSchedule(value)
+  }
+
+  // Next run in the scheduler's own timezone -- the zone the cron fields
+  // (and the restart-overlap times beside it) are written in -- so the three
+  // agree even when this browser sits in a different zone than the panel.
+  const formatInZone = (iso: string, timeZone: string): string => {
+    try {
+      return new Date(iso).toLocaleString(i18n.language, { timeZone, dateStyle: 'medium', timeStyle: 'short' })
+    } catch {
+      return formatDate(iso)
+    }
+  }
+
   const handleSaveSettings = async () => {
     if (!canManageBackups) return
     // pz-bughunt round 17: backupApi.updateSettings() resolves "the active
@@ -636,6 +747,26 @@ export default function Backups() {
       })
       return
     }
+    // A custom expression is checked against the server's own validator
+    // first, the same pre-check Scheduler.tsx runs before saving a task, so
+    // a typo gets its specific reason ("more often than every 5 minutes")
+    // instead of a generic failed save. Unreachable pre-check: fall through
+    // and let POST /settings -- which applies the identical rules -- decide.
+    if (customSchedule) {
+      try {
+        const check = await backupApi.validateSchedule(scheduleToSave)
+        if (!check.valid) {
+          toast({
+            title: t('toasts.planUpdateFailedTitle'),
+            description: scheduleCheckError(check),
+            variant: 'destructive',
+          })
+          return
+        }
+      } catch {
+        // See above -- the save itself is the final word.
+      }
+    }
     setSavingSettings(true)
     try {
       // pz-bughunt round 18: expectedServerId is defense in depth alongside
@@ -643,7 +774,7 @@ export default function Backups() {
       // backup.js's POST /settings for the server-side check this enables.
       await backupApi.updateSettings({
         enabled: backupStatus?.enabled || false,
-        schedule: backupSchedule,
+        schedule: scheduleToSave,
         maxBackups: backupMaxCount,
       }, activeServerId)
       await fetchBackupStatus()
@@ -733,10 +864,13 @@ export default function Backups() {
   // succeeding -- lastBackup only updates on a SUCCESSFUL run, so a run of
   // failures (bad cron, unreachable backupsPath, disk full) leaves this
   // card looking identical to a healthy one. Surface the newest scheduled
-  // attempt specifically when it failed.
-  const lastScheduledAttemptFailed = Boolean(
-    backupStatus?.enabled && backupStatus?.lastScheduledBackupAttempt && !backupStatus.lastScheduledBackupAttempt.success
-  )
+  // attempt specifically when it failed -- unless a backup has succeeded
+  // since, or it was only skipped for a restart (worded as that, not as a
+  // failure); see scheduledBackupHealth(), which the Dashboard shares.
+  const scheduledHealth = scheduledBackupHealth(backupStatus?.enabled, backupStatus?.lastScheduledBackupAttempt)
+  const lastScheduledAttemptFailed = scheduledHealth === 'failing'
+  const lastScheduledSkippedForRestart = scheduledHealth === 'skippedForRestart'
+  const backupDeferredSince = backupStatus?.enabled ? backupStatus.backupDeferredSince ?? null : null
   // bug-hunt-2026-09-08 (honest-unknown class): backupStatus is null both
   // before the first fetch resolves and after a confirmed failure -- only
   // the latter gets this treatment (matching Settings.tsx's own scheduled-
@@ -744,26 +878,15 @@ export default function Backups() {
   // "on schedule" copy rather than flashing "couldn't check" for a moment.
   const statusUnknown = !backupStatus && backupStatusLoadError
 
-  // Translate the small set of cron presets we expose into a human label.
-  // Falls back to the raw cron string for anything custom so the user
-  // still gets meaningful information without us shipping a full parser.
+  // Translate the cron presets we expose into a human label. Anything else
+  // is a custom expression, shown as one ("on a custom schedule (…)") rather
+  // than a bare cron string that reads like a glitch in the sentence around
+  // it -- no full cron-to-prose parser; the settings panel's next-run line
+  // is where a custom schedule gets spelled out.
   const describeSchedule = (cron: string | undefined): string => {
     if (!cron) return t('schedule.none')
-    const map: Record<string, string> = {
-      '*/15 * * * *': t('schedule.every15Min'),
-      '*/30 * * * *': t('schedule.every30Min'),
-      '0 * * * *': t('schedule.everyHour'),
-      '0 */2 * * *': t('schedule.every2Hours'),
-      '0 */4 * * *': t('schedule.every4Hours'),
-      '0 */6 * * *': t('schedule.every6Hours'),
-      '0 */8 * * *': t('schedule.every8Hours'),
-      '0 */12 * * *': t('schedule.every12Hours'),
-      '0 0 * * *': t('schedule.dailyMidnight'),
-      '0 6 * * *': t('schedule.daily6am'),
-      '0 12 * * *': t('schedule.dailyNoon'),
-      '0 18 * * *': t('schedule.daily6pm'),
-    }
-    return map[cron] || cron
+    const preset = SCHEDULE_PRESETS.find(([presetCron]) => presetCron === cron)
+    return preset ? t(preset[1]) : t('schedule.custom', { cron })
   }
 
   const totalSize = useMemo(() => {
@@ -945,7 +1068,7 @@ export default function Backups() {
             <div
               className={cn(
                 'grid place-items-center w-10 h-10 rounded-md border shrink-0',
-                lastScheduledAttemptFailed
+                lastScheduledAttemptFailed || lastScheduledSkippedForRestart
                   ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400'
                   : backupStatus?.enabled
                   ? 'border-primary/30 bg-primary/[0.06] text-primary'
@@ -953,7 +1076,7 @@ export default function Backups() {
               )}
               aria-hidden="true"
             >
-              {lastScheduledAttemptFailed ? <AlertTriangle className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
+              {lastScheduledAttemptFailed || lastScheduledSkippedForRestart ? <AlertTriangle className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('statusCards.autoBackup')}</p>
@@ -966,6 +1089,18 @@ export default function Backups() {
               {statusUnknown ? (
                 <p className="text-[11px] text-muted-foreground/80 truncate">
                   {t('backups.statusLoadFailed', { ns: 'settings' })}
+                </p>
+              ) : backupDeferredSince ? (
+                // Checked first: whatever the last attempt said, a backup is
+                // due right now and only waiting for a restart to end.
+                <p className="text-[11px] text-muted-foreground/80 truncate">
+                  {t('statusCards.deferredForRestart', { time: formatDate(backupDeferredSince) })}
+                </p>
+              ) : lastScheduledSkippedForRestart ? (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 truncate">
+                  {t('statusCards.lastScheduledSkippedForRestart', {
+                    time: formatDate(backupStatus!.lastScheduledBackupAttempt!.executedAt),
+                  })}
                 </p>
               ) : lastScheduledAttemptFailed ? (
                 <p
@@ -998,6 +1133,13 @@ export default function Backups() {
       </div>
       )}
 
+      {/* The saved schedule's restart collisions. While the settings panel is
+          open it shows the same notice for the schedule being edited
+          instead, so the two never sit on screen together. */}
+      {!showSettings && backupStatus?.enabled && (
+        <BackupRestartOverlapNotice overlaps={backupStatus.restartOverlaps} />
+      )}
+
       {/* Settings Panel (collapsible) */}
       {showSettings && (
         <Card className="border-primary/15">
@@ -1012,23 +1154,15 @@ export default function Backups() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="backup-schedule">{t('settingsPanel.frequencyLabel')}</Label>
-                <Select value={backupSchedule} onValueChange={setBackupSchedule}>
+                <Select value={customSchedule ? CUSTOM_SCHEDULE_VALUE : backupSchedule} onValueChange={handleFrequencyChange}>
                   <SelectTrigger id="backup-schedule" className="w-full">
                     <SelectValue placeholder={t('settingsPanel.frequencyPlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="*/15 * * * *">{t('schedule.every15Min')}</SelectItem>
-                    <SelectItem value="*/30 * * * *">{t('schedule.every30Min')}</SelectItem>
-                    <SelectItem value="0 * * * *">{t('schedule.everyHour')}</SelectItem>
-                    <SelectItem value="0 */2 * * *">{t('schedule.every2Hours')}</SelectItem>
-                    <SelectItem value="0 */4 * * *">{t('schedule.every4Hours')}</SelectItem>
-                    <SelectItem value="0 */6 * * *">{t('schedule.every6Hours')}</SelectItem>
-                    <SelectItem value="0 */8 * * *">{t('schedule.every8Hours')}</SelectItem>
-                    <SelectItem value="0 */12 * * *">{t('schedule.every12Hours')}</SelectItem>
-                    <SelectItem value="0 0 * * *">{t('schedule.dailyMidnight')}</SelectItem>
-                    <SelectItem value="0 6 * * *">{t('schedule.daily6am')}</SelectItem>
-                    <SelectItem value="0 12 * * *">{t('schedule.dailyNoon')}</SelectItem>
-                    <SelectItem value="0 18 * * *">{t('schedule.daily6pm')}</SelectItem>
+                    {SCHEDULE_PRESETS.map(([cron, labelKey]) => (
+                      <SelectItem key={cron} value={cron}>{t(labelKey)}</SelectItem>
+                    ))}
+                    <SelectItem value={CUSTOM_SCHEDULE_VALUE}>{t('schedule.customOption')}</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
@@ -1051,6 +1185,50 @@ export default function Backups() {
                 </p>
               </div>
             </div>
+            {customSchedule && (
+              <div className="space-y-2">
+                <Label htmlFor="backup-schedule-cron">{t('settingsPanel.customLabel')}</Label>
+                <Input
+                  id="backup-schedule-cron"
+                  value={customCron}
+                  onChange={(e) => setCustomCron(e.target.value)}
+                  placeholder={t('settingsPanel.customPlaceholder')}
+                  className="font-mono"
+                  maxLength={100}
+                  aria-describedby="backup-schedule-cron-hint"
+                />
+                <p id="backup-schedule-cron-hint" className="text-xs text-muted-foreground">
+                  {t('settingsPanel.customHint')}
+                </p>
+                {currentScheduleCheck && (
+                  <p
+                    className={cn('flex items-center gap-1.5 text-xs', currentScheduleCheck.valid ? 'text-primary' : 'text-destructive')}
+                    aria-live="polite"
+                  >
+                    {currentScheduleCheck.valid ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    ) : (
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    )}
+                    {currentScheduleCheck.valid ? t('settingsPanel.customValid') : scheduleCheckError(currentScheduleCheck)}
+                  </p>
+                )}
+              </div>
+            )}
+            {currentScheduleCheck?.valid && (
+              <div className="space-y-1 text-xs text-muted-foreground">
+                {currentScheduleCheck.nextRun && (
+                  <p className="flex items-center gap-1">
+                    <Clock className="h-3 w-3 shrink-0" aria-hidden="true" />
+                    {t('settingsPanel.nextRun', { date: formatInZone(currentScheduleCheck.nextRun, currentScheduleCheck.timezone) })}
+                  </p>
+                )}
+                <p>{t('settingsPanel.timezoneNotice', { tz: currentScheduleCheck.timezone })}</p>
+              </div>
+            )}
+            {currentScheduleCheck?.valid && (
+              <BackupRestartOverlapNotice overlaps={currentScheduleCheck.restartOverlaps} />
+            )}
             <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 text-xs text-muted-foreground">
                 {backupStatus?.savesPath && (

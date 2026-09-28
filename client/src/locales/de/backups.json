@@ -42,7 +42,9 @@
     "runsSchedule": "Läuft {{schedule}} · behält {{count}}",
     "noScheduled": "Keine geplanten Backups",
     "toggleAria": "Geplante Backups umschalten",
-    "lastScheduledAttemptFailed": "Letzter geplanter Versuch fehlgeschlagen ({{time}}): {{message}}"
+    "lastScheduledAttemptFailed": "Letzter geplanter Versuch fehlgeschlagen ({{time}}): {{message}}",
+    "deferredForRestart": "Fällig seit {{time}} – wartet, bis der Server-Neustart abgeschlossen ist",
+    "lastScheduledSkippedForRestart": "Letztes geplantes Backup wegen Neustart übersprungen ({{time}})"
   },
   "schedule": {
     "every15Min": "alle 15 Minuten",
@@ -57,6 +59,8 @@
     "daily6am": "täglich um 6 Uhr",
     "dailyNoon": "täglich mittags",
     "daily6pm": "täglich um 18 Uhr",
+    "customOption": "Benutzerdefiniert (Cron-Ausdruck)",
+    "custom": "nach eigenem Zeitplan ({{cron}})",
     "none": "Kein Zeitplan"
   },
   "settingsPanel": {
@@ -67,8 +71,21 @@
     "frequencyHelp": "Wie oft automatisch Backups erstellt werden sollen",
     "maxBackupsLabel": "Maximale Anzahl an Backups",
     "maxBackupsHelp": "Die ältesten Backups werden automatisch gelöscht, sobald das Limit erreicht ist",
+    "customLabel": "Cron-Ausdruck",
+    "customPlaceholder": "z. B. 30 3 * * *",
+    "customHint": "Format: Minute Stunde Tag Monat Wochentag. „30 3 * * *“ läuft täglich um 3:30 Uhr. Höchstens alle 5 Minuten.",
+    "customValid": "Gültiger Zeitplan",
+    "customInvalid": "Kein gültiger Cron-Ausdruck",
+    "nextRun": "Nächstes Backup: {{date}}",
+    "timezoneNotice": "Die Zeiten gelten in der Zeitzone des Panels, {{tz}} (änderbar unter Geplante Aufgaben).",
     "savesLabel": "Spielstände: {{path}}",
     "saveButton": "Einstellungen speichern"
+  },
+  "restartOverlap": {
+    "title": "Backups überschneiden sich mit einem geplanten Neustart",
+    "task": "Backups, die um {{backupTime}} fällig sind, fallen in den geplanten Neustart „{{name}}“ ({{restartTime}}).",
+    "autoRestart": "Backups, die um {{backupTime}} fällig sind, fallen in den periodischen Neustart ({{restartTime}}).",
+    "consequence": "Sie warten, bis der Neustart abgeschlossen ist, und laufen dann – meist ein paar Minuten zu spät. Damit sie pünktlich laufen, verschiebe einen der beiden Zeitpläne (zum Beispiel Backup um :30)."
   },
   "progress": {
     "startingFallback": "Backup wird gestartet...",

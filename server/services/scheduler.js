@@ -37,6 +37,10 @@ import {
 } from "../utils/cronValidation.js";
 import { computeNextRun } from "../utils/cronNextRun.js";
 import {
+  findBackupRestartOverlaps,
+  RESTART_TYPICAL_TAIL_MINUTES,
+} from "../utils/backupRestartOverlap.js";
+import {
   defaultRestartWarningSettings,
   formatRestartWarning,
   getRestartWarningNotice,
@@ -209,6 +213,29 @@ function onScheduleMissed(taskId, label, command, context) {
   );
 }
 
+// A scheduled backup that comes due while a restart is running waits for
+// it (see _onScheduledBackupTick()). How often it re-checks:
+const DEFERRED_BACKUP_POLL_MS = 5000;
+// How long past the running restart's own warning countdown that wait may
+// last before the restart is called stuck. performRestart()'s post-countdown
+// sequence is bounded by its own timeouts -- about a minute of final
+// countdown, the world save, up to ~70s for the old process to exit plus a
+// forced stop, up to 60s for the new one to appear and ~5 minutes of RCON
+// retries: 10-11 minutes at its slowest. 20 leaves room for a slow disk or
+// save without calling a healthy restart stuck.
+const RESTART_SEQUENCE_BUDGET_MS = 20 * 60 * 1000;
+// POST /scheduler/restart-now's own cap on the countdown. Only used if the
+// wait can't see the running restart's real countdown (defensive: both are
+// set together in performRestart()).
+const MAX_RESTART_WARNING_MINUTES = 60;
+
+// performRestart()'s countdown when its caller passes none -- every
+// scheduled task restart and AUTO_RESTART_CRON. One function so the
+// restart-overlap warning predicts the countdown performRestart() uses.
+function defaultRestartWarningMinutes() {
+  return parseInt(process.env.RESTART_WARNING_MINUTES, 10) || 5;
+}
+
 export class Scheduler {
   constructor(rconService, serverManager) {
     this.rconService = rconService;
@@ -219,9 +246,18 @@ export class Scheduler {
     this.jobs = new Map();
     this.jobLabels = new Map(); // task id -> human label, for reporting next run
     this.autoRestartJob = null;
+    this.autoRestartCron = null; // the expression autoRestartJob runs, for the overlap warning
     this.backupJob = null;
     this.modUpdateRestartPending = false;
     this.restartInProgress = false;
+    // {startedAt, warningMinutes} of the restart restartInProgress refers
+    // to -- lets a deferred backup tell a long countdown from a stuck
+    // restart. Set and cleared alongside restartInProgress.
+    this.activeRestart = null;
+    // {since, running} while a scheduled backup that came due mid-restart
+    // is waiting for (or running after) that restart -- see
+    // _deferScheduledBackupUntilRestartEnds().
+    this.deferredBackup = null;
     this.runningTasks = new Set(); // Track tasks currently executing to prevent duplicates
     // The install-wide timezone every cron.schedule() call in this class
     // uses, resolved (and migrated, if needed) once by resolveTimezone()
@@ -972,6 +1008,9 @@ export class Scheduler {
       this.backupJob.stop();
       this.backupJob = null;
     }
+    // ...and a backup still waiting out a restart: its wait loop checks
+    // this marker on every poll and simply ends once it's gone.
+    this.deferredBackup = null;
 
     log.info("All scheduled jobs stopped");
   }
@@ -1006,96 +1045,11 @@ export class Scheduler {
         return;
       }
 
-      this.backupJob = cron.schedule(settings.schedule, async () => {
-        // Linux bug hunt (2026-08-29, hunt-wave5, suspect 4 -- overlap):
-        // createBackup() zips whatever is currently on disk under savesPath
-        // with no awareness of restartInProgress, and performRestart()'s
-        // world-save (RCON `save`) + the server actively writing during
-        // shutdown both mutate files under that exact path. A scheduled
-        // backup firing during that window can archive a save mid-write --
-        // a corrupt or inconsistent snapshot that looks like a normal
-        // backup until someone tries to restore it. This is one-directional
-        // on purpose: deferring an AUTOMATIC backup by a few minutes is
-        // harmless (the next 12-hourly tick, or a manual "Create Backup
-        // Now", covers it), but making a RESTART wait on a backup would
-        // delay something an operator (or a mod-update trigger) may need
-        // to happen promptly -- see createBackup()'s own
-        // this.backupInProgress mutex for the backup<->restore direction
-        // this already guards; this closes the missing restart<->backup
-        // direction without touching that one.
-        if (this.restartInProgress) {
-          log.warn(
-            "Scheduled backup skipped: a restart is currently in progress (would risk archiving a save mid-write)",
-          );
-          await logScheduleExecution(
-            null,
-            "Scheduled Backup",
-            "backup",
-            false,
-            "Skipped: a restart was in progress",
-            0,
-          );
-          return;
-        }
-        log.info("Executing scheduled backup");
-        const startTime = Date.now();
-        try {
-          const result = await this.backupService.createBackup({
-            includeDb: settings.includeDb,
-          });
-          const duration = Date.now() - startTime;
-          if (result.success) {
-            // 2026-08-26 bug hunt: createBackup surfaces skipped files
-            // rather than deciding policy -- a scheduled backup tolerates a
-            // skip (same reasoning as the manual /backup/create route) but
-            // must not bury it inside a message that reads identically to a
-            // clean run, since Schedule History is the only place anyone
-            // would ever see it for an unattended backup.
-            //
-            // "that vanished during archiving" was accurate until 2026-08-29
-            // (bughunt-2026-08-31-c, completeness-claims-audit-followups):
-            // walkDirectory() now also records a deliberately-excluded
-            // symbolic link in this same skippedFiles array (see that
-            // function's own comment), and this message was never updated
-            // to match -- routes/backup.js's equivalent operator-facing
-            // warning was, the same day, in the same commit (445c15a5).
-            // Cause-agnostic now, matching that convention.
-            const skipNote = result.skippedFiles?.length
-              ? ` (${result.skippedFiles.length} file(s) not included -- a temp/log/lock file rewritten mid-backup, or a symbolic link deliberately not followed: ${result.skippedFiles.join(", ")})`
-              : "";
-            await logScheduleExecution(
-              null,
-              "Scheduled Backup",
-              "backup",
-              true,
-              `Created: ${result.backup.name}${skipNote}`,
-              duration,
-            );
-            log.info(`Scheduled backup completed: ${result.backup.name}${skipNote}`);
-          } else {
-            await logScheduleExecution(
-              null,
-              "Scheduled Backup",
-              "backup",
-              false,
-              result.message,
-              duration,
-            );
-            log.error(`Scheduled backup failed: ${result.message}`);
-          }
-        } catch (error) {
-          const duration = Date.now() - startTime;
-          await logScheduleExecution(
-            null,
-            "Scheduled Backup",
-            "backup",
-            false,
-            error.message,
-            duration,
-          );
-          log.error(`Scheduled backup error: ${error.message}`);
-        }
-      }, { timezone: this.effectiveTimezone });
+      this.backupJob = cron.schedule(
+        settings.schedule,
+        () => this._onScheduledBackupTick(settings),
+        { timezone: this.effectiveTimezone },
+      );
       this.backupJob.on("execution:missed", (context) =>
         onScheduleMissed(null, "Scheduled Backup", "backup", context),
       );
@@ -1112,6 +1066,260 @@ export class Scheduler {
     } catch (error) {
       log.error(`Failed to setup backup schedule: ${error.message}`);
     }
+  }
+
+  // One scheduled-backup cron tick.
+  //
+  // Linux bug hunt (2026-08-29, hunt-wave5, suspect 4 -- overlap):
+  // createBackup() zips whatever is on disk under savesPath, and
+  // performRestart()'s world save (RCON `save`), the server writing on its
+  // way down and the new instance loading the world back all touch files
+  // under that exact path. A backup taken inside that window can archive a
+  // save mid-write -- a corrupt or inconsistent snapshot that looks like a
+  // normal backup until someone tries to restore it. So a tick that lands
+  // mid-restart must not run right then.
+  //
+  // It used to be dropped instead, logged as a failed "Skipped: a restart
+  // was in progress" row. 2026-09-27 Discord report: with a restart
+  // schedule and the backup schedule on the same cadence (both every 4
+  // hours on the hour), EVERY tick collided -- the operator silently got no
+  // scheduled backups at all, plus a "Scheduled backup failing" warning
+  // nothing could clear. Now the tick waits for the restart and runs as
+  // soon as it is over.
+  //
+  // After the restart, not before it: running first would mean holding the
+  // restart's save/quit until the zip finished (minutes, for a big world),
+  // and a restart is often exactly what the operator or a mod-update
+  // trigger needs to happen now -- nothing makes a restart wait on a
+  // backup, on purpose (createBackup()'s own backupInProgress mutex covers
+  // the backup<->restore direction instead). After is also the better
+  // snapshot: performRestart() has just saved the world, and by the time it
+  // returns the old process is confirmed gone and the new one has loaded
+  // the world far enough to answer RCON (or the start failed and nothing is
+  // running) -- as settled as the files ever are, the same conditions every
+  // other scheduled backup runs under. That holds when the restart FAILED
+  // part-way too: whichever state it stopped in, nothing in the sequence is
+  // still writing, and right after a failed restart is when an operator
+  // most wants a fresh backup.
+  async _onScheduledBackupTick(settings) {
+    if (this.deferredBackup) {
+      // A tick landing while an earlier one is still waiting out (or
+      // running after) a restart folds into it: a second queued copy would
+      // only race the first into createBackup()'s "Backup already in
+      // progress" refusal and log a failure for a backup that IS happening.
+      log.info(
+        "Scheduled backup tick folded into the one already held back by a server restart",
+      );
+      return;
+    }
+    if (this.restartInProgress) {
+      await this._deferScheduledBackupUntilRestartEnds();
+      return;
+    }
+    log.info("Executing scheduled backup");
+    await this._runScheduledBackup(settings);
+  }
+
+  // Waits for the in-progress restart, then runs the backup that came due
+  // during it -- see _onScheduledBackupTick() for why after, not before.
+  // Bounded: a restart still going long after its own countdown plus
+  // RESTART_SEQUENCE_BUDGET_MS is stuck, not slow, and the backup then
+  // fails with a Schedule History row that says so, rather than waiting
+  // forever with nothing on screen.
+  async _deferScheduledBackupUntilRestartEnds() {
+    const deferredAt = Date.now();
+    const marker = { since: new Date(deferredAt).toISOString(), running: false };
+    this.deferredBackup = marker;
+    log.info(
+      "Scheduled backup deferred: a server restart is in progress -- it will run as soon as the restart finishes",
+    );
+    try {
+      for (;;) {
+        if (this.deferredBackup !== marker) return; // stopAllJobs() cancelled it
+        if (!this.restartInProgress) {
+          // Fresh settings, not the ones this tick was scheduled with: the
+          // operator may have turned scheduled backups off while it waited.
+          const settings = await this.backupService.getSettings();
+          if (this.deferredBackup !== marker) return;
+          if (!settings.enabled) {
+            log.info(
+              "Deferred scheduled backup dropped: scheduled backups were turned off while it waited",
+            );
+            return;
+          }
+          // Re-checked after that await: a restart starting in the gap
+          // would otherwise turn this into createBackup()'s own mid-restart
+          // refusal -- a logged failure -- instead of another wait.
+          if (!this.restartInProgress) {
+            marker.running = true;
+            await this._runScheduledBackup(settings, { deferredAt });
+            return;
+          }
+        }
+        if (Date.now() >= this._deferredBackupDeadline(deferredAt)) {
+          await this._logStuckRestartBackup(marker.since, deferredAt);
+          return;
+        }
+        await this.sleep(DEFERRED_BACKUP_POLL_MS);
+      }
+    } catch (error) {
+      // _runScheduledBackup() records its own failures; this is anything
+      // else (a settings read failing) -- still a backup that didn't
+      // happen, so it gets a row rather than vanishing into node-cron's
+      // own error handler.
+      log.error(`Deferred scheduled backup error: ${error.message}`);
+      await logScheduleExecution(
+        null,
+        "Scheduled Backup",
+        "backup",
+        false,
+        `Not run: ${error.message}`,
+        Date.now() - deferredAt,
+      ).catch(() => {});
+    } finally {
+      if (this.deferredBackup === marker) this.deferredBackup = null;
+    }
+  }
+
+  // Measured from the running restart's own start and countdown, not from
+  // when the backup began waiting: a backup that came due at minute 55 of a
+  // 60-minute manual countdown shouldn't get a fresh hour of patience, and
+  // one that came due during a 5-minute scheduled restart shouldn't sit for
+  // an hour before anyone hears the restart is stuck. Re-read on every poll,
+  // so a second restart starting right as the first ends gets its own
+  // budget.
+  _deferredBackupDeadline(deferredAt) {
+    const restart = this.activeRestart;
+    if (restart) {
+      return restart.startedAt + restart.warningMinutes * 60000 + RESTART_SEQUENCE_BUDGET_MS;
+    }
+    return deferredAt + MAX_RESTART_WARNING_MINUTES * 60000 + RESTART_SEQUENCE_BUDGET_MS;
+  }
+
+  async _logStuckRestartBackup(dueAt, deferredAt) {
+    const waited = Date.now() - deferredAt;
+    const restart = this.activeRestart;
+    const restartNote = restart
+      ? `a server restart that began at ${new Date(restart.startedAt).toISOString()} with a ${restart.warningMinutes}-minute warning`
+      : "a server restart";
+    const message =
+      `Not run: this backup came due at ${dueAt} during ${restartNote}, and that restart still had not finished ${Math.round(waited / 60000)} min later -- ` +
+      "far longer than a restart takes, so it looks stuck. Check the server's status, then create a backup manually.";
+    log.error(`Scheduled backup -- ${message}`);
+    await logScheduleExecution(null, "Scheduled Backup", "backup", false, message, waited);
+  }
+
+  async _runScheduledBackup(settings, { deferredAt = null } = {}) {
+    const startTime = Date.now();
+    // Schedule History is the only place an unattended backup's story is
+    // told -- a held-back run says so, instead of looking like it simply
+    // fired late for no reason.
+    let lateNote = "";
+    if (deferredAt != null) {
+      const waitedMinutes = Math.round((startTime - deferredAt) / 60000);
+      lateNote = ` -- held back until a server restart that was running at its scheduled time finished (${waitedMinutes < 1 ? "under a minute" : `${waitedMinutes} min`} later)`;
+    }
+    try {
+      const result = await this.backupService.createBackup({
+        includeDb: settings.includeDb,
+      });
+      const duration = Date.now() - startTime;
+      if (result.success) {
+        // 2026-08-26 bug hunt: createBackup surfaces skipped files
+        // rather than deciding policy -- a scheduled backup tolerates a
+        // skip (same reasoning as the manual /backup/create route) but
+        // must not bury it inside a message that reads identically to a
+        // clean run, since Schedule History is the only place anyone
+        // would ever see it for an unattended backup.
+        //
+        // "that vanished during archiving" was accurate until 2026-08-29
+        // (bughunt-2026-08-31-c, completeness-claims-audit-followups):
+        // walkDirectory() now also records a deliberately-excluded
+        // symbolic link in this same skippedFiles array (see that
+        // function's own comment), and this message was never updated
+        // to match -- routes/backup.js's equivalent operator-facing
+        // warning was, the same day, in the same commit (445c15a5).
+        // Cause-agnostic now, matching that convention.
+        const skipNote = result.skippedFiles?.length
+          ? ` (${result.skippedFiles.length} file(s) not included -- a temp/log/lock file rewritten mid-backup, or a symbolic link deliberately not followed: ${result.skippedFiles.join(", ")})`
+          : "";
+        await logScheduleExecution(
+          null,
+          "Scheduled Backup",
+          "backup",
+          true,
+          `Created: ${result.backup.name}${skipNote}${lateNote}`,
+          duration,
+        );
+        log.info(`Scheduled backup completed: ${result.backup.name}${skipNote}${lateNote}`);
+      } else {
+        await logScheduleExecution(
+          null,
+          "Scheduled Backup",
+          "backup",
+          false,
+          `${result.message}${lateNote}`,
+          duration,
+        );
+        log.error(`Scheduled backup failed: ${result.message}${lateNote}`);
+      }
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      await logScheduleExecution(
+        null,
+        "Scheduled Backup",
+        "backup",
+        false,
+        `${error.message}${lateNote}`,
+        duration,
+      );
+      log.error(`Scheduled backup error: ${error.message}${lateNote}`);
+    }
+  }
+
+  // When a scheduled backup is waiting out a restart (see
+  // _deferScheduledBackupUntilRestartEnds()), the moment it came due --
+  // null otherwise, including once it has started running. Surfaced by GET
+  // /api/backup/status so the Backups page can say "waiting for the
+  // restart" instead of looking like the schedule simply didn't fire.
+  getDeferredBackupSince() {
+    const marker = this.deferredBackup;
+    return marker && !marker.running ? marker.since : null;
+  }
+
+  // Every schedule that ends up in performRestart() on its own:
+  // user-scheduled `restart` tasks and AUTO_RESTART_CRON. Tasks targeting a
+  // server other than the active one count too -- restartInProgress is one
+  // flag for the whole panel, so their restarts hold backups back as well.
+  async _getRestartSchedules() {
+    const restarts = [];
+    try {
+      const tasks = await getScheduledTasks();
+      for (const task of tasks || []) {
+        if (task.enabled && classifyScheduledCommand(task.command) === "restart") {
+          restarts.push({ kind: "task", name: task.name || null, cron: task.cron_expression });
+        }
+      }
+    } catch (error) {
+      log.debug(`Could not read scheduled tasks for the restart-overlap check: ${error.message}`);
+    }
+    if (this.autoRestartJob && this.autoRestartCron) {
+      restarts.push({ kind: "autoRestart", name: null, cron: this.autoRestartCron });
+    }
+    return restarts;
+  }
+
+  // Which scheduled restarts `backupCron` keeps firing inside of (see
+  // findBackupRestartOverlaps()) -- those backups are held back until the
+  // restart finishes, so they run late. Advisory: the Backups/Scheduler
+  // pages show it so the operator can stagger the two if they care.
+  async getBackupRestartOverlaps(backupCron) {
+    if (!backupCron) return [];
+    const restarts = await this._getRestartSchedules();
+    return findBackupRestartOverlaps(backupCron, restarts, {
+      timezone: this.effectiveTimezone,
+      windowMinutes: defaultRestartWarningMinutes() + RESTART_TYPICAL_TAIL_MINUTES,
+    });
   }
 
   setupAutoRestart() {
@@ -1137,6 +1345,7 @@ export class Scheduler {
     }
 
     // Schedule the actual restart
+    this.autoRestartCron = cronExpression;
     this.autoRestartJob = cron.schedule(cronExpression, async () => {
       log.info("Executing scheduled auto-restart");
       try {
@@ -1164,7 +1373,7 @@ export class Scheduler {
           // with nothing due, the exact silent-refusal shape already fixed
           // for runTaskNow()'s self-overlap case (see its own comment
           // above) and for the scheduled backup's restart-overlap skip
-          // (setupBackupSchedule()'s cron callback above).
+          // (since replaced by a deferral -- see _onScheduledBackupTick()).
           //
           // continuous-bug-hunt round 19 (duplicate Schedule History row):
           // the ORIGINAL round-17 fix above logged unconditionally on
@@ -1375,11 +1584,12 @@ export class Scheduler {
     // (pinnedServerId, resolved above), not the shared singleton
     // unconditionally.
     serverManager.stopIntent = "restart";
-    const warningMinutes =
-      warningMinutesParam ??
-      (parseInt(process.env.RESTART_WARNING_MINUTES, 10) || 5);
+    const warningMinutes = warningMinutesParam ?? defaultRestartWarningMinutes();
     const restartWarning = normalizeRestartWarningSettings(this.restartWarning);
     const restartStartTime = Date.now();
+    // Still synchronous with the restartInProgress set above, so a deferred
+    // scheduled backup never sees the flag without this.
+    this.activeRestart = { startedAt: restartStartTime, warningMinutes };
 
     // pinnedServerId (resolved above, before the restartInProgress check) is
     // also what the restart logic below pins the actual start/stop target
@@ -2084,6 +2294,7 @@ export class Scheduler {
       throw error;
     } finally {
       this.restartInProgress = false;
+      this.activeRestart = null;
       lifecycleLock.release();
     }
   }

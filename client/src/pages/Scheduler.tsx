@@ -69,6 +69,7 @@ import { NumberInput } from '@/components/NumberInput'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { DisabledReason } from '@/components/DisabledReason'
 import { HelpTip } from '@/components/HelpTip'
+import { BackupRestartOverlapNotice } from '@/components/BackupRestartOverlapNotice'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
 
@@ -1445,15 +1446,29 @@ export default function Scheduler() {
             <div className="mt-2 space-y-1 rounded-md border border-border/50 bg-muted/20 px-3 py-2">
               <p className="text-xs font-medium text-foreground/80">{t('timezone.backupHealthTitle')}</p>
               {backupStatus?.lastScheduledBackupAttempt ? (
-                <p className={`flex items-center gap-1 text-xs ${backupStatus.lastScheduledBackupAttempt.success ? 'text-muted-foreground' : 'text-destructive'}`}>
+                // A restart skip (panels up to v1.3.8 dropped a backup that
+                // landed on a restart) is amber and worded as a skip, not a
+                // red failure: nothing broke.
+                <p className={cn(
+                  'flex items-center gap-1 text-xs',
+                  backupStatus.lastScheduledBackupAttempt.success
+                    ? 'text-muted-foreground'
+                    : backupStatus.lastScheduledBackupAttempt.skipReason === 'restart'
+                      ? 'text-amber-600 dark:text-amber-400'
+                      : 'text-destructive',
+                )}>
                   {backupStatus.lastScheduledBackupAttempt.success ? (
                     <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
+                  ) : backupStatus.lastScheduledBackupAttempt.skipReason === 'restart' ? (
+                    <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
                   ) : (
                     <XCircle className="w-3 h-3 shrink-0" aria-hidden="true" />
                   )}
                   <span className="truncate">
                     {backupStatus.lastScheduledBackupAttempt.success
                       ? t('timezone.backupLastAttemptOk', { date: new Date(backupStatus.lastScheduledBackupAttempt.executedAt).toLocaleString(i18n.language) })
+                      : backupStatus.lastScheduledBackupAttempt.skipReason === 'restart'
+                      ? t('timezone.backupLastAttemptSkippedForRestart', { date: new Date(backupStatus.lastScheduledBackupAttempt.executedAt).toLocaleString(i18n.language) })
                       : t('timezone.backupLastAttemptFailed', {
                           date: new Date(backupStatus.lastScheduledBackupAttempt.executedAt).toLocaleString(i18n.language),
                           reason: backupStatus.lastScheduledBackupAttempt.message || t('scheduledTasks.lastRunFailedUnknownReason'),
@@ -1469,6 +1484,10 @@ export default function Scheduler() {
                   <span className="truncate">{t('timezone.backupNextRun', { date: new Date(status.backupNextRun).toLocaleString(i18n.language) })}</span>
                 </p>
               )}
+              {/* This page is where restarts get scheduled, so it's where an
+                  operator stacking one on top of the backup schedule needs to
+                  hear that those backups will wait for it and run late. */}
+              <BackupRestartOverlapNotice overlaps={backupStatus?.restartOverlaps} className="mt-2" />
             </div>
           )}
         </CardContent>

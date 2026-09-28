@@ -24,7 +24,9 @@ import {
 // rather than ever surfacing it. A dedicated min-aware variant, not a
 // change to expandCronField itself -- that function's 0-based contract is
 // correct and load-bearing for its OWN callers (minute/hour fields).
-function expandCronFieldRanged(field, min, max) {
+// Exported for backupRestartOverlap.js, which needs the same day-level
+// field expansion to decide whether two schedules can fire on the same day.
+export function expandCronFieldRanged(field, min, max) {
   const values = new Set();
   for (const part of field.split(",")) {
     const match = /^(\*|\d+)(?:-(\d+))?(?:\/(\d+))?$/.exec(part);

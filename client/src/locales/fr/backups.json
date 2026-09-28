@@ -43,7 +43,9 @@
     "runsSchedule": "S'exécute {{schedule}} · conserve {{count}}",
     "noScheduled": "Aucune sauvegarde planifiée",
     "toggleAria": "Activer/désactiver les sauvegardes planifiées",
-    "lastScheduledAttemptFailed": "Dernière tentative planifiée échouée ({{time}}) : {{message}}"
+    "lastScheduledAttemptFailed": "Dernière tentative planifiée échouée ({{time}}) : {{message}}",
+    "deferredForRestart": "Prévue le {{time}} — en attente de la fin du redémarrage du serveur",
+    "lastScheduledSkippedForRestart": "Dernière sauvegarde planifiée sautée pendant un redémarrage ({{time}})"
   },
   "schedule": {
     "every15Min": "toutes les 15 minutes",
@@ -58,6 +60,8 @@
     "daily6am": "chaque jour à 6 h",
     "dailyNoon": "chaque jour à midi",
     "daily6pm": "chaque jour à 18 h",
+    "customOption": "Personnalisée (expression cron)",
+    "custom": "selon une planification personnalisée ({{cron}})",
     "none": "Aucune planification"
   },
   "settingsPanel": {
@@ -68,8 +72,21 @@
     "frequencyHelp": "Fréquence de création automatique des sauvegardes",
     "maxBackupsLabel": "Nombre maximum de sauvegardes à conserver",
     "maxBackupsHelp": "Le panneau supprime automatiquement les sauvegardes les plus anciennes lorsque cette limite est atteinte",
+    "customLabel": "Expression cron",
+    "customPlaceholder": "ex. : 30 3 * * *",
+    "customHint": "Format : minute heure jour mois jour de la semaine. « 30 3 * * * » s'exécute chaque jour à 3 h 30. Au plus une fois toutes les 5 minutes.",
+    "customValid": "Planification valide",
+    "customInvalid": "Expression cron non valide",
+    "nextRun": "Prochaine sauvegarde : {{date}}",
+    "timezoneNotice": "Les horaires suivent le fuseau horaire du panneau, {{tz}} (modifiable dans Tâches planifiées).",
     "savesLabel": "Sauvegardes de jeu : {{path}}",
     "saveButton": "Enregistrer les paramètres"
+  },
+  "restartOverlap": {
+    "title": "Des sauvegardes chevauchent un redémarrage planifié",
+    "task": "Les sauvegardes prévues à {{backupTime}} tombent pendant le redémarrage planifié « {{name}} » ({{restartTime}}).",
+    "autoRestart": "Les sauvegardes prévues à {{backupTime}} tombent pendant le redémarrage périodique ({{restartTime}}).",
+    "consequence": "Elles attendent la fin du redémarrage puis s'exécutent, en général avec quelques minutes de retard. Pour qu'elles restent à l'heure, décalez l'une des deux planifications (par exemple, une sauvegarde à :30)."
   },
   "progress": {
     "startingFallback": "Démarrage de la sauvegarde...",

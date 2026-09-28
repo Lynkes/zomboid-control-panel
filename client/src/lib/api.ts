@@ -3221,17 +3221,53 @@ export interface BackupStatus extends BackupSettings {
   // entry for the backup job, independent of whether it actually produced a
   // file. `lastBackup` above stays silent about a scheduler that has been
   // failing every attempt; this is what lets the UI say so.
-  lastScheduledBackupAttempt: {
-    success: boolean;
-    message: string | null;
-    executedAt: string;
-  } | null;
+  lastScheduledBackupAttempt: ScheduledBackupAttempt | null;
   // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): composed
   // at the route layer from the scheduler instance's own getBackupNextRun()
   // (server/routes/backup.js's GET /status) -- null whenever backups are
   // disabled (no schedule to compute a next run from).
   backupNextRun?: string | null;
+  // Same route-layer composition: the scheduled restarts the saved schedule
+  // keeps firing inside (those backups wait for the restart and run late),
+  // empty when backups are off; and when a scheduled backup is waiting on a
+  // restart right now, the moment it came due. Optional -- older servers
+  // don't send them.
+  restartOverlaps?: BackupRestartOverlap[];
+  backupDeferredSince?: string | null;
 }
+
+export interface ScheduledBackupAttempt {
+  success: boolean;
+  message: string | null;
+  executedAt: string;
+  // 'restart' for the old "Skipped: a restart was in progress" rows panels
+  // up to v1.3.8 wrote -- a skip, not a backup that broke. Current servers
+  // hold such a backup until the restart ends instead of skipping it.
+  skipReason?: 'restart' | null;
+  // Set when a backup (manual or scheduled) succeeded AFTER this failed
+  // attempt -- the failure no longer leaves the world without a fresh backup.
+  recoveredAt?: string | null;
+}
+
+// A scheduled restart the backup schedule collides with (server/utils/
+// backupRestartOverlap.js). Times are "HH:MM" in the scheduler's timezone:
+// the first restart fire time with a backup inside it, and that backup.
+export interface BackupRestartOverlap {
+  kind: 'task' | 'autoRestart';
+  name: string | null;
+  cron: string;
+  restartTime: string;
+  backupTime: string;
+}
+
+export type BackupScheduleValidation =
+  | {
+      valid: true;
+      nextRun: string | null;
+      timezone: string;
+      restartOverlaps: BackupRestartOverlap[];
+    }
+  | { valid: false; error?: string; code?: string };
 
 // backup.js/backupService.js's own shape (full .zip server backups --
 // listBackups()/createBackup() in backupService.js) -- distinct from
@@ -3286,6 +3322,12 @@ export const backupApi = {
       "/backup/settings",
       expectedServerId !== undefined ? { ...settings, expectedServerId } : settings,
     ),
+
+  // Live preview of a backup schedule (preset or custom cron): the same
+  // verdict POST /backup/settings applies, plus next run and the scheduled
+  // restarts it would land inside. Advisory -- saving re-validates.
+  validateSchedule: (schedule: string): Promise<BackupScheduleValidation> =>
+    apiPost("/backup/validate-schedule", { schedule }),
 
   // Create a manual backup. POST /backup/create awaits the full archive
   // (server/routes/backup.js -> backupService.createBackup()) before

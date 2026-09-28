@@ -169,6 +169,8 @@
     "reviewMods": "Egzamine mods",
     "noBackups": "Pa gen kopi sovgad",
     "backupAttemptFailing": "Kopi sovgad pwograme a echwe",
+    "backupSkippedForRestart": "Kopi sovgad pwograme a sote pandan yon redemaraj",
+    "backupSkippedForRestartDetail": "Lè li te dwe fèt, sèvè a t ap redemare, kidonk li pa t kouri. Kounye a, yon kopi sovgad ki tonbe sou yon redemaraj ap tann li fini. Kreye yon kopi sovgad pou efase avètisman sa a.",
     "reviewBackups": "Egzamine kopi sovgad"
   },
   "panelUpdateBanner": {
@@ -294,6 +296,7 @@
     "backupsStoredLast_one": "{{count}} sere, dènye {{age}}",
     "backupsStoredLast_other": "{{count}} sere, dènye {{age}}",
     "backupsAttemptFailed": "tantativ echwe, {{age}}",
+    "backupsSkippedForRestart": "sote akoz redemaraj, {{age}}",
     "scheduleNoneActive": "okenn aktif",
     "scheduleActive_one": "{{count}} aktif",
     "scheduleActive_other": "{{count}} aktif"

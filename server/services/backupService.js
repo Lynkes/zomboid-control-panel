@@ -19,12 +19,17 @@ import {
 } from "../database/init.js";
 import { sanitizeError } from "../utils/sanitize.js";
 import { captureBackupSnapshot } from "../utils/backupSnapshot.js";
-import { addBackupRecord, removeBackupRecord } from "./backupRecords.js";
+import {
+  addBackupRecord,
+  listBackupRecords,
+  removeBackupRecord,
+} from "./backupRecords.js";
 import { invalidateMapFolderScan } from "../routes/chunks.js";
 import {
   isCronTooFrequent,
   isSupportedFiveFieldCron,
 } from "../utils/cronValidation.js";
+import { LEGACY_RESTART_SKIP_MESSAGE } from "../utils/backupRestartOverlap.js";
 
 // Dynamic import for unzipper (CommonJS module)
 let unzipper;
@@ -1414,6 +1419,34 @@ export class BackupService {
       ? await getLatestScheduleExecutionByCommand("backup")
       : null;
 
+    // A failed scheduled attempt stops being a live problem the moment ANY
+    // backup succeeds after it -- a manual "Create Backup", a pre-restore
+    // safety backup, or a later scheduled run. Before this, only the next
+    // successful SCHEDULED run could clear the warning: manual backups never
+    // write Schedule History, so "try doing a backup" (the obvious advice,
+    // and the maintainer's, in the 2026-09-27 Discord report) left
+    // "Scheduled backup failing" on the Dashboard regardless. Read from the
+    // persisted backup records rather than lastBackup: a record is written
+    // only when createBackup() itself succeeds, whereas lastBackup can come
+    // from a listing whose newest file was merely uploaded (its timestamp
+    // says nothing about when the world was last actually backed up).
+    let recoveredAt = null;
+    if (lastScheduledAttempt && !lastScheduledAttempt.success) {
+      try {
+        const [newest] = await listBackupRecords({
+          serverId: lastScheduledAttempt.server_id ?? undefined,
+          limit: 1,
+        });
+        const failedAt = Date.parse(lastScheduledAttempt.executed_at);
+        const createdAt = Date.parse(newest?.createdAt);
+        if (Number.isFinite(failedAt) && Number.isFinite(createdAt) && createdAt > failedAt) {
+          recoveredAt = newest.createdAt;
+        }
+      } catch (error) {
+        log.debug(`Could not read backup records for the scheduled-attempt status: ${error.message}`);
+      }
+    }
+
     return {
       ...settings,
       backupInProgress: this.backupInProgress,
@@ -1428,6 +1461,17 @@ export class BackupService {
             success: !!lastScheduledAttempt.success,
             message: lastScheduledAttempt.message,
             executedAt: lastScheduledAttempt.executed_at,
+            // 'restart' for the pre-deferral "skipped, a restart was in
+            // progress" rows (see LEGACY_RESTART_SKIP_MESSAGE) -- not a
+            // backup that broke, and the UI words it that way. Current code
+            // never writes a skip: it holds the backup until the restart
+            // ends (scheduler.js _onScheduledBackupTick()).
+            skipReason:
+              !lastScheduledAttempt.success &&
+              lastScheduledAttempt.message === LEGACY_RESTART_SKIP_MESSAGE
+                ? "restart"
+                : null,
+            recoveredAt,
           }
         : null,
     };

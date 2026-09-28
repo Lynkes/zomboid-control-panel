@@ -249,6 +249,8 @@
     "reviewMods": "Переглянути моди",
     "noBackups": "Немає резервних копій",
     "backupAttemptFailing": "Заплановане резервне копіювання не вдається",
+    "backupSkippedForRestart": "Заплановане резервне копіювання пропущено через перезапуск",
+    "backupSkippedForRestartDetail": "Його час настав під час перезапуску сервера, тож воно не виконалося. Тепер копіювання, що припадає на перезапуск, чекає його завершення. Створіть резервну копію, щоб прибрати це попередження.",
     "reviewBackups": "Переглянути резервні копії",
     "modUpdatesWaiting_few": "{{count}} оновлень модів очікують",
     "modUpdatesWaiting_many": "{{count}} оновлень модів очікують"
@@ -378,6 +380,7 @@
     "backupsStoredLast_one": "{{count}} збережено, остання {{age}}",
     "backupsStoredLast_other": "{{count}} збережено, остання {{age}}",
     "backupsAttemptFailed": "спроба невдала, {{age}}",
+    "backupsSkippedForRestart": "пропущено через перезапуск, {{age}}",
     "scheduleNoneActive": "немає активних",
     "scheduleActive_one": "{{count}} активне",
     "scheduleActive_other": "{{count}} активних",

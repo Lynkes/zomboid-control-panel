@@ -212,6 +212,8 @@
     "reviewMods": "Revisar mods",
     "noBackups": "Sin copias de seguridad",
     "backupAttemptFailing": "La copia de seguridad programada está fallando",
+    "backupSkippedForRestart": "Copia de seguridad programada omitida por un reinicio",
+    "backupSkippedForRestartDetail": "Le tocaba mientras el servidor se reiniciaba, así que no se ejecutó. Ahora, una copia de seguridad que coincide con un reinicio espera a que termine. Crea una copia de seguridad para quitar este aviso.",
     "reviewBackups": "Revisar copias de seguridad",
     "modUpdatesWaiting_many": "{{count}} actualizaciones de mod pendientes"
   },
@@ -339,6 +341,7 @@
     "backupsStoredLast_one": "{{count}} almacenada, última {{age}}",
     "backupsStoredLast_other": "{{count}} almacenadas, última {{age}}",
     "backupsAttemptFailed": "intento fallido, {{age}}",
+    "backupsSkippedForRestart": "omitida por reinicio, {{age}}",
     "scheduleNoneActive": "ninguna activa",
     "scheduleActive_one": "{{count}} activa",
     "scheduleActive_other": "{{count}} activas",

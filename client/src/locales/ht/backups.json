@@ -42,7 +42,9 @@
     "runsSchedule": "Fonksyone {{schedule}} · kenbe {{count}}",
     "noScheduled": "Pa gen kopi sovgad pwograme",
     "toggleAria": "Aktive/dezaktive kopi sovgad pwograme",
-    "lastScheduledAttemptFailed": "Dènye tantativ pwograme echwe ({{time}}): {{message}}"
+    "lastScheduledAttemptFailed": "Dènye tantativ pwograme echwe ({{time}}): {{message}}",
+    "deferredForRestart": "Te dwe fèt {{time}} — ap tann sèvè a fin redemare",
+    "lastScheduledSkippedForRestart": "Dènye kopi sovgad pwograme a sote pandan yon redemaraj ({{time}})"
   },
   "schedule": {
     "every15Min": "chak 15 minit",
@@ -57,6 +59,8 @@
     "daily6am": "chak jou a 6è nan maten",
     "dailyNoon": "chak jou a midi",
     "daily6pm": "chak jou a 6è nan aswè",
+    "customOption": "Pèsonalize (ekspresyon cron)",
+    "custom": "sou yon orè pèsonalize ({{cron}})",
     "none": "Pa gen orè"
   },
   "settingsPanel": {
@@ -67,8 +71,21 @@
     "frequencyHelp": "Kantite fwa pou kreye kopi sovgad otomatikman",
     "maxBackupsLabel": "Maksimòm Kopi Sovgad pou Kenbe",
     "maxBackupsHelp": "Kopi sovgad ki pi ansyen yo ap efase otomatikman lè limit la rive",
+    "customLabel": "Ekspresyon cron",
+    "customPlaceholder": "pa egzanp: 30 3 * * *",
+    "customHint": "Fòma: minit èdtan jou mwa jou semèn. \"30 3 * * *\" kouri chak jou a 3:30. Pa plis pase yon fwa chak 5 minit.",
+    "customValid": "Orè valid",
+    "customInvalid": "Se pa yon ekspresyon cron valid",
+    "nextRun": "Pwochen kopi sovgad: {{date}}",
+    "timezoneNotice": "Lè yo nan orè a swiv fizo orè panèl la, {{tz}} (ou ka chanje l nan Tach Pwograme).",
     "savesLabel": "Sovgad: {{path}}",
     "saveButton": "Sove Paramèt"
+  },
+  "restartOverlap": {
+    "title": "Kopi sovgad yo tonbe sou yon redemaraj pwograme",
+    "task": "Kopi sovgad ki pou fèt a {{backupTime}} tonbe pandan redemaraj pwograme \"{{name}}\" ({{restartTime}}).",
+    "autoRestart": "Kopi sovgad ki pou fèt a {{backupTime}} tonbe pandan redemaraj peryodik la ({{restartTime}}).",
+    "consequence": "Yo tann redemaraj la fini, epi yo kouri apre, anjeneral kèk minit an reta. Pou yo kouri alè, deplase youn nan de orè yo (pa egzanp, fè kopi sovgad la a :30)."
   },
   "progress": {
     "startingFallback": "Ap kòmanse kopi sovgad...",

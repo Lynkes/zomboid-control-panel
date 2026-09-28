@@ -42,7 +42,9 @@
     "runsSchedule": "{{schedule}}執行 · 保留 {{count}} 份",
     "noScheduled": "沒有計劃備份",
     "toggleAria": "切換計劃備份",
-    "lastScheduledAttemptFailed": "上次排程任務失敗（{{time}}）：{{message}}"
+    "lastScheduledAttemptFailed": "上次排程任務失敗（{{time}}）：{{message}}",
+    "deferredForRestart": "應於 {{time}} 執行——正在等待伺服器重新啟動完成",
+    "lastScheduledSkippedForRestart": "上次排程備份因重新啟動而略過（{{time}}）"
   },
   "schedule": {
     "every15Min": "每 15 分鐘",
@@ -57,6 +59,8 @@
     "daily6am": "每天 6 點",
     "dailyNoon": "每天正午",
     "daily6pm": "每天 18 點",
+    "customOption": "自訂（cron 表示式）",
+    "custom": "按自訂排程（{{cron}}）",
     "none": "無計劃"
   },
   "settingsPanel": {
@@ -67,8 +71,21 @@
     "frequencyHelp": "自動建立備份的頻率",
     "maxBackupsLabel": "最大保留備份數",
     "maxBackupsHelp": "達到數量上限後，最舊的備份將被自動刪除",
+    "customLabel": "cron 表示式",
+    "customPlaceholder": "例如：30 3 * * *",
+    "customHint": "格式：分鐘 小時 日 月 星期。「30 3 * * *」表示每天 3:30 執行。最多每 5 分鐘一次。",
+    "customValid": "排程有效",
+    "customInvalid": "不是有效的 cron 表示式",
+    "nextRun": "下次備份：{{date}}",
+    "timezoneNotice": "排程時間依面板時區 {{tz}} 計算（可在「排程任務」中變更）。",
     "savesLabel": "存檔：{{path}}",
     "saveButton": "儲存設定"
+  },
+  "restartOverlap": {
+    "title": "備份與排程重新啟動時間重疊",
+    "task": "{{backupTime}} 的備份落在排程重新啟動「{{name}}」（{{restartTime}}）期間。",
+    "autoRestart": "{{backupTime}} 的備份落在定期自動重新啟動（{{restartTime}}）期間。",
+    "consequence": "這些備份會等重新啟動完成後再執行，通常會晚幾分鐘。若要準時執行，請錯開兩個排程中的一個（例如在 :30 備份）。"
   },
   "progress": {
     "startingFallback": "正在開始備份…",
