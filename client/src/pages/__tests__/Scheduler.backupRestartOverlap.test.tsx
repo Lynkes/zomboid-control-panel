@@ -10,7 +10,9 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 // restart was in progress" failure. The Scheduler page -- where restarts get
 // scheduled -- now says when the backup schedule lands inside a scheduled
 // restart (GET /backup/status's restartOverlaps), and shows an old restart
-// skip as a skip rather than a red failure.
+// skip as a skip rather than a red failure. A failed attempt that a later
+// backup has since made up for (recoveredAt -- what the Dashboard tells the
+// operator to do) is shown as history, muted, not as a live red failure.
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -95,14 +97,20 @@ describe('Scheduler.tsx: the backup-health block explains restart interactions',
     backupGetStatus.mockResolvedValue({
       lastScheduledBackupAttempt: { success: true, message: 'Created: a.zip', executedAt: '2026-09-27T08:05:00.000Z' },
       restartOverlaps: [
-        { kind: 'task', name: 'Restart every 4h', cron: '0 */4 * * *', restartTime: '00:00', backupTime: '00:00' },
+        {
+          kind: 'task', name: 'Restart every 4h', cron: '0 */4 * * *', restartTime: '00:00', backupTime: '00:00',
+          allBackups: true, windowMinutes: 10,
+        },
       ],
     } as unknown as Awaited<ReturnType<typeof backupApi.getStatus>>)
 
     renderScheduler()
 
-    expect(await screen.findByText('Backups overlap a scheduled restart')).toBeInTheDocument()
-    expect(screen.getByText('Backups due at 00:00 fall inside the scheduled restart "Restart every 4h" (00:00).')).toBeInTheDocument()
+    // A warning here: this page is where the restart times get chosen.
+    expect(await screen.findByText('Backups overlap a scheduled restart')).toHaveClass('text-warning')
+    expect(screen.getByText(
+      'Every scheduled backup lands inside the scheduled restart "Restart every 4h" (for example, the 00:00 backup, during the 00:00 restart).',
+    )).toBeInTheDocument()
   })
 
   it('shows an old restart skip as a skip, not "Last attempt failed"', async () => {
@@ -121,5 +129,45 @@ describe('Scheduler.tsx: the backup-health block explains restart interactions',
     expect(await screen.findByText(/Last attempt skipped for a restart ·/)).toBeInTheDocument()
     expect(screen.queryByText(/Last attempt failed/)).not.toBeInTheDocument()
     expect(screen.queryByText('Backups overlap a scheduled restart')).not.toBeInTheDocument()
+  })
+
+  it('mutes a failed attempt that a later backup has made up for, and says so -- the Dashboard and Backups page call it resolved too', async () => {
+    await baseMocks()
+    getTasks.mockResolvedValue({ tasks: [] })
+    enabledBackupStatus()
+    backupGetStatus.mockResolvedValue({
+      lastScheduledBackupAttempt: {
+        success: false, message: 'Backup destination unreachable', executedAt: '2026-09-27T04:00:00.000Z',
+        skipReason: null, recoveredAt: '2026-09-27T05:00:00.000Z',
+      },
+      restartOverlaps: [],
+    } as unknown as Awaited<ReturnType<typeof backupApi.getStatus>>)
+
+    renderScheduler()
+
+    const failed = await screen.findByText(/Last attempt failed · .* — Backup destination unreachable/)
+    const line = failed.closest('p')!
+    expect(line).not.toHaveClass('text-destructive')
+    expect(line).toHaveClass('text-muted-foreground')
+    expect(screen.getByText(/^A backup has succeeded since · /)).toBeInTheDocument()
+  })
+
+  it('still shows an unrecovered failure in red', async () => {
+    await baseMocks()
+    getTasks.mockResolvedValue({ tasks: [] })
+    enabledBackupStatus()
+    backupGetStatus.mockResolvedValue({
+      lastScheduledBackupAttempt: {
+        success: false, message: 'Backup destination unreachable', executedAt: '2026-09-27T04:00:00.000Z',
+        skipReason: null, recoveredAt: null,
+      },
+      restartOverlaps: [],
+    } as unknown as Awaited<ReturnType<typeof backupApi.getStatus>>)
+
+    renderScheduler()
+
+    const failed = await screen.findByText(/Last attempt failed · .* — Backup destination unreachable/)
+    expect(failed.closest('p')).toHaveClass('text-destructive')
+    expect(screen.queryByText(/A backup has succeeded since/)).not.toBeInTheDocument()
   })
 })

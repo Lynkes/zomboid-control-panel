@@ -83,9 +83,13 @@
   },
   "restartOverlap": {
     "title": "备份与计划重启时间重叠",
-    "task": "{{backupTime}} 的备份落在计划重启“{{name}}”（{{restartTime}}）期间。",
-    "autoRestart": "{{backupTime}} 的备份落在定期自动重启（{{restartTime}}）期间。",
-    "consequence": "这些备份会等重启完成后再运行，通常会晚几分钟。若要准时运行，请错开两个计划中的一个（例如在 :30 备份）。"
+    "task": "部分计划备份落在计划重启“{{name}}”期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "taskAll": "所有计划备份都落在计划重启“{{name}}”期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "taskUnnamed": "部分计划备份落在某个计划重启期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "taskUnnamedAll": "所有计划备份都落在某个计划重启期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "autoRestart": "部分计划备份落在定期自动重启期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "autoRestartAll": "所有计划备份都落在定期自动重启期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "consequence": "这些备份会被暂缓到重启完成后再运行，因此通常会晚几分钟。若要准时运行，请让重启的计划时间与下一次备份至少相隔 {{minutes}} 分钟（例如在 :30 备份，或在 :05 重启）。"
   },
   "progress": {
     "startingFallback": "正在开始备份…",

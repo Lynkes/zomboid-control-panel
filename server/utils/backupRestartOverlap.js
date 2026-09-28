@@ -2,8 +2,8 @@
 // Linux/Docker operator: "Scheduled backup failing -- Skipped: a restart was
 // in progress", with a restart schedule and a backup schedule both firing
 // every 4 hours on the hour). scheduler.js holds a scheduled backup back
-// while performRestart() is running (see setupBackupSchedule()'s own
-// comment for why a backup must not archive the save mid-restart); this file
+// while performRestart() is running (see _onScheduledBackupTick() in
+// scheduler.js for why a backup must not archive the save mid-restart); this file
 // is the read-only half of that story -- recognising the old skip rows, and
 // predicting, from the two cron expressions alone, which restart schedules a
 // backup schedule keeps landing inside, so the Backups/Scheduler pages can
@@ -125,6 +125,59 @@ function firstOverlap(backup, restart, start, windowMinutes) {
   return null;
 }
 
+// Whether EVERY backup the schedule fires over the same horizon lands
+// inside one of this restart schedule's windows (today's restarts, or one
+// from the day before whose window reaches past midnight). The notice
+// otherwise quotes only the first colliding pair, and "the 00:00 backup"
+// alone reads as if only the midnight one were affected -- with both on
+// "0 */4 * * *" (the reported setup) it is all six a day.
+function everyBackupOverlaps(backup, restart, start, windowMinutes) {
+  // coverToday[m]: a restart firing earlier the same day still covers
+  // minute m; coverFromYesterday[m]: one from the previous day does.
+  const coverToday = new Uint8Array(MINUTES_PER_DAY);
+  const coverFromYesterday = new Uint8Array(MINUTES_PER_DAY);
+  for (const restartMinute of restart.list) {
+    for (let delta = 0; delta < windowMinutes; delta++) {
+      const at = restartMinute + delta;
+      if (at < MINUTES_PER_DAY) coverToday[at] = 1;
+      else coverFromYesterday[at - MINUTES_PER_DAY] = 1;
+    }
+  }
+
+  let sawBackup = false;
+  for (let offset = 0; offset < HORIZON_DAYS; offset++) {
+    const today = localDate(start, offset);
+    if (!firesOnDay(backup, today.year, today.month, today.day)) continue;
+    const yesterday = localDate(start, offset - 1);
+    const restartToday = firesOnDay(restart, today.year, today.month, today.day);
+    const restartYesterday = firesOnDay(
+      restart,
+      yesterday.year,
+      yesterday.month,
+      yesterday.day,
+    );
+    for (const backupMinute of backup.list) {
+      sawBackup = true;
+      const covered =
+        (restartToday && coverToday[backupMinute]) ||
+        (restartYesterday && coverFromYesterday[backupMinute]);
+      if (!covered) return false;
+    }
+  }
+  return sawBackup;
+}
+
+// The longest stretch, in minutes, between two consecutive backup fire
+// times of a day (wrapping from the last one to the next day's first).
+function longestBackupGap(backup) {
+  const { list } = backup;
+  let longest = list[0] + MINUTES_PER_DAY - list[list.length - 1];
+  for (let i = 1; i < list.length; i++) {
+    longest = Math.max(longest, list[i] - list[i - 1]);
+  }
+  return longest;
+}
+
 function formatMinuteOfDay(minuteOfDay) {
   const pad = (value) => String(value).padStart(2, "0");
   return `${pad(Math.floor(minuteOfDay / 60))}:${pad(minuteOfDay % 60)}`;
@@ -135,7 +188,9 @@ function formatMinuteOfDay(minuteOfDay) {
  * fires inside of -- at the same minute as the restart, or within
  * `windowMinutes` after it. One entry per overlapping restart schedule, with
  * the first colliding pair of local times ("HH:MM") as an example the UI can
- * quote. Empty when nothing overlaps or either expression can't be parsed
+ * quote, `allBackups` when every backup collides (not just that one), and
+ * the window itself (how far apart the operator needs to move the two).
+ * Empty when nothing overlaps or either expression can't be parsed
  * (advisory only: a missed warning costs a late backup, never a lost one --
  * the scheduler defers colliding backups regardless of what this predicts).
  */
@@ -154,6 +209,14 @@ export function findBackupRestartOverlaps(
     start = zonedDateParts(from, "UTC");
   }
   const window = Math.max(1, Math.floor(windowMinutes));
+  // A backup schedule that never leaves `window` minutes without a run
+  // ("*/5" against the default 10-minute window) lands on every restart no
+  // matter how the two are staggered, so the notice's advice can't apply --
+  // and nothing is late in any sense that matters: the held-back run
+  // starts as soon as the restart ends, around when the next tick or two
+  // were due anyway (those fold into it). Warning about that would be a
+  // permanent banner with no fix.
+  if (longestBackupGap(backup) <= window) return [];
 
   const overlaps = [];
   for (const restart of restarts) {
@@ -167,6 +230,8 @@ export function findBackupRestartOverlaps(
       cron: restart.cron,
       restartTime: formatMinuteOfDay(hit.restartMinute),
       backupTime: formatMinuteOfDay(hit.backupMinute),
+      allBackups: everyBackupOverlaps(backup, parsed, start, window),
+      windowMinutes: window,
     });
   }
   return overlaps;

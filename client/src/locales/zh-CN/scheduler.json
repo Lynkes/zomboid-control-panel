@@ -210,6 +210,7 @@
     "backupLastAttemptOk": "上次尝试成功 · {{date}}",
     "backupLastAttemptFailed": "上次尝试失败 · {{date}} — {{reason}}",
     "backupLastAttemptSkippedForRestart": "上次尝试因重启被跳过 · {{date}}",
+    "backupRecoveredSince": "此后已有备份成功 · {{date}}",
     "backupNoAttemptYet": "尚未运行过计划备份",
     "backupNextRun": "下次运行 · {{date}}",
     "savedDesc": "计划现在按 {{tz}} 运行。",

@@ -83,9 +83,13 @@
   },
   "restartOverlap": {
     "title": "Backups overlap a scheduled restart",
-    "task": "Backups due at {{backupTime}} fall inside the scheduled restart \"{{name}}\" ({{restartTime}}).",
-    "autoRestart": "Backups due at {{backupTime}} fall inside the periodic auto-restart ({{restartTime}}).",
-    "consequence": "They wait for the restart to finish, then run, usually a few minutes late. To keep them on time, move one of the two schedules (for example, back up at :30)."
+    "task": "Some scheduled backups land inside the scheduled restart \"{{name}}\" (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "taskAll": "Every scheduled backup lands inside the scheduled restart \"{{name}}\" (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "taskUnnamed": "Some scheduled backups land inside a scheduled restart (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "taskUnnamedAll": "Every scheduled backup lands inside a scheduled restart (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "autoRestart": "Some scheduled backups land inside the periodic auto-restart (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "autoRestartAll": "Every scheduled backup lands inside the periodic auto-restart (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "consequence": "Those backups are held until the restart finishes, so they usually run a few minutes late. To keep them on time, leave at least {{minutes}} min between a restart's scheduled time and the next backup (for example, back up at :30, or restart at :05)."
   },
   "progress": {
     "startingFallback": "Starting backup...",

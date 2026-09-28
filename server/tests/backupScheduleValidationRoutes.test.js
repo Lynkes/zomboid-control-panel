@@ -10,9 +10,20 @@ import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
 // carry the restart-overlap warning (scheduled restarts the schedule lands
 // inside), and GET /status carries it for the saved schedule.
 
+// A custom role on top of the three seeded ones: may run backups but not
+// the Scheduler (no automation.manage) -- the case the restart-overlap
+// redaction below exists for.
+const BACKUP_OPERATOR_ROLE = {
+  id: "role-backup-operator",
+  name: "backup-operator",
+  capabilities: ["backups.manage", "backups.download"],
+  isSeeded: false,
+};
+
 vi.mock("../database/init.js", () => ({
   getActiveServer: vi.fn(),
-  getRoleByName: mockGetRoleByName,
+  getRoleByName: async (name) =>
+    name === BACKUP_OPERATOR_ROLE.name ? BACKUP_OPERATOR_ROLE : mockGetRoleByName(name),
 }));
 
 const { default: router } = await import("../routes/backup.js");
@@ -58,6 +69,8 @@ const OVERLAP = {
   cron: "0 */4 * * *",
   restartTime: "00:00",
   backupTime: "00:00",
+  allBackups: true,
+  windowMinutes: 10,
 };
 
 beforeEach(() => {
@@ -76,8 +89,8 @@ beforeEach(() => {
   };
 });
 
-const request = (body) => ({
-  user: { role: "admin" },
+const request = (body, role = "admin") => ({
+  user: { role },
   body,
   app: { get: (key) => services[key] },
 });
@@ -151,5 +164,45 @@ describe("GET /backup/status -- restart interactions for the saved schedule", ()
     res = await runRoute("/status", "get", request(undefined));
     expect(res.getStatusCode()).toBe(200);
     expect(res.getBody().restartOverlaps).toEqual([]);
+  });
+});
+
+describe("who may preview a schedule, and who sees which restart it collides with", () => {
+  it("refuses POST /validate-schedule without backups.manage, before any overlap work", async () => {
+    const res = await runRoute(
+      "/validate-schedule",
+      "post",
+      request({ schedule: "0 */4 * * *" }, "moderator"),
+    );
+
+    expect(res.getStatusCode()).toBe(403);
+    expect(res.getBody()).toEqual(expect.objectContaining({ code: "PERMISSION_DENIED" }));
+    expect(services.scheduler.getBackupRestartOverlaps).not.toHaveBeenCalled();
+  });
+
+  it("keeps the restart task's name and cron for a caller who can read the Scheduler", async () => {
+    const res = await runRoute(
+      "/validate-schedule",
+      "post",
+      request({ schedule: "0 */4 * * *" }, "technician"),
+    );
+
+    expect(res.getBody().restartOverlaps).toEqual([OVERLAP]);
+  });
+
+  it("drops the task's name and cron -- keeping the warning itself -- for a backups-only role", async () => {
+    const redacted = { ...OVERLAP, name: null, cron: null };
+
+    let res = await runRoute(
+      "/validate-schedule",
+      "post",
+      request({ schedule: "0 */4 * * *" }, BACKUP_OPERATOR_ROLE.name),
+    );
+    expect(res.getStatusCode()).toBe(200);
+    expect(res.getBody().restartOverlaps).toEqual([redacted]);
+
+    res = await runRoute("/status", "get", request(undefined, BACKUP_OPERATOR_ROLE.name));
+    expect(res.getStatusCode()).toBe(200);
+    expect(res.getBody().restartOverlaps).toEqual([redacted]);
   });
 });

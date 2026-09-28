@@ -13,10 +13,46 @@ const find = (backupCron, restarts, windowMinutes = 10) =>
   findBackupRestartOverlaps(backupCron, restarts, { timezone: "UTC", windowMinutes, from: FROM });
 
 describe("findBackupRestartOverlaps", () => {
-  it("flags the reported collision: both every 4 hours on the hour", () => {
+  it("flags the reported collision: both every 4 hours on the hour -- and says it is EVERY backup", () => {
     expect(find("0 */4 * * *", [task("0 */4 * * *", "Restart every 4h")])).toEqual([
-      { kind: "task", name: "Restart every 4h", cron: "0 */4 * * *", restartTime: "00:00", backupTime: "00:00" },
+      {
+        kind: "task",
+        name: "Restart every 4h",
+        cron: "0 */4 * * *",
+        restartTime: "00:00",
+        backupTime: "00:00",
+        allBackups: true,
+        windowMinutes: 10,
+      },
     ]);
+  });
+
+  it("says SOME backups when only part of the schedule collides", () => {
+    // Backups at 00/06/12/18 against restarts at 00/04/08/12/16/20: the
+    // 00:00 and 12:00 backups collide, the 06:00 and 18:00 ones don't.
+    expect(find("0 */6 * * *", [task("0 */4 * * *")])).toEqual([
+      expect.objectContaining({ restartTime: "00:00", backupTime: "00:00", allBackups: false }),
+    ]);
+    // Every 15 minutes against a daily 04:00 restart: one backup a day.
+    expect(find("*/15 * * * *", [task("0 4 * * *")])).toEqual([
+      expect.objectContaining({ restartTime: "04:00", backupTime: "04:00", allBackups: false }),
+    ]);
+  });
+
+  it("counts a backup covered by the previous day's restart window as colliding", () => {
+    // Restart 23:55 daily, backup 00:02 daily: every backup falls in the
+    // window that started the evening before.
+    expect(find("2 0 * * *", [task("55 23 * * *")])).toEqual([
+      expect.objectContaining({ allBackups: true }),
+    ]);
+  });
+
+  it("stays quiet when the backup never leaves a restart-window-sized gap -- no staggering could avoid it, and the held run is no later than the next tick", () => {
+    expect(find("*/5 * * * *", [task("0 */4 * * *")])).toEqual([]);
+    expect(find("*/10 * * * *", [task("0 */4 * * *")])).toEqual([]);
+    // Runs further apart than the window: staggering CAN avoid it (a
+    // restart at :05 against backups at :00/:15/:30/:45), so it warns.
+    expect(find("*/15 * * * *", [task("0 */4 * * *")])).toHaveLength(1);
   });
 
   it("flags a backup a few minutes into the restart's window, not one after it", () => {

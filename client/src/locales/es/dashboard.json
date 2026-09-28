@@ -213,7 +213,7 @@
     "noBackups": "Sin copias de seguridad",
     "backupAttemptFailing": "La copia de seguridad programada está fallando",
     "backupSkippedForRestart": "Copia de seguridad programada omitida por un reinicio",
-    "backupSkippedForRestartDetail": "Le tocaba mientras el servidor se reiniciaba, así que no se ejecutó. Ahora, una copia de seguridad que coincide con un reinicio espera a que termine. Crea una copia de seguridad para quitar este aviso.",
+    "backupSkippedForRestartHelp": "Le tocaba mientras el servidor se reiniciaba, así que no se ejecutó. Crear una copia de seguridad quita este aviso.",
     "reviewBackups": "Revisar copias de seguridad",
     "modUpdatesWaiting_many": "{{count}} actualizaciones de mod pendientes"
   },

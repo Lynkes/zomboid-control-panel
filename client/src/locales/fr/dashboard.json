@@ -213,7 +213,7 @@
     "noBackups": "Aucune sauvegarde",
     "backupAttemptFailing": "Sauvegarde planifiée en échec",
     "backupSkippedForRestart": "Sauvegarde planifiée sautée pendant un redémarrage",
-    "backupSkippedForRestartDetail": "Elle est arrivée à échéance pendant le redémarrage du serveur et ne s'est pas exécutée. Désormais, une sauvegarde qui tombe pendant un redémarrage attend qu'il se termine. Créez une sauvegarde pour effacer cet avertissement.",
+    "backupSkippedForRestartHelp": "Elle est arrivée à échéance pendant le redémarrage du serveur et ne s'est pas exécutée. Créer une sauvegarde efface cet avertissement.",
     "reviewBackups": "Vérifier les sauvegardes",
     "modUpdatesWaiting_many": "{{count}} mises à jour de mods en attente"
   },

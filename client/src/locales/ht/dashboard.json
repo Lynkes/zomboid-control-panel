@@ -170,7 +170,7 @@
     "noBackups": "Pa gen kopi sovgad",
     "backupAttemptFailing": "Kopi sovgad pwograme a echwe",
     "backupSkippedForRestart": "Kopi sovgad pwograme a sote pandan yon redemaraj",
-    "backupSkippedForRestartDetail": "Lè li te dwe fèt, sèvè a t ap redemare, kidonk li pa t kouri. Kounye a, yon kopi sovgad ki tonbe sou yon redemaraj ap tann li fini. Kreye yon kopi sovgad pou efase avètisman sa a.",
+    "backupSkippedForRestartHelp": "Lè li te dwe fèt, sèvè a t ap redemare, kidonk li pa t kouri. Kreye yon kopi sovgad efase avètisman sa a.",
     "reviewBackups": "Egzamine kopi sovgad"
   },
   "panelUpdateBanner": {

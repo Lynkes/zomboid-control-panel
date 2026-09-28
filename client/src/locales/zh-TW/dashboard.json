@@ -212,7 +212,7 @@
     "noBackups": "暫無備份",
     "backupAttemptFailing": "排程備份失敗",
     "backupSkippedForRestart": "排程備份因重新啟動而略過",
-    "backupSkippedForRestartDetail": "它在伺服器重新啟動期間到期，因此沒有執行。現在，遇到重新啟動的備份會等重新啟動完成後再執行。建立一次備份即可清除此提示。",
+    "backupSkippedForRestartHelp": "它在伺服器重新啟動期間到期，因此沒有執行。建立一次備份即可清除此提示。",
     "reviewBackups": "檢視備份"
   },
   "panelUpdateBanner": {

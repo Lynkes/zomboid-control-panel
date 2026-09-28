@@ -1101,6 +1101,20 @@ export class Scheduler {
   // part-way too: whichever state it stopped in, nothing in the sequence is
   // still writing, and right after a failed restart is when an operator
   // most wants a fresh backup.
+  //
+  // Only a tick that already SEES restartInProgress is held back. When the
+  // backup and a restart are due in the same second, node-cron arms one
+  // heartbeat timer per job, so which callback runs first isn't
+  // guaranteed -- and performRestart() sets the flag only after its own
+  // `await getActiveServer()` (a scheduled restart task has more awaits
+  // before that). If the backup wins that race it starts immediately and
+  // runs through the restart's warning countdown instead: fine for a zip
+  // that finishes within the countdown (5 minutes by default), still an
+  // overlap with the world save/quit for one that outlasts it. Closing
+  // that fully would mean performRestart() waiting on an in-flight
+  // scheduled backup, the reverse of the one-directional rule above -- so
+  // the Backups/Scheduler pages' overlap notice says "usually" and
+  // recommends staggering the two schedules instead of promising the wait.
   async _onScheduledBackupTick(settings) {
     if (this.deferredBackup) {
       // A tick landing while an earlier one is still waiting out (or
@@ -1157,7 +1171,7 @@ export class Scheduler {
           }
         }
         if (Date.now() >= this._deferredBackupDeadline(deferredAt)) {
-          await this._logStuckRestartBackup(marker.since, deferredAt);
+          await this._logStuckRestartBackup(deferredAt);
           return;
         }
         await this.sleep(DEFERRED_BACKUP_POLL_MS);
@@ -1196,14 +1210,20 @@ export class Scheduler {
     return deferredAt + MAX_RESTART_WARNING_MINUTES * 60000 + RESTART_SEQUENCE_BUDGET_MS;
   }
 
-  async _logStuckRestartBackup(dueAt, deferredAt) {
+  // No absolute timestamps in the message: it is shown verbatim as the
+  // Dashboard's "Scheduled backup failing" detail and in the Backups card's
+  // tooltip, and a panel running in UTC (the usual Docker setup) would
+  // print times hours off from the operator's browser. The row's own
+  // executedAt is already shown localized; this says how long, relative
+  // to that.
+  async _logStuckRestartBackup(deferredAt) {
     const waited = Date.now() - deferredAt;
     const restart = this.activeRestart;
     const restartNote = restart
-      ? `a server restart that began at ${new Date(restart.startedAt).toISOString()} with a ${restart.warningMinutes}-minute warning`
+      ? `a server restart (${restart.warningMinutes}-minute warning)`
       : "a server restart";
     const message =
-      `Not run: this backup came due at ${dueAt} during ${restartNote}, and that restart still had not finished ${Math.round(waited / 60000)} min later -- ` +
+      `Not run: this backup came due during ${restartNote}, and that restart still had not finished ${Math.round(waited / 60000)} min later -- ` +
       "far longer than a restart takes, so it looks stuck. Check the server's status, then create a backup manually.";
     log.error(`Scheduled backup -- ${message}`);
     await logScheduleExecution(null, "Scheduled Backup", "backup", false, message, waited);

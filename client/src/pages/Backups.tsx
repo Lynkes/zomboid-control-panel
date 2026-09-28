@@ -57,7 +57,7 @@ import { EmptyState } from '@/components/EmptyState'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { BackupRestartOverlapNotice } from '@/components/BackupRestartOverlapNotice'
 import { scheduledBackupHealth } from '@/lib/scheduledBackupHealth'
-import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
+import { isolateLtrForRtl, resolveRegisteredTranslation } from '@/lib/paramTranslation'
 
 // The Backup Frequency presets, in menu order -- one list for the <Select>
 // and describeSchedule() so the two can't disagree about which expressions
@@ -196,6 +196,8 @@ export default function Backups() {
   // CHANGED saved schedule may overwrite the form, never one the operator
   // is halfway through typing.
   const loadedScheduleRef = useRef<string | null>(null)
+  // Same rule for the other field in that form, Maximum Backups to Keep.
+  const loadedMaxBackupsRef = useRef<number | null>(null)
   // Live preview of the schedule being edited (POST /backup/validate-schedule):
   // validity for a custom expression, next run, and the scheduled restarts it
   // would land inside. Advisory -- same contract as the Scheduler page's cron
@@ -233,7 +235,10 @@ export default function Backups() {
         setCustomSchedule(!isPreset)
         setCustomCron(isPreset ? '' : status.schedule)
       }
-      setBackupMaxCount(status.maxBackups)
+      if (loadedMaxBackupsRef.current !== status.maxBackups) {
+        loadedMaxBackupsRef.current = status.maxBackups
+        setBackupMaxCount(status.maxBackups)
+      }
       setLoadError(null)
       setBackupStatusLoadError(false)
       // The server's own backupInProgress mutex (backupService.js) is the
@@ -332,6 +337,10 @@ export default function Backups() {
         progressTimeoutRef.current = setTimeout(() => setBackupProgress(null), 2000)
       } else if (data.phase === 'error') {
         setCreatingBackup(false)
+        // A failed run changes the status too -- a scheduled one writes a
+        // failed attempt, and a backup that was held for a restart is no
+        // longer waiting -- so the Auto-Backup card mustn't keep its old line.
+        fetchBackupStatus()
         progressTimeoutRef.current = setTimeout(() => setBackupProgress(null), 3000)
       }
     }
@@ -370,6 +379,21 @@ export default function Backups() {
     }, 10000)
     return () => clearInterval(interval)
   }, [creatingBackup, fetchBackups])
+
+  // A scheduled backup held for a restart (backupDeferredSince) stops
+  // waiting in ways this page gets no event for: the restart ends and the
+  // backup starts (progress events only refetch on 'complete'/'error'), the
+  // wait gives up on a stuck restart (a Schedule History row, nothing on
+  // the socket), or backups are turned off in another tab meanwhile.
+  // Re-check while the card says "waiting", so it can't keep saying so after
+  // the wait is over -- a restart that hangs is exactly when the operator
+  // is watching this page.
+  const backupDeferred = Boolean(backupStatus?.enabled && backupStatus.backupDeferredSince)
+  useEffect(() => {
+    if (!backupDeferred) return
+    const interval = setInterval(() => { void fetchBackupStatus() }, 15000)
+    return () => clearInterval(interval)
+  }, [backupDeferred, fetchBackupStatus])
 
   // See serverChangedSinceLoad's own comment above for why this exists.
   useEffect(() => {
@@ -726,16 +750,30 @@ export default function Backups() {
   // Next run in the scheduler's own timezone -- the zone the cron fields
   // (and the restart-overlap times beside it) are written in -- so the three
   // agree even when this browser sits in a different zone than the panel.
+  // Labelled with that zone: every other time on this page (Last Backup,
+  // "due since", attempt times) is in the browser's zone, and a UTC
+  // container behind a local browser would otherwise put two unmarked
+  // times hours apart side by side. Spelled out field by field because
+  // Intl refuses timeZoneName alongside dateStyle/timeStyle (a TypeError
+  // that the catch below would quietly turn into an unlabelled time).
   const formatInZone = (iso: string, timeZone: string): string => {
     try {
-      return new Date(iso).toLocaleString(i18n.language, { timeZone, dateStyle: 'medium', timeStyle: 'short' })
+      return new Date(iso).toLocaleString(i18n.language, {
+        timeZone,
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZoneName: 'short',
+      })
     } catch {
       return formatDate(iso)
     }
   }
 
   const handleSaveSettings = async () => {
-    if (!canManageBackups) return
+    if (!canManageBackups || savingSettings) return
     // pz-bughunt round 17: backupApi.updateSettings() resolves "the active
     // server" server-side with no server id -- schedule/maxBackups shown
     // here were loaded for whichever server was active at that time.
@@ -747,28 +785,32 @@ export default function Backups() {
       })
       return
     }
-    // A custom expression is checked against the server's own validator
-    // first, the same pre-check Scheduler.tsx runs before saving a task, so
-    // a typo gets its specific reason ("more often than every 5 minutes")
-    // instead of a generic failed save. Unreachable pre-check: fall through
-    // and let POST /settings -- which applies the identical rules -- decide.
-    if (customSchedule) {
-      try {
-        const check = await backupApi.validateSchedule(scheduleToSave)
-        if (!check.valid) {
-          toast({
-            title: t('toasts.planUpdateFailedTitle'),
-            description: scheduleCheckError(check),
-            variant: 'destructive',
-          })
-          return
-        }
-      } catch {
-        // See above -- the save itself is the final word.
-      }
-    }
+    // Busy from here, before the first await: the custom-schedule pre-check
+    // below is a round trip of its own, and a Save button left enabled
+    // during it lets a double click send two POST /backup/settings.
     setSavingSettings(true)
     try {
+      // A custom expression is checked against the server's own validator
+      // first, the same pre-check Scheduler.tsx runs before saving a task,
+      // so a typo gets its specific reason ("more often than every 5
+      // minutes") instead of a generic failed save. Unreachable pre-check:
+      // fall through and let POST /settings -- which applies the identical
+      // rules -- decide.
+      if (customSchedule) {
+        try {
+          const check = await backupApi.validateSchedule(scheduleToSave)
+          if (!check.valid) {
+            toast({
+              title: t('toasts.planUpdateFailedTitle'),
+              description: scheduleCheckError(check),
+              variant: 'destructive',
+            })
+            return
+          }
+        } catch {
+          // See above -- the save itself is the final word.
+        }
+      }
       // pz-bughunt round 18: expectedServerId is defense in depth alongside
       // the serverChangedSinceLoad guard above -- see server/routes/
       // backup.js's POST /settings for the server-side check this enables.
@@ -871,6 +913,17 @@ export default function Backups() {
   const lastScheduledAttemptFailed = scheduledHealth === 'failing'
   const lastScheduledSkippedForRestart = scheduledHealth === 'skippedForRestart'
   const backupDeferredSince = backupStatus?.enabled ? backupStatus.backupDeferredSince ?? null : null
+  // The two restart lines on the Auto-Backup card. Their point is the tail
+  // ("waiting for the restart", "skipped for a restart"), which a one-line
+  // truncate in that narrow card (the lg four-column grid, or beside the
+  // switch on a phone) cuts off first -- so they wrap to two lines, and
+  // carry the full text as a title like the failed-attempt line does.
+  const deferredForRestartLine = backupDeferredSince
+    ? t('statusCards.deferredForRestart', { time: formatDate(backupDeferredSince) })
+    : null
+  const skippedForRestartLine = lastScheduledSkippedForRestart && backupStatus?.lastScheduledBackupAttempt
+    ? t('statusCards.lastScheduledSkippedForRestart', { time: formatDate(backupStatus.lastScheduledBackupAttempt.executedAt) })
+    : null
   // bug-hunt-2026-09-08 (honest-unknown class): backupStatus is null both
   // before the first fetch resolves and after a confirmed failure -- only
   // the latter gets this treatment (matching Settings.tsx's own scheduled-
@@ -886,7 +939,8 @@ export default function Backups() {
   const describeSchedule = (cron: string | undefined): string => {
     if (!cron) return t('schedule.none')
     const preset = SCHEDULE_PRESETS.find(([presetCron]) => presetCron === cron)
-    return preset ? t(preset[1]) : t('schedule.custom', { cron })
+    // Isolated in Arabic: a bare cron in an RTL sentence reads reversed.
+    return preset ? t(preset[1]) : t('schedule.custom', { cron: isolateLtrForRtl(cron) })
   }
 
   const totalSize = useMemo(() => {
@@ -1090,17 +1144,15 @@ export default function Backups() {
                 <p className="text-[11px] text-muted-foreground/80 truncate">
                   {t('backups.statusLoadFailed', { ns: 'settings' })}
                 </p>
-              ) : backupDeferredSince ? (
+              ) : deferredForRestartLine ? (
                 // Checked first: whatever the last attempt said, a backup is
                 // due right now and only waiting for a restart to end.
-                <p className="text-[11px] text-muted-foreground/80 truncate">
-                  {t('statusCards.deferredForRestart', { time: formatDate(backupDeferredSince) })}
+                <p className="text-[11px] text-muted-foreground/80 line-clamp-2" title={deferredForRestartLine}>
+                  {deferredForRestartLine}
                 </p>
-              ) : lastScheduledSkippedForRestart ? (
-                <p className="text-[11px] text-amber-600 dark:text-amber-400 truncate">
-                  {t('statusCards.lastScheduledSkippedForRestart', {
-                    time: formatDate(backupStatus!.lastScheduledBackupAttempt!.executedAt),
-                  })}
+              ) : skippedForRestartLine ? (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 line-clamp-2" title={skippedForRestartLine}>
+                  {skippedForRestartLine}
                 </p>
               ) : lastScheduledAttemptFailed ? (
                 <p
@@ -1135,9 +1187,10 @@ export default function Backups() {
 
       {/* The saved schedule's restart collisions. While the settings panel is
           open it shows the same notice for the schedule being edited
-          instead, so the two never sit on screen together. */}
+          instead, so the two never sit on screen together. Neutral here, a
+          warning in the panel -- see BackupRestartOverlapNotice's `tone`. */}
       {!showSettings && backupStatus?.enabled && (
-        <BackupRestartOverlapNotice overlaps={backupStatus.restartOverlaps} />
+        <BackupRestartOverlapNotice overlaps={backupStatus.restartOverlaps} tone="neutral" />
       )}
 
       {/* Settings Panel (collapsible) */}
@@ -1193,6 +1246,10 @@ export default function Backups() {
                   value={customCron}
                   onChange={(e) => setCustomCron(e.target.value)}
                   placeholder={t('settingsPanel.customPlaceholder')}
+                  // A cron is left-to-right in every language; in an RTL
+                  // page its neutral '*' and '/' would otherwise lay out
+                  // reversed as it's typed.
+                  dir="ltr"
                   className="font-mono"
                   maxLength={100}
                   aria-describedby="backup-schedule-cron-hint"

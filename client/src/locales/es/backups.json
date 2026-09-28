@@ -84,9 +84,13 @@
   },
   "restartOverlap": {
     "title": "Las copias de seguridad coinciden con un reinicio programado",
-    "task": "Las copias de seguridad previstas a las {{backupTime}} caen dentro del reinicio programado «{{name}}» ({{restartTime}}).",
-    "autoRestart": "Las copias de seguridad previstas a las {{backupTime}} caen dentro del reinicio periódico ({{restartTime}}).",
-    "consequence": "Esperan a que termine el reinicio y después se ejecutan, normalmente con unos minutos de retraso. Para que se ejecuten a tiempo, mueve uno de los dos horarios (por ejemplo, copia de seguridad a las :30)."
+    "task": "Algunas copias de seguridad programadas caen dentro del reinicio programado «{{name}}» (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "taskAll": "Todas las copias de seguridad programadas caen dentro del reinicio programado «{{name}}» (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "taskUnnamed": "Algunas copias de seguridad programadas caen dentro de un reinicio programado (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "taskUnnamedAll": "Todas las copias de seguridad programadas caen dentro de un reinicio programado (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "autoRestart": "Algunas copias de seguridad programadas caen dentro del reinicio periódico (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "autoRestartAll": "Todas las copias de seguridad programadas caen dentro del reinicio periódico (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "consequence": "Esas copias se retienen hasta que termina el reinicio, así que normalmente se ejecutan con unos minutos de retraso. Para que se ejecuten a tiempo, deja al menos {{minutes}} min entre la hora programada de un reinicio y la siguiente copia de seguridad (por ejemplo, copia de seguridad a las :30, o reinicio a las :05)."
   },
   "progress": {
     "startingFallback": "Iniciando copia de seguridad…",

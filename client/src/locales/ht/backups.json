@@ -83,9 +83,13 @@
   },
   "restartOverlap": {
     "title": "Kopi sovgad yo tonbe sou yon redemaraj pwograme",
-    "task": "Kopi sovgad ki pou fèt a {{backupTime}} tonbe pandan redemaraj pwograme \"{{name}}\" ({{restartTime}}).",
-    "autoRestart": "Kopi sovgad ki pou fèt a {{backupTime}} tonbe pandan redemaraj peryodik la ({{restartTime}}).",
-    "consequence": "Yo tann redemaraj la fini, epi yo kouri apre, anjeneral kèk minit an reta. Pou yo kouri alè, deplase youn nan de orè yo (pa egzanp, fè kopi sovgad la a :30)."
+    "task": "Kèk kopi sovgad pwograme tonbe pandan redemaraj pwograme \"{{name}}\" (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "taskAll": "Tout kopi sovgad pwograme yo tonbe pandan redemaraj pwograme \"{{name}}\" (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "taskUnnamed": "Kèk kopi sovgad pwograme tonbe pandan yon redemaraj pwograme (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "taskUnnamedAll": "Tout kopi sovgad pwograme yo tonbe pandan yon redemaraj pwograme (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "autoRestart": "Kèk kopi sovgad pwograme tonbe pandan redemaraj peryodik la (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "autoRestartAll": "Tout kopi sovgad pwograme yo tonbe pandan redemaraj peryodik la (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "consequence": "Kopi sovgad sa yo rete ap tann jiskaske redemaraj la fini, kidonk anjeneral yo kouri kèk minit an reta. Pou yo kouri alè, kite omwen {{minutes}} min ant lè yon redemaraj pwograme ak pwochen kopi sovgad la (pa egzanp, fè kopi sovgad la a :30, oswa redemare a :05)."
   },
   "progress": {
     "startingFallback": "Ap kòmanse kopi sovgad...",

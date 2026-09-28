@@ -4,7 +4,11 @@ import fs from "fs";
 import { createLogger } from "../utils/logger.js";
 import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import { getActiveServer } from "../database/init.js";
-import { requirePermission, requireAnyPermission } from "../services/permissions.js";
+import {
+  getCapabilitiesForRole,
+  requirePermission,
+  requireAnyPermission,
+} from "../services/permissions.js";
 import { listBackupRecords } from "../services/backupRecords.js";
 import {
   acquireLifecycleLock,
@@ -108,14 +112,26 @@ function validateBackupSchedule(schedule) {
 
 // Advisory data riding along on a status/preview response -- a failure
 // computing it must never turn the whole response into a 500.
-async function getRestartOverlaps(scheduler, schedule) {
+//
+// Each overlap names the restart task and its cron expression, which are
+// otherwise only readable through /api/scheduler (automation.manage on
+// every route there), while these backup routes admit backups.manage,
+// .download or .restore. A caller without automation.manage still gets the
+// warning -- the times, and whether every backup is affected -- just not
+// which task it is (the page words that case without a name).
+async function getRestartOverlaps(req, scheduler, schedule) {
   if (typeof scheduler?.getBackupRestartOverlaps !== "function") return [];
+  let overlaps;
   try {
-    return await scheduler.getBackupRestartOverlaps(schedule);
+    overlaps = await scheduler.getBackupRestartOverlaps(schedule);
   } catch (error) {
     log.debug(`Could not compute backup/restart overlaps: ${error.message}`);
     return [];
   }
+  if (!Array.isArray(overlaps) || overlaps.length === 0) return [];
+  const capabilities = await getCapabilitiesForRole(req.user?.role);
+  if (capabilities?.includes("automation.manage")) return overlaps;
+  return overlaps.map((overlap) => ({ ...overlap, name: null, cron: null }));
 }
 
 // Get backup status and settings
@@ -141,7 +157,7 @@ router.get("/status", requireAnyBackupCapability, async (req, res) => {
       // and a backup waiting on a restart right now. Only for an enabled
       // schedule -- an off one collides with nothing.
       restartOverlaps: status.enabled
-        ? await getRestartOverlaps(scheduler, status.schedule)
+        ? await getRestartOverlaps(req, scheduler, status.schedule)
         : [],
       backupDeferredSince: scheduler?.getDeferredBackupSince?.() ?? null,
     });
@@ -324,7 +340,7 @@ router.post("/validate-schedule", requirePermission("backups.manage"), async (re
       valid: true,
       nextRun: computeNextRun(trimmed, timezone),
       timezone,
-      restartOverlaps: await getRestartOverlaps(scheduler, trimmed),
+      restartOverlaps: await getRestartOverlaps(req, scheduler, trimmed),
     });
   } catch (error) {
     log.error(`Failed to validate backup schedule: ${error.message}`);

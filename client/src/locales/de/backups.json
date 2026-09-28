@@ -83,9 +83,13 @@
   },
   "restartOverlap": {
     "title": "Backups überschneiden sich mit einem geplanten Neustart",
-    "task": "Backups, die um {{backupTime}} fällig sind, fallen in den geplanten Neustart „{{name}}“ ({{restartTime}}).",
-    "autoRestart": "Backups, die um {{backupTime}} fällig sind, fallen in den periodischen Neustart ({{restartTime}}).",
-    "consequence": "Sie warten, bis der Neustart abgeschlossen ist, und laufen dann – meist ein paar Minuten zu spät. Damit sie pünktlich laufen, verschiebe einen der beiden Zeitpläne (zum Beispiel Backup um :30)."
+    "task": "Einige geplante Backups fallen in den geplanten Neustart „{{name}}“ (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
+    "taskAll": "Alle geplanten Backups fallen in den geplanten Neustart „{{name}}“ (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
+    "taskUnnamed": "Einige geplante Backups fallen in einen geplanten Neustart (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
+    "taskUnnamedAll": "Alle geplanten Backups fallen in einen geplanten Neustart (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
+    "autoRestart": "Einige geplante Backups fallen in den periodischen Neustart (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
+    "autoRestartAll": "Alle geplanten Backups fallen in den periodischen Neustart (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
+    "consequence": "Diese Backups werden zurückgehalten, bis der Neustart abgeschlossen ist, und laufen daher meist ein paar Minuten zu spät. Damit sie pünktlich laufen, lass mindestens {{minutes}} Min. zwischen der geplanten Zeit eines Neustarts und dem nächsten Backup (zum Beispiel Backup um :30 oder Neustart um :05)."
   },
   "progress": {
     "startingFallback": "Backup wird gestartet...",

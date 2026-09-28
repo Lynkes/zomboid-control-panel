@@ -164,8 +164,11 @@ describe("Scheduler: a scheduled backup that lands on a restart is deferred, not
     const rows = backupRows();
     expect(rows).toHaveLength(1);
     expect(rows[0][3]).toBe(false);
-    expect(rows[0][4]).toMatch(/restart that began at 2026-09-27T04:00:00\.000Z with a 5-minute warning/);
-    expect(rows[0][4]).toMatch(/still had not finished .* looks stuck/);
+    expect(rows[0][4]).toMatch(/during a server restart \(5-minute warning\)/);
+    expect(rows[0][4]).toMatch(/still had not finished 25 min later .* looks stuck/);
+    // Shown verbatim on the Dashboard and the Backups card: no raw UTC ISO
+    // timestamps, which read as the wrong time next to a local browser.
+    expect(rows[0][4]).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
     // The wait is over -- the next tick gets a fresh chance.
     expect(scheduler.getDeferredBackupSince()).toBeNull();
   });
@@ -286,6 +289,10 @@ describe("Scheduler.getBackupRestartOverlaps(): which scheduled restarts the bac
         cron: "0 */4 * * *",
         restartTime: "00:00",
         backupTime: "00:00",
+        allBackups: true,
+        // performRestart()'s default 5-minute countdown plus the typical
+        // 5-minute save/quit/relaunch tail.
+        windowMinutes: 10,
       },
     ]);
   });

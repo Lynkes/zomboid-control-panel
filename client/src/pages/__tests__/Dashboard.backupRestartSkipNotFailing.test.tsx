@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Dashboard from '../Dashboard'
@@ -153,7 +153,13 @@ describe('Dashboard.tsx: a restart-skipped or since-recovered scheduled backup i
 
     const verdict = await screen.findByRole('status', { name: 'Server verdict' })
     expect(await within(verdict).findByText('Scheduled backup skipped for a restart')).toBeInTheDocument()
-    expect(within(verdict).getByText(/Backups that land on a restart now wait for it to finish/)).toBeInTheDocument()
+    // The why sits behind a HelpTip (like the RCON verdict's), not in the
+    // band's `detail` slot -- that one is faint 10px monospace, for raw
+    // server text, and would bury a sentence meant for the operator.
+    const help = within(verdict).getByRole('button', { name: 'Help: Scheduled backup skipped for a restart' })
+    expect(within(verdict).queryByText(/didn't run/)).not.toBeInTheDocument()
+    fireEvent.click(help)
+    expect((await screen.findAllByText(/so it didn't run\. Creating a backup clears this warning\./)).length).toBeGreaterThan(0)
     expect(within(verdict).getByRole('button', { name: /Create backup/ })).toBeInTheDocument()
     expect(screen.queryByText('Scheduled backup failing')).not.toBeInTheDocument()
 

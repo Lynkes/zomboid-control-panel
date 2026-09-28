@@ -84,9 +84,13 @@
   },
   "restartOverlap": {
     "title": "Des sauvegardes chevauchent un redémarrage planifié",
-    "task": "Les sauvegardes prévues à {{backupTime}} tombent pendant le redémarrage planifié « {{name}} » ({{restartTime}}).",
-    "autoRestart": "Les sauvegardes prévues à {{backupTime}} tombent pendant le redémarrage périodique ({{restartTime}}).",
-    "consequence": "Elles attendent la fin du redémarrage puis s'exécutent, en général avec quelques minutes de retard. Pour qu'elles restent à l'heure, décalez l'une des deux planifications (par exemple, une sauvegarde à :30)."
+    "task": "Certaines sauvegardes planifiées tombent pendant le redémarrage planifié « {{name}} » (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
+    "taskAll": "Toutes les sauvegardes planifiées tombent pendant le redémarrage planifié « {{name}} » (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
+    "taskUnnamed": "Certaines sauvegardes planifiées tombent pendant un redémarrage planifié (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
+    "taskUnnamedAll": "Toutes les sauvegardes planifiées tombent pendant un redémarrage planifié (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
+    "autoRestart": "Certaines sauvegardes planifiées tombent pendant le redémarrage périodique (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
+    "autoRestartAll": "Toutes les sauvegardes planifiées tombent pendant le redémarrage périodique (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
+    "consequence": "Ces sauvegardes sont retenues jusqu'à la fin du redémarrage, et s'exécutent donc généralement avec quelques minutes de retard. Pour qu'elles restent à l'heure, laissez au moins {{minutes}} min entre l'heure prévue d'un redémarrage et la sauvegarde suivante (par exemple, une sauvegarde à :30, ou un redémarrage à :05)."
   },
   "progress": {
     "startingFallback": "Démarrage de la sauvegarde...",

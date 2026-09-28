@@ -3251,13 +3251,19 @@ export interface ScheduledBackupAttempt {
 
 // A scheduled restart the backup schedule collides with (server/utils/
 // backupRestartOverlap.js). Times are "HH:MM" in the scheduler's timezone:
-// the first restart fire time with a backup inside it, and that backup.
+// the first restart fire time with a backup inside it, and that backup --
+// an example, not the whole set: `allBackups` says whether every backup
+// collides. `windowMinutes` is how long after a restart's start time a
+// backup still lands inside it. `name` and `cron` are null for a caller
+// without automation.manage (the Scheduler's own gate on task details).
 export interface BackupRestartOverlap {
   kind: 'task' | 'autoRestart';
   name: string | null;
-  cron: string;
+  cron: string | null;
   restartTime: string;
   backupTime: string;
+  allBackups: boolean;
+  windowMinutes: number;
 }
 
 export type BackupScheduleValidation =

@@ -1266,11 +1266,17 @@ export default function Dashboard() {
     // times). Still worth a warning -- that backup didn't happen -- but it
     // says what actually happened and offers the click that clears it,
     // instead of sending the operator to hunt for a fault that isn't there.
+    // The why goes in a HelpTip like the RCON verdict's, not in `detail`:
+    // that slot is drawn as faint 10px log text, for raw server messages.
     if (maintenance.schedulerLoaded && !activeServer?.isRemote && backupHealth === 'skippedForRestart') {
       return {
         level: 'warning',
         headline: t('verdict.backupSkippedForRestart'),
-        detail: t('verdict.backupSkippedForRestartDetail'),
+        headlineHelp: (
+          <HelpTip label={t('verdict.backupSkippedForRestart')} className="ms-1.5 align-[-2px]">
+            {t('verdict.backupSkippedForRestartHelp')}
+          </HelpTip>
+        ),
         action: createBackupVerdictAction,
       }
     }

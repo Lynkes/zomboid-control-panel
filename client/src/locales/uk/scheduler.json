@@ -253,6 +253,7 @@
     "backupLastAttemptOk": "Остання спроба успішна · {{date}}",
     "backupLastAttemptFailed": "Остання спроба не вдалася · {{date}} — {{reason}}",
     "backupLastAttemptSkippedForRestart": "Останню спробу пропущено через перезапуск · {{date}}",
+    "backupRecoveredSince": "Відтоді резервна копія вдалася · {{date}}",
     "backupNoAttemptYet": "Заплановане резервне копіювання ще не виконувалося",
     "backupNextRun": "Наступний запуск · {{date}}",
     "savedDesc": "Розклади тепер виконуються в {{tz}}.",

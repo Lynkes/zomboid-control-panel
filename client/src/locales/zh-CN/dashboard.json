@@ -170,7 +170,7 @@
     "noBackups": "暂无备份",
     "backupAttemptFailing": "计划备份失败",
     "backupSkippedForRestart": "计划备份因重启被跳过",
-    "backupSkippedForRestartDetail": "它在服务器重启期间到期，因此没有运行。现在，遇到重启的备份会等重启完成后再运行。创建一次备份即可清除此提示。",
+    "backupSkippedForRestartHelp": "它在服务器重启期间到期，因此没有运行。创建一次备份即可清除此提示。",
     "reviewBackups": "查看备份"
   },
   "panelUpdateBanner": {
