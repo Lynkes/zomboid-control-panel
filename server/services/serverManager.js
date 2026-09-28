@@ -281,6 +281,15 @@ function getDefaultStartupScript() {
   return isWindows ? "StartServer64.bat" : "start-server.sh";
 }
 
+// The stock launcher a no-Steam Windows server would have fallen back to,
+// for SERVER_START_SCRIPT_MISSING's {{fallback}} -- the one this server
+// used to run before GH #167, not always StartServer64.bat.
+function stockStartupScript(useNoSteam) {
+  return isWindows && useNoSteam
+    ? "StartServer64_nosteam.bat"
+    : getDefaultStartupScript();
+}
+
 // The launch script the panel generates for a MANAGED server (see
 // resolveLaunchMode() below): routes/server.js's
 // refreshLaunchTargetBeforeStart() writes both files into the install
@@ -1738,15 +1747,23 @@ export class ServerManager {
       // rewritten from this server's current settings, then PanelBridge
       // delivery runs. After the SteamCMD guard, so neither writes into a
       // folder SteamCMD is still patching, and before both launch branches
-      // below -- a systemd/OpenRC unit runs the same generated script. Every
-      // start path funnels through here (see the guard's comment above),
-      // which is why this lives here and not at each caller: GH #167's boot
+      // below. A systemd/OpenRC unit runs whatever launcher was baked into
+      // it when its template was downloaded -- for a template generated
+      // since GH #167, start-server_<name>.sh (linuxServiceLifecycle.js's
+      // resolveLaunchTarget()), the script written here. Every start
+      // path funnels through here (see the guard's comment above), which is
+      // why this lives here and not at each caller: GH #167's boot
       // auto-start skipped the refresh the dashboard's Start did, launched
       // the stock script on a fresh install, and kept old RCON/admin
       // passwords after an edit until a manual restart.
       const { scriptWarnings } = await prepareForLaunch(this._serverRecord);
 
       if (this.usesManagedServiceLifecycle()) {
+        // Before systemctl/rc-service, not after: a unit whose script is
+        // missing fails with exit 127 and Restart=on-failure keeps retrying
+        // it, which reads as "activating" -- a start the panel would report
+        // as successful.
+        this._assertNamedStartupScriptPresent();
         const result = await this._getManagedLifecycle().run("start");
         if (!result.success) throw new Error(result.error || result.message);
         this.serverProcess = null;
@@ -2025,24 +2042,9 @@ export class ServerManager {
       // Checked here, right before the spawn -- after prepareForLaunch()
       // above has had its chance to write the script -- never at config
       // load (GH #167, see namedStartupScriptMissingError()).
-      // Only for a server record: the legacy settings-only config has no
-      // record for prepareForLaunch() to write a script from, so "the panel
-      // writes it before every start" would not be true of it.
+      this._assertNamedStartupScriptPresent();
       const batPath = path.join(this.serverPath, this.serverBat);
-      const launchesNamedScript =
-        Boolean(this._serverRecord) &&
-        this.launchMode !== "custom" &&
-        Boolean(this.serverName) &&
-        this.serverBat === managedStartupScriptName(this.serverName);
-
       if (!fs.existsSync(batPath)) {
-        if (launchesNamedScript) {
-          throw namedStartupScriptMissingError({
-            script: this.serverBat,
-            folder: this.serverPath,
-            fallback: getDefaultStartupScript(),
-          });
-        }
         throw new Error(`Server startup script not found: ${batPath}`);
       }
 
@@ -2704,6 +2706,11 @@ export class ServerManager {
 
       await this.loadConfig(this._serverId);
       if (this.usesManagedServiceLifecycle()) {
+        // `systemctl restart` / `rc-service restart` launch the game again
+        // without passing through startServer(), so they get the same
+        // before-launch step and script check here (GH #167).
+        await prepareForLaunch(this._serverRecord);
+        this._assertNamedStartupScriptPresent();
         const restarted = await this._getManagedLifecycle().run("restart");
         if (!restarted.success || restarted.confirmed === false) {
           throw new Error(
@@ -2926,6 +2933,32 @@ export class ServerManager {
       isManagedLifecycleProvider(this.lifecycleProvider) &&
       Boolean(this._serverRecord)
     );
+  }
+
+  // GH #167: a managed server with a name launches its own generated
+  // script or nothing -- throws SERVER_START_SCRIPT_MISSING when that script
+  // is still absent after prepareForLaunch() had its chance to write it,
+  // for a direct launch and for a systemd/OpenRC one alike (both launch it
+  // from this.serverPath, see resolveLaunchTarget()). Only for a server
+  // record: the legacy settings-only config has no record for
+  // prepareForLaunch() to write a script from, so "the panel writes it
+  // before every start" would not be true of it. A custom launcher, an
+  // explicit PZ_SERVER_BAT and a nameless server launch something else and
+  // are left to the spawn's own "not found" check.
+  _assertNamedStartupScriptPresent() {
+    const launchesNamedScript =
+      Boolean(this._serverRecord) &&
+      this.launchMode !== "custom" &&
+      Boolean(this.serverName) &&
+      Boolean(this.serverPath) &&
+      this.serverBat === managedStartupScriptName(this.serverName);
+    if (!launchesNamedScript) return;
+    if (fs.existsSync(path.join(this.serverPath, this.serverBat))) return;
+    throw namedStartupScriptMissingError({
+      script: this.serverBat,
+      folder: this.serverPath,
+      fallback: stockStartupScript(this._serverRecord.useNoSteam),
+    });
   }
 
   _getManagedLifecycle() {

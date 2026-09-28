@@ -29,6 +29,7 @@ import {
   restoreLineEnding,
 } from "../utils/iniKeyWrite.js";
 import {
+  managedStartupScriptName,
   resolveLaunchMode,
   ServerManager,
   scoreServerProcessOwnership,
@@ -1480,13 +1481,17 @@ function hashScriptContent(content) {
  * problem than data loss, and every install already has an operator who can
  * clean them up manually. Deliberate choice, not an oversight.
  *
- * Returns an array of human-readable messages, one per file that was backed
- * up (empty if none were). Never throws for a single file's backup/read
- * failure -- that file's regeneration still proceeds and a warning is logged
+ * Returns `backupMessages`, human-readable, one per file that was backed up
+ * (empty if none were), and `failedPaths`, every file it could not write.
+ * Never throws for a single file's backup, read or write failure -- that
+ * file's regeneration still proceeds, or is skipped, with a warning logged
  * server-side, since "config changes take effect" must not depend on the
- * backup step succeeding.
+ * backup step succeeding. `failedPaths` is how the caller knows a write
+ * failed without a throw (GH #167: the refresh used to log "Regenerated
+ * startup scripts" right after a failed write, next to the refusal it
+ * then caused).
  */
-export function regenerateStartupScriptsWithBackup(installPath, files) {
+export function writeStartupScriptsWithBackup(installPath, files) {
   const fingerprintPath = path.join(installPath, SCRIPT_FINGERPRINT_FILE);
   let fingerprints = {};
   try {
@@ -1496,6 +1501,7 @@ export function regenerateStartupScriptsWithBackup(installPath, files) {
   }
 
   const backupMessages = [];
+  const failedPaths = [];
   for (const { path: filePath, content } of files) {
     const fileName = path.basename(filePath);
     let existingContent = null;
@@ -1541,6 +1547,7 @@ export function regenerateStartupScriptsWithBackup(installPath, files) {
       );
       fingerprints[fileName] = hashScriptContent(content);
     } catch (writeErr) {
+      failedPaths.push(filePath);
       log.warn(`Could not write ${filePath}: ${writeErr.message}`);
     }
   }
@@ -1555,7 +1562,13 @@ export function regenerateStartupScriptsWithBackup(installPath, files) {
     log.warn(`Could not persist script fingerprint file: ${fpErr.message}`);
   }
 
-  return backupMessages;
+  return { backupMessages, failedPaths };
+}
+
+// writeStartupScriptsWithBackup() for callers that only want the backup
+// notices -- its shape before failed writes were reported.
+export function regenerateStartupScriptsWithBackup(installPath, files) {
+  return writeStartupScriptsWithBackup(installPath, files).backupMessages;
 }
 
 // Role sweep for this file: routes below are grouped into what's actually
@@ -1664,16 +1677,19 @@ export async function refreshLaunchTargetBeforeStart(
 
   let scriptBackupWarnings = [];
   const launchMode = resolveLaunchMode(activeServer);
-  if (
-    !managedHandled &&
-    activeServer &&
-    !activeServer.startCommand &&
-    activeServer.installPath &&
-    launchMode.mode === "custom"
-  ) {
+  // The folder the game is launched from: `serverPath || installPath`, the
+  // same one serverManager.loadConfig() spawns in and checks for the named
+  // script, and the one a systemd/OpenRC unit runs it from
+  // (linuxServiceLifecycle.js's resolveLaunchTarget()). The scripts used to
+  // be written into installPath alone, so a record with a separate
+  // serverPath folder never launched what was written here.
+  const launchDir = activeServer?.serverPath || activeServer?.installPath;
+  const panelLaunches =
+    !managedHandled && activeServer && !activeServer.startCommand && launchDir;
+  if (panelLaunches && launchMode.mode === "custom") {
     // CUSTOM LAUNCHER mode (operator ruling 2026-08-27): the panel does not
     // manage this script. Regenerating would join a filename onto the
-    // launcher PATH itself (installPath here is a file, not a directory)
+    // launcher PATH itself (launchDir here is a file, not a directory)
     // and either write into a broken nested path or silently do nothing --
     // neither is "not regenerating," so this must not even attempt the
     // write, unlike before this feature existed.
@@ -1681,17 +1697,14 @@ export async function refreshLaunchTargetBeforeStart(
       `Custom launcher mode active (${launchMode.launcherPath}) — not regenerating; the panel does not manage this script.`,
     );
   } else if (
-    !managedHandled &&
-    activeServer &&
-    !activeServer.startCommand &&
-    activeServer.installPath &&
+    panelLaunches &&
     // No name, no named script to write (it would be
     // StartServer_undefined.bat); such a server launches the stock one.
     activeServer.serverName
   ) {
     try {
       const scripts = generateStartupScripts({
-        installPath: activeServer.installPath,
+        installPath: launchDir,
         serverName: activeServer.serverName,
         minMemory: activeServer.minMemory || 4,
         maxMemory: activeServer.maxMemory || 8,
@@ -1702,26 +1715,49 @@ export async function refreshLaunchTargetBeforeStart(
         useDebug: activeServer.useDebug || false,
       });
       const batPath = path.join(
-        activeServer.installPath,
-        `StartServer_${activeServer.serverName}.bat`,
+        launchDir,
+        managedStartupScriptName(activeServer.serverName, true),
       );
       const shPath = path.join(
-        activeServer.installPath,
-        `start-server_${activeServer.serverName}.sh`,
+        launchDir,
+        managedStartupScriptName(activeServer.serverName, false),
       );
-      scriptBackupWarnings = regenerateStartupScriptsWithBackup(
-        activeServer.installPath,
+      const { backupMessages, failedPaths } = writeStartupScriptsWithBackup(
+        launchDir,
         [
           { path: batPath, content: scripts.bat },
           { path: shPath, content: scripts.sh.replace(/\r\n/g, "\n") },
         ],
       );
+      scriptBackupWarnings = backupMessages;
       if (scriptBackupWarnings.length > 0) {
         log.warn(
           `Startup script regeneration backed up existing content: ${scriptBackupWarnings.join(" ")}`,
         );
       }
-      log.info("Regenerated startup scripts with current server config");
+      // Success is logged only when both files were written. A failed write
+      // used to be followed by "Regenerated startup scripts ..." anyway,
+      // right before the start's SERVER_START_SCRIPT_MISSING refusal that
+      // sends the operator to this log (GH #167). The launcher this
+      // platform runs decides what a failure means for the start that
+      // follows.
+      const launched = managedStartupScriptName(activeServer.serverName);
+      const launchedPath = path.join(launchDir, launched);
+      if (failedPaths.length === 0) {
+        log.info("Regenerated startup scripts with current server config");
+      } else if (!failedPaths.includes(launchedPath)) {
+        log.warn(
+          `Regenerated ${launched}, but not ${failedPaths.map((failed) => path.basename(failed)).join(", ")} (see the warning above)`,
+        );
+      } else if (fs.existsSync(launchedPath)) {
+        log.warn(
+          `Could not regenerate ${launched} (see the warning above) -- this start runs the copy already in ${launchDir}, which may carry older settings`,
+        );
+      } else {
+        log.warn(
+          `Could not write ${launched} (see the warning above) -- the start refuses to run without it until the panel can write to ${launchDir}`,
+        );
+      }
     } catch (scriptErr) {
       log.warn(`Could not regenerate startup scripts: ${scriptErr.message}`);
     }

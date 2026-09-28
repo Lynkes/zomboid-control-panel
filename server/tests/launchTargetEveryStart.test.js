@@ -65,7 +65,9 @@ async function importForPlatform(platform) {
     const serverManagerModule = await import("../services/serverManager.js");
     const coordinator = await import("../services/lifecycleCoordinator.js");
     const routes = await import("../routes/server.js");
-    return { ...serverManagerModule, ...coordinator, ...routes };
+    // The same registry's logger, so onLog() sees what these modules log.
+    const { onLog } = await import("../utils/logger.js");
+    return { ...serverManagerModule, ...coordinator, ...routes, onLog };
   } finally {
     Object.defineProperty(process, "platform", original);
   }
@@ -242,6 +244,75 @@ describe.each(PLATFORMS)("GH #167 on $platform", ({ platform, named, stock, spaw
     expect(spawnedScript(spawnCalls[0])).toBe(named);
   });
 
+  it("names the no-Steam stock launcher when that's what the server would have fallen back to", async () => {
+    db.server = { ...db.server, useNoSteam: true };
+    const manager = quietManager(m.ServerManager);
+    await manager.loadConfig();
+
+    const error = await manager
+      .startServer({ skipRunningCheck: true })
+      .then(() => null, (caught) => caught);
+
+    expect(error?.code).toBe("SERVER_START_SCRIPT_MISSING");
+    expect(error.params.fallback).toBe(
+      platform === "win32" ? "StartServer64_nosteam.bat" : "start-server.sh",
+    );
+  });
+
+  it("a server whose serverPath is a folder of its own gets its script written, checked and launched there", async () => {
+    // serverPath (API-only) wins over installPath for the launch folder in
+    // loadConfig() and in a systemd/OpenRC unit. The refresh used to write
+    // into installPath regardless, so this server was refused every start.
+    const launchFolder = path.join(root, "launch");
+    fs.mkdirSync(launchFolder);
+    db.server = { ...db.server, serverPath: launchFolder };
+    m.setLaunchTargetRefresher(m.refreshLaunchTargetForLaunch);
+    const manager = quietManager(m.ServerManager);
+    await manager.loadConfig();
+
+    const result = await manager.startServer({ skipRunningCheck: true });
+
+    expect(result.success).toBe(true);
+    expect(fs.readFileSync(path.join(launchFolder, named), "utf8")).toContain('-servername "Restored"');
+    expect(fs.existsSync(path.join(installPath, named))).toBe(false);
+    expect(spawnedScript(spawnCalls[0])).toBe(named);
+  });
+
+  it("a script the refresh couldn't write is logged as a failure, never as regenerated, before the refusal", async () => {
+    // A launch folder the panel can't write to: it doesn't exist.
+    const unwritable = path.join(root, "not-there");
+    db.server = { ...db.server, installPath: unwritable };
+    m.setLaunchTargetRefresher(m.refreshLaunchTargetForLaunch);
+    const manager = quietManager(m.ServerManager);
+    await manager.loadConfig();
+    const entries = [];
+    const unsubscribe = m.onLog((entry) => entries.push(entry));
+
+    let error;
+    try {
+      error = await manager
+        .startServer({ skipRunningCheck: true })
+        .then(() => null, (caught) => caught);
+      // CallbackTransport delivers through setImmediate.
+      for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      unsubscribe();
+    }
+
+    expect(error?.code).toBe("SERVER_START_SCRIPT_MISSING");
+    const messages = entries.map((entry) => `${entry.level}: ${entry.message}`);
+    expect(messages.some((line) => line.includes("Regenerated startup scripts"))).toBe(false);
+    // The write's own reason, which the refusal's "the panel log has the
+    // exact error" points to.
+    expect(messages).toContainEqual(
+      expect.stringContaining(`warn: Could not write ${path.join(unwritable, named)}: `),
+    );
+    expect(messages).toContainEqual(
+      expect.stringContaining(`warn: Could not write ${named} (see the warning above) -- the start refuses to run without it`),
+    );
+    expect(spawnCalls).toHaveLength(0);
+  });
+
   it("a custom launcher is still launched as-is -- never swapped for the named script", async () => {
     const launcher = path.join(installPath, platform === "win32" ? "MyLauncher.bat" : "my-launcher.sh");
     fs.writeFileSync(launcher, "custom\n");
@@ -320,6 +391,9 @@ describe("prepareForLaunch()", () => {
 
   it("startServer() hands the refresh's backup notices back on its result, for the dashboard's toast", async () => {
     m.setLaunchTargetRefresher(async () => ({ scriptBackupWarnings: ["saved your edit"] }));
+    // The stub refresher writes nothing; a managed start checks for the
+    // script before calling the service manager.
+    fs.writeFileSync(path.join(installPath, m.managedStartupScriptName("Restored")), "");
     db.server = { ...db.server, lifecycleProvider: "systemd" };
     const manager = new m.ServerManager({
       lifecycleFactory: () => ({ run: async () => ({ success: true }) }),
@@ -331,8 +405,9 @@ describe("prepareForLaunch()", () => {
     expect(result).toMatchObject({ success: true, scriptWarnings: ["saved your edit"] });
   });
 
-  it("refreshes before a systemd/OpenRC start too -- its unit runs the same generated script", async () => {
+  it("refreshes before a systemd/OpenRC start too -- the unit runs start-server_<name>.sh, the script the refresh writes", async () => {
     m.setLaunchTargetRefresher(async () => order.push("refresh"));
+    fs.writeFileSync(path.join(installPath, m.managedStartupScriptName("Restored")), "");
     db.server = { ...db.server, lifecycleProvider: "systemd" };
     const manager = new m.ServerManager({
       lifecycleFactory: () => ({
@@ -344,6 +419,24 @@ describe("prepareForLaunch()", () => {
     await manager.startServer();
 
     expect(order).toEqual(["refresh", "managed:start"]);
+  });
+
+  it("refreshes before a systemd/OpenRC restart, which relaunches the game without startServer()", async () => {
+    m.setLaunchTargetRefresher(async () => order.push("refresh"));
+    fs.writeFileSync(path.join(installPath, m.managedStartupScriptName("Restored")), "");
+    db.server = { ...db.server, lifecycleProvider: "systemd" };
+    const manager = new m.ServerManager({
+      lifecycleFactory: () => ({
+        run: async (action) => (order.push(`managed:${action}`), { success: true }),
+      }),
+    });
+    manager.sleep = async () => {};
+    manager._deletePidFile = () => {};
+    const rcon = { serverMessage: async () => ({}), save: async () => ({ success: true }) };
+
+    await manager.restartServer(rcon, 0);
+
+    expect(order).toEqual(["refresh", "managed:restart"]);
   });
 });
 

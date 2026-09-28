@@ -87,7 +87,7 @@ describeRealSystemd(
         const template = buildLifecycleTemplate(
           { ...server, installPath },
           "systemd",
-          { serviceUser: "pzuser", homeDirectory: "/home/pzuser", fileExists: () => false },
+          { serviceUser: "pzuser", homeDirectory: "/home/pzuser" },
         );
 
         const unitPath = path.join(tmpDir, `${server.id}-${label.replace(/[^a-z0-9]+/gi, "-")}.service`);
@@ -127,7 +127,7 @@ describeRealSystemd(
       const template = buildLifecycleTemplate(
         { ...server, installPath: "/opt/pz server/server.sh" },
         "systemd",
-        { serviceUser: "pzuser", homeDirectory: "/home/pzuser", fileExists: () => false },
+        { serviceUser: "pzuser", homeDirectory: "/home/pzuser" },
       );
       expect(template.content).toMatch(/^ExecStart=\/bin\/bash "/m);
     });
@@ -136,7 +136,7 @@ describeRealSystemd(
       const template = buildLifecycleTemplate(
         { ...server, name: "Test $5 Server", installPath: "/opt/pzserver/server.sh" },
         "systemd",
-        { serviceUser: "pzuser", homeDirectory: "/home/pzuser", fileExists: () => false },
+        { serviceUser: "pzuser", homeDirectory: "/home/pzuser" },
       );
       expect(template.content).toContain("Test $5 Server");
       expect(template.content).not.toContain("Test \\$5 Server");
@@ -152,7 +152,7 @@ describeRealSystemd(
       const template = buildLifecycleTemplate(
         { ...server, name: "Survival %h Test", installPath: "/opt/pzserver/server.sh" },
         "systemd",
-        { serviceUser: "pzuser", homeDirectory: "/home/pzuser", fileExists: () => false },
+        { serviceUser: "pzuser", homeDirectory: "/home/pzuser" },
       );
       fs.writeFileSync(unitPath, template.content);
       execFileSync("systemd-analyze", ["verify", unitPath], { stdio: "ignore" });

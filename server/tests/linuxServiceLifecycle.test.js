@@ -65,7 +65,6 @@ describe("Linux managed-service lifecycle", () => {
     const template = buildLifecycleTemplate(server, "systemd", {
       serviceUser: "pzuser",
       homeDirectory: "/home/pzuser",
-      fileExists: (candidate) => candidate.endsWith("start-server_servertest.sh"),
     });
 
     expect(template.filename).toBe("zomboid-panel-server-alpha-1.service");
@@ -96,7 +95,6 @@ describe("Linux managed-service lifecycle", () => {
     const template = buildLifecycleTemplate(server, "openrc", {
       serviceUser: "pzuser",
       homeDirectory: "/home/pzuser",
-      fileExists: () => false,
     });
 
     expect(template.filename).toBe("zomboid-panel-server-alpha-1");
@@ -123,12 +121,37 @@ describe("Linux managed-service lifecycle", () => {
       "--chdir '/opt/pz server' \\",
     );
     expect(template.content).toContain(
-      "-- /bin/bash '/opt/pz server/start-server.sh'",
+      "-- /bin/bash '/opt/pz server/start-server_servertest.sh'",
     );
     expect(template.installPath).toBe(
       "/home/pzuser/.config/rc/init.d/zomboid-panel-server-alpha-1",
     );
   });
+
+  // GH #167: the launcher used to be `fileExists(named) ? named :
+  // start-server.sh`, decided once, when the template was downloaded. A
+  // template fetched before the first Start (an existing install added
+  // through Servers > Add writes no script) baked in the stock
+  // start-server.sh, and the unit ran it on every start: no -servername or
+  // -cachedir, so the default "servertest" world, whose admin-password
+  // prompt dies on the unit's /dev/null stdin. The panel writes the named
+  // script before every start it performs, so the unit names it whether or
+  // not it exists yet. None of the templates above can see the named
+  // script on disk either -- "/opt/pz server" doesn't exist on the test host.
+  it.each(["systemd", "openrc"])(
+    "%s: a directory install always runs the server's own start-server_<name>.sh, even before it exists",
+    (provider) => {
+      const fresh = { ...server, serverName: "Restored", installPath: "/srv/pz-fresh" };
+
+      const template = buildLifecycleTemplate(fresh, provider, {
+        serviceUser: "pzuser",
+        homeDirectory: "/home/pzuser",
+      });
+
+      expect(template.content).toContain("/srv/pz-fresh/start-server_Restored.sh");
+      expect(template.content).not.toContain("start-server.sh");
+    },
+  );
 
   // god's addendum to hunt-wave5-2026-08-29: assert against path.posix
   // computed here, not a hand-typed expected string, and prove the check
@@ -158,7 +181,6 @@ describe("Linux managed-service lifecycle", () => {
     const systemdTemplate = buildLifecycleTemplate(server, "systemd", {
       serviceUser: "pzuser",
       homeDirectory,
-      fileExists: (candidate) => candidate.endsWith(launcherName),
     });
     const expectedLauncherPath = path.posix.join(installDir, launcherName);
     const expectedSystemdInstallPath = path.posix.join(
@@ -183,12 +205,7 @@ describe("Linux managed-service lifecycle", () => {
     const openrcTemplate = buildLifecycleTemplate(server, "openrc", {
       serviceUser: "pzuser",
       homeDirectory,
-      fileExists: () => false,
     });
-    const expectedFallbackLauncherPath = path.posix.join(
-      installDir,
-      "start-server.sh",
-    );
     const expectedOpenrcInstallPath = path.posix.join(
       homeDirectory,
       ".config",
@@ -201,7 +218,7 @@ describe("Linux managed-service lifecycle", () => {
       `--chdir '${installDir}' \\`,
     );
     expect(openrcTemplate.content).toContain(
-      `-- /bin/bash '${expectedFallbackLauncherPath}'`,
+      `-- /bin/bash '${expectedLauncherPath}'`,
     );
     expect(openrcTemplate.installPath).not.toContain("\\");
     // No blanket "content has no backslash" check here, unlike the systemd
@@ -222,9 +239,7 @@ describe("Linux managed-service lifecycle", () => {
     // real OpenRC: "rc-service ... start" echoed "Starting ... \$CoolServer"
     // instead of "$CoolServer".
     const dollarServer = { ...server, name: "Alpha $CoolServer" };
-    const template = buildLifecycleTemplate(dollarServer, "openrc", {
-      fileExists: () => false,
-    });
+    const template = buildLifecycleTemplate(dollarServer, "openrc");
     expect(template.content).toContain(
       "name='Project Zomboid server Alpha $CoolServer'",
     );

@@ -25,7 +25,7 @@ vi.mock("../database/init.js", () => ({
   updateTaskLastRun: vi.fn(async () => {}),
 }));
 
-const { ServerManager } = await import("../services/serverManager.js");
+const { ServerManager, managedStartupScriptName } = await import("../services/serverManager.js");
 const { runManagedLifecycle } = await import("../services/managedContainer.js");
 const { Scheduler } = await import("../services/scheduler.js");
 const { setBeforeLaunchHook, runBeforeLaunchHook, acquireLifecycleLock } = await import(
@@ -40,6 +40,10 @@ beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-launch-hook-"));
   order = [];
   db.server = { id: "s1", name: "One", serverName: "servertest", installPath: root, zomboidDataPath: root, isRemote: false };
+  // The server's own generated script, which a systemd/openrc-managed start
+  // checks for before calling the service manager (GH #167). No refresher is
+  // wired here to write it.
+  fs.writeFileSync(path.join(root, managedStartupScriptName("servertest")), "");
   setBeforeLaunchHook(async (server) => {
     order.push(`hook:${server?.id}`);
   });
