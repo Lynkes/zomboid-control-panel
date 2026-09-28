@@ -91,7 +91,10 @@ describe("scanWorkshopInstallFolder", () => {
     expect(scanWorkshopInstallFolder(zPath, ID)).toBe(`/pz-server/steamapps/workshop/content/108600/${ID}`);
   });
 
-  it("answers null when the first placeholder is not the id (argument order unconfirmed)", () => {
+  // 42.20 writes the id first and the folder second
+  // (GameServerWorkshopItems.Install, bytecode 476-485), so a line the other
+  // way round isn't the engine's and names no folder for the item.
+  it("answers null for a line that doesn't start with the id", () => {
     writeLog([`Workshop: /pz-server/steamapps/workshop/content/108600/${ID} installed to ${ID}`]);
     expect(scanWorkshopInstallFolder(zPath, ID)).toBeNull();
   });

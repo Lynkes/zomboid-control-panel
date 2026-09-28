@@ -1,10 +1,12 @@
 /**
  * Readers for the Workshop lines PZ writes to <zomboidDataPath>/server-console.txt.
  *
- * PZ rewrites that file at every server start, so its tail describes the
- * latest run only -- which is exactly the question every caller here asks
- * ("did THIS start fail to get its Workshop items?"), and why each reader
- * only ever looks at the last 256 KB.
+ * PZ rewrites that file at every server start (42.20 GameServer.main opens
+ * it through LimitSizeFileOutputStream, whose constructor passes
+ * append=false to FileOutputStream), so its tail describes the latest run
+ * only -- which is exactly the question every caller here asks ("did THIS
+ * start fail to get its Workshop items?"), and why each reader only ever
+ * looks at the last 256 KB.
  *
  * scanWorkshopFailures() moved here verbatim from routes/debug.js (which
  * re-exports it) so services/bridgeDelivery.js can reuse the same log
@@ -208,10 +210,11 @@ export function scanBridgeStartFailure(zPath, workshopId, { notBefore = null } =
 
 /**
  * The folder PZ reported installing `workshopId` into on its latest start,
- * or null. Which placeholder of the engine's "Workshop: %s installed to %s"
- * line carries the id is not confirmed from the jar alone (a live-test
- * item), so this only answers when the FIRST capture is the id; otherwise
- * bridgeDisk falls back to the SteamCMD candidate folders.
+ * or null (bridgeDisk then falls back to the SteamCMD candidate folders).
+ * The line is "Workshop: <id> installed to <folder>", id first: 42.20's
+ * GameServerWorkshopItems.Install builds it from the long item id and then
+ * the folder (bytecode offsets 476-485: lload 6, aload 8, then the concat
+ * recipe "\u0001 installed to \u0001"), and noise() prefixes "Workshop: ".
  */
 export function scanWorkshopInstallFolder(zPath, workshopId) {
   if (!workshopId) return null;
