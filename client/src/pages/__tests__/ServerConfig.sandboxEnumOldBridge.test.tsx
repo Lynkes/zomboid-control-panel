@@ -192,6 +192,8 @@ describe('Mod Settings enum rows when the labels do not cover 1..max', () => {
     // A restart alone doesn't load a newer bridge that isn't on disk yet
     // (hosted/SFTP servers, or auto-update off), so point at the status page.
     expect(screen.getByText(/Settings › PanelBridge shows what this server needs/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open Settings › PanelBridge' }))
+      .toHaveAttribute('href', '/settings?tab=bridge')
   })
 
   // An old bridge reads the current value with getValue, so selectedIndex can

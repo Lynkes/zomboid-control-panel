@@ -914,7 +914,7 @@ async function buildSandboxOptionsDiagnostics(activeServer, knownSecrets = []) {
   } else if (bridgeReadsIndexZero === true) {
     note = `PanelBridge ${bridgeVersion} reads enum labels from index 0, which raises this exception, but no log line names getValueTranslationByIndexOrNull, so it may come from somewhere else. ${modNote}`;
   } else if (bridgeReadsIndexZero === null) {
-    note = `The log does not show the PanelBridge version. PanelBridge ${indexZeroRange} raise this exception themselves on every getAllSandboxOptions call (they read enum labels from index 0), so rule that out first. ${modNote}`;
+    note = `The log does not show the PanelBridge version. PanelBridge releases ${indexZeroRange} raise this exception themselves on every getAllSandboxOptions call (they read enum labels from index 0), so rule that out first. ${modNote}`;
   }
   return {
     available: true,

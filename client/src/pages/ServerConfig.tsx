@@ -4228,7 +4228,12 @@ export default function ServerConfig() {
                 <Alert className="mb-3 border-warning/40 bg-warning/10">
                   <AlertTriangle className="h-4 w-4 text-warning" />
                   <AlertTitle className="text-warning">{t('modSettingsTab.enumBridgeOutdatedTitle')}</AlertTitle>
-                  <AlertDescription>{t('modSettingsTab.enumBridgeOutdatedDesc')}</AlertDescription>
+                  <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="min-w-0">{t('modSettingsTab.enumBridgeOutdatedDesc')}</span>
+                    <Button asChild variant="outline" size="sm" className="shrink-0 self-start sm:self-center">
+                      <Link to="/settings?tab=bridge">{t('unresolvedReview.openBridgeSettings')}</Link>
+                    </Button>
+                  </AlertDescription>
                 </Alert>
               )}
 

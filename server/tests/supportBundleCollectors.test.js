@@ -452,7 +452,7 @@ describe("support bundle: sandbox-options diagnostics identify the failure and c
 
     expect(result.panelBridgeVersion).toBeNull();
     expect(result.error.likelyCause).toBe("unknown");
-    expect(result.error.note).toContain("PanelBridge 1.7.45 to 1.7.70 raise this exception themselves");
+    expect(result.error.note).toContain("PanelBridge releases 1.7.45 to 1.7.70 raise this exception themselves");
     expectCandidateMods(result);
   });
 
