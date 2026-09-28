@@ -367,6 +367,10 @@ describe("Linux managed-service lifecycle", () => {
         containerized: false,
         fileExists: () => true,
         readFile: () => `X-Zomboid-Panel-Server-ID: ${server.id}`,
+        // No child_pid lookup: the default runtime directory is null on
+        // Windows and /run/user/<uid> on Linux, which made these cases take
+        // a different path per host (see "OpenRC supervised child PID").
+        runtimeDirectory: null,
         execFile,
       });
     }
@@ -456,6 +460,10 @@ describe("Linux managed-service lifecycle", () => {
         containerized: false,
         fileExists: () => true,
         readFile: () => `X-Zomboid-Panel-Server-ID: ${server.id}`,
+        // No child_pid lookup: the default runtime directory is null on
+        // Windows and /run/user/<uid> on Linux, which made these cases take
+        // a different path per host (see "OpenRC supervised child PID").
+        runtimeDirectory: null,
         execFile,
       });
     }
@@ -668,6 +676,33 @@ describe("Linux managed-service lifecycle", () => {
       expect(status.running).toBe(false);
       expect(status).not.toHaveProperty("mainPid");
       expect(readFile).not.toHaveBeenCalledWith(childPidPath);
+    });
+
+    // The merge of the uptime and stale-Stop branches made this rule: the
+    // child is read for every state that counts as running -- "starting"
+    // (exit 8, activating) included, like systemd's MainPID while
+    // activating -- and for none that doesn't.
+    it("reads the child for a service that is still starting (exit 8)", async () => {
+      const { lifecycle, readFile } = openrcLifecycle({ rcStatus: 8, childPid: "4321" });
+
+      await expect(lifecycle.status()).resolves.toMatchObject({
+        running: true,
+        activeState: "activating",
+        mainPid: "4321",
+      });
+      expect(readFile).toHaveBeenCalledWith(childPidPath);
+    });
+
+    it("does not read or report a PID for a service that is stopping, inactive or crashed (exit 4, 16, 32)", async () => {
+      for (const rcStatus of [4, 16, 32]) {
+        const { lifecycle, readFile } = openrcLifecycle({ rcStatus, childPid: "4321" });
+
+        const status = await lifecycle.status();
+
+        expect(status, `exit ${rcStatus}`).toMatchObject({ running: false, scanFailed: true });
+        expect(status, `exit ${rcStatus}`).not.toHaveProperty("mainPid");
+        expect(readFile, `exit ${rcStatus}`).not.toHaveBeenCalledWith(childPidPath);
+      }
     });
 
     it("never reports a PID for a service that fails the ownership check", async () => {
