@@ -7,7 +7,8 @@
  * Every key match uses the same anchored `^[ \t]*Key[ \t]*=` shape as
  * iniKeyWrite.js and mods.js, so a key name that merely appears inside
  * another field's free text (PublicDescription, ServerWelcomeMessage) is
- * never read or rewritten.
+ * never read or rewritten. The one exception is getEffectiveChecksum(),
+ * which answers what the GAME reads and so follows its stricter parser.
  *
  * List entries are compared the way the game compares them: split on `;`,
  * trimmed, empty entries dropped, and every backslash stripped (GameServer
@@ -115,19 +116,40 @@ export function removeBridgeEntries(content, modId, workshopIds) {
   return removeIniListEntries(withoutMod, "WorkshopItems", workshopIds || []);
 }
 
-// The game treats a missing DoLuaChecksum as true (ServerOptions default).
-// With a duplicated key this answers "true" unless EVERY assignment says
-// false, so a caller asking "are players' Lua files compared?" never gets a
-// reassuring answer the file doesn't fully back.
+// Java's String.trim(): every char up to U+0020 comes off both ends.
+function javaTrim(text) {
+  let start = 0;
+  let end = text.length;
+  while (start < end && text.charCodeAt(start) <= 0x20) start++;
+  while (end > start && text.charCodeAt(end - 1) <= 0x20) end--;
+  return text.slice(start, end);
+}
+
+// Whether the game will compare players' Lua files, read exactly the way
+// 42.20 reads the file, because this answer decides both the status the
+// operator sees and whether a switch to Local writes DoLuaChecksum=false:
+//   - ConfigFile.read trims the whole line, skips blank and `#` lines, then
+//     split("=") with no per-part trim: the key must be exactly
+//     "DoLuaChecksum" (so `DoLuaChecksum =` is some other, unknown option)
+//     and the value is the text between the first "=" and the next one;
+//   - ServerOptions starts from the default (true) and parses every line in
+//     order; BooleanConfigOption accepts true/false/1/0 ignoring case and
+//     ignores anything else (` false`, `yes`, empty), keeping the value
+//     from before -- so the last VALID assignment wins.
+// The looser anchored pattern the writers use still finds those odd lines;
+// setChecksumFalse() rewrites them into a form the game reads.
 export function getEffectiveChecksum(content) {
-  const values = [];
-  const pattern = keyLinePattern("DoLuaChecksum", "gm");
-  let match;
-  while ((match = pattern.exec(String(content ?? ""))) !== null) {
-    values.push(match[3].trim().toLowerCase());
+  let effective = true;
+  for (const rawLine of String(content ?? "").split("\n")) {
+    const line = javaTrim(rawLine);
+    if (!line || line.startsWith("#") || !line.includes("=")) continue;
+    const [key, value = ""] = line.split("=");
+    if (key !== "DoLuaChecksum") continue;
+    const lower = value.toLowerCase();
+    if (lower === "true" || lower === "1") effective = true;
+    else if (lower === "false" || lower === "0") effective = false;
   }
-  if (values.length === 0) return true;
-  return !values.every((value) => value === "false");
+  return effective;
 }
 
 // The raw value of the first DoLuaChecksum line, or null when the key is
@@ -137,17 +159,21 @@ export function getChecksumRawValue(content) {
   return match ? match[3].trim() : null;
 }
 
-// Sets every DoLuaChecksum assignment to false, or appends one when the key
-// is missing. A no-op when the file already turns the check off, so a
-// hand-written "False" is not churned into "false".
+// Sets every DoLuaChecksum assignment to a canonical `DoLuaChecksum=false`
+// (no space before or after "=": the game would ignore either, see
+// getEffectiveChecksum), or appends one when the key is missing. A no-op
+// when the game already reads the check as off, so a hand-written "False"
+// or "0" is not churned. If some line the anchored pattern can't see still
+// turns it back on, a final assignment is appended: the game applies the
+// last valid one.
 export function setChecksumFalse(content) {
   const text = String(content ?? "");
   if (!getEffectiveChecksum(text)) return text;
-  const pattern = keyLinePattern("DoLuaChecksum", "gm");
   if (!keyLinePattern("DoLuaChecksum").test(text)) {
     return appendKeyLine(text, "DoLuaChecksum", "false");
   }
-  return text.replace(pattern, (line, indent, spacing) => `${indent}DoLuaChecksum${spacing}=false`);
+  const next = text.replace(keyLinePattern("DoLuaChecksum", "gm"), (line, indent) => `${indent}DoLuaChecksum=false`);
+  return getEffectiveChecksum(next) ? appendKeyLine(next, "DoLuaChecksum", "false") : next;
 }
 
 // Puts `value` back into `key`'s list at `index` (clamped to the list's

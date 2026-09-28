@@ -27,7 +27,8 @@
  *      the stored method changes only after every file step succeeded;
  *   I7 reconcile never throws and never holds a launch longer than 15 s;
  *   I8 Workshop is unavailable without Steam, below Build 42, or without an
- *      item id (and PUT /api/servers/:id refuses useNoSteam while on it).
+ *      item id (and PUT/POST /api/servers and the setup routes refuse a
+ *      profile that launches without Steam in a Workshop game folder).
  */
 import fs from "fs";
 import path from "path";
@@ -51,6 +52,7 @@ import {
   detectWorkshopItem,
   installDirKey,
   listLooseBridgeFiles,
+  readBridgeFileMeta,
   restoreArchivedBridgeFiles,
   restoreBridgeFileBytes,
 } from "./bridgeDisk.js";
@@ -76,6 +78,7 @@ import { resolveObservedServerRunning } from "../utils/serverStatus.js";
 import { resolveProvider } from "../utils/serverStatusModel.js";
 import { isPidAlive } from "../utils/pidLiveness.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { LIFECYCLE_IN_PROGRESS_CODE } from "./lifecycleCoordinator.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("BridgeDelivery");
@@ -84,6 +87,13 @@ export const BRIDGE_MOD_ID = CONTRACT_BRIDGE_MOD_ID;
 export { installDirKey };
 
 const RECONCILE_TIMEOUT_MS = 15_000;
+// How long an apply waits behind a reconcile of the same game folder. The
+// route holds the global lifecycle lock meanwhile (every start, stop and
+// restart is refused), and the Settings page gives up on its request after
+// 15 s: a bounded wait answers with a coded 409 before either goes wrong. A
+// reconcile that timed out keeps the folder's lock until its disk work ends,
+// which on a dead network share could be never.
+const APPLY_LOCK_WAIT_MS = 10_000;
 // How long after a start (or the switch) the status says "waiting for
 // PanelBridge to report in" before it calls the item not loaded.
 const WAITING_GRACE_MS = 5 * 60 * 1000;
@@ -195,6 +205,28 @@ export function launchLooksNoSteam(server) {
   return false;
 }
 
+// I8 for a profile setup is about to create or rewrite (POST /api/servers,
+// the setup wizard, quick setup), which has no row yet: a non-remote
+// profile on a game folder another profile switched to Steam Workshop
+// delivery is Workshop too (the folder decides), so it must not launch
+// without Steam. Its launch would archive the shared loose file and skip
+// its own ini (reconcile's noSteam warning): no bridge at all.
+export function newProfileConflictsWithWorkshop(candidate, allServers) {
+  if (!candidate || candidate.isRemote) return false;
+  const pseudo = { ...candidate, id: null, isRemote: false };
+  return launchLooksNoSteam(pseudo) && getEffectiveMethod(pseudo, allServers) === "workshop";
+}
+
+// The 409 body for that conflict, shared by PUT/POST /api/servers and the
+// two setup routes.
+export function noSteamWorkshopConflictResponse() {
+  return {
+    error:
+      "This server gets PanelBridge from the Steam Workshop, which needs Steam. Switch PanelBridge to panel-installed in Settings › PanelBridge before turning on Launch without Steam.",
+    code: ErrorCode.SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE,
+  };
+}
+
 function usesCustomLauncher(server) {
   return resolveLaunchMode(server).mode === "custom" || Boolean(String(server?.startCommand || "").trim());
 }
@@ -202,12 +234,31 @@ function usesCustomLauncher(server) {
 // In-module mutex, one queue per game folder (or per remote profile). Not
 // withFileLock(): that resolves its key as a filesystem path, which mangles
 // a "name:D:\..." key on Windows.
+//
+// `waitMs` bounds how long a caller waits for its turn. When it runs out the
+// caller gets a 409 and its `fn` is dropped for good (never run later, out
+// of context). The dropped turn still keeps its place in the queue, so
+// nothing behind it can overtake the holder.
 const deliveryLocks = new Map();
 
-export async function withDeliveryLock(key, fn) {
+function deliveryLockBusy() {
+  return new DeliveryError(
+    LIFECYCLE_IN_PROGRESS_CODE,
+    409,
+    "PanelBridge is being updated in this game folder right now (for example before a server start). Try again in a moment.",
+  );
+}
+
+export async function withDeliveryLock(key, fn, { waitMs = null } = {}) {
   const lockKey = String(key ?? "global");
   const prior = deliveryLocks.get(lockKey) || Promise.resolve();
-  const run = prior.then(() => fn());
+  let timer = null;
+  let abandoned = false;
+  const run = prior.then(() => {
+    if (abandoned) return undefined;
+    clearTimeout(timer);
+    return fn();
+  });
   const tail = run.then(
     () => {},
     () => {},
@@ -216,7 +267,15 @@ export async function withDeliveryLock(key, fn) {
   tail.finally(() => {
     if (deliveryLocks.get(lockKey) === tail) deliveryLocks.delete(lockKey);
   });
-  return run;
+  if (!(waitMs > 0)) return run;
+  const gaveUp = new Promise((resolve, reject) => {
+    timer = setTimeout(() => {
+      abandoned = true;
+      reject(deliveryLockBusy());
+    }, waitMs);
+    timer.unref?.();
+  });
+  return Promise.race([run, gaveUp]);
 }
 
 function deliveryLockKey(server) {
@@ -339,21 +398,32 @@ function startTimeMs(serverManager) {
   return Number.isFinite(time) ? time : null;
 }
 
-// "Has the game started since the switch?" answered without comparing two
-// clocks: either the panel itself saw a start after the switch, or the
-// bridge reports a different startedAt than it did at switch time (a bridge
-// value against a bridge value).
-function computeRestartedSinceSwitch(switchRecord, serverRunning, serverManager, live) {
+// "Has the game started since the switch?" Either the panel itself saw a
+// start after the switch, or the bridge reports a different startedAt than
+// it did at switch time -- a bridge value against a bridge value, so no two
+// clocks are compared.
+//
+// That baseline only exists on the record of the profile whose bridge was
+// read at switch time (see applyDeliverySwitch). A sibling on the same game
+// folder, or a server whose bridge wasn't reporting, has none, and "any
+// startedAt at all" would count the run that was already going before the
+// switch as a restart (state workshop-not-loaded instead of
+// workshop-restart-needed). A non-remote game runs on the panel's host, so
+// its startedAt and the switch time share one clock and can be compared
+// directly. A remote host's clock can't be trusted against the panel's; it
+// keeps the plain rule.
+function computeRestartedSinceSwitch(switchRecord, serverRunning, serverManager, live, isRemote) {
   if (!switchRecord) return null;
   const switchedAt = Date.parse(switchRecord.at);
   const startedAt = startTimeMs(serverManager);
   if (serverRunning === true && startedAt !== null && Number.isFinite(switchedAt) && startedAt > switchedAt) {
     return true;
   }
-  if (live?.startedAt !== null && live?.startedAt !== undefined && live.startedAt !== (switchRecord.bridgeStartedAt ?? null)) {
-    return true;
-  }
-  return false;
+  if (live?.startedAt === null || live?.startedAt === undefined) return false;
+  const baseline = typeof switchRecord.bridgeStartedAt === "number" ? switchRecord.bridgeStartedAt : null;
+  if (baseline !== null) return live.startedAt !== baseline;
+  if (isRemote) return true;
+  return Number.isFinite(switchedAt) && live.startedAt > switchedAt;
 }
 
 async function buildContext(server, deps = {}) {
@@ -514,6 +584,7 @@ async function statusFromContext(ctx) {
     serverRunning,
     ctx.deps?.serverManager,
     live,
+    server.isRemote === true,
   );
   const lastStartFailure =
     method === "workshop" && serverRunning === false && access === "automatic" && effectiveWorkshopId
@@ -770,13 +841,18 @@ async function runUndo(undo) {
 
 /**
  * Applies a switch the operator previewed. Re-plans inside the delivery
- * lock, refuses if the method moved since the preview (expectedFrom) or the
- * switch is blocked, runs every file step, and only then records the new
+ * lock (waiting at most `lockWaitMs` for it, then a 409 with nothing
+ * touched), refuses if the method moved since the preview (expectedFrom) or
+ * the switch is blocked, runs every file step, and only then records the new
  * method on the profile(s). Any failure runs the registered undo steps in
  * reverse and throws a DeliveryError whose `restored` says whether every
  * rollback step succeeded (I6).
  */
-export async function applyDeliverySwitch(server, to, { expectedFrom, actor = null, deps = {} } = {}) {
+export async function applyDeliverySwitch(
+  server,
+  to,
+  { expectedFrom, actor = null, deps = {}, lockWaitMs = APPLY_LOCK_WAIT_MS } = {},
+) {
   assertMethod(to);
   return withDeliveryLock(deliveryLockKey(server), async () => {
     const ctx = await buildContext(server, deps);
@@ -849,8 +925,10 @@ export async function applyDeliverySwitch(server, to, { expectedFrom, actor = nu
           );
         const targetPath = resolveTargetPath(ctx.server);
         let previousBytes = null;
+        let previousMeta = null;
         try {
           previousBytes = fs.existsSync(targetPath) ? fs.readFileSync(targetPath) : null;
+          if (previousBytes) previousMeta = readBridgeFileMeta(targetPath);
         } catch (error) {
           // Without the old bytes a failure later on couldn't be undone, so
           // stop before touching anything.
@@ -865,7 +943,9 @@ export async function applyDeliverySwitch(server, to, { expectedFrom, actor = nu
           let currentBytes = null;
           if (fs.existsSync(targetPath)) currentBytes = fs.readFileSync(targetPath);
           if (previousBytes) {
-            if (!currentBytes || !currentBytes.equals(previousBytes)) restoreBridgeFileBytes(targetPath, previousBytes);
+            if (!currentBytes || !currentBytes.equals(previousBytes)) {
+              restoreBridgeFileBytes(targetPath, previousBytes, previousMeta);
+            }
           } else if (currentBytes) {
             await archiveLooseBridgeFiles(
               ctx.installDir,
@@ -904,6 +984,13 @@ export async function applyDeliverySwitch(server, to, { expectedFrom, actor = nu
         bridgeStartedAt: typeof ctx.modStatus?.startedAt === "number" ? ctx.modStatus.startedAt : null,
         workshopId: to === "workshop" ? id : null,
       };
+      // The heartbeat read above is this server's own bridge (the route only
+      // switches the active server). A sibling's later heartbeat comes from
+      // a different run, so comparing it with this value would call a
+      // sibling that never restarted "restarted"; its record carries no
+      // baseline and computeRestartedSinceSwitch() falls back to the switch
+      // time instead.
+      const siblingRecord = { ...record, bridgeStartedAt: null };
       const members = (ctx.access === "automatic" ? ctx.group : [ctx.server]).filter(
         (member) => member?.id !== null && member?.id !== undefined,
       );
@@ -930,7 +1017,10 @@ export async function applyDeliverySwitch(server, to, { expectedFrom, actor = nu
         }
       });
       for (const member of members) {
-        await updateServer(member.id, { bridgeDelivery: to, bridgeDeliverySwitch: record });
+        await updateServer(member.id, {
+          bridgeDelivery: to,
+          bridgeDeliverySwitch: sameServer(member, ctx.server) ? record : siblingRecord,
+        });
       }
       await commitNow();
     } catch (error) {
@@ -952,7 +1042,7 @@ export async function applyDeliverySwitch(server, to, { expectedFrom, actor = nu
     );
     const status = await getDeliveryStatus(ctx.server, deps);
     return { ...plan, applied: true, backups, status };
-  });
+  }, { waitMs: lockWaitMs });
 }
 
 function removeStaleTempFiles(installDir, actions) {

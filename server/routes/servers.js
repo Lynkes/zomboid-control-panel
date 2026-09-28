@@ -28,8 +28,13 @@ import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
 } from "../services/lifecycleCoordinator.js";
-import { getEffectiveMethod, launchLooksNoSteam, reconcileBridge } from "../services/bridgeDelivery.js";
-import { ErrorCode } from "../utils/errorCodes.js";
+import {
+  getEffectiveMethod,
+  launchLooksNoSteam,
+  newProfileConflictsWithWorkshop,
+  noSteamWorkshopConflictResponse,
+  reconcileBridge,
+} from "../services/bridgeDelivery.js";
 import { refreshWorkshopChecker } from "../services/modChecker.js";
 import {
   parseBoundedInteger,
@@ -1166,6 +1171,18 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
       }
     }
 
+    // Same rule as PUT /:id: the game folder decides the PanelBridge
+    // delivery, so a new profile on a folder that gets it from the Steam
+    // Workshop can't be one that launches without Steam.
+    const launchCandidate = { installPath: config.installPath, useNoSteam: config.useNoSteam === true };
+    if (
+      !isRemote &&
+      launchLooksNoSteam(launchCandidate) &&
+      newProfileConflictsWithWorkshop(launchCandidate, await getServers())
+    ) {
+      return res.status(409).json(noSteamWorkshopConflictResponse());
+    }
+
     const server = await createServer({
       name: config.name,
       serverName,
@@ -1484,11 +1501,7 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
         const alreadyConflicting =
           launchLooksNoSteam(target) && getEffectiveMethod(target, allServers) === "workshop";
         if (getEffectiveMethod(merged, mergedAll) === "workshop" && !alreadyConflicting) {
-          return res.status(409).json({
-            error:
-              "This server gets PanelBridge from the Steam Workshop, which needs Steam. Switch PanelBridge to panel-installed in Settings › PanelBridge before turning on Launch without Steam.",
-            code: ErrorCode.SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE,
-          });
+          return res.status(409).json(noSteamWorkshopConflictResponse());
         }
       }
     }

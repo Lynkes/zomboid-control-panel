@@ -154,6 +154,39 @@ function uniqueArchiveDir(root) {
   return candidate;
 }
 
+// A bridge file's mode and owner, so a rollback can put them back too.
+// installBridge() writes PanelBridge.lua 0644 and chowns it to the game
+// folder's owner so a PZ server running as another user can read it; a
+// plain rewrite would leave the panel user's umask mode and ownership
+// instead (0600 and unreadable to the game under umask 077). Null on
+// Windows, where neither applies.
+export function readBridgeFileMeta(filePath) {
+  if (process.platform === "win32") return null;
+  try {
+    const { mode, uid, gid } = fs.statSync(filePath);
+    return { mode: mode & 0o7777, uid, gid };
+  } catch {
+    return null;
+  }
+}
+
+// Best-effort, like installBridge()'s own chown: changing the owner needs
+// privileges the panel often doesn't have, and the content is what matters
+// most. Owner first, since a chown can clear mode bits.
+function applyBridgeFileMeta(filePath, meta) {
+  if (!meta || process.platform === "win32") return;
+  try {
+    fs.chownSync(filePath, meta.uid, meta.gid);
+  } catch (error) {
+    log.debug(`Could not restore the owner of ${filePath}: ${error.message}`);
+  }
+  try {
+    fs.chmodSync(filePath, meta.mode);
+  } catch (error) {
+    log.warn(`Could not restore the mode of ${filePath}: ${error.message}`);
+  }
+}
+
 // Copy + fsync + unlink rather than rename: the panel's data folder and the
 // game install are often on different drives or mounts, where rename fails.
 function moveFileDurably(from, to) {
@@ -194,6 +227,7 @@ function restoreEntries(entries) {
       const data = fs.readFileSync(entry.to);
       fs.mkdirSync(path.dirname(entry.from), { recursive: true });
       writeFileAtomic(entry.from, data);
+      applyBridgeFileMeta(entry.from, entry.meta);
       fs.unlinkSync(entry.to);
     } catch (error) {
       failures.push(`${entry.from}: ${error.message}`);
@@ -227,11 +261,17 @@ export async function archiveLooseBridgeFiles(installDir, files, { reason = "man
         relative = path.basename(file.path);
       }
       const to = path.join(archiveDir, relative);
+      const meta = readBridgeFileMeta(file.path);
       const sha256 = moveFileDurably(file.path, to);
-      entries.push({ from: file.path, to, sha256 });
+      entries.push({ from: file.path, to, sha256, meta });
     }
     current = null;
-    const manifest = { installDir, reason, at: new Date().toISOString(), files: entries };
+    const manifest = {
+      installDir,
+      reason,
+      at: new Date().toISOString(),
+      files: entries.map(({ from, to, sha256 }) => ({ from, to, sha256 })),
+    };
     fs.writeFileSync(path.join(archiveDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   } catch (error) {
     const failures = restoreEntries(entries);
@@ -272,11 +312,13 @@ export async function restoreArchivedBridgeFiles(archiveResult) {
 }
 
 // Undo for an in-place PanelBridge.lua rewrite: puts the exact bytes that
-// were there before back. Lives here, not in bridgeDelivery.js, because this
-// module and the installer are the only places allowed to write a bridge
-// file (bridgeSingleWriterGate.test.js).
-export function restoreBridgeFileBytes(filePath, bytes) {
+// were there before back, with the mode and owner readBridgeFileMeta()
+// recorded before the rewrite. Lives here, not in bridgeDelivery.js, because
+// this module and the installer are the only places allowed to write a
+// bridge file (bridgeSingleWriterGate.test.js).
+export function restoreBridgeFileBytes(filePath, bytes, meta = null) {
   writeFileAtomic(filePath, bytes);
+  applyBridgeFileMeta(filePath, meta);
 }
 
 function readModVersion(lines) {

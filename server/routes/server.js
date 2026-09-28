@@ -50,7 +50,11 @@ import { ProgressCode } from "../utils/progressCodes.js";
 import { invalidateMapFolderScan } from "./chunks.js";
 import { emitActionResult } from "./scheduler.js";
 import { candidateIniPaths } from "../utils/zomboidPaths.js";
-import { reconcileBridge } from "../services/bridgeDelivery.js";
+import {
+  newProfileConflictsWithWorkshop,
+  noSteamWorkshopConflictResponse,
+  reconcileBridge,
+} from "../services/bridgeDelivery.js";
 import { parseBoundedInteger } from "../utils/queryNumbers.js";
 import { confineToRoots } from "../utils/browseRoots.js";
 import { isContainerized } from "../utils/dockerDetect.js";
@@ -3132,6 +3136,13 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
       return res.status(409).json(lifecycleInProgressResponse());
     }
 
+    // The game folder decides the PanelBridge delivery: a folder another
+    // profile gets PanelBridge for from the Steam Workshop can't take a
+    // profile (or launch scripts) that start without Steam.
+    if (useNoSteam === true && newProfileConflictsWithWorkshop({ installPath, useNoSteam }, await getServers())) {
+      return res.status(409).json(noSteamWorkshopConflictResponse());
+    }
+
     try {
       ensureWritableDirectory(installPath);
     } catch (directoryError) {
@@ -3928,6 +3939,11 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
     // block.
     if (isLifecycleLockedForServer(quickSetupTargetServer.id)) {
       return res.status(409).json(lifecycleInProgressResponse());
+    }
+
+    // See /install above: no -nosteam profile on a Steam Workshop folder.
+    if (useNoSteam === true && newProfileConflictsWithWorkshop({ installPath, useNoSteam }, await getServers())) {
+      return res.status(409).json(noSteamWorkshopConflictResponse());
     }
 
     try {

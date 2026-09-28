@@ -9,7 +9,9 @@ import {
   detectWorkshopItem,
   installDirKey,
   listLooseBridgeFiles,
+  readBridgeFileMeta,
   restoreArchivedBridgeFiles,
+  restoreBridgeFileBytes,
 } from "../services/bridgeDisk.js";
 import { getDataPaths } from "../utils/paths.js";
 
@@ -100,9 +102,38 @@ describe("archiveLooseBridgeFiles", () => {
     const manifest = JSON.parse(fs.readFileSync(path.join(result.archiveDir, "manifest.json"), "utf8"));
     expect(manifest).toMatchObject({ installDir, reason: "test" });
     expect(manifest.files).toHaveLength(2);
+    expect(Object.keys(manifest.files[0]).sort()).toEqual(["from", "sha256", "to"]);
     expect(manifest.files[0].sha256).toBe(crypto.createHash("sha256").update(SERVER_LUA).digest("hex"));
     expect(result.moved.sort()).toEqual([server, client].sort());
   });
+
+  // installBridge() leaves PanelBridge.lua 0644 and owned like the game
+  // folder so a PZ server running as another user can read it. A rollback
+  // that rewrote the bytes with the panel's own umask mode could leave the
+  // game unable to load the file it just got back.
+  it.skipIf(process.platform === "win32")(
+    "a file moved back gets the mode it had before, not the panel's default",
+    async () => {
+      const server = put("media/lua/server/PanelBridge.lua", SERVER_LUA);
+      fs.chmodSync(server, 0o640);
+      const result = await archiveLooseBridgeFiles(installDir, listLooseBridgeFiles(installDir), { reason: "test" });
+      await restoreArchivedBridgeFiles(result);
+      expect(fs.statSync(server).mode & 0o777).toBe(0o640);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "restoreBridgeFileBytes puts back the recorded mode over the installer's 0644",
+    () => {
+      const server = put("media/lua/server/PanelBridge.lua", SERVER_LUA);
+      fs.chmodSync(server, 0o640);
+      const meta = readBridgeFileMeta(server);
+      fs.chmodSync(server, 0o644);
+      restoreBridgeFileBytes(server, Buffer.from(SERVER_LUA), meta);
+      expect(fs.readFileSync(server, "utf8")).toBe(SERVER_LUA);
+      expect(fs.statSync(server).mode & 0o777).toBe(0o640);
+    },
+  );
 
   it("keeps only the newest 5 archive folders per install", async () => {
     const root = archiveRootFor(installDir);

@@ -997,11 +997,14 @@ setDockerClient(dockerClient);
 // statically importing database/init.js (see its own comment on why: dozens
 // of test files mock that module with only the exports they need).
 setServerDisplayNameResolver(peekServerDisplayName);
-// Every start and restart (dashboard, scheduled, mod-update, Discord, boot
-// auto-start, post-update) funnels through serverManager.startServer() or
-// managedContainer.runManagedLifecycle(), which call this right before the
-// launch: PanelBridge is brought in line with the server's delivery method
-// for the JVM about to start. Never throws, bounded to 15 s.
+// Starts and restarts from the dashboard, the scheduler (scheduled, mod-
+// update), Discord, boot auto-start and post-update funnel through
+// serverManager.startServer() or managedContainer.runManagedLifecycle(),
+// which call this right before the launch: PanelBridge is brought in line
+// with the server's delivery method for the JVM about to start. Never
+// throws, bounded to 15 s. Not covered: the Servers page's per-container
+// Start/Restart (routes/docker.js POST /containers/:id/:action), which
+// calls dockerClient.runManagedAction() directly.
 setBeforeLaunchHook((server) => reconcileBridge(server, { reason: "launch" }));
 const modChecker = new ModChecker();
 const logTailer = new LogTailer();

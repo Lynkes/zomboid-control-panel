@@ -150,6 +150,33 @@ describe("states: Steam Workshop", () => {
     expect(status.live).toMatchObject({ delivery: "workshop", workshopId: WS_ID, startedAt: 2000 });
   });
 
+  // A sibling on the same game folder (or a server whose bridge wasn't
+  // reporting at switch time) has no bridge baseline in its record. The run
+  // that was already going before the switch must not count as a restart.
+  it("no baseline: a bridge that started before the switch is not a restart (workshop-restart-needed)", async () => {
+    runningState.value = true;
+    const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+    const status = await statusFor(switchedToWorkshop({}, { bridgeStartedAt: null }), {
+      modStatus: { alive: true, startedAt: twoHoursAgo, delivery: { method: "loose" } },
+      startTime: new Date(twoHoursAgo),
+    });
+    expect(status).toMatchObject({ state: "workshop-restart-needed", restartedSinceSwitch: false });
+  });
+
+  it("no baseline: a bridge that started after the switch is a restart (same host, same clock)", async () => {
+    const status = await statusFor(switchedToWorkshop({}, { bridgeStartedAt: null }), {
+      modStatus: { alive: true, startedAt: Date.now() - 60 * 1000, delivery: { method: "workshop", workshopId: WS_ID } },
+    });
+    expect(status).toMatchObject({ state: "workshop-confirmed", restartedSinceSwitch: true });
+  });
+
+  it("no baseline on a remote profile: any bridge startedAt counts, its clock isn't the panel's", async () => {
+    const status = await statusFor(switchedToWorkshop({ isRemote: true }, { bridgeStartedAt: null }), {
+      modStatus: { alive: true, startedAt: 5, delivery: { method: "workshop", workshopId: WS_ID } },
+    });
+    expect(status).toMatchObject({ state: "workshop-confirmed", restartedSinceSwitch: true });
+  });
+
   it("detects a restart from the panel's own start time after the switch", async () => {
     runningState.value = true;
     const status = await statusFor(switchedToWorkshop(), { startTime: new Date() });

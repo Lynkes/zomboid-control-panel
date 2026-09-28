@@ -20,8 +20,10 @@ export function setServerDisplayNameResolver(resolver) {
 }
 
 // Runs immediately before the game process (or its container) is launched,
-// from the two places every start and restart funnels through:
+// from the two places the panel's starts and restarts funnel through:
 // serverManager.startServer() and managedContainer.runManagedLifecycle().
+// (The Servers page's per-container Start/Restart in routes/docker.js calls
+// dockerClient.runManagedAction() directly and does not reach it.)
 // Wired once at boot (server/index.js) to bridgeDelivery.reconcileBridge(),
 // which keeps the loose PanelBridge.lua current -- or moves it out and
 // re-adds the Workshop entries -- for the launch that is about to happen;

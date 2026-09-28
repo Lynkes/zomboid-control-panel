@@ -9,7 +9,8 @@ import { createServer, deleteServer, getServer, updateServer } from "../database
 // still names the Workshop mod, so every join fails. PUT /api/servers/:id
 // refuses to turn "Launch without Steam" on until PanelBridge is switched
 // back to panel-installed -- including when the Workshop choice was made by
-// another profile sharing the same game folder.
+// another profile sharing the same game folder -- and POST /api/servers
+// refuses to create such a profile there.
 function createResponse() {
   let statusCode = 200;
   let body = null;
@@ -36,6 +37,16 @@ async function put(id, body) {
     { params: { id: String(id) }, body, app: { get: () => undefined } },
     res,
   );
+  return res;
+}
+
+async function post(body) {
+  const { default: router } = await import("../routes/servers.js");
+  const layer = router.stack.find((entry) => entry.route?.path === "/" && entry.route.methods.post);
+  const res = createResponse();
+  await layer.route.stack[layer.route.stack.length - 1].handle({ body, app: { get: () => undefined } }, res);
+  const id = res.getBody()?.server?.id;
+  if (id) created.push(id);
   return res;
 }
 
@@ -116,6 +127,20 @@ describe("PUT /servers/:id useNoSteam vs Workshop PanelBridge delivery", () => {
     const workshop = await makeServer("WorkshopCmd", root, { bridgeDelivery: "workshop" });
     const res = await put(workshop.id, { startCommand: "StartServer64.bat -nosteam" });
     expect(res.getStatusCode()).toBe(409);
+  });
+
+  // The folder decides the method, so a profile CREATED on a Workshop folder
+  // is Workshop from its first launch; it can't be created -nosteam either.
+  it("POST /servers refuses a new -nosteam profile on a Workshop game folder", async () => {
+    await makeServer("WorkshopHost", root, { bridgeDelivery: "workshop" });
+    const body = { name: "NewNoSteam", installPath: root, rconHost: "127.0.0.1", rconPort: 27015, rconPassword: "x" };
+    const refused = await post({ ...body, useNoSteam: true });
+    expect(refused.getStatusCode()).toBe(409);
+    expect(refused.getBody()).toMatchObject({ code: "SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE" });
+
+    expect((await post(body)).getStatusCode()).toBe(201);
+    const elsewhere = { ...body, name: "OtherNoSteam", installPath: fs.mkdtempSync(path.join(root, "o-")) };
+    expect((await post({ ...elsewhere, useNoSteam: true })).getStatusCode()).toBe(201);
   });
 
   it("the delivery fields can't be set through this route at all", async () => {

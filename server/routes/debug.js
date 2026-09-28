@@ -3723,7 +3723,10 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
         // item for Steam Workshop. The previous candidate list counted ANY
         // steamapps/workshop/content/108600 folder as "installed", so a
         // server with any other Workshop mod always passed this check.
-        const bridgeInstallDir = resolveInstallDir(activeServer);
+        // Remote profiles are skipped: their game folder is on another host,
+        // so this disk would always say "missing" (bridge.heartbeat covers
+        // them from the bridge's own reports).
+        const bridgeInstallDir = activeServer.isRemote ? null : resolveInstallDir(activeServer);
         if (bridgeInstallDir) {
           let bridgeDelivery = { method: "local", workshopId: null };
           try {

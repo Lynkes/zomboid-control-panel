@@ -113,7 +113,9 @@ vi.mock("../utils/fileWriteQueue.js", async (importOriginal) => {
   };
 });
 
-const { applyDeliverySwitch, reconcileBridge } = await import("../services/bridgeDelivery.js");
+const { applyDeliverySwitch, getDeliveryStatus, reconcileBridge, withDeliveryLock } = await import(
+  "../services/bridgeDelivery.js"
+);
 const { _resetWorkshopReleaseCacheForTests } = await import("../services/bridgeWorkshopRelease.js");
 
 let root;
@@ -180,9 +182,26 @@ describe("switch to Workshop", () => {
     expect(fs.existsSync(looseServerPath(one.installDir))).toBe(false);
     for (const server of dbState.servers) {
       expect(server.bridgeDelivery).toBe("workshop");
-      expect(server.bridgeDeliverySwitch).toMatchObject({ to: "workshop", by: "admin", bridgeStartedAt: 4242, workshopId: WS_ID });
+      expect(server.bridgeDeliverySwitch).toMatchObject({ to: "workshop", by: "admin", workshopId: WS_ID });
     }
+    // Only the switched server's own bridge was read: the sibling's record
+    // carries no baseline from another server's run.
+    expect(dbState.servers.map((s) => s.bridgeDeliverySwitch.bridgeStartedAt)).toEqual([4242, null]);
+    expect(dbState.servers[1].bridgeDeliverySwitch.at).toBe(dbState.servers[0].bridgeDeliverySwitch.at);
     expect(result.status).toMatchObject({ method: "workshop", state: "workshop-restart-needed" });
+  });
+
+  it("a sibling that becomes active before restarting reads restart-needed, not not-loaded", async () => {
+    await applyDeliverySwitch(dbState.servers[0], "workshop", { expectedFrom: "local", deps });
+    dbState.servers[0].isActive = false;
+    dbState.servers[1].isActive = true;
+    // The sibling's own bridge, still on the run from before the switch.
+    const siblingDeps = {
+      serverManager: { startTime: new Date(Date.now() - 60 * 60 * 1000) },
+      bridge: { getStatus: () => ({ modStatus: { alive: true, startedAt: 1111, delivery: { method: "loose" } } }) },
+    };
+    const status = await getDeliveryStatus(dbState.servers[1], siblingDeps);
+    expect(status).toMatchObject({ state: "workshop-restart-needed", restartedSinceSwitch: false });
   });
 
   // I5: DoLuaChecksum=true is never written automatically. Seeded off and
@@ -263,6 +282,29 @@ describe("switch to Workshop", () => {
     expect(result.method).toBe("workshop");
     expect(result.actions.map((action) => action.kind)).not.toContain("installed");
     expect(fs.existsSync(looseServerPath(one.installDir))).toBe(false);
+  });
+
+  // The route holds the global lifecycle lock while an apply waits here, and
+  // the Settings page abandons its request after 15 s: the wait is bounded.
+  it("an apply queued behind another operation on the folder gives up with a 409 after its wait", async () => {
+    let release;
+    trace.iniGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const first = applyDeliverySwitch(dbState.servers[0], "workshop", { expectedFrom: "local", deps });
+    await vi.waitFor(() => expect(trace.order).toContain("ini"));
+
+    const error = await applyDeliverySwitch(dbState.servers[0], "workshop", {
+      expectedFrom: "local",
+      deps,
+      lockWaitMs: 30,
+    }).catch((e) => e);
+    expect(error).toMatchObject({ code: "SERVER_LIFECYCLE_IN_PROGRESS", status: 409 });
+    expect(trace.order).toEqual(["ini"]);
+
+    release();
+    await expect(first).resolves.toMatchObject({ applied: true });
+    expect(trace.order).toEqual(["ini", "ini", "archive", "persist", "persist"]);
   });
 
   it.each([
@@ -356,6 +398,39 @@ describe("switch to Local", () => {
     trace.failIniWriteAt = 1;
     await applyDeliverySwitch(dbState.servers[0], "local", { expectedFrom: "workshop", deps }).catch(() => {});
     expect(fs.readFileSync(stale, "utf8")).toBe('local VERSION = "0.0.1"\n');
+  });
+
+  // installBridge() rewrote it 0644; the undo's rewrite alone would keep
+  // that (or the panel's umask mode), not what the file had before.
+  it.skipIf(process.platform === "win32")("a rollback also puts back that file's mode", async () => {
+    const stale = writeLoose(one.installDir, "media/lua/server/PanelBridge.lua", 'local VERSION = "0.0.1"\n');
+    fs.chmodSync(stale, 0o640);
+    trace.failIniWriteAt = 1;
+    await applyDeliverySwitch(dbState.servers[0], "local", { expectedFrom: "workshop", deps }).catch(() => {});
+    expect(fs.statSync(stale).mode & 0o777).toBe(0o640);
+  });
+});
+
+describe("withDeliveryLock", () => {
+  it("a waiter that gives up is dropped for good, and the queue order is kept", async () => {
+    let release;
+    const ran = [];
+    const holder = withDeliveryLock("folder", () => new Promise((resolve) => {
+      release = resolve;
+    }));
+    const dropped = withDeliveryLock("folder", async () => ran.push("dropped"), { waitMs: 20 }).catch((e) => e);
+    const behind = withDeliveryLock("folder", async () => ran.push("behind"));
+
+    expect(await dropped).toMatchObject({ code: "SERVER_LIFECYCLE_IN_PROGRESS", status: 409 });
+    expect(ran).toEqual([]);
+    release();
+    await holder;
+    await behind;
+    expect(ran).toEqual(["behind"]);
+  });
+
+  it("a waiter whose turn comes in time runs normally", async () => {
+    await expect(withDeliveryLock("free-folder", async () => "done", { waitMs: 1000 })).resolves.toBe("done");
   });
 });
 

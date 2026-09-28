@@ -3157,6 +3157,12 @@ router.get("/mod-path", requirePermission("bridge.setup"), async (req, res) => {
   });
 });
 
+// How long the Install button's request waits for the reconcile. Under the
+// client's own 15 s request timeout (client/src/lib/api.ts fetchTimeout), so
+// the operator gets this route's coded answer (504 STILL_RUNNING) rather
+// than a generic "request timed out".
+const MANUAL_INSTALL_WAIT_MS = 10_000;
+
 // Auto-install mod to server's Lua folder (optionally specify serverId)
 router.post("/install-mod-auto", requirePermission("bridge.setup"), async (req, res) => {
   try {
@@ -3214,13 +3220,16 @@ router.post("/install-mod-auto", requirePermission("bridge.setup"), async (req, 
     // block an install the operator asked for. The group's method is
     // re-checked inside the delivery lock, so a switch landing between the
     // check above and this call still can't get a loose file written.
-    const reconciled = await reconcileBridge(targetServer, { reason: "manual" });
+    const reconciled = await reconcileBridge(targetServer, {
+      reason: "manual",
+      timeoutMs: MANUAL_INSTALL_WAIT_MS,
+    });
     // The reconcile followed a switch to Workshop that landed after the
     // check above: it moved the loose files out instead of installing.
     if (reconciled.method === "workshop") return workshopActive();
     const target = checkBridgeInstalled(targetServer);
-    // Not a failure: reconcile stopped being waited on after 15 s but keeps
-    // running (usually queued behind another reconcile of the same folder).
+    // Not a failure: reconcile stopped being waited on but keeps running
+    // (usually queued behind another reconcile of the same folder).
     if (reconciled.skipped === "timeout") {
       return res.status(504).json({
         success: false,

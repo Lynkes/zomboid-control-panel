@@ -114,24 +114,52 @@ describe("DoLuaChecksum", () => {
     expect(getChecksumRawValue("PVP=true\n")).toBeNull();
   });
 
-  it("reads false case-insensitively and anything else as true", () => {
-    expect(getEffectiveChecksum("DoLuaChecksum=False\n")).toBe(false);
-    expect(getEffectiveChecksum("DoLuaChecksum = false \n")).toBe(false);
-    expect(getEffectiveChecksum("DoLuaChecksum=true\n")).toBe(true);
-    expect(getEffectiveChecksum("DoLuaChecksum=\n")).toBe(true);
+  // 42.20's parser (ConfigFile.read + BooleanConfigOption, javap): the whole
+  // line is trimmed, then split on "=" with no per-part trim; true/false/1/0
+  // are accepted ignoring case and anything else leaves the default (true).
+  it.each([
+    ["DoLuaChecksum=false", false],
+    ["DoLuaChecksum=False", false],
+    ["DoLuaChecksum=0", false],
+    ["  DoLuaChecksum=false  ", false],
+    ["DoLuaChecksum=true", true],
+    ["DoLuaChecksum=1", true],
+    ["DoLuaChecksum=", true],
+    ["DoLuaChecksum=no", true],
+    // A space after "=" makes the value invalid; before "=", the key.
+    ["DoLuaChecksum= false", true],
+    ["DoLuaChecksum = false", true],
+    ["#DoLuaChecksum=false", true],
+  ])("reads %j the way the game does (%s)", (line, expected) => {
+    expect(getEffectiveChecksum(`PVP=true\n${line}\n`)).toBe(expected);
   });
 
-  it("is only false when every duplicated line says false", () => {
+  it("applies the last valid assignment of a duplicated key, like the game", () => {
     expect(getEffectiveChecksum("DoLuaChecksum=false\nDoLuaChecksum=true\n")).toBe(true);
+    expect(getEffectiveChecksum("DoLuaChecksum=true\nDoLuaChecksum=false\n")).toBe(false);
+    expect(getEffectiveChecksum("DoLuaChecksum=false\nDoLuaChecksum=garbage\n")).toBe(false);
   });
 
   it("setChecksumFalse rewrites true, appends a missing key, and leaves an existing false alone", () => {
     expect(setChecksumFalse("DoLuaChecksum=true\nPVP=true\n")).toBe("DoLuaChecksum=false\nPVP=true\n");
     expect(getEffectiveChecksum(setChecksumFalse("PVP=true"))).toBe(false);
     expect(setChecksumFalse("DoLuaChecksum=False\n")).toBe("DoLuaChecksum=False\n");
+    expect(setChecksumFalse("DoLuaChecksum=0\n")).toBe("DoLuaChecksum=0\n");
     expect(setChecksumFalse("DoLuaChecksum=true\nDoLuaChecksum=true\n")).toBe(
       "DoLuaChecksum=false\nDoLuaChecksum=false\n",
     );
+  });
+
+  it("setChecksumFalse writes a line the game reads, even over one it ignores", () => {
+    for (const odd of ["DoLuaChecksum = false", "DoLuaChecksum= false", "\tDoLuaChecksum =true"]) {
+      const next = setChecksumFalse(`PVP=true\n${odd}\n`);
+      expect(getEffectiveChecksum(next)).toBe(false);
+      expect(next).toMatch(/^[ \t]*DoLuaChecksum=false$/m);
+    }
+    // Java's trim() also strips a leading vertical tab, which the anchored
+    // pattern doesn't: the last-valid-wins rule is met by appending.
+    const hidden = "DoLuaChecksum=true\n\u000bDoLuaChecksum=true\n";
+    expect(setChecksumFalse(hidden)).toBe(`DoLuaChecksum=false\n\u000bDoLuaChecksum=true\nDoLuaChecksum=false\n`);
   });
 });
 
