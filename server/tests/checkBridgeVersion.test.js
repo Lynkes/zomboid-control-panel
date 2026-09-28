@@ -148,7 +148,11 @@ describe("check-bridge-version: PR and release modes", () => {
       errors: [],
       notices: ["unreleased PanelBridge changes; the next release bumps the version"],
     });
-    expect(checkBridgeVersion(status, { release: true }).errors[0]).toMatch(/differs from pz-mod\/bridge-version\.lock\.json/);
+    const [releaseError] = checkBridgeVersion(status, { release: true }).errors;
+    expect(releaseError).toMatch(/differs from pz-mod\/bridge-version\.lock\.json \(1\.2\.3\)/);
+    // Points at the release script, not at re-locking the old number by hand.
+    expect(releaseError).toMatch(/Cut releases with release\.ps1: it moves PanelBridge to 1\.2\.4 and rewrites the lock\./);
+    expect(releaseError).not.toMatch(/--write-lock/);
   });
 
   it("fails a version below the lock whether or not the code changed", () => {
@@ -220,6 +224,49 @@ describe("check-bridge-version: --next, --validate and --write-lock", () => {
     const status = getBridgeVersionStatus(tree.root);
     expect(checkBridgeVersion(status, { release: true })).toEqual({ errors: [], notices: [] });
   });
+
+  // Re-locking the locked number over changed code would give two different
+  // bridges one version: Workshop servers would keep the old code and nothing
+  // would tell them to update.
+  it("refuses to re-lock the locked version over changed code", () => {
+    const tree = makeTree();
+    const lockPath = path.join(tree.root, BRIDGE_FILES.lock);
+    const before = fs.readFileSync(lockPath, "utf8");
+    tree.changeCode("1.2.3");
+    expect(() => writeBridgeVersionLock(tree.root, "1.2.3"))
+      .toThrow(/refusing to lock 1\.2\.3: PanelBridge code changed since 1\.2\.3; ship it as a newer version \(next: 1\.2\.4\).*release\.ps1/);
+    expect(fs.readFileSync(lockPath, "utf8")).toBe(before);
+    expect(nextBridgeVersion(getBridgeVersionStatus(tree.root))).toBe("1.2.4");
+  });
+
+  it("refuses to lock a no-op bump or a version below the lock", () => {
+    const tree = makeTree();
+    const lua = path.join(tree.root, BRIDGE_FILES.serverLua);
+    const declare = (version) => {
+      fs.writeFileSync(lua, fs.readFileSync(lua, "utf8")
+        .replace(/Version: \d+\.\d+\.\d+/, `Version: ${version}`)
+        .replace(/VERSION = "\d+\.\d+\.\d+"/, `VERSION = "${version}"`));
+      fs.writeFileSync(path.join(tree.root, BRIDGE_FILES.modInfo), modInfo(version));
+    };
+    declare("1.2.4");
+    expect(() => writeBridgeVersionLock(tree.root, "1.2.4")).toThrow(/refusing to lock 1\.2\.4: .*no-op bump/);
+    declare("1.2.2");
+    expect(() => writeBridgeVersionLock(tree.root, "1.2.2")).toThrow(/refusing to lock 1\.2\.2: 1\.2\.2 is below the released PanelBridge 1\.2\.3/);
+    declare("1.2.3");
+    expect(() => writeBridgeVersionLock(tree.root, "1.2.3")).not.toThrow();
+  });
+
+  it("still creates a lock that is missing or unreadable", () => {
+    const tree = makeTree({ lock: false });
+    tree.changeCode("1.2.3");
+    writeBridgeVersionLock(tree.root, "1.2.3");
+    expect(readLock(tree.root).lock).toMatchObject({ version: "1.2.3", codeSha256: computeCodeSha256(tree.root) });
+
+    tree.write(BRIDGE_FILES.lock, "{ not json");
+    tree.write(BRIDGE_FILES.serverLua, luaSource("1.2.3", "-- changed again"));
+    writeBridgeVersionLock(tree.root, "1.2.3");
+    expect(readLock(tree.root)).toMatchObject({ error: null, lock: { version: "1.2.3", codeSha256: computeCodeSha256(tree.root) } });
+  });
 });
 
 describe("check-bridge-version: command line", () => {
@@ -259,7 +306,13 @@ describe("check-bridge-version: command line", () => {
     expect(run("--next").out.trim()).toBe("1.2.3");
     tree.changeCode("1.2.3");
     expect(run("--release")).toMatchObject({ code: 1 });
-    expect(run("--write-lock", "1.2.3").code).toBe(0);
+    const relock = run("--write-lock", "1.2.3");
+    expect(relock.code).toBe(1);
+    expect(relock.out).toMatch(/PanelBridge version check failed: refusing to lock 1\.2\.3/);
+    expect(run("--release").code).toBe(1);
+    // What release.ps1 does: declare the next version, then lock it.
+    tree.changeCode("1.2.4");
+    expect(run("--write-lock", "1.2.4").code).toBe(0);
     expect(run("--release").code).toBe(0);
   });
 });

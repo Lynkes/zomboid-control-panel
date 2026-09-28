@@ -36,8 +36,8 @@ export const BRIDGE_FILES = Object.freeze({
 });
 
 // The only files the Workshop item (and the loose install) are built from.
-// Anything else under pz-mod/PanelBridge/ would be silently left out of the
-// item, so the build rejects it instead.
+// Anything else under pz-mod/PanelBridge/ (OS and editor litter aside) would
+// be silently left out of the item, so the build rejects it instead.
 export const BRIDGE_SOURCE_FILES = Object.freeze([
   BRIDGE_FILES.serverLua,
   BRIDGE_FILES.clientLua,
@@ -220,10 +220,30 @@ export function publishedDocErrors(doc) {
     errors.push("published.json publishedAt must be null or an ISO date string");
   }
   const live = doc.liveVerified;
-  if (!live || typeof live !== "object" || !("windowsServer" in live) || !("linuxServer" in live)) {
+  if (!live || typeof live !== "object" || Array.isArray(live) || !("windowsServer" in live) || !("linuxServer" in live)) {
     errors.push("published.json liveVerified must hold windowsServer and linuxServer (null until the live test)");
+  } else {
+    // Filled by hand after the maintainer's live test. The panel drops the
+    // Preview badge once both are non-null and trusts the Linux checksum only
+    // on a literal true, so a typo here would change what operators are told.
+    for (const key of ["windowsServer", "linuxServer"]) {
+      if (!liveVerifiedEntryIsValid(live[key])) {
+        errors.push(
+          `published.json liveVerified.${key} must be null or ` +
+            "{ \"gameVersion\": \"42.20\", \"date\": \"YYYY-MM-DD\", \"nonAdminJoinWithChecksumOn\": true|false }",
+        );
+      }
+    }
   }
   return errors;
+}
+
+function liveVerifiedEntryIsValid(entry) {
+  if (entry === null) return true;
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+  return typeof entry.gameVersion === "string" && /^\d+\.\d+(\.\d+)?$/.test(entry.gameVersion) &&
+    typeof entry.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(entry.date) &&
+    typeof entry.nonAdminJoinWithChecksumOn === "boolean";
 }
 
 export function readPublished(repoRoot) {

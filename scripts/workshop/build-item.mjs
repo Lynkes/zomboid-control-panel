@@ -98,10 +98,18 @@ export function renderWorkshopTxt(templateText, { workshopId, visibility }) {
   return `${output.join("\n")}\n`;
 }
 
+// OS and editor litter (Thumbs.db, .DS_Store, backups, swap files). None of it
+// is ever meant to ship, and the build only copies the three sources anyway,
+// so it doesn't fail the check. Any other stray file still does: it could be
+// a real source that the item would silently leave out.
+const SOURCE_TREE_LITTER = /(^|\/)(Thumbs\.db|desktop\.ini|\.DS_Store)$|\.(bak|swp|swo|tmp)$|~$/i;
+
 function sourceTreeErrors(repoRoot) {
   const errors = [];
   const sourceRoot = "pz-mod/PanelBridge";
-  const present = listFiles(path.join(repoRoot, sourceRoot)).map((file) => `${sourceRoot}/${file}`);
+  const present = listFiles(path.join(repoRoot, sourceRoot))
+    .filter((file) => !SOURCE_TREE_LITTER.test(file))
+    .map((file) => `${sourceRoot}/${file}`);
   for (const file of present) {
     if (!BRIDGE_SOURCE_FILES.includes(file)) {
       errors.push(`${file}: unexpected file; the Workshop item ships exactly ${BRIDGE_SOURCE_FILES.join(", ")}`);

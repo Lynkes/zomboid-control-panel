@@ -20,6 +20,8 @@ import {
   imageErrors,
   lintModInfo,
   normalizeText,
+  publishedDocErrors,
+  readPublished,
   readRepoText,
   sha256Hex,
 } from "../../scripts/workshop/lib.mjs";
@@ -28,13 +30,26 @@ import { readPublishedWorkshopJson, renderReleaseReadme } from "../../build.js";
 // scripts/workshop/build-item.mjs turns pz-mod/PanelBridge into the Build 42
 // Workshop layout and refuses anything the game or the in-game uploader would
 // reject (spec §8.4-8.5). The fixture tree uses this repository's real
-// mod.info, workshop.txt, images and published.json, with PanelBridge Lua
-// stand-ins that carry the §7 load guards and MOD_ID (the real Lua gets them
-// from the Lua workstream), so the committed assets are checked here too.
+// mod.info, workshop.txt and images, with PanelBridge Lua stand-ins that carry
+// the §7 load guards and MOD_ID (the real Lua gets them from the Lua
+// workstream), so the committed assets are checked here too. published.json
+// is the exception: the fixture is the contract commit's document, because the
+// real one gains an id, versions and live-test results as the item is
+// published, and is validated on its own below.
 
 const tempDirs = [];
 const REAL_MOD_INFO = readRepoText(REPO_ROOT, BRIDGE_FILES.modInfo);
 const REAL_VERSION = /^modversion=(.+)$/m.exec(REAL_MOD_INFO)[1];
+const CONTRACT_PUBLISHED = `{
+  "schema": 1,
+  "modId": "ZomboidControlPanelBridge",
+  "workshopId": null,
+  "visibility": null,
+  "publishedVersion": null,
+  "publishedAt": null,
+  "liveVerified": { "windowsServer": null, "linuxServer": null }
+}
+`;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 function serverLua({ version = REAL_VERSION, beforeGuard = "", modId = "ZomboidControlPanelBridge" } = {}) {
@@ -97,7 +112,8 @@ function makeRepo() {
   const copy = (relativePath) => write(relativePath, fs.readFileSync(path.join(REPO_ROOT, relativePath)));
   write(BRIDGE_FILES.serverLua, serverLua());
   write(BRIDGE_FILES.clientLua, CLIENT_LUA);
-  for (const file of [BRIDGE_FILES.modInfo, BRIDGE_FILES.workshopTxt, BRIDGE_FILES.published, BRIDGE_FILES.preview, BRIDGE_FILES.poster, BRIDGE_FILES.icon]) {
+  write(BRIDGE_FILES.published, CONTRACT_PUBLISHED);
+  for (const file of [BRIDGE_FILES.modInfo, BRIDGE_FILES.workshopTxt, BRIDGE_FILES.preview, BRIDGE_FILES.poster, BRIDGE_FILES.icon]) {
     copy(file);
   }
   const setPublished = (fields) => {
@@ -243,6 +259,43 @@ describe("build-item: mod.info lint", () => {
   });
 });
 
+describe("build-item: published.json", () => {
+  // Whatever the maintainer has recorded so far (an id, a public item, the
+  // live-test results), the committed file must stay a valid §5.2 document.
+  it("accepts this repository's published.json", () => {
+    expect(readPublished(REPO_ROOT).errors).toEqual([]);
+  });
+
+  it("accepts a fully recorded document", () => {
+    expect(publishedDocErrors({
+      ...JSON.parse(CONTRACT_PUBLISHED),
+      workshopId: "3712345678",
+      visibility: "public",
+      publishedVersion: "1.7.71",
+      publishedAt: "2026-10-01T12:00:00.000Z",
+      liveVerified: {
+        windowsServer: { gameVersion: "42.20", date: "2026-10-02", nonAdminJoinWithChecksumOn: true },
+        linuxServer: { gameVersion: "42.20", date: "2026-10-02", nonAdminJoinWithChecksumOn: false },
+      },
+    })).toEqual([]);
+  });
+
+  // The panel drops the Preview badge once both entries are set and trusts
+  // the Linux checksum only on a literal true, so a hand-edit typo matters.
+  it.each([
+    [{ windowsServer: {}, linuxServer: null }, /liveVerified\.windowsServer must be null or/],
+    [{ windowsServer: null, linuxServer: { gameVersion: "42.20", date: "2026-10-02", nonAdminJoinWithChecksumOn: "true" } }, /liveVerified\.linuxServer/],
+    [{ windowsServer: { gameVersion: 42.2, date: "2026-10-02", nonAdminJoinWithChecksumOn: true }, linuxServer: null }, /liveVerified\.windowsServer/],
+    [{ windowsServer: { gameVersion: "42.20", date: "02/10/2026", nonAdminJoinWithChecksumOn: true }, linuxServer: null }, /liveVerified\.windowsServer/],
+    [{ windowsServer: null }, /must hold windowsServer and linuxServer/],
+    [[], /must hold windowsServer and linuxServer/],
+  ])("rejects liveVerified %j", (liveVerified, pattern) => {
+    const repo = makeRepo();
+    repo.setPublished({ liveVerified });
+    expect(buildErrors({ repoRoot: repo.root, check: true }).join("\n")).toMatch(pattern);
+  });
+});
+
 describe("build-item: version parity and load guards", () => {
   it("requires modversion, VERSION and the header Version: to agree", () => {
     const repo = makeRepo();
@@ -302,6 +355,27 @@ describe("build-item: layout and file types", () => {
     const errors = buildErrors({ repoRoot: repo.root, check: true }).join("\n");
     expect(errors).toMatch(/media\/lua\/shared\/PanelBridgeShared\.lua: unexpected file/);
     expect(errors).toMatch(/media\/lua\/server\/helper\.dll: unexpected file/);
+  });
+
+  it("ignores OS and editor litter next to the sources, and never ships it", () => {
+    const repo = makeRepo();
+    const litter = [
+      "pz-mod/PanelBridge/Thumbs.db",
+      "pz-mod/PanelBridge/.DS_Store",
+      "pz-mod/PanelBridge/desktop.ini",
+      "pz-mod/PanelBridge/mod.info~",
+      "pz-mod/PanelBridge/media/lua/server/PanelBridge.lua.bak",
+      "pz-mod/PanelBridge/media/lua/server/.PanelBridge.lua.swp",
+      "pz-mod/PanelBridge/media/lua/client/PanelBridgeClient.lua.tmp",
+    ];
+    for (const file of litter) repo.write(file, "x");
+    expect(buildErrors({ repoRoot: repo.root, check: true })).toEqual([]);
+    const outDir = path.join(repo.root, "out");
+    buildWorkshopItem({ repoRoot: repo.root, outDir });
+    expect(listFiles(path.join(outDir, "ZomboidControlPanelBridge"))).toHaveLength(7);
+    // A source the item would leave out still fails.
+    repo.write("pz-mod/PanelBridge/media/lua/server/PanelBridgeHelpers.lua", "return {}\n");
+    expect(buildErrors({ repoRoot: repo.root, check: true }).join("\n")).toMatch(/PanelBridgeHelpers\.lua: unexpected file/);
   });
 
   it("checks the item's own paths: mods/ only, the two Lua paths, no shared/, no blocked types", () => {

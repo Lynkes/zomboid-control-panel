@@ -102,14 +102,16 @@ function parseArgs(argv) {
     if (name === "--help" || name === "-h") return { mode: "help", options };
     const kind = allowed[name];
     if (!kind) {
-      // Only an option name is echoed. Anything else is most likely a password
-      // typed the way steamcmd takes it (+login <user> <password>), and must
-      // not end up on screen or in a terminal log.
-      if (/^--?[A-Za-z][A-Za-z0-9-]*$/.test(name)) {
+      // Only a name this tool defines is echoed (one from the other mode, say).
+      // Anything else may be a password typed the way steamcmd takes it
+      // (+login <user> <password>), and a password can look like an option
+      // (-Hunter2), so it must not end up on screen or in a terminal log.
+      if (name in PUBLISH_OPTIONS || name in RECORD_OPTIONS) {
         throw new PublishError(`Unknown argument for ${mode}: ${name}\n\n${USAGE}`);
       }
       throw new PublishError(
-        `Unexpected extra argument for ${mode} (not shown). This tool never takes a password: steamcmd prompts for it itself.\n\n${USAGE}`,
+        `Unknown argument for ${mode} (not shown, in case it's a password). This tool never takes a password: ` +
+          `steamcmd prompts for it itself.\n\n${USAGE}`,
       );
     }
     if (kind === "flag") {
@@ -138,6 +140,33 @@ export function escapeVdf(value) {
   return String(value).replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
 }
 
+// steamcmd reads item.vdf with Valve's KeyValues parser, and whether it
+// honours \" and \\ there is unknown (LIVE; the Steamworks app_build samples
+// write "..\content\" with a literal trailing backslash, which suggests it
+// doesn't). A value with no quote and no backslash reads the same either way,
+// so none ever reaches the VDF: paths use forward slashes (Windows accepts
+// them), straight double quotes in the page text become single quotes (the
+// Lua changelog quotes messages), and a backslash in the text is refused
+// rather than guessed at. escapeVdf still runs, so spec §8.9's escaping holds.
+export function toVdfPath(filePath, separator = path.sep) {
+  const converted = separator === "\\" ? String(filePath).replace(/\\/g, "/") : String(filePath);
+  if (/["\\]/.test(converted)) {
+    throw new PublishError(`${filePath} contains a quote or backslash, which item.vdf can't carry reliably; build from another folder`);
+  }
+  return converted;
+}
+
+function vdfText(field, value) {
+  const text = String(value).replace(/"/g, "'");
+  if (text.includes("\\")) {
+    throw new PublishError(
+      `The ${field} contains a backslash, which steamcmd may read as an escape. Reword it` +
+        (field === "changenote" ? " (--changenote-file <file> replaces the text taken from the Lua header)." : "."),
+    );
+  }
+  return text;
+}
+
 export function renderItemVdf({ workshopId, contentFolder, previewFile, visibility, title, description, changenote }) {
   const fields = [
     ["appid", STEAM_APP_ID],
@@ -145,10 +174,13 @@ export function renderItemVdf({ workshopId, contentFolder, previewFile, visibili
     ["contentfolder", contentFolder],
     ["previewfile", previewFile],
     ["visibility", VISIBILITY_CODES[visibility]],
-    ["title", title],
-    ["description", description],
-    ["changenote", changenote],
+    ["title", vdfText("title", title)],
+    ["description", vdfText("description", description)],
+    ["changenote", vdfText("changenote", changenote)],
   ];
+  for (const [key, value] of fields) {
+    if (/["\\]/.test(String(value))) throw new PublishError(`item.vdf ${key} contains a quote or backslash: ${value}`);
+  }
   const lines = fields.map(([key, value]) => `  ${`"${key}"`.padEnd(18)}"${escapeVdf(value)}"`);
   return `"workshopitem"\n{\n${lines.join("\n")}\n}\n`;
 }
@@ -316,8 +348,8 @@ async function runPublish(options, { repoRoot, spawn, now, log, warn }) {
   if (!changenote) throw new PublishError("The change note is empty");
   const vdf = renderItemVdf({
     workshopId: doc.workshopId,
-    contentFolder: path.join(itemDir, "Contents"),
-    previewFile: path.join(itemDir, "preview.png"),
+    contentFolder: toVdfPath(path.join(itemDir, "Contents")),
+    previewFile: toVdfPath(path.join(itemDir, "preview.png")),
     visibility,
     title: template.title,
     description: template.descriptionLines.join("\n"),

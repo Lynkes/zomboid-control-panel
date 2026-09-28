@@ -10,6 +10,7 @@ import {
   readVdfPublishedFileId,
   renderItemVdf,
   runPublishCli,
+  toVdfPath,
 } from "../../scripts/workshop/publish.mjs";
 import { writeBridgeVersionLock } from "../../scripts/check-bridge-version.mjs";
 import { BRIDGE_FILES, REPO_ROOT, readRepoText } from "../../scripts/workshop/lib.mjs";
@@ -22,7 +23,19 @@ import { BRIDGE_FILES, REPO_ROOT, readRepoText } from "../../scripts/workshop/li
 const tempDirs = [];
 const REAL_MOD_INFO = readRepoText(REPO_ROOT, BRIDGE_FILES.modInfo);
 const VERSION = /^modversion=(.+)$/m.exec(REAL_MOD_INFO)[1];
-const CONTRACT_PUBLISHED = fs.readFileSync(path.join(REPO_ROOT, BRIDGE_FILES.published), "utf8").replace(/\r\n/g, "\n");
+// published.json as the contract commit created it (spec §5.2). Never the
+// repository's copy: publishing and the live test fill that one in, and these
+// tests must not start failing the day it is committed.
+const CONTRACT_PUBLISHED = `{
+  "schema": 1,
+  "modId": "ZomboidControlPanelBridge",
+  "workshopId": null,
+  "visibility": null,
+  "publishedVersion": null,
+  "publishedAt": null,
+  "liveVerified": { "windowsServer": null, "linuxServer": null }
+}
+`;
 const NOW = new Date("2026-09-27T12:00:00.000Z");
 
 function serverLua(extra = "") {
@@ -151,20 +164,24 @@ describe("workshop publish: credentials", () => {
   it.each([
     [["--steam-user", "maint", "hunter2", "--dry-run"]],
     [["--steam-user", "maint", "-hunter2$", "--dry-run"]],
+    // Shaped like an option: only names this tool defines are echoed.
+    [["--steam-user", "maint", "-Hunter2", "--dry-run"]],
+    [["--steam-user", "maint", "--hunter2", "--dry-run"]],
+    [["--steam-user", "maint", "--hunter=2", "--dry-run"]],
     [["record", "--id", "1", "hunter2"]],
   ])("never echoes a stray value that may be a password: %j", async (argv) => {
     const steamcmd = fakeSteamcmd();
     const result = await run(makeRepo(), argv, { spawn: steamcmd.spawn });
     expect(result.code).toBe(1);
-    expect(`${result.out}\n${result.err}`).not.toMatch(/hunter/);
-    expect(result.err).toMatch(/Unexpected extra argument for (publish|record) \(not shown\)\. This tool never takes a password/);
+    expect(`${result.out}\n${result.err}`).not.toMatch(/hunter/i);
+    expect(result.err).toMatch(/Unknown argument for (publish|record) \(not shown, in case it's a password\)\. This tool never takes a password/);
     expect(steamcmd.calls).toHaveLength(0);
   });
 
-  it("names an unknown option, but not its inline value", async () => {
-    const result = await run(makeRepo(), ["--steam-user", "maint", "--changenote=secret", "--dry-run"]);
+  it("names an option of the other mode, but not its inline value", async () => {
+    const result = await run(makeRepo(), ["--steam-user", "maint", "--id=secret", "--dry-run"]);
     expect(result.code).toBe(1);
-    expect(result.err).toMatch(/Unknown argument for publish: --changenote\n/);
+    expect(result.err).toMatch(/Unknown argument for publish: --id\n/);
     expect(result.err).not.toMatch(/secret/);
   });
 
@@ -184,32 +201,54 @@ describe("workshop publish: credentials", () => {
 });
 
 describe("workshop publish: the item.vdf", () => {
+  const vdfFields = {
+    workshopId: null,
+    contentFolder: "C:/dist/Contents",
+    previewFile: "/srv/dist/preview.png",
+    visibility: "unlisted",
+    title: "Zomboid Control Panel Bridge",
+    description: "line 1\nline 2",
+    changenote: "Fix: \"Stop All Weather\" left snow on",
+  };
+
   it("escapes backslashes and quotes", () => {
     expect(escapeVdf("C:\\a \"b\"")).toBe("C:\\\\a \\\"b\\\"");
-    const vdf = renderItemVdf({
-      workshopId: null,
-      contentFolder: "C:\\dist\\Contents",
-      previewFile: "/srv/dist/preview.png",
-      visibility: "unlisted",
-      title: "Say \"hi\"",
-      description: "line 1\nline 2",
-      changenote: "fix \\ path",
-    });
+  });
+
+  // Whether steamcmd honours \" and \\ in item.vdf is unknown, so the values
+  // never carry either: the file then reads the same with or without escapes.
+  it("writes values with no quote or backslash, so steamcmd reads them the same either way", () => {
+    const vdf = renderItemVdf(vdfFields);
     expect(vdf).toBe([
       "\"workshopitem\"",
       "{",
       "  \"appid\"           \"108600\"",
       "  \"publishedfileid\" \"0\"",
-      "  \"contentfolder\"   \"C:\\\\dist\\\\Contents\"",
+      "  \"contentfolder\"   \"C:/dist/Contents\"",
       "  \"previewfile\"     \"/srv/dist/preview.png\"",
       "  \"visibility\"      \"3\"",
-      "  \"title\"           \"Say \\\"hi\\\"\"",
+      "  \"title\"           \"Zomboid Control Panel Bridge\"",
       "  \"description\"     \"line 1\nline 2\"",
-      "  \"changenote\"      \"fix \\\\ path\"",
+      "  \"changenote\"      \"Fix: 'Stop All Weather' left snow on\"",
       "}",
       "",
     ].join("\n"));
     expect(readVdfPublishedFileId(vdf)).toBe("0");
+    expect(renderItemVdf({ ...vdfFields, title: "Say \"hi\"" })).toMatch(/"title"\s+"Say 'hi'"/);
+  });
+
+  it("refuses a backslash in the text and a path that wasn't converted", () => {
+    expect(() => renderItemVdf({ ...vdfFields, changenote: "Fix: json.decode dropped \\uXXXX escapes" }))
+      .toThrow(/changenote contains a backslash.*--changenote-file/);
+    expect(() => renderItemVdf({ ...vdfFields, description: "a\\b" })).toThrow(/description contains a backslash/);
+    expect(() => renderItemVdf({ ...vdfFields, contentFolder: "C:\\dist\\Contents" })).toThrow(/contentfolder contains a quote or backslash/);
+  });
+
+  it("writes Windows paths with forward slashes and refuses a path it can't carry", () => {
+    expect(toVdfPath("C:\\Users\\maint\\dist-workshop\\Contents", "\\")).toBe("C:/Users/maint/dist-workshop/Contents");
+    expect(toVdfPath("/home/maint/dist-workshop/Contents", "/")).toBe("/home/maint/dist-workshop/Contents");
+    expect(() => toVdfPath("/home/ma\\int/Contents", "/")).toThrow(/can't carry reliably/);
+    expect(() => toVdfPath("/home/\"maint\"/Contents", "/")).toThrow(/can't carry reliably/);
   });
 
   it("--dry-run prints the VDF with absolute paths and runs and writes nothing", async () => {
@@ -222,11 +261,14 @@ describe("workshop publish: the item.vdf", () => {
     expect(fs.existsSync(path.join(repo.root, "dist-workshop"))).toBe(false);
     expect(repo.readPublishedText()).toBe(before);
 
-    const folder = /"contentfolder"\s+"([^"]+)"/.exec(result.out)[1].replace(/\\\\/g, "\\");
-    const preview = /"previewfile"\s+"([^"]+)"/.exec(result.out)[1].replace(/\\\\/g, "\\");
+    const vdf = result.out.slice(result.out.indexOf("\"workshopitem\""), result.out.indexOf("}") + 1);
+    expect(vdf).not.toMatch(/\\/);
+    const folder = /"contentfolder"\s+"([^"]+)"/.exec(vdf)[1];
+    const preview = /"previewfile"\s+"([^"]+)"/.exec(vdf)[1];
+    const forward = (filePath) => filePath.split(path.sep).join("/");
     expect(path.isAbsolute(folder)).toBe(true);
-    expect(folder).toBe(path.join(repo.root, "dist-workshop", "ZomboidControlPanelBridge", "Contents"));
-    expect(preview).toBe(path.join(repo.root, "dist-workshop", "ZomboidControlPanelBridge", "preview.png"));
+    expect(folder).toBe(forward(path.join(repo.root, "dist-workshop", "ZomboidControlPanelBridge", "Contents")));
+    expect(preview).toBe(forward(path.join(repo.root, "dist-workshop", "ZomboidControlPanelBridge", "preview.png")));
     expect(result.out).toMatch(/"appid"\s+"108600"/);
     expect(result.out).toMatch(/"publishedfileid"\s+"0"/);
     expect(result.out).toMatch(/"title"\s+"Zomboid Control Panel Bridge"/);
@@ -256,9 +298,15 @@ describe("workshop publish: the item.vdf", () => {
 
   it("uses --changenote-file when given", async () => {
     const repo = makeRepo();
-    repo.write("note.txt", "Fixes the thing.\r\n");
+    repo.write("note.txt", "Fixes the \"Stop All Weather\" thing.\r\n");
     const result = await run(repo, ["--steam-user", "maint", "--dry-run", "--changenote-file", path.join(repo.root, "note.txt")]);
-    expect(result.out).toMatch(/"changenote"\s+"Fixes the thing\."/);
+    expect(result.out).toMatch(/"changenote"\s+"Fixes the 'Stop All Weather' thing\."/);
+
+    repo.write("note.txt", "Handles C:\\ paths.\n");
+    const refused = await run(repo, ["--steam-user", "maint", "--dry-run", "--changenote-file", path.join(repo.root, "note.txt")]);
+    expect(refused.code).toBe(1);
+    expect(refused.err).toMatch(/changenote contains a backslash/);
+    expect(refused.out).not.toMatch(/workshopitem/);
   });
 });
 
@@ -442,7 +490,6 @@ describe("workshop publish: preconditions", () => {
   it("refuses when the item fails its build checks", async () => {
     const repo = makeRepo();
     repo.write(BRIDGE_FILES.clientLua, "print('no guard')\n");
-    writeBridgeVersionLock(repo.root, VERSION);
     const steamcmd = fakeSteamcmd();
     const result = await run(repo, ["--steam-user", "maint", "--dry-run"], { spawn: steamcmd.spawn });
     expect(result.code).toBe(1);

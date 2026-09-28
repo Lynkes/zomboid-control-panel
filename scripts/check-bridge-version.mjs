@@ -16,7 +16,8 @@
 //   node scripts/check-bridge-version.mjs --print-json     { version, lockVersion, codeSha256, lockSha256, changed }
 //   node scripts/check-bridge-version.mjs --next           the version the next release should ship
 //   node scripts/check-bridge-version.mjs --validate <v>   whether an explicit release version is allowed
-//   node scripts/check-bridge-version.mjs --write-lock <v> record <v> and the current hash
+//   node scripts/check-bridge-version.mjs --write-lock <v> record <v> and the current hash (same rules as --validate
+//                                                          once a lock exists)
 //   --root <dir>  run against another checkout (tests)
 
 import fs from "node:fs";
@@ -66,9 +67,11 @@ export function checkBridgeVersion(status, { release = false } = {}) {
         `Revert the bump: an unchanged bridge keeps its version (release.ps1 bumps it when the code changes).`,
     );
   } else if (status.changed && release) {
+    // Not a --write-lock hint: re-locking by hand is how changed code ends up
+    // under an old number. release.ps1 moves the version and the lock together.
     errors.push(
-      `PanelBridge code differs from ${BRIDGE_FILES.lock} (${status.lockVersion}). ` +
-        `A release must record the shipped code: node scripts/check-bridge-version.mjs --write-lock <version>`,
+      `PanelBridge code differs from ${BRIDGE_FILES.lock} (${status.lockVersion}), so this tree wasn't released with release.ps1. ` +
+        `Cut releases with release.ps1: it moves PanelBridge to ${nextBridgeVersion(status)} and rewrites the lock.`,
     );
   } else if (status.changed && order === 0) {
     notices.push("unreleased PanelBridge changes; the next release bumps the version");
@@ -106,16 +109,30 @@ export function validateReleaseVersion(status, version) {
 }
 
 export function writeBridgeVersionLock(repoRoot, version) {
-  const state = readBridgeState(repoRoot);
   if (!parseSemver(version)) throw new Error(`${version} is not a numeric SemVer`);
-  if (state.parityErrors.length) throw new Error(state.parityErrors.join("; "));
+  const status = getBridgeVersionStatus(repoRoot);
+  if (status.parityErrors.length) throw new Error(status.parityErrors.join("; "));
   // The lock describes the files as they are, so they must already carry the
   // version it records (release.ps1 rewrites them first).
-  if (state.version !== version) {
-    throw new Error(`PanelBridge files declare ${state.version}, not ${version}; rewrite them before locking`);
+  if (status.version !== version) {
+    throw new Error(`PanelBridge files declare ${status.version}, not ${version}; rewrite them before locking`);
   }
-  fs.writeFileSync(path.join(repoRoot, BRIDGE_FILES.lock), formatLock(version, state.codeSha256));
-  return { version, codeSha256: state.codeSha256 };
+  // An existing lock only moves the way a release may: re-locking the locked
+  // number over changed code would give two different bridges one version,
+  // and Workshop servers would silently keep the old one (the publish tool
+  // refuses a version it already published, and the panel's staleness warning
+  // compares versions, not code). A missing or unreadable lock can be recreated.
+  if (!status.lockError) {
+    const problems = validateReleaseVersion(status, version);
+    if (problems.length) {
+      throw new Error(
+        `refusing to lock ${version}: ${problems.join("; ")}. ` +
+          "Cut releases with release.ps1, which picks the version and rewrites the files and the lock together.",
+      );
+    }
+  }
+  fs.writeFileSync(path.join(repoRoot, BRIDGE_FILES.lock), formatLock(version, status.codeSha256));
+  return { version, codeSha256: status.codeSha256 };
 }
 
 const USAGE = `Usage: node scripts/check-bridge-version.mjs [--release | --print-json | --next | --validate <version> | --write-lock <version>] [--root <dir>]`;
