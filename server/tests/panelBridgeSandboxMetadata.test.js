@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { loadPanelBridge } from './helpers/panelBridgeLua.js';
 
-const source = path.resolve('pz-mod/PanelBridge/media/lua/server/PanelBridge.lua');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const source = path.join(__dirname, '..', '..', 'pz-mod', 'PanelBridge', 'media', 'lua', 'server', 'PanelBridge.lua');
 // Shapes verified in the deployed 42.20.4 class files. Missing Java calls
 // emit traces even when Lua pcall catches them, so count the attempts too.
 const stubs = `
@@ -24,13 +26,24 @@ function option(kind, name, value)
     function o:getMin() return 0.1 end
     function o:getMax() return 5 end
   end
+  -- EnumConfigOption(name, N, default) is an IntegerConfigOption(name, 1, N, default).
+  if kind == "Enum" then
+    function o:getMin() return 1 end
+    function o:getMax() return 3 end
+    function o:getNumValues() return 3 end
+    function o:getValueTranslationByIndexOrNull(i)
+      assert(i >= 1 and i <= 3, "B42 enum translation index must be 1..N")
+      return ({"Never", "Instant", "Delayed"})[i]
+    end
+  end
   return setmetatable(o, {__index=function(_, key)
     if key == "getMin" or key == "getMax" then rangeProbes = rangeProbes + 1 end
     return nil
   end})
 end
 options = {option("Boolean", "Toggle", true), option("String", "Text", "hello"),
-           option("Double", "Rate", 1.6), option("Integer", "Count", 3)}
+           option("Double", "Rate", 1.6), option("Integer", "Count", 3),
+           option("Enum", "Mode", 2)}
 sandbox = {}
 function sandbox:getNumOptions() return #options end
 function sandbox:getOptionByIndex(i) return options[i+1] end
@@ -55,10 +68,18 @@ describe('B42 sandbox metadata without exception-based probing', () => {
   it('preserves values, defaults and numeric ranges', () => {
     const bridge = loadPanelBridge(source, stubs);
     const result = bridge.callHandler('getAllSandboxOptions', {});
-    expect(result.data.totalCount).toBe(4);
+    expect(result.data.totalCount).toBe(5);
     expect(Object.fromEntries(result.data.options.Test.map(o => [o.name, o.value])))
-      .toEqual({Toggle:true, Text:'hello', Rate:1.6, Count:3});
+      .toEqual({Toggle:true, Text:'hello', Rate:1.6, Count:3, Mode:2});
     expect(result.data.options.Test.find(o => o.name === 'Rate')).toMatchObject({min:0.1, max:5, default:1.6});
     expect(result.data.options.Test.find(o => o.name === 'Count')).toMatchObject({min:0.1, max:5, default:3});
+  });
+  it('reads the 1..N range of enum options next to their labels', () => {
+    const bridge = loadPanelBridge(source, stubs);
+    const result = bridge.callHandler('getAllSandboxOptions', {});
+    expect(result.data.options.Test.find(o => o.name === 'Mode')).toMatchObject({
+      type: 'enum', min: 1, max: 3, default: 2, selectedIndex: 2,
+      enumValues: ['Never', 'Instant', 'Delayed'],
+    });
   });
 });

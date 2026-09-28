@@ -5200,7 +5200,7 @@ handlers.getAllSandboxOptions = function(args)
         info.shortName = safeStr(function() return opt:getShortName() end)
         -- Get the table/page name (mod or category grouping)
         info.tableName = safeStr(function() return opt:getTableName() end)
-        -- Get the tooltip/translation key
+        -- Get the tooltip text (not a translation key).
         -- B42 getTooltip already returns translated text, including defaults.
         -- Translating it again treats literal percentages as format strings.
         info.tooltip = safeStr(function() return opt:getTooltip() end)
