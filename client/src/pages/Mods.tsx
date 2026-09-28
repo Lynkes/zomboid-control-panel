@@ -48,6 +48,7 @@ import { ConflictScanResult, ScanStreamModScanned, ScanStreamConflictFound } fro
 import { WorkshopCollectionPanel } from '@/components/WorkshopCollectionPanel'
 import { ConflictsPanel } from '@/components/mods/ConflictsPanel'
 import { ModRow, WorkshopIdChip, WorkshopLinkAction, WorkshopThumb } from '@/components/mods/ModRow'
+import { LoadOrderMoveControls } from '@/components/mods/LoadOrderMoveControls'
 import {
   useLocalStorageState,
   type TrackedMod,
@@ -100,7 +101,15 @@ import {
 import { useToast } from '@/components/ui/use-toast'
 import { modsApi, serversApi, ApiError } from '@/lib/api'
 import { FolderBrowser } from '@/components/FolderBrowser'
-import { buildRequiresMap, computeAutoSortedOrder, createRequirementResolver, type AutoSortResult } from '@/lib/modLoadOrder'
+import {
+  buildRequiresMap,
+  computeAutoSortedOrder,
+  createRequirementResolver,
+  loadOrderMoveTarget,
+  moveLoadOrderEntry,
+  type AutoSortResult,
+  type LoadOrderMove,
+} from '@/lib/modLoadOrder'
 import { EmptyState } from '@/components/EmptyState'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
@@ -349,6 +358,14 @@ export default function Mods() {
   const [pendingAddServerChanged, setPendingAddServerChanged] = useState(false)
   const [autoSortPreview, setAutoSortPreview] = useState<AutoSortResult | null>(null)
   const [draggedModIndex, setDraggedModIndex] = useState<number | null>(null)
+  // Load Order move controls (top/up/down/bottom). With 200+ mods a jump to
+  // the top lands the row a whole scroll-height away from the button that
+  // was clicked, so the page scrolls it back into view, re-focuses the same
+  // control on it, marks the row, and announces its new position.
+  const [lastMovedModId, setLastMovedModId] = useState<string | null>(null)
+  const [loadOrderAnnouncement, setLoadOrderAnnouncement] = useState('')
+  const loadOrderListRef = useRef<HTMLDivElement | null>(null)
+  const pendingMoveFocusRef = useRef<{ index: number; move: LoadOrderMove } | null>(null)
   // Expand/collapse states
   const [repairingMaps, setRepairingMaps] = useState(false)
   const [mapRepairResult, setMapRepairResult] = useState<{ removed: string[]; added?: string[]; remaining: string[]; message: string } | null>(null)
@@ -1968,8 +1985,13 @@ export default function Mods() {
     }
   }
 
-  // Drag & drop handlers for mod load order
+  // Drag & drop handlers for mod load order. Reordering is local until Save,
+  // but Save needs mods.manage, so every reorder path (drag, the move
+  // controls, auto-sort) is gated on it too rather than letting a role
+  // without it build an order the server will refuse to write.
   const handleDragStart = (index: number) => {
+    if (!canManageMods) return
+    setLastMovedModId(null)
     setDraggedModIndex(index)
   }
 
@@ -1978,11 +2000,7 @@ export default function Mods() {
     if (draggedModIndex === null || draggedModIndex === index) return
     if (draggedModIndex < 0 || draggedModIndex >= orderedModIds.length) return
 
-    // Reorder the mods
-    const newOrder = [...orderedModIds]
-    const [draggedItem] = newOrder.splice(draggedModIndex, 1)
-    newOrder.splice(index, 0, draggedItem)
-    setOrderedModIds(newOrder)
+    setOrderedModIds(moveLoadOrderEntry(orderedModIds, draggedModIndex, index))
     setDraggedModIndex(index)
   }
 
@@ -1990,23 +2008,47 @@ export default function Mods() {
     setDraggedModIndex(null)
   }
 
-  const moveModUp = (index: number) => {
-    if (index === 0) return
-    const newOrder = [...orderedModIds]
-    ;[newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]]
-    setOrderedModIds(newOrder)
-  }
+  // Move to top / up / down / to bottom. Same state as a drag (orderedModIds),
+  // so the unsaved marker, Reset and Save Order all work unchanged.
+  // useCallback so the memoized per-row LoadOrderMoveControls skip the
+  // page's unrelated re-renders.
+  const moveModInLoadOrder = useCallback((index: number, move: LoadOrderMove) => {
+    if (!canManageMods) return
+    const to = loadOrderMoveTarget(index, orderedModIds.length, move)
+    if (to === null) return
+    const modId = orderedModIds[index]
+    setOrderedModIds(moveLoadOrderEntry(orderedModIds, index, to))
+    setLastMovedModId(modId)
+    setLoadOrderAnnouncement(t('loadOrder.movedAnnouncement', { name: modId, position: to + 1, total: orderedModIds.length }))
+    pendingMoveFocusRef.current = { index: to, move }
+  }, [canManageMods, orderedModIds, t])
 
-  const moveModDown = (index: number) => {
-    if (index === orderedModIds.length - 1) return
-    const newOrder = [...orderedModIds]
-    ;[newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]]
-    setOrderedModIds(newOrder)
-  }
+  // Runs after the reordered list has rendered. Rows are keyed by position,
+  // so the row that moved is a fresh DOM node and the button that was
+  // clicked is gone -- without this, focus drops to <body> after every
+  // move and a keyboard user has to Tab back down from the top of the page.
+  useEffect(() => {
+    const pending = pendingMoveFocusRef.current
+    if (!pending) return
+    pendingMoveFocusRef.current = null
+    const row = loadOrderListRef.current?.querySelector<HTMLElement>(`[data-load-order-index="${pending.index}"]`)
+    if (!row) return
+    // 'nearest' only scrolls the list (and the page, if the list itself is
+    // off-screen) as far as needed -- a one-step move of a visible row
+    // doesn't scroll at all.
+    row.scrollIntoView({ block: 'nearest' })
+    const control = row.querySelector<HTMLElement>(`[data-move-action="${pending.move}"]`)
+    // Move to top leaves that row's "Move to top" disabled, and a disabled
+    // button can't hold focus. DisabledReason's wrapper span around it can,
+    // and it says why the control is now off ("Already first...").
+    const target = control?.matches(':disabled') ? control.parentElement : control
+    target?.focus({ preventScroll: true })
+  }, [orderedModIds])
 
   // Dependency-aware auto-sort. Computes a proposal only; nothing is written
   // until the user applies it and then saves the order.
   const handleAutoSort = () => {
+    if (!canManageMods) return
     const requiresByModId = buildRequiresMap(iniConfig?.workshopModMap)
     const result = computeAutoSortedOrder(orderedModIds, requiresByModId)
 
@@ -2036,8 +2078,9 @@ export default function Mods() {
   }
 
   const applyAutoSort = () => {
-    if (!autoSortPreview) return
+    if (!autoSortPreview || !canManageMods) return
     setOrderedModIds(autoSortPreview.order)
+    setLastMovedModId(null)
     const movedCount = autoSortPreview.moved.length
     setAutoSortPreview(null)
     toast({
@@ -5429,17 +5472,22 @@ export default function Mods() {
                     ) : (
                     <>
                     <div className="flex items-center justify-between gap-3 flex-wrap">
-                      <p className="text-xs text-muted-foreground">{t('loadOrder.dragHint')}</p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 text-xs"
-                        onClick={handleAutoSort}
-                        disabled={savingModOrder || !!autoSortPreview}
-                      >
-                        <Wand2 className="w-3 h-3 me-1" />
-                        {t('loadOrder.autoSort')}
-                      </Button>
+                      {/* Without mods.manage the per-row move controls are
+                          hidden rather than disabled (four dead tab stops per
+                          row, times 200+ rows), so the reason goes here once. */}
+                      <p className="text-xs text-muted-foreground">{canManageMods ? t('loadOrder.dragHint') : t('permissions.noModsManage')}</p>
+                      <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs"
+                          onClick={handleAutoSort}
+                          disabled={savingModOrder || !!autoSortPreview || !canManageMods}
+                        >
+                          <Wand2 className="w-3 h-3 me-1" />
+                          {t('loadOrder.autoSort')}
+                        </Button>
+                      </DisabledReason>
                     </div>
 
                     {autoSortPreview && (
@@ -5493,7 +5541,7 @@ export default function Mods() {
                     )}
                     <div className="rounded-lg border border-border bg-muted/50 shadow-md overflow-hidden">
                       <ScrollArea className="h-[calc(100vh-320px)] min-h-[200px]">
-                        <div className="divide-y divide-border/60 [&>*:nth-child(even)]:bg-card/70">
+                        <div ref={loadOrderListRef} className="divide-y divide-border/60 [&>*:nth-child(even)]:bg-card/70">
                           {orderedModIds
                             .map((modId, idx) => ({ modId, idx }))
                             .filter(({ modId }) => {
@@ -5505,40 +5553,51 @@ export default function Mods() {
                             })
                             .map(({ modId, idx }) => {
                                 const displayName = modIdNameMap.get(modId)
+                                const canDrag = canManageMods && !modManagerSearch.trim()
+                                // Same accent as a selected ModRow, on the mod last
+                                // moved with the row controls, until Save or Reset.
+                                const justMoved = hasModOrderChanged && lastMovedModId === modId
                                 return (
                                 <div
                                   key={`${modId}-${idx}`}
-                                  draggable={!modManagerSearch.trim()}
+                                  data-load-order-index={idx}
+                                  draggable={canDrag}
                                   onDragStart={() => handleDragStart(idx)}
                                   onDragOver={(e) => handleDragOver(e, idx)}
                                   onDragEnd={handleDragEnd}
-                                  className={`flex items-center gap-2 px-2.5 py-1 cursor-move transition-colors duration-150 hover:bg-muted/15 ${
+                                  className={`flex items-center gap-2 px-2.5 py-1 transition-colors duration-150 hover:bg-muted/15 ${canDrag ? 'cursor-move' : ''} ${
                                     draggedModIndex === idx ? 'opacity-30 bg-primary/5' : ''
-                                  }`}
+                                  } ${justMoved ? 'bg-primary/[0.055] shadow-[inset_2px_0_0_hsl(var(--primary)/0.55)]' : ''}`}
                                 >
                                   <GripVertical className="w-3 h-3 text-muted-foreground/30 shrink-0" />
                                   <span className="text-[11px] tabular-nums text-muted-foreground w-5 text-end shrink-0">{idx + 1}</span>
-                                  <span className="text-[11px] font-mono truncate shrink-0">{modId}</span>
+                                  {/* Shrinkable (truncates) so the four move
+                                      controls stay on-screen at phone width
+                                      instead of being clipped by the ScrollArea. */}
+                                  <span className="text-[11px] font-mono truncate min-w-0">{modId}</span>
                                   {displayName && <span className="text-[11px] text-muted-foreground/60 truncate flex-1">{displayName}</span>}
                                   {!displayName && <span className="flex-1" />}
-                                  <div className="flex shrink-0">
-                                    <button onClick={() => moveModUp(idx)} disabled={idx === 0} className="p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center hover:bg-muted/30 disabled:opacity-30 rounded transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50" aria-label={t('loadOrder.moveUpAria')}>
-                                      <ChevronRight className="w-3.5 h-3.5 -rotate-90" />
-                                    </button>
-                                    <button onClick={() => moveModDown(idx)} disabled={idx === orderedModIds.length - 1} className="p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center hover:bg-muted/30 disabled:opacity-30 rounded transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50" aria-label={t('loadOrder.moveDownAria')}>
-                                      <ChevronRight className="w-3.5 h-3.5 rotate-90" />
-                                    </button>
-                                  </div>
+                                  {canManageMods && (
+                                    <LoadOrderMoveControls
+                                      index={idx}
+                                      total={orderedModIds.length}
+                                      modId={modId}
+                                      onMove={moveModInLoadOrder}
+                                    />
+                                  )}
                                 </div>
                               )})
                             }
                         </div>
                       </ScrollArea>
+                      <p className="sr-only" role="status" aria-live="polite">
+                        {hasModOrderChanged ? loadOrderAnnouncement : ''}
+                      </p>
                       {hasModOrderChanged && (
                         <div className="px-3 py-2 border-t border-border/40 bg-muted/20 flex items-center justify-between">
                           <span className="text-[11px] text-warning">{t('loadOrder.unsavedChanges')}</span>
                           <div className="flex gap-2">
-                            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setAutoSortPreview(null); setOrderedModIds(iniConfig.modIds) }}>{t('loadOrder.reset')}</Button>
+                            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setAutoSortPreview(null); setLastMovedModId(null); setOrderedModIds(iniConfig.modIds) }}>{t('loadOrder.reset')}</Button>
                             <Button size="sm" className="h-8 text-xs" onClick={handleSaveModOrder} disabled={savingModOrder || !canManageMods || serverChangedSinceLoad}>
                               {savingModOrder ? <Loader2 className="w-3 h-3 me-1 animate-spin" /> : <Save className="w-3 h-3 me-1" />}
                               {t('loadOrder.saveOrder')}

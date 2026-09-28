@@ -328,3 +328,41 @@ export function buildRequiresMap(
   }
   return requires
 }
+
+/** The per-row move controls on the Load Order tab. */
+export type LoadOrderMove = 'top' | 'up' | 'down' | 'bottom'
+
+/**
+ * Where a row at `from` lands for one of the Load Order row's move controls,
+ * or null when that move would do nothing (already first/last) -- the row
+ * renders that control disabled rather than as a button that silently no-ops.
+ *
+ * Deliberately dependency-blind, exactly like dragging: the list is the
+ * operator's manual order, and "Auto-sort by dependencies" is the one place
+ * that reads `require=`. Pulling a newly added mod to the top, above a
+ * library it requires, is allowed here the same way dropping it there is.
+ */
+export function loadOrderMoveTarget(from: number, length: number, move: LoadOrderMove): number | null {
+  if (!Number.isInteger(from) || from < 0 || from >= length) return null
+  const to =
+    move === 'top' ? 0
+    : move === 'bottom' ? length - 1
+    : move === 'up' ? from - 1
+    : from + 1
+  if (to < 0 || to >= length || to === from) return null
+  return to
+}
+
+/**
+ * Take the entry at `from` out and reinsert it at `to`; every other entry
+ * keeps its relative order. The one reorder primitive shared by drag-and-drop
+ * and the move controls, so both leave the same unsaved order behind for
+ * Save/Reset to act on. Out-of-range or equal indices return an unchanged copy.
+ */
+export function moveLoadOrderEntry<T>(order: readonly T[], from: number, to: number): T[] {
+  const next = [...order]
+  if (from === to || from < 0 || from >= next.length || to < 0 || to >= next.length) return next
+  const [entry] = next.splice(from, 1)
+  next.splice(to, 0, entry)
+  return next
+}
