@@ -365,16 +365,27 @@ you to confirm that the uploaded files were deleted.
    Preview badge goes away once both entries are filled. The extra
    acknowledgement for servers that aren't on Windows goes away only when
    `linuxServer` records `nonAdminJoinWithChecksumOn: true`.
-2. Make the item public on its Steam page, and set `"visibility": "public"`
-   in `published.json`. `publish.mjs --visibility public --force` also
-   works, but it is a publish, with the restart cost that comes with it.
-3. If a recorded result differs from what the docs say — the item folder
+2. Put the released code back on the item. The item still holds the C.1
+   test edit, with its *"Unreleased changes:"* Steam change note, and
+   making it public would ship both. Revert the C.1 Lua edit on the test
+   branch, so the bridge code matches the released code (the version
+   lock) again, and republish from there:
+   `node scripts/workshop/publish.mjs --steam-user <account> --force`
+   (`--force` because `published.json` already records this version).
+   Check that the new change note shows on Steam, as after any publish
+   (Path A).
+3. Make the item public on its Steam page, and set `"visibility": "public"`
+   in `published.json`.
+   `node scripts/workshop/publish.mjs --steam-user <account> --visibility public --force`
+   also works, but it is a publish, with the restart cost that comes with
+   it.
+4. If a recorded result differs from what the docs say — the item folder
    in `docs/install/docker.md`, or the update and Linux entries in
    `docs/install/troubleshooting.md` — correct those docs in the same
    change.
-4. Commit `published.json` to `main` and release. That release embeds the
+5. Commit `published.json` to `main` and release. That release embeds the
    ID, and the panel's Steam Workshop option turns on.
-5. Reply on issue #168 with the release link. Use the same wording as the
+6. Reply on issue #168 with the release link. Use the same wording as the
    panel: it turns the Lua integrity check back on, so players whose Lua,
    script or animation files differ from the server's are refused; it
    doesn't stop modified game clients, and admin accounts skip this check.
