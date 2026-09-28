@@ -574,7 +574,15 @@ class PanelBridge extends EventEmitter {
           ? this.config.statusStaleIdleMs
           : this.config.statusStaleMs;
         checks.statusAgeMs = ageMs;
-        checks.statusFresh = ageMs < diagStaleMs;
+        // The last write of a server process that has since exited
+        // (markServerExited()) is not a live mod however young it is --
+        // judging it by age alone told Settings > Bridge and the Debug page
+        // the connection was healthy for up to statusStaleIdleMs after a
+        // quiet stop, beside a mod status that already said offline (and
+        // sendCommand() refusing with "Mod is not responding").
+        const exitedServerWrite =
+          this.exitedServerStatusMtimeMs !== null && stats.mtimeMs === this.exitedServerStatusMtimeMs;
+        checks.statusFresh = !exitedServerWrite && ageMs < diagStaleMs;
         if (!checks.statusFresh) {
           const age = formatAge(ageMs);
           pushIssue('statusFileStale', `Status file is stale (${age} old) — is the PZ server running?`, { age });
@@ -1816,21 +1824,31 @@ class PanelBridge extends EventEmitter {
   }
 
   /**
-   * The status watchdog (server/index.js's checkServerStatusNow) observed
-   * the game server stopped. status.json is the mod's only heartbeat and
-   * checkModStatus() judges it purely by the file's age, so without this
-   * the last write an exited server made kept the mod "connected" for up to
-   * statusStaleIdleMs (5 minutes) after a quiet stop -- on the Dashboard's
-   * PanelBridge line, in Settings > Bridge, and for every bridge command,
-   * which then waited out its full timeout against a mod that was gone.
-   * Pins that write as dead (checkModStatus() skips it until the file
-   * changes) and marks the mod offline now, the same way a heartbeat that
-   * aged out is marked: alive=false plus one modStatus event.
+   * The active game server is confirmed stopped: the status watchdog
+   * (server/index.js's checkServerStatusNow) reached a new stopped verdict,
+   * a panel stop (routes/server.js's /stop, /force-stop, graceful-stop
+   * monitor) confirmed the process, unit or container gone, or a restart
+   * (Scheduler.performRestart()) confirmed the old process exited.
+   * status.json is the mod's only heartbeat and checkModStatus() judges it
+   * purely by the file's age, so without this the last write an exited
+   * server made kept the mod "connected" for up to statusStaleIdleMs
+   * (5 minutes) after a quiet stop -- on the Dashboard's PanelBridge line,
+   * in Settings > Bridge (getConnectionDiagnostics() treats the pinned write
+   * as stale too), and for every bridge command, which then waited out its
+   * full timeout against a mod that was gone. Pins that write as dead
+   * (checkModStatus() skips it until the file changes) and marks the mod
+   * offline now, the same way a heartbeat that aged out is marked:
+   * alive=false plus one modStatus event.
    *
-   * Only called for a stopped verdict. For a native/Docker host that
-   * verdict is the process/container itself; for a remote or systemd host
-   * the verdict already required this heartbeat to be dead (see
-   * isServerObservedRunning), so pinning it changes nothing there.
+   * For a native (including a managed systemd/openrc unit) or Docker host
+   * that verdict is the host signal itself; for a remote host the verdict
+   * already required this heartbeat to be dead (see isServerObservedRunning),
+   * so pinning it changes nothing there. One accepted edge: a live PZ
+   * process the completed scan cannot attribute to this server is "stopped"
+   * to the watchdog too -- including on its first observation after every
+   * panel restart -- so its mod reads offline, and bridge commands are
+   * refused, until its next status.json write clears the pin (every few
+   * seconds while the mod ticks).
    */
   markServerExited() {
     const statusFile = this.getStatusFile();

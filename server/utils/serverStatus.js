@@ -127,6 +127,6 @@ export async function resolveObservedServerRunning(serverManager, rconService, d
     hostStateAuthoritative:
       Boolean(processDetails) &&
       !processDetails.scanFailed &&
-      isHostSignalAuthoritative("native", activeServer?.lifecycleProvider),
+      isHostSignalAuthoritative("native", activeServer?.lifecycleProvider, processDetails.provider),
   });
 }

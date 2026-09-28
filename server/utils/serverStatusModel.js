@@ -31,21 +31,37 @@ export function resolveProvider(server) {
   return server?.isRemote ? "remote-sftp" : "native";
 }
 
-// Managed systemd/openrc servers answer from the unit's own state
-// (systemctl / rc-service) rather than the strict per-process scan, and the
-// watchdog already lets RCON and PanelBridge vouch for them as well
-// (server/tests/serverStatus.test.js: "keeps a systemd-hosted server online
-// when strict process attribution fails"). Moved here from
-// resolveObservedServerRunning unchanged, so composeServerStatus can share it.
-const NON_AUTHORITATIVE_LIFECYCLE_PROVIDERS = ["systemd", "openrc"];
+// Kept as a local list rather than importing linuxServiceLifecycle.js's
+// isManagedLifecycleProvider(): this module stays free of the fs/exec
+// dependencies that one carries.
+const MANAGED_LIFECYCLE_PROVIDERS = ["systemd", "openrc"];
 
 /**
  * Whether a CONFIDENT host answer for this provider -- a native scan that
- * completed, a Docker container whose state was resolved -- is the final
- * word on whether the server is up, overruling RCON and PanelBridge. It is
- * the caller's job to check the answer was confident (not scanFailed /
- * "unknown"); this only says whether the provider's host signal gets that
- * authority at all. Remote hosts never do: the panel cannot see them.
+ * completed, a managed unit whose state was confirmed, a Docker container
+ * whose state was resolved -- is the final word on whether the server is
+ * up, overruling RCON and PanelBridge. It is the caller's job to check the
+ * answer was confident (not scanFailed / "unknown"); this only says whether
+ * the provider's host signal gets that authority at all. Remote hosts never
+ * do: the panel cannot see them.
+ *
+ * answeredBy: the `provider` field serverManager.getServerProcessDetails()
+ * stamps on its result -- the lifecycle provider's name when a managed
+ * systemd/openrc unit's own state answered (usesManagedServiceLifecycle()),
+ * absent when the plain process scan did. A unit that answered is as
+ * authoritative as a completed scan: the panel's systemd unit is
+ * Type=simple with KillMode=control-group, so "inactive"/"failed" means
+ * every process in it (the JVM, and the PanelBridge mod inside it) is gone
+ * (OpenRC's supervise-daemon likewise takes its child down on stop), and
+ * linuxServiceLifecycle.js's status() already downgrades every state it
+ * cannot vouch for (unregistered unit, failed ownership check, "unknown",
+ * "deactivating") to scanFailed. Leaving managed units out entirely kept the
+ * reported bug alive there: after a Stop that systemctl had confirmed, an
+ * exited server's PanelBridge heartbeat still outvoted the unit for up to
+ * five minutes. Only when a systemd/openrc server's answer came from the
+ * plain scan instead (this ServerManager has not loaded that record) do
+ * RCON and PanelBridge still get to vouch, as for any process the strict
+ * attribution may have missed.
  *
  * One definition shared by the watchdog's verdict (utils/serverStatus.js's
  * resolveObservedServerRunning -> isServerObservedRunning's
@@ -53,9 +69,11 @@ const NON_AUTHORITATIVE_LIFECYCLE_PROVIDERS = ["systemd", "openrc"];
  * says "stopped" and the badges a client refetches because of it cannot
  * disagree about which signal wins.
  */
-export function isHostSignalAuthoritative(provider, lifecycleProvider = null) {
+export function isHostSignalAuthoritative(provider, lifecycleProvider = null, answeredBy = null) {
   if (provider === "docker-local" || provider === "docker-managed") return true;
-  return provider === "native" && !NON_AUTHORITATIVE_LIFECYCLE_PROVIDERS.includes(lifecycleProvider);
+  if (provider !== "native") return false;
+  if (!MANAGED_LIFECYCLE_PROVIDERS.includes(lifecycleProvider)) return true;
+  return answeredBy === lifecycleProvider;
 }
 
 // scanFailed distinguishes "the process-detection scan itself could not
@@ -189,16 +207,24 @@ export function buildSummary(host, serverSignal) {
 // stopReason (round 28): serverManager.lastStopReason as-is, or undefined/
 // null on a server that's running or has never been observed to stop --
 // describeStopReason handles both the same way (no detail).
-export function composeServerStatus({ server, isRunning, scanFailed, rcon, bridge, dockerContainer, stopReason }) {
+// hostAnsweredBy: the process details' `provider` (see
+// isHostSignalAuthoritative's answeredBy) -- which of a systemd/openrc
+// server's unit or the plain scan produced isRunning/scanFailed.
+export function composeServerStatus({ server, isRunning, scanFailed, rcon, bridge, dockerContainer, stopReason, hostAnsweredBy }) {
   const provider = resolveProvider(server);
   const host = buildHostSignal(provider, isRunning, scanFailed, dockerContainer, stopReason);
   const serverSignal = buildServerSignal(rcon);
   // Only a confident "stopped" from a provider whose host signal is
   // authoritative -- an "unknown" host (failed scan, unresolved container,
-  // remote) and a managed systemd/openrc unit keep whatever the bridge says,
-  // the same cases the watchdog still lets RCON/PanelBridge decide.
+  // remote) and a systemd/openrc server answered by the plain scan keep
+  // whatever the bridge says, the same cases the watchdog still lets
+  // RCON/PanelBridge decide. The flip side, accepted with the watchdog's
+  // own verdict: a live PZ process the completed scan cannot attribute to
+  // this server reads PanelBridge offline here even while its mod is still
+  // writing -- the panel already calls that host stopped everywhere else.
   const hostConfirmedStopped =
-    host.status === "stopped" && isHostSignalAuthoritative(provider, server?.lifecycleProvider);
+    host.status === "stopped" &&
+    isHostSignalAuthoritative(provider, server?.lifecycleProvider, hostAnsweredBy);
   const bridgeSignal = buildBridgeSignal({ ...bridge, hostConfirmedStopped });
   return {
     provider,

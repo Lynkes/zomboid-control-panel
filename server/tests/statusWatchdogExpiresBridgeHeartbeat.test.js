@@ -105,4 +105,31 @@ describe("status watchdog -- a stopped server's PanelBridge heartbeat is expired
 
     expect(markSpy).not.toHaveBeenCalled();
   });
+
+  // The same report on a Linux host running the server as a managed systemd
+  // unit: the watchdog let the stale heartbeat outvote the unit's own
+  // confirmed "inactive", so after a Stop systemctl had confirmed there was
+  // no stopped verdict at all -- the sidebar, Dashboard and card kept
+  // saying running until the heartbeat aged out.
+  it("reaches the stopped verdict, and expires the heartbeat, when a managed systemd unit's own state confirms the stop", async () => {
+    // Starts from: unknown after running (previous test).
+    getActiveServer.mockResolvedValue({ id: 1, name: "MAZE", isRemote: false, lifecycleProvider: "systemd" });
+    try {
+      scanSpy.mockResolvedValue({ running: true, scanFailed: false, provider: "systemd" });
+      await checkServerStatusNow("start-managed");
+      markSpy.mockClear();
+      emitSpy.mockClear();
+
+      panelBridge.modStatus = { alive: true, _wasAlive: true, version: "1.7.60", serverName: "MAZE", playerCount: 0, players: [] };
+      scanSpy.mockResolvedValue({ running: false, scanFailed: false, provider: "systemd" });
+
+      await checkServerStatusNow("managed-stop");
+
+      expect(markSpy).toHaveBeenCalledTimes(1);
+      expect(panelBridge.isModConnected()).toBe(false);
+      expect(emitSpy).toHaveBeenCalledWith("server:status", { running: false, phase: "stopped" });
+    } finally {
+      getActiveServer.mockResolvedValue({ id: 1, name: "MAZE", isRemote: false });
+    }
+  });
 });

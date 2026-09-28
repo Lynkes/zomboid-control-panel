@@ -22,7 +22,7 @@ Templates are sparse JSON overrides for existing `server.ini` and SandboxVars se
 
 ## Status Model
 
-The active-server status endpoint reports three distinct signals: host/process or container state, RCON connectivity, and PanelBridge state. Healthy signals remain neutral in the client. Remote SFTP hosts are deliberately shown as unknown when the panel cannot verify their process state.
+The active-server status endpoint reports three distinct signals: host/process or container state, RCON connectivity, and PanelBridge state. Healthy signals remain neutral in the client. Remote SFTP hosts are deliberately shown as unknown when the panel cannot verify their process state. A confirmed host answer (a completed native process scan, a managed systemd/OpenRC unit's own state, or a resolved Docker container) is authoritative: when it says stopped, the status watchdog's verdict is stopped and PanelBridge is reported offline, because the bridge's own liveness is only the age of the mod's last status-file write, which outlives the process.
 
 ## Storage Health
 

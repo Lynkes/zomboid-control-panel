@@ -253,6 +253,42 @@ describe("GET /api/servers/active/status", () => {
     );
   });
 
+  // Same report on a managed systemd unit: systemctl had confirmed the stop,
+  // but the heartbeat outvoted the unit for up to five minutes. The route
+  // has to hand the model WHICH mechanism answered (the managed branch of
+  // getServerProcessDetails() stamps `provider`), or the unit's answer is
+  // indistinguishable from a plain scan's.
+  it("reports the bridge offline once a managed systemd unit's own state confirms it stopped", async () => {
+    getActiveServer.mockResolvedValue({ id: 1, isRemote: false, lifecycleProvider: "systemd" });
+    fakeBridge.bridgePath = "/home/pz/Zomboid/Lua/panelbridge/MAZE";
+    fakeBridge.isRunning = true;
+    fakeBridge.isModConnected = () => true;
+    const response = createResponse();
+
+    await getStatusHandler()(
+      {
+        app: fakeApp({
+          serverManager: {
+            getServerProcessDetails: async () => ({
+              running: false,
+              scanFailed: false,
+              provider: "systemd",
+              serviceName: "zomboid-panel-server-1",
+            }),
+          },
+        }),
+      },
+      response,
+    );
+
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: expect.objectContaining({ status: "stopped" }),
+        bridge: expect.objectContaining({ status: "offline" }),
+      }),
+    );
+  });
+
   // Honest-unknown: a scan that could NOT tell is not a confirmed exit, so
   // the heartbeat still counts -- same rule the watchdog applies.
   it("keeps a live heartbeat active when the process scan itself failed", async () => {

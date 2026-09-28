@@ -994,11 +994,21 @@ export default function Dashboard() {
       // (unchanged from every non-lifecycle action's existing call) refreshes
       // the real display state once, after the wait, instead of live-writing
       // a shape mismatch during it.
-      if (mountedRef.current) fetchStatus()
-      // Start vs Stop reads `online`, which comes from composedStatus
-      // whenever it exists -- refreshing only the plain status above left
-      // the button on the pre-action answer until the next 15s poll.
-      if (mountedRef.current && isLifecycleAction) void fetchComposedStatus()
+      if (mountedRef.current) {
+        if (isLifecycleAction) {
+          // Start vs Stop reads `online`, which comes from composedStatus
+          // whenever it exists -- refreshing only the plain status left the
+          // button on the pre-action answer until the next 15s poll. Awaited
+          // before `loading` clears (same as Servers.tsx's inline
+          // refreshAfterInlineAction): the plain status fetched right after
+          // the request was accepted still says running, so clearing first
+          // re-enabled Stop/Force Stop/Restart on that stale answer for a
+          // second or two after the "Server stopped" toast.
+          await Promise.allSettled([fetchStatus(), fetchComposedStatus()])
+        } else {
+          fetchStatus()
+        }
+      }
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),

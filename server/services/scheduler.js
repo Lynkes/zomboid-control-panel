@@ -279,6 +279,26 @@ export class Scheduler {
     }
   }
 
+  // The old process's last status.json write outlives it
+  // (PanelBridge.markServerExited()). The status watchdog expires it on a
+  // stopped verdict, but this restart pushes its own verified transitions
+  // instead of going through that watchdog, and the old process is only
+  // down for the few seconds before the relaunch -- a 10s watchdog tick
+  // often misses that window, leaving PanelBridge reading Up through the
+  // new process's whole world load on the previous run's heartbeat. Only
+  // for the active server: panelBridge watches the active server's folder,
+  // and a throwaway ServerManager may be restarting a different one.
+  async _expireBridgeHeartbeatAfterVerifiedStop(pinnedServerId) {
+    if (pinnedServerId == null) return;
+    try {
+      const activeServer = await getActiveServer();
+      if (String(activeServer?.id) !== String(pinnedServerId)) return;
+      panelBridge.markServerExited();
+    } catch (error) {
+      log.debug(`Auto-restart: could not expire the old PanelBridge heartbeat: ${error.message}`);
+    }
+  }
+
   // Resolves the install-wide scheduler timezone, migrating a not-yet-
   // configured install and failing loudly-but-running on an invalid stored
   // value. Called once at boot (before anything is scheduled) and again
@@ -1800,7 +1820,9 @@ export class Scheduler {
         // stop just above succeeded) -- push it instead of leaving clients
         // reading the pre-restart "running" status for the whole remainder
         // of this sequence (config backup + relaunch + up to 4 more minutes
-        // of RCON waiting below).
+        // of RCON waiting below). The heartbeat goes first, for the same
+        // reason the watchdog orders it before its own push.
+        await this._expireBridgeHeartbeatAfterVerifiedStop(pinnedServerId);
         this._emitVerifiedTransition(false);
 
         // Extra delay after stop — give OS time to fully reap the process

@@ -90,8 +90,9 @@ describe("resolveObservedServerRunning -- split-container / cross-container RCON
 
   // The watchdog's verdict and the composed-status badges share one
   // definition of "which host signal wins" (serverStatusModel.js's
-  // isHostSignalAuthoritative): a completed native scan beats a PanelBridge
-  // heartbeat that outlived its process, a managed systemd unit does not.
+  // isHostSignalAuthoritative): a completed native scan, or a managed
+  // systemd/openrc unit's own confirmed state, beats a PanelBridge heartbeat
+  // that outlived its process.
   it("reports OFFLINE for a native server whose completed scan finds no process, even while a stale PanelBridge heartbeat still reads connected", async () => {
     getActiveServer.mockResolvedValue({ id: "s1" });
     const serverManager = fakeServerManager({ running: false, scanFailed: false });
@@ -100,11 +101,31 @@ describe("resolveObservedServerRunning -- split-container / cross-container RCON
     expect(await resolveObservedServerRunning(serverManager, { connected: false })).toBe(false);
   });
 
-  it("still lets PanelBridge vouch for a managed systemd unit whose own state reads inactive", async () => {
+  it("reports OFFLINE for a managed systemd/openrc unit whose own state reads stopped, even while a stale PanelBridge heartbeat still reads connected", async () => {
+    fakeBridge.isModConnected.mockReturnValue(true);
+    for (const lifecycleProvider of ["systemd", "openrc"]) {
+      getActiveServer.mockResolvedValue({ id: "s1", lifecycleProvider });
+      // getServerProcessDetails()'s managed branch stamps the provider.
+      const serverManager = fakeServerManager({ running: false, scanFailed: false, provider: lifecycleProvider });
+
+      expect(await resolveObservedServerRunning(serverManager, { connected: false })).toBe(false);
+    }
+  });
+
+  it("still lets PanelBridge vouch for a systemd server when the plain process scan, not the unit, answered", async () => {
     getActiveServer.mockResolvedValue({ id: "s1", lifecycleProvider: "systemd" });
     const serverManager = fakeServerManager({ running: false, scanFailed: false });
     fakeBridge.isModConnected.mockReturnValue(true);
 
+    expect(await resolveObservedServerRunning(serverManager, { connected: false })).toBe(true);
+  });
+
+  it("does not call a managed unit stopped when its state could not be confirmed", async () => {
+    getActiveServer.mockResolvedValue({ id: "s1", lifecycleProvider: "systemd" });
+    const serverManager = fakeServerManager({ running: false, scanFailed: true, provider: "systemd" });
+
+    expect(await resolveObservedServerRunning(serverManager, { connected: false })).toBeNull();
+    fakeBridge.isModConnected.mockReturnValue(true);
     expect(await resolveObservedServerRunning(serverManager, { connected: false })).toBe(true);
   });
 

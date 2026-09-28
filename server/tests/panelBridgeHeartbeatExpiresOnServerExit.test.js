@@ -78,6 +78,36 @@ describe("PanelBridge.markServerExited -- a heartbeat cannot outlive its server"
     expect(events).toHaveLength(0);
   });
 
+  // Settings > Bridge and the Debug page read getConnectionDiagnostics(),
+  // not modStatus: judged by age alone, the dead write still reported a
+  // healthy connection that can send commands -- beside a mod status that
+  // said offline and a sendCommand() that refuses with "Mod is not
+  // responding".
+  it("stops reporting the connection healthy in the bridge diagnostics", () => {
+    const bridge = makeBridgeWithLiveIdleHeartbeat();
+    expect(bridge.getConnectionDiagnostics()).toMatchObject({
+      healthy: true,
+      canSendCommands: true,
+      checks: { statusFresh: true },
+    });
+
+    bridge.markServerExited();
+
+    const diagnostics = bridge.getConnectionDiagnostics();
+    expect(diagnostics.healthy).toBe(false);
+    expect(diagnostics.canSendCommands).toBe(false);
+    expect(diagnostics.checks.statusFresh).toBe(false);
+    expect(diagnostics.summary.key).toBe("statusFileStale");
+
+    // And healthy again once a started server writes.
+    writeStatus(tmpDir, { ageMs: 0 });
+    expect(bridge.getConnectionDiagnostics()).toMatchObject({
+      healthy: true,
+      canSendCommands: true,
+      checks: { statusFresh: true },
+    });
+  });
+
   it("comes back as soon as a started server writes a new heartbeat", () => {
     const bridge = makeBridgeWithLiveIdleHeartbeat();
     bridge.markServerExited();

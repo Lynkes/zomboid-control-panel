@@ -218,4 +218,53 @@ describe('Dashboard.tsx: Start replaces Stop within seconds of the server stoppi
     await waitFor(() => expect(stop).toHaveBeenCalled())
     await within(await statusHeader()).findByRole('button', { name: /^start$/i }, PROMPT)
   })
+
+  // The confirmation poll can see the process gone before this page's own
+  // status has caught up: the plain status it fetched when the Stop was
+  // accepted, and the composed status from before the Stop, both still say
+  // running. Clearing `loading` before the post-Stop refresh landed put
+  // Stop, Force stop and Restart back on screen, enabled, on that stale
+  // answer -- a second Stop click waiting to happen.
+  it('keeps Stop, Force stop and Restart disabled until the post-Stop refresh has landed', async () => {
+    setUp()
+    stop.mockResolvedValue({ success: true, confirmed: false } as never)
+    renderDashboard()
+    fireEvent.click(await within(await statusHeader()).findByRole('button', { name: /^stop$/i }, PROMPT))
+    const confirmStop = await screen.findByRole('button', { name: 'Stop server', hidden: true })
+
+    getBulkStatus.mockResolvedValue({
+      servers: [{ id: '1', name: 'MAZE', running: false, pid: null, isActive: true, stateUnknown: false }],
+      detectedProcesses: 0,
+      detectionError: null,
+    })
+    let resolvePlain: (value: Awaited<ReturnType<typeof serverApi.getStatus>>) => void = () => {}
+    let resolveComposed: (value: ComposedServerStatus) => void = () => {}
+    getStatus.mockImplementation(() => new Promise((resolve) => { resolvePlain = resolve }))
+    getComposedStatus.mockImplementation(() => new Promise((resolve) => { resolveComposed = resolve }))
+    const composedCallsBefore = getComposedStatus.mock.calls.length
+    fireEvent.click(confirmStop)
+
+    // The Stop is confirmed and its refresh is in flight. The confirm
+    // dialog stays up (its action button disabled) until handleAction
+    // returns, so the header underneath is aria-hidden meanwhile.
+    await waitFor(() => expect(getComposedStatus.mock.calls.length).toBeGreaterThan(composedCallsBefore), PROMPT)
+    await act(async () => {})
+    const header = await screen.findByRole('banner', { name: /server status/i, hidden: true })
+    expect(within(header).getByRole('button', { name: /^stop$/i, hidden: true })).toBeDisabled()
+    expect(within(header).getByRole('button', { name: /^force stop$/i, hidden: true })).toBeDisabled()
+    expect(within(header).getByRole('button', { name: /^restart$/i, hidden: true })).toBeDisabled()
+
+    await act(async () => {
+      resolvePlain({
+        running: false, startTime: null, uptime: 0,
+        serverPath: 'C:/PZServer', serverPathConfigured: true,
+        rcon: { host: '127.0.0.1', port: 27015, connected: false },
+      } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+      resolveComposed(STOPPED)
+    })
+
+    const start = await within(await statusHeader()).findByRole('button', { name: /^start$/i }, PROMPT)
+    await waitFor(() => expect(start).toBeEnabled())
+    expect(within(await statusHeader()).queryByRole('button', { name: /^stop$/i })).toBeNull()
+  })
 })

@@ -338,9 +338,16 @@ describe("isHostSignalAuthoritative", () => {
     expect(isHostSignalAuthoritative("docker-managed")).toBe(true);
   });
 
-  it("leaves managed systemd/openrc units and remote hosts to RCON and PanelBridge", () => {
+  it("gives a managed systemd/openrc unit the final word when the unit itself answered", () => {
+    expect(isHostSignalAuthoritative("native", "systemd", "systemd")).toBe(true);
+    expect(isHostSignalAuthoritative("native", "openrc", "openrc")).toBe(true);
+  });
+
+  it("leaves remote hosts, and a systemd/openrc server the plain scan answered for, to RCON and PanelBridge", () => {
     expect(isHostSignalAuthoritative("native", "systemd")).toBe(false);
-    expect(isHostSignalAuthoritative("native", "openrc")).toBe(false);
+    expect(isHostSignalAuthoritative("native", "openrc", undefined)).toBe(false);
+    // A ServerManager still loaded with a different managed server's record.
+    expect(isHostSignalAuthoritative("native", "systemd", "openrc")).toBe(false);
     expect(isHostSignalAuthoritative("remote-sftp")).toBe(false);
   });
 });
@@ -382,6 +389,27 @@ describe("composeServerStatus -- a heartbeat cannot outlive its process", () => 
     expect(result.bridge.status).toBe("offline");
   });
 
+  // The same report on a Linux host running the server as a managed
+  // systemd/openrc unit: systemctl confirmed the stop, yet the card still
+  // read "Process Down / RCON Down / PanelBridge Up" beside a Stop button.
+  it("reports PanelBridge offline when a managed systemd/openrc unit's own state confirms it stopped", () => {
+    for (const lifecycleProvider of ["systemd", "openrc"]) {
+      const result = composeServerStatus({
+        server: { isRemote: false, lifecycleProvider },
+        isRunning: false,
+        scanFailed: false,
+        hostAnsweredBy: lifecycleProvider,
+        stopReason: { reason: "stop", exitCode: null, signal: null },
+        rcon: { connected: false, host: "127.0.0.1", port: 27015 },
+        bridge: staleHeartbeat,
+      });
+
+      expect(result.host.status).toBe("stopped");
+      expect(result.server.status).toBe("disconnected");
+      expect(result.bridge.status).toBe("offline");
+    }
+  });
+
   it("keeps PanelBridge active while the process is running", () => {
     const result = composeServerStatus({
       server: { isRemote: false },
@@ -410,10 +438,21 @@ describe("composeServerStatus -- a heartbeat cannot outlive its process", () => 
       rcon: { connected: false },
       bridge: staleHeartbeat,
     });
-    const systemdUnit = composeServerStatus({
+    // A systemd server whose answer came from the plain process scan rather
+    // than the unit (no hostAnsweredBy): strict attribution may have missed
+    // the unit's process, so the heartbeat still counts.
+    const systemdByPlainScan = composeServerStatus({
       server: { isRemote: false, lifecycleProvider: "systemd" },
       isRunning: false,
       scanFailed: false,
+      rcon: { connected: false },
+      bridge: staleHeartbeat,
+    });
+    const unitStateUnknown = composeServerStatus({
+      server: { isRemote: false, lifecycleProvider: "systemd" },
+      isRunning: false,
+      scanFailed: true, // e.g. "deactivating", or systemctl could not be asked
+      hostAnsweredBy: "systemd",
       rcon: { connected: false },
       bridge: staleHeartbeat,
     });
@@ -429,8 +468,10 @@ describe("composeServerStatus -- a heartbeat cannot outlive its process", () => 
     expect(failedScan.bridge.status).toBe("active");
     expect(remote.host.status).toBe("unknown");
     expect(remote.bridge.status).toBe("active");
-    expect(systemdUnit.host.status).toBe("stopped");
-    expect(systemdUnit.bridge.status).toBe("active");
+    expect(systemdByPlainScan.host.status).toBe("stopped");
+    expect(systemdByPlainScan.bridge.status).toBe("active");
+    expect(unitStateUnknown.host.status).toBe("unknown");
+    expect(unitStateUnknown.bridge.status).toBe("active");
     expect(unresolvedContainer.host.status).toBe("unknown");
     expect(unresolvedContainer.bridge.status).toBe("active");
   });

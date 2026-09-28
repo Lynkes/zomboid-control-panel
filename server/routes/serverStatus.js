@@ -77,6 +77,9 @@ router.get("/active/status", async (req, res) => {
       // observes running:true -> false. See serverStatusModel.js's own
       // describeStopReason for how this renders.
       stopReason: serverManager?.lastStopReason,
+      // "systemd"/"openrc" when a managed unit's own state answered rather
+      // than the plain scan -- see isHostSignalAuthoritative's answeredBy.
+      hostAnsweredBy: processDetails.provider,
       rcon: {
         ...rconConfig,
         connecting: !!(rconService?.connecting || rconService?.reconnecting),
