@@ -32,7 +32,7 @@
     "check:bridge-version": "node scripts/check-bridge-version.mjs",
     "workshop:build": "node scripts/workshop/build-item.mjs",
     "workshop:publish": "node scripts/workshop/publish.mjs",
-    "workshop:art": "node scripts/workshop/render-art.mjs"
+    "workshop:art": "node scripts/workshop/generate-art.mjs && node scripts/workshop/render-art.mjs"
   },
   "dependencies": {
     "archiver": "^7.0.1",

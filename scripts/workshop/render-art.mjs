@@ -1,6 +1,9 @@
-// Renders pz-mod/workshop/art/bridge.svg into the three committed Workshop
-// images: preview.png (512, Steam page), poster.png (256, in-game mod list)
-// and icon.png (32, mod list rows). Run it by hand after changing the SVG:
+// Renders the Workshop art into the three committed images: preview.png
+// (512, Steam page) and poster.png (256, in-game mod list) from
+// pz-mod/workshop/art/bridge.svg, and icon.png (32, mod list rows) from the
+// simplified pz-mod/workshop/art/bridge-icon.svg -- the full console art
+// turns to mush at 32 px. Both SVGs come from scripts/workshop/generate-art.mjs,
+// and this command regenerates them first:
 //
 //   npm run workshop:art
 //
@@ -13,20 +16,21 @@ import path from "node:path";
 import process from "node:process";
 import { IMAGE_RULES, REPO_ROOT, imageErrors, isMainModule } from "./lib.mjs";
 
-const SOURCE_SVG = "pz-mod/workshop/art/bridge.svg";
+const ART_SVG = "pz-mod/workshop/art/bridge.svg";
+const ICON_SVG = "pz-mod/workshop/art/bridge-icon.svg";
 const TARGETS = [
-  { file: IMAGE_RULES.preview.file, size: 512, sizes: IMAGE_RULES.preview.sizes },
-  { file: IMAGE_RULES.poster.file, size: 256, sizes: IMAGE_RULES.poster.sizes },
-  { file: IMAGE_RULES.icon.file, size: 32, sizes: IMAGE_RULES.icon.sizes },
+  { file: IMAGE_RULES.preview.file, source: ART_SVG, size: 512, sizes: IMAGE_RULES.preview.sizes },
+  { file: IMAGE_RULES.poster.file, source: ART_SVG, size: 256, sizes: IMAGE_RULES.poster.sizes },
+  { file: IMAGE_RULES.icon.file, source: ICON_SVG, size: 32, sizes: IMAGE_RULES.icon.sizes },
 ];
 
 export async function renderArt({ repoRoot = REPO_ROOT, log = console.log } = {}) {
   const { chromium } = await import("playwright");
-  const svg = fs.readFileSync(path.join(repoRoot, SOURCE_SVG));
-  const dataUrl = `data:image/svg+xml;base64,${svg.toString("base64")}`;
   const browser = await chromium.launch();
   try {
     for (const target of TARGETS) {
+      const svg = fs.readFileSync(path.join(repoRoot, target.source));
+      const dataUrl = `data:image/svg+xml;base64,${svg.toString("base64")}`;
       const page = await browser.newPage({
         viewport: { width: target.size, height: target.size },
         deviceScaleFactor: 1,
