@@ -1093,7 +1093,7 @@
     },
     "modNoResponse": {
       "title": "模組無響應",
-      "fallback": "PanelBridge.lua 無響應。請確認遊戲伺服器正在執行且模組已啟用。",
+      "fallback": "PanelBridge.lua 無響應。請確認遊戲伺服器正在執行且其世界已載入完成；「設定 › PanelBridge」會顯示此伺服器如何取得 PanelBridge。",
       "openBridge": "開啟 Bridge",
       "openBridgeAlt": "開啟 PanelBridge 設定"
     },

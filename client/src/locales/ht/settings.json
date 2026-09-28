@@ -848,7 +848,7 @@
     "sftpTestFailed": { "title": "Tès SFTP Echwe", "fallback": "Pa t kapab konekte ak SFTP." },
     "sftpBridgeStarted": { "title": "Pon SFTP Demare", "description": "PanelBridge ap senkwonize atravè kach lokal la." },
     "modConnected": { "title": "Mod Konekte!", "description": "Konekte ak {{server}}", "fallbackServer": "sèvè" },
-    "modNoResponse": { "title": "Mod Pa t Reponn", "fallback": "Pa gen repons soti nan PanelBridge.lua. Verifye sèvè jwèt la ap fonksyone epi mod la aktive.", "openBridge": "Louvri Pon", "openBridgeAlt": "Louvri paramèt PanelBridge" },
+    "modNoResponse": { "title": "Mod Pa t Reponn", "fallback": "Pa gen repons soti nan PanelBridge.lua. Verifye sèvè jwèt la ap fonksyone epi mond li fin chaje; Paramèt › PanelBridge montre kijan sèvè sa a jwenn PanelBridge.", "openBridge": "Louvri Pon", "openBridgeAlt": "Louvri paramèt PanelBridge" },
     "passwordsDontMatch": { "title": "Modpas yo pa menm" },
     "passwordTooShort": { "title": "Modpas la dwe gen omwen 6 karaktè" },
     "passwordChanged": { "title": "Modpas Chanje", "description": "Modpas ou mete ajou." },

@@ -41,10 +41,14 @@ describe('bridgeDiagnosticParams', () => {
 // in the server's mod list and Workshop subscription"). The Settings
 // statusFileMissing diagnostic, for the same never-written state, said to
 // start the server "with PanelBridge enabled", which every language read as
-// turning the mod on in Mods=.
+// turning the mod on in Mods=, and so did the Ping PanelBridge toast's
+// fallback ("…and the mod is enabled").
 const settingsByLocale = import.meta.glob('../../locales/*/settings.json', { eager: true, import: 'default' }) as Record<
   string,
-  { bridge: { diagnostics: { bridgeSilentSinceStart: string; statusFileMissing: string } } }
+  {
+    bridge: { diagnostics: { bridgeSilentSinceStart: string; statusFileMissing: string } }
+    toasts: { modNoResponse: { fallback: string } }
+  }
 >
 const debugByLocale = import.meta.glob('../../locales/*/debug.json', { eager: true, import: 'default' }) as Record<
   string,
@@ -71,7 +75,8 @@ describe('the "PanelBridge stays silent" remedies', () => {
 
   it.each(locales)('%s points at How PanelBridge is installed, whatever the delivery method', (locale) => {
     const sectionTitle = deliveryByLocale[`../../locales/${locale}/bridgeDelivery.json`].sectionTitle
-    const diagnostics = settingsByLocale[`../../locales/${locale}/settings.json`].bridge.diagnostics
+    const settings = settingsByLocale[`../../locales/${locale}/settings.json`]
+    const diagnostics = settings.bridge.diagnostics
     const silent = diagnostics.bridgeSilentSinceStart
     const missing = diagnostics.statusFileMissing
     const checks = debugByLocale[`../../locales/${locale}/debug.json`].diagnostics.checks
@@ -84,5 +89,7 @@ describe('the "PanelBridge stays silent" remedies', () => {
     // Nothing that only fits Workshop delivery.
     expect(neverHint).not.toMatch(/Workshop|Mods=/)
     expect(missing).not.toMatch(/Workshop|Mods=/)
+    // The toast has no room for the section title; it names the page.
+    expect(settings.toasts.modNoResponse.fallback).toContain('› PanelBridge')
   })
 })

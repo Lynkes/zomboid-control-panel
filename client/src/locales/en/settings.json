@@ -848,7 +848,7 @@
     "sftpTestFailed": { "title": "SFTP Test Failed", "fallback": "Could not connect to SFTP." },
     "sftpBridgeStarted": { "title": "SFTP Bridge Started", "description": "PanelBridge is syncing through the local cache." },
     "modConnected": { "title": "Mod Connected!", "description": "Connected to {{server}}", "fallbackServer": "server" },
-    "modNoResponse": { "title": "Mod Did Not Respond", "fallback": "No response from PanelBridge.lua. Make sure the game server is running and the mod is enabled.", "openBridge": "Open Bridge", "openBridgeAlt": "Open PanelBridge settings" },
+    "modNoResponse": { "title": "Mod Did Not Respond", "fallback": "No response from PanelBridge.lua. Make sure the game server is running and its world has loaded; Settings › PanelBridge shows how this server gets PanelBridge.", "openBridge": "Open Bridge", "openBridgeAlt": "Open PanelBridge settings" },
     "passwordsDontMatch": { "title": "Passwords do not match" },
     "passwordTooShort": { "title": "Password must be at least 6 characters" },
     "passwordChanged": { "title": "Password Changed", "description": "Your password has been updated." },

@@ -1111,7 +1111,7 @@
     },
     "modNoResponse": {
       "title": "لم يستجب المود",
-      "fallback": "لا استجابة من PanelBridge.lua. تأكد من أن خادم اللعبة يعمل وأن المود مفعَّل.",
+      "fallback": "لا استجابة من PanelBridge.lua. تأكد من أن خادم اللعبة يعمل وأن تحميل عالمه قد اكتمل؛ وتعرض الإعدادات › PanelBridge كيف يحصل هذا الخادم على PanelBridge.",
       "openBridge": "فتح الجسر",
       "openBridgeAlt": "فتح إعدادات PanelBridge"
     },

@@ -1095,7 +1095,7 @@
     },
     "modNoResponse": {
       "title": "Le mod n'a pas répondu",
-      "fallback": "Aucune réponse de PanelBridge.lua. Assurez-vous que le serveur de jeu est en cours d'exécution et que le mod est activé.",
+      "fallback": "Aucune réponse de PanelBridge.lua. Assurez-vous que le serveur de jeu est en cours d'exécution et que son monde est chargé ; Paramètres › PanelBridge indique comment ce serveur obtient PanelBridge.",
       "openBridge": "Ouvrir Bridge",
       "openBridgeAlt": "Ouvrir les paramètres PanelBridge"
     },
