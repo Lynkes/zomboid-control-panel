@@ -16,7 +16,7 @@ function mockNavigatorLanguages(language: string, languages: string[] = [languag
   Object.defineProperty(navigator, 'languages', { value: languages, configurable: true })
 }
 
-describe('offered languages (ht)', () => {
+describe('offered languages (ht, pt-BR)', () => {
   const originalLanguage = navigator.language
   const originalLanguages = navigator.languages
 
@@ -34,6 +34,12 @@ describe('offered languages (ht)', () => {
     expect(LANGUAGES.map((l) => l.code)).toContain('ht')
     expect(OFFERED_LANGUAGES.map((l) => l.code)).toContain('ht')
     expect(LANGUAGE_CODES).toContain('ht')
+  })
+
+  it('offers pt-BR now that its translation pass has landed', () => {
+    expect(LANGUAGES.map((l) => l.code)).toContain('pt-BR')
+    expect(OFFERED_LANGUAGES.map((l) => l.code)).toContain('pt-BR')
+    expect(LANGUAGE_CODES).toContain('pt-BR')
   })
 
   it('still offers every other registered language', () => {

@@ -32,6 +32,7 @@ export const LANGUAGES: LanguageDef[] = [
   { code: 'zh-CN', nativeName: '简体中文' },
   { code: 'zh-TW', nativeName: '繁體中文' },
   { code: 'es', nativeName: 'Español' },
+  { code: 'pt-BR', nativeName: 'Português (Brasil)' },
   { code: 'de', nativeName: 'Deutsch' },
   { code: 'ht', nativeName: 'Kreyòl ayisyen' },
   { code: 'uk', nativeName: 'Українська' },
