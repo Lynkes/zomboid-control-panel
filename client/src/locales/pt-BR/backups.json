@@ -104,7 +104,20 @@
   "restoreProgress": {
     "title": "Restaurando {{name}}…",
     "titleUnknown": "Já há uma restauração em andamento para este servidor…",
-    "note": "Isso pode levar alguns minutos, dependendo do tamanho do mundo. Não feche o painel nem saia desta página."
+    "note": "Isso pode levar alguns minutos, dependendo do tamanho do mundo. Você pode sair desta página e voltar depois — só não pare nem reinicie o painel até terminar.",
+    "responseLost": "O painel não respondeu a esta solicitação. A restauração roda no próprio painel, então talvez ainda esteja em andamento. Consultando o painel sobre o resultado…"
+  },
+  "restoreResult": {
+    "successTitle": "Restauração concluída",
+    "successDetail": "Levou {{seconds}}s. Antes, o painel fez backup do mundo substituído — esse backup de segurança é o mais recente da lista abaixo. Inicie o servidor quando quiser.",
+    "successDetailNoSafetyBackup": "Levou {{seconds}}s. Ela foi iniciada sem backup de segurança, então o mundo substituído não foi mantido. Inicie o servidor quando quiser.",
+    "failedTitle": "Falha na restauração",
+    "notStartedProxy": "Um proxy ou túnel na frente do painel recusou a solicitação (HTTP {{status}}). O painel não tem registro desta restauração, então ela não começou.",
+    "failedNextStep": "A menos que o motivo acima diga o contrário, o mundo atual ficou como estava. Corrija a causa e tente de novo.",
+    "unknownTitle": "Não foi possível confirmar como a restauração terminou",
+    "unknownDetail": "A página não conseguiu obter do painel o resultado desta restauração (a conexão ficou fora do ar por tempo demais ou o painel reiniciou), então talvez ela não tenha terminado, nem mesmo começado. Antes de iniciar o servidor, abra Logs de depuração › Atividade e pesquise \"restore\". Uma entrada backup_restored deste backup, posterior ao início da restauração, significa que ela terminou; uma entrada restore_failed posterior informa por que ela falhou. Se não houver nenhuma das duas, restaure de novo. Se você não conseguir abrir os Logs de depuração, peça a um administrador que faça isso.",
+    "dismiss": "Dispensar",
+    "dismissAria": "Dispensar o resultado da restauração"
   },
   "mainCard": {
     "title": "Arquivos de backup",
@@ -195,9 +208,7 @@
     "uploadedDesc": "Salvo como {{name}}. Use Restaurar para aplicá-lo.",
     "uploadFailedTitle": "Falha no envio",
     "uploadFailedFallback": "Falha ao enviar o backup",
-    "restoredTitle": "Ponto de restauração recuperado",
     "restoredDesc": "Mundo revertido para {{name}} em {{seconds}}s",
-    "restoreFailedTitle": "Falha na restauração",
     "restoreFailedFallback": "Falha ao restaurar o backup",
     "snapshotUnavailableTitle": "Snapshot indisponível",
     "snapshotUnavailableFallback": "Não foi possível ler o snapshot do backup",

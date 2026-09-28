@@ -3286,9 +3286,36 @@ export interface BackupSettings {
   includeDb: boolean;
 }
 
+// A restore as backupService.restoreBackup() records it (GH#166). `id` is
+// the requestId the page that started it sent (a server-made one otherwise),
+// which is how that page tells its own restore from another tab's.
+export interface RestoreRecord {
+  id: string;
+  backupName: string;
+  startedAt: string;
+  // Whether it backs the replaced world up first. Both panel pages always
+  // ask for that; an API caller may not.
+  preRestoreBackup: boolean;
+}
+
+export interface RestoreOutcome extends RestoreRecord {
+  finishedAt: string;
+  success: boolean;
+  // Why it failed, path-redacted like the POST's own response; null on success.
+  message: string | null;
+  duration: number | null;
+}
+
 export interface BackupStatus extends BackupSettings {
   backupInProgress: boolean;
   restoreInProgress: boolean;
+  // The restore running right now (null when none is), and how the last
+  // one since the panel started ended -- the outcome a page reads when the
+  // POST that started a restore never answered it (a timeout, a dropped
+  // connection, a reload, another tab). Optional: older servers don't send
+  // them.
+  currentRestore?: RestoreRecord | null;
+  lastRestore?: RestoreOutcome | null;
   lastBackup: {
     name: string;
     path: string;
@@ -3460,10 +3487,12 @@ export const backupApi = {
   // Restore a backup. Same held-open shape as createBackup above --
   // POST /backup/restore/:name awaits backupService.restoreBackup()
   // (extract + swap the save directory, plus its own pre-restore safety
-  // backup) before responding.
+  // backup) before responding. Pages go through restoreBackupAndConfirm()
+  // (lib/restoreOutcome.ts), which reads the outcome back from the status
+  // when this response never arrives; `requestId` is what it matches on.
   restoreBackup: (
     name: string,
-    options?: { createPreRestoreBackup?: boolean },
+    options?: { createPreRestoreBackup?: boolean; requestId?: string },
   ): Promise<{
     success: boolean;
     message?: string;

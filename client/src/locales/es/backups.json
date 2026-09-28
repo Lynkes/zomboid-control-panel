@@ -190,9 +190,7 @@
     "uploadedDesc": "Guardada como {{name}}. Usar «Restaurar» para aplicarla.",
     "uploadFailedTitle": "Error al subir",
     "uploadFailedFallback": "No se pudo subir la copia de seguridad",
-    "restoredTitle": "Punto de recuperación restaurado",
     "restoredDesc": "Se revirtió a {{name}} en {{seconds}} s",
-    "restoreFailedTitle": "Error al restaurar",
     "restoreFailedFallback": "No se pudo restaurar la copia de seguridad",
     "snapshotUnavailableTitle": "Instantánea no disponible",
     "snapshotUnavailableFallback": "No se pudo leer la instantánea de la copia de seguridad",
@@ -228,6 +226,19 @@
   "restoreProgress": {
     "title": "Restaurando {{name}}…",
     "titleUnknown": "Ya hay una restauración en curso para este servidor…",
-    "note": "Esto puede tardar unos minutos según el tamaño del mundo. No cierres el panel ni salgas de esta página."
+    "note": "Esto puede tardar unos minutos según el tamaño del mundo. Puedes salir de esta página y volver más tarde, pero no detengas ni reinicies el panel hasta que termine.",
+    "responseLost": "El panel no respondió a esta solicitud. La restauración se ejecuta en el propio panel, así que puede que siga en curso. Consultando el resultado al panel…"
+  },
+  "restoreResult": {
+    "successTitle": "Restauración completada",
+    "successDetail": "Tardó {{seconds}} s. El mundo reemplazado se guardó antes — esa copia de seguridad de emergencia es la más reciente de la lista de abajo. Inicia el servidor cuando quieras.",
+    "successDetailNoSafetyBackup": "Tardó {{seconds}} s. Se inició sin copia de seguridad de emergencia, así que el mundo reemplazado no se conservó. Inicia el servidor cuando quieras.",
+    "failedTitle": "Error al restaurar",
+    "notStartedProxy": "Un proxy o túnel delante del panel rechazó la solicitud (HTTP {{status}}). El panel no tiene constancia de esta restauración, así que no llegó a empezar.",
+    "failedNextStep": "Salvo que el motivo de arriba diga lo contrario, el mundo actual quedó como estaba. Corrige la causa y vuelve a intentarlo.",
+    "unknownTitle": "No se pudo confirmar cómo terminó la restauración",
+    "unknownDetail": "La página no pudo obtener del panel el resultado de esta restauración (la conexión estuvo caída demasiado tiempo o el panel se reinició), así que puede que no haya terminado, o ni siquiera empezado. Antes de iniciar el servidor, abre Registros de depuración › Actividad y busca «restore». Una entrada backup_restored de esta copia de seguridad posterior al inicio de la restauración significa que la restauración terminó; una entrada restore_failed posterior indica por qué falló. Si no hay ninguna de las dos, vuelve a restaurar. Si no puedes abrir Registros de depuración, pídeselo a un administrador.",
+    "dismiss": "Descartar",
+    "dismissAria": "Descartar el resultado de la restauración"
   }
 }

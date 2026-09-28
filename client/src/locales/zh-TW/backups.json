@@ -187,9 +187,7 @@
     "uploadedDesc": "已儲存為 {{name}}。使用「恢復」套用該備份。",
     "uploadFailedTitle": "上傳失敗",
     "uploadFailedFallback": "備份上傳失敗",
-    "restoredTitle": "恢復點已還原",
     "restoredDesc": "已在 {{seconds}} 秒內還原至 {{name}}",
-    "restoreFailedTitle": "恢復失敗",
     "restoreFailedFallback": "備份恢復失敗",
     "snapshotUnavailableTitle": "快照無法使用",
     "snapshotUnavailableFallback": "無法讀取備份快照",
@@ -222,6 +220,19 @@
   "restoreProgress": {
     "title": "正在恢復 {{name}}…",
     "titleUnknown": "此伺服器已有一個還原正在進行…",
-    "note": "根據世界大小，可能需要幾分鐘。請勿關閉面板或離開此頁面。"
+    "note": "根據世界大小，可能需要幾分鐘。可以離開此頁面稍後再回來，但完成之前請勿停止或重新啟動面板。",
+    "responseLost": "面板沒有回應此請求。恢復在面板上執行，因此可能仍在進行中。正在向面板確認結果…"
+  },
+  "restoreResult": {
+    "successTitle": "恢復完成",
+    "successDetail": "耗時 {{seconds}} 秒。被取代的世界已先儲存為安全備份——就是下方清單中最新的那一個。準備好後即可啟動伺服器。",
+    "successDetailNoSafetyBackup": "耗時 {{seconds}} 秒。此次恢復啟動時未建立安全備份，被取代的世界沒有保留。準備好後即可啟動伺服器。",
+    "failedTitle": "恢復失敗",
+    "notStartedProxy": "面板前方的代理伺服器或通道拒絕了此請求（HTTP {{status}}）。面板沒有這次恢復的紀錄，因此恢復並未開始。",
+    "failedNextStep": "除非上面的原因另有說明，目前的世界維持原樣。請先解決問題，然後再試一次。",
+    "unknownTitle": "無法確認恢復的結果",
+    "unknownDetail": "頁面無法從面板取得這次恢復的結果（連線中斷太久，或面板已重新啟動），因此恢復可能未完成，甚至可能未開始。啟動伺服器之前，請開啟「除錯日誌 › 活動」並搜尋「restore」。如果開始恢復之後有這個備份的 backup_restored 紀錄，表示恢復已完成；如果之後有 restore_failed 紀錄，其中會寫明失敗原因。如果兩者都沒有，請重新恢復。如果無法開啟除錯日誌，請聯絡管理員。",
+    "dismiss": "關閉",
+    "dismissAria": "關閉恢復結果"
   }
 }

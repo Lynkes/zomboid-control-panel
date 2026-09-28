@@ -103,7 +103,20 @@
   "restoreProgress": {
     "title": "Ap retabli {{name}}…",
     "titleUnknown": "Gen yon restorasyon k ap fèt deja pou sèvè sa a…",
-    "note": "Sa a ka pran kèk minit selon gwosè mond lan. Pa fèmen panèl la oswa ale nan yon lòt paj."
+    "note": "Sa a ka pran kèk minit selon gwosè mond lan. Ou ka kite paj sa a epi retounen pita — men pa kanpe oswa redemare panèl la anvan li fini.",
+    "responseLost": "Panèl la pa t reponn demann sa a. Retablisman an ap fèt sou panèl la menm, kidonk li ka toujou ap kontinye. N ap mande panèl la ki rezilta a…"
+  },
+  "restoreResult": {
+    "successTitle": "Retablisman fini",
+    "successDetail": "Li pran {{seconds}}s. Anvan sa, panèl la te fè yon kopi sovgad sekirite mond ki te la a — se kopi ki pi resan nan lis anba a. Demare sèvè a lè w pare.",
+    "successDetailNoSafetyBackup": "Li pran {{seconds}}s. Retablisman sa a te kòmanse san kopi sovgad sekirite, kidonk mond ki te la a pa t konsève. Demare sèvè a lè w pare.",
+    "failedTitle": "Retablisman echwe",
+    "notStartedProxy": "Yon proxy oswa yon tinèl ki devan panèl la refize demann nan (HTTP {{status}}). Panèl la pa gen okenn dosye sou retablisman sa a, kidonk li pa t kòmanse.",
+    "failedNextStep": "Sof si rezon ki anlè a di lòt bagay, mond aktyèl la rete jan li te ye a. Korije pwoblèm nan, epi eseye ankò.",
+    "unknownTitle": "Pa t kapab konfime kijan retablisman an fini",
+    "unknownDetail": "Paj la pa t kapab jwenn rezilta retablisman sa a nan men panèl la (koneksyon an te koupe twò lontan, oswa panèl la te redemare), kidonk li ka pa t fini, oswa menm pa t kòmanse. Anvan w demare sèvè a, louvri Jounal Debogaj › Aktivite epi chèche \"restore\". Yon antre backup_restored pou kopi sovgad sa a, depi w te lanse retablisman an, vle di li fini; yon antre restore_failed depi lè sa a di poukisa li echwe. Si pa gen ni youn ni lòt, retabli ankò. Si w pa ka louvri Jounal Debogaj, mande yon administratè fè l pou ou.",
+    "dismiss": "Fèmen",
+    "dismissAria": "Fèmen rezilta retablisman an"
   },
   "mainCard": {
     "title": "Fichye Kopi Sovgad",
@@ -192,9 +205,7 @@
     "uploadedDesc": "Estoke kòm {{name}}. Itilize Retabli pou aplike li.",
     "uploadFailedTitle": "Telechajman Echwe",
     "uploadFailedFallback": "Pa t kapab telechaje kopi sovgad",
-    "restoredTitle": "Pwen Rekiperasyon Retabli",
     "restoredDesc": "Retounen nan {{name}} nan {{seconds}}s",
-    "restoreFailedTitle": "Retablisman Echwe",
     "restoreFailedFallback": "Pa t kapab retabli kopi sovgad",
     "snapshotUnavailableTitle": "Enstantane pa disponib",
     "snapshotUnavailableFallback": "Pa t kapab li enstantane kopi sovgad la",

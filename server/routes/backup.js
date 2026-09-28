@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import { createLogger } from "../utils/logger.js";
 import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
+import { publicRestoreMessage } from "../utils/restoreMessage.js";
 import { getActiveServer } from "../database/init.js";
 import {
   getCapabilitiesForRole,
@@ -583,26 +584,10 @@ router.post("/restore/:name", requirePermission("backups.restore"), async (req, 
       // error site in this codebase redacts that via sanitizeError()
       // (see the catch three lines below). This route was the one
       // exception, passing `result` straight through unsanitized.
-      //
-      // A blanket sanitizeError() here would fix that leak but ALSO
-      // redact the one message that deliberately needs its path visible:
-      // the rollback-failure branch, which names the exact path the
-      // preserved original save is sitting at -- the single most
-      // important string in the whole restore flow when it fires, and
-      // the operator's only way to find their data back. So this is
-      // surgical, not blanket: sanitize everything except that one
-      // deliberately-informative message. 2026-08-26 partial-failure-
-      // state hunt.
-      const isRollbackFailureMessage =
-        typeof result.message === "string" &&
-        result.message.startsWith(
-          "Restore failed and the previous save could not be put back automatically.",
-        );
-      res.status(400).json(
-        isRollbackFailureMessage
-          ? result
-          : { ...result, message: sanitizeError(result.message) },
-      );
+      // publicRestoreMessage() redacts everything except the one message
+      // that deliberately needs its path visible (the rollback failure --
+      // see its own comment). 2026-08-26 partial-failure-state hunt.
+      res.status(400).json({ ...result, message: publicRestoreMessage(result.message) });
     }
   } catch (error) {
     log.error(`Failed to restore backup: ${error.message}`);

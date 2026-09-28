@@ -190,9 +190,7 @@
     "uploadedDesc": "Enregistrée sous {{name}}. Utilisez Restaurer pour l'appliquer.",
     "uploadFailedTitle": "Échec de l'import",
     "uploadFailedFallback": "Échec de l'import de la sauvegarde",
-    "restoredTitle": "Point de récupération restauré",
     "restoredDesc": "Revenu à {{name}} en {{seconds}} s",
-    "restoreFailedTitle": "Échec de la restauration",
     "restoreFailedFallback": "Échec de la restauration de la sauvegarde",
     "snapshotUnavailableTitle": "Instantané indisponible",
     "snapshotUnavailableFallback": "Impossible de lire l'instantané de la sauvegarde",
@@ -228,6 +226,19 @@
   "restoreProgress": {
     "title": "Restauration de {{name}}…",
     "titleUnknown": "Une restauration est déjà en cours pour ce serveur…",
-    "note": "Cela peut prendre quelques minutes selon la taille du monde. Ne fermez pas le panneau et ne quittez pas cette page."
+    "note": "Cela peut prendre quelques minutes selon la taille du monde. Vous pouvez quitter cette page et revenir plus tard — mais n'arrêtez pas et ne redémarrez pas le panneau avant la fin.",
+    "responseLost": "Le panneau n'a pas répondu à cette requête. La restauration s'exécute sur le panneau lui-même, elle est donc peut-être toujours en cours. Vérification du résultat auprès du panneau…"
+  },
+  "restoreResult": {
+    "successTitle": "Restauration terminée",
+    "successDetail": "Durée : {{seconds}} s. Le monde remplacé a d'abord été sauvegardé — cette sauvegarde de sécurité est la plus récente de la liste ci-dessous. Démarrez le serveur quand vous êtes prêt.",
+    "successDetailNoSafetyBackup": "Durée : {{seconds}} s. Elle a été lancée sans sauvegarde de sécurité : le monde remplacé n'a pas été conservé. Démarrez le serveur quand vous êtes prêt.",
+    "failedTitle": "Échec de la restauration",
+    "notStartedProxy": "Un proxy ou un tunnel placé devant le panneau a refusé la requête (HTTP {{status}}). Le panneau n'a aucune trace de cette restauration : elle n'a pas démarré.",
+    "failedNextStep": "Sauf indication contraire dans la raison ci-dessus, le monde actuel est resté tel quel. Corrigez la cause, puis réessayez.",
+    "unknownTitle": "Impossible de confirmer comment la restauration s'est terminée",
+    "unknownDetail": "La page n'a pas pu obtenir le résultat de cette restauration auprès du panneau (la connexion a été coupée trop longtemps, ou le panneau a redémarré) : elle n'est donc peut-être pas terminée, voire pas commencée. Avant de démarrer le serveur, ouvrez Journaux de débogage › Activité et cherchez « restore ». Une entrée backup_restored pour cette sauvegarde, postérieure au lancement de la restauration, signifie que la restauration s'est terminée ; une entrée restore_failed postérieure indique pourquoi elle a échoué. S'il n'y a ni l'une ni l'autre, relancez la restauration. Si vous ne pouvez pas ouvrir Journaux de débogage, demandez à un administrateur.",
+    "dismiss": "Ignorer",
+    "dismissAria": "Ignorer le résultat de la restauration"
   }
 }
