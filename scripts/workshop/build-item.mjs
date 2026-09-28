@@ -17,11 +17,14 @@
 // 42.20 ignores a mod.info at the mod root (ZomboidFileSystem.getAllModFoldersAux
 // only accepts common/ or <version>/mod.info), so there is none. The output
 // never goes under release/: release.ps1 zips release/* as-is.
+//
+// A copy staged in ~/Zomboid/Workshop stands in for the downloaded Workshop
+// item on that machine until it is moved out (stagedCopyWarning in lib.mjs),
+// so the build says so, and publish.mjs record says what to do after upload.
 
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
 import {
   BRIDGE_FILES,
   BRIDGE_SOURCE_FILES,
@@ -35,6 +38,8 @@ import {
   firstExecutableLine,
   imageErrors,
   isInside,
+  isMainModule,
+  isWorkshopStagingFolder,
   lintModInfo,
   normalizeText,
   parseWorkshopTxt,
@@ -328,6 +333,13 @@ export function runBuildItemCli(argv, { repoRoot = REPO_ROOT, log = console.log,
     } else {
       log(`Workshop item written to ${result.itemDir}`);
       for (const file of Object.keys(result.files).sort()) log(`  ${file}`);
+      if (isWorkshopStagingFolder(result.outDir)) {
+        log(
+          "Until it is moved out of this Workshop folder, the game and any Steam-mode server that uses this Zomboid " +
+            "folder load this staged copy instead of the downloaded Workshop item. After uploading it in-game, run: " +
+            `node scripts/workshop/publish.mjs record --from-staged "${result.itemDir}"`,
+        );
+      }
     }
     return 0;
   } catch (caught) {
@@ -336,7 +348,6 @@ export function runBuildItemCli(argv, { repoRoot = REPO_ROOT, log = console.log,
   }
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
-if (isMain) {
+if (isMainModule(import.meta.url)) {
   process.exitCode = runBuildItemCli(process.argv.slice(2));
 }

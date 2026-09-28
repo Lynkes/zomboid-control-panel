@@ -9,6 +9,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import process from "node:process";
 import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
 
@@ -80,6 +81,23 @@ export function expandHome(input) {
 export function isInside(parent, child) {
   const relative = path.relative(path.resolve(parent), path.resolve(child));
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+// Whether the module at moduleUrl is the script node was started with.
+// process.argv[1] keeps the path as typed, but node resolves the entry point
+// to its real path before import.meta.url is set, so a repo reached through a
+// junction, symlink or subst drive compared unresolved would make the CLI do
+// nothing and exit 0: a silently green CI or release gate.
+export function isMainModule(moduleUrl, entryPath = process.argv[1]) {
+  if (!entryPath) return false;
+  const realPath = (file) => {
+    try {
+      return fs.realpathSync(file);
+    } catch {
+      return path.resolve(file);
+    }
+  };
+  return realPath(path.resolve(entryPath)) === realPath(fileURLToPath(moduleUrl));
 }
 
 // ---------------------------------------------------------------------------
@@ -198,8 +216,12 @@ export function formatLock(version, codeSha256) {
 // published.json
 // ---------------------------------------------------------------------------
 
+// Stricter than the spec's field rule by one value: 0 is item.vdf's "create a
+// new item", never a published item, yet isValidSteamID accepts it, so a
+// hand-edited "0" would reach WorkshopItems=0 and abort a Workshop server's
+// startup.
 export function isValidWorkshopId(id) {
-  return typeof id === "string" && /^\d{1,20}$/.test(id) && BigInt(id) <= MAX_STEAM_ID;
+  return typeof id === "string" && /^\d{1,20}$/.test(id) && BigInt(id) > 0n && BigInt(id) <= MAX_STEAM_ID;
 }
 
 export function publishedDocErrors(doc) {
@@ -208,7 +230,7 @@ export function publishedDocErrors(doc) {
   if (doc.schema !== 1) errors.push(`published.json schema must be 1 (found ${JSON.stringify(doc.schema)})`);
   if (doc.modId !== MOD_ID) errors.push(`published.json modId must be ${MOD_ID} (found ${JSON.stringify(doc.modId)})`);
   if (doc.workshopId !== null && !isValidWorkshopId(doc.workshopId)) {
-    errors.push(`published.json workshopId must be null or a numeric Steam id string (found ${JSON.stringify(doc.workshopId)})`);
+    errors.push(`published.json workshopId must be null or a non-zero numeric Steam id string (found ${JSON.stringify(doc.workshopId)})`);
   }
   if (![null, "public", "unlisted"].includes(doc.visibility)) {
     errors.push(`published.json visibility must be null, "public" or "unlisted" (found ${JSON.stringify(doc.visibility)})`);
@@ -282,6 +304,38 @@ export function updatePublishedText(text, updates) {
     return `${JSON.stringify(expected, null, 2)}\n`;
   }
   return next;
+}
+
+// ---------------------------------------------------------------------------
+// Items staged for the in-game uploader
+// ---------------------------------------------------------------------------
+
+// The in-game uploader works on items staged in <cachedir>/Workshop
+// (~/Zomboid/Workshop by default; SteamWorkshop.getStageFolders). With Steam
+// on, 42.20's ZomboidFileSystem.getAllModFolders lists each staged item's
+// Contents/mods (getStagedItemModsFolders) before the Workshop downloads,
+// ChooseGameInfo.getModDetails takes the first folder with a mod's id, and
+// only the client's main menu ever reorders the folders. So while an uploaded
+// copy stays staged, the game on that machine and any Steam-mode server that
+// uses the same Zomboid folder run it instead of the downloaded item: the live
+// test sees delivery "mod" and never the download, and after a later publish
+// they silently keep running the old code (with DoLuaChecksum on, players who
+// downloaded the new item are then refused).
+export const DEFAULT_STAGED_ITEM_DIR = `~/Zomboid/Workshop/${MOD_ID}`;
+
+export function isWorkshopStagingFolder(folder) {
+  return path.basename(path.resolve(expandHome(folder))).toLowerCase() === "workshop";
+}
+
+export function stagedCopyWarning(itemDir = DEFAULT_STAGED_ITEM_DIR) {
+  const stagingFolder = path.dirname(itemDir);
+  return (
+    `${itemDir} is still in the game's Workshop folder. Move it out of ${stagingFolder} before you test on this ` +
+    "machine: while it is there, the game and any Steam-mode server that uses this Zomboid folder load that staged " +
+    "copy instead of the downloaded Workshop item, so the live test would check the wrong files, and after the next " +
+    "publish they would silently keep running this old code. To upload it in-game again, recreate it with its id: " +
+    `npm run workshop:build -- --out "${stagingFolder}"`
+  );
 }
 
 // ---------------------------------------------------------------------------

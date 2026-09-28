@@ -11,8 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
-import { IMAGE_RULES, REPO_ROOT, imageErrors } from "./lib.mjs";
+import { IMAGE_RULES, REPO_ROOT, imageErrors, isMainModule } from "./lib.mjs";
 
 const SOURCE_SVG = "pz-mod/workshop/art/bridge.svg";
 const TARGETS = [
@@ -55,8 +54,7 @@ export async function renderArt({ repoRoot = REPO_ROOT, log = console.log } = {}
   }
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
-if (isMain) {
+if (isMainModule(import.meta.url)) {
   try {
     await renderArt();
   } catch (error) {

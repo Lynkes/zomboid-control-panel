@@ -11,6 +11,9 @@
 //   (in PZ: Workshop > Upload, confirm "WARNING: Steam Workshop upload requested!")
 //   node scripts/workshop/publish.mjs record --from-staged ~/Zomboid/Workshop/ZomboidControlPanelBridge
 //   node scripts/workshop/publish.mjs record --id <n>
+//   then move the staged folder out of ~/Zomboid/Workshop before testing on
+//   that machine (stagedCopyWarning in lib.mjs says why), and commit
+//   published.json for a new item only once the live test has passed.
 //
 // Credentials: this tool never takes, reads or stores a Steam password or
 // Steam Guard code. steamcmd runs attached to the terminal and prompts the
@@ -21,22 +24,25 @@ import { spawn as nodeSpawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
 import { getBridgeVersionStatus } from "../check-bridge-version.mjs";
 import { DEFAULT_OUT_DIR, WorkshopBuildError, buildWorkshopItem } from "./build-item.mjs";
 import {
   BRIDGE_FILES,
+  DEFAULT_STAGED_ITEM_DIR,
   MOD_ID,
   REPO_ROOT,
   STEAM_APP_ID,
   compareSemver,
   expandHome,
+  isMainModule,
   isValidWorkshopId,
+  isWorkshopStagingFolder,
   normalizeText,
   parseSemver,
   parseWorkshopTxt,
   readPublished,
   readRepoText,
+  stagedCopyWarning,
   updatePublishedText,
 } from "./lib.mjs";
 
@@ -70,6 +76,8 @@ publish). Either way the id, version and date go into ${BRIDGE_FILES.published}.
                             (live-test iterations only).
   --force                   Publish although this VERSION was already published.
   record --from-staged <d>  Read id= from <d>/workshop.txt (the game writes it back).
+                            Then move <d> out of the Workshop folder: while it is
+                            there, this machine loads it instead of the download.
   record --id <n>           Record this Workshop item id.`;
 
 const PUBLISH_OPTIONS = {
@@ -232,7 +240,7 @@ function writePublished(repoRoot, text, updates) {
 }
 
 function assertCanRecordId(doc, workshopId) {
-  if (!isValidWorkshopId(workshopId) || BigInt(workshopId) === 0n) {
+  if (!isValidWorkshopId(workshopId)) {
     throw new PublishError(`${JSON.stringify(workshopId)} isn't a Workshop item id`);
   }
   // Every Workshop server lists this id in WorkshopItems=; a different id is a
@@ -242,6 +250,18 @@ function assertCanRecordId(doc, workshopId) {
       `${BRIDGE_FILES.published} already pins Workshop item ${doc.workshopId}; refusing to replace it with ${workshopId}`,
     );
   }
+}
+
+// A push to main that touches pz-mod/ republishes the moving aio Docker image
+// (docker-aio-build.yml), and every release embeds published.json, so an id
+// committed there reaches operators at once. A new item's id waits for the
+// maintainer's live test (which also fills in liveVerified).
+function commitAdvice(newItem) {
+  return newItem
+    ? `Don't commit ${BRIDGE_FILES.published} to main until the live test has passed with it: a push to main that ` +
+        "touches pz-mod/ also republishes the aio Docker image, which would offer this untested item to its users. " +
+        "Keep it on a branch until then."
+    : `Commit ${BRIDGE_FILES.published}.`;
 }
 
 function loadPublished(repoRoot) {
@@ -265,8 +285,9 @@ async function runRecord(options, { repoRoot, now, log, warn }) {
   const status = loadVersionStatus(repoRoot);
   let workshopId = options.id;
   let stagedVisibility = null;
+  let stagedDir = null;
   if (options["from-staged"]) {
-    const stagedDir = path.resolve(expandHome(options["from-staged"]));
+    stagedDir = path.resolve(expandHome(options["from-staged"]));
     const stagedTxtPath = path.join(stagedDir, "workshop.txt");
     if (!fs.existsSync(stagedTxtPath)) throw new PublishError(`${stagedTxtPath} not found`);
     const staged = parseWorkshopTxt(fs.readFileSync(stagedTxtPath, "utf8"));
@@ -291,7 +312,14 @@ async function runRecord(options, { repoRoot, now, log, warn }) {
     publishedAt: now().toISOString(),
   });
   log(`Recorded Workshop item ${workshopId} (PanelBridge ${status.version}, ${visibility}) in ${BRIDGE_FILES.published}.`);
-  log(`Commit ${BRIDGE_FILES.published}.`);
+  // The in-game uploader leaves the uploaded copy staged, where it replaces
+  // the downloaded item on this machine (see stagedCopyWarning).
+  warn(
+    stagedDir && isWorkshopStagingFolder(path.dirname(stagedDir))
+      ? stagedCopyWarning(stagedDir)
+      : `If you uploaded it with the in-game uploader, ${stagedCopyWarning()}`,
+  );
+  log(commitAdvice(!published.doc.workshopId));
   return 0;
 }
 
@@ -420,8 +448,22 @@ async function runPublish(options, { repoRoot, spawn, now, log, warn }) {
       `https://steamcommunity.com/sharedfiles/filedetails/changelog/${workshopId}. If it doesn't, keep the recorded id ` +
       "and publish again with --force.",
   );
-  log(`Commit ${BRIDGE_FILES.published}.`);
-  log("If the tags are missing on the Steam page, set them once in the in-game uploader.");
+  if (status.changed) {
+    // publishedVersion names VERSION either way (spec §8.9), so nothing
+    // records that this upload wasn't a release, and release.ps1 compares
+    // only versions: after a revert it would never ask for the publish.
+    warn(
+      `Workshop item ${workshopId} now holds unreleased code, but ${BRIDGE_FILES.published} records it as ` +
+        `${status.version}, so release.ps1 won't ask you to publish again. Publish from the next tagged release even ` +
+        `if these changes are reverted (with --force if that release keeps ${status.version}).`,
+    );
+  }
+  log(commitAdvice(firstPublish));
+  log(
+    "If the tags are missing on the Steam page, set them once in the in-game uploader " +
+      `(npm run workshop:build -- --out ~/Zomboid/Workshop), then move ${DEFAULT_STAGED_ITEM_DIR} out of ` +
+      "~/Zomboid/Workshop: while it is there, this machine loads it instead of the downloaded Workshop item.",
+  );
   return 0;
 }
 
@@ -456,7 +498,6 @@ export async function runPublishCli(argv, deps = {}) {
   }
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
-if (isMain) {
+if (isMainModule(import.meta.url)) {
   process.exitCode = await runPublishCli(process.argv.slice(2));
 }

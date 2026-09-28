@@ -33,7 +33,7 @@
     match pz-mod/bridge-version.lock.json, and goes up one patch when they changed.
     An explicit value must not be below the lock, and must differ from it exactly
     when the code changed. The release rewrites the lock. It never publishes the
-    Steam Workshop item; see npm run workshop:publish.
+    Steam Workshop item; see scripts/workshop/publish.mjs.
 
 .PARAMETER SkipBuild
     Skip the client and exe build steps (use existing release/ folder).
@@ -269,11 +269,6 @@ if (-not $Version) {
 }
 
 $bridgeLuaPath = Join-Path $RepoDir "pz-mod\PanelBridge\media\lua\server\PanelBridge.lua"
-$bridgeLuaBeforeRelease = Get-Content $bridgeLuaPath -Raw
-$bridgeRuntimeMatch = [regex]::Match($bridgeLuaBeforeRelease, '(?m)^\s*VERSION\s*=\s*"([^"]+)"')
-if (-not $bridgeRuntimeMatch.Success) {
-    throw "PanelBridge runtime VERSION declaration not found"
-}
 
 # The PanelBridge version follows its code, not the panel version. Every
 # published bridge update makes each Steam Workshop server refuse new joins
@@ -317,7 +312,10 @@ $bridgeWorkshopVersionLabel = if ($bridgeWorkshopVersion) { "v$bridgeWorkshopVer
 # version, so the reminder follows published.json, not just this release.
 $bridgeWorkshopBehind = $bridgeWorkshopId -and $bridgeWorkshopVersion -ne $PanelBridgeVersion
 if ($bridgeVersionChanged) {
-    Write-Host "  PanelBridge changed -> v$PanelBridgeVersion. Workshop servers get it only after you publish: npm run workshop:publish -- --steam-user <account>" -ForegroundColor Magenta
+    # node, not npm run: npm echoes the whole command line, so a password
+    # typed after the account would reach the screen before publish.mjs could
+    # refuse it without showing it.
+    Write-Host "  PanelBridge changed -> v$PanelBridgeVersion. Workshop servers get it only after you publish: node scripts/workshop/publish.mjs --steam-user <account>" -ForegroundColor Magenta
     # With no pinned item id yet, the first publish goes through the in-game
     # uploader instead (spec path B): it validates the preview image and sets
     # the tags, which steamcmd may not.
@@ -1001,14 +999,24 @@ if (-not $SkipGitHub) { Write-Host "   [x] Pushed to GitHub" -ForegroundColor Gr
 if (-not $SkipGitHub) { Write-Host "   [x] GitHub Release created (Keep a Changelog format)" -ForegroundColor Green }
 if ($bridgeWorkshopBehind) {
     Write-Host "   [ ] PanelBridge v$PanelBridgeVersion is not on the Steam Workshop yet (the item is at $bridgeWorkshopVersionLabel). Publish it from this tagged tree:" -ForegroundColor Yellow
-    Write-Host "       npm run workshop:publish -- --steam-user <account>, then commit pz-mod/workshop/published.json" -ForegroundColor Yellow
+    Write-Host "       node scripts/workshop/publish.mjs --steam-user <account>, then commit pz-mod/workshop/published.json" -ForegroundColor Yellow
 } elseif ($bridgeVersionChanged -and -not $bridgeWorkshopId) {
+    # The staged copy stays in the game's Workshop folder after the upload,
+    # and with Steam on the engine loads staged items ahead of the Workshop
+    # downloads (see stagedCopyWarning in scripts/workshop/lib.mjs). A push to
+    # main that touches pz-mod/ republishes the aio Docker image, so a new
+    # item id waits for the live test.
     Write-Host "   [ ] PanelBridge v$PanelBridgeVersion is not on the Steam Workshop yet, and the item has never been published." -ForegroundColor Yellow
     Write-Host "       First publish, from this tagged tree, with the in-game uploader:" -ForegroundColor Yellow
     Write-Host "       1. npm run workshop:build -- --out ~/Zomboid/Workshop" -ForegroundColor Yellow
     Write-Host "       2. In Project Zomboid: Workshop > Upload, pick ZomboidControlPanelBridge, submit and confirm the upload warning" -ForegroundColor Yellow
     Write-Host "       3. node scripts/workshop/publish.mjs record --from-staged ~/Zomboid/Workshop/ZomboidControlPanelBridge --visibility unlisted" -ForegroundColor Yellow
-    Write-Host "       4. Commit pz-mod/workshop/published.json" -ForegroundColor Yellow
+    Write-Host "       4. Move ~/Zomboid/Workshop/ZomboidControlPanelBridge out of ~/Zomboid/Workshop before testing on this machine." -ForegroundColor Yellow
+    Write-Host "          While it is there, the game and any Steam-mode server that uses this Zomboid folder load that staged copy" -ForegroundColor Yellow
+    Write-Host "          instead of the downloaded Workshop item, now and after every later publish. To upload in-game again," -ForegroundColor Yellow
+    Write-Host "          recreate it with its id: npm run workshop:build -- --out ~/Zomboid/Workshop" -ForegroundColor Yellow
+    Write-Host "       5. Run the live test with the recorded pz-mod/workshop/published.json, then commit it" -ForegroundColor Yellow
+    Write-Host "          (a push to main that touches pz-mod/ republishes the aio Docker image with this item id)" -ForegroundColor Yellow
 }
 Write-Host ""
 Write-Host " Note: live deployment to production (Docker on the game host) is" -ForegroundColor DarkGray

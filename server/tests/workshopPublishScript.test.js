@@ -326,8 +326,16 @@ describe("workshop publish: recording the id", () => {
     });
     // Only the four fields moved; the hand-maintained liveVerified line didn't reflow.
     expect(repo.readPublishedText()).toMatch(/^ {2}"liveVerified": \{ "windowsServer": null, "linuxServer": null \}$/m);
-    expect(result.out).toMatch(/Commit pz-mod\/workshop\/published\.json\./);
-    expect(result.out).toMatch(/set them once in the in-game uploader/);
+    // A push to main republishes the aio Docker image, so a new item's id
+    // waits for the live test.
+    expect(result.out).toMatch(
+      /Don't commit pz-mod\/workshop\/published\.json to main until the live test has passed with it: .*aio Docker image.*Keep it on a branch until then\./,
+    );
+    expect(result.out).not.toMatch(/^Commit /m);
+    // Setting the tags in-game stages a copy that then shadows the download.
+    expect(result.out).toMatch(
+      /set them once in the in-game uploader \(npm run workshop:build -- --out ~\/Zomboid\/Workshop\), then move ~\/Zomboid\/Workshop\/ZomboidControlPanelBridge out of ~\/Zomboid\/Workshop: while it is there, this machine loads it instead of the downloaded Workshop item\./,
+    );
     // Exit code 0 is all steamcmd reports back, so the maintainer is sent to check.
     expect(result.out).toMatch(
       /exit code doesn't prove the upload worked\. .*sharedfiles\/filedetails\/changelog\/3712345678\. .*publish again with --force/,
@@ -343,6 +351,8 @@ describe("workshop publish: recording the id", () => {
     expect(result.code).toBe(0);
     expect(steamcmd.calls[0].vdf).toMatch(/"publishedfileid"\s+"3712345678"/);
     expect(repo.readPublished()).toMatchObject({ workshopId: "3712345678", publishedVersion: VERSION });
+    expect(result.out).toMatch(/^Commit pz-mod\/workshop\/published\.json\.$/m);
+    expect(result.err).toBe("");
   });
 
   it("refuses to replace a pinned id with a different one", async () => {
@@ -410,16 +420,55 @@ describe("workshop publish: recording the id", () => {
       publishedVersion: VERSION,
       publishedAt: NOW.toISOString(),
     });
+    // --id is also the fallback after steamcmd, so the staged-copy warning is conditional.
+    expect(result.err).toBe(
+      "WARNING: If you uploaded it with the in-game uploader, ~/Zomboid/Workshop/ZomboidControlPanelBridge is still in " +
+        "the game's Workshop folder. Move it out of ~/Zomboid/Workshop before you test on this machine: while it is " +
+        "there, the game and any Steam-mode server that uses this Zomboid folder load that staged copy instead of the " +
+        "downloaded Workshop item, so the live test would check the wrong files, and after the next publish they would " +
+        "silently keep running this old code. To upload it in-game again, recreate it with its id: " +
+        "npm run workshop:build -- --out \"~/Zomboid/Workshop\"",
+    );
   });
 
-  it("record --from-staged reads id= and visibility= from the staged workshop.txt", async () => {
+  // ZomboidFileSystem.getAllModFolders (42.20) lists staged items ahead of
+  // the Workshop downloads and the first folder with a mod id wins, so the
+  // uploaded copy left in <Zomboid>/Workshop replaces the downloaded item on
+  // this machine: the live test would run it, and later publishes never load.
+  it("record --from-staged reads id= and visibility= from the staged workshop.txt, then says to move the staged copy out", async () => {
     const repo = makeRepo();
-    const staged = path.join(repo.root, "Workshop", "ZomboidControlPanelBridge");
+    const workshop = path.join(repo.root, "Workshop");
+    const staged = path.join(workshop, "ZomboidControlPanelBridge");
     fs.mkdirSync(staged, { recursive: true });
     fs.writeFileSync(path.join(staged, "workshop.txt"), "version=1\r\nid=3712345678\r\ntitle=Zomboid Control Panel Bridge\r\nvisibility=public\r\n");
     const result = await run(repo, ["record", "--from-staged", staged]);
     expect(result.code).toBe(0);
     expect(repo.readPublished()).toMatchObject({ workshopId: "3712345678", visibility: "public" });
+    expect(result.err).toBe(
+      `WARNING: ${staged} is still in the game's Workshop folder. Move it out of ${workshop} before you test on this ` +
+        "machine: while it is there, the game and any Steam-mode server that uses this Zomboid folder load that staged " +
+        "copy instead of the downloaded Workshop item, so the live test would check the wrong files, and after the next " +
+        "publish they would silently keep running this old code. To upload it in-game again, recreate it with its id: " +
+        `npm run workshop:build -- --out "${workshop}"`,
+    );
+    // A new item's id reaches the aio Docker image as soon as it is on main.
+    expect(result.out).toMatch(/Don't commit pz-mod\/workshop\/published\.json to main until the live test has passed with it/);
+
+    // The same id again (a later in-game upload): committing straight away is fine.
+    const again = await run(repo, ["record", "--from-staged", staged]);
+    expect(again.code).toBe(0);
+    expect(again.err).toMatch(/is still in the game's Workshop folder\. Move it out/);
+    expect(again.out).toMatch(/^Commit pz-mod\/workshop\/published\.json\.$/m);
+  });
+
+  it("record --from-staged outside a Workshop folder gives the conditional warning", async () => {
+    const repo = makeRepo();
+    const copy = path.join(repo.root, "copy-of-item");
+    fs.mkdirSync(copy, { recursive: true });
+    fs.writeFileSync(path.join(copy, "workshop.txt"), "version=1\nid=3712345678\ntitle=x\n");
+    const result = await run(repo, ["record", "--from-staged", copy]);
+    expect(result.code).toBe(0);
+    expect(result.err).toMatch(/^WARNING: If you uploaded it with the in-game uploader, ~\/Zomboid\/Workshop\/ZomboidControlPanelBridge is still/);
   });
 
   it("record refuses a staged item without an id, a bad id, a changed id and ambiguous input", async () => {
@@ -485,6 +534,16 @@ describe("workshop publish: preconditions", () => {
     expect(allowed.code).toBe(0);
     expect(allowed.err).toMatch(/WARNING: Publishing UNRELEASED PanelBridge code/);
     expect(steamcmd.calls).toHaveLength(1);
+    // publishedVersion still names the released VERSION, so release.ps1 can't
+    // tell; after a revert nothing else would ask for the publish.
+    expect(repo.readPublished().publishedVersion).toBe(VERSION);
+    expect(allowed.err).toMatch(
+      new RegExp(
+        "WARNING: Workshop item 3712345678 now holds unreleased code, but pz-mod/workshop/published\\.json records it as " +
+          `${VERSION.replace(/\./g, "\\.")}, so release\\.ps1 won't ask you to publish again\\. Publish from the next tagged ` +
+          "release even if these changes are reverted \\(with --force if that release keeps",
+      ),
+    );
   });
 
   it("refuses when the item fails its build checks", async () => {

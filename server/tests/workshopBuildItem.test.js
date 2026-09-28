@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
+import { pathToFileURL } from "node:url";
 import {
   ITEM_FILES,
   WorkshopBuildError,
@@ -18,6 +19,7 @@ import {
   REPO_ROOT,
   crc32,
   imageErrors,
+  isMainModule,
   lintModInfo,
   normalizeText,
   publishedDocErrors,
@@ -223,6 +225,8 @@ describe("build-item: mod.info lint", () => {
 
   it.each([
     ["an empty require=", `${REAL_MOD_INFO}require=\n`, /require= is not allowed/],
+    // The other list keys have the same [""] trap as require=.
+    ["an empty loadModAfter=", `${REAL_MOD_INFO}loadModAfter=\n`, /line 9: loadModAfter= has an empty value/],
     ["authors= instead of author=", REAL_MOD_INFO.replace("author=", "authors="), /authors= is not allowed/],
     ["pack=", `${REAL_MOD_INFO}pack=media/\n`, /pack= is not allowed/],
     ["pzversion=", `${REAL_MOD_INFO}pzversion=42.0\n`, /pzversion= is not allowed/],
@@ -255,7 +259,7 @@ describe("build-item: mod.info lint", () => {
     repo.setPublished({ modId: "PanelBridge", workshopId: "12x" });
     const errors = buildErrors({ repoRoot: repo.root, check: true }).join("\n");
     expect(errors).toMatch(/modId must be ZomboidControlPanelBridge/);
-    expect(errors).toMatch(/workshopId must be null or a numeric Steam id/);
+    expect(errors).toMatch(/workshopId must be null or a non-zero numeric Steam id/);
   });
 });
 
@@ -278,6 +282,13 @@ describe("build-item: published.json", () => {
         linuxServer: { gameVersion: "42.20", date: "2026-10-02", nonAdminJoinWithChecksumOn: false },
       },
     })).toEqual([]);
+  });
+
+  // isValidSteamID accepts 0, so a hand-edited "0" would reach WorkshopItems=0
+  // and abort a Workshop server's startup; record and publish refuse it too.
+  it.each(["0", "000", "18446744073709551616", "-1", 3712345678])("rejects workshopId %j", (workshopId) => {
+    expect(publishedDocErrors({ ...JSON.parse(CONTRACT_PUBLISHED), workshopId }).join("\n"))
+      .toMatch(/workshopId must be null or a non-zero numeric Steam id string/);
   });
 
   // The panel drops the Preview badge once both entries are set and trusts
@@ -479,6 +490,46 @@ describe("build-item: command line", () => {
     const errors = [];
     expect(runBuildItemCli(["--check"], { ...quiet, error: (line) => errors.push(line) })).toBe(1);
     expect(errors.join("\n")).toMatch(/Workshop item check failed:\n {2}- PanelBridgeClient\.lua/);
+  });
+
+  // A staged copy in <Zomboid>/Workshop stands in for the downloaded item on
+  // that machine, so a build into a Workshop folder says so straight away.
+  it("warns that a copy staged in a Workshop folder replaces the download until it is moved out", () => {
+    const repo = makeRepo();
+    const staged = [];
+    const outDir = path.join(repo.root, "Workshop");
+    expect(runBuildItemCli(["--out", outDir], { repoRoot: repo.root, log: (line) => staged.push(line), error: () => {} })).toBe(0);
+    expect(staged.at(-1)).toBe(
+      "Until it is moved out of this Workshop folder, the game and any Steam-mode server that uses this Zomboid folder " +
+        "load this staged copy instead of the downloaded Workshop item. After uploading it in-game, run: " +
+        `node scripts/workshop/publish.mjs record --from-staged "${path.join(outDir, "ZomboidControlPanelBridge")}"`,
+    );
+
+    const plain = [];
+    expect(runBuildItemCli([], { repoRoot: repo.root, log: (line) => plain.push(line), error: () => {} })).toBe(0);
+    expect(plain.join("\n")).not.toMatch(/staged copy/);
+  });
+});
+
+describe("workshop scripts: main-module detection", () => {
+  // node resolves the entry point to its real path before import.meta.url is
+  // set, while process.argv[1] keeps the path as typed. Compared unresolved,
+  // a repo reached through a junction or symlink would run nothing and exit 0.
+  it("recognises the entry script through a junction or symlink", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "workshop-main-"));
+    tempDirs.push(root);
+    const realDir = path.join(root, "real");
+    fs.mkdirSync(realDir);
+    fs.writeFileSync(path.join(realDir, "tool.mjs"), "");
+    fs.writeFileSync(path.join(realDir, "other.mjs"), "");
+    const linkDir = path.join(root, "link");
+    fs.symlinkSync(realDir, linkDir, "junction");
+    const moduleUrl = pathToFileURL(fs.realpathSync(path.join(realDir, "tool.mjs"))).href;
+
+    expect(isMainModule(moduleUrl, path.join(linkDir, "tool.mjs"))).toBe(true);
+    expect(isMainModule(moduleUrl, path.join(realDir, "tool.mjs"))).toBe(true);
+    expect(isMainModule(moduleUrl, path.join(linkDir, "other.mjs"))).toBe(false);
+    expect(isMainModule(moduleUrl, undefined)).toBe(false);
   });
 });
 

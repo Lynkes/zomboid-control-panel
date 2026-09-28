@@ -23,12 +23,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
 import {
   BRIDGE_FILES,
   REPO_ROOT,
   compareSemver,
   formatLock,
+  isMainModule,
   nextPatch,
   parseSemver,
   readBridgeState,
@@ -194,7 +194,6 @@ export function runCheckBridgeVersionCli(argv, { repoRoot = REPO_ROOT, log = con
   }
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
-if (isMain) {
+if (isMainModule(import.meta.url)) {
   process.exitCode = runCheckBridgeVersionCli(process.argv.slice(2));
 }
