@@ -97,6 +97,20 @@ describe('Settings › PanelBridge: delivery block and setup flow', () => {
     expect(getDelivery).toHaveBeenCalled()
   })
 
+  // Without an active server GET /delivery answers 400
+  // PANELBRIDGE_NO_ACTIVE_SERVER: a first-run operator would get a "couldn't
+  // load" warning whose Try again can't help.
+  it('renders no delivery block, and asks for none, while no server is active', async () => {
+    prime('local')
+    getAllServers.mockResolvedValue({ servers: [] } as never)
+    renderSettings()
+    await screen.findByText(enSettings.bridge.getStartedTitle)
+    await waitFor(() => expect(getAllServers).toHaveBeenCalled())
+    expect(screen.queryByRole('heading', { name: enDelivery.sectionTitle })).toBeNull()
+    expect(screen.queryByText(enDelivery.loadFailed)).toBeNull()
+    expect(getDelivery).not.toHaveBeenCalled()
+  })
+
   it('local delivery keeps the upload and DoLuaChecksum steps', async () => {
     prime('local')
     renderSettings()

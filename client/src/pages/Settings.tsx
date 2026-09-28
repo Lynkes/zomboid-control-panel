@@ -4624,12 +4624,18 @@ export default function Settings() {
 
                 {/* How PanelBridge reaches the active server: panel-installed
                     (default) or Steam Workshop. Everything it shows is
-                    computed by GET /panel-bridge/delivery. */}
-                <BridgeDeliveryPanel
-                  activeServerId={activeServer?.id ?? null}
-                  iniFileName={activeServer?.serverName ? `${activeServer.serverName}.ini` : null}
-                  playerCount={bridgeStatus?.modStatus?.alive ? (bridgeStatus.modStatus.playerCount ?? 0) : null}
-                />
+                    computed by GET /panel-bridge/delivery. Only with an
+                    active server: without one that call answers 400
+                    PANELBRIDGE_NO_ACTIVE_SERVER, and a first-run operator
+                    would get a "couldn't load" warning whose Try again
+                    can't help. */}
+                {activeServer && (
+                  <BridgeDeliveryPanel
+                    activeServerId={activeServer.id}
+                    iniFileName={activeServer.serverName ? `${activeServer.serverName}.ini` : null}
+                    playerCount={bridgeStatus?.modStatus?.alive ? (bridgeStatus.modStatus.playerCount ?? 0) : null}
+                  />
+                )}
 
                 {/* Not running - setup flow. With Steam Workshop delivery
                     there is no PanelBridge.lua to upload, and
