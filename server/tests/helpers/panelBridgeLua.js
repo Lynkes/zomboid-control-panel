@@ -22,7 +22,8 @@ import { lua, lauxlib, lualib, to_luastring } from 'fengari';
 // Minimal top-level stubs every load needs, regardless of which handler a
 // test is exercising -- PanelBridge.lua's own bottom-of-file event
 // registration (Events.OnServerStarted.Add / Events.OnTickEvenPaused.Add)
-// runs unconditionally at load time, and isServer() is checked nearby.
+// runs at load time once the file's first statement, the isServer() load
+// guard, lets a dedicated server through.
 const BASE_STUBS = `
 Events = {
   OnServerStarted = { Add = function() end },
@@ -31,6 +32,139 @@ Events = {
 isServer = function() return true end
 getTimestampMs = function() return 0 end
 `;
+
+// Optional engine stubs, layered after BASE_STUBS and before the test's own
+// extraStubLua (which can still override anything). Every option defaults to
+// "leave it as it was", so existing callers load exactly as before. Same
+// honest limit as the file header: these encode what javap on the 42.20 jar
+// says the globals return (LuaManager$GlobalObject), not a running game.
+//
+//   isServer: boolean -- GameServer.server (BASE_STUBS already says true);
+//     null removes the global entirely.
+//   isClient: boolean -- GameClient.client; undefined leaves it undefined.
+//   countEvents: true -- replaces Events with a table that makes any
+//     Events.<Name> on demand and appends <Name> to EVENT_ADDS per Add call.
+//   filenameOfClosure: string | { throws: string } -- getFilenameOfClosure(fn).
+//     The real one returns closure.prototype.filename, so the stub insists on
+//     a function argument. Calls are counted in GET_FILENAME_OF_CLOSURE_CALLS.
+//   activatedMods: string[] | { throws: string } -- getActivatedMods(), an
+//     ArrayList<String> (size/get/iterator shaped like the other collection
+//     fakes in these tests).
+//   modInfo: { [modId]: { modVersion?: string, workshopId?: string|null } }
+//     | { throws: string } -- getModInfoByID(id), nil for an unknown id (the
+//     real ChooseGameInfo.getModDetails returns null). Calls are counted in
+//     GET_MOD_INFO_CALLS.
+function engineStubLua(engine = {}) {
+  const parts = [];
+  if (engine.isServer === null) parts.push('isServer = nil');
+  else if (typeof engine.isServer === 'boolean') parts.push(`isServer = function() return ${engine.isServer} end`);
+  if (typeof engine.isClient === 'boolean') parts.push(`isClient = function() return ${engine.isClient} end`);
+  if (engine.countEvents) {
+    parts.push(`
+EVENT_ADDS = {}
+Events = setmetatable({}, { __index = function(events, name)
+  local event = { Add = function(fn) table.insert(EVENT_ADDS, name) end }
+  rawset(events, name, event)
+  return event
+end })`);
+  }
+  if (engine.filenameOfClosure !== undefined) {
+    const body = typeof engine.filenameOfClosure === 'object'
+      ? `error(${jsToLuaLiteral(engine.filenameOfClosure.throws)})`
+      : `return ${jsToLuaLiteral(engine.filenameOfClosure)}`;
+    parts.push(`
+GET_FILENAME_OF_CLOSURE_CALLS = 0
+getFilenameOfClosure = function(fn)
+  GET_FILENAME_OF_CLOSURE_CALLS = GET_FILENAME_OF_CLOSURE_CALLS + 1
+  if type(fn) ~= "function" then error("getFilenameOfClosure expects a LuaClosure") end
+  ${body}
+end`);
+  }
+  if (engine.activatedMods !== undefined) {
+    if (Array.isArray(engine.activatedMods)) {
+      const items = engine.activatedMods.map(jsToLuaLiteral).join(', ');
+      parts.push(`
+getActivatedMods = function()
+  local items = { ${items} }
+  local list = {}
+  function list:size() return #items end
+  function list:get(i) return items[i + 1] end
+  function list:iterator()
+    local index = 0
+    local it = {}
+    function it:hasNext() return index < #items end
+    function it:next() index = index + 1; return items[index] end
+    return it
+  end
+  return list
+end`);
+    } else {
+      parts.push(`getActivatedMods = function() error(${jsToLuaLiteral(engine.activatedMods.throws)}) end`);
+    }
+  }
+  if (engine.modInfo !== undefined) {
+    if (typeof engine.modInfo.throws === 'string') {
+      parts.push(`
+GET_MOD_INFO_CALLS = 0
+getModInfoByID = function(id)
+  GET_MOD_INFO_CALLS = GET_MOD_INFO_CALLS + 1
+  error(${jsToLuaLiteral(engine.modInfo.throws)})
+end`);
+    } else {
+      const entries = Object.entries(engine.modInfo).map(([id, info]) => {
+        const version = info.modVersion == null ? 'nil' : jsToLuaLiteral(info.modVersion);
+        const workshopId = info.workshopId == null ? 'nil' : jsToLuaLiteral(info.workshopId);
+        return `[${jsToLuaLiteral(id)}] = { modVersion = ${version}, workshopId = ${workshopId} }`;
+      });
+      parts.push(`
+GET_MOD_INFO_CALLS = 0
+local modInfoById = { ${entries.join(', ')} }
+getModInfoByID = function(id)
+  GET_MOD_INFO_CALLS = GET_MOD_INFO_CALLS + 1
+  local data = modInfoById[id]
+  if not data then return nil end
+  local info = {}
+  function info:getModVersion() return data.modVersion end
+  function info:getWorkshopID() return data.workshopId end
+  return info
+end`);
+    }
+  }
+  return parts.join('\n');
+}
+
+/**
+ * The first executable line of a Lua source, skipping blank space, -- line
+ * comments and --[[ ]] / --[==[ ]==] block comments (PanelBridge.lua opens
+ * with a long one). For the load-guard tests, which need the guard to run
+ * before anything else in the file.
+ */
+export function firstLuaStatement(source) {
+  let i = 0;
+  while (i < source.length) {
+    const rest = source.slice(i);
+    const space = /^\s+/.exec(rest);
+    if (space) {
+      i += space[0].length;
+      continue;
+    }
+    const block = /^--\[(=*)\[/.exec(rest);
+    if (block) {
+      const close = `]${block[1]}]`;
+      const end = source.indexOf(close, i + block[0].length);
+      if (end === -1) throw new Error('firstLuaStatement: unterminated block comment');
+      i = end + close.length;
+      continue;
+    }
+    if (rest.startsWith('--')) {
+      const newline = source.indexOf('\n', i);
+      i = newline === -1 ? source.length : newline + 1;
+      continue;
+    }
+    return rest.split(/\r?\n/, 1)[0].trim();
+  }
+  return null;
+}
 
 function runOrThrow(L, code, label) {
   const st = lauxlib.luaL_loadstring(L, to_luastring(code));
@@ -115,17 +249,40 @@ function jsToLuaLiteral(value) {
  *
  * extraStubLua: a Lua source string defining any of getWorld, getSandboxOptions,
  * getPlayerByUsername, etc. that the handler(s) under test touch.
+ * engine: optional engine stubs, see engineStubLua above.
+ *
+ * PanelBridgeModule is whatever the chunk returned: the PanelBridge table on
+ * a dedicated server, nil when its load guard stopped it.
  */
-export function loadPanelBridge(luaPath, extraStubLua = '') {
+export function loadPanelBridge(luaPath, extraStubLua = '', engine = {}) {
+  return loadLuaChunk(luaPath, 'PanelBridge.lua', extraStubLua, engine);
+}
+
+/**
+ * Loads the real PanelBridgeClient.lua the same way. Its chunk returns
+ * nothing, so PanelBridgeModule stays nil; tests observe it through the
+ * engine stubs it touches (countEvents, sendClientCommand fakes, ...).
+ */
+export function loadPanelBridgeClient(luaPath, extraStubLua = '', engine = {}) {
+  return loadLuaChunk(luaPath, 'PanelBridgeClient.lua', extraStubLua, engine);
+}
+
+function loadLuaChunk(luaPath, label, extraStubLua, engine) {
   const L = lauxlib.luaL_newstate();
   lualib.luaL_openlibs(L);
 
   runOrThrow(L, BASE_STUBS, 'base-stubs');
+  const engineStubs = engineStubLua(engine);
+  if (engineStubs) runOrThrow(L, engineStubs, 'engine-stubs');
   if (extraStubLua) runOrThrow(L, extraStubLua, 'test-stubs');
 
   const src = fs.readFileSync(luaPath, 'utf8');
-  runOrThrow(L, src, 'PanelBridge.lua');
+  const top = lua.lua_gettop(L);
+  runOrThrow(L, src, label);
+  // A chunk that returns early (the load guards) leaves nothing on the stack.
+  if (lua.lua_gettop(L) === top) lua.lua_pushnil(L);
   lua.lua_setglobal(L, to_luastring('PanelBridgeModule'));
+  lua.lua_settop(L, top);
 
   return {
     L,
