@@ -1,6 +1,6 @@
 {
   "up": "actif depuis {{uptime}}",
   "startedAt": "Démarré le {{time}}",
-  "unknown": "durée d'activité inconnue",
-  "unknownHint": "Le panneau ne peut pas savoir quand ce serveur a démarré : son processus tourne à un endroit que le panneau ne peut pas inspecter, comme une autre machine ou un autre conteneur."
+  "unknown": "temps de fonctionnement inconnu",
+  "unknownHint": "Le panneau n'a pas pu déterminer quand le processus de ce serveur a démarré. Cela arrive quand il tourne sur une autre machine ou dans un conteneur que le panneau ne peut pas inspecter, quand un service système l'a démarré en dehors du panneau, ou quand le système d'exploitation n'a pas répondu. Le serveur lui-même n'est pas affecté."
 }

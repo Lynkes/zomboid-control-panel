@@ -1,5 +1,4 @@
 import fs from "fs";
-import path from "path";
 import { execFile as nodeExecFile } from "child_process";
 
 // When did process <pid> start -- asked of the operating system, never
@@ -19,6 +18,13 @@ import { execFile as nodeExecFile } from "child_process";
 // pid is gone, the lookup failed or timed out, or the platform has no way
 // to ask). Callers must render null as "unknown", never as zero. Never
 // rejects.
+//
+// Windows is not asked here at all: its start time arrives with the process
+// scan's own Win32_Process row (WIN32_PROCESS_START_MS below), read in the
+// same query that identified the process. A separate lookup by PID was a
+// second PowerShell cold start per process -- often past its timeout while
+// a loading PZ server saturates the CPU -- and could answer for a
+// different process once Windows reused the PID.
 
 const EXEC_TIMEOUT_MS = 5000;
 
@@ -34,7 +40,7 @@ const LINUX_USER_HZ = 100;
 // parse error or a clock problem -- not a real answer.
 const MAX_FUTURE_SKEW_MS = 60_000;
 
-function isPlausibleStartMs(value, nowMs) {
+export function isPlausibleStartMs(value, nowMs = Date.now()) {
   return (
     Number.isFinite(value) && value > 0 && value <= nowMs + MAX_FUTURE_SKEW_MS
   );
@@ -76,7 +82,15 @@ export function parseElapsedTime(text) {
   );
 }
 
-// The Windows query's own output: a bare integer (epoch milliseconds).
+// A PowerShell calculated property for a Select-Object over Win32_Process:
+// the process's CreationDate as epoch milliseconds, converted inside
+// PowerShell so nothing locale-formatted ever reaches the JS side. Empty
+// (not an error on stderr, which the process scan treats as a failed scan)
+// when WMI has no CreationDate for a process.
+export const WIN32_PROCESS_START_MS =
+  "@{Name='StartMs';Expression={ if ($_.CreationDate) { ([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() } }}";
+
+// WIN32_PROCESS_START_MS's value as it comes back: a bare integer.
 export function parseEpochMilliseconds(stdout) {
   const text = String(stdout || "").trim();
   if (!/^\d+$/.test(text)) return null;
@@ -129,58 +143,26 @@ async function readElapsedViaPs(pid, execFile, now) {
   return elapsedSeconds === null ? null : now() - elapsedSeconds * 1000;
 }
 
-// Same Get-CimInstance Win32_Process convention as serverManager.js's own
-// process scan, narrowed to one pid's CreationDate and converted to epoch
-// milliseconds inside PowerShell, so nothing locale-formatted ever reaches
-// this side. -ErrorAction Stop (a CIM failure) and an explicit exit for "no
-// such process" both surface as a non-zero exit, i.e. null here -- never as
-// an empty string that could be mistaken for an answer.
-async function readWindowsStartTime(pid, execFile) {
-  const powershellPath = path.win32.join(
-    process.env.SystemRoot || "C:\\Windows",
-    "System32",
-    "WindowsPowerShell",
-    "v1.0",
-    "powershell.exe",
-  );
-  const script =
-    `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" -ErrorAction Stop; ` +
-    "if (-not $p) { exit 3 }; " +
-    "([DateTimeOffset]$p.CreationDate).ToUnixTimeMilliseconds()";
-  const stdout = await runFile(execFile, powershellPath, [
-    "-NoLogo",
-    "-NoProfile",
-    "-NonInteractive",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-Command",
-    script,
-  ]);
-  return stdout === null ? null : parseEpochMilliseconds(stdout);
-}
-
 export async function readProcessStartTime(pid, options = {}) {
   const pidText = String(pid ?? "");
   // Digits only, and never 0 (systemd's MainPID for a unit with no running
-  // process) -- this string is interpolated into the Windows query.
+  // process) -- this string ends up in a file path and a ps argument.
   if (!/^[1-9]\d*$/.test(pidText)) return null;
 
   const platform = options.platform || process.platform;
+  // See the header: the scan row carries it on Windows.
+  if (platform === "win32") return null;
   const execFile = options.execFile || nodeExecFile;
   const readFile = options.readFile || fs.promises.readFile;
   const now = options.now || Date.now;
 
   try {
     let startMs;
-    if (platform === "win32") {
-      startMs = await readWindowsStartTime(pidText, execFile);
-    } else {
-      if (platform === "linux") {
-        startMs = await readLinuxStartTime(pidText, readFile);
-      }
-      if (startMs === undefined) {
-        startMs = await readElapsedViaPs(pidText, execFile, now);
-      }
+    if (platform === "linux") {
+      startMs = await readLinuxStartTime(pidText, readFile);
+    }
+    if (startMs === undefined) {
+      startMs = await readElapsedViaPs(pidText, execFile, now);
     }
     return isPlausibleStartMs(startMs, now()) ? startMs : null;
   } catch {

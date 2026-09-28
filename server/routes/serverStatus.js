@@ -60,11 +60,11 @@ router.get("/active/status", async (req, res) => {
         : { running: !!serverManager?.isRunning, scanFailed: false };
     }
 
-    // The native process's start time, from the OS for the PID the check
-    // above just found (cached per PID -- see ServerManager.
-    // getProcessStartTime()). Only asked for a native server: a remote-sftp
-    // profile's local scan says nothing about the remote host, and a
-    // container provider's start time comes from Docker instead.
+    // The native process's start time, from the OS for the process the
+    // check above just found (see ServerManager.resolveStartTime()). Only
+    // asked for a native server: a remote-sftp profile's local scan says
+    // nothing about the remote host, and a container provider's start time
+    // comes from Docker instead.
     const startedAt =
       provider === "native" &&
       processDetails.running &&
@@ -102,7 +102,11 @@ router.get("/active/status", async (req, res) => {
       },
     });
 
-    res.json(status);
+    // serverTime: this host's clock as it answered. host.startedAt is read
+    // off the host's (or Docker's) clock while the client counts uptime on
+    // its own, so the client shifts it by (its receipt time - serverTime)
+    // to keep any skew between the two out of the displayed uptime.
+    res.json({ ...status, serverTime: Date.now() });
   } catch (error) {
     log.error(`Failed to get composed server status: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });

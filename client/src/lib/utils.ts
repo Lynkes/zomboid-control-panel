@@ -26,20 +26,44 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatUptime(seconds: number): string {
-  if (!seconds || seconds < 0) return '0s'
-  
+type DurationUnit = 'day' | 'hour' | 'minute' | 'second'
+const ENGLISH_UNIT_LETTERS: Record<DurationUnit, string> = { day: 'd', hour: 'h', minute: 'm', second: 's' }
+
+// With a `locale`, the unit letters are CLDR's narrow units through Intl --
+// "3j 4h 12min" in French, "3天 4小时" in Chinese -- instead of English
+// d/h/m/s dropped into a translated sentence. English's own narrow units
+// are exactly d/h/m/s, and a UI language the runtime's ICU doesn't know
+// (Haitian Creole) falls back to English, i.e. to what this always printed.
+// Latin digits either way, matching every other number in the UI.
+function unitFormatter(locale: string | undefined): (value: number, unit: DurationUnit) => string {
+  const english = (value: number, unit: DurationUnit) => `${value}${ENGLISH_UNIT_LETTERS[unit]}`
+  if (!locale) return english
+  return (value, unit) => {
+    try {
+      return new Intl.NumberFormat([locale, 'en'], {
+        style: 'unit', unit, unitDisplay: 'narrow', numberingSystem: 'latn',
+      }).format(value)
+    } catch {
+      return english(value, unit)
+    }
+  }
+}
+
+export function formatUptime(seconds: number, locale?: string): string {
+  const unit = unitFormatter(locale)
+  if (!seconds || seconds < 0) return unit(0, 'second')
+
   const days = Math.floor(seconds / 86400)
   const hours = Math.floor((seconds % 86400) / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
   const secs = Math.floor(seconds % 60)
-  
+
   const parts: string[] = []
-  if (days > 0) parts.push(`${days}d`)
-  if (hours > 0) parts.push(`${hours}h`)
-  if (minutes > 0) parts.push(`${minutes}m`)
-  if (secs > 0 || parts.length === 0) parts.push(`${secs}s`)
-  
+  if (days > 0) parts.push(unit(days, 'day'))
+  if (hours > 0) parts.push(unit(hours, 'hour'))
+  if (minutes > 0) parts.push(unit(minutes, 'minute'))
+  if (secs > 0 || parts.length === 0) parts.push(unit(secs, 'second'))
+
   return parts.join(' ')
 }
 

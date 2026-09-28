@@ -15,6 +15,7 @@
  * buildHostSignal below for how a missing/failed Docker lookup degrades to
  * "unknown" rather than a confident "stopped".
  */
+import { isPlausibleStartMs } from "./processStartTime.js";
 
 const HOST_LABELS = {
   native: "Process",
@@ -145,13 +146,17 @@ export function buildSummary(host, serverSignal) {
 
 // When the host process/container started, as an ISO string -- only for a
 // host this same status just confirmed running, and only from the source
-// that confirmed it: the OS's answer for the native process
-// (serverManager.resolveStartTime()), or Docker's own State.StartedAt for a
-// container provider. Remote SFTP has neither, and a host whose state is
-// unknown has no trustworthy start time either, so both stay without one --
-// the client renders that as "unknown", never as a guess. Docker reports a
-// container that has never started as 0001-01-01T00:00:00Z, which the
-// epoch check below rejects.
+// that confirmed it: for the native process, serverManager.
+// resolveStartTime() (the OS's answer, else this panel's own launch-time
+// record for that same process); for a container provider, Docker's own
+// State.StartedAt -- the container's start, which is the game server's
+// only as long as PZ is not restarted inside a still-running container.
+// Remote SFTP has neither, and a host whose state is unknown has no
+// trustworthy start time either, so both stay without one -- the client
+// renders that as "unknown", never as a guess. Docker reports a container
+// that has never started as 0001-01-01T00:00:00Z (before the epoch), and a
+// Docker Desktop/WSL2 VM whose clock drifted ahead can report a start in
+// this host's future; isPlausibleStartMs() rejects both.
 function resolveHostStartedAt(provider, host, startedAt, dockerContainer) {
   if (host.status !== "running") return null;
   const source =
@@ -162,7 +167,7 @@ function resolveHostStartedAt(provider, host, startedAt, dockerContainer) {
         : null;
   if (!source) return null;
   const ms = source instanceof Date ? source.getTime() : Date.parse(source);
-  return Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : null;
+  return isPlausibleStartMs(ms) ? new Date(ms).toISOString() : null;
 }
 
 // server: the active server DB record. isRunning: serverManager's tracked

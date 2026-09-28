@@ -247,8 +247,8 @@ describe("GET /api/servers/status -- active-server fallback freshness", () => {
 
 // Managed Servers cards show each running server's uptime, so every row
 // carries the start time of the process it was attributed -- asked through
-// the SAME cached serverManager.getProcessStartTime() the dashboard's own
-// status uses, so the two can't disagree. Unknown is null, never a guess.
+// the SAME serverManager.startTimeOf() the dashboard's own status uses, so
+// the two can't disagree. Unknown is null, never a guess.
 describe("GET /api/servers/status -- per-server start time", () => {
   beforeEach(() => {
     getServers.mockReset();
@@ -256,28 +256,35 @@ describe("GET /api/servers/status -- per-server start time", () => {
     scanHostForServerProcesses.mockReset();
   });
 
-  it("reports each running row's start time for the PID it was attributed, and none for a stopped row", async () => {
+  it("reports each running row's start time for the process it was attributed, and none for a stopped row", async () => {
     getServers.mockResolvedValue([
       { id: 1, name: "Active", installPath: "C:\\Servers\\Active" },
       { id: 2, name: "Other", installPath: "C:\\Servers\\Other" },
     ]);
-    scanHostForServerProcesses.mockResolvedValue({
-      matched: [{ pid: "222", cmd: '"C:\\Servers\\Other\\java.exe" -cp pz.jar zombie.network.GameServer' }],
-    });
-    const getProcessStartTime = vi.fn(async () => Date.UTC(2026, 8, 27, 7, 0, 0));
+    // On Windows the scan row itself carries the start time, so the whole
+    // row goes to startTimeOf(), not just its pid.
+    const row = {
+      pid: "222",
+      cmd: '"C:\\Servers\\Other\\java.exe" -cp pz.jar zombie.network.GameServer',
+      startedMs: Date.UTC(2026, 8, 27, 7, 0, 0),
+    };
+    scanHostForServerProcesses.mockResolvedValue({ matched: [row] });
+    const startTimeOf = vi.fn(async (entry) => entry.startedMs);
     const getServerProcessDetails = vi.fn(async () => ({ running: false, scanFailed: false }));
     const response = createResponse();
 
     await getStatusHandler()(
-      { app: fakeApp({ serverManager: { getServerProcessDetails, getProcessStartTime } }) },
+      { app: fakeApp({ serverManager: { getServerProcessDetails, startTimeOf } }) },
       response,
     );
 
     const payload = response.json.mock.calls[0][0];
-    expect(getProcessStartTime).toHaveBeenCalledTimes(1);
-    expect(getProcessStartTime).toHaveBeenCalledWith("222");
+    expect(startTimeOf).toHaveBeenCalledTimes(1);
+    expect(startTimeOf).toHaveBeenCalledWith(row);
     expect(payload.servers.find((s) => s.id === 2).startedAt).toBe("2026-09-27T07:00:00.000Z");
     expect(payload.servers.find((s) => s.id === 1).startedAt).toBeNull();
+    // This host's clock as it answered, for the client's skew correction.
+    expect(payload.serverTime).toEqual(expect.any(Number));
   });
 
   it("reports null when the OS can't say", async () => {
@@ -288,7 +295,7 @@ describe("GET /api/servers/status -- per-server start time", () => {
     const response = createResponse();
 
     await getStatusHandler()(
-      { app: fakeApp({ serverManager: { getProcessStartTime: async () => null } }) },
+      { app: fakeApp({ serverManager: { startTimeOf: async () => null } }) },
       response,
     );
 
@@ -306,16 +313,16 @@ describe("GET /api/servers/status -- per-server start time", () => {
     createLinuxServiceLifecycle.mockReturnValueOnce({
       status: async () => ({ running: true, scanFailed: false, activeState: "active", mainPid: "31337" }),
     });
-    const getProcessStartTime = vi.fn(async () => Date.UTC(2026, 8, 27, 7, 0, 0));
+    const startTimeOf = vi.fn(async () => Date.UTC(2026, 8, 27, 7, 0, 0));
     const response = createResponse();
 
     await getStatusHandler()(
-      { app: fakeApp({ serverManager: { getProcessStartTime } }) },
+      { app: fakeApp({ serverManager: { startTimeOf } }) },
       response,
     );
 
     const row = response.json.mock.calls[0][0].servers[0];
-    expect(getProcessStartTime).toHaveBeenCalledWith("31337");
+    expect(startTimeOf).toHaveBeenCalledWith({ pid: "31337" });
     expect(row).toMatchObject({ running: true, pid: null, startedAt: "2026-09-27T07:00:00.000Z" });
   });
 });

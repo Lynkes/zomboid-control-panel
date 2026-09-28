@@ -2,5 +2,5 @@
   "up": "activo desde hace {{uptime}}",
   "startedAt": "Iniciado el {{time}}",
   "unknown": "tiempo activo desconocido",
-  "unknownHint": "El panel no puede saber cuándo se inició este servidor: su proceso se ejecuta en un lugar que el panel no puede inspeccionar, como otra máquina u otro contenedor."
+  "unknownHint": "El panel no pudo determinar cuándo se inició el proceso de este servidor. Ocurre cuando se ejecuta en otra máquina o en un contenedor que el panel no puede inspeccionar, cuando un servicio del sistema lo inició fuera del panel o cuando el sistema operativo no respondió. El servidor en sí no se ve afectado."
 }

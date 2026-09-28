@@ -1,12 +1,21 @@
 import { useEffect, useReducer } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Clock } from 'lucide-react'
+import { HelpTip } from '@/components/HelpTip'
 import { cn, formatUptime } from '@/lib/utils'
+
+// A start time further ahead of this browser's clock than this is a clock
+// problem, not a server that is about to start: shown as unknown rather
+// than as "up 0s" for however long the clocks disagree. The API layer
+// already takes host/browser skew out (lib/hostClock.ts); this catches
+// what it can't, such as a payload from a server too old to send its clock.
+const MAX_FUTURE_START_MS = 60_000
 
 interface ServerUptimeProps {
   /**
    * When the game server's process (or container) started, as the server
-   * reported it (ISO string) -- the OS's own answer, never a guess. null or
+   * reported it (ISO string, already in this browser's clock -- see
+   * lib/hostClock.ts) -- the OS's own answer, never a guess. null or
    * undefined means the panel couldn't tell.
    */
   startedAt: string | null | undefined
@@ -32,9 +41,10 @@ interface ServerUptimeProps {
 export function ServerUptime({ startedAt, showUnknown = false, className }: ServerUptimeProps) {
   const { t, i18n } = useTranslation('serverUptime')
   const [, rerender] = useReducer((count: number) => count + 1, 0)
+  const nowMs = Date.now()
   const startMs = startedAt ? Date.parse(startedAt) : Number.NaN
-  const known = Number.isFinite(startMs)
-  const elapsedMs = known ? Math.max(0, Date.now() - startMs) : 0
+  const known = Number.isFinite(startMs) && startMs <= nowMs + MAX_FUTURE_START_MS
+  const elapsedMs = known ? Math.max(0, nowMs - startMs) : 0
 
   useEffect(() => {
     if (!known) return
@@ -45,10 +55,14 @@ export function ServerUptime({ startedAt, showUnknown = false, className }: Serv
 
   if (!known) {
     if (!showUnknown) return null
+    // The reason lives in a HelpTip, not a `title`: a title can't be opened
+    // by touch or keyboard, and "unknown" next to the server's name with
+    // no way to learn why reads like a fault.
     return (
-      <span className={cn('inline-flex items-center gap-1 whitespace-nowrap', className)} title={t('unknownHint')}>
+      <span className={cn('inline-flex items-center gap-1 whitespace-nowrap', className)}>
         <Clock className="h-3 w-3 shrink-0 opacity-70" aria-hidden="true" />
         {t('unknown')}
+        <HelpTip label={t('unknown')}>{t('unknownHint')}</HelpTip>
       </span>
     )
   }
@@ -65,7 +79,7 @@ export function ServerUptime({ startedAt, showUnknown = false, className }: Serv
       className={cn('inline-flex items-center gap-1 whitespace-nowrap tabular-nums', className)}
     >
       <Clock className="h-3 w-3 shrink-0 opacity-70" aria-hidden="true" />
-      {t('up', { uptime: formatUptime(shownSeconds) })}
+      {t('up', { uptime: formatUptime(shownSeconds, i18n.language) })}
     </time>
   )
 }

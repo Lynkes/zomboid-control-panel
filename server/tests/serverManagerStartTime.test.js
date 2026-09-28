@@ -20,10 +20,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 //
 // getServerStatus() now asks the OS (server/utils/processStartTime.js,
 // mocked here -- its per-platform lookups have their own tests) for the
-// start time of whichever PID it just found, on every call, through a
-// per-PID cache on the manager.
+// start time of whichever process it just found, on every call -- or, on
+// Windows, takes it from the scan row that found the process.
 const { readProcessStartTime } = vi.hoisted(() => ({ readProcessStartTime: vi.fn() }));
-vi.mock('../utils/processStartTime.js', () => ({ readProcessStartTime }));
+vi.mock('../utils/processStartTime.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  readProcessStartTime,
+}));
 
 const { ServerManager } = await import('../services/serverManager.js');
 
@@ -40,6 +43,15 @@ function makeManager(details, options) {
   manager.serverPath = '/opt/pz';
   manager.getLocalIp = async () => null;
   if (details) manager.getServerProcessDetails = vi.fn(async () => details());
+  return manager;
+}
+
+// A systemd-managed manager whose unit status is whatever `unit()` says.
+function makeSystemdManager(unit) {
+  const lifecycle = { serviceName: 'zomboid-panel-server-1', status: vi.fn(async () => unit()) };
+  const manager = makeManager(null, { lifecycleFactory: () => lifecycle });
+  manager.lifecycleProvider = 'systemd';
+  manager._serverRecord = { id: 1, lifecycleProvider: 'systemd' };
   return manager;
 }
 
@@ -70,13 +82,9 @@ describe('ServerManager.getServerStatus start time', () => {
 
   it('knows a systemd-managed server\'s start time from the unit\'s MainPID -- it has no process-scan PID at all', async () => {
     readProcessStartTime.mockResolvedValue(NOW - 2 * HOUR);
-    const lifecycle = {
-      serviceName: 'zomboid-panel-server-1',
-      status: vi.fn(async () => ({ running: true, scanFailed: false, activeState: 'active', mainPid: '777' })),
-    };
-    const manager = makeManager(null, { lifecycleFactory: () => lifecycle });
-    manager.lifecycleProvider = 'systemd';
-    manager._serverRecord = { id: 1, lifecycleProvider: 'systemd' };
+    const manager = makeSystemdManager(() => ({
+      running: true, scanFailed: false, activeState: 'active', mainPid: '777',
+    }));
 
     const status = await manager.getServerStatus();
 
@@ -148,12 +156,81 @@ describe('ServerManager.getServerStatus start time', () => {
       matched: [{ pid: '4242', cmd: 'java zombie.network.GameServer' }],
       scanFailed: false,
     }));
-    manager.startTime = new Date(NOW - 10 * 60_000);
+    manager._recordLaunchTime();
+    vi.setSystemTime(NOW + 10 * 60_000);
 
     const status = await manager.getServerStatus();
 
-    expect(status.startTime).toEqual(new Date(NOW - 10 * 60_000));
+    expect(status.startTime).toEqual(new Date(NOW));
     expect(status.uptime).toBe(600);
+  });
+
+  // Review of the first cut: the fallback above returned whatever
+  // this.startTime held, which after any earlier OS answer was the PREVIOUS
+  // process's start time -- a confident wrong uptime for a restarted server
+  // exactly while the new process couldn't be looked up yet.
+  it('never reports the previous process\'s start time for a new PID the OS cannot answer for', async () => {
+    let pid = '100';
+    readProcessStartTime.mockImplementation(async (asked) => (asked === '100' ? NOW - 30 * HOUR : null));
+    const manager = makeManager(() => ({
+      running: true,
+      matched: [{ pid, cmd: 'java zombie.network.GameServer' }],
+      scanFailed: false,
+    }));
+
+    expect((await manager.getServerStatus()).uptime).toBe(30 * 3600);
+    pid = '200'; // restarted between polls; the new process can't be asked about yet
+    const status = await manager.getServerStatus();
+
+    expect(status.startTime).toBeNull();
+    expect(status.uptime).toBeNull();
+  });
+
+  it('drops a systemd unit\'s start time while it has no main process (activating, auto-restart after a crash)', async () => {
+    readProcessStartTime.mockResolvedValue(NOW - 30 * HOUR);
+    let unit = { running: true, scanFailed: false, activeState: 'active', mainPid: '777' };
+    const manager = makeSystemdManager(() => unit);
+
+    expect((await manager.getServerStatus()).uptime).toBe(30 * 3600);
+    // The RestartSec= window: "activating (auto-restart)" counts as running,
+    // with MainPID=0 -- which linuxServiceLifecycle reports as no mainPid.
+    unit = { running: true, scanFailed: false, activeState: 'activating' };
+    const status = await manager.getServerStatus();
+
+    expect(status.running).toBe(true);
+    expect(status.startTime).toBeNull();
+    expect(status.uptime).toBeNull();
+  });
+
+  it('keeps an earlier answer for the SAME process when a later lookup for it fails', async () => {
+    readProcessStartTime.mockResolvedValueOnce(NOW - 3 * HOUR).mockResolvedValue(null);
+    const manager = makeManager(() => ({
+      running: true,
+      matched: [{ pid: '4242', cmd: 'java zombie.network.GameServer' }],
+      scanFailed: false,
+    }));
+
+    await manager.getServerStatus();
+    const status = await manager.getServerStatus();
+
+    expect(readProcessStartTime).toHaveBeenCalledTimes(2);
+    expect(status.uptime).toBe(3 * 3600);
+  });
+
+  it('does not let a lookup that outlived a stop and a fresh launch write the old process\'s start time back', async () => {
+    let resolveLookup;
+    readProcessStartTime.mockImplementation(() => new Promise((resolve) => { resolveLookup = resolve; }));
+    const manager = new ServerManager();
+
+    const inFlight = manager.resolveStartTime({ running: true, matched: [{ pid: '100', cmd: 'java' }] });
+    manager._clearRunState(); // the old process was stopped...
+    manager._recordLaunchTime(); // ...and this panel launched a new one
+    const launchRecord = manager.startTime;
+    resolveLookup(NOW - 30 * HOUR); // the old process's answer finally lands
+
+    await expect(inFlight).resolves.toBeNull();
+    expect(manager.startTime).toBe(launchRecord);
+    expect(manager._startTimePid).toBeNull();
   });
 
   it('reports an unknown start time as null uptime, never 0', async () => {
@@ -168,20 +245,50 @@ describe('ServerManager.getServerStatus start time', () => {
   });
 });
 
+describe('ServerManager start time from a Windows scan row', () => {
+  it('uses the start time the Win32_Process row carried, without asking the OS again', async () => {
+    let row = { pid: '4242', cmd: 'java.exe zombie.network.GameServer', startedMs: NOW - 5 * HOUR };
+    const manager = makeManager(() => ({ running: true, matched: [row], scanFailed: false }));
+
+    expect((await manager.getServerStatus()).uptime).toBe(5 * 3600);
+    // Restarted, and Windows handed the new java.exe the SAME pid: the row
+    // was read by the query that identified the process, so it describes
+    // the new one.
+    row = { ...row, startedMs: NOW - 60_000 };
+    expect((await manager.getServerStatus()).uptime).toBe(60);
+    expect(readProcessStartTime).not.toHaveBeenCalled();
+  });
+
+  it('treats an implausible row value (in the future) as unknown', async () => {
+    const manager = makeManager(() => ({
+      running: true,
+      matched: [{ pid: '4242', cmd: 'java.exe zombie.network.GameServer', startedMs: NOW + HOUR }],
+      scanFailed: false,
+    }));
+
+    expect((await manager.getServerStatus()).uptime).toBeNull();
+    expect(readProcessStartTime).not.toHaveBeenCalled();
+  });
+});
+
 describe('ServerManager.getProcessStartTime cache', () => {
-  it('asks the OS once per PID, not once per status poll', async () => {
-    readProcessStartTime.mockResolvedValue(NOW - HOUR);
+  // Review of the first cut: successful answers were kept per PID until
+  // the panel saw that process stop, so a restart it never saw (a crash
+  // wrapper, systemd's Restart=, a non-active server's card) left the old
+  // answer behind for whichever later process reused the PID.
+  it('asks afresh on every poll, so a reused PID is never served an earlier process\'s start time', async () => {
+    readProcessStartTime.mockResolvedValueOnce(NOW - 30 * HOUR).mockResolvedValue(NOW - 60_000);
     const manager = makeManager(() => ({
       running: true,
       matched: [{ pid: '4242', cmd: 'java zombie.network.GameServer' }],
       scanFailed: false,
     }));
 
-    await manager.getServerStatus();
-    await manager.getServerStatus();
-    await manager.getServerStatus();
+    expect((await manager.getServerStatus()).uptime).toBe(30 * 3600);
+    const status = await manager.getServerStatus(); // same PID, new process
 
-    expect(readProcessStartTime).toHaveBeenCalledTimes(1);
+    expect(readProcessStartTime).toHaveBeenCalledTimes(2);
+    expect(status.uptime).toBe(60);
   });
 
   it('shares one in-flight lookup between concurrent callers', async () => {
@@ -209,21 +316,6 @@ describe('ServerManager.getProcessStartTime cache', () => {
     vi.setSystemTime(NOW + 61_000);
     await expect(manager.getProcessStartTime('4242')).resolves.toBe(NOW - HOUR);
     expect(readProcessStartTime).toHaveBeenCalledTimes(2);
-  });
-
-  it('forgets a PID once its process is seen stopped, so a reused PID is asked about afresh', async () => {
-    readProcessStartTime.mockResolvedValueOnce(NOW - 30 * HOUR).mockResolvedValue(NOW - 60_000);
-    let details = { running: true, matched: [{ pid: '4242', cmd: 'java zombie.network.GameServer' }], scanFailed: false };
-    const manager = makeManager(() => details);
-
-    await manager.getServerStatus();
-    details = { running: false, matched: [], scanFailed: false };
-    expect((await manager.getServerStatus()).startTime).toBeNull();
-    details = { running: true, matched: [{ pid: '4242', cmd: 'java zombie.network.GameServer' }], scanFailed: false };
-    const status = await manager.getServerStatus();
-
-    expect(readProcessStartTime).toHaveBeenCalledTimes(2);
-    expect(status.uptime).toBe(60);
   });
 
   it('rejects a non-numeric pid without asking the OS at all', async () => {

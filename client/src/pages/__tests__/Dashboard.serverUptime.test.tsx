@@ -9,6 +9,8 @@ import {
   debugApi, panelUpdateApi, modsApi, schedulerApi, type ServerInstance,
 } from '@/lib/api'
 import uptimeEn from '@/locales/en/serverUptime.json'
+import helpTipEn from '@/locales/en/helpTip.json'
+import dashboardEn from '@/locales/en/dashboard.json'
 
 // Community request (Discord, a Linux operator on the Direct lifecycle):
 // "it would be nice if the panel showed server uptime on the dashboard".
@@ -156,7 +158,21 @@ describe('Dashboard header: server uptime', () => {
     expect(time?.getAttribute('title')).toMatch(/^Started /)
   })
 
-  it('says "uptime unknown" for a server that is up but whose start time the panel cannot establish', async () => {
+  it('says "uptime unknown", with a help button for the reason, for a server that is up but whose start time the panel cannot establish', async () => {
+    // e.g. an OpenRC service after a panel restart: running, no start time.
+    setUp({ hostStatus: 'running' })
+
+    renderDashboard()
+
+    await screen.findByText(uptimeEn.unknown)
+    expect(screen.getByRole('button', { name: helpTipEn.ariaLabel.replace('{{label}}', uptimeEn.unknown) }))
+      .toBeInTheDocument()
+  })
+
+  // Review: a remote SFTP server can NEVER have a start time, and its
+  // REMOTE badge already says why -- "uptime unknown" there was permanent
+  // noise taking the server name's room on a phone.
+  it('says nothing about uptime for a remote SFTP server, which never has a start time', async () => {
     setUp({
       server: makeServer({ isRemote: true }),
       provider: 'remote-sftp',
@@ -166,7 +182,34 @@ describe('Dashboard header: server uptime', () => {
 
     renderDashboard()
 
-    const unknown = await screen.findByText(uptimeEn.unknown)
-    expect(unknown.closest('[title]')).toHaveAttribute('title', uptimeEn.unknownHint)
+    await screen.findByText(dashboardEn.header.remoteBadge)
+    expect(screen.queryByText(uptimeEn.unknown)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^up /)).not.toBeInTheDocument()
+  })
+
+  // Review: on a phone the always-visible uptime (shrink-0) squeezed the
+  // server name -- the page's h1, naming the server Stop/Restart act on --
+  // down to a few characters or nothing. jsdom has no layout, so this pins
+  // the class contract that prevents it: the status light and name form one
+  // group that is the only thing allowed to shrink, and the cluster around
+  // it wraps, so the uptime moves to a second line instead.
+  it('lets the uptime wrap below the server name instead of squeezing it', async () => {
+    const startedAt = new Date(Date.now() - 3600_000).toISOString()
+    setUp({ hostStartedAt: startedAt })
+
+    renderDashboard()
+
+    const uptime = (await screen.findByText(uptimeEn.up.replace('{{uptime}}', '1h'))).closest('time')!
+    const heading = screen.getByRole('heading', { level: 1, name: 'Ashenwood' })
+    const nameGroup = heading.parentElement!
+    const cluster = nameGroup.parentElement!
+
+    expect(heading).toHaveClass('min-w-0', 'truncate')
+    expect(nameGroup).toHaveClass('min-w-0')
+    expect(nameGroup).not.toHaveClass('flex-wrap')
+    expect(nameGroup).not.toContainElement(uptime)
+    expect(cluster).toHaveClass('flex-wrap')
+    expect(uptime.parentElement).toBe(cluster)
+    expect(uptime).not.toHaveClass('shrink-0')
   })
 })

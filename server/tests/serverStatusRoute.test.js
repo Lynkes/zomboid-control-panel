@@ -247,10 +247,14 @@ describe("GET /api/servers/active/status", () => {
     );
 
     expect(resolveStartTime).toHaveBeenCalledWith(details);
-    expect(response.json.mock.calls[0][0].host).toMatchObject({
+    const payload = response.json.mock.calls[0][0];
+    expect(payload.host).toMatchObject({
       status: "running",
       startedAt: "2026-09-27T07:00:00.000Z",
     });
+    // This host's clock as it answered: the client counts uptime on its
+    // own clock and uses this to take host/browser skew back out.
+    expect(payload.serverTime).toEqual(expect.any(Number));
   });
 
   it("never asks for a start time when the native host isn't confirmed running", async () => {

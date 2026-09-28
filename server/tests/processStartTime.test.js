@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  isPlausibleStartMs,
   parseElapsedTime,
   parseEpochMilliseconds,
   parseProcStatBootTime,
@@ -9,9 +10,10 @@ import {
 
 // Server uptime is only as honest as the start time behind it. These pin
 // each platform's way of asking the OS when a PID started -- Linux
-// /proc/<pid>/stat + /proc/stat btime, the portable `ps -o etime=`
-// fallback, and Windows' Win32_Process CreationDate -- plus the rule every
-// one of them shares: anything short of a real answer is null ("unknown"),
+// /proc/<pid>/stat + /proc/stat btime and the portable `ps -o etime=`
+// fallback (Windows' arrives with the process scan's own Win32_Process row
+// instead; see serverManagerWindowsProcessRow.test.js) -- plus the rule
+// every one of them shares: anything short of a real answer is null ("unknown"),
 // never 0 and never a guess. Everything is injected, so every platform's
 // path runs on every CI host.
 
@@ -78,7 +80,19 @@ describe("parseEpochMilliseconds", () => {
   it("reads a bare integer and rejects everything else", () => {
     expect(parseEpochMilliseconds("1790557595995\r\n")).toBe(1790557595995);
     expect(parseEpochMilliseconds("")).toBeNull();
+    expect(parseEpochMilliseconds(undefined)).toBeNull();
     expect(parseEpochMilliseconds("27/09/2026 12:00:00")).toBeNull();
+  });
+});
+
+describe("isPlausibleStartMs", () => {
+  it("accepts a past epoch time, tolerating a minute of clock jitter, and nothing else", () => {
+    expect(isPlausibleStartMs(NOW - 1000, NOW)).toBe(true);
+    expect(isPlausibleStartMs(NOW + 30_000, NOW)).toBe(true);
+    expect(isPlausibleStartMs(NOW + 3_600_000, NOW)).toBe(false);
+    // Docker's "never started": 0001-01-01T00:00:00Z.
+    expect(isPlausibleStartMs(Date.parse("0001-01-01T00:00:00Z"), NOW)).toBe(false);
+    expect(isPlausibleStartMs(Number.NaN, NOW)).toBe(false);
   });
 });
 
@@ -173,37 +187,19 @@ describe("readProcessStartTime", () => {
   });
 
   describe("on Windows", () => {
-    it("reads Win32_Process.CreationDate as epoch milliseconds through PowerShell", async () => {
-      const startedMs = NOW - 5 * 3600 * 1000;
-      const execFile = execFileAnswering(`${startedMs}\r\n`);
+    // A separate PowerShell lookup by PID was a second cold start per
+    // process (often past its timeout while a loading PZ server saturated
+    // the CPU) and, cached, could answer for a later process that reused
+    // the PID. The scan's own Win32_Process row carries the start time.
+    it("never spawns a lookup of its own", async () => {
+      const execFile = vi.fn();
+      const readFile = vi.fn();
 
       await expect(
-        readProcessStartTime("9999", { platform: "win32", execFile, now: () => NOW }),
-      ).resolves.toBe(startedMs);
-      expect(execFile).toHaveBeenCalledWith(
-        expect.stringMatching(/powershell\.exe$/i),
-        expect.arrayContaining([
-          "-NoProfile",
-          "-NonInteractive",
-          "-Command",
-          expect.stringMatching(/ProcessId=9999".*CreationDate.*ToUnixTimeMilliseconds/),
-        ]),
-        expect.objectContaining({ timeout: expect.any(Number) }),
-        expect.any(Function),
-      );
-    });
-
-    it("reports a failed query (no such process, CIM error, timeout) as unknown", async () => {
-      await expect(
-        readProcessStartTime("9999", {
-          platform: "win32", execFile: execFileAnswering("", new Error("exit 3")), now: () => NOW,
-        }),
+        readProcessStartTime("9999", { platform: "win32", execFile, readFile, now: () => NOW }),
       ).resolves.toBeNull();
-      await expect(
-        readProcessStartTime("9999", {
-          platform: "win32", execFile: execFileAnswering("Get-CimInstance : Access denied"), now: () => NOW,
-        }),
-      ).resolves.toBeNull();
+      expect(execFile).not.toHaveBeenCalled();
+      expect(readFile).not.toHaveBeenCalled();
     });
   });
 });

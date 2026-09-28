@@ -2,5 +2,5 @@
   "up": "läuft seit {{uptime}}",
   "startedAt": "Gestartet am {{time}}",
   "unknown": "Laufzeit unbekannt",
-  "unknownHint": "Das Panel kann nicht feststellen, wann dieser Server gestartet wurde: Sein Prozess läuft an einem Ort, den das Panel nicht einsehen kann, etwa auf einem anderen Rechner oder in einem anderen Container."
+  "unknownHint": "Das Panel konnte nicht feststellen, wann der Prozess dieses Servers gestartet wurde. Das passiert, wenn er auf einem anderen Rechner oder in einem Container läuft, den das Panel nicht einsehen kann, wenn ein Systemdienst ihn außerhalb des Panels gestartet hat oder wenn das Betriebssystem nicht geantwortet hat. Der Server selbst ist davon nicht betroffen."
 }

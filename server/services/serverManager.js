@@ -22,11 +22,16 @@ import {
 } from "./linuxServiceLifecycle.js";
 import { hasActiveSteamOperation } from "./activeSteamOperations.js";
 import { listNonInternalIPv4Interfaces } from "../utils/networkInterfaces.js";
-import { readProcessStartTime } from "../utils/processStartTime.js";
+import {
+  isPlausibleStartMs,
+  parseEpochMilliseconds,
+  readProcessStartTime,
+  WIN32_PROCESS_START_MS,
+} from "../utils/processStartTime.js";
 
 const isWindows = process.platform === "win32";
-// getProcessStartTime()'s cache: how soon a FAILED lookup for the same PID
-// may be retried, and how many PIDs it remembers at once.
+// getProcessStartTime()'s memory of FAILED lookups: how soon one for the
+// same PID may be retried, and how many PIDs it remembers at once.
 const FAILED_START_TIME_RETRY_MS = 60_000;
 const MAX_CACHED_START_TIMES = 32;
 // How long a live-looked-up public IP is trusted before re-checking.
@@ -272,6 +277,43 @@ function validateStartCommand(cmd) {
 // Get the default startup script name for the current platform
 function getDefaultStartupScript() {
   return isWindows ? "StartServer64.bat" : "start-server.sh";
+}
+
+function windowsPowerShellPath() {
+  return path.join(
+    process.env.SystemRoot || "C:\\Windows",
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+}
+
+// What both Windows process lookups (the full scan and the pidfile fast
+// path) select from Win32_Process, as ConvertTo-Csv rows parsed by
+// parseWin32ProcessCsvRow() below. StartMs rides along so a process's start
+// time comes from the same query that identified it -- see
+// server/utils/processStartTime.js for why Windows is never asked for it
+// separately.
+const WIN32_PROCESS_COLUMNS = `ProcessId,CommandLine,${WIN32_PROCESS_START_MS}`;
+
+// One data row of that CSV: "<pid>","<cmd>","<startMs>", every field quoted
+// with inner quotes doubled -- except that PowerShell writes a null value as
+// an EMPTY, unquoted field (captured live: `"4",,"1789503827395"` for a
+// process with no readable command line). Such a row doesn't match and
+// stays malformed, exactly as before StartMs existed; an empty or missing
+// StartMs only leaves startedMs null. Returns { pid, cmd, startedMs } or
+// null.
+export function parseWin32ProcessCsvRow(raw) {
+  const match = String(raw || "").match(
+    /^"([^"]*)","((?:[^"]|"")*)"(?:,(?:"(\d*)")?)?$/,
+  );
+  if (!match) return null;
+  return {
+    pid: match[1],
+    cmd: match[2].replace(/""/g, '"'),
+    startedMs: parseEpochMilliseconds(match[3]),
+  };
 }
 
 export function isWindowsDedicatedServerCommandLine(commandLine) {
@@ -554,11 +596,15 @@ export class ServerManager {
     // answer for the tracked PID whenever it can give one (see
     // resolveStartTime()), otherwise the moment this panel itself launched
     // it. _startTimePid records which PID the OS answer came from (null for
-    // a launch-time record) so _forgetStartTime() can drop that PID's cache
-    // entry once the process is gone.
+    // a launch-time record), so an answer for one process is never reported
+    // for another. _startTimeGeneration is bumped whenever that record is
+    // dropped (_forgetStartTime()), so a lookup still in flight across a
+    // stop, a launch or a server switch can't write its old answer back.
     this.startTime = null;
     this._startTimePid = null;
-    // pid -> { value, checkedAt } or { pending }; see getProcessStartTime().
+    this._startTimeGeneration = 0;
+    // pid -> { pending } or a failed { value: null, checkedAt }; see
+    // getProcessStartTime().
     this._processStartTimes = new Map();
     this.configLoaded = false;
     // "managed" (the panel owns and regenerates the launch script) or
@@ -936,6 +982,8 @@ export class ServerManager {
       matched: resolved.slice(0, 3).map((entry) => ({
         ...(entry.pid ? { pid: String(entry.pid) } : {}),
         cmd: String(entry.cmd || "").slice(0, 240),
+        // Windows only -- see startTimeOf().
+        ...(entry.startedMs != null ? { startedMs: entry.startedMs } : {}),
       })),
       owned: resolved,
       scanFailed: Boolean(scan.scanFailed),
@@ -978,11 +1026,15 @@ export class ServerManager {
         `getServerProcessDetails: starting detection (platform=${process.platform})`,
       );
       const matched = [];
-      const pushMatch = (cmd, pid) => {
+      const pushMatch = (cmd, pid, startedMs = null) => {
         // Keep the command line intact: ownership matching needs the
         // -servername / -cachedir arguments, which sit well past 240 chars.
         const full = String(cmd || "");
-        matched.push(pid ? { pid: String(pid), cmd: full } : { cmd: full });
+        matched.push({
+          ...(pid ? { pid: String(pid) } : {}),
+          cmd: full,
+          ...(startedMs != null ? { startedMs } : {}),
+        });
       };
 
       // This outer guard races BOTH platform branches below, and the
@@ -1008,17 +1060,10 @@ export class ServerManager {
       }, 18000);
 
       if (isWindows) {
-        const powershellPath = path.join(
-          process.env.SystemRoot || "C:\\Windows",
-          "System32",
-          "WindowsPowerShell",
-          "v1.0",
-          "powershell.exe",
-        );
         const powershellScript =
-          "Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(java\\.exe|ProjectZomboid64\\.exe|ProjectZomboid32\\.exe)$' } | Select-Object ProcessId,CommandLine | ConvertTo-Csv -NoTypeInformation";
+          `Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(java\\.exe|ProjectZomboid64\\.exe|ProjectZomboid32\\.exe)$' } | Select-Object ${WIN32_PROCESS_COLUMNS} | ConvertTo-Csv -NoTypeInformation`;
         execFile(
-          powershellPath,
+          windowsPowerShellPath(),
           [
             "-NoLogo",
             "-NoProfile",
@@ -1090,20 +1135,18 @@ export class ServerManager {
             for (let raw of lines) {
               raw = raw.trim();
               if (!raw || raw.startsWith('"ProcessId"')) continue;
-              // CSV: "<pid>","<cmd>" — strip outer quotes / un-double internal "" pairs.
-              const csvMatch = raw.match(/^"([^"]*)","((?:[^"]|"")*)"$/);
-              if (!csvMatch) {
+              const row = parseWin32ProcessCsvRow(raw);
+              if (!row) {
                 sawMalformedRow = true;
                 continue;
               }
-              const pid = csvMatch[1];
-              const cmd = csvMatch[2].replace(/""/g, '"');
+              const { pid, cmd } = row;
               if (!cmd) continue;
               if (isWindowsDedicatedServerCommandLine(cmd)) {
                 log.debug(
                   `getServerProcessDetails: matched PZ server process pid=${pid}: ${cmd.substring(0, 200)}`,
                 );
-                pushMatch(cmd, pid);
+                pushMatch(cmd, pid, row.startedMs);
               } else if (looksLikeUndeterminedJvmCandidate(cmd)) {
                 log.debug(
                   `getServerProcessDetails: Windows candidate ignored (not a recognized dedicated-server shape, but JVM-shaped and zomboid-adjacent -- treating as ambiguous): ${cmd.substring(0, 200)}`,
@@ -1331,11 +1374,13 @@ export class ServerManager {
     }
   }
 
-  // Single-PID command-line lookup used only by the pidfile fast path — far
-  // cheaper than the full host-wide scan. Resolves to null (never throws)
-  // when the PID isn't alive or the lookup fails/times out, which the fast
-  // path treats identically to "no usable pidfile".
-  _getLiveCommandLine(pid) {
+  // Single-PID lookup used only by the pidfile fast path — far cheaper than
+  // the full host-wide scan. Resolves to { cmd } ({ cmd, startedMs } on
+  // Windows, the same columns the full scan reads -- see startTimeOf()), or
+  // to null (never throws) when the PID isn't alive or the lookup
+  // fails/times out, which the fast path treats identically to "no usable
+  // pidfile".
+  _getLiveProcess(pid) {
     if (!/^\d+$/.test(String(pid || ""))) return Promise.resolve(null);
 
     return new Promise((resolve) => {
@@ -1348,14 +1393,41 @@ export class ServerManager {
       const timeout = setTimeout(() => finish(null), 3000);
 
       if (isWindows) {
-        // Single quotes inside -Filter avoid the nested-double-quote
-        // escaping the full scan's exec calls need elsewhere; pid is
-        // pre-validated as digits-only above so this interpolation is safe.
-        const psCmd = `powershell -Command "Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}' | Select-Object -ExpandProperty CommandLine"`;
-        exec(psCmd, { timeout: 2500 }, (err, stdout) => {
-          clearTimeout(timeout);
-          finish(err ? null : String(stdout || "").trim() || null);
-        });
+        // execFile with the scan's own PowerShell path and flags (no
+        // cmd.exe quoting layer); pid is pre-validated as digits-only above
+        // so this interpolation is safe.
+        const powershellScript = `Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}' | Select-Object ${WIN32_PROCESS_COLUMNS} | ConvertTo-Csv -NoTypeInformation`;
+        execFile(
+          windowsPowerShellPath(),
+          [
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            powershellScript,
+          ],
+          { timeout: 2500 },
+          (err, stdout) => {
+            clearTimeout(timeout);
+            if (err) return finish(null);
+            const row = String(stdout || "")
+              .split(/\r?\n/)
+              .map((line) => line.trim())
+              .filter((line) => line && !line.startsWith('"ProcessId"'))
+              .map(parseWin32ProcessCsvRow)
+              .find(Boolean);
+            finish(
+              row?.cmd
+                ? {
+                    cmd: row.cmd,
+                    ...(row.startedMs != null ? { startedMs: row.startedMs } : {}),
+                  }
+                : null,
+            );
+          },
+        );
       } else {
         execFile(
           "ps",
@@ -1363,7 +1435,8 @@ export class ServerManager {
           { timeout: 2500 },
           (err, stdout) => {
             clearTimeout(timeout);
-            finish(err ? null : String(stdout || "").trim() || null);
+            const cmd = err ? "" : String(stdout || "").trim();
+            finish(cmd ? { cmd } : null);
           },
         );
       }
@@ -1383,7 +1456,8 @@ export class ServerManager {
     const recorded = this._readPidFile();
     if (!recorded) return null;
 
-    const cmd = await this._getLiveCommandLine(recorded.pid);
+    const live = await this._getLiveProcess(recorded.pid);
+    const cmd = live?.cmd;
     if (!cmd) return null;
 
     const looksLikeDedicatedServer = isWindows
@@ -1415,10 +1489,11 @@ export class ServerManager {
       `getServerProcessDetails: pidfile fast path hit for pid=${recorded.pid}, skipping full scan`,
     );
     this.isRunning = true;
-    const entry = { pid: String(recorded.pid), cmd: String(cmd) };
+    const startedMs = live.startedMs != null ? { startedMs: live.startedMs } : {};
+    const entry = { pid: String(recorded.pid), cmd: String(cmd), ...startedMs };
     return {
       running: true,
-      matched: [{ pid: entry.pid, cmd: entry.cmd.slice(0, 240) }],
+      matched: [{ pid: entry.pid, cmd: entry.cmd.slice(0, 240), ...startedMs }],
       owned: [entry],
       scanFailed: false,
     };
@@ -1429,32 +1504,36 @@ export class ServerManager {
   // getProcessUptimeSeconds(), a one-off recovery that ran only while
   // this.startTime was null (continuous-bug-hunt round 20 added its Windows
   // Win32_Process branch -- before that a panel restart reset a Windows
-  // server's uptime to 0 every time). resolveStartTime() now asks on EVERY
-  // status poll, and the per-server list route asks for every running
-  // server, so the cache is what keeps that cheap: a live PID's start time
-  // never changes, so one successful answer is kept until the panel sees
-  // that process stop (_forgetStartTime()) -- one PowerShell spawn per
-  // server process on Windows, not one per 15s dashboard poll. A failed
-  // lookup is retried at most once a minute rather than on every poll.
-  // Concurrent callers (the dashboard's two status routes land together)
-  // share one in-flight lookup.
+  // server's uptime to 0 every time). Windows start times now come with
+  // the process scan itself (see startTimeOf()); this asks Linux (two small
+  // /proc reads, no spawn) and the ps fallback elsewhere.
+  //
+  // A successful answer is deliberately NOT cached. A PID names the same
+  // process only until that process exits: an answer kept "until the panel
+  // sees the process stop" outlived every restart the panel never saw (a
+  // crash-restart wrapper, systemd's Restart=, another server's row on the
+  // list page) and was then served for whichever later process reused the
+  // PID. What is kept: one in-flight lookup shared by concurrent callers
+  // (the dashboard's two status routes land together), and a FAILED lookup,
+  // retried at most once a minute rather than on every poll -- a remembered
+  // failure can only ever report "unknown", never a wrong time.
   async getProcessStartTime(pid) {
     const key = String(pid ?? "");
     if (!/^[1-9]\d*$/.test(key)) return null;
 
     const cached = this._processStartTimes.get(key);
     if (cached?.pending) return cached.pending;
-    if (
-      cached &&
-      (cached.value !== null ||
-        Date.now() - cached.checkedAt < FAILED_START_TIME_RETRY_MS)
-    ) {
-      return cached.value;
+    if (cached && Date.now() - cached.checkedAt < FAILED_START_TIME_RETRY_MS) {
+      return null;
     }
 
     const pending = readProcessStartTime(key).then((value) => {
       if (this._processStartTimes.get(key)?.pending === pending) {
-        this._processStartTimes.set(key, { value, checkedAt: Date.now() });
+        if (value === null) {
+          this._processStartTimes.set(key, { value: null, checkedAt: Date.now() });
+        } else {
+          this._processStartTimes.delete(key);
+        }
       }
       return value;
     });
@@ -1469,25 +1548,61 @@ export class ServerManager {
     return pending;
   }
 
+  // When the process a status check found started (epoch ms), or null.
+  // `entry` is a process-detection entry ({ pid, cmd }, from
+  // getServerProcessDetails()'s `matched` or the host-wide scan) or
+  // { pid } for a systemd unit's MainPID. On Windows the entry already
+  // carries startedMs, read from the very Win32_Process row that identified
+  // the process: no second PowerShell cold start (which routinely outran
+  // its timeout while a loading PZ server saturated the CPU), and no way
+  // for it to describe a later process that reused the PID. Everywhere else
+  // the OS is asked by PID.
+  async startTimeOf(entry) {
+    if (!entry?.pid) return null;
+    if (Number.isFinite(entry.startedMs)) {
+      return isPlausibleStartMs(entry.startedMs) ? entry.startedMs : null;
+    }
+    return this.getProcessStartTime(entry.pid);
+  }
+
   // The start time to report for THIS server's running process, or null
-  // when it honestly can't be known. Prefers the OS's answer for the PID the
-  // status check just found -- the systemd unit's MainPID for a managed
+  // when it honestly can't be known. Prefers the OS's answer for the process
+  // the status check just found -- the systemd unit's MainPID for a managed
   // lifecycle (which has no process-scan PID at all), otherwise the scanned
-  // or pidfile PID -- so it is right no matter who started the process: this
+  // or pidfile process -- so it is right no matter who started it: this
   // panel, a previous panel process (a panel restart or self-update, which
   // KillMode=process deliberately survives), the service manager at boot or
-  // after a Restart=on-failure, or the operator by hand. Falls back to
-  // this.startTime (this panel's own launch-time record, or the last OS
-  // answer) only when the OS can't answer. Remote SFTP and Docker servers
-  // have no local PID here and stay unknown on this path; the composed
-  // status route supplies a Docker container's own start time instead.
+  // after a Restart=on-failure, or the operator by hand.
+  //
+  // When the OS can't answer, this.startTime is still reported only if it
+  // describes this same process: this panel's own launch-time record (no OS
+  // answer since that launch -- all an OpenRC service ever has), or an
+  // earlier answer for this very PID. An answer for a DIFFERENT PID -- or
+  // one left over while there is no PID at all, as in systemd's "activating
+  // (auto-restart)" window after a crash, when MainPID is 0 -- is the
+  // previous process's start time: it is dropped, and the uptime is unknown
+  // until the OS can speak for the new process. Remote SFTP and Docker
+  // servers have no local PID here and stay unknown on this path; the
+  // composed status route supplies a Docker container's own start time
+  // instead.
   async resolveStartTime(processDetails) {
     if (!processDetails?.running) return null;
-    const pid = processDetails.mainPid || processDetails.matched?.[0]?.pid;
-    const startedMs = pid ? await this.getProcessStartTime(pid) : null;
+    const entry = processDetails.mainPid
+      ? { pid: processDetails.mainPid }
+      : processDetails.matched?.[0];
+    const pid = entry?.pid ? String(entry.pid) : null;
+    const generation = this._startTimeGeneration;
+    const startedMs = await this.startTimeOf(entry);
+    // A stop, a launch or a server switch landed while the OS was being
+    // asked (_forgetStartTime()): the answer is about a process this manager
+    // no longer tracks, and writing it back would restore the old start
+    // time over a fresh launch record.
+    if (generation !== this._startTimeGeneration) return null;
     if (startedMs !== null) {
       this.startTime = new Date(startedMs);
-      this._startTimePid = String(pid);
+      this._startTimePid = pid;
+    } else if (this._startTimePid !== null && this._startTimePid !== pid) {
+      this._forgetStartTime();
     }
     return this.startTime;
   }
@@ -1568,7 +1683,10 @@ export class ServerManager {
         if (!result.success) throw new Error(result.error || result.message);
         this.serverProcess = null;
         this.isRunning = true;
-        this.startTime = this.startTime || new Date();
+        // Not `this.startTime || new Date()`: a record left from before an
+        // out-of-panel stop would carry the old run's start time over, and
+        // for OpenRC (no MainPID) that record is all the uptime there is.
+        this._recordLaunchTime();
         this._deletePidFile();
         await logServerEvent(
           "server_start",
@@ -2258,11 +2376,12 @@ export class ServerManager {
     this._deletePidFile();
   }
 
-  // The tracked process is gone (or being replaced): its PID now belongs to
-  // nothing -- or, once the OS reuses it, to a different process with a
-  // different start time -- so its cached answer must not outlive it.
+  // The tracked process is gone, being replaced, or no longer this server's:
+  // its start time must not be reported for whatever runs next. Bumping the
+  // generation also voids any resolveStartTime() lookup still in flight for
+  // it -- see that method.
   _forgetStartTime() {
-    if (this._startTimePid) this._processStartTimes.delete(this._startTimePid);
+    this._startTimeGeneration++;
     this._startTimePid = null;
     this.startTime = null;
   }
@@ -2655,15 +2774,17 @@ export class ServerManager {
     // happened to catch the server stopped, so a server restarted between
     // polls (systemd's Restart=on-failure, a crash-restart wrapper, a
     // manual restart on the host while no dashboard was open) kept counting
-    // from the previous process. Cached per PID, so this is one OS lookup
-    // per server process, not per poll.
-    if (isRunning) await this.resolveStartTime(processDetails);
+    // from the previous process. Its own answer, not this.startTime read
+    // afterwards: a lookup overtaken by a stop or launch answers null.
+    const startTime = isRunning
+      ? await this.resolveStartTime(processDetails)
+      : this.startTime;
 
     // Whole seconds. null -- never 0 -- when the start time isn't known
     // (stopped, or a process this host can't see such as a remote SFTP or
     // Docker server): 0 read as "just started" to anything that shows it.
-    const uptimeSeconds = this.startTime
-      ? Math.max(0, Math.floor((Date.now() - this.startTime.getTime()) / 1000))
+    const uptimeSeconds = startTime
+      ? Math.max(0, Math.floor((Date.now() - startTime.getTime()) / 1000))
       : null;
 
     return {
@@ -2674,7 +2795,7 @@ export class ServerManager {
       // ps/pgrep unavailable) looked identical to a real stop. Callers
       // that only checked .running had no way to tell.
       scanFailed: Boolean(processDetails.scanFailed),
-      startTime: this.startTime,
+      startTime,
       uptime: uptimeSeconds,
       serverPath: this.serverPath,
       // Renamed from `configured` (2026-08-31, quality-pass follow-up):

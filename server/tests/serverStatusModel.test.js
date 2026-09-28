@@ -390,4 +390,20 @@ describe("composeServerStatus host.startedAt", () => {
 
     expect(result.host).not.toHaveProperty("startedAt");
   });
+
+  it("rejects a container start time in this host's future (a Docker VM clock drifted ahead) instead of counting from it", () => {
+    const result = composeServerStatus({
+      ...base,
+      server: { dockerContainerName: "pz-server" },
+      isRunning: false,
+      dockerContainer: {
+        handled: true,
+        running: true,
+        startedAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+      },
+    });
+
+    expect(result.host.status).toBe("running");
+    expect(result.host).not.toHaveProperty("startedAt");
+  });
 });

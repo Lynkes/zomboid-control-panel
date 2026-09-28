@@ -627,18 +627,17 @@ router.get("/status", async (req, res) => {
       log.debug(`Per-server status detection failed: ${err.message}`);
     }
 
-    // Each running row's start time, from the OS for the PID that row was
-    // attributed (a systemd unit's MainPID for a managed lifecycle) -- the
-    // same cached lookup serverManager.resolveStartTime() uses for the
-    // active server, so a card and the dashboard can't disagree, and a
-    // 15s list poll costs no new OS lookups once each PID has been asked
-    // about once. ISO string, or null when unknown (stopped, unverifiable,
-    // or the OS couldn't say).
-    const startedAtFor = async (pid, running) => {
-      if (!running || !pid || typeof serverManager?.getProcessStartTime !== "function") {
+    // Each running row's start time for the process that row was attributed
+    // (a systemd unit's MainPID for a managed lifecycle) -- through the same
+    // serverManager.startTimeOf() the active server's resolveStartTime()
+    // uses, so a card and the dashboard can't disagree: on Windows it rides
+    // on the scan row above, elsewhere it is two /proc reads. ISO string, or
+    // null when unknown (stopped, unverifiable, or the OS couldn't say).
+    const startedAtFor = async (entry, running) => {
+      if (!running || !entry?.pid || typeof serverManager?.startTimeOf !== "function") {
         return null;
       }
-      const startedMs = await serverManager.getProcessStartTime(pid);
+      const startedMs = await serverManager.startTimeOf(entry);
       return startedMs === null ? null : new Date(startedMs).toISOString();
     };
 
@@ -658,7 +657,7 @@ router.get("/status", async (req, res) => {
             isActive: server.id === activeId,
             provider: server.lifecycleProvider,
             stateUnknown: Boolean(status.scanFailed),
-            startedAt: await startedAtFor(status.mainPid, known),
+            startedAt: await startedAtFor({ pid: status.mainPid }, known),
           };
         } catch (error) {
           return {
@@ -686,10 +685,12 @@ router.get("/status", async (req, res) => {
       };
       let running = false;
       let pid;
+      let attributed = null;
       for (const m of matched) {
         if (scoreServerProcessOwnership(m.cmd, descriptor) > 0) {
           running = true;
           pid = m.pid;
+          attributed = m;
           break;
         }
       }
@@ -721,7 +722,7 @@ router.get("/status", async (req, res) => {
       // row the same "don't know yet" signal every other site already has
       // instead of forcing a confident guess.
       let activeFallbackUnknown = false;
-      let fallbackPid = null;
+      let fallbackEntry = null;
       if (!running && server.id === activeId && typeof serverManager?.getServerProcessDetails === "function") {
         try {
           const activeDetails = await serverManager.getServerProcessDetails();
@@ -729,7 +730,7 @@ router.get("/status", async (req, res) => {
             activeFallbackUnknown = true;
           } else if (activeDetails.running) {
             running = true;
-            fallbackPid = activeDetails.matched?.[0]?.pid || null;
+            fallbackEntry = activeDetails.matched?.[0] || null;
           }
         } catch (err) {
           activeFallbackUnknown = true;
@@ -745,7 +746,7 @@ router.get("/status", async (req, res) => {
         isActive: server.id === activeId,
         provider: "direct",
         stateUnknown,
-        startedAt: await startedAtFor(pid || fallbackPid, running && !stateUnknown),
+        startedAt: await startedAtFor(attributed || fallbackEntry, running && !stateUnknown),
       };
     }));
 
@@ -753,6 +754,9 @@ router.get("/status", async (req, res) => {
       servers: statuses,
       detectedProcesses: matched.length,
       detectionError,
+      // This host's clock as it answered, so the client can count the
+      // rows' startedAt in its own clock -- see the client's hostClock.ts.
+      serverTime: Date.now(),
     });
   } catch (error) {
     log.error(`Failed to get per-server status: ${error.message}`);

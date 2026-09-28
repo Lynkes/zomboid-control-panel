@@ -1379,35 +1379,45 @@ export default function Dashboard() {
       >
         {/* Main row */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3">
-          {/* Identity cluster: status + name + uptime */}
-          <div className="flex min-w-0 items-center gap-3">
-            {/* One light for the whole page: green calm, amber attention, red broken. */}
-            <span
-              className="relative flex h-2.5 w-2.5 shrink-0 items-center justify-center"
-              title={verdict.headline ?? t('header.everythingNominal')}
-            >
+          {/* Identity cluster: status + name + uptime. Wraps rather than
+              squeezes: the name is the page's h1 and says which server the
+              Stop/Restart buttons act on, so on a phone the uptime, map
+              and remote badge drop to a second line instead of truncating
+              it to a few characters (or to nothing -- "uptime unknown" is
+              long in es/fr/uk). */}
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            {/* The status light and the name travel together, as one item
+                that never wraps apart and is the one that shrinks (the h1
+                truncates) only when the name alone is wider than the row. */}
+            <div className="flex min-w-0 items-center gap-3">
+              {/* One light for the whole page: green calm, amber attention, red broken. */}
               <span
-                className={cn(
-                  'absolute inline-flex h-2.5 w-2.5 rounded-full opacity-25',
-                  verdict.level === 'critical' ? 'bg-destructive'
-                    : verdict.level === 'warning' ? 'bg-warning'
-                    : 'bg-success',
-                )}
-              />
-              <span
-                className={cn(
-                  'relative inline-flex h-1.5 w-1.5 rounded-full',
-                  verdict.level === 'critical' ? 'bg-destructive'
-                    : verdict.level === 'warning' ? 'bg-warning'
-                    : 'bg-success',
-                )}
-              />
-              <span className="sr-only">{verdict.headline ?? t('header.everythingNominal')}</span>
-            </span>
+                className="relative flex h-2.5 w-2.5 shrink-0 items-center justify-center"
+                title={verdict.headline ?? t('header.everythingNominal')}
+              >
+                <span
+                  className={cn(
+                    'absolute inline-flex h-2.5 w-2.5 rounded-full opacity-25',
+                    verdict.level === 'critical' ? 'bg-destructive'
+                      : verdict.level === 'warning' ? 'bg-warning'
+                      : 'bg-success',
+                  )}
+                />
+                <span
+                  className={cn(
+                    'relative inline-flex h-1.5 w-1.5 rounded-full',
+                    verdict.level === 'critical' ? 'bg-destructive'
+                      : verdict.level === 'warning' ? 'bg-warning'
+                      : 'bg-success',
+                  )}
+                />
+                <span className="sr-only">{verdict.headline ?? t('header.everythingNominal')}</span>
+              </span>
 
-            <h1 className="min-w-0 truncate font-mono text-base font-semibold text-foreground" title={activeServer?.serverName ?? t('header.noActiveServer')}>
-              {activeServer?.serverName ?? t('header.noActiveServer')}
-            </h1>
+              <h1 className="min-w-0 truncate font-mono text-base font-semibold text-foreground" title={activeServer?.serverName ?? t('header.noActiveServer')}>
+                {activeServer?.serverName ?? t('header.noActiveServer')}
+              </h1>
+            </div>
 
             {/* Uptime. Was a faint (muted/60), desktop-only duration shown
                 only when the server's snapshot said uptime > 0 -- easy to
@@ -1416,12 +1426,14 @@ export default function Dashboard() {
                 (Discord request). Now visible at every width, counted live
                 from the start time, with "started at" on hover, and an
                 explicit "uptime unknown" when the server is up but the
-                panel can't tell since when. */}
+                panel can't tell since when -- except for a remote SFTP
+                server, which can never have a start time and whose REMOTE
+                badge already says why: there it would be permanent noise. */}
             {online && (
               <ServerUptime
                 startedAt={startedAt}
-                showUnknown
-                className="shrink-0 font-mono text-[11px] text-muted-foreground"
+                showUnknown={provider !== 'remote-sftp'}
+                className="font-mono text-[11px] text-muted-foreground"
               />
             )}
             {/* Map name -- from getWorldStats, the only field it reports that

@@ -2,6 +2,7 @@ import { reportClientWarning } from "./client-errors";
 import { clearAccessToken, getAccessToken, setAccessToken } from "./authToken";
 import { toast } from "@/components/ui/use-toast";
 import i18n from "@/i18n";
+import { hostTimeToLocal } from "./hostClock";
 
 const API_BASE = "/api";
 
@@ -631,8 +632,13 @@ export interface CharacterImportResponse {
 
 // Server API
 export const serverApi = {
+  // startTime arrives on the host's clock; see hostTimeToLocal().
   getStatus: (options?: { retries?: number }) =>
-    apiGet("/server/status", undefined, options?.retries),
+    apiGet("/server/status", undefined, options?.retries).then((status) =>
+      status && typeof status === "object"
+        ? { ...status, startTime: hostTimeToLocal(status.startTime, status.serverTime) }
+        : status,
+    ),
   getNetworkInterfaces: (): Promise<{
     interfaces: { name: string; address: string }[];
   }> => apiGet("/server/network-interfaces"),
@@ -1805,7 +1811,8 @@ export interface ServerStatusSignal {
   status: string;
   label: string;
   detail: string | null;
-  // Host signal only: when the process/container started (ISO string).
+  // Host signal only: when the process/container started (ISO string),
+  // already re-expressed in this browser's clock by getComposedStatus().
   // Present only when running and known -- absent means unknown.
   startedAt?: string;
 }
@@ -1817,7 +1824,21 @@ export interface ComposedServerStatus {
   server: ServerStatusSignal;
   bridge: ServerStatusSignal;
   summary: string;
+  // The host's clock (epoch ms) as it answered -- see hostTimeToLocal().
+  serverTime?: number;
 }
+
+type ServerStatusRow = {
+  id: string;
+  name: string;
+  running: boolean;
+  pid: string | null;
+  isActive: boolean;
+  stateUnknown?: boolean;
+  // When this row's process started (ISO string, in this browser's clock
+  // -- see getStatus() below); null when stopped or unknown.
+  startedAt?: string | null;
+};
 
 // Servers API (multi-server management)
 export const serversApi = {
@@ -1833,8 +1854,14 @@ export const serversApi = {
     }>,
   getActive: () =>
     apiGet("/servers/active") as Promise<{ server: ServerInstance }>,
+  // host.startedAt arrives on the host's clock; see hostTimeToLocal().
   getComposedStatus: (options?: { retries?: number }) =>
-    apiGet("/servers/active/status", undefined, options?.retries) as Promise<ComposedServerStatus>,
+    (apiGet("/servers/active/status", undefined, options?.retries) as Promise<ComposedServerStatus>).then(
+      (status) =>
+        status?.host?.startedAt
+          ? { ...status, host: { ...status.host, startedAt: hostTimeToLocal(status.host.startedAt, status.serverTime) } }
+          : status,
+    ),
   getResolvedActive: async () => {
     const data = (await apiGet("/servers")) as { servers: ServerInstance[] };
     return {
@@ -1844,22 +1871,23 @@ export const serversApi = {
         null,
     };
   },
+  // Each row's startedAt arrives on the host's clock; see hostTimeToLocal().
   getStatus: (options?: { retries?: number }) =>
-    apiGet("/servers/status", undefined, options?.retries) as Promise<{
-      servers: Array<{
-        id: string;
-        name: string;
-        running: boolean;
-        pid: string | null;
-        isActive: boolean;
-        stateUnknown?: boolean;
-        // When this row's process started (ISO string); null when stopped
-        // or unknown.
-        startedAt?: string | null;
-      }>;
+    (apiGet("/servers/status", undefined, options?.retries) as Promise<{
+      servers: ServerStatusRow[];
       detectedProcesses: number;
       detectionError: string | null;
-    }>,
+      serverTime?: number;
+    }>).then((data) =>
+      Array.isArray(data?.servers)
+        ? {
+            ...data,
+            servers: data.servers.map((row) =>
+              row.startedAt ? { ...row, startedAt: hostTimeToLocal(row.startedAt, data.serverTime) } : row,
+            ),
+          }
+        : data,
+    ),
   getRconStatuses: () =>
     apiGet("/servers/rcon-status") as Promise<{
       servers: Array<{ id: string; status: "connected" | "unreachable" | "auth_failed" | "unconfigured" | "unavailable" }>;

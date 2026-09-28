@@ -2,5 +2,5 @@
   "up": "up {{uptime}}",
   "startedAt": "Started {{time}}",
   "unknown": "uptime unknown",
-  "unknownHint": "The panel can't tell when this server started: its process runs somewhere the panel can't inspect, such as another machine or container."
+  "unknownHint": "The panel couldn't determine when this server's process started. This happens when it runs on another machine or in a container the panel can't see into, when a system service started it outside the panel, or when the operating system didn't answer. The server itself is unaffected."
 }
