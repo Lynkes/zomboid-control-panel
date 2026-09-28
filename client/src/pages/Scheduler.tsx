@@ -74,7 +74,7 @@ import { scheduledBackupHealth } from '@/lib/scheduledBackupHealth'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
 
-const RESTART_WARNING_LOCALES = ['en', 'zh-CN', 'fr', 'de', 'es', 'ht'] as const
+const RESTART_WARNING_LOCALES = ['en', 'zh-CN', 'fr', 'de', 'es', 'ht', 'pt-BR'] as const
 
 interface ScheduledTask {
   id: number

@@ -56,6 +56,15 @@ export const RESTART_WARNING_PRESETS = Object.freeze({
     cancelled: "[SÈVÈ] Redèmaj ANILE.",
     restarting: "[SÈVÈ] *** REDÈMAJ AN KOU - rekonekte nan kèk minit ***",
   },
+  "pt-BR": {
+    template: "[SERVIDOR] *** REINÍCIO EM {count} {unit} ***",
+    units: {
+      minute: ["MINUTO", "MINUTOS"],
+      second: ["SEGUNDO", "SEGUNDOS"],
+    },
+    cancelled: "[SERVIDOR] Reinício CANCELADO.",
+    restarting: "[SERVIDOR] *** REINICIANDO AGORA - reconectem em alguns minutos ***",
+  },
 });
 
 function presetFor(locale) {

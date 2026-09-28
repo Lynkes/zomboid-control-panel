@@ -951,7 +951,7 @@ export interface ScheduleHistoryEntry {
 }
 
 export interface RestartWarningSettings {
-  locale: "en" | "zh-CN" | "fr" | "de" | "es" | "ht";
+  locale: "en" | "zh-CN" | "fr" | "de" | "es" | "ht" | "pt-BR";
   template: string;
 }
 

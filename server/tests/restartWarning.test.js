@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  RESTART_WARNING_PRESETS,
   defaultRestartWarningSettings,
   formatRestartWarning,
   getRestartWarningNotice,
@@ -17,6 +18,36 @@ describe("restart warning settings", () => {
       "[服务器] *** 将在 10秒 后重启 ***",
     );
     expect(getRestartWarningNotice(settings, "restarting")).toContain("正在重启");
+  });
+
+  it("renders the Brazilian Portuguese preset with singular and plural units", () => {
+    const settings = defaultRestartWarningSettings("pt-BR");
+
+    expect(settings.locale).toBe("pt-BR");
+    expect(formatRestartWarning(settings, 5, "minute")).toBe(
+      "[SERVIDOR] *** REINÍCIO EM 5 MINUTOS ***",
+    );
+    expect(formatRestartWarning(settings, 1, "minute")).toBe(
+      "[SERVIDOR] *** REINÍCIO EM 1 MINUTO ***",
+    );
+    expect(formatRestartWarning(settings, 30, "second")).toBe(
+      "[SERVIDOR] *** REINÍCIO EM 30 SEGUNDOS ***",
+    );
+    expect(getRestartWarningNotice(settings, "cancelled")).toBe("[SERVIDOR] Reinício CANCELADO.");
+    expect(getRestartWarningNotice(settings, "restarting")).toContain("REINICIANDO AGORA");
+  });
+
+  // A preset is what "Use language preset" puts in the template box, and
+  // saving it goes through the same validation as a hand-typed template --
+  // an accented capital or a stray symbol in a new language's preset must
+  // not make that language unsaveable.
+  it("accepts every language preset's own template when it is saved", () => {
+    for (const [locale, preset] of Object.entries(RESTART_WARNING_PRESETS)) {
+      expect(validateRestartWarningSettings({ locale, template: preset.template })).toEqual({
+        locale,
+        template: preset.template,
+      });
+    }
   });
 
   it("renders a validated custom template with the selected locale's units", () => {
