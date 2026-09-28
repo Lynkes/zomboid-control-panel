@@ -60,7 +60,7 @@ end
 getGameTime = function() return FakeGameTime end
 `;
 
-// 42.20 builds without the method, or a Kahlua binding that throws for it.
+// A build without getTrueMultiplier (42.20 has it), or a Kahlua binding that throws for it.
 const NO_TRUE_MULTIPLIER = [
   ['missing', 'FakeGameTime.getTrueMultiplier = nil'],
   ['throwing', 'function FakeGameTime:getTrueMultiplier() error("getTrueMultiplier failed") end'],

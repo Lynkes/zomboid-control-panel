@@ -3890,8 +3890,8 @@ end
 -- SetTimeSpeedCommand stores it with GameTime.setMultiplier(), a plain write
 -- of GameTime's own `multiplier` field, and getTrueMultiplier() reads that
 -- field back (times perObjectMultiplier, which the engine only moves inside
--- its moving-object update loop and resets to 1 after it, so it is 1 on
--- every OnTick and OnServerStarted call here). Vanilla pairs the same two
+-- its moving-object update loop and sets back to 1 when that loop ends, so
+-- it is 1 whenever this bridge's tick handler or OnServerStarted runs). Vanilla pairs the same two
 -- methods for the debug panel's game-speed slider (ISGameDebugPanel.lua).
 -- Never getMultiplier(): that is the per-frame time step, the field times
 -- fpsMultiplier, multiplierBias, perObjectMultiplier, the slow-motion factor
