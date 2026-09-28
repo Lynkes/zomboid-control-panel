@@ -4427,11 +4427,18 @@ export default function ServerConfig() {
             dialog, and as a grid row it never shrinks to the height cap, so
             the whole dialog scrolled instead -- Close was below the fold at
             open even at 1366x768, 100% zoom, and the wheel over the list
-            scrolled the list first. In a flex column the list (its root is
-            overflow-hidden, so min-height 0) gives up the height and the
-            filter row and footer stay on screen; measured in Chromium, the
-            list keeps 275px at 1366x768 and about one row at 1280x720, 150%. */}
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto sm:max-h-[80vh] flex flex-col">
+            scrolled the list first. In a flex column the list gives up the
+            height and the filter row and footer stay on screen, down to the
+            list's min-h-32 floor: its root is overflow-hidden, so without one
+            it shrank to nothing on a short window (1280x720 at 200% zoom, a
+            landscape phone) and left the count and Close around an empty
+            strip, every Restore out of reach. Below the floor the whole
+            dialog scrolls instead (DialogContent's overflow-y-auto). The
+            height cap is DialogContent's dvh default, not the old 85vh/80vh:
+            in a column a lower cap only takes rows off the list. Measured in
+            Chromium, the list keeps 373px at 1366x768 and 156px at 1366x768
+            at 150% zoom, and reaches the floor at 1280x720 at 150%. */}
+        <DialogContent className="max-w-2xl flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <RotateCcw className="w-5 h-5" />
@@ -4463,7 +4470,7 @@ export default function ServerConfig() {
             ))}
           </div>
 
-          <ScrollArea className="h-[400px]">
+          <ScrollArea className="h-[400px] min-h-32">
             {backups.length === 0 ? (
               <EmptyState type="noData" title={t('backupsDialog.emptyTitle')} description={t('backupsDialog.emptyDesc')} compact />
             ) : (
@@ -4562,7 +4569,8 @@ export default function ServerConfig() {
 
       {/* Templates Dialog */}
       <Dialog open={showTemplates} onOpenChange={setShowTemplates}>
-        {/* flex flex-col: see the Backups dialog above. */}
+        {/* flex flex-col, and the list's min-h-32 floor: see the Backups
+            dialog above. */}
         <DialogContent className="max-w-2xl flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -4588,7 +4596,7 @@ export default function ServerConfig() {
             </Button>
           </div>
 
-          <ScrollArea className="h-[400px]">
+          <ScrollArea className="h-[400px] min-h-32">
             {templates.length === 0 ? (
               <EmptyState type="noData" title={t('templatesDialog.emptyTitle')} description={t('templatesDialog.emptyDesc')} compact />
             ) : (

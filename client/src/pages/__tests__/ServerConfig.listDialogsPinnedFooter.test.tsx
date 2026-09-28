@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import postcss from 'postcss'
+import tailwindcss from 'tailwindcss'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import ServerConfig from '../ServerConfig'
 import { serverFilesApi, serversApi } from '@/lib/api'
@@ -14,9 +16,13 @@ import en from '../../locales/en/serverconfig.json'
 // over the list -- most of the dialog -- scrolled the list first, keeping
 // the footer below the fold until the list ran out. Both are now flex
 // columns in which the list is what shrinks (same fix as FolderBrowser.tsx,
-// measured in Chromium). jsdom does no layout, so this pins the structure:
-// the list's ScrollArea is a direct flex child of the dialog and the
-// footer, header row and title are outside it.
+// measured in Chromium), down to a min-h-32 floor: the ScrollArea root is
+// overflow-hidden, so without one it shrank to 0px on a 1280x720 window at
+// 200% zoom or a landscape phone, leaving no row -- and no Restore/Apply --
+// on screen and nothing for the dialog to scroll. Once the list is at its
+// floor, the whole dialog scrolls instead. jsdom does no layout, so this
+// pins the structure: the list's ScrollArea is a direct flex child of the
+// dialog with a floor, and the footer, header row and title are outside it.
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -91,26 +97,42 @@ function expectListShrinksAndFooterStaysOut(dialog: HTMLElement, rowText: string
   const listRoot = viewport.parentElement!
   expect(listRoot.parentElement).toBe(dialog)
   expect(listRoot.className).toContain('overflow-hidden')
+  // The floor that hands the scrolling back to the dialog once the list
+  // would get too short to show a row.
+  expect(listRoot.className).toMatch(/(^|\s)min-h-32(\s|$)/)
+  // ...and the dialog is still the scroll container that takes over.
+  expect(dialog.className).toContain('overflow-y-auto')
   expect(listRoot.contains(within(dialog).getByText(rowText))).toBe(true)
   for (const el of pinned) {
     expect(dialog.contains(el)).toBe(true)
     expect(listRoot.contains(el)).toBe(false)
   }
+  return listRoot
 }
 
 describe('ServerConfig -- list dialogs keep their footer out of the shrinking list', () => {
   it('Backups: the filter row, title and Close stay outside the backup list', async () => {
     const dialog = await renderAndOpen(/^backups$/i)
     await within(dialog).findByText('ini-backup-0.zip')
-    // Its own height cap is unchanged (NarrowWidthDialogHeightCap pins it).
-    expect(dialog.className).toContain('max-h-[85vh]')
+    // DialogContent's dvh bound, not the old 85vh/80vh cap: in a flex
+    // column a lower cap only takes rows away from the list.
+    expect(dialog.className).toContain('max-h-[calc(100dvh-2rem)]')
+    expect(dialog.className).not.toContain('max-h-[85vh]')
+    expect(dialog.className).not.toContain('sm:max-h-[80vh]')
 
     const allFiles = within(dialog).getByRole('button', { name: en.backupsDialog.filterAll })
-    expectListShrinksAndFooterStaysOut(dialog, 'ini-backup-11.zip', [
+    const listRoot = expectListShrinksAndFooterStaysOut(dialog, 'ini-backup-11.zip', [
       within(dialog).getByRole('heading', { name: en.backupsDialog.title }),
       allFiles,
       ...within(dialog).getAllByRole('button', { name: en.backupsDialog.close }),
     ])
+    // min-h-32 is a spacing-scale min-height, which Tailwind only has since
+    // 3.4: compile the rendered classes so a toolchain change can't quietly
+    // turn the floor into no CSS (see dialog.test.tsx).
+    const { css } = await postcss([
+      tailwindcss({ content: [{ raw: listRoot.className }], corePlugins: { preflight: false } }),
+    ]).process('@tailwind utilities;', { from: undefined })
+    expect(css.replace(/\s+/g, ' ')).toMatch(/\.min-h-32 \{ min-height: 8rem/)
     // Pinned at the dialog's full width now, the five filter buttons must
     // wrap on a phone rather than squash into each other.
     expect(allFiles.parentElement!.className).toMatch(/(^|\s)flex-wrap(\s|$)/)

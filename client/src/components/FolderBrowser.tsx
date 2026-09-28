@@ -112,13 +112,17 @@ export function FolderBrowser({ open, onOpenChange, onSelect, initialPath, title
           instead -- and the wheel over the list scrolled the list first,
           keeping Select Folder below the fold until every folder in, say,
           steamapps/common had gone by. In a flex column the ScrollArea root
-          (overflow-hidden, so its min-height is 0) is what shrinks: header,
-          address bar and footer stay on screen, and the list scrolls in
-          what's left (204px at 1280x720 at 150% zoom, measured in Chromium).
-          No overflow-hidden either: DialogContent's overflow-y-auto already
-          clips the header border and footer tint to the rounded corners,
-          and on a window too short for even the pinned parts it still
-          scrolls to Select Folder instead of cutting it off. */}
+          is what shrinks: header, address bar and footer stay on screen,
+          and the list scrolls in what's left (204px at 1280x720 at 150%
+          zoom, measured in Chromium). Its min-h-32 floor matters because
+          that root is overflow-hidden, so its min-height would otherwise be
+          0 and a short enough window would squeeze the folders out
+          entirely; below the floor (1280x720 at 200% zoom, a landscape
+          phone) the whole dialog scrolls instead. No overflow-hidden on the
+          dialog either: DialogContent's overflow-y-auto already clips the
+          header border and footer tint to the rounded corners, and it is
+          what scrolls to Select Folder once the floor is reached instead of
+          cutting it off. */}
       <DialogContent className="max-w-xl p-0 gap-0 flex flex-col">
         <DialogHeader className="px-4 pt-4 pb-3 border-b border-border/50">
           <DialogTitle className="flex items-center gap-2 text-base">
@@ -153,7 +157,7 @@ export function FolderBrowser({ open, onOpenChange, onSelect, initialPath, title
         </form>
 
         {/* File listing */}
-        <ScrollArea className="h-[340px]">
+        <ScrollArea className="h-[340px] min-h-32">
           {loading ? (
             <div className="flex items-center justify-center h-full py-20">
               <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
