@@ -405,6 +405,13 @@ can't write to that folder: see
 (on Docker, check `PUID` and `PGID`). Also check that the install path in
 **My Servers** still points at a folder that exists. Then press Start again.
 
+**Debug › Diagnostics** checks for this before you press Start. Its "Start
+script" row names the server's own script, not the stock one. "Start script
+missing" (a failure) means the script isn't there and the panel can't write
+to the folder. "Start script not written yet" (a warning) means the next
+start will write it. Windows doesn't let the panel check folder permissions
+ahead of time, so there a folder it can't write also shows as the warning.
+
 If an older copy of the script is in that folder, the start doesn't stop.
 It runs that copy, and the log warns `Could not regenerate ... which may
 carry older settings`. A password or memory change you made since then

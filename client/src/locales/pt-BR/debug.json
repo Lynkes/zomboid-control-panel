@@ -392,6 +392,18 @@
             "notFound": {
               "label": "Script de inicialização não encontrado",
               "message": "Nenhum {{pattern}} no caminho de instalação. Não é possível iniciar o servidor pelo painel."
+            },
+            "notWrittenYet": {
+              "label": "Script de inicialização ainda não gravado",
+              "message": "{{script}} ainda não está na pasta de instalação. O painel o grava a partir das configurações deste servidor antes de cada inicialização.",
+              "hint": "Não há nada a fazer antes da primeira inicialização. Se depois a inicialização falhar porque o script não existe, verifique se o painel consegue gravar na pasta de instalação."
+            }
+          },
+          "fail": {
+            "folderNotWritable": {
+              "label": "Script de inicialização ausente",
+              "message": "{{script}} não está na pasta de instalação, e o painel não consegue gravar nessa pasta. Toda inicialização vai parar com um erro até que ele consiga.",
+              "hint": "Dê à conta do painel permissão de escrita na pasta de instalação (no Docker, verifique PUID/PGID) ou, em Meus servidores → Editar, aponte este servidor para uma pasta em que o painel consiga gravar."
             }
           },
           "ok": {

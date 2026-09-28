@@ -387,6 +387,18 @@
             "notFound": {
               "label": "Script demaraj pa jwenn",
               "message": "Pa gen {{pattern}} nan chemen enstalasyon an. Sèvè a pa ka demare soti nan panèl la."
+            },
+            "notWrittenYet": {
+              "label": "Script demaraj la poko ekri",
+              "message": "{{script}} poko nan dosye enstalasyon an. Panèl la ekri l apati paramèt sèvè sa a anvan chak demaraj.",
+              "hint": "Pa gen anyen pou w fè anvan premye demaraj la. Si demaraj la echwe apre sa paske script la manke, tcheke si panèl la ka ekri nan dosye enstalasyon an."
+            }
+          },
+          "fail": {
+            "folderNotWritable": {
+              "label": "Script demaraj la manke",
+              "message": "{{script}} pa nan dosye enstalasyon an, epi panèl la pa ka ekri nan dosye sa a. Chak demaraj ap kanpe ak yon erè jiskaske panèl la kapab ekri ladan l.",
+              "hint": "Bay kont panèl la dwa pou ekri nan dosye enstalasyon an (sou Docker, tcheke PUID/PGID), oswa, nan Sèvè → Modifye, fè sèvè sa a itilize yon dosye panèl la ka ekri ladan l."
             }
           },
           "ok": {

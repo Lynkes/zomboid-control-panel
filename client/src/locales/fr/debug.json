@@ -392,6 +392,18 @@
             "notFound": {
               "label": "Script de démarrage introuvable",
               "message": "Aucun {{pattern}} dans le chemin d'installation. Le serveur ne peut pas être démarré depuis le panneau."
+            },
+            "notWrittenYet": {
+              "label": "Script de démarrage pas encore écrit",
+              "message": "{{script}} n'est pas encore dans le dossier d'installation. Le panneau l'écrit à partir des paramètres de ce serveur avant chaque démarrage.",
+              "hint": "Rien à faire avant le premier démarrage. Si le démarrage échoue ensuite parce que le script est introuvable, vérifiez que le panneau peut écrire dans le dossier d'installation."
+            }
+          },
+          "fail": {
+            "folderNotWritable": {
+              "label": "Script de démarrage manquant",
+              "message": "{{script}} n'est pas dans le dossier d'installation, et le panneau ne peut pas écrire dans ce dossier. Chaque démarrage s'arrêtera sur une erreur tant qu'il ne le pourra pas.",
+              "hint": "Donnez au compte du panneau le droit d'écrire dans le dossier d'installation (sous Docker, vérifiez PUID/PGID), ou, dans Serveurs → Modifier, faites pointer ce serveur vers un dossier où le panneau peut écrire."
             }
           },
           "ok": {

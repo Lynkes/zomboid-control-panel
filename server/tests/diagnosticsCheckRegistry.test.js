@@ -505,6 +505,21 @@ describe("diagnostics check locale registry (self-enforcing, mirrors errorCodeRe
     expect(en.plain.get("server.process::ok")).toBeTruthy();
   });
 
+  // GH #167 follow-up: server.startScript moved out of the handler into
+  // buildStartScriptCheck(), which sits after the handler but before the
+  // world-map route, inside the scanned range. Its two named-script
+  // variants (the panel hasn't written the script yet / can't write it)
+  // are what Diagnostics shows instead of "Using StartServer64.bat" for a
+  // named managed server. If they drop out of the scan, the per-id
+  // completeness tests below would pass on less than the handler emits.
+  it("sees server.startScript's named-script variants in buildStartScriptCheck()", () => {
+    expect(source.withVariant.has("server.startScript::warn::notWrittenYet")).toBe(true);
+    expect(source.withVariant.has("server.startScript::fail::folderNotWritable")).toBe(true);
+    expect(source.withVariant.has("server.startScript::warn::notFound")).toBe(true);
+    expect(source.withVariant.has("server.startScript::warn::notExecutable")).toBe(true);
+    expect(source.plain.has("server.startScript::ok")).toBe(true);
+  });
+
   // rcon-command-rejections-check-has-never-rendered-in-any-language,
   // 2026-09-09: a check's `category` value is only ever read at render
   // time (Debug.tsx groups by category===catKey over DIAG_CATEGORIES'

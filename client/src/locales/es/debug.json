@@ -392,6 +392,18 @@
             "notFound": {
               "label": "Script de inicio no encontrado",
               "message": "No se encontró {{pattern}} en la ruta de instalación. El servidor no puede iniciarse desde el panel."
+            },
+            "notWrittenYet": {
+              "label": "Script de inicio aún no escrito",
+              "message": "{{script}} todavía no está en la carpeta de instalación. El panel lo escribe a partir de los ajustes de este servidor antes de cada inicio.",
+              "hint": "No hay nada que hacer antes del primer inicio. Si después el inicio falla porque falta el script, comprueba que el panel puede escribir en la carpeta de instalación."
+            }
+          },
+          "fail": {
+            "folderNotWritable": {
+              "label": "Falta el script de inicio",
+              "message": "{{script}} no está en la carpeta de instalación y el panel no puede escribir en esa carpeta. Cada inicio se detendrá con un error hasta que pueda hacerlo.",
+              "hint": "Da a la cuenta del panel permiso de escritura en la carpeta de instalación (en Docker, comprueba PUID/PGID) o, en Servidores → Editar, apunta este servidor a una carpeta en la que el panel pueda escribir."
             }
           },
           "ok": {

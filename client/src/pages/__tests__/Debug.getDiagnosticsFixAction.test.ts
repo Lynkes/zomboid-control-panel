@@ -194,6 +194,36 @@ describe('getDiagnosticsFixAction fallback branch (uncovered check ids)', () => 
     })
   })
 
+  // GH #167 follow-up: the panel writes a named managed server's start
+  // script itself before every start, so Server Finder's "re-run detection
+  // or reinstall the dedicated server files" fixes neither named-script
+  // variant. Not written yet -> the Dashboard's Start writes it; can't be
+  // written -> the install path in Servers (the hint covers permissions).
+  it.each([
+    ['notWrittenYet', 'warn', 'fixActions.links.openDashboard', '/'],
+    ['folderNotWritable', 'fail', 'fixActions.links.openServers', '/servers'],
+  ] as const)('server.startScript variant %s (%s) opens %s', (variant, status, label, route) => {
+    const action = getDiagnosticsFixAction(
+      { ...fallbackCheck({ id: 'server.startScript', status, category: 'server' }), variant },
+      t,
+    )
+    expect(action).toEqual({ label, automated: false, manualRoute: route })
+  })
+
+  it.each(['notFound', 'notExecutable'])(
+    'server.startScript variant %s still points at Server Finder',
+    (variant) => {
+      const action = getDiagnosticsFixAction(
+        { ...fallbackCheck({ id: 'server.startScript', status: 'warn', category: 'server' }), variant },
+        t,
+      )
+      expect(action).toMatchObject({
+        manualRoute: '/server-finder',
+        note: 'fixActions.serverStartScriptOrJre.note',
+      })
+    },
+  )
+
   it('opens server config when the hint contains the literal server.ini token', () => {
     const action = getDiagnosticsFixAction(
       fallbackCheck({ hint: 'Edit server.ini to fix this.' }),

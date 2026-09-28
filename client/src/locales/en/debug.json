@@ -387,6 +387,18 @@
             "notFound": {
               "label": "Start script not found",
               "message": "No {{pattern}} in install path. Server can't be started from the panel."
+            },
+            "notWrittenYet": {
+              "label": "Start script not written yet",
+              "message": "{{script}} isn't in the install folder yet. The panel writes it from this server's settings before every start.",
+              "hint": "Nothing to do before the first start. If Start then fails because the script is missing, check that the panel can write to the install folder."
+            }
+          },
+          "fail": {
+            "folderNotWritable": {
+              "label": "Start script missing",
+              "message": "{{script}} isn't in the install folder, and the panel can't write to that folder. Every start will stop with an error until it can.",
+              "hint": "Give the panel's account write access to the install folder (on Docker, check PUID/PGID), or point this server at a folder it can write to in Servers → Edit."
             }
           },
           "ok": {

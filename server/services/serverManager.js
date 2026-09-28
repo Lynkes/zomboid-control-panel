@@ -277,8 +277,8 @@ function validateStartCommand(cmd) {
 }
 
 // Get the default startup script name for the current platform
-function getDefaultStartupScript() {
-  return isWindows ? "StartServer64.bat" : "start-server.sh";
+function getDefaultStartupScript(windows = isWindows) {
+  return windows ? "StartServer64.bat" : "start-server.sh";
 }
 
 // The stock launcher a no-Steam Windows server would have fallen back to,
@@ -300,6 +300,24 @@ export function managedStartupScriptName(serverName, windows = isWindows) {
   return windows
     ? `StartServer_${serverName}.bat`
     : `start-server_${serverName}.sh`;
+}
+
+// The script loadConfig() launches for a MANAGED server: an explicit
+// PZ_SERVER_BAT other than the stock name wins, then the server's own
+// generated script when it has a name (GH #167, never the stock one), and
+// the stock script only for a server with no name. One answer for the
+// launch and for Debug › Diagnostics' start-script check, which used to
+// keep its own list and still called the stock script "found" for a named
+// server after #167. `windows` and `env` are parameters only for tests.
+export function resolveManagedStartupScript(
+  serverName,
+  { windows = isWindows, env = process.env } = {},
+) {
+  const stock = getDefaultStartupScript(windows);
+  const envBat = env.PZ_SERVER_BAT;
+  if (envBat && envBat !== stock) return envBat;
+  if (serverName) return managedStartupScriptName(serverName, windows);
+  return envBat || stock;
 }
 
 // GH #167: a managed server with a name launches its own generated script or
@@ -767,16 +785,10 @@ export class ServerManager {
         // Assigned outright (not only when serverBat still held the default)
         // so a manager reloaded for another server never keeps the previous
         // server's script. A custom launcher keeps its own file, and an
-        // explicit PZ_SERVER_BAT still wins, as before.
+        // explicit PZ_SERVER_BAT still wins, as before
+        // (resolveManagedStartupScript()).
         if (launchMode.mode !== "custom") {
-          const envBat = process.env.PZ_SERVER_BAT;
-          if (envBat && envBat !== getDefaultStartupScript()) {
-            this.serverBat = envBat;
-          } else if (activeServer.serverName) {
-            this.serverBat = managedStartupScriptName(activeServer.serverName);
-          } else {
-            this.serverBat = envBat || getDefaultStartupScript();
-          }
+          this.serverBat = resolveManagedStartupScript(activeServer.serverName);
         }
         if (activeServer.zomboidDataPath) {
           this.savePath = activeServer.zomboidDataPath;

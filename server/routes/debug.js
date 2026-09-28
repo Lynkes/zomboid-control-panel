@@ -10,7 +10,11 @@ import { fileURLToPath } from "url";
 import archiver from "archiver";
 import { createLogger } from "../utils/logger.js";
 import { getDiskFree } from "../utils/diskSpace.js";
-import { resolveLaunchMode } from "../services/serverManager.js";
+import {
+  managedStartupScriptName,
+  resolveLaunchMode,
+  resolveManagedStartupScript,
+} from "../services/serverManager.js";
 import { scanWorkshopFailures } from "../utils/workshopLogScan.js";
 import { resolveInstallDir } from "../services/panelBridgeInstaller.js";
 import { compareModVersions } from "../utils/embeddedLua.js";
@@ -3582,74 +3586,7 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
 
         if (installPath && (await safePathExists(installPath))) {
           const isWin = process.platform === "win32";
-          const serverName = activeServer.serverName || "";
-          // Linux is case-sensitive — list each script variant explicitly.
-          const candidates = isWin
-            ? [
-                serverName ? `StartServer_${serverName}.bat` : null,
-                "StartServer64.bat",
-                "StartServer64_nosteam.bat",
-                "StartServer32.bat",
-              ]
-            : [
-                serverName ? `start-server_${serverName}.sh` : null,
-                "start-server.sh",
-                "start-server-nosteam.sh",
-              ];
-          let foundScript = null;
-          let scriptStat = null;
-          for (const name of candidates) {
-            if (!name) continue;
-            const p = path.join(installPath, name);
-            const st = await safeStat(p);
-            if (st && st.isFile()) {
-              foundScript = name;
-              scriptStat = st;
-              break;
-            }
-          }
-          if (foundScript) {
-            // On Linux, verify the executable bit. On Windows, mode bits are
-            // meaningless so we just confirm presence.
-            if (!isWin && scriptStat && (scriptStat.mode & 0o111) === 0) {
-              // Two different "warn" scenarios for this id (not-executable
-              // vs not-found below) need distinct label/message text, not
-              // just different data in the same template -- variant, not
-              // params, same reasoning as server.installPath above.
-              checks.push(
-                diagWarn(
-                  "server.startScript",
-                  "Start script not executable",
-                  `${foundScript} exists but has no executable bit. The panel cannot launch it.`,
-                  {
-                    category: "server",
-                    hint: `Run: chmod +x ${foundScript}`,
-                    params: { script: foundScript },
-                    variant: "notExecutable",
-                  },
-                ),
-              );
-            } else {
-              checks.push(
-                diagOk(
-                  "server.startScript",
-                  "Start script found",
-                  `Using ${foundScript}.`,
-                  { category: "server", params: { script: foundScript } },
-                ),
-              );
-            }
-          } else {
-            const scriptPattern = isWin ? "StartServer*.bat" : "start-server*.sh";
-            checks.push(
-              diagWarn(
-                "server.startScript",
-                "Start script not found",
-                `No ${scriptPattern} in install path. Server can't be started from the panel.`,
-                { category: "server", params: { pattern: scriptPattern }, variant: "notFound" },
-              ),
-            );
-          }
+          checks.push(await buildStartScriptCheck(activeServer));
 
           // Java/JRE check — PZ ships its own JRE under jre64/.
           const isLinux = process.platform === "linux";
@@ -5582,6 +5519,144 @@ export function buildUpdateRollbackNoticeCheck(installDir, currentVersion) {
       hint: "This build likely has a real problem, not a one-off -- check logs/supervisor.log from around the time of the revert before retrying the same version. Delete .update-rollback-notice.json from the install folder to dismiss this notice.",
       params: { version: failedVersion, currentVersion: resolvedCurrentVersion },
     },
+  );
+}
+
+// server.startScript: the script a start of the active server runs, looked
+// for in the folder it runs it from. GH #167 changed which script that is
+// for a managed server with a name (resolveLaunchMode() "managed"): only its
+// own StartServer_<name>.bat / start-server_<name>.sh, which the panel
+// writes from the server's settings before every start
+// (routes/server.js's refreshLaunchTargetBeforeStart()) into
+// `serverPath || installPath`. While that file is missing, a start refuses
+// with SERVER_START_SCRIPT_MISSING (serverManager.js's
+// _assertNamedStartupScriptPresent()) and never falls back to the stock
+// StartServer64.bat / start-server.sh. This check used to take the first of
+// the named and stock scripts it found in `installPath || serverPath`, so it
+// reported "Start script found" for the exact setup whose every start fails:
+// a folder the panel can't write, with only the stock script in it.
+//
+// The stock candidates stay for every server the panel doesn't write the
+// named script for: no server name, a custom start command, a
+// Docker-mapped container (its image owns the launch command), and an
+// explicit PZ_SERVER_BAT (resolveManagedStartupScript()). A custom launcher
+// path keeps the lookup it always had.
+//
+// The write probe is fs.access(W_OK). On Linux, where #167 was reported, it
+// sees ownership, mode bits and a read-only mount. Windows answers it from
+// the read-only attribute alone, so there a folder the panel can't write
+// shows as "not written yet" (a warning), never as a false failure.
+// Exported so it can be tested without the whole handler; `platform` and
+// `env` are parameters only for tests.
+export async function buildStartScriptCheck(
+  activeServer,
+  { platform = process.platform, env = process.env } = {},
+) {
+  const isWin = platform === "win32";
+  const serverName = activeServer?.serverName || "";
+  const dockerMapped = ["docker-local", "docker-managed"].includes(
+    resolveProvider(activeServer),
+  );
+  const launchesNamedScript =
+    Boolean(serverName) &&
+    resolveLaunchMode(activeServer).mode === "managed" &&
+    !activeServer?.startCommand &&
+    !dockerMapped &&
+    resolveManagedStartupScript(serverName, { windows: isWin, env }) ===
+      managedStartupScriptName(serverName, isWin);
+
+  const dir = launchesNamedScript
+    ? activeServer.serverPath || activeServer.installPath
+    : activeServer?.installPath || activeServer?.serverPath;
+  // Linux is case-sensitive — list each script variant explicitly.
+  const candidates = launchesNamedScript
+    ? [managedStartupScriptName(serverName, isWin)]
+    : isWin
+      ? [
+          serverName ? `StartServer_${serverName}.bat` : null,
+          "StartServer64.bat",
+          "StartServer64_nosteam.bat",
+          "StartServer32.bat",
+        ]
+      : [
+          serverName ? `start-server_${serverName}.sh` : null,
+          "start-server.sh",
+          "start-server-nosteam.sh",
+        ];
+  let foundScript = null;
+  let scriptStat = null;
+  for (const name of candidates) {
+    if (!name || !dir) continue;
+    const st = await safeStat(path.join(dir, name));
+    if (st && st.isFile()) {
+      foundScript = name;
+      scriptStat = st;
+      break;
+    }
+  }
+
+  if (foundScript) {
+    // On Linux, verify the executable bit. On Windows, mode bits are
+    // meaningless so we just confirm presence.
+    if (!isWin && scriptStat && (scriptStat.mode & 0o111) === 0) {
+      // Different "warn" scenarios for this id (not-executable, not-found,
+      // not-written-yet) need distinct label/message text, not just
+      // different data in the same template -- variant, not params, same
+      // reasoning as server.installPath in the handler.
+      return diagWarn(
+        "server.startScript",
+        "Start script not executable",
+        `${foundScript} exists but has no executable bit. The panel cannot launch it.`,
+        {
+          category: "server",
+          hint: `Run: chmod +x ${foundScript}`,
+          params: { script: foundScript },
+          variant: "notExecutable",
+        },
+      );
+    }
+    return diagOk(
+      "server.startScript",
+      "Start script found",
+      `Using ${foundScript}.`,
+      { category: "server", params: { script: foundScript } },
+    );
+  }
+
+  if (launchesNamedScript) {
+    const script = candidates[0];
+    if (await safePathWritable(dir)) {
+      return diagWarn(
+        "server.startScript",
+        "Start script not written yet",
+        `${script} isn't in the install folder yet. The panel writes it from this server's settings before every start.`,
+        {
+          category: "server",
+          hint: "Nothing to do before the first start. If Start then fails because the script is missing, check that the panel can write to the install folder.",
+          params: { script },
+          variant: "notWrittenYet",
+        },
+      );
+    }
+    return diagFail(
+      "server.startScript",
+      "Start script missing",
+      `${script} isn't in the install folder, and the panel can't write to that folder. Every start will stop with an error until it can.`,
+      {
+        category: "server",
+        hint: "Give the panel's account write access to the install folder (on Docker, check PUID/PGID), or point this server at a folder it can write to in Servers → Edit.",
+        params: { script },
+        variant: "folderNotWritable",
+      },
+    );
+  }
+
+  const scriptPattern = isWin ? "StartServer*.bat" : "start-server*.sh";
+  return diagWarn(
+    "server.startScript",
+    "Start script not found",
+    `No ${scriptPattern} in install path. Server can't be started from the panel.`,
+    { category: "server", params: { pattern: scriptPattern }, variant: "notFound" },
   );
 }
 

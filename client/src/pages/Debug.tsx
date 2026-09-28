@@ -525,6 +525,23 @@ export function getDiagnosticsFixAction(
         note: t("fixActions.serverZomboidData.note"),
       };
     case "server.startScript":
+      // GH #167: a named managed server's own script is written by the
+      // panel before every start, so re-running detection or reinstalling
+      // the game (the note below) fixes neither of these. Not written yet:
+      // the next Start writes it. Can't be written: the fix is the folder's
+      // permissions or the server's install path, which the hint spells out.
+      if (check.variant === "notWrittenYet") {
+        return { label: L("openDashboard"), automated: false, manualRoute: "/" };
+      }
+      if (check.variant === "folderNotWritable") {
+        return { label: L("openServers"), automated: false, manualRoute: "/servers" };
+      }
+      return {
+        label: t("fixActions.serverStartScriptOrJre.label"),
+        automated: false,
+        manualRoute: "/server-finder",
+        note: t("fixActions.serverStartScriptOrJre.note"),
+      };
     case "server.jre":
     case "server.jreWorks":
       return {

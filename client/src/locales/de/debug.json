@@ -387,6 +387,18 @@
             "notFound": {
               "label": "Startskript nicht gefunden",
               "message": "{{pattern}} nicht im Installationspfad gefunden. Der Server kann nicht über das Panel gestartet werden."
+            },
+            "notWrittenYet": {
+              "label": "Startskript noch nicht geschrieben",
+              "message": "{{script}} liegt noch nicht im Installationsordner. Das Panel schreibt es vor jedem Start aus den Einstellungen dieses Servers.",
+              "hint": "Vor dem ersten Start ist nichts zu tun. Schlägt der Start danach fehl, weil das Skript fehlt, prüfe, ob das Panel in den Installationsordner schreiben darf."
+            }
+          },
+          "fail": {
+            "folderNotWritable": {
+              "label": "Startskript fehlt",
+              "message": "{{script}} liegt nicht im Installationsordner, und das Panel kann nicht in diesen Ordner schreiben. Jeder Start bricht mit einem Fehler ab, bis es das kann.",
+              "hint": "Gib dem Konto des Panels Schreibrechte für den Installationsordner (prüfe unter Docker PUID/PGID) oder stelle unter Server → Bearbeiten einen Ordner ein, in den das Panel schreiben kann."
             }
           },
           "ok": {
