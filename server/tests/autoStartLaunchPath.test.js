@@ -3,6 +3,8 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { describeAutoStartFailure, startServerForAutoStart } from "../index.js";
+import { prepareForLaunch } from "../services/lifecycleCoordinator.js";
+import { managedStartupScriptName } from "../services/serverManager.js";
 
 // GH #167: the boot auto-start ("Auto-start is enabled - starting PZ
 // server...") called serverManager.startServer() directly and so differed
@@ -88,6 +90,48 @@ describe("startServerForAutoStart()", () => {
     );
 
     expect(deps.serverManagerInstance.startServer).toHaveBeenCalled();
+  });
+});
+
+// Every launch path's refresh -- dashboard Start, boot auto-start, scheduler,
+// Discord, post-update, Docker -- rests on the one
+// setLaunchTargetRefresher(refreshLaunchTargetForLaunch) call in
+// server/index.js; the other tests wire the refresher themselves. So this
+// runs the real before-launch step against the wiring index.js did when it
+// was imported above. The record isn't in this file's database, so the
+// refresher falls back to it as passed.
+describe("server/index.js wires the launch-target refresh into prepareForLaunch()", () => {
+  let root;
+
+  afterEach(() => {
+    if (root) fs.rmSync(root, { recursive: true, force: true });
+    root = null;
+  });
+
+  it("writes the server's current RCON password into its ini and its named script, with no other setup", async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "gh167-wiring-"));
+    const installPath = path.join(root, "pz");
+    const zomboidDataPath = path.join(root, "Zomboid");
+    fs.mkdirSync(installPath, { recursive: true });
+    fs.mkdirSync(path.join(zomboidDataPath, "Server"), { recursive: true });
+    const iniPath = path.join(zomboidDataPath, "Server", "Wired.ini");
+    fs.writeFileSync(iniPath, "RCONPort=27015\nRCONPassword=old-rcon\n");
+
+    await prepareForLaunch({
+      id: "gh167-wiring-not-in-db",
+      name: "Wired",
+      serverName: "Wired",
+      installPath,
+      zomboidDataPath,
+      rconPassword: "new-rcon",
+      rconPort: 27015,
+      adminPassword: "admin-pw",
+      isRemote: false,
+    });
+
+    expect(fs.readFileSync(iniPath, "utf8")).toContain("RCONPassword=new-rcon");
+    const script = fs.readFileSync(path.join(installPath, managedStartupScriptName("Wired")), "utf8");
+    expect(script).toContain('-adminpassword "admin-pw"');
   });
 });
 
