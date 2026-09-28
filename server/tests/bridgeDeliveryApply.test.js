@@ -534,4 +534,37 @@ describe("guided (remote)", () => {
     expect(dbState.servers[0]).toMatchObject({ bridgeDelivery: "workshop", bridgeDeliverySwitch: { workshopId: WS_ID } });
     expect(snapshotFiles([one.iniPath])).toEqual(before);
   });
+
+  // Guided access also covers non-remote profiles whose game folder is
+  // missing or read-only. Those are still grouped by folder, and the group
+  // decides the method: recording the switch back on the active profile
+  // alone left the sibling's own "workshop" in charge, so the server
+  // answered "switched" and stayed on the Workshop.
+  it("a guided switch back on a shared game folder records every profile of the folder", async () => {
+    const missingInstall = path.join(root, "not-mounted");
+    one = createServerFiles(root, { key: "s1" });
+    two = createServerFiles(root, { key: "s2", serverName: "second" });
+    dbState.servers = [
+      makeServer(one, {
+        id: "A",
+        name: "Workshop A",
+        installPath: missingInstall,
+        isActive: false,
+        bridgeDelivery: "workshop",
+        bridgeDeliverySwitch: { to: "workshop", at: "2026-01-01T00:00:00.000Z", by: "a", bridgeStartedAt: 1, workshopId: WS_ID },
+      }),
+      makeServer(two, { id: "B", name: "Sibling B", serverName: "second", installPath: missingInstall }),
+    ];
+    const before = await getDeliveryStatus(dbState.servers[1], deps);
+    expect(before).toMatchObject({ method: "workshop", ownMethod: "local", access: "guided", sharedWith: [{ id: "A" }] });
+
+    const plan = await planDeliverySwitch(dbState.servers[1], "local", deps);
+    expect(plan.steps).toEqual([{ kind: "recordMethod", method: "local", servers: ["Workshop A", "Sibling B"] }]);
+
+    const result = await applyDeliverySwitch(dbState.servers[1], "local", { expectedFrom: "workshop", deps });
+    expect(trace.order).toEqual(["persist", "persist"]);
+    expect(dbState.servers.map((s) => s.bridgeDelivery)).toEqual(["local", "local"]);
+    expect(result.status).toMatchObject({ method: "local", ownMethod: "local" });
+    expect(result.status.state).not.toMatch(/^workshop-/);
+  });
 });

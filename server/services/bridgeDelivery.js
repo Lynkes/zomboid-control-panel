@@ -545,6 +545,18 @@ async function buildContext(server, deps = {}) {
   };
 }
 
+// The profiles a switch records its method on: exactly the ones
+// getEffectiveMethod() decides together, whatever the access. That is the
+// whole install group of a non-remote profile (a remote one is its own
+// group). Guided access covers non-remote profiles too -- an install folder
+// that is missing or read-only, Docker-managed without a host mount -- and
+// recording only the active one there left a sibling's own "workshop"
+// deciding the folder: a switch back answered "switched" and changed
+// nothing, for good.
+function recordMembers(ctx) {
+  return ctx.group.filter((member) => member?.id !== null && member?.id !== undefined);
+}
+
 // Group ini files, one entry per distinct file, for every step that edits
 // "each group ini". A member with no ini yet is reported, not an error: its
 // entries are added by reconcile at its first panel launch.
@@ -768,7 +780,7 @@ function assertMethod(to) {
 
 function buildSteps(ctx, to, warnings) {
   const steps = [];
-  const recordServers = (ctx.access === "automatic" ? ctx.group : [ctx.server]).map(displayName);
+  const recordServers = recordMembers(ctx).map(displayName);
   if (ctx.access !== "automatic") {
     steps.push({ kind: "recordMethod", method: to, servers: recordServers });
     return { steps, iniTargets: [], looseFiles: [] };
@@ -1091,9 +1103,7 @@ export async function applyDeliverySwitch(
       // baseline and computeRestartedSinceSwitch() falls back to the switch
       // time instead.
       const siblingRecord = { ...record, bridgeStartedAt: null };
-      const members = (ctx.access === "automatic" ? ctx.group : [ctx.server]).filter(
-        (member) => member?.id !== null && member?.id !== undefined,
-      );
+      const members = recordMembers(ctx);
       const previous = members.map((member) => ({
         id: member.id,
         bridgeDelivery: member.bridgeDelivery,
