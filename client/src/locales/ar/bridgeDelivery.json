@@ -50,7 +50,7 @@
     "noSteamShared": "يُشغَّل هذا الخادم أو خادم يتشارك معه مجلد اللعبة ({{servers}}) دون Steam (GOG/LAN). لا يمكن تنزيل عناصر الورشة في هذا الوضع.",
     "gameVersionUnsupported": "عنصر الورشة الخاص بـ PanelBridge مخصّص لـ Build 42. يُبلغ هذا الخادم عن {{version}}.",
     "iniNotFound": "شغّل الخادم مرة واحدة لينشئ ملف إعداداته، ثم بدّل.",
-    "iniDuplicateKeys": "يحتوي ملف الإعدادات على Mods= أو WorkshopItems= مرتين. أصلح ذلك أولًا في تهيئة الخادم › INI (خام).",
+    "iniDuplicateKeys": "يحتوي ملف الإعدادات على Mods=\u200e أو WorkshopItems=\u200e مرتين. أصلح ذلك أولًا في تهيئة الخادم › INI (خام).",
     "sameMethod": "يستخدم هذا الخادم هذه الطريقة بالفعل."
   },
   "warn": {

@@ -775,6 +775,23 @@ describe('BridgeDeliveryPanel: RTL (ar)', () => {
     expect(screen.getByText(ar.local.title)).toBeInTheDocument()
   })
 
+  // A bare "Mods=" before Arabic text shows as "=Mods": the "=" sits between
+  // a Latin run and an RTL one and resolves right-to-left. Outside <code
+  // dir="ltr"> the Arabic copy puts a LEFT-TO-RIGHT MARK after the "=".
+  it('keeps every bare Mods= / WorkshopItems= in the Arabic copy left-to-right', () => {
+    const strings: string[] = []
+    const walk = (node: unknown) => {
+      if (typeof node === 'string') strings.push(node)
+      else if (node && typeof node === 'object') Object.values(node).forEach(walk)
+    }
+    walk(ar)
+    const offenders = strings
+      .map((s) => s.replace(/<code>.*?<\/code>/g, ''))
+      .filter((s) => /(Mods|WorkshopItems)=(?!\u200e)[\s\u0600-\u06FF]/.test(s))
+    expect(offenders).toEqual([])
+    expect(ar.unavailable.iniDuplicateKeys).toContain('Mods=\u200e')
+  })
+
   // Physical left/right utilities flip wrong under dir="rtl"; every new
   // component here uses logical ones (ms-/me-/ps-/pe-/start-/end-/
   // text-start). A source scan covers every branch, rendered or not.
