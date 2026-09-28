@@ -1709,11 +1709,18 @@ export default function Settings() {
         variant: "success" as const,
       });
     } catch (error) {
+      // 504 PANELBRIDGE_INSTALL_STILL_RUNNING isn't a failure: the server
+      // stopped waiting on the install (usually queued behind another
+      // reconcile of the same folder), which finishes in the background.
+      const stillRunning =
+        error instanceof ApiError && error.code === "PANELBRIDGE_INSTALL_STILL_RUNNING";
       toast({
-        title: t("toasts.installFailed.title"),
+        title: stillRunning
+          ? t("toasts.bridgeInstallStillRunning.title")
+          : t("toasts.installFailed.title"),
         description:
           getUserErrorMessage(error, t("toasts.installFailed.fallback")),
-        variant: "destructive",
+        ...(stillRunning ? {} : { variant: "destructive" as const }),
       });
     } finally {
       setInstallingMod(false);

@@ -3157,10 +3157,11 @@ router.get("/mod-path", requirePermission("bridge.setup"), async (req, res) => {
   });
 });
 
-// How long the Install button's request waits for the reconcile. Under the
-// client's own 15 s request timeout (client/src/lib/api.ts fetchTimeout), so
-// the operator gets this route's coded answer (504 STILL_RUNNING) rather
-// than a generic "request timed out".
+// How long the Install button's request waits for the reconcile. Well under
+// the client's 30 s timeout for this call (client/src/lib/api.ts
+// installModAuto), so the operator gets this route's coded answer (504
+// STILL_RUNNING, shown as "still being installed") rather than a generic
+// "request timed out".
 const MANUAL_INSTALL_WAIT_MS = 10_000;
 
 // Auto-install mod to server's Lua folder (optionally specify serverId)

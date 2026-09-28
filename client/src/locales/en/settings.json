@@ -824,6 +824,7 @@
     "manualInstallRequired": { "title": "Manual install required", "description": "Remote servers cannot be written from this computer. Copy PanelBridge.lua to the server's Lua folder using SFTP or the hosting provider's file manager." },
     "bridgeInstalled": { "title": "PanelBridge Installed", "description": "PanelBridge.lua was copied to {{server}}.", "fallbackServer": "the selected server" },
     "installFailed": { "title": "Installation Failed", "fallback": "The panel could not copy PanelBridge.lua. Verify the server path and permissions, then try again." },
+    "bridgeInstallStillRunning": { "title": "PanelBridge is still being installed" },
     "backupCreated": { "title": "Backup Created", "description": "Created {{name}} in {{seconds}}s" },
     "backupFailed": { "title": "Backup Failed", "fallback": "Failed to create backup" },
     "backupDeleted": { "title": "Backup Deleted", "description": "Deleted {{name}}" },

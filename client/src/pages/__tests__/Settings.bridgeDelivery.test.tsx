@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, fireEvent } from '@testing-library/react'
+import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Settings from '../Settings'
-import { configApi, panelUpdateApi, panelBridgeApi, serverApi, serversApi } from '@/lib/api'
+import { ApiError, configApi, panelUpdateApi, panelBridgeApi, serverApi, serversApi } from '@/lib/api'
 import enSettings from '../../locales/en/settings.json'
 import enDelivery from '../../locales/en/bridgeDelivery.json'
 import { makeLocalStatus, makeWorkshopStatus } from '@/components/bridge/__tests__/deliveryFixtures'
@@ -27,6 +27,11 @@ vi.mock('@/contexts/AuthContext', () => ({
   }),
 }))
 
+const toastMock = vi.fn()
+vi.mock('@/components/ui/use-toast', () => ({
+  useToast: () => ({ toast: toastMock, dismiss: vi.fn(), toasts: [] }),
+}))
+
 vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
   return {
@@ -34,7 +39,7 @@ vi.mock('@/lib/api', async () => {
     configApi: { ...actual.configApi, getAppSettings: vi.fn(), getCorsDiagnostics: vi.fn() },
     serverApi: { ...actual.serverApi, getNetworkInterfaces: vi.fn() },
     panelUpdateApi: { ...actual.panelUpdateApi, getStatus: vi.fn(), preflight: vi.fn() },
-    panelBridgeApi: { ...actual.panelBridgeApi, getStatus: vi.fn(), getDelivery: vi.fn() },
+    panelBridgeApi: { ...actual.panelBridgeApi, getStatus: vi.fn(), getDelivery: vi.fn(), installModAuto: vi.fn() },
     serversApi: { ...actual.serversApi, getAll: vi.fn() },
   }
 })
@@ -45,6 +50,7 @@ const getUpdateStatus = vi.mocked(panelUpdateApi.getStatus)
 const preflight = vi.mocked(panelUpdateApi.preflight)
 const getBridgeStatus = vi.mocked(panelBridgeApi.getStatus)
 const getDelivery = vi.mocked(panelBridgeApi.getDelivery)
+const installModAuto = vi.mocked(panelBridgeApi.installModAuto)
 const getAllServers = vi.mocked(serversApi.getAll)
 const getNetworkInterfaces = vi.mocked(serverApi.getNetworkInterfaces)
 
@@ -137,5 +143,44 @@ describe('Settings › PanelBridge: delivery block and setup flow', () => {
     expect(await screen.findByText(enSettings.bridge.autoUpdateLabel)).toBeInTheDocument()
     expect(screen.getByText(enSettings.bridge.autoUpdateDesc)).toBeInTheDocument()
     expect(enSettings.bridge.autoUpdateDesc).toContain('Not used with Steam Workshop delivery')
+  })
+
+  it('an Install the server is still finishing (504 STILL_RUNNING) is an info toast, not "Installation Failed"', async () => {
+    prime('local')
+    installModAuto.mockRejectedValue(
+      new ApiError('Installing PanelBridge is taking longer than usual and continues in the background.', {
+        status: 504,
+        code: 'PANELBRIDGE_INSTALL_STILL_RUNNING',
+      }),
+    )
+    renderSettings()
+    fireEvent.click(await screen.findByText(enSettings.bridge.sectionInstallUpdates))
+    const install = await screen.findByRole('button', { name: enSettings.bridge.installButton })
+    await waitFor(() => expect(install).toBeEnabled())
+    fireEvent.click(install)
+    await waitFor(() => expect(installModAuto).toHaveBeenCalledWith('srv-1'))
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({ title: enSettings.toasts.bridgeInstallStillRunning.title }),
+      ),
+    )
+    const call = toastMock.mock.calls.find(([arg]) => arg?.title === enSettings.toasts.bridgeInstallStillRunning.title)?.[0]
+    expect(call?.variant).toBeUndefined()
+    expect(toastMock).not.toHaveBeenCalledWith(expect.objectContaining({ title: enSettings.toasts.installFailed.title }))
+  })
+
+  it('a real install failure still reads "Installation Failed"', async () => {
+    prime('local')
+    installModAuto.mockRejectedValue(new ApiError('Disk full', { status: 500, code: 'PANELBRIDGE_INSTALL_FAILED' }))
+    renderSettings()
+    fireEvent.click(await screen.findByText(enSettings.bridge.sectionInstallUpdates))
+    const install = await screen.findByRole('button', { name: enSettings.bridge.installButton })
+    await waitFor(() => expect(install).toBeEnabled())
+    fireEvent.click(install)
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({ title: enSettings.toasts.installFailed.title, variant: 'destructive' }),
+      ),
+    )
   })
 })

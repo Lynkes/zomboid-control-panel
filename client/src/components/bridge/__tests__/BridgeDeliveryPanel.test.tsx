@@ -6,7 +6,7 @@ import { MemoryRouter } from 'react-router-dom'
 import i18n from '@/i18n'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ConfirmProvider } from '@/contexts/ConfirmContext'
-import { panelBridgeApi, serverApi, serverFilesApi } from '@/lib/api'
+import { ApiError, panelBridgeApi, serverApi, serverFilesApi } from '@/lib/api'
 import { DELIVERY_STATES, type DeliveryStatus } from '@/lib/bridgeDeliveryTypes'
 import en from '@/locales/en/bridgeDelivery.json'
 import enSettings from '@/locales/en/settings.json'
@@ -506,6 +506,24 @@ describe('BridgeDeliveryPanel: start, install, and loading the status', () => {
       ),
     )
     expect(toastMock).not.toHaveBeenCalledWith(expect.objectContaining({ title: en.toast.installed }))
+  })
+
+  it('an install the server is still finishing (504 STILL_RUNNING) is an info toast, not a failure', async () => {
+    installModAuto.mockRejectedValue(
+      new ApiError('Installing PanelBridge is taking longer than usual and continues in the background.', {
+        status: 504,
+        code: 'PANELBRIDGE_INSTALL_STILL_RUNNING',
+      }),
+    )
+    renderPanel(makeLocalStatus({ state: 'local-not-installed' }))
+    await panelReady()
+    fireEvent.click(screen.getByRole('button', { name: en.action.installNow }))
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: en.toast.installStillRunning })),
+    )
+    const call = toastMock.mock.calls.find(([arg]) => arg?.title === en.toast.installStillRunning)?.[0]
+    expect(call?.variant).toBeUndefined()
+    expect(toastMock).not.toHaveBeenCalledWith(expect.objectContaining({ title: en.toast.installFailed }))
   })
 
   it('shows the standing update note in Workshop mode, by auto-restart setting', async () => {

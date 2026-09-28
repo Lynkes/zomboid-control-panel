@@ -1003,6 +1003,9 @@
       "title": "安装失败",
       "fallback": "面板无法复制 PanelBridge.lua，请检查服务器路径和权限后重试。"
     },
+    "bridgeInstallStillRunning": {
+      "title": "PanelBridge 仍在安装中"
+    },
     "backupCreated": {
       "title": "备份已创建",
       "description": "已在 {{seconds}} 秒内创建 {{name}}"

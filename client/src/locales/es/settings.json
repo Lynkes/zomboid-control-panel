@@ -1005,6 +1005,9 @@
       "title": "Error de instalación",
       "fallback": "El panel no pudo copiar PanelBridge.lua. Verifica la ruta del servidor y los permisos, e inténtalo de nuevo."
     },
+    "bridgeInstallStillRunning": {
+      "title": "PanelBridge aún se está instalando"
+    },
     "backupCreated": {
       "title": "Copia de seguridad creada",
       "description": "Se creó {{name}} en {{seconds}} s"

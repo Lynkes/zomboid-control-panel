@@ -1003,6 +1003,9 @@
       "title": "Installation fehlgeschlagen",
       "fallback": "Das Panel konnte PanelBridge.lua nicht kopieren. Überprüfe den Serverpfad und die Berechtigungen und versuche es erneut."
     },
+    "bridgeInstallStillRunning": {
+      "title": "PanelBridge wird noch installiert"
+    },
     "backupCreated": {
       "title": "Backup erstellt",
       "description": "{{name}} wurde in {{seconds}} s erstellt."

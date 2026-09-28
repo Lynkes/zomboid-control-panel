@@ -235,6 +235,7 @@
     "lifecycleSkipped": "Chanjman an fèt, men sèvè aktif la chanje antretan, kidonk {{server}} pa t demare ni redemare.",
     "installed": "PanelBridge ajou nan dosye jwèt la",
     "installFailed": "Pa t ka kopye PanelBridge nan dosye jwèt la",
+    "installStillRunning": "PanelBridge toujou ap enstale",
     "checksumOn": "DoLuaChecksum=true sove",
     "checksumOff": "DoLuaChecksum=false sove. Redemare sèvè a pou l aplike.",
     "checksumFailed": "Pa t ka chanje DoLuaChecksum",

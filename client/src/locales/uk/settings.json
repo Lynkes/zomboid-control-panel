@@ -1013,6 +1013,9 @@
       "title": "Не вдалося встановити",
       "fallback": "Панель не змогла скопіювати PanelBridge.lua. Перевірте шлях до сервера та дозволи, потім спробуйте ще раз."
     },
+    "bridgeInstallStillRunning": {
+      "title": "PanelBridge ще встановлюється"
+    },
     "backupCreated": {
       "title": "Резервну копію створено",
       "description": "Створено {{name}} за {{seconds}} с"

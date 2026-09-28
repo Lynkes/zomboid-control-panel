@@ -235,6 +235,7 @@
     "lifecycleSkipped": "Changement effectué, mais le serveur actif a changé entre-temps : {{server}} n'a donc été ni démarré ni redémarré.",
     "installed": "PanelBridge est à jour dans le dossier du jeu",
     "installFailed": "Impossible de copier PanelBridge dans le dossier du jeu",
+    "installStillRunning": "PanelBridge est toujours en cours d'installation",
     "checksumOn": "DoLuaChecksum=true enregistré",
     "checksumOff": "DoLuaChecksum=false enregistré. Redémarrez le serveur pour l'appliquer.",
     "checksumFailed": "Impossible de modifier DoLuaChecksum",

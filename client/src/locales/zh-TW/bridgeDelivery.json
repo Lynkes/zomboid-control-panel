@@ -235,6 +235,7 @@
     "lifecycleSkipped": "已切換，但使用中的伺服器在此期間已變更，因此未啟動或重新啟動 {{server}}。",
     "installed": "遊戲資料夾中的 PanelBridge 已是最新",
     "installFailed": "無法將 PanelBridge 複製到遊戲資料夾",
+    "installStillRunning": "PanelBridge 仍在安裝中",
     "checksumOn": "已儲存 DoLuaChecksum=true",
     "checksumOff": "已儲存 DoLuaChecksum=false。重新啟動伺服器後生效。",
     "checksumFailed": "無法變更 DoLuaChecksum",

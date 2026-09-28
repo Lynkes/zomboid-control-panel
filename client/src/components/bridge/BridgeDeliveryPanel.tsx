@@ -23,7 +23,7 @@ import { DisabledReason } from '@/components/DisabledReason'
 import { useAuth } from '@/contexts/AuthContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { useBridgeDelivery } from '@/hooks/useBridgeDelivery'
-import { panelBridgeApi, serverApi, serverFilesApi } from '@/lib/api'
+import { ApiError, panelBridgeApi, serverApi, serverFilesApi } from '@/lib/api'
 import { getResultErrorMessage, getUserErrorMessage } from '@/lib/errorMessage'
 import { cn } from '@/lib/utils'
 import { BRIDGE_MOD_ID, type DeliveryMethod, type DeliveryStatus } from '@/lib/bridgeDeliveryTypes'
@@ -112,7 +112,14 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
       await fn()
       toast({ title: successTitle, variant: 'success' })
     } catch (err) {
-      toast({ title: failureTitle, description: getUserErrorMessage(err, failureTitle), variant: 'destructive' })
+      // /install-mod-auto's 504 isn't a failure: the server stopped waiting
+      // on the install (usually queued behind another reconcile of the same
+      // folder), which finishes in the background.
+      if (err instanceof ApiError && err.code === 'PANELBRIDGE_INSTALL_STILL_RUNNING') {
+        toast({ title: t('toast.installStillRunning'), description: getUserErrorMessage(err, t('toast.installStillRunning')) })
+      } else {
+        toast({ title: failureTitle, description: getUserErrorMessage(err, failureTitle), variant: 'destructive' })
+      }
     } finally {
       setPending(null)
       void refetch()

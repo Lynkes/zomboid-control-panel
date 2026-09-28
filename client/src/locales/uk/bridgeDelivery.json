@@ -235,6 +235,7 @@
     "lifecycleSkipped": "Перемкнуто, але тим часом змінився активний сервер, тож {{server}} не запущено й не перезапущено.",
     "installed": "PanelBridge у теці гри актуальний",
     "installFailed": "Не вдалося скопіювати PanelBridge до теки гри",
+    "installStillRunning": "PanelBridge ще встановлюється",
     "checksumOn": "DoLuaChecksum=true збережено",
     "checksumOff": "DoLuaChecksum=false збережено. Перезапустіть сервер, щоб застосувати.",
     "checksumFailed": "Не вдалося змінити DoLuaChecksum",

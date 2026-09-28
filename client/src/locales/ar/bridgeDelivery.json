@@ -235,6 +235,7 @@
     "lifecycleSkipped": "تم التبديل، لكن الخادم النشط تغيّر في الأثناء، لذا لم يُشغَّل {{server}} ولم يُعَد تشغيله.",
     "installed": "PanelBridge محدّث في مجلد اللعبة",
     "installFailed": "تعذّر نسخ PanelBridge إلى مجلد اللعبة",
+    "installStillRunning": "لا يزال PanelBridge قيد التثبيت",
     "checksumOn": "تم حفظ DoLuaChecksum=true",
     "checksumOff": "تم حفظ DoLuaChecksum=false. أعد تشغيل الخادم لتطبيقه.",
     "checksumFailed": "تعذّر تغيير DoLuaChecksum",

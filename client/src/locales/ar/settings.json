@@ -1021,6 +1021,9 @@
       "title": "فشل التثبيت",
       "fallback": "تعذّر على اللوحة نسخ PanelBridge.lua. تحقق من مسار الخادم ومن الصلاحيات، ثم حاول من جديد."
     },
+    "bridgeInstallStillRunning": {
+      "title": "لا يزال PanelBridge قيد التثبيت"
+    },
     "backupCreated": {
       "title": "تم إنشاء النسخة الاحتياطية",
       "description": "أُنشئت {{name}} خلال {{seconds}} ثانية"

@@ -824,6 +824,7 @@
     "manualInstallRequired": { "title": "Enstalasyon manyèl obligatwa", "description": "Pa ka ekri sou sèvè adistans soti nan òdinatè sa a. Kopye PanelBridge.lua nan dosye Lua sèvè a ak SFTP oswa jesyonè fichye founisè lame a." },
     "bridgeInstalled": { "title": "PanelBridge Enstale", "description": "PanelBridge.lua kopye nan {{server}}.", "fallbackServer": "sèvè ki chwazi a" },
     "installFailed": { "title": "Enstalasyon Echwe", "fallback": "Panèl la pa t kapab kopye PanelBridge.lua. Verifye chemen sèvè a ak otorizasyon, epi eseye ankò." },
+    "bridgeInstallStillRunning": { "title": "PanelBridge toujou ap enstale" },
     "backupCreated": { "title": "Kopi Sovgad Kreye", "description": "Kreye {{name}} nan {{seconds}}s" },
     "backupFailed": { "title": "Kopi Sovgad Echwe", "fallback": "Echwe pou kreye kopi sovgad" },
     "backupDeleted": { "title": "Kopi Sovgad Efase", "description": "Efase {{name}}" },

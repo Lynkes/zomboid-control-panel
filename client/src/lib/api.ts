@@ -2978,9 +2978,13 @@ export const panelBridgeApi = {
       suggestedInstallPath: string | null;
     }>,
 
-  // Auto-install mod to server's Lua folder (optionally specify serverId)
+  // Auto-install mod to server's Lua folder (optionally specify serverId).
+  // The server waits up to 10 s on the install (MANUAL_INSTALL_WAIT_MS in
+  // routes/panelBridge.js) and then answers 504 PANELBRIDGE_INSTALL_STILL_RUNNING;
+  // 30 s leaves room for the lookups around that wait on a slow disk, so
+  // the operator gets that coded answer rather than a client-side timeout.
   installModAuto: (serverId?: string | number) =>
-    apiPost("/panel-bridge/install-mod-auto", { serverId }) as Promise<{
+    apiPost("/panel-bridge/install-mod-auto", { serverId }, { timeout: 30000 }) as Promise<{
       success: boolean;
       message: string;
       path: string;
