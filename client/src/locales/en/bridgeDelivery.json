@@ -125,7 +125,8 @@
       "notLoaded": "Possible causes: the settings were changed outside the panel (restarting from the panel adds the entries back), the server was launched without Steam, or another mod ships media/lua/server/PanelBridge.lua.",
       "startFailed": "Possible causes: Steam is down or blocked, the server was launched without Steam, or the Workshop item was hidden or removed."
     },
-    "evidence": "From the server's console log:"
+    "evidence": "From the server's console log:",
+    "restartAfterLocalSwitch": "The switch to panel-installed takes effect when the server restarts. Until then, it keeps running the PanelBridge it loaded at start."
   },
   "banner": {
     "steamUnavailable": "Steam reports the PanelBridge Workshop item as unavailable. The server won't start until it's back or you switch to panel-installed.",

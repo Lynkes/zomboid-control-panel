@@ -125,7 +125,8 @@
       "notLoaded": "可能原因：設定在面板之外被修改（從面板重新啟動會重新加入這些項目）、伺服器未透過 Steam 啟動，或其他模組也包含 media/lua/server/PanelBridge.lua。",
       "startFailed": "可能原因：Steam 停擺或遭封鎖、伺服器未透過 Steam 啟動，或創意工坊專案已被隱藏或移除。"
     },
-    "evidence": "來自伺服器主控台日誌："
+    "evidence": "來自伺服器主控台日誌：",
+    "restartAfterLocalSwitch": "切換為由面板安裝將在伺服器重新啟動後生效。在此之前，它會繼續執行啟動時載入的 PanelBridge。"
   },
   "banner": {
     "steamUnavailable": "Steam 回報 PanelBridge 的創意工坊專案無法使用。在其恢復或你切換為由面板安裝之前，伺服器將無法啟動。",

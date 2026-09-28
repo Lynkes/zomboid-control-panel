@@ -125,7 +125,8 @@
       "notLoaded": "Causes possibles : les paramètres ont été modifiés hors du panneau (un redémarrage depuis le panneau rajoute les entrées), le serveur a été lancé sans Steam, ou un autre mod fournit media/lua/server/PanelBridge.lua.",
       "startFailed": "Causes possibles : Steam est en panne ou bloqué, le serveur a été lancé sans Steam, ou l'élément Workshop a été masqué ou supprimé."
     },
-    "evidence": "D'après le journal de la console du serveur :"
+    "evidence": "D'après le journal de la console du serveur :",
+    "restartAfterLocalSwitch": "Le passage à l'installation par le panneau prend effet au redémarrage du serveur. D'ici là, il continue d'exécuter le PanelBridge chargé au démarrage."
   },
   "banner": {
     "steamUnavailable": "Steam signale l'élément Workshop de PanelBridge comme indisponible. Le serveur ne démarrera pas tant qu'il ne sera pas revenu ou que vous ne serez pas repassé à l'installation par le panneau.",

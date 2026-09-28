@@ -386,6 +386,24 @@ describe('BridgeDeliveryPanel: failure states and their actions', () => {
     expect(await screen.findByRole('button', { name: en.dialog.applyStart })).toBeInTheDocument()
   })
 
+  it('after "Switch, restart later" back to panel-installed: the note and the restart that finishes the switch', async () => {
+    restart.mockResolvedValue({ success: true, message: 'ok' })
+    renderPanel(
+      makeLocalStatus({
+        switch: { to: 'local', at: '2026-10-02T10:00:00.000Z', by: 'admin', bridgeStartedAt: 1, workshopId: null },
+        restartedSinceSwitch: false,
+        live: { alive: true, version: '1.7.71', delivery: 'workshop', workshopId: WORKSHOP_ID, startedAt: 1, gameVersion: '42.20.0' },
+      }),
+      { playerCount: 0 },
+    )
+    await panelReady()
+    const callout = document.querySelector('[data-state="local-ok"]') as HTMLElement
+    expect(within(callout).getByTestId('bridge-delivery-restart-after-switch')).toHaveTextContent(en.state.restartAfterLocalSwitch)
+    fireEvent.click(within(callout).getByRole('button', { name: en.action.restartNow }))
+    fireEvent.click(await screen.findByRole('button', { name: en.confirmRestart.confirm }))
+    await waitFor(() => expect(restart).toHaveBeenCalledWith(0))
+  })
+
   it('warns when Steam reports the item unavailable', async () => {
     renderPanel(makeWorkshopStatus({ steamReportsUnavailable: true }))
     await panelReady()

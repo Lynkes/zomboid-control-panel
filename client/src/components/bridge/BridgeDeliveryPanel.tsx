@@ -40,6 +40,7 @@ import {
   getRestartWarning,
   getRunningVersionNote,
   getStateHintKey,
+  needsRestartAfterLocalSwitch,
   type RestartWarning,
   resolveStateActions,
   resolveStateCopy,
@@ -274,6 +275,11 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
             </p>
           )}
           {runningNote && <p className="text-xs text-muted-foreground">{t('state.local-ok.restartToLoad', runningNote)}</p>}
+          {needsRestartAfterLocalSwitch(s) && (
+            <p className="text-xs text-muted-foreground" data-testid="bridge-delivery-restart-after-switch">
+              {t('state.restartAfterLocalSwitch')}
+            </p>
+          )}
           {s.state === 'workshop-start-failed' && s.lastStartFailure && (
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">{t('state.evidence')}</p>

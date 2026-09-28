@@ -125,7 +125,8 @@
       "notLoaded": "Mögliche Ursachen: Die Einstellungen wurden außerhalb des Panels geändert (ein Neustart über das Panel fügt die Einträge wieder hinzu), der Server wurde ohne Steam gestartet, oder eine andere Mod liefert media/lua/server/PanelBridge.lua mit.",
       "startFailed": "Mögliche Ursachen: Steam ist ausgefallen oder blockiert, der Server wurde ohne Steam gestartet, oder das Workshop-Element wurde ausgeblendet oder entfernt."
     },
-    "evidence": "Aus dem Konsolenprotokoll des Servers:"
+    "evidence": "Aus dem Konsolenprotokoll des Servers:",
+    "restartAfterLocalSwitch": "Der Wechsel zu „Vom Panel installiert“ wirkt beim nächsten Neustart des Servers. Bis dahin läuft weiter das PanelBridge, das er beim Start geladen hat."
   },
   "banner": {
     "steamUnavailable": "Steam meldet das PanelBridge-Workshop-Element als nicht verfügbar. Der Server startet erst wieder, wenn es zurück ist oder du zu „Vom Panel installiert“ wechselst.",

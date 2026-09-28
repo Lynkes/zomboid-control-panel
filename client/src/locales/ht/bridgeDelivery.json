@@ -125,7 +125,8 @@
       "notLoaded": "Kòz posib: yo chanje paramèt yo andeyò panèl la (redemare depi panèl la remete antre yo), yo demare sèvè a san Steam, oswa yon lòt mod gen media/lua/server/PanelBridge.lua ladan l.",
       "startFailed": "Kòz posib: Steam an pàn oswa bloke, yo demare sèvè a san Steam, oswa yo kache oswa retire atik Workshop la."
     },
-    "evidence": "Dapre jounal konsòl sèvè a:"
+    "evidence": "Dapre jounal konsòl sèvè a:",
+    "restartAfterLocalSwitch": "Chanjman pou pase sou enstalasyon pa panèl la ap pran efè lè sèvè a redemare. Jiskaske sa rive, l ap kontinye fè PanelBridge li te chaje lè l te demare a mache."
   },
   "banner": {
     "steamUnavailable": "Steam di atik Workshop PanelBridge la pa disponib. Sèvè a p ap demare jiskaske li tounen oswa ou pase sou enstalasyon pa panèl la.",

@@ -154,9 +154,16 @@ export function switchActionFor(target: DeliveryMethod): DeliveryAction {
 //    server says that switch is available -- `sameMethod` there means the
 //    server has no cleanup to offer, and a button that can only fail would
 //    be worse than none.
+// A switch back to panel-installed that still needs its restart adds
+// "Restart now" to whatever the Local state offers (see
+// needsRestartAfterLocalSwitch).
 export function resolveStateActions(status: DeliveryStatus): DeliveryAction[] {
   const view = DELIVERY_STATE_VIEWS[status.state]
-  return view.actions.filter((action) => {
+  const actions: readonly DeliveryAction[] =
+    needsRestartAfterLocalSwitch(status) && !view.actions.includes('restartNow')
+      ? [...view.actions, 'restartNow']
+      : view.actions
+  return actions.filter((action) => {
     switch (action) {
       case 'restartNow':
         return status.serverRunning === true
@@ -234,6 +241,26 @@ export function getStateHintKey(status: DeliveryStatus): string | null {
     return 'state.local-workshop-loaded.manualHint'
   }
   return null
+}
+
+// A switch back to panel-installed the game hasn't restarted since ("Switch,
+// restart later", or a restart still to come): until it restarts, the
+// running game keeps the PanelBridge it loaded at start -- the Workshop copy
+// -- and the DoLuaChecksum value it read then. The server already answers
+// with the Local state (it judges the game folder, and doesn't read the
+// pre-switch heartbeat as the current run's), so the block adds a note and
+// the restart that finishes the switch. Not while a stopped server is known
+// (its next start loads the new copy anyway), and not on
+// local-workshop-loaded, where the settings file itself still asks for the
+// Workshop copy and a restart alone would change nothing.
+export function needsRestartAfterLocalSwitch(status: DeliveryStatus): boolean {
+  return (
+    status.method === 'local' &&
+    status.switch?.to === 'local' &&
+    status.restartedSinceSwitch === false &&
+    status.serverRunning !== false &&
+    status.state !== 'local-workshop-loaded'
+  )
 }
 
 // Automatic local-ok while the running server reports a different loose

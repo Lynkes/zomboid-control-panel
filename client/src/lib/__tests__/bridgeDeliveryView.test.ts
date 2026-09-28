@@ -25,6 +25,7 @@ import {
   isBridgeManagedMod,
   isDeliveryPlanResponse,
   isDeliveryStatus,
+  needsRestartAfterLocalSwitch,
   resolveLuaChecksumCallout,
   resolveStateActions,
   resolveStateCopy,
@@ -135,6 +136,32 @@ describe('resolveStateActions: lifecycle and option-card de-duplication only, no
     expect(resolveStateActions(makeWorkshopStatus({ state: 'workshop-start-failed', serverRunning: false }))).toEqual([
       'switchToLocalAndStart',
     ])
+  })
+
+  // "Switch, restart later" back to panel-installed: the server already
+  // answers with the Local state, and the running game keeps what it loaded
+  // until it restarts -- the restart that finishes the switch is offered.
+  it('a switch back to panel-installed the game has not restarted since adds Restart now', () => {
+    const pending = makeLocalStatus({
+      switch: { to: 'local', at: '2026-10-02T10:00:00.000Z', by: 'admin', bridgeStartedAt: 1, workshopId: null },
+      restartedSinceSwitch: false,
+      live: { alive: true, version: '1.7.71', delivery: 'workshop', workshopId: WORKSHOP_ID, startedAt: 1, gameVersion: '42.20.0' },
+    })
+    expect(needsRestartAfterLocalSwitch(pending)).toBe(true)
+    expect(resolveStateActions(pending)).toEqual(['restartNow'])
+    expect(exists('state.restartAfterLocalSwitch')).toBe(true)
+    // Unknown lifecycle (guided): the note, but no button.
+    expect(needsRestartAfterLocalSwitch({ ...pending, serverRunning: null })).toBe(true)
+    expect(resolveStateActions({ ...pending, serverRunning: null })).toEqual([])
+    // Stopped (the next start loads it), restarted already, a switch to the
+    // Workshop, or a settings file that still asks for the Workshop copy.
+    expect(needsRestartAfterLocalSwitch({ ...pending, serverRunning: false })).toBe(false)
+    expect(needsRestartAfterLocalSwitch({ ...pending, restartedSinceSwitch: true })).toBe(false)
+    expect(needsRestartAfterLocalSwitch({ ...pending, restartedSinceSwitch: null, switch: null })).toBe(false)
+    expect(needsRestartAfterLocalSwitch({ ...pending, state: 'local-workshop-loaded' })).toBe(false)
+    expect(needsRestartAfterLocalSwitch(makeWorkshopStatus({ state: 'workshop-restart-needed', restartedSinceSwitch: false }))).toBe(false)
+    // Added once, after the state's own actions.
+    expect(resolveStateActions({ ...pending, state: 'local-update-pending' })).toEqual(['updateNow', 'restartNow'])
   })
 
   it('local install states offer the existing install endpoint', () => {
