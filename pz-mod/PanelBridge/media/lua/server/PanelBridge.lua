@@ -9627,7 +9627,8 @@ function PanelBridge.detectDelivery()
         local v = PanelBridge.tryGet(info, "getModVersion")
         if v and tostring(v) ~= "" then d.modVersion = tostring(v) end
         -- Fallback when the running file's path is unavailable: an active mod with a Workshop
-        -- id came from the Workshop (getWorkshopID is nil for a mod in Zomboid/mods).
+        -- id came from the Workshop. 42.20 sets it from a numeric <id>/mods/<mod> folder and
+        -- leaves it "" for a mod in Zomboid/mods (nil is tolerated too).
         if not d.method and d.modActive then
             local w = tostring(PanelBridge.tryGet(info, "getWorkshopID") or "")
             if string.match(w, "^%d+$") then

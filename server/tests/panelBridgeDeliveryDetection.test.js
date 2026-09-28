@@ -121,8 +121,8 @@ describe("PanelBridge.detectDelivery: fallback without getFilenameOfClosure", ()
   });
 
   it.each([
-    ["an empty Workshop id", ""],
-    ["no Workshop id (nil, a Zomboid/mods copy)", null],
+    ["an empty Workshop id (42.20's value for a Zomboid/mods copy)", ""],
+    ["a nil Workshop id", null],
   ])("mod active with %s -> mod", (_label, workshopId) => {
     const { delivery } = detect({
       activatedMods: [MOD_ID],
