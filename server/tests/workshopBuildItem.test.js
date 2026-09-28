@@ -436,6 +436,22 @@ describe("build-item: workshop.txt", () => {
     expect(buildErrors({ repoRoot: repo.root, check: true }).join("\n")).toMatch(/tags must be exactly Build 42;Multiplayer;Framework/);
   });
 
+  // The panel's Mods page takes the mod id from the published description
+  // (mods.js extractWorkshopModId) when this item is added by Workshop id.
+  it("requires the description's Mod ID: line to name ZCPB", () => {
+    const real = readRepoText(REPO_ROOT, BRIDGE_FILES.workshopTxt);
+    expect(real).toMatch(/^description=Mod ID: ZCPB$/m);
+
+    const repo = makeRepo();
+    repo.write(BRIDGE_FILES.workshopTxt, real.replace("description=Mod ID: ZCPB", "description=Mod ID: ZomboidControlPanelBridge"));
+    expect(buildErrors({ repoRoot: repo.root, check: true }).join("\n"))
+      .toMatch(/description must say "Mod ID: ZCPB" \(found "ZomboidControlPanelBridge"\)/);
+
+    repo.write(BRIDGE_FILES.workshopTxt, real.replace("description=Mod ID: ZCPB\n", ""));
+    expect(buildErrors({ repoRoot: repo.root, check: true }).join("\n"))
+      .toMatch(/description must say "Mod ID: ZCPB" \(found none\)/);
+  });
+
   it("rejects a template that already carries id=", () => {
     const repo = makeRepo();
     repo.write(BRIDGE_FILES.workshopTxt, readRepoText(REPO_ROOT, BRIDGE_FILES.workshopTxt).replace("version=1\n", "version=1\nid=1\n"));

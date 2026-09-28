@@ -50,6 +50,9 @@ import {
 } from "./lib.mjs";
 
 export const DEFAULT_OUT_DIR = "dist-workshop";
+// Where the panel's Mods page reads the mod id from a Workshop description:
+// server/routes/mods.js extractWorkshopModId's first pattern.
+const DESCRIPTION_MOD_ID = /Mod\s*ID\s*[:=]\s*([^\n\r[\]<>]+)/i;
 const CONTENT_ROOT = `Contents/mods/${MOD_ID}`;
 export const ITEM_FILES = Object.freeze({
   workshopTxt: "workshop.txt",
@@ -210,6 +213,15 @@ export function planWorkshopItem(repoRoot = REPO_ROOT) {
     if (template.id !== null) errors.push("workshop.txt template must not carry id= (the build adds it from published.json)");
     if (!template.title) errors.push("workshop.txt has no title=");
     if (!template.descriptionLines.some((line) => line.trim())) errors.push("workshop.txt has no description=");
+    // An operator who adds this item on the Mods page by its Workshop id gets
+    // the mod id the description names, so it must be MOD_ID.
+    const describedModId = DESCRIPTION_MOD_ID.exec(template.descriptionLines.join("\n"))?.[1].trim();
+    if (describedModId !== MOD_ID) {
+      errors.push(
+        `workshop.txt description must say "Mod ID: ${MOD_ID}" (found ${describedModId === undefined ? "none" : JSON.stringify(describedModId)}); ` +
+          "the panel's Mods page reads the mod id from it",
+      );
+    }
     if (template.tags !== WORKSHOP_TAGS) {
       errors.push(`workshop.txt tags must be exactly ${WORKSHOP_TAGS} (found ${JSON.stringify(template.tags)})`);
     }

@@ -18,7 +18,7 @@ How the panel uses the item is described in
 | --- | --- |
 | `pz-mod/PanelBridge/` | The bridge source: `media/lua/server/PanelBridge.lua`, `media/lua/client/PanelBridgeClient.lua`, `mod.info`. The panel-installed copy and the Workshop item are built from these same files. |
 | `pz-mod/workshop/published.json` | The item's ID, visibility, last published version and date, and the live-test record (`liveVerified`). Every panel release embeds it; the panel never fetches the ID. |
-| `pz-mod/workshop/workshop.txt` | The Workshop page template (title, description, tags). No `id=` line: the build adds it. |
+| `pz-mod/workshop/workshop.txt` | The Workshop page template (title, description, tags). No `id=` line: the build adds it. The description's `Mod ID: ZCPB` line is where the panel's Mods page reads the mod ID of an item added by Workshop ID, so the build checks it. |
 | `pz-mod/workshop/{preview,poster,icon}.png`, `art/bridge.svg` | The item's images and their source. `npm run workshop:art` re-renders the PNGs. |
 | `pz-mod/bridge-version.lock.json` | The released bridge version and the hash of its normalized code. |
 | `scripts/workshop/build-item.mjs` (`npm run workshop:build`) | Builds the item into `dist-workshop/ZCPB/`, or into `--out <dir>`. `--check` runs every check and writes nothing. |

@@ -92,6 +92,19 @@ describe("PanelBridge mod id: one value everywhere it is written down", () => {
     expect(modInfo.split(/\r?\n/).map((line) => line.trim())).toContain(`id=${id}`);
   });
 
+  // The Mods page reads the mod id of an item added by Workshop id from its
+  // published description, with the same extractor used here.
+  it("the Workshop description names it where the Mods page reads it", async () => {
+    const { extractWorkshopModId } = await import("../routes/mods.js");
+    const workshopTxt = fs.readFileSync(path.join(repoRoot, "pz-mod", "workshop", "workshop.txt"), "utf8");
+    const description = workshopTxt
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("description="))
+      .map((line) => line.slice("description=".length))
+      .join("\n");
+    expect(extractWorkshopModId(description, "Zomboid Control Panel Bridge")).toBe(id);
+  });
+
   it("the Lua bridge detects its delivery by it", () => {
     const lua = fs.readFileSync(
       path.join(repoRoot, "pz-mod", "PanelBridge", "media", "lua", "server", "PanelBridge.lua"),
