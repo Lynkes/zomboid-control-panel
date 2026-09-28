@@ -15,7 +15,7 @@
     "ariaLabel": "Métrica do placar",
     "days": "Dias sobrevividos",
     "currentKills": "Abates atuais",
-    "allTimeKills": "Abates totais",
+    "allTimeKills": "Abates acumulados",
     "deaths": "Mortes",
     "weapon": "Domínio de armas"
   },
@@ -43,7 +43,7 @@
     "player": "Sobrevivente",
     "days": "Recorde de dias",
     "currentKills": "Abates atuais",
-    "allTimeKills": "Abates totais",
+    "allTimeKills": "Abates acumulados",
     "deaths": "Mortes",
     "weapon": "Arma favorita",
     "online": "Online",
@@ -57,7 +57,7 @@
   },
   "footer": {
     "refreshRate": "Recarrega a cada 30 segundos",
-    "historyNote": "A contagem total começa quando o PanelBridge passa a coletar dados."
+    "historyNote": "A contagem acumulada começa quando o PanelBridge passa a coletar dados."
   },
   "errors": {
     "title": "Placar indisponível",
