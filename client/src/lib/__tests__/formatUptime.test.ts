@@ -1,38 +1,37 @@
 import { describe, expect, it } from 'vitest'
-import { formatUptime } from '../utils'
+import { formatUptime, splitUptime } from '../utils'
 
-// Server uptime now shows on every Managed Servers card and on phones, in
-// all nine UI languages -- where hard-coded English d/h/m/s letters inside a
-// translated sentence read as "已运行 3d 4h 12m". With a locale, the unit
-// letters come from CLDR through Intl instead.
+// Server uptime shows on every Managed Servers card and on phones, in all
+// nine UI languages, so its units are worded per locale -- by translators,
+// in serverUptime.json (see ServerUptime.test.tsx), not by CLDR. This pins
+// the split both share, and that formatUptime() itself still prints exactly
+// what it always did for its other callers.
 
 const SECONDS = 26 * 3600 + 3 * 60 // 1 day, 2 hours, 3 minutes
 
+describe('splitUptime', () => {
+  it('lists the non-zero units from days down to seconds', () => {
+    expect(splitUptime(SECONDS)).toEqual([
+      { unit: 'day', count: 1 },
+      { unit: 'hour', count: 2 },
+      { unit: 'minute', count: 3 },
+    ])
+    expect(splitUptime(3600 + 5)).toEqual([
+      { unit: 'hour', count: 1 },
+      { unit: 'second', count: 5 },
+    ])
+  })
+
+  it('is 0 seconds for nothing, or for a negative duration', () => {
+    expect(splitUptime(0)).toEqual([{ unit: 'second', count: 0 }])
+    expect(splitUptime(-5)).toEqual([{ unit: 'second', count: 0 }])
+  })
+})
+
 describe('formatUptime', () => {
-  it('prints English unit letters without a locale, exactly as before', () => {
+  it('prints English unit letters, exactly as before', () => {
     expect(formatUptime(SECONDS)).toBe('1d 2h 3m')
     expect(formatUptime(5)).toBe('5s')
     expect(formatUptime(0)).toBe('0s')
-  })
-
-  it('keeps English output identical when the locale is English', () => {
-    expect(formatUptime(SECONDS, 'en')).toBe('1d 2h 3m')
-    expect(formatUptime(0, 'en')).toBe('0s')
-  })
-
-  it('uses the locale\'s own narrow units', () => {
-    expect(formatUptime(SECONDS, 'fr')).toBe('1j 2h 3min')
-    expect(formatUptime(SECONDS, 'zh-CN')).toBe('1天 2小时 3分钟')
-  })
-
-  it('keeps Latin digits in a locale whose default numbering system is not Latin', () => {
-    const arabic = formatUptime(SECONDS, 'ar')
-    expect(arabic).toMatch(/1.*2.*3/)
-    expect(arabic).not.toMatch(/[٠-٩]/)
-  })
-
-  it('falls back to English letters for a UI language the runtime does not know, or a bad tag', () => {
-    expect(formatUptime(SECONDS, 'ht')).toBe('1d 2h 3m')
-    expect(formatUptime(SECONDS, 'not a locale!')).toBe('1d 2h 3m')
   })
 })

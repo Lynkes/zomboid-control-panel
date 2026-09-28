@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import i18n from '@/i18n'
 import { ServerUptime } from '../ServerUptime'
 import en from '@/locales/en/serverUptime.json'
 import helpTipEn from '@/locales/en/helpTip.json'
@@ -56,13 +57,53 @@ describe('ServerUptime', () => {
     expect(screen.getByText(up('6s'))).toBeInTheDocument()
   })
 
-  it('names the exact start time on hover, as a machine-readable <time>', () => {
+  // Review: the exact start used to be a `title`, which neither touch nor
+  // keyboard can open -- on the phones this uptime is now shown on.
+  it('names the exact start time in a tooltip a tap opens, on a machine-readable <time>', () => {
     const startedAt = iso(NOW - 3600_000)
     renderUptime(<ServerUptime startedAt={startedAt} />)
 
-    const time = screen.getByText(up('1h')).closest('time')
+    const time = screen.getByText(up('1h')).closest('time')!
     expect(time).toHaveAttribute('dateTime', startedAt)
-    expect(time?.getAttribute('title')).toMatch(/^Started /)
+    expect(time).not.toHaveAttribute('title')
+    expect(screen.queryByText(/^Started /)).not.toBeInTheDocument()
+
+    fireEvent.click(time)
+
+    expect(screen.getAllByText(/^Started /).length).toBeGreaterThan(0)
+  })
+
+  it('opens the start time tooltip from the keyboard alone', () => {
+    renderUptime(<ServerUptime startedAt={iso(NOW - 3600_000)} />)
+    const time = screen.getByText(up('1h')).closest('time')!
+
+    act(() => { time.focus() })
+
+    expect(time).toHaveFocus()
+    expect(screen.getAllByText(/^Started /).length).toBeGreaterThan(0)
+  })
+
+  // Review: the API layer's skew correction leaves each response's own
+  // latency in the start time, so two polls report the same process a few
+  // hundred ms apart -- and at a display boundary the count stepped back.
+  it('does not step backwards when a later poll reports the same start a little later', () => {
+    const { rerender } = renderUptime(<ServerUptime startedAt={iso(NOW - 60_100)} />)
+    expect(screen.getByText(up('1m'))).toBeInTheDocument()
+
+    rerender(<TooltipProvider><ServerUptime startedAt={iso(NOW - 59_700)} /></TooltipProvider>)
+    expect(screen.getByText(up('1m'))).toBeInTheDocument()
+
+    // A real restart moves the start by far more than latency ever does.
+    rerender(<TooltipProvider><ServerUptime startedAt={iso(NOW - 5_000)} /></TooltipProvider>)
+    expect(screen.getByText(up('5s'))).toBeInTheDocument()
+  })
+
+  it('takes a slightly earlier report of the same start, which had less latency in it', () => {
+    const { rerender } = renderUptime(<ServerUptime startedAt={iso(NOW - 59_500)} />)
+    expect(screen.getByText(up('59s'))).toBeInTheDocument()
+
+    rerender(<TooltipProvider><ServerUptime startedAt={iso(NOW - 60_200)} /></TooltipProvider>)
+    expect(screen.getByText(up('1m'))).toBeInTheDocument()
   })
 
   it('renders nothing for an unknown start time by default -- never "up 0s"', () => {
@@ -88,6 +129,47 @@ describe('ServerUptime', () => {
   })
 })
 
+// Review: the units came from CLDR's narrow forms through Intl -- "2г 3х" in
+// Ukrainian and "1 T" in German, next to the same dashboard's own
+// translated "год"/"хв" and "Tg." -- and varied with the browser's ICU
+// build. They are the translators' now, like every other duration.
+describe('ServerUptime: units in the UI language', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ now: NOW })
+  })
+
+  afterEach(async () => {
+    vi.useRealTimers()
+    await i18n.changeLanguage('en')
+  })
+
+  const startedAt = iso(NOW - (26 * 3600 + 3 * 60) * 1000) // 1 day, 2 hours, 3 minutes
+
+  it.each([
+    ['uk', 'працює 1 дн 2 год 3 хв'],
+    ['de', 'läuft seit 1 Tg. 2 Std. 3 Min.'],
+    ['fr', 'actif depuis 1 j 2 h 3 min'],
+    ['zh-CN', '已运行 1 天 2 小时 3 分钟'],
+    ['ht', 'an fonksyone depi 1d 2h 3m'],
+  ])("uses the %s locale file's own unit wording", async (language, expected) => {
+    await act(async () => { await i18n.changeLanguage(language) })
+
+    renderUptime(<ServerUptime startedAt={startedAt} />)
+
+    expect(screen.getByText(expected)).toBeInTheDocument()
+  })
+
+  // Arabic has a dual plural category: a count of 2 must still find the
+  // unit, with Latin digits like every other number in the UI.
+  it('words every count in Arabic, including the dual', async () => {
+    await act(async () => { await i18n.changeLanguage('ar') })
+
+    renderUptime(<ServerUptime startedAt={iso(NOW - (2 * 86400 + 2 * 3600) * 1000)} />)
+
+    expect(screen.getByText('يعمل منذ 2 ي 2 س')).toBeInTheDocument()
+  })
+})
+
 describe('ServerUptime: unknown, and why', () => {
   const helpName = helpTipEn.ariaLabel.replace('{{label}}', en.unknown)
 
@@ -104,13 +186,13 @@ describe('ServerUptime: unknown, and why', () => {
     await waitFor(() => expect(screen.getAllByText(en.unknownHint).length).toBeGreaterThan(0))
   })
 
+  // Review: this used to fire a click after the Enter keyDown, so it passed
+  // whether or not the keyboard did anything. Focus alone opens it.
   it('is reachable from the keyboard too', async () => {
     renderUptime(<ServerUptime startedAt={null} showUnknown />)
     const help = screen.getByRole('button', { name: helpName })
 
-    help.focus()
-    fireEvent.keyDown(help, { key: 'Enter' })
-    fireEvent.click(help)
+    act(() => { help.focus() })
 
     expect(help).toHaveFocus()
     await waitFor(() => expect(screen.getAllByText(en.unknownHint).length).toBeGreaterThan(0))

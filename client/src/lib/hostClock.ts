@@ -12,7 +12,8 @@
  * WSL2 and VM clocks drift). Status payloads therefore carry `serverTime`,
  * the host's clock as it answered; shifting the start time by
  * (receivedAt - serverTime) takes the skew out, leaving only the request's
- * own one-way latency as error.
+ * own one-way latency as error -- which differs per response, so
+ * ServerUptime treats nearby reports as one start (SAME_START_JITTER_MS).
  *
  * Call it as the response arrives (the API layer does), so receivedAt is
  * the receipt moment. Without a usable serverTime (an older server, demo

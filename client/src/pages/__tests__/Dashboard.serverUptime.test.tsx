@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/toaster'
@@ -144,7 +144,7 @@ afterEach(() => {
 })
 
 describe('Dashboard header: server uptime', () => {
-  it('shows the uptime of a running server from the composed status start time, with the start time on hover', async () => {
+  it('shows the uptime of a running server from the composed status start time, with the start time a tap away', async () => {
     // 5h and a few seconds: whole minutes are shown, so this reads "5h"
     // for the better part of a minute -- no fake clock needed.
     const startedAt = new Date(Date.now() - (5 * 3600 + 5) * 1000).toISOString()
@@ -153,13 +153,14 @@ describe('Dashboard header: server uptime', () => {
     renderDashboard()
 
     const uptime = await screen.findByText(uptimeEn.up.replace('{{uptime}}', '5h'))
-    const time = uptime.closest('time')
+    const time = uptime.closest('time')!
     expect(time).toHaveAttribute('dateTime', startedAt)
-    expect(time?.getAttribute('title')).toMatch(/^Started /)
+    fireEvent.click(time)
+    expect(screen.getAllByText(/^Started /).length).toBeGreaterThan(0)
   })
 
   it('says "uptime unknown", with a help button for the reason, for a server that is up but whose start time the panel cannot establish', async () => {
-    // e.g. an OpenRC service after a panel restart: running, no start time.
+    // e.g. a process the OS didn't answer for: running, no start time.
     setUp({ hostStatus: 'running' })
 
     renderDashboard()

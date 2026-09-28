@@ -595,11 +595,13 @@ export class ServerManager {
     // Best-known start time of the running server process: the OS's own
     // answer for the tracked PID whenever it can give one (see
     // resolveStartTime()), otherwise the moment this panel itself launched
-    // it. _startTimePid records which PID the OS answer came from (null for
-    // a launch-time record), so an answer for one process is never reported
-    // for another. _startTimeGeneration is bumped whenever that record is
-    // dropped (_forgetStartTime()), so a lookup still in flight across a
-    // stop, a launch or a server switch can't write its old answer back.
+    // it. _startTimePid records which PID that start time belongs to -- the
+    // one the OS answered for, or, for a launch-time record, the first PID
+    // seen after the launch (null until then) -- so a start time for one
+    // process is never reported for another. _startTimeGeneration is bumped
+    // whenever that record is dropped (_forgetStartTime()), so a lookup
+    // still in flight across a stop, a launch or a server switch can't
+    // write its old answer back.
     this.startTime = null;
     this._startTimePid = null;
     this._startTimeGeneration = 0;
@@ -649,7 +651,7 @@ export class ServerManager {
     // null, so a newly selected server that was also running showed the
     // OLD server's uptime. Only a change of server clears it -- reloadConfig()
     // also runs after ordinary settings saves, where the running process
-    // (and a launch-time record that may be all an OpenRC server has) is
+    // (and a launch-time record the OS hasn't been able to replace) is
     // unchanged.
     if ((this._serverRecord?.id ?? null) !== previousServerId) {
       this._forgetStartTime();
@@ -910,10 +912,12 @@ export class ServerManager {
           scanFailed: Boolean(status.scanFailed),
           provider: this.lifecycleProvider,
           serviceName: lifecycle.serviceName,
-          // The service manager's own main PID (systemd only), for
-          // resolveStartTime() -- deliberately NOT folded into matched/owned,
-          // which the kill paths read: the unit's lifecycle, not a PID list,
-          // stays the way a managed server is stopped.
+          // The service manager's own record of the server's process
+          // (systemd's MainPID, OpenRC's supervised child -- see
+          // LinuxServiceLifecycle.status()), for resolveStartTime() --
+          // deliberately NOT folded into matched/owned, which the kill paths
+          // read: the unit's lifecycle, not a PID list, stays the way a
+          // managed server is stopped.
           ...(status.mainPid ? { mainPid: status.mainPid } : {}),
           ...(status.error ? { error: status.error } : {}),
         };
@@ -1567,24 +1571,27 @@ export class ServerManager {
 
   // The start time to report for THIS server's running process, or null
   // when it honestly can't be known. Prefers the OS's answer for the process
-  // the status check just found -- the systemd unit's MainPID for a managed
-  // lifecycle (which has no process-scan PID at all), otherwise the scanned
-  // or pidfile process -- so it is right no matter who started it: this
-  // panel, a previous panel process (a panel restart or self-update, which
-  // KillMode=process deliberately survives), the service manager at boot or
-  // after a Restart=on-failure, or the operator by hand.
+  // the status check just found -- a managed lifecycle's own record of it
+  // (systemd's MainPID, OpenRC's supervised child; such a server has no
+  // process-scan PID at all), otherwise the scanned or pidfile process -- so
+  // it is right no matter who started it: this panel, a previous panel
+  // process (a panel restart or self-update, which KillMode=process
+  // deliberately survives), the service manager at boot or after a
+  // Restart=on-failure or supervise-daemon respawn, or the operator by hand.
   //
   // When the OS can't answer, this.startTime is still reported only if it
-  // describes this same process: this panel's own launch-time record (no OS
-  // answer since that launch -- all an OpenRC service ever has), or an
-  // earlier answer for this very PID. An answer for a DIFFERENT PID -- or
-  // one left over while there is no PID at all, as in systemd's "activating
-  // (auto-restart)" window after a crash, when MainPID is 0 -- is the
-  // previous process's start time: it is dropped, and the uptime is unknown
-  // until the OS can speak for the new process. Remote SFTP and Docker
-  // servers have no local PID here and stay unknown on this path; the
-  // composed status route supplies a Docker container's own start time
-  // instead.
+  // belongs to this same PID: an earlier answer for it, or this panel's own
+  // launch-time record, which the first PID seen after the launch claims
+  // (the process the panel just started). Anything else is the previous
+  // process's start time and is dropped, leaving the uptime unknown until
+  // the OS can speak for the new process: a record for a DIFFERENT PID, and
+  // any record at all while the check found no PID to hold it against --
+  // systemd's "activating (auto-restart)" window after a crash (MainPID 0),
+  // or an OpenRC service whose child supervise-daemon didn't record, where
+  // an unverified launch record would outlive every respawn. Remote SFTP
+  // and Docker servers have no local PID here and stay unknown on this
+  // path; the composed status route supplies a Docker container's own start
+  // time instead.
   async resolveStartTime(processDetails) {
     if (!processDetails?.running) return null;
     const entry = processDetails.mainPid
@@ -1601,8 +1608,10 @@ export class ServerManager {
     if (startedMs !== null) {
       this.startTime = new Date(startedMs);
       this._startTimePid = pid;
-    } else if (this._startTimePid !== null && this._startTimePid !== pid) {
+    } else if (pid === null || (this._startTimePid !== null && this._startTimePid !== pid)) {
       this._forgetStartTime();
+    } else if (this.startTime && this._startTimePid === null) {
+      this._startTimePid = pid;
     }
     return this.startTime;
   }
@@ -1684,8 +1693,8 @@ export class ServerManager {
         this.serverProcess = null;
         this.isRunning = true;
         // Not `this.startTime || new Date()`: a record left from before an
-        // out-of-panel stop would carry the old run's start time over, and
-        // for OpenRC (no MainPID) that record is all the uptime there is.
+        // out-of-panel stop would carry the old run's start time over to
+        // this one wherever the OS can't be asked about the new process.
         this._recordLaunchTime();
         this._deletePidFile();
         await logServerEvent(
@@ -2388,7 +2397,8 @@ export class ServerManager {
 
   // This panel just launched the server: until the OS can be asked about
   // the new process (resolveStartTime(), on the next status check), the
-  // launch moment is the best-known start time.
+  // launch moment is the best-known start time -- for the first PID that
+  // check finds, and no other (see resolveStartTime()).
   _recordLaunchTime() {
     this._forgetStartTime();
     this.startTime = new Date();

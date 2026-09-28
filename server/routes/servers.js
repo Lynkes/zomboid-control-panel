@@ -628,7 +628,8 @@ router.get("/status", async (req, res) => {
     }
 
     // Each running row's start time for the process that row was attributed
-    // (a systemd unit's MainPID for a managed lifecycle) -- through the same
+    // (for a managed lifecycle, systemd's MainPID or OpenRC's supervised
+    // child -- see LinuxServiceLifecycle.status()) -- through the same
     // serverManager.startTimeOf() the active server's resolveStartTime()
     // uses, so a card and the dashboard can't disagree: on Windows it rides
     // on the scan row above, elsewhere it is two /proc reads. ISO string, or

@@ -163,6 +163,24 @@ describe("readProcessStartTime", () => {
         readProcessStartTime("4242", { platform: "linux", readFile, execFile: vi.fn(), now: () => NOW }),
       ).resolves.toBeNull();
     });
+
+    // Everything above runs against hand-built fixtures, so a wrong field
+    // index, USER_HZ or btime reading would pass them all. This is the
+    // ground truth on a real kernel -- the reporter's platform, and CI's:
+    // the start time /proc gives for this very test process must land where
+    // Node's own uptime puts it. Measured in WSL2 (kernel 5.15) within about
+    // 0.1s; the slack only absorbs a loaded CI runner.
+    it.runIf(process.platform === "linux")(
+      "agrees with Node's own uptime for this test process on a real /proc",
+      async () => {
+        const expected = Date.now() - process.uptime() * 1000;
+
+        const startMs = await readProcessStartTime(process.pid);
+
+        expect(startMs).not.toBeNull();
+        expect(Math.abs(startMs - expected)).toBeLessThan(5000);
+      },
+    );
   });
 
   describe("on macOS and other Unix", () => {

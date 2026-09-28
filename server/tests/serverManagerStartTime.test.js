@@ -46,12 +46,13 @@ function makeManager(details, options) {
   return manager;
 }
 
-// A systemd-managed manager whose unit status is whatever `unit()` says.
-function makeSystemdManager(unit) {
+// A systemd- (or OpenRC-) managed manager whose service status is whatever
+// `unit()` says.
+function makeSystemdManager(unit, provider = 'systemd') {
   const lifecycle = { serviceName: 'zomboid-panel-server-1', status: vi.fn(async () => unit()) };
   const manager = makeManager(null, { lifecycleFactory: () => lifecycle });
-  manager.lifecycleProvider = 'systemd';
-  manager._serverRecord = { id: 1, lifecycleProvider: 'systemd' };
+  manager.lifecycleProvider = provider;
+  manager._serverRecord = { id: 1, lifecycleProvider: provider };
   return manager;
 }
 
@@ -135,7 +136,12 @@ describe('ServerManager.getServerStatus start time', () => {
   });
 
   it('keeps the start time across a settings reload of the SAME server', async () => {
-    const manager = makeManager(() => ({ running: true, matched: [], scanFailed: false }));
+    readProcessStartTime.mockResolvedValue(null);
+    const manager = makeManager(() => ({
+      running: true,
+      matched: [{ pid: '4242', cmd: 'java zombie.network.GameServer' }],
+      scanFailed: false,
+    }));
     manager._serverRecord = { id: 1 };
     manager.startTime = new Date(NOW - HOUR); // this panel's launch record
     manager.loadConfig = async () => {
@@ -163,6 +169,39 @@ describe('ServerManager.getServerStatus start time', () => {
 
     expect(status.startTime).toEqual(new Date(NOW));
     expect(status.uptime).toBe(600);
+  });
+
+  // Review of the second cut: the launch record was never tied to a PID,
+  // so it was kept for whatever process ran next -- the one start time the
+  // "never carried over to a different PID" rule didn't cover.
+  it('ties the launch record to the process it launched, not to whatever runs next', async () => {
+    readProcessStartTime.mockResolvedValue(null);
+    let pid = '100';
+    const manager = makeManager(() => ({
+      running: true,
+      matched: [{ pid, cmd: 'java zombie.network.GameServer' }],
+      scanFailed: false,
+    }));
+    manager._recordLaunchTime();
+
+    expect((await manager.getServerStatus()).startTime).toEqual(new Date(NOW));
+    pid = '200'; // restarted outside the panel between two polls
+    const status = await manager.getServerStatus();
+
+    expect(status.startTime).toBeNull();
+    expect(status.uptime).toBeNull();
+  });
+
+  it('reports no launch record while the check finds no PID to hold it against', async () => {
+    const manager = makeManager(() => ({ running: true, matched: [{ cmd: 'java zombie.network.GameServer' }], scanFailed: false }));
+    manager._recordLaunchTime();
+
+    const status = await manager.getServerStatus();
+
+    expect(status.running).toBe(true);
+    expect(status.startTime).toBeNull();
+    expect(status.uptime).toBeNull();
+    expect(readProcessStartTime).not.toHaveBeenCalled();
   });
 
   // Review of the first cut: the fallback above returned whatever
@@ -195,6 +234,39 @@ describe('ServerManager.getServerStatus start time', () => {
     // The RestartSec= window: "activating (auto-restart)" counts as running,
     // with MainPID=0 -- which linuxServiceLifecycle reports as no mainPid.
     unit = { running: true, scanFailed: false, activeState: 'activating' };
+    const status = await manager.getServerStatus();
+
+    expect(status.running).toBe(true);
+    expect(status.startTime).toBeNull();
+    expect(status.uptime).toBeNull();
+  });
+
+  // Review: an OpenRC service had only this panel's launch record, which
+  // survived every supervise-daemon respawn (--respawn-max 0: unlimited) --
+  // "up 2d" for a server that crashed and came back minutes ago. Its
+  // supervised child PID now plays systemd's MainPID role.
+  it('follows an OpenRC supervise-daemon respawn to the new child instead of counting from the first launch', async () => {
+    readProcessStartTime.mockImplementation(async (asked) => (asked === '900' ? NOW - 48 * HOUR : NOW - 3 * 60_000));
+    let unit = { running: true, scanFailed: false, activeState: 'active', mainPid: '900' };
+    const manager = makeSystemdManager(() => unit, 'openrc');
+    manager._recordLaunchTime();
+
+    expect((await manager.getServerStatus()).uptime).toBe(48 * 3600);
+    unit = { ...unit, mainPid: '901' }; // crashed; supervise-daemon respawned it
+    const status = await manager.getServerStatus();
+
+    expect(readProcessStartTime).toHaveBeenLastCalledWith('901');
+    expect(status.uptime).toBe(3 * 60);
+  });
+
+  it('does not fall back to an unverifiable launch record for an OpenRC service whose child PID is unknown', async () => {
+    const manager = makeSystemdManager(
+      () => ({ running: true, scanFailed: false, activeState: 'active' }),
+      'openrc',
+    );
+    manager._recordLaunchTime();
+    vi.setSystemTime(NOW + 2 * 24 * HOUR);
+
     const status = await manager.getServerStatus();
 
     expect(status.running).toBe(true);
