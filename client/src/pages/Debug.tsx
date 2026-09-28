@@ -97,6 +97,7 @@ import { DisabledReason } from "@/components/DisabledReason";
 import { BridgeStatusBadge } from "@/components/BridgeStatusBadge";
 import { NumberInput } from "@/components/NumberInput";
 import { cn, copyText } from "@/lib/utils";
+import { formatElapsed } from "@/lib/durationText";
 import {
   apiFetch,
   ApiError,
@@ -2678,12 +2679,6 @@ export default function Debug() {
 
   const formatMemory = (bytes: number) => {
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  };
-
-  const formatUptime = (seconds: number) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    return `${hours}h ${minutes}m`;
   };
 
   const formatTimestamp = useCallback(
@@ -6034,7 +6029,7 @@ export default function Debug() {
                 <span>
                   {t("performanceTab.showingSnapshots", {
                     count: performanceHistory.length,
-                    duration: formatUptime(Math.round(performanceStats.spanMs / 1000)),
+                    duration: formatElapsed(performanceStats.spanMs / 1000),
                   })}
                 </span>
               ) : (
@@ -6649,7 +6644,7 @@ export default function Debug() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold">
-                {healthStatus ? formatUptime(healthStatus.uptime) : "-"}
+                {healthStatus ? formatElapsed(healthStatus.uptime) : "-"}
               </div>
               <p className="text-sm text-muted-foreground mt-1">
                 {healthStatus &&
@@ -6699,7 +6694,7 @@ export default function Debug() {
               </CardHeader>
               <CardContent>
                 <span className="text-2xl font-bold">
-                  {systemInfo ? formatUptime(systemInfo.uptime) : systemInfoFailed ? t("systemTab.unavailable") : "-"}
+                  {systemInfo ? formatElapsed(systemInfo.uptime) : systemInfoFailed ? t("systemTab.unavailable") : "-"}
                 </span>
               </CardContent>
             </Card>

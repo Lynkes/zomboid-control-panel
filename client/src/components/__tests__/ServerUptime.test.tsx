@@ -151,6 +151,9 @@ describe('ServerUptime: units in the UI language', () => {
     ['fr', 'actif depuis 1 j 2 h 3 min'],
     ['zh-CN', '已运行 1 天 2 小时 3 分钟'],
     ['ht', 'an fonksyone depi 1d 2h 3m'],
+    // GLOSSARY.pt-BR.md: every unit but seconds takes a space, and minutes
+    // are "min", never a bare "m" (metres).
+    ['pt-BR', 'ativo há 1 d 2 h 3 min'],
   ])("uses the %s locale file's own unit wording", async (language, expected) => {
     await act(async () => { await i18n.changeLanguage(language) })
 

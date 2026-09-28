@@ -28,11 +28,12 @@ export function cn(...inputs: ClassValue[]) {
 
 export type DurationUnit = 'day' | 'hour' | 'minute' | 'second'
 
-// A duration as formatUptime() prints it -- its non-zero units from days
-// down to seconds, or 0 seconds -- for a caller that words each unit itself:
-// ServerUptime takes them from its locale file, where translators own the
-// abbreviations ("3 Tg." in German, "3 дн" in Ukrainian), as they do for
-// every other duration in the UI.
+// A duration's non-zero units from days down to seconds, or 0 seconds, for
+// a caller that words each unit itself: formatElapsed() (lib/durationText.ts)
+// takes them from serverUptime.json, where translators own the
+// abbreviations ("3 Tg." in German, "3 дн" in Ukrainian). It words the
+// Dashboard and Servers uptime, Debug's panel and system uptimes, and the
+// ages in Settings > Bridge's diagnostics and Server Setup's resume banner.
 export function splitUptime(seconds: number): Array<{ unit: DurationUnit; count: number }> {
   if (!seconds || seconds < 0) return [{ unit: 'second', count: 0 }]
 
@@ -47,12 +48,6 @@ export function splitUptime(seconds: number): Array<{ unit: DurationUnit; count:
   if (minutes > 0) parts.push({ unit: 'minute', count: minutes })
   if (secs > 0 || parts.length === 0) parts.push({ unit: 'second', count: secs })
   return parts
-}
-
-const UNIT_LETTERS: Record<DurationUnit, string> = { day: 'd', hour: 'h', minute: 'm', second: 's' }
-
-export function formatUptime(seconds: number): string {
-  return splitUptime(seconds).map(({ unit, count }) => `${count}${UNIT_LETTERS[unit]}`).join(' ')
 }
 
 /**

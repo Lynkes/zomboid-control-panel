@@ -55,7 +55,8 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { reportClientError } from "@/lib/client-errors";
 import { getUserErrorMessage, rawErrorMessageIntentional } from "@/lib/errorMessage";
-import { cn, copyText, formatUptime } from "@/lib/utils";
+import { cn, copyText } from "@/lib/utils";
+import { formatElapsed } from "@/lib/durationText";
 import {
   Select,
   SelectContent,
@@ -1288,9 +1289,7 @@ export default function ServerSetup() {
               <p>
                 {t("resumeBanner.description", {
                   installPath: resumeMarker.installPath,
-                  elapsed: formatUptime(
-                    Math.max(0, Math.floor((Date.now() - resumeMarker.startedAt) / 1000)),
-                  ),
+                  elapsed: formatElapsed((Date.now() - resumeMarker.startedAt) / 1000),
                 })}
               </p>
               <div className="flex gap-2">
