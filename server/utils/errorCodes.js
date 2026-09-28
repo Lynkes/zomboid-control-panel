@@ -554,6 +554,14 @@ export const ErrorCode = Object.freeze({
 
   /** server/routes/server.js -- POST /api/server/start, active server is remote. */
   SERVER_START_REMOTE_REFUSED: "SERVER_START_REMOTE_REFUSED",
+  /** server/services/serverManager.js -- startServer() (thrown, forwarded by
+   * POST /api/server/start): a managed server's generated
+   * StartServer_<name>.bat / start-server_<name>.sh is still missing right
+   * before the spawn, and the panel refuses the stock launcher that would
+   * start the default "servertest" world instead (GH #167). Carries
+   * {{script}} (the missing file's name) and {{fallback}} (the stock
+   * launcher it won't run). */
+  SERVER_START_SCRIPT_MISSING: "SERVER_START_SCRIPT_MISSING",
   /** server/routes/server.js -- POST /api/server/force-stop, active server is
    * remote. Own wording/code, not reused across start/force-stop/restart --
    * same reasoning as SERVER_RUNNING_RCON_UNAVAILABLE above: which action was

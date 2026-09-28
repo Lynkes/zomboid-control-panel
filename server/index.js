@@ -54,7 +54,10 @@ import {
 import { RconService } from "./services/rcon.js";
 import { ServerManager } from "./services/serverManager.js";
 import { DockerClient } from "./services/dockerClient.js";
-import { setDockerClient } from "./services/managedContainer.js";
+import {
+  runManagedLifecycle,
+  setDockerClient,
+} from "./services/managedContainer.js";
 import { ModChecker } from "./services/modChecker.js";
 import { Scheduler } from "./services/scheduler.js";
 import { DiscordBot } from "./services/discordBot.js";
@@ -99,6 +102,7 @@ import { isLinuxPanelSupervisor } from "./utils/restartSupervisor.js";
 import {
   acquireLifecycleLock,
   setBeforeLaunchHook,
+  setLaunchTargetRefresher,
   setServerDisplayNameResolver,
 } from "./services/lifecycleCoordinator.js";
 
@@ -287,7 +291,10 @@ process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 // Routes
-import serverRoutes from "./routes/server.js";
+import serverRoutes, {
+  isFirstBootMissingAdminPassword,
+  refreshLaunchTargetForLaunch,
+} from "./routes/server.js";
 import discoveryRoutes from "./routes/discovery.js";
 import serversRoutes from "./routes/servers.js";
 import serverStatusRoutes from "./routes/serverStatus.js";
@@ -1005,6 +1012,11 @@ setServerDisplayNameResolver(peekServerDisplayName);
 // page's per-container Start/Restart (routes/docker.js) calls it too. Never
 // throws, bounded to 15 s.
 setBeforeLaunchHook((server) => reconcileBridge(server, { reason: "launch" }));
+// The other half of that same before-launch step, run just ahead of the hook
+// above: RCON credentials into the ini and the generated launch script
+// rewritten from the server's CURRENT settings (GH #167 -- the boot
+// auto-start used to skip it). See refreshLaunchTargetForLaunch().
+setLaunchTargetRefresher(refreshLaunchTargetForLaunch);
 const modChecker = new ModChecker();
 const logTailer = new LogTailer();
 const scheduler = new Scheduler(rconService, serverManager);
@@ -3227,6 +3239,54 @@ export async function probeRconFallbackIfConfigured(
   return rconPortOccupied;
 }
 
+// The boot auto-start's launch, made the same as the dashboard's Start (POST
+// /api/server/start) where the two used to differ (GH #167): a Docker-managed
+// server starts through Docker -- calling serverManager.startServer() for one
+// spawned a second, native server beside its container -- and a server that
+// has never booted without an admin password is refused with the same reason
+// instead of launched into a console prompt nobody can answer. The launch
+// target refresh itself happens inside both launch paths
+// (lifecycleCoordinator.prepareForLaunch()). Exported for testing, with the
+// two launchers injectable the same way as probeRconFallbackIfConfigured().
+export async function startServerForAutoStart(
+  activeServer,
+  {
+    serverManagerInstance = serverManager,
+    runManaged = runManagedLifecycle,
+  } = {},
+) {
+  const serverId = activeServer?.id ?? null;
+  const managed = await runManaged("start", { serverId });
+  if (managed.handled) {
+    return managed.success
+      ? managed
+      : { success: false, error: managed.error || "Container start failed" };
+  }
+  if (isFirstBootMissingAdminPassword(activeServer)) {
+    const name = activeServer.name || activeServer.serverName;
+    return {
+      success: false,
+      error:
+        `${name} has never started before and has no admin password set, so Project Zomboid would stop at a ` +
+        `console prompt for one that the panel can't answer. Set an admin password for this server (My Servers → ` +
+        `${name} → Admin Password), then press Start or restart the panel.`,
+    };
+  }
+  return serverManagerInstance.startServer({ serverId });
+}
+
+// A failed start's reason for the auto-start log line -- a thrown Error or a
+// { success: false, error } result, never an empty string.
+export function describeAutoStartFailure(failure) {
+  const detail =
+    typeof failure === "string"
+      ? failure
+      : failure instanceof Error
+        ? failure.message
+        : failure?.error || failure?.message;
+  return String(detail || "").trim() || "no reason was given";
+}
+
 // Every /api/* route (except /api/auth/*, /api/health, and the two <img>-tag
 // proxy allowlists) is unauthenticated while first-run setup is pending —
 // see authService.middleware(). That's necessary so the setup wizard can run
@@ -3677,9 +3737,7 @@ async function start() {
                 rconService.setServerStarting(true);
 
                 try {
-                  const startResult = await serverManager.startServer({
-                    serverId: activeServer?.id ?? null,
-                  });
+                  const startResult = await startServerForAutoStart(activeServer);
                   if (startResult.success) {
                     log.info("PZ server auto-started successfully");
 
@@ -3745,13 +3803,19 @@ async function start() {
                       }
                     }
                   } else {
+                    // One template string, not log.error(msg, detail): the
+                    // logger (winston, no splat format) drops a second string
+                    // argument, which is why GH #167's log read "Error
+                    // during auto-start:" with nothing after it.
                     log.error(
-                      "Failed to auto-start PZ server:",
-                      startResult.error,
+                      `Failed to auto-start PZ server: ${describeAutoStartFailure(startResult)}`,
                     );
                   }
                 } catch (e) {
-                  log.error("Error during auto-start:", e.message);
+                  // startServer()'s error already carries the exit code and
+                  // the tail of the game's own output (server-launch.log)
+                  // when the process died right after launching.
+                  log.error(`Error during auto-start: ${describeAutoStartFailure(e)}`);
                 } finally {
                   // Clear the flag so auto-reconnect can resume normally
                   rconService.setServerStarting(false);

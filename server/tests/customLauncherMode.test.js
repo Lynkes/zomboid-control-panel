@@ -114,9 +114,17 @@ describe("refreshLaunchTargetBeforeStart() in CUSTOM LAUNCHER mode", () => {
       "@echo off\r\nREM operator's own script\r\n",
     );
     // Nothing else got created in the directory (no orphaned
-    // StartServer_TestServer.bat, no broken nested-path artifact).
+    // StartServer_TestServer.bat, no broken nested-path artifact). The one
+    // expected addition is ZomboidData/: RCON is still pre-configured for a
+    // custom launcher, and since GH #167 that writes the ini of the server
+    // passed in, not of whichever server is active.
     const entries = fs.readdirSync(root);
-    expect(entries).toEqual(["MyCustomLauncher.bat"]);
+    expect(entries.filter((entry) => entry !== "ZomboidData")).toEqual([
+      "MyCustomLauncher.bat",
+    ]);
+    expect(
+      fs.readFileSync(path.join(root, "ZomboidData", "Server", "TestServer.ini"), "utf8"),
+    ).toContain("RCONPassword=secret123");
 
     // The real distinguishing signal: regenerateStartupScriptsWithBackup()
     // catches every filesystem error it can hit and returns [] either way,

@@ -135,6 +135,7 @@
   "USER_SELF_ROLE_CHANGE_REFUSED": "無法更改自己的角色，請讓另一位管理員代為操作。",
   "ROLE_GRANT_EXCEEDS_CALLER_CAPABILITIES": "無法指派授予 {{detail}} 的角色，因為你自己沒有該權限。",
   "SERVER_START_REMOTE_REFUSED": "無法啟動遠端伺服器。遠端伺服器由外部管理——請使用 RCON 進行互動。",
+  "SERVER_START_SCRIPT_MISSING": "此伺服器的安裝資料夾中缺少啟動指令碼 {{script}}。面板會在每次啟動前根據伺服器設定寫入它，但這次未能寫入——請檢查安裝資料夾是否存在、面板能否寫入該資料夾（面板日誌中有具體原因），然後再次啟動。面板不會改用 {{fallback}}：它會啟動 Project Zomboid 預設的「servertest」世界而不是此伺服器，並停在要求設定新管理員密碼的提示處。",
   "SERVER_FORCE_STOP_REMOTE_REFUSED": "無法強制停止遠端伺服器。該程序不受此面板管理。",
   "SERVER_RESTART_REMOTE_REFUSED": "無法重新啟動遠端伺服器。該程序不受此面板管理。",
   "SERVER_STOP_RCON_NOT_CONNECTED": "RCON 未連線，無法正常停止伺服器。",

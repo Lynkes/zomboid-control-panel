@@ -21,7 +21,8 @@ import {
   isManagedLifecycleProvider,
 } from "./linuxServiceLifecycle.js";
 import { hasActiveSteamOperation } from "./activeSteamOperations.js";
-import { runBeforeLaunchHook } from "./lifecycleCoordinator.js";
+import { prepareForLaunch } from "./lifecycleCoordinator.js";
+import { ErrorCode } from "../utils/errorCodes.js";
 import { listNonInternalIPv4Interfaces } from "../utils/networkInterfaces.js";
 import {
   isPlausibleStartMs,
@@ -278,6 +279,51 @@ function validateStartCommand(cmd) {
 // Get the default startup script name for the current platform
 function getDefaultStartupScript() {
   return isWindows ? "StartServer64.bat" : "start-server.sh";
+}
+
+// The launch script the panel generates for a MANAGED server (see
+// resolveLaunchMode() below): routes/server.js's
+// refreshLaunchTargetBeforeStart() writes both files into the install
+// folder before every start, with -servername/-cachedir/-adminpassword
+// baked in. `windows` is a parameter only so tests can ask for the other
+// platform's name.
+export function managedStartupScriptName(serverName, windows = isWindows) {
+  return windows
+    ? `StartServer_${serverName}.bat`
+    : `start-server_${serverName}.sh`;
+}
+
+// GH #167: a managed server with a name launches its own generated script or
+// nothing. The stock StartServer64.bat / start-server.sh passes no
+// -servername or -cachedir, so Project Zomboid opens the default "servertest"
+// world in ~/Zomboid -- not this server's world, ini or accounts -- and, with
+// no admin account there, stops at a console prompt for a new admin password
+// that a panel-launched process can never answer (it dies with
+// java.util.NoSuchElementException). The panel used to fall back to that
+// script whenever the named one was absent at the moment it first loaded its
+// config -- on a fresh install, before the first start had written it -- and
+// then kept launching it until the panel restarted. Asked at launch time
+// instead, and a missing script is a refusal that says why.
+//
+// The folder stays out of `params`: a response redacts every path to
+// "[path]" (sanitizeErrorParams), and the operator already knows which
+// install folder the server uses. It stays in the message, which is what the
+// panel log and the boot auto-start print.
+export function namedStartupScriptMissingError({ script, folder, fallback }) {
+  const error = new Error(
+    `Startup script ${script} is missing from ${folder}. The panel writes it from this server's settings before every start but couldn't this time -- check that this folder exists and that the panel can write to it (the panel log has the exact error), then start again. The panel won't fall back to ${fallback}: that starts Project Zomboid's default "servertest" world instead of this server and stops at a prompt for a new admin password.`,
+  );
+  error.code = ErrorCode.SERVER_START_SCRIPT_MISSING;
+  error.params = { script, fallback };
+  return error;
+}
+
+// Carries prepareForLaunch()'s "your hand-edited script was backed up"
+// notices on a successful start's result, the field POST /api/server/start
+// has always answered with. A copy, so a lifecycle provider's own result
+// object is never mutated.
+function withScriptWarnings(result, scriptWarnings) {
+  return scriptWarnings?.length > 0 ? { ...result, scriptWarnings } : result;
 }
 
 function windowsPowerShellPath() {
@@ -699,29 +745,28 @@ export class ServerManager {
 
         if (activeServer.serverName) {
           this.serverName = activeServer.serverName;
-          // Only look for custom batch file if we didn't already get one from installPath
-          if (!this.serverBat || this.serverBat === getDefaultStartupScript()) {
-            if (isWindows) {
-              const customBat = `StartServer_${activeServer.serverName}.bat`;
-              const customBatPath = path.join(this.serverPath, customBat);
-              if (fs.existsSync(customBatPath)) {
-                this.serverBat = customBat;
-              } else if (activeServer.useNoSteam) {
-                this.serverBat = "StartServer64_nosteam.bat";
-              } else {
-                this.serverBat = "StartServer64.bat";
-              }
-            } else {
-              const customSh = `start-server_${activeServer.serverName}.sh`;
-              const customShPath = path.join(this.serverPath, customSh);
-              if (fs.existsSync(customShPath)) {
-                this.serverBat = customSh;
-              } else if (activeServer.useNoSteam) {
-                this.serverBat = "start-server.sh";
-              } else {
-                this.serverBat = "start-server.sh";
-              }
-            }
+        }
+        // GH #167: a MANAGED server with a name always launches its own
+        // generated script, whether or not it exists yet -- the start that
+        // follows writes it (prepareForLaunch()) and checks for it right
+        // before spawning (startServer()), so a script that appears after
+        // this config load is still the one launched. This used to be
+        // decided here with fs.existsSync(), fell back to the stock
+        // StartServer64.bat / start-server.sh when the file wasn't there
+        // yet, and stuck: loadConfig() returns early once loaded, and
+        // nothing re-asked after the first start wrote the named script.
+        // Assigned outright (not only when serverBat still held the default)
+        // so a manager reloaded for another server never keeps the previous
+        // server's script. A custom launcher keeps its own file, and an
+        // explicit PZ_SERVER_BAT still wins, as before.
+        if (launchMode.mode !== "custom") {
+          const envBat = process.env.PZ_SERVER_BAT;
+          if (envBat && envBat !== getDefaultStartupScript()) {
+            this.serverBat = envBat;
+          } else if (activeServer.serverName) {
+            this.serverBat = managedStartupScriptName(activeServer.serverName);
+          } else {
+            this.serverBat = envBat || getDefaultStartupScript();
           }
         }
         if (activeServer.zomboidDataPath) {
@@ -1688,11 +1733,18 @@ export class ServerManager {
         }
       }
 
-      // PanelBridge delivery (lifecycleCoordinator.setBeforeLaunchHook):
-      // after the SteamCMD guard, so it never writes into a folder SteamCMD
-      // is still patching, and before both launch branches below. Every
-      // start path funnels through here (see the guard's comment above).
-      await runBeforeLaunchHook(this._serverRecord);
+      // The before-launch step (lifecycleCoordinator.prepareForLaunch()):
+      // RCON credentials in the ini and the generated launch script are
+      // rewritten from this server's current settings, then PanelBridge
+      // delivery runs. After the SteamCMD guard, so neither writes into a
+      // folder SteamCMD is still patching, and before both launch branches
+      // below -- a systemd/OpenRC unit runs the same generated script. Every
+      // start path funnels through here (see the guard's comment above),
+      // which is why this lives here and not at each caller: GH #167's boot
+      // auto-start skipped the refresh the dashboard's Start did, launched
+      // the stock script on a fresh install, and kept old RCON/admin
+      // passwords after an edit until a manual restart.
+      const { scriptWarnings } = await prepareForLaunch(this._serverRecord);
 
       if (this.usesManagedServiceLifecycle()) {
         const result = await this._getManagedLifecycle().run("start");
@@ -1708,7 +1760,7 @@ export class ServerManager {
           "server_start",
           `Server started through ${this.lifecycleProvider}`,
         ).catch((error) => log.warn(`Failed to log event: ${error.message}`));
-        return result;
+        return withScriptWarnings(result, scriptWarnings);
       }
 
       if (!this.startCommand && !this.serverPath) {
@@ -1964,12 +2016,33 @@ export class ServerManager {
         log.info("Server start command executed");
         this._writePidFile(this.serverProcess.pid);
 
-        return { success: true, message: "Server start command executed" };
+        return withScriptWarnings(
+          { success: true, message: "Server start command executed" },
+          scriptWarnings,
+        );
       }
 
+      // Checked here, right before the spawn -- after prepareForLaunch()
+      // above has had its chance to write the script -- never at config
+      // load (GH #167, see namedStartupScriptMissingError()).
+      // Only for a server record: the legacy settings-only config has no
+      // record for prepareForLaunch() to write a script from, so "the panel
+      // writes it before every start" would not be true of it.
       const batPath = path.join(this.serverPath, this.serverBat);
+      const launchesNamedScript =
+        Boolean(this._serverRecord) &&
+        this.launchMode !== "custom" &&
+        Boolean(this.serverName) &&
+        this.serverBat === managedStartupScriptName(this.serverName);
 
       if (!fs.existsSync(batPath)) {
+        if (launchesNamedScript) {
+          throw namedStartupScriptMissingError({
+            script: this.serverBat,
+            folder: this.serverPath,
+            fallback: getDefaultStartupScript(),
+          });
+        }
         throw new Error(`Server startup script not found: ${batPath}`);
       }
 
@@ -2082,7 +2155,10 @@ export class ServerManager {
       log.info("Server start command executed");
       this._writePidFile(this.serverProcess.pid);
 
-      return { success: true, message: "Server start command executed" };
+      return withScriptWarnings(
+        { success: true, message: "Server start command executed" },
+        scriptWarnings,
+      );
     } finally {
       this._starting = false;
     }

@@ -14,9 +14,14 @@ import {
   setSetting,
   getSetting,
   getActiveServer,
+  getServer,
   getServers,
 } from "../database/init.js";
-import { sanitizeError, sanitizeIniValue } from "../utils/sanitize.js";
+import {
+  sanitizeError,
+  sanitizeErrorParams,
+  sanitizeIniValue,
+} from "../utils/sanitize.js";
 import {
   hasIniKeyValue,
   setIniKeyLine,
@@ -790,7 +795,12 @@ export { candidateIniPaths };
 // Called BEFORE server starts to ensure PZ reads the correct RCON credentials on boot.
 // If the INI file doesn't exist yet (first run), creates the directory + a minimal INI
 // so PZ will merge its defaults with our RCON settings instead of generating a blank password.
-export async function ensureRconConfigured() {
+// `server` is the server about to launch (refreshLaunchTargetBeforeStart()
+// passes it); without one it falls back to the active server, as the
+// startup-wait retry below does. A scheduled restart of a server that isn't
+// the active one used to write the ACTIVE server's password into the
+// active server's ini and leave its own untouched.
+export async function ensureRconConfigured(server = null) {
   // Declared ahead of the try block, not inside it, so the outer catch
   // below can still reach them to build EACCES guidance -- which of the two
   // configured paths serverConfigPath actually derives from decides only
@@ -800,7 +810,7 @@ export async function ensureRconConfigured() {
   let serverConfigPathKind = "install";
   let serverConfigPath = null;
   try {
-    const activeServer = await getActiveServer();
+    const activeServer = server || (await getActiveServer());
     if (!activeServer) {
       log.debug("ensureRconConfigured: No active server");
       return false;
@@ -1605,10 +1615,17 @@ router.get("/network-interfaces", async (req, res) => {
 // Refresh everything PZ needs to launch correctly against this server's
 // CURRENT settings: RCON credentials in the ini, and the generated launch
 // script (which bakes -cachedir/-servername/memory/admin-password as
-// literal text at generation time -- see generateStartupScripts()). Shared
-// by the manual /start route below AND scheduler.js's performRestart(), so
-// a scheduled restart launches the server exactly the way a manual start
-// does instead of silently diverging on this. Before this existed, a
+// literal text at generation time -- see generateStartupScripts()).
+//
+// GH #167: called from ONE place now, lifecycleCoordinator.prepareForLaunch()
+// (wired in server/index.js), which serverManager.startServer() and the two
+// Docker-managed launch paths run right before launching -- so the boot
+// auto-start, Discord, mod-update and post-update starts refresh exactly the
+// way the dashboard's Start does. It used to be called by the /start route
+// and scheduler.js's performRestart() only: the auto-start launched the stock
+// start-server.sh on a fresh install and kept old RCON/admin passwords after
+// an edit, and a Docker-managed server got its RCON password only after the
+// container had already booted. Before this existed at all, a
 // Settings-UI edit to zomboidDataPath/serverName updated the database
 // immediately but left the already-written launch script untouched until
 // the next MANUAL start regenerated it -- the next SCHEDULED restart in
@@ -1625,15 +1642,15 @@ router.get("/network-interfaces", async (req, res) => {
 // Operator ruling 2026-08-27 (custom-launcher-as-a-real-supported-mode-not-
 // an-accident): a stored serverPath/installPath ending in .bat/.sh/.exe is
 // CUSTOM LAUNCHER mode, not an error -- resolveLaunchMode() (serverManager.js)
-// is the one predicate both this function AND scheduler.js's performRestart()
-// (via this same function) ask, so the two agree on what "managed" means
+// is the one predicate both this function AND serverManager.loadConfig() (to
+// pick the script it launches) ask, so the two agree on what "managed" means
 // without either growing its own notion of it.
 export async function refreshLaunchTargetBeforeStart(
   activeServer,
   { managedHandled = false } = {},
 ) {
   try {
-    const rconReady = await ensureRconConfigured();
+    const rconReady = await ensureRconConfigured(activeServer);
     if (rconReady) {
       log.info("RCON pre-configured in INI before server start");
     } else {
@@ -1667,7 +1684,10 @@ export async function refreshLaunchTargetBeforeStart(
     !managedHandled &&
     activeServer &&
     !activeServer.startCommand &&
-    activeServer.installPath
+    activeServer.installPath &&
+    // No name, no named script to write (it would be
+    // StartServer_undefined.bat); such a server launches the stock one.
+    activeServer.serverName
   ) {
     try {
       const scripts = generateStartupScripts({
@@ -1707,6 +1727,28 @@ export async function refreshLaunchTargetBeforeStart(
     }
   }
   return { scriptBackupWarnings };
+}
+
+// What lifecycleCoordinator.prepareForLaunch() runs (wired in server/index.js
+// with setLaunchTargetRefresher()). `server` is whatever record the launching
+// code holds -- for the shared ServerManager, the one it loaded at boot or on
+// the last server switch, which an edit of the RCON or admin password alone
+// doesn't reload (GH #167's follow-up: a restart of the panel's container
+// brought the game back with the OLD passwords). So the record is read
+// again by id and the refresh uses that; the passed one is only a fallback
+// for a record with no id or a failed read. A remote server is never
+// launched by the panel, so there is nothing to refresh for one.
+export async function refreshLaunchTargetForLaunch(server, options = {}) {
+  let current = server;
+  if (server?.id !== null && server?.id !== undefined) {
+    try {
+      current = (await getServer(server.id)) || server;
+    } catch {
+      current = server;
+    }
+  }
+  if (!current || current.isRemote) return null;
+  return refreshLaunchTargetBeforeStart(current, options);
 }
 
 // Once the process/container is confirmed running, wait for RCON to come up
@@ -1853,11 +1895,12 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
     const serverManager = req.app.get("serverManager");
     const rconService = req.app.get("rconService");
 
-    // PanelBridge is kept current (or, with Steam Workshop delivery, moved
-    // out of the game folder) by the before-launch hook inside both spawn
-    // paths below -- runManagedLifecycle() and serverManager.startServer()
-    // -- so scheduled, Discord and mod-update restarts get it too, not just
-    // this route (lifecycleCoordinator.setBeforeLaunchHook).
+    // The launch target (RCON credentials in the ini, the generated launch
+    // script) and PanelBridge are brought up to date by the before-launch
+    // step inside both launch paths below -- runManagedLifecycle() and
+    // serverManager.startServer() -- so the boot auto-start and scheduled,
+    // Discord and mod-update restarts get exactly what this route gets
+    // (lifecycleCoordinator.prepareForLaunch()).
 
     // A container-managed server is started through Docker: the panel has no
     // process to spawn, and after a `docker stop` there is nothing left running
@@ -1896,23 +1939,13 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
       });
     }
 
-    // Pre-configure RCON in the INI and regenerate the launch script against
-    // this server's CURRENT settings BEFORE starting the process -- see
-    // refreshLaunchTargetBeforeStart()'s own comment. Skipped for a managed
-    // container: its image owns the launch command.
-    const { scriptBackupWarnings } = await refreshLaunchTargetBeforeStart(
-      activeServer,
-      { managedHandled: managed.handled },
-    );
-
+    // startServer() refreshes the launch target itself and carries any
+    // script backup notices back as result.scriptWarnings.
     const result = managed.handled
       ? { success: true, message: managed.message || "Container starting" }
       : await serverManager.startServer({
           serverId: activeServer?.id ?? null,
         });
-    if (scriptBackupWarnings.length > 0) {
-      result.scriptWarnings = scriptBackupWarnings;
-    }
 
     // Emit status update via Socket.IO
     const io = req.app.get("io");
@@ -2079,7 +2112,15 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
     res.json(result);
   } catch (error) {
     log.error(`Failed to start server: ${error.message}`);
-    res.status(500).json({ error: sanitizeError(error.message) });
+    const body = { error: sanitizeError(error.message) };
+    // startServer()'s one coded refusal (GH #167) -- a registered code, so
+    // the dashboard shows it in the operator's language. Any other error
+    // (e.g. a raw fs "ENOENT") keeps the plain-message shape.
+    if (error.code === ErrorCode.SERVER_START_SCRIPT_MISSING) {
+      body.code = error.code;
+      if (error.params) body.params = sanitizeErrorParams(error.params);
+    }
+    res.status(500).json(body);
   } finally {
     if (!lifecycleLockTransferred) releaseLifecycleLock();
   }
@@ -3682,7 +3723,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
               log.warn(`Failed to create startup scripts: ${batchError.message}`);
               warnings.push({
                 progressCode: ProgressCode.INSTALL_STARTUP_SCRIPT_FAILED,
-                message: `Could not generate this server's custom startup script (${sanitizeError(batchError.message)}). The server can still be started -- it will use the default script until this regenerates, which also happens automatically on the next start.`,
+                message: `Could not generate this server's custom startup script (${sanitizeError(batchError.message)}). The panel tries again every time you start the server; if it still can't write the script then, the start stops and says why instead of running the default script.`,
                 params: { reason: sanitizeError(batchError.message) },
               });
             }

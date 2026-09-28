@@ -135,6 +135,7 @@
   "USER_SELF_ROLE_CHANGE_REFUSED": "Vous ne pouvez pas modifier votre propre rôle. Demandez à un autre administrateur de le faire.",
   "ROLE_GRANT_EXCEEDS_CALLER_CAPABILITIES": "Impossible d'attribuer un rôle accordant {{detail}} sans détenir vous-même cette capacité.",
   "SERVER_START_REMOTE_REFUSED": "Impossible de démarrer un serveur distant. Les serveurs distants sont gérés en externe — utilisez RCON pour interagir.",
+  "SERVER_START_SCRIPT_MISSING": "Le script de démarrage {{script}} est introuvable dans le dossier d'installation de ce serveur. Le panneau l'écrit à partir des paramètres du serveur avant chaque démarrage, mais n'a pas pu le faire cette fois-ci — vérifiez que le dossier d'installation existe et que le panneau peut y écrire (le journal du panneau indique la raison exacte), puis relancez le démarrage. Le panneau ne se rabat pas sur {{fallback}} : ce script démarre le monde par défaut « servertest » de Project Zomboid au lieu de ce serveur, et s'arrête sur une demande de nouveau mot de passe admin.",
   "SERVER_FORCE_STOP_REMOTE_REFUSED": "Impossible de forcer l'arrêt d'un serveur distant. Le processus n'est pas géré par ce panneau.",
   "SERVER_RESTART_REMOTE_REFUSED": "Impossible de redémarrer un serveur distant. Le processus n'est pas géré par ce panneau.",
   "SERVER_STOP_RCON_NOT_CONNECTED": "RCON non connecté. Impossible d'arrêter le serveur proprement.",

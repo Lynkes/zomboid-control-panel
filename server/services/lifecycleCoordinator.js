@@ -20,10 +20,11 @@ export function setServerDisplayNameResolver(resolver) {
 }
 
 // Runs immediately before the game process (or its container) is launched,
-// from the two places the panel's starts and restarts funnel through:
-// serverManager.startServer() and managedContainer.runManagedLifecycle(),
-// plus the Servers page's per-container Start/Restart (routes/docker.js),
-// which drives dockerClient.runManagedAction() directly.
+// as the last half of prepareForLaunch() below, from the two places the
+// panel's starts and restarts funnel through: serverManager.startServer()
+// and managedContainer.runManagedLifecycle(), plus the Servers page's
+// per-container Start/Restart (routes/docker.js), which drives
+// dockerClient.runManagedAction() directly.
 // Wired once at boot (server/index.js) to bridgeDelivery.reconcileBridge(),
 // which keeps the loose PanelBridge.lua current -- or moves it out and
 // re-adds the Workshop entries -- for the launch that is about to happen;
@@ -47,6 +48,59 @@ export async function runBeforeLaunchHook(server) {
   } catch {
     return null;
   }
+}
+
+// Brings what Project Zomboid reads at launch in line with the server's
+// CURRENT settings: RCONPassword/RCONPort in its ini and, for a panel-managed
+// install, the generated StartServer_<name>.bat / start-server_<name>.sh
+// (-servername, -cachedir, -adminpassword and memory are baked into it).
+// Wired once at boot (server/index.js) to routes/server.js's
+// refreshLaunchTargetBeforeStart(), fed a fresh database read of the server,
+// and injected for the same partial-mock reason as the two hooks above.
+//
+// GH #167: only the dashboard's Start and the scheduler used to call it,
+// each at its own call site, so the boot auto-start launched whatever script
+// and ini were on disk -- a fresh install ran the stock start-server.sh (the
+// named one didn't exist yet) and a changed RCON or admin password only
+// reached the game after a manual restart. It now runs inside
+// prepareForLaunch() below, which every launch path goes through.
+let launchTargetRefresher = null;
+
+export function setLaunchTargetRefresher(fn) {
+  launchTargetRefresher = typeof fn === "function" ? fn : null;
+}
+
+// The one before-launch step: serverManager.startServer() (native and
+// systemd/OpenRC launches -- the dashboard, boot auto-start, the scheduler,
+// mod-update and Discord restarts, the post-update start) and, for a
+// Docker-managed server, managedContainer.runManagedLifecycle() and the
+// Servers page's per-container Start/Restart (routes/docker.js). `container`
+// is true for the last two: the image owns the launch command there, so only
+// the ini is refreshed, never a script.
+//
+// Refreshes the launch target first, then runs the PanelBridge hook -- both
+// write the server's ini, so they run one after the other, never together.
+// Like runBeforeLaunchHook(), it never throws and never blocks a launch: a
+// refresh that couldn't write is logged by the refresher itself, and
+// startServer() refuses a named server whose script is still missing
+// instead of falling back to the stock one. Returns the refresher's backup
+// notices for scripts that had content the panel didn't write.
+export async function prepareForLaunch(server, { container = false } = {}) {
+  let scriptWarnings = [];
+  if (launchTargetRefresher && server) {
+    try {
+      const refreshed = await launchTargetRefresher(server, {
+        managedHandled: container === true,
+      });
+      if (Array.isArray(refreshed?.scriptBackupWarnings)) {
+        scriptWarnings = refreshed.scriptBackupWarnings;
+      }
+    } catch {
+      // Never blocks the launch -- see the comment above.
+    }
+  }
+  await runBeforeLaunchHook(server);
+  return { scriptWarnings };
 }
 
 // 2026-09-04, lifecycle-lock investigation: the lock itself was never the
