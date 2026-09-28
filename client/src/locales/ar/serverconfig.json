@@ -229,7 +229,9 @@
     "sectionLabel": "إعدادات الخادم",
     "sectionSublabel": "INI · السلوك والشبكة واللاعبون",
     "luaChecksumTitle": "خاصية Lua Checksum مُفعَّلة",
-    "luaChecksumBody": "يعدّل PanelBridge ملفات Lua على جانب الخادم. ومع تفعيل Lua Checksum سيفشل التحقق لدى العملاء ولن يتمكنوا من الاتصال. عطّل <1>DoLuaChecksum</1> في فئة المودات للسماح للاعبين بالانضمام.",
+    "luaChecksumBody": "يضيف PanelBridge المثبّت بواسطة اللوحة على الخادم ملفات Lua ليست لدى اللاعبين، لذا لا يستطيعون الاتصال عند تفعيل <1>DoLuaChecksum</1>. عطّله، أو انقل PanelBridge إلى التوزيع عبر ورشة Steam من الإعدادات › PanelBridge لإبقائه مفعّلًا.",
+    "luaChecksumWorkshopNote": "يأتي PanelBridge من ورشة Steam، لذا يمكنك تفعيل هذا الخيار. سيرشدك قسم الإعدادات › PanelBridge خطوة بخطوة.",
+    "luaChecksumWorkshopUnconfirmed": "إذا كان PanelBridge لا يزال يُحمَّل من مجلد اللعبة، فلن يستطيع اللاعبون الانضمام وهذا الخيار مفعّل.",
     "disableNow": "تعطيل الآن"
   },
   "sandboxTab": {
@@ -903,7 +905,7 @@
       },
       "DoLuaChecksum": {
         "label": "التحقق من Lua",
-        "description": "التحقق من تطابق ملفات Lua لدى العميل مع الخادم. يجب تعطيله عند استخدام PanelBridge — إذ يعدّل هذا المود ملفات Lua على جانب الخادم، ما يسبب عدم تطابق البصمة ويمنع اللاعبين من الاتصال."
+        "description": "يطرد اللاعبين الذين لا تطابق ملفات Lua أو السكربتات أو الرسوم المتحركة لديهم ملفات الخادم. يجب تعطيله مع PanelBridge المثبّت بواسطة اللوحة؛ ويمكن إبقاؤه مفعّلًا مع التوزيع عبر ورشة Steam."
       }
     },
     "steam": {

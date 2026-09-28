@@ -28,6 +28,8 @@ export interface BridgeStalenessInfo {
   /** protocolMismatch only */
   expected?: string
   actual?: string
+  /** protocolMismatch only -- a Workshop server's fix is a restart, not a re-upload */
+  deliveryMethod?: 'local' | 'workshop'
   /** localUpdateAvailable / remoteUpdateAvailable */
   liveVersion?: string | null
   bundledVersion?: string | null
@@ -40,6 +42,7 @@ interface BridgeStatusForStaleness {
   modStatus?: { protocolVersionMismatch?: { expected: string; actual: string } } | null
   localInstall?: { needsUpdate: boolean; canAutoInstall: boolean; version: string | null } | null
   remoteBridgeVersionCheck?: { bundledVersion: string | null; liveVersion: string | null; behind: boolean | null } | null
+  deliveryMethod?: 'local' | 'workshop'
 }
 
 // Priority order, not two banners (per the card's own brief): a protocol
@@ -56,8 +59,17 @@ export function detectBridgeStaleness(status: BridgeStatusForStaleness | null | 
 
   const mismatch = status.modStatus?.protocolVersionMismatch
   if (mismatch) {
-    return { kind: 'protocolMismatch', expected: mismatch.expected, actual: mismatch.actual }
+    return status.deliveryMethod === 'workshop'
+      ? { kind: 'protocolMismatch', expected: mismatch.expected, actual: mismatch.actual, deliveryMethod: 'workshop' }
+      : { kind: 'protocolMismatch', expected: mismatch.expected, actual: mismatch.actual }
   }
+
+  // A Workshop server has no loose file for either version signal to be
+  // about. The server already nulls localInstall/remoteBridgeVersionCheck
+  // in that mode; checking here too means a re-upload hint, or an "Update
+  // Now" that /install-mod-auto would refuse with a 409, can never show
+  // for one.
+  if (status.deliveryMethod === 'workshop') return null
 
   if (status.remoteBridgeVersionCheck?.behind) {
     return {
@@ -86,6 +98,14 @@ export function getBridgeStalenessTitle(info: BridgeStalenessInfo): string {
 }
 
 export function getBridgeStalenessBody(info: BridgeStalenessInfo): string {
+  if (info.kind === 'protocolMismatch' && info.deliveryMethod === 'workshop') {
+    return resolveRegisteredTranslation('settings', 'bridge.staleness.protocolMismatchWorkshopBody', {
+      expected: info.expected ?? '',
+      actual: info.actual ?? '',
+    }) ??
+      `The PanelBridge on this server (from the Steam Workshop) reports protocol '${info.actual}', but this panel expects '${info.expected}'. Restart the server to get the latest Workshop version, or update the panel.`
+  }
+
   if (info.kind === 'protocolMismatch') {
     return resolveRegisteredTranslation('settings', 'bridge.staleness.protocolMismatchBody', {
       expected: info.expected ?? '',

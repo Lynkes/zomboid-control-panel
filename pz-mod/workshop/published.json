@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "modId": "ZomboidControlPanelBridge",
+  "workshopId": null,
+  "visibility": null,
+  "publishedVersion": null,
+  "publishedAt": null,
+  "liveVerified": { "windowsServer": null, "linuxServer": null }
+}

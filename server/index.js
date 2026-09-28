@@ -85,12 +85,7 @@ import { loadOrCreateCerts } from "./utils/certs.js";
 import { sanitizeError, sanitizeErrorParams } from "./utils/sanitize.js";
 import { ErrorCode } from "./utils/errorCodes.js";
 import { getSftpCachePath } from "./services/panelBridgeSftp.js";
-import { autoInstallBridgeIfNeeded, resolveInstallDir } from "./services/panelBridgeInstaller.js";
-import {
-  getEmbeddedPanelBridgeLua,
-  compareModVersions,
-  writeLuaAtomic,
-} from "./utils/embeddedLua.js";
+import { reconcileBridge } from "./services/bridgeDelivery.js";
 import {
   clientDistMatchesMetadata,
   getEmbeddedClientDistPath,
@@ -101,7 +96,11 @@ import { resolveObservedServerRunning, resolveServerPhase } from "./utils/server
 import { discoverMounts } from "./services/mountDiscovery.js";
 import { shouldAutoOpenBrowser } from "./utils/browserLaunch.js";
 import { isLinuxPanelSupervisor } from "./utils/restartSupervisor.js";
-import { acquireLifecycleLock, setServerDisplayNameResolver } from "./services/lifecycleCoordinator.js";
+import {
+  acquireLifecycleLock,
+  setBeforeLaunchHook,
+  setServerDisplayNameResolver,
+} from "./services/lifecycleCoordinator.js";
 
 // === Supervisor bootstrap ===
 // If the .exe was double-clicked directly (no PANEL_SUPERVISOR_V env var) and
@@ -305,6 +304,7 @@ import { getDiskFree } from "./utils/diskSpace.js";
 import { getSwapInfo } from "./utils/swapInfo.js";
 import serverFinderRoutes from "./routes/serverFinder.js";
 import panelBridgeRoutes from "./routes/panelBridge.js";
+import bridgeDeliveryRoutes from "./routes/bridgeDelivery.js";
 import backupRoutes from "./routes/backup.js";
 import mapProxyRoutes from "./routes/mapProxy.js";
 import systemRoutes from "./routes/system.js";
@@ -918,8 +918,8 @@ app.use("/api/chunks/delete-region", strictLimiter);
 app.use("/api/server-files/raw", strictLimiter);
 app.use("/api/server-files/restore", strictLimiter);
 app.use("/api/server-files/save-and-reload", strictLimiter);
-app.use("/api/panel-bridge/install-mod", strictLimiter);
-app.use("/api/panel-bridge/install-local", strictLimiter);
+// POST only: GET /delivery is a status read the Settings page polls.
+app.post("/api/panel-bridge/delivery", strictLimiter);
 app.use("/api/panel-bridge/character/export", strictLimiter);
 app.use("/api/panel-bridge/character/import", strictLimiter);
 app.use("/api/panel/update-check", strictLimiter);
@@ -997,6 +997,14 @@ setDockerClient(dockerClient);
 // statically importing database/init.js (see its own comment on why: dozens
 // of test files mock that module with only the exports they need).
 setServerDisplayNameResolver(peekServerDisplayName);
+// Starts and restarts from the dashboard, the scheduler (scheduled, mod-
+// update), Discord, boot auto-start and post-update funnel through
+// serverManager.startServer() or managedContainer.runManagedLifecycle(),
+// which call this right before the launch: PanelBridge is brought in line
+// with the server's delivery method for the JVM about to start. The Servers
+// page's per-container Start/Restart (routes/docker.js) calls it too. Never
+// throws, bounded to 15 s.
+setBeforeLaunchHook((server) => reconcileBridge(server, { reason: "launch" }));
 const modChecker = new ModChecker();
 const logTailer = new LogTailer();
 const scheduler = new Scheduler(rconService, serverManager);
@@ -1183,84 +1191,14 @@ async function tryStartPanelBridge(trigger = "unknown") {
     return false;
   }
 
-  // Auto-update PanelBridge.lua on the PZ server if bundled version is newer
-  const autoUpdateEnabled =
-    (await getSetting("panelBridgeAutoUpdate")) !== false; // default true
-  if (!autoUpdateEnabled) {
-    log.debug("PanelBridge mod auto-update disabled by setting");
-  }
-  if (autoUpdateEnabled)
-    try {
-      const activeServer = await getActiveServer();
-      const installDir = resolveInstallDir(activeServer);
-      if (installDir) {
-        // Keep the complete mod payload synchronized before the legacy
-        // embedded-Lua fallback below runs. The client companion and mod.info
-        // are just as load-bearing as the server Lua, but the embedded binary
-        // only carries the server file for backwards compatibility.
-        autoInstallBridgeIfNeeded(activeServer);
-        const destLuaFile = path.join(
-          installDir,
-          "media",
-          "lua",
-          "server",
-          "PanelBridge.lua",
-        );
-
-        // Prefer the Lua content embedded in the binary at bundle time — this is
-        // the only source guaranteed to match the running panel version after a
-        // binary-only auto-update. Falls back to on-disk pz-mod for dev mode and
-        // legacy builds that lack the embedded string.
-        let srcContent = getEmbeddedPanelBridgeLua();
-
-        if (!srcContent) {
-          const possibleModPaths = [
-            path.join(__dirname, "..", "pz-mod", "PanelBridge"),
-            path.join(process.cwd(), "pz-mod", "PanelBridge"),
-            path.join(path.dirname(process.execPath), "pz-mod", "PanelBridge"),
-          ];
-          for (const modPath of possibleModPaths) {
-            const candidate = path.join(
-              modPath,
-              "media",
-              "lua",
-              "server",
-              "PanelBridge.lua",
-            );
-            if (fs.existsSync(candidate)) {
-              srcContent = fs.readFileSync(candidate, "utf8");
-              break;
-            }
-          }
-        }
-
-        if (srcContent && fs.existsSync(destLuaFile)) {
-          const destContent = fs.readFileSync(destLuaFile, "utf8");
-          const srcVersion = (srcContent.match(/VERSION\s*=\s*"([^"]+)"/) ||
-            [])[1];
-          const destVersion = (destContent.match(/VERSION\s*=\s*"([^"]+)"/) ||
-            [])[1];
-          // Only overwrite if embedded version is STRICTLY newer. If the on-disk
-          // Lua is the same or newer (e.g. a dev hand-installed a newer build),
-          // leave it alone — silently downgrading would clobber their work.
-          if (
-            srcVersion &&
-            destVersion &&
-            compareModVersions(srcVersion, destVersion) > 0
-          ) {
-            writeLuaAtomic(destLuaFile, srcContent);
-            log.info(
-              `PanelBridge mod auto-updated on server: ${destVersion} → ${srcVersion}`,
-            );
-          }
-        } else if (srcContent && !fs.existsSync(destLuaFile)) {
-          writeLuaAtomic(destLuaFile, srcContent);
-          log.info("PanelBridge mod auto-installed to server");
-        }
-      }
-    } catch (modError) {
-      log.warn(`Auto-update mod check failed: ${modError.message}`);
-    }
+  // Bring the active server's game folder in line with its PanelBridge
+  // delivery method before the bridge starts watching it: keep the loose
+  // PanelBridge.lua current (gated by the panelBridgeAutoUpdate setting),
+  // or, with Steam Workshop delivery, move loose copies out and re-add the
+  // ini entries. The embedded-over-stale-disk source priority this block
+  // used to carry itself now lives in panelBridgeInstaller.installBridge().
+  // Never throws.
+  await reconcileBridge(await getActiveServer().catch(() => null), { reason: "boot" });
 
   try {
     panelBridge.configure(result.path, true);
@@ -1444,6 +1382,8 @@ app.use("/api/chunks", chunksRoutes);
 app.use("/api/discord", discordRoutes);
 app.use("/api/debug", debugRoutes);
 app.use("/api/server-finder", serverFinderRoutes);
+// Above the /api/panel-bridge router so /delivery is never shadowed by it.
+app.use("/api/panel-bridge/delivery", bridgeDeliveryRoutes);
 app.use("/api/panel-bridge", panelBridgeRoutes);
 app.use("/api/backup", backupRoutes);
 app.use("/api/map", mapProxyRoutes);

@@ -570,11 +570,21 @@ export function getDiagnosticsFixAction(
         note: t("fixActions.serverRconPassword.note"),
       };
     case "server.bridgeMod":
+      // Settings › PanelBridge is where the bridge is installed now, for
+      // both delivery methods -- Server Finder no longer deploys it. The note
+      // follows the server's variant: a missing panel-installed file, a
+      // Workshop item not downloaded yet, or loose files a Workshop server
+      // still has in its game folder (a start from the panel moves them).
       return {
         label: t("fixActions.serverBridgeMod.label"),
         automated: false,
-        manualRoute: "/server-finder",
-        note: t("fixActions.serverBridgeMod.note"),
+        manualRoute: "/settings?tab=bridge",
+        note:
+          check.variant === "workshopNotDownloaded"
+            ? t("fixActions.serverBridgeMod.noteWorkshopNotDownloaded")
+            : check.variant === "looseLeftover"
+              ? t("fixActions.serverBridgeMod.noteLooseLeftover")
+              : t("fixActions.serverBridgeMod.note"),
       };
     case "server.configDrift":
       return {

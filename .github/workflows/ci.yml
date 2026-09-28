@@ -167,6 +167,16 @@ jobs:
       - name: Bridge routes audit (panelBridge.js routes -> Lua handlers)
         run: node scripts/audit-bridge-routes.mjs .
 
+      # The bridge VERSION follows its code (pz-mod/bridge-version.lock.json):
+      # a bump over unchanged Lua/mod.info would make every Workshop server
+      # restart for nothing. Changed code with the old version passes here;
+      # the release bumps it and rewrites the lock.
+      - name: PanelBridge version lock (no bump without a code change)
+        run: node scripts/check-bridge-version.mjs
+
+      - name: PanelBridge Workshop item (B42 layout, mod.info, load guards, images)
+        run: node scripts/workshop/build-item.mjs --check
+
       - name: RCON commands (panel-side denominator only -- see step comment above)
         run: node scripts/audit-rcon-commands.mjs .
 

@@ -6,6 +6,18 @@
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
 
+                vNEXT Changes:
+                - Add: PanelBridge can also ship as the Steam Workshop mod
+                    ZomboidControlPanelBridge. Every player's game runs each
+                    mod's media/lua/server, so this file now stops before
+                    doing anything unless it runs on a dedicated server, and
+                    the client companion only runs in a multiplayer session.
+                - Add: status.json reports startedAt, gameVersion and
+                    delivery (workshop, mod or loose, plus the Workshop item
+                    id), and startup.json reports delivery, so the panel can
+                    tell how the bridge was loaded. Additive fields only; the
+                    queue protocol is unchanged.
+
                 v1.7.70 Changes:
                 - Add: lightweight save-backed player leaderboard telemetry
                     for current-life kills/days, all-time kills, deaths, and
@@ -560,12 +572,24 @@
     - Fixed snow to auto-enable rain
 ]]
 
+-- Every player's game loads and runs each mod's media/lua/server (GameLoadingState.enter), so only
+-- the dedicated server may run the bridge. isServer() is GameServer.server, already true when
+-- server Lua loads (GameServer.main); it is false on MP clients and in single player. A
+-- `not isClient()` test would let single player through. Keep this the first statement: nothing
+-- may register an event or touch a file before it.
+if not (isServer and isServer()) then return end
+
 -- Forward declaration (referenced in log() before definition below)
 local json
 
 local PanelBridge = {
     VERSION = "1.7.70",
+    -- Change only for a breaking wire-format change. Bridge changes must be additive: a
+    -- Workshop server runs whatever version was last published, not the panel's bundled one.
     PROTOCOL_VERSION = "queue-v1",
+    -- Steam Workshop mod id (mod.info id=). Permanent once published: Mods= lines, the panel's
+    -- delivery detection and the Workshop build all key on it.
+    MOD_ID = "ZomboidControlPanelBridge",
     CHECK_INTERVAL = 250, -- milliseconds (fast command polling)
     lastCheck = 0,
     lastStatusUpdate = 0,
@@ -1636,7 +1660,8 @@ function PanelBridge.getBasePath()
     end
 
     -- For dedicated servers, we write to the Lua folder itself
-    -- Files will be created in: {ServerInstall}/Lua/panelbridge/{serverName}/
+    -- Files will be created in: <cachedir>/Lua/panelbridge/{serverName}/ (the Zomboid data
+    -- folder, not the game install), whether this file runs from the install or from a mod.
     -- This is within the allowed write path for getFileWriter
     local serverName = getServerName()
     local safeServerName = nil
@@ -9477,6 +9502,13 @@ function PanelBridge.updateStatus()
             end
         end
 
+        -- detectVersion leaves build at "unknown" when getCore():getVersion() fails; omit it then.
+        local detected = PanelBridge.detectedVersion
+        local gameVersion = nil
+        if detected and detected.build ~= nil and detected.build ~= "unknown" then
+            gameVersion = tostring(detected.build)
+        end
+
         local status = {
             alive = true,
             version = PanelBridge.VERSION,
@@ -9496,7 +9528,14 @@ function PanelBridge.updateStatus()
             queue = {
                 lastCommandSeq = PanelBridge.queueState.lastCommandSeq,
                 nextResultSeq = PanelBridge.queueState.nextResultSeq
-            }
+            },
+            -- How this run was started and delivered. nil (so omitted) until onServerStarted has
+            -- set them; the panel reads a missing delivery as a loose install. startedAt only
+            -- changes when the server restarts, which is how the panel tells a restart happened
+            -- without comparing its clock with the game host's.
+            startedAt = PanelBridge.stats.startTime,
+            gameVersion = gameVersion,
+            delivery = PanelBridge.delivery
         }
 
         PanelBridge.writeJSON("status.json", status)
@@ -9542,6 +9581,69 @@ function PanelBridge.onTick()
     end
 end
 
+-- Never called: its compiled prototype carries the path of the file this chunk was loaded from.
+local function panelBridgeSelfLocator() end
+
+-- Reports how this copy of the bridge was delivered, for status.json/startup.json:
+-- { method = "workshop"|"mod"|"loose", workshopId = "<digits>" (workshop only),
+--   modActive = bool, modVersion = "<mod.info modversion>" (when known) }.
+-- There is no debug library in Kahlua, so the running file is found through getFilenameOfClosure.
+function PanelBridge.detectDelivery()
+    local d = { method = nil, modActive = false }
+    -- 1) Which file is actually running. RunLua receives the activeFileMap path, so a mod copy that
+    --    overrides a loose copy reports the mod path (42.20: LoadDirBase 446-482, FuncState.code 117-120).
+    local ok, file = pcall(function()
+        if type(getFilenameOfClosure) ~= "function" then return nil end
+        return getFilenameOfClosure(panelBridgeSelfLocator)
+    end)
+    if ok and type(file) == "string" and file ~= "" then
+        local src = string.lower((string.gsub(file, "\\", "/")))
+        local wsid = string.match(src, "/workshop/content/108600/(%d+)/")
+        if wsid then
+            d.method = "workshop"
+            d.workshopId = wsid
+        elseif string.find(src, "/mods/" .. string.lower(PanelBridge.MOD_ID) .. "/", 1, true) then
+            d.method = "mod"
+        else
+            d.method = "loose"
+        end
+    end
+    -- 2) Cross-check with the active mod list.
+    pcall(function()
+        if type(getActivatedMods) == "function" then
+            for _, id in ipairs(collectJavaCollection(getActivatedMods(), "Activated mods") or {}) do
+                if tostring(id) == PanelBridge.MOD_ID then
+                    d.modActive = true
+                    break
+                end
+            end
+        end
+        -- Only look the mod up when it is in play (active, or its own folder is running). For an
+        -- id that isn't loaded, getModDetails (42.20) reads the mod.info of every installed mod
+        -- folder and caches them all, which neither the default loose install nor another
+        -- Workshop item's PanelBridge.lua overriding this one has any reason to trigger.
+        if not (d.modActive or d.method == "mod") then return end
+        local info = type(getModInfoByID) == "function" and getModInfoByID(PanelBridge.MOD_ID) or nil
+        if not info then return end
+        local v = PanelBridge.tryGet(info, "getModVersion")
+        if v and tostring(v) ~= "" then d.modVersion = tostring(v) end
+        -- Fallback when the running file's path is unavailable: an active mod with a Workshop
+        -- id came from the Workshop. 42.20 sets it from a numeric <id>/mods/<mod> folder and
+        -- leaves it "" for a mod in Zomboid/mods (nil is tolerated too).
+        if not d.method and d.modActive then
+            local w = tostring(PanelBridge.tryGet(info, "getWorkshopID") or "")
+            if string.match(w, "^%d+$") then
+                d.method = "workshop"
+                d.workshopId = w
+            else
+                d.method = "mod"
+            end
+        end
+    end)
+    d.method = d.method or "loose"
+    return d
+end
+
 function PanelBridge.onServerStarted()
     print("[PanelBridge] ========================================")
     print("[PanelBridge] Initializing v" .. PanelBridge.VERSION)
@@ -9575,6 +9677,10 @@ function PanelBridge.onServerStarted()
     -- Detect version and available APIs
     PanelBridge.detectVersion()
 
+    -- Detect how this copy was delivered (Workshop, local mod or panel-installed file)
+    PanelBridge.delivery = PanelBridge.detectDelivery()
+    print("[PanelBridge] Loaded from: " .. PanelBridge.delivery.method .. (PanelBridge.delivery.workshopId and (" " .. PanelBridge.delivery.workshopId) or ""))
+
     if PanelBridge.reconcileStartupPower() then
         print("[PanelBridge] Restored startup power from the configured sandbox countdown")
     end
@@ -9595,7 +9701,8 @@ function PanelBridge.onServerStarted()
         startTime = PanelBridge.stats.startTime,
         path = PanelBridge.getBasePath(),
         detectedVersion = PanelBridge.detectedVersion,
-        serverName = getServerName()
+        serverName = getServerName(),
+        delivery = PanelBridge.delivery
     })
 
     -- Reset time speed to 1x so fast-forward doesn't persist across reboots

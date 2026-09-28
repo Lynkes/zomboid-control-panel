@@ -13,6 +13,7 @@
  * owns the lifecycle action and performs the Docker half.
  */
 import { getActiveServer, getServer } from "../database/init.js";
+import { runBeforeLaunchHook } from "./lifecycleCoordinator.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("ManagedContainer");
@@ -214,6 +215,17 @@ export async function runManagedLifecycle(
         alreadyRunning: true,
         message: "Container is already running",
       };
+    }
+
+    // PanelBridge delivery (lifecycleCoordinator.setBeforeLaunchHook): the
+    // container start IS the launch for a Docker-managed server, so this is
+    // the last moment a bridge file or ini change can reach it. The record
+    // lookup is inside the same never-blocks guarantee as the hook itself.
+    if (action === "start" || action === "restart") {
+      const target = await Promise.resolve()
+        .then(() => (serverId ? getServer(serverId) : getActiveServer()))
+        .catch(() => null);
+      await runBeforeLaunchHook(target);
     }
 
     const result = await dockerClient.runManagedAction(current.ref, action);

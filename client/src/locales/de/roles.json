@@ -183,7 +183,7 @@
     "bridge": {
       "setup": {
         "label": "PanelBridge verbinden & konfigurieren",
-        "description": "Die Ingame-Mod-Brücke verbinden oder neu konfigurieren — einschließlich der Eingabe und Speicherung des SFTP-Anmeldepassworts für den Zugriff auf einen entfernten Server, dem Durchsuchen beliebiger Pfade auf diesem Server per SFTP und dem Verweisen der lokalen Brücke auf einen beliebigen absoluten Host-Pfad außerhalb einer kleinen Liste gesperrter Verzeichnisse. Installiert außerdem die Mod."
+        "description": "Die Ingame-Mod-Brücke verbinden oder neu konfigurieren — einschließlich der Eingabe und Speicherung des SFTP-Anmeldepassworts für den Zugriff auf einen entfernten Server, dem Durchsuchen beliebiger Pfade auf diesem Server per SFTP und dem Verweisen der lokalen Brücke auf einen beliebigen absoluten Host-Pfad außerhalb einer kleinen Liste gesperrter Verzeichnisse. Installiert außerdem die Mod und legt fest, wie sie bereitgestellt wird (vom Panel installiert oder über den Steam Workshop), wodurch Mods=, WorkshopItems= und DoLuaChecksum in der Einstellungsdatei des Servers geändert werden."
       },
       "diagnostics": {
         "label": "PanelBridge-Diagnose",

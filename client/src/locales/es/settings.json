@@ -403,7 +403,7 @@
     "setupStep2Desc": "Apunta el panel a la carpeta de datos correcta del servidor e inicia el observador.",
     "setupStep3Title": "Iniciar el servidor de PZ",
     "setupStep3Desc": "Cuando el juego carga el mod, el estado cambia de <b1>Esperando</b1> a <b>Conectado</b>.",
-    "requiresLuaChecksum": "<b>Requiere DoLuaChecksum=false</b> en el INI de tu servidor. Los comandos pueden fallar si la comprobación de checksum está activada.",
+    "requiresLuaChecksum": "<b>PanelBridge instalado por el panel requiere DoLuaChecksum=false.</b> La entrega por Steam Workshop funciona con la comprobación activada.",
     "connectedTo": "Conectado a {{server}}",
     "connectedFallback": "servidor",
     "modVersionLabel": "Versión del mod:",
@@ -500,8 +500,8 @@
     "listLogs": "Listar registros",
     "selectFileHint": "Selecciona un archivo para cargar los últimos 256 KB.",
     "tailOfPrefix": "final de ",
-    "autoUpdateLabel": "Actualizar el mod automáticamente al iniciar el panel",
-    "autoUpdateDesc": "Cuando el panel se inicia, copia automáticamente el PanelBridge.lua incluido más reciente al servidor de PZ si las versiones difieren.",
+    "autoUpdateLabel": "Mantener actualizado PanelBridge instalado por el panel",
+    "autoUpdateDesc": "Antes de cada inicio del servidor y al iniciar el panel, copia el PanelBridge.lua incluido en la carpeta del juego si cambió. No se usa con la entrega por Steam Workshop.",
     "installTitle": "Instalar PanelBridge.lua",
     "selectServerPlaceholder": "Seleccionar servidor…",
     "noServersConfigured": "No hay servidores configurados",
@@ -512,12 +512,13 @@
     "serversLoadFailed": "No se pudo cargar la lista de servidores: prueba a volver a abrir esta página",
     "statusFetchFailedFallback": "No se pudo contactar con el punto de conexión de estado del bridge.",
     "staleness": {
-      "protocolMismatchTitle": "Panel and bridge mod don't match",
-      "updateAvailableTitle": "Bridge mod update available",
-      "updateNowButton": "Update Now",
-      "protocolMismatchBody": "This panel expects bridge protocol '{{expected}}', but the mod on your server reports '{{actual}}'. They ship as a matched pair, so some features may not work correctly until they're back in sync.",
-      "remoteUpdateBody": "Your server is running bridge mod v{{liveVersion}}, older than the v{{bundledVersion}} this panel bundles. This panel can't update a remote/SFTP-managed server's files for you -- re-upload the updated PanelBridge.lua the same way you installed it.",
-      "localUpdateBody": "The installed bridge mod (v{{liveVersion}}) is older than what this panel bundles."
+      "protocolMismatchTitle": "El panel y el mod PanelBridge no coinciden",
+      "updateAvailableTitle": "Actualización del mod PanelBridge disponible",
+      "updateNowButton": "Actualizar ahora",
+      "protocolMismatchBody": "Este panel espera el protocolo de puente «{{expected}}», pero el mod de tu servidor informa «{{actual}}». Se publican juntos, así que algunas funciones pueden no funcionar correctamente hasta que vuelvan a coincidir.",
+      "protocolMismatchWorkshopBody": "El PanelBridge de este servidor (de Steam Workshop) informa el protocolo «{{actual}}», pero este panel espera «{{expected}}». Reinicia el servidor para obtener la última versión de Workshop o actualiza el panel.",
+      "remoteUpdateBody": "Tu servidor ejecuta el mod PanelBridge v{{liveVersion}}, más antiguo que la v{{bundledVersion}} que incluye este panel. Este panel no puede actualizar por ti los archivos de un servidor remoto o gestionado por SFTP: vuelve a subir el PanelBridge.lua actualizado del mismo modo en que lo instalaste.",
+      "localUpdateBody": "El mod PanelBridge instalado (v{{liveVersion}}) es más antiguo que el que incluye este panel."
     }
   },
   "mods": {
@@ -1005,6 +1006,9 @@
     "installFailed": {
       "title": "Error de instalación",
       "fallback": "El panel no pudo copiar PanelBridge.lua. Verifica la ruta del servidor y los permisos, e inténtalo de nuevo."
+    },
+    "bridgeInstallStillRunning": {
+      "title": "PanelBridge aún se está instalando"
     },
     "backupCreated": {
       "title": "Copia de seguridad creada",

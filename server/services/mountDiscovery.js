@@ -10,6 +10,8 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { describeContainerMountPoints } from "../utils/containerMountInfo.js";
+import { detectBridgeOnDisk } from "./bridgeDisk.js";
+import { getWorkshopRelease } from "./bridgeWorkshopRelease.js";
 
 const INI_SUFFIX_BLOCKLIST = [
   "_SandboxVars.ini",
@@ -80,14 +82,15 @@ export function probeInstallPath(installPath) {
     fs.existsSync(path.join(installPath, "projectzomboid-dedi-server.sh"));
   const hasMediaLua = safeIsDir(path.join(installPath, "media", "lua"));
   const hasSteamapps = safeIsDir(path.join(installPath, "steamapps"));
+  // Either delivery counts: the panel-installed loose file, or the
+  // downloaded PanelBridge Steam Workshop item (bridgeDisk).
+  const bridgeOnDisk = detectBridgeOnDisk(installPath, getWorkshopRelease().workshopId);
 
   return {
     valid: hasZomboidBinary || hasStartScript || hasMediaLua || hasSteamapps,
     serverNames: readServerNames(path.join(installPath, "Server")),
     hasStartScript,
-    hasPanelBridge: fs.existsSync(
-      path.join(installPath, "media", "lua", "server", "PanelBridge.lua"),
-    ),
+    hasPanelBridge: bridgeOnDisk.loose || bridgeOnDisk.workshopItem,
   };
 }
 

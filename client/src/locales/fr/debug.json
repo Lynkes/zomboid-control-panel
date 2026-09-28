@@ -114,8 +114,10 @@
       "note": "Définissez le mot de passe RCON dans la configuration du serveur (et la valeur correspondante dans les paramètres)."
     },
     "serverBridgeMod": {
-      "label": "Ouvrir Recherche de serveur",
-      "note": "Redéployez le mod PanelBridge via Recherche de serveur."
+      "label": "Ouvrir Paramètres › PanelBridge",
+      "note": "Installez-le depuis Paramètres › PanelBridge.",
+      "noteWorkshopNotDownloaded": "Démarrez le serveur pour qu'il télécharge PanelBridge depuis le Steam Workshop. Paramètres › PanelBridge indique s'il s'est chargé et permet de revenir à l'installation par le panneau.",
+      "noteLooseLeftover": "Démarrez ou redémarrez le serveur depuis le panneau pour les déplacer. Paramètres › PanelBridge les liste aussi."
     },
     "serverConfigDrift": {
       "label": "Ouvrir la configuration du serveur",
@@ -439,12 +441,26 @@
         "bridgeMod": {
           "ok": {
             "label": "Mod PanelBridge présent",
-            "message": "PanelBridge.lua est déployé sur le serveur."
+            "message": "PanelBridge.lua est déployé sur le serveur.",
+            "workshop": {
+              "label": "Élément Steam Workshop de PanelBridge présent",
+              "message": "PanelBridge v{{version}} téléchargé depuis le Steam Workshop."
+            }
           },
           "warn": {
             "label": "Mod PanelBridge non détecté",
             "message": "Impossible de trouver PanelBridge.lua sur le serveur. Les fonctionnalités avancées (téléportation, météo, export de personnage) seront indisponibles.",
-            "hint": "Copiez pz-mod/PanelBridge dans le dossier media/lua/server du serveur"
+            "hint": "Paramètres › PanelBridge peut l'installer",
+            "workshopNotDownloaded": {
+              "label": "PanelBridge pas encore téléchargé",
+              "message": "Ce serveur reçoit PanelBridge depuis le Steam Workshop, mais il n'a pas encore été téléchargé.",
+              "hint": "Démarrez le serveur. S'il ne démarre pas, consultez Paramètres › PanelBridge."
+            },
+            "looseLeftover": {
+              "label": "Anciens fichiers PanelBridge dans le dossier du jeu",
+              "message": "Toujours dans le dossier du jeu : {{files}}. Avec la vérification d'intégrité Lua activée, les joueurs seront refusés.",
+              "hint": "Démarrez ou redémarrez le serveur depuis le panneau pour les déplacer."
+            }
           }
         },
         "recentCrash": {

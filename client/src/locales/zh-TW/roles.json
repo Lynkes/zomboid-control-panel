@@ -183,7 +183,7 @@
     "bridge": {
       "setup": {
         "label": "連線與設定 PanelBridge",
-        "description": "連線或重新設定遊戲內PanelBridge 模組——包括輸入並存儲用於連線遠端伺服器的 SFTP 登入密碼、通過 SFTP 瀏覽該伺服器上的任意路徑，以及將本地 PanelBridge指向主機上除一小份被遮蔽目錄列表之外的任意絕對路徑。此外還會安裝該模組。"
+        "description": "連線或重新設定遊戲內PanelBridge 模組——包括輸入並存儲用於連線遠端伺服器的 SFTP 登入密碼、通過 SFTP 瀏覽該伺服器上的任意路徑，以及將本地 PanelBridge指向主機上除一小份被遮蔽目錄列表之外的任意絕對路徑。此外還會安裝該模組，並選擇其分發方式（由面板安裝或 Steam 創意工坊），這會修改伺服器設定檔中的 Mods=、WorkshopItems= 和 DoLuaChecksum。"
       },
       "diagnostics": {
         "label": "PanelBridge 診斷",

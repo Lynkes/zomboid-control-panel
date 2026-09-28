@@ -53,7 +53,8 @@ import {
 import { requirePermission } from "../services/permissions.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { withFileLock } from "../utils/fileWriteQueue.js";
-import { writeIniWithBackup, backupWarningFor } from "../utils/configBackup.js";
+import { writeIniWithBackup as writeIniWithBackupRaw, backupWarningFor } from "../utils/configBackup.js";
+import { getBridgeManaged, protectBridgeIniEntries } from "../services/bridgeDelivery.js";
 import { findDuplicateIniKeys } from "../utils/iniDuplicateKeys.js";
 import { parseBoundedInteger } from "../utils/queryNumbers.js";
 
@@ -147,6 +148,23 @@ function stripBom(str) {
 function readTextFile(filePath) {
   // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
   return stripBom(fs.readFileSync(filePath, "utf-8")).replace(/\r\n/g, "\n");
+}
+
+// Every ini write in this file goes through here. When the active server
+// gets PanelBridge from the Steam Workshop, its Mods=/WorkshopItems= entries
+// are managed in Settings › PanelBridge: a remove, toggle, collection import
+// or load-order save that would drop one gets it put back at its old
+// position (bridgeDelivery.protectBridgeIniEntries). Nothing is ever added
+// that wasn't there before, and reorders are kept. Wrapping the one writer
+// instead of editing its ~18 call sites keeps a future route from missing it.
+async function writeIniWithBackup(iniPath, content) {
+  let before = "";
+  try {
+    before = readTextFile(iniPath);
+  } catch {
+    /* first write */
+  }
+  return writeIniWithBackupRaw(iniPath, await protectBridgeIniEntries(iniPath, before, content));
 }
 
 // Security: INI sanitization imported from shared util
@@ -2315,6 +2333,9 @@ router.get("/current-config", async (req, res) => {
       iniPath,
       workshopModMap,
       duplicateKeys,
+      // { modId, workshopId } when those entries are PanelBridge's own
+      // Steam Workshop delivery (the Mods page badges and locks them).
+      bridgeManaged: await getBridgeManaged(),
     });
   } catch (error) {
     log.error(`Failed to get current mod config: ${error.message}`);

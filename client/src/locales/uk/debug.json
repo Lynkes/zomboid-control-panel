@@ -163,8 +163,10 @@
       "note": "Встановіть пароль RCON у конфігурації сервера (і таке саме значення в налаштуваннях)."
     },
     "serverBridgeMod": {
-      "label": "Відкрити Пошук сервера",
-      "note": "Повторно розгорніть мод PanelBridge через Пошук сервера."
+      "label": "Відкрити «Налаштування › PanelBridge»",
+      "note": "Встановіть його в «Налаштування › PanelBridge».",
+      "noteWorkshopNotDownloaded": "Запустіть сервер, щоб він завантажив PanelBridge зі Steam Workshop. У «Налаштування › PanelBridge» видно, чи він завантажився, і там можна знову перейти на встановлення панеллю.",
+      "noteLooseLeftover": "Запустіть або перезапустіть сервер із панелі, щоб перемістити їх. Їх також показано в «Налаштування › PanelBridge»."
     },
     "serverConfigDrift": {
       "label": "Відкрити конфігурацію сервера",
@@ -488,12 +490,26 @@
         "bridgeMod": {
           "ok": {
             "label": "Мод PanelBridge наявний",
-            "message": "PanelBridge.lua розгорнуто на сервері."
+            "message": "PanelBridge.lua розгорнуто на сервері.",
+            "workshop": {
+              "label": "Елемент Steam Workshop з PanelBridge наявний",
+              "message": "PanelBridge v{{version}} завантажено зі Steam Workshop."
+            }
           },
           "warn": {
             "label": "Мод PanelBridge не виявлено",
             "message": "Не вдалося знайти PanelBridge.lua на сервері. Розширені функції (телепортація, погода, експорт персонажа) будуть недоступні.",
-            "hint": "Скопіюйте pz-mod/PanelBridge у теку media/lua/server сервера"
+            "hint": "Його можна встановити в «Налаштування › PanelBridge»",
+            "workshopNotDownloaded": {
+              "label": "PanelBridge ще не завантажено",
+              "message": "Цей сервер отримує PanelBridge зі Steam Workshop, але його ще не завантажено.",
+              "hint": "Запустіть сервер. Якщо він не запускається, перегляньте «Налаштування › PanelBridge»."
+            },
+            "looseLeftover": {
+              "label": "Старі файли PanelBridge у теці гри",
+              "message": "Досі в теці гри: {{files}}. З увімкненою перевіркою цілісності Lua гравцям буде відмовлено.",
+              "hint": "Запустіть або перезапустіть сервер із панелі, щоб перемістити їх."
+            }
           }
         },
         "recentCrash": {

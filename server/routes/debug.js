@@ -11,6 +11,10 @@ import archiver from "archiver";
 import { createLogger } from "../utils/logger.js";
 import { getDiskFree } from "../utils/diskSpace.js";
 import { resolveLaunchMode } from "../services/serverManager.js";
+import { scanWorkshopFailures } from "../utils/workshopLogScan.js";
+import { resolveInstallDir } from "../services/panelBridgeInstaller.js";
+import { detectWorkshopItem, listLooseBridgeFiles } from "../services/bridgeDisk.js";
+import { describeDelivery } from "../services/bridgeDelivery.js";
 import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
@@ -704,6 +708,8 @@ const SUPPORT_INI_KEYS = [
   "MaxAccountsPerUser",
   "SteamVAC",
   "DoLuaChecksum",
+  "Mods",
+  "WorkshopItems",
   "UsernameDisguises",
   "HideDisguisedUserName",
   "AntiCheatProtectionType",
@@ -2325,87 +2331,16 @@ async function pathWritableAsync(p) {
   }
 }
 
-// Tail-read `server-console.txt` and look for failed Workshop downloads.
-// PZ's GameServerWorkshopItems.Install() crashes with a NullPointerException
-// the moment a subscribed mod cannot be installed (delisted, private, region
-// blocked, etc). We detect both the failure lines and whether the install
-// step actually crashed.
-//
-// Returns null if no log; otherwise { ids, results, crashed, logMtime }.
-// Exported for direct testing (same reason getServerProcessState is
-// exported below) -- GET /diagnostics' full handler has enough of its own
-// dependency surface (req.app-injected services, several other database/
-// init.js lookups) that reaching this one check through a real route
-// invocation is its own, much larger undertaking; testing the function
-// directly proves its own behavior without needing that.
-export async function scanWorkshopFailures(zPath) {
-  if (!zPath) return null;
-  const logPath = path.join(zPath, "server-console.txt");
-  let stat;
-  try {
-    stat = await fs.promises.stat(logPath);
-  } catch {
-    return null;
-  }
-  if (!stat.isFile() || stat.size === 0) return null;
-
-  // Only the tail matters — the relevant lines come from the most recent
-  // server start. Cap at 256 KB to keep this cheap on huge log files.
-  const MAX_TAIL = 256 * 1024;
-  const start = Math.max(0, stat.size - MAX_TAIL);
-  const length = stat.size - start;
-  let text = "";
-  let fd;
-  try {
-    fd = await fs.promises.open(logPath, "r");
-    const buf = Buffer.alloc(length);
-    await fd.read(buf, 0, length, start);
-    text = buf.toString("utf-8");
-  } catch {
-    return null;
-  } finally {
-    if (fd) {
-      try {
-        await fd.close();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  // Pattern: `Workshop: onItemNotDownloaded itemID=<ID> result=<N>`
-  // result=9 is the common "item unavailable" / delisted case, but any
-  // non-zero result lands here — we surface them all.
-  const failedIds = [];
-  const resultByFailedId = {};
-  const re = /Workshop:\s+onItemNotDownloaded\s+itemID=(\d+)\s+result=(\d+)/g;
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    if (!resultByFailedId[m[1]]) {
-      failedIds.push(m[1]);
-      resultByFailedId[m[1]] = parseInt(m[2], 10);
-    }
-  }
-
-  // Crash chain: `GameServerWorkshopItems.Install` appears in the stack
-  // when the install step actually aborted the server boot.
-  const crashed =
-    /GameServerWorkshopItems\.Install/.test(text) ||
-    /Workshop:\s+item state DownloadPending\s+->\s+Fail/.test(text);
-
-  return {
-    ids: failedIds,
-    results: resultByFailedId,
-    crashed,
-    logPath,
-    logMtime: stat.mtime,
-  };
-}
+// scanWorkshopFailures() lives in utils/workshopLogScan.js now, next to the
+// PanelBridge Workshop start-failure scanner that reads the same log tail;
+// re-exported here so existing callers and tests keep importing it from
+// this route module unchanged.
+export { scanWorkshopFailures };
 
 // Generic crash scanner. Tail server-console.txt and report the most
 // recent fatal symptom (OOM, main-thread exception, FATAL log line).
 // Returns null when nothing notable is in the tail. Exported for direct
-// testing -- see scanWorkshopFailures's own comment above for why.
+// testing -- see scanWorkshopFailures's own comment (utils/workshopLogScan.js) for why.
 export async function scanRecentCrash(zPath) {
   if (!zPath) return null;
   const logPath = path.join(zPath, "server-console.txt");
@@ -3783,62 +3718,69 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
           );
         }
 
-        if (zPath || installPath) {
-          // Cover both case variants (Linux is case-sensitive) and both
-          // mods/ + Workshop/ trees + the server install media path.
-          const bridgeCandidates = [];
-          if (zPath) {
-            for (const root of ["mods", "Mods"]) {
-              bridgeCandidates.push(
-                path.join(zPath, root, "PanelBridge", "mod.info"),
+        // PanelBridge on disk, judged by the server's delivery method: the
+        // loose media/lua/server file for panel-installed, the downloaded
+        // item for Steam Workshop. The previous candidate list counted ANY
+        // steamapps/workshop/content/108600 folder as "installed", so a
+        // server with any other Workshop mod always passed this check.
+        // Remote profiles are skipped: their game folder is on another host,
+        // so this disk would always say "missing" (bridge.heartbeat covers
+        // them from the bridge's own reports).
+        const bridgeInstallDir = activeServer.isRemote ? null : resolveInstallDir(activeServer);
+        if (bridgeInstallDir) {
+          let bridgeDelivery = { method: "local", workshopId: null };
+          try {
+            bridgeDelivery = describeDelivery(activeServer, await getServers());
+          } catch {
+            /* treat as panel-installed, the default */
+          }
+          const looseBridgeFiles = listLooseBridgeFiles(bridgeInstallDir);
+          if (bridgeDelivery.method === "workshop") {
+            const bridgeItem = bridgeDelivery.workshopId
+              ? detectWorkshopItem(bridgeInstallDir, bridgeDelivery.workshopId, { zomboidDataPath: zPath })
+              : null;
+            if (looseBridgeFiles.length > 0) {
+              const files = looseBridgeFiles
+                .map((file) => path.relative(bridgeInstallDir, file.path))
+                .join(", ");
+              checks.push(
+                diagWarn(
+                  "server.bridgeMod",
+                  "Old PanelBridge files in the game folder",
+                  `Still in the game folder: ${files}. With the Lua integrity check on, players will be refused.`,
+                  {
+                    category: "server",
+                    hint: "Start or restart the server from the panel to move them out.",
+                    params: { files },
+                    variant: "looseLeftover",
+                  },
+                ),
               );
-              bridgeCandidates.push(
-                path.join(
-                  zPath,
-                  root,
-                  "PanelBridge",
-                  "media",
-                  "lua",
-                  "server",
-                  "PanelBridge.lua",
+            } else if (bridgeItem) {
+              const version = bridgeItem.version || "?";
+              checks.push(
+                diagOk(
+                  "server.bridgeMod",
+                  "PanelBridge Workshop item present",
+                  `Downloaded PanelBridge v${version} from the Steam Workshop.`,
+                  { category: "server", params: { version }, variant: "workshop" },
+                ),
+              );
+            } else {
+              checks.push(
+                diagWarn(
+                  "server.bridgeMod",
+                  "PanelBridge not downloaded yet",
+                  "This server gets PanelBridge from the Steam Workshop, but it hasn't been downloaded yet.",
+                  {
+                    category: "server",
+                    hint: "Start the server. If it doesn't start, see Settings › PanelBridge.",
+                    variant: "workshopNotDownloaded",
+                  },
                 ),
               );
             }
-            bridgeCandidates.push(
-              path.join(zPath, "Workshop", "PanelBridge", "mod.info"),
-            );
-            bridgeCandidates.push(
-              path.join(zPath, "workshop", "PanelBridge", "mod.info"),
-            );
-          }
-          if (installPath) {
-            bridgeCandidates.push(
-              path.join(
-                installPath,
-                "media",
-                "lua",
-                "server",
-                "PanelBridge.lua",
-              ),
-            );
-            bridgeCandidates.push(
-              path.join(
-                installPath,
-                "steamapps",
-                "workshop",
-                "content",
-                "108600",
-              ),
-            );
-          }
-          let bridgeInstalled = false;
-          for (const p of bridgeCandidates) {
-            if (await safePathExists(p)) {
-              bridgeInstalled = true;
-              break;
-            }
-          }
-          if (bridgeInstalled) {
+          } else if (looseBridgeFiles.some((file) => file.kind === "server")) {
             checks.push(
               diagOk(
                 "server.bridgeMod",
@@ -3855,7 +3797,7 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
                 "Couldn't find PanelBridge.lua under the server. Advanced features (teleport, weather, character export) will be unavailable.",
                 {
                   category: "server",
-                  hint: "Copy pz-mod/PanelBridge into the server's media/lua/server folder",
+                  hint: "Settings › PanelBridge can install it",
                 },
               ),
             );

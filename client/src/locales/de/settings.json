@@ -403,7 +403,7 @@
     "setupStep2Desc": "Richtet das Panel auf den richtigen Serverdatenordner aus und startet den Watcher.",
     "setupStep3Title": "PZ-Server starten",
     "setupStep3Desc": "Wenn das Spiel die Mod lädt, wechselt der Status von <b1>Warten</b1> zu <b>Verbunden</b>.",
-    "requiresLuaChecksum": "<b>Erfordert DoLuaChecksum=false</b> in deiner Server-INI. Befehle können fehlschlagen, wenn die Prüfsumme aktiviert ist.",
+    "requiresLuaChecksum": "<b>Das vom Panel installierte PanelBridge erfordert DoLuaChecksum=false.</b> Die Bereitstellung über den Steam Workshop funktioniert auch mit eingeschalteter Prüfung.",
     "connectedTo": "Verbunden mit {{server}}",
     "connectedFallback": "Server",
     "modVersionLabel": "Mod-Version:",
@@ -500,8 +500,8 @@
     "listLogs": "Protokolle auflisten",
     "selectFileHint": "Wähle eine Datei aus, um die letzten 256 KB zu laden.",
     "tailOfPrefix": "Ende von ",
-    "autoUpdateLabel": "Mod beim Start des Panels automatisch aktualisieren",
-    "autoUpdateDesc": "Wenn das Panel startet, wird die neueste mitgelieferte PanelBridge.lua automatisch auf den PZ-Server kopiert, falls sich die Versionen unterscheiden.",
+    "autoUpdateLabel": "Vom Panel installiertes PanelBridge aktuell halten",
+    "autoUpdateDesc": "Vor jedem Serverstart und beim Start des Panels wird die mitgelieferte PanelBridge.lua in den Spielordner kopiert, falls sie sich geändert hat. Wird bei Bereitstellung über den Steam Workshop nicht verwendet.",
     "installTitle": "PanelBridge.lua installieren",
     "selectServerPlaceholder": "Server auswählen...",
     "noServersConfigured": "Keine Server konfiguriert",
@@ -512,12 +512,13 @@
     "serversLoadFailed": "Serverliste konnte nicht geladen werden — öffne die Seite erneut",
     "statusFetchFailedFallback": "Der Status-Endpunkt der Bridge ist nicht erreichbar.",
     "staleness": {
-      "protocolMismatchTitle": "Panel and bridge mod don't match",
-      "updateAvailableTitle": "Bridge mod update available",
-      "updateNowButton": "Update Now",
-      "protocolMismatchBody": "This panel expects bridge protocol '{{expected}}', but the mod on your server reports '{{actual}}'. They ship as a matched pair, so some features may not work correctly until they're back in sync.",
-      "remoteUpdateBody": "Your server is running bridge mod v{{liveVersion}}, older than the v{{bundledVersion}} this panel bundles. This panel can't update a remote/SFTP-managed server's files for you -- re-upload the updated PanelBridge.lua the same way you installed it.",
-      "localUpdateBody": "The installed bridge mod (v{{liveVersion}}) is older than what this panel bundles."
+      "protocolMismatchTitle": "Panel und PanelBridge-Mod passen nicht zusammen",
+      "updateAvailableTitle": "Update für die PanelBridge-Mod verfügbar",
+      "updateNowButton": "Jetzt aktualisieren",
+      "protocolMismatchBody": "Dieses Panel erwartet das Brückenprotokoll „{{expected}}“, die Mod auf deinem Server meldet aber „{{actual}}“. Beide werden als Paar ausgeliefert, daher funktionieren manche Funktionen möglicherweise nicht richtig, bis sie wieder übereinstimmen.",
+      "protocolMismatchWorkshopBody": "PanelBridge auf diesem Server (aus dem Steam Workshop) meldet das Protokoll „{{actual}}“, dieses Panel erwartet aber „{{expected}}“. Starte den Server neu, um die neueste Workshop-Version zu erhalten, oder aktualisiere das Panel.",
+      "remoteUpdateBody": "Auf deinem Server läuft die PanelBridge-Mod v{{liveVersion}}, älter als die v{{bundledVersion}}, die dieses Panel mitbringt. Das Panel kann die Dateien eines entfernten oder per SFTP verwalteten Servers nicht für dich aktualisieren – lade die aktualisierte PanelBridge.lua auf demselben Weg hoch, auf dem du sie installiert hast.",
+      "localUpdateBody": "Die installierte PanelBridge-Mod (v{{liveVersion}}) ist älter als die, die dieses Panel mitbringt."
     }
   },
   "mods": {
@@ -1003,6 +1004,9 @@
     "installFailed": {
       "title": "Installation fehlgeschlagen",
       "fallback": "Das Panel konnte PanelBridge.lua nicht kopieren. Überprüfe den Serverpfad und die Berechtigungen und versuche es erneut."
+    },
+    "bridgeInstallStillRunning": {
+      "title": "PanelBridge wird noch installiert"
     },
     "backupCreated": {
       "title": "Backup erstellt",

@@ -109,8 +109,10 @@
       "note": "在伺服器設定中設定 RCON 密碼（並在設定中填入相同的值）。"
     },
     "serverBridgeMod": {
-      "label": "開啟伺服器查詢器",
-      "note": "通過伺服器查詢器重新部署 PanelBridge 模組。"
+      "label": "開啟「設定 › PanelBridge」",
+      "note": "在「設定 › PanelBridge」中安裝。",
+      "noteWorkshopNotDownloaded": "啟動伺服器，讓它從 Steam 創意工坊下載 PanelBridge。「設定 › PanelBridge」會顯示它是否已載入，也可以把伺服器切換回由面板安裝。",
+      "noteLooseLeftover": "從面板啟動或重新啟動伺服器即可將其移出。「設定 › PanelBridge」中也會列出這些檔案。"
     },
     "serverConfigDrift": {
       "label": "開啟伺服器設定",
@@ -434,12 +436,26 @@
         "bridgeMod": {
           "ok": {
             "label": "PanelBridge 模組已就緒",
-            "message": "PanelBridge.lua 已部署在伺服器上。"
+            "message": "PanelBridge.lua 已部署在伺服器上。",
+            "workshop": {
+              "label": "PanelBridge 創意工坊項目已就緒",
+              "message": "已從 Steam 創意工坊下載 PanelBridge v{{version}}。"
+            }
           },
           "warn": {
             "label": "未檢測到 PanelBridge 模組",
             "message": "在伺服器中找不到 PanelBridge.lua。高階功能（傳送、天氣、角色匯出）將無法使用。",
-            "hint": "將 pz-mod/PanelBridge 複製到伺服器的 media/lua/server 資料夾中"
+            "hint": "可在「設定 › PanelBridge」中安裝",
+            "workshopNotDownloaded": {
+              "label": "PanelBridge 尚未下載",
+              "message": "此伺服器從 Steam 創意工坊取得 PanelBridge，但尚未下載。",
+              "hint": "啟動伺服器。如果無法啟動，查看「設定 › PanelBridge」。"
+            },
+            "looseLeftover": {
+              "label": "遊戲資料夾中有舊的 PanelBridge 檔案",
+              "message": "仍在遊戲資料夾中：{{files}}。開啟 Lua 完整性檢查後，玩家將被拒絕加入。",
+              "hint": "從面板啟動或重新啟動伺服器即可將其移出。"
+            }
           }
         },
         "recentCrash": {

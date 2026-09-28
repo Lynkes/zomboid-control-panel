@@ -1494,31 +1494,12 @@ export const ErrorCode = Object.freeze({
    * teleportPlayer() threw. Fixed generic catch string, same reasoning as
    * PANELBRIDGE_GET_PLAYER_DETAILS_FAILED above. */
   PANELBRIDGE_TELEPORT_FAILED: "PANELBRIDGE_TELEPORT_FAILED",
-  /** server/routes/panelBridge.js -- POST /install/from-lua-path, auto-
-   * install refused (isRemote/canAutoInstall check). */
-  PANELBRIDGE_AUTO_INSTALL_NOT_AVAILABLE: "PANELBRIDGE_AUTO_INSTALL_NOT_AVAILABLE",
-  /** server/routes/panelBridge.js -- POST /install, active server is
-   * remote. Own wording from PANELBRIDGE_AUTO_INSTALL_NOT_AVAILABLE above
-   * -- kept separate. */
+  /** server/routes/panelBridge.js -- POST /install-mod-auto, the target
+   * server is remote. */
   PANELBRIDGE_INSTALL_REMOTE_NOT_AVAILABLE: "PANELBRIDGE_INSTALL_REMOTE_NOT_AVAILABLE",
-  /** server/routes/panelBridge.js -- POST /install, canAutoInstall()
+  /** server/routes/panelBridge.js -- POST /install-mod-auto, canAutoInstall()
    * false for a local server. */
   PANELBRIDGE_INSTALL_CANNOT_AUTO_INSTALL: "PANELBRIDGE_INSTALL_CANNOT_AUTO_INSTALL",
-  /** server/routes/panelBridge.js -- POST /install/from-lua-path, no
-   * `serverLuaPath` in the body. */
-  PANELBRIDGE_SERVER_LUA_PATH_REQUIRED: "PANELBRIDGE_SERVER_LUA_PATH_REQUIRED",
-  /** server/routes/panelBridge.js -- POST /install/from-lua-path,
-   * `serverLuaPath` isn't a string or exceeds 500 characters. */
-  PANELBRIDGE_SERVER_LUA_PATH_FORMAT_INVALID: "PANELBRIDGE_SERVER_LUA_PATH_FORMAT_INVALID",
-  /** server/routes/panelBridge.js -- POST /install/from-lua-path,
-   * `serverLuaPath` isn't absolute. */
-  PANELBRIDGE_SERVER_LUA_PATH_NOT_ABSOLUTE: "PANELBRIDGE_SERVER_LUA_PATH_NOT_ABSOLUTE",
-  /** server/routes/panelBridge.js -- POST /install/from-lua-path, resolved
-   * path doesn't end in media/lua/server/. */
-  PANELBRIDGE_SERVER_LUA_PATH_WRONG_DIRECTORY: "PANELBRIDGE_SERVER_LUA_PATH_WRONG_DIRECTORY",
-  /** server/routes/panelBridge.js -- POST /install/from-lua-path, no
-   * embedded Lua and no on-disk pz-mod source found to copy. */
-  PANELBRIDGE_SOURCE_MOD_NOT_FOUND: "PANELBRIDGE_SOURCE_MOD_NOT_FOUND",
   /** server/routes/panelBridge.js -- POST /audio/play-sound (or similar),
    * x/y out of range. Own wording ("Coordinates out of range") from
    * PANELBRIDGE_TELEPORT_XY_OUT_OF_RANGE above -- kept separate, own
@@ -2159,6 +2140,53 @@ export const ErrorCode = Object.freeze({
    * denial this route can't resolve, not the read-only attribute it's
    * built to clear. */
   WRITABILITY_STILL_BLOCKED: "WRITABILITY_STILL_BLOCKED",
+  // --- PanelBridge delivery (panel-installed vs Steam Workshop) ---
+
+  /** server/routes/bridgeDelivery.js -- POST /api/panel-bridge/delivery,
+   * `method` (or `expectedFrom` on an apply) is not "local"/"workshop". */
+  PANELBRIDGE_DELIVERY_METHOD_INVALID: "PANELBRIDGE_DELIVERY_METHOD_INVALID",
+  /** server/routes/bridgeDelivery.js -- GET/POST /api/panel-bridge/delivery,
+   * the request names a server that is no longer the active one. */
+  PANELBRIDGE_DELIVERY_NOT_ACTIVE_SERVER: "PANELBRIDGE_DELIVERY_NOT_ACTIVE_SERVER",
+  /** server/services/bridgeDelivery.js -- applyDeliverySwitch(), the
+   * effective method changed since the preview. Carries {{current}}. */
+  PANELBRIDGE_DELIVERY_STALE: "PANELBRIDGE_DELIVERY_STALE",
+  /** server/services/bridgeDelivery.js -- applyDeliverySwitch(), the switch
+   * is blocked for this server. Carries {{reason}} (a DeliveryBlockReason). */
+  PANELBRIDGE_DELIVERY_UNAVAILABLE: "PANELBRIDGE_DELIVERY_UNAVAILABLE",
+  /** server/services/bridgeDelivery.js -- applyDeliverySwitch(), an ini
+   * read, write or read-back failed; everything already changed was put
+   * back. Carries {{fileName}} (basename only). */
+  PANELBRIDGE_DELIVERY_INI_WRITE_FAILED: "PANELBRIDGE_DELIVERY_INI_WRITE_FAILED",
+  /** server/services/bridgeDelivery.js -- applyDeliverySwitch(), moving a
+   * loose bridge file into the archive failed. Carries {{fileName}}. */
+  PANELBRIDGE_DELIVERY_FILE_ARCHIVE_FAILED: "PANELBRIDGE_DELIVERY_FILE_ARCHIVE_FAILED",
+  /** server/services/bridgeDelivery.js -- applyDeliverySwitch() to Local,
+   * installing the loose PanelBridge.lua failed before anything else ran. */
+  PANELBRIDGE_DELIVERY_INSTALL_FAILED: "PANELBRIDGE_DELIVERY_INSTALL_FAILED",
+  /** server/routes/panelBridge.js -- POST /install-mod-auto, the target
+   * server gets PanelBridge from the Steam Workshop. Carries {{serverName}}. */
+  PANELBRIDGE_DELIVERY_WORKSHOP_ACTIVE: "PANELBRIDGE_DELIVERY_WORKSHOP_ACTIVE",
+  /** server/routes/servers.js -- PUT /:id and POST /, and
+   * server/routes/server.js -- POST /install and /quick-setup: the profile
+   * being saved or set up would launch without Steam (useNoSteam, a
+   * -nosteam start command or launcher, a move into a Workshop game folder)
+   * while its effective PanelBridge delivery is the Steam Workshop. */
+  SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE: "SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE",
+  /** server/routes/servers.js -- PUT /:id, the edit moves a server whose
+   * PanelBridge comes from the Steam Workshop (installPath, serverPath, or
+   * remote to local) into a game folder other profiles launch without Steam
+   * from; they would turn Workshop too. Carries {{names}} (those profiles'
+   * display names, comma-separated). */
+  SERVER_NOSTEAM_SIBLING_CONFLICTS_WITH_WORKSHOP_BRIDGE: "SERVER_NOSTEAM_SIBLING_CONFLICTS_WITH_WORKSHOP_BRIDGE",
+  /** server/routes/panelBridge.js -- POST /install-mod-auto, the Install
+   * button's copy of PanelBridge.lua failed (reconcile warning
+   * installFailed). */
+  PANELBRIDGE_INSTALL_FAILED: "PANELBRIDGE_INSTALL_FAILED",
+  /** server/routes/panelBridge.js -- POST /install-mod-auto, the reconcile
+   * behind the Install button wasn't done after 10 s
+   * (MANUAL_INSTALL_WAIT_MS); it keeps running in the background. */
+  PANELBRIDGE_INSTALL_STILL_RUNNING: "PANELBRIDGE_INSTALL_STILL_RUNNING",
 });
 
 /**

@@ -12,6 +12,7 @@ import {
   readServerIniSettings,
 } from "../services/mountDiscovery.js";
 import { isContainerized } from "../utils/dockerDetect.js";
+import { _resetWorkshopReleaseCacheForTests } from "../services/bridgeWorkshopRelease.js";
 
 let tmpRoot;
 
@@ -89,6 +90,33 @@ describe("probeInstallPath", () => {
       "",
     );
     expect(probeInstallPath(tmpRoot).hasPanelBridge).toBe(true);
+  });
+
+  // PanelBridge delivery: a server that gets PanelBridge from the Steam
+  // Workshop has no loose file, only the downloaded item next to the install.
+  it("reports PanelBridge when only the Steam Workshop item is present", () => {
+    vi.stubEnv("PANEL_BRIDGE_WORKSHOP_ID", "3712345678");
+    _resetWorkshopReleaseCacheForTests();
+    try {
+      fs.writeFileSync(path.join(tmpRoot, "start-server.sh"), "");
+      const modDir = path.join(
+        tmpRoot, "steamapps", "workshop", "content", "108600", "3712345678",
+        "mods", "ZomboidControlPanelBridge", "42",
+      );
+      fs.mkdirSync(modDir, { recursive: true });
+      expect(probeInstallPath(tmpRoot).hasPanelBridge).toBe(false);
+      fs.writeFileSync(path.join(modDir, "mod.info"), "id=ZomboidControlPanelBridge\nmodversion=1.7.71\n");
+      expect(probeInstallPath(tmpRoot).hasPanelBridge).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+      _resetWorkshopReleaseCacheForTests();
+    }
+  });
+
+  it("does not count another mod's Workshop download as PanelBridge", () => {
+    fs.writeFileSync(path.join(tmpRoot, "start-server.sh"), "");
+    fs.mkdirSync(path.join(tmpRoot, "steamapps", "workshop", "content", "108600", "111"), { recursive: true });
+    expect(probeInstallPath(tmpRoot).hasPanelBridge).toBe(false);
   });
 });
 
