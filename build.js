@@ -68,6 +68,27 @@ export function resolveApiContractVersion(env = process.env) {
     : DEFAULT_API_CONTRACT_VERSION;
 }
 
+// Returns pz-mod/workshop/published.json verbatim for the
+// PANEL_BRIDGE_WORKSHOP_JSON define. The raw text is embedded (not a
+// re-serialisation) so the binary reads exactly what the release commit holds;
+// the parse here only proves it is JSON. Its fields are validated at runtime.
+export function readPublishedWorkshopJson(filePath = "./pz-mod/workshop/published.json") {
+  let text;
+  try {
+    text = fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    throw new Error(`${filePath} not found: the PanelBridge Workshop item id must ship with the binary (${error.code || error.message})`);
+  }
+  let published;
+  try {
+    published = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${filePath} is not valid JSON: ${error.message}`);
+  }
+  console.log(`Embedding published.json (workshopId ${published?.workshopId || "none"})`);
+  return text;
+}
+
 export function createEmbeddedClientBundle(clientDist, expectedMetadata) {
   const files = {};
   const walk = (directory, relativeDirectory = "") => {
@@ -296,7 +317,7 @@ needs internet).
 - data/db.example.json     - Reference db structure (safe to delete)
 - data/README.txt          - Upgrade-safety notes for the data/ folder
 - logs/                    - Application logs
-- pz-mod/                  - PanelBridge server-side Lua (drop into Install/media/lua/server)
+- pz-mod/                  - PanelBridge Lua and its Steam Workshop details (see Panel Bridge Setup)
 - checksums.txt            - SHA256 hashes for release archives
 - release-manifest.json    - Build metadata for this package
 
@@ -306,12 +327,19 @@ journaled updater or a manual archive upgrade; it is still retained in the
 package for compatibility with older binaries.
 
 ## Panel Bridge Setup (Optional)
-The PanelBridge Lua enables advanced features like weather control. It is a
-server-side drop-in, NOT a Workshop mod — there is no client component.
-1. Copy pz-mod/PanelBridge/media/lua/server/PanelBridge.lua into your PZ
-   dedicated server's install folder: Install/media/lua/server/PanelBridge.lua
-2. Restart your PZ server (no .ini changes needed; nothing loads on clients)
-3. Go to Settings in the panel and configure the Panel Bridge section
+The PanelBridge Lua enables advanced features like weather control. It can be
+installed two ways; choose one per server in Settings > PanelBridge, which also
+shows the exact values for your server:
+- Installed by the panel (default): the panel copies PanelBridge.lua into the
+  game folder for you. For a server it can't reach, copy
+  pz-mod/PanelBridge/media/lua/server/PanelBridge.lua to
+  Install/media/lua/server/PanelBridge.lua yourself. Set DoLuaChecksum=false in
+  the server's .ini, or players can't join.
+- Steam Workshop (Build 42 servers running with Steam): add
+  ZomboidControlPanelBridge to the Mods= line and the PanelBridge Workshop item
+  ID to the WorkshopItems= line of the server's .ini. The server downloads it
+  at startup and players get it when they join.
+Restart your PZ server after either change.
 
 ## Upgrading
 - The panel auto-update feature handles upgrades safely — prefer it.
@@ -1668,6 +1696,20 @@ async function main() {
     );
   }
 
+  // Pin the PanelBridge Steam Workshop item id to this release. A binary-only
+  // auto-update leaves the on-disk pz-mod/ folder stale (see the Lua comment
+  // above), and the id must never be fetched from the network, so the binary
+  // carries its own copy; server/services/bridgeWorkshopRelease.js reads it
+  // before the file. Unlike the Lua, a missing or broken file fails the build:
+  // shipping without it would silently turn Workshop delivery off.
+  let publishedWorkshopJson;
+  try {
+    publishedWorkshopJson = readPublishedWorkshopJson();
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
+  }
+
   await esbuild.build({
     entryPoints: ["./server/index.js"],
     bundle: true,
@@ -1685,6 +1727,7 @@ async function main() {
       PANEL_BUILD_SHA: JSON.stringify(buildSha),
       PANEL_API_CONTRACT_VERSION: JSON.stringify(apiContractVersion),
       PANEL_BRIDGE_LUA_B64: JSON.stringify(panelBridgeLuaB64),
+      PANEL_BRIDGE_WORKSHOP_JSON: JSON.stringify(publishedWorkshopJson),
       PANEL_CLIENT_DIST_B64: JSON.stringify(embeddedClientDistB64),
     },
     banner: {

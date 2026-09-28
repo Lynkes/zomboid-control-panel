@@ -1,0 +1,407 @@
+import { afterEach, describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import {
+  PASSWORD_ENV_VARS,
+  changeNoteFromLua,
+  escapeVdf,
+  readVdfPublishedFileId,
+  renderItemVdf,
+  runPublishCli,
+} from "../../scripts/workshop/publish.mjs";
+import { writeBridgeVersionLock } from "../../scripts/check-bridge-version.mjs";
+import { BRIDGE_FILES, REPO_ROOT, readRepoText } from "../../scripts/workshop/lib.mjs";
+
+// scripts/workshop/publish.mjs (spec §8.9). steamcmd is never run here: the
+// spawn is injected. The properties that matter most: no password ever passes
+// through the tool, a pinned Workshop id is never replaced, and nothing is
+// published that the release lock doesn't describe unless explicitly allowed.
+
+const tempDirs = [];
+const REAL_MOD_INFO = readRepoText(REPO_ROOT, BRIDGE_FILES.modInfo);
+const VERSION = /^modversion=(.+)$/m.exec(REAL_MOD_INFO)[1];
+const CONTRACT_PUBLISHED = fs.readFileSync(path.join(REPO_ROOT, BRIDGE_FILES.published), "utf8").replace(/\r\n/g, "\n");
+const NOW = new Date("2026-09-27T12:00:00.000Z");
+
+function serverLua(extra = "") {
+  return [
+    "--[[",
+    "    PanelBridge - Server-side mod for Zomboid Control Panel",
+    `    Version: ${VERSION}`,
+    "",
+    "                vNEXT Changes:",
+    "                - Add: delivery reporting.",
+    "",
+    `                v${VERSION} Changes:`,
+    "                - Add: lightweight save-backed player leaderboard",
+    "                    telemetry.",
+    "",
+    "                v1.7.67 Changes:",
+    "                - Packaging: align versions.",
+    "]]",
+    "if not (isServer and isServer()) then return end",
+    "local PanelBridge = {",
+    `    VERSION = "${VERSION}",`,
+    "    MOD_ID = \"ZomboidControlPanelBridge\",",
+    "}",
+    extra,
+    "return PanelBridge",
+    "",
+  ].join("\n");
+}
+
+function makeRepo({ published = {} } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "workshop-publish-"));
+  tempDirs.push(root);
+  const write = (relativePath, content) => {
+    const full = path.join(root, relativePath);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, content);
+  };
+  write(BRIDGE_FILES.serverLua, serverLua());
+  write(BRIDGE_FILES.clientLua, "if not (isClient and isClient()) then return end\n");
+  write(BRIDGE_FILES.modInfo, REAL_MOD_INFO);
+  for (const file of [BRIDGE_FILES.workshopTxt, BRIDGE_FILES.preview, BRIDGE_FILES.poster, BRIDGE_FILES.icon]) {
+    write(file, fs.readFileSync(path.join(REPO_ROOT, file)));
+  }
+  let publishedText = CONTRACT_PUBLISHED;
+  for (const [key, value] of Object.entries(published)) {
+    publishedText = publishedText.replace(new RegExp(`("${key}": )null`), `$1${JSON.stringify(value)}`);
+  }
+  write(BRIDGE_FILES.published, publishedText);
+  writeBridgeVersionLock(root, VERSION);
+  const readPublishedText = () => fs.readFileSync(path.join(root, BRIDGE_FILES.published), "utf8");
+  return { root, write, readPublishedText, readPublished: () => JSON.parse(readPublishedText()) };
+}
+
+// Stands in for steamcmd: records the call, then does what steamcmd does on
+// success (writes the new item id back into the VDF) and exits.
+function fakeSteamcmd({ writeId = "3712345678", exitCode = 0 } = {}) {
+  const calls = [];
+  const spawn = (command, args, options) => {
+    calls.push({ command, args, options, vdf: fs.readFileSync(args[3], "utf8") });
+    const child = new EventEmitter();
+    setImmediate(() => {
+      if (exitCode === 0 && writeId) {
+        const vdf = fs.readFileSync(args[3], "utf8").replace(/("publishedfileid"\s+)"\d+"/, `$1"${writeId}"`);
+        fs.writeFileSync(args[3], vdf);
+      }
+      child.emit("close", exitCode);
+    });
+    return child;
+  };
+  return { spawn, calls };
+}
+
+async function run(repo, argv, { spawn = fakeSteamcmd().spawn, env = {} } = {}) {
+  const out = [];
+  const err = [];
+  const code = await runPublishCli(argv, {
+    repoRoot: repo.root,
+    env,
+    spawn,
+    now: () => NOW,
+    log: (line) => out.push(String(line)),
+    error: (line) => err.push(String(line)),
+  });
+  return { code, out: out.join("\n"), err: err.join("\n") };
+}
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+describe("workshop publish: credentials", () => {
+  it("offers no password option in --help", async () => {
+    const result = await run(makeRepo(), ["--help"]);
+    expect(result.code).toBe(0);
+    expect(result.out).toMatch(/--steam-user <account>/);
+    expect(result.out).not.toMatch(/--pass|-p\b|STEAM_PASSWORD/);
+    expect(result.out).toMatch(/steamcmd asks for\s+its password and Steam Guard code itself/);
+  });
+
+  it.each([["--password", "hunter2"], ["--password=hunter2"], ["-p", "hunter2"], ["--pass", "x"], ["--steam-password", "x"]])(
+    "refuses %s without running steamcmd",
+    async (...args) => {
+      const steamcmd = fakeSteamcmd();
+      const result = await run(makeRepo(), ["--steam-user", "maint", ...args.filter(Boolean)], { spawn: steamcmd.spawn });
+      expect(result.code).toBe(1);
+      expect(result.err).toMatch(/never takes a Steam password/);
+      expect(steamcmd.calls).toHaveLength(0);
+    },
+  );
+
+  it.each(PASSWORD_ENV_VARS)("refuses to run while %s is set", async (name) => {
+    const steamcmd = fakeSteamcmd();
+    const result = await run(makeRepo(), ["--steam-user", "maint"], { spawn: steamcmd.spawn, env: { [name]: "secret" } });
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(new RegExp(`Unset ${name}`));
+    expect(result.err).not.toMatch(/secret/);
+    expect(steamcmd.calls).toHaveLength(0);
+  });
+
+  it("refuses a --steam-user that could smuggle a second argument", async () => {
+    const result = await run(makeRepo(), ["--steam-user", "maint hunter2", "--dry-run"]);
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/must be a Steam account name/);
+  });
+
+  it("runs steamcmd attached to the terminal so it prompts for the secrets itself", async () => {
+    const repo = makeRepo();
+    const steamcmd = fakeSteamcmd();
+    const result = await run(repo, ["--steam-user", "maint", "--steamcmd", "C:/steamcmd/steamcmd.exe"], { spawn: steamcmd.spawn });
+    expect(result.code).toBe(0);
+    expect(steamcmd.calls).toHaveLength(1);
+    const [call] = steamcmd.calls;
+    expect(call.command).toBe("C:/steamcmd/steamcmd.exe");
+    expect(call.args).toEqual(["+login", "maint", "+workshop_build_item", path.join(repo.root, "dist-workshop", "item.vdf"), "+quit"]);
+    expect(call.options).toEqual({ stdio: "inherit" });
+    expect(result.out).toMatch(/Workshop items can't be transferred to another account later/);
+    expect(result.out).toMatch(/use its logout command on shared machines/);
+  });
+});
+
+describe("workshop publish: the item.vdf", () => {
+  it("escapes backslashes and quotes", () => {
+    expect(escapeVdf("C:\\a \"b\"")).toBe("C:\\\\a \\\"b\\\"");
+    const vdf = renderItemVdf({
+      workshopId: null,
+      contentFolder: "C:\\dist\\Contents",
+      previewFile: "/srv/dist/preview.png",
+      visibility: "unlisted",
+      title: "Say \"hi\"",
+      description: "line 1\nline 2",
+      changenote: "fix \\ path",
+    });
+    expect(vdf).toBe([
+      "\"workshopitem\"",
+      "{",
+      "  \"appid\"           \"108600\"",
+      "  \"publishedfileid\" \"0\"",
+      "  \"contentfolder\"   \"C:\\\\dist\\\\Contents\"",
+      "  \"previewfile\"     \"/srv/dist/preview.png\"",
+      "  \"visibility\"      \"3\"",
+      "  \"title\"           \"Say \\\"hi\\\"\"",
+      "  \"description\"     \"line 1\nline 2\"",
+      "  \"changenote\"      \"fix \\\\ path\"",
+      "}",
+      "",
+    ].join("\n"));
+    expect(readVdfPublishedFileId(vdf)).toBe("0");
+  });
+
+  it("--dry-run prints the VDF with absolute paths and runs and writes nothing", async () => {
+    const repo = makeRepo();
+    const steamcmd = fakeSteamcmd();
+    const before = repo.readPublishedText();
+    const result = await run(repo, ["--steam-user", "maint", "--dry-run"], { spawn: steamcmd.spawn });
+    expect(result.code).toBe(0);
+    expect(steamcmd.calls).toHaveLength(0);
+    expect(fs.existsSync(path.join(repo.root, "dist-workshop"))).toBe(false);
+    expect(repo.readPublishedText()).toBe(before);
+
+    const folder = /"contentfolder"\s+"([^"]+)"/.exec(result.out)[1].replace(/\\\\/g, "\\");
+    const preview = /"previewfile"\s+"([^"]+)"/.exec(result.out)[1].replace(/\\\\/g, "\\");
+    expect(path.isAbsolute(folder)).toBe(true);
+    expect(folder).toBe(path.join(repo.root, "dist-workshop", "ZomboidControlPanelBridge", "Contents"));
+    expect(preview).toBe(path.join(repo.root, "dist-workshop", "ZomboidControlPanelBridge", "preview.png"));
+    expect(result.out).toMatch(/"appid"\s+"108600"/);
+    expect(result.out).toMatch(/"publishedfileid"\s+"0"/);
+    expect(result.out).toMatch(/"title"\s+"Zomboid Control Panel Bridge"/);
+    expect(result.out).toMatch(/Would run: steamcmd \+login maint \+workshop_build_item .*item\.vdf \+quit/);
+  });
+
+  it.each([
+    [[], "3"],
+    [["--visibility", "unlisted"], "3"],
+    [["--visibility", "public"], "0"],
+  ])("maps visibility %j to %s", async (extra, code) => {
+    const result = await run(makeRepo(), ["--steam-user", "maint", "--dry-run", ...extra]);
+    expect(result.code).toBe(0);
+    expect(result.out).toMatch(new RegExp(`"visibility"\\s+"${code}"`));
+  });
+
+  it("takes the default visibility from published.json", async () => {
+    const result = await run(makeRepo({ published: { visibility: "public" } }), ["--steam-user", "maint", "--dry-run"]);
+    expect(result.out).toMatch(/"visibility"\s+"0"/);
+  });
+
+  it.each(["private", "friendsOnly"])("refuses %s visibility (dedicated servers download anonymously)", async (visibility) => {
+    const result = await run(makeRepo(), ["--steam-user", "maint", "--dry-run", "--visibility", visibility]);
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/must be public or unlisted/);
+  });
+
+  it("uses --changenote-file when given", async () => {
+    const repo = makeRepo();
+    repo.write("note.txt", "Fixes the thing.\r\n");
+    const result = await run(repo, ["--steam-user", "maint", "--dry-run", "--changenote-file", path.join(repo.root, "note.txt")]);
+    expect(result.out).toMatch(/"changenote"\s+"Fixes the thing\."/);
+  });
+});
+
+describe("workshop publish: recording the id", () => {
+  it("records the id steamcmd writes back on a first publish", async () => {
+    const repo = makeRepo();
+    const steamcmd = fakeSteamcmd({ writeId: "3712345678" });
+    const result = await run(repo, ["--steam-user", "maint"], { spawn: steamcmd.spawn });
+    expect(result.code).toBe(0);
+    expect(steamcmd.calls[0].vdf).toMatch(/"publishedfileid"\s+"0"/);
+    expect(repo.readPublished()).toEqual({
+      ...JSON.parse(CONTRACT_PUBLISHED),
+      workshopId: "3712345678",
+      visibility: "unlisted",
+      publishedVersion: VERSION,
+      publishedAt: NOW.toISOString(),
+    });
+    // Only the four fields moved; the hand-maintained liveVerified line didn't reflow.
+    expect(repo.readPublishedText()).toMatch(/^ {2}"liveVerified": \{ "windowsServer": null, "linuxServer": null \}$/m);
+    expect(result.out).toMatch(/Commit pz-mod\/workshop\/published\.json\./);
+    expect(result.out).toMatch(/set them once in the in-game uploader/);
+    // The item was built for steamcmd to upload.
+    expect(fs.existsSync(path.join(repo.root, "dist-workshop", "ZomboidControlPanelBridge", "Contents", "mods"))).toBe(true);
+  });
+
+  it("updates an existing item under its pinned id", async () => {
+    const repo = makeRepo({ published: { workshopId: "3712345678", publishedVersion: "1.7.1" } });
+    const steamcmd = fakeSteamcmd({ writeId: "3712345678" });
+    const result = await run(repo, ["--steam-user", "maint"], { spawn: steamcmd.spawn });
+    expect(result.code).toBe(0);
+    expect(steamcmd.calls[0].vdf).toMatch(/"publishedfileid"\s+"3712345678"/);
+    expect(repo.readPublished()).toMatchObject({ workshopId: "3712345678", publishedVersion: VERSION });
+  });
+
+  it("refuses to replace a pinned id with a different one", async () => {
+    const repo = makeRepo({ published: { workshopId: "111", publishedVersion: "1.7.1" } });
+    const before = repo.readPublishedText();
+    const result = await run(repo, ["--steam-user", "maint"], { spawn: fakeSteamcmd({ writeId: "222" }).spawn });
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/already pins Workshop item 111; refusing to replace it with 222/);
+    expect(repo.readPublishedText()).toBe(before);
+  });
+
+  it("leaves published.json alone when steamcmd fails or returns no id", async () => {
+    const repo = makeRepo();
+    const before = repo.readPublishedText();
+    const failed = await run(repo, ["--steam-user", "maint"], { spawn: fakeSteamcmd({ exitCode: 5 }).spawn });
+    expect(failed.code).toBe(1);
+    expect(failed.err).toMatch(/steamcmd exited with code 5/);
+    const noId = await run(repo, ["--steam-user", "maint"], { spawn: fakeSteamcmd({ writeId: null }).spawn });
+    expect(noId.code).toBe(1);
+    expect(noId.err).toMatch(/holds no Workshop item id/);
+    expect(repo.readPublishedText()).toBe(before);
+  });
+
+  it("record --id writes the same fields as a publish", async () => {
+    const repo = makeRepo();
+    const result = await run(repo, ["record", "--id", "3712345678", "--visibility", "unlisted"]);
+    expect(result.code).toBe(0);
+    expect(repo.readPublished()).toMatchObject({
+      workshopId: "3712345678",
+      visibility: "unlisted",
+      publishedVersion: VERSION,
+      publishedAt: NOW.toISOString(),
+    });
+  });
+
+  it("record --from-staged reads id= and visibility= from the staged workshop.txt", async () => {
+    const repo = makeRepo();
+    const staged = path.join(repo.root, "Workshop", "ZomboidControlPanelBridge");
+    fs.mkdirSync(staged, { recursive: true });
+    fs.writeFileSync(path.join(staged, "workshop.txt"), "version=1\r\nid=3712345678\r\ntitle=Zomboid Control Panel Bridge\r\nvisibility=public\r\n");
+    const result = await run(repo, ["record", "--from-staged", staged]);
+    expect(result.code).toBe(0);
+    expect(repo.readPublished()).toMatchObject({ workshopId: "3712345678", visibility: "public" });
+  });
+
+  it("record refuses a staged item without an id, a bad id, a changed id and ambiguous input", async () => {
+    const repo = makeRepo();
+    const staged = path.join(repo.root, "Workshop", "ZomboidControlPanelBridge");
+    fs.mkdirSync(staged, { recursive: true });
+    fs.writeFileSync(path.join(staged, "workshop.txt"), "version=1\ntitle=x\n");
+    expect((await run(repo, ["record", "--from-staged", staged])).err).toMatch(/has no id= line yet/);
+    expect((await run(repo, ["record", "--id", "0"])).err).toMatch(/isn't a Workshop item id/);
+    expect((await run(repo, ["record", "--id", "12a"])).err).toMatch(/isn't a Workshop item id/);
+    expect((await run(repo, ["record"])).err).toMatch(/exactly one of --from-staged/);
+    expect((await run(repo, ["record", "--id", "1", "--from-staged", staged])).err).toMatch(/exactly one of --from-staged/);
+    expect((await run(repo, ["record", "--id", "1", "--steam-user", "x"])).err).toMatch(/Unknown argument for record: --steam-user/);
+
+    const pinned = makeRepo({ published: { workshopId: "111" } });
+    const before = pinned.readPublishedText();
+    expect((await run(pinned, ["record", "--id", "222"])).err).toMatch(/refusing to replace it with 222/);
+    expect(pinned.readPublishedText()).toBe(before);
+  });
+});
+
+describe("workshop publish: preconditions", () => {
+  it("refuses to republish the published version without --force", async () => {
+    const repo = makeRepo({ published: { workshopId: "3712345678", publishedVersion: VERSION } });
+    const steamcmd = fakeSteamcmd();
+    const refused = await run(repo, ["--steam-user", "maint"], { spawn: steamcmd.spawn });
+    expect(refused.code).toBe(1);
+    expect(refused.err).toMatch(new RegExp(`PanelBridge ${VERSION.replace(/\./g, "\\.")} is already published`));
+    expect(steamcmd.calls).toHaveLength(0);
+    const forced = await run(repo, ["--steam-user", "maint", "--force"], { spawn: steamcmd.spawn });
+    expect(forced.code).toBe(0);
+    expect(steamcmd.calls).toHaveLength(1);
+  });
+
+  it("refuses code the release lock doesn't describe unless --allow-unreleased", async () => {
+    const repo = makeRepo();
+    repo.write(BRIDGE_FILES.serverLua, serverLua("-- an unreleased change"));
+    const steamcmd = fakeSteamcmd();
+    const refused = await run(repo, ["--steam-user", "maint"], { spawn: steamcmd.spawn });
+    expect(refused.code).toBe(1);
+    expect(refused.err).toMatch(/differs from the released .* --allow-unreleased/);
+    expect(steamcmd.calls).toHaveLength(0);
+    const allowed = await run(repo, ["--steam-user", "maint", "--allow-unreleased"], { spawn: steamcmd.spawn });
+    expect(allowed.code).toBe(0);
+    expect(allowed.err).toMatch(/WARNING: Publishing UNRELEASED PanelBridge code/);
+    expect(steamcmd.calls).toHaveLength(1);
+  });
+
+  it("refuses when the item fails its build checks", async () => {
+    const repo = makeRepo();
+    repo.write(BRIDGE_FILES.clientLua, "print('no guard')\n");
+    writeBridgeVersionLock(repo.root, VERSION);
+    const steamcmd = fakeSteamcmd();
+    const result = await run(repo, ["--steam-user", "maint", "--dry-run"], { spawn: steamcmd.spawn });
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/Workshop item check failed/);
+    expect(steamcmd.calls).toHaveLength(0);
+  });
+
+  it("refuses when the mod id in published.json changed", async () => {
+    const repo = makeRepo();
+    repo.write(BRIDGE_FILES.published, CONTRACT_PUBLISHED.replace("\"ZomboidControlPanelBridge\"", "\"PanelBridge\""));
+    const result = await run(repo, ["--steam-user", "maint", "--dry-run"]);
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/modId must be ZomboidControlPanelBridge/);
+  });
+});
+
+describe("workshop publish: change notes from the Lua header", () => {
+  const lua = serverLua();
+
+  it("uses the current block (and vNEXT) on a first publish, not the whole history", () => {
+    expect(changeNoteFromLua(lua, { version: VERSION, publishedVersion: null })).toBe([
+      `v${VERSION} Changes:`,
+      "- Add: delivery reporting.",
+      "",
+      `v${VERSION} Changes:`,
+      "- Add: lightweight save-backed player leaderboard telemetry.",
+    ].join("\n"));
+  });
+
+  it("uses every block newer than the last published version", () => {
+    const note = changeNoteFromLua(lua, { version: VERSION, publishedVersion: "1.7.60" });
+    expect(note).toMatch(/v1\.7\.67 Changes:\n- Packaging: align versions\./);
+    expect(changeNoteFromLua(lua, { version: VERSION, publishedVersion: "1.7.67" })).not.toMatch(/1\.7\.67/);
+  });
+
+  it("falls back to the version when the header has no matching block", () => {
+    expect(changeNoteFromLua("--[[\n    Version: 2.0.0\n]]\n", { version: "2.0.0", publishedVersion: null })).toBe("PanelBridge 2.0.0");
+  });
+});

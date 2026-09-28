@@ -82,3 +82,7 @@ skills-lock.json
 # scripts/ui-shot-tour.mjs output (regenerable; Screenshots/ is the tracked,
 # hand-curated README gallery -- this is a disposable full-app baseline).
 .ui-tour/
+
+# Generated PanelBridge Steam Workshop item (npm run workshop:build). Never
+# under release/: release.ps1 zips release/* into the panel archive as-is.
+dist-workshop/

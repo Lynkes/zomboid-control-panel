@@ -26,3 +26,14 @@ zomboid-panel.service text eol=lf
 # but pinning this file to LF removes the CRLF case entirely on machines
 # where core.autocrlf=true would otherwise check it out with CRLF.
 client/index.html text eol=lf
+
+# PanelBridge sources ship byte-for-byte to servers and players (loose install
+# and the Steam Workshop item), and their normalized bytes are hashed into
+# pz-mod/bridge-version.lock.json. The index already holds LF; pinning it here
+# keeps Windows checkouts (core.autocrlf=true) identical to CI and Linux.
+# scripts/workshop/build-item.mjs normalizes anyway; this removes the case.
+pz-mod/**/*.lua text eol=lf
+pz-mod/**/mod.info text eol=lf
+pz-mod/**/*.json text eol=lf
+pz-mod/**/*.txt text eol=lf
+pz-mod/**/*.png binary
