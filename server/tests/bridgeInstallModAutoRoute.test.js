@@ -95,6 +95,17 @@ describe("POST /install-mod-auto outcomes", () => {
     });
   });
 
+  // The server's own ini loads the Workshop copy with DoLuaChecksum on:
+  // reconcile keeps the loose file out, and "already up to date" would claim
+  // a file that isn't there.
+  it("409 WORKSHOP_ACTIVE when this server's settings load the Workshop copy with the check on", async () => {
+    reconcileBridge.mockResolvedValue({ method: "local", skipped: null, actions: [], warnings: ["workshopEntriesWithChecksum"] });
+    expect(await install()).toMatchObject({
+      status: 409,
+      body: { code: "PANELBRIDGE_DELIVERY_WORKSHOP_ACTIVE", params: { serverName: "servertest" } },
+    });
+  });
+
   it("504 STILL_RUNNING, not a failure, when the reconcile wasn't done after its timeout", async () => {
     reconcileBridge.mockResolvedValue({ method: null, skipped: "timeout", actions: [], warnings: [] });
     expect(await install()).toMatchObject({

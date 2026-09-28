@@ -34,7 +34,7 @@ vi.mock("../database/init.js", async () => {
   };
 });
 
-const { reconcileBridge } = await import("../services/bridgeDelivery.js");
+const { getDeliveryStatus, reconcileBridge } = await import("../services/bridgeDelivery.js");
 const { _resetWorkshopReleaseCacheForTests } = await import("../services/bridgeWorkshopRelease.js");
 
 let root;
@@ -130,6 +130,85 @@ describe("panel-installed (local)", () => {
     );
     expect(result.method).toBe("workshop");
     expect(fs.existsSync(looseServerPath(files.installDir))).toBe(false);
+  });
+});
+
+// A Local server whose own ini loads the bridge's mod copy with
+// DoLuaChecksum on: the mod copy runs anyway, and a loose PanelBridge.lua
+// beside it only gets every non-admin join refused (§3). The launch meant to
+// keep the server right must not be what makes it unjoinable.
+describe("panel-installed, but the settings load the Workshop copy with the check on", () => {
+  it("a sibling left behind when the Workshop profile goes away gets no loose file (group dissolution)", async () => {
+    const workshopFiles = createServerFiles(root, { key: "s2", serverName: "workshop", installDir: files.installDir });
+    const joined = makeServer(files, { id: "s1", name: "Joined Later" });
+    const workshop = makeServer(workshopFiles, {
+      id: "s2",
+      name: "Workshop Two",
+      serverName: "workshop",
+      isActive: false,
+      bridgeDelivery: "workshop",
+      bridgeDeliverySwitch: { to: "workshop", at: "2026-01-01T00:00:00.000Z", by: null, bridgeStartedAt: null, workshopId: WS_ID },
+    });
+    dbState.servers = [joined, workshop];
+    const asWorkshop = await reconcileBridge(joined, { reason: "launch" });
+    expect(asWorkshop).toMatchObject({ method: "workshop", actions: [{ kind: "iniEntriesAdded", path: files.iniPath }] });
+    // DEFAULT_INI has the check on already, as an operator who turned it on
+    // for a confirmed Workshop server would.
+    expect(readText(files.iniPath)).toContain("DoLuaChecksum=true");
+
+    // The Workshop profile is deleted: the folder is Local again.
+    dbState.servers = [joined];
+    const before = fs.readFileSync(files.iniPath);
+    const result = await reconcileBridge(joined, { reason: "launch" });
+    expect(result).toMatchObject({ method: "local", actions: [], warnings: ["workshopEntriesWithChecksum"] });
+    expect(fs.existsSync(looseServerPath(files.installDir))).toBe(false);
+    expect(fs.readFileSync(files.iniPath)).toEqual(before);
+
+    const status = await getDeliveryStatus(joined, {});
+    expect(status).toMatchObject({ method: "local", state: "local-workshop-loaded" });
+    expect(status.checksum).toMatchObject({ current: true, playersBlocked: false });
+    expect(status.switchAvailability.toLocal.available).toBe(true);
+  });
+
+  // "Switch, restart later" back to Local, then something on the running
+  // game re-saves its in-memory options (RCON changeoption): the entries and
+  // DoLuaChecksum=true come back, next to the loose file the switch
+  // installed.
+  it.each(["launch", "boot", "manual"])("moves an existing loose copy out instead of keeping it (%s)", async (reason) => {
+    fs.writeFileSync(files.iniPath, `Mods=OtherMod;${MOD}\r\nWorkshopItems=111;${WS_ID}\r\nDoLuaChecksum=true\r\n`);
+    const loose = writeLoose(files.installDir, "media/lua/server/PanelBridge.lua", bundledLua());
+    const client = writeLoose(files.installDir, "media/lua/client/PanelBridgeClient.lua", "-- someone else's client file\n");
+    const server = makeServer(files, {
+      bridgeDeliverySwitch: { to: "local", at: "2026-01-01T00:00:00.000Z", by: null, bridgeStartedAt: null, workshopId: null },
+    });
+    dbState.servers = [server];
+    const before = fs.readFileSync(files.iniPath);
+    const result = await reconcileBridge(server, { reason });
+    expect(result.method).toBe("local");
+    expect(result.warnings).toEqual(["workshopEntriesWithChecksum"]);
+    expect(result.actions).toEqual(
+      expect.arrayContaining([{ kind: "archived", path: loose }, { kind: "archived", path: client }]),
+    );
+    expect(fs.existsSync(loose)).toBe(false);
+    expect(fs.existsSync(client)).toBe(false);
+    expect(fs.readFileSync(files.iniPath)).toEqual(before);
+    const status = await getDeliveryStatus(server, {});
+    expect(status).toMatchObject({ state: "local-workshop-loaded" });
+    expect(status.checksum.playersBlocked).toBe(false);
+  });
+
+  it("with the check off, or entries the game doesn't read, installs as usual", async () => {
+    fs.writeFileSync(files.iniPath, `Mods=OtherMod;${MOD}\r\nWorkshopItems=111;${WS_ID}\r\nDoLuaChecksum=false\r\n`);
+    const server = makeServer(files);
+    dbState.servers = [server];
+    expect((await reconcileBridge(server, { reason: "launch" })).actions.map((action) => action.kind)).toEqual(["installed"]);
+
+    fs.rmSync(looseServerPath(files.installDir));
+    fs.writeFileSync(files.iniPath, `Mods =OtherMod;${MOD}\r\nDoLuaChecksum=true\r\n`);
+    expect((await reconcileBridge(server, { reason: "launch" })).actions.map((action) => action.kind)).toEqual(["installed"]);
+    // ...and a Local server with the check on and no entries is still told
+    // players are blocked.
+    expect((await getDeliveryStatus(server, {})).checksum.playersBlocked).toBe(true);
   });
 });
 

@@ -504,6 +504,26 @@ function heartbeatFromPreviousRun(ctx, restartedSinceSwitch) {
   return ctx.serverRunning === true && started !== null && live.startedAt < started - PREVIOUS_RUN_SLACK_MS;
 }
 
+// A settings file that makes the game load the bridge's mod copy (its id in
+// the Mods= list the game reads) with the Lua integrity check on. The mod
+// copy then runs whether or not a loose PanelBridge.lua sits in the game
+// folder -- same path, only one of them runs -- and a loose one only adds
+// files players don't have, so every non-admin join is refused (§3). On a
+// Local server this is how a joinable Workshop setup can end up, with no
+// switch involved: the Workshop profile that shared the folder was deleted
+// or moved, or the running game re-saved its in-memory options over the
+// file after a "Switch, restart later" back to panel-installed (RCON
+// changeoption: 42.20 ServerOptions.changeOption -> saveServerTextFile,
+// which writes every option), or an older ini came back from a restore.
+function workshopCopyWithChecksumOn(iniText) {
+  if (iniText === null || iniText === undefined) return false;
+  return readGameIniList(iniText, "Mods").entries.includes(BRIDGE_MOD_ID) && getEffectiveChecksum(iniText);
+}
+
+function isLooseLua(file) {
+  return file.kind === "server" || file.kind === "client";
+}
+
 async function buildContext(server, deps = {}) {
   const all = await getServers();
   const fresh = (server?.id !== null && server?.id !== undefined && all.find((s) => sameServer(s, server))) || server;
@@ -656,6 +676,12 @@ function deriveState(ctx, { restartedSinceSwitch, lastStartFailure }) {
     // settings still ask for.
     if (live?.alive && live.delivery === "workshop" && !previousRun) return "local-workshop-loaded";
     if (access === "automatic") {
+      // What the next start loads, read from the settings file: reconcile
+      // keeps the game folder free of a loose copy next to that mod copy
+      // (reconcileInner), so "not installed" / "Install now" would be the
+      // wrong advice. The remedy is the same as for a heartbeat that says
+      // so: make the Workshop official, or clean the entries up.
+      if (workshopCopyWithChecksumOn(ctx.iniText)) return "local-workshop-loaded";
       const installed = checkBridgeInstalled(ctx.server);
       if (!installed.installed) return "local-not-installed";
       if (installed.needsUpdate) return "local-update-pending";
@@ -720,6 +746,14 @@ async function statusFromContext(ctx) {
   if (state !== "workshop-confirmed") turnOnBlockers.push("notConfirmed");
   if (access === "automatic" && disk.looseFiles.length > 0) turnOnBlockers.push("looseFilesPresent");
   if (current === true) turnOnBlockers.push("alreadyOn");
+  // Local with the check on refuses players because of the loose copy. When
+  // the settings make the game load the mod copy instead and no loose Lua is
+  // left beside it (reconcile moves it out at every panel launch), players
+  // get in: telling the operator to turn the check off would only weaken it.
+  const playersBlocked =
+    method === "local" &&
+    current === true &&
+    !(workshopCopyWithChecksumOn(ctx.iniText) && !disk.looseFiles.some(isLooseLua));
 
   const modChecker = ctx.deps?.modChecker;
   let steamReportsUnavailable = false;
@@ -757,7 +791,7 @@ async function statusFromContext(ctx) {
       current,
       canTurnOn: turnOnBlockers.length === 0,
       turnOnBlockers,
-      playersBlocked: method === "local" && current === true,
+      playersBlocked,
       requiresLinuxAck: ctx.hostOs !== "windows" && !release.linuxChecksumVerified,
     },
   };
@@ -1274,7 +1308,35 @@ async function reconcileInner(server, reason) {
       }
     }
 
-    if (method === "local") {
+    const ownIniPath = method === "local" ? resolveBridgeIniPath(fresh) : null;
+    if (method === "local" && workshopCopyWithChecksumOn(ownIniPath ? readIniTextSafe(ownIniPath) : null)) {
+      // This server's own settings load the bridge's mod copy with the Lua
+      // integrity check on: a loose copy beside it would get every
+      // non-admin join refused (see workshopCopyWithChecksumOn), and would
+      // turn a joinable server unjoinable at the very launch meant to keep
+      // it right. So none is installed or kept -- the mod copy loads anyway,
+      // and if it can't download, the start aborts with or without one. The
+      // settings file is left alone: whether to make the Workshop official
+      // or to switch back (which removes the entries and turns the check
+      // off) is the operator's choice, and GET /delivery offers both
+      // (local-workshop-loaded).
+      warnings.push("workshopEntriesWithChecksum");
+      log.warn(
+        `${ownIniPath} loads PanelBridge from the Steam Workshop (Mods= lists ${BRIDGE_MOD_ID}) with DoLuaChecksum on, ` +
+          `but ${displayName(fresh) || installDir} is set to panel-installed: not installing the loose PanelBridge.lua ` +
+          "beside it. Choose Steam Workshop or panel-installed in Settings › PanelBridge.",
+      );
+      const loose = listLooseBridgeFiles(installDir).filter(isLooseLua);
+      if (loose.length > 0) {
+        try {
+          const archived = await archiveLooseBridgeFiles(installDir, loose, { reason: `workshop-entries-${reason}` });
+          for (const moved of archived.moved) actions.push({ kind: "archived", path: moved });
+        } catch (error) {
+          log.warn(`Could not move loose PanelBridge files out of ${installDir}: ${error.message}`);
+          warnings.push("archiveFailed");
+        }
+      }
+    } else if (method === "local") {
       if (AUTO_UPDATE_REASONS.has(reason) && (await getSetting("panelBridgeAutoUpdate")) === false) {
         warnings.push("autoUpdateOff");
       } else {
@@ -1288,7 +1350,7 @@ async function reconcileInner(server, reason) {
         }
       }
     } else {
-      const loose = listLooseBridgeFiles(installDir).filter((file) => file.kind === "server" || file.kind === "client");
+      const loose = listLooseBridgeFiles(installDir).filter(isLooseLua);
       if (loose.length > 0) {
         try {
           const archived = await archiveLooseBridgeFiles(installDir, loose, { reason: `workshop-${reason}` });

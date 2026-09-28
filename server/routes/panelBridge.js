@@ -3226,8 +3226,12 @@ router.post("/install-mod-auto", requirePermission("bridge.setup"), async (req, 
       timeoutMs: MANUAL_INSTALL_WAIT_MS,
     });
     // The reconcile followed a switch to Workshop that landed after the
-    // check above: it moved the loose files out instead of installing.
-    if (reconciled.method === "workshop") return workshopActive();
+    // check above, or this server's own settings load the Workshop copy
+    // with DoLuaChecksum on: either way it moved the loose files out
+    // instead of installing, and the delivery block says how to settle it.
+    if (reconciled.method === "workshop" || reconciled.warnings.includes("workshopEntriesWithChecksum")) {
+      return workshopActive();
+    }
     const target = checkBridgeInstalled(targetServer);
     // Not a failure: reconcile stopped being waited on but keeps running
     // (usually queued behind another reconcile of the same folder).
