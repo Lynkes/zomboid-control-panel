@@ -95,9 +95,9 @@
   },
   "headerActions": {
     "bundling": "جارٍ التجميع…",
-    "supportBundleZip": "حزمة الدعم (.zip)",
-    "supportBundleTooltip": "سجلات اللوحة · سجلات خادم Zomboid · تفريغات الأعطال · التشخيصات، كلها في ملف .zip واحد.",
-    "fullLogTxt": "السجل الكامل (.txt)",
+    "supportBundleZip": "حزمة الدعم (\u200e.zip)",
+    "supportBundleTooltip": "سجلات اللوحة · سجلات خادم Zomboid · تفريغات الأعطال · التشخيصات، كلها في ملف \u200e.zip واحد.",
+    "fullLogTxt": "السجل الكامل (\u200e.txt)",
     "fullLogTooltip": "سجل تطبيق هذه اللوحة نفسه فقط — لا يتضمن سجلات خادم Zomboid أو تفريغات الأعطال. استخدم حزمة الدعم للحصول على ذلك."
   },
   "tabs": {
@@ -200,7 +200,7 @@
     },
     "serverIniOrSandboxVars": {
       "label": "فتح إعدادات الخادم",
-      "note": "هيّئ إعدادات الخادم لتوليد ملفات .ini أو إصلاحها."
+      "note": "هيّئ إعدادات الخادم لتوليد ملفات \u200e.ini أو إصلاحها."
     },
     "serverSandboxVars": {
       "label": "إنشاء SandboxVars.lua",
@@ -1550,9 +1550,9 @@
     "logsFetchFailedDesc": "لم تُحدَّث قائمة السجلات. تحقّق من اتصال اللوحة وحاول مجددًا.",
     "exportTrigger": "تصدير",
     "exportPlaceholder": "تصدير السجلات...",
-    "exportFullTxt": "ملف السجل الكامل (.txt)",
-    "exportFilteredTxt": "العرض المصفّى (.txt)",
-    "exportFilteredJson": "العرض المصفّى (.json)",
+    "exportFullTxt": "ملف السجل الكامل (\u200e.txt)",
+    "exportFilteredTxt": "العرض المصفّى (\u200e.txt)",
+    "exportFilteredJson": "العرض المصفّى (\u200e.json)",
     "clearDisplayTooltip": "مسح العرض",
     "searchLogsPlaceholder": "بحث في السجلات...",
     "searchLogsAria": "بحث في سجلات التصحيح",
@@ -1572,8 +1572,8 @@
     "logFilesDesc": "نزّل سجلات اللوحة بشكل فردي، أو احصل على حزمة دعم واحدة تضم سجلات اللوحة وسجلات خادم Zomboid وملفات الأعطال.",
     "recommendedEyebrow": "موصى به",
     "supportBundleTitle": "حزمة دعم بنقرة واحدة",
-    "supportBundleDesc": "سجلات اللوحة · سجلات خادم Zomboid · تفريغات الأعطال · التشخيصات، كلها في ملف .zip واحد.",
-    "downloadZip": "تنزيل ملف .zip",
+    "supportBundleDesc": "سجلات اللوحة · سجلات خادم Zomboid · تفريغات الأعطال · التشخيصات، كلها في ملف \u200e.zip واحد.",
+    "downloadZip": "تنزيل ملف \u200e.zip",
     "individualFiles": "ملفات فردية",
     "downloadFileAria": "تنزيل {{name}}",
     "downloadButton": "تنزيل",

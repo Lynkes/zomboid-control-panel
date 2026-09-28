@@ -1150,8 +1150,8 @@
     }
   },
   "errors": {
-    "noRemoteLogFiles": "لم يُعثر على ملفات بامتداد .txt أو .log في ذلك المجلد.",
-    "noRemoteConfigFiles": "لم يُعثر على ملفات بامتداد .ini أو .lua في ذلك المجلد. تأكد من أن المسار يشير إلى مجلد Server الخاص بالخادم.",
+    "noRemoteLogFiles": "لم يُعثر على ملفات بامتداد \u200e.txt أو \u200e.log في ذلك المجلد.",
+    "noRemoteConfigFiles": "لم يُعثر على ملفات بامتداد \u200e.ini أو \u200e.lua في ذلك المجلد. تأكد من أن المسار يشير إلى مجلد Server الخاص بالخادم.",
     "couldNotListRemoteLogs": "تعذّر عرض قائمة السجلات البعيدة.",
     "couldNotReadRemoteConfig": "تعذّرت قراءة مجلد الإعدادات البعيد.",
     "couldNotReadLogFile": "تعذّرت قراءة ملف السجل ذاك.",
