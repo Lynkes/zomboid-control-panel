@@ -50,6 +50,7 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
+  DialogBody,
   DialogTitle,
   DialogDescription,
   DialogFooter
@@ -2988,7 +2989,12 @@ export default function Servers() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editingServer} onOpenChange={() => setEditingServer(null)}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
+        {/* 2026-09 community report: this form (install/data paths, the
+            lifecycle-provider block, RCON, ports, memory) is several screens
+            tall on a laptop at 125-150% zoom. DialogContent caps the dialog
+            to the viewport; DialogBody makes only the fields scroll, so the
+            title and Save/Cancel stay on screen at any window height. */}
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{t('editDialog.title')}</DialogTitle>
             <DialogDescription>
@@ -2997,7 +3003,7 @@ export default function Servers() {
           </DialogHeader>
 
           {editingServer && (
-            <div className="space-y-4">
+            <DialogBody className="space-y-4">
               {/* Remote server indicator */}
               {editingServer.isRemote && (
                 <Alert className="border-primary/20 bg-primary/5">
@@ -3355,7 +3361,7 @@ export default function Servers() {
                 </>
                 )}
               </div>
-            </div>
+            </DialogBody>
           )}
 
           <DialogFooter>

@@ -4156,7 +4156,14 @@ export default function WorldMap() {
 
       {/* Spawn Vehicle Dialog */}
       <Dialog open={!!spawnDialog} onOpenChange={(open) => { if (!open) setSpawnDialog(null) }}>
-        <DialogContent className="sm:max-w-md">
+        {/* overflow-visible opts out of DialogContent's default
+            overflow-y-auto: VehiclePicker's dropdown is a plain absolute
+            panel (~400px) in a ~200px dialog, so a scrolling DialogContent
+            would clip the vehicle list at the dialog's edge -- and when the
+            panel opens upward, the part above the dialog can't even be
+            scrolled to. This dialog is far shorter than any window the map
+            is usable in, so it never needs to scroll itself. */}
+        <DialogContent className="sm:max-w-md overflow-visible">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Car className="w-5 h-5" />

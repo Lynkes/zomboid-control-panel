@@ -106,4 +106,21 @@ describe('FolderBrowser', () => {
     expect(onSelect).not.toHaveBeenCalled()
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
+
+  // 2026-09 dialog viewport sweep: this picker is ~500px tall (header, path
+  // bar, a fixed 340px list, footer) -- taller than a 1366x768 laptop window
+  // at 150% zoom. It used to pass overflow-hidden, which under DialogContent's
+  // viewport bound would crop Select Folder off the bottom instead of letting
+  // the dialog scroll to it. jsdom can't measure that; this pins the classes.
+  it('keeps the shared viewport bound and scroll container, so Select Folder stays reachable on a short window', async () => {
+    listDirectory.mockResolvedValue(root)
+    render(<FolderBrowser open onOpenChange={vi.fn()} onSelect={vi.fn()} initialPath="/srv" />)
+    await screen.findByText('Zomboid Données')
+
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.className).toContain('max-h-[calc(100dvh-2rem)]')
+    expect(dialog.className).toContain('overflow-y-auto')
+    expect(dialog.className).not.toContain('overflow-hidden')
+    expect(dialog.contains(screen.getByRole('button', { name: 'Select Folder' }))).toBe(true)
+  })
 })

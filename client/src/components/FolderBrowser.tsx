@@ -105,7 +105,12 @@ export function FolderBrowser({ open, onOpenChange, onSelect, initialPath, title
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl p-0 gap-0 overflow-hidden">
+      {/* No overflow-hidden here: DialogContent's own overflow-y-auto already
+          clips the header border and footer tint to the rounded corners,
+          and it is what lets this ~500px-tall picker scroll to its Select
+          Folder button on a short or zoomed-in window, where overflow-hidden
+          would just cut the footer off. */}
+      <DialogContent className="max-w-xl p-0 gap-0">
         <DialogHeader className="px-4 pt-4 pb-3 border-b border-border/50">
           <DialogTitle className="flex items-center gap-2 text-base">
             <FolderOpen className="w-4 h-4 text-primary" />
