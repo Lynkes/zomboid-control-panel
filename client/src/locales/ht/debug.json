@@ -109,8 +109,10 @@
       "note": "Defini modpas RCON nan Konfigirasyon Sèvè (ak menm valè a nan Paramèt)."
     },
     "serverBridgeMod": {
-      "label": "Louvri Chèchè Sèvè",
-      "note": "Redeplwaye mod PanelBridge atravè Chèchè Sèvè."
+      "label": "Louvri Paramèt › PanelBridge",
+      "note": "Enstale l nan Paramèt › PanelBridge.",
+      "noteWorkshopNotDownloaded": "Demare sèvè a pou l telechaje PanelBridge nan Steam Workshop. Paramèt › PanelBridge montre si li chaje, epi li ka remete sèvè a sou metòd panèl la enstale a.",
+      "noteLooseLeftover": "Demare oswa redemare sèvè a nan panèl la pou deplase yo. Paramèt › PanelBridge montre yo tou."
     },
     "serverConfigDrift": {
       "label": "Louvri Konfigirasyon Sèvè",

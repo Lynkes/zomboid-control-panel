@@ -215,8 +215,10 @@
       "note": "حدّد كلمة مرور RCON في إعدادات الخادم (وقيمة مطابقة لها في الإعدادات)."
     },
     "serverBridgeMod": {
-      "label": "فتح باحث الخوادم",
-      "note": "أعد نشر تعديل PanelBridge عبر باحث الخوادم."
+      "label": "فتح الإعدادات › PanelBridge",
+      "note": "ثبّته من الإعدادات › PanelBridge.",
+      "noteWorkshopNotDownloaded": "شغّل الخادم لكي ينزّل PanelBridge من ورشة Steam. تعرض الإعدادات › PanelBridge ما إذا كان قد حُمّل، وتتيح إعادة الخادم إلى التثبيت بواسطة اللوحة.",
+      "noteLooseLeftover": "شغّل الخادم أو أعد تشغيله من اللوحة لنقلها. وتعرضها الإعدادات › PanelBridge أيضًا."
     },
     "serverConfigDrift": {
       "label": "فتح إعدادات الخادم",

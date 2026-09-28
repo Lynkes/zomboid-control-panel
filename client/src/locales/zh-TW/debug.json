@@ -109,8 +109,10 @@
       "note": "在伺服器設定中設定 RCON 密碼（並在設定中填入相同的值）。"
     },
     "serverBridgeMod": {
-      "label": "開啟伺服器查詢器",
-      "note": "通過伺服器查詢器重新部署 PanelBridge 模組。"
+      "label": "開啟「設定 › PanelBridge」",
+      "note": "在「設定 › PanelBridge」中安裝。",
+      "noteWorkshopNotDownloaded": "啟動伺服器，讓它從 Steam 創意工坊下載 PanelBridge。「設定 › PanelBridge」會顯示它是否已載入，也可以把伺服器切換回由面板安裝。",
+      "noteLooseLeftover": "從面板啟動或重新啟動伺服器即可將其移出。「設定 › PanelBridge」中也會列出這些檔案。"
     },
     "serverConfigDrift": {
       "label": "開啟伺服器設定",

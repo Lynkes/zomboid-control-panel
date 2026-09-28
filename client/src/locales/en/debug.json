@@ -109,8 +109,10 @@
       "note": "Set the RCON password in Server Config (and matching value in Settings)."
     },
     "serverBridgeMod": {
-      "label": "Open Server Finder",
-      "note": "Re-deploy the PanelBridge mod via Server Finder."
+      "label": "Open Settings › PanelBridge",
+      "note": "Install it from Settings › PanelBridge.",
+      "noteWorkshopNotDownloaded": "Start the server so it downloads PanelBridge from the Steam Workshop. Settings › PanelBridge shows whether it loaded, and can switch the server back to panel-installed.",
+      "noteLooseLeftover": "Start or restart the server from the panel to move them out. Settings › PanelBridge lists them too."
     },
     "serverConfigDrift": {
       "label": "Open Server Config",

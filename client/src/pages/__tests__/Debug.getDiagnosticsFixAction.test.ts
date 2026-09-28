@@ -126,7 +126,7 @@ describe('getDiagnosticsFixAction fallback branch (uncovered check ids)', () => 
       manualRoute: '/server-config',
       links: [{ to: '/settings', label: 'fixActions.links.openSettings' }],
     },
-    { ids: ['server.bridgeMod'], manualRoute: '/server-finder' },
+    { ids: ['server.bridgeMod'], manualRoute: '/settings?tab=bridge' },
     { ids: ['server.configDrift'], manualRoute: '/server-config' },
     { ids: ['scheduler', 'services.error'], manualRoute: '/settings' },
     { ids: ['bridge.writable', 'bridge.heartbeat'], manualRoute: '/server-finder' },
@@ -156,6 +156,24 @@ describe('getDiagnosticsFixAction fallback branch (uncovered check ids)', () => 
       },
     )
   }
+
+  // PanelBridge delivery: the server tags server.bridgeMod with the delivery
+  // variant, and the note says what actually fixes that variant.
+  it.each([
+    [undefined, 'fixActions.serverBridgeMod.note'],
+    ['workshopNotDownloaded', 'fixActions.serverBridgeMod.noteWorkshopNotDownloaded'],
+    ['looseLeftover', 'fixActions.serverBridgeMod.noteLooseLeftover'],
+  ])('server.bridgeMod variant %s gets note %s', (variant, note) => {
+    const action = getDiagnosticsFixAction(
+      { ...fallbackCheck({ id: 'server.bridgeMod', status: 'warn', category: 'server' }), variant },
+      t,
+    )
+    expect(action).toMatchObject({
+      label: 'fixActions.serverBridgeMod.label',
+      manualRoute: '/settings?tab=bridge',
+      note,
+    })
+  })
 
   it('opens server config when the hint contains the literal server.ini token', () => {
     const action = getDiagnosticsFixAction(

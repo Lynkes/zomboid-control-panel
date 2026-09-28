@@ -109,8 +109,10 @@
       "note": "Lege das RCON-Passwort in der Serverkonfiguration fest (und den passenden Wert in den Einstellungen)."
     },
     "serverBridgeMod": {
-      "label": "Serversuche öffnen",
-      "note": "Stelle den PanelBridge-Mod erneut über die Serversuche bereit."
+      "label": "Einstellungen › PanelBridge öffnen",
+      "note": "Installiere die Mod unter Einstellungen › PanelBridge.",
+      "noteWorkshopNotDownloaded": "Starte den Server, damit er PanelBridge aus dem Steam Workshop herunterlädt. Unter Einstellungen › PanelBridge siehst du, ob es geladen wurde, und kannst zurück zu „vom Panel installiert“ wechseln.",
+      "noteLooseLeftover": "Starte den Server über das Panel (oder starte ihn dort neu), um sie zu verschieben. Einstellungen › PanelBridge listet sie ebenfalls auf."
     },
     "serverConfigDrift": {
       "label": "Serverkonfiguration öffnen",
