@@ -296,7 +296,9 @@ export function getAvailabilityParams(
   sharedWith: DeliveryStatus['sharedWith'] = status.sharedWith,
 ): Record<string, string> {
   return {
-    version: status.live?.gameVersion ?? '—',
+    // The heartbeat's gameVersion is Core.getVersion(), "<version> <git
+    // revision>" (e.g. "42.20.4 b0bbce05d5"); operators know the version.
+    version: status.live?.gameVersion?.trim().split(/\s+/)[0] || '—',
     servers: formatList(sharedWith.map((s) => s.name), language),
   }
 }

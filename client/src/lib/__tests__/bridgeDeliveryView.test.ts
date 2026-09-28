@@ -295,6 +295,15 @@ describe('formatList / getAvailabilityParams: lists joined the way the UI langua
     expect(getAvailabilityParams(status, 'zh-TW').servers).toBe('North和South')
     expect(getAvailabilityParams(status, 'de', [{ id: 'c', name: 'East' }]).servers).toBe('East')
   })
+
+  it('shows the game version without the git revision Core.getVersion() appends', () => {
+    const live = (gameVersion: string | null) =>
+      makeLocalStatus({ live: { alive: true, version: '1.7.70', delivery: 'loose', workshopId: null, startedAt: 1, gameVersion } })
+    expect(getAvailabilityParams(live('41.78.16 1a2b3c4d5e'), 'en').version).toBe('41.78.16')
+    expect(getAvailabilityParams(live('42.20.4'), 'en').version).toBe('42.20.4')
+    expect(getAvailabilityParams(live(null), 'en').version).toBe('—')
+    expect(getAvailabilityParams(live('  '), 'en').version).toBe('—')
+  })
 })
 
 describe('getRestartWarning', () => {
