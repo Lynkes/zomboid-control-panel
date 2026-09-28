@@ -304,6 +304,18 @@ download starts — points at the `ReadWritePaths` trap in Phase 6 instead,
 usually because a **Custom config location** was set outside
 `/opt/zomboid-panel`.
 
+**PanelBridge:** when the install finishes, the wizard also copies
+PanelBridge (the optional in-game helper for teleport, weather and the
+other RCON-can't-reach features) into the new server's game folder. That
+is the default method, **installed by the panel**, and with it players can
+only join while `DoLuaChecksum=false` is set in the server's `.ini`. If it
+isn't, **Settings → PanelBridge** says *"Players can't join this server
+right now"* and offers **Turn the check off**; restart the server after
+that. A Build 42 server that runs with Steam can instead get PanelBridge
+from the Steam Workshop and keep the check on. Choose that under **How
+PanelBridge is installed** on the same page; the
+[README](../../README.md#panelbridge-optional) compares the two.
+
 ---
 
 ## Phase 8: SteamCMD's 32-bit library dependencies

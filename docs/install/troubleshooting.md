@@ -50,8 +50,16 @@ network — the panel can't discover them for you.
 
 5. **`DoLuaChecksum=false`** in the PZ server `.ini` — only if you want
    PanelBridge (teleport, heal, god mode, weather control, and the other
-   RCON-can't-reach features). Skip this if you don't plan to use
-   PanelBridge.
+   RCON-can't-reach features). It depends on how PanelBridge is installed,
+   which you choose later in **Settings → PanelBridge → How PanelBridge is
+   installed**:
+   - **Installed by the panel** (the default): it must be `false`, or
+     players can't join.
+   - **Steam Workshop** (Build 42 servers running with Steam): leave it
+     `false` until that page confirms PanelBridge loaded from the Workshop.
+     After that you can turn it back on.
+
+   Skip this if you don't plan to use PanelBridge.
 
 If you're installing through Docker and the panel will also read or write
 PZ's own files (config editing, local backups, PanelBridge without SFTP),
@@ -421,13 +429,23 @@ folder permissions to) an account that can read the path.
   PanelBridge isn't configured/installed at all.
 
 **What to do:**
-1. Confirm `PanelBridge.lua` is actually installed in the server's
-   `Install/media/lua/server/` folder (the panel does this for you when you
-   enable it from **Settings → PanelBridge**, unless you're on a remote
-   server without shared filesystem access — see the Indifferent Broccoli /
-   remote-SFTP guide for that path instead).
-2. Confirm `DoLuaChecksum=false` is set in the PZ server `.ini` — if it's
-   still `true`, PZ will refuse to load the modded file.
+1. Check **Settings → PanelBridge → How PanelBridge is installed**:
+   - **Installed by the panel**: `PanelBridge.lua` must be in the server's
+     `Install/media/lua/server/` folder. The panel copies it there for you
+     (the block says *"PanelBridge isn't installed in this game folder
+     yet."* and offers **Install now** if it isn't), unless you're on a
+     remote server without shared filesystem access — see the Indifferent
+     Broccoli / remote-SFTP guide, [hosted.md](hosted.md), for that path
+     instead.
+   - **Steam Workshop**: the block says whether the server loaded it.
+     *"Takes effect at the next start."* means the server hasn't started
+     since the switch. For anything else, see
+     [PanelBridge not loaded from the Workshop](#panelbridge-not-loaded-from-the-workshop)
+     and [Server won't start after switching to the Workshop](#server-wont-start-after-switching-to-the-workshop)
+     below.
+2. `DoLuaChecksum` doesn't stop the server from loading PanelBridge. It
+   decides whether players can join — see
+   [Players refused with a file mismatch](#players-refused-with-a-file-mismatch).
 3. Fully restart the PZ server (not just save/reload) — the mod only loads
    on boot.
 4. If it's been well over a minute since restart and it's still stuck on
@@ -439,6 +457,157 @@ folder permissions to) an account that can read the path.
    ("Verify and prepare SFTP" succeeds) and that **Start SFTP bridge** has
    actually been clicked — the badge stays offline until that bridge is
    running, even with valid credentials saved.
+
+---
+
+### Server won't start after switching to the Workshop
+
+**What you see:** after you switched a server to Steam Workshop delivery,
+it stops during startup. **Settings → PanelBridge → How PanelBridge is
+installed** reads **The server didn't start**, with one of:
+- *"The server stopped while getting PanelBridge from the Steam
+  Workshop."*, followed by the line from the server's console log that
+  shows it, such as `Workshop: onItemNotDownloaded itemID=<id> result=<n>`
+  or `Workshop: GetItemInstallFolder() failed ID=<id>`.
+- *"The server couldn't connect to Steam and stopped before downloading
+  anything."* — the console log has `Failed to connect to Steam servers`.
+
+The block can also say *"Steam reports the PanelBridge Workshop item as
+unavailable."* when Steam lists the item as hidden or removed.
+
+**What it means:** a server stops at startup when an item in its
+`WorkshopItems=` line can't be downloaded, and PanelBridge's item is no
+exception. The panel tells the two cases apart from the server's latest
+`server-console.txt`, which the game rewrites at every start. It can only
+do that when it can read the server's files; for a hosted or remote
+server, look for the same lines in your provider's console.
+
+`Failed to connect to Steam servers` isn't specific to PanelBridge: every
+dedicated server running in Steam mode checks its Steam connection at
+startup and stops without it, however PanelBridge is installed. Switching
+back to panel-installed doesn't fix that.
+
+**What to do:**
+- **The download failed:** click **Switch to panel-installed and start**.
+  The panel copies `PanelBridge.lua` back into the game folder, removes
+  both entries from the `.ini`, sets `DoLuaChecksum=false`, and starts the
+  server. Try the Workshop again later. On a hosted server, **Switch to
+  panel-installed** lists the same changes for you to make: remove the two
+  entries, upload `PanelBridge.lua` to `media/lua/server/`, set
+  `DoLuaChecksum=false`, and restart from your provider's dashboard.
+- **Steam couldn't be reached:** check the network, firewall or proxy of
+  the machine that runs the server, then click **Start server** once Steam
+  can be reached.
+
+---
+
+### New players can't join after a PanelBridge update
+
+**What you see:** on a server that gets PanelBridge from the Steam
+Workshop, players can't join after a new PanelBridge version was
+published. Their game says *"Workshop item version is different than the
+server's"* for Zomboid Control Panel Bridge.
+
+**What it means:** a server downloads its Workshop items when it starts
+and keeps those versions until it restarts. Once a newer version is on the
+Workshop, joining players get the newer one, and they can't join until the
+server restarts and downloads it too. Every Workshop mod works this way.
+The panel-installed PanelBridge doesn't: its updates arrive with panel
+updates. The Mods page flags the PanelBridge update like any other
+Workshop update.
+
+**What to do:** restart the server. To have that happen by itself, turn on
+**Settings → Mods & Workshop → Auto-restart server when mods update**;
+Settings → PanelBridge says whether it is on. PanelBridge updates are
+batched, so this should be rare.
+
+---
+
+### Admins can join but players can't
+
+**What you see:** with `DoLuaChecksum=true`, your admin account joins, but
+a normal player account is refused or kicked while loading.
+
+**What it means:** admin accounts skip the Lua integrity check (the game's
+`BypassLuaChecksum` capability). Normal player accounts don't, so an admin
+getting in proves nothing about the check.
+
+**What to do:** always test the check with a normal player account. If
+that account is refused, see the next section.
+
+---
+
+### Players refused with a file mismatch
+
+**What you see:** with `DoLuaChecksum=true`, players are refused while
+loading. The error can read *"File doesn't match the one on the server"*
+or *"File doesn't exist on the client"*, and the server's console logs
+that the player will be kicked because Lua/script checksums do not match.
+
+**What it means:** the check compares players' Lua, script and animation
+files with the server's, and refuses any player whose files differ. The
+usual causes, most likely first:
+- **The panel-installed PanelBridge with the check on.** The loose
+  `PanelBridge.lua` is a server Lua file players don't have, so every
+  player without admin rights is refused. Settings → PanelBridge shows
+  **Players can't join this server right now**.
+- **Old PanelBridge files in the game folder with Workshop delivery.** A
+  leftover `media/lua/server/PanelBridge.lua` or
+  `media/lua/client/PanelBridgeClient.lua` next to the Workshop copy still
+  gets players refused. Settings → PanelBridge lists them (*"Old
+  PanelBridge files are still in the game folder: …"*), and so does
+  **Debug & Logs → Checks & Fixes** (*"Old PanelBridge files in the game
+  folder"*).
+- **A Linux server with Windows or Mac players.** Earlier game builds
+  (41.77, 42.13–42.14) refused Windows and Mac players on Linux servers
+  with this check on, even with identical files. It isn't confirmed fixed
+  on the current build.
+- **A player's own modified files.** That is the check doing its job.
+
+**What to do:**
+- Panel-installed: click **Turn the check off** in Settings → PanelBridge
+  and restart, or switch to Steam Workshop delivery to keep the check on.
+- Leftover files: start or restart the server **from the panel**, which
+  moves them into the panel's data folder (`bridge-delivery-archive/`). A
+  start from anywhere else leaves them. On a hosted server, delete them
+  with your provider's file manager.
+- Linux server: if only players on another OS than the server are refused,
+  turn the check off again — **Turn it off again** in Settings →
+  PanelBridge, or `DoLuaChecksum=false` in the `.ini` — and restart.
+
+---
+
+### PanelBridge not loaded from the Workshop
+
+**What you see:** Settings → PanelBridge reads *"The server started, but
+PanelBridge didn't load from the Workshop."* Or every player is refused
+with *Mod "…" is not installed*, naming PanelBridge's mod.
+
+**What it means:** the server's console shows which copy ran, on the line
+`[PanelBridge] Loaded from: …`: `workshop` and the item ID for the
+Workshop item, `loose` for a `PanelBridge.lua` in the game folder, `mod`
+for a copy in a mods folder. The usual causes:
+- **The `.ini` entries were removed or changed outside the panel** — a
+  hand edit, your provider's mod list, another tool. A start or restart
+  from the panel adds them back; a start from anywhere else doesn't.
+- **The server launched without Steam** (`-nosteam`, a GOG or LAN setup).
+  Workshop items never download in that mode, and a `Mods=` entry for an
+  item that isn't there refuses every join with *Mod "…" is not
+  installed*. The panel won't offer the Workshop to a profile it knows
+  launches without Steam, and refuses **Launch without Steam** on a
+  Workshop server. If the server uses its own launch script, check that
+  the script doesn't start it without Steam.
+- **The server runs Build 41.** The PanelBridge Workshop item is for
+  Build 42. The panel blocks the switch once PanelBridge has reported the
+  game version; before that it only warns *"The panel can't confirm this
+  server runs Build 42 yet."*
+- **Another mod ships `media/lua/server/PanelBridge.lua`** and replaces
+  this one.
+
+**What to do:** restart the server from the panel. On a hosted server,
+check the two `.ini` entries and your provider's startup parameters, then
+restart from its dashboard. If PanelBridge still doesn't load, click
+**Switch to panel-installed** in Settings → PanelBridge.
 
 ---
 

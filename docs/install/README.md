@@ -27,12 +27,19 @@ don't need to read the others first.
   host (Indifferent Broccoli and similar) instead of running it yourself:
   no shell, no Docker, no systemd on that machine. Covers what the panel
   can and can't do for a server it doesn't own the process of, why
-  PanelBridge needs SFTP specifically (not FTP), and installing the panel
-  itself on a separate machine you do control first.
+  PanelBridge needs SFTP specifically (not FTP), the two ways to put
+  PanelBridge on that server, and installing the panel itself on a
+  separate machine you do control first.
 
 Not covered here: macOS (Docker Desktop or OrbStack) is short enough to
 live in the main [README](../../README.md#macos) instead of getting its
 own file.
+
+PanelBridge, the optional in-game helper, reaches a server in one of two
+ways, chosen per server in **Settings → PanelBridge**: the panel copies it
+into the game folder, or a Build 42 server running with Steam downloads it
+from the Steam Workshop. The Windows, Linux, Docker and hosted guides say
+what that means for their setup, and troubleshooting.md covers both.
 
 For anything past initial install — PanelBridge, updates, remote access, the
 full feature list — see the main [README.md](../../README.md).
