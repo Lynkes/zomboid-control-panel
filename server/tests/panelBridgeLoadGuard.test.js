@@ -4,7 +4,7 @@
 // GameClient.client check). The file's first statement therefore has to stop
 // the chunk everywhere except on a dedicated server: before it, nothing may
 // register an event handler or touch a file. isServer() is GameServer.server,
-// which GameServer.main sets as its first field write, long before
+// which GameServer.main sets in its first few instructions, long before
 // doMinimumInit loads Lua; it is false on MP clients and in single player,
 // where isClient() is false as well (so `if isClient()` would not do).
 import { describe, expect, it } from "vitest";

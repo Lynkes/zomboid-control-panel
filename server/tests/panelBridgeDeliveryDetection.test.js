@@ -84,6 +84,17 @@ describe("PanelBridge.detectDelivery: the running file's path", () => {
     expect(delivery).toMatchObject({ method: "workshop", workshopId: "999", modActive: true });
   });
 
+  it("leaves the mod lookup alone when another item's file runs and this mod isn't active", () => {
+    const { bridge, delivery } = detect({
+      filenameOfClosure: "/srv/pz/steamapps/workshop/content/108600/999/mods/OtherPack/media/lua/server/PanelBridge.lua",
+      activatedMods: ["OtherPack"],
+      modInfo: { [MOD_ID]: { modVersion: "1.7.71", workshopId: "3712345678" } },
+    });
+
+    expect(delivery).toEqual({ method: "workshop", workshopId: "999", modActive: false });
+    expect(bridge.getGlobal("GET_MOD_INFO_CALLS")).toBe(0);
+  });
+
   it("reports modActive and the mod.info version when the item is in Mods=", () => {
     const { delivery } = detect({
       ...ACTIVE_BRIDGE,

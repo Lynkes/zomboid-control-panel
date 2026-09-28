@@ -9618,10 +9618,11 @@ function PanelBridge.detectDelivery()
                 end
             end
         end
-        -- Only look the mod up when it is in play. For an id that isn't loaded, getModDetails
-        -- (42.20) reads the mod.info of every installed mod folder and caches them all, which the
-        -- default loose install has no reason to trigger.
-        if not d.modActive and (d.method == nil or d.method == "loose") then return end
+        -- Only look the mod up when it is in play (active, or its own folder is running). For an
+        -- id that isn't loaded, getModDetails (42.20) reads the mod.info of every installed mod
+        -- folder and caches them all, which neither the default loose install nor another
+        -- Workshop item's PanelBridge.lua overriding this one has any reason to trigger.
+        if not (d.modActive or d.method == "mod") then return end
         local info = type(getModInfoByID) == "function" and getModInfoByID(PanelBridge.MOD_ID) or nil
         if not info then return end
         local v = PanelBridge.tryGet(info, "getModVersion")
