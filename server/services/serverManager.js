@@ -2786,13 +2786,20 @@ export class ServerManager {
     // manual restart on the host while no dashboard was open) kept counting
     // from the previous process. Its own answer, not this.startTime read
     // afterwards: a lookup overtaken by a stop or launch answers null.
+    //
+    // null whenever the scan doesn't confirm a running server -- including
+    // a failed scan (an OpenRC service mid-stop, an unreadable
+    // `rc-service status`), where _clearRunState() is skipped above so
+    // this.startTime survives for the next confirmed scan: reporting it
+    // here put the previous run's uptime next to "unknown" in Discord.
     const startTime = isRunning
       ? await this.resolveStartTime(processDetails)
-      : this.startTime;
+      : null;
 
     // Whole seconds. null -- never 0 -- when the start time isn't known
-    // (stopped, or a process this host can't see such as a remote SFTP or
-    // Docker server): 0 read as "just started" to anything that shows it.
+    // (stopped, unconfirmed, or a process this host can't see such as a
+    // remote SFTP or Docker server): 0 read as "just started" to anything
+    // that shows it.
     const uptimeSeconds = startTime
       ? Math.max(0, Math.floor((Date.now() - startTime.getTime()) / 1000))
       : null;

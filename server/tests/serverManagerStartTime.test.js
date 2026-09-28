@@ -305,6 +305,31 @@ describe('ServerManager.getServerStatus start time', () => {
     expect(manager._startTimePid).toBeNull();
   });
 
+  // Review of the merge: an OpenRC service mid-stop (rc-service status 4)
+  // or with a crashed supervise-daemon (32) reads as a failed scan, which
+  // skips _clearRunState() -- and the retained start time was reported as
+  // the uptime of a server that isn't confirmed running (Discord /status
+  // showed the previous run's "3h 0m" beside "Unknown (detection failed)").
+  it('reports no uptime while a failed scan cannot confirm the server running, and keeps the start time for the next confirmed scan', async () => {
+    readProcessStartTime.mockResolvedValue(null);
+    let unit = { running: true, scanFailed: false, activeState: 'active', mainPid: '900' };
+    const manager = makeSystemdManager(() => unit, 'openrc');
+    readProcessStartTime.mockResolvedValueOnce(NOW - 3 * HOUR);
+    expect((await manager.getServerStatus()).uptime).toBe(3 * 3600);
+
+    unit = { running: false, scanFailed: true, activeState: 'deactivating' };
+    const status = await manager.getServerStatus();
+
+    expect(status.running).toBe(false);
+    expect(status.scanFailed).toBe(true);
+    expect(status.startTime).toBeNull();
+    expect(status.uptime).toBeNull();
+    // Not a confirmed stop: the same process, seen running again, still
+    // has its start time.
+    unit = { running: true, scanFailed: false, activeState: 'active', mainPid: '900' };
+    expect((await manager.getServerStatus()).uptime).toBe(3 * 3600);
+  });
+
   it('reports an unknown start time as null uptime, never 0', async () => {
     readProcessStartTime.mockResolvedValue(null);
     const manager = makeManager(() => ({ running: true, matched: [], scanFailed: false }));
