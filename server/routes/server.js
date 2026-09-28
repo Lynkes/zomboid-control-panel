@@ -54,7 +54,7 @@ import {
 import { ErrorCode } from "../utils/errorCodes.js";
 import { ProgressCode } from "../utils/progressCodes.js";
 import { invalidateMapFolderScan } from "./chunks.js";
-import { emitActionResult } from "./scheduler.js";
+import { codedActionResultFields, emitActionResult } from "./scheduler.js";
 import panelBridge from "../services/panelBridge.js";
 import { candidateIniPaths } from "../utils/zomboidPaths.js";
 import {
@@ -2671,6 +2671,7 @@ router.post("/restart", requirePermission("server.control"), async (req, res) =>
           kind: "restart",
           success: false,
           message: err.message,
+          ...codedActionResultFields(err),
         });
       })
       .finally(() => lifecycleLock.release());

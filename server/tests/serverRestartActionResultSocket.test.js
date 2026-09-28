@@ -153,6 +153,41 @@ describe("POST /server/restart -- scheduler:action_result socket emission", () =
     });
   });
 
+  // GH #167: the refusal startServer() throws when a server's generated
+  // startup script is missing names the install folder and is English-only.
+  // Its code and path-free params travel with the failure, so Layout's
+  // toast shows it translated, like POST /start's own response does.
+  it("forwards SERVER_START_SCRIPT_MISSING's code and params with the failure", async () => {
+    const { namedStartupScriptMissingError } = await import("../services/serverManager.js");
+    const refusal = namedStartupScriptMissingError({
+      script: "start-server_Restored.sh",
+      folder: "/srv/pz",
+      fallback: "start-server.sh",
+    });
+    const emit = vi.fn();
+    const performRestart = vi.fn().mockRejectedValue(refusal);
+
+    await getHandler("/restart", "post")(
+      {
+        body: {},
+        app: {
+          get: (key) =>
+            key === "scheduler" ? { performRestart } : key === "io" ? { emit } : null,
+        },
+      },
+      createResponse(),
+    );
+    await flushMicrotasks();
+
+    expect(emit).toHaveBeenCalledWith("scheduler:action_result", {
+      kind: "restart",
+      success: false,
+      message: refusal.message,
+      code: "SERVER_START_SCRIPT_MISSING",
+      params: { script: "start-server_Restored.sh", fallback: "start-server.sh" },
+    });
+  });
+
   it("does not throw when app.get('io') returns something without a real emit function", async () => {
     const performRestart = vi.fn().mockResolvedValue({ success: true, message: "ok" });
     const response = createResponse();

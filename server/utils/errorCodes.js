@@ -555,7 +555,8 @@ export const ErrorCode = Object.freeze({
   /** server/routes/server.js -- POST /api/server/start, active server is remote. */
   SERVER_START_REMOTE_REFUSED: "SERVER_START_REMOTE_REFUSED",
   /** server/services/serverManager.js -- startServer() (thrown, forwarded by
-   * POST /api/server/start): a managed server's generated
+   * POST /api/server/start, and by a failed Restart's scheduler:action_result
+   * via routes/scheduler.js's codedActionResultFields()): a managed server's generated
    * StartServer_<name>.bat / start-server_<name>.sh is still missing right
    * before the spawn, and the panel refuses the stock launcher that would
    * start the default "servertest" world instead (GH #167). Carries

@@ -42,6 +42,7 @@ import { ConnectionStatus } from './ConnectionStatus'
 import { SystemHealthBanner } from './SystemHealthBanner'
 import { serversApi, ServerInstance, updateApi, UpdateStatus, serverApi, modsApi, panelUpdateApi } from '@/lib/api'
 import { resolveClientProvider } from '@/lib/serverStatus'
+import { getResultErrorMessage } from '@/lib/errorMessage'
 import { SocketContext } from '@/contexts/SocketContext'
 
 import { useAuth } from '@/contexts/AuthContext'
@@ -380,9 +381,14 @@ export default function Layout({ children }: LayoutProps) {
   // blind-success family). Global, not page-scoped, because a restart's
   // countdown + graceful shutdown can run long enough that the user has
   // already navigated elsewhere by the time it resolves.
+  //
+  // A failure can carry a registered error code and its params (the server's
+  // codedActionResultFields(), today only SERVER_START_SCRIPT_MISSING from
+  // GH #167), shown translated like POST /api/server/start's own refusal;
+  // the English message is the fallback.
   useEffect(() => {
     if (!socket) return
-    const onActionResult = (data?: { kind?: 'restart' | 'task'; taskName?: string; success?: boolean; message?: string }) => {
+    const onActionResult = (data?: { kind?: 'restart' | 'task'; taskName?: string; success?: boolean; message?: string; code?: string; params?: unknown }) => {
       if (!data) return
       const isRestart = data.kind === 'restart'
       const title = data.success
@@ -390,7 +396,9 @@ export default function Layout({ children }: LayoutProps) {
         : (isRestart ? tScheduler('toasts.restartResultFailedTitle') : tScheduler('toasts.taskResultFailedTitle', { name: data.taskName }))
       toast({
         title,
-        description: data.message,
+        description: !data.success && data.code
+          ? getResultErrorMessage({ code: data.code, params: data.params, error: data.message }, data.message ?? '')
+          : data.message,
         variant: data.success ? ('success' as const) : 'destructive',
       })
     }
