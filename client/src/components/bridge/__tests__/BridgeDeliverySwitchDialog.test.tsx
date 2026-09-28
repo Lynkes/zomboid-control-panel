@@ -187,6 +187,16 @@ describe('BridgeDeliverySwitchDialog: apply', () => {
     await waitFor(() => expect(restart).toHaveBeenCalledWith(0))
   })
 
+  it('offers only "Switch, restart later" while the panel cannot tell whether the server runs', async () => {
+    planDelivery.mockResolvedValue(makePlan())
+    renderDialog(makeLocalStatus({ serverRunning: null, live: null }))
+    await stepsList()
+    expect(screen.getByRole('button', { name: en.dialog.applyOnly })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: en.dialog.applyRestartEmpty })).toBeNull()
+    expect(screen.queryByRole('button', { name: en.dialog.applyRestartPlayers })).toBeNull()
+    expect(screen.queryByRole('button', { name: en.dialog.applyStart })).toBeNull()
+  })
+
   it('starts a stopped server after the switch', async () => {
     planDelivery.mockResolvedValue(makePlan())
     renderDialog(makeLocalStatus({ serverRunning: false, live: null }))

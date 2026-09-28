@@ -433,6 +433,14 @@ describe('BridgeDeliveryPanel: failure states and their actions', () => {
       'media/lua/server/PanelBridge.lua and media/lua/client/PanelBridgeClient.lua',
     )
   })
+
+  it('never calls the panel-installed file a leftover on a panel-installed server', async () => {
+    // makeLocalStatus() lists media/lua/server/PanelBridge.lua on disk: there
+    // it IS the installed bridge.
+    renderPanel(makeLocalStatus())
+    await panelReady()
+    expect(screen.queryByTestId('bridge-delivery-leftovers')).toBeNull()
+  })
 })
 
 // A restart disconnects everyone on the server, so the block's "Restart
