@@ -200,3 +200,51 @@ describe("POST /stop -- graceful stop escalates to force-stop instead of hanging
     }
   });
 });
+
+// 2026-09 Discord report (Windows native): the Stop button stayed on screen
+// after the process had exited, because nothing told clients until the
+// watchdog's next 10s tick whenever its one-shot RCON-disconnect re-check
+// had still caught PZ mid-save. The monitor's own poll is the first thing
+// to see the process gone; it now asks the watchdog to re-check right then
+// (the watchdog, not this route, still decides and pushes server:status).
+describe("POST /stop -- the graceful-stop monitor announces the confirmed exit", () => {
+  beforeEach(() => {
+    runManagedLifecycleMock.mockReset().mockResolvedValue({ handled: false });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("nudges checkServerStatusNow('graceful-stop-confirmed') on the poll that first sees the process gone", async () => {
+    vi.useFakeTimers();
+    try {
+      let polls = 0;
+      const serverManager = {
+        // Still saving on the first poll, gone on the second.
+        getServerProcessDetails: vi.fn(async () => {
+          polls += 1;
+          return { scanFailed: false, running: polls < 2 };
+        }),
+        stopServer: vi.fn(),
+        markServerStopped: vi.fn(),
+      };
+      const checkServerStatusNow = vi.fn().mockResolvedValue(undefined);
+      const app = makeApp({ serverManager, checkServerStatusNow });
+      const response = createResponse();
+
+      await getHandler("/stop", "post")({ app, body: {} }, response);
+      expect(checkServerStatusNow).toHaveBeenCalledWith("graceful-stop");
+      expect(checkServerStatusNow).not.toHaveBeenCalledWith("graceful-stop-confirmed");
+
+      await vi.advanceTimersByTimeAsync(1_500);
+
+      expect(checkServerStatusNow).toHaveBeenCalledWith("graceful-stop-confirmed");
+      expect(checkServerStatusNow).toHaveBeenCalledTimes(2);
+      expect(isLifecycleLocked()).toBe(false);
+      expect(serverManager.stopServer).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

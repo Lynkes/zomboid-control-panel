@@ -88,6 +88,26 @@ describe("resolveObservedServerRunning -- split-container / cross-container RCON
     expect(serverManager.getServerProcessDetails).not.toHaveBeenCalled();
   });
 
+  // The watchdog's verdict and the composed-status badges share one
+  // definition of "which host signal wins" (serverStatusModel.js's
+  // isHostSignalAuthoritative): a completed native scan beats a PanelBridge
+  // heartbeat that outlived its process, a managed systemd unit does not.
+  it("reports OFFLINE for a native server whose completed scan finds no process, even while a stale PanelBridge heartbeat still reads connected", async () => {
+    getActiveServer.mockResolvedValue({ id: "s1" });
+    const serverManager = fakeServerManager({ running: false, scanFailed: false });
+    fakeBridge.isModConnected.mockReturnValue(true);
+
+    expect(await resolveObservedServerRunning(serverManager, { connected: false })).toBe(false);
+  });
+
+  it("still lets PanelBridge vouch for a managed systemd unit whose own state reads inactive", async () => {
+    getActiveServer.mockResolvedValue({ id: "s1", lifecycleProvider: "systemd" });
+    const serverManager = fakeServerManager({ running: false, scanFailed: false });
+    fakeBridge.isModConnected.mockReturnValue(true);
+
+    expect(await resolveObservedServerRunning(serverManager, { connected: false })).toBe(true);
+  });
+
   it("reports RUNNING for a remote-sftp server via RCON alone (no local process to scan)", async () => {
     getActiveServer.mockResolvedValue({ id: "s1", isRemote: true });
     const serverManager = fakeServerManager({ running: true, scanFailed: false });

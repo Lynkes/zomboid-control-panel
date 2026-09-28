@@ -31,6 +31,33 @@ export function resolveProvider(server) {
   return server?.isRemote ? "remote-sftp" : "native";
 }
 
+// Managed systemd/openrc servers answer from the unit's own state
+// (systemctl / rc-service) rather than the strict per-process scan, and the
+// watchdog already lets RCON and PanelBridge vouch for them as well
+// (server/tests/serverStatus.test.js: "keeps a systemd-hosted server online
+// when strict process attribution fails"). Moved here from
+// resolveObservedServerRunning unchanged, so composeServerStatus can share it.
+const NON_AUTHORITATIVE_LIFECYCLE_PROVIDERS = ["systemd", "openrc"];
+
+/**
+ * Whether a CONFIDENT host answer for this provider -- a native scan that
+ * completed, a Docker container whose state was resolved -- is the final
+ * word on whether the server is up, overruling RCON and PanelBridge. It is
+ * the caller's job to check the answer was confident (not scanFailed /
+ * "unknown"); this only says whether the provider's host signal gets that
+ * authority at all. Remote hosts never do: the panel cannot see them.
+ *
+ * One definition shared by the watchdog's verdict (utils/serverStatus.js's
+ * resolveObservedServerRunning -> isServerObservedRunning's
+ * hostStateAuthoritative) and composeServerStatus below, so the push that
+ * says "stopped" and the badges a client refetches because of it cannot
+ * disagree about which signal wins.
+ */
+export function isHostSignalAuthoritative(provider, lifecycleProvider = null) {
+  if (provider === "docker-local" || provider === "docker-managed") return true;
+  return provider === "native" && !NON_AUTHORITATIVE_LIFECYCLE_PROVIDERS.includes(lifecycleProvider);
+}
+
 // scanFailed distinguishes "the process-detection scan itself could not
 // tell" from "it ran fine and found nothing" -- both used to collapse into
 // a bare isRunning: false here, which is how a dashboard host badge and a
@@ -123,9 +150,19 @@ export function buildServerSignal({ connected, connecting, host, port } = {}) {
   return { status, label: "RCON", detail };
 }
 
-export function buildBridgeSignal({ configured, running, modConnected } = {}) {
+// hostConfirmedStopped: an authoritative host signal (isHostSignalAuthoritative)
+// has just confirmed the process/container gone. PanelBridge's own liveness
+// is nothing more than the age of the mod's status.json (panelBridge.js's
+// checkModStatus: 45s, or 5 minutes when the last write reported 0 players,
+// statusStaleIdleMs) -- so the last heartbeat an exited server wrote kept
+// this signal "active" for up to five minutes after every quiet stop. Both
+// the server card and the Dashboard offer Stop while ANY signal is live, so
+// they kept showing Stop right beside "Process Down" (2026-09 Discord
+// report, Windows native). The mod runs inside that process: once the
+// process is confirmed gone, its heartbeat cannot be live.
+export function buildBridgeSignal({ configured, running, modConnected, hostConfirmedStopped = false } = {}) {
   if (!configured) return { status: "not-installed", label: "PanelBridge", detail: null };
-  const status = running && modConnected ? "active" : "offline";
+  const status = running && modConnected && !hostConfirmedStopped ? "active" : "offline";
   return { status, label: "PanelBridge", detail: null };
 }
 
@@ -156,7 +193,13 @@ export function composeServerStatus({ server, isRunning, scanFailed, rcon, bridg
   const provider = resolveProvider(server);
   const host = buildHostSignal(provider, isRunning, scanFailed, dockerContainer, stopReason);
   const serverSignal = buildServerSignal(rcon);
-  const bridgeSignal = buildBridgeSignal(bridge);
+  // Only a confident "stopped" from a provider whose host signal is
+  // authoritative -- an "unknown" host (failed scan, unresolved container,
+  // remote) and a managed systemd/openrc unit keep whatever the bridge says,
+  // the same cases the watchdog still lets RCON/PanelBridge decide.
+  const hostConfirmedStopped =
+    host.status === "stopped" && isHostSignalAuthoritative(provider, server?.lifecycleProvider);
+  const bridgeSignal = buildBridgeSignal({ ...bridge, hostConfirmedStopped });
   return {
     provider,
     selected: true,

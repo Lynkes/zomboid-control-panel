@@ -1265,6 +1265,20 @@ export default function Servers() {
     )
   }, [])
 
+  // What every inline start/stop outcome refetches. The selected server's
+  // card draws BOTH its Start/Stop button and its host/RCON/PanelBridge
+  // badges from the composed status (resolveServerCardRunning), which
+  // otherwise refreshes only on its 10s interval or a server:status push --
+  // refetching just the process list left a confirmed stop showing Stop
+  // until one of those arrived. A server that was only just activated gets
+  // its composed status from the activeServerId effect instead, once
+  // fetchServers() lands the switch.
+  const refreshAfterInlineAction = useCallback((server: ServerInstance) => Promise.allSettled([
+    fetchServers(),
+    fetchServerStatuses(),
+    server.isActive ? fetchActiveStatus(server.id) : undefined,
+  ]), [fetchServers, fetchServerStatuses, fetchActiveStatus])
+
   const handleInlineStart = useCallback(async (server: ServerInstance) => {
     if (!canInlineStartStop) return
     setServerActionPending(`start-${server.id}`)
@@ -1282,7 +1296,7 @@ export default function Servers() {
         description: confirmed ? (server.name || server.serverName) : t('toasts.waitingForProcess'),
         variant: confirmed ? 'success' as const : 'default',
       })
-      await Promise.allSettled([fetchServers(), fetchServerStatuses()])
+      await refreshAfterInlineAction(server)
     } catch (error) {
       toast({
         title: t('toasts.startFailedTitle'),
@@ -1301,11 +1315,11 @@ export default function Servers() {
       // would eventually correct it either way; this closes the gap
       // immediately instead of leaving the wrong state on screen at the
       // moment it does the most damage.
-      void Promise.allSettled([fetchServers(), fetchServerStatuses()])
+      void refreshAfterInlineAction(server)
     } finally {
       setServerActionPending(null)
     }
-  }, [toast, fetchServers, fetchServerStatuses, waitForActionState, t, canInlineStartStop])
+  }, [toast, refreshAfterInlineAction, waitForActionState, t, canInlineStartStop])
 
   const handleInlineStop = useCallback(async (server: ServerInstance) => {
     if (!canInlineStartStop) return
@@ -1336,7 +1350,7 @@ export default function Servers() {
         description: confirmed ? (server.name || server.serverName) : t('toasts.waitingForStop'),
         variant: confirmed ? 'success' as const : 'default',
       })
-      await Promise.allSettled([fetchServers(), fetchServerStatuses()])
+      await refreshAfterInlineAction(server)
     } catch (error) {
       toast({
         title: t('toasts.stopFailedTitle'),
@@ -1347,11 +1361,11 @@ export default function Servers() {
       // handleInlineStart's catch above -- refetch immediately rather than
       // leave stale (possibly wrong) state on screen right when the
       // operator is watching and most likely to click Stop again.
-      void Promise.allSettled([fetchServers(), fetchServerStatuses()])
+      void refreshAfterInlineAction(server)
     } finally {
       setServerActionPending(null)
     }
-  }, [toast, fetchServers, fetchServerStatuses, waitForActionState, t, confirm, canInlineStartStop])
+  }, [toast, refreshAfterInlineAction, waitForActionState, t, confirm, canInlineStartStop])
 
   const handleDeleteServer = async () => {
     if (!deleteServer) return

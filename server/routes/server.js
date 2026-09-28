@@ -2361,6 +2361,12 @@ function monitorGracefulStop({
       const details = await serverManager.getServerProcessDetails();
       if (details && !details.scanFailed && details.running === false) {
         releaseLifecycleLock();
+        // This poll is the first thing to see the process gone. Without
+        // the nudge the stop reached clients only on the watchdog's next
+        // 10s tick whenever the one-shot RCON-disconnect re-check (3s after
+        // the connection drops) still caught PZ mid-save -- Stop stayed on
+        // screen that long after the process had already exited.
+        announceStopped("graceful-stop-confirmed");
         return;
       }
     } catch (error) {

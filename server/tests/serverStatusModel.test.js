@@ -6,6 +6,7 @@ import {
   buildBridgeSignal,
   buildSummary,
   composeServerStatus,
+  isHostSignalAuthoritative,
 } from "../utils/serverStatusModel.js";
 
 describe("resolveProvider", () => {
@@ -204,6 +205,16 @@ describe("buildBridgeSignal", () => {
     ).toBe("active");
   });
 
+  it("reports offline when an authoritative host has confirmed the process gone, whatever the heartbeat says", () => {
+    expect(
+      buildBridgeSignal({ configured: true, running: true, modConnected: true, hostConfirmedStopped: true })
+        .status,
+    ).toBe("offline");
+    expect(
+      buildBridgeSignal({ configured: false, hostConfirmedStopped: true }).status,
+    ).toBe("not-installed");
+  });
+
   it("reports offline when configured but not fully connected", () => {
     expect(
       buildBridgeSignal({ configured: true, running: true, modConnected: false })
@@ -316,5 +327,111 @@ describe("composeServerStatus", () => {
 
     expect(result.provider).toBe("docker-local");
     expect(result.host.status).toBe("unknown");
+  });
+});
+
+describe("isHostSignalAuthoritative", () => {
+  it("gives a native process scan and a resolved Docker container the final word", () => {
+    expect(isHostSignalAuthoritative("native")).toBe(true);
+    expect(isHostSignalAuthoritative("native", "direct")).toBe(true);
+    expect(isHostSignalAuthoritative("docker-local")).toBe(true);
+    expect(isHostSignalAuthoritative("docker-managed")).toBe(true);
+  });
+
+  it("leaves managed systemd/openrc units and remote hosts to RCON and PanelBridge", () => {
+    expect(isHostSignalAuthoritative("native", "systemd")).toBe(false);
+    expect(isHostSignalAuthoritative("native", "openrc")).toBe(false);
+    expect(isHostSignalAuthoritative("remote-sftp")).toBe(false);
+  });
+});
+
+// 2026-09 Discord report (Windows native): after a Stop, the card showed
+// "Process Down", "RCON Down", "PanelBridge Up" and a Stop button for
+// minutes. PanelBridge's liveness is only status.json's age (5 minutes of
+// tolerance when the last write said 0 players), so the exited server's last
+// heartbeat outlived it; the card and the Dashboard offer Stop while any
+// signal is up. A confirmed-stopped authoritative host now wins.
+describe("composeServerStatus -- a heartbeat cannot outlive its process", () => {
+  const staleHeartbeat = { configured: true, running: true, modConnected: true };
+
+  it("reports PanelBridge offline when a completed native scan confirms the process gone", () => {
+    const result = composeServerStatus({
+      server: { isRemote: false },
+      isRunning: false,
+      scanFailed: false,
+      stopReason: { reason: "stop", exitCode: null, signal: null },
+      rcon: { connected: false, host: "127.0.0.1", port: 27015 },
+      bridge: staleHeartbeat,
+    });
+
+    expect(result.host).toEqual({ status: "stopped", label: "Process", detail: "Stopped by an operator" });
+    expect(result.server.status).toBe("disconnected");
+    expect(result.bridge.status).toBe("offline");
+  });
+
+  it("reports PanelBridge offline when the mapped container is confirmed stopped", () => {
+    const result = composeServerStatus({
+      server: { dockerContainerName: "pz-server" },
+      isRunning: false,
+      dockerContainer: { handled: true, running: false },
+      rcon: { connected: false },
+      bridge: staleHeartbeat,
+    });
+
+    expect(result.host.status).toBe("stopped");
+    expect(result.bridge.status).toBe("offline");
+  });
+
+  it("keeps PanelBridge active while the process is running", () => {
+    const result = composeServerStatus({
+      server: { isRemote: false },
+      isRunning: true,
+      rcon: { connected: false },
+      bridge: staleHeartbeat,
+    });
+
+    expect(result.bridge.status).toBe("active");
+  });
+
+  // Honest-unknown: none of these is a confirmed exit, so the heartbeat is
+  // still the best evidence available -- the same cases the watchdog lets
+  // PanelBridge decide.
+  it("does not overrule the heartbeat when the host signal could not tell or is not authoritative", () => {
+    const failedScan = composeServerStatus({
+      server: { isRemote: false },
+      isRunning: false,
+      scanFailed: true,
+      rcon: { connected: false },
+      bridge: staleHeartbeat,
+    });
+    const remote = composeServerStatus({
+      server: { isRemote: true },
+      isRunning: false,
+      rcon: { connected: false },
+      bridge: staleHeartbeat,
+    });
+    const systemdUnit = composeServerStatus({
+      server: { isRemote: false, lifecycleProvider: "systemd" },
+      isRunning: false,
+      scanFailed: false,
+      rcon: { connected: false },
+      bridge: staleHeartbeat,
+    });
+    const unresolvedContainer = composeServerStatus({
+      server: { dockerContainerName: "pz-server" },
+      isRunning: false,
+      dockerContainer: { handled: false },
+      rcon: { connected: false },
+      bridge: staleHeartbeat,
+    });
+
+    expect(failedScan.host.status).toBe("unknown");
+    expect(failedScan.bridge.status).toBe("active");
+    expect(remote.host.status).toBe("unknown");
+    expect(remote.bridge.status).toBe("active");
+    expect(systemdUnit.host.status).toBe("stopped");
+    expect(systemdUnit.bridge.status).toBe("active");
+    expect(unresolvedContainer.host.status).toBe("unknown");
+    expect(unresolvedContainer.bridge.status).toBe("active");
   });
 });

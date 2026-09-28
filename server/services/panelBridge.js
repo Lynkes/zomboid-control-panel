@@ -125,6 +125,12 @@ class PanelBridge extends EventEmitter {
     this.modStatus = null;
     this.previousPlayers = new Set(); // Track previous player list for connect/disconnect detection
     this.lastStatusFileCheck = 0;
+    // mtime of the status file the last exited server process left behind
+    // (see markServerExited()); null when nothing is being disbelieved.
+    // Deliberately NOT reset by stop(): it describes that file on disk, not
+    // this bridge session, and a bridge restart on the same path must not
+    // resurrect a dead server's heartbeat. Any other mtime clears it.
+    this.exitedServerStatusMtimeMs = null;
     // panelbridge-lua-version-handshake: last protocolVersion string we've
     // already warned about, so a mismatch logs once (not every ~1s poll)
     // and re-warns if the mod is redeployed to yet another mismatched build.
@@ -1531,6 +1537,18 @@ class PanelBridge extends EventEmitter {
       // Check file modification time first (faster than reading)
       // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
       const stats = fs.statSync(statusFile);
+
+      // This exact write is the last heartbeat of a server process the
+      // watchdog has since seen exit (markServerExited()). Its age says
+      // nothing about a mod that no longer exists, and the idle tolerance
+      // below would read it back in as live for up to five minutes. Any
+      // other mtime is a new write -- a server is up again -- so normal
+      // checking resumes from there.
+      if (this.exitedServerStatusMtimeMs !== null) {
+        if (stats.mtimeMs === this.exitedServerStatusMtimeMs) return;
+        this.exitedServerStatusMtimeMs = null;
+      }
+
       const age = Date.now() - stats.mtimeMs;
 
       // Use relaxed threshold when server is idle (0 players) — PZ stops Lua ticks with no players
@@ -1795,6 +1813,44 @@ class PanelBridge extends EventEmitter {
    */
   isModConnected() {
     return this.modStatus?.alive === true;
+  }
+
+  /**
+   * The status watchdog (server/index.js's checkServerStatusNow) observed
+   * the game server stopped. status.json is the mod's only heartbeat and
+   * checkModStatus() judges it purely by the file's age, so without this
+   * the last write an exited server made kept the mod "connected" for up to
+   * statusStaleIdleMs (5 minutes) after a quiet stop -- on the Dashboard's
+   * PanelBridge line, in Settings > Bridge, and for every bridge command,
+   * which then waited out its full timeout against a mod that was gone.
+   * Pins that write as dead (checkModStatus() skips it until the file
+   * changes) and marks the mod offline now, the same way a heartbeat that
+   * aged out is marked: alive=false plus one modStatus event.
+   *
+   * Only called for a stopped verdict. For a native/Docker host that
+   * verdict is the process/container itself; for a remote or systemd host
+   * the verdict already required this heartbeat to be dead (see
+   * isServerObservedRunning), so pinning it changes nothing there.
+   */
+  markServerExited() {
+    const statusFile = this.getStatusFile();
+    try {
+      // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
+      if (statusFile && fs.existsSync(statusFile)) {
+        // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
+        this.exitedServerStatusMtimeMs = fs.statSync(statusFile).mtimeMs;
+      }
+    } catch (e) {
+      // Nothing pinned: the normal age check still expires the heartbeat.
+      log.debug(`Could not pin the exited server's status file: ${e.message}`);
+    }
+
+    if (this.modStatus?.alive) {
+      this.modStatus.alive = false;
+      this.modStatus._wasAlive = false;
+      this.emit('modStatus', this.modStatus);
+      log.info('Mod marked as disconnected: the game server process exited');
+    }
   }
 
   // sweep-round5 follow-up (2026-09-07, release-1-2-17): ping() used to

@@ -185,6 +185,30 @@ describe('resolveServerCardRunning', () => {
     expect(resolveServerCardRunning({ isActive: true }, null, composed('stopped', 'connecting', 'offline'))).toBeNull()
   })
 
+  // 2026-09 Discord report: "Process Down", "RCON Down", "PanelBridge Up" and
+  // a Stop button on the same card. The button is a pure function of the
+  // three badges beside it -- Stop exactly when one of them reads Up, Start
+  // exactly when Process and RCON read Down and PanelBridge does not read
+  // Up, unknown otherwise -- so the fix for that report belongs in the
+  // badge data the server sends (a heartbeat can't outlive its process),
+  // never in a second, client-only rule that could drift from the badges.
+  it('offers Stop exactly when a badge reads Up and Start exactly when Process and RCON read Down', () => {
+    const up = new Set(['running', 'connected', 'active'])
+    for (const host of ['running', 'stopped', 'unknown', 'not-applicable']) {
+      for (const rcon of ['connected', 'disconnected', 'connecting']) {
+        for (const bridge of ['active', 'offline', 'not-installed']) {
+          const expected = [host, rcon, bridge].some((status) => up.has(status))
+            ? true
+            : host === 'stopped' && rcon === 'disconnected' ? false : null
+          expect(
+            resolveServerCardRunning({ isActive: true }, null, composed(host, rcon, bridge)),
+            `${host}/${rcon}/${bridge}`,
+          ).toBe(expected)
+        }
+      }
+    }
+  })
+
   it('returns unknown while an active server has no trustworthy status', () => {
     expect(resolveServerCardRunning({ isActive: true }, null, null)).toBeNull()
     expect(resolveServerCardRunning({ isActive: true }, { running: false, stateUnknown: true }, null)).toBeNull()

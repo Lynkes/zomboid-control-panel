@@ -196,10 +196,88 @@ describe("GET /api/servers/active/status", () => {
     fakeBridge.isModConnected = () => true;
     const response = createResponse();
 
-    await getStatusHandler()({ app: fakeApp() }, response);
+    // The game process has to be up for its mod to be: this fixture used to
+    // leave fakeApp()'s default "scan completed, no process" in place, which
+    // is exactly the stale-heartbeat case the next test pins as offline.
+    await getStatusHandler()(
+      {
+        app: fakeApp({
+          serverManager: {
+            getServerProcessDetails: async () => ({ running: true, scanFailed: false }),
+          },
+        }),
+      },
+      response,
+    );
 
     expect(response.json).toHaveBeenCalledWith(
       expect.objectContaining({ bridge: expect.objectContaining({ status: "active" }) }),
+    );
+  });
+
+  // 2026-09 Discord report (Windows native, "MAZE"): after a panel Stop the
+  // server card showed "Process Down", "RCON Down", "PanelBridge Up" -- and
+  // a Stop button, for minutes. The mod's heartbeat is only status.json's
+  // age, tolerated for 5 minutes when the last write said 0 players, so it
+  // outlived the process it lives in; the card offers Stop while any signal
+  // is up. A completed scan that finds no process is the authority here.
+  it("reports the bridge offline once a completed scan confirms the process gone, even while the mod's last heartbeat is still fresh", async () => {
+    getActiveServer.mockResolvedValue({ id: 1, isRemote: false });
+    fakeBridge.bridgePath = "C:\\PZServer_Data\\Lua\\panelbridge\\MAZE";
+    fakeBridge.isRunning = true;
+    fakeBridge.isModConnected = () => true; // stale heartbeat, still inside the idle window
+    const response = createResponse();
+
+    await getStatusHandler()(
+      {
+        app: fakeApp({
+          serverManager: {
+            getServerProcessDetails: async () => ({ running: false, scanFailed: false }),
+            lastStopReason: { reason: "stop", exitCode: null, signal: null },
+          },
+          rconService: {
+            getConfig: () => ({ connected: false, host: "127.0.0.1", port: 27015 }),
+            connecting: false,
+          },
+        }),
+      },
+      response,
+    );
+
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: { status: "stopped", label: "Process", detail: "Stopped by an operator" },
+        server: expect.objectContaining({ status: "disconnected", detail: "127.0.0.1:27015" }),
+        bridge: expect.objectContaining({ status: "offline" }),
+      }),
+    );
+  });
+
+  // Honest-unknown: a scan that could NOT tell is not a confirmed exit, so
+  // the heartbeat still counts -- same rule the watchdog applies.
+  it("keeps a live heartbeat active when the process scan itself failed", async () => {
+    getActiveServer.mockResolvedValue({ id: 1, isRemote: false });
+    fakeBridge.bridgePath = "/data/panelbridge";
+    fakeBridge.isRunning = true;
+    fakeBridge.isModConnected = () => true;
+    const response = createResponse();
+
+    await getStatusHandler()(
+      {
+        app: fakeApp({
+          serverManager: {
+            getServerProcessDetails: async () => ({ running: false, scanFailed: true }),
+          },
+        }),
+      },
+      response,
+    );
+
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: expect.objectContaining({ status: "unknown" }),
+        bridge: expect.objectContaining({ status: "active" }),
+      }),
     );
   });
 

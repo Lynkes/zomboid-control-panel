@@ -721,6 +721,12 @@ export default function Dashboard() {
         return prev
       })
       setLastUpdated(new Date())
+      // The merge above only reaches the plain `status`; Start vs Stop reads
+      // `online`, which is composedStatus's host/RCON/PanelBridge whenever
+      // composedStatus exists. Without this refetch a server that had just
+      // stopped kept its Stop button until the 15s poll (Servers.tsx's card
+      // already refetches on this same push).
+      void fetchComposedStatus()
     }
     const onPlayers = (d: Player[]) => setPlayers(d)
     const onActiveServer = (d?: { server?: ServerInstance | null }) => {
@@ -989,6 +995,10 @@ export default function Dashboard() {
       // the real display state once, after the wait, instead of live-writing
       // a shape mismatch during it.
       if (mountedRef.current) fetchStatus()
+      // Start vs Stop reads `online`, which comes from composedStatus
+      // whenever it exists -- refreshing only the plain status above left
+      // the button on the pre-action answer until the next 15s poll.
+      if (mountedRef.current && isLifecycleAction) void fetchComposedStatus()
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),
