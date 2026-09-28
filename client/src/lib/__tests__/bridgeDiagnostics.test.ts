@@ -63,8 +63,15 @@ const debugByLocale = import.meta.glob('../../locales/*/debug.json', { eager: tr
 >
 const deliveryByLocale = import.meta.glob('../../locales/*/bridgeDelivery.json', { eager: true, import: 'default' }) as Record<
   string,
-  { sectionTitle: string }
+  { sectionTitle: string; workshop: { title: string } }
 >
+
+// Workshop-only advice, in every locale's own words: zh-CN, zh-TW and ar
+// translate the Workshop (创意工坊, 創意工坊, ورشة), so matching the Latin word
+// alone let a Workshop-only remedy through there. Each locale's own name for
+// the Workshop delivery method must match this, so a locale that words it
+// differently fails here until it is added.
+const WORKSHOP_ONLY = /Workshop|Mods=|创意工坊|創意工坊|ورشة/
 
 describe('the "PanelBridge stays silent" remedies', () => {
   const locales = Object.keys(deliveryByLocale).map((file) => file.split('/').at(-2) as string)
@@ -74,7 +81,8 @@ describe('the "PanelBridge stays silent" remedies', () => {
   })
 
   it.each(locales)('%s points at How PanelBridge is installed, whatever the delivery method', (locale) => {
-    const sectionTitle = deliveryByLocale[`../../locales/${locale}/bridgeDelivery.json`].sectionTitle
+    const delivery = deliveryByLocale[`../../locales/${locale}/bridgeDelivery.json`]
+    const sectionTitle = delivery.sectionTitle
     const settings = settingsByLocale[`../../locales/${locale}/settings.json`]
     const diagnostics = settings.bridge.diagnostics
     const silent = diagnostics.bridgeSilentSinceStart
@@ -87,8 +95,9 @@ describe('the "PanelBridge stays silent" remedies', () => {
     expect(mapHint).toContain(sectionTitle)
     expect(neverHint).toContain(sectionTitle)
     // Nothing that only fits Workshop delivery.
-    expect(neverHint).not.toMatch(/Workshop|Mods=/)
-    expect(missing).not.toMatch(/Workshop|Mods=/)
+    expect(delivery.workshop.title).toMatch(WORKSHOP_ONLY)
+    expect(neverHint).not.toMatch(WORKSHOP_ONLY)
+    expect(missing).not.toMatch(WORKSHOP_ONLY)
     // The toast has no room for the section title; it names the page.
     expect(settings.toasts.modNoResponse.fallback).toContain('› PanelBridge')
   })
