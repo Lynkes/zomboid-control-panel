@@ -50,7 +50,7 @@
     "noSteamShared": "此服务器或共用其游戏文件夹的服务器（{{servers}}）不通过 Steam 启动（GOG/LAN）。该模式下无法下载创意工坊项目。",
     "gameVersionUnsupported": "PanelBridge 的创意工坊项目适用于 Build 42。此服务器报告的版本为 {{version}}。",
     "iniNotFound": "请先启动一次服务器以生成其设置文件，然后再切换。",
-    "iniDuplicateKeys": "设置文件中 Mods= 或 WorkshopItems= 出现了两次。请先在「服务器配置 › INI（原始）」中修正。",
+    "iniDuplicateKeys": "设置文件中 Mods= 或 WorkshopItems= 出现了两次。请先在「服务器配置 › 服务器设置（原始）」中修正。",
     "sameMethod": "此服务器已在使用此方式。"
   },
   "warn": {
@@ -90,7 +90,7 @@
     "local-workshop-loaded": {
       "title": "已从 Steam 创意工坊加载",
       "body": "此服务器从 Steam 创意工坊加载 PanelBridge，但当前设置为由面板安装。",
-      "manualHint": "如要继续使用由面板安装的 PanelBridge，请在服务器的设置文件（「服务器配置 › INI」）中，从 <code>Mods=</code> 移除 <code>{{modId}}</code>，并从 <code>WorkshopItems=</code> 移除 PanelBridge 创意工坊项目的 ID，然后重启服务器。"
+      "manualHint": "如要继续使用由面板安装的 PanelBridge，请在服务器的设置文件（「服务器配置 › 服务器设置」）中，从 <code>Mods=</code> 移除 <code>{{modId}}</code>，并从 <code>WorkshopItems=</code> 移除 PanelBridge 创意工坊项目的 ID，然后重启服务器。"
     },
     "workshop-restart-needed": {
       "title": "需要重启",
@@ -132,8 +132,8 @@
   },
   "banner": {
     "steamUnavailable": "Steam 报告 PanelBridge 的创意工坊项目不可用。在其恢复或你切换为由面板安装之前，服务器将无法启动。",
-    "autoRestartOn": "PanelBridge 更新后会自动重启此服务器（设置 › 模组）。",
-    "autoRestartOff": "PanelBridge 每次更新后，新玩家在你重启之前都无法加入。请在「设置 › 模组」中启用自动重启。",
+    "autoRestartOn": "PanelBridge 更新后会自动重启此服务器（设置 › 模组与创意工坊）。",
+    "autoRestartOff": "PanelBridge 每次更新后，新玩家在你重启之前都无法加入。请在「设置 › 模组与创意工坊」中启用自动重启。",
     "leftovers": "游戏文件夹中仍有旧的 PanelBridge 文件：{{files}}。启用 Lua 完整性检查后，玩家将被拒绝。从面板启动或重启服务器会将它们移出。"
   },
   "action": {
@@ -220,7 +220,7 @@
     "onUnconfirmedBody": "尚未确认 PanelBridge 从 Steam 创意工坊加载。如果它仍从游戏文件夹加载，只要启用此检查，玩家就无法加入。",
     "guidedInstructions": "在服务器的 .ini 文件中设置 DoLuaChecksum=true，然后重启服务器。",
     "guidedTurnOffHint": "面板无法读取此服务器的设置文件。如果已启用此检查且玩家被拒绝，请在服务器的 .ini 文件中设置 DoLuaChecksum=false，然后重启服务器。",
-    "openServerConfig": "打开「服务器配置 › INI」",
+    "openServerConfig": "打开「服务器配置 › 服务器设置」",
     "needsServerFiles": "更改 DoLuaChecksum 需要 serverfiles.manage 权限，此角色没有该权限。",
     "restartPrompt": "已保存 DoLuaChecksum=true，将在服务器重启后生效。",
     "later": "稍后",
@@ -237,8 +237,8 @@
     "switchedToLocal": "现在由面板在 {{server}} 上安装 PanelBridge",
     "guidedRecorded": "已保存。PanelBridge 从 {{server}} 报告状态后，此页面会确认该更改。",
     "switchFailed": "无法更改 PanelBridge 的安装方式",
-    "notRestored": "面板未能撤销所有已做的更改。启动服务器前，请在「服务器配置 › INI」中检查其设置文件；更改前已保存了该文件的备份。",
-    "notRestoredFile": "无法更改 {{fileName}}，且面板未能撤销所有已做的更改。启动服务器前，请在「服务器配置 › INI」中检查其设置文件；更改前已保存了该文件的备份。",
+    "notRestored": "面板未能撤销所有已做的更改。启动服务器前，请在「服务器配置 › 服务器设置」中检查其设置文件；更改前已保存了该文件的备份。",
+    "notRestoredFile": "无法更改 {{fileName}}，且面板未能撤销所有已做的更改。启动服务器前，请在「服务器配置 › 服务器设置」中检查其设置文件；更改前已保存了该文件的备份。",
     "lifecycleFailed": "已切换，但服务器未能启动或重启",
     "lifecycleSkipped": "已切换，但活动服务器在此期间发生了变化，因此未启动或重启 {{server}}。",
     "installed": "游戏文件夹中的 PanelBridge 已是最新",

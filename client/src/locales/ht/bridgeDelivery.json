@@ -50,7 +50,7 @@
     "noSteamShared": "Sèvè sa a oswa yon sèvè ki pataje dosye jwèt li ({{servers}}) demare san Steam (GOG/LAN). Atik Workshop pa ka telechaje nan mòd sa a.",
     "gameVersionUnsupported": "Atik Workshop PanelBridge la se pou Build 42. Sèvè sa a di {{version}}.",
     "iniNotFound": "Demare sèvè a yon fwa pou l ka kreye fichye paramèt li, apre sa chanje.",
-    "iniDuplicateKeys": "Fichye paramèt la gen Mods= oswa WorkshopItems= de fwa. Korije sa an premye nan Konfigirasyon Sèvè › INI (brit).",
+    "iniDuplicateKeys": "Fichye paramèt la gen Mods= oswa WorkshopItems= de fwa. Korije sa an premye nan Konfigirasyon Sèvè › Paramèt Sèvè (Bri).",
     "sameMethod": "Sèvè sa a deja itilize metòd sa a."
   },
   "warn": {
@@ -90,7 +90,7 @@
     "local-workshop-loaded": {
       "title": "Chaje nan Steam Workshop",
       "body": "Sèvè sa a chaje PanelBridge nan Steam Workshop, men li regle sou “panèl la enstale l”.",
-      "manualHint": "Pou kenbe PanelBridge panèl la enstale a, retire <code>{{modId}}</code> nan <code>Mods=</code> ak ID atik Workshop PanelBridge la nan <code>WorkshopItems=</code> nan fichye paramèt sèvè a (Konfigirasyon Sèvè › INI), apre sa redemare sèvè a."
+      "manualHint": "Pou kenbe PanelBridge panèl la enstale a, retire <code>{{modId}}</code> nan <code>Mods=</code> ak ID atik Workshop PanelBridge la nan <code>WorkshopItems=</code> nan fichye paramèt sèvè a (Konfigirasyon Sèvè › Paramèt Sèvè), apre sa redemare sèvè a."
     },
     "workshop-restart-needed": {
       "title": "Bezwen redemare",
@@ -132,8 +132,8 @@
   },
   "banner": {
     "steamUnavailable": "Steam di atik Workshop PanelBridge la pa disponib. Sèvè a p ap demare jiskaske li tounen oswa ou pase sou enstalasyon pa panèl la.",
-    "autoRestartOn": "Mizajou PanelBridge yo redemare sèvè sa a otomatikman (Paramèt › Mods).",
-    "autoRestartOff": "Apre chak mizajou PanelBridge, nouvo jwè pa ka antre jiskaske ou redemare. Aktive redemaraj otomatik nan Paramèt › Mods.",
+    "autoRestartOn": "Mizajou PanelBridge yo redemare sèvè sa a otomatikman (Paramèt › Mod ak Workshop).",
+    "autoRestartOff": "Apre chak mizajou PanelBridge, nouvo jwè pa ka antre jiskaske ou redemare. Aktive redemaraj otomatik nan Paramèt › Mod ak Workshop.",
     "leftovers": "Ansyen fichye PanelBridge toujou nan dosye jwèt la: {{files}}. Avèk verifikasyon entegrite Lua a aktive, y ap refize jwè yo. Lè w demare oswa redemare sèvè a depi panèl la, sa deplase yo."
   },
   "action": {
@@ -220,7 +220,7 @@
     "onUnconfirmedBody": "Nou poko konfime PanelBridge chaje nan Steam Workshop. Si l toujou chaje nan dosye jwèt la, jwè yo pa ka antre pandan verifikasyon sa a aktive.",
     "guidedInstructions": "Mete DoLuaChecksum=true nan fichye .ini sèvè a, apre sa redemare sèvè a.",
     "guidedTurnOffHint": "Panèl la pa ka li fichye paramèt sèvè sa a. Si w te aktive verifikasyon an epi y ap refize jwè yo, mete DoLuaChecksum=false nan fichye .ini sèvè a epi redemare sèvè a.",
-    "openServerConfig": "Louvri Konfigirasyon Sèvè › INI",
+    "openServerConfig": "Louvri Konfigirasyon Sèvè › Paramèt Sèvè",
     "needsServerFiles": "Pou chanje DoLuaChecksum, fò w gen otorizasyon serverfiles.manage, e wòl sa a pa genyen l.",
     "restartPrompt": "DoLuaChecksum=true sove. Chanjman an ap pran efè lè sèvè a redemare.",
     "later": "Pita",
@@ -237,8 +237,8 @@
     "switchedToLocal": "Panèl la enstale PanelBridge sou {{server}} kounye a",
     "guidedRecorded": "Anrejistre. Paj sa a ap konfime chanjman an depi PanelBridge bay nouvèl sou {{server}}.",
     "switchFailed": "Pa t ka chanje fason PanelBridge enstale",
-    "notRestored": "Panèl la pa t ka anile tout chanjman li te deja fè yo. Anvan ou demare sèvè a, verifye fichye paramèt li nan Konfigirasyon Sèvè › INI; yo te sove yon kopi li anvan chanjman an.",
-    "notRestoredFile": "Pa t ka chanje {{fileName}}, epi panèl la pa t ka anile tout chanjman li te deja fè yo. Anvan ou demare sèvè a, verifye fichye paramèt li nan Konfigirasyon Sèvè › INI; yo te sove yon kopi li anvan chanjman an.",
+    "notRestored": "Panèl la pa t ka anile tout chanjman li te deja fè yo. Anvan ou demare sèvè a, verifye fichye paramèt li nan Konfigirasyon Sèvè › Paramèt Sèvè; yo te sove yon kopi li anvan chanjman an.",
+    "notRestoredFile": "Pa t ka chanje {{fileName}}, epi panèl la pa t ka anile tout chanjman li te deja fè yo. Anvan ou demare sèvè a, verifye fichye paramèt li nan Konfigirasyon Sèvè › Paramèt Sèvè; yo te sove yon kopi li anvan chanjman an.",
     "lifecycleFailed": "Chanjman an fèt, men sèvè a pa t demare oswa redemare",
     "lifecycleSkipped": "Chanjman an fèt, men sèvè aktif la chanje antretan, kidonk {{server}} pa t demare ni redemare.",
     "installed": "PanelBridge ajou nan dosye jwèt la",

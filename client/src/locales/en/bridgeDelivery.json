@@ -50,7 +50,7 @@
     "noSteamShared": "This server or one that shares its game folder ({{servers}}) launches without Steam (GOG/LAN). Workshop items can't download in that mode.",
     "gameVersionUnsupported": "The PanelBridge Workshop item is for Build 42. This server reports {{version}}.",
     "iniNotFound": "Start the server once so it creates its settings file, then switch.",
-    "iniDuplicateKeys": "The settings file has Mods= or WorkshopItems= twice. Fix it in Server Config › INI (raw) first.",
+    "iniDuplicateKeys": "The settings file has Mods= or WorkshopItems= twice. Fix it in Server Configuration › Server Settings (Raw) first.",
     "sameMethod": "This server already uses this method."
   },
   "warn": {
@@ -90,7 +90,7 @@
     "local-workshop-loaded": {
       "title": "Loaded from the Steam Workshop",
       "body": "This server loads PanelBridge from the Steam Workshop, but it's set to panel-installed.",
-      "manualHint": "To keep the panel-installed bridge instead, remove <code>{{modId}}</code> from <code>Mods=</code> and the PanelBridge item ID from <code>WorkshopItems=</code> in the server's settings file (Server Config › INI), then restart the server."
+      "manualHint": "To keep the panel-installed bridge instead, remove <code>{{modId}}</code> from <code>Mods=</code> and the PanelBridge item ID from <code>WorkshopItems=</code> in the server's settings file (Server Configuration › Server Settings), then restart the server."
     },
     "workshop-restart-needed": {
       "title": "Restart needed",
@@ -132,8 +132,8 @@
   },
   "banner": {
     "steamUnavailable": "Steam reports the PanelBridge Workshop item as unavailable. The server won't start until it's back or you switch to panel-installed.",
-    "autoRestartOn": "PanelBridge updates restart this server automatically (Settings › Mods).",
-    "autoRestartOff": "After each PanelBridge update, new players can't join until you restart. Turn on automatic restarts in Settings › Mods.",
+    "autoRestartOn": "PanelBridge updates restart this server automatically (Settings › Mods & Workshop).",
+    "autoRestartOff": "After each PanelBridge update, new players can't join until you restart. Turn on automatic restarts in Settings › Mods & Workshop.",
     "leftovers": "Old PanelBridge files are still in the game folder: {{files}}. With the Lua integrity check on, players will be refused. Starting or restarting the server from the panel moves them out."
   },
   "action": {
@@ -220,7 +220,7 @@
     "onUnconfirmedBody": "PanelBridge isn't confirmed to load from the Steam Workshop yet. If it still loads from the game folder, players can't join with this check on.",
     "guidedInstructions": "Set DoLuaChecksum=true in the server's .ini file, then restart the server.",
     "guidedTurnOffHint": "The panel can't read this server's settings file. If you turned the check on and players are refused, set DoLuaChecksum=false in the server's .ini file and restart the server.",
-    "openServerConfig": "Open Server Config › INI",
+    "openServerConfig": "Open Server Configuration › Server Settings",
     "needsServerFiles": "Changing DoLuaChecksum requires the serverfiles.manage permission, which this role doesn't have.",
     "restartPrompt": "DoLuaChecksum=true is saved. It takes effect when the server restarts.",
     "later": "Later",
@@ -237,8 +237,8 @@
     "switchedToLocal": "The panel now installs PanelBridge on {{server}}",
     "guidedRecorded": "Saved. This page confirms the change once PanelBridge reports in from {{server}}.",
     "switchFailed": "Couldn't change how PanelBridge is installed",
-    "notRestored": "The panel couldn't undo every change it had already made. Before starting the server, check its settings file in Server Config › INI; a backup of it was saved before the change.",
-    "notRestoredFile": "Couldn't change {{fileName}}, and the panel couldn't undo every change it had already made. Before starting the server, check its settings file in Server Config › INI; a backup of it was saved before the change.",
+    "notRestored": "The panel couldn't undo every change it had already made. Before starting the server, check its settings file in Server Configuration › Server Settings; a backup of it was saved before the change.",
+    "notRestoredFile": "Couldn't change {{fileName}}, and the panel couldn't undo every change it had already made. Before starting the server, check its settings file in Server Configuration › Server Settings; a backup of it was saved before the change.",
     "lifecycleFailed": "Switched, but the server didn't start or restart",
     "lifecycleSkipped": "Switched, but the active server changed meanwhile, so {{server}} wasn't started or restarted.",
     "installed": "PanelBridge is up to date in the game folder",

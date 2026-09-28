@@ -50,7 +50,7 @@
     "noSteamShared": "Ce serveur ou un serveur qui partage son dossier du jeu ({{servers}}) se lance sans Steam (GOG/LAN). Les éléments du Workshop ne peuvent pas être téléchargés dans ce mode.",
     "gameVersionUnsupported": "L'élément Workshop de PanelBridge est prévu pour la Build 42. Ce serveur indique {{version}}.",
     "iniNotFound": "Démarrez le serveur une fois pour qu'il crée son fichier de paramètres, puis changez de mode.",
-    "iniDuplicateKeys": "Le fichier de paramètres contient Mods= ou WorkshopItems= en double. Corrigez-le d'abord dans Configuration du serveur › INI (brut).",
+    "iniDuplicateKeys": "Le fichier de paramètres contient Mods= ou WorkshopItems= en double. Corrigez-le d'abord dans Configuration du serveur › Paramètres serveur (Brut).",
     "sameMethod": "Ce serveur utilise déjà ce mode."
   },
   "warn": {
@@ -90,7 +90,7 @@
     "local-workshop-loaded": {
       "title": "Chargé depuis le Steam Workshop",
       "body": "Ce serveur charge PanelBridge depuis le Steam Workshop, mais il est réglé sur « installé par le panneau ».",
-      "manualHint": "Pour garder PanelBridge installé par le panneau, retirez <code>{{modId}}</code> de <code>Mods=</code> et l'ID de l'élément Workshop de PanelBridge de <code>WorkshopItems=</code> dans le fichier de paramètres du serveur (Configuration du serveur › INI), puis redémarrez le serveur."
+      "manualHint": "Pour garder PanelBridge installé par le panneau, retirez <code>{{modId}}</code> de <code>Mods=</code> et l'ID de l'élément Workshop de PanelBridge de <code>WorkshopItems=</code> dans le fichier de paramètres du serveur (Configuration du serveur › Paramètres serveur), puis redémarrez le serveur."
     },
     "workshop-restart-needed": {
       "title": "Redémarrage nécessaire",
@@ -132,8 +132,8 @@
   },
   "banner": {
     "steamUnavailable": "Steam signale l'élément Workshop de PanelBridge comme indisponible. Le serveur ne démarrera pas tant qu'il ne sera pas revenu ou que vous ne serez pas repassé à l'installation par le panneau.",
-    "autoRestartOn": "Les mises à jour de PanelBridge redémarrent ce serveur automatiquement (Paramètres › Mods).",
-    "autoRestartOff": "Après chaque mise à jour de PanelBridge, les nouveaux joueurs ne peuvent pas se connecter tant que vous n'avez pas redémarré. Activez les redémarrages automatiques dans Paramètres › Mods.",
+    "autoRestartOn": "Les mises à jour de PanelBridge redémarrent ce serveur automatiquement (Paramètres › Mods et Workshop).",
+    "autoRestartOff": "Après chaque mise à jour de PanelBridge, les nouveaux joueurs ne peuvent pas se connecter tant que vous n'avez pas redémarré. Activez les redémarrages automatiques dans Paramètres › Mods et Workshop.",
     "leftovers": "D'anciens fichiers PanelBridge sont encore dans le dossier du jeu : {{files}}. Avec la vérification d'intégrité Lua activée, les joueurs seront refusés. Démarrer ou redémarrer le serveur depuis le panneau les déplace."
   },
   "action": {
@@ -220,7 +220,7 @@
     "onUnconfirmedBody": "Le chargement de PanelBridge depuis le Steam Workshop n'est pas encore confirmé. S'il est encore chargé depuis le dossier du jeu, les joueurs ne peuvent pas se connecter tant que cette vérification est activée.",
     "guidedInstructions": "Définissez DoLuaChecksum=true dans le fichier .ini du serveur, puis redémarrez le serveur.",
     "guidedTurnOffHint": "Le panneau ne peut pas lire le fichier de paramètres de ce serveur. Si vous avez activé la vérification et que des joueurs sont refusés, définissez DoLuaChecksum=false dans le fichier .ini du serveur et redémarrez le serveur.",
-    "openServerConfig": "Ouvrir Configuration du serveur › INI",
+    "openServerConfig": "Ouvrir Configuration du serveur › Paramètres serveur",
     "needsServerFiles": "Modifier DoLuaChecksum nécessite la permission serverfiles.manage, que ce rôle n'a pas.",
     "restartPrompt": "DoLuaChecksum=true est enregistré. Le changement prend effet au redémarrage du serveur.",
     "later": "Plus tard",
@@ -237,8 +237,8 @@
     "switchedToLocal": "Le panneau installe désormais PanelBridge sur {{server}}",
     "guidedRecorded": "Enregistré. Cette page confirmera le changement dès que PanelBridge se signalera depuis {{server}}.",
     "switchFailed": "Impossible de changer le mode d'installation de PanelBridge",
-    "notRestored": "Le panneau n'a pas pu annuler toutes les modifications déjà faites. Avant de démarrer le serveur, vérifiez son fichier de paramètres dans Configuration du serveur › INI ; une sauvegarde en a été faite avant la modification.",
-    "notRestoredFile": "Impossible de modifier {{fileName}}, et le panneau n'a pas pu annuler toutes les modifications déjà faites. Avant de démarrer le serveur, vérifiez son fichier de paramètres dans Configuration du serveur › INI ; une sauvegarde en a été faite avant la modification.",
+    "notRestored": "Le panneau n'a pas pu annuler toutes les modifications déjà faites. Avant de démarrer le serveur, vérifiez son fichier de paramètres dans Configuration du serveur › Paramètres serveur ; une sauvegarde en a été faite avant la modification.",
+    "notRestoredFile": "Impossible de modifier {{fileName}}, et le panneau n'a pas pu annuler toutes les modifications déjà faites. Avant de démarrer le serveur, vérifiez son fichier de paramètres dans Configuration du serveur › Paramètres serveur ; une sauvegarde en a été faite avant la modification.",
     "lifecycleFailed": "Changement effectué, mais le serveur n'a pas démarré ou redémarré",
     "lifecycleSkipped": "Changement effectué, mais le serveur actif a changé entre-temps : {{server}} n'a donc été ni démarré ni redémarré.",
     "installed": "PanelBridge est à jour dans le dossier du jeu",

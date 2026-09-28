@@ -50,7 +50,7 @@
     "noSteamShared": "Dieser Server oder ein Server, der seinen Spielordner teilt ({{servers}}), startet ohne Steam (GOG/LAN). In diesem Modus können keine Workshop-Elemente heruntergeladen werden.",
     "gameVersionUnsupported": "Das Workshop-Element von PanelBridge ist für Build 42. Dieser Server meldet {{version}}.",
     "iniNotFound": "Starte den Server einmal, damit er seine Einstellungsdatei anlegt, und wechsle dann.",
-    "iniDuplicateKeys": "Die Einstellungsdatei enthält Mods= oder WorkshopItems= doppelt. Behebe das zuerst unter Serverkonfiguration › INI (roh).",
+    "iniDuplicateKeys": "Die Einstellungsdatei enthält Mods= oder WorkshopItems= doppelt. Behebe das zuerst unter Serverkonfiguration › Servereinstellungen (Raw).",
     "sameMethod": "Dieser Server nutzt diese Methode bereits."
   },
   "warn": {
@@ -90,7 +90,7 @@
     "local-workshop-loaded": {
       "title": "Aus dem Steam Workshop geladen",
       "body": "Dieser Server lädt PanelBridge aus dem Steam Workshop, ist aber auf „Vom Panel installiert“ eingestellt.",
-      "manualHint": "Um beim vom Panel installierten PanelBridge zu bleiben, entferne <code>{{modId}}</code> aus <code>Mods=</code> und die ID des Workshop-Elements von PanelBridge aus <code>WorkshopItems=</code> in der Einstellungsdatei des Servers (Serverkonfiguration › INI) und starte den Server dann neu."
+      "manualHint": "Um beim vom Panel installierten PanelBridge zu bleiben, entferne <code>{{modId}}</code> aus <code>Mods=</code> und die ID des Workshop-Elements von PanelBridge aus <code>WorkshopItems=</code> in der Einstellungsdatei des Servers (Serverkonfiguration › Servereinstellungen) und starte den Server dann neu."
     },
     "workshop-restart-needed": {
       "title": "Neustart nötig",
@@ -132,8 +132,8 @@
   },
   "banner": {
     "steamUnavailable": "Steam meldet das PanelBridge-Workshop-Element als nicht verfügbar. Der Server startet erst wieder, wenn es zurück ist oder du zu „Vom Panel installiert“ wechselst.",
-    "autoRestartOn": "PanelBridge-Updates starten diesen Server automatisch neu (Einstellungen › Mods).",
-    "autoRestartOff": "Nach jedem PanelBridge-Update können neue Spieler erst nach einem Neustart beitreten. Schalte automatische Neustarts unter Einstellungen › Mods ein.",
+    "autoRestartOn": "PanelBridge-Updates starten diesen Server automatisch neu (Einstellungen › Mods & Workshop).",
+    "autoRestartOff": "Nach jedem PanelBridge-Update können neue Spieler erst nach einem Neustart beitreten. Schalte automatische Neustarts unter Einstellungen › Mods & Workshop ein.",
     "leftovers": "Alte PanelBridge-Dateien liegen noch im Spielordner: {{files}}. Mit eingeschalteter Lua-Integritätsprüfung werden Spieler abgewiesen. Ein Start oder Neustart des Servers über das Panel verschiebt sie."
   },
   "action": {
@@ -220,7 +220,7 @@
     "onUnconfirmedBody": "Noch ist nicht bestätigt, dass PanelBridge aus dem Steam Workshop geladen wird. Lädt es noch aus dem Spielordner, können Spieler bei eingeschalteter Prüfung nicht beitreten.",
     "guidedInstructions": "Setze DoLuaChecksum=true in der .ini-Datei des Servers und starte den Server dann neu.",
     "guidedTurnOffHint": "Das Panel kann die Einstellungsdatei dieses Servers nicht lesen. Wenn du die Prüfung eingeschaltet hast und Spieler abgewiesen werden, setze DoLuaChecksum=false in der .ini-Datei des Servers und starte den Server neu.",
-    "openServerConfig": "Serverkonfiguration › INI öffnen",
+    "openServerConfig": "Serverkonfiguration › Servereinstellungen öffnen",
     "needsServerFiles": "Zum Ändern von DoLuaChecksum ist die Berechtigung serverfiles.manage nötig, die diese Rolle nicht hat.",
     "restartPrompt": "DoLuaChecksum=true ist gespeichert. Die Änderung wirkt beim nächsten Neustart des Servers.",
     "later": "Später",
@@ -237,8 +237,8 @@
     "switchedToLocal": "Das Panel installiert PanelBridge jetzt auf {{server}}",
     "guidedRecorded": "Gespeichert. Diese Seite bestätigt die Änderung, sobald sich PanelBridge von {{server}} meldet.",
     "switchFailed": "Installationsart von PanelBridge konnte nicht geändert werden",
-    "notRestored": "Das Panel konnte nicht alle bereits vorgenommenen Änderungen rückgängig machen. Prüfe vor dem Serverstart die Einstellungsdatei unter Serverkonfiguration › INI; vor der Änderung wurde ein Backup davon gespeichert.",
-    "notRestoredFile": "{{fileName}} konnte nicht geändert werden, und das Panel konnte nicht alle bereits vorgenommenen Änderungen rückgängig machen. Prüfe vor dem Serverstart die Einstellungsdatei unter Serverkonfiguration › INI; vor der Änderung wurde ein Backup davon gespeichert.",
+    "notRestored": "Das Panel konnte nicht alle bereits vorgenommenen Änderungen rückgängig machen. Prüfe vor dem Serverstart die Einstellungsdatei unter Serverkonfiguration › Servereinstellungen; vor der Änderung wurde ein Backup davon gespeichert.",
+    "notRestoredFile": "{{fileName}} konnte nicht geändert werden, und das Panel konnte nicht alle bereits vorgenommenen Änderungen rückgängig machen. Prüfe vor dem Serverstart die Einstellungsdatei unter Serverkonfiguration › Servereinstellungen; vor der Änderung wurde ein Backup davon gespeichert.",
     "lifecycleFailed": "Umgestellt, aber der Server wurde nicht gestartet oder neu gestartet",
     "lifecycleSkipped": "Umgestellt, aber inzwischen hat sich der aktive Server geändert, daher wurde {{server}} weder gestartet noch neu gestartet.",
     "installed": "PanelBridge ist im Spielordner aktuell",

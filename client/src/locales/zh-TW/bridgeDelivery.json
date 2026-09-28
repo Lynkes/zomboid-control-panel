@@ -50,7 +50,7 @@
     "noSteamShared": "此伺服器或共用其遊戲資料夾的伺服器（{{servers}}）不透過 Steam 啟動（GOG/LAN）。此模式下無法下載創意工坊專案。",
     "gameVersionUnsupported": "PanelBridge 的創意工坊專案適用於 Build 42。此伺服器回報的版本為 {{version}}。",
     "iniNotFound": "請先啟動一次伺服器以產生其設定檔，然後再切換。",
-    "iniDuplicateKeys": "設定檔中 Mods= 或 WorkshopItems= 出現了兩次。請先在「伺服器設定 › INI（原始）」中修正。",
+    "iniDuplicateKeys": "設定檔中 Mods= 或 WorkshopItems= 出現了兩次。請先在「伺服器設定 › 伺服器設定（原始）」中修正。",
     "sameMethod": "此伺服器已在使用此方式。"
   },
   "warn": {
@@ -90,7 +90,7 @@
     "local-workshop-loaded": {
       "title": "已從 Steam 創意工坊載入",
       "body": "此伺服器從 Steam 創意工坊載入 PanelBridge，但目前設定為由面板安裝。",
-      "manualHint": "如要繼續使用由面板安裝的 PanelBridge，請在伺服器的設定檔（「伺服器設定 › INI」）中，從 <code>Mods=</code> 移除 <code>{{modId}}</code>，並從 <code>WorkshopItems=</code> 移除 PanelBridge 創意工坊專案的 ID，然後重新啟動伺服器。"
+      "manualHint": "如要繼續使用由面板安裝的 PanelBridge，請在伺服器的設定檔（「伺服器設定 › 伺服器設定」）中，從 <code>Mods=</code> 移除 <code>{{modId}}</code>，並從 <code>WorkshopItems=</code> 移除 PanelBridge 創意工坊專案的 ID，然後重新啟動伺服器。"
     },
     "workshop-restart-needed": {
       "title": "需要重新啟動",
@@ -132,8 +132,8 @@
   },
   "banner": {
     "steamUnavailable": "Steam 回報 PanelBridge 的創意工坊專案無法使用。在其恢復或你切換為由面板安裝之前，伺服器將無法啟動。",
-    "autoRestartOn": "PanelBridge 更新後會自動重新啟動此伺服器（設定 › 模組）。",
-    "autoRestartOff": "PanelBridge 每次更新後，新玩家在你重新啟動之前都無法加入。請在「設定 › 模組」中啟用自動重新啟動。",
+    "autoRestartOn": "PanelBridge 更新後會自動重新啟動此伺服器（設定 › 模組與創意工坊）。",
+    "autoRestartOff": "PanelBridge 每次更新後，新玩家在你重新啟動之前都無法加入。請在「設定 › 模組與創意工坊」中啟用自動重新啟動。",
     "leftovers": "遊戲資料夾中仍有舊的 PanelBridge 檔案：{{files}}。啟用 Lua 完整性檢查後，玩家將被拒絕。從面板啟動或重新啟動伺服器會將它們移出。"
   },
   "action": {
@@ -220,7 +220,7 @@
     "onUnconfirmedBody": "尚未確認 PanelBridge 從 Steam 創意工坊載入。如果它仍從遊戲資料夾載入，只要啟用此檢查，玩家就無法加入。",
     "guidedInstructions": "在伺服器的 .ini 檔案中設定 DoLuaChecksum=true，然後重新啟動伺服器。",
     "guidedTurnOffHint": "面板無法讀取此伺服器的設定檔。如果已啟用此檢查且玩家遭拒絕，請在伺服器的 .ini 檔案中設定 DoLuaChecksum=false，然後重新啟動伺服器。",
-    "openServerConfig": "開啟「伺服器設定 › INI」",
+    "openServerConfig": "開啟「伺服器設定 › 伺服器設定」",
     "needsServerFiles": "變更 DoLuaChecksum 需要 serverfiles.manage 權限，此角色沒有該權限。",
     "restartPrompt": "已儲存 DoLuaChecksum=true，將在伺服器重新啟動後生效。",
     "later": "稍後",
@@ -237,8 +237,8 @@
     "switchedToLocal": "現在由面板在 {{server}} 上安裝 PanelBridge",
     "guidedRecorded": "已儲存。PanelBridge 從 {{server}} 回報狀態後，此頁面會確認該變更。",
     "switchFailed": "無法變更 PanelBridge 的安裝方式",
-    "notRestored": "面板無法復原所有已做的變更。啟動伺服器前，請在「伺服器設定 › INI」中檢查其設定檔；變更前已儲存了該檔案的備份。",
-    "notRestoredFile": "無法變更 {{fileName}}，且面板無法復原所有已做的變更。啟動伺服器前，請在「伺服器設定 › INI」中檢查其設定檔；變更前已儲存了該檔案的備份。",
+    "notRestored": "面板無法復原所有已做的變更。啟動伺服器前，請在「伺服器設定 › 伺服器設定」中檢查其設定檔；變更前已儲存了該檔案的備份。",
+    "notRestoredFile": "無法變更 {{fileName}}，且面板無法復原所有已做的變更。啟動伺服器前，請在「伺服器設定 › 伺服器設定」中檢查其設定檔；變更前已儲存了該檔案的備份。",
     "lifecycleFailed": "已切換，但伺服器未能啟動或重新啟動",
     "lifecycleSkipped": "已切換，但使用中的伺服器在此期間已變更，因此未啟動或重新啟動 {{server}}。",
     "installed": "遊戲資料夾中的 PanelBridge 已是最新",
