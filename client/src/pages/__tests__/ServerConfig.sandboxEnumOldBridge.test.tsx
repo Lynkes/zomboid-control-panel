@@ -6,11 +6,12 @@ import ServerConfig from '../ServerConfig'
 import { serverFilesApi, serversApi, panelBridgeApi } from '@/lib/api'
 
 // Enum values run 1..N and the bridge sends N as `max`. After a panel update,
-// a game server that hasn't restarted still runs the old PanelBridge Lua
-// (1.7.70 or older). It read labels from index 0 (the game rejects it), never
-// asked for N, and dropped labels without a translation, so its list is
-// shorter than max. Its setSandboxOption also saves N as N-1 and reports that
-// as confirmed, so Mod Settings must not send N until the server restarts.
+// a game server can still run the old PanelBridge Lua (1.7.70 or older) until
+// the new file reaches it and the server restarts. The old Lua read labels
+// from index 0 (the game rejects it), never asked for N, and dropped labels
+// without a translation, so its list is shorter than max. Its
+// setSandboxOption also saves N as N-1 and reports that as confirmed, so Mod
+// Settings must not send N until PanelBridge is updated.
 
 const toastSpy = vi.hoisted(() => vi.fn())
 
@@ -87,7 +88,11 @@ async function openModSettings(
 const setCalls = (sendCommand: { mock: { calls: unknown[][] } }) =>
   sendCommand.mock.calls.filter(([action]) => action === 'setSandboxOption')
 
-const CALLOUT_TITLE = 'Restart the server to finish updating PanelBridge'
+// The option's row: its hint sits in the label column, next to the control.
+const optionRow = (hint: HTMLElement) => hint.parentElement!.parentElement!
+
+const CALLOUT_TITLE = 'This server runs an older PanelBridge'
+const HINT_3 = "The last choice (3) can't be picked here until PanelBridge is updated."
 
 describe('Mod Settings enum rows when the labels do not cover 1..max', () => {
   it('keeps the list and shows no callout when the bridge sends one label per value', async () => {
@@ -115,11 +120,11 @@ describe('Mod Settings enum rows when the labels do not cover 1..max', () => {
       const select = await screen.findByRole('combobox', { name: 'Test Option' })
       expect(select).toHaveTextContent('Instant')
       expect(screen.getByText(CALLOUT_TITLE)).toBeInTheDocument()
-      const hint = screen.getByText('The last choice (3) can be set after a server restart.')
+      const hint = screen.getByText(HINT_3)
       expect(select).toHaveAttribute('aria-describedby', hint.id)
 
       fireEvent.keyDown(select, { key: 'ArrowDown' })
-      const last = await screen.findByRole('option', { name: 'Choice 3 (after a restart)' })
+      const last = await screen.findByRole('option', { name: 'Choice 3' })
       expect(last).toHaveAttribute('aria-disabled', 'true')
       fireEvent.click(last)
       expect(setCalls(sendCommand)).toHaveLength(0)
@@ -148,7 +153,7 @@ describe('Mod Settings enum rows when the labels do not cover 1..max', () => {
     expect(input).toHaveAttribute('max', '3')
     expect(input).toHaveAttribute('step', '1')
     expect(screen.getByText(CALLOUT_TITLE)).toBeInTheDocument()
-    const hint = screen.getByText('The last choice (3) can be set after a server restart.')
+    const hint = screen.getByText(HINT_3)
     expect(input).toHaveAttribute('aria-describedby', hint.id)
 
     // The old Lua would save 3 as 2 and call it confirmed.
@@ -157,7 +162,7 @@ describe('Mod Settings enum rows when the labels do not cover 1..max', () => {
     expect(setCalls(sendCommand)).toHaveLength(0)
     expect(input).toHaveValue(2)
     expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Restart the server first',
+      title: 'Update PanelBridge first',
       description: expect.stringContaining('General.TestOption wasn\'t changed'),
       variant: 'warning',
     }))
@@ -176,18 +181,56 @@ describe('Mod Settings enum rows when the labels do not cover 1..max', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /def: 3/ }))
     expect(setCalls(sendCommand)).toHaveLength(0)
-    expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: 'Restart the server first' }))
+    expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: 'Update PanelBridge first' }))
   })
 
-  it('shows the restart callout when an old bridge read no label at all', async () => {
+  it('shows the outdated-bridge callout when an old bridge read no label at all', async () => {
     await openModSettings({ value: 2, selectedIndex: 2, min: 1, max: 3, enumValues: [] })
 
     expect(await screen.findByRole('spinbutton', { name: 'Test Option' })).toHaveValue(2)
     expect(screen.getByText(CALLOUT_TITLE)).toBeInTheDocument()
-    expect(screen.getByText('The last choice (3) can be set after a server restart.')).toBeInTheDocument()
+    expect(screen.getByText(HINT_3)).toBeInTheDocument()
+    // A restart alone doesn't load a newer bridge that isn't on disk yet
+    // (hosted/SFTP servers, or auto-update off), so point at the status page.
+    expect(screen.getByText(/Settings › PanelBridge shows what this server needs/)).toBeInTheDocument()
   })
 
-  it('edits the number past the bridge label cap, with a note and no restart callout', async () => {
+  // An old bridge reads the current value with getValue, so selectedIndex can
+  // already be N. Nothing on the row may present that live value as pending.
+  it('shows a last choice the option already holds as set, in the list', async () => {
+    await openModSettings({
+      value: 2, selectedIndex: 2, min: 1, max: 2, default: 2, enumValues: ['Off'],
+    })
+
+    const select = await screen.findByRole('combobox', { name: 'Test Option' })
+    expect(select).toHaveTextContent(/^Choice 2$/)
+    const hint = screen.getByText("The last choice (2) can't be picked here until PanelBridge is updated.")
+    expect(select).toHaveAttribute('aria-describedby', hint.id)
+    expect(optionRow(hint).textContent).not.toMatch(/restart/i)
+  })
+
+  it('shows a last choice the option already holds as set, in the number input', async () => {
+    const { sendCommand } = await openModSettings(
+      { value: 3, selectedIndex: 3, min: 1, max: 3, default: 1, enumValues: ['Instant'] },
+      (value) => oldBridgeSetEnum(value, 3),
+    )
+
+    const input = await screen.findByRole('spinbutton', { name: 'Test Option' })
+    expect(input).toHaveValue(3)
+    expect(optionRow(screen.getByText(HINT_3)).textContent).not.toMatch(/restart/i)
+
+    // Leaving the held value untouched sends nothing and refuses nothing.
+    fireEvent.blur(input)
+    expect(setCalls(sendCommand)).toHaveLength(0)
+    expect(toastSpy).not.toHaveBeenCalled()
+
+    fireEvent.change(input, { target: { value: '1' } })
+    fireEvent.blur(input)
+    await waitFor(() => expect(sendCommand).toHaveBeenCalledWith('setSandboxOption',
+      { name: 'General.TestOption', value: 1 }))
+  })
+
+  it('edits the number past the bridge label cap, with a note and no outdated-bridge callout', async () => {
     // A current bridge lists at most 50 labels, so values 51..60 have no item.
     const { sendCommand } = await openModSettings({
       value: 55, selectedIndex: 55, min: 1, max: 60,

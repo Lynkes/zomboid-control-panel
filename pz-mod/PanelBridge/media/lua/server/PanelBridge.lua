@@ -5243,6 +5243,8 @@ handlers.getAllSandboxOptions = function(args)
                     local numVals = tonumber(PanelBridge.tryGet(opt, "getNumValues"))
                     if numVals and numVals > 0 then
                         info.enumValues = {}
+                        -- Mod Settings compares against this cap to spot an old bridge
+                        -- (BRIDGE_ENUM_LABEL_CAP in ServerConfig.tsx); keep them equal.
                         local cap = math.min(numVals, 50)
                         -- B42 translation indices and selected values are 1..N.
                         -- Keep missing labels in place so later choices never shift.

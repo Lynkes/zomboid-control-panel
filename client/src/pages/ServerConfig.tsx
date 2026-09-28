@@ -161,7 +161,10 @@ const VANILLA_SANDBOX_GROUPS = new Set([
   'Basement',
 ])
 
-// getAllSandboxOptions lists at most this many labels per enum (PanelBridge.lua).
+// getAllSandboxOptions lists at most this many labels per enum: the
+// `math.min(numVals, 50)` in PanelBridge.lua. A lower Lua cap would make every
+// current bridge with more values look old here and hold its last value back;
+// server/tests/sandboxEnumLabelCapParity.test.js keeps the two equal.
 const BRIDGE_ENUM_LABEL_CAP = 50
 
 type ModEnumControl = {
@@ -178,13 +181,15 @@ type ModEnumControl = {
  * sends N as `max` and label i for value i, with the number standing in for a
  * missing translation so labels never shift.
  *
- * A game server that hasn't restarted since the panel update still runs the
- * old Lua (PanelBridge 1.7.70 or older). It read labels from index 0, which
- * Build 42 always rejects, never asked for N, and dropped labels without a
- * translation, so its list is always shorter than today's. Its
- * setSandboxOption also saves N as N-1 and reports that as confirmed, so N is
- * blocked until the restart. With exactly N-1 labels none was dropped, and
- * they still line up with values 1..N-1.
+ * After a panel update a game server can still run the old Lua (PanelBridge
+ * 1.7.70 or older): until it restarts, and until the new PanelBridge.lua
+ * reaches its game folder (a manual re-upload on hosted and SFTP servers).
+ * The old Lua read labels from index 0, which Build 42 always rejects, never
+ * asked for N, and dropped labels without a translation, so its list is
+ * always shorter than today's. Its setSandboxOption also saves N as N-1 and
+ * reports that as confirmed, so N is blocked until PanelBridge is updated.
+ * With exactly N-1 labels none was dropped, and they still line up with
+ * values 1..N-1.
  */
 function describeModEnumControl(opt: { type?: string; enumValues?: string[]; max?: number }): ModEnumControl | null {
   if (opt.type !== 'enum') return null
@@ -1796,7 +1801,7 @@ export default function ServerConfig() {
 
   // PanelBridge 1.7.70 and older save an enum's last value N as N-1 and call
   // it confirmed (see describeModEnumControl), so the panel holds N back
-  // until the server restarts on the current bridge.
+  // until the server runs the current bridge.
   const refuseBlockedEnumValue = useCallback((optName: string, value: number) => {
     toast({
       title: t('toasts.enumLastChoiceRefusedTitle'),
@@ -4378,7 +4383,7 @@ export default function ServerConfig() {
                                       )}
                                       {blockedEnumValue !== null ? (
                                         <div id={enumHintId} className="text-xs text-warning mt-0.5">
-                                          {t('modSettingsTab.enumLastChoiceNeedsRestart', { max: blockedEnumValue })}
+                                          {t('modSettingsTab.enumLastChoiceHeldBack', { max: blockedEnumValue })}
                                         </div>
                                       ) : enumControl?.tooManyToList ? (
                                         <div id={enumHintId} className="text-xs text-muted-foreground/70 mt-0.5">
@@ -4406,6 +4411,11 @@ export default function ServerConfig() {
                                             if (!opt.name || isSaving) return
                                             const idx = parseInt(val, 10)
                                             if (isNaN(idx)) return
+                                            // The item is disabled too; this keeps all three paths on one guard.
+                                            if (idx === blockedEnumValue) {
+                                              refuseBlockedEnumValue(opt.name, idx)
+                                              return
+                                            }
                                             handleOptionChange(opt.name, idx, group.name)
                                           }}
                                           disabled={isSaving}
@@ -4423,7 +4433,9 @@ export default function ServerConfig() {
                                                 {ev}
                                               </SelectItem>
                                             ))}
-                                            {/* The old bridge never read the last label, and would save this value as the one before it. */}
+                                            {/* The old bridge never read the last label, and would save this value as
+                                                the one before it. The label stays neutral: it is also what the trigger
+                                                shows when the option already holds this value. */}
                                             {blockedEnumValue !== null && (
                                               <SelectItem value={String(blockedEnumValue)} disabled className="text-xs font-mono">
                                                 {t('modSettingsTab.enumLastChoiceItem', { value: blockedEnumValue })}
