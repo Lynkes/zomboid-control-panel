@@ -183,7 +183,7 @@
     "bridge": {
       "setup": {
         "label": "连接与配置 PanelBridge",
-        "description": "连接或重新配置游戏内模组桥接——包括输入并存储用于连接远程服务器的 SFTP 登录密码、通过 SFTP 浏览该服务器上的任意路径，以及将本地桥接指向主机上除一小份被屏蔽目录列表之外的任意绝对路径。此外还会安装该模组。"
+        "description": "连接或重新配置游戏内模组桥接——包括输入并存储用于连接远程服务器的 SFTP 登录密码、通过 SFTP 浏览该服务器上的任意路径，以及将本地桥接指向主机上除一小份被屏蔽目录列表之外的任意绝对路径。此外还会安装该模组，并选择其分发方式（由面板安装或 Steam 创意工坊），这会修改服务器设置文件中的 Mods=、WorkshopItems= 和 DoLuaChecksum。"
       },
       "diagnostics": {
         "label": "PanelBridge 诊断",

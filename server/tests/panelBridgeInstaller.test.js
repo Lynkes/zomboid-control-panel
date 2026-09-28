@@ -3,7 +3,6 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
-  autoInstallBridgeIfNeeded,
   canAutoInstall,
   checkBridgeInstalled,
   getBundledBridgeVersion,
@@ -140,23 +139,30 @@ describe('installBridge', () => {
     expect(result.success).toBe(true);
     expect(fs.existsSync(result.targetPath)).toBe(true);
     expect(fs.readFileSync(result.targetPath, 'utf8')).toBe(sourceContent);
-    expect(fs.existsSync(result.clientTargetPath)).toBe(true);
-    expect(fs.existsSync(result.manifestTargetPath)).toBe(true);
     expect(result.version).toBeTruthy();
   });
 
-  it('repairs a missing client companion and stale mod.info even when server Lua matches', () => {
-    const first = installBridge(localServer());
-    fs.unlinkSync(first.clientTargetPath);
-    fs.writeFileSync(first.manifestTargetPath, 'modversion=0.0.1\n');
-
-    const status = checkBridgeInstalled(localServer());
-    expect(status.needsUpdate).toBe(true);
-
+  // PanelBridge delivery: the loose install writes ONLY the server file.
+  // The client companion and a root mod.info never did anything from the
+  // game folder (the dedicated server hashes client/ Lua without running
+  // it, and the game ignores a root mod.info) but both broke DoLuaChecksum.
+  // bridgeDelivery.reconcileBridge() archives copies older panels left.
+  it('writes only media/lua/server/PanelBridge.lua -- no client companion, no root mod.info', () => {
     const result = installBridge(localServer());
     expect(result.success).toBe(true);
-    expect(fs.existsSync(first.clientTargetPath)).toBe(true);
-    expect(fs.readFileSync(first.manifestTargetPath, 'utf8')).toContain(`modversion=${result.version}`);
+    expect(fs.existsSync(path.join(tmpDir, 'media', 'lua', 'client', 'PanelBridgeClient.lua'))).toBe(false);
+    expect(fs.existsSync(path.join(tmpDir, 'mod.info'))).toBe(false);
+  });
+
+  it('ignores leftover companion/mod.info files when deciding whether an update is needed', () => {
+    installBridge(localServer());
+    fs.mkdirSync(path.join(tmpDir, 'media', 'lua', 'client'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'media', 'lua', 'client', 'PanelBridgeClient.lua'), '-- old\n');
+    fs.writeFileSync(path.join(tmpDir, 'mod.info'), 'id=PanelBridge\nmodversion=0.0.1\n');
+
+    const status = checkBridgeInstalled(localServer());
+    expect(status).toMatchObject({ installed: true, needsUpdate: false });
+    expect(Object.keys(status).sort()).toEqual(['installed', 'needsUpdate', 'sourcePath', 'targetPath', 'version']);
   });
 
   it('creates the media/lua/server directory tree if missing', () => {
@@ -225,43 +231,6 @@ describe('installBridge', () => {
   });
 });
 
-// bughunt-2026-08-31-c, launcher-extension-case-sensitivity: index.js's
-// PanelBridge auto-update and routes/panelBridge.js's mod auto-install both
-// used to reimplement this same launcher-extension check inline, without the
-// lowercasing below -- a launcher saved as e.g. "Launch.BAT" resolved its
-// install dir as the literal launcher file's own (nonexistent as a
-// directory) path instead of its parent folder, silently breaking both
-// features for any launcher whose extension wasn't already lowercase. Both
-// call sites now share this one implementation instead of each carrying
-// their own copy.
-// 2026-09-02, bridge-enforcement: the pre-spawn call routes/server.js's
-// /start and /restart now make. Route-level ordering (install-before-spawn)
-// is covered by serverStartRestartBridgeAutoInstall.test.js; these just
-// pin the function's own behavior in isolation.
-describe('autoInstallBridgeIfNeeded', () => {
-  it('installs a stale bridge', () => {
-    const targetDir = path.join(tmpDir, 'media', 'lua', 'server');
-    fs.mkdirSync(targetDir, { recursive: true });
-    fs.writeFileSync(path.join(targetDir, 'PanelBridge.lua'), 'local VERSION = "0.0.1"\n');
-
-    autoInstallBridgeIfNeeded(localServer());
-
-    expect(fs.readFileSync(path.join(targetDir, 'PanelBridge.lua'), 'utf8')).toBe(
-      fs.readFileSync(resolveSourcePath(), 'utf8'),
-    );
-  });
-
-  it('does not throw when the install fails', () => {
-    fs.writeFileSync(path.join(tmpDir, 'media'), 'not a directory');
-    expect(() => autoInstallBridgeIfNeeded(localServer())).not.toThrow();
-  });
-
-  it('is a no-op for a remote server', () => {
-    autoInstallBridgeIfNeeded({ ...localServer(), isRemote: true });
-    expect(fs.existsSync(path.join(tmpDir, 'media', 'lua', 'server', 'PanelBridge.lua'))).toBe(false);
-  });
-});
-
 describe('getBundledBridgeVersion / isBridgeVersionBehindBundled', () => {
   it('returns the same version checkBridgeInstalled reports after a fresh install', () => {
     installBridge(localServer());
@@ -289,6 +258,15 @@ describe('getBundledBridgeVersion / isBridgeVersionBehindBundled', () => {
   });
 });
 
+// bughunt-2026-08-31-c, launcher-extension-case-sensitivity: index.js's
+// PanelBridge auto-update and routes/panelBridge.js's mod auto-install both
+// used to reimplement this same launcher-extension check inline, without the
+// lowercasing below -- a launcher saved as e.g. "Launch.BAT" resolved its
+// install dir as the literal launcher file's own (nonexistent as a
+// directory) path instead of its parent folder, silently breaking both
+// features for any launcher whose extension wasn't already lowercase. Both
+// call sites now share this one implementation instead of each carrying
+// their own copy.
 describe('resolveInstallDir', () => {
   it('is case-insensitive for the launch-script extension (.BAT/.Sh/.EXE)', () => {
     for (const ext of ['.bat', '.BAT', '.Bat', '.sh', '.SH', '.Sh', '.exe', '.EXE', '.Exe']) {

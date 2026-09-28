@@ -28,7 +28,14 @@ import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
 } from "../services/lifecycleCoordinator.js";
-import { autoInstallBridgeIfNeeded } from "../services/panelBridgeInstaller.js";
+import {
+  findNoSteamWorkshopConflicts,
+  launchLooksNoSteam,
+  newProfileConflictsWithWorkshop,
+  noSteamSiblingConflictResponse,
+  noSteamWorkshopConflictResponse,
+  reconcileBridge,
+} from "../services/bridgeDelivery.js";
 import { refreshWorkshopChecker } from "../services/modChecker.js";
 import {
   parseBoundedInteger,
@@ -1165,6 +1172,20 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
       }
     }
 
+    // Same rule as PUT /:id: the game folder decides the PanelBridge
+    // delivery, so a new profile on a folder that gets it from the Steam
+    // Workshop can't be one that launches without Steam (useNoSteam, or an
+    // installPath naming a -nosteam launcher script). PUT's other direction
+    // can't happen here: a new profile is never Workshop by its own choice.
+    const launchCandidate = { installPath: config.installPath, useNoSteam: config.useNoSteam === true };
+    if (
+      !isRemote &&
+      launchLooksNoSteam(launchCandidate) &&
+      newProfileConflictsWithWorkshop(launchCandidate, await getServers())
+    ) {
+      return res.status(409).json(noSteamWorkshopConflictResponse());
+    }
+
     const server = await createServer({
       name: config.name,
       serverName,
@@ -1464,6 +1485,30 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
       }
     }
 
+    // A server that gets PanelBridge from the Steam Workshop needs Steam to
+    // download it: launched without Steam it starts with no bridge and, with
+    // the item still listed in Mods=, refuses every join. Switching delivery
+    // back to panel-installed has to come first (Settings › PanelBridge).
+    // Judged on the records AFTER this edit, both ways round: this profile
+    // turning no-Steam or moving into a Workshop game folder, and a Workshop
+    // profile moving (installPath, serverPath, remote to local) into a
+    // folder another profile launches without Steam from -- the folder
+    // decides, so that profile would turn Workshop too. Only conflicts the
+    // edit creates count: the edit dialog saves the whole record, so a
+    // profile already in that state must stay renameable.
+    if (["useNoSteam", "startCommand", "installPath", "serverPath", "isRemote"].some((key) => key in updates)) {
+      const target = await getServer(serverId);
+      if (target) {
+        const conflicts = findNoSteamWorkshopConflicts(target, { ...target, ...updates }, await getServers());
+        if (conflicts.self) {
+          return res.status(409).json(noSteamWorkshopConflictResponse());
+        }
+        if (conflicts.siblings.length > 0) {
+          return res.status(409).json(noSteamSiblingConflictResponse(conflicts.siblings));
+        }
+      }
+    }
+
     const maskedSecretsOnly =
       Object.keys(body).length > 0 &&
       Object.entries(body).every(
@@ -1757,9 +1802,10 @@ async function reloadServicesForNewActiveServer(req, server) {
     }
   }
 
-  // Best-effort: keep PanelBridge.lua current on servers the panel can
-  // reach directly on disk. Never let an install failure block activation.
-  autoInstallBridgeIfNeeded(server);
+  // Best-effort: bring the newly active server's game folder in line with
+  // its PanelBridge delivery method (bridgeDelivery.reconcileBridge never
+  // throws). Not awaited: activation must not wait on disk work.
+  void reconcileBridge(server, { reason: "activate" });
 
   // continuous-bug-hunt round 21: index.js's own 5s player-roster poll
   // shares this same rconService singleton but never got repointed here --

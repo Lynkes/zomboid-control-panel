@@ -19,6 +19,36 @@ export function setServerDisplayNameResolver(resolver) {
   resolveServerDisplayName = typeof resolver === "function" ? resolver : null;
 }
 
+// Runs immediately before the game process (or its container) is launched,
+// from the two places the panel's starts and restarts funnel through:
+// serverManager.startServer() and managedContainer.runManagedLifecycle().
+// (The Servers page's per-container Start/Restart in routes/docker.js calls
+// dockerClient.runManagedAction() directly and does not reach it.)
+// Wired once at boot (server/index.js) to bridgeDelivery.reconcileBridge(),
+// which keeps the loose PanelBridge.lua current -- or moves it out and
+// re-adds the Workshop entries -- for the launch that is about to happen;
+// PZ loads Lua only when its JVM starts. Injected rather than imported for
+// the same reason as setServerDisplayNameResolver above: reconcileBridge
+// pulls in database/init.js, which dozens of test files mock partially.
+//
+// Never throws and never blocks a launch: a failing hook returns null and
+// the caller starts the server anyway. reconcileBridge() bounds itself to
+// 15 s and reports problems through GET /api/panel-bridge/delivery.
+let beforeLaunchHook = null;
+
+export function setBeforeLaunchHook(fn) {
+  beforeLaunchHook = typeof fn === "function" ? fn : null;
+}
+
+export async function runBeforeLaunchHook(server) {
+  if (!beforeLaunchHook || !server) return null;
+  try {
+    return await beforeLaunchHook(server);
+  } catch {
+    return null;
+  }
+}
+
 // 2026-09-04, lifecycle-lock investigation: the lock itself was never the
 // problem -- every acquire/release path was already correct, and the
 // process-wide scope is intentional (an auto-update must not run while

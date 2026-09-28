@@ -13,6 +13,7 @@ import bridge from "../services/panelBridge.js";
 import {
   getActiveServer,
   getServer,
+  getServers,
   getAllSettings,
   setSetting,
   getDb,
@@ -26,18 +27,12 @@ import { persistSandboxValues } from "./serverFiles.js";
 import { requirePermission, requireAnyPermission } from "../services/permissions.js";
 import { parseClampedInteger } from "../utils/queryNumbers.js";
 import {
-  getEmbeddedPanelBridgeLua,
-  compareModVersions,
-  writeLuaAtomic,
-} from "../utils/embeddedLua.js";
-import {
   canAutoInstall,
   checkBridgeInstalled,
   getBundledBridgeVersion,
-  installBridge,
   isBridgeVersionBehindBundled,
-  resolveInstallDir,
 } from "../services/panelBridgeInstaller.js";
+import { getEffectiveMethod, reconcileBridge } from "../services/bridgeDelivery.js";
 import { createLogger } from "../utils/logger.js";
 import {
   getSftpCachePath,
@@ -479,9 +474,19 @@ router.get(
   // content comparison later; it cannot work for a server the panel never
   // writes to (2026-09-02 bridge-enforcement/bridge-install-integrity).
   let remoteBridgeVersionCheck = null;
+  // "local" | "workshop" (effective, per game folder). With Steam Workshop
+  // delivery there is no panel-installed file to be stale and no re-upload
+  // to suggest, so both install-staleness signals below stay null; a
+  // Workshop bridge that is behind shows up as a protocol mismatch instead.
+  let deliveryMethod = "local";
   try {
     const activeServer = await getActiveServer();
     if (activeServer) {
+      try {
+        deliveryMethod = getEffectiveMethod(activeServer, await getServers());
+      } catch {
+        deliveryMethod = "local";
+      }
       detectedPaths = {
         serverName: activeServer.serverName || activeServer.name,
         installPath: activeServer.installPath,
@@ -489,7 +494,9 @@ router.get(
         // Bridge path would be: zomboidDataPath/Saves/Multiplayer/{serverName}/panelbridge/
         // OR for dedicated servers: installPath/../Server_files/Saves/Multiplayer/{serverName}/panelbridge/
       };
-      if (activeServer.isRemote) {
+      if (deliveryMethod === "workshop") {
+        // Neither signal applies -- see deliveryMethod above.
+      } else if (activeServer.isRemote) {
         const bundledVersion = getBundledBridgeVersion();
         // Found while building the client-side staleness surfacing card
         // (remote-bridge-version-staleness-is-never-surfaced-to-sftp-users):
@@ -528,8 +535,19 @@ router.get(
     detectedPaths,
     localInstall,
     remoteBridgeVersionCheck,
+    deliveryMethod,
   });
 });
+
+// The effective PanelBridge delivery method, for responses that report it
+// even when reconcileBridge() skipped the server (remote, no install dir).
+function deliveryOf(server, allServers) {
+  try {
+    return getEffectiveMethod(server, allServers);
+  } catch {
+    return "local";
+  }
+}
 
 // Auto-configure bridge from server settings (optionally specify serverId)
 router.post("/auto-configure", requirePermission("bridge.setup"), async (req, res) => {
@@ -722,90 +740,16 @@ router.post("/auto-configure", requirePermission("bridge.setup"), async (req, re
     bridge.configure(foundPath.path, true); // true = direct path
     bridge.start();
 
-    // Auto-install or update PanelBridge mod
-    let modInstalled = false;
-    let modUpdated = false;
-    try {
-      const installDir = resolveInstallDir(targetServer);
-      if (installDir) {
-        const destLuaFile = path.join(
-          installDir,
-          "media",
-          "lua",
-          "server",
-          "PanelBridge.lua",
-        );
-
-        // Prefer embedded Lua (guaranteed to match running binary version).
-        let srcContent = getEmbeddedPanelBridgeLua();
-
-        if (!srcContent) {
-          const possibleModPaths = [
-            path.join(process.cwd(), "pz-mod", "PanelBridge"),
-            path.join(path.dirname(process.execPath), "pz-mod", "PanelBridge"),
-            path.join(__dirname, "..", "..", "pz-mod", "PanelBridge"),
-          ];
-          for (const modPath of possibleModPaths) {
-            const candidate = path.join(
-              modPath,
-              "media",
-              "lua",
-              "server",
-              "PanelBridge.lua",
-            );
-            if (fs.existsSync(candidate)) {
-              srcContent = fs.readFileSync(candidate, "utf8");
-              break;
-            }
-          }
-        }
-
-        if (srcContent) {
-          let needsCopy = !fs.existsSync(destLuaFile);
-
-          // If dest exists, compare VERSION strings and only upgrade if
-          // embedded is strictly newer (avoids silent downgrade of hand-
-          // installed dev builds).
-          if (!needsCopy) {
-            modInstalled = true;
-            try {
-              const destContent = fs.readFileSync(destLuaFile, "utf8");
-              const srcVersion = (srcContent.match(/VERSION\s*=\s*"([^"]+)"/) ||
-                [])[1];
-              const destVersion = (destContent.match(
-                /VERSION\s*=\s*"([^"]+)"/,
-              ) || [])[1];
-              if (
-                srcVersion &&
-                destVersion &&
-                compareModVersions(srcVersion, destVersion) > 0
-              ) {
-                needsCopy = true;
-                modUpdated = true;
-                log.info(
-                  `PanelBridge mod update: ${destVersion} → ${srcVersion}`,
-                );
-              }
-            } catch (_) {
-              /* ignore read errors — keep existing */
-            }
-          }
-
-          if (needsCopy) {
-            writeLuaAtomic(destLuaFile, srcContent);
-            modInstalled = true;
-            if (modUpdated) {
-              log.info("PanelBridge mod updated on server");
-            } else {
-              log.info("PanelBridge mod auto-installed to server");
-            }
-          }
-        }
-      }
-    } catch (modError) {
-      // Non-fatal - mod install is optional
-      log.warn(`Auto-install mod failed: ${modError.message}`);
-    }
+    // Install or update the loose PanelBridge.lua -- or, with Steam
+    // Workshop delivery, move loose copies out and check the ini entries --
+    // through the same gate every other writer uses. Never throws.
+    const reconciled = await reconcileBridge(targetServer, { reason: "manual" });
+    const installedNow = reconciled.actions.some((action) => action.kind === "installed");
+    const modUpdated = reconciled.actions.some((action) => action.kind === "updated");
+    const modInstalled =
+      installedNow ||
+      modUpdated ||
+      (reconciled.method === "local" && !targetServer.isRemote && checkBridgeInstalled(targetServer).installed);
 
     res.json({
       success: true,
@@ -816,6 +760,7 @@ router.post("/auto-configure", requirePermission("bridge.setup"), async (req, re
       hasStatus: foundPath.hasStatus,
       modInstalled,
       modUpdated,
+      delivery: reconciled.method || deliveryOf(targetServer, await getServers().catch(() => [])),
       searchedPaths: searchedLocations,
     });
     log.info(
@@ -3212,47 +3157,11 @@ router.get("/mod-path", requirePermission("bridge.setup"), async (req, res) => {
   });
 });
 
-// Explicitly install/update PanelBridge.lua on the active server's local
-// filesystem (bind mount / same-host install). See services/panelBridgeInstaller.js
-// — this is the manual counterpart to the auto-install run on activation.
-router.post("/install-local", requirePermission("bridge.setup"), async (req, res) => {
-  try {
-    const server = await getActiveServer();
-    if (!server) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          error: "No active server configured.",
-          code: ErrorCode.PANELBRIDGE_NO_ACTIVE_SERVER,
-        });
-    }
-
-    if (!canAutoInstall(server)) {
-      return res.status(400).json({
-        success: false,
-        error:
-          "Auto-install is not available for this server. It must be a local (non-remote) server with a writable install path and the PanelBridge source present.",
-        code: ErrorCode.PANELBRIDGE_AUTO_INSTALL_NOT_AVAILABLE,
-      });
-    }
-
-    const result = installBridge(server);
-    if (!result.success) {
-      return res.status(500).json(result);
-    }
-
-    res.json({
-      ...result,
-      message: `PanelBridge installed to ${result.targetPath}`,
-      serverName: server.serverName || server.name,
-    });
-  } catch (error) {
-    res
-      .status(500)
-      .json({ success: false, error: sanitizeError(error.message) });
-  }
-});
+// How long the Install button's request waits for the reconcile. Under the
+// client's own 15 s request timeout (client/src/lib/api.ts fetchTimeout), so
+// the operator gets this route's coded answer (504 STILL_RUNNING) rather
+// than a generic "request timed out".
+const MANUAL_INSTALL_WAIT_MS = 10_000;
 
 // Auto-install mod to server's Lua folder (optionally specify serverId)
 router.post("/install-mod-auto", requirePermission("bridge.setup"), async (req, res) => {
@@ -3287,6 +3196,18 @@ router.post("/install-mod-auto", requirePermission("bridge.setup"), async (req, 
       });
     }
 
+    const serverName = targetServer.serverName || targetServer.name;
+    const workshopActive = () =>
+      res.status(409).json({
+        error: `${serverName} gets PanelBridge from the Steam Workshop, so the panel doesn't copy PanelBridge.lua into its game folder. Switch it back to panel-installed in Settings › PanelBridge first.`,
+        code: ErrorCode.PANELBRIDGE_DELIVERY_WORKSHOP_ACTIVE,
+        params: sanitizeErrorParams({ serverName }),
+      });
+    const allServers = await getServers();
+    if (getEffectiveMethod(targetServer, allServers) === "workshop") {
+      return workshopActive();
+    }
+
     if (!canAutoInstall(targetServer)) {
       return res.status(400).json({
         error: "Automatic PanelBridge installation is unavailable. Configure an existing local server install folder with write permission, or use the manual install path.",
@@ -3294,146 +3215,46 @@ router.post("/install-mod-auto", requirePermission("bridge.setup"), async (req, 
       });
     }
 
-    const installResult = installBridge(targetServer);
-    if (!installResult.success) {
-      return res.status(500).json(installResult);
+    // Same gate as every automatic install (bridgeDelivery.reconcileBridge),
+    // with reason "manual" so the panelBridgeAutoUpdate setting doesn't
+    // block an install the operator asked for. The group's method is
+    // re-checked inside the delivery lock, so a switch landing between the
+    // check above and this call still can't get a loose file written.
+    const reconciled = await reconcileBridge(targetServer, {
+      reason: "manual",
+      timeoutMs: MANUAL_INSTALL_WAIT_MS,
+    });
+    // The reconcile followed a switch to Workshop that landed after the
+    // check above: it moved the loose files out instead of installing.
+    if (reconciled.method === "workshop") return workshopActive();
+    const target = checkBridgeInstalled(targetServer);
+    // Not a failure: reconcile stopped being waited on but keeps running
+    // (usually queued behind another reconcile of the same folder).
+    if (reconciled.skipped === "timeout") {
+      return res.status(504).json({
+        success: false,
+        error: "Installing PanelBridge is taking longer than usual and continues in the background. Check again in a moment.",
+        code: ErrorCode.PANELBRIDGE_INSTALL_STILL_RUNNING,
+        path: target.targetPath,
+        serverName,
+      });
     }
-
+    if (reconciled.warnings.includes("installFailed") || reconciled.skipped) {
+      return res.status(500).json({
+        success: false,
+        error: "Couldn't copy PanelBridge.lua into the game folder. Check the panel log for the reason.",
+        code: ErrorCode.PANELBRIDGE_INSTALL_FAILED,
+        path: target.targetPath,
+        serverName,
+      });
+    }
+    const updated = reconciled.actions.some((action) => action.kind === "updated");
+    const installed = reconciled.actions.some((action) => action.kind === "installed");
     return res.json({
-      ...installResult,
-      message: installResult.message || `PanelBridge installed to ${installResult.targetPath}`,
-      serverName: targetServer.serverName || targetServer.name,
-    });
-
-  } catch (error) {
-    res.status(500).json({ error: sanitizeError(error.message) });
-  }
-});
-
-// Copy mod to server Lua folder (manual path)
-router.post("/install-mod", requirePermission("bridge.setup"), (req, res) => {
-  const { serverLuaPath } = req.body || {};
-
-  // Support legacy field name
-  const targetPath = serverLuaPath || req.body.serverModsPath;
-
-  if (!targetPath) {
-    return res
-      .status(400)
-      .json({
-        error: "serverLuaPath is required (path to media/lua/server/)",
-        code: ErrorCode.PANELBRIDGE_SERVER_LUA_PATH_REQUIRED,
-      });
-  }
-
-  // Validate path: must be a string, absolute, no traversal
-  if (typeof targetPath !== "string" || targetPath.length > 500) {
-    return res.status(400).json({
-      error: "Invalid path format",
-      code: ErrorCode.PANELBRIDGE_SERVER_LUA_PATH_FORMAT_INVALID,
-    });
-  }
-
-  // Must check isAbsolute() on the raw input: path.resolve() always
-  // returns an absolute path (resolved against cwd), so checking it after
-  // resolving would never reject anything and silently accepted relative
-  // paths as if they'd been rejected. (The real containment check is the
-  // realpath + /media/lua/server suffix check below, which does work.)
-  if (!path.isAbsolute(targetPath)) {
-    return res.status(400).json({
-      error: "Must be an absolute path",
-      code: ErrorCode.PANELBRIDGE_SERVER_LUA_PATH_NOT_ABSOLUTE,
-    });
-  }
-  const resolvedTarget = path.resolve(targetPath);
-
-  // Resolve symlinks to prevent traversal via symlink chains
-  let realTarget;
-  try {
-    // If target doesn't exist yet, resolve the parent and join
-    // codeql[js/path-injection] targetPath is required to be absolute, resolved and realpath'd, then required to end in /media/lua/server(/) (suffix-containment check) before this line runs -- see the guard chain starting a few lines above ('Validate path: must be a string, absolute, no traversal').
-    if (fs.existsSync(resolvedTarget)) {
-      realTarget = fs.realpathSync(resolvedTarget);
-    } else {
-      const parent = path.dirname(resolvedTarget);
-      // codeql[js/path-injection] targetPath is required to be absolute, resolved and realpath'd, then required to end in /media/lua/server(/) (suffix-containment check) before this line runs -- see the guard chain starting a few lines above ('Validate path: must be a string, absolute, no traversal').
-      if (fs.existsSync(parent)) {
-        realTarget = path.join(
-          fs.realpathSync(parent),
-          path.basename(resolvedTarget),
-        );
-      } else {
-        realTarget = resolvedTarget;
-      }
-    }
-  } catch (e) {
-    log.debug(`Path resolution failed for deploy target: ${e.message}`);
-    realTarget = resolvedTarget;
-  }
-
-  // Path must end with expected PZ Lua server directory pattern
-  // Use forward slashes for comparison but preserve original case on Linux (case-sensitive FS)
-  const normalizedTarget = realTarget.replace(/\\/g, "/");
-  const targetLower = normalizedTarget.toLowerCase();
-  if (
-    !targetLower.endsWith("/media/lua/server") &&
-    !targetLower.endsWith("/media/lua/server/")
-  ) {
-    return res
-      .status(400)
-      .json({
-        error: "Path must point to a media/lua/server/ directory",
-        code: ErrorCode.PANELBRIDGE_SERVER_LUA_PATH_WRONG_DIRECTORY,
-      });
-  }
-
-  try {
-    // Prefer embedded Lua (guaranteed to match running binary version).
-    let srcContent = getEmbeddedPanelBridgeLua();
-
-    if (!srcContent) {
-      const possiblePaths = [
-        path.join(process.cwd(), "pz-mod", "PanelBridge"),
-        path.join(path.dirname(process.execPath), "pz-mod", "PanelBridge"),
-        path.join(__dirname, "..", "..", "pz-mod", "PanelBridge"),
-      ];
-      for (const p of possiblePaths) {
-        const candidate = path.join(
-          p,
-          "media",
-          "lua",
-          "server",
-          "PanelBridge.lua",
-        );
-        if (fs.existsSync(candidate)) {
-          srcContent = fs.readFileSync(candidate, "utf8");
-          break;
-        }
-      }
-    }
-
-    if (!srcContent) {
-      return res.status(404).json({
-        error: "Source mod not found (no embedded Lua and no on-disk pz-mod).",
-        code: ErrorCode.PANELBRIDGE_SOURCE_MOD_NOT_FOUND,
-      });
-    }
-
-    // Ensure target directory exists (use realTarget for safety)
-    // codeql[js/path-injection] targetPath is required to be absolute, resolved and realpath'd, then required to end in /media/lua/server(/) (suffix-containment check) before this line runs -- see the guard chain starting a few lines above ('Validate path: must be a string, absolute, no traversal').
-    if (!fs.existsSync(realTarget)) {
-      // codeql[js/path-injection] targetPath is required to be absolute, resolved and realpath'd, then required to end in /media/lua/server(/) (suffix-containment check) before this line runs -- see the guard chain starting a few lines above ('Validate path: must be a string, absolute, no traversal').
-      fs.mkdirSync(realTarget, { recursive: true, mode: 0o755 });
-    }
-
-    // Atomic write of the Lua file
-    const destPath = path.join(realTarget, "PanelBridge.lua");
-    writeLuaAtomic(destPath, srcContent);
-
-    res.json({
       success: true,
-      message: "PanelBridge.lua installed successfully",
-      path: destPath,
+      message: installed ? "installed" : updated ? "updated" : "already up to date",
+      path: target.targetPath,
+      serverName,
     });
   } catch (error) {
     res.status(500).json({ error: sanitizeError(error.message) });

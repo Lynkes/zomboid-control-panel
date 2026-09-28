@@ -49,7 +49,12 @@ import { ErrorCode } from "../utils/errorCodes.js";
 import { ProgressCode } from "../utils/progressCodes.js";
 import { invalidateMapFolderScan } from "./chunks.js";
 import { emitActionResult } from "./scheduler.js";
-import { autoInstallBridgeIfNeeded } from "../services/panelBridgeInstaller.js";
+import { candidateIniPaths } from "../utils/zomboidPaths.js";
+import {
+  newProfileConflictsWithWorkshop,
+  noSteamWorkshopConflictResponse,
+  reconcileBridge,
+} from "../services/bridgeDelivery.js";
 import { parseBoundedInteger } from "../utils/queryNumbers.js";
 import { confineToRoots } from "../utils/browseRoots.js";
 import { isContainerized } from "../utils/dockerDetect.js";
@@ -776,31 +781,9 @@ export function isFirstBootMissingAdminPassword(activeServer) {
   return !fs.existsSync(saveDir);
 }
 
-// Every location serverManager.js's getServerConfig() will accept as "the"
-// INI for a server, in the same preference order, given a config directory
-// (the Server/ subdirectory a modern PZ install uses) and its parent data
-// directory (the legacy layout some installs still have the real file
-// under). ensureRconConfigured() below used to check ONLY the first of
-// these -- if a particular install's real, fully-configured INI happened to
-// live at one of the others, that ini "didn't exist" as far as this
-// function could tell, and it would pre-create a bare RCON-only stub AT THE
-// WRONG PATH with no backup, discarding every other setting the moment PZ
-// picked that file up (2026-08-27 user report: "ini and sandbox settings
-// reverted to default" after a restart). Mirrors getServerConfig()'s own
-// fallback chain exactly so both halves of the panel agree on where a
-// server's real INI is.
-export function candidateIniPaths(serverConfigPath, zomboidDataPath, serverName) {
-  const candidates = [];
-  if (serverConfigPath) {
-    candidates.push(path.join(serverConfigPath, `${serverName}.ini`));
-  }
-  if (zomboidDataPath) {
-    candidates.push(path.join(zomboidDataPath, `${serverName}.ini`));
-    candidates.push(path.join(zomboidDataPath, "servertest.ini"));
-    candidates.push(path.join(zomboidDataPath, "serveroptions.ini"));
-  }
-  return candidates;
-}
+// candidateIniPaths() moved to utils/zomboidPaths.js (services need it too);
+// re-exported so scheduler.js and existing importers keep this path.
+export { candidateIniPaths };
 
 // Helper to auto-configure RCON in the server's .ini file
 // Called BEFORE server starts to ensure PZ reads the correct RCON credentials on boot.
@@ -1866,15 +1849,11 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
     const serverManager = req.app.get("serverManager");
     const rconService = req.app.get("rconService");
 
-    // Keep PanelBridge.lua current on disk before anything spawns -- PZ
-    // loads Lua at Java-process startup, so this is the last moment a write
-    // here can reach the launch that's about to happen. Must run before
-    // BOTH branches below: runManagedLifecycle() below is itself the spawn
-    // for a docker-local (bind-mounted) server, and serverManager.startServer()
-    // further down is the spawn for a native one. Best-effort and silent by
-    // design (autoInstallBridgeIfNeeded's own comment) -- a failed install
-    // must never block starting the server (2026-09-02 bridge-enforcement).
-    autoInstallBridgeIfNeeded(activeServer);
+    // PanelBridge is kept current (or, with Steam Workshop delivery, moved
+    // out of the game folder) by the before-launch hook inside both spawn
+    // paths below -- runManagedLifecycle() and serverManager.startServer()
+    // -- so scheduled, Discord and mod-update restarts get it too, not just
+    // this route (lifecycleCoordinator.setBeforeLaunchHook).
 
     // A container-managed server is started through Docker: the panel has no
     // process to spawn, and after a `docker stop` there is nothing left running
@@ -2556,13 +2535,6 @@ router.post("/restart", requirePermission("server.control"), async (req, res) =>
     // before the 2026-08-26 bug hunt fixed it there, just never fixed here.
     const io = req.app.get("io");
 
-    // Same reasoning as POST /start: this must run before performRestart()
-    // actually respawns the process, not after. A restart can carry a
-    // multi-minute warning countdown, so doing this now (synchronously,
-    // before performRestart is even invoked) is strictly earlier than
-    // necessary, not just early enough (2026-09-02 bridge-enforcement).
-    autoInstallBridgeIfNeeded(activeServer);
-
     const restartPromise = Promise.resolve(
       scheduler.performRestart(warningMinutes, {
         label: "Manual restart",
@@ -3164,6 +3136,13 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
       return res.status(409).json(lifecycleInProgressResponse());
     }
 
+    // The game folder decides the PanelBridge delivery: a folder another
+    // profile gets PanelBridge for from the Steam Workshop can't take a
+    // profile (or launch scripts) that start without Steam.
+    if (useNoSteam === true && newProfileConflictsWithWorkshop({ installPath, useNoSteam }, await getServers())) {
+      return res.status(409).json(noSteamWorkshopConflictResponse());
+    }
+
     try {
       ensureWritableDirectory(installPath);
     } catch (directoryError) {
@@ -3701,50 +3680,23 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
               });
             }
 
-            // Auto-install PanelBridge mod to the server
-            try {
-              const possibleModPaths = [
-                path.join(process.cwd(), "pz-mod", "PanelBridge"),
-                path.join(path.dirname(process.execPath), "pz-mod", "PanelBridge"),
-              ];
-
-              let modSourcePath = null;
-              for (const p of possibleModPaths) {
-                if (fs.existsSync(p)) {
-                  modSourcePath = p;
-                  break;
-                }
-              }
-
-              if (modSourcePath) {
-                const sourceLuaFile = path.join(
-                  modSourcePath,
-                  "media",
-                  "lua",
-                  "server",
-                  "PanelBridge.lua",
-                );
-                const destLuaDir = path.join(installPath, "media", "lua", "server");
-                const destLuaFile = path.join(destLuaDir, "PanelBridge.lua");
-
-                if (fs.existsSync(sourceLuaFile)) {
-                  if (!fs.existsSync(destLuaDir)) {
-                    fs.mkdirSync(destLuaDir, { recursive: true });
-                  }
-                  fs.copyFileSync(sourceLuaFile, destLuaFile);
-                  io.emit("install:log", {
-                    type: "stdout",
-                    text: "PanelBridge mod installed automatically",
-                    progressCode: ProgressCode.PANELBRIDGE_AUTO_INSTALLED,
-                    ...installEventScope,
-                  });
-                  log.info("PanelBridge mod auto-installed to server");
-                }
-              }
-            } catch (modError) {
-              log.warn(
-                `Failed to auto-install PanelBridge mod: ${modError.message}`,
-              );
+            // PanelBridge goes in through the same delivery gate as every
+            // other writer (bridgeDelivery.reconcileBridge), so a game folder
+            // another profile already gets PanelBridge for from the Steam
+            // Workshop is left alone. The profile doesn't exist yet, so a
+            // pseudo-record stands in for it. Never throws.
+            const bridgeSetup = await reconcileBridge(
+              { id: null, installPath, serverPath: installPath, isRemote: false },
+              { reason: "setup" },
+            );
+            if (bridgeSetup.actions.some((action) => action.kind === "installed" || action.kind === "updated")) {
+              io.emit("install:log", {
+                type: "stdout",
+                text: "PanelBridge mod installed automatically",
+                progressCode: ProgressCode.PANELBRIDGE_AUTO_INSTALLED,
+                ...installEventScope,
+              });
+              log.info("PanelBridge mod auto-installed to server");
             }
 
             io.emit("install:complete", {
@@ -3989,6 +3941,11 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
       return res.status(409).json(lifecycleInProgressResponse());
     }
 
+    // See /install above: no -nosteam profile on a Steam Workshop folder.
+    if (useNoSteam === true && newProfileConflictsWithWorkshop({ installPath, useNoSteam }, await getServers())) {
+      return res.status(409).json(noSteamWorkshopConflictResponse());
+    }
+
     try {
       ensureWritableDirectory(installPath);
     } catch (directoryError) {
@@ -4155,45 +4112,15 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
         ? `StartServer_${serverName}.bat`
         : `start-server_${serverName}.sh`;
 
-    // Auto-install PanelBridge mod to the server
-    let panelBridgeInstalled = false;
-    try {
-      const possibleModPaths = [
-        path.join(process.cwd(), "pz-mod", "PanelBridge"),
-        path.join(path.dirname(process.execPath), "pz-mod", "PanelBridge"),
-      ];
-
-      let modSourcePath = null;
-      for (const p of possibleModPaths) {
-        if (fs.existsSync(p)) {
-          modSourcePath = p;
-          break;
-        }
-      }
-
-      if (modSourcePath) {
-        const sourceLuaFile = path.join(
-          modSourcePath,
-          "media",
-          "lua",
-          "server",
-          "PanelBridge.lua",
-        );
-        const destLuaDir = path.join(installPath, "media", "lua", "server");
-        const destLuaFile = path.join(destLuaDir, "PanelBridge.lua");
-
-        if (fs.existsSync(sourceLuaFile)) {
-          if (!fs.existsSync(destLuaDir)) {
-            fs.mkdirSync(destLuaDir, { recursive: true });
-          }
-          fs.copyFileSync(sourceLuaFile, destLuaFile);
-          panelBridgeInstalled = true;
-          log.info("PanelBridge mod auto-installed to server");
-        }
-      }
-    } catch (modError) {
-      log.warn(`Failed to auto-install PanelBridge mod: ${modError.message}`);
-    }
+    // Same delivery gate as the install wizard above (never throws).
+    const bridgeSetup = await reconcileBridge(
+      { id: null, installPath, serverPath: installPath, isRemote: false },
+      { reason: "setup" },
+    );
+    const panelBridgeInstalled = bridgeSetup.actions.some(
+      (action) => action.kind === "installed" || action.kind === "updated",
+    );
+    if (panelBridgeInstalled) log.info("PanelBridge mod auto-installed to server");
 
     await logServerEventBestEffort(
       "server_quick_setup",

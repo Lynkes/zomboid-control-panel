@@ -21,6 +21,7 @@ import {
   isManagedLifecycleProvider,
 } from "./linuxServiceLifecycle.js";
 import { hasActiveSteamOperation } from "./activeSteamOperations.js";
+import { runBeforeLaunchHook } from "./lifecycleCoordinator.js";
 import { listNonInternalIPv4Interfaces } from "../utils/networkInterfaces.js";
 
 const isWindows = process.platform === "win32";
@@ -1529,6 +1530,12 @@ export class ServerManager {
           );
         }
       }
+
+      // PanelBridge delivery (lifecycleCoordinator.setBeforeLaunchHook):
+      // after the SteamCMD guard, so it never writes into a folder SteamCMD
+      // is still patching, and before both launch branches below. Every
+      // start path funnels through here (see the guard's comment above).
+      await runBeforeLaunchHook(this._serverRecord);
 
       if (this.usesManagedServiceLifecycle()) {
         const result = await this._getManagedLifecycle().run("start");

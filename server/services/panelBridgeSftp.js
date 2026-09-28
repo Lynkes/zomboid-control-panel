@@ -621,7 +621,7 @@ export async function testSftpBridge(config) {
       latencyMs: Date.now() - startedAt,
       nextStep: statusExists
         ? 'The remote bridge is ready. Start the SFTP bridge.'
-        : 'Folders are ready. Start or restart the PZ server with PanelBridge.lua installed and DoLuaChecksum=false to create status.json.',
+        : 'Folders are ready. Start or restart the PZ server with PanelBridge installed (see Settings › PanelBridge) to create status.json.',
     };
   } finally {
     await client.end().catch(() => {});
