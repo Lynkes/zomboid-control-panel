@@ -73,6 +73,10 @@ export function BridgeDeliverySwitchDialog({
   const [planLoading, setPlanLoading] = useState(false)
   const [planError, setPlanError] = useState<string | null>(null)
   const [staleNotice, setStaleNotice] = useState(false)
+  // A failed apply whose undo didn't complete (restored:false). Kept in the
+  // dialog until it closes, not only in a toast that times out: the
+  // operator has to check the named file before the next start.
+  const [notRestoredNotice, setNotRestoredNotice] = useState<string | null>(null)
   const [pending, setPending] = useState<ApplyMode | null>(null)
   const busy = pending !== null
 
@@ -118,6 +122,7 @@ export function BridgeDeliverySwitchDialog({
       setPlan(null)
       setPlanError(null)
       setStaleNotice(false)
+      setNotRestoredNotice(null)
       return
     }
     void loadPlan()
@@ -170,6 +175,12 @@ export function BridgeDeliverySwitchDialog({
           variant: 'destructive',
         })
         void onChanged()
+        if (notRestored) {
+          setNotRestoredNotice(notRestoredMessage)
+          // Some steps may have stayed applied: re-plan so the preview
+          // shows what is left to do from the files as they are now.
+          void loadPlan()
+        }
       }
       setPending(null)
       return
@@ -223,6 +234,14 @@ export function BridgeDeliverySwitchDialog({
         </DialogHeader>
 
         <div className="space-y-4">
+          {notRestoredNotice && (
+            <Alert variant="destructive" role="alert" data-testid="bridge-delivery-not-restored">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>{t('toast.switchFailed')}</AlertTitle>
+              <AlertDescription>{notRestoredNotice}</AlertDescription>
+            </Alert>
+          )}
+
           {staleNotice && (
             <Alert className="border-warning/40 bg-warning/10" aria-live="polite">
               <AlertTriangle className="h-4 w-4 text-warning" />

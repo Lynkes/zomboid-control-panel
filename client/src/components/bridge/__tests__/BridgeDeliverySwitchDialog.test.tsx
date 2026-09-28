@@ -234,6 +234,7 @@ describe('BridgeDeliverySwitchDialog: apply', () => {
     fireEvent.click(screen.getByRole('button', { name: en.dialog.applyRestartEmpty }))
     await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: en.toast.switchFailed, variant: 'destructive' })))
     expect(toastMock).not.toHaveBeenCalledWith(expect.objectContaining({ description: en.toast.notRestored }))
+    expect(screen.queryByTestId('bridge-delivery-not-restored')).toBeNull()
     expect(restart).not.toHaveBeenCalled()
   })
 
@@ -259,6 +260,12 @@ describe('BridgeDeliverySwitchDialog: apply', () => {
       ),
     )
     expect(toastMock).not.toHaveBeenCalledWith(expect.objectContaining({ description: expect.stringMatching(/put back what/) }))
+    // The toast times out; the dialog keeps the warning until it closes,
+    // and re-plans from the files as they are now.
+    expect(await screen.findByTestId('bridge-delivery-not-restored')).toHaveTextContent(
+      en.toast.notRestoredFile.replace('{{fileName}}', 'servertest.ini'),
+    )
+    await waitFor(() => expect(planDelivery).toHaveBeenCalledTimes(2))
   })
 
   it('restored:false without a file name keeps the generic not-restored text', async () => {
