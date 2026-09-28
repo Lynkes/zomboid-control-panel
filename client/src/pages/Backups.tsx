@@ -100,16 +100,31 @@ interface BackupProgress {
 // finished state, kept on screen until dismissed or another restore starts
 // -- a restore runs for minutes, and a toast alone is gone by the time the
 // operator looks back. 'unknown' is the honest answer when nothing could
-// say (see RestoreOutcomeUnknownError).
+// say (see RestoreOutcomeUnknownError). `safetyBackup`: the replaced world
+// was backed up first -- always for this page's own restores, and for a
+// watched one only when the status says so.
 type RestoreResult =
-  | { status: 'success'; backupName: string | null; seconds: number | null }
+  | { status: 'success'; backupName: string | null; seconds: number | null; safetyBackup: boolean }
   | { status: 'failed'; backupName: string | null; reason: string | null }
   | { status: 'unknown'; backupName: string | null }
 
 function restoreResultFrom(outcome: RestoreOutcome | null, backupName: string | null): RestoreResult {
   if (!outcome) return { status: 'unknown', backupName }
-  if (outcome.success) return { status: 'success', backupName: outcome.backupName, seconds: outcome.duration }
+  if (outcome.success) {
+    return {
+      status: 'success',
+      backupName: outcome.backupName,
+      seconds: outcome.duration,
+      safetyBackup: outcome.preRestoreBackup === true,
+    }
+  }
   return { status: 'failed', backupName: outcome.backupName, reason: outcome.message }
+}
+
+// A backup progress card past its last event: finished or failed, and
+// about to clear itself.
+function isBackupProgressFinal(progress: BackupProgress | null) {
+  return progress?.phase === 'complete' || progress?.phase === 'error'
 }
 
 export default function Backups() {
@@ -201,6 +216,15 @@ export default function Backups() {
   // screen as still running.
   const statusReadSeqRef = useRef(0)
   const appliedStatusReadSeqRef = useRef(0)
+  // The last status read sent before this page's own restore request
+  // settled: a later read that still shows that restore running means the
+  // request's answer was wrong (see fetchBackupStatus), an earlier one is
+  // just from mid-restore.
+  const ownRestoreSettledAtReadRef = useRef(0)
+  // The same boundary for the backup progress card: the last status read
+  // sent before the card last changed. Only a later read's "no backup
+  // running" may clear it.
+  const backupProgressAtReadRef = useRef(0)
   const [deletingBackups, setDeletingBackups] = useState(false)
   const [backupProgress, setBackupProgress] = useState<BackupProgress | null>(null)
   const [uploadingBackup, setUploadingBackup] = useState(false)
@@ -322,11 +346,24 @@ export default function Backups() {
       // mount, so a page load or reload mid-backup showed no progress card
       // and left Create Backup clickable, inviting a second backup into the
       // server's own reject-on-conflict guard with no explanation on
-      // screen. Only ever set TRUE here -- the existing socket
-      // 'backup:progress' complete/error handlers and handleCreateBackup's
-      // own `finally` already own turning it back off correctly, and racing
-      // a false here against those would just reintroduce the bug sideways.
-      if (status.backupInProgress) setCreatingBackup(true)
+      // screen.
+      if (status.backupInProgress) {
+        setCreatingBackup(true)
+      } else if (seq > backupProgressAtReadRef.current) {
+        // GH#166: the backup card ends on its own 'complete'/'error' event
+        // -- and a socket that reconnected meanwhile never gets it: the
+        // card for a restore's safety backup then spun on at "Archiving
+        // files…" after the restore itself had finished. A read sent after
+        // the card last changed that finds no backup running outranks it.
+        // Sent after, because one sent before a backup started can land
+        // after that backup's first event (reads are applied in the order
+        // they were sent -- see statusReadSeqRef -- so an older one never
+        // undoes a newer one's "running"). A finished/failed card clears
+        // itself. This page's own backup turns creatingBackup off in its
+        // own `finally`, so that's left to it.
+        setBackupProgress((prev) => (isBackupProgressFinal(prev) ? prev : null))
+        if (!ownBackupInFlightRef.current) setCreatingBackup(false)
+      }
       // GH#166: a restore this page didn't start -- another tab's, or one
       // already running when the page loaded (this page's own too, after a
       // navigation away and back) -- is followed through the status alone:
@@ -337,6 +374,15 @@ export default function Backups() {
         const running = status.restoreInProgress ? (status.currentRestore ?? null) : null
         if (status.restoreInProgress) {
           const id = running?.id ?? null
+          // This page's own restore, still running in a read sent after its
+          // request settled: the answer that request got was wrong (an
+          // error page in front of the panel that looked like the panel's
+          // own), so it's followed like any other restore instead of
+          // leaving "Restore failed" over a world still being replaced.
+          if (id !== null && id === ownRestoreIdRef.current && seq > ownRestoreSettledAtReadRef.current) {
+            ownRestoreIdRef.current = null
+            setOwnRestoreId(null)
+          }
           if ((id === null || id !== ownRestoreIdRef.current) && watchedRestoreRef.current?.id !== id) {
             watchedRestoreRef.current = { id, backupName: running?.backupName ?? null }
             setRestoreResult(null)
@@ -398,8 +444,9 @@ export default function Backups() {
     if (!socket) return
 
     const handleBackupProgress = (data: BackupProgress) => {
+      backupProgressAtReadRef.current = statusReadSeqRef.current
       setBackupProgress(data)
-      
+
       // Clear any existing timeout
       if (progressTimeoutRef.current) {
         clearTimeout(progressTimeoutRef.current)
@@ -431,26 +478,29 @@ export default function Backups() {
     const handleBackupDeferred = () => { void fetchBackupStatus() }
 
     // GH#166: a restore starting, moving on, or ending anywhere
-    // (restore:progress, restore:finished), and a reconnect -- events sent
-    // while the socket was down are gone for good -- all mean "read the
-    // status again" (see fetchBackupStatus for what it does with a restore).
-    // Not for this page's own restore, which ends through its own request.
+    // (restore:progress, restore:finished) means "read the status again"
+    // (see fetchBackupStatus for what it does with a restore). Not for this
+    // page's own restore, which ends through its own request.
     const handleRestoreChanged = () => {
       if (!ownRestoreInFlightRef.current) void fetchBackupStatus()
     }
+    // A reconnect always does: events sent while the socket was down are
+    // gone for good -- a restore's end, a backup's 'complete' -- this
+    // page's own restore running or not.
+    const handleReconnect = () => { void fetchBackupStatus() }
 
     socket.on('backup:progress', handleBackupProgress)
     socket.on('backup:deferred', handleBackupDeferred)
     socket.on('restore:progress', handleRestoreChanged)
     socket.on('restore:finished', handleRestoreChanged)
-    socket.on('connect', handleRestoreChanged)
+    socket.on('connect', handleReconnect)
 
     return () => {
       socket.off('backup:progress', handleBackupProgress)
       socket.off('backup:deferred', handleBackupDeferred)
       socket.off('restore:progress', handleRestoreChanged)
       socket.off('restore:finished', handleRestoreChanged)
-      socket.off('connect', handleRestoreChanged)
+      socket.off('connect', handleReconnect)
       // Clear timeout on unmount
       if (progressTimeoutRef.current) {
         clearTimeout(progressTimeoutRef.current)
@@ -576,6 +626,7 @@ export default function Backups() {
     }
     ownBackupInFlightRef.current = true
     setCreatingBackup(true)
+    backupProgressAtReadRef.current = statusReadSeqRef.current
     setBackupProgress({ phase: 'preparing', percent: 0, message: t('progress.startingFallback') })
     try {
       const result = await backupApi.createBackup()
@@ -714,7 +765,7 @@ export default function Backups() {
       const { duration } = await restoreBackupAndConfirm(name, requestId, {
         onResponseLost: () => setRestoreResponseLost(true),
       })
-      result = { status: 'success', backupName: name, seconds: duration }
+      result = { status: 'success', backupName: name, seconds: duration, safetyBackup: true }
       toast({
         title: t('toasts.restoredTitle'),
         description: t('toasts.restoredDesc', { name, seconds: (duration || 0).toFixed(1) }),
@@ -744,12 +795,15 @@ export default function Backups() {
       }
     }
     ownRestoreInFlightRef.current = false
+    ownRestoreSettledAtReadRef.current = statusReadSeqRef.current
     setRestoringBackup(null)
     setRestoreResponseLost(false)
     setRestoreResult(result)
     // GH#166: the status this page last read is likely from mid-restore
     // (see restoreResult's comment above) -- read it again, or Create,
-    // Upload and Restore stay blocked by a restore that's over.
+    // Upload and Restore stay blocked by a restore that's over. The same
+    // read clears a safety-backup card whose 'complete' this socket missed,
+    // and follows the restore on if it's somehow still running.
     void fetchBackupStatus()
     await fetchBackups()
   }
@@ -1435,99 +1489,108 @@ export default function Backups() {
         </Card>
       )}
 
-      {/* Restore Progress — a static reassurance rather than a real progress
-          readout: the longest step, the pre-restore safety backup, already
-          shows its own progress in the backup card below, and the rest
-          (extract, verify, swap) only reports coarse steps on restore:progress.
-          Also covers restoreInProgressElsewhere (a restore this session didn't
-          start -- another tab, or already running when this page loaded):
-          before this, that case disabled Create/Upload/Restore with no visible
-          explanation ANYWHERE on the page -- the operator just saw greyed-out
-          buttons and had to guess why. See restoreInProgressElsewhere's own
-          comment above. */}
-      {(restoringBackup || restoreInProgressElsewhere) && (
-        <Card className="border-warning/15 bg-warning/5">
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <Loader2 className="w-5 h-5 animate-spin text-warning shrink-0" />
-              <div className="min-w-0">
-                <p className="font-medium truncate">
-                  {restoringBackup
-                    ? t('restoreProgress.title', { name: restoringBackup })
-                    : runningRestore?.backupName
-                      ? t('restoreProgress.title', { name: runningRestore.backupName })
-                      : t('restoreProgress.titleUnknown')}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {restoreResponseLost ? t('restoreProgress.responseLost') : t('restoreProgress.note')}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* The same card once the restore has ended (GH#166 -- it used to only
-          ever spin): what happened, and what to do next. role="status" so a
-          screen reader hears it end too. */}
-      {!restoringBackup && !restoreInProgressElsewhere && restoreResult && (
-        <Card
-          role="status"
-          className={cn(
-            restoreResult.status === 'success' && 'border-primary/15 bg-primary/5',
-            restoreResult.status === 'failed' && 'border-destructive/30 bg-destructive/5',
-            restoreResult.status === 'unknown' && 'border-warning/15 bg-warning/5',
-          )}
-        >
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-3">
-              {restoreResult.status === 'success' ? (
-                <Check className="w-5 h-5 text-primary shrink-0" aria-hidden="true" />
-              ) : (
-                <AlertTriangle
-                  className={cn('w-5 h-5 shrink-0', restoreResult.status === 'failed' ? 'text-destructive' : 'text-warning')}
-                  aria-hidden="true"
-                />
-              )}
-              <div className="min-w-0 flex-1 space-y-1">
-                <p className="font-medium">
-                  {restoreResult.status === 'success'
-                    ? t('restoreResult.successTitle')
-                    : restoreResult.status === 'failed'
-                      ? t('restoreResult.failedTitle')
-                      : t('restoreResult.unknownTitle')}
-                </p>
-                {restoreResult.backupName && (
-                  <p className="text-xs text-muted-foreground truncate">{restoreResult.backupName}</p>
-                )}
-                {restoreResult.status === 'success' && (
-                  <p className="text-xs text-muted-foreground">
-                    {t('restoreResult.successDetail', { seconds: (restoreResult.seconds || 0).toFixed(1) })}
+      {/* One live region, always rendered, for the Restore card in both its
+          states below: a screen reader announces a change inside a region
+          that already exists, and often not one inserted with its content
+          already there -- so the card appearing, moving to "the panel didn't
+          answer", and turning into how the restore ended are all heard.
+          Empty, it takes no room (its margin collapses into the next card's).
+          At most one of the two cards shows at a time. */}
+      <div role="status" aria-live="polite">
+        {/* Restore Progress — a static reassurance rather than a real progress
+            readout: the longest step, the pre-restore safety backup, already
+            shows its own progress in the backup card below, and the rest
+            (extract, verify, swap) only reports coarse steps on restore:progress.
+            Also covers restoreInProgressElsewhere (a restore this session didn't
+            start -- another tab, or already running when this page loaded):
+            before this, that case disabled Create/Upload/Restore with no visible
+            explanation ANYWHERE on the page -- the operator just saw greyed-out
+            buttons and had to guess why. See restoreInProgressElsewhere's own
+            comment above. */}
+        {(restoringBackup || restoreInProgressElsewhere) && (
+          <Card className="border-warning/15 bg-warning/5">
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-3">
+                <Loader2 className="w-5 h-5 animate-spin text-warning shrink-0" />
+                <div className="min-w-0">
+                  <p className="font-medium truncate">
+                    {restoringBackup
+                      ? t('restoreProgress.title', { name: restoringBackup })
+                      : runningRestore?.backupName
+                        ? t('restoreProgress.title', { name: runningRestore.backupName })
+                        : t('restoreProgress.titleUnknown')}
                   </p>
-                )}
-                {restoreResult.status === 'failed' && (
-                  <>
-                    <p className="text-sm break-words">{restoreResult.reason || t('toasts.restoreFailedFallback')}</p>
-                    <p className="text-xs text-muted-foreground">{t('restoreResult.failedNextStep')}</p>
-                  </>
-                )}
-                {restoreResult.status === 'unknown' && (
-                  <p className="text-xs text-muted-foreground">{t('restoreResult.unknownDetail')}</p>
-                )}
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {restoreResponseLost ? t('restoreProgress.responseLost') : t('restoreProgress.note')}
+                  </p>
+                </div>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setRestoreResult(null)}
-                aria-label={t('restoreResult.dismissAria')}
-                className="shrink-0"
-              >
-                {t('restoreResult.dismiss')}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* The same card once the restore has ended (GH#166 -- it used to only
+            ever spin): what happened, and what to do next. */}
+        {!restoringBackup && !restoreInProgressElsewhere && restoreResult && (
+          <Card
+            className={cn(
+              restoreResult.status === 'success' && 'border-primary/15 bg-primary/5',
+              restoreResult.status === 'failed' && 'border-destructive/30 bg-destructive/5',
+              restoreResult.status === 'unknown' && 'border-warning/15 bg-warning/5',
+            )}
+          >
+            <CardContent className="pt-6">
+              <div className="flex items-start gap-3">
+                {restoreResult.status === 'success' ? (
+                  <Check className="w-5 h-5 text-primary shrink-0" aria-hidden="true" />
+                ) : (
+                  <AlertTriangle
+                    className={cn('w-5 h-5 shrink-0', restoreResult.status === 'failed' ? 'text-destructive' : 'text-warning')}
+                    aria-hidden="true"
+                  />
+                )}
+                <div className="min-w-0 flex-1 space-y-1">
+                  <p className="font-medium">
+                    {restoreResult.status === 'success'
+                      ? t('restoreResult.successTitle')
+                      : restoreResult.status === 'failed'
+                        ? t('restoreResult.failedTitle')
+                        : t('restoreResult.unknownTitle')}
+                  </p>
+                  {restoreResult.backupName && (
+                    <p className="text-xs text-muted-foreground truncate">{restoreResult.backupName}</p>
+                  )}
+                  {restoreResult.status === 'success' && (
+                    <p className="text-xs text-muted-foreground">
+                      {restoreResult.safetyBackup
+                        ? t('restoreResult.successDetail', { seconds: (restoreResult.seconds || 0).toFixed(1) })
+                        : t('restoreResult.successDetailNoSafetyBackup', { seconds: (restoreResult.seconds || 0).toFixed(1) })}
+                    </p>
+                  )}
+                  {restoreResult.status === 'failed' && (
+                    <>
+                      <p className="text-sm break-words">{restoreResult.reason || t('toasts.restoreFailedFallback')}</p>
+                      <p className="text-xs text-muted-foreground">{t('restoreResult.failedNextStep')}</p>
+                    </>
+                  )}
+                  {restoreResult.status === 'unknown' && (
+                    <p className="text-xs text-muted-foreground">{t('restoreResult.unknownDetail')}</p>
+                  )}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setRestoreResult(null)}
+                  aria-label={t('restoreResult.dismissAria')}
+                  className="shrink-0"
+                >
+                  {t('restoreResult.dismiss')}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
       {/* Progress Bar */}
       {(creatingBackup || backupProgress) && (

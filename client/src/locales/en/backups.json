@@ -103,16 +103,17 @@
   "restoreProgress": {
     "title": "Restoring {{name}}…",
     "titleUnknown": "A restore is already in progress for this server…",
-    "note": "This can take a few minutes depending on world size. Don't close the panel or navigate away.",
-    "responseLost": "Lost the connection to this restore — it keeps running on the panel. Checking with the panel for the result…"
+    "note": "This can take a few minutes depending on world size. You can leave this page and come back — just don't stop or restart the panel until it's done.",
+    "responseLost": "The panel didn't answer this request. The restore runs on the panel itself, so it may still be going. Checking with the panel for the result…"
   },
   "restoreResult": {
     "successTitle": "Restore finished",
     "successDetail": "Took {{seconds}}s. The world it replaced was backed up first — that safety backup is the newest one in the list below. Start the server when you're ready.",
+    "successDetailNoSafetyBackup": "Took {{seconds}}s. It was started without a safety backup, so the world it replaced wasn't kept. Start the server when you're ready.",
     "failedTitle": "Restore failed",
     "failedNextStep": "Unless the reason above says otherwise, the current world was left as it was. Fix the cause, then try again.",
     "unknownTitle": "Couldn't confirm how the restore ended",
-    "unknownDetail": "The panel stopped reporting on it before it finished — the connection dropped or the panel restarted. Before you start the server, check the panel log to see whether it completed.",
+    "unknownDetail": "The panel has no record of how this restore ended — the connection dropped or the panel restarted, so it may not have finished, or even started. Before you start the server, check the panel log in Debug Logs for a \"Restore completed\" line; if there isn't one, restore again.",
     "dismiss": "Dismiss",
     "dismissAria": "Dismiss the restore result"
   },

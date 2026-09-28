@@ -42,16 +42,36 @@ export function newRestoreRequestId(): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
-// A failure that says nothing about whether the server ran the restore: no
-// answer at all (timeout, dropped connection), or a proxy in front of the
-// panel answering for it (502/504, or a 503 without the panel's own code).
-// Anything the panel itself answered -- a refusal, a failed restore -- is
-// the outcome, and is reported as it is.
-export function isRestoreResponseLost(error: unknown): boolean {
-  if (!(error instanceof ApiError)) return false
-  if (error.isTimeout || error.isNetworkError) return true
-  if (error.status === 502 || error.status === 504) return true
-  return error.status === 503 && error.code === 'HTTP_503'
+// What a failed restore request says about the restore.
+// 'answered': the panel itself answered -- every response it sends is a
+// JSON object ({ error, code? }, or the restore's own { success, message })
+// -- and that answer is the outcome: a refusal, or a restore that ran and
+// failed.
+// 'lost': no answer at all (a timeout, a dropped connection), or a 5xx
+// that isn't the panel's own -- a reverse proxy or tunnel giving up on the
+// panel (Cloudflare's 524 after about 100 s, its 520/522, nginx's 502/504)
+// with an HTML, plain-text or empty body. Says nothing about whether the
+// restore ran, or how it ended.
+// 'proxy-refusal': anything else that isn't the panel's own -- a proxy's
+// 403/429 page, a 200 with an HTML body. Most likely the request never
+// reached the panel, but the status has the last word.
+export type RestoreFailureKind = 'answered' | 'lost' | 'proxy-refusal'
+
+export function restoreFailureKind(error: ApiError): RestoreFailureKind {
+  if (error.isTimeout || error.isNetworkError) return 'lost'
+  if (typeof error.data === 'object' && error.data !== null) return 'answered'
+  return (error.status ?? 0) >= 500 ? 'lost' : 'proxy-refusal'
+}
+
+// Whether the status names restore `requestId`, running or ended. True
+// too when the status can't be read: then nothing rules it out.
+async function statusMayNameRestore(requestId: string): Promise<boolean> {
+  try {
+    const status = await backupApi.getStatus()
+    return status.currentRestore?.id === requestId || status.lastRestore?.id === requestId
+  } catch {
+    return true
+  }
 }
 
 function sleep(ms: number) {
@@ -83,12 +103,13 @@ export async function waitForRestoreOutcome(requestId: string): Promise<RestoreO
 }
 
 // Restores `name` (with the pre-restore safety backup, as every page does)
-// and resolves only with the real outcome: the POST's own response when it
-// arrives, otherwise the one read back from the status.
+// and resolves only with the real outcome: the POST's own response when the
+// panel answered it, otherwise the one read back from the status.
 // `onResponseLost` fires when the page switches to reading it back, so it
 // can say it's still waiting for an answer rather than still restoring.
-// Rejects with the panel's own error for a failed or refused restore, or
-// with RestoreOutcomeUnknownError when nothing could say.
+// Rejects with the panel's own error for a failed or refused restore (or a
+// proxy's refusal, when the status shows this restore never ran), or with
+// RestoreOutcomeUnknownError when nothing could say.
 export async function restoreBackupAndConfirm(
   name: string,
   requestId: string,
@@ -98,7 +119,12 @@ export async function restoreBackupAndConfirm(
     const result = await backupApi.restoreBackup(name, { createPreRestoreBackup: true, requestId })
     return { duration: typeof result.duration === 'number' ? result.duration : null }
   } catch (error) {
-    if (!isRestoreResponseLost(error)) throw error
+    if (!(error instanceof ApiError)) throw error
+    const kind = restoreFailureKind(error)
+    if (kind === 'answered') throw error
+    // A proxy refusing the request: when the panel has no trace of this
+    // restore, it never ran, and that refusal is the outcome after all.
+    if (kind === 'proxy-refusal' && !(await statusMayNameRestore(requestId))) throw error
     onResponseLost?.()
     const outcome = await waitForRestoreOutcome(requestId)
     if (outcome.success) return { duration: outcome.duration }

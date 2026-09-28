@@ -3291,6 +3291,9 @@ export interface RestoreRecord {
   id: string;
   backupName: string;
   startedAt: string;
+  // Whether it backs the replaced world up first. Both panel pages always
+  // ask for that; an API caller may not.
+  preRestoreBackup: boolean;
 }
 
 export interface RestoreOutcome extends RestoreRecord {

@@ -228,16 +228,17 @@
   "restoreProgress": {
     "title": "Restaurando {{name}}…",
     "titleUnknown": "Ya hay una restauración en curso para este servidor…",
-    "note": "Esto puede tardar unos minutos según el tamaño del mundo. No cierres el panel ni salgas de esta página.",
-    "responseLost": "Se perdió la conexión con esta restauración — sigue en curso en el panel. Consultando el resultado al panel…"
+    "note": "Esto puede tardar unos minutos según el tamaño del mundo. Puedes salir de esta página y volver más tarde, pero no detengas ni reinicies el panel hasta que termine.",
+    "responseLost": "El panel no respondió a esta solicitud. La restauración se ejecuta en el propio panel, así que puede que siga en curso. Consultando el resultado al panel…"
   },
   "restoreResult": {
     "successTitle": "Restauración completada",
     "successDetail": "Tardó {{seconds}} s. El mundo reemplazado se guardó antes — esa copia de seguridad de emergencia es la más reciente de la lista de abajo. Inicia el servidor cuando quieras.",
+    "successDetailNoSafetyBackup": "Tardó {{seconds}} s. Se inició sin copia de seguridad de emergencia, así que el mundo reemplazado no se conservó. Inicia el servidor cuando quieras.",
     "failedTitle": "Error al restaurar",
     "failedNextStep": "Salvo que el motivo de arriba diga lo contrario, el mundo actual quedó como estaba. Corrige la causa y vuelve a intentarlo.",
     "unknownTitle": "No se pudo confirmar cómo terminó la restauración",
-    "unknownDetail": "El panel dejó de informar antes de que terminara — se cortó la conexión o el panel se reinició. Antes de iniciar el servidor, revisa el registro del panel para ver si se completó.",
+    "unknownDetail": "El panel no tiene constancia de cómo terminó esta restauración — se cortó la conexión o el panel se reinició, así que puede que no haya terminado, o ni siquiera empezado. Antes de iniciar el servidor, busca una línea «Restore completed» en el registro del panel (Registros de depuración); si no está, vuelve a restaurar.",
     "dismiss": "Descartar",
     "dismissAria": "Descartar el resultado de la restauración"
   }

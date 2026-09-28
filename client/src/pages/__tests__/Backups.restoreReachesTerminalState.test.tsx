@@ -27,7 +27,9 @@ import en from '../../locales/en/backups.json'
 // left to ever end it. The same dead end met a page that only saw a restore
 // running (another tab, a reload, a navigation away and back), and a
 // restore whose own response went missing (a long restore past the client
-// timeout, a proxy cutting the request) was reported as a failure.
+// timeout, a proxy cutting the request) was reported as a failure. The
+// backup card for the restore's safety backup ("Archiving files…") could
+// spin on the same way when the socket missed that backup's 'complete'.
 
 const toastSpy = vi.fn()
 
@@ -99,7 +101,7 @@ function running(id: string | undefined, backupName = testBackup.name): BackupSt
   return {
     ...idleStatus,
     restoreInProgress: true,
-    currentRestore: { id: id ?? 'unknown', backupName, startedAt: STARTED_AT },
+    currentRestore: { id: id ?? 'unknown', backupName, startedAt: STARTED_AT, preRestoreBackup: true },
   }
 }
 
@@ -109,6 +111,7 @@ function ended(outcome: Partial<RestoreOutcome> & { id: string }): BackupStatus 
     lastRestore: {
       backupName: testBackup.name,
       startedAt: STARTED_AT,
+      preRestoreBackup: true,
       finishedAt: '2026-09-28T09:03:00.000Z',
       success: true,
       message: null,
@@ -121,6 +124,16 @@ function ended(outcome: Partial<RestoreOutcome> & { id: string }): BackupStatus 
 function fill(template: string, values: Record<string, string>) {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => values[key])
 }
+
+// An error page from a tunnel in front of the panel, the way api.ts's
+// buildResponseError() builds it: Cloudflare gives up on a request after
+// about 100 s -- a restore and its safety backup routinely run longer.
+function cloudflare524() {
+  const body = '<!DOCTYPE html><html><head><title>A timeout occurred</title></head><body>Error code 524</body></html>'
+  return new ApiError(body, { status: 524, code: 'HTTP_524', isRetryable: true, data: body })
+}
+
+const SAFETY_BACKUP_PROGRESS = { phase: 'archiving', percent: 40, message: 'Archiving files... (400/1000)' }
 
 function makeMockSocket() {
   const handlers: Record<string, (data: unknown) => void> = {}
@@ -215,6 +228,23 @@ describe('Backups.tsx: the Restore card always reaches a finished state (GH#166)
     expect(screen.queryByText(fill(en.restoreProgress.title, { name: 'other.zip' }))).not.toBeInTheDocument()
   })
 
+  it("doesn't claim a safety backup for a watched restore that was started without one", async () => {
+    // POST /backup/restore passes its body through: an API caller can send
+    // createPreRestoreBackup: false, which neither panel page does.
+    const { socket, fire } = makeMockSocket()
+    const status = running('api-restore', 'other.zip')
+    setUp({ ...status, currentRestore: { ...status.currentRestore!, preRestoreBackup: false } })
+
+    renderBackups(socket)
+    expect(await screen.findByText(fill(en.restoreProgress.title, { name: 'other.zip' }))).toBeInTheDocument()
+
+    getStatus.mockResolvedValue(ended({ id: 'api-restore', backupName: 'other.zip', duration: 42, preRestoreBackup: false }))
+    act(() => { fire('restore:finished', { id: 'api-restore' }) })
+
+    expect(await screen.findByText(fill(en.restoreResult.successDetailNoSafetyBackup, { seconds: '42.0' }))).toBeInTheDocument()
+    expect(screen.queryByText(fill(en.restoreResult.successDetail, { seconds: '42.0' }))).not.toBeInTheDocument()
+  })
+
   it("another tab's restore failing turns the card into the reason and the next step as soon as restore:finished arrives", async () => {
     const { socket, fire } = makeMockSocket()
     setUp(running('other-tab-restore'))
@@ -223,9 +253,9 @@ describe('Backups.tsx: the Restore card always reaches a finished state (GH#166)
     expect(await screen.findByText(fill(en.restoreProgress.title, { name: testBackup.name }))).toBeInTheDocument()
 
     const reason = 'Backup archive failed integrity verification: 1 file(s) did not match their recorded checksum -- map_meta.bin. Live save left untouched.'
-    const status = ended({ id: 'other-tab-restore', success: false, message: reason, duration: null })
-    getStatus.mockResolvedValue(status)
-    act(() => { fire('restore:finished', status.lastRestore) })
+    getStatus.mockResolvedValue(ended({ id: 'other-tab-restore', success: false, message: reason, duration: null }))
+    // Named, nothing more: the event reaches every signed-in role.
+    act(() => { fire('restore:finished', { id: 'other-tab-restore' }) })
 
     expect(await screen.findByText(en.restoreResult.failedTitle)).toBeInTheDocument()
     expect(screen.getByText(reason)).toBeInTheDocument()
@@ -290,12 +320,84 @@ describe('Backups.tsx: the Restore card always reaches a finished state (GH#166)
     expect(toastSpy).not.toHaveBeenCalledWith(expect.objectContaining({ title: en.toasts.restoredTitle }))
   })
 
+  it("a restore behind Cloudflare, whose request the tunnel gave up on (524), is followed to its real outcome -- not reported as failed", async () => {
+    const { socket } = makeMockSocket()
+    setUp()
+    let serverSide: 'idle' | 'running' | 'done' = 'idle'
+    const requestIdSent = () => restoreBackup.mock.calls[0]?.[1]?.requestId ?? 'unknown'
+    getStatus.mockImplementation(async () => (
+      serverSide === 'running'
+        ? running(requestIdSent())
+        : serverSide === 'done'
+          ? ended({ id: requestIdSent(), duration: 312.5 })
+          : idleStatus
+    ))
+    restoreBackup.mockImplementation(async () => {
+      serverSide = 'running'
+      throw cloudflare524()
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    renderBackups(socket)
+    await startRestoreFromTheRow()
+
+    // Still restoring -- and saying honestly that it's waiting on the panel.
+    expect(await screen.findByText(en.restoreProgress.responseLost)).toBeInTheDocument()
+    expect(screen.getByText(fill(en.restoreProgress.title, { name: testBackup.name }))).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: en.pageHeader.createBackup })).toBeDisabled()
+
+    serverSide = 'done'
+    await act(async () => { await vi.advanceTimersByTimeAsync(RESTORE_STATUS_POLL_MS) })
+
+    expect(await screen.findByText(en.restoreResult.successTitle)).toBeInTheDocument()
+    expect(screen.getByText(fill(en.restoreResult.successDetail, { seconds: '312.5' }))).toBeInTheDocument()
+    expect(screen.queryByText(en.restoreResult.failedTitle)).not.toBeInTheDocument()
+    expect(toastSpy).not.toHaveBeenCalledWith(expect.objectContaining({ title: en.toasts.restoreFailedTitle }))
+  })
+
+  it("hands the card to the restore when a failure answer came back for a restore that is still running", async () => {
+    // A JSON error page from something in front of the panel reads like the
+    // panel's own answer. The status read right after says otherwise: the
+    // page must not leave "Restore failed" -- and Create/Restore enabled --
+    // over a world still being replaced.
+    const { socket, fire } = makeMockSocket()
+    setUp()
+    let serverSide: 'idle' | 'running' | 'done' = 'idle'
+    const requestIdSent = () => restoreBackup.mock.calls[0]?.[1]?.requestId ?? 'unknown'
+    getStatus.mockImplementation(async () => (
+      serverSide === 'running'
+        ? running(requestIdSent())
+        : serverSide === 'done'
+          ? ended({ id: requestIdSent(), duration: 90 })
+          : idleStatus
+    ))
+    restoreBackup.mockImplementation(async () => {
+      serverSide = 'running'
+      throw new ApiError('Internal Server Error', { status: 500, code: 'HTTP_500', data: { error: 'Internal Server Error' } })
+    })
+
+    renderBackups(socket)
+    await startRestoreFromTheRow()
+
+    await waitFor(() => expect(screen.queryByText(en.restoreResult.failedTitle)).not.toBeInTheDocument())
+    expect(await screen.findByText(fill(en.restoreProgress.title, { name: testBackup.name }))).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: en.pageHeader.createBackup })).toBeDisabled()
+
+    serverSide = 'done'
+    act(() => { fire('restore:finished', { id: requestIdSent() }) })
+
+    expect(await screen.findByText(en.restoreResult.successTitle)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: en.pageHeader.createBackup })).not.toBeDisabled())
+  })
+
   it('a refused restore (the panel answered) is reported as it is, without waiting on the status', async () => {
     const { socket } = makeMockSocket()
     setUp()
-    restoreBackup.mockRejectedValue(new ApiError('Server must be stopped before restoring a backup. Please stop the server first.', {
+    const error = 'Server must be stopped before restoring a backup. Please stop the server first.'
+    restoreBackup.mockRejectedValue(new ApiError(error, {
       status: 400,
-      code: 'HTTP_400',
+      code: 'BACKUP_RESTORE_SERVER_RUNNING',
+      data: { success: false, error, code: 'BACKUP_RESTORE_SERVER_RUNNING' },
     }))
 
     renderBackups(socket)
@@ -304,5 +406,103 @@ describe('Backups.tsx: the Restore card always reaches a finished state (GH#166)
     expect(await screen.findByText(en.restoreResult.failedTitle)).toBeInTheDocument()
     expect(screen.getByText(/Server must be stopped before restoring a backup/)).toBeInTheDocument()
     expect(screen.queryByText(en.restoreProgress.responseLost)).not.toBeInTheDocument()
+  })
+
+  it('announces the Restore card through one live region that is already on the page before the restore starts', async () => {
+    // A live region inserted together with its content is often not
+    // announced; one that already exists announces what changes inside it.
+    const { socket } = makeMockSocket()
+    setUp()
+    let finishRestore!: (value: { success: boolean; duration?: number }) => void
+    restoreBackup.mockImplementation(() => new Promise((resolve) => { finishRestore = resolve }))
+
+    const { container } = renderBackups(socket)
+    await screen.findByRole('button', { name: fill(en.mainCard.restoreAria, { name: testBackup.name }) })
+    const region = container.querySelector('[role="status"][aria-live="polite"]')
+    expect(region).not.toBeNull()
+    expect(region).toBeEmptyDOMElement()
+
+    const requestId = await startRestoreFromTheRow()
+    expect(region).toContainElement(await screen.findByText(fill(en.restoreProgress.title, { name: testBackup.name })))
+
+    getStatus.mockResolvedValue(ended({ id: requestId ?? 'unknown' }))
+    await act(async () => { finishRestore({ success: true, duration: 5 }) })
+    expect(region).toContainElement(await screen.findByText(en.restoreResult.successTitle))
+  })
+})
+
+describe("Backups.tsx: the restore's safety-backup card ends with it, even when the socket missed its 'complete' (GH#166)", () => {
+  it("this page's own restore: the card is gone once the restore ends", async () => {
+    const { socket, fire } = makeMockSocket()
+    setUp()
+    let finishRestore!: (value: { success: boolean; duration?: number }) => void
+    restoreBackup.mockImplementation(() => new Promise((resolve) => { finishRestore = resolve }))
+
+    renderBackups(socket)
+    const requestId = await startRestoreFromTheRow()
+    act(() => { fire('backup:progress', SAFETY_BACKUP_PROGRESS) })
+    expect(await screen.findByText(SAFETY_BACKUP_PROGRESS.message)).toBeInTheDocument()
+
+    // Its 'complete' never arrives; the restore then ends.
+    getStatus.mockResolvedValue(ended({ id: requestId ?? 'unknown' }))
+    await act(async () => { finishRestore({ success: true, duration: 12 }) })
+
+    expect(await screen.findByText(en.restoreResult.successTitle)).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText(SAFETY_BACKUP_PROGRESS.message)).not.toBeInTheDocument())
+  })
+
+  it('a reconnect after the safety backup ended clears its card straight away, while the restore goes on', async () => {
+    const { socket, fire } = makeMockSocket()
+    setUp()
+    restoreBackup.mockImplementation(() => new Promise(() => {}))
+
+    renderBackups(socket)
+    const requestId = await startRestoreFromTheRow()
+    act(() => { fire('backup:progress', SAFETY_BACKUP_PROGRESS) })
+    expect(await screen.findByText(SAFETY_BACKUP_PROGRESS.message)).toBeInTheDocument()
+
+    // The socket drops, the safety backup finishes meanwhile, the socket
+    // comes back: the status says the restore runs, no backup does.
+    getStatus.mockResolvedValue(running(requestId))
+    act(() => { fire('connect') })
+
+    await waitFor(() => expect(screen.queryByText(SAFETY_BACKUP_PROGRESS.message)).not.toBeInTheDocument())
+    expect(screen.getByText(fill(en.restoreProgress.title, { name: testBackup.name }))).toBeInTheDocument()
+  })
+
+  it("another tab's restore: a reconnect after its safety backup ended clears the card, and the restore's end leaves none", async () => {
+    const { socket, fire } = makeMockSocket()
+    setUp(running('other-tab-restore'))
+
+    renderBackups(socket)
+    expect(await screen.findByText(fill(en.restoreProgress.title, { name: testBackup.name }))).toBeInTheDocument()
+    act(() => { fire('backup:progress', SAFETY_BACKUP_PROGRESS) })
+    expect(await screen.findByText(SAFETY_BACKUP_PROGRESS.message)).toBeInTheDocument()
+
+    act(() => { fire('connect') })
+    await waitFor(() => expect(screen.queryByText(SAFETY_BACKUP_PROGRESS.message)).not.toBeInTheDocument())
+
+    getStatus.mockResolvedValue(ended({ id: 'other-tab-restore' }))
+    act(() => { fire('restore:finished', { id: 'other-tab-restore' }) })
+    expect(await screen.findByText(en.restoreResult.successTitle)).toBeInTheDocument()
+    expect(screen.queryByText(SAFETY_BACKUP_PROGRESS.message)).not.toBeInTheDocument()
+  })
+
+  it("keeps a live backup's card: a status read sent before the backup's first event can't clear it", async () => {
+    const { socket, fire } = makeMockSocket()
+    setUp()
+    renderBackups(socket)
+    await screen.findByRole('button', { name: fill(en.mainCard.restoreAria, { name: testBackup.name }) })
+
+    // A read goes out while nothing runs, and answers only after another
+    // tab's backup has started reporting.
+    let answerStaleRead!: (status: BackupStatus) => void
+    getStatus.mockImplementationOnce(() => new Promise((resolve) => { answerStaleRead = resolve }))
+    act(() => { fire('backup:deferred') })
+    await waitFor(() => expect(answerStaleRead).toBeDefined())
+    act(() => { fire('backup:progress', SAFETY_BACKUP_PROGRESS) })
+    await act(async () => { answerStaleRead(idleStatus) })
+
+    expect(screen.getByText(SAFETY_BACKUP_PROGRESS.message)).toBeInTheDocument()
   })
 })

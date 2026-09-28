@@ -3,9 +3,9 @@ import { ApiError, backupApi, type BackupStatus } from '@/lib/api'
 import {
   RESTORE_STATUS_POLL_MS,
   RestoreOutcomeUnknownError,
-  isRestoreResponseLost,
   newRestoreRequestId,
   restoreBackupAndConfirm,
+  restoreFailureKind,
 } from '@/lib/restoreOutcome'
 
 // GH#166: restoreBackupAndConfirm() is what Backups.tsx and Settings.tsx
@@ -41,11 +41,24 @@ const idle = {
 
 const timeout = () => new ApiError('The request timed out.', { code: 'TIMEOUT', isTimeout: true, isNetworkError: true })
 
+// An error page from something between the browser and the panel, the way
+// api.ts's buildResponseError() builds it: the body is the page's text, the
+// code the synthesized HTTP_<status>.
+function proxyError(status: number, body: string | null = `<html><body>error code: ${status}</body></html>`) {
+  return new ApiError(body ?? `Request failed with status ${status}.`, { status, code: `HTTP_${status}`, data: body })
+}
+
+// The panel's own error answer: always a JSON object.
+function panelError(status: number, error: string, code = `HTTP_${status}`) {
+  return new ApiError(error, { status, code, data: { error, code } })
+}
+
 function outcome(id: string, success: boolean, message: string | null = null) {
   return {
     id,
     backupName: 'world.zip',
     startedAt: '2026-09-28T09:00:00.000Z',
+    preRestoreBackup: true,
     finishedAt: '2026-09-28T09:12:00.000Z',
     success,
     message,
@@ -58,20 +71,38 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('isRestoreResponseLost', () => {
-  it('is true only when nothing from the panel itself answered', () => {
-    expect(isRestoreResponseLost(timeout())).toBe(true)
-    expect(isRestoreResponseLost(new ApiError('offline', { code: 'NETWORK_ERROR', isNetworkError: true }))).toBe(true)
-    expect(isRestoreResponseLost(new ApiError('Bad gateway', { status: 502, code: 'HTTP_502' }))).toBe(true)
-    expect(isRestoreResponseLost(new ApiError('Gateway timeout', { status: 504, code: 'HTTP_504' }))).toBe(true)
-    expect(isRestoreResponseLost(new ApiError('Unavailable', { status: 503, code: 'HTTP_503' }))).toBe(true)
+describe('restoreFailureKind', () => {
+  it("takes the panel's own answer -- always a JSON object -- as the outcome", () => {
+    expect(restoreFailureKind(panelError(400, 'Server must be stopped', 'BACKUP_RESTORE_SERVER_RUNNING'))).toBe('answered')
+    expect(restoreFailureKind(panelError(409, 'busy', 'LIFECYCLE_IN_PROGRESS'))).toBe('answered')
+    expect(restoreFailureKind(panelError(500, 'boom'))).toBe('answered')
+    expect(restoreFailureKind(panelError(503, 'scan failed', 'SERVER_STATE_UNKNOWN'))).toBe('answered')
+    // The route's own failed-restore answer: { success: false, message }.
+    expect(restoreFailureKind(new ApiError('Restore failed', {
+      status: 400,
+      code: 'HTTP_400',
+      data: { success: false, message: 'Restore failed' },
+    }))).toBe('answered')
+  })
 
-    // The panel's own answers are the outcome.
-    expect(isRestoreResponseLost(new ApiError('scan failed', { status: 503, code: 'SERVER_STATE_UNKNOWN' }))).toBe(false)
-    expect(isRestoreResponseLost(new ApiError('busy', { status: 409, code: 'LIFECYCLE_IN_PROGRESS' }))).toBe(false)
-    expect(isRestoreResponseLost(new ApiError('running', { status: 400, code: 'HTTP_400' }))).toBe(false)
-    expect(isRestoreResponseLost(new ApiError('boom', { status: 500, code: 'HTTP_500' }))).toBe(false)
-    expect(isRestoreResponseLost(new Error('not an api error'))).toBe(false)
+  it('takes no answer, or a 5xx page from a proxy or tunnel in front of the panel, as lost', () => {
+    expect(restoreFailureKind(timeout())).toBe('lost')
+    expect(restoreFailureKind(new ApiError('offline', { code: 'NETWORK_ERROR', isNetworkError: true }))).toBe('lost')
+    // Cloudflare: 524 "a timeout occurred" after ~100 s -- a long restore's
+    // usual fate behind a tunnel -- and 520/522.
+    expect(restoreFailureKind(proxyError(524))).toBe('lost')
+    expect(restoreFailureKind(proxyError(520))).toBe('lost')
+    expect(restoreFailureKind(proxyError(522))).toBe('lost')
+    // nginx, and a proxy answering with an empty body.
+    expect(restoreFailureKind(proxyError(502, 'Bad Gateway'))).toBe('lost')
+    expect(restoreFailureKind(proxyError(504))).toBe('lost')
+    expect(restoreFailureKind(proxyError(503, null))).toBe('lost')
+  })
+
+  it("leaves a proxy's own refusal for the status to decide", () => {
+    expect(restoreFailureKind(proxyError(403))).toBe('proxy-refusal')
+    expect(restoreFailureKind(proxyError(429, 'Too Many Requests'))).toBe('proxy-refusal')
+    expect(restoreFailureKind(new ApiError('The server returned an invalid response.', { status: 200, code: 'INVALID_RESPONSE' }))).toBe('proxy-refusal')
   })
 })
 
@@ -91,18 +122,64 @@ describe('restoreBackupAndConfirm', () => {
     expect(getStatus).not.toHaveBeenCalled()
   })
 
-  it("rethrows the panel's own refusal without reading the status", async () => {
-    const refusal = new ApiError('Server must be stopped', { status: 400, code: 'BACKUP_RESTORE_SERVER_RUNNING' })
+  it("rethrows the panel's own refusal or failure without reading the status", async () => {
+    const refusal = panelError(400, 'Server must be stopped', 'BACKUP_RESTORE_SERVER_RUNNING')
     restoreBackup.mockRejectedValue(refusal)
     await expect(restoreBackupAndConfirm('world.zip', 'request-0001')).rejects.toBe(refusal)
+
+    const failure = panelError(500, 'Failed to restore backup')
+    restoreBackup.mockRejectedValue(failure)
+    await expect(restoreBackupAndConfirm('world.zip', 'request-0001')).rejects.toBe(failure)
     expect(getStatus).not.toHaveBeenCalled()
+  })
+
+  it("on Cloudflare's 524 (the tunnel gave up after ~100 s), follows the restore still running on the panel to its real outcome", async () => {
+    vi.useFakeTimers()
+    restoreBackup.mockRejectedValue(proxyError(524))
+    getStatus
+      .mockResolvedValueOnce({ ...idle, restoreInProgress: true, currentRestore: { id: 'request-0001', backupName: 'world.zip', startedAt: '', preRestoreBackup: true } })
+      .mockResolvedValueOnce({ ...idle, lastRestore: outcome('request-0001', true) })
+    const onResponseLost = vi.fn()
+
+    const pending = restoreBackupAndConfirm('world.zip', 'request-0001', { onResponseLost })
+    await vi.advanceTimersByTimeAsync(RESTORE_STATUS_POLL_MS)
+
+    await expect(pending).resolves.toEqual({ duration: 720 })
+    expect(onResponseLost).toHaveBeenCalledTimes(1)
+  })
+
+  it('on a proxy 5xx for a restore the panel has no record of, says it could not confirm rather than "failed"', async () => {
+    // A 520 can mean the panel died mid-restore and came back without its
+    // record -- not proof the world was left alone.
+    restoreBackup.mockRejectedValue(proxyError(520))
+    getStatus.mockResolvedValue(idle)
+
+    await expect(restoreBackupAndConfirm('world.zip', 'request-0001')).rejects.toBeInstanceOf(RestoreOutcomeUnknownError)
+  })
+
+  it("rethrows a proxy's refusal when the panel has no trace of the restore -- it never ran", async () => {
+    const refusal = proxyError(403)
+    restoreBackup.mockRejectedValue(refusal)
+    getStatus.mockResolvedValue({ ...idle, lastRestore: outcome('someone-else-01', true) })
+    const onResponseLost = vi.fn()
+
+    await expect(restoreBackupAndConfirm('world.zip', 'request-0001', { onResponseLost })).rejects.toBe(refusal)
+    expect(getStatus).toHaveBeenCalledTimes(1)
+    expect(onResponseLost).not.toHaveBeenCalled()
+  })
+
+  it("follows the restore anyway when a proxy's refusal came back for a restore the panel did run", async () => {
+    restoreBackup.mockRejectedValue(proxyError(403))
+    getStatus.mockResolvedValue({ ...idle, lastRestore: outcome('request-0001', true) })
+
+    await expect(restoreBackupAndConfirm('world.zip', 'request-0001')).resolves.toEqual({ duration: 720 })
   })
 
   it('on a lost answer, waits while the restore runs and resolves with its recorded success', async () => {
     vi.useFakeTimers()
     restoreBackup.mockRejectedValue(timeout())
     getStatus
-      .mockResolvedValueOnce({ ...idle, restoreInProgress: true, currentRestore: { id: 'request-0001', backupName: 'world.zip', startedAt: '' } })
+      .mockResolvedValueOnce({ ...idle, restoreInProgress: true, currentRestore: { id: 'request-0001', backupName: 'world.zip', startedAt: '', preRestoreBackup: true } })
       .mockResolvedValueOnce({ ...idle, lastRestore: outcome('request-0001', true) })
     const onResponseLost = vi.fn()
 
