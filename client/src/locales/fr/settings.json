@@ -403,7 +403,7 @@
     "setupStep2Desc": "Pointe le panneau vers le bon dossier de données du serveur et démarre l'observateur.",
     "setupStep3Title": "Démarrer le serveur PZ",
     "setupStep3Desc": "Lorsque le jeu charge le mod, le statut passe de <b1>En attente</b1> à <b>Connecté</b>.",
-    "requiresLuaChecksum": "<b>Nécessite DoLuaChecksum=false</b> dans votre INI serveur. Les commandes peuvent échouer si la vérification est activée.",
+    "requiresLuaChecksum": "<b>PanelBridge installé par le panneau nécessite DoLuaChecksum=false.</b> La distribution via le Steam Workshop fonctionne avec la vérification active.",
     "connectedTo": "Connecté à {{server}}",
     "connectedFallback": "serveur",
     "modVersionLabel": "Version du mod :",
@@ -498,8 +498,8 @@
     "listLogs": "Lister les journaux",
     "selectFileHint": "Sélectionnez un fichier pour charger les 256 derniers Ko.",
     "tailOfPrefix": "fin de ",
-    "autoUpdateLabel": "Mise à jour automatique du mod au démarrage du panneau",
-    "autoUpdateDesc": "Au démarrage du panneau, copier automatiquement la dernière version de PanelBridge.lua vers le serveur PZ si les versions diffèrent.",
+    "autoUpdateLabel": "Tenir à jour PanelBridge installé par le panneau",
+    "autoUpdateDesc": "Avant chaque démarrage du serveur et au démarrage du panneau, copier le PanelBridge.lua fourni dans le dossier du jeu s'il a changé. Non utilisé avec la distribution via le Steam Workshop.",
     "installTitle": "Installer PanelBridge.lua",
     "selectServerPlaceholder": "Sélectionner un serveur...",
     "noServersConfigured": "Aucun serveur configuré",
@@ -514,6 +514,7 @@
       "updateAvailableTitle": "Bridge mod update available",
       "updateNowButton": "Update Now",
       "protocolMismatchBody": "This panel expects bridge protocol '{{expected}}', but the mod on your server reports '{{actual}}'. They ship as a matched pair, so some features may not work correctly until they're back in sync.",
+      "protocolMismatchWorkshopBody": "Le PanelBridge de ce serveur (issu du Steam Workshop) indique le protocole « {{actual}} », mais ce panneau attend « {{expected}} ». Redémarrez le serveur pour obtenir la dernière version du Workshop, ou mettez à jour le panneau.",
       "remoteUpdateBody": "Your server is running bridge mod v{{liveVersion}}, older than the v{{bundledVersion}} this panel bundles. This panel can't update a remote/SFTP-managed server's files for you -- re-upload the updated PanelBridge.lua the same way you installed it.",
       "localUpdateBody": "The installed bridge mod (v{{liveVersion}}) is older than what this panel bundles."
     }

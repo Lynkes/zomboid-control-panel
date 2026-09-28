@@ -125,6 +125,7 @@ import { useTheme, type ThemeName } from "@/contexts/ThemeContext";
 import { platformTranslationKey, useRuntimeInfo } from "@/hooks/useRuntimeInfo";
 import { useRequestGuard } from "@/hooks/useRequestGuard";
 import { BridgeStatusBadge } from "@/components/BridgeStatusBadge";
+import { BridgeDeliveryPanel } from "@/components/bridge/BridgeDeliveryPanel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
@@ -543,6 +544,7 @@ export default function Settings() {
       liveVersion: string | null;
       behind: boolean | null;
     } | null;
+    deliveryMethod?: "local" | "workshop";
   } | null>(null);
   const [bridgeLoading, setBridgeLoading] = useState(false);
   const [bridgeError, setBridgeError] = useState<string | null>(null);
@@ -2485,6 +2487,7 @@ export default function Settings() {
     null;
   const activeServer = servers.find((server) => server.isActive) || null;
   const isRemoteServer = Boolean(activeServer?.isRemote);
+  const bridgeUsesWorkshop = bridgeStatus?.deliveryMethod === "workshop";
   const trimmedHttpsKeyPath = settings.httpsKeyPath.trim();
   const trimmedHttpsCertPath = settings.httpsCertPath.trim();
   const hasPartialHttpsCertPath =
@@ -4612,7 +4615,20 @@ export default function Settings() {
                   );
                 })()}
 
-                {/* Not running - setup flow */}
+                {/* How PanelBridge reaches the active server: panel-installed
+                    (default) or Steam Workshop. Everything it shows is
+                    computed by GET /panel-bridge/delivery. */}
+                <BridgeDeliveryPanel
+                  activeServerId={activeServer?.id ?? null}
+                  iniFileName={activeServer?.serverName ? `${activeServer.serverName}.ini` : null}
+                  playerCount={bridgeStatus?.modStatus?.alive ? (bridgeStatus.modStatus.playerCount ?? 0) : null}
+                />
+
+                {/* Not running - setup flow. With Steam Workshop delivery
+                    there is no PanelBridge.lua to upload and DoLuaChecksum
+                    may stay on, so those two steps are replaced by a pointer
+                    to the delivery block above; the watcher/SFTP steps stay,
+                    since the panel reads the bridge's files either way. */}
                 {!bridgeStatus?.isRunning && (
                   <div className="p-4 bg-muted rounded-xl space-y-3">
                     {isRemoteServer ? (
@@ -4621,9 +4637,16 @@ export default function Settings() {
                         <p className="text-sm text-muted-foreground">
                           {t("bridge.remoteSetupDesc")}
                         </p>
+                        {bridgeUsesWorkshop && (
+                          <p className="text-sm text-muted-foreground">{t("bridgeDelivery:setupNote.workshop")}</p>
+                        )}
                         <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside">
-                          <li><Trans t={t} i18nKey="bridge.remoteStep1" components={{ b: <strong className="text-foreground" /> }} /></li>
-                          <li><Trans t={t} i18nKey="bridge.remoteStep2" components={{ b: <strong className="text-foreground" /> }} /></li>
+                          {!bridgeUsesWorkshop && (
+                            <>
+                              <li><Trans t={t} i18nKey="bridge.remoteStep1" components={{ b: <strong className="text-foreground" /> }} /></li>
+                              <li><Trans t={t} i18nKey="bridge.remoteStep2" components={{ b: <strong className="text-foreground" /> }} /></li>
+                            </>
+                          )}
                           <li><Trans t={t} i18nKey="bridge.remoteStep3" components={{ b: <strong className="text-foreground" /> }} /></li>
                           <li><Trans t={t} i18nKey="bridge.remoteStep4" components={{ b: <strong className="text-foreground" /> }} /></li>
                           <li>{t("bridge.remoteStep5")}</li>
@@ -4635,9 +4658,16 @@ export default function Settings() {
                     ) : (
                       <>
                         <p className="text-sm font-medium">{t("bridge.getStartedTitle")}</p>
+                        {bridgeUsesWorkshop && (
+                          <p className="text-sm text-muted-foreground">{t("bridgeDelivery:setupNote.workshop")}</p>
+                        )}
                         <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside">
-                          <li><Trans t={t} i18nKey="bridge.localStep1" components={{ b: <strong className="text-foreground" /> }} /></li>
-                          <li><Trans t={t} i18nKey="bridge.localStep2" components={{ b: <strong className="text-foreground" /> }} /></li>
+                          {!bridgeUsesWorkshop && (
+                            <>
+                              <li><Trans t={t} i18nKey="bridge.localStep1" components={{ b: <strong className="text-foreground" /> }} /></li>
+                              <li><Trans t={t} i18nKey="bridge.localStep2" components={{ b: <strong className="text-foreground" /> }} /></li>
+                            </>
+                          )}
                           <li><Trans t={t} i18nKey="bridge.localStep3" components={{ b: <strong className="text-foreground" /> }} /></li>
                           <li>{t("bridge.localStep4")}</li>
                         </ol>

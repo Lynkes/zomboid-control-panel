@@ -1,0 +1,231 @@
+{
+  "sectionTitle": "طريقة تثبيت PanelBridge",
+  "appliesTo": "ينطبق على {{server}}. لتغيير خادم آخر، اجعله الخادم النشط من صفحة «خوادمي».",
+  "current": "الحالية",
+  "recommended": "موصى بها",
+  "preview": "إصدار تجريبي",
+  "testOverride": "عنصر اختبار",
+  "loading": "جارٍ التحقق من طريقة تثبيت PanelBridge…",
+  "loadFailed": "تعذّر تحميل طريقة تثبيت PanelBridge",
+  "retry": "إعادة المحاولة",
+  "needsServerControl": "يتطلب تشغيل الخادم أو إعادة تشغيله إذن server.control، وهذا الدور لا يملكه.",
+  "pro": "ميزة",
+  "con": "عيب",
+  "local": {
+    "title": "التثبيت بواسطة اللوحة",
+    "lead": "تنسخ اللوحة PanelBridge إلى مجلد اللعبة الخاص بهذا الخادم وتُبقيه محدّثًا قبل كل تشغيل.",
+    "pro1": "يعمل مع الخوادم التي تُشغَّل دون Steam.",
+    "pro2": "تصل التحديثات مع تحديثات اللوحة. لا يُنزّل اللاعبون أي شيء.",
+    "con1": "لا يستطيع اللاعبون الانضمام إلا عندما يكون فحص سلامة Lua (DoLuaChecksum) معطّلًا.",
+    "con2": "تحتاج الخوادم المستضافة وخوادم SFTP إلى إعادة رفع الملف يدويًا بعد كل تحديث للوحة."
+  },
+  "workshop": {
+    "title": "ورشة Steam",
+    "lead": "يُنزّل الخادم PanelBridge من ورشة Steam عند تشغيله. ويحصل عليه اللاعبون عند الانضمام.",
+    "pro1": "يتيح لك إعادة تفعيل فحص سلامة Lua.",
+    "pro2": "لا تحتاج الخوادم المستضافة إلى رفع أي ملفات، بل إلى إدخالين فقط في إعدادات الخادم.",
+    "con1": "يجب أن يعمل الخادم في وضع Steam (Build 42).",
+    "con2": "بعد كل تحديث لـ PanelBridge في الورشة، لا يستطيع اللاعبون الجدد الانضمام حتى يُعاد تشغيل الخادم.",
+    "con3": "إذا تعذّر على Steam توفير PanelBridge فلن يعمل الخادم. يمكنك العودة من هنا في أي وقت.",
+    "players": "يرى اللاعبون «Zomboid Control Panel Bridge» في قائمة مودات الخادم ويثبّتونه بنقرة واحدة عند الانضمام."
+  },
+  "security": {
+    "sentence": "يعيد تفعيل فحص سلامة Lua: يُرفض اللاعبون الذين تختلف ملفات Lua أو السكربتات أو الرسوم المتحركة لديهم عن ملفات الخادم. ولا يوقف عملاء اللعبة المعدّلين، كما أن حسابات المسؤولين تتجاوز هذا الفحص."
+  },
+  "checksumOff": {
+    "title": "فحص سلامة Lua معطّل.",
+    "body": "مع PanelBridge المثبّت بواسطة اللوحة يجب أن يبقى معطّلًا، لذا لا يقارن هذا الخادم ملفات Lua والسكربتات والرسوم المتحركة لدى اللاعبين بملفاته، ويمكن للاعب لديه ملفات Lua معدّلة أن ينضم. التوزيع عبر ورشة Steam يتيح لك إعادة تفعيل الفحص."
+  },
+  "playersBlocked": {
+    "title": "لا يستطيع اللاعبون الانضمام إلى هذا الخادم الآن",
+    "body": "فحص سلامة Lua (DoLuaChecksum) مفعّل، وPanelBridge المثبّت بواسطة اللوحة يضيف على الخادم ملفات Lua ليست لدى اللاعبين. عطّل الفحص، أو انتقل إلى التوزيع عبر ورشة Steam.",
+    "turnOff": "تعطيل الفحص"
+  },
+  "unavailable": {
+    "notPublished": "غير متاح بعد: لم يُنشر عنصر الورشة الخاص بـ PanelBridge، لذا لا يعرف هذا الإصدار من اللوحة معرّفه. سيُفعّل تحديثٌ للوحة هذا الخيار.",
+    "idInvalid": "معرّف عنصر الورشة في هذه اللوحة غير صالح. أعد تثبيت اللوحة أو حدّثها.",
+    "noSteam": "يُشغَّل هذا الخادم دون Steam (GOG/LAN). لا يمكن تنزيل عناصر الورشة في هذا الوضع.",
+    "gameVersionUnsupported": "عنصر الورشة الخاص بـ PanelBridge مخصّص لـ Build 42. يُبلغ هذا الخادم عن {{version}}.",
+    "iniNotFound": "شغّل الخادم مرة واحدة لينشئ ملف إعداداته، ثم بدّل.",
+    "iniDuplicateKeys": "يحتوي ملف الإعدادات على Mods= أو WorkshopItems= مرتين. أصلح ذلك أولًا في تهيئة الخادم › INI (خام).",
+    "sameMethod": "يستخدم هذا الخادم هذه الطريقة بالفعل."
+  },
+  "warn": {
+    "serverRunning": "يسري عند إعادة تشغيل الخادم.",
+    "customLauncher": "يستخدم هذا الخادم سكربت تشغيل خاصًا به. إذا كان هذا السكربت يشغّل الخادم دون Steam فلن يُنزَّل PanelBridge.",
+    "sharedInstall": "الخوادم التي تتشارك مجلد اللعبة هذا تُبدَّل أيضًا: {{servers}}.",
+    "gameVersionUnknown": "لا تستطيع اللوحة بعدُ تأكيد أن هذا الخادم يعمل بـ Build 42. وصّل PanelBridge مرة واحدة، أو تأكّد من ذلك بنفسك.",
+    "previewItem": "إصدار تجريبي: لم يتحقق منه القائم على صيانة المشروع بعدُ على خادم حقيقي.",
+    "envOverride": "استبدال العنصر بعنصر اختبار (PANEL_BRIDGE_WORKSHOP_ID) مفعّل.",
+    "siblingIniMissing": "أحد الخوادم التي تتشارك مجلد اللعبة هذا ليس لديه ملف إعدادات بعد. ستضيف اللوحة إدخالاته في المرة القادمة التي تشغّل فيها ذلك الخادم.",
+    "unrecognizedLooseFile": "ملف PanelBridge موجود في مجلد اللعبة لم تكتبه هذه اللوحة. سيُنقل هو أيضًا ويُحفظ في مجلد بيانات اللوحة.",
+    "checksumWillBeTurnedOff": "سيُعطَّل فحص سلامة Lua: مع PanelBridge المثبّت بواسطة اللوحة لا يستطيع اللاعبون الانضمام ما دام مفعّلًا."
+  },
+  "state": {
+    "local-ok": {
+      "title": "محدّث",
+      "body": "مثبّت بواسطة اللوحة: v{{version}}."
+    },
+    "local-update-pending": {
+      "title": "تحديث بانتظار التطبيق",
+      "body": "ستُنسخ نسخة محدّثة من PanelBridge عند التشغيل القادم."
+    },
+    "local-not-installed": {
+      "title": "غير مثبّت",
+      "body": "لم يُثبَّت PanelBridge في مجلد اللعبة هذا بعد."
+    },
+    "local-unverified": {
+      "title": "لم يُؤكَّد بعد",
+      "body": "لم يُبلغ PanelBridge عن نفسه من هذا الخادم بعد. ارفعه باتباع خطوات الإعداد عن بُعد في هذا التبويب، ثم أعد تشغيل الخادم."
+    },
+    "local-workshop-loaded": {
+      "title": "محمّل من ورشة Steam",
+      "body": "يحمّل هذا الخادم PanelBridge من ورشة Steam، لكنه مضبوط على التثبيت بواسطة اللوحة."
+    },
+    "workshop-restart-needed": {
+      "title": "تلزم إعادة التشغيل",
+      "body": "يسري عند التشغيل القادم. سيُنزّل الخادم نحو 430 كيلوبايت من Steam."
+    },
+    "workshop-waiting": {
+      "title": "بدأ تشغيل الخادم",
+      "body": "بانتظار أن يُبلغ PanelBridge عن نفسه…"
+    },
+    "workshop-confirmed": {
+      "title": "مؤكَّد",
+      "body": "محمّل من ورشة Steam: v{{version}}."
+    },
+    "workshop-not-loaded": {
+      "title": "لم يُحمَّل من الورشة",
+      "body": "بدأ تشغيل الخادم، لكن PanelBridge لم يُحمَّل من الورشة."
+    },
+    "workshop-stopped": {
+      "title": "الخادم متوقف",
+      "body": "الخادم متوقف. سيُنزَّل PanelBridge من الورشة عند تشغيله."
+    },
+    "workshop-start-failed": {
+      "title": "لم يبدأ تشغيل الخادم",
+      "body": "توقف الخادم أثناء جلب PanelBridge من ورشة Steam."
+    },
+    "workshop-id-unknown": {
+      "title": "عنصر الورشة غير معروف",
+      "body": "هذا الإصدار من اللوحة لا يعرف معرّف عنصر الورشة الخاص بـ PanelBridge."
+    },
+    "causes": {
+      "notLoaded": "أسباب محتملة: تغيّرت الإعدادات خارج اللوحة (إعادة التشغيل من اللوحة تعيد الإدخالات)، أو شُغّل الخادم دون Steam، أو يتضمن مود آخر الملف media/lua/server/PanelBridge.lua.",
+      "startFailed": "أسباب محتملة: Steam متوقف أو محجوب، أو شُغّل الخادم دون Steam، أو أُخفي عنصر الورشة أو أُزيل."
+    },
+    "evidence": "من سجل وحدة تحكم الخادم:"
+  },
+  "banner": {
+    "steamUnavailable": "يُبلغ Steam بأن عنصر الورشة الخاص بـ PanelBridge غير متاح. لن يعمل الخادم حتى يعود العنصر أو تنتقل إلى التثبيت بواسطة اللوحة.",
+    "autoRestartOn": "تعيد تحديثات PanelBridge تشغيل هذا الخادم تلقائيًا (الإعدادات › المودات).",
+    "autoRestartOff": "بعد كل تحديث لـ PanelBridge لا يستطيع اللاعبون الجدد الانضمام حتى تعيد التشغيل. فعّل إعادة التشغيل التلقائية من الإعدادات › المودات.",
+    "leftovers": "لا تزال ملفات PanelBridge قديمة في مجلد اللعبة: {{files}}. مع تفعيل فحص سلامة Lua سيُرفض اللاعبون. تشغيل الخادم من اللوحة ينقلها إلى الخارج."
+  },
+  "action": {
+    "switchToWorkshop": "الانتقال إلى ورشة Steam",
+    "switchToLocal": "الانتقال إلى التثبيت بواسطة اللوحة",
+    "switchToLocalAndStart": "الانتقال إلى التثبيت بواسطة اللوحة والتشغيل",
+    "restartNow": "إعادة التشغيل الآن",
+    "startServer": "تشغيل الخادم",
+    "installNow": "التثبيت الآن",
+    "updateNow": "التحديث الآن",
+    "copy": "نسخ",
+    "copied": "تم النسخ",
+    "copyValueAria": "نسخ {{value}}",
+    "copyFailed": "تعذّر النسخ. حدّد النص وانسخه بنفسك.",
+    "restartWarningNote": "يتلقى اللاعبون المتصلون تحذيرًا قبل 5 دقائق."
+  },
+  "dialog": {
+    "titleToWorkshop": "هل تريد نقل {{server}} إلى التوزيع عبر ورشة Steam؟",
+    "titleToLocal": "هل تريد نقل {{server}} إلى التثبيت بواسطة اللوحة؟",
+    "intro": "ستُجري اللوحة هذه التغييرات بهذا الترتيب:",
+    "backupNote": "تُحفظ نسخة احتياطية من كل ملف إعدادات أولًا.",
+    "planning": "جارٍ تحديد التغييرات…",
+    "planFailed": "تعذّر تجهيز التغييرات",
+    "blockedTitle": "هذا التغيير غير متاح الآن",
+    "warningsTitle": "قبل التبديل",
+    "staleNotice": "تغيّرت طريقة تثبيت PanelBridge على هذا الخادم منذ فتحت هذه النافذة. راجع الخطوات المحدّثة.",
+    "applyRestartPlayers": "التبديل وإعادة التشغيل الآن (يتلقى اللاعبون تحذيرًا قبل 5 دقائق)",
+    "applyRestartEmpty": "التبديل وإعادة التشغيل الآن",
+    "applyStart": "التبديل وتشغيل الخادم",
+    "applyOnly": "التبديل، وإعادة التشغيل لاحقًا",
+    "cancel": "إلغاء"
+  },
+  "step": {
+    "iniAdd": "إضافة <code>{{value}}</code> إلى <code>{{iniKey}}=</code> في <code>{{file}}</code>",
+    "iniRemove": "إزالة <code>{{value}}</code> من <code>{{iniKey}}=</code> في <code>{{file}}</code>",
+    "iniSet": "ضبط <code>DoLuaChecksum=false</code> في <code>{{file}}</code> (إلزامي: مع PanelBridge المثبّت بواسطة اللوحة لا يستطيع اللاعبون الانضمام ما دام الفحص مفعّلًا)",
+    "archiveFile": "نقل <code>{{file}}</code> خارج مجلد اللعبة (يُحفظ في مجلد بيانات اللوحة)",
+    "archiveFileUnrecognized": "نقل <code>{{file}}</code> خارج مجلد اللعبة (يُحفظ في مجلد بيانات اللوحة؛ لم تكتبه هذه اللوحة)",
+    "installFile": "نسخ PanelBridge v{{version}} إلى <code>{{file}}</code>",
+    "installFileNoVersion": "نسخ PanelBridge إلى <code>{{file}}</code>",
+    "recordMethodWorkshop": "إيقاف نسخ PanelBridge إلى مجلد اللعبة هذا",
+    "recordMethodLocal": "نسخ PanelBridge إلى مجلد اللعبة هذا قبل كل تشغيل"
+  },
+  "guided": {
+    "title": "أجرِ هذه التغييرات لدى مزوّد الاستضافة",
+    "intro": "لا تستطيع اللوحة تعديل ملفات هذا الخادم. أجرِ هذه التغييرات باستخدام مدير الملفات أو محرر الإعدادات لدى مزوّد الاستضافة:",
+    "iniFallback": "ملف .ini الخاص بالخادم",
+    "toWorkshop": {
+      "step1": "في <code>{{file}}</code>، أضف <code>{{value}}</code> إلى نهاية السطر <code>Mods=</code>.",
+      "step2": "أضف <code>{{value}}</code> إلى نهاية <code>WorkshopItems=</code> (أضف السطر إن لم يكن موجودًا).",
+      "step3": "احذف هذه الملفات من مجلد اللعبة على الخادم إن كنت قد رفعتها:",
+      "step4": "تأكّد من أن مزوّد الاستضافة لا يشغّل الخادم مع <code>-nosteam</code>.",
+      "step5": "أعد تشغيل الخادم من واجهة مزوّد الاستضافة."
+    },
+    "toLocal": {
+      "step1": "في <code>{{file}}</code>، أزل إدخالات PanelBridge هذه من السطرين <code>Mods=</code> و<code>WorkshopItems=</code>:",
+      "step2": "ارفع <code>PanelBridge.lua</code> إلى <code>media/lua/server/</code> في مجلد اللعبة على الخادم.",
+      "step3": "اضبط <code>DoLuaChecksum=false</code> في <code>{{file}}</code>.",
+      "step4": "أعد تشغيل الخادم من واجهة مزوّد الاستضافة."
+    },
+    "keepChecksumOff": "اترك DoLuaChecksum=false حتى تؤكّد هذه الصفحة التبديل.",
+    "done": "أجريتُ هذه التغييرات"
+  },
+  "checksumOffer": {
+    "title": "هل تريد إعادة تفعيل فحص سلامة Lua؟",
+    "body": "يُحمَّل PanelBridge الآن من ورشة Steam، لذا يستطيع اللاعبون الانضمام والفحص مفعّل.",
+    "ackNonAdmin": "سأختبر بحساب لاعب عادي. حسابات المسؤولين تتجاوز هذا الفحص، لذا فدخول مسؤول لا يثبت أنه يعمل.",
+    "ackLinux": "كانت إصدارات سابقة من اللعبة (41.77 و42.13–42.14) ترفض لاعبي Windows وMac على خوادم Linux عند تفعيل هذا الفحص، حتى مع ملفات متطابقة. ولم يُؤكَّد إصلاح ذلك في هذا الإصدار. إذا لم يستطع اللاعبون الانضمام فعطّله من هنا.",
+    "ackRemoteFiles": "حذفتُ ملفات PanelBridge التي رفعتها إلى مجلد اللعبة على الخادم.",
+    "ackRequired": "حدّد جميع المربعات أعلاه أولًا.",
+    "turnOn": "تفعيل فحص سلامة Lua…",
+    "confirm": "تفعيله",
+    "turnOff": "تعطيله مجددًا",
+    "isOn": "فحص سلامة Lua مفعّل.",
+    "guidedInstructions": "اضبط DoLuaChecksum=true في ملف .ini الخاص بالخادم، ثم أعد تشغيل الخادم.",
+    "openServerConfig": "فتح تهيئة الخادم › INI",
+    "needsServerFiles": "يتطلب تغيير DoLuaChecksum إذن serverfiles.manage، وهذا الدور لا يملكه.",
+    "restartPrompt": "تم حفظ DoLuaChecksum=true. يسري التغيير عند إعادة تشغيل الخادم.",
+    "later": "لاحقًا",
+    "noLongerAvailable": "تغيّرت حالة هذا الخادم، لذا لم يُفعَّل الفحص. راجع هذه الصفحة وحاول مجددًا.",
+    "blockers": {
+      "notWorkshop": "متاح فقط مع التوزيع عبر ورشة Steam.",
+      "notConfirmed": "انتظر حتى تؤكّد هذه الصفحة أن PanelBridge يُحمَّل من ورشة Steam.",
+      "looseFilesPresent": "لا تزال ملفات PanelBridge قديمة في مجلد اللعبة. شغّل الخادم من اللوحة أولًا لنقلها.",
+      "alreadyOn": "فحص سلامة Lua مفعّل بالفعل."
+    }
+  },
+  "toast": {
+    "switchedToWorkshop": "يحصل {{server}} الآن على PanelBridge من ورشة Steam",
+    "switchedToLocal": "تثبّت اللوحة الآن PanelBridge على {{server}}",
+    "switchFailed": "تعذّر تغيير طريقة تثبيت PanelBridge",
+    "lifecycleFailed": "تم التبديل، لكن الخادم لم يبدأ التشغيل أو إعادة التشغيل",
+    "installed": "PanelBridge محدّث في مجلد اللعبة",
+    "installFailed": "تعذّر نسخ PanelBridge إلى مجلد اللعبة",
+    "checksumOn": "تم حفظ DoLuaChecksum=true",
+    "checksumOff": "تم حفظ DoLuaChecksum=false. أعد تشغيل الخادم لتطبيقه.",
+    "checksumFailed": "تعذّر تغيير DoLuaChecksum",
+    "restartStarted": "طُلبت إعادة التشغيل",
+    "startStarted": "طُلب التشغيل",
+    "actionFailed": "تعذّر إكمال هذا الإجراء"
+  },
+  "setupNote": {
+    "workshop": "يحصل هذا الخادم على PanelBridge من ورشة Steam، لذا لا يوجد ما يُرفع. راجع «طريقة تثبيت PanelBridge» أعلاه."
+  },
+  "mods": {
+    "badge": "جسر اللوحة",
+    "badgeTooltip": "تتم إدارته من الإعدادات › PanelBridge. انتقل هناك إلى التثبيت بواسطة اللوحة لإزالته."
+  }
+}

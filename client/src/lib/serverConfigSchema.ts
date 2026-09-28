@@ -705,7 +705,7 @@ export const INI_SCHEMA: IniSetting[] = [
   {
     key: 'DoLuaChecksum',
     label: 'Lua Checksum',
-    description: 'Verify client Lua matches server. Must be disabled when using PanelBridge — the mod modifies server-side Lua files, which causes checksum mismatches and prevents players from connecting.',
+    description: 'Kick players whose Lua, script or animation files don\'t match the server\'s. Must be off with the panel-installed PanelBridge; can stay on with Steam Workshop delivery.',
     type: 'boolean',
     default: true,
     category: 'mods'

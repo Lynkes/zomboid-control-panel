@@ -351,7 +351,7 @@
     "setupStep2Desc": "Pwente panèl la sou bon dosye done sèvè a epi demare obsèvatè a.",
     "setupStep3Title": "Demare sèvè PZ a",
     "setupStep3Desc": "Lè jwèt la chaje mod la, estati chanje soti nan <b1>N ap tann</b1> pou rive nan <b>Konekte</b>.",
-    "requiresLuaChecksum": "<b>Mande DoLuaChecksum=false</b> nan fichye INI sèvè ou a. Kòmand yo ka echwe si checksum aktive.",
+    "requiresLuaChecksum": "<b>PanelBridge panèl la enstale a mande DoLuaChecksum=false.</b> Distribisyon atravè Steam Workshop mache menm lè verifikasyon an aktive.",
     "connectedTo": "Konekte ak {{server}}",
     "connectedFallback": "sèvè",
     "modVersionLabel": "Vèsyon Mod:",
@@ -447,8 +447,8 @@
     "listLogs": "Lis jounal",
     "selectFileHint": "Chwazi yon fichye pou chaje dènye 256 KB.",
     "tailOfPrefix": "dènye pati ",
-    "autoUpdateLabel": "Mete mod ajou otomatikman lè panèl la demare",
-    "autoUpdateDesc": "Lè panèl la demare, kopye otomatikman dènye PanelBridge.lua enkli a nan sèvè PZ a si vèsyon yo diferan.",
+    "autoUpdateLabel": "Kenbe PanelBridge panèl la enstale a ajou",
+    "autoUpdateDesc": "Anvan chak demaraj sèvè a ak lè panèl la demare, kopye PanelBridge.lua ki vini ak panèl la nan dosye jwèt la si li chanje. Yo pa itilize sa ak distribisyon atravè Steam Workshop.",
     "installTitle": "Enstale PanelBridge.lua",
     "selectServerPlaceholder": "Chwazi sèvè...",
     "noServersConfigured": "Pa gen sèvè ki konfigire",
@@ -462,6 +462,7 @@
       "updateAvailableTitle": "Bridge mod update available",
       "updateNowButton": "Update Now",
       "protocolMismatchBody": "This panel expects bridge protocol '{{expected}}', but the mod on your server reports '{{actual}}'. They ship as a matched pair, so some features may not work correctly until they're back in sync.",
+      "protocolMismatchWorkshopBody": "PanelBridge ki sou sèvè sa a (ki soti nan Steam Workshop) di pwotokòl “{{actual}}”, men panèl sa a ap tann “{{expected}}”. Redemare sèvè a pou jwenn dènye vèsyon Workshop la, oswa mete panèl la ajou.",
       "remoteUpdateBody": "Your server is running bridge mod v{{liveVersion}}, older than the v{{bundledVersion}} this panel bundles. This panel can't update a remote/SFTP-managed server's files for you -- re-upload the updated PanelBridge.lua the same way you installed it.",
       "localUpdateBody": "The installed bridge mod (v{{liveVersion}}) is older than what this panel bundles."
     }

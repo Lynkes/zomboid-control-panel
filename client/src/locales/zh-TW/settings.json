@@ -403,7 +403,7 @@
     "setupStep2Desc": "將面板指向正確的伺服器資料資料夾並啟動監視程式。",
     "setupStep3Title": "啟動 PZ 伺服器",
     "setupStep3Desc": "當遊戲載入該模組後，狀態將從 <b1>等待中</b1> 變為 <b>已連線</b>。",
-    "requiresLuaChecksum": "伺服器 INI 中<b>需要設定 DoLuaChecksum=false</b>。啟用校驗和時命令可能失敗。",
+    "requiresLuaChecksum": "<b>由面板安裝的 PanelBridge 需要設定 DoLuaChecksum=false。</b>使用 Steam 創意工坊發佈時可保持啟用。",
     "connectedTo": "已連線到 {{server}}",
     "connectedFallback": "伺服器",
     "modVersionLabel": "模組版本：",
@@ -498,8 +498,8 @@
     "listLogs": "列出日誌",
     "selectFileHint": "選擇一個檔案以載入最後 256 KB 內容。",
     "tailOfPrefix": "末尾：",
-    "autoUpdateLabel": "面板啟動時自動更新模組",
-    "autoUpdateDesc": "面板啟動時，若版本不一致，將自動把最新內建的 PanelBridge.lua 複製到 PZ 伺服器。",
+    "autoUpdateLabel": "保持由面板安裝的 PanelBridge 為最新版本",
+    "autoUpdateDesc": "每次啟動伺服器前以及面板啟動時，如果內建的 PanelBridge.lua 有變動，就將其複製到遊戲資料夾。使用 Steam 創意工坊發佈時不使用此項。",
     "installTitle": "安裝 PanelBridge.lua",
     "selectServerPlaceholder": "選擇伺服器…",
     "noServersConfigured": "尚未設定伺服器",
@@ -514,6 +514,7 @@
       "updateAvailableTitle": "Bridge mod update available",
       "updateNowButton": "Update Now",
       "protocolMismatchBody": "This panel expects bridge protocol '{{expected}}', but the mod on your server reports '{{actual}}'. They ship as a matched pair, so some features may not work correctly until they're back in sync.",
+      "protocolMismatchWorkshopBody": "此伺服器上的 PanelBridge（來自 Steam 創意工坊）回報的協定為「{{actual}}」，但此面板需要「{{expected}}」。請重新啟動伺服器以取得創意工坊上的最新版本，或更新面板。",
       "remoteUpdateBody": "Your server is running bridge mod v{{liveVersion}}, older than the v{{bundledVersion}} this panel bundles. This panel can't update a remote/SFTP-managed server's files for you -- re-upload the updated PanelBridge.lua the same way you installed it.",
       "localUpdateBody": "The installed bridge mod (v{{liveVersion}}) is older than what this panel bundles."
     }

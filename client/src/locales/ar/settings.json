@@ -413,7 +413,7 @@
     "setupStep2Desc": "يوجّه اللوحة إلى مجلد بيانات الخادم الصحيح ويشغّل المراقب.",
     "setupStep3Title": "بدء خادم PZ",
     "setupStep3Desc": "عندما تحمّل اللعبة المود، تتغير الحالة من <b1>في الانتظار</b1> إلى <b>متصل</b>.",
-    "requiresLuaChecksum": "<b>يتطلب DoLuaChecksum=false</b> في ملف INI الخاص بخادمك. وقد تفشل الأوامر عند تفعيل التحقق من المجموع.",
+    "requiresLuaChecksum": "<b>يتطلب PanelBridge المثبّت بواسطة اللوحة ضبط DoLuaChecksum=false.</b> أما التوزيع عبر ورشة Steam فيعمل والفحص مفعّل.",
     "connectedTo": "متصل بـ {{server}}",
     "connectedFallback": "الخادم",
     "modVersionLabel": "إصدار المود:",
@@ -509,8 +509,8 @@
     "listLogs": "عرض السجلات",
     "selectFileHint": "اختر ملفًا لتحميل آخر 256 كيلوبايت.",
     "tailOfPrefix": "نهاية ",
-    "autoUpdateLabel": "تحديث المود تلقائيًا عند بدء تشغيل اللوحة",
-    "autoUpdateDesc": "عند بدء تشغيل اللوحة، تُنسخ تلقائيًا أحدث نسخة مرفقة من PanelBridge.lua إلى خادم PZ إذا اختلف الإصداران.",
+    "autoUpdateLabel": "إبقاء PanelBridge المثبّت بواسطة اللوحة محدّثًا",
+    "autoUpdateDesc": "قبل كل تشغيل للخادم وعند بدء تشغيل اللوحة، تُنسخ نسخة PanelBridge.lua المرفقة إلى مجلد اللعبة إذا تغيّرت. لا يُستخدم مع التوزيع عبر ورشة Steam.",
     "installTitle": "تثبيت PanelBridge.lua",
     "selectServerPlaceholder": "اختر خادمًا...",
     "noServersConfigured": "لا توجد خوادم مهيَّأة",
@@ -524,6 +524,7 @@
       "updateAvailableTitle": "Bridge mod update available",
       "updateNowButton": "Update Now",
       "protocolMismatchBody": "This panel expects bridge protocol '{{expected}}', but the mod on your server reports '{{actual}}'. They ship as a matched pair, so some features may not work correctly until they're back in sync.",
+      "protocolMismatchWorkshopBody": "يُبلغ PanelBridge على هذا الخادم (من ورشة Steam) عن البروتوكول «{{actual}}»، لكن هذه اللوحة تتوقع «{{expected}}». أعد تشغيل الخادم للحصول على أحدث إصدار من الورشة، أو حدّث اللوحة.",
       "remoteUpdateBody": "Your server is running bridge mod v{{liveVersion}}, older than the v{{bundledVersion}} this panel bundles. This panel can't update a remote/SFTP-managed server's files for you -- re-upload the updated PanelBridge.lua the same way you installed it.",
       "localUpdateBody": "The installed bridge mod (v{{liveVersion}}) is older than what this panel bundles."
     }
