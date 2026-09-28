@@ -109,6 +109,7 @@ export function writeLuaAtomic(destPath, content) {
     // wrote the payload through such a link into its target: any file on
     // the host. A racer recreating the name in between only fails this
     // write (EEXIST), which the caller reports.
+    // codeql[js/path-injection] tmpPath is <folder of destPath>/.PanelBridge.lua.tmp.<pid>, and destPath's only caller is panelBridgeInstaller.installBridge(): resolveTargetPath(server), the profile's own install folder (tracked sources routes/server.js POST /install and POST /quick-setup installPath, behind requirePermission("server.install") and isValidPath(): absolute, no "..") plus the fixed media/lua/server/PanelBridge.lua suffix -- this only removes the panel's own fixed-name temp file, and unlink never follows a symlink.
     try { fs.unlinkSync(tmpPath); } catch { /* nothing there */ }
     // codeql[js/path-injection] destPath's only caller is panelBridgeInstaller.installBridge(), which builds it from the server profile's own install folder (resolveTargetPath) plus the fixed media/lua/server/PanelBridge.lua suffix -- never from request input (the arbitrary-folder POST /install-mod route was removed).
     fd = fs.openSync(tmpPath, 'wx', 0o644);

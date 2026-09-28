@@ -185,11 +185,13 @@ export function windowsQuoteArgIfNeeded(value) {
 export function buildWindowsCmdLine(exePath, args, launchLogPath) {
   const parts = [
     windowsQuoteArgIfNeeded(exePath),
+    // codeql[js/shell-command-constructed-from-input] The only args reaching here come from startServer()'s custom start command. validateStartCommand() rejects & | ; < > ` $ { } ( ) ! % [ ] CR LF, parseCustomStartCommand() strips every double quote, and windowsQuoteArgIfNeeded() quotes any arg with whitespace or & < > ( ) ^ | , ; =, so no arg can close a quote or chain a command. The "library input" is startServerForAutoStart()'s test-injection parameter in server/index.js.
     ...args.map(windowsQuoteArgIfNeeded),
   ];
   if (launchLogPath) {
     parts.push(">", windowsQuoteArgIfNeeded(launchLogPath), "2>&1");
   }
+  // codeql[js/shell-command-constructed-from-input] Every element of parts went through windowsQuoteArgIfNeeded() or is a literal redirection token. The tracked source, the admin-set custom startCommand, passes validateStartCommand() (rejects & | ; < > ` $ { } ( ) ! % [ ] CR LF) and parseCustomStartCommand() (strips every double quote) in startServer() first, so no element can break out of its quoting. The outer pair is the one cmd /c strips (see comment above).
   return `"${parts.join(" ")}"`;
 }
 

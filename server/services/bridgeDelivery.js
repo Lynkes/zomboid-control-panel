@@ -178,6 +178,7 @@ export function resolveBridgeIniPath(server) {
 function readLauncherHead(launcherPath) {
   let fd;
   try {
+    // codeql[js/path-injection] launcherPath is serverManager.resolveLaunchMode()'s custom launcher: the profile's own serverPath/installPath ending in .bat/.sh/.exe, an operator setting accepted only by the servers.manage / server.install routes (POST /api/servers' validateInstallPathShape; /install and /quick-setup's isValidPath: absolute, no "..") and the very script the panel launches as-is -- this only reads its first 64 KB to test NO_STEAM_RE and returns nothing but that boolean.
     fd = fs.openSync(launcherPath, "r");
     const buf = Buffer.alloc(LAUNCHER_SCAN_BYTES);
     const read = fs.readSync(fd, buf, 0, LAUNCHER_SCAN_BYTES, 0);
@@ -1266,6 +1267,7 @@ function removeStaleTempFiles(installDir, actions) {
   const serverDir = path.join(installDir, "media", "lua", "server");
   let names = [];
   try {
+    // codeql[js/path-injection] serverDir is <installDir>/media/lua/server, installDir being resolveInstallDir(server): the profile's own game folder (serverPath/installPath), an operator setting accepted only by the servers.manage / server.install routes (/install and /quick-setup's isValidPath: absolute, no "..") and the folder the panel installs into and launches from by design.
     names = fs.readdirSync(serverDir);
   } catch {
     return;
@@ -1279,6 +1281,7 @@ function removeStaleTempFiles(installDir, actions) {
     // supervised restart overlaps two) may still be mid-write.
     if (pid !== process.pid && isPidAlive(pid)) continue;
     try {
+      // codeql[js/path-injection] serverDir is <installDir>/media/lua/server of the profile's own operator-configured game folder (resolveInstallDir; /install and /quick-setup's isValidPath: absolute, no ".."), and name is one of serverDir's own readdir entries that matched /^\.PanelBridge\.lua\.tmp\.(\d+)$/ above, so this unlink cannot leave serverDir or touch anything but the panel's own temp files.
       fs.unlinkSync(path.join(serverDir, name));
       actions.push({ kind: "tempRemoved", path: path.join(serverDir, name) });
     } catch {
@@ -1348,6 +1351,7 @@ async function reconcileInner(server, reason) {
   if (!server) return { method: null, skipped: "noServer", actions: [], warnings: [] };
   if (server.isRemote) return { method: null, skipped: "remote", actions: [], warnings: [] };
   const installDir = resolveInstallDir(server);
+  // codeql[js/path-injection] installDir is resolveInstallDir(server): the profile's own game folder (serverPath/installPath), an operator setting accepted only by the servers.manage / server.install routes (/install and /quick-setup's isValidPath: absolute, no "..") and the folder the panel installs into and launches from by design -- this is only an existence check.
   if (!installDir || !fs.existsSync(installDir)) {
     return { method: null, skipped: "noInstallDir", actions: [], warnings: [] };
   }

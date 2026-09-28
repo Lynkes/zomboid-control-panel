@@ -64,6 +64,7 @@ export function installDirKey(dir) {
 
 function readDirNames(dir) {
   try {
+    // codeql[js/path-injection] dir is the admin-configured game install folder (resolveInstallDir(server); the only tracked sources are routes/server.js POST /install and POST /quick-setup installPath, both behind requirePermission("server.install") and isValidPath(): absolute, no "..") or a fixed-name child of it (media, lua, server, client) found by listing it; the other callers pass the panel's own archive folder or a Workshop item folder (the server's own log line, or a SteamCMD folder beside that install joined with the numeric Workshop id) -- this only lists entry names.
     return fs.readdirSync(dir).map(String);
   } catch {
     return [];
@@ -72,6 +73,7 @@ function readDirNames(dir) {
 
 function isKind(fullPath, wantDirectory) {
   try {
+    // codeql[js/path-injection] fullPath is path.join(dir, name): dir is the admin-configured game install folder (resolveInstallDir(server); tracked sources routes/server.js POST /install and POST /quick-setup installPath, behind requirePermission("server.install") and isValidPath(): absolute, no "..") or a fixed-name child of it, and name is one entry readdirSync() returned for dir (a single segment) -- only the entry's type is read.
     const stat = fs.statSync(fullPath);
     return wantDirectory ? stat.isDirectory() : stat.isFile();
   } catch {
@@ -99,6 +101,7 @@ function childrenNamed(dir, name, wantDirectory) {
 function readHead(filePath) {
   let fd;
   try {
+    // codeql[js/path-injection] filePath is a listLooseBridgeFiles() hit: <install>/media/lua/{server,client}/PanelBridge(Client).lua matched by exact name from listings of the admin-configured game install folder (tracked sources routes/server.js POST /install and POST /quick-setup installPath, behind requirePermission("server.install") and isValidPath(): absolute, no "..") -- opened read-only, and its first 4 KB only feed an includes() marker check.
     fd = fs.openSync(filePath, "r");
     const buf = Buffer.alloc(HEAD_BYTES);
     const read = fs.readSync(fd, buf, 0, HEAD_BYTES, 0);
@@ -118,6 +121,7 @@ function readHead(filePath) {
 
 function readModInfoLines(filePath) {
   try {
+    // codeql[js/path-injection] filePath is a mod.info matched by exact name from a listing of the admin-configured game install folder (tracked sources routes/server.js POST /install and POST /quick-setup installPath, behind requirePermission("server.install") and isValidPath(): absolute, no "..") or of a Workshop item's mods/<mod>/<layer>/ folder -- read-only, and its lines are only compared against id=/modversion=.
     return fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "").split(/\r?\n/).map((line) => line.trim());
   } catch {
     return null;
@@ -160,6 +164,7 @@ function archiveStamp(date = new Date()) {
 }
 
 function installArchiveRoot(installDir) {
+  // codeql[js/weak-cryptographic-algorithm, js/insufficient-password-hash] the only value hashed is installDirKey(installDir), the game install folder's normalized path, not a secret: CodeQL taints it because resolveInstallDir() reads serverPath/installPath off a server record that also carries the rehydrated RCON/SFTP passwords, which never reach this call. SHA-1 only names a per-install archive bucket folder (12 hex chars); nothing relies on it for integrity or authentication.
   const hash = crypto.createHash("sha1").update(installDirKey(installDir) || "").digest("hex").slice(0, 12);
   return path.join(getDataPaths().dataDir, ARCHIVE_DIR_NAME, hash);
 }
@@ -180,6 +185,7 @@ function uniqueArchiveDir(root) {
 export function readBridgeFileMeta(filePath) {
   if (process.platform === "win32") return null;
   try {
+    // codeql[js/path-injection] filePath is a PanelBridge file inside the admin-configured game install folder -- a listLooseBridgeFiles() hit or resolveTargetPath(server) (install folder + constant media/lua/server/PanelBridge.lua); tracked sources routes/server.js POST /install and POST /quick-setup installPath, behind requirePermission("server.install") and isValidPath(): absolute, no ".." -- and only its mode/uid/gid are read.
     const { mode, uid, gid } = fs.statSync(filePath);
     return { mode: mode & 0o7777, uid, gid };
   } catch {
@@ -202,6 +208,7 @@ function applyBridgeFileMeta(filePath, meta) {
   if (!meta || process.platform === "win32") return;
   let fd;
   try {
+    // codeql[js/path-injection] filePath is a PanelBridge file this module just rewrote inside the admin-configured game install folder -- entry.from from archiveLooseBridgeFiles() (which refuses any path outside that folder) or resolveTargetPath(server) (install folder + constant media/lua/server/PanelBridge.lua); tracked sources routes/server.js POST /install and POST /quick-setup installPath, behind requirePermission("server.install") and isValidPath(): absolute, no ".." -- opened read-only with O_NOFOLLOW and O_NONBLOCK (a symlink swapped in is refused, a FIFO swapped in can't hang the open) only to fchown/fchmod it back to what readBridgeFileMeta() recorded.
     fd = fs.openSync(filePath, META_OPEN_FLAGS);
   } catch (error) {
     log.warn(`Could not restore the owner and mode of ${filePath}: ${error.message}`);
@@ -237,8 +244,11 @@ function applyBridgeFileMeta(filePath, meta) {
 // Copy + fsync + unlink rather than rename: the panel's data folder and the
 // game install are often on different drives or mounts, where rename fails.
 function moveFileDurably(from, to) {
+  // codeql[js/path-injection] from is a listLooseBridgeFiles()/resolveTargetPath() hit that archiveLooseBridgeFiles() has just checked lies inside the admin-configured game install folder (path.relative: not empty, no leading "..", not absolute); tracked sources routes/server.js POST /install and POST /quick-setup installPath, behind requirePermission("server.install") and isValidPath(): absolute, no "..".
   const data = fs.readFileSync(from);
+  // codeql[js/path-injection] to is path.join(archiveDir, relative): archiveDir is <panel dataDir>/bridge-delivery-archive/<hash bucket>/<UTC stamp> and relative was checked by archiveLooseBridgeFiles() to be non-empty, non-absolute and free of a leading "..", so it stays inside the panel's own archive folder.
   fs.mkdirSync(path.dirname(to), { recursive: true });
+  // codeql[js/path-injection] to is path.join(archiveDir, relative): archiveDir is <panel dataDir>/bridge-delivery-archive/<hash bucket>/<UTC stamp> and relative was checked by archiveLooseBridgeFiles() to be non-empty, non-absolute and free of a leading "..", so it stays inside the panel's own archive folder; "wx" also refuses to overwrite anything already there.
   const fd = fs.openSync(to, "wx");
   try {
     fs.writeSync(fd, data, 0, data.length, 0);
@@ -250,6 +260,7 @@ function moveFileDurably(from, to) {
   } finally {
     fs.closeSync(fd);
   }
+  // codeql[js/path-injection] from is a listLooseBridgeFiles()/resolveTargetPath() hit that archiveLooseBridgeFiles() has just checked lies inside the admin-configured game install folder (path.relative: not empty, no leading "..", not absolute; tracked sources routes/server.js POST /install and POST /quick-setup installPath, behind requirePermission("server.install") and isValidPath()), removed only after its bytes were written and fsynced into the archive.
   fs.unlinkSync(from);
   return crypto.createHash("sha256").update(data).digest("hex");
 }
@@ -271,10 +282,13 @@ function restoreEntries(entries) {
   const failures = [];
   for (const entry of [...entries].reverse()) {
     try {
+      // codeql[js/path-injection] entry.to is the archive copy moveFileDurably() created inside <panel dataDir>/bridge-delivery-archive/ (entries are archiveLooseBridgeFiles()'s in-memory result, never read back from a manifest or a request).
       const data = fs.readFileSync(entry.to);
+      // codeql[js/path-injection] entry.from is the original location archiveLooseBridgeFiles() checked lies inside the admin-configured game install folder (path.relative: no leading "..", not absolute; tracked sources routes/server.js POST /install and POST /quick-setup installPath, behind requirePermission("server.install") and isValidPath()) -- the file goes back exactly where it was taken from.
       fs.mkdirSync(path.dirname(entry.from), { recursive: true });
       writeFileAtomic(entry.from, data);
       applyBridgeFileMeta(entry.from, entry.meta);
+      // codeql[js/path-injection] entry.to is the archive copy moveFileDurably() created inside <panel dataDir>/bridge-delivery-archive/ (entries are archiveLooseBridgeFiles()'s in-memory result, never read back from a manifest or a request), removed once its bytes are back in place.
       fs.unlinkSync(entry.to);
     } catch (error) {
       failures.push(`${entry.from}: ${error.message}`);
@@ -323,6 +337,7 @@ export async function archiveLooseBridgeFiles(installDir, files, { reason = "man
       at: new Date().toISOString(),
       files: entries.map(({ from, to, sha256 }) => ({ from, to, sha256 })),
     };
+    // codeql[js/http-to-file-access] the only request-derived data here is the admin-configured game install folder's path (routes/server.js POST /install and POST /quick-setup installPath, behind requirePermission("server.install") and isValidPath()) and the files' paths under it, JSON-encoded as a record of what was moved; the target is the constant name manifest.json inside the panel's own archive folder, and nothing loads it as code or config.
     fs.writeFileSync(path.join(archiveDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   } catch (error) {
     const failures = restoreEntries(entries);

@@ -91,6 +91,7 @@ function extractVersion(content) {
 
 function readContent(filePath) {
   try {
+    // codeql[js/path-injection] filePath is either a constant sourceCandidates() entry (panel's own pz-mod tree) or resolveTargetPath(server): the admin-configured game install dir joined with the constant media/lua/server/PanelBridge.lua suffix -- the only tracked sources are routes/server.js POST /install and POST /quick-setup installPath, both behind requirePermission("server.install") and isValidPath() (absolute, no ".." before or after normalize) -- so this only reads that one fixed-name file.
     return fs.readFileSync(filePath, 'utf8');
   } catch (error) {
     log.debug(`Could not read ${filePath}: ${error.message}`);
@@ -120,6 +121,7 @@ function readBundledSource() {
 export function checkBridgeInstalled(server) {
   const { content: sourceContent, sourcePath } = readBundledSource();
   const targetPath = resolveTargetPath(server);
+  // codeql[js/path-injection] targetPath is resolveTargetPath(server): the admin-configured game install dir joined with the constant media/lua/server/PanelBridge.lua suffix -- the only tracked sources are routes/server.js POST /install and POST /quick-setup installPath, both behind requirePermission("server.install") and isValidPath() (absolute, no ".." before or after normalize) -- so this only ever touches that one fixed-name file inside the folder the admin chose as the game install.
   const installed = Boolean(targetPath && fs.existsSync(targetPath));
   const targetContent = installed ? readContent(targetPath) : null;
   const needsUpdate = Boolean(
@@ -157,7 +159,9 @@ function matchOwnership(targetPath, referencePath) {
   if (process.platform === 'win32' || !referencePath) return;
   let fd;
   try {
+    // codeql[js/path-injection] referencePath is resolveInstallDir(server), the admin-configured game install dir itself -- the only tracked sources are routes/server.js POST /install and POST /quick-setup installPath, both behind requirePermission("server.install") and isValidPath() (absolute, no ".." before or after normalize) -- and only its uid/gid are read here.
     const { uid, gid } = fs.statSync(referencePath);
+    // codeql[js/path-injection] targetPath is resolveTargetPath(server): the admin-configured game install dir joined with the constant media/lua/server/PanelBridge.lua suffix (tracked sources routes/server.js POST /install and POST /quick-setup installPath, behind requirePermission("server.install") and isValidPath(): absolute, no "..") -- opened read-only with O_NOFOLLOW and O_NONBLOCK, so a symlink swapped in at that name is refused (ELOOP) and never chowned, and a FIFO can't hang the open; the descriptor is only fchown'd to the install folder's uid/gid.
     fd = fs.openSync(targetPath, OWNERSHIP_OPEN_FLAGS);
     const stat = fs.fstatSync(fd);
     if (!stat.isFile() || stat.nlink > 1) {
@@ -196,7 +200,9 @@ export function installBridge(server) {
     if (!sourceVersion) {
       return { success: false, error: 'PanelBridge source has no readable version.' };
     }
+    // codeql[js/path-injection] targetPath is resolveTargetPath(server): the admin-configured game install dir joined with the constant media/lua/server/PanelBridge.lua suffix -- the only tracked sources are routes/server.js POST /install and POST /quick-setup installPath, both behind requirePermission("server.install") and isValidPath() (absolute, no ".." before or after normalize) -- so this only ever touches that one fixed-name file inside the folder the admin chose as the game install.
     if (fs.existsSync(targetPath)) {
+      // codeql[js/path-injection] targetPath is resolveTargetPath(server): the admin-configured game install dir joined with the constant media/lua/server/PanelBridge.lua suffix -- the only tracked sources are routes/server.js POST /install and POST /quick-setup installPath, both behind requirePermission("server.install") and isValidPath() (absolute, no ".." before or after normalize) -- so this only ever touches that one fixed-name file inside the folder the admin chose as the game install.
       const targetContent = fs.readFileSync(targetPath, 'utf8');
       // Fast path: byte-identical already, regardless of what VERSION says.
       // A same-version-different-content install (the exact shape that let
@@ -224,6 +230,7 @@ export function installBridge(server) {
     }
     writeLuaAtomic(targetPath, sourceContent);
     matchOwnership(targetPath, resolveInstallDir(server));
+    // codeql[js/path-injection] targetPath is resolveTargetPath(server): the admin-configured game install dir joined with the constant media/lua/server/PanelBridge.lua suffix -- the only tracked sources are routes/server.js POST /install and POST /quick-setup installPath, both behind requirePermission("server.install") and isValidPath() (absolute, no ".." before or after normalize) -- so this only ever touches that one fixed-name file inside the folder the admin chose as the game install.
     const installedContent = fs.readFileSync(targetPath, 'utf8');
     const version = extractVersion(installedContent);
     if (installedContent !== sourceContent || version !== sourceVersion) {
@@ -238,6 +245,7 @@ export function installBridge(server) {
     // the log to explain why (2026-08-29 Linux PanelBridge hunt).
     if (process.platform !== 'win32') {
       try {
+        // codeql[js/path-injection] targetPath is resolveTargetPath(server): the admin-configured game install dir joined with the constant media/lua/server/PanelBridge.lua suffix -- the only tracked sources are routes/server.js POST /install and POST /quick-setup installPath, both behind requirePermission("server.install") and isValidPath() (absolute, no ".." before or after normalize) -- so this only ever touches that one fixed-name file inside the folder the admin chose as the game install.
         const { mode } = fs.statSync(targetPath);
         if ((mode & 0o004) === 0) {
           log.warn(
