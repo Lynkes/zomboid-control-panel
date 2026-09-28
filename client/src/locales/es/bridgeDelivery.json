@@ -253,7 +253,7 @@
   },
   "setupNote": {
     "workshop": "Este servidor recibe PanelBridge desde Steam Workshop, así que no hay nada que subir. Deja DoLuaChecksum=false hasta que «Cómo se instala PanelBridge», arriba, confirme el cambio.",
-    "waitingWorkshop": "El panel está listo. Inicia o reinicia el servidor de PZ: descarga PanelBridge desde Steam Workshop. Consulta «Cómo se instala PanelBridge» arriba."
+    "waitingWorkshop": "El panel está listo. Al iniciarse, el servidor de PZ descarga PanelBridge desde Steam Workshop e informa en cuanto termina de cargar el mundo. Consulta «Cómo se instala PanelBridge» arriba."
   },
   "mods": {
     "badge": "Puente del panel",

@@ -253,7 +253,7 @@
   },
   "setupNote": {
     "workshop": "Ce serveur reçoit PanelBridge depuis le Steam Workshop : il n'y a rien à envoyer. Laissez DoLuaChecksum=false jusqu'à ce que « Mode d'installation de PanelBridge » ci-dessus confirme le changement.",
-    "waitingWorkshop": "Le panneau est prêt. Démarrez ou redémarrez le serveur PZ : il télécharge PanelBridge depuis le Steam Workshop. Voir « Mode d'installation de PanelBridge » ci-dessus."
+    "waitingWorkshop": "Le panneau est prêt. Au démarrage, le serveur PZ télécharge PanelBridge depuis le Steam Workshop et transmet son statut une fois le monde chargé. Voir « Mode d'installation de PanelBridge » ci-dessus."
   },
   "mods": {
     "badge": "Bridge du panneau",

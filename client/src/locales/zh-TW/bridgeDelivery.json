@@ -253,7 +253,7 @@
   },
   "setupNote": {
     "workshop": "此伺服器從 Steam 創意工坊取得 PanelBridge，因此不需要上傳任何檔案。在上方的「PanelBridge 安裝方式」確認切換之前，請保持 DoLuaChecksum=false。",
-    "waitingWorkshop": "面板已就緒。請啟動或重新啟動 PZ 伺服器：它會從 Steam 創意工坊下載 PanelBridge。請參閱上方的「PanelBridge 安裝方式」。"
+    "waitingWorkshop": "面板已就緒。PZ 伺服器啟動時會從 Steam 創意工坊下載 PanelBridge，並在世界載入完成後回報狀態。請參閱上方的「PanelBridge 安裝方式」。"
   },
   "mods": {
     "badge": "PanelBridge",

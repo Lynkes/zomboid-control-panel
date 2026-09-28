@@ -253,7 +253,7 @@
   },
   "setupNote": {
     "workshop": "يحصل هذا الخادم على PanelBridge من ورشة Steam، لذا لا يوجد ما يُرفع. أبقِ DoLuaChecksum=false حتى يؤكد قسم «طريقة تثبيت PanelBridge» أعلاه التبديل.",
-    "waitingWorkshop": "اللوحة جاهزة. شغّل خادم PZ أو أعد تشغيله: سينزّل PanelBridge من ورشة Steam. راجع «طريقة تثبيت PanelBridge» أعلاه."
+    "waitingWorkshop": "اللوحة جاهزة. عند تشغيل خادم PZ ينزّل PanelBridge من ورشة Steam ويرسل تقاريره بعد اكتمال تحميل العالم. راجع «طريقة تثبيت PanelBridge» أعلاه."
   },
   "mods": {
     "badge": "جسر اللوحة",

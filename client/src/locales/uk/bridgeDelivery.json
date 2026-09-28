@@ -253,7 +253,7 @@
   },
   "setupNote": {
     "workshop": "Цей сервер отримує PanelBridge зі Steam Workshop, тож завантажувати нічого не треба. Залиште DoLuaChecksum=false, доки «Як встановлено PanelBridge» вище не підтвердить перемикання.",
-    "waitingWorkshop": "Панель готова. Запустіть або перезапустіть сервер PZ: він завантажить PanelBridge зі Steam Workshop. Див. «Як встановлено PanelBridge» вище."
+    "waitingWorkshop": "Панель готова. Під час запуску сервер PZ завантажує PanelBridge зі Steam Workshop і звітує, щойно світ завантажиться. Див. «Як встановлено PanelBridge» вище."
   },
   "mods": {
     "badge": "Міст панелі",
