@@ -623,8 +623,11 @@ export class Scheduler {
       // alreadyLoggedToScheduleHistory when performRestart() already wrote
       // its own row for this exact failure (deep RCON/process/container
       // failures) -- logging again here would be a second row for the same
-      // execution. Every OTHER task kind (save/servermsg/bridge/...) never
-      // sets this flag, so this still logs for them exactly as before.
+      // execution. performRestart() tags an error it THROWS the same way
+      // once its own catch has logged it (a start that threw, e.g.
+      // SERVER_START_SCRIPT_MISSING). Every OTHER task kind
+      // (save/servermsg/bridge/...) never sets this flag, so this still
+      // logs for them exactly as before.
       if (!error.alreadyLoggedToScheduleHistory) {
         await logScheduleExecution(
           task.id,
@@ -2425,6 +2428,15 @@ export class Scheduler {
         rconService.setServerStarting(false);
       } else {
         rconService.serverStarting = false;
+      }
+      // The row above is this failure's Schedule History entry -- the thrown
+      // counterpart of the `logged: true` returns. Without the tag,
+      // runTaskNow()'s catch logged a second row for a scheduled "restart"
+      // task whose start threw, e.g. serverManager.startServer()'s
+      // SERVER_START_SCRIPT_MISSING (GH #167), which troubleshooting.md
+      // tells the operator to look for in Execution History.
+      if (error && typeof error === "object") {
+        error.alreadyLoggedToScheduleHistory = true;
       }
       throw error;
     } finally {
