@@ -178,6 +178,19 @@ describe("Steam Workshop", () => {
     expect(readText(files.iniPath)).toBe(`Mods=${MOD}\nWorkshopItems=111;${WS_ID}\n`);
   });
 
+  // §6.7: the game applies the LAST line of a duplicated key, while the
+  // entries would go onto the first -- a "successful" write the game ignores.
+  it("leaves an ini with a duplicated Mods=/WorkshopItems= key alone and warns", async () => {
+    fs.writeFileSync(files.iniPath, `Mods=OtherMod\r\nWorkshopItems=111\r\nWorkshopItems=111\r\n`);
+    const before = fs.readFileSync(files.iniPath);
+    const server = workshopServer();
+    dbState.servers = [server];
+    const result = await reconcileBridge(server, { reason: "launch" });
+    expect(result.warnings).toEqual(["iniWriteFailed"]);
+    expect(result.actions.map((action) => action.kind)).not.toContain("iniEntriesAdded");
+    expect(fs.readFileSync(files.iniPath)).toEqual(before);
+  });
+
   it("warns and leaves the ini alone when the server launches without Steam", async () => {
     const before = fs.readFileSync(files.iniPath);
     const server = workshopServer({ useNoSteam: true });

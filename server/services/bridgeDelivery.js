@@ -437,7 +437,12 @@ function hasDuplicateListKeys(text) {
 function availabilityToWorkshop(ctx) {
   const warnings = [];
   let reason = null;
-  const noSteam = launchLooksNoSteam(ctx.server);
+  // Checked across the whole install group, not just this profile: the
+  // switch makes every profile on the folder Workshop, writes the entries
+  // into each one's ini and moves the shared loose file out. A sibling that
+  // launches without Steam would then start with no bridge and, with Mods=
+  // naming the item, refuse every join. Same for the custom-launcher caveat.
+  const noSteam = ctx.group.some((member) => launchLooksNoSteam(member));
   const major = gameMajorVersion(ctx.live?.gameVersion);
   if (ctx.method === "workshop") reason = "sameMethod";
   else if (ctx.release.status === "not-published") reason = "notPublished";
@@ -453,7 +458,7 @@ function availabilityToWorkshop(ctx) {
   }
 
   if (!ctx.live?.gameVersion) warnings.push("gameVersionUnknown");
-  if (!noSteam && usesCustomLauncher(ctx.server)) warnings.push("customLauncher");
+  if (!noSteam && ctx.group.some((member) => usesCustomLauncher(member))) warnings.push("customLauncher");
   if (ctx.sharedWith.length > 0) warnings.push("sharedInstall");
   if (ctx.serverRunning === true) warnings.push("serverRunning");
   if (ctx.release.status === "published" && ctx.release.preview) warnings.push("previewItem");
@@ -522,7 +527,12 @@ async function statusFromContext(ctx) {
           installDir: ctx.installDir,
           looseFiles: listLooseBridgeFiles(ctx.installDir),
           iniPath: ctx.iniPath,
-          iniEntries: ctx.iniText !== null ? hasBridgeEntries(ctx.iniText, BRIDGE_MOD_ID, effectiveWorkshopId) : null,
+          // As the game reads them: with a duplicated key the last line is
+          // the one that takes effect, whatever the first one lists.
+          iniEntries:
+            ctx.iniText !== null
+              ? hasBridgeEntries(ctx.iniText, BRIDGE_MOD_ID, effectiveWorkshopId, { last: true })
+              : null,
           workshopItem: effectiveWorkshopId
             ? detectWorkshopItem(ctx.installDir, effectiveWorkshopId, { zomboidDataPath: server.zomboidDataPath })
             : null,
@@ -612,7 +622,9 @@ function buildSteps(ctx, to, warnings) {
       const present = hasBridgeEntries(text, BRIDGE_MOD_ID, ctx.effectiveWorkshopId);
       const serverName = displayName(server);
       if (!present.mods) steps.push({ kind: "iniAdd", key: "Mods", value: BRIDGE_MOD_ID, file: iniPath, serverName });
-      if (!present.workshopItems) {
+      // No id means the plan is blocked (notPublished / idInvalid); a step
+      // with no value would only render as "Add null".
+      if (!present.workshopItems && ctx.effectiveWorkshopId) {
         steps.push({ kind: "iniAdd", key: "WorkshopItems", value: ctx.effectiveWorkshopId, file: iniPath, serverName });
       }
     }
@@ -811,11 +823,15 @@ export async function applyDeliverySwitch(server, to, { expectedFrom, actor = nu
             archived = await archiveLooseBridgeFiles(ctx.installDir, looseFiles, { reason: "switch-to-workshop" });
           } catch (error) {
             log.warn(`Could not move PanelBridge files out of ${ctx.installDir}: ${error.message}`);
+            // The archive puts back the files it had already moved before
+            // rethrowing; `restored: false` means that put-back failed too,
+            // which no undo step registered here can repair.
             throw new DeliveryError(
               ErrorCode.PANELBRIDGE_DELIVERY_FILE_ARCHIVE_FAILED,
               500,
               `Couldn't move ${error.fileName || "a PanelBridge file"} out of the game folder. Check its permissions and try again. The panel put back what it had already changed.`,
               { fileName: error.fileName || null },
+              error.restored !== false,
             );
           }
           undo.push(() => restoreArchivedBridgeFiles(archived));
@@ -825,34 +841,43 @@ export async function applyDeliverySwitch(server, to, { expectedFrom, actor = nu
         // the entries go, in one write per ini that also turns the Lua
         // integrity check off (with the loose copy, players can't join
         // while it's on).
-        const targetPath = resolveTargetPath(ctx.server);
-        let previousBytes = null;
-        try {
-          previousBytes = fs.existsSync(targetPath) ? fs.readFileSync(targetPath) : null;
-        } catch {
-          previousBytes = null;
-        }
-        const installed = installBridge(ctx.server);
-        if (!installed.success || !checkBridgeInstalled(ctx.server).installed) {
-          log.warn(`PanelBridge install during switch to panel-installed failed: ${installed.error || "not found after install"}`);
-          throw new DeliveryError(
+        const installFailed = () =>
+          new DeliveryError(
             ErrorCode.PANELBRIDGE_DELIVERY_INSTALL_FAILED,
             500,
             "Couldn't copy PanelBridge.lua into the game folder. Nothing was changed.",
           );
+        const targetPath = resolveTargetPath(ctx.server);
+        let previousBytes = null;
+        try {
+          previousBytes = fs.existsSync(targetPath) ? fs.readFileSync(targetPath) : null;
+        } catch (error) {
+          // Without the old bytes a failure later on couldn't be undone, so
+          // stop before touching anything.
+          log.warn(`Could not read ${targetPath} before the switch to panel-installed: ${error.message}`);
+          throw installFailed();
         }
-        if (installed.updated) {
-          undo.push(async () => {
-            if (previousBytes) {
-              restoreBridgeFileBytes(targetPath, previousBytes);
-            } else {
-              await archiveLooseBridgeFiles(
-                ctx.installDir,
-                [{ path: targetPath, kind: "server", recognized: true }],
-                { reason: "switch-to-local-rollback" },
-              );
-            }
-          });
+        // Registered BEFORE the install: installBridge() can write the file
+        // and still fail its read-back check, and that file must not stay in
+        // a folder whose method is still Workshop. Compares first, so a
+        // no-op install (the file was already current) is left alone.
+        undo.push(async () => {
+          let currentBytes = null;
+          if (fs.existsSync(targetPath)) currentBytes = fs.readFileSync(targetPath);
+          if (previousBytes) {
+            if (!currentBytes || !currentBytes.equals(previousBytes)) restoreBridgeFileBytes(targetPath, previousBytes);
+          } else if (currentBytes) {
+            await archiveLooseBridgeFiles(
+              ctx.installDir,
+              [{ path: targetPath, kind: "server", recognized: true }],
+              { reason: "switch-to-local-rollback" },
+            );
+          }
+        });
+        const installed = installBridge(ctx.server);
+        if (!installed.success || !checkBridgeInstalled(ctx.server).installed) {
+          log.warn(`PanelBridge install during switch to panel-installed failed: ${installed.error || "not found after install"}`);
+          throw installFailed();
         }
         const ids = knownWorkshopIds(id, ctx.group);
         for (const { iniPath } of iniTargets) {
@@ -911,7 +936,9 @@ export async function applyDeliverySwitch(server, to, { expectedFrom, actor = nu
     } catch (error) {
       const restored = await runUndo(undo);
       if (error instanceof DeliveryError) {
-        error.restored = restored;
+        // Both halves have to hold: the failing step's own clean-up (an
+        // archive that couldn't put its files back) and every undo here.
+        error.restored = error.restored !== false && restored;
         throw error;
       }
       log.error(`PanelBridge delivery switch failed: ${error.message}`);
@@ -962,6 +989,16 @@ async function reconcileWorkshopIni(fresh, id, actions, warnings) {
   try {
     await withFileLock(iniPath, async () => {
       const { text } = readIni(iniPath);
+      // §6.7: a duplicated Mods=/WorkshopItems= key blocks automatic writes.
+      // The entries would land on the first line while the game applies the
+      // last one, so the write would "succeed" and change nothing the game
+      // reads. The operator fixes the file (Server Config › INI, raw); the
+      // game's own re-save at startup also collapses the duplicates.
+      if (hasDuplicateListKeys(text)) {
+        log.warn(`${iniPath} lists Mods= or WorkshopItems= more than once; not adding PanelBridge's entries to it`);
+        warnings.push("iniWriteFailed");
+        return;
+      }
       let next = addBridgeEntries(text, BRIDGE_MOD_ID, id);
       const added = next !== text;
       // The release moved to a new item id (a panel update after the item

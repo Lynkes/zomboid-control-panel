@@ -507,5 +507,7 @@
   "PANELBRIDGE_DELIVERY_FILE_ARCHIVE_FAILED": "無法將 {{fileName}} 移出遊戲資料夾。檢查其權限後再試一次。面板已還原它先前已變更的內容。",
   "PANELBRIDGE_DELIVERY_INSTALL_FAILED": "無法將 PanelBridge.lua 複製到遊戲資料夾。未做任何變更。",
   "PANELBRIDGE_DELIVERY_WORKSHOP_ACTIVE": "{{serverName}} 從 Steam 創意工坊取得 PanelBridge，因此面板不會將 PanelBridge.lua 複製到其遊戲資料夾。先在「設定 › PanelBridge」中將其切換回由面板安裝。",
-  "SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE": "此伺服器從 Steam 創意工坊取得 PanelBridge，這需要 Steam。開啟「不通過 Steam 啟動」之前，先在「設定 › PanelBridge」中將 PanelBridge 切換為由面板安裝。"
+  "SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE": "此伺服器從 Steam 創意工坊取得 PanelBridge，這需要 Steam。開啟「不通過 Steam 啟動」之前，先在「設定 › PanelBridge」中將 PanelBridge 切換為由面板安裝。",
+  "PANELBRIDGE_INSTALL_FAILED": "無法將 PanelBridge.lua 複製到遊戲資料夾。請檢視面板日誌以瞭解原因。",
+  "PANELBRIDGE_INSTALL_STILL_RUNNING": "安裝 PanelBridge 的時間比平常長，正在後臺繼續進行。請稍後再查看。"
 }

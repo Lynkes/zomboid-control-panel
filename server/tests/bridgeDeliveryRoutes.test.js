@@ -21,9 +21,11 @@ import { getDataPaths } from "../utils/paths.js";
 // routers (bridgeDelivery.js mounted above panelBridge.js, as index.js does)
 // and the real permission middleware, against a temp game folder and a temp
 // server.ini. The last block is the end-to-end walk the spec's manual smoke
-// test describes: preview == apply, the ini backed up and edited, the loose
-// file archived, workshop-restart-needed, then back to panel-installed with
-// the file reinstalled, both entries removed, DoLuaChecksum=false, local-ok.
+// test describes: preview == apply, the ini backed up and edited (the Lua
+// integrity check left off: I5), the loose file archived,
+// workshop-restart-needed, then -- after the operator turns the check on
+// themselves -- back to panel-installed with the file reinstalled, both
+// entries removed, DoLuaChecksum=false, local-ok.
 
 const dbState = vi.hoisted(() => ({ servers: [], settings: {} }));
 
@@ -93,7 +95,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   root = createRoot();
-  files = createServerFiles(root, { ini: "PVP=true\r\nMods=OtherMod\r\nWorkshopItems=111\r\nDoLuaChecksum=true\r\n" });
+  files = createServerFiles(root, { ini: "PVP=true\r\nMods=OtherMod\r\nWorkshopItems=111\r\nDoLuaChecksum=false\r\n" });
   dbState.servers = [makeServer(files, { serverConfigPath: path.join(files.dataDir, "Server") })];
   dbState.settings = {};
   vi.stubEnv("PANEL_BRIDGE_WORKSHOP_ID", WS_ID);
@@ -241,11 +243,12 @@ describe("end to end: panel-installed -> Steam Workshop -> panel-installed", () 
     expect(applied.body.steps).toEqual(preview.body.steps);
     expect(applied.body.steps.map((step) => step.kind)).toEqual(["iniAdd", "iniAdd", "archiveFile", "recordMethod"]);
 
-    // The ini was backed up and edited (CRLF kept, checksum untouched).
+    // The ini was backed up and edited (CRLF kept, the Lua integrity check
+    // left off: the panel never turns it on by itself, I5).
     expect(applied.body.backups).toEqual([{ file: files.iniPath, backupName: expect.stringMatching(/^servertest\.ini\..+\.bak$/) }]);
     expect(fs.existsSync(path.join(path.dirname(files.iniPath), "backups", applied.body.backups[0].backupName))).toBe(true);
     expect(fs.readFileSync(files.iniPath, "utf8")).toBe(
-      `PVP=true\r\nMods=OtherMod;${MOD}\r\nWorkshopItems=111;${WS_ID}\r\nDoLuaChecksum=true\r\n`,
+      `PVP=true\r\nMods=OtherMod;${MOD}\r\nWorkshopItems=111;${WS_ID}\r\nDoLuaChecksum=false\r\n`,
     );
 
     // The loose file was archived, not deleted.
@@ -269,9 +272,18 @@ describe("end to end: panel-installed -> Steam Workshop -> panel-installed", () 
     const modsConfig = await call("GET", "/api/mods/current-config");
     expect(modsConfig.body.bridgeManaged).toEqual({ modId: MOD, workshopId: WS_ID });
 
+    // The operator turns the check on through Server Config (PUT
+    // /api/server-files/ini, not part of these routers), so switching back
+    // has to turn it off again.
+    fs.writeFileSync(files.iniPath, fs.readFileSync(files.iniPath, "utf8").replace("DoLuaChecksum=false", "DoLuaChecksum=true"));
+    status = await call("GET", "/api/panel-bridge/delivery");
+    expect(status.body.checksum.current).toBe(true);
+
     // Back to panel-installed: preview == apply again.
     const back = await call("POST", "/api/panel-bridge/delivery", { body: { serverId: "s1", method: "local", dryRun: true } });
     expect(back.body.steps.map((step) => step.kind)).toEqual(["installFile", "iniRemove", "iniRemove", "iniSet", "recordMethod"]);
+    expect(back.body.steps[3]).toMatchObject({ key: "DoLuaChecksum", value: "false", before: "true" });
+    expect(back.body.warnings).toContain("checksumWillBeTurnedOff");
     const backApplied = await call("POST", "/api/panel-bridge/delivery", {
       body: { serverId: "s1", method: "local", dryRun: false, expectedFrom: "workshop" },
     });

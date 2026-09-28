@@ -507,5 +507,7 @@
   "PANELBRIDGE_DELIVERY_FILE_ARCHIVE_FAILED": "No se pudo mover {{fileName}} fuera de la carpeta del juego. Revisa sus permisos e inténtalo de nuevo. El panel restauró lo que ya había cambiado.",
   "PANELBRIDGE_DELIVERY_INSTALL_FAILED": "No se pudo copiar PanelBridge.lua en la carpeta del juego. No se cambió nada.",
   "PANELBRIDGE_DELIVERY_WORKSHOP_ACTIVE": "{{serverName}} obtiene PanelBridge de Steam Workshop, así que el panel no copia PanelBridge.lua en su carpeta del juego. Primero vuelve a cambiarlo a instalado por el panel en Ajustes › PanelBridge.",
-  "SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE": "Este servidor obtiene PanelBridge de Steam Workshop, que necesita Steam. Cambia PanelBridge a instalado por el panel en Ajustes › PanelBridge antes de activar Iniciar sin Steam."
+  "SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE": "Este servidor obtiene PanelBridge de Steam Workshop, que necesita Steam. Cambia PanelBridge a instalado por el panel en Ajustes › PanelBridge antes de activar Iniciar sin Steam.",
+  "PANELBRIDGE_INSTALL_FAILED": "No se pudo copiar PanelBridge.lua en la carpeta del juego. Revisa el registro del panel para ver el motivo.",
+  "PANELBRIDGE_INSTALL_STILL_RUNNING": "La instalación de PanelBridge está tardando más de lo habitual y continúa en segundo plano. Vuelve a comprobarlo en un momento."
 }

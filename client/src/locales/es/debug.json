@@ -456,7 +456,7 @@
             },
             "looseLeftover": {
               "label": "Archivos antiguos de PanelBridge en la carpeta del juego",
-              "message": "{{files}} siguen en la carpeta del juego. Con la comprobación de integridad de Lua activada, se rechazará a los jugadores.",
+              "message": "Todavía en la carpeta del juego: {{files}}. Con la comprobación de integridad de Lua activada, se rechazará a los jugadores.",
               "hint": "Inicia el servidor desde el panel para sacarlos de ahí."
             }
           }

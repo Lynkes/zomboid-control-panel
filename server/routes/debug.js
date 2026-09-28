@@ -3744,7 +3744,7 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
                 diagWarn(
                   "server.bridgeMod",
                   "Old PanelBridge files in the game folder",
-                  `${files} are still in the game folder. With the Lua integrity check on, players will be refused.`,
+                  `Still in the game folder: ${files}. With the Lua integrity check on, players will be refused.`,
                   {
                     category: "server",
                     hint: "Start the server from the panel to move them out.",

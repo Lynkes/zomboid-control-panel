@@ -48,6 +48,16 @@ describe("parseIniList / hasBridgeEntries", () => {
     const content = `PublicDescription=Mods=${MOD}\nMods=Other\n`;
     expect(parseIniList(content, "Mods").entries).toEqual(["Other"]);
   });
+
+  it("reads the first line by default and, with { last: true }, the line the game applies", () => {
+    // The game parses every line in order, so the last duplicate wins.
+    const content = `Mods=${MOD}\nWorkshopItems=111;${ID}\nWorkshopItems=111\n`;
+    expect(parseIniList(content, "WorkshopItems").entries).toEqual(["111", ID]);
+    expect(parseIniList(content, "WorkshopItems", { last: true }).entries).toEqual(["111"]);
+    expect(hasBridgeEntries(content, MOD, ID)).toEqual({ mods: true, workshopItems: true });
+    expect(hasBridgeEntries(content, MOD, ID, { last: true })).toEqual({ mods: true, workshopItems: false });
+    expect(parseIniList("PVP=true\n", "Mods", { last: true })).toEqual({ present: false, entries: [] });
+  });
 });
 
 describe("addBridgeEntries", () => {
@@ -85,6 +95,11 @@ describe("removeBridgeEntries", () => {
   it("removes a backslash-prefixed copy and every old id passed", () => {
     const content = `Mods=\\${MOD};A\nWorkshopItems=999;${ID}\n`;
     expect(removeBridgeEntries(content, MOD, [ID, "999"])).toBe("Mods=A\nWorkshopItems=\n");
+  });
+
+  it("removes the entries from every duplicated key line, not just the first", () => {
+    const content = `Mods=A;${MOD}\nWorkshopItems=${ID}\nMods=${MOD};B\nWorkshopItems=1;${ID}\n`;
+    expect(removeBridgeEntries(content, MOD, [ID])).toBe("Mods=A\nWorkshopItems=\nMods=B\nWorkshopItems=1\n");
   });
 
   it("leaves a file without the entries byte-for-byte unchanged", () => {

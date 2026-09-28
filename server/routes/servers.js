@@ -28,7 +28,7 @@ import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
 } from "../services/lifecycleCoordinator.js";
-import { getEffectiveMethod, reconcileBridge } from "../services/bridgeDelivery.js";
+import { getEffectiveMethod, launchLooksNoSteam, reconcileBridge } from "../services/bridgeDelivery.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { refreshWorkshopChecker } from "../services/modChecker.js";
 import {
@@ -1469,15 +1469,27 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
     // download it: launched without Steam it starts with no bridge and, with
     // the item still listed in Mods=, refuses every join. Switching delivery
     // back to panel-installed has to come first (Settings › PanelBridge).
-    if (updates.useNoSteam === true) {
-      const allServers = await getServers();
-      const target = allServers.find((candidate) => String(candidate.id) === String(serverId));
-      if (target && getEffectiveMethod(target, allServers) === "workshop") {
-        return res.status(409).json({
-          error:
-            "This server gets PanelBridge from the Steam Workshop, which needs Steam. Switch PanelBridge to panel-installed in Settings › PanelBridge before turning on Launch without Steam.",
-          code: ErrorCode.SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE,
-        });
+    // Judged on the record AFTER this edit (useNoSteam, a -nosteam start
+    // command, or a move into a Workshop game folder all count), and only
+    // when the edit creates the conflict: the edit dialog saves the whole
+    // record, so a profile already in that state must stay renameable.
+    if (["useNoSteam", "startCommand", "installPath", "serverPath", "isRemote"].some((key) => key in updates)) {
+      const target = await getServer(serverId);
+      const merged = target ? { ...target, ...updates } : null;
+      if (merged && launchLooksNoSteam(merged)) {
+        const allServers = await getServers();
+        const mergedAll = allServers.map((candidate) =>
+          String(candidate.id) === String(serverId) ? merged : candidate,
+        );
+        const alreadyConflicting =
+          launchLooksNoSteam(target) && getEffectiveMethod(target, allServers) === "workshop";
+        if (getEffectiveMethod(merged, mergedAll) === "workshop" && !alreadyConflicting) {
+          return res.status(409).json({
+            error:
+              "This server gets PanelBridge from the Steam Workshop, which needs Steam. Switch PanelBridge to panel-installed in Settings › PanelBridge before turning on Launch without Steam.",
+            code: ErrorCode.SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE,
+          });
+        }
       }
     }
 

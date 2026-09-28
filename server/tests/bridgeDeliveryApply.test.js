@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
+import path from "path";
 import {
   CLIENT_COMPANION,
   MOD,
@@ -20,7 +21,22 @@ import {
 // that can't be joined.
 
 const dbState = vi.hoisted(() => ({ servers: [], settings: {} }));
-const trace = vi.hoisted(() => ({ order: [], iniWrites: 0, failIniWriteAt: null, corruptIniWriteAt: null, failArchive: false, failInstall: false }));
+const TRACE_DEFAULTS = vi.hoisted(() => ({
+  iniWrites: 0,
+  failIniWriteAt: null,
+  corruptIniWriteAt: null,
+  // Holds the first ini write until the test resolves it (lock tests).
+  iniGate: null,
+  failArchive: false,
+  // What a failed archive reports about putting its own files back.
+  failArchiveRestored: true,
+  failInstall: false,
+  // installBridge writes the file, then fails its read-back check.
+  installWritesThenFails: false,
+  // Records every writeFileAtomic() (the rollback's own writes) as write:<name>.
+  traceWrites: false,
+}));
+const trace = vi.hoisted(() => ({ order: [] }));
 
 vi.mock("../database/init.js", async () => {
   const { dbMockImplementation } = await import("./helpers/bridgeDeliveryFixtures.js");
@@ -41,6 +57,7 @@ vi.mock("../utils/configBackup.js", async (importOriginal) => {
     writeIniWithBackup: async (iniPath, content) => {
       trace.iniWrites += 1;
       trace.order.push("ini");
+      if (trace.iniGate && trace.iniWrites === 1) await trace.iniGate;
       if (trace.failIniWriteAt === trace.iniWrites) throw new Error("disk full");
       const result = await actual.writeIniWithBackup(iniPath, content);
       if (trace.corruptIniWriteAt === trace.iniWrites) fs.writeFileSync(iniPath, "garbage=1\n");
@@ -58,10 +75,15 @@ vi.mock("../services/bridgeDisk.js", async (importOriginal) => {
         if (trace.failArchive) {
           const error = new Error("EPERM");
           error.fileName = "PanelBridge.lua";
+          error.restored = trace.failArchiveRestored;
           throw error;
         }
       }
       return actual.archiveLooseBridgeFiles(installDir, files, options);
+    },
+    restoreArchivedBridgeFiles: async (archived) => {
+      trace.order.push("undo-archive");
+      return actual.restoreArchivedBridgeFiles(archived);
     },
   };
 });
@@ -72,12 +94,26 @@ vi.mock("../services/panelBridgeInstaller.js", async (importOriginal) => {
     installBridge: (server) => {
       trace.order.push("install");
       if (trace.failInstall) return { success: false, error: "EACCES" };
+      if (trace.installWritesThenFails) {
+        actual.installBridge(server);
+        return { success: false, error: "PanelBridge verification failed after install." };
+      }
       return actual.installBridge(server);
     },
   };
 });
+vi.mock("../utils/fileWriteQueue.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    writeFileAtomic: (filePath, ...rest) => {
+      if (trace.traceWrites) trace.order.push(`write:${path.basename(filePath)}`);
+      return actual.writeFileAtomic(filePath, ...rest);
+    },
+  };
+});
 
-const { applyDeliverySwitch } = await import("../services/bridgeDelivery.js");
+const { applyDeliverySwitch, reconcileBridge } = await import("../services/bridgeDelivery.js");
 const { _resetWorkshopReleaseCacheForTests } = await import("../services/bridgeWorkshopRelease.js");
 
 let root;
@@ -112,7 +148,7 @@ function trackedPaths() {
 
 beforeEach(() => {
   root = createRoot();
-  Object.assign(trace, { order: [], iniWrites: 0, failIniWriteAt: null, corruptIniWriteAt: null, failArchive: false, failInstall: false });
+  Object.assign(trace, { order: [], ...TRACE_DEFAULTS });
   dbState.failUpdate = false;
   dbState.failCommit = false;
   vi.stubEnv("PANEL_BRIDGE_WORKSHOP_ID", WS_ID);
@@ -146,9 +182,87 @@ describe("switch to Workshop", () => {
       expect(server.bridgeDelivery).toBe("workshop");
       expect(server.bridgeDeliverySwitch).toMatchObject({ to: "workshop", by: "admin", bridgeStartedAt: 4242, workshopId: WS_ID });
     }
-    // I5: the switch never turns the Lua integrity check on or off here.
-    expect(readText(one.iniPath)).toContain("DoLuaChecksum=true");
     expect(result.status).toMatchObject({ method: "workshop", state: "workshop-restart-needed" });
+  });
+
+  // I5: DoLuaChecksum=true is never written automatically. Seeded off and
+  // missing (a file that already says true couldn't show a wrong write).
+  it.each([
+    ["off", "DoLuaChecksum=false\r\n", "DoLuaChecksum=false\n"],
+    ["missing", "", ""],
+  ])("leaves a Lua integrity check that is %s exactly as it was (I5)", async (_label, seeded, expected) => {
+    for (const iniPath of [one.iniPath, two.iniPath]) {
+      fs.writeFileSync(iniPath, `PVP=true\r\nMods=OtherMod\r\nWorkshopItems=111\r\n${seeded}`);
+    }
+    await applyDeliverySwitch(dbState.servers[0], "workshop", { expectedFrom: "local", deps });
+    for (const iniPath of [one.iniPath, two.iniPath]) {
+      expect(readText(iniPath)).toBe(`PVP=true\nMods=OtherMod;${MOD}\nWorkshopItems=111;${WS_ID}\n${expected}`);
+    }
+  });
+
+  it("is refused, touching nothing, when a sibling on the folder launches without Steam (I8)", async () => {
+    dbState.servers[1].useNoSteam = true;
+    const files = snapshotFiles(trackedPaths());
+    const error = await applyDeliverySwitch(dbState.servers[0], "workshop", { expectedFrom: "local", deps }).catch((e) => e);
+    expect(error).toMatchObject({ code: "PANELBRIDGE_DELIVERY_UNAVAILABLE", params: { reason: "noSteam" } });
+    expect(trace.order).toEqual([]);
+    expect(snapshotFiles(trackedPaths())).toEqual(files);
+    expect(dbState.servers.map((s) => s.bridgeDelivery)).toEqual([undefined, undefined]);
+  });
+
+  it("undoes in reverse order: the stored method, then the archived files, then the inis last-written first (I6)", async () => {
+    dbState.failCommit = true;
+    trace.traceWrites = true;
+    await applyDeliverySwitch(dbState.servers[0], "workshop", { expectedFrom: "local", deps }).catch(() => {});
+    expect(trace.order).toEqual([
+      "ini",
+      "write:servertest.ini",
+      "ini",
+      "write:second.ini",
+      "archive",
+      "persist",
+      "persist",
+      // commitNow() failed here; the rollback walks the steps backwards.
+      "persist",
+      "persist",
+      "undo-archive",
+      "write:PanelBridgeClient.lua",
+      "write:PanelBridge.lua",
+      "write:second.ini",
+      "write:servertest.ini",
+    ]);
+  });
+
+  it("reports restored:false when the archive couldn't put back the files it had already moved", async () => {
+    trace.failArchive = true;
+    trace.failArchiveRestored = false;
+    const error = await applyDeliverySwitch(dbState.servers[0], "workshop", { expectedFrom: "local", deps }).catch((e) => e);
+    expect(error).toMatchObject({ code: "PANELBRIDGE_DELIVERY_FILE_ARCHIVE_FAILED", status: 500, restored: false });
+  });
+
+  it("a reconcile started during the apply waits for it, then follows the new method (I3)", async () => {
+    let release;
+    trace.iniGate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const applying = applyDeliverySwitch(dbState.servers[0], "workshop", { expectedFrom: "local", deps });
+    await vi.waitFor(() => expect(trace.order).toContain("ini"));
+
+    let reconciled = null;
+    const reconciling = reconcileBridge(dbState.servers[0], { reason: "launch" }).then((result) => {
+      reconciled = result;
+      return result;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Queued behind the apply on the same game folder, not racing it.
+    expect(reconciled).toBeNull();
+
+    release();
+    await applying;
+    const result = await reconciling;
+    expect(result.method).toBe("workshop");
+    expect(result.actions.map((action) => action.kind)).not.toContain("installed");
+    expect(fs.existsSync(looseServerPath(one.installDir))).toBe(false);
   });
 
   it.each([
@@ -217,6 +331,23 @@ describe("switch to Local", () => {
     expect(error.restored).toBe(true);
     expect(snapshotFiles(trackedPaths())).toEqual(files);
     expect(fs.existsSync(looseServerPath(one.installDir))).toBe(false);
+    expect(JSON.stringify(dbState.servers)).toBe(db);
+  });
+
+  // installBridge() writes before it verifies, so it can fail AFTER the file
+  // landed. The undo is registered before the install for exactly this.
+  it.each([
+    ["no loose file before", null],
+    ["a stale loose file before", 'local VERSION = "0.0.1"\n'],
+  ])("an install that writes and then fails its check is undone (%s)", async (_label, before) => {
+    if (before !== null) writeLoose(one.installDir, "media/lua/server/PanelBridge.lua", before);
+    trace.installWritesThenFails = true;
+    const files = snapshotFiles(trackedPaths());
+    const db = JSON.stringify(dbState.servers);
+    const error = await applyDeliverySwitch(dbState.servers[0], "local", { expectedFrom: "workshop", deps }).catch((e) => e);
+    expect(error).toMatchObject({ code: "PANELBRIDGE_DELIVERY_INSTALL_FAILED", status: 500, restored: true });
+    expect(trace.order).toEqual(["install"]);
+    expect(snapshotFiles(trackedPaths())).toEqual(files);
     expect(JSON.stringify(dbState.servers)).toBe(db);
   });
 

@@ -3191,13 +3191,15 @@ router.post("/install-mod-auto", requirePermission("bridge.setup"), async (req, 
     }
 
     const serverName = targetServer.serverName || targetServer.name;
-    const allServers = await getServers();
-    if (getEffectiveMethod(targetServer, allServers) === "workshop") {
-      return res.status(409).json({
+    const workshopActive = () =>
+      res.status(409).json({
         error: `${serverName} gets PanelBridge from the Steam Workshop, so the panel doesn't copy PanelBridge.lua into its game folder. Switch it back to panel-installed in Settings › PanelBridge first.`,
         code: ErrorCode.PANELBRIDGE_DELIVERY_WORKSHOP_ACTIVE,
         params: sanitizeErrorParams({ serverName }),
       });
+    const allServers = await getServers();
+    if (getEffectiveMethod(targetServer, allServers) === "workshop") {
+      return workshopActive();
     }
 
     if (!canAutoInstall(targetServer)) {
@@ -3213,11 +3215,26 @@ router.post("/install-mod-auto", requirePermission("bridge.setup"), async (req, 
     // re-checked inside the delivery lock, so a switch landing between the
     // check above and this call still can't get a loose file written.
     const reconciled = await reconcileBridge(targetServer, { reason: "manual" });
+    // The reconcile followed a switch to Workshop that landed after the
+    // check above: it moved the loose files out instead of installing.
+    if (reconciled.method === "workshop") return workshopActive();
     const target = checkBridgeInstalled(targetServer);
+    // Not a failure: reconcile stopped being waited on after 15 s but keeps
+    // running (usually queued behind another reconcile of the same folder).
+    if (reconciled.skipped === "timeout") {
+      return res.status(504).json({
+        success: false,
+        error: "Installing PanelBridge is taking longer than usual and continues in the background. Check again in a moment.",
+        code: ErrorCode.PANELBRIDGE_INSTALL_STILL_RUNNING,
+        path: target.targetPath,
+        serverName,
+      });
+    }
     if (reconciled.warnings.includes("installFailed") || reconciled.skipped) {
       return res.status(500).json({
         success: false,
-        error: "PanelBridge could not be copied into the server's game folder. Check the panel log for the reason.",
+        error: "Couldn't copy PanelBridge.lua into the game folder. Check the panel log for the reason.",
+        code: ErrorCode.PANELBRIDGE_INSTALL_FAILED,
         path: target.targetPath,
         serverName,
       });

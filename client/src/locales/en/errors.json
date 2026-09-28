@@ -507,5 +507,7 @@
   "PANELBRIDGE_DELIVERY_FILE_ARCHIVE_FAILED": "Couldn't move {{fileName}} out of the game folder. Check its permissions and try again. The panel put back what it had already changed.",
   "PANELBRIDGE_DELIVERY_INSTALL_FAILED": "Couldn't copy PanelBridge.lua into the game folder. Nothing was changed.",
   "PANELBRIDGE_DELIVERY_WORKSHOP_ACTIVE": "{{serverName}} gets PanelBridge from the Steam Workshop, so the panel doesn't copy PanelBridge.lua into its game folder. Switch it back to panel-installed in Settings › PanelBridge first.",
-  "SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE": "This server gets PanelBridge from the Steam Workshop, which needs Steam. Switch PanelBridge to panel-installed in Settings › PanelBridge before turning on Launch without Steam."
+  "SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE": "This server gets PanelBridge from the Steam Workshop, which needs Steam. Switch PanelBridge to panel-installed in Settings › PanelBridge before turning on Launch without Steam.",
+  "PANELBRIDGE_INSTALL_FAILED": "Couldn't copy PanelBridge.lua into the game folder. Check the panel log for the reason.",
+  "PANELBRIDGE_INSTALL_STILL_RUNNING": "Installing PanelBridge is taking longer than usual and continues in the background. Check again in a moment."
 }

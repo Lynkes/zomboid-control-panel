@@ -218,6 +218,12 @@ describe("states: Steam Workshop", () => {
     expect(disk.looseFiles).toEqual([expect.objectContaining({ kind: "client", recognized: true })]);
     expect(disk.workshopItem).toMatchObject({ version: "1.7.71", source: "candidate" });
   });
+
+  it("reports the ini entries the game reads: the last line of a duplicated key", async () => {
+    fs.writeFileSync(files.iniPath, `Mods=${MOD}\r\nWorkshopItems=111;${WS_ID}\r\nWorkshopItems=111\r\n`);
+    const { disk } = await statusFor(switchedToWorkshop());
+    expect(disk.iniEntries).toEqual({ mods: true, workshopItems: false });
+  });
 });
 
 describe("install groups", () => {
@@ -257,6 +263,20 @@ describe("switchAvailability.toWorkshop order (first match wins)", () => {
     expect(
       (await statusFor(makeServer(files, { installPath: launcher }))).switchAvailability.toWorkshop.reason,
     ).toBe("noSteam");
+  });
+
+  it("noSteam and customLauncher also come from a sibling on the same game folder", async () => {
+    const other = createServerFiles(root, { key: "s2", serverName: "second", installDir: files.installDir });
+    const server = makeServer(files, { id: "s1" });
+    dbState.servers = [server, makeServer(other, { id: "s2", serverName: "second", isActive: false, useNoSteam: true })];
+    expect((await getDeliveryStatus(server, deps())).switchAvailability.toWorkshop.reason).toBe("noSteam");
+
+    const launcher = path.join(files.installDir, "Launch.bat");
+    fs.writeFileSync(launcher, "@echo off\r\nProjectZomboid64.exe -servername second\r\n");
+    dbState.servers = [server, makeServer(other, { id: "s2", serverName: "second", isActive: false, installPath: launcher })];
+    const toWorkshop = (await getDeliveryStatus(server, deps())).switchAvailability.toWorkshop;
+    expect(toWorkshop.available).toBe(true);
+    expect(toWorkshop.warnings).toContain("customLauncher");
   });
 
   it("gameVersionUnsupported below Build 42, before the ini checks", async () => {

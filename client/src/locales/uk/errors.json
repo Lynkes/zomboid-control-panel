@@ -507,5 +507,7 @@
   "PANELBRIDGE_DELIVERY_FILE_ARCHIVE_FAILED": "Не вдалося перемістити {{fileName}} із теки гри. Перевірте дозволи цього файлу й спробуйте ще раз. Панель повернула все, що вже встигла змінити.",
   "PANELBRIDGE_DELIVERY_INSTALL_FAILED": "Не вдалося скопіювати PanelBridge.lua до теки гри. Нічого не змінено.",
   "PANELBRIDGE_DELIVERY_WORKSHOP_ACTIVE": "{{serverName}} отримує PanelBridge зі Steam Workshop, тому панель не копіює PanelBridge.lua до його теки гри. Спершу поверніть установлення панеллю в «Налаштування › PanelBridge».",
-  "SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE": "Цей сервер отримує PanelBridge зі Steam Workshop, а для цього потрібен Steam. Перемкніть PanelBridge на встановлення панеллю в «Налаштування › PanelBridge», перш ніж вмикати «Запускати без Steam»."
+  "SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE": "Цей сервер отримує PanelBridge зі Steam Workshop, а для цього потрібен Steam. Перемкніть PanelBridge на встановлення панеллю в «Налаштування › PanelBridge», перш ніж вмикати «Запускати без Steam».",
+  "PANELBRIDGE_INSTALL_FAILED": "Не вдалося скопіювати PanelBridge.lua до теки гри. Причину дивіться в журналі панелі.",
+  "PANELBRIDGE_INSTALL_STILL_RUNNING": "Встановлення PanelBridge триває довше, ніж зазвичай, і продовжується у фоні. Перевірте ще раз за хвилину."
 }

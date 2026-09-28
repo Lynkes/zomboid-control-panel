@@ -46,24 +46,38 @@ function splitListValue(value) {
     .filter((token) => token.id.length > 0);
 }
 
-export function parseIniList(content, key) {
-  const match = keyLinePattern(key).exec(String(content ?? ""));
+// Reads the FIRST `key` line by default -- the line every panel writer
+// (mods.js, the helpers below) edits. `{ last: true }` reads the line the
+// game actually applies instead: ConfigFile.read keeps every line and
+// ServerOptions.loadServerTextFile parses them in order, so with a
+// duplicated key the last assignment wins. Identical for a file without
+// duplicates.
+export function parseIniList(content, key, { last = false } = {}) {
+  const text = String(content ?? "");
+  let match = null;
+  if (last) {
+    const pattern = keyLinePattern(key, "gm");
+    for (let next = pattern.exec(text); next !== null; next = pattern.exec(text)) match = next;
+  } else {
+    match = keyLinePattern(key).exec(text);
+  }
   if (!match) return { present: false, entries: [] };
   return { present: true, entries: splitListValue(match[3]).map((token) => token.id) };
 }
 
-export function hasBridgeEntries(content, modId, workshopId) {
-  const mods = parseIniList(content, "Mods").entries;
-  const items = parseIniList(content, "WorkshopItems").entries;
+export function hasBridgeEntries(content, modId, workshopId, options = {}) {
+  const mods = parseIniList(content, "Mods", options).entries;
+  const items = parseIniList(content, "WorkshopItems", options).entries;
   return {
     mods: mods.includes(modId),
     workshopItems: Boolean(workshopId) && items.includes(String(workshopId)),
   };
 }
 
-// Appends `value` to the first `key` line (the one mods.js and the game's
-// own first-match readers agree on), or adds a `key=value` line when the key
-// is missing entirely. A no-op when the entry is already listed.
+// Appends `value` to the first `key` line (the one mods.js edits too), or
+// adds a `key=value` line when the key is missing entirely. A no-op when the
+// entry is already listed. The game applies the LAST line of a duplicated
+// key, so callers refuse to add entries to such a file at all (§6.7).
 function addListEntry(content, key, value) {
   const pattern = keyLinePattern(key);
   const match = pattern.exec(content);

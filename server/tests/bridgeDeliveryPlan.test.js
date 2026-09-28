@@ -110,6 +110,18 @@ describe("to Workshop, automatic", () => {
     const plan = await planDeliverySwitch(server, "workshop", deps);
     expect(plan.blocked).toEqual({ reason: "noSteam" });
   });
+
+  it("never lists a WorkshopItems step without a value when no item id is known", async () => {
+    vi.stubEnv("PANEL_BRIDGE_WORKSHOP_ID", "");
+    _resetWorkshopReleaseCacheForTests();
+    const server = makeServer(files);
+    dbState.servers = [server];
+    const plan = await planDeliverySwitch(server, "workshop", deps);
+    expect(plan.blocked).toEqual({ reason: "notPublished" });
+    expect(plan.steps.filter((step) => step.kind === "iniAdd")).toEqual([
+      { kind: "iniAdd", key: "Mods", value: MOD, file: files.iniPath, serverName: "Server One" },
+    ]);
+  });
 });
 
 describe("to Local, automatic", () => {
@@ -208,6 +220,31 @@ describe("install groups", () => {
     const plan = await planDeliverySwitch(one, "workshop", deps);
     expect(plan.from).toBe("workshop");
     expect(plan.blocked).toEqual({ reason: "sameMethod" });
+  });
+
+  // The switch writes the entries into every sibling's ini and archives the
+  // shared loose file, so a sibling that launches without Steam would start
+  // with no bridge and refuse every join (ModRequired): it blocks the switch
+  // exactly as this profile would.
+  it.each([
+    ["the Launch without Steam flag", { useNoSteam: true }],
+    ["a -nosteam start command", { startCommand: "StartServer64.bat -nosteam" }],
+  ])("is blocked as noSteam when a sibling on the folder has %s", async (_label, siblingLaunch) => {
+    const other = createServerFiles(root, { key: "s2", serverName: "second", installDir: files.installDir });
+    const one = makeServer(files, { id: "s1", name: "One" });
+    const two = makeServer(other, { id: "s2", name: "Two", serverName: "second", isActive: false, ...siblingLaunch });
+    dbState.servers = [one, two];
+    const plan = await planDeliverySwitch(one, "workshop", deps);
+    expect(plan.blocked).toEqual({ reason: "noSteam" });
+    expect(plan.status.switchAvailability.toWorkshop).toMatchObject({ available: false, reason: "noSteam" });
+  });
+
+  it("a -nosteam profile on ANOTHER folder doesn't block the switch", async () => {
+    const other = createServerFiles(root, { key: "s2", serverName: "second" });
+    const one = makeServer(files, { id: "s1", name: "One" });
+    const two = makeServer(other, { id: "s2", name: "Two", serverName: "second", isActive: false, useNoSteam: true });
+    dbState.servers = [one, two];
+    expect((await planDeliverySwitch(one, "workshop", deps)).blocked).toBeNull();
   });
 
   it("warns when a sibling has no ini yet", async () => {
