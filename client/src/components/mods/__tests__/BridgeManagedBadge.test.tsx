@@ -8,10 +8,10 @@ import { isBridgeManagedMod } from '@/lib/bridgeDeliveryView'
 import en from '@/locales/en/bridgeDelivery.json'
 import { BridgeManagedBadge } from '../BridgeManagedBadge'
 
-// Standalone until the Mods.tsx wiring lands (spec §11.5: that commit goes
-// last, after the move-to-top/bottom branch). This covers the badge itself
-// and the exact lock the integrator wires around the row's controls:
-// isBridgeManagedMod() + DisabledReason with the badge's tooltip text.
+// The badge itself and the lock pattern the Mods page wires around the row's
+// controls: isBridgeManagedMod() + DisabledReason with the badge's tooltip
+// text. The page wiring is covered in pages/__tests__/
+// Mods.bridgeManagedRow.test.tsx.
 
 afterEach(() => {
   cleanup()

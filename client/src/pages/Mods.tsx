@@ -49,6 +49,9 @@ import { WorkshopCollectionPanel } from '@/components/WorkshopCollectionPanel'
 import { ConflictsPanel } from '@/components/mods/ConflictsPanel'
 import { ModRow, WorkshopIdChip, WorkshopLinkAction, WorkshopThumb } from '@/components/mods/ModRow'
 import { LoadOrderMoveControls, type LoadOrderMoveSource } from '@/components/mods/LoadOrderMoveControls'
+import { BridgeManagedBadge } from '@/components/mods/BridgeManagedBadge'
+import { isBridgeManagedMod } from '@/lib/bridgeDeliveryView'
+import type { BridgeManaged } from '@/lib/bridgeDeliveryTypes'
 import {
   useLocalStorageState,
   type TrackedMod,
@@ -144,6 +147,11 @@ interface IniConfig {
   error?: string
   workshopModMap?: Record<string, Array<{ id: string; name: string; enabled: boolean; require?: string[] }>>
   duplicateKeys?: Array<{ key: string; count: number }>
+  // Set while the active server gets PanelBridge from the Steam Workshop
+  // (GET /mods/current-config, spec §4.11): that item's enable and remove
+  // controls are locked in "Active on server". The server's ini guard
+  // (routes/mods.js) is the real enforcement and puts the entries back.
+  bridgeManaged?: BridgeManaged | null
 }
 
 // ── Pure helper — parse workshop ID from URL or numeric input ──
@@ -4452,8 +4460,20 @@ export default function Mods() {
                   const q = deferredModManagerSearch.toLowerCase().trim()
                   const inspectedGroup = groups.find(g => g.wsId === selectedActiveWsId) || displayGroups[0] || null
 
+                  // PanelBridge's own Workshop entry while the active server
+                  // gets it from the Steam Workshop (spec §4.11): its enable
+                  // and remove controls are locked, with the badge's text as
+                  // the reason. Only those -- reordering it stays allowed, as
+                  // its position in the load order doesn't matter.
+                  const bridgeLockReason = t('mods.badgeTooltip', { ns: 'bridgeDelivery' })
+                  const isBridgeGroup = (g: { wsId: string; mods: Array<{ id: string }> }) =>
+                    isBridgeManagedMod(iniConfig?.bridgeManaged, g.wsId, g.mods.map(m => m.id))
+                  const inspectedLocked = !!inspectedGroup && isBridgeGroup(inspectedGroup)
+                  const inspectedLockReason = !canManageMods ? t('permissions.noModsManage') : inspectedLocked ? bridgeLockReason : null
+
                   const toggleMod = async (mod: ModEntry, wsId: string) => {
                     if (busyRef.current || !canManageMods) return
+                    if (isBridgeManagedMod(iniConfig?.bridgeManaged, wsId, [mod.id])) return
                     const on = !mod.enabled
                     busyRef.current = true
                     try {
@@ -4508,7 +4528,7 @@ export default function Mods() {
                   }
 
                   const toggleAllInGroup = async (g: WsGroup) => {
-                    if (busyRef.current || !canManageMods) return
+                    if (busyRef.current || !canManageMods || isBridgeGroup(g)) return
                     const on = !g.allEnabled
                     const modsToToggle = g.mods.filter(mod => mod.enabled !== on)
                     if (modsToToggle.length === 0) return
@@ -4547,6 +4567,7 @@ export default function Mods() {
 
                   const removeWorkshop = async (wsId: string, knownModIds?: string[]) => {
                     if (!canManageMods) return
+                    if (isBridgeManagedMod(iniConfig?.bridgeManaged, wsId, knownModIds ?? [])) return
                     try {
                       await modsApi.removeFromIni(wsId, undefined, knownModIds)
                       const updated = await modsApi.getCurrentConfig()
@@ -4814,6 +4835,8 @@ export default function Mods() {
                                 const isInspected = inspectedGroup?.wsId === g.wsId
                                 const label = getGroupLabel(g)
                                 const att = groupAttention(g)
+                                const bridgeLocked = isBridgeGroup(g)
+                                const rowLockReason = !canManageMods ? t('permissions.noModsManage') : bridgeLocked ? bridgeLockReason : null
                                 const enabledN = g.mods.filter(m => m.enabled).length
                                 const totalN = g.mods.length
                                 // Chips are the dense part of the row. Compact keeps them in the
@@ -4847,26 +4870,26 @@ export default function Mods() {
                                         {t('activeMods.copyWorkshopId')}
                                       </DropdownMenuItem>
                                       <DropdownMenuSeparator />
-                                      <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null} className="w-full">
+                                      <DisabledReason reason={rowLockReason} className="w-full">
                                         <DropdownMenuItem
                                           className="text-destructive focus:text-destructive"
-                                          // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage) now lives in the DisabledReason wrapper above; this title carries only the always-relevant "what removing does" hint, correctly absent (via DisabledReason's own tooltip taking over) rather than dead when actually disabled.
+                                          // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage, or PanelBridge's Workshop lock) now lives in the DisabledReason wrapper above; this title carries only the always-relevant "what removing does" hint, correctly absent (via DisabledReason's own tooltip taking over) rather than dead when actually disabled.
                                           title={t('activeMods.removeFromIniHint')}
-                                          onClick={() => { if (!canManageMods) return; setConfirmRemoveWorkshop({ wsId: g.wsId, knownModIds: g.mods.map(m => m.id) }) }}
-                                          disabled={!canManageMods}
+                                          onClick={() => { if (!canManageMods || bridgeLocked) return; setConfirmRemoveWorkshop({ wsId: g.wsId, knownModIds: g.mods.map(m => m.id) }) }}
+                                          disabled={!canManageMods || bridgeLocked}
                                         >
                                           <Trash2 className="me-2 h-4 w-4" />
                                           {t('activeMods.removeFromIni')}
                                         </DropdownMenuItem>
                                       </DisabledReason>
                                       <DropdownMenuSeparator />
-                                      <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null} className="w-full">
+                                      <DisabledReason reason={rowLockReason} className="w-full">
                                         <DropdownMenuItem
                                           className="text-destructive focus:text-destructive"
-                                          // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage) now lives in the DisabledReason wrapper above; this title carries only the always-relevant "what removing does" hint, correctly absent (via DisabledReason's own tooltip taking over) rather than dead when actually disabled.
+                                          // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage, or PanelBridge's Workshop lock) now lives in the DisabledReason wrapper above; this title carries only the always-relevant "what removing does" hint, correctly absent (via DisabledReason's own tooltip taking over) rather than dead when actually disabled.
                                           title={t('activeMods.removeFromServerHint')}
-                                          onClick={() => { if (!canManageMods) return; setConfirmRemoveMod({ wsId: g.wsId, label }) }}
-                                          disabled={!canManageMods}
+                                          onClick={() => { if (!canManageMods || bridgeLocked) return; setConfirmRemoveMod({ wsId: g.wsId, label }) }}
+                                          disabled={!canManageMods || bridgeLocked}
                                         >
                                           <Trash2 className="me-2 h-4 w-4" />
                                           {t('activeMods.removeFromServer')}
@@ -4896,11 +4919,14 @@ export default function Mods() {
                                       dimmed={!mod0.enabled}
                                       onClick={() => setSelectedActiveWsId(g.wsId)}
                                       leading={
-                                        <Checkbox
-                                          checked={mod0.enabled}
-                                          onCheckedChange={() => toggleMod(mod0, g.wsId)}
-                                          aria-label={t('activeMods.toggleEnableAria', { action: mod0.enabled ? t('activeMods.disableAction') : t('activeMods.enableAction'), name: mod0.name || mod0.id })}
-                                        />
+                                        <DisabledReason reason={bridgeLocked ? bridgeLockReason : null}>
+                                          <Checkbox
+                                            checked={mod0.enabled}
+                                            onCheckedChange={() => toggleMod(mod0, g.wsId)}
+                                            disabled={bridgeLocked}
+                                            aria-label={t('activeMods.toggleEnableAria', { action: mod0.enabled ? t('activeMods.disableAction') : t('activeMods.enableAction'), name: mod0.name || mod0.id })}
+                                          />
+                                        </DisabledReason>
                                       }
                                       title={<span className="truncate text-sm font-semibold leading-tight text-foreground">{mod0.name || mod0.id}</span>}
                                       titleBadges={
@@ -4915,6 +4941,7 @@ export default function Mods() {
                                               {t('activeMods.duplicate')}
                                             </span>
                                           )}
+                                          {bridgeLocked && <BridgeManagedBadge />}
                                         </>
                                       }
                                       meta={
@@ -4948,15 +4975,18 @@ export default function Mods() {
                                     }
                                     title={<span className="truncate text-sm font-semibold leading-tight text-foreground">{label}</span>}
                                     titleBadges={
-                                      <span
-                                        className={`inline-flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium tabular-nums ${countTone}`}
-                                        title={t('activeMods.enabledOfTotalTooltip', { enabled: enabledN, total: totalN })}
-                                      >
-                                        <span>{enabledN}</span>
-                                        <span className="opacity-60">{t('activeMods.of')}</span>
-                                        <span>{totalN}</span>
-                                        <span className="hidden opacity-75 sm:inline">{t('activeMods.enabledLabel')}</span>
-                                      </span>
+                                      <>
+                                        <span
+                                          className={`inline-flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium tabular-nums ${countTone}`}
+                                          title={t('activeMods.enabledOfTotalTooltip', { enabled: enabledN, total: totalN })}
+                                        >
+                                          <span>{enabledN}</span>
+                                          <span className="opacity-60">{t('activeMods.of')}</span>
+                                          <span>{totalN}</span>
+                                          <span className="hidden opacity-75 sm:inline">{t('activeMods.enabledLabel')}</span>
+                                        </span>
+                                        {bridgeLocked && <BridgeManagedBadge />}
+                                      </>
                                     }
                                     meta={<WorkshopIdChip wsId={g.wsId} onCopied={(id) => toast({ title: t('installedTab.copiedTitle'), description: t('installedTab.copiedWorkshopId', { id }) })} />}
                                     actions={
@@ -5037,10 +5067,10 @@ export default function Mods() {
                                                           ? 'bg-success/15 text-success hover:bg-success/25'
                                                           : 'bg-muted/15 text-muted-foreground/75 hover:text-muted-foreground hover:bg-muted/25')
                                                 return (
-                                                  <DisabledReason key={mod.id} reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                                                  <DisabledReason key={mod.id} reason={rowLockReason}>
                                                   <button
                                                     onClick={(e) => { e.stopPropagation(); toggleMod(mod, g.wsId) }}
-                                                    disabled={!canManageMods}
+                                                    disabled={!canManageMods || bridgeLocked}
                                                     // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage) now lives in the DisabledReason wrapper above; this title carries only the always-relevant chip tooltip (id/name, dupe/clash/overlap warnings, click hint), correctly absent rather than dead when actually disabled.
                                                     title={tooltipBits}
                                                     className={`mod-toggle-pill inline-flex max-w-[200px] items-center gap-1 truncate rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 ${canManageMods ? 'cursor-pointer' : ''} ${styleClass}`}
@@ -5173,15 +5203,21 @@ export default function Mods() {
                                 )
                               })}
                               {/* Orphaned mods */}
-                              {!filterMultiId && orphaned.filter(id => !q || id.toLowerCase().includes(q)).map(id => (
+                              {/* PanelBridge's mod id shows here until Steam has
+                                  downloaded its Workshop item (the first start
+                                  after a switch), so the same lock applies. */}
+                              {!filterMultiId && orphaned.filter(id => !q || id.toLowerCase().includes(q)).map(id => {
+                                const orphanBridgeLocked = isBridgeManagedMod(iniConfig?.bridgeManaged, null, [id])
+                                return (
                                 <div key={`orphan-${id}`} className="group flex items-center gap-3 px-3 py-1.5 opacity-60">
                                   <AlertTriangle className="w-3 h-3 text-warning/60 shrink-0" />
                                   <span className="text-xs font-mono truncate flex-1">{id}</span>
+                                  {orphanBridgeLocked && <BridgeManagedBadge />}
                                   <span className="text-[11px] text-warning/50">{t('activeMods.orphanNotOnDisk')}</span>
-                                  <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                                  <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : orphanBridgeLocked ? bridgeLockReason : null}>
                                   <button
                                     onClick={async () => {
-                                      if (busyRef.current || !canManageMods) return
+                                      if (busyRef.current || !canManageMods || orphanBridgeLocked) return
                                       busyRef.current = true
                                       try {
                                         await modsApi.toggleModId(id, false)
@@ -5190,7 +5226,7 @@ export default function Mods() {
                                         if (updated?.modIds) setOrderedModIds(updated.modIds)
                                       } catch (e) { reportClientError('Failed to remove orphaned mod', e); toast({ variant: 'destructive', title: t('toasts.failedToRemoveOrphanedModTitle'), description: getUserErrorMessage(e, t('toasts.failedToRemoveOrphanedModFallback')) }) } finally { busyRef.current = false }
                                     }}
-                                    disabled={!canManageMods}
+                                    disabled={!canManageMods || orphanBridgeLocked}
                                     className="text-destructive/80 hover:text-destructive hover:bg-destructive/15 rounded p-1.5 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/50 disabled:opacity-40 disabled:cursor-not-allowed"
                                     // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (what removing this orphan does); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                                     title={t('activeMods.removeOrphanTooltip', { id })}
@@ -5200,7 +5236,8 @@ export default function Mods() {
                                   </button>
                                   </DisabledReason>
                                 </div>
-                              ))}
+                                )
+                              })}
                             </div>
                           </ScrollArea>
                         ) : (
@@ -5236,6 +5273,7 @@ export default function Mods() {
                             <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
                               <span className="inline-flex items-center rounded border border-border/35 bg-muted/20 px-1.5 py-0.5 font-mono tabular-nums">WS {inspectedGroup.wsId}</span>
                               {inspectedGroup.mods.length > 1 && <span className="inline-flex items-center rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-primary">{t('activeMods.multiIdBadge')}</span>}
+                              {inspectedLocked && <BridgeManagedBadge />}
                             </div>
                           </div>
 
@@ -5263,11 +5301,11 @@ export default function Mods() {
                             <div className="space-y-1.5">
                               <div className="flex items-center justify-between gap-2">
                                 <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/75">{t('activeMods.loadedIds')}</p>
-                                <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                                <DisabledReason reason={inspectedLockReason}>
                                   <button
                                     type="button"
                                     onClick={() => toggleAllInGroup(inspectedGroup)}
-                                    disabled={!canManageMods}
+                                    disabled={!canManageMods || inspectedLocked}
                                     className="rounded border border-border/45 bg-muted/25 px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50"
                                   >
                                     {inspectedGroup.allEnabled ? t('activeMods.disableAll') : t('activeMods.enableAll')}
@@ -5279,11 +5317,11 @@ export default function Mods() {
                                   const missing = missingDepsMap.get(mod.id) || []
                                   const isDupe = duplicateModIds.has(mod.id)
                                   return (
-                                    <DisabledReason key={mod.id} reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                                    <DisabledReason key={mod.id} reason={inspectedLockReason}>
                                     <button
                                       type="button"
                                       onClick={() => toggleMod(mod, inspectedGroup.wsId)}
-                                      disabled={!canManageMods}
+                                      disabled={!canManageMods || inspectedLocked}
                                       className={`flex w-full items-center gap-2 rounded border px-2 py-1.5 text-start text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 ${mod.enabled ? 'border-success/25 bg-success/10 text-success' : 'border-border/45 bg-muted/20 text-muted-foreground hover:text-foreground'}`}
                                       // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage) now lives in the DisabledReason wrapper above; this title carries only the always-relevant click-to-toggle hint, correctly absent rather than dead when actually disabled.
                                       title={`${mod.enabled ? t('activeMods.clickToDisable') : t('activeMods.clickToEnable')} ${mod.id}`}
@@ -5446,16 +5484,18 @@ export default function Mods() {
                             )}
 
                             <div className="border-t border-border/35 pt-3">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                onClick={() => setConfirmRemoveWorkshop({ wsId: inspectedGroup.wsId, knownModIds: inspectedGroup.mods.map(m => m.id) })}
-                                disabled={!canManageMods}
-                              >
-                                <Trash2 className="me-2 h-3.5 w-3.5" />
-                                {t('activeMods.removeFromIni')}
-                              </Button>
+                              <DisabledReason reason={inspectedLockReason} className="w-full">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                  onClick={() => { if (!canManageMods || inspectedLocked) return; setConfirmRemoveWorkshop({ wsId: inspectedGroup.wsId, knownModIds: inspectedGroup.mods.map(m => m.id) }) }}
+                                  disabled={!canManageMods || inspectedLocked}
+                                >
+                                  <Trash2 className="me-2 h-3.5 w-3.5" />
+                                  {t('activeMods.removeFromIni')}
+                                </Button>
+                              </DisabledReason>
                             </div>
                           </div>
                         </aside>
