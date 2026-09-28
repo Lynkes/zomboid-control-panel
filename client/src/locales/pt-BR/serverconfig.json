@@ -246,6 +246,7 @@
     "noMatches": "Nenhuma opção corresponde a “{{query}}”{{suffix}}",
     "noMatchesInModified": " nas opções modificadas",
     "clearSearch": "Limpar pesquisa",
+    "enumChoicesNeedRestart": "O servidor em execução ainda usa uma versão antiga do PanelBridge, que não consegue listar estas escolhas. Digite o número da escolha (1 é a primeira) ou reinicie o servidor para carregar a versão atual do PanelBridge.",
     "sectionSublabelLoaded_many": "{{count}} mods · ao vivo pela ponte",
     "groupModifiedTitle_many": "{{count}} opções diferem do padrão"
   },

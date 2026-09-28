@@ -324,6 +324,7 @@
     "noMatches": "لا يوجد إعداد يطابق “{{query}}”{{suffix}}",
     "noMatchesInModified": " ضمن الخيارات المعدَّلة",
     "clearSearch": "مسح البحث",
+    "enumChoicesNeedRestart": "لا يزال الخادم قيد التشغيل يستخدم إصدارًا أقدم من PanelBridge لا يمكنه عرض هذه الخيارات. اكتب رقم الخيار (1 هو الأول)، أو أعد تشغيل الخادم لتحميل الإصدار الحالي من PanelBridge.",
     "sectionSublabelLoaded_zero": "المودات: {{count}} · مباشر من الجسر",
     "sectionSublabelLoaded_two": "المودات: {{count}} · مباشر من الجسر",
     "sectionSublabelLoaded_few": "المودات: {{count}} · مباشر من الجسر",

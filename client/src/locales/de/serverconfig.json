@@ -237,7 +237,8 @@
     "showAllOptions": "Alle Optionen anzeigen",
     "noMatches": "Keine Einstellungen stimmen mit „{{query}}“{{suffix}} überein.",
     "noMatchesInModified": " in den geänderten Optionen",
-    "clearSearch": "Suche löschen"
+    "clearSearch": "Suche löschen",
+    "enumChoicesNeedRestart": "Der laufende Server nutzt noch eine ältere PanelBridge-Version, die diese Auswahl nicht auflisten kann. Gib die Nummer der Auswahl ein (1 ist die erste) oder starte den Server neu, damit er die aktuelle PanelBridge-Version lädt."
   },
   "stickySaveBar": {
     "unsavedChange_one": "{{count}} ungespeicherte Änderung",

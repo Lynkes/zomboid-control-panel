@@ -237,7 +237,8 @@
     "showAllOptions": "显示所有选项",
     "noMatches": "没有设置匹配“{{query}}”{{suffix}}",
     "noMatchesInModified": "（在已修改的选项中）",
-    "clearSearch": "清除搜索"
+    "clearSearch": "清除搜索",
+    "enumChoicesNeedRestart": "运行中的服务器仍在使用旧版 PanelBridge，无法列出这些选项。请输入选项编号（1 表示第一个），或重启服务器以加载当前版本的 PanelBridge。"
   },
   "stickySaveBar": {
     "unsavedChange_one": "{{count}} 项未保存的更改",

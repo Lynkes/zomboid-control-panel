@@ -246,6 +246,7 @@
     "noMatches": "Aucun paramètre ne correspond à « {{query}} »{{suffix}}",
     "noMatchesInModified": " dans les options modifiées",
     "clearSearch": "Effacer la recherche",
+    "enumChoicesNeedRestart": "Le serveur en cours d'exécution utilise encore une ancienne version de PanelBridge, qui ne peut pas lister ces choix. Saisissez le numéro du choix (1 pour le premier) ou redémarrez le serveur pour charger la version actuelle de PanelBridge.",
     "sectionSublabelLoaded_many": "{{count}} mods · en direct depuis le bridge",
     "groupModifiedTitle_many": "{{count}} options diffèrent de leur valeur par défaut"
   },

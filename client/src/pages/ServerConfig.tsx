@@ -161,6 +161,9 @@ const VANILLA_SANDBOX_GROUPS = new Set([
   'Basement',
 ])
 
+// getAllSandboxOptions lists at most this many labels per enum (PanelBridge.lua).
+const BRIDGE_ENUM_LABEL_CAP = 50
+
 // These were shown by older panel releases but Build 42 does not support them.
 const UNSUPPORTED_INI_KEYS = new Set([
   'ServerImageLoginScreen',
@@ -4263,6 +4266,22 @@ export default function ServerConfig() {
                                   : false
                                 const isSaving = opt.name ? savingOptions.has(opt.name) : false
                                 const isModified = isOptModified(opt)
+                                // Enum values run 1..N and the bridge sends N as max,
+                                // with label i for value i. A game server that hasn't
+                                // restarted since the panel update still runs the old
+                                // Lua, which never listed value N and dropped labels
+                                // without a translation, so label positions no longer
+                                // match values. Past the bridge's label cap the list is
+                                // short too. When the labels don't cover 1..max, edit
+                                // the number instead of offering a list that sends the
+                                // wrong value.
+                                const enumLabels = typeLabel === 'enum' ? opt.enumValues ?? [] : []
+                                const enumMax = typeLabel === 'enum' && typeof opt.max === 'number' ? opt.max : undefined
+                                const enumAsList = enumLabels.length > 0 && (enumMax === undefined || enumLabels.length === enumMax)
+                                const enumAsNumber = enumMax !== undefined && !enumAsList
+                                // Fewer labels than today's bridge sends: the old Lua.
+                                const enumBridgeOutdated = enumMax !== undefined && !enumAsList && enumLabels.length > 0
+                                  && enumLabels.length < Math.min(enumMax, BRIDGE_ENUM_LABEL_CAP)
 
                                 return (
                                   <div
@@ -4281,6 +4300,9 @@ export default function ServerConfig() {
                                       {opt.name && opt.name !== displayName && (
                                         <div className="text-[10px] text-muted-foreground/40 font-mono truncate mt-0.5" title={opt.name}>{opt.name}</div>
                                       )}
+                                      {enumBridgeOutdated && (
+                                        <div className="text-xs text-warning mt-0.5">{t('modSettingsTab.enumChoicesNeedRestart')}</div>
+                                      )}
                                     </div>
                                     <div className="flex items-center gap-2 shrink-0">
                                       {typeLabel === 'boolean' ? (
@@ -4295,7 +4317,7 @@ export default function ServerConfig() {
                                             {boolValue ? t('modSettingsTab.onCaps') : t('modSettingsTab.offCaps')}
                                           </span>
                                         </div>
-                                      ) : typeLabel === 'enum' && opt.enumValues && opt.enumValues.length > 0 ? (
+                                      ) : enumAsList ? (
                                         <Select
                                           value={opt.selectedIndex !== undefined ? String(opt.selectedIndex) : displayValue}
                                           onValueChange={(val) => {
@@ -4310,14 +4332,14 @@ export default function ServerConfig() {
                                             <SelectValue />
                                           </SelectTrigger>
                                           <SelectContent>
-                                            {opt.enumValues.map((ev, ei) => (
+                                            {enumLabels.map((ev, ei) => (
                                               <SelectItem key={ei} value={String(ei + 1)} className="text-xs font-mono">
                                                 {ev}
                                               </SelectItem>
                                             ))}
                                           </SelectContent>
                                         </Select>
-                                      ) : typeLabel === 'number' || typeLabel === 'double' || typeLabel === 'integer' ? (
+                                      ) : typeLabel === 'number' || typeLabel === 'double' || typeLabel === 'integer' || enumAsNumber ? (
                                         <Input
                                           key={`${opt.name}-${displayValue}`}
                                           type="number"
@@ -4328,7 +4350,7 @@ export default function ServerConfig() {
                                           // The browser counts valid values up from `min` in `step`
                                           // increments, so a fractional min like 0.001 with step 1
                                           // rejects every whole number the user types.
-                                          step={typeLabel === 'integer' && Number.isInteger(opt.min ?? 0) ? 1 : 'any'}
+                                          step={(typeLabel === 'integer' || enumAsNumber) && Number.isInteger(opt.min ?? 0) ? 1 : 'any'}
                                           disabled={isSaving}
                                           aria-label={displayName}
                                           onBlur={(e) => {

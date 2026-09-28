@@ -237,7 +237,8 @@
     "showAllOptions": "Show all options",
     "noMatches": "No settings match “{{query}}”{{suffix}}",
     "noMatchesInModified": " in modified options",
-    "clearSearch": "Clear search"
+    "clearSearch": "Clear search",
+    "enumChoicesNeedRestart": "The running server still has an older PanelBridge that can't list these choices. Type the choice's number (1 is the first one), or restart the server to load the current PanelBridge."
   },
   "stickySaveBar": {
     "unsavedChange_one": "{{count}} unsaved change",

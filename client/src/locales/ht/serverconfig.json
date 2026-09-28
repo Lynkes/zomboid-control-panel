@@ -237,7 +237,8 @@
     "showAllOptions": "Montre tout opsyon",
     "noMatches": "Pa gen paramèt ki koresponn ak “{{query}}”{{suffix}}",
     "noMatchesInModified": " nan opsyon modifye",
-    "clearSearch": "Efase rechèch"
+    "clearSearch": "Efase rechèch",
+    "enumChoicesNeedRestart": "Sèvè a ki ap fonksyone a toujou gen yon ansyen vèsyon PanelBridge ki pa ka lis chwa sa yo. Tape nimewo chwa a (1 se premye a), oswa redemare sèvè a pou li chaje vèsyon aktyèl PanelBridge la."
   },
   "stickySaveBar": {
     "unsavedChange_one": "{{count}} chanjman ki pa sove",

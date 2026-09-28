@@ -282,6 +282,7 @@
     "noMatches": "Немає налаштувань, що відповідають «{{query}}»{{suffix}}",
     "noMatchesInModified": " серед змінених параметрів",
     "clearSearch": "Очистити пошук",
+    "enumChoicesNeedRestart": "Запущений сервер досі використовує старішу версію PanelBridge, яка не може показати список цих варіантів. Введіть номер варіанта (1 — перший) або перезапустіть сервер, щоб завантажити поточну версію PanelBridge.",
     "sectionSublabelLoaded_few": "Модів: {{count}} · наживо з PanelBridge",
     "sectionSublabelLoaded_many": "Модів: {{count}} · наживо з PanelBridge",
     "groupModifiedTitle_few": "Параметрів, що відрізняються від типових: {{count}}",
