@@ -483,10 +483,12 @@ const PREVIOUS_RUN_SLACK_MS = 5_000;
 // one the state is about. status.json keeps reading as alive for a while
 // after its run ends (services/panelBridge.js: 45 s, or 5 minutes when it
 // last reported nobody online). The panel pins it as dead only when it sees
-// the process exit (PanelBridge.markServerExited()), which a remote host, or
-// a stop and start that land between two status-watchdog ticks, never gives
-// it -- so right after a restart it can still be the previous run's, which
-// says nothing about how the run now starting loads PanelBridge. It is the
+// the process exit (PanelBridge.markServerExited()): its own stops and
+// restarts do, on their verified stop, but a remote host, or a restart the
+// panel didn't drive (a service manager or container respawn) between two
+// status-watchdog ticks, never gives it that -- so right after such a
+// restart it can still be the previous run's, which says nothing about how
+// the run now starting loads PanelBridge. It is the
 // previous run's when:
 //   - the game hasn't started since the switch at all;
 //   - the bridge's own startedAt is the one recorded at switch time (the run
