@@ -85,7 +85,7 @@
     },
     "local-unverified": {
       "title": "Not confirmed yet",
-      "body": "PanelBridge hasn't reported in from this server yet. Upload it with the remote setup steps on this tab, then restart the server."
+      "body": "PanelBridge hasn't reported in from this server yet. Copy PanelBridge.lua to the server with the setup steps on this tab (or your host's file manager), then restart the server."
     },
     "local-workshop-loaded": {
       "title": "Loaded from the Steam Workshop",

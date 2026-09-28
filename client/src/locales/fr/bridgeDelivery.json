@@ -85,7 +85,7 @@
     },
     "local-unverified": {
       "title": "Pas encore confirmé",
-      "body": "PanelBridge ne s'est pas encore signalé depuis ce serveur. Envoyez-le en suivant les étapes de configuration à distance de cet onglet, puis redémarrez le serveur."
+      "body": "PanelBridge ne s'est pas encore signalé depuis ce serveur. Copiez PanelBridge.lua sur le serveur en suivant les étapes de configuration de cet onglet (ou avec le gestionnaire de fichiers de votre hébergeur), puis redémarrez le serveur."
     },
     "local-workshop-loaded": {
       "title": "Chargé depuis le Steam Workshop",

@@ -85,7 +85,7 @@
     },
     "local-unverified": {
       "title": "尚未确认",
-      "body": "PanelBridge 尚未从此服务器报告状态。请按照此标签页中的远程设置步骤上传，然后重启服务器。"
+      "body": "PanelBridge 尚未从此服务器报告状态。请按照此标签页中的设置步骤（或使用托管服务商的文件管理器）将 PanelBridge.lua 复制到服务器，然后重启服务器。"
     },
     "local-workshop-loaded": {
       "title": "已从 Steam 创意工坊加载",

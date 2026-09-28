@@ -85,7 +85,7 @@
     },
     "local-unverified": {
       "title": "尚未確認",
-      "body": "PanelBridge 尚未從此伺服器回報狀態。請依照此分頁中的遠端設定步驟上傳，然後重新啟動伺服器。"
+      "body": "PanelBridge 尚未從此伺服器回報狀態。請依照此分頁中的設定步驟（或使用代管服務商的檔案管理器）將 PanelBridge.lua 複製到伺服器，然後重新啟動伺服器。"
     },
     "local-workshop-loaded": {
       "title": "已從 Steam 創意工坊載入",

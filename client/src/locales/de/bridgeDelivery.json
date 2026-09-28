@@ -85,7 +85,7 @@
     },
     "local-unverified": {
       "title": "Noch nicht bestätigt",
-      "body": "PanelBridge hat sich von diesem Server noch nicht gemeldet. Lade es mit den Schritten zur Remote-Einrichtung auf diesem Tab hoch und starte den Server dann neu."
+      "body": "PanelBridge hat sich von diesem Server noch nicht gemeldet. Kopiere PanelBridge.lua mit den Einrichtungsschritten auf diesem Tab (oder mit dem Dateimanager deines Hosters) auf den Server und starte den Server dann neu."
     },
     "local-workshop-loaded": {
       "title": "Aus dem Steam Workshop geladen",

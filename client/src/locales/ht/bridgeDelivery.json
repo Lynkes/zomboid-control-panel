@@ -85,7 +85,7 @@
     },
     "local-unverified": {
       "title": "Poko konfime",
-      "body": "PanelBridge poko bay nouvèl depi sèvè sa a. Voye l ak etap konfigirasyon adistans ki nan onglè sa a, apre sa redemare sèvè a."
+      "body": "PanelBridge poko bay nouvèl depi sèvè sa a. Kopye PanelBridge.lua sou sèvè a ak etap konfigirasyon ki nan onglè sa a (oswa ak jesyonè fichye ebèjè ou), apre sa redemare sèvè a."
     },
     "local-workshop-loaded": {
       "title": "Chaje nan Steam Workshop",

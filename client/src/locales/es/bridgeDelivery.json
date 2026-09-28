@@ -85,7 +85,7 @@
     },
     "local-unverified": {
       "title": "Sin confirmar",
-      "body": "PanelBridge aún no ha dado señales desde este servidor. Súbelo con los pasos de configuración remota de esta pestaña y reinicia el servidor."
+      "body": "PanelBridge aún no ha dado señales desde este servidor. Copia PanelBridge.lua al servidor con los pasos de configuración de esta pestaña (o con el gestor de archivos de tu proveedor) y reinicia el servidor."
     },
     "local-workshop-loaded": {
       "title": "Cargado desde Steam Workshop",
