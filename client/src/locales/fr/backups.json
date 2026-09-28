@@ -79,6 +79,7 @@
     "customInvalid": "Expression cron non valide",
     "nextRun": "Prochaine sauvegarde : {{date}}",
     "timezoneNotice": "Les horaires suivent le fuseau horaire du panneau, {{tz}} (modifiable dans Tâches planifiées).",
+    "scheduledBackupsOff": "Les sauvegardes planifiées sont désactivées — cette planification s'appliquera dès que vous les activerez.",
     "savesLabel": "Sauvegardes de jeu : {{path}}",
     "saveButton": "Enregistrer les paramètres"
   },
@@ -90,7 +91,7 @@
     "taskUnnamedAll": "Toutes les sauvegardes planifiées tombent pendant un redémarrage planifié (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
     "autoRestart": "Certaines sauvegardes planifiées tombent pendant le redémarrage périodique (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
     "autoRestartAll": "Toutes les sauvegardes planifiées tombent pendant le redémarrage périodique (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
-    "consequence": "Ces sauvegardes attendent la fin du redémarrage, et s'exécutent donc jusqu'à environ {{minutes}} min en retard. Pour qu'elles restent à l'heure, planifiez-les au moins {{minutes}} min après l'heure prévue d'un redémarrage (par exemple, avec des redémarrages à l'heure pile, une sauvegarde à {{exampleTime}}).",
+    "consequence": "Ces sauvegardes attendent la fin du redémarrage, et s'exécutent donc jusqu'à environ {{minutes}} min en retard. Pour qu'elles restent à l'heure, planifiez-les au moins {{minutes}} min après l'heure prévue d'un redémarrage (par exemple, avec des redémarrages à l'heure pile, des sauvegardes à hh{{exampleTime}}).",
     "consequenceNoExample": "Ces sauvegardes attendent la fin du redémarrage, et s'exécutent donc jusqu'à environ {{minutes}} min en retard. Pour qu'elles restent à l'heure, planifiez-les au moins {{minutes}} min après l'heure prévue d'un redémarrage."
   },
   "progress": {

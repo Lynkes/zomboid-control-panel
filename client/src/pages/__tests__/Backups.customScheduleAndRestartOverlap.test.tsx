@@ -212,6 +212,24 @@ describe('Backups.tsx: custom cron schedule', () => {
     expect(updateSettings).toHaveBeenCalledTimes(1)
   })
 
+  it('puts the cron field right under the frequency menu -- before Maximum Backups, in reading and Tab order', async () => {
+    // Review finding: it used to render after the whole two-column grid, so
+    // on a phone (one column) choosing Custom made it appear below Maximum
+    // Backups and its help text, and Tab went to that field first.
+    prime(statusWith({ schedule: '30 3 * * 1-5' }))
+    renderBackups()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
+    const frequency = await screen.findByRole('combobox', { name: 'Backup Frequency' })
+    const cron = await screen.findByLabelText('Cron expression')
+    const maxBackups = screen.getByLabelText('Maximum Backups to Keep')
+    expect(frequency.compareDocumentPosition(cron) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(cron.compareDocumentPosition(maxBackups) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // Its verdict too, not just the field.
+    const verdict = await screen.findByText('Valid schedule')
+    expect(verdict.compareDocumentPosition(maxBackups) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('choosing a preset again saves the preset, not the leftover custom text', async () => {
     prime(statusWith({ schedule: '30 3 * * 1-5' }))
     renderBackups()
@@ -284,6 +302,57 @@ describe('Backups.tsx: scheduled backups and scheduled restarts', () => {
     expect(await screen.findByText('Backups overlap a scheduled restart')).toHaveClass('text-warning')
   })
 
+  it('with scheduled backups Off, the panel promises no next backup and warns about no overlap -- it says the schedule waits for the switch', async () => {
+    // Review finding: under an Auto-Backup card reading "Off · No scheduled
+    // backups", the panel still said "Next backup: <date>" and "Every
+    // scheduled backup lands inside..." -- neither true while nothing runs.
+    prime(statusWith({ enabled: false, schedule: '0 */4 * * *' }))
+    validateSchedule.mockResolvedValue({ ...VALID, restartOverlaps: [overlap] })
+    renderBackups()
+    expect(await screen.findByText('No scheduled backups')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^settings$/i }))
+    expect(await screen.findByText(
+      'Scheduled backups are off — this schedule takes effect once you turn them on.',
+    )).toBeInTheDocument()
+    // The check did run -- a custom expression can still be edited and
+    // saved while they're off -- its answer just isn't worded as a promise.
+    expect(validateSchedule).toHaveBeenCalledWith('0 */4 * * *')
+    expect(screen.queryByText(/^Next backup:/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Backups overlap a scheduled restart')).not.toBeInTheDocument()
+    expect(screen.getByText(/Schedule times are in the panel's timezone, UTC/)).toBeInTheDocument()
+    cleanup()
+
+    // Positive control: the same answer with scheduled backups on.
+    prime(statusWith({ enabled: true, schedule: '0 */4 * * *' }))
+    validateSchedule.mockResolvedValue({ ...VALID, restartOverlaps: [overlap] })
+    renderBackups()
+    fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
+    expect(await screen.findByText(/^Next backup:/)).toBeInTheDocument()
+    expect(await screen.findByText('Backups overlap a scheduled restart')).toBeInTheDocument()
+    expect(screen.queryByText(/Scheduled backups are off/)).not.toBeInTheDocument()
+  })
+
+  it('names the timezone of the overlap times -- once, wherever the notice is', async () => {
+    // Review finding: "the 04:00 backup" is in the scheduler's zone, every
+    // other time on this page in the browser's.
+    const zoned = { ...overlap, timezone: 'UTC' }
+    prime(statusWith({ schedule: '0 */4 * * *', restartOverlaps: [zoned] }))
+    validateSchedule.mockResolvedValue({ ...VALID, restartOverlaps: [zoned] })
+    renderBackups()
+
+    // The standing notice on the page says it itself...
+    expect(await screen.findByText('Backups overlap a scheduled restart')).toBeInTheDocument()
+    expect(screen.getAllByText(/Schedule times are in the panel's timezone, UTC/)).toHaveLength(1)
+
+    // ...and in the settings panel, where the next-run line already names
+    // the zone, it doesn't say it a second time.
+    fireEvent.click(screen.getByRole('button', { name: /^settings$/i }))
+    await screen.findByText(/^Next backup:/)
+    expect(screen.getByText('Backups overlap a scheduled restart')).toBeInTheDocument()
+    expect(screen.getAllByText(/Schedule times are in the panel's timezone, UTC/)).toHaveLength(1)
+  })
+
   it('words an old restart skip as a skip, not a failure -- and a backup since then clears it', async () => {
     const skip = {
       success: false, message: 'Skipped: a restart was in progress', executedAt: '2026-09-27T04:00:00.000Z', skipReason: 'restart' as const,
@@ -331,7 +400,7 @@ describe('Backups.tsx: scheduled backups and scheduled restarts', () => {
       getStatus.mockResolvedValue(statusWith({
         lastScheduledBackupAttempt: {
           success: false,
-          message: "Not run: the server restart that started 25 min ago (5-minute warning) still hasn't finished -- far longer than a restart takes, so it looks stuck.",
+          message: 'Not run: the server restart had been running for 28 min (5-minute warning) without finishing -- far longer than a restart takes, so it looked stuck, and manual backups were blocked while it lasted.',
           executedAt: '2026-09-27T04:25:00.000Z',
           skipReason: null,
           recoveredAt: null,

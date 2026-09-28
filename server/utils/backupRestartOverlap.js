@@ -181,8 +181,9 @@ function formatMinuteOfDay(minuteOfDay) {
  * fires inside of -- at the same minute as the restart, or within
  * `windowMinutes` after it. One entry per overlapping restart schedule, with
  * the first colliding pair of local times ("HH:MM") as an example the UI can
- * quote, `allBackups` when every backup collides (not just that one), and
- * the window itself (how far apart the operator needs to move the two).
+ * quote, the timezone those times are in, `allBackups` when every backup
+ * collides (not just that one), and the window itself (how far apart the
+ * operator needs to move the two).
  * Empty when nothing overlaps or either expression can't be parsed
  * (advisory only: a missed warning costs a late backup, never a lost one --
  * the scheduler defers colliding backups regardless of what this predicts).
@@ -196,10 +197,16 @@ export function findBackupRestartOverlaps(
   if (!backup || !Array.isArray(restarts) || restarts.length === 0) return [];
 
   let start;
+  // The zone the example times are really in, sent with them: the pages
+  // that quote them otherwise show browser-local times, and a UTC Docker
+  // container behind a local browser would put "04:00" hours off from what
+  // the operator reads it as.
+  let zone = timezone;
   try {
     start = zonedDateParts(from, timezone);
   } catch {
-    start = zonedDateParts(from, "UTC");
+    zone = "UTC";
+    start = zonedDateParts(from, zone);
   }
   const window = Math.max(1, Math.floor(windowMinutes));
   // A backup schedule that never leaves `window` minutes without a run
@@ -223,6 +230,7 @@ export function findBackupRestartOverlaps(
       cron: restart.cron,
       restartTime: formatMinuteOfDay(hit.restartMinute),
       backupTime: formatMinuteOfDay(hit.backupMinute),
+      timezone: zone,
       allBackups: everyBackupOverlaps(backup, parsed, start, window),
       windowMinutes: window,
     });

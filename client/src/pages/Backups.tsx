@@ -15,8 +15,6 @@ import {
   Check,
   Upload,
   FileText,
-  CheckCircle2,
-  AlertCircle,
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -47,7 +45,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { useToast } from '@/components/ui/use-toast'
 import { useSocket } from '@/contexts/SocketContext'
-import { backupApi, serversApi, BackupStatus, ServerBackupArchive, BackupHistoryRecord, BackupSnapshot, type BackupScheduleValidation } from '@/lib/api'
+import { backupApi, serversApi, BackupStatus, ServerBackupArchive, BackupHistoryRecord, BackupSnapshot } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { PageHeader } from '@/components/PageHeader'
@@ -57,7 +55,9 @@ import { EmptyState } from '@/components/EmptyState'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { BackupRestartOverlapNotice } from '@/components/BackupRestartOverlapNotice'
 import { scheduledBackupHealth } from '@/lib/scheduledBackupHealth'
-import { isolateLtrForRtl, resolveRegisteredTranslation } from '@/lib/paramTranslation'
+import { isolateLtrForRtl } from '@/lib/paramTranslation'
+import { useBackupScheduleCheck, precheckBackupSchedule, backupScheduleErrorText } from '@/hooks/useBackupScheduleCheck'
+import { BackupScheduleNextRun, BackupScheduleValidity } from '@/components/BackupSchedulePreview'
 
 // The Backup Frequency presets, in menu order -- one list for the <Select>
 // and describeSchedule() so the two can't disagree about which expressions
@@ -198,14 +198,6 @@ export default function Backups() {
   const loadedScheduleRef = useRef<string | null>(null)
   // Same rule for the other field in that form, Maximum Backups to Keep.
   const loadedMaxBackupsRef = useRef<number | null>(null)
-  // Live preview of the schedule being edited (POST /backup/validate-schedule):
-  // validity for a custom expression, next run, and the scheduled restarts it
-  // would land inside. Advisory -- same contract as the Scheduler page's cron
-  // preview: never blocks Save on its own, the server re-validates.
-  // Keyed by the schedule it answers for, so a verdict for what was typed a
-  // moment ago is never shown against what is typed now.
-  const [scheduleCheck, setScheduleCheck] = useState<{ schedule: string; result: BackupScheduleValidation } | null>(null)
-  const scheduleCheckIdRef = useRef(0)
   const [backupMaxCount, setBackupMaxCount] = useState(10)
   const [savingSettings, setSavingSettings] = useState(false)
 
@@ -337,9 +329,13 @@ export default function Backups() {
         progressTimeoutRef.current = setTimeout(() => setBackupProgress(null), 2000)
       } else if (data.phase === 'error') {
         setCreatingBackup(false)
-        // A failed run changes the status too -- a scheduled one writes a
-        // failed attempt, and a backup that was held for a restart is no
-        // longer waiting -- so the Auto-Backup card mustn't keep its old line.
+        // Only a MANUAL backup reports here: scheduled runs, held-for-a-
+        // restart ones included, call createBackup() without `io` and emit
+        // no backup:progress at all -- 'backup:deferred' below and the
+        // 15 s re-check while one waits keep the Auto-Backup card current
+        // for those. A failed manual run still changes the status (its
+        // backupInProgress flag, which the page reads back for a run
+        // started in another tab), so re-read it like 'complete' does.
         fetchBackupStatus()
         progressTimeoutRef.current = setTimeout(() => setBackupProgress(null), 3000)
       }
@@ -708,61 +704,31 @@ export default function Backups() {
 
   // What Save stores: the typed expression in Custom mode, else the preset.
   const scheduleToSave = customSchedule ? customCron.trim() : backupSchedule
-  // The newest verdict stays on screen while the check for a newer edit is
-  // pending -- dimmed and aria-busy, the way Scheduler.tsx keeps its cron
-  // verdict until the next one replaces it -- instead of the whole preview
-  // (validity, next run, the restart-overlap notice) collapsing on every
-  // keystroke and moving the Save button with it. Cleared only for an empty
-  // field, a failed check, or a closed panel (the effect below).
-  const shownScheduleCheck = scheduleToSave ? scheduleCheck?.result ?? null : null
-  const scheduleCheckPending = shownScheduleCheck !== null && scheduleCheck?.schedule !== scheduleToSave
+  // Live preview of the schedule being edited (POST /backup/validate-schedule):
+  // validity for a custom expression, next run, and the scheduled restarts it
+  // would land inside -- through the same hook as Settings > Backups'
+  // Schedule field, so the two editors can't disagree. The newest verdict
+  // stays on screen while the check for a newer edit is pending (dimmed and
+  // aria-busy) instead of the whole preview collapsing on every keystroke
+  // and moving the Save button with it. Only while the settings panel is
+  // open, the only place it shows; never for a role without backups.manage
+  // (the endpoint's own gate) -- the panel shows the saved schedule's
+  // overlaps instead (below).
+  const { check: shownScheduleCheck, pending: scheduleCheckPending } =
+    useBackupScheduleCheck(scheduleToSave, showSettings && canManageBackups)
   // Until the panel has a verdict of its own -- the first check after it
   // opens, or never, for a role that can't run it -- the saved schedule's
   // overlaps from GET /status stand in, so opening the panel doesn't drop
   // the warning the page was already showing and bring it back a round
-  // trip later.
-  const panelRestartOverlaps = shownScheduleCheck
-    ? shownScheduleCheck.valid ? shownScheduleCheck.restartOverlaps : undefined
-    : scheduleToSave === backupStatus?.schedule ? backupStatus.restartOverlaps : undefined
-
-  // A rejected schedule, in the operator's language: the registered error
-  // code's translation, else the server's own sentence.
-  const scheduleCheckError = (check: { error?: string; code?: string }): string =>
-    (check.code && resolveRegisteredTranslation('errors', check.code, undefined)) ||
-    check.error ||
-    t('settingsPanel.customInvalid')
-
-  // Preview the schedule being edited as it changes. Debounced by the
-  // effect's own cleanup, with a generation counter so a slow answer can't
-  // land over a newer one -- the same shape as Scheduler.tsx's cron preview.
-  // Only while the settings panel is open: that's the only place it shows.
-  // Never for a role without backups.manage: POST /backup/validate-schedule
-  // is gated on it (403), and such a role can't save a schedule anyway --
-  // the panel shows the saved schedule's overlaps instead (above).
-  useEffect(() => {
-    if (!showSettings || !canManageBackups || !scheduleToSave) {
-      // Also drops a check still in flight, so a closed panel reopens on
-      // fresh data rather than on what it last showed.
-      scheduleCheckIdRef.current++
-      setScheduleCheck(null)
-      return
-    }
-    const checkId = ++scheduleCheckIdRef.current
-    const timer = setTimeout(() => {
-      backupApi.validateSchedule(scheduleToSave)
-        .then((result) => {
-          if (scheduleCheckIdRef.current !== checkId) return
-          setScheduleCheck({ schedule: scheduleToSave, result })
-        })
-        // Advisory only -- a failed preview says nothing about the schedule
-        // itself, so it just shows nothing; Save still validates server-side.
-        .catch(() => {
-          if (scheduleCheckIdRef.current !== checkId) return
-          setScheduleCheck(null)
-        })
-    }, 400)
-    return () => clearTimeout(timer)
-  }, [showSettings, canManageBackups, scheduleToSave])
+  // trip later. None while scheduled backups are off: no scheduled backup
+  // runs to land inside anything (GET /status sends none then either), and
+  // "every scheduled backup lands inside..." under an Auto-Backup card that
+  // says "Off" would be false.
+  const panelRestartOverlaps = !backupStatus?.enabled
+    ? undefined
+    : shownScheduleCheck
+      ? shownScheduleCheck.valid ? shownScheduleCheck.restartOverlaps : undefined
+      : scheduleToSave === backupStatus.schedule ? backupStatus.restartOverlaps : undefined
 
   const handleFrequencyChange = (value: string) => {
     if (value === CUSTOM_SCHEDULE_VALUE) {
@@ -774,31 +740,6 @@ export default function Backups() {
     }
     setCustomSchedule(false)
     setBackupSchedule(value)
-  }
-
-  // Next run in the scheduler's own timezone -- the zone the cron fields
-  // (and the restart-overlap times beside it) are written in -- so the three
-  // agree even when this browser sits in a different zone than the panel.
-  // Labelled with that zone: every other time on this page (Last Backup,
-  // "due since", attempt times) is in the browser's zone, and a UTC
-  // container behind a local browser would otherwise put two unmarked
-  // times hours apart side by side. Spelled out field by field because
-  // Intl refuses timeZoneName alongside dateStyle/timeStyle (a TypeError
-  // that the catch below would quietly turn into an unlabelled time).
-  const formatInZone = (iso: string, timeZone: string): string => {
-    try {
-      return new Date(iso).toLocaleString(i18n.language, {
-        timeZone,
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        timeZoneName: 'short',
-      })
-    } catch {
-      return formatDate(iso)
-    }
   }
 
   const handleSaveSettings = async () => {
@@ -826,18 +767,14 @@ export default function Backups() {
       // fall through and let POST /settings -- which applies the identical
       // rules -- decide.
       if (customSchedule) {
-        try {
-          const check = await backupApi.validateSchedule(scheduleToSave)
-          if (!check.valid) {
-            toast({
-              title: t('toasts.planUpdateFailedTitle'),
-              description: scheduleCheckError(check),
-              variant: 'destructive',
-            })
-            return
-          }
-        } catch {
-          // See above -- the save itself is the final word.
+        const rejected = await precheckBackupSchedule(scheduleToSave)
+        if (rejected) {
+          toast({
+            title: t('toasts.planUpdateFailedTitle'),
+            description: backupScheduleErrorText(rejected, t('settingsPanel.customInvalid')),
+            variant: 'destructive',
+          })
+          return
         }
       }
       // pz-bughunt round 18: expectedServerId is defense in depth alongside
@@ -1251,6 +1188,37 @@ export default function Backups() {
                 <p className="text-xs text-muted-foreground">
                   {t('settingsPanel.frequencyHelp')}
                 </p>
+                {/* In the frequency column, right under the menu that
+                    reveals it -- not after the whole grid, where a phone's
+                    single column put it below Maximum Backups and Tab
+                    reached that field first. */}
+                {customSchedule && (
+                  <div className="space-y-2 pt-1">
+                    <Label htmlFor="backup-schedule-cron">{t('settingsPanel.customLabel')}</Label>
+                    <Input
+                      id="backup-schedule-cron"
+                      value={customCron}
+                      onChange={(e) => setCustomCron(e.target.value)}
+                      placeholder={t('settingsPanel.customPlaceholder')}
+                      // A cron is left-to-right in every language; in an RTL
+                      // page its neutral '*' and '/' would otherwise lay out
+                      // reversed as it's typed.
+                      dir="ltr"
+                      className="font-mono"
+                      maxLength={100}
+                      aria-describedby="backup-schedule-cron-hint"
+                    />
+                    <p id="backup-schedule-cron-hint" className="text-xs text-muted-foreground">
+                      {t('settingsPanel.customHint', { example: isolateLtrForRtl('30 3 * * *') })}
+                    </p>
+                    <BackupScheduleValidity check={shownScheduleCheck} pending={scheduleCheckPending} />
+                  </div>
+                )}
+                <BackupScheduleNextRun
+                  check={shownScheduleCheck}
+                  pending={scheduleCheckPending}
+                  backupsEnabled={backupStatus?.enabled}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="backup-max">{t('settingsPanel.maxBackupsLabel')}</Label>
@@ -1268,60 +1236,14 @@ export default function Backups() {
                 </p>
               </div>
             </div>
-            {customSchedule && (
-              <div className="space-y-2">
-                <Label htmlFor="backup-schedule-cron">{t('settingsPanel.customLabel')}</Label>
-                <Input
-                  id="backup-schedule-cron"
-                  value={customCron}
-                  onChange={(e) => setCustomCron(e.target.value)}
-                  placeholder={t('settingsPanel.customPlaceholder')}
-                  // A cron is left-to-right in every language; in an RTL
-                  // page its neutral '*' and '/' would otherwise lay out
-                  // reversed as it's typed.
-                  dir="ltr"
-                  className="font-mono"
-                  maxLength={100}
-                  aria-describedby="backup-schedule-cron-hint"
-                />
-                <p id="backup-schedule-cron-hint" className="text-xs text-muted-foreground">
-                  {t('settingsPanel.customHint', { example: isolateLtrForRtl('30 3 * * *') })}
-                </p>
-                {shownScheduleCheck && (
-                  <p
-                    className={cn(
-                      'flex items-center gap-1.5 text-xs transition-opacity',
-                      shownScheduleCheck.valid ? 'text-primary' : 'text-destructive',
-                      scheduleCheckPending && 'opacity-60',
-                    )}
-                    aria-live="polite"
-                    aria-busy={scheduleCheckPending || undefined}
-                  >
-                    {shownScheduleCheck.valid ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    ) : (
-                      <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    )}
-                    {shownScheduleCheck.valid ? t('settingsPanel.customValid') : scheduleCheckError(shownScheduleCheck)}
-                  </p>
-                )}
-              </div>
-            )}
-            {shownScheduleCheck?.valid && (
-              <div
-                className={cn('space-y-1 text-xs text-muted-foreground transition-opacity', scheduleCheckPending && 'opacity-60')}
-                aria-busy={scheduleCheckPending || undefined}
-              >
-                {shownScheduleCheck.nextRun && (
-                  <p className="flex items-center gap-1">
-                    <Clock className="h-3 w-3 shrink-0" aria-hidden="true" />
-                    {t('settingsPanel.nextRun', { date: formatInZone(shownScheduleCheck.nextRun, shownScheduleCheck.timezone) })}
-                  </p>
-                )}
-                <p>{t('settingsPanel.timezoneNotice', { tz: shownScheduleCheck.timezone })}</p>
-              </div>
-            )}
-            <BackupRestartOverlapNotice overlaps={panelRestartOverlaps} live stale={scheduleCheckPending} />
+            {/* The timezone line is already on screen, in the next-run
+                block above, whenever the panel has a verdict to show it. */}
+            <BackupRestartOverlapNotice
+              overlaps={panelRestartOverlaps}
+              live
+              stale={scheduleCheckPending}
+              hideTimeZone={Boolean(shownScheduleCheck?.valid)}
+            />
             <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 text-xs text-muted-foreground">
                 {backupStatus?.savesPath && (

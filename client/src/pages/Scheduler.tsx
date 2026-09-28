@@ -1510,8 +1510,10 @@ export default function Scheduler() {
               )}
               {/* This page is where restarts get scheduled, so it's where an
                   operator stacking one on top of the backup schedule needs to
-                  hear that those backups will wait for it and run late. */}
-              <BackupRestartOverlapNotice overlaps={backupStatus?.restartOverlaps} className="mt-2" />
+                  hear that those backups will wait for it and run late.
+                  No timezone line of its own: this card is the timezone
+                  card, and says which zone is in effect just above. */}
+              <BackupRestartOverlapNotice overlaps={backupStatus?.restartOverlaps} hideTimeZone className="mt-2" />
             </div>
           )}
         </CardContent>

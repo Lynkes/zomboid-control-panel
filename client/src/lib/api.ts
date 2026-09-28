@@ -3256,12 +3256,15 @@ export interface ScheduledBackupAttempt {
 // collides. `windowMinutes` is how long after a restart's start time a
 // backup still lands inside it. `name` and `cron` are null for a caller
 // without automation.manage (the Scheduler's own gate on task details).
+// `timezone` names that scheduler timezone, so a page can label the times
+// -- optional: older servers don't send it.
 export interface BackupRestartOverlap {
   kind: 'task' | 'autoRestart';
   name: string | null;
   cron: string | null;
   restartTime: string;
   backupTime: string;
+  timezone?: string;
   allBackups: boolean;
   windowMinutes: number;
 }

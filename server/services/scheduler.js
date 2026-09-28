@@ -229,6 +229,14 @@ const SAME_SECOND_RESTART_SETTLE_MS = 5000;
 // retries: 10-11 minutes at its slowest. 20 leaves room for a slow disk or
 // save without calling a healthy restart stuck.
 const RESTART_SEQUENCE_BUDGET_MS = 20 * 60 * 1000;
+// Added per minute of that countdown: each minute's warning broadcast is an
+// RCON round trip on top of the minute's own sleep, and against a degraded
+// RCON one can take a connect timeout plus a command timeout (rcon.js:
+// 13 s + 10 s) before giving up -- so a long countdown that is healthy but
+// can't reach its players runs well past its nominal length, and a
+// 60-minute one would otherwise spend half the budget above before its
+// stop/start sequence even began.
+const COUNTDOWN_MINUTE_OVERRUN_MS = 30 * 1000;
 // POST /scheduler/restart-now's own cap on the countdown. Only used if the
 // wait can't see the running restart's real countdown (defensive: both are
 // set together in performRestart()).
@@ -1098,14 +1106,19 @@ export class Scheduler {
   // trigger needs to happen now -- nothing makes a restart wait on a
   // backup, on purpose (createBackup()'s own backupInProgress mutex covers
   // the backup<->restore direction instead). After is also the better
-  // snapshot: performRestart() has just saved the world, and by the time it
-  // returns the old process is confirmed gone and the new one has loaded
-  // the world far enough to answer RCON (or the start failed and nothing is
-  // running) -- as settled as the files ever are, the same conditions every
-  // other scheduled backup runs under. That holds when the restart FAILED
-  // part-way too: whichever state it stopped in, nothing in the sequence is
-  // still writing, and right after a failed restart is when an operator
-  // most wants a fresh backup.
+  // snapshot: performRestart() has just saved the world, and in the common
+  // case by the time it returns the old process is confirmed gone and the
+  // new one has loaded the world far enough to answer RCON (or the start
+  // failed and nothing is running). Not always: when the server was
+  // offline it returns ~10 s after launching it, and when its RCON wait
+  // times out it returns without that confirmation -- on both paths the
+  // new instance may still be loading the world, which is the same
+  // hot-backup condition every scheduled backup of a running server
+  // already archives under. Either way the restart's own save/quit is
+  // over, and that is the write a backup must not cut through. The same
+  // goes for a restart that FAILED part-way: whichever state it stopped
+  // in, its sequence is no longer writing, and right after a failed
+  // restart is when an operator most wants a fresh backup.
   //
   // The same-second tie -- the reported setup exactly: backup and restart
   // both "0 */4 * * *". node-cron arms one heartbeat timer per job, so which
@@ -1231,13 +1244,15 @@ export class Scheduler {
   // one that came due during a 5-minute scheduled restart shouldn't sit for
   // an hour before anyone hears the restart is stuck. Re-read on every poll,
   // so a second restart starting right as the first ends gets its own
-  // budget.
+  // budget. Each countdown minute counts with its worst-case broadcast
+  // overrun (COUNTDOWN_MINUTE_OVERRUN_MS), not as a bare 60 s.
   _deferredBackupDeadline(deferredAt) {
+    const countdownMs = (minutes) => minutes * (60000 + COUNTDOWN_MINUTE_OVERRUN_MS);
     const restart = this.activeRestart;
     if (restart) {
-      return restart.startedAt + restart.warningMinutes * 60000 + RESTART_SEQUENCE_BUDGET_MS;
+      return restart.startedAt + countdownMs(restart.warningMinutes) + RESTART_SEQUENCE_BUDGET_MS;
     }
-    return deferredAt + MAX_RESTART_WARNING_MINUTES * 60000 + RESTART_SEQUENCE_BUDGET_MS;
+    return deferredAt + countdownMs(MAX_RESTART_WARNING_MINUTES) + RESTART_SEQUENCE_BUDGET_MS;
   }
 
   // How long the restart has been stuck is measured from the restart's own
@@ -1259,17 +1274,27 @@ export class Scheduler {
   // print times hours off from the operator's browser. The row's own
   // executedAt is already shown localized; this says how long, relative
   // to that.
+  //
+  // And written in the past tense, as a record of that moment: the row
+  // stays the newest scheduled attempt -- and the Dashboard's warning --
+  // until the next tick or a successful backup, which on a daily schedule
+  // is hours later, typically after the operator has done exactly what it
+  // advises and restarted the panel. "Still hasn't finished ... manual
+  // backups are blocked" would by then be false, and read as if that panel
+  // restart had done nothing. What the operator should do next stays
+  // conditional ("if a restart still seems to be running") for the same
+  // reason.
   async _logStuckRestartBackup(deferredAt) {
     const now = Date.now();
     const waited = now - deferredAt;
     const restart = this.activeRestart;
     const stuck = restart
-      ? `the server restart that started ${Math.round((now - restart.startedAt) / 60000)} min ago (${restart.warningMinutes}-minute warning) still hasn't finished`
-      : `the server restart running when this backup came due still hasn't finished ${Math.round(waited / 60000)} min later`;
+      ? `the server restart had been running for ${Math.round((now - restart.startedAt) / 60000)} min (${restart.warningMinutes}-minute warning) without finishing`
+      : `the server restart running when this backup came due still hadn't finished ${Math.round(waited / 60000)} min later`;
     const message =
-      `Not run: ${stuck} -- far longer than a restart takes, so it looks stuck. ` +
-      "Manual backups are blocked until it ends as well. Check whether the game server came back up; " +
-      "restarting the panel clears the stuck restart, and a backup can be created after that.";
+      `Not run: ${stuck} -- far longer than a restart takes, so it looked stuck, and manual backups were blocked while it lasted. ` +
+      "If a restart still seems to be running, check whether the game server came back up, then restart the panel to clear it. " +
+      "Creating a backup after that also clears the failed-backup warning.";
     log.error(`Scheduled backup -- ${message}`);
     await logScheduleExecution(null, "Scheduled Backup", "backup", false, message, waited);
   }

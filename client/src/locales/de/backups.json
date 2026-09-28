@@ -78,6 +78,7 @@
     "customInvalid": "Kein gültiger Cron-Ausdruck",
     "nextRun": "Nächstes Backup: {{date}}",
     "timezoneNotice": "Die Zeiten gelten in der Zeitzone des Panels, {{tz}} (änderbar unter Geplante Aufgaben).",
+    "scheduledBackupsOff": "Geplante Backups sind aus – dieser Zeitplan gilt, sobald du sie einschaltest.",
     "savesLabel": "Spielstände: {{path}}",
     "saveButton": "Einstellungen speichern"
   },

@@ -21,10 +21,26 @@ describe("findBackupRestartOverlaps", () => {
         cron: "0 */4 * * *",
         restartTime: "00:00",
         backupTime: "00:00",
+        timezone: "UTC",
         allBackups: true,
         windowMinutes: 10,
       },
     ]);
+  });
+
+  it("says which timezone its example times are in -- the scheduler's, falling back to UTC like the times themselves", () => {
+    // 04:00 in New York is 08:00 UTC: the times are local to that zone,
+    // and the zone travels with them so a page can label them.
+    const newYork = findBackupRestartOverlaps("0 4 * * *", [task("0 4 * * *")], {
+      timezone: "America/New_York", windowMinutes: 10, from: FROM,
+    });
+    expect(newYork).toEqual([
+      expect.objectContaining({ restartTime: "04:00", backupTime: "04:00", timezone: "America/New_York" }),
+    ]);
+    const unknown = findBackupRestartOverlaps("0 4 * * *", [task("0 4 * * *")], {
+      timezone: "Not/A_Zone", windowMinutes: 10, from: FROM,
+    });
+    expect(unknown).toEqual([expect.objectContaining({ timezone: "UTC" })]);
   });
 
   it("says SOME backups when only part of the schedule collides", () => {

@@ -78,6 +78,7 @@
     "customInvalid": "不是有效的 cron 表达式",
     "nextRun": "下次备份：{{date}}",
     "timezoneNotice": "计划时间按面板时区 {{tz}} 计算（可在“计划任务”中更改）。",
+    "scheduledBackupsOff": "计划备份已关闭——开启后才会按此计划运行。",
     "savesLabel": "存档：{{path}}",
     "saveButton": "保存设置"
   },

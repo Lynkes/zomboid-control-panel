@@ -78,6 +78,7 @@
     "customInvalid": "Not a valid cron expression",
     "nextRun": "Next backup: {{date}}",
     "timezoneNotice": "Schedule times are in the panel's timezone, {{tz}} (change it under Scheduled Tasks).",
+    "scheduledBackupsOff": "Scheduled backups are off — this schedule takes effect once you turn them on.",
     "savesLabel": "Saves: {{path}}",
     "saveButton": "Save Settings"
   },

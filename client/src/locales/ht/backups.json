@@ -78,6 +78,7 @@
     "customInvalid": "Se pa yon ekspresyon cron valid",
     "nextRun": "Pwochen kopi sovgad: {{date}}",
     "timezoneNotice": "Lè yo nan orè a swiv fizo orè panèl la, {{tz}} (ou ka chanje l nan Tach Pwograme).",
+    "scheduledBackupsOff": "Kopi sovgad pwograme yo dezaktive — orè sa a ap aplike depi ou aktive yo.",
     "savesLabel": "Sovgad: {{path}}",
     "saveButton": "Sove Paramèt"
   },

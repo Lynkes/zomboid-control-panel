@@ -152,12 +152,13 @@ describe("Scheduler: a scheduled backup that lands on a restart is deferred, not
     beginRestart(5);
     const tick = capturedBackupCallback();
 
-    // A 5-minute countdown plus the restart-sequence budget (20 min) is 25
-    // minutes; still inside it, nothing is logged yet.
-    await vi.advanceTimersByTimeAsync(24 * MINUTE);
+    // A 5-minute countdown (each minute allowed 30 s of broadcast overrun,
+    // so 7.5) plus the restart-sequence budget (20 min) is 27.5 minutes;
+    // still inside it, nothing is logged yet.
+    await vi.advanceTimersByTimeAsync(27 * MINUTE);
     expect(backupRows()).toHaveLength(0);
 
-    await vi.advanceTimersByTimeAsync(2 * MINUTE);
+    await vi.advanceTimersByTimeAsync(MINUTE);
     await tick;
 
     expect(createBackup).not.toHaveBeenCalled();
@@ -165,13 +166,19 @@ describe("Scheduler: a scheduled backup that lands on a restart is deferred, not
     expect(rows).toHaveLength(1);
     expect(rows[0][3]).toBe(false);
     expect(rows[0][4]).toMatch(
-      /^Not run: the server restart that started 25 min ago \(5-minute warning\) still hasn't finished -- .* looks stuck\./,
+      /^Not run: the server restart had been running for 28 min \(5-minute warning\) without finishing -- .* so it looked stuck, and manual backups were blocked while it lasted\./,
     );
     // A next step that works in this state: createBackup() refuses manual
     // backups too while the restart flag is up, and only a panel restart
     // clears a restart hung past its countdown.
-    expect(rows[0][4]).toMatch(/Manual backups are blocked until it ends as well/);
-    expect(rows[0][4]).toMatch(/restarting the panel clears the stuck restart/);
+    expect(rows[0][4]).toMatch(/restart the panel to clear it/);
+    expect(rows[0][4]).toMatch(/Creating a backup after that also clears the failed-backup warning/);
+    // Review finding: the row is the Dashboard's "Scheduled backup failing"
+    // detail until the next tick -- hours later on a daily schedule, and
+    // typically after the operator restarted the panel as advised. Written
+    // as a record of that moment, it stays true then; "still hasn't
+    // finished" / "are blocked" would claim a stuck restart that is gone.
+    expect(rows[0][4]).not.toMatch(/still hasn't|hasn't finished|are blocked|looks stuck|min ago/);
     // Shown verbatim on the Dashboard and the Backups card: no raw UTC ISO
     // timestamps, which read as the wrong time next to a local browser.
     expect(rows[0][4]).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
@@ -185,7 +192,7 @@ describe("Scheduler: a scheduled backup that lands on a restart is deferred, not
     // once -- and its row, the newest one, is what the Dashboard shows.
     beginRestart(5);
     const first = capturedBackupCallback();
-    await vi.advanceTimersByTimeAsync(26 * MINUTE);
+    await vi.advanceTimersByTimeAsync(28 * MINUTE);
     await first;
 
     // 08:00 -- the next "0 */4 * * *" tick, the restart still hung.
@@ -197,7 +204,7 @@ describe("Scheduler: a scheduled backup that lands on a restart is deferred, not
     const rows = backupRows();
     expect(rows).toHaveLength(2);
     expect(rows[1][3]).toBe(false);
-    expect(rows[1][4]).toMatch(/the server restart that started 240 min ago \(5-minute warning\) still hasn't finished/);
+    expect(rows[1][4]).toMatch(/the server restart had been running for 240 min \(5-minute warning\) without finishing/);
     expect(rows[1][4]).not.toMatch(/\b0 min\b/);
     expect(createBackup).not.toHaveBeenCalled();
   });
@@ -210,6 +217,27 @@ describe("Scheduler: a scheduled backup that lands on a restart is deferred, not
     expect(backupRows()).toHaveLength(0);
 
     await vi.advanceTimersByTimeAsync(35 * MINUTE);
+    endRestart();
+    await vi.advanceTimersByTimeAsync(10 * 1000);
+    await tick;
+
+    expect(createBackup).toHaveBeenCalledTimes(1);
+    expect(backupRows()).toHaveLength(1);
+    expect(backupRows()[0][3]).toBe(true);
+  });
+
+  it("allows a long countdown its broadcast overrun: a 60-minute restart whose warnings time out against a degraded RCON is not stuck at minute 85", async () => {
+    // Review finding: each countdown minute is a 60 s sleep PLUS its warning
+    // broadcast, which against an unresponsive RCON can take a connect and
+    // a command timeout (~23 s) -- about 20 extra minutes over a 60-minute
+    // countdown. Measured as a bare 60 min + 20 min budget, this healthy
+    // restart was called stuck at minute 80 and its backup dropped.
+    beginRestart(60);
+    const tick = capturedBackupCallback();
+
+    await vi.advanceTimersByTimeAsync(85 * MINUTE);
+    expect(backupRows()).toHaveLength(0);
+
     endRestart();
     await vi.advanceTimersByTimeAsync(10 * 1000);
     await tick;
@@ -379,6 +407,7 @@ describe("Scheduler.getBackupRestartOverlaps(): which scheduled restarts the bac
         cron: "0 */4 * * *",
         restartTime: "00:00",
         backupTime: "00:00",
+        timezone: "UTC",
         allBackups: true,
         // performRestart()'s default 5-minute countdown plus the typical
         // 5-minute save/quit/relaunch tail.

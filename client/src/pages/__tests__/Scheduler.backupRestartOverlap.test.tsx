@@ -99,7 +99,7 @@ describe('Scheduler.tsx: the backup-health block explains restart interactions',
       restartOverlaps: [
         {
           kind: 'task', name: 'Restart every 4h', cron: '0 */4 * * *', restartTime: '00:00', backupTime: '00:00',
-          allBackups: true, windowMinutes: 10,
+          timezone: 'UTC', allBackups: true, windowMinutes: 10,
         },
       ],
     } as unknown as Awaited<ReturnType<typeof backupApi.getStatus>>)
@@ -111,6 +111,9 @@ describe('Scheduler.tsx: the backup-health block explains restart interactions',
     expect(screen.getByText(
       'Every scheduled backup lands inside the scheduled restart "Restart every 4h" (for example, the 00:00 backup, during the 00:00 restart).',
     )).toBeInTheDocument()
+    // No timezone line of its own: it sits inside the timezone card, which
+    // already says which zone is in effect.
+    expect(screen.queryByText(/Schedule times are in the panel's timezone/)).not.toBeInTheDocument()
   })
 
   it('shows an old restart skip as a skip, not "Last attempt failed"', async () => {

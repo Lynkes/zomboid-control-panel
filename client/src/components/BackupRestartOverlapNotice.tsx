@@ -28,17 +28,26 @@ import { cn } from '@/lib/utils'
 // must not interrupt typing -- and `stale` dims it (aria-busy) while a check
 // for a newer edit is pending, rather than the notice vanishing and coming
 // back on every keystroke.
+//
+// The example times are in the scheduler's timezone, which the server sends
+// with them; the notice names it, since the pages around it show
+// browser-local times (a UTC Docker container behind a local browser puts
+// the two hours apart). `hideTimeZone` where that zone is already on screen
+// right beside it: the schedule preview's own timezone line, or the
+// Scheduler's timezone card.
 export function BackupRestartOverlapNotice({
   overlaps,
   tone = 'warning',
   live = false,
   stale = false,
+  hideTimeZone = false,
   className,
 }: {
   overlaps: BackupRestartOverlap[] | undefined
   tone?: 'warning' | 'neutral'
   live?: boolean
   stale?: boolean
+  hideTimeZone?: boolean
   className?: string
 }) {
   const { t } = useTranslation('backups')
@@ -75,6 +84,8 @@ export function BackupRestartOverlapNotice({
   // AUTO_RESTART_CRON, an environment variable, not a setting on a page.
   const windowMinutes = overlaps[0].windowMinutes
   const exampleMinute = [30, 45].find((minute) => minute >= windowMinutes)
+  // One zone for every overlap -- they all come from the one scheduler.
+  const timeZone = hideTimeZone ? undefined : overlaps[0].timezone
 
   const neutral = tone === 'neutral'
   return (
@@ -108,6 +119,7 @@ export function BackupRestartOverlapNotice({
               })
             : t('restartOverlap.consequenceNoExample', { minutes: windowMinutes })}
         </p>
+        {timeZone && <p>{t('settingsPanel.timezoneNotice', { tz: timeZone })}</p>}
       </AlertDescription>
     </Alert>
   )

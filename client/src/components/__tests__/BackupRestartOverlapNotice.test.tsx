@@ -60,3 +60,22 @@ describe('BackupRestartOverlapNotice: the example fits the window it illustrates
     expect(region).toHaveAttribute('aria-busy', 'true')
   })
 })
+
+describe('BackupRestartOverlapNotice: says which timezone its times are in', () => {
+  // Review finding: "the 04:00 backup, during the 04:00 restart" is in the
+  // scheduler's zone, while every other time on the Backups page and in
+  // Settings is browser-local -- a UTC Docker container behind a local
+  // browser puts the two hours apart with nothing to tell them apart.
+  it('names the zone the server sent with the times', () => {
+    render(<BackupRestartOverlapNotice overlaps={[{ ...overlap(10), timezone: 'UTC' }]} />)
+    expect(screen.getByText("Schedule times are in the panel's timezone, UTC (change it under Scheduled Tasks).")).toBeInTheDocument()
+  })
+
+  it('leaves it out where the zone is already on screen beside it, or when an older server sent none', () => {
+    render(<BackupRestartOverlapNotice overlaps={[{ ...overlap(10), timezone: 'UTC' }]} hideTimeZone />)
+    expect(screen.queryByText(/panel's timezone/)).not.toBeInTheDocument()
+    cleanup()
+    render(<BackupRestartOverlapNotice overlaps={[overlap(10)]} />)
+    expect(screen.queryByText(/panel's timezone/)).not.toBeInTheDocument()
+  })
+})
