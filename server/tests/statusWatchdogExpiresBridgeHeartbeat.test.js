@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 // 2026-09 Discord report (Windows native, server "MAZE"): a panel Stop really
 // stopped the server, but the Servers card showed "Process Down", "RCON
@@ -131,5 +134,89 @@ describe("status watchdog -- a stopped server's PanelBridge heartbeat is expired
     } finally {
       getActiveServer.mockResolvedValue({ id: 1, name: "MAZE", isRemote: false });
     }
+  });
+});
+
+// Review round 4: the expiry above had no way back. The "stopped" diagnostic
+// held until the mod's next write -- which a restarted server only makes once
+// its world has loaded, and never with a broken PanelBridge -- so Settings >
+// Bridge and the Events page said "The game server has stopped" beside a
+// Dashboard that said Starting/Online. Driven through the real singleton and
+// a real status.json here, because the contradiction is between the two.
+describe("status watchdog -- a running server is not described as stopped in the bridge diagnostics", () => {
+  let tmpDir;
+  let savedBridgePath;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "watchdog-bridge-"));
+    savedBridgePath = panelBridge.bridgePath;
+    panelBridge.bridgePath = tmpDir;
+    // The last write of a server that is about to stop: idle, 60s old, so
+    // only the 5-minute idle tolerance keeps it "alive".
+    const file = path.join(tmpDir, "status.json");
+    fs.writeFileSync(file, JSON.stringify({ alive: true, version: "1.7.60", serverName: "MAZE", playerCount: 0, players: [] }));
+    const mtime = new Date(Date.now() - 60_000);
+    fs.utimesSync(file, mtime, mtime);
+    panelBridge.lastStatusFileCheck = 0;
+    panelBridge.checkModStatus();
+  });
+
+  afterEach(() => {
+    panelBridge.bridgePath = savedBridgePath;
+    panelBridge.exitedServerStatusMtimeMs = null;
+    panelBridge.serverRunningAgainSinceMs = null;
+    panelBridge.lastStatusFileCheck = 0;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("stop, then start: 'stopped' while it is down, how long PanelBridge has been silent once it runs, the old write dead throughout", async () => {
+    // Starts from: stopped (previous describe). Bring it up first.
+    scanSpy.mockResolvedValue({ running: true, scanFailed: false });
+    await checkServerStatusNow("start-detected");
+    expect(panelBridge.isModConnected()).toBe(true);
+
+    scanSpy.mockResolvedValue({ running: false, scanFailed: false });
+    await checkServerStatusNow("watchdog");
+    expect(panelBridge.getConnectionDiagnostics().summary.key).toBe("serverExited");
+
+    // Started again; the new process is still loading its world, so the
+    // mod has not written.
+    scanSpy.mockResolvedValue({ running: true, scanFailed: false });
+    await checkServerStatusNow("start-detected");
+
+    const diagnostics = panelBridge.getConnectionDiagnostics();
+    expect(diagnostics.summary.key).toBe("bridgeSilentSinceStart");
+    expect(diagnostics.summary.params).toEqual({ age: "0s" });
+    expect(diagnostics.canSendCommands).toBe(false);
+    panelBridge.checkModStatus();
+    expect(panelBridge.isModConnected()).toBe(false);
+  });
+
+  it("also after a stop the watchdog never saw: a restart expired the heartbeat between two running ticks", async () => {
+    // Starts from: running (previous test).
+    scanSpy.mockResolvedValue({ running: true, scanFailed: false });
+    await checkServerStatusNow("watchdog");
+    // Scheduler.performRestart()'s verified stop, relaunched before the next tick.
+    panelBridge.markServerExited();
+    expect(panelBridge.getConnectionDiagnostics().summary.key).toBe("serverExited");
+    emitSpy.mockClear();
+
+    await checkServerStatusNow("watchdog");
+
+    // No transition for this watchdog to announce...
+    expect(emitSpy).not.toHaveBeenCalledWith("server:status", expect.anything());
+    // ...but the diagnostics no longer call the running server stopped.
+    expect(panelBridge.getConnectionDiagnostics().summary.key).toBe("bridgeSilentSinceStart");
+    expect(panelBridge.isModConnected()).toBe(false);
+  });
+
+  it("leaves the diagnostics alone on an unknown tick", async () => {
+    // Starts from: running (previous test).
+    panelBridge.markServerExited();
+    scanSpy.mockResolvedValue({ running: false, scanFailed: true });
+
+    await checkServerStatusNow("scan-hiccup");
+
+    expect(panelBridge.getConnectionDiagnostics().summary.key).toBe("serverExited");
   });
 });

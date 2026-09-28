@@ -265,11 +265,51 @@ describe("performRestart() pushes server:status at its own verified transitions"
     }
   });
 
+  // The counterpart: without it Settings > Bridge kept saying "the game
+  // server has stopped" beside the 'starting' push, until the mod's first
+  // write after the world load (or the watchdog's next running tick).
+  it("native restart of the active server: tells PanelBridge the server runs again before pushing 'starting'", async () => {
+    getServer.mockResolvedValue(null);
+    getActiveServer.mockResolvedValue({ id: 1 });
+    runManagedLifecycle.mockResolvedValue({ handled: false });
+    const exitedSpy = vi.spyOn(panelBridge, "markServerExited").mockImplementation(() => {});
+    const runningSpy = vi.spyOn(panelBridge, "markServerRunning").mockImplementation(() => {});
+
+    try {
+      const emit = vi.fn();
+      const scheduler = new Scheduler({}, {});
+      scheduler.sleep = async () => {};
+      scheduler.setIo({ emit });
+      const serverManager = {
+        _serverId: 1,
+        getServerProcessDetails: vi
+          .fn()
+          .mockResolvedValueOnce({ running: true, scanFailed: false })
+          .mockResolvedValueOnce({ running: false, scanFailed: false })
+          .mockResolvedValue({ running: true, scanFailed: false }),
+        startServer: vi.fn().mockResolvedValue({ success: true }),
+      };
+
+      await scheduler.performRestart(0, { rconService: makeRconService(), serverManager });
+
+      expect(runningSpy).toHaveBeenCalledTimes(1);
+      expect(exitedSpy.mock.invocationCallOrder[0]).toBeLessThan(runningSpy.mock.invocationCallOrder[0]);
+      const runningPush = emit.mock.calls.findIndex(
+        ([event, payload]) => event === "server:status" && payload.running === true,
+      );
+      expect(runningSpy.mock.invocationCallOrder[0]).toBeLessThan(emit.mock.invocationCallOrder[runningPush]);
+    } finally {
+      exitedSpy.mockRestore();
+      runningSpy.mockRestore();
+    }
+  });
+
   it("native restart of a server that is not the active one: leaves the active server's heartbeat alone", async () => {
     getServer.mockResolvedValue(null);
     getActiveServer.mockResolvedValue({ id: 2 }); // panelBridge watches server 2
     runManagedLifecycle.mockResolvedValue({ handled: false });
     const markSpy = vi.spyOn(panelBridge, "markServerExited").mockImplementation(() => {});
+    const runningSpy = vi.spyOn(panelBridge, "markServerRunning").mockImplementation(() => {});
 
     try {
       const scheduler = new Scheduler({}, {});
@@ -287,8 +327,10 @@ describe("performRestart() pushes server:status at its own verified transitions"
       await scheduler.performRestart(0, { rconService: makeRconService(), serverManager });
 
       expect(markSpy).not.toHaveBeenCalled();
+      expect(runningSpy).not.toHaveBeenCalled();
     } finally {
       markSpy.mockRestore();
+      runningSpy.mockRestore();
     }
   });
 

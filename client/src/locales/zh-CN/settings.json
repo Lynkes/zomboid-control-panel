@@ -452,6 +452,7 @@
       "statusFileMissing": "状态文件缺失。请启用 PanelBridge 并启动游戏服务器。",
       "statusFileStale": "状态文件已过期（{{age}}前）— PZ 服务器是否正在运行？",
       "serverExited": "游戏服务器已停止。服务器再次启动后，PanelBridge 会重新连接。",
+      "bridgeSilentSinceStart": "游戏服务器已于 {{age}} 前启动，但 PanelBridge 尚未报告状态。世界加载完成后它才会报告；如果一直没有报告，请检查 PanelBridge 是否在服务器的活动模组列表中。",
       "statusFileMetadataFailed": "无法读取状态文件的元数据：{{error}}",
       "healthy": "桥接文件连接看起来正常。"
     },

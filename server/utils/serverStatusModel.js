@@ -51,10 +51,15 @@ const MANAGED_LIFECYCLE_PROVIDERS = ["systemd", "openrc"];
  * absent when the plain process scan did. A unit that answered is as
  * authoritative as a completed scan: the panel's systemd unit is
  * Type=simple with KillMode=control-group, so "inactive"/"failed" means
- * every process in it (the JVM, and the PanelBridge mod inside it) is gone
- * (OpenRC's supervise-daemon likewise takes its child down on stop, so its
- * "stopped" is as final), and linuxServiceLifecycle.js's status() downgrades
- * every state it cannot vouch for to scanFailed: an unregistered unit, a
+ * every process in it (the JVM, and the PanelBridge mod inside it) is gone.
+ * OpenRC's "stopped" is given the same weight on an assumption that has NOT
+ * been checked on a live OpenRC host: supervise-daemon signals only the
+ * child it started -- `/bin/bash <launcher>`, and PZ's start-server.sh
+ * runs the game without exec -- so if the JVM ever outlived that signal,
+ * this verdict would say stopped while RCON still answered. If that shows
+ * up, drop "openrc" from this rule rather than trusting the unit state.
+ * Either way, linuxServiceLifecycle.js's status() downgrades every state
+ * it cannot vouch for to scanFailed: an unregistered unit, a
  * failed ownership check, systemd's "deactivating" and "unknown", and every
  * `rc-service status` answer but started/stopped/starting -- OpenRC's
  * "stopping" included, which inspect() maps onto "deactivating" because the

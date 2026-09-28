@@ -1291,12 +1291,16 @@ export default function Servers() {
       // result.success === false.
       await serverApi.start()
       const confirmed = await waitForActionState(server.id, true)
+      // Refreshed before the toast, as on the Dashboard: the refetch runs a
+      // fresh process scan (~1.5s on Windows), and toasting first said
+      // "Server started" beside a card still showing its spinner and the
+      // pre-action badges.
+      await refreshAfterInlineAction(server)
       toast({
         title: confirmed ? t('toasts.serverStartedTitle') : t('toasts.serverStartRequestedTitle'),
         description: confirmed ? (server.name || server.serverName) : t('toasts.waitingForProcess'),
         variant: confirmed ? 'success' as const : 'default',
       })
-      await refreshAfterInlineAction(server)
     } catch (error) {
       toast({
         title: t('toasts.startFailedTitle'),
@@ -1345,12 +1349,13 @@ export default function Servers() {
       // result.success === false.
       await serverApi.stop()
       const confirmed = await waitForActionState(server.id, false)
+      // Refreshed before the toast -- see handleInlineStart above.
+      await refreshAfterInlineAction(server)
       toast({
         title: confirmed ? t('toasts.serverStoppedTitle') : t('toasts.serverStopRequestedTitle'),
         description: confirmed ? (server.name || server.serverName) : t('toasts.waitingForStop'),
         variant: confirmed ? 'success' as const : 'default',
       })
-      await refreshAfterInlineAction(server)
     } catch (error) {
       toast({
         title: t('toasts.stopFailedTitle'),

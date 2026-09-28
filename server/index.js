@@ -3156,6 +3156,16 @@ export async function checkServerStatusNow(detectionReason = "watchdog") {
     if (running === false && lastKnownRunning !== false) {
       panelBridge.markServerExited();
     }
+    // The other half: a running server stops being described as stopped in
+    // the bridge diagnostics (PanelBridge.markServerRunning()), while the
+    // exited write itself stays dead until the new process writes. Every
+    // running tick rather than only a transition: a restart that pushes its
+    // own verified transitions can stop and relaunch the server between two
+    // ticks, so this watchdog never sees it stopped. Idempotent, and it
+    // never changes whether the mod counts as connected.
+    if (running === true) {
+      panelBridge.markServerRunning();
+    }
     if (runningChanged || phaseChanged || reannounceAfterUnknown) {
       log.info(
         runningChanged || phaseChanged

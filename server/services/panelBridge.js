@@ -131,6 +131,11 @@ class PanelBridge extends EventEmitter {
     // this bridge session, and a bridge restart on the same path must not
     // resurrect a dead server's heartbeat. Any other mtime clears it.
     this.exitedServerStatusMtimeMs = null;
+    // When the game server was first seen running again while that exited
+    // write is still the newest one (markServerRunning()); null while the
+    // panel last knew it stopped. Decides only what the diagnostics say --
+    // never whether the mod counts as connected.
+    this.serverRunningAgainSinceMs = null;
     // panelbridge-lua-version-handshake: last protocolVersion string we've
     // already warned about, so a mismatch logs once (not every ~1s poll)
     // and re-warns if the mod is redeployed to yet another mismatched build.
@@ -583,7 +588,21 @@ class PanelBridge extends EventEmitter {
         const exitedServerWrite =
           this.exitedServerStatusMtimeMs !== null && stats.mtimeMs === this.exitedServerStatusMtimeMs;
         checks.statusFresh = !exitedServerWrite && ageMs < diagStaleMs;
-        if (exitedServerWrite) {
+        if (exitedServerWrite && this.serverRunningAgainSinceMs !== null) {
+          // The server is back up but its mod has not written yet. The
+          // mod's first write comes from onServerStarted, after the world
+          // has loaded (minutes on Build 42), and never comes at all when
+          // the mod broke on an update or left the mod list -- so this
+          // says how long it has been silent since the start, the one
+          // number that tells those two apart, instead of claiming the
+          // server is stopped beside a Dashboard that says it is running.
+          const age = formatAge(Date.now() - this.serverRunningAgainSinceMs);
+          pushIssue(
+            'bridgeSilentSinceStart',
+            `The game server started ${age} ago, but PanelBridge has not reported yet. It reports once the world has loaded; if it stays silent, check that PanelBridge is in the server's active mod list.`,
+            { age },
+          );
+        } else if (exitedServerWrite) {
           // Its own message rather than statusFileStale's: seconds after a
           // stop that one read "Status file is stale (2s old) -- is the PZ
           // server running?", an age too young for "stale" and a question
@@ -810,7 +829,9 @@ class PanelBridge extends EventEmitter {
 
     const connection = this.getConnectionDiagnostics();
     if (!connection.canSendCommands) {
-      throw new Error(`Bridge file connection is unhealthy: ${connection.summary}`);
+      // summary is a {key, params, text} entry, not a string -- interpolated
+      // whole, this read "…unhealthy: [object Object]".
+      throw new Error(`Bridge file connection is unhealthy: ${connection.summary?.text ?? connection.summary}`);
     }
 
     // Fail fast if the mod hasn't responded recently (avoids 15s timeout wait)
@@ -1561,6 +1582,7 @@ class PanelBridge extends EventEmitter {
       if (this.exitedServerStatusMtimeMs !== null) {
         if (stats.mtimeMs === this.exitedServerStatusMtimeMs) return;
         this.exitedServerStatusMtimeMs = null;
+        this.serverRunningAgainSinceMs = null;
       }
 
       const age = Date.now() - stats.mtimeMs;
@@ -1857,6 +1879,7 @@ class PanelBridge extends EventEmitter {
    * seconds while the mod ticks).
    */
   markServerExited() {
+    this.serverRunningAgainSinceMs = null;
     const statusFile = this.getStatusFile();
     try {
       // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
@@ -1875,6 +1898,27 @@ class PanelBridge extends EventEmitter {
       this.emit('modStatus', this.modStatus);
       log.info('Mod marked as disconnected: the game server process exited');
     }
+  }
+
+  /**
+   * The active game server is observed running again: the status
+   * watchdog's running verdict, or a restart's verified start. Nothing
+   * cleared the "stopped" diagnostic before this but the mod's next write,
+   * and that write only comes once the new process has loaded its world --
+   * minutes on Build 42, never if the mod broke on an update -- so
+   * Settings > Bridge and the Events page kept saying the server was
+   * stopped while it ran. From here getConnectionDiagnostics() says how long
+   * the running server's mod has been silent instead.
+   *
+   * The pin itself stays: the exited write is still dead, and releasing it
+   * here would let the idle tolerance read it back in as a live mod for up
+   * to five minutes. Only a new write clears it (checkModStatus()). A no-op
+   * with nothing pinned, and repeat calls keep the first sighting's time,
+   * so the watchdog can call this on every running tick.
+   */
+  markServerRunning() {
+    if (this.exitedServerStatusMtimeMs === null || this.serverRunningAgainSinceMs !== null) return;
+    this.serverRunningAgainSinceMs = Date.now();
   }
 
   // sweep-round5 follow-up (2026-09-07, release-1-2-17): ping() used to

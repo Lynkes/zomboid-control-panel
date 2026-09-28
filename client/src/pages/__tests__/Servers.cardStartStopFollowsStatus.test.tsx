@@ -54,8 +54,9 @@ vi.mock('@/lib/api', async () => {
   }
 })
 
+const toastMock = vi.hoisted(() => vi.fn())
 vi.mock('@/components/ui/use-toast', () => ({
-  useToast: () => ({ toast: vi.fn(), dismiss: vi.fn(), toasts: [] }),
+  useToast: () => ({ toast: toastMock, dismiss: vi.fn(), toasts: [] }),
 }))
 
 const getAll = vi.mocked(serversApi.getAll)
@@ -219,5 +220,40 @@ describe('Servers.tsx: the selected card offers Start as soon as the server is s
     await within(card()).findByRole('button', { name: en.card.start }, PROMPT)
     expect(card().textContent).toMatch(/Process\s*Down/)
     expect(card().textContent).toMatch(/PanelBridge\s*Down/)
+  })
+
+  // The Dashboard already refetches before it toasts; the card toasted first,
+  // so "Server Stopped" sat beside a card still showing its spinner and the
+  // pre-stop badges for the length of a fresh process scan (~1.5s on Windows).
+  it('toasts "Server Stopped" only after the card has refetched the stop it confirms', async () => {
+    setUpFixtures(true)
+    stop.mockResolvedValue({ success: true, confirmed: false } as never)
+    renderServers()
+
+    const stopButton = await within(await screen.findByText('Maze with friends').then(card)).findByRole('button', { name: en.card.stop }, PROMPT)
+    fireEvent.click(stopButton)
+    const dialog = await screen.findByRole('alertdialog')
+
+    setServerState(false)
+    let composedFetchesAfterStop = 0
+    getComposedStatus.mockImplementation(async () => {
+      composedFetchesAfterStop += 1
+      return STOPPED
+    })
+    const composedFetchesAtToast: number[] = []
+    toastMock.mockImplementation(() => {
+      composedFetchesAtToast.push(composedFetchesAfterStop)
+    })
+    try {
+      fireEvent.click(within(dialog).getByRole('button', { name: en.card.stop }))
+
+      await vi.waitFor(
+        () => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: en.toasts.serverStoppedTitle })),
+        PROMPT,
+      )
+      expect(composedFetchesAtToast[0]).toBeGreaterThan(0)
+    } finally {
+      toastMock.mockReset()
+    }
   })
 })

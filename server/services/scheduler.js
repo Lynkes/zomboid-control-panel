@@ -299,6 +299,21 @@ export class Scheduler {
     }
   }
 
+  // The verified start's counterpart (PanelBridge.markServerRunning()):
+  // without it Settings > Bridge kept saying "the game server has stopped"
+  // beside the 'starting' push until the watchdog's next running tick. The
+  // old heartbeat stays expired either way. Same active-server guard.
+  async _noteBridgeServerRunningAfterVerifiedStart(pinnedServerId) {
+    if (pinnedServerId == null) return;
+    try {
+      const activeServer = await getActiveServer();
+      if (String(activeServer?.id) !== String(pinnedServerId)) return;
+      panelBridge.markServerRunning();
+    } catch (error) {
+      log.debug(`Auto-restart: could not tell PanelBridge the server is running again: ${error.message}`);
+    }
+  }
+
   // Resolves the install-wide scheduler timezone, migrating a not-yet-
   // configured install and failing loudly-but-running on an invalid stored
   // value. Called once at boot (before anything is scheduled) and again
@@ -1929,6 +1944,7 @@ export class Scheduler {
       // green-dot lie POST /start used to tell (2026-09-07 STARTING-state
       // fix). The corresponding running/unresponsive correction is emitted
       // once that wait settles, a few lines down.
+      await this._noteBridgeServerRunningAfterVerifiedStart(pinnedServerId);
       this._emitVerifiedTransition(
         true,
         resolveServerPhase({

@@ -135,6 +135,19 @@ describe("PanelBridge.markServerExited -- a heartbeat cannot outlive its server"
     expect(bridge.isModConnected()).toBe(false);
   });
 
+  // A bridge action in the seconds after a stop is refused by the diagnostics
+  // gate at once now -- its message has to be readable, not the
+  // "[object Object]" the {key, params, text} summary interpolated to.
+  it("refuses bridge commands after the stop with the diagnostic's own sentence", async () => {
+    const bridge = makeBridgeWithLiveIdleHeartbeat();
+    bridge.isRunning = true; // as after start(), without its timers
+    bridge.markServerExited();
+
+    await expect(bridge.sendCommand("getWeather")).rejects.toThrow(
+      "Bridge file connection is unhealthy: The game server has stopped. PanelBridge reconnects when the server starts again.",
+    );
+  });
+
   it("is a quiet no-op when the mod was not connected anyway", () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "panelbridge-exit-"));
     const bridge = new PanelBridge();
@@ -149,5 +162,103 @@ describe("PanelBridge.markServerExited -- a heartbeat cannot outlive its server"
 
     expect(events).toHaveLength(0);
     expect(bridge.isModConnected()).toBe(false);
+  });
+});
+
+// Review round 4: the pin above had no way back to "running" except the
+// mod's next write, and the mod's first write only comes from
+// onServerStarted, after the world has loaded -- minutes on Build 42, and
+// never when the mod broke on an update or left the mod list. So after any
+// stop the panel saw, Settings > Bridge and the Events page said "The game
+// server has stopped" through the whole world load, and forever beside a
+// server that came back without a working PanelBridge -- while the Dashboard
+// said Starting/Online. markServerRunning() (the watchdog's running verdict,
+// a restart's verified start) ends that claim; the dead write stays dead.
+describe("PanelBridge.markServerRunning -- a running server is not described as stopped", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("says how long the running server's mod has been silent instead of 'stopped', for as long as it stays silent", () => {
+    const bridge = makeBridgeWithLiveIdleHeartbeat();
+    bridge.markServerExited();
+    expect(bridge.getConnectionDiagnostics().summary.key).toBe("serverExited");
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    bridge.markServerRunning();
+    // The server runs on; the mod never writes (a broken PanelBridge).
+    vi.setSystemTime(Date.now() + 20 * 60_000);
+
+    const diagnostics = bridge.getConnectionDiagnostics();
+    expect(diagnostics.summary).toEqual({
+      key: "bridgeSilentSinceStart",
+      params: { age: "20m" },
+      text: "The game server started 20m ago, but PanelBridge has not reported yet. It reports once the world has loaded; if it stays silent, check that PanelBridge is in the server's active mod list.",
+    });
+    expect(diagnostics.issues.map((issue) => issue.key)).not.toContain("serverExited");
+    // Still not a live connection: nothing the mod wrote is newer than the exit.
+    expect(diagnostics.canSendCommands).toBe(false);
+    expect(diagnostics.checks.statusFresh).toBe(false);
+  });
+
+  it("keeps the exited write dead: neither status-check path reads it back in as a live mod", () => {
+    const bridge = makeBridgeWithLiveIdleHeartbeat();
+    bridge.markServerExited();
+    bridge.markServerRunning();
+    const events = [];
+    bridge.on("modStatus", (status) => events.push(status));
+
+    bridge.checkModStatus(); // unchanged mtime: the age-only path
+    bridge.lastStatusFileCheck = 0; // and the full re-read path
+    bridge.checkModStatus();
+
+    expect(bridge.isModConnected()).toBe(false);
+    expect(events).toHaveLength(0);
+  });
+
+  it("keeps the first sighting's time across repeated running ticks", () => {
+    const bridge = makeBridgeWithLiveIdleHeartbeat();
+    bridge.markServerExited();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    bridge.markServerRunning();
+    vi.setSystemTime(Date.now() + 3 * 60_000);
+    bridge.markServerRunning(); // the watchdog's next running tick
+
+    expect(bridge.getConnectionDiagnostics().summary.params).toEqual({ age: "3m" });
+  });
+
+  it("goes back to 'stopped' when the server stops again before its mod ever wrote", () => {
+    const bridge = makeBridgeWithLiveIdleHeartbeat();
+    bridge.markServerExited();
+    bridge.markServerRunning();
+
+    bridge.markServerExited();
+
+    expect(bridge.getConnectionDiagnostics().summary.key).toBe("serverExited");
+  });
+
+  it("is healthy again once the started server writes, and the next stop starts over", () => {
+    const bridge = makeBridgeWithLiveIdleHeartbeat();
+    bridge.markServerExited();
+    bridge.markServerRunning();
+
+    writeStatus(tmpDir, { ageMs: 0 });
+    bridge.checkModStatus();
+    expect(bridge.isModConnected()).toBe(true);
+    expect(bridge.getConnectionDiagnostics().summary.key).toBe("healthy");
+    expect(bridge.serverRunningAgainSinceMs).toBeNull();
+
+    bridge.markServerExited();
+    expect(bridge.getConnectionDiagnostics().summary.key).toBe("serverExited");
+  });
+
+  it("does nothing when no exited write is pinned", () => {
+    const bridge = makeBridgeWithLiveIdleHeartbeat();
+
+    bridge.markServerRunning();
+
+    expect(bridge.serverRunningAgainSinceMs).toBeNull();
+    expect(bridge.isModConnected()).toBe(true);
+    expect(bridge.getConnectionDiagnostics().summary.key).toBe("healthy");
   });
 });
