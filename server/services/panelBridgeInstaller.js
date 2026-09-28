@@ -7,15 +7,24 @@
  * Remote/SFTP-managed servers are never touched here — the panel has no
  * local path to write to for those.
  *
+ * installBridge() is the ONLY function in the panel that writes a loose
+ * PanelBridge.lua into a game install, and services/bridgeDelivery.js is
+ * its only caller (enforced by bridgeSingleWriterGate.test.js). Every
+ * automatic path -- boot, activation, the before-launch hook, setup, the
+ * manual Install button -- goes through bridgeDelivery.reconcileBridge(),
+ * which first checks the server's PanelBridge delivery method: a game
+ * folder whose servers get PanelBridge from the Steam Workshop must never
+ * receive a loose copy (with DoLuaChecksum on, the loose copy alone makes
+ * every join fail).
+ *
  * Every function degrades to a clear `{ success: false, error }` rather than
- * throwing: install failures must never block server activation (see the
- * best-effort call in routes/servers.js POST /:id/activate).
+ * throwing: install failures must never block server activation or launch.
  */
 
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { compareModVersions, writeLuaAtomic } from '../utils/embeddedLua.js';
+import { compareModVersions, getEmbeddedPanelBridgeLua, writeLuaAtomic } from '../utils/embeddedLua.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('PanelBridgeInstaller');
@@ -23,8 +32,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const VERSION_REGEX = /VERSION\s*=\s*"([^"]+)"/;
 
-// Mirrors the candidate lookup used by the /install-mod-auto and
-// /auto-configure routes (dev checkout vs. packaged pkg binary layouts).
+// Dev checkout vs. packaged pkg binary layouts.
 function sourceCandidates() {
   return [
     path.join(process.cwd(), 'pz-mod', 'PanelBridge', 'media', 'lua', 'server', 'PanelBridge.lua'),
@@ -40,9 +48,8 @@ export function resolveSourcePath() {
 // The server's install directory, resolved the same way serverManager does:
 // prefer serverPath, fall back to installPath, and if that names a launch
 // script (.bat/.sh/.exe) rather than a directory, use its parent folder.
-// Exported so index.js's and routes/panelBridge.js's own auto-update/
-// auto-install code paths can share this one implementation instead of
-// each reimplementing the extension check without the lowercasing below
+// Shared by every caller that needs "this server's game folder" so none of
+// them reimplements the extension check without the lowercasing below
 // (bughunt-2026-08-31-c, launcher-extension-case-sensitivity).
 export function resolveInstallDir(server) {
   let dir = server?.serverPath || server?.installPath;
@@ -57,32 +64,6 @@ export function resolveInstallDir(server) {
 export function resolveTargetPath(server) {
   const installDir = resolveInstallDir(server);
   return installDir ? path.join(installDir, 'media', 'lua', 'server', 'PanelBridge.lua') : null;
-}
-
-function sourceModRoot(sourcePath) {
-  return sourcePath ? path.resolve(sourcePath, '..', '..', '..', '..') : null;
-}
-
-export function resolveClientSourcePath() {
-  const root = sourceModRoot(resolveSourcePath());
-  const candidate = root && path.join(root, 'media', 'lua', 'client', 'PanelBridgeClient.lua');
-  return candidate && fs.existsSync(candidate) ? candidate : null;
-}
-
-export function resolveManifestSourcePath() {
-  const root = sourceModRoot(resolveSourcePath());
-  const candidate = root && path.join(root, 'mod.info');
-  return candidate && fs.existsSync(candidate) ? candidate : null;
-}
-
-export function resolveClientTargetPath(server) {
-  const installDir = resolveInstallDir(server);
-  return installDir ? path.join(installDir, 'media', 'lua', 'client', 'PanelBridgeClient.lua') : null;
-}
-
-export function resolveManifestTargetPath(server) {
-  const installDir = resolveInstallDir(server);
-  return installDir ? path.join(installDir, 'mod.info') : null;
 }
 
 function isWritableDir(dirPath) {
@@ -117,9 +98,15 @@ function readContent(filePath) {
   }
 }
 
-function readVersion(filePath) {
-  const content = readContent(filePath);
-  return content ? extractVersion(content) : null;
+// The Lua this panel ships. The copy embedded in the binary at bundle time
+// wins over the on-disk pz-mod/ tree: a binary-only auto-update leaves that
+// tree stale, and only the embedded copy is guaranteed to match the running
+// panel. Dev mode has no embedded copy and reads the checkout.
+function readBundledSource() {
+  const sourcePath = resolveSourcePath();
+  const embedded = getEmbeddedPanelBridgeLua();
+  if (embedded) return { content: embedded, sourcePath };
+  return { content: sourcePath ? readContent(sourcePath) : null, sourcePath };
 }
 
 // needsUpdate is decided by comparing file CONTENT, not the hand-maintained
@@ -128,38 +115,23 @@ function readVersion(filePath) {
 // without a version bump, so a VERSION-only comparison silently reported
 // "up to date" while the fixes never reached any server this gates. VERSION
 // is kept only as a human-readable label on the returned status.
+// Only the server file is compared: the panel no longer installs the client
+// companion or a root mod.info (see installBridge()).
 export function checkBridgeInstalled(server) {
-  const sourcePath = resolveSourcePath();
+  const { content: sourceContent, sourcePath } = readBundledSource();
   const targetPath = resolveTargetPath(server);
-  const clientSourcePath = resolveClientSourcePath();
-  const clientTargetPath = resolveClientTargetPath(server);
-  const manifestSourcePath = resolveManifestSourcePath();
-  const manifestTargetPath = resolveManifestTargetPath(server);
   const installed = Boolean(targetPath && fs.existsSync(targetPath));
-  const sourceContent = sourcePath ? readContent(sourcePath) : null;
   const targetContent = installed ? readContent(targetPath) : null;
-  const clientSourceContent = clientSourcePath ? readContent(clientSourcePath) : null;
-  const clientTargetContent = clientTargetPath && fs.existsSync(clientTargetPath) ? readContent(clientTargetPath) : null;
-  const manifestSourceContent = manifestSourcePath ? readContent(manifestSourcePath) : null;
-  const manifestTargetContent = manifestTargetPath && fs.existsSync(manifestTargetPath) ? readContent(manifestTargetPath) : null;
-  const targetVersion = targetContent ? extractVersion(targetContent) : null;
   const needsUpdate = Boolean(
-    installed && sourceContent !== null &&
-    (targetContent === null || targetContent !== sourceContent
-      || (clientSourceContent !== null && clientTargetContent !== clientSourceContent)
-      || (manifestSourceContent !== null && manifestTargetContent !== manifestSourceContent)),
+    installed && sourceContent !== null && (targetContent === null || targetContent !== sourceContent),
   );
 
   return {
     installed,
-    version: targetVersion,
+    version: targetContent ? extractVersion(targetContent) : null,
     needsUpdate,
     sourcePath,
     targetPath,
-    clientSourcePath,
-    clientTargetPath,
-    manifestSourcePath,
-    manifestTargetPath,
   };
 }
 
@@ -177,26 +149,17 @@ function matchOwnership(targetPath, referencePath) {
   }
 }
 
-function writeAtomicText(targetPath, content) {
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  const tempPath = `${targetPath}.tmp-${process.pid}-${Date.now()}`;
-  try {
-    fs.writeFileSync(tempPath, content, { mode: 0o644 });
-    fs.renameSync(tempPath, targetPath);
-  } catch (error) {
-    try { fs.unlinkSync(tempPath); } catch (_) { /* ignore */ }
-    throw error;
-  }
-}
-
+// Writes ONLY media/lua/server/PanelBridge.lua. Older panels also wrote
+// media/lua/client/PanelBridgeClient.lua and a root mod.info; neither ever
+// did anything from the game install (the dedicated server hashes client/
+// Lua but never runs it, players never receive loose files, and the game
+// ignores a root mod.info), while both still broke DoLuaChecksum. The
+// companion only runs when PanelBridge comes from the Steam Workshop.
+// bridgeDelivery.reconcileBridge() archives those leftovers.
 export function installBridge(server) {
-  const sourcePath = resolveSourcePath();
+  const { content: sourceContent } = readBundledSource();
   const targetPath = resolveTargetPath(server);
-  const clientSourcePath = resolveClientSourcePath();
-  const clientTargetPath = resolveClientTargetPath(server);
-  const manifestSourcePath = resolveManifestSourcePath();
-  const manifestTargetPath = resolveManifestTargetPath(server);
-  if (!sourcePath) {
+  if (!sourceContent) {
     return { success: false, error: 'PanelBridge source not found in panel install.' };
   }
   if (!targetPath) {
@@ -204,9 +167,6 @@ export function installBridge(server) {
   }
 
   try {
-    const sourceContent = fs.readFileSync(sourcePath, 'utf8');
-    const clientSourceContent = clientSourcePath ? fs.readFileSync(clientSourcePath, 'utf8') : null;
-    const manifestSourceContent = manifestSourcePath ? fs.readFileSync(manifestSourcePath, 'utf8') : null;
     const sourceVersion = extractVersion(sourceContent);
     if (!sourceVersion) {
       return { success: false, error: 'PanelBridge source has no readable version.' };
@@ -218,21 +178,13 @@ export function installBridge(server) {
       // three unbumped fixes go undelivered) still needs to fall through to
       // the write below -- only true content equality short-circuits here.
       if (targetContent === sourceContent) {
-        const clientMatches = !clientSourceContent || (clientTargetPath && fs.existsSync(clientTargetPath)
-          && fs.readFileSync(clientTargetPath, 'utf8') === clientSourceContent);
-        const manifestMatches = !manifestSourceContent || (manifestTargetPath && fs.existsSync(manifestTargetPath)
-          && fs.readFileSync(manifestTargetPath, 'utf8') === manifestSourceContent);
-        if (clientMatches && manifestMatches) {
-          return {
-            success: true,
-            targetPath,
-            clientTargetPath,
-            manifestTargetPath,
-            version: sourceVersion,
-            updated: false,
-            message: `Existing PanelBridge v${sourceVersion} already matches the bundled payload; left unchanged.`,
-          };
-        }
+        return {
+          success: true,
+          targetPath,
+          version: sourceVersion,
+          updated: false,
+          message: `Existing PanelBridge v${sourceVersion} already matches the bundled payload; left unchanged.`,
+        };
       }
       const targetVersion = extractVersion(targetContent);
       if (targetVersion && compareModVersions(targetVersion, sourceVersion) > 0) {
@@ -245,36 +197,11 @@ export function installBridge(server) {
         };
       }
     }
-    const existingTargetContent = fs.existsSync(targetPath)
-      ? readContent(targetPath)
-      : null;
-    if (existingTargetContent !== sourceContent) {
-      writeLuaAtomic(targetPath, sourceContent);
-      matchOwnership(targetPath, resolveInstallDir(server));
-    }
-    if (clientSourceContent && clientTargetPath) {
-      const existingClient = fs.existsSync(clientTargetPath) ? readContent(clientTargetPath) : null;
-      if (existingClient !== clientSourceContent) {
-        writeAtomicText(clientTargetPath, clientSourceContent);
-        matchOwnership(clientTargetPath, resolveInstallDir(server));
-      }
-    }
-    if (manifestSourceContent && manifestTargetPath) {
-      const existingManifest = fs.existsSync(manifestTargetPath) ? readContent(manifestTargetPath) : null;
-      if (existingManifest !== manifestSourceContent) {
-        writeAtomicText(manifestTargetPath, manifestSourceContent);
-        matchOwnership(manifestTargetPath, resolveInstallDir(server));
-      }
-    }
+    writeLuaAtomic(targetPath, sourceContent);
+    matchOwnership(targetPath, resolveInstallDir(server));
     const installedContent = fs.readFileSync(targetPath, 'utf8');
-    const version = readVersion(targetPath);
-    const installedClient = clientSourceContent && clientTargetPath
-      ? readContent(clientTargetPath) : null;
-    const installedManifest = manifestSourceContent && manifestTargetPath
-      ? readContent(manifestTargetPath) : null;
-    if (installedContent !== sourceContent || version !== sourceVersion
-      || (clientSourceContent && installedClient !== clientSourceContent)
-      || (manifestSourceContent && installedManifest !== manifestSourceContent)) {
+    const version = extractVersion(installedContent);
+    if (installedContent !== sourceContent || version !== sourceVersion) {
       return { success: false, error: 'PanelBridge verification failed after install.' };
     }
     // Verifies the file the way the GAME will see it, not just the way the
@@ -299,44 +226,10 @@ export function installBridge(server) {
       }
     }
     log.info(`PanelBridge installed at ${targetPath} (v${version || 'unknown'})`);
-    return { success: true, targetPath, clientTargetPath, manifestTargetPath, version, updated: true };
+    return { success: true, targetPath, version, updated: true };
   } catch (error) {
     log.warn(`PanelBridge install failed: ${error.message}`);
     return { success: false, error: error.message };
-  }
-}
-
-// Best-effort: keep PanelBridge.lua current on servers the panel can reach
-// directly on disk, immediately before the game process (re)spawns. PZ loads
-// Lua at Java-process startup, so this is the only moment a write here can
-// take effect for the launch that's about to happen -- writing the file
-// afterward just produces a fresher file the already-running JVM ignores
-// until its next restart. Previously the equivalent check
-// (routes/servers.js's own autoInstallBridgeIfNeeded) only ran on POST
-// /:id/activate -- an uncommon "reassign the active server profile" action --
-// never on an ordinary start or restart, which is how a server can drift
-// arbitrarily far behind the shipped bridge with nothing ever re-checking it
-// (2026-09-02 bridge-install-integrity audit). Exported so routes/server.js's
-// /start and /restart can call the same logic without reimplementing it.
-// Never let an install failure block starting/restarting the server -- the
-// caller's own comment explains why that would make this fix worse than the
-// bug it closes.
-export function autoInstallBridgeIfNeeded(server) {
-  try {
-    if (!canAutoInstall(server)) return;
-    const status = checkBridgeInstalled(server);
-    if (status.installed && !status.needsUpdate) return;
-
-    const result = installBridge(server);
-    if (result.success) {
-      log.info(
-        `PanelBridge ${status.installed ? 'updated' : 'installed'} at ${result.targetPath} (v${result.version || 'unknown'})`,
-      );
-    } else {
-      log.warn(`PanelBridge auto-install failed: ${result.error}`);
-    }
-  } catch (error) {
-    log.warn(`PanelBridge auto-install check failed: ${error.message}`);
   }
 }
 
@@ -346,10 +239,11 @@ export function autoInstallBridgeIfNeeded(server) {
 // target path to compare content against, which a remote server has none of
 // -- the panel never writes its files. All a remote status check can do is
 // compare the mod's own self-reported live VERSION (PanelBridge.lua reports
-// PanelBridge.VERSION every tick via status.json) against this.
+// PanelBridge.VERSION every tick via status.json) against this. Embedded
+// copy first, for the same reason as readBundledSource().
 export function getBundledBridgeVersion() {
-  const sourcePath = resolveSourcePath();
-  return sourcePath ? readVersion(sourcePath) : null;
+  const { content } = readBundledSource();
+  return content ? extractVersion(content) : null;
 }
 
 // True when a live, self-reported bridge version is older than what this

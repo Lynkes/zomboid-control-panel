@@ -27,6 +27,7 @@ vi.mock("../services/panelBridge.js", () => ({
 let activeServer;
 vi.mock("../database/init.js", () => ({
   getActiveServer: vi.fn(async () => activeServer),
+  getServers: vi.fn(async () => (activeServer ? [activeServer] : [])),
   getRoleByName: vi.fn(),
 }));
 
@@ -145,6 +146,29 @@ describe("GET /panel-bridge/status -- remote servers get a version-string check,
     expect(payload.localInstall).toEqual(
       expect.objectContaining({ canAutoInstall: false }),
     );
+  });
+
+  // PanelBridge delivery: with Steam Workshop delivery there is no
+  // panel-installed file to be stale and no re-upload to suggest -- a
+  // Workshop bridge that is behind shows up as a protocol mismatch instead.
+  it("reports deliveryMethod and leaves both install signals null for a Workshop server", async () => {
+    activeServer = { id: "s1", isRemote: true, bridgeDelivery: "workshop" };
+    getStatusReturn = { alive: true, modStatus: { alive: true, version: "0.0.1" } };
+
+    const response = createResponse();
+    await getHandler("/status", "get")({}, response);
+
+    const payload = response.json.mock.calls[0][0];
+    expect(payload.deliveryMethod).toBe("workshop");
+    expect(payload.localInstall).toBeNull();
+    expect(payload.remoteBridgeVersionCheck).toBeNull();
+  });
+
+  it("reports deliveryMethod local by default", async () => {
+    activeServer = { id: "s1", isRemote: true };
+    const response = createResponse();
+    await getHandler("/status", "get")({}, response);
+    expect(response.json.mock.calls[0][0].deliveryMethod).toBe("local");
   });
 
   it("leaves both null when there is no active server at all", async () => {

@@ -183,7 +183,7 @@
     "bridge": {
       "setup": {
         "label": "Konekte & konfigire PanelBridge",
-        "description": "Konekte oswa rekonfigire pon mod nan jwèt la — ki gen ladan antre epi konsève modpas koneksyon SFTP ki itilize pou rive sou yon sèvè aleka, eskane nenpòt chemen sou sèvè sa a atravè SFTP, epi voye pon lokal la sou nenpòt chemen absoli sou lame a ki pa nan yon ti lis dosye ki bloke. Li enstale mod la tou."
+        "description": "Konekte oswa rekonfigire pon mod nan jwèt la — ki gen ladan antre epi konsève modpas koneksyon SFTP ki itilize pou rive sou yon sèvè aleka, eskane nenpòt chemen sou sèvè sa a atravè SFTP, epi voye pon lokal la sou nenpòt chemen absoli sou lame a ki pa nan yon ti lis dosye ki bloke. Li enstale mod la tou epi li chwazi kijan li distribye (panèl la enstale l oswa Steam Workshop), sa ki modifye Mods=, WorkshopItems= ak DoLuaChecksum nan fichye paramèt sèvè a."
       },
       "diagnostics": {
         "label": "Dyagnostik PanelBridge",

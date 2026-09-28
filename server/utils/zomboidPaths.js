@@ -260,3 +260,33 @@ export function inspectZomboidPath(normalized) {
   }
   return { ok: true, message: describeVerdict(checks), checks, parentSuggestion };
 }
+
+// ─── Server INI location ─────────────────────────────────────────────────
+
+// Every location serverManager.js's getServerConfig() will accept as "the"
+// INI for a server, in the same preference order, given a config directory
+// (the Server/ subdirectory a modern PZ install uses) and its parent data
+// directory (the legacy layout some installs still have the real file
+// under). ensureRconConfigured() (routes/server.js) used to check ONLY the
+// first of these -- if a particular install's real, fully-configured INI
+// happened to live at one of the others, that ini "didn't exist" as far as
+// that function could tell, and it would pre-create a bare RCON-only stub AT
+// THE WRONG PATH with no backup, discarding every other setting the moment
+// PZ picked that file up (2026-08-27 user report: "ini and sandbox settings
+// reverted to default" after a restart). Mirrors getServerConfig()'s own
+// fallback chain exactly so every part of the panel agrees on where a
+// server's real INI is. Lives here (moved from routes/server.js, which
+// re-exports it) so services -- bridgeDelivery.js -- can use it without
+// importing a route module.
+export function candidateIniPaths(serverConfigPath, zomboidDataPath, serverName) {
+  const candidates = [];
+  if (serverConfigPath) {
+    candidates.push(path.join(serverConfigPath, `${serverName}.ini`));
+  }
+  if (zomboidDataPath) {
+    candidates.push(path.join(zomboidDataPath, `${serverName}.ini`));
+    candidates.push(path.join(zomboidDataPath, 'servertest.ini'));
+    candidates.push(path.join(zomboidDataPath, 'serveroptions.ini'));
+  }
+  return candidates;
+}

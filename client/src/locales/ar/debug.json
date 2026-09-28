@@ -540,12 +540,26 @@
         "bridgeMod": {
           "ok": {
             "label": "تعديل PanelBridge موجود",
-            "message": "الملف PanelBridge.lua منشور على الخادم."
+            "message": "الملف PanelBridge.lua منشور على الخادم.",
+            "workshop": {
+              "label": "عنصر PanelBridge في ورشة Steam موجود",
+              "message": "نُزِّل PanelBridge v{{version}} من ورشة Steam."
+            }
           },
           "warn": {
             "label": "لم يُكتشَف تعديل PanelBridge",
             "message": "تعذّر العثور على PanelBridge.lua داخل الخادم. ولن تتوفّر الميزات المتقدّمة (النقل الآني، والطقس، وتصدير الشخصية).",
-            "hint": "انسخ pz-mod/PanelBridge إلى مجلد media/lua/server الخاص بالخادم"
+            "hint": "يمكن تثبيته من الإعدادات › PanelBridge",
+            "workshopNotDownloaded": {
+              "label": "لم يُنزَّل PanelBridge بعد",
+              "message": "يحصل هذا الخادم على PanelBridge من ورشة Steam، لكنه لم يُنزَّل بعد.",
+              "hint": "شغّل الخادم. وإن لم يبدأ، فراجع الإعدادات › PanelBridge."
+            },
+            "looseLeftover": {
+              "label": "ملفات PanelBridge قديمة في مجلد اللعبة",
+              "message": "لا تزال {{files}} في مجلد اللعبة. ومع تفعيل فحص سلامة ملفات Lua سيُرفض اللاعبون.",
+              "hint": "شغّل الخادم من اللوحة لنقلها."
+            }
           }
         },
         "recentCrash": {

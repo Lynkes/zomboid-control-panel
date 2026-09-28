@@ -186,7 +186,7 @@
     "bridge": {
       "setup": {
         "label": "Conectar y configurar PanelBridge",
-        "description": "Conectar o reconfigurar el puente del mod dentro del juego — incluyendo introducir y almacenar la contraseña de inicio de sesión SFTP usada para acceder a un servidor remoto, explorar rutas arbitrarias en ese servidor por SFTP, y apuntar el puente local a cualquier ruta absoluta del host fuera de una pequeña lista de directorios bloqueados. También instala el mod."
+        "description": "Conectar o reconfigurar el puente del mod dentro del juego — incluyendo introducir y almacenar la contraseña de inicio de sesión SFTP usada para acceder a un servidor remoto, explorar rutas arbitrarias en ese servidor por SFTP, y apuntar el puente local a cualquier ruta absoluta del host fuera de una pequeña lista de directorios bloqueados. También instala el mod y elige cómo se entrega (instalado por el panel o Steam Workshop), lo que modifica Mods=, WorkshopItems= y DoLuaChecksum en el archivo de configuración del servidor."
       },
       "diagnostics": {
         "label": "Diagnóstico de PanelBridge",

@@ -434,12 +434,26 @@
         "bridgeMod": {
           "ok": {
             "label": "PanelBridge mod present",
-            "message": "PanelBridge.lua is deployed on the server."
+            "message": "PanelBridge.lua is deployed on the server.",
+            "workshop": {
+              "label": "PanelBridge Workshop item present",
+              "message": "Downloaded PanelBridge v{{version}} from the Steam Workshop."
+            }
           },
           "warn": {
             "label": "PanelBridge mod not detected",
             "message": "Couldn't find PanelBridge.lua under the server. Advanced features (teleport, weather, character export) will be unavailable.",
-            "hint": "Copy pz-mod/PanelBridge into the server's media/lua/server folder"
+            "hint": "Settings › PanelBridge can install it",
+            "workshopNotDownloaded": {
+              "label": "PanelBridge not downloaded yet",
+              "message": "This server gets PanelBridge from the Steam Workshop, but it hasn't been downloaded yet.",
+              "hint": "Start the server. If it doesn't start, see Settings › PanelBridge."
+            },
+            "looseLeftover": {
+              "label": "Old PanelBridge files in the game folder",
+              "message": "{{files}} are still in the game folder. With the Lua integrity check on, players will be refused.",
+              "hint": "Start the server from the panel to move them out."
+            }
           }
         },
         "recentCrash": {

@@ -434,12 +434,26 @@
         "bridgeMod": {
           "ok": {
             "label": "Mod PanelBridge prezan",
-            "message": "PanelBridge.lua deplwaye sou sèvè a."
+            "message": "PanelBridge.lua deplwaye sou sèvè a.",
+            "workshop": {
+              "label": "Atik Steam Workshop PanelBridge la prezan",
+              "message": "PanelBridge v{{version}} telechaje nan Steam Workshop."
+            }
           },
           "warn": {
             "label": "Mod PanelBridge pa detekte",
             "message": "Pa t kapab jwenn PanelBridge.lua anba sèvè a. Fonksyonalite avanse (teleportasyon, move tan, ekspòte pèsonaj) pa ap disponib.",
-            "hint": "Kopye pz-mod/PanelBridge nan dosye media/lua/server sèvè a"
+            "hint": "Paramèt › PanelBridge ka enstale l",
+            "workshopNotDownloaded": {
+              "label": "PanelBridge poko telechaje",
+              "message": "Sèvè sa a resevwa PanelBridge nan Steam Workshop, men li poko telechaje.",
+              "hint": "Demare sèvè a. Si li pa demare, gade Paramèt › PanelBridge."
+            },
+            "looseLeftover": {
+              "label": "Ansyen fichye PanelBridge nan dosye jwèt la",
+              "message": "{{files}} toujou nan dosye jwèt la. Lè verifikasyon entegrite Lua a aktive, jwè yo ap refize.",
+              "hint": "Demare sèvè a nan panèl la pou deplase yo."
+            }
           }
         },
         "recentCrash": {

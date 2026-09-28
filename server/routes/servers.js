@@ -28,7 +28,8 @@ import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
 } from "../services/lifecycleCoordinator.js";
-import { autoInstallBridgeIfNeeded } from "../services/panelBridgeInstaller.js";
+import { getEffectiveMethod, reconcileBridge } from "../services/bridgeDelivery.js";
+import { ErrorCode } from "../utils/errorCodes.js";
 import { refreshWorkshopChecker } from "../services/modChecker.js";
 import {
   parseBoundedInteger,
@@ -1464,6 +1465,22 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
       }
     }
 
+    // A server that gets PanelBridge from the Steam Workshop needs Steam to
+    // download it: launched without Steam it starts with no bridge and, with
+    // the item still listed in Mods=, refuses every join. Switching delivery
+    // back to panel-installed has to come first (Settings › PanelBridge).
+    if (updates.useNoSteam === true) {
+      const allServers = await getServers();
+      const target = allServers.find((candidate) => String(candidate.id) === String(serverId));
+      if (target && getEffectiveMethod(target, allServers) === "workshop") {
+        return res.status(409).json({
+          error:
+            "This server gets PanelBridge from the Steam Workshop, which needs Steam. Switch PanelBridge to panel-installed in Settings › PanelBridge before turning on Launch without Steam.",
+          code: ErrorCode.SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE,
+        });
+      }
+    }
+
     const maskedSecretsOnly =
       Object.keys(body).length > 0 &&
       Object.entries(body).every(
@@ -1757,9 +1774,10 @@ async function reloadServicesForNewActiveServer(req, server) {
     }
   }
 
-  // Best-effort: keep PanelBridge.lua current on servers the panel can
-  // reach directly on disk. Never let an install failure block activation.
-  autoInstallBridgeIfNeeded(server);
+  // Best-effort: bring the newly active server's game folder in line with
+  // its PanelBridge delivery method (bridgeDelivery.reconcileBridge never
+  // throws). Not awaited: activation must not wait on disk work.
+  void reconcileBridge(server, { reason: "activate" });
 
   // continuous-bug-hunt round 21: index.js's own 5s player-roster poll
   // shares this same rconService singleton but never got repointed here --

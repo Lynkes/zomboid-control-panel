@@ -434,12 +434,26 @@
         "bridgeMod": {
           "ok": {
             "label": "PanelBridge 模组已就绪",
-            "message": "PanelBridge.lua 已部署在服务器上。"
+            "message": "PanelBridge.lua 已部署在服务器上。",
+            "workshop": {
+              "label": "PanelBridge 创意工坊项目已就绪",
+              "message": "已从 Steam 创意工坊下载 PanelBridge v{{version}}。"
+            }
           },
           "warn": {
             "label": "未检测到 PanelBridge 模组",
             "message": "在服务器中找不到 PanelBridge.lua。高级功能（传送、天气、角色导出）将不可用。",
-            "hint": "将 pz-mod/PanelBridge 复制到服务器的 media/lua/server 文件夹中"
+            "hint": "可在「设置 › PanelBridge」中安装",
+            "workshopNotDownloaded": {
+              "label": "PanelBridge 尚未下载",
+              "message": "此服务器从 Steam 创意工坊获取 PanelBridge，但尚未下载。",
+              "hint": "启动服务器。如果无法启动，查看「设置 › PanelBridge」。"
+            },
+            "looseLeftover": {
+              "label": "游戏文件夹中有旧的 PanelBridge 文件",
+              "message": "{{files}} 仍在游戏文件夹中。开启 Lua 完整性检查后，玩家将被拒绝加入。",
+              "hint": "从面板启动服务器即可将其移出。"
+            }
           }
         },
         "recentCrash": {

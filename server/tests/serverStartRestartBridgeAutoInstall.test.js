@@ -3,32 +3,35 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-// 2026-09-02, bridge-enforcement: autoInstallBridgeIfNeeded() used to run
-// ONLY on POST /:id/activate (routes/servers.js) -- an uncommon "reassign
-// the active server profile" action -- never on an ordinary POST
-// /server/start or POST /server/restart. PZ loads Lua at Java-process
-// startup, so a server that's simply restarted (the common case: crash
-// recovery, scheduled restarts, manual restarts) never got its on-disk
-// bridge file rechecked at all, no matter how far it drifted from the
-// shipped source (2026-09-02 bridge-install-integrity audit). These tests
-// assert the ORDER, not just that both things happened: a test that mocks a
-// bridge already up to date passes on the broken code too, so every test
-// here starts from a genuinely STALE on-disk file and checks it is already
-// current by the time the spawn call fires -- a fresher file written
-// afterward is invisible to the JVM until its NEXT restart.
+// 2026-09-02, bridge-enforcement: PanelBridge.lua has to be current on disk
+// BEFORE the game process spawns -- PZ loads Lua at Java-process startup, so
+// a fresher file written afterward is invisible until the next restart.
+//
+// That used to be done by POST /server/start and /server/restart themselves,
+// which left every other start path (scheduled and mod-update restarts,
+// Discord, boot auto-start) unsynced (critique B.22). It now lives in the
+// before-launch hook (lifecycleCoordinator.setBeforeLaunchHook, wired to
+// bridgeDelivery.reconcileBridge in index.js) inside the two functions every
+// launch funnels through -- serverManager.startServer() and
+// managedContainer.runManagedLifecycle(). So these tests assert both halves:
+// the routes no longer write the file themselves, and a /start through the
+// REAL runManagedLifecycle still has the file current by the time the
+// container is actually started. Every test starts from a genuinely STALE
+// file and checks the content AT SPAWN TIME, not afterward.
 
 let activeServer;
 vi.mock("../database/init.js", () => ({
   getActiveServer: vi.fn(async () => activeServer),
+  getServer: vi.fn(async () => activeServer),
+  getServers: vi.fn(async () => (activeServer ? [activeServer] : [])),
+  getSetting: vi.fn(async () => null),
 }));
 
-const runManagedLifecycle = vi.fn();
-vi.mock("../services/managedContainer.js", () => ({ runManagedLifecycle }));
-
 const { default: router } = await import("../routes/server.js");
-const { resolveSourcePath } = await import(
-  "../services/panelBridgeInstaller.js"
-);
+const { resolveSourcePath } = await import("../services/panelBridgeInstaller.js");
+const { setDockerClient } = await import("../services/managedContainer.js");
+const { setBeforeLaunchHook } = await import("../services/lifecycleCoordinator.js");
+const { reconcileBridge } = await import("../services/bridgeDelivery.js");
 
 function getHandler(routePath, method) {
   const layer = router.stack.find(
@@ -71,66 +74,72 @@ function makeStartApp(overrides = {}) {
   return { get: (key) => values[key], _values: values };
 }
 
+// A Docker-managed server (handled: true) sidesteps /start's 30s
+// local-process poll entirely -- see dockerStartStatusPush.test.js, same
+// reasoning -- while still going through the REAL runManagedLifecycle,
+// which is where the before-launch hook lives.
+function fakeDockerClient(onStart) {
+  return {
+    enabled: true,
+    available: true,
+    inspectManagedContainer: vi.fn(async () => ({ State: { Running: false } })),
+    runManagedAction: vi.fn(async (_ref, action) => {
+      onStart(action);
+      return { success: true, message: "Container starting" };
+    }),
+  };
+}
+
 let tmpDir;
-const targetLua = () =>
-  path.join(tmpDir, "media", "lua", "server", "PanelBridge.lua");
+const targetLua = () => path.join(tmpDir, "media", "lua", "server", "PanelBridge.lua");
 const bundledContent = () => fs.readFileSync(resolveSourcePath(), "utf8");
 const flushMicrotasks = () => new Promise((resolve) => setImmediate(resolve));
 
+function writeStaleBridge() {
+  fs.mkdirSync(path.dirname(targetLua()), { recursive: true });
+  fs.writeFileSync(targetLua(), 'local VERSION = "0.0.1"\n');
+}
+
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-autoinstall-route-"));
-  runManagedLifecycle.mockReset();
-  // Docker-managed path (handled: true) sidesteps /start's 30s local-process
-  // poll entirely -- see dockerStartStatusPush.test.js, same reasoning.
   // installPath is real so the installer's own fs writes land somewhere
   // disposable; no serverName/zomboidDataPath keeps
   // refreshLaunchTargetBeforeStart()'s ensureRconConfigured() call a
   // harmless no-op.
-  activeServer = { id: "s1", name: "Test Server", installPath: tmpDir, isRemote: false };
+  activeServer = { id: "s1", name: "Test Server", installPath: tmpDir, isRemote: false, dockerContainerName: "pz" };
+  setBeforeLaunchHook((server) => reconcileBridge(server, { reason: "launch" }));
 });
 
 afterEach(() => {
+  setBeforeLaunchHook(null);
+  setDockerClient(null);
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe("POST /server/start -- bridge auto-install runs before the process spawns", () => {
-  it("has already overwritten a stale bridge by the time runManagedLifecycle spawns the container", async () => {
-    fs.mkdirSync(path.dirname(targetLua()), { recursive: true });
-    fs.writeFileSync(targetLua(), 'local VERSION = "0.0.1"\n');
-
+describe("POST /server/start -- the bridge is current by the time the container starts", () => {
+  it("has already overwritten a stale bridge when runManagedLifecycle starts the container", async () => {
+    writeStaleBridge();
     let contentAtSpawnTime;
-    runManagedLifecycle.mockImplementation(async () => {
+    setDockerClient(fakeDockerClient(() => {
       contentAtSpawnTime = fs.readFileSync(targetLua(), "utf8");
-      return { handled: true, success: true, message: "Container starting" };
-    });
+    }));
 
-    const app = makeStartApp();
     const response = createResponse();
-    await getHandler("/start", "post")({ app }, response);
+    await getHandler("/start", "post")({ app: makeStartApp() }, response);
     await flushMicrotasks();
     await flushMicrotasks();
 
     expect(contentAtSpawnTime).toBe(bundledContent());
-    expect(response.json).toHaveBeenCalledWith(
-      expect.objectContaining({ success: true }),
-    );
+    expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
   });
 
   it("leaves an already-current bridge untouched (no needless rewrite on every start)", async () => {
     fs.mkdirSync(path.dirname(targetLua()), { recursive: true });
     fs.writeFileSync(targetLua(), bundledContent());
     const mtimeBefore = fs.statSync(targetLua()).mtimeMs;
+    setDockerClient(fakeDockerClient(() => {}));
 
-    runManagedLifecycle.mockResolvedValue({
-      handled: true,
-      success: true,
-      message: "Container starting",
-    });
-
-    const app = makeStartApp();
-    const response = createResponse();
-    await getHandler("/start", "post")({ app }, response);
-    await flushMicrotasks();
+    await getHandler("/start", "post")({ app: makeStartApp() }, createResponse());
     await flushMicrotasks();
 
     expect(fs.statSync(targetLua()).mtimeMs).toBe(mtimeBefore);
@@ -140,66 +149,42 @@ describe("POST /server/start -- bridge auto-install runs before the process spaw
     // "media" as a plain file forces installBridge()'s directory creation to
     // fail with ENOTDIR -- same shape panelBridgeInstaller.test.js uses.
     fs.writeFileSync(path.join(tmpDir, "media"), "not a directory");
+    const started = vi.fn();
+    setDockerClient(fakeDockerClient(started));
 
-    runManagedLifecycle.mockResolvedValue({
-      handled: true,
-      success: true,
-      message: "Container starting",
-    });
-
-    const app = makeStartApp();
     const response = createResponse();
-    await getHandler("/start", "post")({ app }, response);
-    await flushMicrotasks();
+    await getHandler("/start", "post")({ app: makeStartApp() }, response);
     await flushMicrotasks();
 
-    expect(runManagedLifecycle).toHaveBeenCalled();
-    expect(response.json).toHaveBeenCalledWith(
-      expect.objectContaining({ success: true }),
-    );
+    expect(started).toHaveBeenCalledWith("start");
+    expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+  });
+
+  it("the route itself no longer writes the file -- only the launch hook does", async () => {
+    writeStaleBridge();
+    setBeforeLaunchHook(null);
+    let contentAtSpawnTime;
+    setDockerClient(fakeDockerClient(() => {
+      contentAtSpawnTime = fs.readFileSync(targetLua(), "utf8");
+    }));
+
+    await getHandler("/start", "post")({ app: makeStartApp() }, createResponse());
+    await flushMicrotasks();
+
+    expect(contentAtSpawnTime).toBe('local VERSION = "0.0.1"\n');
   });
 });
 
-describe("POST /server/restart -- bridge auto-install runs before performRestart respawns it", () => {
-  it("has already overwritten a stale bridge by the time performRestart runs", async () => {
-    fs.mkdirSync(path.dirname(targetLua()), { recursive: true });
-    fs.writeFileSync(targetLua(), 'local VERSION = "0.0.1"\n');
-
-    let contentAtSpawnTime;
+describe("POST /server/restart -- the route hands the launch to performRestart untouched", () => {
+  it("does not write the bridge itself; performRestart's own start runs the hook", async () => {
+    writeStaleBridge();
+    let contentWhenHandedOff;
     const performRestart = vi.fn(async () => {
-      contentAtSpawnTime = fs.readFileSync(targetLua(), "utf8");
+      contentWhenHandedOff = fs.readFileSync(targetLua(), "utf8");
       return { success: true, message: "Restarted successfully" };
     });
     const app = {
-      get: (key) =>
-        key === "scheduler"
-          ? { performRestart }
-          : key === "io"
-            ? { emit: vi.fn() }
-            : null,
-    };
-    const response = createResponse();
-
-    await getHandler("/restart", "post")({ body: {}, app }, response);
-    await flushMicrotasks();
-
-    expect(contentAtSpawnTime).toBe(bundledContent());
-  });
-
-  it("still accepts the restart when the bridge install itself fails", async () => {
-    fs.writeFileSync(path.join(tmpDir, "media"), "not a directory");
-
-    const performRestart = vi.fn(async () => ({
-      success: true,
-      message: "Restarted successfully",
-    }));
-    const app = {
-      get: (key) =>
-        key === "scheduler"
-          ? { performRestart }
-          : key === "io"
-            ? { emit: vi.fn() }
-            : null,
+      get: (key) => (key === "scheduler" ? { performRestart } : key === "io" ? { emit: vi.fn() } : null),
     };
     const response = createResponse();
 
@@ -207,8 +192,7 @@ describe("POST /server/restart -- bridge auto-install runs before performRestart
     await flushMicrotasks();
 
     expect(performRestart).toHaveBeenCalled();
-    expect(response.json).toHaveBeenCalledWith(
-      expect.objectContaining({ success: true }),
-    );
+    expect(contentWhenHandedOff).toBe('local VERSION = "0.0.1"\n');
+    expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
   });
 });
