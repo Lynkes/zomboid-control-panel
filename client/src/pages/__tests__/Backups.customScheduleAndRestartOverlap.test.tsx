@@ -508,17 +508,35 @@ describe('Backups.tsx: the settings panel preview holds steady while the schedul
     expect(screen.queryByText(/^Next backup:/)).not.toBeInTheDocument()
   })
 
-  it("a role without backups.manage keeps the saved schedule's warning in the panel and never calls the preview it isn't allowed", async () => {
-    auth.can = (capability) => capability !== 'backups.manage'
-    prime(statusWith({ schedule: '0 */4 * * *', restartOverlaps: [overlap] }))
-    renderBackups()
+  // Both roles take the same steps and the same (fake) wait, well past the
+  // preview's debounce: the manage-capable one is the control that proves
+  // the wait was long enough for the preview to have run, so "never called"
+  // for the other one means gated, not merely not-yet.
+  it.each([
+    ['with', true],
+    ['without', false],
+  ])("a role %s backups.manage keeps the saved schedule's warning in the panel; only a manager's opening runs the preview", async (_label, canManage) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'], shouldAdvanceTime: true })
+    try {
+      auth.can = (capability) => canManage || capability !== 'backups.manage'
+      prime(statusWith({ schedule: '0 */4 * * *', restartOverlaps: [overlap] }))
+      validateSchedule.mockResolvedValue({ ...VALID, restartOverlaps: [overlap] })
+      renderBackups()
 
-    fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
-    await screen.findByRole('combobox', { name: 'Backup Frequency' })
-    expect(screen.getByText(TITLE)).toBeInTheDocument()
-    // Past the preview's 400 ms debounce.
-    await new Promise((resolve) => setTimeout(resolve, 600))
-    expect(validateSchedule).not.toHaveBeenCalled()
-    expect(screen.getByText(TITLE)).toBeInTheDocument()
+      fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
+      await screen.findByRole('combobox', { name: 'Backup Frequency' })
+      await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+
+      if (canManage) {
+        expect(validateSchedule).toHaveBeenCalledWith('0 */4 * * *')
+      } else {
+        expect(validateSchedule).not.toHaveBeenCalled()
+      }
+      // A manager's from the preview; the other role's from the saved
+      // status, since no preview ran for it.
+      expect(screen.getByText(TITLE)).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
