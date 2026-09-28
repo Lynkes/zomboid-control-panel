@@ -1560,10 +1560,17 @@ export class BackupService {
     // restoreInProgress clears, so a status read that sees the flag down
     // always sees the outcome with it. `id` is the requesting page's own
     // requestId when it sent a well-formed one, which is how that page
-    // tells its own outcome from another restore's. 'restore:finished' is
-    // the push for the same moment: sent once both are recorded, where
-    // restore:progress's own 'complete'/'error' fire from inside the
-    // restore, before the flag is down (and not at all for a refusal).
+    // tells its own outcome from another restore's. `preRestoreBackup`
+    // says whether this restore backed the replaced world up first (both
+    // panel pages always ask for it, an API caller may not), so a page
+    // that only watched it never claims a safety backup that isn't there.
+    // 'restore:finished' is the push for the same moment: sent once both
+    // are recorded, where restore:progress's own 'complete'/'error' fire
+    // from inside the restore, before the flag is down (and not at all for
+    // a refusal). It carries the id alone: it goes to every signed-in
+    // socket, backup capability or not, and a rollback failure's message
+    // names a host path (see publicRestoreMessage()) -- pages read the
+    // outcome from GET /backup/status, which is capability-gated.
     const restore = {
       id:
         typeof options.requestId === "string" &&
@@ -1572,6 +1579,7 @@ export class BackupService {
           : randomUUID(),
       backupName: path.basename(String(backupName ?? "")),
       startedAt: new Date().toISOString(),
+      preRestoreBackup: options.createPreRestoreBackup !== false,
     };
     this.currentRestore = restore;
     let result = null;
@@ -1591,7 +1599,7 @@ export class BackupService {
       };
       this.currentRestore = null;
       this.restoreInProgress = false;
-      options.io?.emit("restore:finished", this.lastRestore);
+      options.io?.emit("restore:finished", { id: restore.id });
     }
   }
 

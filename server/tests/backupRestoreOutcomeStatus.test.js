@@ -118,7 +118,11 @@ describe("GET /backup/status carries a restore's outcome, not just the POST's re
     // The status the page got mid-restore: running, and now it says which.
     const during = await statusAtPreBackupComplete;
     expect(during.restoreInProgress).toBe(true);
-    expect(during.currentRestore).toMatchObject({ id: "page-request-0001", backupName: "good.zip" });
+    expect(during.currentRestore).toMatchObject({
+      id: "page-request-0001",
+      backupName: "good.zip",
+      preRestoreBackup: true,
+    });
 
     // And the status after: not running, with the outcome of that restore.
     const after = await service.getStatus();
@@ -129,14 +133,16 @@ describe("GET /backup/status carries a restore's outcome, not just the POST's re
       backupName: "good.zip",
       success: true,
       message: null,
+      preRestoreBackup: true,
     });
     expect(typeof after.lastRestore.duration).toBe("number");
     expect(Date.parse(after.lastRestore.finishedAt)).toBeGreaterThanOrEqual(
       Date.parse(after.lastRestore.startedAt),
     );
 
-    // The push comes last, once the flag is down and the outcome recorded.
-    expect(events.at(-1)).toEqual(["restore:finished", after.lastRestore]);
+    // The push comes last, once the flag is down and the outcome recorded
+    // -- naming the restore, nothing more (see the next test).
+    expect(events.at(-1)).toEqual(["restore:finished", { id: "page-request-0001" }]);
     expect(flagWhenFinished).toBe(false);
   });
 
@@ -148,11 +154,13 @@ describe("GET /backup/status carries a restore's outcome, not just the POST's re
     fs.writeFileSync(blocker, "x");
     savesPath = path.join(blocker, SERVER_NAME);
     const service = createService();
+    const events = [];
 
     const result = await service.restoreBackup("good.zip", {
       createPreRestoreBackup: false,
       // Not an id the page may pick: the server makes one instead.
       requestId: "../../etc",
+      io: { emit: (event, payload) => events.push([event, payload]) },
     });
 
     expect(result.success).toBe(false);
@@ -163,6 +171,35 @@ describe("GET /backup/status carries a restore's outcome, not just the POST's re
     expect(lastRestore.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(lastRestore.message).toBeTruthy();
     expect(lastRestore.message).not.toContain(root);
+    // An API caller may skip the safety backup; a page that only watched
+    // this restore must not claim one.
+    expect(lastRestore.preRestoreBackup).toBe(false);
+    expect(events.at(-1)).toEqual(["restore:finished", { id: lastRestore.id }]);
+  });
+
+  it("keeps a rollback failure's host path in the capability-gated status, out of the restore:finished broadcast", async () => {
+    // restore:finished goes to every signed-in socket, backup capability or
+    // not (a moderator holds none); GET /backup/status is gated on one. The
+    // rollback-failure message deliberately keeps its path (it's where the
+    // previous world now sits), so it may reach only the status.
+    const { RESTORE_ROLLBACK_FAILED_PREFIX } = await import("../utils/restoreMessage.js");
+    const preservedAt = path.join(root, "Saves", "Multiplayer", `${SERVER_NAME}.replaced-1`);
+    const service = createService();
+    service._runRestore = async () => ({
+      success: false,
+      message: `${RESTORE_ROLLBACK_FAILED_PREFIX} It is preserved at ${preservedAt}.`,
+    });
+    const events = [];
+
+    await service.restoreBackup("good.zip", {
+      requestId: "page-request-0002",
+      io: { emit: (event, payload) => events.push([event, payload]) },
+    });
+
+    const { lastRestore } = await service.getStatus();
+    expect(lastRestore.message).toContain(preservedAt);
+    expect(events).toEqual([["restore:finished", { id: "page-request-0002" }]]);
+    expect(JSON.stringify(events)).not.toContain(root);
   });
 
   it("a second restore refused while one runs leaves the running one's record alone", async () => {
