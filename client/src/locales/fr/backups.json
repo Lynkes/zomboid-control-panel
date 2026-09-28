@@ -73,7 +73,6 @@
     "maxBackupsLabel": "Nombre maximum de sauvegardes à conserver",
     "maxBackupsHelp": "Le panneau supprime automatiquement les sauvegardes les plus anciennes lorsque cette limite est atteinte",
     "customLabel": "Expression cron",
-    "customPlaceholder": "ex. : 30 3 * * *",
     "customHint": "Format : minute heure jour mois jour de la semaine. « {{example}} » s'exécute chaque jour à 3 h 30. Au plus une fois toutes les 5 minutes.",
     "customValid": "Planification valide",
     "customInvalid": "Expression cron non valide",

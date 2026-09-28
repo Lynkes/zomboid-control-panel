@@ -72,7 +72,6 @@
     "maxBackupsLabel": "Maksimòm Kopi Sovgad pou Kenbe",
     "maxBackupsHelp": "Kopi sovgad ki pi ansyen yo ap efase otomatikman lè limit la rive",
     "customLabel": "Ekspresyon cron",
-    "customPlaceholder": "pa egzanp: 30 3 * * *",
     "customHint": "Fòma: minit èdtan jou mwa jou semèn. \"{{example}}\" kouri chak jou a 3:30. Pa plis pase yon fwa chak 5 minit.",
     "customValid": "Orè valid",
     "customInvalid": "Se pa yon ekspresyon cron valid",

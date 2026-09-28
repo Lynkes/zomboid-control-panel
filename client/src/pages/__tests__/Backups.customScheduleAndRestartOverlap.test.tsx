@@ -160,8 +160,11 @@ describe('Backups.tsx: custom cron schedule', () => {
     expect(frequency).toHaveValue('custom')
     expect(screen.getByRole('option', { name: 'Custom (cron expression)' })).toBeInTheDocument()
     expect(screen.getByLabelText('Cron expression')).toHaveValue('30 3 * * 1-5')
-    // Left-to-right in every language, so an RTL page can't reverse it.
+    // Left-to-right in every language, so an RTL page can't reverse it --
+    // and its placeholder is the bare cron: a translated "e.g." prefix
+    // reordered the example around it under dir="ltr" in Arabic.
     expect(screen.getByLabelText('Cron expression')).toHaveAttribute('dir', 'ltr')
+    expect(screen.getByLabelText('Cron expression')).toHaveAttribute('placeholder', '30 3 * * *')
 
     expect(await screen.findByText('Valid schedule')).toBeInTheDocument()
     expect(validateSchedule).toHaveBeenCalledWith('30 3 * * 1-5')

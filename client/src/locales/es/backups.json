@@ -73,7 +73,6 @@
     "maxBackupsLabel": "Máximo de copias de seguridad a conservar",
     "maxBackupsHelp": "Las copias de seguridad más antiguas se eliminarán automáticamente al alcanzar el límite",
     "customLabel": "Expresión cron",
-    "customPlaceholder": "p. ej., 30 3 * * *",
     "customHint": "Formato: minuto hora día mes día de la semana. «{{example}}» se ejecuta todos los días a las 3:30. Como máximo una vez cada 5 minutos.",
     "customValid": "Horario válido",
     "customInvalid": "No es una expresión cron válida",

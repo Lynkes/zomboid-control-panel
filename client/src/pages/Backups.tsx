@@ -1199,7 +1199,12 @@ export default function Backups() {
                       id="backup-schedule-cron"
                       value={customCron}
                       onChange={(e) => setCustomCron(e.target.value)}
-                      placeholder={t('settingsPanel.customPlaceholder')}
+                      // The bare cron, as Settings > Backups has it: under
+                      // dir="ltr" a translated "e.g." prefix in an RTL
+                      // language reordered the example around it (Arabic
+                      // painted the minute and hour swapped). The hint below
+                      // already says it's an example.
+                      placeholder="30 3 * * *"
                       // A cron is left-to-right in every language; in an RTL
                       // page its neutral '*' and '/' would otherwise lay out
                       // reversed as it's typed.

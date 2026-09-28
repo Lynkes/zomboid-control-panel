@@ -72,7 +72,6 @@
     "maxBackupsLabel": "Maximum Backups to Keep",
     "maxBackupsHelp": "Oldest backups will be auto-deleted when limit is reached",
     "customLabel": "Cron expression",
-    "customPlaceholder": "e.g., 30 3 * * *",
     "customHint": "Format: minute hour day month weekday. \"{{example}}\" runs every day at 3:30. At most once every 5 minutes.",
     "customValid": "Valid schedule",
     "customInvalid": "Not a valid cron expression",

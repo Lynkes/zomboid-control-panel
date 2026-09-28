@@ -72,7 +72,6 @@
     "maxBackupsLabel": "Maximale Anzahl an Backups",
     "maxBackupsHelp": "Die ältesten Backups werden automatisch gelöscht, sobald das Limit erreicht ist",
     "customLabel": "Cron-Ausdruck",
-    "customPlaceholder": "z. B. 30 3 * * *",
     "customHint": "Format: Minute Stunde Tag Monat Wochentag. „{{example}}“ läuft täglich um 3:30 Uhr. Höchstens alle 5 Minuten.",
     "customValid": "Gültiger Zeitplan",
     "customInvalid": "Kein gültiger Cron-Ausdruck",

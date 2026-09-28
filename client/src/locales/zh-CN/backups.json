@@ -72,7 +72,6 @@
     "maxBackupsLabel": "最大保留备份数",
     "maxBackupsHelp": "达到数量上限后，最旧的备份将被自动删除",
     "customLabel": "cron 表达式",
-    "customPlaceholder": "例如：30 3 * * *",
     "customHint": "格式：分钟 小时 日 月 星期。“{{example}}”表示每天 3:30 运行。最多每 5 分钟一次。",
     "customValid": "计划有效",
     "customInvalid": "不是有效的 cron 表达式",
