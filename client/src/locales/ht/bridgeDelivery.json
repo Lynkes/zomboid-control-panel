@@ -186,21 +186,21 @@
     "recordMethodLocal": "Kopye PanelBridge nan dosye jwèt sa a anvan chak demaraj"
   },
   "guided": {
-    "title": "Fè chanjman sa yo kote ebèjè ou",
-    "intro": "Panèl la pa ka chanje fichye sèvè sa a. Fè chanjman sa yo ak jesyonè fichye oswa editè konfigirasyon ebèjè ou:",
+    "title": "Fè chanjman sa yo sou sèvè a",
+    "intro": "Panèl la pa ka chanje fichye sèvè sa a. Fè chanjman sa yo ak jesyonè fichye ebèjè ou, oswa dirèkteman sou machin ki fè sèvè a mache a:",
     "iniFallback": "fichye .ini sèvè a",
     "toWorkshop": {
       "step1": "Nan <file>{{file}}</file>, ajoute <code>{{value}}</code> nan fen liy <code>Mods=</code> la.",
       "step2": "Ajoute <code>{{value}}</code> nan fen <code>WorkshopItems=</code> (ajoute liy lan si li pa la).",
       "step3": "Efase fichye sa yo nan dosye jwèt sèvè a, si ou te voye yo:",
-      "step4": "Asire w ebèjè ou pa demare sèvè a ak <code>-nosteam</code>.",
-      "step5": "Redemare sèvè a depi tablo ebèjè ou."
+      "step4": "Asire w yo pa demare sèvè a ak <code>-nosteam</code>.",
+      "step5": "Redemare sèvè a."
     },
     "toLocal": {
       "step1": "Nan <file>{{file}}</file>, retire antre PanelBridge sa yo nan liy <code>Mods=</code> ak <code>WorkshopItems=</code>:",
       "step2": "Voye <code>PanelBridge.lua</code> nan <code>media/lua/server/</code> nan dosye jwèt sèvè a.",
       "step3": "Mete <code>DoLuaChecksum=false</code> nan <file>{{file}}</file>.",
-      "step4": "Redemare sèvè a depi tablo ebèjè ou."
+      "step4": "Redemare sèvè a."
     },
     "keepChecksumOff": "Kite DoLuaChecksum=false jiskaske paj sa a konfime chanjman an.",
     "done": "Mwen fè chanjman sa yo"

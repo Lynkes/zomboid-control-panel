@@ -186,21 +186,21 @@
     "recordMethodLocal": "Copier PanelBridge dans ce dossier du jeu avant chaque démarrage"
   },
   "guided": {
-    "title": "Effectuez ces changements chez votre hébergeur",
-    "intro": "Le panneau ne peut pas modifier les fichiers de ce serveur. Effectuez ces changements avec le gestionnaire de fichiers ou l'éditeur de configuration de votre hébergeur :",
+    "title": "Effectuez ces changements sur le serveur",
+    "intro": "Le panneau ne peut pas modifier les fichiers de ce serveur. Effectuez ces changements avec le gestionnaire de fichiers de votre hébergeur, ou directement sur la machine qui exécute le serveur :",
     "iniFallback": "le fichier .ini du serveur",
     "toWorkshop": {
       "step1": "Dans <file>{{file}}</file>, ajoutez <code>{{value}}</code> à la fin de la ligne <code>Mods=</code>.",
       "step2": "Ajoutez <code>{{value}}</code> à la fin de <code>WorkshopItems=</code> (ajoutez la ligne si elle manque).",
       "step3": "Supprimez ces fichiers du dossier du jeu du serveur, si vous les aviez envoyés :",
-      "step4": "Vérifiez que votre hébergeur ne démarre pas le serveur avec <code>-nosteam</code>.",
-      "step5": "Redémarrez le serveur depuis le tableau de bord de votre hébergeur."
+      "step4": "Vérifiez que le serveur n'est pas démarré avec <code>-nosteam</code>.",
+      "step5": "Redémarrez le serveur."
     },
     "toLocal": {
       "step1": "Dans <file>{{file}}</file>, retirez ces entrées PanelBridge des lignes <code>Mods=</code> et <code>WorkshopItems=</code> :",
       "step2": "Envoyez <code>PanelBridge.lua</code> dans <code>media/lua/server/</code> du dossier du jeu du serveur.",
       "step3": "Définissez <code>DoLuaChecksum=false</code> dans <file>{{file}}</file>.",
-      "step4": "Redémarrez le serveur depuis le tableau de bord de votre hébergeur."
+      "step4": "Redémarrez le serveur."
     },
     "keepChecksumOff": "Laissez DoLuaChecksum=false jusqu'à ce que cette page confirme le changement.",
     "done": "J'ai effectué ces changements"

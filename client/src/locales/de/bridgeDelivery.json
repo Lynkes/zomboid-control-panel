@@ -186,21 +186,21 @@
     "recordMethodLocal": "PanelBridge vor jedem Start in diesen Spielordner kopieren"
   },
   "guided": {
-    "title": "Nimm diese Änderungen bei deinem Hoster vor",
-    "intro": "Das Panel kann die Dateien dieses Servers nicht ändern. Nimm diese Änderungen mit dem Dateimanager oder Konfigurationseditor deines Hosters vor:",
+    "title": "Nimm diese Änderungen auf dem Server vor",
+    "intro": "Das Panel kann die Dateien dieses Servers nicht ändern. Nimm diese Änderungen mit dem Dateimanager deines Hosters vor oder direkt auf dem Rechner, auf dem der Server läuft:",
     "iniFallback": "die .ini-Datei des Servers",
     "toWorkshop": {
       "step1": "Füge in <file>{{file}}</file> <code>{{value}}</code> am Ende der Zeile <code>Mods=</code> hinzu.",
       "step2": "Füge <code>{{value}}</code> am Ende von <code>WorkshopItems=</code> hinzu (lege die Zeile an, falls sie fehlt).",
       "step3": "Lösche diese Dateien aus dem Spielordner des Servers, falls du sie hochgeladen hast:",
-      "step4": "Stelle sicher, dass dein Hoster den Server nicht mit <code>-nosteam</code> startet.",
-      "step5": "Starte den Server über das Dashboard deines Hosters neu."
+      "step4": "Stelle sicher, dass der Server nicht mit <code>-nosteam</code> gestartet wird.",
+      "step5": "Starte den Server neu."
     },
     "toLocal": {
       "step1": "Entferne in <file>{{file}}</file> diese PanelBridge-Einträge aus den Zeilen <code>Mods=</code> und <code>WorkshopItems=</code>:",
       "step2": "Lade <code>PanelBridge.lua</code> nach <code>media/lua/server/</code> im Spielordner des Servers hoch.",
       "step3": "Setze <code>DoLuaChecksum=false</code> in <file>{{file}}</file>.",
-      "step4": "Starte den Server über das Dashboard deines Hosters neu."
+      "step4": "Starte den Server neu."
     },
     "keepChecksumOff": "Lass DoLuaChecksum=false, bis diese Seite den Wechsel bestätigt.",
     "done": "Ich habe diese Änderungen vorgenommen"

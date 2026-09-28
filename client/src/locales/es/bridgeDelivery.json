@@ -186,21 +186,21 @@
     "recordMethodLocal": "Copiar PanelBridge en esta carpeta del juego antes de cada inicio"
   },
   "guided": {
-    "title": "Haz estos cambios en tu proveedor de alojamiento",
-    "intro": "El panel no puede modificar los archivos de este servidor. Haz estos cambios con el gestor de archivos o el editor de configuración de tu proveedor:",
+    "title": "Haz estos cambios en el servidor",
+    "intro": "El panel no puede modificar los archivos de este servidor. Haz estos cambios con el gestor de archivos de tu proveedor o directamente en la máquina que ejecuta el servidor:",
     "iniFallback": "el archivo .ini del servidor",
     "toWorkshop": {
       "step1": "En <file>{{file}}</file>, añade <code>{{value}}</code> al final de la línea <code>Mods=</code>.",
       "step2": "Añade <code>{{value}}</code> al final de <code>WorkshopItems=</code> (añade la línea si falta).",
       "step3": "Elimina estos archivos de la carpeta del juego del servidor, si los subiste:",
-      "step4": "Asegúrate de que tu proveedor no inicia el servidor con <code>-nosteam</code>.",
-      "step5": "Reinicia el servidor desde el tablero de tu proveedor."
+      "step4": "Asegúrate de que el servidor no se inicia con <code>-nosteam</code>.",
+      "step5": "Reinicia el servidor."
     },
     "toLocal": {
       "step1": "En <file>{{file}}</file>, quita estas entradas de PanelBridge de las líneas <code>Mods=</code> y <code>WorkshopItems=</code>:",
       "step2": "Sube <code>PanelBridge.lua</code> a <code>media/lua/server/</code> en la carpeta del juego del servidor.",
       "step3": "Define <code>DoLuaChecksum=false</code> en <file>{{file}}</file>.",
-      "step4": "Reinicia el servidor desde el tablero de tu proveedor."
+      "step4": "Reinicia el servidor."
     },
     "keepChecksumOff": "Deja DoLuaChecksum=false hasta que esta página confirme el cambio.",
     "done": "Ya hice estos cambios"

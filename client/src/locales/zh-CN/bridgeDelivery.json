@@ -186,21 +186,21 @@
     "recordMethodLocal": "每次启动前将 PanelBridge 复制到此游戏文件夹"
   },
   "guided": {
-    "title": "请在你的托管服务商处进行这些更改",
-    "intro": "面板无法修改此服务器的文件。请使用托管服务商的文件管理器或配置编辑器进行以下更改：",
+    "title": "请在服务器上进行这些更改",
+    "intro": "面板无法修改此服务器的文件。请使用托管服务商的文件管理器，或直接在运行服务器的机器上进行以下更改：",
     "iniFallback": "服务器的 .ini 文件",
     "toWorkshop": {
       "step1": "在 <file>{{file}}</file> 中，将 <code>{{value}}</code> 添加到 <code>Mods=</code> 行的末尾。",
       "step2": "将 <code>{{value}}</code> 添加到 <code>WorkshopItems=</code> 的末尾（如果没有该行，请添加）。",
       "step3": "如果你上传过以下文件，请将它们从服务器的游戏文件夹中删除：",
-      "step4": "确认你的托管服务商不会使用 <code>-nosteam</code> 启动服务器。",
-      "step5": "在托管服务商的管理后台中重启服务器。"
+      "step4": "确认服务器不是以 <code>-nosteam</code> 启动的。",
+      "step5": "重启服务器。"
     },
     "toLocal": {
       "step1": "在 <file>{{file}}</file> 中，从 <code>Mods=</code> 和 <code>WorkshopItems=</code> 行中移除以下 PanelBridge 条目：",
       "step2": "将 <code>PanelBridge.lua</code> 上传到服务器游戏文件夹的 <code>media/lua/server/</code> 中。",
       "step3": "在 <file>{{file}}</file> 中设置 <code>DoLuaChecksum=false</code>。",
-      "step4": "在托管服务商的管理后台中重启服务器。"
+      "step4": "重启服务器。"
     },
     "keepChecksumOff": "在此页面确认切换之前，请保持 DoLuaChecksum=false。",
     "done": "我已完成这些更改"
