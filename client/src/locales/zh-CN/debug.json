@@ -930,7 +930,7 @@
             "never": {
               "label": "没有模组心跳信号",
               "message": "status.json 从未被写入。模组未在服务器上加载。",
-              "hint": "确认 PanelBridge 在服务器的模组列表和 Workshop 订阅中"
+              "hint": "世界加载完成后 PanelBridge 才会报告。如果一直没有报告，请查看「设置 › PanelBridge」中的「PanelBridge 安装方式」。"
             }
           }
         },

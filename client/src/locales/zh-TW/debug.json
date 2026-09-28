@@ -930,7 +930,7 @@
             "never": {
               "label": "沒有模組心跳訊號",
               "message": "status.json 從未被寫入。模組未在伺服器上載入。",
-              "hint": "確認 PanelBridge 在伺服器的模組列表和 Workshop 訂閱中"
+              "hint": "世界載入完成後 PanelBridge 才會回報。如果一直沒有回報，請查看「設定 › PanelBridge」中的「PanelBridge 安裝方式」。"
             }
           }
         },

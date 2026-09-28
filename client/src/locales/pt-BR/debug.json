@@ -935,7 +935,7 @@
             "never": {
               "label": "Nenhum heartbeat do mod",
               "message": "status.json nunca foi gravado. O mod não está carregado no servidor.",
-              "hint": "Verifique se o PanelBridge está na lista de mods do servidor e inscrito na Workshop"
+              "hint": "O PanelBridge envia o status assim que o mundo termina de carregar. Se continuar em silêncio, veja “Como o PanelBridge é instalado” em Configurações › PanelBridge."
             }
           }
         },

@@ -930,7 +930,7 @@
             "never": {
               "label": "No mod heartbeat",
               "message": "status.json has never been written. Mod is not loaded on the server.",
-              "hint": "Verify PanelBridge is in the server's mod list and Workshop subscription"
+              "hint": "PanelBridge reports once the world has loaded. If it stays silent, see “How PanelBridge is installed” in Settings › PanelBridge."
             }
           }
         },

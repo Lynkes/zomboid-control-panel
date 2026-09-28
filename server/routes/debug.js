@@ -4707,6 +4707,10 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
               ),
             );
           } else {
+            // The remedy doesn't assume a delivery method: the default
+            // panel-installed PanelBridge is never in Mods= or WorkshopItems=,
+            // so it points at the block that knows how this server gets it
+            // (as panelBridge.js's bridgeSilentSinceStart does).
             checks.push(
               diagFail(
                 "bridge.heartbeat",
@@ -4714,7 +4718,7 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
                 "status.json has never been written. Mod is not loaded on the server.",
                 {
                   category: "bridge",
-                  hint: "Verify PanelBridge is in the server's mod list and Workshop subscription",
+                  hint: "PanelBridge reports once the world has loaded. If it stays silent, see “How PanelBridge is installed” in Settings › PanelBridge.",
                   variant: "never",
                 },
               ),

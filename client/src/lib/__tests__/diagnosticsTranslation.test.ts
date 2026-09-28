@@ -443,11 +443,14 @@ describe('translateDiagnosticCheck', () => {
       status: 'fail',
       label: 'No mod heartbeat',
       message: 'status.json has never been written. Mod is not loaded on the server.',
-      hint: "Verify PanelBridge is in the server's mod list and Workshop subscription",
+      hint: 'PanelBridge reports once the world has loaded. If it stays silent, see “How PanelBridge is installed” in Settings › PanelBridge.',
       variant: 'never',
     })
     expect(stale.message).toBe('Dernier battement 5m ago. Le mod a peut-être planté ou a été déchargé.')
     expect(never.message).toBe("status.json n'a jamais été écrit. Le mod n'est pas chargé sur le serveur.")
+    expect(never.hint).toBe(
+      "PanelBridge transmet son statut une fois le monde chargé. S'il reste silencieux, consultez « Mode d'installation de PanelBridge » dans Paramètres › PanelBridge.",
+    )
     expect(stale.message).not.toBe(never.message)
   })
 
