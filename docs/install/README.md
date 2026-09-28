@@ -38,8 +38,11 @@ own file.
 PanelBridge, the optional in-game helper, reaches a server in one of two
 ways, chosen per server in **Settings → PanelBridge**: the panel copies it
 into the game folder, or a Build 42 server running with Steam downloads it
-from the Steam Workshop. The Windows, Linux, Docker and hosted guides say
-what that means for their setup, and troubleshooting.md covers both.
+from the Steam Workshop. The Workshop option works once a panel release
+carries the Workshop item's ID; until then it reads *"Not available
+yet"*, as the main [README](../../README.md#panelbridge-optional)
+explains. The Windows, Linux, Docker and hosted guides say what each
+means for their setup, and troubleshooting.md covers both.
 
 For anything past initial install — PanelBridge, updates, remote access, the
 full feature list — see the main [README.md](../../README.md).

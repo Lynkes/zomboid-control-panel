@@ -176,7 +176,9 @@ The panel controls your PZ server over RCON — it won't connect without this.
    **installed by the panel**, this line has to stay: with the check on,
    players can't join. With **Steam Workshop** delivery (Build 42, server
    launched with Steam), keep it until that page confirms PanelBridge
-   loaded from the Workshop; after that it can go back on.
+   loaded from the Workshop; after that it can go back on. Workshop
+   delivery can be chosen once a panel release carries the Workshop
+   item's ID; until then the option reads *"Not available yet"*.
 4. Save the file, then **restart the PZ server itself** (not the panel) —
    the game server only reads its `.ini` at startup.
 

@@ -149,13 +149,15 @@ source and image automatically — you don't need to intervene.
   host-root-equivalent endpoint to the network the port is bound on.
 - The PZ game ports (`16261/udp`, `16262/udp`) are published automatically
   by the stack — there's nothing to add to Compose by hand for this path.
-- PanelBridge works both ways on this path with no file editing on your
-  part. **Installed by the panel** (the default) copies `PanelBridge.lua`
-  into `/pz-server/media/lua/server/` before every start. With **Steam
-  Workshop** delivery,
-  chosen in **Settings → PanelBridge → How PanelBridge is installed**, the
-  panel adds the two `.ini` entries and moves the loose file out, and PZ
-  downloads the item into the `pz-server` volume when it starts, under
+- PanelBridge can work both ways on this path with no file editing on
+  your part. **Installed by the panel** (the default) copies
+  `PanelBridge.lua` into `/pz-server/media/lua/server/` before every
+  start. **Steam Workshop** delivery can be chosen in **Settings →
+  PanelBridge → How PanelBridge is installed** once a panel release
+  carries the Workshop item's ID; until then the option reads *"Not
+  available yet"*. With it, the panel adds the two `.ini` entries and
+  moves the loose file out, and PZ downloads the item into the
+  `pz-server` volume when it starts, under
   `/pz-server/steamapps/workshop/content/108600/<item ID>`. The line
   `Workshop: <item ID> installed to <folder>` in `/zomboid/server-console.txt`
   names the exact folder. The README's
@@ -306,16 +308,18 @@ RCON shows connected.
   `ghcr.io/fpsacha/zomboid-panel:1.2.4` — no `v` prefix, unlike the git tag
   it's built from), if you'd rather pin a version than track `:latest`.
 - **PanelBridge:** with the PZ install and data folders mounted, both
-  install methods work without editing files yourself. The panel copies
-  `PanelBridge.lua` into the mounted install, or, for Steam Workshop
-  delivery (Settings → PanelBridge → How PanelBridge is installed), adds
-  the two `.ini` entries and moves the loose file out. It checks this when
-  it starts, when you make the server active, and right before it starts
-  or restarts PZ itself. If something else starts PZ (a systemd unit, a
+  install methods can work without editing files yourself. The panel
+  copies `PanelBridge.lua` into the mounted install, or, for Steam
+  Workshop delivery (Settings → PanelBridge → How PanelBridge is
+  installed; available once a panel release carries the Workshop item's
+  ID, until then the option reads *"Not available yet"*), adds the two
+  `.ini` entries and moves the loose file out. It checks this when it
+  starts, when you make the server active, and right before it starts or
+  restarts PZ itself. If something else starts PZ (a systemd unit, a
   container restart policy), that last check doesn't run: restart the
-  panel or make the server active again to re-run it. Without a mount, the
-  panel can't write PZ's files and PanelBridge goes on by hand, as in
-  Path C.
+  panel (or switch the active server away and back) to re-run it, then
+  restart PZ so it loads the change. Without a mount, the panel can't
+  write PZ's files and PanelBridge goes on by hand, as in Path C.
 
 Maintainer invariant: the root and client package manifests and both lockfiles
 must carry the same version. The Docker workflows build `:latest` from
@@ -440,9 +444,11 @@ configured.
 9. If your PZ container doesn't expose `/zomboid` to the panel at all, use
    **Settings → PanelBridge → Remote server via SFTP** instead of a shared
    folder. With both paths mapped, the panel installs PanelBridge either
-   way — it copies `PanelBridge.lua` in, or, for Steam Workshop delivery,
-   adds the two `.ini` entries. Unless you let the panel control the PZ
-   container ([below](#optional-let-the-panel-control-the-unraid-pz-container)),
+   way — it copies `PanelBridge.lua` in, or, for Steam Workshop delivery
+   (once a panel release carries the Workshop item's ID; until then the
+   option reads *"Not available yet"*), adds the two `.ini` entries.
+   Unless you let the panel control the PZ container
+   ([below](#optional-let-the-panel-control-the-unraid-pz-container)),
    restart that container from Unraid afterwards so PZ loads the change.
 
 **You know it worked when:** the dashboard shows the server status card and

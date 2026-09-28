@@ -312,9 +312,11 @@ only join while `DoLuaChecksum=false` is set in the server's `.ini`. If it
 isn't, **Settings → PanelBridge** says *"Players can't join this server
 right now"* and offers **Turn the check off**; restart the server after
 that. A Build 42 server that runs with Steam can instead get PanelBridge
-from the Steam Workshop and keep the check on. Choose that under **How
-PanelBridge is installed** on the same page; the
-[README](../../README.md#panelbridge-optional) compares the two.
+from the Steam Workshop and keep the check on, once a panel release
+carries the Workshop item's ID; until then the option reads *"Not
+available yet"*. Choose it under **How PanelBridge is installed** on the
+same page; the [README](../../README.md#panelbridge-optional) compares
+the two.
 
 ---
 

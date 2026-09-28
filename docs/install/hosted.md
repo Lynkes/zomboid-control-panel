@@ -125,8 +125,9 @@ Both options use steps 9–12, and Phase 4 continues from either.
 
 9. In the panel, open **Settings → PanelBridge**. Under **How PanelBridge
    is installed** (it names the active server), click **Switch to Steam
-   Workshop**. The dialog, **Make these changes on the server**, lists the
-   exact values with a **Copy** button for each. Keep it open.
+   Workshop**. The dialog (*Switch <server> to Steam Workshop delivery?*)
+   lists, under **Make these changes on the server**, the exact values with
+   a **Copy** button for each. Keep it open.
 10. Open your server's `.ini` file — through the provider's config editor,
     or by downloading and re-uploading it through the file manager — and:
     - add `;ZomboidControlPanelBridge` to the end of the `Mods=` line;
