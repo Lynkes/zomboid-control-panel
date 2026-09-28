@@ -1,0 +1,6 @@
+{
+  "up": "up {{uptime}}",
+  "startedAt": "Started {{time}}",
+  "unknown": "uptime unknown",
+  "unknownHint": "The panel can't tell when this server started: its process runs somewhere the panel can't inspect, such as another machine or container."
+}

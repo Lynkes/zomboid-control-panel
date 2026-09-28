@@ -1,0 +1,6 @@
+{
+  "up": "actif depuis {{uptime}}",
+  "startedAt": "Démarré le {{time}}",
+  "unknown": "durée d'activité inconnue",
+  "unknownHint": "Le panneau ne peut pas savoir quand ce serveur a démarré : son processus tourne à un endroit que le panneau ne peut pas inspecter, comme une autre machine ou un autre conteneur."
+}

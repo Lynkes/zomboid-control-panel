@@ -24,6 +24,8 @@ Templates are sparse JSON overrides for existing `server.ini` and SandboxVars se
 
 The active-server status endpoint reports three distinct signals: host/process or container state, RCON connectivity, and PanelBridge state. Healthy signals remain neutral in the client. Remote SFTP hosts are deliberately shown as unknown when the panel cannot verify their process state.
 
+Server uptime is computed in the client from the host signal's `startedAt`, which is present only for a host confirmed running whose start time the operating system or Docker can state: the tracked PID's OS start time for a native server (a systemd unit's `MainPID` for that lifecycle), cached per PID in `ServerManager`, or the container's `State.StartedAt`. Remote SFTP hosts, invisible processes, and OpenRC services after a panel restart have no start time and render as unknown, never as zero.
+
 ## Storage Health
 
 `diskMonitor.js` checks free space on the save volume every 60 seconds. Warning and critical thresholds are 90% and 95%. The system health endpoint combines disk state with the lowdb write circuit-breaker state; the client renders this only when a fault is present.

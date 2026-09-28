@@ -627,6 +627,21 @@ router.get("/status", async (req, res) => {
       log.debug(`Per-server status detection failed: ${err.message}`);
     }
 
+    // Each running row's start time, from the OS for the PID that row was
+    // attributed (a systemd unit's MainPID for a managed lifecycle) -- the
+    // same cached lookup serverManager.resolveStartTime() uses for the
+    // active server, so a card and the dashboard can't disagree, and a
+    // 15s list poll costs no new OS lookups once each PID has been asked
+    // about once. ISO string, or null when unknown (stopped, unverifiable,
+    // or the OS couldn't say).
+    const startedAtFor = async (pid, running) => {
+      if (!running || !pid || typeof serverManager?.getProcessStartTime !== "function") {
+        return null;
+      }
+      const startedMs = await serverManager.getProcessStartTime(pid);
+      return startedMs === null ? null : new Date(startedMs).toISOString();
+    };
+
     const statuses = await Promise.all(servers.map(async (server) => {
       if (isManagedLifecycleProvider(server.lifecycleProvider)) {
         try {
@@ -634,6 +649,7 @@ router.get("/status", async (req, res) => {
             server,
             server.lifecycleProvider,
           ).status();
+          const known = status.running && !status.scanFailed;
           return {
             id: server.id,
             name: server.name,
@@ -642,6 +658,7 @@ router.get("/status", async (req, res) => {
             isActive: server.id === activeId,
             provider: server.lifecycleProvider,
             stateUnknown: Boolean(status.scanFailed),
+            startedAt: await startedAtFor(status.mainPid, known),
           };
         } catch (error) {
           return {
@@ -652,6 +669,7 @@ router.get("/status", async (req, res) => {
             isActive: server.id === activeId,
             provider: server.lifecycleProvider,
             stateUnknown: true,
+            startedAt: null,
             error: sanitizeError(error.message),
           };
         }
@@ -703,6 +721,7 @@ router.get("/status", async (req, res) => {
       // row the same "don't know yet" signal every other site already has
       // instead of forcing a confident guess.
       let activeFallbackUnknown = false;
+      let fallbackPid = null;
       if (!running && server.id === activeId && typeof serverManager?.getServerProcessDetails === "function") {
         try {
           const activeDetails = await serverManager.getServerProcessDetails();
@@ -710,12 +729,14 @@ router.get("/status", async (req, res) => {
             activeFallbackUnknown = true;
           } else if (activeDetails.running) {
             running = true;
+            fallbackPid = activeDetails.matched?.[0]?.pid || null;
           }
         } catch (err) {
           activeFallbackUnknown = true;
           log.debug(`Active-server fallback detection failed: ${err.message}`);
         }
       }
+      const stateUnknown = Boolean(detectionError) || activeFallbackUnknown;
       return {
         id: server.id,
         name: server.name,
@@ -723,7 +744,8 @@ router.get("/status", async (req, res) => {
         pid: pid || null,
         isActive: server.id === activeId,
         provider: "direct",
-        stateUnknown: Boolean(detectionError) || activeFallbackUnknown,
+        stateUnknown,
+        startedAt: await startedAtFor(pid || fallbackPid, running && !stateUnknown),
       };
     }));
 

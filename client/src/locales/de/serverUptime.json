@@ -1,0 +1,6 @@
+{
+  "up": "läuft seit {{uptime}}",
+  "startedAt": "Gestartet am {{time}}",
+  "unknown": "Laufzeit unbekannt",
+  "unknownHint": "Das Panel kann nicht feststellen, wann dieser Server gestartet wurde: Sein Prozess läuft an einem Ort, den das Panel nicht einsehen kann, etwa auf einem anderen Rechner oder in einem anderen Container."
+}

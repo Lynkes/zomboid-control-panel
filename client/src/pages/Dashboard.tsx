@@ -27,8 +27,8 @@ import {
 import { useRuntimeInfo } from '@/hooks/useRuntimeInfo'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
-import { formatUptime } from '@/lib/utils'
 import { resolveClientProvider, deriveDashboardStatus, waitForServerState } from '@/lib/serverStatus'
+import { ServerUptime } from '@/components/ServerUptime'
 import { useSocket } from '@/contexts/SocketContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -62,8 +62,13 @@ interface ServerStatus {
   // (lib/serverStatus.ts) reads this to avoid treating a scan hiccup as a
   // confident "server is down."
   scanFailed?: boolean
+  // When the local process started (the OS's answer -- see
+  // serverManager.js's resolveStartTime()), or null when unknown. The
+  // header's uptime reads it through deriveDashboardStatus() and counts
+  // from it live; `uptime` is the same fact as a duration frozen at poll
+  // time (null when unknown), kept for API compatibility and not read here.
   startTime: string | null
-  uptime: number
+  uptime: number | null
   serverPath: string
   // Renamed from `configured` server-side (2026-08-31): this has only ever
   // meant "does the local process-launch path have a directory to run in"
@@ -1074,7 +1079,7 @@ export default function Dashboard() {
   // remote-SFTP from everything else; it was never a "this process is local
   // to this container" proxy, which is what this check actually needs.
   const provider = composedStatus?.provider ?? resolveClientProvider(activeServer)
-  const { hostRunning, rconConnected, hostUnknown, online } = deriveDashboardStatus({
+  const { hostRunning, rconConnected, hostUnknown, online, startedAt } = deriveDashboardStatus({
     hasServer,
     provider,
     status,
@@ -1404,11 +1409,20 @@ export default function Dashboard() {
               {activeServer?.serverName ?? t('header.noActiveServer')}
             </h1>
 
-            {/* Uptime */}
-            {online && status && status.uptime > 0 && (
-              <span className="hidden font-mono text-[11px] tabular-nums text-muted-foreground/60 sm:inline">
-                {t('header.upPrefix', { uptime: formatUptime(status.uptime) })}
-              </span>
+            {/* Uptime. Was a faint (muted/60), desktop-only duration shown
+                only when the server's snapshot said uptime > 0 -- easy to
+                miss, and silently absent whenever the start time was
+                unknown, which read as "the panel doesn't show uptime"
+                (Discord request). Now visible at every width, counted live
+                from the start time, with "started at" on hover, and an
+                explicit "uptime unknown" when the server is up but the
+                panel can't tell since when. */}
+            {online && (
+              <ServerUptime
+                startedAt={startedAt}
+                showUnknown
+                className="shrink-0 font-mono text-[11px] text-muted-foreground"
+              />
             )}
             {/* Map name -- from getWorldStats, the only field it reports that
                 getZombieCount doesn't already cover. Bridge-sourced, so it's

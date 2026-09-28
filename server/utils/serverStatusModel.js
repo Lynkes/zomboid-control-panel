@@ -143,6 +143,28 @@ export function buildSummary(host, serverSignal) {
   return `${host.label} ${hostWord}, ${serverSignal.label} ${serverWord}`;
 }
 
+// When the host process/container started, as an ISO string -- only for a
+// host this same status just confirmed running, and only from the source
+// that confirmed it: the OS's answer for the native process
+// (serverManager.resolveStartTime()), or Docker's own State.StartedAt for a
+// container provider. Remote SFTP has neither, and a host whose state is
+// unknown has no trustworthy start time either, so both stay without one --
+// the client renders that as "unknown", never as a guess. Docker reports a
+// container that has never started as 0001-01-01T00:00:00Z, which the
+// epoch check below rejects.
+function resolveHostStartedAt(provider, host, startedAt, dockerContainer) {
+  if (host.status !== "running") return null;
+  const source =
+    provider === "native"
+      ? startedAt
+      : provider === "docker-local" || provider === "docker-managed"
+        ? dockerContainer?.startedAt
+        : null;
+  if (!source) return null;
+  const ms = source instanceof Date ? source.getTime() : Date.parse(source);
+  return Number.isFinite(ms) && ms > 0 ? new Date(ms).toISOString() : null;
+}
+
 // server: the active server DB record. isRunning: serverManager's tracked
 // process state (native provider only -- see buildHostSignal). scanFailed:
 // whether the process-detection scan behind isRunning could actually tell.
@@ -151,10 +173,15 @@ export function buildSummary(host, serverSignal) {
 // the route handler, so this function stays framework-free and testable.
 // stopReason (round 28): serverManager.lastStopReason as-is, or undefined/
 // null on a server that's running or has never been observed to stop --
-// describeStopReason handles both the same way (no detail).
-export function composeServerStatus({ server, isRunning, scanFailed, rcon, bridge, dockerContainer, stopReason }) {
+// describeStopReason handles both the same way (no detail). startedAt: the
+// native process's start time (a Date), see resolveHostStartedAt() above.
+export function composeServerStatus({ server, isRunning, scanFailed, rcon, bridge, dockerContainer, stopReason, startedAt }) {
   const provider = resolveProvider(server);
-  const host = buildHostSignal(provider, isRunning, scanFailed, dockerContainer, stopReason);
+  const hostSignal = buildHostSignal(provider, isRunning, scanFailed, dockerContainer, stopReason);
+  const hostStartedAt = resolveHostStartedAt(provider, hostSignal, startedAt, dockerContainer);
+  // Present only when known, same convention as getServerProcessDetails()'s
+  // optional fields -- an absent startedAt is the "unknown" answer.
+  const host = hostStartedAt ? { ...hostSignal, startedAt: hostStartedAt } : hostSignal;
   const serverSignal = buildServerSignal(rcon);
   const bridgeSignal = buildBridgeSignal(bridge);
   return {

@@ -390,12 +390,21 @@ export class LinuxServiceLifecycle {
         "--property=LoadState",
         "--property=ActiveState",
         "--property=Environment",
+        "--property=MainPID",
       ]);
       const values = parseSystemdShow(result.stdout);
       const registered = values.LoadState && values.LoadState !== "not-found";
       const running = ["active", "activating", "reloading"].includes(
         values.ActiveState,
       );
+      // The unit's main process (the ExecStart= launcher, which lives exactly
+      // as long as the game server under it) -- read in this same call so
+      // the panel can ask the OS when the server started, including after a
+      // panel restart or a Restart=on-failure it never saw. "0" means the
+      // unit has no running process.
+      const mainPid = /^[1-9]\d*$/.test(values.MainPID || "")
+        ? values.MainPID
+        : null;
       return {
         registered: Boolean(registered),
         running,
@@ -403,6 +412,7 @@ export class LinuxServiceLifecycle {
         markerMatches: Boolean(
           registered && String(values.Environment || "").includes(marker),
         ),
+        ...(running && mainPid ? { mainPid } : {}),
         error:
           !registered && result.stderr
             ? result.stderr.trim().slice(0, 300)
@@ -546,6 +556,13 @@ export class LinuxServiceLifecycle {
       running: status.running,
       scanFailed: ["unknown", "deactivating"].includes(status.activeState),
       activeState: status.activeState,
+      // systemd only. OpenRC's supervise-daemon pidfile holds the
+      // SUPERVISOR's pid, whose start time survives every respawn of the
+      // game server under it -- a confident wrong answer after a crash -- so
+      // an OpenRC server is left with the panel's own launch-time record
+      // (ServerManager.resolveStartTime()), and no start time at all after
+      // a panel restart.
+      ...(status.mainPid ? { mainPid: status.mainPid } : {}),
       error: status.error,
     };
   }

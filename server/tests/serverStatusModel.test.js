@@ -318,3 +318,76 @@ describe("composeServerStatus", () => {
     expect(result.host.status).toBe("unknown");
   });
 });
+
+// The dashboard's uptime and the Managed Servers card compute a live
+// duration from host.startedAt, so it may only ever be a start time the
+// same status confirmed: present for a running native process (the OS's
+// answer) or a running container (Docker's own State.StartedAt), absent --
+// "unknown" -- for everything else, never a placeholder.
+describe("composeServerStatus host.startedAt", () => {
+  const base = { rcon: { connected: true }, bridge: { configured: false } };
+
+  it("carries a running native process's start time as an ISO string", () => {
+    const result = composeServerStatus({
+      ...base,
+      server: { isRemote: false },
+      isRunning: true,
+      startedAt: new Date("2026-09-27T07:00:00.000Z"),
+    });
+
+    expect(result.host).toMatchObject({ status: "running", startedAt: "2026-09-27T07:00:00.000Z" });
+  });
+
+  it("leaves it out when the native start time isn't known", () => {
+    const result = composeServerStatus({ ...base, server: { isRemote: false }, isRunning: true, startedAt: null });
+
+    expect(result.host.status).toBe("running");
+    expect(result.host).not.toHaveProperty("startedAt");
+  });
+
+  it("drops a start time for a host that isn't confirmed running (stopped or detection failed)", () => {
+    const startedAt = new Date("2026-09-27T07:00:00.000Z");
+    const stopped = composeServerStatus({ ...base, server: { isRemote: false }, isRunning: false, startedAt });
+    const unknown = composeServerStatus({
+      ...base, server: { isRemote: false }, isRunning: false, scanFailed: true, startedAt,
+    });
+
+    expect(stopped.host).not.toHaveProperty("startedAt");
+    expect(unknown.host).not.toHaveProperty("startedAt");
+  });
+
+  it("never gives a remote SFTP host a start time, even if one is passed", () => {
+    const result = composeServerStatus({
+      ...base,
+      server: { isRemote: true },
+      isRunning: true,
+      startedAt: new Date("2026-09-27T07:00:00.000Z"),
+    });
+
+    expect(result.host.status).toBe("unknown");
+    expect(result.host).not.toHaveProperty("startedAt");
+  });
+
+  it("uses a running container's own State.StartedAt, not the native start time", () => {
+    const result = composeServerStatus({
+      ...base,
+      server: { dockerContainerName: "pz-server" },
+      isRunning: false,
+      startedAt: new Date("2020-01-01T00:00:00.000Z"),
+      dockerContainer: { handled: true, running: true, startedAt: "2026-09-26T21:15:03.123456789Z" },
+    });
+
+    expect(result.host).toMatchObject({ status: "running", startedAt: "2026-09-26T21:15:03.123Z" });
+  });
+
+  it("rejects Docker's zero time for a container that has never started", () => {
+    const result = composeServerStatus({
+      ...base,
+      server: { dockerContainerName: "pz-server" },
+      isRunning: false,
+      dockerContainer: { handled: true, running: true, startedAt: "0001-01-01T00:00:00Z" },
+    });
+
+    expect(result.host).not.toHaveProperty("startedAt");
+  });
+});

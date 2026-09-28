@@ -1,0 +1,6 @@
+{
+  "up": "activo desde hace {{uptime}}",
+  "startedAt": "Iniciado el {{time}}",
+  "unknown": "tiempo activo desconocido",
+  "unknownHint": "El panel no puede saber cuándo se inició este servidor: su proceso se ejecuta en un lugar que el panel no puede inspeccionar, como otra máquina u otro contenedor."
+}

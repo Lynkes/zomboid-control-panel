@@ -38,7 +38,6 @@
   "header": {
     "ariaLabel": "伺服器狀態",
     "everythingNominal": "一切正常",
-    "upPrefix": "已執行 {{uptime}}",
     "mapTooltip": "地圖（來自 PanelBridge）",
     "remoteBadge": "遠端",
     "noActiveServer": "沒有活動伺服器"

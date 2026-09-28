@@ -1805,6 +1805,9 @@ export interface ServerStatusSignal {
   status: string;
   label: string;
   detail: string | null;
+  // Host signal only: when the process/container started (ISO string).
+  // Present only when running and known -- absent means unknown.
+  startedAt?: string;
 }
 
 export interface ComposedServerStatus {
@@ -1850,6 +1853,9 @@ export const serversApi = {
         pid: string | null;
         isActive: boolean;
         stateUnknown?: boolean;
+        // When this row's process started (ISO string); null when stopped
+        // or unknown.
+        startedAt?: string | null;
       }>;
       detectedProcesses: number;
       detectionError: string | null;

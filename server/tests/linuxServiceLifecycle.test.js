@@ -482,4 +482,70 @@ describe("Linux managed-service lifecycle", () => {
       expect(execFile).toHaveBeenCalledTimes(1);
     });
   });
+
+  // Uptime for a systemd-managed server: the panel's process scan never
+  // runs for one, so the unit's own MainPID -- read in the same
+  // `systemctl show` call status() already makes -- is the only PID the
+  // panel can ask the OS about. Without it, a systemd server's uptime was
+  // unknown after every panel restart and whenever systemd started it.
+  describe("systemd MainPID", () => {
+    function systemdLifecycle(showLines) {
+      const execFile = vi.fn(async () => ({
+        code: 0,
+        stdout: `${showLines.join("\n")}\n`,
+        stderr: "",
+      }));
+      const lifecycle = new LinuxServiceLifecycle(server, "systemd", {
+        execFile,
+        platform: "linux",
+        containerized: false,
+      });
+      return { lifecycle, execFile };
+    }
+
+    it("reports the running unit's main PID from the same show call", async () => {
+      const { lifecycle, execFile } = systemdLifecycle([
+        "LoadState=loaded",
+        "ActiveState=active",
+        "Environment=ZOMBOID_PANEL_SERVER_ID=alpha-1",
+        "MainPID=31337",
+      ]);
+
+      await expect(lifecycle.status()).resolves.toMatchObject({
+        running: true,
+        scanFailed: false,
+        mainPid: "31337",
+      });
+      expect(execFile).toHaveBeenCalledTimes(1);
+      expect(execFile.mock.calls[0][1]).toContain("--property=MainPID");
+    });
+
+    it("reports no PID for a stopped unit (MainPID=0)", async () => {
+      const { lifecycle } = systemdLifecycle([
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "Environment=ZOMBOID_PANEL_SERVER_ID=alpha-1",
+        "MainPID=0",
+      ]);
+
+      const status = await lifecycle.status();
+
+      expect(status.running).toBe(false);
+      expect(status).not.toHaveProperty("mainPid");
+    });
+
+    it("never reports a PID for a unit that fails the ownership check", async () => {
+      const { lifecycle } = systemdLifecycle([
+        "LoadState=loaded",
+        "ActiveState=active",
+        "Environment=ZOMBOID_PANEL_SERVER_ID=other",
+        "MainPID=31337",
+      ]);
+
+      const status = await lifecycle.status();
+
+      expect(status.scanFailed).toBe(true);
+      expect(status).not.toHaveProperty("mainPid");
+    });
+  });
 });
