@@ -458,13 +458,13 @@
     "remoteInstallWarning": "Sèvè adistans: kopye PanelBridge.lua nan dosye Lua adistans lan ak SFTP oswa jesyonè fichye founisè a. Enstalasyon lokal otomatik pa disponib.",
     "destinationLabel": "Destinasyon:",
     "staleness": {
-      "protocolMismatchTitle": "Panel and bridge mod don't match",
-      "updateAvailableTitle": "Bridge mod update available",
-      "updateNowButton": "Update Now",
-      "protocolMismatchBody": "This panel expects bridge protocol '{{expected}}', but the mod on your server reports '{{actual}}'. They ship as a matched pair, so some features may not work correctly until they're back in sync.",
+      "protocolMismatchTitle": "Panèl la ak mod PanelBridge la pa koresponn",
+      "updateAvailableTitle": "Mizajou disponib pou mod PanelBridge la",
+      "updateNowButton": "Mete ajou kounye a",
+      "protocolMismatchBody": "Panèl sa a ap tann pwotokòl pon “{{expected}}”, men mod ki sou sèvè ou a di “{{actual}}”. Yo soti ansanm kòm yon pè, kidonk kèk fonksyon ka pa mache byen jiskaske yo koresponn ankò.",
       "protocolMismatchWorkshopBody": "PanelBridge ki sou sèvè sa a (ki soti nan Steam Workshop) di pwotokòl “{{actual}}”, men panèl sa a ap tann “{{expected}}”. Redemare sèvè a pou jwenn dènye vèsyon Workshop la, oswa mete panèl la ajou.",
-      "remoteUpdateBody": "Your server is running bridge mod v{{liveVersion}}, older than the v{{bundledVersion}} this panel bundles. This panel can't update a remote/SFTP-managed server's files for you -- re-upload the updated PanelBridge.lua the same way you installed it.",
-      "localUpdateBody": "The installed bridge mod (v{{liveVersion}}) is older than what this panel bundles."
+      "remoteUpdateBody": "Sèvè ou a ap fè mod PanelBridge v{{liveVersion}} mache, ki pi ansyen pase v{{bundledVersion}} panèl sa a genyen. Panèl sa a pa ka mete fichye yon sèvè a distans oswa yon sèvè SFTP ajou pou ou — voye PanelBridge.lua ki ajou a ankò menm jan ou te enstale l la.",
+      "localUpdateBody": "Mod PanelBridge ki enstale a (v{{liveVersion}}) pi ansyen pase sa panèl sa a genyen."
     }
   },
 

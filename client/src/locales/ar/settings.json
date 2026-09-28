@@ -520,13 +520,13 @@
     "remoteInstallWarning": "خادم بعيد: انسخ PanelBridge.lua إلى مجلد Lua البعيد باستخدام SFTP أو مدير ملفات المزوّد. التثبيت المحلي التلقائي غير متاح.",
     "destinationLabel": "الوجهة:",
     "staleness": {
-      "protocolMismatchTitle": "Panel and bridge mod don't match",
-      "updateAvailableTitle": "Bridge mod update available",
-      "updateNowButton": "Update Now",
-      "protocolMismatchBody": "This panel expects bridge protocol '{{expected}}', but the mod on your server reports '{{actual}}'. They ship as a matched pair, so some features may not work correctly until they're back in sync.",
+      "protocolMismatchTitle": "اللوحة ومود PanelBridge غير متوافقين",
+      "updateAvailableTitle": "يتوفر تحديث لمود PanelBridge",
+      "updateNowButton": "تحديث الآن",
+      "protocolMismatchBody": "تتوقع هذه اللوحة بروتوكول الجسر «{{expected}}»، لكن المود على خادمك يُبلغ عن «{{actual}}». يُطرحان معًا كزوج متوافق، لذا قد لا تعمل بعض الميزات بشكل صحيح حتى يتوافقا من جديد.",
       "protocolMismatchWorkshopBody": "يُبلغ PanelBridge على هذا الخادم (من ورشة Steam) عن البروتوكول «{{actual}}»، لكن هذه اللوحة تتوقع «{{expected}}». أعد تشغيل الخادم للحصول على أحدث إصدار من الورشة، أو حدّث اللوحة.",
-      "remoteUpdateBody": "Your server is running bridge mod v{{liveVersion}}, older than the v{{bundledVersion}} this panel bundles. This panel can't update a remote/SFTP-managed server's files for you -- re-upload the updated PanelBridge.lua the same way you installed it.",
-      "localUpdateBody": "The installed bridge mod (v{{liveVersion}}) is older than what this panel bundles."
+      "remoteUpdateBody": "يشغّل خادمك مود PanelBridge بالإصدار v{{liveVersion}}، وهو أقدم من الإصدار v{{bundledVersion}} المضمّن في هذه اللوحة. لا تستطيع هذه اللوحة تحديث ملفات خادم بعيد أو مُدار عبر SFTP نيابةً عنك — أعد رفع PanelBridge.lua المحدَّث بالطريقة نفسها التي ثبّته بها.",
+      "localUpdateBody": "مود PanelBridge المثبّت (v{{liveVersion}}) أقدم من الإصدار المضمّن في هذه اللوحة."
     }
   },
   "mods": {

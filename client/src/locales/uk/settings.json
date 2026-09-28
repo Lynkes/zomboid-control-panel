@@ -516,13 +516,13 @@
     "remoteInstallWarning": "Віддалений сервер: скопіюйте PanelBridge.lua до віддаленої теки Lua через SFTP або файловий менеджер провайдера. Автоматичне локальне встановлення недоступне.",
     "destinationLabel": "Призначення:",
     "staleness": {
-      "protocolMismatchTitle": "Panel and bridge mod don't match",
-      "updateAvailableTitle": "Bridge mod update available",
-      "updateNowButton": "Update Now",
-      "protocolMismatchBody": "This panel expects bridge protocol '{{expected}}', but the mod on your server reports '{{actual}}'. They ship as a matched pair, so some features may not work correctly until they're back in sync.",
+      "protocolMismatchTitle": "Панель і мод PanelBridge не збігаються",
+      "updateAvailableTitle": "Доступне оновлення мода PanelBridge",
+      "updateNowButton": "Оновити зараз",
+      "protocolMismatchBody": "Ця панель очікує протокол мосту «{{expected}}», але мод на вашому сервері повідомляє «{{actual}}». Вони постачаються як пара, тож деякі функції можуть працювати неправильно, доки їх знову не буде узгоджено.",
       "protocolMismatchWorkshopBody": "PanelBridge на цьому сервері (зі Steam Workshop) повідомляє протокол «{{actual}}», але ця панель очікує «{{expected}}». Перезапустіть сервер, щоб отримати найновішу версію з Workshop, або оновіть панель.",
-      "remoteUpdateBody": "Your server is running bridge mod v{{liveVersion}}, older than the v{{bundledVersion}} this panel bundles. This panel can't update a remote/SFTP-managed server's files for you -- re-upload the updated PanelBridge.lua the same way you installed it.",
-      "localUpdateBody": "The installed bridge mod (v{{liveVersion}}) is older than what this panel bundles."
+      "remoteUpdateBody": "На вашому сервері працює мод PanelBridge v{{liveVersion}}, старіший за v{{bundledVersion}}, що постачається з цією панеллю. Панель не може оновити за вас файли віддаленого сервера чи сервера, керованого через SFTP, — повторно завантажте оновлений PanelBridge.lua так само, як ви його встановлювали.",
+      "localUpdateBody": "Встановлений мод PanelBridge (v{{liveVersion}}) старіший за той, що постачається з цією панеллю."
     }
   },
   "mods": {

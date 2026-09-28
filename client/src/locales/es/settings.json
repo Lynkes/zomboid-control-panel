@@ -510,13 +510,13 @@
     "serversLoadFailed": "No se pudo cargar la lista de servidores: prueba a volver a abrir esta página",
     "statusFetchFailedFallback": "No se pudo contactar con el punto de conexión de estado del bridge.",
     "staleness": {
-      "protocolMismatchTitle": "Panel and bridge mod don't match",
-      "updateAvailableTitle": "Bridge mod update available",
-      "updateNowButton": "Update Now",
-      "protocolMismatchBody": "This panel expects bridge protocol '{{expected}}', but the mod on your server reports '{{actual}}'. They ship as a matched pair, so some features may not work correctly until they're back in sync.",
+      "protocolMismatchTitle": "El panel y el mod PanelBridge no coinciden",
+      "updateAvailableTitle": "Actualización del mod PanelBridge disponible",
+      "updateNowButton": "Actualizar ahora",
+      "protocolMismatchBody": "Este panel espera el protocolo de puente «{{expected}}», pero el mod de tu servidor informa «{{actual}}». Se publican juntos, así que algunas funciones pueden no funcionar correctamente hasta que vuelvan a coincidir.",
       "protocolMismatchWorkshopBody": "El PanelBridge de este servidor (de Steam Workshop) informa el protocolo «{{actual}}», pero este panel espera «{{expected}}». Reinicia el servidor para obtener la última versión de Workshop o actualiza el panel.",
-      "remoteUpdateBody": "Your server is running bridge mod v{{liveVersion}}, older than the v{{bundledVersion}} this panel bundles. This panel can't update a remote/SFTP-managed server's files for you -- re-upload the updated PanelBridge.lua the same way you installed it.",
-      "localUpdateBody": "The installed bridge mod (v{{liveVersion}}) is older than what this panel bundles."
+      "remoteUpdateBody": "Tu servidor ejecuta el mod PanelBridge v{{liveVersion}}, más antiguo que la v{{bundledVersion}} que incluye este panel. Este panel no puede actualizar por ti los archivos de un servidor remoto o gestionado por SFTP: vuelve a subir el PanelBridge.lua actualizado del mismo modo en que lo instalaste.",
+      "localUpdateBody": "El mod PanelBridge instalado (v{{liveVersion}}) es más antiguo que el que incluye este panel."
     }
   },
   "mods": {

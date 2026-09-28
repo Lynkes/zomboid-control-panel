@@ -510,13 +510,13 @@
     "serversLoadFailed": "Serverliste konnte nicht geladen werden — öffne die Seite erneut",
     "statusFetchFailedFallback": "Der Status-Endpunkt der Bridge ist nicht erreichbar.",
     "staleness": {
-      "protocolMismatchTitle": "Panel and bridge mod don't match",
-      "updateAvailableTitle": "Bridge mod update available",
-      "updateNowButton": "Update Now",
-      "protocolMismatchBody": "This panel expects bridge protocol '{{expected}}', but the mod on your server reports '{{actual}}'. They ship as a matched pair, so some features may not work correctly until they're back in sync.",
+      "protocolMismatchTitle": "Panel und PanelBridge-Mod passen nicht zusammen",
+      "updateAvailableTitle": "Update für die PanelBridge-Mod verfügbar",
+      "updateNowButton": "Jetzt aktualisieren",
+      "protocolMismatchBody": "Dieses Panel erwartet das Brückenprotokoll „{{expected}}“, die Mod auf deinem Server meldet aber „{{actual}}“. Beide werden als Paar ausgeliefert, daher funktionieren manche Funktionen möglicherweise nicht richtig, bis sie wieder übereinstimmen.",
       "protocolMismatchWorkshopBody": "PanelBridge auf diesem Server (aus dem Steam Workshop) meldet das Protokoll „{{actual}}“, dieses Panel erwartet aber „{{expected}}“. Starte den Server neu, um die neueste Workshop-Version zu erhalten, oder aktualisiere das Panel.",
-      "remoteUpdateBody": "Your server is running bridge mod v{{liveVersion}}, older than the v{{bundledVersion}} this panel bundles. This panel can't update a remote/SFTP-managed server's files for you -- re-upload the updated PanelBridge.lua the same way you installed it.",
-      "localUpdateBody": "The installed bridge mod (v{{liveVersion}}) is older than what this panel bundles."
+      "remoteUpdateBody": "Auf deinem Server läuft die PanelBridge-Mod v{{liveVersion}}, älter als die v{{bundledVersion}}, die dieses Panel mitbringt. Das Panel kann die Dateien eines entfernten oder per SFTP verwalteten Servers nicht für dich aktualisieren – lade die aktualisierte PanelBridge.lua auf demselben Weg hoch, auf dem du sie installiert hast.",
+      "localUpdateBody": "Die installierte PanelBridge-Mod (v{{liveVersion}}) ist älter als die, die dieses Panel mitbringt."
     }
   },
   "mods": {
