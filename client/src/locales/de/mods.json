@@ -297,8 +297,9 @@
   "loadOrder": {
     "emptyTitle": "Keine Mods in der Ladereihenfolge",
     "emptyDesc": "Aktiviere zuerst Mods im Tab „Aktive Mods“.",
-    "dragHint": "Ziehen oder Pfeilschaltflächen zum Neuordnen. Änderungen werden erst gespeichert, wenn du auf „Speichern“ klickst.",
+    "dragHint": "Zum Neuordnen ziehen oder die Pfeilschaltflächen nutzen. Änderungen werden erst gespeichert, wenn du auf „Speichern“ klickst.",
     "previewLockHint": "Wende die vorgeschlagene Reihenfolge unten erst an oder brich sie ab, bevor du von Hand umsortierst.",
+    "filteredHint": "Es werden nur Mods angezeigt, die zu „{{query}}“ passen (Filter aus „Aktiv auf dem Server“). Solange der Filter gesetzt ist, ist Ziehen deaktiviert; die Pfeilschaltflächen verschieben Mods weiterhin innerhalb der gesamten Ladereihenfolge.",
     "autoSort": "Automatisch nach Abhängigkeiten sortieren",
     "proposedOrder_one": "Vorgeschlagene Reihenfolge: {{count}} Mod würde verschoben",
     "proposedOrder_other": "Vorgeschlagene Reihenfolge: {{count}} Mods würden verschoben",

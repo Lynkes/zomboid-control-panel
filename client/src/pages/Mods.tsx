@@ -48,7 +48,7 @@ import { ConflictScanResult, ScanStreamModScanned, ScanStreamConflictFound } fro
 import { WorkshopCollectionPanel } from '@/components/WorkshopCollectionPanel'
 import { ConflictsPanel } from '@/components/mods/ConflictsPanel'
 import { ModRow, WorkshopIdChip, WorkshopLinkAction, WorkshopThumb } from '@/components/mods/ModRow'
-import { LoadOrderMoveControls } from '@/components/mods/LoadOrderMoveControls'
+import { LoadOrderMoveControls, type LoadOrderMoveSource } from '@/components/mods/LoadOrderMoveControls'
 import {
   useLocalStorageState,
   type TrackedMod,
@@ -360,8 +360,8 @@ export default function Mods() {
   const [draggedModIndex, setDraggedModIndex] = useState<number | null>(null)
   // Load Order move controls (top/up/down/bottom). With 200+ mods a jump to
   // the top lands the row a whole scroll-height away from the button that
-  // was clicked, so the page scrolls it back into view, re-focuses a control
-  // on it, marks the row, and announces its new position.
+  // was clicked, so the page scrolls it back into view, puts focus back on
+  // it, marks the row, and announces its new position.
   //
   // `order` is the exact orderedModIds array that move produced, and the
   // mark and announcement apply only while that array is still the order on
@@ -372,7 +372,7 @@ export default function Mods() {
   // that happens to restore the saved order is still announced.
   const [lastLoadOrderMove, setLastLoadOrderMove] = useState<{ order: string[]; index: number; announcement: string } | null>(null)
   const loadOrderListRef = useRef<HTMLDivElement | null>(null)
-  const pendingMoveFocusRef = useRef<{ index: number; move: LoadOrderMove } | null>(null)
+  const pendingMoveFocusRef = useRef<{ index: number; move: LoadOrderMove; source: LoadOrderMoveSource } | null>(null)
   // Expand/collapse states
   const [repairingMaps, setRepairingMaps] = useState(false)
   const [mapRepairResult, setMapRepairResult] = useState<{ removed: string[]; added?: string[]; remaining: string[]; message: string } | null>(null)
@@ -2002,6 +2002,12 @@ export default function Mods() {
   // already disabled for: a move made then would be silently thrown away --
   // the save's reload overwrites orderedModIds with what the server wrote,
   // and Apply writes the proposal computed from the order as it was.
+  //
+  // The guard sits in handleDragOver too, not just handleDragStart: dragover
+  // is what actually rewrites the order, and draggedModIndex can outlive its
+  // drag -- a dragend the page never sees (the source row unmounted mid-drag
+  // by a reload, say) leaves it set, and every later dragover over the list,
+  // a file or a text selection included, would otherwise reorder with it.
   const loadOrderLocked = savingModOrder || autoSortPreview !== null
 
   const handleDragStart = (index: number) => {
@@ -2011,6 +2017,7 @@ export default function Mods() {
 
   const handleDragOver = (e: React.DragEvent, index: number) => {
     e.preventDefault()
+    if (!canManageMods || loadOrderLocked) return
     if (draggedModIndex === null || draggedModIndex === index) return
     if (draggedModIndex < 0 || draggedModIndex >= orderedModIds.length) return
 
@@ -2028,24 +2035,30 @@ export default function Mods() {
   // (keystrokes, socket events), which the memoized per-row
   // LoadOrderMoveControls then skip. It closes over orderedModIds, so a move
   // itself still re-renders every row's controls -- once per click.
-  const moveModInLoadOrder = useCallback((index: number, move: LoadOrderMove) => {
+  const moveModInLoadOrder = useCallback((index: number, move: LoadOrderMove, source: LoadOrderMoveSource) => {
     if (!canManageMods || loadOrderLocked) return
     const to = loadOrderMoveTarget(index, orderedModIds.length, move)
     if (to === null) return
     const next = moveLoadOrderEntry(orderedModIds, index, to)
     setOrderedModIds(next)
+    // No drag is in progress while a button is being pressed; clear any
+    // index a lost dragend left behind (see loadOrderLocked's comment) so it
+    // can't fade a row or steer a later dragover in the new order.
+    setDraggedModIndex(null)
     setLastLoadOrderMove({
       order: next,
       index: to,
       announcement: t('loadOrder.movedAnnouncement', { name: orderedModIds[index], position: to + 1, total: next.length }),
     })
-    pendingMoveFocusRef.current = { index: to, move }
+    pendingMoveFocusRef.current = { index: to, move, source }
   }, [canManageMods, loadOrderLocked, orderedModIds, t])
 
-  // Runs after the reordered list has rendered. Rows are keyed by position,
-  // so the row that moved is a fresh DOM node and the button that was
-  // clicked is gone -- without this, focus drops to <body> after every
-  // move and a keyboard user has to Tab back down from the top of the page.
+  // Runs after the reordered list has rendered. The row keeps its DOM node
+  // (rows are keyed by mod ID), but React may re-insert it to reorder the
+  // list, and a focused node that is re-inserted loses focus; at either end
+  // the pressed control is also swapped for a disabled one. Without this,
+  // focus drops to <body> and a keyboard user has to Tab back down from the
+  // top of the page.
   useEffect(() => {
     const pending = pendingMoveFocusRef.current
     if (!pending) return
@@ -2057,19 +2070,24 @@ export default function Mods() {
     // doesn't scroll at all.
     row.scrollIntoView({ block: 'nearest' })
     // The same control again, so pressing Move up/down repeatedly keeps
-    // working. A move that reached the first or last slot has just disabled
-    // that control, so take the nearest one that still does something --
-    // Move down after reaching the top, Move up after the bottom. Not the
-    // disabled control's DisabledReason wrapper: focusing it pops "Already
-    // first in the load order" right after a successful click (Radix opens
-    // a tooltip on any focus that isn't a pointer press on the trigger
-    // itself) and leaves dead Tab stops before the next useful control.
-    // A move needs two rows, so the opposite direction is always enabled.
-    const enabledControl = (move: LoadOrderMove) =>
-      row.querySelector<HTMLButtonElement>(`button[data-move-action="${move}"]:not(:disabled)`)
-    const fallback: LoadOrderMove = pending.move === 'top' || pending.move === 'up' ? 'down' : 'up'
-    const target = enabledControl(pending.move) ?? enabledControl(fallback)
-    target?.focus({ preventScroll: true })
+    // working.
+    const pressed = row.querySelector<HTMLButtonElement>(`button[data-move-action="${pending.move}"]`)
+    if (pressed && !pressed.disabled) {
+      pressed.focus({ preventScroll: true })
+      return
+    }
+    // The move reached the first or last slot and disabled the pressed
+    // control. Never hand focus to a control that moves the other way: a
+    // held or repeated Enter on "Move up" would then walk the mod straight
+    // back down, and at the bottom flip again. From the keyboard, focus the
+    // disabled control's DisabledReason wrapper -- Enter there does nothing,
+    // and the "Already first in the load order" tooltip that focus opens is
+    // the feedback a keyboard user needs. From a mouse or a tap, focus the
+    // row itself: the same tooltip popping up right after a click that just
+    // worked reads as an error.
+    const wrapper = pressed?.parentElement
+    const target = pending.source === 'keyboard' && wrapper && wrapper.tabIndex >= 0 ? wrapper : row
+    target.focus({ preventScroll: true })
   }, [orderedModIds])
 
   // Dependency-aware auto-sort. Computes a proposal only; nothing is written
@@ -2102,6 +2120,9 @@ export default function Mods() {
     }
 
     setAutoSortPreview(result)
+    // The proposal locks the list; drop any index a lost dragend left behind
+    // (see loadOrderLocked's comment).
+    setDraggedModIndex(null)
   }
 
   const applyAutoSort = () => {
@@ -2128,6 +2149,7 @@ export default function Mods() {
     busyRef.current = true
     try {
       setSavingModOrder(true)
+      setDraggedModIndex(null)
       await modsApi.saveModOrder(orderedModIds)
       setConflicts(prev => prev ? recalculateConflictWinners(prev, orderedModIds) : prev)
       setScanIniSnapshot(createConflictScanSnapshot(iniConfig?.workshopIds, orderedModIds))
@@ -2205,7 +2227,10 @@ export default function Mods() {
         title: t('toasts.loadOrderUpdatedTitle'),
         description: t('toasts.loadOrderUpdatedDesc', { winner: winnerName, loser: loserName }),
       })
-      fetchData()
+      // Awaited for the same reason as in handleSaveModOrder: savingModOrder
+      // also locks the Load Order tab, and a move made there before this
+      // reload lands would be overwritten by it.
+      await fetchData()
     } catch (error) {
       toast({
         title: t('toasts.couldNotUpdateLoadOrderTitle'),
@@ -5494,6 +5519,8 @@ export default function Mods() {
                       }
                     }
                   }
+                  // Row keys, see where the list is rendered below.
+                  const loadOrderKeyRepeats = new Map<string, number>()
 
                   return (
                   <div className="space-y-3 sub-tab-enter">
@@ -5513,13 +5540,18 @@ export default function Mods() {
                           they are disabled; a reason on each would be four
                           tooltips and dead tab stops per row, times 200+
                           rows, so it goes here once. (During Save Order they
-                          are disabled too, and Save's spinner says why.) */}
+                          are disabled too, and Save's spinner says why.)
+                          The Active tab's filter also narrows this list, and
+                          turns drag off, from a tab the operator has left --
+                          so say so here too, or rows just seem to be missing. */}
                       <p className="text-xs text-muted-foreground">
                         {!canManageMods
                           ? t('permissions.noModsManage')
                           : autoSortPreview
                             ? t('loadOrder.previewLockHint')
-                            : t('loadOrder.dragHint')}
+                            : modManagerSearch.trim()
+                              ? t('loadOrder.filteredHint', { query: modManagerSearch.trim() })
+                              : t('loadOrder.dragHint')}
                       </p>
                       <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
                         <Button
@@ -5586,9 +5618,30 @@ export default function Mods() {
                     )}
                     <div className="rounded-lg border border-border bg-muted/50 shadow-md overflow-hidden">
                       <ScrollArea className="h-[calc(100vh-320px)] min-h-[200px]">
-                        <div ref={loadOrderListRef} className="divide-y divide-border/60 [&>*:nth-child(even)]:bg-card/70">
+                        {/* onDrop: the drop event bubbles here from a row that
+                            is still mounted, so it ends a drag even when its
+                            dragend is lost; preventDefault also stops a file
+                            dropped on the list (every row accepts drops, via
+                            handleDragOver) from navigating the tab to it. */}
+                        <div
+                          ref={loadOrderListRef}
+                          className="divide-y divide-border/60 [&>*:nth-child(even)]:bg-card/70"
+                          onDrop={(e) => { e.preventDefault(); setDraggedModIndex(null) }}
+                        >
                           {orderedModIds
-                            .map((modId, idx) => ({ modId, idx }))
+                            .map((modId, idx) => {
+                              // Keyed by mod ID plus which repeat of it this is
+                              // (Mods= can list an ID twice), not by position:
+                              // a position key gave every row between the old
+                              // and new slot a new key on each reorder, so the
+                              // dragged row itself was unmounted by the first
+                              // dragover -- its dragend then never reached the
+                              // page -- and Move to top remounted every row
+                              // instead of reordering them.
+                              const repeat = loadOrderKeyRepeats.get(modId) ?? 0
+                              loadOrderKeyRepeats.set(modId, repeat + 1)
+                              return { modId, idx, key: `${modId}#${repeat}` }
+                            })
                             .filter(({ modId }) => {
                               const q = deferredModManagerSearch.toLowerCase().trim()
                               if (!q) return true
@@ -5596,7 +5649,7 @@ export default function Mods() {
                               const name = modIdNameMap.get(modId)
                               return name ? name.toLowerCase().includes(q) : false
                             })
-                            .map(({ modId, idx }) => {
+                            .map(({ modId, idx, key }) => {
                                 const displayName = modIdNameMap.get(modId)
                                 const canDrag = canManageMods && !loadOrderLocked && !modManagerSearch.trim()
                                 // Same accent as a selected ModRow, on the row the
@@ -5609,13 +5662,18 @@ export default function Mods() {
                                 const justMoved = lastMoveOnScreen?.index === idx
                                 return (
                                 <div
-                                  key={`${modId}-${idx}`}
+                                  key={key}
                                   data-load-order-index={idx}
+                                  // Focusable from script only: where focus goes
+                                  // after a mouse move reaches the first or last
+                                  // slot (see the move-focus effect). The row's
+                                  // own accent marks it, so no outline.
+                                  tabIndex={-1}
                                   draggable={canDrag}
                                   onDragStart={() => handleDragStart(idx)}
                                   onDragOver={(e) => handleDragOver(e, idx)}
                                   onDragEnd={handleDragEnd}
-                                  className={`flex items-center gap-2 px-2.5 py-1 transition-colors duration-150 hover:bg-muted/15 ${canDrag ? 'cursor-move' : ''} ${
+                                  className={`flex items-center gap-2 px-2.5 py-1 outline-none transition-colors duration-150 hover:bg-muted/15 ${canDrag ? 'cursor-move' : ''} ${
                                     draggedModIndex === idx ? 'opacity-30 !bg-primary/5' : ''
                                   } ${justMoved ? '!bg-primary/[0.055] shadow-[inset_2px_0_0_hsl(var(--primary)/0.55)]' : ''}`}
                                 >

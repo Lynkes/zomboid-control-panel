@@ -34,8 +34,21 @@ describe('LoadOrderMoveControls', () => {
     fireEvent.click(control('Move NewMod to the bottom'))
 
     // The row's index comes back with the move so the page can pass one
-    // stable callback to every (memoized) row.
-    expect(onMove.mock.calls).toEqual([[5, 'top'], [5, 'up'], [5, 'down'], [5, 'bottom']])
+    // stable callback to every (memoized) row. fireEvent.click's detail is 0,
+    // which is what Enter/Space on a button produces.
+    expect(onMove.mock.calls).toEqual([[5, 'top', 'keyboard'], [5, 'up', 'keyboard'], [5, 'down', 'keyboard'], [5, 'bottom', 'keyboard']])
+  })
+
+  it('tells a mouse click from keyboard activation, and ignores the rest of a double-click', () => {
+    const onMove = renderControls(5, 10)
+
+    fireEvent.click(control('Move NewMod to the top'), { detail: 1 })
+    // The page scrolls the moved row into view before a double-click's
+    // second click lands, so that click would hit another row's control.
+    fireEvent.click(control('Move NewMod to the top'), { detail: 2 })
+    fireEvent.click(control('Move NewMod down'), { detail: 3 })
+
+    expect(onMove.mock.calls).toEqual([[5, 'top', 'pointer']])
   })
 
   it('gives each enabled icon button a short hover hint', () => {

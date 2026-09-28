@@ -96,6 +96,12 @@ function primeReadMocks(modIds = MOD_IDS) {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  // clearAllMocks keeps queued mockReturnValueOnce values: a test that fails
+  // before its held reload is consumed would hand that never-settling
+  // promise to the next test. primeReadMocks re-primes all of these.
+  for (const mock of [getTrackedMods, getStatus, getCurrentConfig, getIgnoredMods, getIgnoredModPairs, collectionDiff, getPresets, getCachedConflicts, listDiskOnly, saveModOrder, getActive]) {
+    mock.mockReset()
+  }
   mockCan = () => true
 })
 
@@ -112,12 +118,19 @@ async function openLoadOrder() {
   await screen.findByText('NewMod')
 }
 
-// Mod IDs as the Load Order rows currently show them, top to bottom.
-const shownOrder = () => screen.getAllByText(/^(modA|modB|modC|NewMod)$/).map((el) => el.textContent)
+// Mod IDs as the Load Order rows currently show them, top to bottom. Read
+// from the rows themselves: an open Auto-sort proposal lists mod IDs too.
+const shownOrder = () =>
+  Array.from(document.querySelectorAll('[data-load-order-index]')).map((row) => row.querySelector('.font-mono')?.textContent)
 const rowOf = (el: HTMLElement) => el.closest('[data-load-order-index]') as HTMLElement
 const rowAt = (index: number) => document.querySelector(`[data-load-order-index="${index}"]`) as HTMLElement
 // The Load Order tab's polite live region (toasts have role="status" too).
 const loadOrderStatus = () => document.querySelector('p.sr-only[role="status"]') as HTMLElement
+// Rows showing the drag-source fade.
+const fadedRows = () => Array.from(document.querySelectorAll('[data-load-order-index].opacity-30'))
+// fireEvent.click's default detail is 0 -- what Enter/Space on a button
+// produces. A mouse click has detail 1.
+const mouseClick = (el: HTMLElement) => fireEvent.click(el, { detail: 1 })
 
 describe('Mods.tsx Load Order: move to top / bottom', () => {
   it('Move to top takes the newest mod from the last row to slot 1, and Save Order writes that order', async () => {
@@ -147,38 +160,67 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
     await waitFor(() => expect(saveModOrder).toHaveBeenCalledWith(['modB', 'modC', 'NewMod', 'modA']))
   })
 
-  it('scrolls the moved row into view, keeps focus on it and announces the new position', async () => {
+  it('scrolls the moved row into view, keeps keyboard focus on the pressed control and announces the new position', async () => {
     primeReadMocks()
     await openLoadOrder()
 
     fireEvent.click(screen.getByRole('button', { name: 'Move NewMod to the top' }))
 
-    // Now first: "Move to top" is disabled on that row, so focus goes to the
-    // nearest control on it that still does something -- not to <body>, and
-    // not to the disabled control's DisabledReason wrapper, whose "Already
-    // first" tooltip would pop open right after a successful move.
+    // Now first: "Move to top" is disabled on that row, so keyboard focus
+    // goes to its DisabledReason wrapper -- not to <body>, and not to a
+    // control that moves the mod back down -- and the tooltip says why
+    // pressing it again does nothing.
     const topControl = screen.getByRole('button', { name: 'Move NewMod to the top' })
     expect(topControl).toBeDisabled()
     expect(rowOf(topControl)).toHaveAttribute('data-load-order-index', '0')
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move NewMod down' })))
-    expect(screen.queryByRole('tooltip')).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(topControl.parentElement))
+    expect((await screen.findAllByText('Already first in the load order')).length).toBeGreaterThan(0)
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
     expect(scrollIntoView.mock.contexts.at(-1)).toBe(rowOf(topControl))
     expect(loadOrderStatus()).toHaveTextContent('NewMod moved to position 1 of 4')
   })
 
-  it('after reaching either end, focuses the control that moves back the other way', async () => {
+  it('a held Enter on Move up stops at the top instead of walking the mod back down', async () => {
     primeReadMocks()
     await openLoadOrder()
 
-    // A one-step move into the first slot disables the pressed control too.
-    fireEvent.click(screen.getByRole('button', { name: 'Move modB up' }))
-    expect(shownOrder()).toEqual(['modB', 'modA', 'modC', 'NewMod'])
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move modB down' })))
+    screen.getByRole('button', { name: 'Move NewMod up' }).focus()
+    // Enter's key-repeat fires a click on every repeated keydown, on
+    // whatever holds focus by then.
+    for (let press = 0; press < 6; press++) fireEvent.click(document.activeElement as HTMLElement)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Move modB to the bottom' }))
+    expect(shownOrder()).toEqual(['NewMod', 'modA', 'modB', 'modC'])
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move NewMod up' }).parentElement)
+  })
+
+  it('a held Enter on Move down stops at the bottom too', async () => {
+    primeReadMocks()
+    await openLoadOrder()
+
+    screen.getByRole('button', { name: 'Move modB down' }).focus()
+    for (let press = 0; press < 5; press++) fireEvent.click(document.activeElement as HTMLElement)
+
     expect(shownOrder()).toEqual(['modA', 'modC', 'NewMod', 'modB'])
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move modB up' })))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move modB down' }).parentElement)
+  })
+
+  it('after a mouse move to either end, focuses the moved row without popping a tooltip', async () => {
+    primeReadMocks()
+    await openLoadOrder()
+
+    mouseClick(screen.getByRole('button', { name: 'Move NewMod to the top' }))
+    expect(shownOrder()).toEqual(['NewMod', 'modA', 'modB', 'modC'])
+    await waitFor(() => expect(document.activeElement).toBe(rowAt(0)))
+    expect(screen.queryByRole('tooltip')).toBeNull()
+
+    // A double-click's second click lands after the list has scrolled, on
+    // whatever control is under the pointer by then: it's ignored.
+    fireEvent.click(screen.getByRole('button', { name: 'Move modC to the top' }), { detail: 2 })
+    expect(shownOrder()).toEqual(['NewMod', 'modA', 'modB', 'modC'])
+
+    mouseClick(screen.getByRole('button', { name: 'Move modA to the bottom' }))
+    expect(shownOrder()).toEqual(['NewMod', 'modB', 'modC', 'modA'])
+    await waitFor(() => expect(document.activeElement).toBe(rowAt(3)))
     expect(screen.queryByRole('tooltip')).toBeNull()
   })
 
@@ -242,6 +284,42 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
 
     expect(shownOrder()).toEqual(MOD_IDS)
     expect(screen.queryByText('Unsaved order changes')).toBeNull()
+  })
+
+  it('a drag ends cleanly even though the order changed under it', async () => {
+    primeReadMocks()
+    await openLoadOrder()
+
+    // The row being dragged is the one each dragover moves; it has to stay
+    // the same DOM node or the browser's dragend goes to a detached node the
+    // page never hears from, and the drag never ends.
+    const source = rowOf(screen.getByText('NewMod'))
+    fireEvent.dragStart(source)
+    fireEvent.dragOver(rowOf(screen.getByText('modB')))
+    expect(shownOrder()).toEqual(['modA', 'NewMod', 'modB', 'modC'])
+    expect(source.isConnected).toBe(true)
+    expect(fadedRows()).toEqual([source])
+
+    fireEvent.dragEnd(source)
+    expect(fadedRows()).toEqual([])
+    // Nothing left to steer a later, unrelated dragover (a file, a text
+    // selection) over the list.
+    fireEvent.dragOver(rowAt(3))
+    expect(shownOrder()).toEqual(['modA', 'NewMod', 'modB', 'modC'])
+  })
+
+  it('a drop on the list ends the drag even when dragend never arrives', async () => {
+    primeReadMocks()
+    await openLoadOrder()
+
+    fireEvent.dragStart(rowOf(screen.getByText('NewMod')))
+    fireEvent.dragOver(rowOf(screen.getByText('modA')))
+    fireEvent.drop(rowOf(screen.getByText('modA')))
+    expect(shownOrder()).toEqual(['NewMod', 'modA', 'modB', 'modC'])
+    expect(fadedRows()).toEqual([])
+
+    fireEvent.dragOver(rowAt(3))
+    expect(shownOrder()).toEqual(['NewMod', 'modA', 'modB', 'modC'])
   })
 
   it('drag-and-drop still reorders through the same save path', async () => {
@@ -323,6 +401,97 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
     expect(rowAt(1)).toHaveAttribute('draggable', 'true')
   })
 
+  it('a drag whose dragend was lost cannot reorder behind an open Auto-sort proposal', async () => {
+    primeReadMocks()
+    getCurrentConfig.mockResolvedValue({
+      configured: true,
+      modIds: MOD_IDS,
+      workshopIds: ['111'],
+      workshopModMap: { '111': [{ id: 'modA', require: ['NewMod'] }] },
+      maps: [],
+      totalMods: MOD_IDS.length,
+    } as never)
+    await openLoadOrder()
+
+    // A drag the page never saw end (no dragend, no drop).
+    fireEvent.dragStart(rowOf(screen.getByText('NewMod')))
+    fireEvent.dragOver(rowOf(screen.getByText('modC')))
+    expect(shownOrder()).toEqual(['modA', 'modB', 'NewMod', 'modC'])
+
+    fireEvent.click(screen.getByRole('button', { name: /auto-sort by dependencies/i }))
+    await screen.findByRole('button', { name: /^apply$/i })
+    expect(fadedRows()).toEqual([])
+    // Apply would write the proposal computed from the order above, so a
+    // dragover now must not change it.
+    fireEvent.dragOver(rowAt(0))
+    expect(shownOrder()).toEqual(['modA', 'modB', 'NewMod', 'modC'])
+
+    // The stale index is gone, not just blocked: still no reorder once the
+    // proposal is cancelled.
+    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
+    fireEvent.dragOver(rowAt(0))
+    expect(shownOrder()).toEqual(['modA', 'modB', 'NewMod', 'modC'])
+  })
+
+  it('stays locked until a conflict card\'s "Make X win" save and its reload have finished', async () => {
+    primeReadMocks(['modA', 'modB'])
+    getCurrentConfig.mockResolvedValue({ configured: true, modIds: ['modA', 'modB'], workshopIds: ['ws1', 'ws2'], maps: [], totalMods: 2 } as never)
+    getCachedConflicts.mockResolvedValue({
+      totalConflicts: 1,
+      identicalSkipped: 0,
+      pairs: [
+        {
+          modA: { workshopId: 'ws1', modId: 'modA', modName: 'Mod Alpha' },
+          modB: { workshopId: 'ws2', modId: 'modB', modName: 'Mod Beta' },
+          files: [{ file: 'media/lua/shared/Conflict.lua', category: 'lua', severity: 'high' }],
+          highCount: 1,
+          mediumCount: 0,
+          lowCount: 0,
+        },
+      ],
+      totalPairs: 1,
+      modsScanned: 2,
+      missingDeps: [],
+      steamDeps: [],
+      modLoadOrder: ['modA', 'modB'],
+    } as never)
+    render(
+      <MemoryRouter>
+        <TooltipProvider>
+          <Mods />
+        </TooltipProvider>
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(getTrackedMods).toHaveBeenCalled())
+
+    // A drag the page never saw end, left over from before the save.
+    fireEvent.click(await screen.findByRole('button', { name: /^load order/i }))
+    fireEvent.dragStart(rowOf(await screen.findByText('modB')))
+
+    // Same route to the button as Mods.promoteModOverOpponentServerChanged.test.tsx.
+    fireEvent.click(await screen.findByRole('button', { name: /^conflicts/i }))
+    const trigger = (await screen.findAllByText('Mod Alpha'))
+      .map((el) => el.closest('button[data-state]'))
+      .find((el): el is HTMLButtonElement => el != null)
+    fireEvent.click(trigger!)
+    let finishReload!: () => void
+    getCurrentConfig.mockReturnValueOnce(new Promise((resolve) => {
+      finishReload = () => resolve({ configured: true, modIds: ['modB', 'modA'], workshopIds: ['ws1', 'ws2'], maps: [], totalMods: 2 } as never)
+    }))
+    fireEvent.click(await screen.findByRole('button', { name: /make a win/i }))
+    await waitFor(() => expect(saveModOrder).toHaveBeenCalledWith(['modB', 'modA']))
+
+    fireEvent.click(await screen.findByRole('button', { name: /^load order/i }))
+    await waitFor(() => expect(shownOrder()).toEqual(['modB', 'modA']))
+    expect(screen.getByRole('button', { name: 'Move modA up' })).toBeDisabled()
+    // The leftover drag can't reorder under the lock either.
+    fireEvent.dragOver(rowAt(0))
+    expect(shownOrder()).toEqual(['modB', 'modA'])
+
+    finishReload()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Move modA up' })).toBeEnabled())
+  })
+
   it('moves within the FULL order while the list is filtered', async () => {
     primeReadMocks()
     render(
@@ -338,6 +507,10 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
     fireEvent.change(await screen.findByRole('textbox', { name: 'Filter active mods' }), { target: { value: 'newmod' } })
     fireEvent.click(await screen.findByRole('button', { name: /load order/i }))
     await waitFor(() => expect(screen.queryByText('modA')).toBeNull())
+    // The filter is set on another tab; this one says why rows are missing
+    // and why there is no drag handle.
+    expect(screen.getByText(/^Showing only mods matching "newmod"/)).toBeInTheDocument()
+    expect(rowOf(screen.getByText('NewMod'))).toHaveAttribute('draggable', 'false')
 
     fireEvent.click(screen.getByRole('button', { name: 'Move NewMod to the top' }))
     fireEvent.click(screen.getByRole('button', { name: /save order/i }))

@@ -7,6 +7,14 @@ import { loadOrderMoveTarget, type LoadOrderMove } from '@/lib/modLoadOrder'
 const CONTROL_CLASS =
   'p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center hover:bg-muted/30 disabled:opacity-30 rounded transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50'
 
+/**
+ * How a move control was activated. Keyboard activation (Enter/Space) fires
+ * a click whose `detail` is 0; a mouse click or tap counts from 1. The page
+ * needs it only for where focus goes when a move lands on the first or last
+ * slot and so disables the control that was pressed.
+ */
+export type LoadOrderMoveSource = 'keyboard' | 'pointer'
+
 export interface LoadOrderMoveControlsProps {
   /** 0-based position in the FULL load order, not in a filtered view of it. */
   index: number
@@ -14,8 +22,11 @@ export interface LoadOrderMoveControlsProps {
   total: number
   /** The mod ID the row shows; every control's accessible name includes it. */
   modId: string
-  /** Called with this row's `index`. Pass a stable function -- see memo below. */
-  onMove: (index: number, move: LoadOrderMove) => void
+  /**
+   * Called with this row's `index` and how the control was activated (see
+   * LoadOrderMoveSource). Pass a stable function -- see memo below.
+   */
+  onMove: (index: number, move: LoadOrderMove, source: LoadOrderMoveSource) => void
   /**
    * Turns every control off at once, for a state that locks the whole list
    * (Save Order in flight, an Auto-sort proposal open). The page states that
@@ -79,7 +90,15 @@ export const LoadOrderMoveControls = memo(function LoadOrderMoveControls({
             key={move}
             type="button"
             data-move-action={move}
-            onClick={() => onMove(index, move)}
+            onClick={(e) => {
+              // A mouse double-click's second click (detail 2): the page has
+              // already scrolled the moved row into view, so that click lands
+              // on whatever control is now under the pointer -- usually the
+              // same control of a different row -- and would silently move a
+              // second mod. Enter/Space always has detail 0 and still repeats.
+              if (e.detail > 1) return
+              onMove(index, move, e.detail === 0 ? 'keyboard' : 'pointer')
+            }}
             className={CONTROL_CLASS}
             aria-label={label}
             title={hint}

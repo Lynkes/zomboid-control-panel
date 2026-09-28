@@ -381,6 +381,7 @@
     "emptyDesc": "Enable mods in the Active Mods tab first.",
     "dragHint": "Drag or use the arrow buttons to reorder. Changes are not saved until you click Save.",
     "previewLockHint": "Apply or cancel the proposed order below before reordering by hand.",
+    "filteredHint": "Showing only mods matching \"{{query}}\" (filter set on Active on server). Drag is off while filtered; the arrow buttons still move mods within the full load order.",
     "autoSort": "Auto-sort by dependencies",
     "proposedOrder_one": "Proposed order: {{count}} mod would move",
     "proposedOrder_other": "Proposed order: {{count}} mods would move",
