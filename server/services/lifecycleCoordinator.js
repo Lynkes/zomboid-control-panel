@@ -1,3 +1,7 @@
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("Lifecycle");
+
 export const LIFECYCLE_IN_PROGRESS_CODE = "SERVER_LIFECYCLE_IN_PROGRESS";
 
 let activeLock = null;
@@ -81,10 +85,12 @@ export function setLaunchTargetRefresher(fn) {
 // Refreshes the launch target first, then runs the PanelBridge hook -- both
 // write the server's ini, so they run one after the other, never together.
 // Like runBeforeLaunchHook(), it never throws and never blocks a launch: a
-// refresh that couldn't write is logged by the refresher itself, and
-// startServer() refuses a named server whose script is still missing
-// instead of falling back to the stock one. Returns the refresher's backup
-// notices for scripts that had content the panel didn't write.
+// refresh that couldn't write is logged by the refresher itself, one that
+// threw is logged here, and startServer() refuses a named server whose
+// script is still missing instead of falling back to the stock one -- a
+// refusal that sends the operator to the panel log for the reason. Returns
+// the refresher's backup notices for scripts that had content the panel
+// didn't write.
 export async function prepareForLaunch(server, { container = false } = {}) {
   let scriptWarnings = [];
   if (launchTargetRefresher && server) {
@@ -95,8 +101,11 @@ export async function prepareForLaunch(server, { container = false } = {}) {
       if (Array.isArray(refreshed?.scriptBackupWarnings)) {
         scriptWarnings = refreshed.scriptBackupWarnings;
       }
-    } catch {
+    } catch (error) {
       // Never blocks the launch -- see the comment above.
+      log.warn(
+        `Could not refresh the launch target before this start: ${error?.message || error}`,
+      );
     }
   }
   await runBeforeLaunchHook(server);

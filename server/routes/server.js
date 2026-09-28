@@ -1667,8 +1667,13 @@ export async function refreshLaunchTargetBeforeStart(
     if (rconReady) {
       log.info("RCON pre-configured in INI before server start");
     } else {
+      // No "will retry" here: this runs before every launch path, and only
+      // POST /start's waitForRconAfterStart() tries ensureRconConfigured()
+      // again -- the boot auto-start, the scheduler, Discord and post-update
+      // starts don't. ensureRconConfigured() logs its own reason (no RCON
+      // password set, no ini folder or server name, or the write error).
       log.warn(
-        "Could not pre-configure RCON — will retry during startup polling",
+        "Could not pre-configure RCON in the server's ini before this start -- the game uses the RCON settings already in it",
       );
     }
   } catch (rconErr) {

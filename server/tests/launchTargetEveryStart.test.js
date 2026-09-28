@@ -378,9 +378,22 @@ describe("prepareForLaunch()", () => {
       throw new Error("disk full");
     });
     m.setBeforeLaunchHook(async () => order.push("hook"));
+    const entries = [];
+    const unsubscribe = m.onLog((entry) => entries.push(entry));
 
-    await expect(m.prepareForLaunch({ id: "a" })).resolves.toEqual({ scriptWarnings: [] });
+    try {
+      await expect(m.prepareForLaunch({ id: "a" })).resolves.toEqual({ scriptWarnings: [] });
+      for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      unsubscribe();
+    }
+
     expect(order).toEqual(["hook"]);
+    // Logged, so a SERVER_START_SCRIPT_MISSING refusal that follows ("the
+    // panel log has the exact reason") has a reason to point at.
+    expect(entries.map((entry) => `${entry.level}: ${entry.message}`)).toContainEqual(
+      expect.stringContaining("warn: Could not refresh the launch target before this start: disk full"),
+    );
   });
 
   it("is a no-op without a server", async () => {
