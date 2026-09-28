@@ -163,6 +163,28 @@ describe("to Local, automatic", () => {
     expect((await planDeliverySwitch(server, "local", deps)).blocked).toEqual({ reason: "sameMethod" });
   });
 
+  // "Switch, restart later" back to panel-installed: the entries are already
+  // gone, and the Workshop heartbeat is the run from before the switch. The
+  // same switch again would only rewrite the record.
+  it("is blocked as sameMethod right after a switch back, while the pre-switch run still reports the Workshop copy", async () => {
+    fs.writeFileSync(files.iniPath, "Mods=OtherMod\r\nWorkshopItems=111\r\nDoLuaChecksum=false\r\n");
+    writeLoose(files.installDir, "media/lua/server/PanelBridge.lua", bundledLua());
+    const server = makeServer(files, {
+      bridgeDeliverySwitch: {
+        to: "local",
+        at: new Date(Date.now() - 30 * 1000).toISOString(),
+        by: "admin",
+        bridgeStartedAt: 2000,
+        workshopId: null,
+      },
+    });
+    dbState.servers = [server];
+    const modStatus = { alive: true, startedAt: 2000, delivery: { method: "workshop", workshopId: WS_ID } };
+    const plan = await planDeliverySwitch(server, "local", { ...deps, bridge: { getStatus: () => ({ modStatus }) } });
+    expect(plan).toMatchObject({ from: "local", to: "local", blocked: { reason: "sameMethod" } });
+    expect(plan.status.state).toBe("local-ok");
+  });
+
   it("stays available to a Local server whose ini still lists the bridge (a crashed switch)", async () => {
     fs.writeFileSync(files.iniPath, `Mods=${MOD}\nWorkshopItems=${WS_ID}\nDoLuaChecksum=false\n`);
     const server = makeServer(files);

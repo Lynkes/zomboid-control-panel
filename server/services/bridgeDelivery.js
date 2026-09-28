@@ -471,6 +471,39 @@ function computeRestartedSinceSwitch(switchRecord, serverRunning, serverManager,
   return Number.isFinite(switchedAt) && live.startedAt > switchedAt;
 }
 
+// Slack for the one clock comparison below: after a panel restart,
+// serverManager.startTime is rebuilt from the process uptime, which can land
+// a moment after the real start. A new run's bridge reports in far later
+// than that (the world has to load first), so a few seconds cost nothing.
+const PREVIOUS_RUN_SLACK_MS = 5_000;
+
+// Whether the heartbeat on hand was written by an EARLIER game run than the
+// one the state is about. status.json keeps reading as alive for a while
+// after its run ends (services/panelBridge.js: 45 s, or 5 minutes when it
+// last reported nobody online), and nothing clears it when the game stops,
+// so right after a restart it is usually still the previous run's -- which
+// says nothing about how the run now starting loads PanelBridge. It is the
+// previous run's when:
+//   - the game hasn't started since the switch at all;
+//   - the bridge's own startedAt is the one recorded at switch time (the run
+//     that was going when the operator switched; bridge value against
+//     bridge value, no clock involved);
+//   - on the panel's host, the run started before the panel's latest start
+//     of this server (one clock -- the same assumption
+//     computeRestartedSinceSwitch makes for a profile with no baseline).
+function heartbeatFromPreviousRun(ctx, restartedSinceSwitch) {
+  const { live, switchRecord } = ctx;
+  if (!live) return false;
+  if (switchRecord && restartedSinceSwitch === false) return true;
+  if (live.startedAt === null) return false;
+  if (typeof switchRecord?.bridgeStartedAt === "number" && live.startedAt === switchRecord.bridgeStartedAt) {
+    return true;
+  }
+  if (ctx.server.isRemote) return false;
+  const started = startTimeMs(ctx.deps?.serverManager);
+  return ctx.serverRunning === true && started !== null && live.startedAt < started - PREVIOUS_RUN_SLACK_MS;
+}
+
 async function buildContext(server, deps = {}) {
   const all = await getServers();
   const fresh = (server?.id !== null && server?.id !== undefined && all.find((s) => sameServer(s, server))) || server;
@@ -587,7 +620,10 @@ function availabilityToWorkshop(ctx) {
 // server refuses to start. "Already Local" only blocks it when there is
 // nothing left to undo: a Local server whose ini still carries the bridge
 // entries (a switch to Workshop that crashed before recording the method,
-// or entries added by hand) can still run it to clean them up.
+// or entries added by hand), or whose current run loads the Workshop copy,
+// can still run it to clean them up. The run from before a switch back to
+// Local doesn't count (deriveState): its switch already removed the
+// entries, and offering the same switch again would only rewrite the record.
 function availabilityToLocal(ctx, state) {
   const warnings = [];
   if (ctx.sharedWith.length > 0) warnings.push("sharedInstall");
@@ -599,8 +635,14 @@ function availabilityToLocal(ctx, state) {
 
 function deriveState(ctx, { restartedSinceSwitch, lastStartFailure }) {
   const { live, method, access, serverRunning } = ctx;
+  const previousRun = heartbeatFromPreviousRun(ctx, restartedSinceSwitch);
   if (method === "local") {
-    if (live?.alive && live.delivery === "workshop") return "local-workshop-loaded";
+    // The run from before a switch back to panel-installed still reports the
+    // Workshop copy until the game restarts ("Switch, restart later"); that
+    // is the switch not having taken effect yet, which the folder below and
+    // the restart note on the page describe, not a Workshop copy the
+    // settings still ask for.
+    if (live?.alive && live.delivery === "workshop" && !previousRun) return "local-workshop-loaded";
     if (access === "automatic") {
       const installed = checkBridgeInstalled(ctx.server);
       if (!installed.installed) return "local-not-installed";
@@ -612,10 +654,13 @@ function deriveState(ctx, { restartedSinceSwitch, lastStartFailure }) {
   if (!ctx.effectiveWorkshopId) return "workshop-id-unknown";
   if (serverRunning === false && lastStartFailure) return "workshop-start-failed";
   if (restartedSinceSwitch === false) return "workshop-restart-needed";
-  if (live?.alive && live.delivery === "workshop" && live.workshopId === ctx.effectiveWorkshopId) {
+  // An earlier run's heartbeat says nothing about this one: the state stays
+  // "waiting" (and the page keeps polling) until the new run reports in.
+  const current = live?.alive && !previousRun ? live : null;
+  if (current && current.delivery === "workshop" && current.workshopId === ctx.effectiveWorkshopId) {
     return "workshop-confirmed";
   }
-  if (live?.alive) return "workshop-not-loaded";
+  if (current) return "workshop-not-loaded";
   if (serverRunning === false) return "workshop-stopped";
   const switchedAt = Date.parse(ctx.switchRecord?.at ?? "");
   const baseline = Math.max(startTimeMs(ctx.deps?.serverManager) ?? 0, Number.isFinite(switchedAt) ? switchedAt : 0);

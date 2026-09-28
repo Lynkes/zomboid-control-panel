@@ -186,9 +186,12 @@ describe("Lua heartbeat -> PanelBridge service -> delivery state", () => {
     expect(before).toMatchObject({ state: "workshop-restart-needed", restartedSinceSwitch: false });
 
     const secondRun = runBridge({ now: recorded + 90_000, engine: { ...ACTIVE_BRIDGE, filenameOfClosure: WORKSHOP_FILE } });
+    // On the bridge's clock: the panel started this second run a minute
+    // before its bridge came up (a heartbeat from before the panel's latest
+    // start would be the previous run's).
     const after = await deliveryStatus(server, {
       statusText: secondRun,
-      startTime: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      startTime: new Date(recorded + 30_000),
     });
     expect(after).toMatchObject({ state: "workshop-confirmed", restartedSinceSwitch: true });
   });

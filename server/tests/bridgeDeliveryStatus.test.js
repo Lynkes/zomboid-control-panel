@@ -112,6 +112,55 @@ describe("states: panel-installed (local)", () => {
     expect(status.switchAvailability.toLocal.available).toBe(true);
   });
 
+  // "Switch, restart later" back to panel-installed on a running Workshop
+  // server: the entries are gone and the loose file is in place, but the
+  // game keeps the copy it loaded until it restarts, and its heartbeat still
+  // says so. That is the switch not having taken effect yet -- not a
+  // settings file that still asks for the Workshop copy -- so no second
+  // "Switch to panel-installed" that could only rewrite the record.
+  describe("after a switch back to panel-installed", () => {
+    const localRecord = (extra = {}) =>
+      makeServer(files, {
+        bridgeDeliverySwitch: {
+          to: "local",
+          at: new Date(Date.now() - 30 * 1000).toISOString(),
+          by: "admin",
+          bridgeStartedAt: 2000,
+          workshopId: null,
+          ...extra,
+        },
+      });
+    const workshopRun = (startedAt) => ({
+      alive: true,
+      version: "1.7.71",
+      startedAt,
+      delivery: { method: "workshop", workshopId: WS_ID },
+    });
+
+    beforeEach(() => {
+      fs.writeFileSync(files.iniPath, "Mods=OtherMod\r\nWorkshopItems=111\r\nDoLuaChecksum=false\r\n");
+      writeLoose(files.installDir, "media/lua/server/PanelBridge.lua", bundledLua());
+      runningState.value = true;
+    });
+
+    it("the run from before the switch reads from the folder, with no clean-up to offer", async () => {
+      const status = await statusFor(localRecord(), { modStatus: workshopRun(2000) });
+      expect(status).toMatchObject({ state: "local-ok", restartedSinceSwitch: false });
+      expect(status.switchAvailability.toLocal).toMatchObject({ available: false, reason: "sameMethod" });
+    });
+
+    it("stays so after the panel restarts the game, until the new run reports in", async () => {
+      const status = await statusFor(localRecord(), { modStatus: workshopRun(2000), startTime: new Date() });
+      expect(status).toMatchObject({ state: "local-ok", restartedSinceSwitch: true });
+    });
+
+    it("a run started after the switch that loads the Workshop copy is local-workshop-loaded", async () => {
+      const status = await statusFor(localRecord(), { modStatus: workshopRun(3000) });
+      expect(status).toMatchObject({ state: "local-workshop-loaded", restartedSinceSwitch: true });
+      expect(status.switchAvailability.toLocal.available).toBe(true);
+    });
+  });
+
   it("guided: local-unverified with no heartbeat, local-ok with a live one", async () => {
     const remote = makeServer(files, { isRemote: true });
     expect((await statusFor(remote)).state).toBe("local-unverified");
@@ -181,6 +230,40 @@ describe("states: Steam Workshop", () => {
     runningState.value = true;
     const status = await statusFor(switchedToWorkshop(), { startTime: new Date() });
     expect(status).toMatchObject({ restartedSinceSwitch: true, state: "workshop-waiting" });
+  });
+
+  // "Switch and restart now" with nobody online: the old run's status.json
+  // reads as alive for up to 5 minutes after it stopped (statusStaleIdleMs),
+  // and it is the run the switch recorded. It says nothing about the boot
+  // under way, which is still downloading the item.
+  it("workshop-waiting, not workshop-not-loaded, while the heartbeat is the run from before the switch", async () => {
+    runningState.value = true;
+    const status = await statusFor(
+      switchedToWorkshop({}, { at: new Date(Date.now() - 60 * 1000).toISOString(), bridgeStartedAt: 1000 }),
+      {
+        modStatus: { alive: true, startedAt: 1000, playerCount: 0, delivery: { method: "loose" } },
+        startTime: new Date(Date.now() - 10 * 1000),
+      },
+    );
+    expect(status).toMatchObject({ state: "workshop-waiting", restartedSinceSwitch: true });
+    expect(status.live).toMatchObject({ alive: true, delivery: "loose", startedAt: 1000 });
+  });
+
+  // A sibling (no bridge baseline in its record): the clock decides, and a
+  // run that started before the panel's latest start is the previous one.
+  it("no baseline: a heartbeat from before the panel's latest start is the previous run's", async () => {
+    runningState.value = true;
+    const status = await statusFor(switchedToWorkshop({}, { bridgeStartedAt: null }), {
+      modStatus: { alive: true, startedAt: Date.now() - 20 * 60 * 1000, delivery: { method: "loose" } },
+      startTime: new Date(Date.now() - 10 * 1000),
+    });
+    expect(status.state).toBe("workshop-waiting");
+
+    const reported = await statusFor(switchedToWorkshop({}, { bridgeStartedAt: null }), {
+      modStatus: { alive: true, startedAt: Date.now() - 2 * 1000, delivery: { method: "workshop", workshopId: WS_ID } },
+      startTime: new Date(Date.now() - 10 * 1000),
+    });
+    expect(reported.state).toBe("workshop-confirmed");
   });
 
   it("workshop-waiting turns into workshop-not-loaded after the 5-minute grace", async () => {
