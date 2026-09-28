@@ -5503,10 +5503,15 @@ handlers.setSandboxOption = function(args)
         local intVal = tonumber(newValue)
         if not intVal then return false, nil, "Invalid enum value" end
         intVal = math.floor(intVal)
-        -- Bounds-check against getNumValues if available
+        -- Enum values are 1..N: EnumConfigOption(name, N, default) builds an
+        -- IntegerConfigOption with min 1 and max N, and getNumValues() returns
+        -- that max. Reject anything outside it. Clamping here once turned the
+        -- last choice N into N-1, which then read back as a confirmed write.
         local numVals = tonumber(PanelBridge.tryGet(targetOpt, "getNumValues"))
-        if numVals and intVal >= numVals then intVal = numVals - 1 end
-        if intVal < 0 then intVal = 0 end
+        if intVal < 1 or (numVals and intVal > numVals) then
+            local range = numVals and ("1.." .. tostring(math.floor(numVals))) or "enum values start at 1"
+            return false, nil, "Enum value " .. tostring(intVal) .. " is out of range (" .. range .. ")"
+        end
         appliedValue = intVal
         ok, err = pcall(function() targetOpt:setValue(intVal) end)
     elseif optType == "integer" then
