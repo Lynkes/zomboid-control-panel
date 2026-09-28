@@ -108,6 +108,11 @@ import {
   ServerInstance,
 } from "@/lib/api";
 import { getUserErrorMessage } from "@/lib/errorMessage";
+import {
+  RestoreOutcomeUnknownError,
+  newRestoreRequestId,
+  restoreBackupAndConfirm,
+} from "@/lib/restoreOutcome";
 import { resolveRegisteredTranslation } from "@/lib/paramTranslation";
 import {
   getAllowOutOfRangeSandboxValues,
@@ -1949,19 +1954,29 @@ export default function Settings() {
     }
     setRestoringBackup(name);
     try {
-      // POST /backup/restore/:name always responds non-2xx on failure, so
-      // handleResponse() throws into the catch below -- this never sees
-      // result.success === false.
-      const result = await backupApi.restoreBackup(name, {
-        createPreRestoreBackup: true,
-      });
+      // GH#166: the same call as the Backups page -- a lost response (a
+      // long restore past the client timeout, a proxy cutting it) reads the
+      // real outcome back from the status instead of reporting a failure
+      // for a restore that finished. A failed or refused restore lands in
+      // the catch below, never as success: false here.
+      const { duration } = await restoreBackupAndConfirm(name, newRestoreRequestId());
       toast({
         title: t("toasts.backupRestored.title"),
-        description: t("toasts.backupRestored.description", { name, seconds: (result.duration || 0).toFixed(1) }),
+        description: t("toasts.backupRestored.description", { name, seconds: (duration || 0).toFixed(1) }),
         variant: "success" as const,
       });
       await fetchBackups();
     } catch (error) {
+      // Nothing could say how it ended: not a failure, and the Backups
+      // page's own words for it.
+      if (error instanceof RestoreOutcomeUnknownError) {
+        toast({
+          title: t("restoreResult.unknownTitle", { ns: "backups" }),
+          description: t("restoreResult.unknownDetail", { ns: "backups" }),
+          variant: "warning",
+        });
+        return;
+      }
       toast({
         title: t("toasts.restoreFailed.title"),
         description:

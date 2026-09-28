@@ -228,6 +228,17 @@
   "restoreProgress": {
     "title": "Restaurando {{name}}…",
     "titleUnknown": "Ya hay una restauración en curso para este servidor…",
-    "note": "Esto puede tardar unos minutos según el tamaño del mundo. No cierres el panel ni salgas de esta página."
+    "note": "Esto puede tardar unos minutos según el tamaño del mundo. No cierres el panel ni salgas de esta página.",
+    "responseLost": "Se perdió la conexión con esta restauración — sigue en curso en el panel. Consultando el resultado al panel…"
+  },
+  "restoreResult": {
+    "successTitle": "Restauración completada",
+    "successDetail": "Tardó {{seconds}} s. El mundo reemplazado se guardó antes — esa copia de seguridad de emergencia es la más reciente de la lista de abajo. Inicia el servidor cuando quieras.",
+    "failedTitle": "Error al restaurar",
+    "failedNextStep": "Salvo que el motivo de arriba diga lo contrario, el mundo actual quedó como estaba. Corrige la causa y vuelve a intentarlo.",
+    "unknownTitle": "No se pudo confirmar cómo terminó la restauración",
+    "unknownDetail": "El panel dejó de informar antes de que terminara — se cortó la conexión o el panel se reinició. Antes de iniciar el servidor, revisa el registro del panel para ver si se completó.",
+    "dismiss": "Descartar",
+    "dismissAria": "Descartar el resultado de la restauración"
   }
 }

@@ -222,6 +222,17 @@
   "restoreProgress": {
     "title": "{{name}} wird wiederhergestellt…",
     "titleUnknown": "Für diesen Server läuft bereits eine Wiederherstellung…",
-    "note": "Das kann je nach Weltgröße einige Minuten dauern. Schließe das Panel nicht und wechsle nicht die Seite."
+    "note": "Das kann je nach Weltgröße einige Minuten dauern. Schließe das Panel nicht und wechsle nicht die Seite.",
+    "responseLost": "Die Verbindung zu dieser Wiederherstellung ist abgebrochen — sie läuft im Panel weiter. Das Ergebnis wird beim Panel abgefragt…"
+  },
+  "restoreResult": {
+    "successTitle": "Wiederherstellung abgeschlossen",
+    "successDetail": "Dauer: {{seconds}} s. Von der ersetzten Welt wurde vorher ein Sicherheits-Backup erstellt — es ist das neueste in der Liste unten. Starte den Server, wenn du so weit bist.",
+    "failedTitle": "Wiederherstellung fehlgeschlagen",
+    "failedNextStep": "Sofern der Grund oben nichts anderes sagt, ist die aktuelle Welt unverändert. Behebe die Ursache und versuche es erneut.",
+    "unknownTitle": "Ausgang der Wiederherstellung unklar",
+    "unknownDetail": "Das Panel hat keine Rückmeldung mehr gegeben, bevor sie fertig war — die Verbindung ist abgebrochen oder das Panel wurde neu gestartet. Prüfe vor dem Serverstart im Panel-Protokoll, ob sie abgeschlossen wurde.",
+    "dismiss": "Verwerfen",
+    "dismissAria": "Ergebnis der Wiederherstellung verwerfen"
   }
 }

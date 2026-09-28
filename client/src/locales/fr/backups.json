@@ -228,6 +228,17 @@
   "restoreProgress": {
     "title": "Restauration de {{name}}…",
     "titleUnknown": "Une restauration est déjà en cours pour ce serveur…",
-    "note": "Cela peut prendre quelques minutes selon la taille du monde. Ne fermez pas le panneau et ne quittez pas cette page."
+    "note": "Cela peut prendre quelques minutes selon la taille du monde. Ne fermez pas le panneau et ne quittez pas cette page.",
+    "responseLost": "La connexion à cette restauration a été perdue — elle continue sur le panneau. Vérification du résultat auprès du panneau…"
+  },
+  "restoreResult": {
+    "successTitle": "Restauration terminée",
+    "successDetail": "Durée : {{seconds}} s. Le monde remplacé a d'abord été sauvegardé — cette sauvegarde de sécurité est la plus récente de la liste ci-dessous. Démarrez le serveur quand vous êtes prêt.",
+    "failedTitle": "Échec de la restauration",
+    "failedNextStep": "Sauf indication contraire dans la raison ci-dessus, le monde actuel est resté tel quel. Corrigez la cause, puis réessayez.",
+    "unknownTitle": "Impossible de confirmer comment la restauration s'est terminée",
+    "unknownDetail": "Le panneau a cessé d'en rendre compte avant la fin — la connexion a été coupée ou le panneau a redémarré. Avant de démarrer le serveur, consultez le journal du panneau pour vérifier qu'elle s'est bien terminée.",
+    "dismiss": "Ignorer",
+    "dismissAria": "Ignorer le résultat de la restauration"
   }
 }

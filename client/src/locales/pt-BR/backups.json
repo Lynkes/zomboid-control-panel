@@ -104,7 +104,18 @@
   "restoreProgress": {
     "title": "Restaurando {{name}}…",
     "titleUnknown": "Já há uma restauração em andamento para este servidor…",
-    "note": "Isso pode levar alguns minutos, dependendo do tamanho do mundo. Não feche o painel nem saia desta página."
+    "note": "Isso pode levar alguns minutos, dependendo do tamanho do mundo. Não feche o painel nem saia desta página.",
+    "responseLost": "A conexão com esta restauração caiu — ela continua no painel. Consultando o painel sobre o resultado…"
+  },
+  "restoreResult": {
+    "successTitle": "Restauração concluída",
+    "successDetail": "Levou {{seconds}}s. Antes, o painel fez backup do mundo substituído — esse backup de segurança é o mais recente da lista abaixo. Inicie o servidor quando quiser.",
+    "failedTitle": "Falha na restauração",
+    "failedNextStep": "A menos que o motivo acima diga o contrário, o mundo atual ficou como estava. Corrija a causa e tente de novo.",
+    "unknownTitle": "Não foi possível confirmar como a restauração terminou",
+    "unknownDetail": "O painel parou de informar antes de ela terminar — a conexão caiu ou o painel reiniciou. Antes de iniciar o servidor, veja no log do painel se ela foi concluída.",
+    "dismiss": "Dispensar",
+    "dismissAria": "Dispensar o resultado da restauração"
   },
   "mainCard": {
     "title": "Arquivos de backup",

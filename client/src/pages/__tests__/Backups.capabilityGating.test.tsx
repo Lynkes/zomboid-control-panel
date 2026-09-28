@@ -149,7 +149,11 @@ describe('Backups.tsx: backups.restore gates the restore flow', () => {
     const confirmButton = await screen.findByRole('button', { name: /restore this backup/i })
     fireEvent.click(confirmButton)
 
-    await waitFor(() => expect(restoreBackup).toHaveBeenCalledWith(testBackup.name, { createPreRestoreBackup: true }))
+    // requestId: GH#166's id for reading the outcome back if the response is lost.
+    await waitFor(() => expect(restoreBackup).toHaveBeenCalledWith(
+      testBackup.name,
+      { createPreRestoreBackup: true, requestId: expect.any(String) },
+    ))
   })
 })
 

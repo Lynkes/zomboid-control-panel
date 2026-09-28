@@ -103,7 +103,18 @@
   "restoreProgress": {
     "title": "Ap retabli {{name}}…",
     "titleUnknown": "Gen yon restorasyon k ap fèt deja pou sèvè sa a…",
-    "note": "Sa a ka pran kèk minit selon gwosè mond lan. Pa fèmen panèl la oswa ale nan yon lòt paj."
+    "note": "Sa a ka pran kèk minit selon gwosè mond lan. Pa fèmen panèl la oswa ale nan yon lòt paj.",
+    "responseLost": "Koneksyon ak retablisman sa a koupe — li kontinye ap fèt sou panèl la. N ap mande panèl la ki rezilta a…"
+  },
+  "restoreResult": {
+    "successTitle": "Retablisman fini",
+    "successDetail": "Li pran {{seconds}}s. Anvan sa, panèl la te fè yon kopi sovgad sekirite mond ki te la a — se kopi ki pi resan nan lis anba a. Demare sèvè a lè w pare.",
+    "failedTitle": "Retablisman echwe",
+    "failedNextStep": "Sof si rezon ki anlè a di lòt bagay, mond aktyèl la rete jan li te ye a. Korije pwoblèm nan, epi eseye ankò.",
+    "unknownTitle": "Pa t kapab konfime kijan retablisman an fini",
+    "unknownDetail": "Panèl la sispann bay nouvèl sou li anvan li fini — koneksyon an koupe oswa panèl la te redemare. Anvan w demare sèvè a, tcheke jounal panèl la pou wè si li te fini.",
+    "dismiss": "Fèmen",
+    "dismissAria": "Fèmen rezilta retablisman an"
   },
   "mainCard": {
     "title": "Fichye Kopi Sovgad",
