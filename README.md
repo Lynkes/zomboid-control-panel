@@ -364,6 +364,8 @@ node build.js --all        # Build Windows + Linux binaries
 npm test                   # Run tests
 ```
 
+Maintainers publishing the PanelBridge Steam Workshop item: see [docs/maintainers/workshop-publishing.md](docs/maintainers/workshop-publishing.md).
+
 ---
 
 ## Community
