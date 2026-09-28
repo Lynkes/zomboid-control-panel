@@ -471,8 +471,37 @@ describe('BridgeDeliveryPanel: failure states and their actions', () => {
     )
     await panelReady()
     expect(screen.getByTestId('bridge-delivery-leftovers')).toHaveTextContent(
-      'media/lua/server/PanelBridge.lua and media/lua/client/PanelBridgeClient.lua',
+      '\u2066media/lua/server/PanelBridge.lua\u2069 and \u2066media/lua/client/PanelBridgeClient.lua\u2069',
     )
+  })
+
+  // What the server really sends: absolute paths under the game folder
+  // (bridgeDisk joins them onto installDir). Named relative to the folder,
+  // each in a left-to-right isolate, so an RTL sentence can't move the
+  // leading "/" to the wrong end, and the banner wraps instead of
+  // overflowing at phone width.
+  it.each([
+    ['en', '/pz-server', ['/pz-server/media/lua/server/PanelBridge.lua', '/pz-server/media/lua/client/PanelBridgeClient.lua']],
+    ['ar', '/pz-server', ['/pz-server/media/lua/server/PanelBridge.lua', '/pz-server/media/lua/client/PanelBridgeClient.lua']],
+    ['en', 'D:\\PZServer\\', ['d:\\pzserver\\media\\lua\\server\\PanelBridge.lua', 'D:\\PZServer\\media\\lua\\client\\PanelBridgeClient.lua']],
+  ])('names absolute leftover paths relative to the game folder, isolated LTR (%s, %s)', async (language, installDir, paths) => {
+    if (language !== 'en') await i18n.changeLanguage(language)
+    renderPanel(
+      makeWorkshopStatus({
+        disk: {
+          ...makeWorkshopStatus().disk!,
+          installDir,
+          looseFiles: paths.map((p, i) => ({ path: p, kind: i === 0 ? ('server' as const) : ('client' as const), recognized: true })),
+        },
+      }),
+    )
+    const banner = await screen.findByTestId('bridge-delivery-leftovers')
+    const text = banner.textContent ?? ''
+    const sep = installDir.startsWith('/') ? '/' : '\\'
+    expect(text).toContain(`\u2066${['media', 'lua', 'server', 'PanelBridge.lua'].join(sep)}\u2069`)
+    expect(text).toContain(`\u2066${['media', 'lua', 'client', 'PanelBridgeClient.lua'].join(sep)}\u2069`)
+    expect(text).not.toContain(installDir.startsWith('/') ? '/pz-server' : 'PZServer')
+    expect(banner.querySelector('.break-words')).not.toBeNull()
   })
 
   it('never calls the panel-installed file a leftover on a panel-installed server', async () => {

@@ -32,6 +32,7 @@ import {
   type DeliveryAction,
   DeliveryResponseError,
   formatList,
+  formatPathInSentence,
   getAvailabilityParams,
   getBlockReasonKey,
   getChecksumBlockerKey,
@@ -528,8 +529,13 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
       {s.method === 'workshop' && s.access === 'automatic' && s.disk && s.disk.looseFiles.length > 0 && (
         <Alert className={WARNING_CALLOUT} data-testid="bridge-delivery-leftovers">
           <AlertTriangle className="h-4 w-4 text-warning" />
-          <AlertDescription>
-            {t('banner.leftovers', { files: formatList(s.disk.looseFiles.map((f) => f.path), i18n.language) })}
+          <AlertDescription className="break-words">
+            {t('banner.leftovers', {
+              files: formatList(
+                s.disk.looseFiles.map((f) => formatPathInSentence(f.path, s.disk?.installDir)),
+                i18n.language,
+              ),
+            })}
           </AlertDescription>
         </Alert>
       )}

@@ -342,6 +342,32 @@ export function formatList(items: readonly string[], language: string): string {
   return items.join(', ')
 }
 
+// A path inside a translated sentence. The server sends absolute paths
+// (bridgeDisk joins each file onto the game folder); the block names them
+// relative to that folder, as Diagnostics does (routes/debug.js
+// path.relative) -- the folder is the one the block is about, and the
+// shorter token wraps better at phone width. Windows paths compare
+// case-insensitively; a path outside the folder is kept as sent.
+//
+// Then it is wrapped in a left-to-right isolate (U+2066 ... U+2069): the
+// feature's rule that paths and ini values read left to right even in an
+// RTL sentence (BridgeGuidedSteps renders them in <code dir="ltr">). Bare,
+// in Arabic, the leading "/" of "/pz-server/..." resolves to the
+// surrounding right-to-left run and shows at the wrong end.
+export function formatPathInSentence(file: string, installDir: string | null | undefined): string {
+  let shown = file
+  const base = (installDir ?? '').replace(/[\\/]+$/, '')
+  if (base) {
+    const windows = /^[A-Za-z]:|^[\\/]{2}/.test(base)
+    const normalize = (value: string) => {
+      const slashes = value.replace(/\\/g, '/')
+      return windows ? slashes.toLowerCase() : slashes
+    }
+    if (normalize(file).startsWith(`${normalize(base)}/`)) shown = file.slice(base.length + 1)
+  }
+  return `\u2066${shown}\u2069`
+}
+
 // Params every block reason / warning template can ask for. Supplying the
 // whole set to each key is harmless (i18next ignores unused params) and
 // keeps callers from needing a per-key switch.
