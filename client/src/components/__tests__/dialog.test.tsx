@@ -50,7 +50,7 @@ describe('DialogContent', () => {
     expect(dialog.className).toMatch(/(^|\s)grid(\s|$)/)
   })
 
-  it("lets a call site's own height cap and overflow replace the defaults instead of stacking with them", () => {
+  it("lets a call site's own height cap replace the default instead of stacking with it", () => {
     const capped = renderDialog('max-h-[85vh] sm:max-h-[80vh]')
     expect(capped.className).not.toContain(BOUND)
     expect(capped.className).toContain('max-h-[85vh]')
@@ -79,6 +79,10 @@ describe('DialogBody', () => {
     // overflow-y-auto makes the rest scroll.
     expect(body!.className).toContain('min-h-0')
     expect(body!.className).toContain('overflow-y-auto')
+    // Ruled off from the pinned header and footer, so scrolled-up helper
+    // text doesn't read as part of the dialog description.
+    expect(body!.className).toContain('border-y')
+    expect(body!.className).toContain('border-border/40')
 
     // Header and footer are its siblings, not its children, so they never
     // scroll away with it.
@@ -116,7 +120,7 @@ describe('Tailwind output for the new class strings', () => {
   // them, so a typo in a variant or arbitrary value fails here instead of
   // silently shipping no CSS (the way justify-[safe_center] once compiled to
   // nothing -- see index.css).
-  it('emits the dvh bound, the :has() flex switch and the DialogBody scroll classes', async () => {
+  it('emits the dvh bound, the :has() flex switch and the DialogBody scroll and rule classes', async () => {
     const dialog = renderDialog()
     const body = dialog.querySelector<HTMLElement>('[data-dialog-body]')!
     const { css } = await postcss([
@@ -132,5 +136,6 @@ describe('Tailwind output for the new class strings', () => {
     expect(compact).toMatch(/:has\(>\[data-dialog-body\]\) \{ flex-direction: column/)
     expect(compact).toMatch(/\.min-h-0 \{ min-height: 0px/)
     expect(compact).toMatch(/\.overflow-y-auto \{ overflow-y: auto/)
+    expect(compact).toMatch(/\.border-y \{ border-top-width: 1px; border-bottom-width: 1px/)
   })
 })

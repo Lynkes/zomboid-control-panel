@@ -105,12 +105,21 @@ export function FolderBrowser({ open, onOpenChange, onSelect, initialPath, title
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* No overflow-hidden here: DialogContent's own overflow-y-auto already
+      {/* flex flex-col (tailwind-merge drops DialogContent's grid): this
+          picker is ~500px tall, most of it the fixed h-[340px] folder list.
+          As a grid row the list never shrinks to DialogContent's viewport
+          bound, so on a short or zoomed-in window the whole dialog scrolled
+          instead -- and the wheel over the list scrolled the list first,
+          keeping Select Folder below the fold until every folder in, say,
+          steamapps/common had gone by. In a flex column the ScrollArea root
+          (overflow-hidden, so its min-height is 0) is what shrinks: header,
+          address bar and footer stay on screen, and the list scrolls in
+          what's left (204px at 1280x720 at 150% zoom, measured in Chromium).
+          No overflow-hidden either: DialogContent's overflow-y-auto already
           clips the header border and footer tint to the rounded corners,
-          and it is what lets this ~500px-tall picker scroll to its Select
-          Folder button on a short or zoomed-in window, where overflow-hidden
-          would just cut the footer off. */}
-      <DialogContent className="max-w-xl p-0 gap-0">
+          and on a window too short for even the pinned parts it still
+          scrolls to Select Folder instead of cutting it off. */}
+      <DialogContent className="max-w-xl p-0 gap-0 flex flex-col">
         <DialogHeader className="px-4 pt-4 pb-3 border-b border-border/50">
           <DialogTitle className="flex items-center gap-2 text-base">
             <FolderOpen className="w-4 h-4 text-primary" />

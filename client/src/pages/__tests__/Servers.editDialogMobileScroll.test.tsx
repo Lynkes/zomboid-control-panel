@@ -186,15 +186,20 @@ function getScrollBody(dialog: HTMLElement) {
   return body!
 }
 
-function expectFooterAndTitleOutside(dialog: HTMLElement, body: HTMLElement) {
+function expectFooterAndTitleOutside(
+  dialog: HTMLElement,
+  body: HTMLElement,
+  buttons: string[] = [en.editDialog.saveChanges, en.editDialog.cancel],
+  title: string = en.editDialog.title,
+) {
   // Inside the dialog, outside the scrolling body: these stay on screen
   // however far the fields are scrolled, instead of scrolling away with them.
-  for (const name of [en.editDialog.saveChanges, en.editDialog.cancel]) {
+  for (const name of buttons) {
     const button = within(dialog).getByRole('button', { name: new RegExp(`^${name}$`) })
     expect(body.contains(button)).toBe(false)
   }
-  const title = within(dialog).getByRole('heading', { name: en.editDialog.title })
-  expect(body.contains(title)).toBe(false)
+  const heading = within(dialog).getByRole('heading', { name: title })
+  expect(body.contains(heading)).toBe(false)
 }
 
 // Every copy of the text inside the dialog (a label can also appear in a
@@ -242,5 +247,58 @@ describe('Servers -- Edit Server dialog fits a short or zoomed-in viewport', () 
       expectAllInside(dialog, body, label)
     }
     expectFooterAndTitleOutside(dialog, body)
+  })
+})
+
+// The sibling Add Existing / Add Remote Server dialog is the same form
+// family on the same page and used to scroll as one box under its own
+// max-h-[90vh] -- its title and Add Server button scrolled away with the
+// fields, the opposite of Edit. It now uses the same DialogBody layout.
+async function openAddDialog(trigger: string, heading: string) {
+  fireEvent.click(await screen.findByRole('button', { name: trigger }))
+  await screen.findByRole('heading', { name: heading })
+}
+
+describe('Servers -- Add Existing/Remote Server dialog scrolls only its form, like Edit', () => {
+  it('local mode: the tandem notes, local/remote switch and fields are in the scrolling body; the title and Cancel/Add Server are not', async () => {
+    // A local server already exists, so the tandem-install notes render too.
+    getAll.mockResolvedValue({ servers: [LOCAL_SERVER] } as never)
+    renderServers()
+    await openAddDialog(en.pageHeader.addExisting, en.addDialog.titleLocal)
+
+    const dialog = screen.getByRole('dialog')
+    // The shared dvh bound, no longer replaced by the dialog's own 90vh.
+    expect(dialog.className).toContain('max-h-[calc(100dvh-2rem)]')
+    expect(dialog.className).not.toContain('max-h-[90vh]')
+
+    const body = getScrollBody(dialog)
+    for (const text of [
+      en.tandem.sectionTitle,
+      en.addDialog.modeLocalTitle,
+      en.addDialog.modeRemoteTitle,
+      en.localForm.autoDetectTitle,
+      en.localForm.dataPathLabel,
+      en.localForm.installPathLabel,
+    ]) {
+      expectAllInside(dialog, body, text)
+    }
+    expectFooterAndTitleOutside(dialog, body, [en.addDialog.cancel, en.addDialog.addServer], en.addDialog.titleLocal)
+  })
+
+  it('remote mode: the RCON-only banner and remote fields are in the scrolling body; the title and Cancel/Add Server are not', async () => {
+    renderServers()
+    await openAddDialog(en.pageHeader.addRemote, en.addDialog.titleRemote)
+
+    const dialog = screen.getByRole('dialog')
+    const body = getScrollBody(dialog)
+    for (const text of [
+      en.addDialog.rconOnlyTitle,
+      en.remoteForm.displayNameLabel,
+      en.remoteForm.rconPasswordLabel,
+      en.remoteForm.gamePortLabel,
+    ]) {
+      expectAllInside(dialog, body, text)
+    }
+    expectFooterAndTitleOutside(dialog, body, [en.addDialog.cancel, en.addDialog.addServer], en.addDialog.titleRemote)
   })
 })

@@ -97,16 +97,23 @@ DialogHeader.displayName = "DialogHeader"
 // DialogFooter, as a direct child of DialogContent (see the has-[...] note
 // there). -mx-6/px-6 stretch the scrollport into DialogContent's default
 // p-6 so the scrollbar sits at the dialog's edge and focus rings at the
-// field edges aren't clipped; -my-1/py-1 do the same for the rings of the
-// first and last rows. A dialog that changes DialogContent's padding must
-// match it here.
+// field edges aren't clipped. border-y rules it off from the pinned header
+// and footer (DESIGN.md's border-border/40 divider): once it scrolls, a
+// field's muted helper text slides up flush under the equally muted
+// DialogDescription and otherwise reads as part of it, and with overlay
+// scrollbars (macOS, GTK) a field cut off at a rule is the only sign there
+// is more. -my-1/py-3 put each rule midway between the header or footer
+// and the nearest field (12px either side, out of DialogContent's 16px gap)
+// and leave the first and last rows' focus rings room inside the
+// scrollport. A dialog that changes DialogContent's padding must match it
+// here.
 const DialogBody = ({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     data-dialog-body=""
-    className={cn("-mx-6 -my-1 min-h-0 overflow-y-auto px-6 py-1", className)}
+    className={cn("-mx-6 -my-1 min-h-0 overflow-y-auto border-y border-border/40 px-6 py-3", className)}
     {...props}
   />
 )
