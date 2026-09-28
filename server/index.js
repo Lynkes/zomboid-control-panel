@@ -1158,8 +1158,9 @@ async function findPanelBridgePath() {
 /**
  * Start PanelBridge if a valid bridge path is found
  * This is called both at startup and when RCON connects
+ * (exported for panelBridgeBootReconcileOrder.test.js)
  */
-async function tryStartPanelBridge(trigger = "unknown") {
+export async function tryStartPanelBridge(trigger = "unknown") {
   if (panelBridge.isRunning) {
     log.debug(`Already running (trigger: ${trigger})`);
     return true;
@@ -1191,24 +1192,35 @@ async function tryStartPanelBridge(trigger = "unknown") {
     return false;
   }
 
-  // Bring the active server's game folder in line with its PanelBridge
-  // delivery method before the bridge starts watching it: keep the loose
-  // PanelBridge.lua current (gated by the panelBridgeAutoUpdate setting),
-  // or, with Steam Workshop delivery, move loose copies out and re-add the
-  // ini entries. The embedded-over-stale-disk source priority this block
-  // used to carry itself now lives in panelBridgeInstaller.installBridge().
-  // Never throws.
-  await reconcileBridge(await getActiveServer().catch(() => null), { reason: "boot" });
-
+  let started = false;
   try {
     panelBridge.configure(result.path, true);
     panelBridge.start();
     log.info(`Started from ${result.source} (trigger: ${trigger})`);
-    return true;
+    started = true;
   } catch (error) {
     log.warn(`Failed to start - ${error.message}`);
-    return false;
   }
+
+  // Bring the active server's game folder in line with its PanelBridge
+  // delivery method: keep the loose PanelBridge.lua current (gated by the
+  // panelBridgeAutoUpdate setting), or, with Steam Workshop delivery, move
+  // loose copies out and re-add the ini entries. The embedded-over-stale-
+  // disk source priority this block used to carry itself now lives in
+  // panelBridgeInstaller.installBridge(). Never throws.
+  //
+  // AFTER the bridge is configured, not before: reconcile touches the game
+  // folder and the server's .ini, never the bridge folder the watcher
+  // reads, and it can take up to its 15 s bound on a slow or network game
+  // folder. Run first, it held off configure() past the status watchdog's
+  // first tick (+10 s), whose first stopped observation is the only one
+  // that pins a quietly stopped server's last heartbeat as dead
+  // (PanelBridge.markServerExited()) -- with no bridge path yet it pinned
+  // nothing and never retried, so that heartbeat read as alive for up to
+  // statusStaleIdleMs once the bridge started. Still awaited, so callers
+  // that start the game server next (boot auto-start) find it done.
+  await reconcileBridge(await getActiveServer().catch(() => null), { reason: "boot" });
+  return started;
 }
 
 // server-running-determination-convention sweep, 2026-09-08: panelBridge is
