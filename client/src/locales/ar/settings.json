@@ -459,7 +459,7 @@
       "directoryNotReadable": "دليل الجسر غير قابل للقراءة: {{error}}",
       "directoryNotWritable": "دليل الجسر غير قابل للكتابة: {{error}}",
       "fileNotReadable": "{{filename}} غير قابل للقراءة: {{error}}",
-      "statusFileMissing": "ملف الحالة مفقود. شغّل خادم اللعبة مع تفعيل PanelBridge.",
+      "statusFileMissing": "ملف الحالة مفقود. يكتبه PanelBridge بعد اكتمال تحميل عالم خادم اللعبة؛ وإذا بقي مفقودًا أثناء تشغيل الخادم، فراجع «طريقة تثبيت PanelBridge» في الإعدادات › PanelBridge.",
       "statusFileStale": "ملف الحالة قديم ({{age}}) — هل خادم PZ قيد التشغيل؟",
       "serverExited": "توقف خادم اللعبة. سيعيد PanelBridge الاتصال عند تشغيل الخادم من جديد.",
       "bridgeSilentSinceStart": "بدأ تشغيل خادم اللعبة منذ {{age}}، لكن PanelBridge لم يُرسل أي تقرير بعد. يرسل تقاريره بعد اكتمال تحميل العالم؛ وإذا بقي صامتًا، فراجع «طريقة تثبيت PanelBridge» في الإعدادات › PanelBridge.",

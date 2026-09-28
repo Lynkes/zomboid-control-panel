@@ -449,7 +449,7 @@
       "directoryNotReadable": "Das Bridge-Verzeichnis ist nicht lesbar: {{error}}",
       "directoryNotWritable": "In das Bridge-Verzeichnis kann nicht geschrieben werden: {{error}}",
       "fileNotReadable": "{{filename}} ist nicht lesbar: {{error}}",
-      "statusFileMissing": "Statusdatei fehlt. Starte den Spielserver mit aktiviertem PanelBridge.",
+      "statusFileMissing": "Statusdatei fehlt. PanelBridge schreibt sie, sobald die Welt des Spielservers geladen ist; fehlt sie weiterhin, während der Server läuft, sieh unter Einstellungen › PanelBridge bei „Wie PanelBridge installiert wird“ nach.",
       "statusFileStale": "Statusdatei ist veraltet ({{age}}) — läuft der PZ-Server?",
       "serverExited": "Der Spielserver wurde gestoppt. PanelBridge verbindet sich wieder, sobald der Server erneut startet.",
       "bridgeSilentSinceStart": "Der Spielserver wurde vor {{age}} gestartet, aber PanelBridge hat sich noch nicht gemeldet. Es meldet sich, sobald die Welt geladen ist; bleibt es stumm, sieh unter Einstellungen › PanelBridge bei „Wie PanelBridge installiert wird“ nach.",

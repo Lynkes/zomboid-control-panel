@@ -449,7 +449,7 @@
       "directoryNotReadable": "Não é possível ler o diretório da ponte: {{error}}",
       "directoryNotWritable": "Não é possível gravar no diretório da ponte: {{error}}",
       "fileNotReadable": "Não é possível ler {{filename}}: {{error}}",
-      "statusFileMissing": "O arquivo de status está ausente. Inicie o servidor de jogo com o PanelBridge ativado.",
+      "statusFileMissing": "O arquivo de status está ausente. O PanelBridge o grava assim que o mundo do servidor de jogo termina de carregar; se continuar ausente com o servidor em execução, veja “Como o PanelBridge é instalado” em Configurações › PanelBridge.",
       "statusFileStale": "O arquivo de status não muda há {{age}} — o servidor PZ está em execução?",
       "serverExited": "O servidor de jogo parou. O PanelBridge se reconecta quando o servidor iniciar novamente.",
       "bridgeSilentSinceStart": "O servidor de jogo foi iniciado há {{age}}, mas o PanelBridge ainda não enviou status. Ele envia o status assim que o mundo termina de carregar; se continuar em silêncio, veja “Como o PanelBridge é instalado” em Configurações › PanelBridge.",

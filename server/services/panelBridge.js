@@ -577,7 +577,12 @@ class PanelBridge extends EventEmitter {
     }
 
     if (!checks.statusFilePresent) {
-      pushIssue('statusFileMissing', 'Status file is missing. Start the game server with PanelBridge enabled.');
+      // Method-neutral, like bridgeSilentSinceStart below: "enabled" read as
+      // a Mods= step, which the default panel-installed PanelBridge has not.
+      pushIssue(
+        'statusFileMissing',
+        "Status file is missing. PanelBridge writes it once the game server's world has loaded; if it stays missing while the server runs, see “How PanelBridge is installed” in Settings › PanelBridge.",
+      );
     } else {
       try {
         // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
@@ -846,7 +851,9 @@ class PanelBridge extends EventEmitter {
 
     // Fail fast if the mod hasn't responded recently (avoids 15s timeout wait)
     if (this.modStatus && !this.modStatus.alive && action !== 'ping') {
-      throw new Error('Mod is not responding — check the PZ server is running with PanelBridge enabled');
+      throw new Error(
+        'Mod is not responding — check the PZ server is running and its world has loaded; Settings › PanelBridge shows how this server gets PanelBridge',
+      );
     }
 
     const commandsFile = this.getCommandsFile();

@@ -38,10 +38,13 @@ describe('bridgeDiagnosticParams', () => {
 // knows the server's method, by that block's own heading in each language:
 // the Settings diagnostic, the World Map check, and Checks & Fixes'
 // bridge.heartbeat "never" variant (which used to say "Verify PanelBridge is
-// in the server's mod list and Workshop subscription").
+// in the server's mod list and Workshop subscription"). The Settings
+// statusFileMissing diagnostic, for the same never-written state, said to
+// start the server "with PanelBridge enabled", which every language read as
+// turning the mod on in Mods=.
 const settingsByLocale = import.meta.glob('../../locales/*/settings.json', { eager: true, import: 'default' }) as Record<
   string,
-  { bridge: { diagnostics: { bridgeSilentSinceStart: string } } }
+  { bridge: { diagnostics: { bridgeSilentSinceStart: string; statusFileMissing: string } } }
 >
 const debugByLocale = import.meta.glob('../../locales/*/debug.json', { eager: true, import: 'default' }) as Record<
   string,
@@ -68,14 +71,18 @@ describe('the "PanelBridge stays silent" remedies', () => {
 
   it.each(locales)('%s points at How PanelBridge is installed, whatever the delivery method', (locale) => {
     const sectionTitle = deliveryByLocale[`../../locales/${locale}/bridgeDelivery.json`].sectionTitle
-    const silent = settingsByLocale[`../../locales/${locale}/settings.json`].bridge.diagnostics.bridgeSilentSinceStart
+    const diagnostics = settingsByLocale[`../../locales/${locale}/settings.json`].bridge.diagnostics
+    const silent = diagnostics.bridgeSilentSinceStart
+    const missing = diagnostics.statusFileMissing
     const checks = debugByLocale[`../../locales/${locale}/debug.json`].diagnostics.checks
     const mapHint = checks.worldmap.bridge.mod.warn.hint
     const neverHint = checks.bridge.heartbeat.fail.never.hint
     expect(silent).toContain(sectionTitle)
+    expect(missing).toContain(sectionTitle)
     expect(mapHint).toContain(sectionTitle)
     expect(neverHint).toContain(sectionTitle)
     // Nothing that only fits Workshop delivery.
     expect(neverHint).not.toMatch(/Workshop|Mods=/)
+    expect(missing).not.toMatch(/Workshop|Mods=/)
   })
 })

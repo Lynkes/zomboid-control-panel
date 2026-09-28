@@ -397,7 +397,7 @@
       "directoryNotReadable": "Bridge directory is not readable: {{error}}",
       "directoryNotWritable": "Bridge directory is not writable: {{error}}",
       "fileNotReadable": "{{filename}} is not readable: {{error}}",
-      "statusFileMissing": "Status file is missing. Start the game server with PanelBridge enabled.",
+      "statusFileMissing": "Status file is missing. PanelBridge writes it once the game server's world has loaded; if it stays missing while the server runs, see “How PanelBridge is installed” in Settings › PanelBridge.",
       "statusFileStale": "Status file is stale ({{age}} old) — is the PZ server running?",
       "serverExited": "The game server has stopped. PanelBridge reconnects when the server starts again.",
       "bridgeSilentSinceStart": "The game server started {{age}} ago, but PanelBridge has not reported yet. It reports once the world has loaded; if it stays silent, see “How PanelBridge is installed” in Settings › PanelBridge.",

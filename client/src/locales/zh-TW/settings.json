@@ -449,7 +449,7 @@
       "directoryNotReadable": "橋接目錄無法讀取：{{error}}",
       "directoryNotWritable": "橋接目錄無法寫入：{{error}}",
       "fileNotReadable": "{{filename}} 無法讀取：{{error}}",
-      "statusFileMissing": "狀態檔案遺失。請啟用 PanelBridge 並啟動遊戲伺服器。",
+      "statusFileMissing": "狀態檔案遺失。遊戲伺服器的世界載入完成後，PanelBridge 才會寫入它；如果伺服器執行期間它一直遺失，請查看「設定 › PanelBridge」中的「PanelBridge 安裝方式」。",
       "statusFileStale": "狀態檔案已過期（{{age}}前）— PZ 伺服器是否正在執行？",
       "serverExited": "遊戲伺服器已停止。伺服器再次啟動後，PanelBridge 會重新連線。",
       "bridgeSilentSinceStart": "遊戲伺服器已於 {{age}}前啟動，但 PanelBridge 尚未回報狀態。世界載入完成後它才會回報；如果一直沒有回報，請查看「設定 › PanelBridge」中的「PanelBridge 安裝方式」。",

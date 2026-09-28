@@ -397,7 +397,7 @@
       "directoryNotReadable": "Dosye bridge la pa ka li: {{error}}",
       "directoryNotWritable": "Dosye bridge la pa ka ekri: {{error}}",
       "fileNotReadable": "{{filename}} pa ka li: {{error}}",
-      "statusFileMissing": "Fichye estati a manke. Demare sèvè jwèt la ak PanelBridge aktive.",
+      "statusFileMissing": "Fichye estati a manke. PanelBridge ekri l lè mond sèvè jwèt la fin chaje; si li toujou manke pandan sèvè a ap fonksyone, gade “Kijan PanelBridge enstale” nan Paramèt › PanelBridge.",
       "statusFileStale": "Fichye estati a demode ({{age}}) — èske sèvè PZ a ap kouri?",
       "serverExited": "Sèvè jwèt la sispann. PanelBridge ap rekonekte lè sèvè a demare ankò.",
       "bridgeSilentSinceStart": "Sèvè jwèt la te demare gen {{age}}, men PanelBridge poko voye okenn rapò. Li voye rapò lè mond lan fin chaje; si li rete an silans, gade “Kijan PanelBridge enstale” nan Paramèt › PanelBridge.",
