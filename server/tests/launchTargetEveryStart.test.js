@@ -27,6 +27,25 @@ import { EventEmitter } from "events";
 
 const db = vi.hoisted(() => ({ server: null, active: null }));
 const spawnCalls = vi.hoisted(() => []);
+// File names whose atomic write fails, for a launch folder where the file is
+// there but the panel can't replace it -- the one case a missing folder
+// can't stand in for.
+const failingWrites = vi.hoisted(() => new Set());
+
+vi.mock("../utils/fileWriteQueue.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    writeFileAtomic: (filePath, ...rest) => {
+      if (failingWrites.has(String(filePath).split(/[\\/]/).pop())) {
+        const error = new Error(`EACCES: permission denied, open '${filePath}'`);
+        error.code = "EACCES";
+        throw error;
+      }
+      return actual.writeFileAtomic(filePath, ...rest);
+    },
+  };
+});
 
 vi.mock("child_process", async (importOriginal) => {
   const actual = await importOriginal();
@@ -112,7 +131,8 @@ let zomboidDataPath;
 
 beforeEach(() => {
   spawnCalls.length = 0;
-  root = fs.mkdtempSync(path.join(os.tmpdir(), "gh167-"));
+  failingWrites.clear();
+  root =fs.mkdtempSync(path.join(os.tmpdir(), "gh167-"));
   installPath = path.join(root, "pz");
   zomboidDataPath = path.join(root, "Zomboid");
   fs.mkdirSync(installPath, { recursive: true });
@@ -311,6 +331,39 @@ describe.each(PLATFORMS)("GH #167 on $platform", ({ platform, named, stock, spaw
       expect.stringContaining(`warn: Could not write ${named} (see the warning above) -- the start refuses to run without it`),
     );
     expect(spawnCalls).toHaveLength(0);
+  });
+
+  it("an older copy the refresh couldn't replace is launched, with a warning that it may carry older settings", async () => {
+    // The start only stops when there is no copy at all. With one on disk
+    // it goes ahead, and the log is the only place that says the new
+    // admin password didn't reach the script -- what the docs and the
+    // SERVER_START_SCRIPT_MISSING troubleshooting entry describe.
+    fs.writeFileSync(path.join(installPath, named), "older copy\n");
+    failingWrites.add(named);
+    m.setLaunchTargetRefresher(m.refreshLaunchTargetForLaunch);
+    const manager = quietManager(m.ServerManager);
+    await manager.loadConfig();
+    const entries = [];
+    const unsubscribe = m.onLog((entry) => entries.push(entry));
+
+    let result;
+    try {
+      result = await manager.startServer({ skipRunningCheck: true });
+      for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      unsubscribe();
+    }
+
+    expect(result.success).toBe(true);
+    expect(spawnedScript(spawnCalls[0])).toBe(named);
+    expect(fs.readFileSync(path.join(installPath, named), "utf8")).toBe("older copy\n");
+    const messages = entries.map((entry) => `${entry.level}: ${entry.message}`);
+    expect(messages.some((line) => line.includes("Regenerated startup scripts"))).toBe(false);
+    expect(messages).toContainEqual(
+      expect.stringContaining(
+        `warn: Could not regenerate ${named} (see the warning above) -- this start runs the copy already in ${installPath}, which may carry older settings`,
+      ),
+    );
   });
 
   it("a custom launcher is still launched as-is -- never swapped for the named script", async () => {
