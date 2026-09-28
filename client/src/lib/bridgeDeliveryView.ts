@@ -487,12 +487,24 @@ export interface LuaChecksumDelivery {
   turnOnBlockers: readonly ChecksumBlocker[]
 }
 
+// Whether the game reads the editor's DoLuaChecksum value as on, the way the
+// server does (server/utils/bridgeIni.js getEffectiveChecksum, after 42.20's
+// BooleanConfigOption): "false"/"0" (any case) turn it off; "true"/"1" turn
+// it on, and anything else is ignored and leaves the game's default, which
+// is on. `undefined` (the key isn't in the editor) claims nothing here, so
+// no callout appears for a file that hasn't loaded.
+function editorChecksumOn(editorValue: string | undefined): boolean {
+  if (editorValue === undefined) return false
+  const value = editorValue.trim().toLowerCase()
+  return value !== 'false' && value !== '0'
+}
+
 export function resolveLuaChecksumCallout(
   delivery: LuaChecksumDelivery | null | undefined,
   editorValue: string | undefined,
 ): LuaChecksumCallout | null {
   if (delivery === undefined) return null
-  const on = editorValue?.trim().toLowerCase() === 'true'
+  const on = editorChecksumOn(editorValue)
   const method = delivery?.method ?? 'local'
   if (method === 'local') return on ? 'localBlocked' : null
   if (delivery?.state === 'workshop-confirmed') {

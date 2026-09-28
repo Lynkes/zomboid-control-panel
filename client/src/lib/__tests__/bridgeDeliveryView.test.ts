@@ -309,6 +309,26 @@ describe('resolveLuaChecksumCallout (Server Config › INI, spec §4.12)', () =>
     expect(resolveLuaChecksumCallout({ ...confirmed, turnOnBlockers: ['alreadyOn'] }, 'false')).toBe('workshopNote')
   })
 
+  // The game (and the server's getEffectiveChecksum) reads 1/0 as well as
+  // true/false, and an unreadable value leaves its default, which is on.
+  it.each([
+    ['1', 'localBlocked'],
+    [' TRUE ', 'localBlocked'],
+    ['yes', 'localBlocked'],
+    ['', 'localBlocked'],
+    ['0', null],
+    ['False', null],
+  ] as const)('reads DoLuaChecksum=%j the way the game does -> %s', (value, expected) => {
+    expect(resolveLuaChecksumCallout({ method: 'local', state: 'local-ok', turnOnBlockers: ['notWorkshop'] }, value)).toBe(expected)
+  })
+
+  it('a confirmed Workshop server with DoLuaChecksum=1 is already on: no "you can turn this on" note', () => {
+    expect(resolveLuaChecksumCallout({ method: 'workshop', state: 'workshop-confirmed', turnOnBlockers: ['alreadyOn'] }, '1')).toBeNull()
+    expect(resolveLuaChecksumCallout({ method: 'workshop', state: 'workshop-restart-needed', turnOnBlockers: ['notConfirmed'] }, '1')).toBe(
+      'workshopUnconfirmed',
+    )
+  })
+
   it('falls back to local behaviour when the delivery status could not be read', () => {
     expect(resolveLuaChecksumCallout(null, 'TRUE')).toBe('localBlocked')
     expect(resolveLuaChecksumCallout(null, 'false')).toBeNull()
