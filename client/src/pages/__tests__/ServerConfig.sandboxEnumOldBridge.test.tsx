@@ -59,8 +59,7 @@ async function openModSettings(
   const getIni = vi.spyOn(serverFilesApi, 'getIni').mockResolvedValue({
     settings: { PVP: 'false' }, path: '/test', serverName: 'test',
   } as never)
-  const saveSandboxOption = vi.spyOn(serverFilesApi, 'saveSandboxOption')
-    .mockResolvedValue({ persisted: true } as never)
+  vi.spyOn(serverFilesApi, 'saveSandboxOption').mockResolvedValue({ persisted: true } as never)
   const sendCommand = vi.spyOn(panelBridgeApi, 'sendCommand').mockImplementation(async (action, args) => {
     if (action === 'getAllSandboxOptions') {
       return { success: true, data: {
@@ -82,7 +81,7 @@ async function openModSettings(
   fireEvent.mouseDown(screen.getByRole('tab', { name: /mod settings/i }), { button: 0 })
   await waitFor(() => expect(sendCommand).toHaveBeenCalledWith('getAllSandboxOptions', {}, expect.anything()))
   fireEvent.change(await screen.findByPlaceholderText(/search/i), { target: { value: 'TestOption' } })
-  return { sendCommand, saveSandboxOption }
+  return { sendCommand }
 }
 
 const setCalls = (sendCommand: { mock: { calls: unknown[][] } }) =>
@@ -248,40 +247,5 @@ describe('Mod Settings enum rows when the labels do not cover 1..max', () => {
     fireEvent.blur(input)
     await waitFor(() => expect(sendCommand).toHaveBeenCalledWith('setSandboxOption',
       { name: 'General.TestOption', value: 60 }))
-  })
-})
-
-describe('Mod Settings when the server keeps a different value', () => {
-  it('names the value the server kept and saves that one, not the one sent', async () => {
-    // An integer option: the bridge floors 2.5 to 2 and still reports success.
-    const { sendCommand, saveSandboxOption } = await openModSettings(
-      { type: 'number', value: 4, min: 0, max: 10 },
-      (value) => Math.floor(value),
-    )
-
-    const input = await screen.findByRole('spinbutton', { name: 'Test Option' })
-    fireEvent.change(input, { target: { value: '2.5' } })
-    fireEvent.blur(input)
-    await waitFor(() => expect(sendCommand).toHaveBeenCalledWith('setSandboxOption',
-      { name: 'General.TestOption', value: 2.5 }))
-    await waitFor(() => expect(toastSpy).toHaveBeenCalledWith({
-      title: 'Server kept a different value',
-      description: 'General.TestOption: you asked for 2.5, but the server kept 2.',
-      variant: 'warning',
-    }))
-    expect(toastSpy).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Option Updated' }))
-    await waitFor(() => expect(saveSandboxOption).toHaveBeenCalledWith('General.TestOption', 2))
-  })
-
-  it('still says "Option Updated" when the server kept the value sent', async () => {
-    const { sendCommand } = await openModSettings({ type: 'number', value: 4, min: 0, max: 10 })
-
-    const input = await screen.findByRole('spinbutton', { name: 'Test Option' })
-    fireEvent.change(input, { target: { value: '7' } })
-    fireEvent.blur(input)
-    await waitFor(() => expect(sendCommand).toHaveBeenCalledWith('setSandboxOption',
-      { name: 'General.TestOption', value: 7 }))
-    await waitFor(() => expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: 'Option Updated' })))
-    expect(toastSpy).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Server kept a different value' }))
   })
 })

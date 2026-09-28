@@ -488,8 +488,6 @@
     "optionUpdatedDesc": "تم ضبط {{option}} بنجاح",
     "enumLastChoiceRefusedTitle": "حدّث PanelBridge أولًا",
     "enumLastChoiceRefusedDesc": "لم يتغيّر {{option}}. الإصدار الأقدم من PanelBridge الذي يشغّله هذا الخادم سيحفظ الخيار الأخير ({{max}}) على أنه الخيار الذي قبله.",
-    "optionValueDifferentTitle": "احتفظ الخادم بقيمة مختلفة",
-    "optionValueDifferentDesc": "{{option}}: طلبت {{requested}}، لكن الخادم احتفظ بـ {{applied}}.",
     "bridgeUnverifiedDesc": "تم إرسال {{action}}، لكن المود لم يستطع تأكيد أنه أصبح فعّالًا.",
     "bridgeOldBridgeDesc": "ربما نجح {{action}}، لكن إصدار مود PanelBridge هذا لا يُبلّغ بما إذا كان قد نجح فعلًا. حدّث المود لتأكيد النتائج.",
     "appliedNotSavedTitle": "تم التطبيق، لكن دون حفظ",

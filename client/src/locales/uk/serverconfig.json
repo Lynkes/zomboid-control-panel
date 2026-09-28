@@ -436,8 +436,6 @@
     "optionUpdatedDesc": "{{option}} успішно встановлено",
     "enumLastChoiceRefusedTitle": "Спершу оновіть PanelBridge",
     "enumLastChoiceRefusedDesc": "{{option}} не змінено. Старіша версія PanelBridge, з якою працює цей сервер, зберегла б останній варіант ({{max}}) як попередній.",
-    "optionValueDifferentTitle": "Сервер зберіг інше значення",
-    "optionValueDifferentDesc": "{{option}}: ви запросили {{requested}}, але сервер зберіг {{applied}}.",
     "bridgeUnverifiedDesc": "{{action}} — запит надіслано, але мод не зміг підтвердити, що дію застосовано.",
     "bridgeOldBridgeDesc": "{{action}} — можливо, спрацювало, але ця версія мода PanelBridge не повідомляє про результат. Оновіть мод, щоб підтверджувати результати.",
     "appliedNotSavedTitle": "Застосовано, але не збережено",

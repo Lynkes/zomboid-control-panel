@@ -209,12 +209,6 @@ function describeModEnumControl(opt: { type?: string; enumValues?: string[]; max
   return { listLabels: null, blockedValue: null, tooManyToList: labels.length < max }
 }
 
-// A double may not survive the trip through the bridge's number formatting
-// bit for bit, so only a real difference counts.
-function sameNumber(a: number, b: number): boolean {
-  return Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b))
-}
-
 // These were shown by older panel releases but Build 42 does not support them.
 const UNSUPPORTED_INI_KEYS = new Set([
   'ServerImageLoginScreen',
@@ -1708,24 +1702,12 @@ export default function ServerConfig() {
         // updates. That's the correct signal either way: an un-migrated mod
         // genuinely IS an old bridge relative to this contract.
         const verifyState = getBridgeVerifiedState('setSandboxOption', response.data)
-        // `value` is what the game holds after the write. A bridge-side clamp
-        // or rounding (an integer option given 2.5, or PanelBridge 1.7.70 and
-        // older saving an enum's last value N as N-1) still reports success,
-        // so name the value the server kept instead of "Option updated".
-        const keptOtherNumber = typeof newValue === 'number' && typeof confirmedVal === 'number'
-          && !sameNumber(newValue, confirmedVal)
         toast(
-          keptOtherNumber
-            ? {
-                title: t('toasts.optionValueDifferentTitle'),
-                description: t('toasts.optionValueDifferentDesc', { option: optName, requested: newValue, applied: confirmedVal }),
-                variant: 'warning',
-              }
-            : verifyState === 'unverifiable'
-              ? { title: t('toasts.optionUpdatedTitle'), description: t('toasts.bridgeUnverifiedDesc', { action: optName }), variant: 'default' }
-              : verifyState === 'old-bridge'
-                ? { title: t('toasts.optionUpdatedTitle'), description: t('toasts.bridgeOldBridgeDesc', { action: optName }), variant: 'default' }
-                : { title: t('toasts.optionUpdatedTitle'), description: t('toasts.optionUpdatedDesc', { option: optName }) },
+          verifyState === 'unverifiable'
+            ? { title: t('toasts.optionUpdatedTitle'), description: t('toasts.bridgeUnverifiedDesc', { action: optName }), variant: 'default' }
+            : verifyState === 'old-bridge'
+              ? { title: t('toasts.optionUpdatedTitle'), description: t('toasts.bridgeOldBridgeDesc', { action: optName }), variant: 'default' }
+              : { title: t('toasts.optionUpdatedTitle'), description: t('toasts.optionUpdatedDesc', { option: optName }) },
         )
 
         // See isWorldSaveFailure()'s own comment for the persisted/saveError

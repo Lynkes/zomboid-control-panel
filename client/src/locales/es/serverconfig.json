@@ -390,8 +390,6 @@
     "optionUpdatedDesc": "Se ha establecido correctamente: {{option}}",
     "enumLastChoiceRefusedTitle": "Actualiza primero PanelBridge",
     "enumLastChoiceRefusedDesc": "{{option}} no se ha cambiado. La versión antigua de PanelBridge que ejecuta este servidor guardaría la última opción ({{max}}) como la anterior.",
-    "optionValueDifferentTitle": "El servidor mantuvo otro valor",
-    "optionValueDifferentDesc": "{{option}}: pediste {{requested}}, pero el servidor mantuvo {{applied}}.",
     "bridgeUnverifiedDesc": "{{action}} se envió, pero el mod no pudo confirmar que surtiera efecto.",
     "bridgeOldBridgeDesc": "{{action}} puede haber funcionado, pero esta versión del mod PanelBridge no informa si fue así. Actualiza el mod para confirmar los resultados.",
     "appliedNotSavedTitle": "Aplicado, pero no guardado",

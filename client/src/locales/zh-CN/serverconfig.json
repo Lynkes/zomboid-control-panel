@@ -377,8 +377,6 @@
     "optionUpdatedDesc": "{{option}} 设置成功",
     "enumLastChoiceRefusedTitle": "先更新 PanelBridge",
     "enumLastChoiceRefusedDesc": "{{option}} 未更改。此服务器运行的旧版 PanelBridge 会把最后一个选项（{{max}}）保存为前一个选项。",
-    "optionValueDifferentTitle": "服务器保留了其他值",
-    "optionValueDifferentDesc": "{{option}}：请求的值为 {{requested}}，但服务器保留了 {{applied}}。",
     "bridgeUnverifiedDesc": "{{action}} 已发送，但模组无法确认是否生效。",
     "bridgeOldBridgeDesc": "{{action}} 可能已生效，但此版本的 PanelBridge 模组不会回报结果。请更新模组以确认结果。",
     "appliedNotSavedTitle": "已应用，但未保存",

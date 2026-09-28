@@ -382,8 +382,6 @@
     "optionUpdatedDesc": "{{option}} defini avèk siksè",
     "enumLastChoiceRefusedTitle": "Mete PanelBridge ajou anvan",
     "enumLastChoiceRefusedDesc": "{{option}} pa t chanje. Ansyen vèsyon PanelBridge sèvè sa a ap itilize a ta sove dènye chwa a ({{max}}) tankou chwa ki anvan l la.",
-    "optionValueDifferentTitle": "Sèvè a kenbe yon lòt valè",
-    "optionValueDifferentDesc": "{{option}}: ou te mande {{requested}}, men sèvè a kenbe {{applied}}.",
     "bridgeUnverifiedDesc": "{{action}} te voye, men mod la pa t kapab konfime li te fè efè.",
     "bridgeOldBridgeDesc": "{{action}} ka te fonksyone, men vèsyon mod PanelBridge sa a pa rapòte si li te fè sa. Mete mod la ajou pou konfime rezilta yo.",
     "appliedNotSavedTitle": "Aplike, men pa sove",
