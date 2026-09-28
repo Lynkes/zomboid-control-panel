@@ -27,7 +27,7 @@ const LUA_PATH = path.join(
   "PanelBridge.lua",
 );
 
-const MOD_ID = "ZomboidControlPanelBridge";
+const MOD_ID = "ZCPB";
 const ACTIVE_BRIDGE = {
   activatedMods: ["SomeMap", MOD_ID],
   modInfo: { [MOD_ID]: { modVersion: "1.7.71", workshopId: "3712345678" } },
@@ -43,17 +43,17 @@ describe("PanelBridge.detectDelivery: the running file's path", () => {
   it.each([
     [
       "a Windows server's Workshop download",
-      "C:\\PZServer\\steamapps\\workshop\\content\\108600\\3712345678\\mods\\ZomboidControlPanelBridge\\common\\media\\lua\\server\\PanelBridge.lua",
+      "C:\\PZServer\\steamapps\\workshop\\content\\108600\\3712345678\\mods\\ZCPB\\common\\media\\lua\\server\\PanelBridge.lua",
       { method: "workshop", workshopId: "3712345678" },
     ],
     [
       "a Linux server's Workshop download (42/ version folder)",
-      "/home/steam/pzserver/steamapps/workshop/content/108600/3712345678/mods/ZomboidControlPanelBridge/42/media/lua/server/PanelBridge.lua",
+      "/home/steam/pzserver/steamapps/workshop/content/108600/3712345678/mods/ZCPB/42/media/lua/server/PanelBridge.lua",
       { method: "workshop", workshopId: "3712345678" },
     ],
     [
       "a copy in the Zomboid/mods folder",
-      "C:/Users/pz/Zomboid/mods/ZomboidControlPanelBridge/common/media/lua/server/PanelBridge.lua",
+      "C:/Users/pz/Zomboid/mods/ZCPB/common/media/lua/server/PanelBridge.lua",
       { method: "mod" },
     ],
     [
@@ -98,7 +98,7 @@ describe("PanelBridge.detectDelivery: the running file's path", () => {
   it("reports modActive and the mod.info version when the item is in Mods=", () => {
     const { delivery } = detect({
       ...ACTIVE_BRIDGE,
-      filenameOfClosure: "/srv/pz/steamapps/workshop/content/108600/3712345678/mods/ZomboidControlPanelBridge/42/media/lua/server/PanelBridge.lua",
+      filenameOfClosure: "/srv/pz/steamapps/workshop/content/108600/3712345678/mods/ZCPB/42/media/lua/server/PanelBridge.lua",
     });
 
     expect(delivery).toEqual({ method: "workshop", workshopId: "3712345678", modActive: true, modVersion: "1.7.71" });
@@ -160,7 +160,7 @@ describe("PanelBridge.detectDelivery: fallback without getFilenameOfClosure", ()
 
   it("a throwing getModInfoByID doesn't crash detection", () => {
     const { bridge, delivery } = detect({
-      filenameOfClosure: "/srv/pz/steamapps/workshop/content/108600/3712345678/mods/ZomboidControlPanelBridge/42/media/lua/server/PanelBridge.lua",
+      filenameOfClosure: "/srv/pz/steamapps/workshop/content/108600/3712345678/mods/ZCPB/42/media/lua/server/PanelBridge.lua",
       activatedMods: [MOD_ID],
       modInfo: { throws: "getModDetails failed" },
     });
@@ -239,7 +239,7 @@ describe("PanelBridge heartbeat delivery fields", () => {
   it("status.json carries startedAt, gameVersion and delivery once the server has started", () => {
     const bridge = loadPanelBridge(LUA_PATH, STARTUP_STUBS + CORE_STUB, {
       ...ACTIVE_BRIDGE,
-      filenameOfClosure: "/srv/pz/steamapps/workshop/content/108600/3712345678/mods/ZomboidControlPanelBridge/42/media/lua/server/PanelBridge.lua",
+      filenameOfClosure: "/srv/pz/steamapps/workshop/content/108600/3712345678/mods/ZCPB/42/media/lua/server/PanelBridge.lua",
     });
 
     bridge.run("PanelBridgeModule.onServerStarted()");

@@ -18,7 +18,7 @@ vi.mock('@/lib/utils', async () => {
 const copy = vi.mocked(copyText)
 
 const manual = {
-  modsEntry: 'ZomboidControlPanelBridge',
+  modsEntry: 'ZCPB',
   workshopItemsEntry: WORKSHOP_ID,
   removeFiles: ['media/lua/server/PanelBridge.lua', 'media/lua/client/PanelBridgeClient.lua'],
   setChecksumFalse: false,
@@ -34,7 +34,7 @@ describe('BridgeGuidedSteps', () => {
     render(<BridgeGuidedSteps to="workshop" manual={manual} iniFileName="servertest.ini" />)
     const items = within(screen.getByTestId('bridge-guided-steps')).getAllByRole('listitem')
     expect(items).toHaveLength(5)
-    expect(items[0]).toHaveTextContent('In servertest.ini, add ;ZomboidControlPanelBridge to the end of the Mods= line.')
+    expect(items[0]).toHaveTextContent('In servertest.ini, add ;ZCPB to the end of the Mods= line.')
     expect(items[1]).toHaveTextContent(`Add ;${WORKSHOP_ID} to the end of WorkshopItems=`)
     expect(within(items[2]).getByRole('button', { name: 'Copy media/lua/client/PanelBridgeClient.lua' })).toBeInTheDocument()
     expect(items[3]).toHaveTextContent('-nosteam')
@@ -63,7 +63,7 @@ describe('BridgeGuidedSteps', () => {
       <BridgeGuidedSteps to="workshop" manual={{ ...manual, workshopItemsEntry: null }} iniFileName="servertest.ini" />,
     )
     expect(container).toBeEmptyDOMElement()
-    expect(screen.queryByRole('button', { name: 'Copy ;ZomboidControlPanelBridge' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Copy ;ZCPB' })).toBeNull()
   })
 
   it('copies a value and confirms it on the button', async () => {
@@ -77,7 +77,7 @@ describe('BridgeGuidedSteps', () => {
   it('says so when the browser refuses the copy', async () => {
     copy.mockResolvedValue(false)
     render(<BridgeGuidedSteps to="workshop" manual={manual} iniFileName="servertest.ini" />)
-    fireEvent.click(screen.getByRole('button', { name: 'Copy ;ZomboidControlPanelBridge' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy ;ZCPB' }))
     await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: en.action.copyFailed })))
   })
 

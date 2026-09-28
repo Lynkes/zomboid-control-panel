@@ -44,7 +44,7 @@ const REAL_MOD_INFO = readRepoText(REPO_ROOT, BRIDGE_FILES.modInfo);
 const REAL_VERSION = /^modversion=(.+)$/m.exec(REAL_MOD_INFO)[1];
 const CONTRACT_PUBLISHED = `{
   "schema": 1,
-  "modId": "ZomboidControlPanelBridge",
+  "modId": "ZCPB",
   "workshopId": null,
   "visibility": null,
   "publishedVersion": null,
@@ -54,7 +54,7 @@ const CONTRACT_PUBLISHED = `{
 `;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-function serverLua({ version = REAL_VERSION, beforeGuard = "", modId = "ZomboidControlPanelBridge" } = {}) {
+function serverLua({ version = REAL_VERSION, beforeGuard = "", modId = "ZCPB" } = {}) {
   return [
     "---@diagnostic disable: undefined-global",
     "--[[",
@@ -156,14 +156,14 @@ describe("build-item: the generated Build 42 item", () => {
     const outDir = path.join(repo.root, "out");
     const result = buildWorkshopItem({ repoRoot: repo.root, outDir });
 
-    const itemDir = path.join(outDir, "ZomboidControlPanelBridge");
+    const itemDir = path.join(outDir, "ZCPB");
     expect(result.itemDir).toBe(itemDir);
     expect(listFiles(itemDir)).toEqual([
-      "Contents/mods/ZomboidControlPanelBridge/42/icon.png",
-      "Contents/mods/ZomboidControlPanelBridge/42/mod.info",
-      "Contents/mods/ZomboidControlPanelBridge/42/poster.png",
-      "Contents/mods/ZomboidControlPanelBridge/common/media/lua/client/PanelBridgeClient.lua",
-      "Contents/mods/ZomboidControlPanelBridge/common/media/lua/server/PanelBridge.lua",
+      "Contents/mods/ZCPB/42/icon.png",
+      "Contents/mods/ZCPB/42/mod.info",
+      "Contents/mods/ZCPB/42/poster.png",
+      "Contents/mods/ZCPB/common/media/lua/client/PanelBridgeClient.lua",
+      "Contents/mods/ZCPB/common/media/lua/server/PanelBridge.lua",
       "preview.png",
       "workshop.txt",
     ]);
@@ -182,7 +182,7 @@ describe("build-item: the generated Build 42 item", () => {
     repo.write(BRIDGE_FILES.serverLua, serverLua().replace(/\n/g, "\r\n"));
     const outDir = path.join(repo.root, "out");
     buildWorkshopItem({ repoRoot: repo.root, outDir });
-    const item = path.join(outDir, "ZomboidControlPanelBridge");
+    const item = path.join(outDir, "ZCPB");
     expect(fs.readFileSync(path.join(item, ITEM_FILES.serverLua), "utf8")).toBe(serverLua());
     expect(fs.readFileSync(path.join(item, ITEM_FILES.clientLua), "utf8")).toBe(CLIENT_LUA);
     expect(fs.readFileSync(path.join(item, ITEM_FILES.modInfo), "utf8")).toBe(REAL_MOD_INFO);
@@ -203,8 +203,8 @@ describe("build-item: the generated Build 42 item", () => {
   it("defaults to dist-workshop/ and replaces a stale Contents/ on rebuild", () => {
     const repo = makeRepo();
     buildWorkshopItem({ repoRoot: repo.root });
-    const item = path.join(repo.root, "dist-workshop", "ZomboidControlPanelBridge");
-    const stale = path.join(item, "Contents", "mods", "ZomboidControlPanelBridge", "common", "media", "lua", "shared", "Old.lua");
+    const item = path.join(repo.root, "dist-workshop", "ZCPB");
+    const stale = path.join(item, "Contents", "mods", "ZCPB", "common", "media", "lua", "shared", "Old.lua");
     fs.mkdirSync(path.dirname(stale), { recursive: true });
     fs.writeFileSync(stale, "-- left over");
     buildWorkshopItem({ repoRoot: repo.root });
@@ -240,16 +240,16 @@ describe("build-item: mod.info lint", () => {
     expect(buildErrors({ repoRoot: repo.root, check: true }).join("\n")).toMatch(pattern);
   });
 
-  it("rejects an id that isn't ZomboidControlPanelBridge", () => {
+  it("rejects an id that isn't ZCPB", () => {
     const repo = makeRepo();
-    repo.write(BRIDGE_FILES.modInfo, REAL_MOD_INFO.replace("id=ZomboidControlPanelBridge", "id=PanelBridge"));
-    expect(buildErrors({ repoRoot: repo.root, check: true })).toContain("mod.info id=PanelBridge, expected ZomboidControlPanelBridge");
+    repo.write(BRIDGE_FILES.modInfo, REAL_MOD_INFO.replace("id=ZCPB", "id=PanelBridge"));
+    expect(buildErrors({ repoRoot: repo.root, check: true })).toContain("mod.info id=PanelBridge, expected ZCPB");
   });
 
   it("rejects a Lua MOD_ID that differs or is missing", () => {
     const repo = makeRepo();
     repo.write(BRIDGE_FILES.serverLua, serverLua({ modId: "PanelBridge" }));
-    expect(buildErrors({ repoRoot: repo.root, check: true }).join("\n")).toMatch(/must declare MOD_ID = "ZomboidControlPanelBridge" \(found "PanelBridge"\)/);
+    expect(buildErrors({ repoRoot: repo.root, check: true }).join("\n")).toMatch(/must declare MOD_ID = "ZCPB" \(found "PanelBridge"\)/);
     repo.write(BRIDGE_FILES.serverLua, serverLua({ modId: null }));
     expect(buildErrors({ repoRoot: repo.root, check: true }).join("\n")).toMatch(/\(found none\)/);
   });
@@ -258,7 +258,7 @@ describe("build-item: mod.info lint", () => {
     const repo = makeRepo();
     repo.setPublished({ modId: "PanelBridge", workshopId: "12x" });
     const errors = buildErrors({ repoRoot: repo.root, check: true }).join("\n");
-    expect(errors).toMatch(/modId must be ZomboidControlPanelBridge/);
+    expect(errors).toMatch(/modId must be ZCPB/);
     expect(errors).toMatch(/workshopId must be null or a non-zero numeric Steam id/);
   });
 });
@@ -385,7 +385,7 @@ describe("build-item: layout and file types", () => {
     expect(buildErrors({ repoRoot: repo.root, check: true })).toEqual([]);
     const outDir = path.join(repo.root, "out");
     buildWorkshopItem({ repoRoot: repo.root, outDir });
-    expect(listFiles(path.join(outDir, "ZomboidControlPanelBridge"))).toHaveLength(7);
+    expect(listFiles(path.join(outDir, "ZCPB"))).toHaveLength(7);
     // A source the item would leave out still fails.
     repo.write("pz-mod/PanelBridge/media/lua/server/PanelBridgeHelpers.lua", "return {}\n");
     expect(buildErrors({ repoRoot: repo.root, check: true }).join("\n")).toMatch(/PanelBridgeHelpers\.lua: unexpected file/);
@@ -397,10 +397,10 @@ describe("build-item: layout and file types", () => {
     const errors = itemLayoutErrors([
       ...base,
       "Contents/buildings/house.txt",
-      "Contents/mods/ZomboidControlPanelBridge/common/media/lua/shared/X.lua",
-      "Contents/mods/ZomboidControlPanelBridge/common/media/lua/server/Extra.lua",
-      "Contents/mods/ZomboidControlPanelBridge/42/tool.exe",
-      "Contents/mods/ZomboidControlPanelBridge/42/archive.ZIP",
+      "Contents/mods/ZCPB/common/media/lua/shared/X.lua",
+      "Contents/mods/ZCPB/common/media/lua/server/Extra.lua",
+      "Contents/mods/ZCPB/42/tool.exe",
+      "Contents/mods/ZCPB/42/archive.ZIP",
     ]).join("\n");
     expect(errors).toMatch(/Contents\/buildings\/house\.txt: only mods\/ is allowed/);
     expect(errors).toMatch(/shared\/X\.lua: no shared\//);
@@ -417,7 +417,7 @@ describe("build-item: workshop.txt", () => {
     repo.setPublished({ workshopId: "3712345678", visibility: "public" });
     const outDir = path.join(repo.root, "out");
     buildWorkshopItem({ repoRoot: repo.root, outDir });
-    const lines = fs.readFileSync(path.join(outDir, "ZomboidControlPanelBridge", "workshop.txt"), "utf8").split("\n");
+    const lines = fs.readFileSync(path.join(outDir, "ZCPB", "workshop.txt"), "utf8").split("\n");
     expect(lines.slice(0, 3)).toEqual(["version=1", "id=3712345678", "title=Zomboid Control Panel Bridge"]);
     expect(lines.filter((line) => line.startsWith("visibility="))).toEqual(["visibility=public"]);
     expect(lines.filter((line) => line.startsWith("tags="))).toEqual(["tags=Build 42;Multiplayer;Framework"]);
@@ -446,8 +446,8 @@ describe("build-item: workshop.txt", () => {
 describe("build-item: an existing staged item", () => {
   function stage(repo, workshopTxt) {
     const outDir = path.join(repo.root, "Workshop");
-    fs.mkdirSync(path.join(outDir, "ZomboidControlPanelBridge"), { recursive: true });
-    fs.writeFileSync(path.join(outDir, "ZomboidControlPanelBridge", "workshop.txt"), workshopTxt);
+    fs.mkdirSync(path.join(outDir, "ZCPB"), { recursive: true });
+    fs.writeFileSync(path.join(outDir, "ZCPB", "workshop.txt"), workshopTxt);
     return outDir;
   }
 
@@ -470,14 +470,14 @@ describe("build-item: an existing staged item", () => {
     repo.setPublished({ workshopId: "3712345678" });
     const outDir = stage(repo, "version=1\nid=3712345678\ntitle=x\n");
     buildWorkshopItem({ repoRoot: repo.root, outDir });
-    expect(fs.readFileSync(path.join(outDir, "ZomboidControlPanelBridge", "workshop.txt"), "utf8")).toMatch(/^id=3712345678$/m);
+    expect(fs.readFileSync(path.join(outDir, "ZCPB", "workshop.txt"), "utf8")).toMatch(/^id=3712345678$/m);
   });
 
   it("refuses to overwrite a same-named folder that isn't a staged item", () => {
     const repo = makeRepo();
     const outDir = path.join(repo.root, "Workshop");
-    fs.mkdirSync(path.join(outDir, "ZomboidControlPanelBridge"), { recursive: true });
-    fs.writeFileSync(path.join(outDir, "ZomboidControlPanelBridge", "notes.txt"), "mine");
+    fs.mkdirSync(path.join(outDir, "ZCPB"), { recursive: true });
+    fs.writeFileSync(path.join(outDir, "ZCPB", "notes.txt"), "mine");
     expect(buildErrors({ repoRoot: repo.root, outDir }).join("\n")).toMatch(/isn't a staged Workshop item/);
   });
 });
@@ -504,7 +504,7 @@ describe("build-item: command line", () => {
     expect(staged.at(-1)).toBe(
       "Until it is moved out of this Workshop folder, the game and any Steam-mode server that uses this Zomboid folder " +
         "load this staged copy instead of the downloaded Workshop item. After uploading it in-game, run: " +
-        `node scripts/workshop/publish.mjs record --from-staged "${path.join(outDir, "ZomboidControlPanelBridge")}"`,
+        `node scripts/workshop/publish.mjs record --from-staged "${path.join(outDir, "ZCPB")}"`,
     );
 
     const plain = [];
@@ -584,7 +584,7 @@ describe("build.js: published.json is embedded in the binary", () => {
     expect(readme).toMatch(/Installed by the panel \(default\).* Set DoLuaChecksum=false in the server's \.ini, or players can't join\./);
     expect(readme).toMatch(/Steam Workshop \(Build 42 servers running with Steam\): the server downloads PanelBridge \(Workshop item 3712345678\)/);
     expect(readme).toMatch(
-      /add ;ZomboidControlPanelBridge to the end of the Mods= line and ;3712345678 to the end of the WorkshopItems= line/,
+      /add ;ZCPB to the end of the Mods= line and ;3712345678 to the end of the WorkshopItems= line/,
     );
     expect(readme).toMatch(/Always add both together: a Mods= entry without its WorkshopItems= ID stops every player from joining\./);
     expect(readme).toMatch(

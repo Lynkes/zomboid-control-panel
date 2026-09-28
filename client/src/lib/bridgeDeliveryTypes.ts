@@ -27,7 +27,7 @@ export type ChecksumBlocker = (typeof CHECKSUM_BLOCKERS)[number]
 export const LOOSE_FILE_KINDS = ['server', 'client', 'rootModInfo'] as const
 export type LooseFileKind = (typeof LOOSE_FILE_KINDS)[number]
 
-export const BRIDGE_MOD_ID = 'ZomboidControlPanelBridge'
+export const BRIDGE_MOD_ID = 'ZCPB'
 
 export interface DeliveryAvailability { available: boolean; reason: DeliveryBlockReason | null; warnings: DeliveryWarning[] }
 export interface DeliverySwitchRecord { to: DeliveryMethod; at: string; by: string | null; bridgeStartedAt: number | null; workshopId: string | null }

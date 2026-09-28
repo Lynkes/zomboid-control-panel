@@ -38,7 +38,7 @@ function luaSource(version, body = "return PanelBridge") {
     "local PanelBridge = {",
     `    VERSION = "${version}",`,
     "    PROTOCOL_VERSION = \"queue-v1\",",
-    "    MOD_ID = \"ZomboidControlPanelBridge\",",
+    "    MOD_ID = \"ZCPB\",",
     "}",
     body,
     "",
@@ -46,7 +46,7 @@ function luaSource(version, body = "return PanelBridge") {
 }
 
 function modInfo(version) {
-  return `name=Zomboid Control Panel Bridge\nid=ZomboidControlPanelBridge\nmodversion=${version}\n`;
+  return `name=Zomboid Control Panel Bridge\nid=ZCPB\nmodversion=${version}\n`;
 }
 
 function makeTree({ version = "1.2.3", lockVersion = version, body, lock = true } = {}) {

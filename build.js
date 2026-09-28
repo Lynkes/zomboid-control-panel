@@ -249,8 +249,8 @@ function releaseReadmeWorkshopMethod(bridgeWorkshopId) {
   it when they join. When the panel can reach the server's files, Settings >
   PanelBridge makes these changes for you. Otherwise (hosted or remote
   servers), make them with your host's file manager:
-  1. In the server's .ini, add ;ZomboidControlPanelBridge to the end of the
-     Mods= line and ;${bridgeWorkshopId} to the end of the WorkshopItems= line
+  1. In the server's .ini, add ;ZCPB to the end of the Mods= line and
+     ;${bridgeWorkshopId} to the end of the WorkshopItems= line
      (add the line if it's missing). Always add both together: a Mods= entry
      without its WorkshopItems= ID stops every player from joining.
   2. Delete media/lua/server/PanelBridge.lua and

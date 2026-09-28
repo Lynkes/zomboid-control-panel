@@ -439,8 +439,8 @@ describe('BridgeDeliveryPanel: failure states and their actions', () => {
     await panelReady()
     expect(screen.getByText(en.state['local-workshop-loaded'].body)).toBeInTheDocument()
     const hint = screen.getByTestId('bridge-delivery-state-hint')
-    expect(hint).toHaveTextContent('remove ZomboidControlPanelBridge from Mods= and the PanelBridge item ID from WorkshopItems=')
-    expect(within(hint).getByText('ZomboidControlPanelBridge').tagName).toBe('CODE')
+    expect(hint).toHaveTextContent('remove ZCPB from Mods= and the PanelBridge item ID from WorkshopItems=')
+    expect(within(hint).getByText('ZCPB').tagName).toBe('CODE')
     cleanup()
 
     renderPanel(
@@ -680,7 +680,7 @@ describe('BridgeDeliveryPanel: guided access (remote / hosted)', () => {
     await panelReady()
     const steps = screen.getByTestId('bridge-guided-steps')
     expect(within(steps).getByText(en.guided.intro)).toBeInTheDocument()
-    expect(within(steps).getByRole('button', { name: `Copy ;ZomboidControlPanelBridge` })).toBeInTheDocument()
+    expect(within(steps).getByRole('button', { name: `Copy ;ZCPB` })).toBeInTheDocument()
     expect(within(steps).getByRole('button', { name: `Copy ;${WORKSHOP_ID}` })).toBeInTheDocument()
     expect(within(steps).getByRole('button', { name: 'Copy media/lua/server/PanelBridge.lua' })).toBeInTheDocument()
     expect(within(steps).getByText(en.guided.keepChecksumOff)).toBeInTheDocument()

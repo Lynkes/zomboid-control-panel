@@ -1009,9 +1009,9 @@ if ($bridgeWorkshopBehind) {
     Write-Host "   [ ] PanelBridge v$PanelBridgeVersion is not on the Steam Workshop yet, and the item has never been published." -ForegroundColor Yellow
     Write-Host "       First publish, from this tagged tree, with the in-game uploader:" -ForegroundColor Yellow
     Write-Host "       1. npm run workshop:build -- --out ~/Zomboid/Workshop" -ForegroundColor Yellow
-    Write-Host "       2. In Project Zomboid: Workshop > Upload, pick ZomboidControlPanelBridge, submit and confirm the upload warning" -ForegroundColor Yellow
-    Write-Host "       3. node scripts/workshop/publish.mjs record --from-staged ~/Zomboid/Workshop/ZomboidControlPanelBridge --visibility unlisted" -ForegroundColor Yellow
-    Write-Host "       4. Move ~/Zomboid/Workshop/ZomboidControlPanelBridge out of ~/Zomboid/Workshop before testing on this machine." -ForegroundColor Yellow
+    Write-Host "       2. In Project Zomboid: Workshop > Upload, pick ZCPB, submit and confirm the upload warning" -ForegroundColor Yellow
+    Write-Host "       3. node scripts/workshop/publish.mjs record --from-staged ~/Zomboid/Workshop/ZCPB --visibility unlisted" -ForegroundColor Yellow
+    Write-Host "       4. Move ~/Zomboid/Workshop/ZCPB out of ~/Zomboid/Workshop before testing on this machine." -ForegroundColor Yellow
     Write-Host "          While it is there, the game and any Steam-mode server that uses this Zomboid folder load that staged copy" -ForegroundColor Yellow
     Write-Host "          instead of the downloaded Workshop item, now and after every later publish. To upload in-game again," -ForegroundColor Yellow
     Write-Host "          recreate it with its id: npm run workshop:build -- --out ~/Zomboid/Workshop" -ForegroundColor Yellow

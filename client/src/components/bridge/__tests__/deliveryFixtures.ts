@@ -20,7 +20,7 @@ export function makeLocalStatus(overrides: Partial<DeliveryStatus> = {}): Delive
     release: {
       status: 'published',
       source: 'file',
-      modId: 'ZomboidControlPanelBridge',
+      modId: 'ZCPB',
       workshopId: WORKSHOP_ID,
       visibility: 'unlisted',
       publishedVersion: '1.7.71',
@@ -90,7 +90,7 @@ export function makePlan(overrides: Partial<DeliveryPlanResponse> = {}): Deliver
     access: 'automatic',
     blocked: null,
     steps: [
-      { kind: 'iniAdd', key: 'Mods', value: 'ZomboidControlPanelBridge', file: 'C:\\Users\\op\\Zomboid\\Server\\servertest.ini', serverName: 'Main Server' },
+      { kind: 'iniAdd', key: 'Mods', value: 'ZCPB', file: 'C:\\Users\\op\\Zomboid\\Server\\servertest.ini', serverName: 'Main Server' },
       { kind: 'iniAdd', key: 'WorkshopItems', value: WORKSHOP_ID, file: 'C:\\Users\\op\\Zomboid\\Server\\servertest.ini', serverName: 'Main Server' },
       { kind: 'archiveFile', file: 'D:\\PZServer\\media\\lua\\server\\PanelBridge.lua', fileKind: 'server', recognized: true },
       { kind: 'recordMethod', method: 'workshop', servers: ['Main Server'] },

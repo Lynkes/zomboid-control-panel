@@ -7,7 +7,7 @@ import os from "os";
 import path from "path";
 import { resolveSourcePath } from "../../services/panelBridgeInstaller.js";
 
-export const MOD = "ZomboidControlPanelBridge";
+export const MOD = "ZCPB";
 export const WS_ID = "3712345678";
 export const DEFAULT_INI = "PVP=true\r\nMods=OtherMod\r\nWorkshopItems=111\r\nDoLuaChecksum=true\r\n";
 export const CLIENT_COMPANION = "-- PanelBridge client companion for effects the server can't replicate\n";

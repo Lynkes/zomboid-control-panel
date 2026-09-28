@@ -65,7 +65,7 @@ describe("PanelBridge.lua load guard", () => {
     const bridge = loadPanelBridge(LUA_PATH, SIDE_EFFECT_STUBS, { isServer: true, countEvents: true });
 
     const module = bridge.getGlobal("PanelBridgeModule");
-    expect(module).toMatchObject({ MOD_ID: "ZomboidControlPanelBridge", PROTOCOL_VERSION: "queue-v1" });
+    expect(module).toMatchObject({ MOD_ID: "ZCPB", PROTOCOL_VERSION: "queue-v1" });
     expect(asList(bridge.getGlobal("EVENT_ADDS")).sort()).toEqual([
       "OnClientCommand",
       "OnPlayerDeath",

@@ -13,7 +13,7 @@ import process from "node:process";
 import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
 
-export const MOD_ID = "ZomboidControlPanelBridge";
+export const MOD_ID = "ZCPB";
 export const STEAM_APP_ID = "108600";
 export const WORKSHOP_TAGS = "Build 42;Multiplayer;Framework";
 // SteamWorkshopItem.validatePreviewImage (42.20): Files.size > 1024000 -> PreviewFileSize.

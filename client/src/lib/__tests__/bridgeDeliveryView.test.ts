@@ -281,7 +281,7 @@ describe('local-ok copy and version: only what the state was decided on', () => 
 describe('getGuidedWorkshopManual', () => {
   it('uses the contract mod id and the server-computed Workshop id', () => {
     expect(getGuidedWorkshopManual(makeWorkshopStatus({ access: 'guided', disk: null }))).toEqual({
-      modsEntry: 'ZomboidControlPanelBridge',
+      modsEntry: 'ZCPB',
       workshopItemsEntry: WORKSHOP_ID,
       removeFiles: ['media/lua/server/PanelBridge.lua', 'media/lua/client/PanelBridgeClient.lua'],
       setChecksumFalse: false,
@@ -342,16 +342,22 @@ describe('resolveLuaChecksumCallout (Server Config › INI, spec §4.12)', () =>
 })
 
 describe('isBridgeManagedMod', () => {
-  const managed = { modId: 'ZomboidControlPanelBridge', workshopId: WORKSHOP_ID }
+  const managed = { modId: 'ZCPB', workshopId: WORKSHOP_ID }
 
   it('matches the bridge row by Workshop id or by mod id', () => {
     expect(isBridgeManagedMod(managed, WORKSHOP_ID, [])).toBe(true)
-    expect(isBridgeManagedMod(managed, '999', ['ZomboidControlPanelBridge'])).toBe(true)
+    expect(isBridgeManagedMod(managed, '999', ['ZCPB'])).toBe(true)
   })
 
   it('matches nothing else, and nothing at all while the server is not on the Workshop', () => {
     expect(isBridgeManagedMod(managed, '999', ['SomeOtherMod'])).toBe(false)
-    expect(isBridgeManagedMod(null, WORKSHOP_ID, ['ZomboidControlPanelBridge'])).toBe(false)
+    expect(isBridgeManagedMod(null, WORKSHOP_ID, ['ZCPB'])).toBe(false)
+  })
+
+  // The game looks Mods= ids up exactly, case included, so `zcpb` is some
+  // other mod and stays editable on the Mods page.
+  it('compares the mod id exactly, like the game', () => {
+    expect(isBridgeManagedMod(managed, '999', ['zcpb'])).toBe(false)
   })
 })
 

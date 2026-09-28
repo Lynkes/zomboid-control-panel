@@ -489,7 +489,7 @@ export function getDemoBridgeDelivery(): DeliveryStatus {
     release: {
       status: 'not-published',
       source: 'none',
-      modId: 'ZomboidControlPanelBridge',
+      modId: 'ZCPB',
       workshopId: null,
       visibility: null,
       publishedVersion: null,

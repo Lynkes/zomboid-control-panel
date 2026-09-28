@@ -94,10 +94,10 @@ describe('BridgeDeliverySwitchDialog: the preview lists every step, in order, wi
         to: 'local',
         steps: [
           { kind: 'installFile', file: 'D:\\PZServer\\media\\lua\\server\\PanelBridge.lua', version: '1.7.71' },
-          { kind: 'iniRemove', key: 'Mods', value: 'ZomboidControlPanelBridge', file: INI, serverName: 'Main Server' },
+          { kind: 'iniRemove', key: 'Mods', value: 'ZCPB', file: INI, serverName: 'Main Server' },
           { kind: 'iniRemove', key: 'WorkshopItems', value: WORKSHOP_ID, file: INI, serverName: 'Main Server' },
           { kind: 'iniSet', key: 'DoLuaChecksum', value: 'false', before: null, file: INI, serverName: 'Main Server' },
-          { kind: 'iniAdd', key: 'Mods', value: 'ZomboidControlPanelBridge', file: 'E:\\other.ini', serverName: 'Second' },
+          { kind: 'iniAdd', key: 'Mods', value: 'ZCPB', file: 'E:\\other.ini', serverName: 'Second' },
           { kind: 'archiveFile', file: 'D:\\PZServer\\media\\lua\\client\\PanelBridgeClient.lua', fileKind: 'client', recognized: false },
           { kind: 'archiveFile', file: 'D:\\PZServer\\mod.info', fileKind: 'rootModInfo', recognized: true },
           { kind: 'recordMethod', method: 'local', servers: ['Main Server'] },
@@ -111,16 +111,16 @@ describe('BridgeDeliverySwitchDialog: the preview lists every step, in order, wi
       'installFile', 'iniRemove', 'iniRemove', 'iniSet', 'iniAdd', 'archiveFile', 'archiveFile', 'recordMethod',
     ])
     expect(items[0]).toHaveTextContent('Copy PanelBridge v1.7.71 into D:\\PZServer\\media\\lua\\server\\PanelBridge.lua')
-    expect(items[1]).toHaveTextContent(`Remove ZomboidControlPanelBridge from Mods= in ${INI} (Main Server)`)
+    expect(items[1]).toHaveTextContent(`Remove ZCPB from Mods= in ${INI} (Main Server)`)
     expect(items[2]).toHaveTextContent(`Remove ${WORKSHOP_ID} from WorkshopItems= in ${INI}`)
     expect(items[3]).toHaveTextContent(`Set DoLuaChecksum=false in ${INI}`)
-    expect(items[4]).toHaveTextContent('Add ZomboidControlPanelBridge to Mods= in E:\\other.ini (Second)')
+    expect(items[4]).toHaveTextContent('Add ZCPB to Mods= in E:\\other.ini (Second)')
     expect(items[5]).toHaveTextContent('not written by this panel')
     expect(items[6]).toHaveTextContent('Move D:\\PZServer\\mod.info out of the game folder')
     expect(items[6]).not.toHaveTextContent('not written by this panel')
     expect(items[7]).toHaveTextContent(en.step.recordMethodLocal)
     expect(screen.getByText(en.dialog.backupNote)).toBeInTheDocument()
-    expect(within(items[1]).getByText('ZomboidControlPanelBridge').tagName).toBe('CODE')
+    expect(within(items[1]).getByText('ZCPB').tagName).toBe('CODE')
   })
 
   // community-feedback's dialog fix: DialogContent is capped at the visible
@@ -401,7 +401,7 @@ describe('BridgeDeliverySwitchDialog: guided access', () => {
         access: 'guided',
         steps: [{ kind: 'recordMethod', method: 'workshop', servers: ['Main Server'] }],
         manual: {
-          modsEntry: 'ZomboidControlPanelBridge',
+          modsEntry: 'ZCPB',
           workshopItemsEntry: WORKSHOP_ID,
           removeFiles: ['media/lua/server/PanelBridge.lua', 'media/lua/client/PanelBridgeClient.lua'],
           setChecksumFalse: false,
@@ -437,7 +437,7 @@ describe('BridgeDeliverySwitchDialog: guided access', () => {
         to: 'local',
         access: 'guided',
         steps: [{ kind: 'recordMethod', method: 'local', servers: ['Main Server'] }],
-        manual: { modsEntry: 'ZomboidControlPanelBridge', workshopItemsEntry: WORKSHOP_ID, removeFiles: [], setChecksumFalse: true },
+        manual: { modsEntry: 'ZCPB', workshopItemsEntry: WORKSHOP_ID, removeFiles: [], setChecksumFalse: true },
       }),
     )
     applyDelivery.mockResolvedValue(makePlan({ from: 'workshop', to: 'local', access: 'guided', applied: true }))
@@ -469,7 +469,7 @@ describe('BridgeDeliverySwitchDialog: guided access', () => {
         blocked: { reason },
         steps: [],
         manual: {
-          modsEntry: 'ZomboidControlPanelBridge',
+          modsEntry: 'ZCPB',
           workshopItemsEntry,
           removeFiles: ['media/lua/server/PanelBridge.lua', 'media/lua/client/PanelBridgeClient.lua'],
           setChecksumFalse: false,
@@ -479,7 +479,7 @@ describe('BridgeDeliverySwitchDialog: guided access', () => {
     renderDialog(makeLocalStatus({ access: 'guided', disk: null, serverRunning: null }))
     expect((await screen.findAllByText(en.unavailable[reason])).length).toBeGreaterThan(0)
     expect(screen.queryByTestId('bridge-guided-steps')).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Copy ;ZomboidControlPanelBridge' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Copy ;ZCPB' })).toBeNull()
     expect(screen.queryByText(en.guided.title)).toBeNull()
     expect(screen.getByRole('button', { name: en.guided.done })).toBeDisabled()
   })
@@ -491,7 +491,7 @@ describe('BridgeDeliverySwitchDialog: guided access', () => {
         to: 'local',
         access: 'guided',
         steps: [{ kind: 'recordMethod', method: 'local', servers: ['Main Server'] }],
-        manual: { modsEntry: 'ZomboidControlPanelBridge', workshopItemsEntry: WORKSHOP_ID, removeFiles: [], setChecksumFalse: true },
+        manual: { modsEntry: 'ZCPB', workshopItemsEntry: WORKSHOP_ID, removeFiles: [], setChecksumFalse: true },
       }),
     )
     renderDialog(makeWorkshopStatus({ access: 'guided', disk: null }), { to: 'local' })
@@ -499,7 +499,7 @@ describe('BridgeDeliverySwitchDialog: guided access', () => {
     const items = within(steps).getAllByRole('listitem')
     expect(items).toHaveLength(4)
     expect(items[0]).toHaveTextContent('In servertest.ini, remove these PanelBridge entries')
-    expect(within(items[0]).getByRole('button', { name: 'Copy ZomboidControlPanelBridge' })).toBeInTheDocument()
+    expect(within(items[0]).getByRole('button', { name: 'Copy ZCPB' })).toBeInTheDocument()
     expect(items[2]).toHaveTextContent('Set DoLuaChecksum=false in servertest.ini.')
   })
 })

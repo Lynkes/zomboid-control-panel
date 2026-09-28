@@ -50,9 +50,9 @@ describe('BridgeManagedBadge', () => {
   })
 
   it('the lock the Mods page wires: a disabled toggle that explains itself, only on the bridge row', async () => {
-    const managed = { modId: 'ZomboidControlPanelBridge', workshopId: '3712345678' }
+    const managed = { modId: 'ZCPB', workshopId: '3712345678' }
     const rows = [
-      { wsId: '3712345678', modIds: ['ZomboidControlPanelBridge'] },
+      { wsId: '3712345678', modIds: ['ZCPB'] },
       { wsId: '2200148440', modIds: ['SomeOtherMod'] },
     ]
     render(

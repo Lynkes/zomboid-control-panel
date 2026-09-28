@@ -16,7 +16,7 @@
  *
  * List entries are compared the way GameServer.main reads them: split on
  * `;`, trimmed, empty entries dropped. Mods= also loses every backslash
- * first (`\ZomboidControlPanelBridge` is the same mod); WorkshopItems= does
+ * first (`\ZCPB` is the same mod); WorkshopItems= does
  * not -- a token counts only when it is a valid Steam id as it stands, so
  * `\3712345678` downloads nothing. Entries this module adds are written bare,
  * the mods.js convention. Entries it does not own are left byte-for-byte as

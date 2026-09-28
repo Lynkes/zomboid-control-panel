@@ -139,9 +139,9 @@ export function listLooseBridgeFiles(installDir) {
   }
   // Only a mod.info that is PanelBridge's own: the game ignores a root
   // mod.info, but an operator's install can still hold an unrelated one.
-  // Older panels wrote it with id=PanelBridge; an installer from a dev tree
-  // between the Workshop mod.info landing and the installer no longer
-  // writing a root copy wrote it with the Workshop mod id.
+  // Released panels wrote it with the legacy id=PanelBridge; a root copy of
+  // the Workshop item's mod.info carries the Workshop mod id. Exact ids
+  // only, the way the game compares them (`id=ZCPBAddon` isn't ours).
   for (const file of childrenNamed(installDir, "mod.info", false)) {
     const lines = readModInfoLines(file);
     if (lines && (lines.includes("id=PanelBridge") || lines.includes(`id=${BRIDGE_MOD_ID}`))) {
@@ -341,7 +341,7 @@ function readModVersion(lines) {
 }
 
 // A downloaded item folder counts as PanelBridge's only when one of its
-// mods declares id=ZomboidControlPanelBridge in a B42-loadable place
+// mods declares id=ZCPB in a B42-loadable place
 // (common/ or a numeric version folder -- the game ignores a root
 // mod.info). Returns { version } or null.
 function inspectBridgeItemFolder(folder) {

@@ -2,15 +2,15 @@
 // (pz-mod/PanelBridge/media/lua/...) into the Build 42 layout the game
 // discovers:
 //
-//   ZomboidControlPanelBridge/
+//   ZCPB/
 //     workshop.txt  preview.png
-//     Contents/mods/ZomboidControlPanelBridge/
+//     Contents/mods/ZCPB/
 //       42/mod.info  42/poster.png  42/icon.png
 //       common/media/lua/server/PanelBridge.lua
 //       common/media/lua/client/PanelBridgeClient.lua
 //
 // Usage:
-//   node scripts/workshop/build-item.mjs            -> dist-workshop/ZomboidControlPanelBridge/
+//   node scripts/workshop/build-item.mjs            -> dist-workshop/ZCPB/
 //   node scripts/workshop/build-item.mjs --out ~/Zomboid/Workshop   (in-game uploader)
 //   node scripts/workshop/build-item.mjs --check    (CI: validate, write nothing)
 //

@@ -81,13 +81,16 @@ describe("listLooseBridgeFiles", () => {
     ]);
   });
 
-  it("also lists a root mod.info carrying the Workshop mod id (a dev-tree install's leftover)", () => {
-    put("mod.info", "name=Zomboid Control Panel Bridge\nid=ZomboidControlPanelBridge\nmodversion=1.7.70\n");
+  it("also lists a root mod.info carrying the Workshop mod id (a root copy of the item's mod.info)", () => {
+    put("mod.info", "name=Zomboid Control Panel Bridge\nid=ZCPB\nmodversion=1.7.70\n");
     expect(listLooseBridgeFiles(installDir)).toEqual([
       { path: path.join(installDir, "mod.info"), kind: "rootModInfo", recognized: true },
     ]);
-    // Only the exact id counts: a mod whose id merely starts with ours isn't ours.
-    put("mod.info", "name=Other\nid=ZomboidControlPanelBridgeAddon\n");
+    // Only the exact id counts, as in the game: a mod whose id merely starts
+    // with ours, or differs only in case, isn't ours.
+    put("mod.info", "name=Other\nid=ZCPBAddon\n");
+    expect(listLooseBridgeFiles(installDir)).toEqual([]);
+    put("mod.info", "name=Other\nid=zcpb\n");
     expect(listLooseBridgeFiles(installDir)).toEqual([]);
   });
 
@@ -190,8 +193,8 @@ describe("archiveLooseBridgeFiles", () => {
   });
 });
 
-function makeItem(root, { layer = "42", id = "ZomboidControlPanelBridge", version = "1.7.71" } = {}) {
-  const modDir = path.join(root, "mods", "ZomboidControlPanelBridge", layer);
+function makeItem(root, { layer = "42", id = "ZCPB", version = "1.7.71" } = {}) {
+  const modDir = path.join(root, "mods", "ZCPB", layer);
   fs.mkdirSync(modDir, { recursive: true });
   fs.writeFileSync(path.join(modDir, "mod.info"), `name=Zomboid Control Panel Bridge\nid=${id}\nmodversion=${version}\n`);
 }
@@ -222,9 +225,12 @@ describe("detectWorkshopItem", () => {
     const folder = path.join(installDir, "steamapps", "workshop", "content", "108600", ID);
     makeItem(folder, { id: "SomeOtherMod" });
     expect(detectWorkshopItem(installDir, ID)).toBeNull();
+    // The game matches mod ids exactly, case included.
+    makeItem(folder, { id: "zcpb" });
+    expect(detectWorkshopItem(installDir, ID)).toBeNull();
     fs.rmSync(folder, { recursive: true, force: true });
-    fs.mkdirSync(path.join(folder, "mods", "ZomboidControlPanelBridge"), { recursive: true });
-    fs.writeFileSync(path.join(folder, "mods", "ZomboidControlPanelBridge", "mod.info"), "id=ZomboidControlPanelBridge\n");
+    fs.mkdirSync(path.join(folder, "mods", "ZCPB"), { recursive: true });
+    fs.writeFileSync(path.join(folder, "mods", "ZCPB", "mod.info"), "id=ZCPB\n");
     expect(detectWorkshopItem(installDir, ID)).toBeNull();
   });
 

@@ -9,7 +9,7 @@
 // validates the preview and sets the tags):
 //   npm run workshop:build -- --out ~/Zomboid/Workshop
 //   (in PZ: Workshop > Upload, confirm "WARNING: Steam Workshop upload requested!")
-//   node scripts/workshop/publish.mjs record --from-staged ~/Zomboid/Workshop/ZomboidControlPanelBridge
+//   node scripts/workshop/publish.mjs record --from-staged ~/Zomboid/Workshop/ZCPB
 //   node scripts/workshop/publish.mjs record --id <n>
 //   then move the staged folder out of ~/Zomboid/Workshop before testing on
 //   that machine (stagedCopyWarning in lib.mjs says why), and commit

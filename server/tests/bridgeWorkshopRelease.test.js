@@ -15,7 +15,7 @@ import {
 
 const BASE = {
   schema: 1,
-  modId: "ZomboidControlPanelBridge",
+  modId: "ZCPB",
   workshopId: null,
   visibility: null,
   publishedVersion: null,

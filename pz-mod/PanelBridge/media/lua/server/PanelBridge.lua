@@ -8,10 +8,11 @@
 
                 vNEXT Changes:
                 - Add: PanelBridge can also ship as the Steam Workshop mod
-                    ZomboidControlPanelBridge. Every player's game runs each
-                    mod's media/lua/server, so this file now stops before
-                    doing anything unless it runs on a dedicated server, and
-                    the client companion only runs in a multiplayer session.
+                    Zomboid Control Panel Bridge (mod id ZCPB). Every
+                    player's game runs each mod's media/lua/server, so this
+                    file now stops before doing anything unless it runs on a
+                    dedicated server, and the client companion only runs in
+                    a multiplayer session.
                 - Add: status.json reports startedAt, gameVersion and
                     delivery (workshop, mod or loose, plus the Workshop item
                     id), and startup.json reports delivery, so the panel can
@@ -589,7 +590,7 @@ local PanelBridge = {
     PROTOCOL_VERSION = "queue-v1",
     -- Steam Workshop mod id (mod.info id=). Permanent once published: Mods= lines, the panel's
     -- delivery detection and the Workshop build all key on it.
-    MOD_ID = "ZomboidControlPanelBridge",
+    MOD_ID = "ZCPB",
     CHECK_INTERVAL = 250, -- milliseconds (fast command polling)
     lastCheck = 0,
     lastStatusUpdate = 0,

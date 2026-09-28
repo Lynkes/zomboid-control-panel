@@ -71,7 +71,7 @@ const saveModOrder = vi.mocked(modsApi.saveModOrder)
 const getActive = vi.mocked(serversApi.getActive)
 
 const BRIDGE_WS = '3712345678'
-const BRIDGE_MOD = 'ZomboidControlPanelBridge'
+const BRIDGE_MOD = 'ZCPB'
 const BRIDGE_NAME = 'Zomboid Control Panel Bridge'
 const OTHER_WS = '2200148440'
 const OTHER_MOD = 'SomeOtherMod'

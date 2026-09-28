@@ -21,7 +21,7 @@ import { writeIniWithBackup } from "../utils/configBackup.js";
 // through these helpers, so the cases below are the ones a real server.ini
 // throws at them (hand-edited lines, `\`-prefixed ids, missing keys, CRLF).
 
-const MOD = "ZomboidControlPanelBridge";
+const MOD = "ZCPB";
 const ID = "3712345678";
 
 let tmpDir;
@@ -67,10 +67,13 @@ describe("parseIniList / hasBridgeEntries", () => {
 // option name must be exactly "Mods"/"WorkshopItems" and the value ends at
 // the next "=". GameServer.main then strips every "\" from Mods= only;
 // WorkshopItems= tokens are trimmed and must pass SteamUtils.isValidSteamID
-// (new BigInteger(token)) as they stand.
+// (new BigInteger(token)) as they stand. A Mods= id is then looked up
+// exactly, case included (ChooseGameInfo.getModDetails: a HashMap key, then
+// String.equals against each mod.info id).
 describe("hasBridgeEntries / readGameIniList: as the game reads the file", () => {
   it.each([
     ["plain lines", `Mods=${MOD}\nWorkshopItems=${ID}\n`, true, true],
+    ["the mod id in another case (a different mod to the game)", `Mods=${MOD.toLowerCase()}\nWorkshopItems=${ID}\n`, false, true],
     ["a backslash-prefixed mod id (Mods= loses every \\)", `Mods=\\${MOD}\nWorkshopItems=${ID}\n`, true, true],
     ["a backslash-prefixed item id (not a Steam id)", `Mods=${MOD}\nWorkshopItems=111;\\${ID}\n`, true, false],
     ["whitespace before = on Mods (option \"Mods \")", `Mods =${MOD}\nWorkshopItems=${ID}\n`, false, true],
@@ -121,6 +124,13 @@ describe("addBridgeEntries", () => {
   it("never duplicates an entry the game already reads (a backslash-prefixed mod id, a zero-padded item id)", () => {
     const content = `Mods=\\${MOD}\nWorkshopItems=0${ID}\n`;
     expect(addBridgeEntries(content, MOD, ID)).toBe(content);
+  });
+
+  it("adds the exact mod id next to one in another case, which the game doesn't load as the bridge", () => {
+    const lower = MOD.toLowerCase();
+    const next = addBridgeEntries(`Mods=${lower}\nWorkshopItems=${ID}\n`, MOD, ID);
+    expect(next).toBe(`Mods=${lower};${MOD}\nWorkshopItems=${ID}\n`);
+    expect(hasBridgeEntries(next, MOD, ID)).toEqual({ mods: true, workshopItems: true });
   });
 
   it("does not add a WorkshopItems entry without an id", () => {

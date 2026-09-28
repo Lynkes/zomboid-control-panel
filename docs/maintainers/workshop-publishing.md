@@ -1,11 +1,11 @@
 # Publishing the PanelBridge Workshop Item
 
 For maintainers. This covers publishing PanelBridge as the Steam Workshop
-item `ZomboidControlPanelBridge`, the live test that has to pass before a
-panel release carries its ID, and how to record that test. Operators don't
-need any of it: the install guides and the README cover choosing a delivery
-method. This folder isn't shipped in release archives (only `docs/install/`
-is).
+item "Zomboid Control Panel Bridge" (mod ID `ZCPB`), the live test that
+has to pass before a panel release carries its ID, and how to record that
+test. Operators don't need any of it: the install guides and the README
+cover choosing a delivery method. This folder isn't shipped in release
+archives (only `docs/install/` is).
 
 How the panel uses the item is described in
 [ARCHITECTURE.md](../../ARCHITECTURE.md#panelbridge).
@@ -21,7 +21,7 @@ How the panel uses the item is described in
 | `pz-mod/workshop/workshop.txt` | The Workshop page template (title, description, tags). No `id=` line: the build adds it. |
 | `pz-mod/workshop/{preview,poster,icon}.png`, `art/bridge.svg` | The item's images and their source. `npm run workshop:art` re-renders the PNGs. |
 | `pz-mod/bridge-version.lock.json` | The released bridge version and the hash of its normalized code. |
-| `scripts/workshop/build-item.mjs` (`npm run workshop:build`) | Builds the item into `dist-workshop/ZomboidControlPanelBridge/`, or into `--out <dir>`. `--check` runs every check and writes nothing. |
+| `scripts/workshop/build-item.mjs` (`npm run workshop:build`) | Builds the item into `dist-workshop/ZCPB/`, or into `--out <dir>`. `--check` runs every check and writes nothing. |
 | `scripts/workshop/publish.mjs` (`npm run workshop:publish`) | Publishes with steamcmd, or records an item uploaded in-game (`record`). |
 | `scripts/check-bridge-version.mjs` (`npm run check:bridge-version`) | Checks the version lock. `--next` prints the version the next release should use. |
 
@@ -37,9 +37,10 @@ every push to `main`, and tag builds run
 - **Publish rarely.** Every publish makes new joins fail on every server
   that uses Workshop delivery until that server restarts. Batch Lua changes
   and aim for at most two publishes a month.
-- **Never change the mod ID** (`ZomboidControlPanelBridge`). Every
-  Workshop server's `Mods=` line, the panel's delivery detection and the
-  build all key on it.
+- **Never change the mod ID** (`ZCPB`). Every Workshop server's `Mods=`
+  line, the panel's delivery detection and the build all key on it. The
+  game matches `Mods=` entries exactly, case included, and so does the
+  panel: `zcpb` is a different mod.
 - **Never hide or delete the item.** A server whose `WorkshopItems=` lists
   an item Steam won't deliver stops at startup.
 - **Publish only from the project's dedicated Steam account.** It owns
@@ -80,7 +81,7 @@ last published version.
 ## Building and checking
 
 ```sh
-npm run workshop:build                       # dist-workshop/ZomboidControlPanelBridge/
+npm run workshop:build                       # dist-workshop/ZCPB/
 node scripts/workshop/build-item.mjs --check # CI: every check, nothing written
 node scripts/check-bridge-version.mjs        # version lock, PR mode
 ```
@@ -89,9 +90,9 @@ The item has this layout. `dist-workshop/` is gitignored and never goes
 under `release/`, which `release.ps1` zips as it is.
 
 ```
-ZomboidControlPanelBridge/
+ZCPB/
   workshop.txt  preview.png
-  Contents/mods/ZomboidControlPanelBridge/
+  Contents/mods/ZCPB/
     42/mod.info  42/poster.png  42/icon.png
     common/media/lua/server/PanelBridge.lua
     common/media/lua/client/PanelBridgeClient.lua
@@ -132,22 +133,22 @@ release that bumped the bridge, so the uploaded code is the released code.
    ```
 2. Start Project Zomboid in windowed mode (Steam's upload confirmation can
    be hidden in fullscreen or borderless mode). From the main menu, open
-   **Workshop**, pick `ZomboidControlPanelBridge`, choose **This is a new
-   workshop item**, check that visibility is **Unlisted**, and click
-   **Upload to Steam Workshop now!**. Confirm Steam's upload prompt.
+   **Workshop**, pick `ZCPB`, choose **This is a new workshop item**,
+   check that visibility is **Unlisted**, and click **Upload to Steam
+   Workshop now!**. Confirm Steam's upload prompt.
 3. Record the new ID. The game writes `id=` back into the staged
    `workshop.txt`, and `record` reads it from there:
    ```sh
-   node scripts/workshop/publish.mjs record --from-staged ~/Zomboid/Workshop/ZomboidControlPanelBridge --visibility unlisted
+   node scripts/workshop/publish.mjs record --from-staged ~/Zomboid/Workshop/ZCPB --visibility unlisted
    ```
    If that file has no `id=` line, find the ID on the account's Steam
    profile under Workshop Items and run
    `node scripts/workshop/publish.mjs record --id <id> --visibility unlisted`
    instead. Either way `published.json` gets `workshopId`, `visibility`,
    `publishedVersion` and `publishedAt`.
-4. **Move `~/Zomboid/Workshop/ZomboidControlPanelBridge` out of
-   `~/Zomboid/Workshop`** before you test anything on this machine. With
-   Steam on, the game loads staged items ahead of Workshop downloads. While
+4. **Move `~/Zomboid/Workshop/ZCPB` out of `~/Zomboid/Workshop`** before
+   you test anything on this machine. With Steam on, the game loads
+   staged items ahead of Workshop downloads. While
    the staged copy is there, the game and any Steam-mode server that uses
    this Zomboid folder run it instead of the downloaded item. The live test
    would then check the wrong files (the bridge reports delivery `mod`,

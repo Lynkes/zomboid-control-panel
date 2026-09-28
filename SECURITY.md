@@ -16,8 +16,8 @@ credentials, Discord tokens, or support bundles containing them.
 
 ## PanelBridge Steam Workshop Item
 
-A server can get PanelBridge from the Steam Workshop item
-`ZomboidControlPanelBridge` instead of having the panel copy it into the
+A server can get PanelBridge from the Steam Workshop item "Zomboid Control
+Panel Bridge" (mod ID `ZCPB`) instead of having the panel copy it into the
 game folder. Operators opt in per server; panel-installed stays the default.
 
 - **One publishing account.** The item is published from a single

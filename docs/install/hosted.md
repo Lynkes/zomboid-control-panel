@@ -130,7 +130,7 @@ Both options use steps 9–12, and Phase 4 continues from either.
    a **Copy** button for each. Keep it open.
 10. Open your server's `.ini` file — through the provider's config editor,
     or by downloading and re-uploading it through the file manager — and:
-    - add `;ZomboidControlPanelBridge` to the end of the `Mods=` line;
+    - add `;ZCPB` to the end of the `Mods=` line;
     - add `;` followed by the item ID the dialog shows to the end of the
       `WorkshopItems=` line (add the line if it's missing).
 

@@ -28,7 +28,7 @@ const VERSION = /^modversion=(.+)$/m.exec(REAL_MOD_INFO)[1];
 // tests must not start failing the day it is committed.
 const CONTRACT_PUBLISHED = `{
   "schema": 1,
-  "modId": "ZomboidControlPanelBridge",
+  "modId": "ZCPB",
   "workshopId": null,
   "visibility": null,
   "publishedVersion": null,
@@ -57,7 +57,7 @@ function serverLua(extra = "") {
     "if not (isServer and isServer()) then return end",
     "local PanelBridge = {",
     `    VERSION = "${VERSION}",`,
-    "    MOD_ID = \"ZomboidControlPanelBridge\",",
+    "    MOD_ID = \"ZCPB\",",
     "}",
     extra,
     "return PanelBridge",
@@ -267,8 +267,8 @@ describe("workshop publish: the item.vdf", () => {
     const preview = /"previewfile"\s+"([^"]+)"/.exec(vdf)[1];
     const forward = (filePath) => filePath.split(path.sep).join("/");
     expect(path.isAbsolute(folder)).toBe(true);
-    expect(folder).toBe(forward(path.join(repo.root, "dist-workshop", "ZomboidControlPanelBridge", "Contents")));
-    expect(preview).toBe(forward(path.join(repo.root, "dist-workshop", "ZomboidControlPanelBridge", "preview.png")));
+    expect(folder).toBe(forward(path.join(repo.root, "dist-workshop", "ZCPB", "Contents")));
+    expect(preview).toBe(forward(path.join(repo.root, "dist-workshop", "ZCPB", "preview.png")));
     expect(result.out).toMatch(/"appid"\s+"108600"/);
     expect(result.out).toMatch(/"publishedfileid"\s+"0"/);
     expect(result.out).toMatch(/"title"\s+"Zomboid Control Panel Bridge"/);
@@ -334,14 +334,14 @@ describe("workshop publish: recording the id", () => {
     expect(result.out).not.toMatch(/^Commit /m);
     // Setting the tags in-game stages a copy that then shadows the download.
     expect(result.out).toMatch(
-      /set them once in the in-game uploader \(npm run workshop:build -- --out ~\/Zomboid\/Workshop\), then move ~\/Zomboid\/Workshop\/ZomboidControlPanelBridge out of ~\/Zomboid\/Workshop: while it is there, this machine loads it instead of the downloaded Workshop item\./,
+      /set them once in the in-game uploader \(npm run workshop:build -- --out ~\/Zomboid\/Workshop\), then move ~\/Zomboid\/Workshop\/ZCPB out of ~\/Zomboid\/Workshop: while it is there, this machine loads it instead of the downloaded Workshop item\./,
     );
     // Exit code 0 is all steamcmd reports back, so the maintainer is sent to check.
     expect(result.out).toMatch(
       /exit code doesn't prove the upload worked\. .*sharedfiles\/filedetails\/changelog\/3712345678\. .*publish again with --force/,
     );
     // The item was built for steamcmd to upload.
-    expect(fs.existsSync(path.join(repo.root, "dist-workshop", "ZomboidControlPanelBridge", "Contents", "mods"))).toBe(true);
+    expect(fs.existsSync(path.join(repo.root, "dist-workshop", "ZCPB", "Contents", "mods"))).toBe(true);
   });
 
   it("updates an existing item under its pinned id", async () => {
@@ -422,7 +422,7 @@ describe("workshop publish: recording the id", () => {
     });
     // --id is also the fallback after steamcmd, so the staged-copy warning is conditional.
     expect(result.err).toBe(
-      "WARNING: If you uploaded it with the in-game uploader, ~/Zomboid/Workshop/ZomboidControlPanelBridge is still in " +
+      "WARNING: If you uploaded it with the in-game uploader, ~/Zomboid/Workshop/ZCPB is still in " +
         "the game's Workshop folder. Move it out of ~/Zomboid/Workshop before you test on this machine: while it is " +
         "there, the game and any Steam-mode server that uses this Zomboid folder load that staged copy instead of the " +
         "downloaded Workshop item, so the live test would check the wrong files, and after the next publish they would " +
@@ -438,7 +438,7 @@ describe("workshop publish: recording the id", () => {
   it("record --from-staged reads id= and visibility= from the staged workshop.txt, then says to move the staged copy out", async () => {
     const repo = makeRepo();
     const workshop = path.join(repo.root, "Workshop");
-    const staged = path.join(workshop, "ZomboidControlPanelBridge");
+    const staged = path.join(workshop, "ZCPB");
     fs.mkdirSync(staged, { recursive: true });
     fs.writeFileSync(path.join(staged, "workshop.txt"), "version=1\r\nid=3712345678\r\ntitle=Zomboid Control Panel Bridge\r\nvisibility=public\r\n");
     const result = await run(repo, ["record", "--from-staged", staged]);
@@ -468,12 +468,12 @@ describe("workshop publish: recording the id", () => {
     fs.writeFileSync(path.join(copy, "workshop.txt"), "version=1\nid=3712345678\ntitle=x\n");
     const result = await run(repo, ["record", "--from-staged", copy]);
     expect(result.code).toBe(0);
-    expect(result.err).toMatch(/^WARNING: If you uploaded it with the in-game uploader, ~\/Zomboid\/Workshop\/ZomboidControlPanelBridge is still/);
+    expect(result.err).toMatch(/^WARNING: If you uploaded it with the in-game uploader, ~\/Zomboid\/Workshop\/ZCPB is still/);
   });
 
   it("record refuses a staged item without an id, a bad id, a changed id and ambiguous input", async () => {
     const repo = makeRepo();
-    const staged = path.join(repo.root, "Workshop", "ZomboidControlPanelBridge");
+    const staged = path.join(repo.root, "Workshop", "ZCPB");
     fs.mkdirSync(staged, { recursive: true });
     fs.writeFileSync(path.join(staged, "workshop.txt"), "version=1\ntitle=x\n");
     expect((await run(repo, ["record", "--from-staged", staged])).err).toMatch(/has no id= line yet/);
@@ -558,10 +558,10 @@ describe("workshop publish: preconditions", () => {
 
   it("refuses when the mod id in published.json changed", async () => {
     const repo = makeRepo();
-    repo.write(BRIDGE_FILES.published, CONTRACT_PUBLISHED.replace("\"ZomboidControlPanelBridge\"", "\"PanelBridge\""));
+    repo.write(BRIDGE_FILES.published, CONTRACT_PUBLISHED.replace("\"ZCPB\"", "\"PanelBridge\""));
     const result = await run(repo, ["--steam-user", "maint", "--dry-run"]);
     expect(result.code).toBe(1);
-    expect(result.err).toMatch(/modId must be ZomboidControlPanelBridge/);
+    expect(result.err).toMatch(/modId must be ZCPB/);
   });
 });
 

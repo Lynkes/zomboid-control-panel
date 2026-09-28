@@ -101,11 +101,11 @@ describe("probeInstallPath", () => {
       fs.writeFileSync(path.join(tmpRoot, "start-server.sh"), "");
       const modDir = path.join(
         tmpRoot, "steamapps", "workshop", "content", "108600", "3712345678",
-        "mods", "ZomboidControlPanelBridge", "42",
+        "mods", "ZCPB", "42",
       );
       fs.mkdirSync(modDir, { recursive: true });
       expect(probeInstallPath(tmpRoot).hasPanelBridge).toBe(false);
-      fs.writeFileSync(path.join(modDir, "mod.info"), "id=ZomboidControlPanelBridge\nmodversion=1.7.71\n");
+      fs.writeFileSync(path.join(modDir, "mod.info"), "id=ZCPB\nmodversion=1.7.71\n");
       expect(probeInstallPath(tmpRoot).hasPanelBridge).toBe(true);
     } finally {
       vi.unstubAllEnvs();

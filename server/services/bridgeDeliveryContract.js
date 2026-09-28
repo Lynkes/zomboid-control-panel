@@ -17,4 +17,4 @@ export const DELIVERY_WARNINGS = Object.freeze([
 ]);
 export const CHECKSUM_BLOCKERS = Object.freeze(["notWorkshop", "notConfirmed", "looseFilesPresent", "alreadyOn"]);
 export const LOOSE_FILE_KINDS = Object.freeze(["server", "client", "rootModInfo"]);
-export const BRIDGE_MOD_ID = "ZomboidControlPanelBridge";
+export const BRIDGE_MOD_ID = "ZCPB";
