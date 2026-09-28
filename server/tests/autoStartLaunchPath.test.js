@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { describeAutoStartFailure, startServerForAutoStart } from "../index.js";
+import {
+  describeAutoStartFailure,
+  describeAutoStartSuccess,
+  startServerForAutoStart,
+} from "../index.js";
 import { prepareForLaunch } from "../services/lifecycleCoordinator.js";
 import { managedStartupScriptName } from "../services/serverManager.js";
 
@@ -162,5 +166,47 @@ describe("describeAutoStartFailure()", () => {
     expect(source).toContain("log.error(`Error during auto-start: ${describeAutoStartFailure(e)}`)");
     expect(source).toMatch(/Failed to auto-start PZ server: \$\{describeAutoStartFailure\(startResult\)\}/);
     expect(source).not.toMatch(/log\.error\(\s*"Error during auto-start:",/);
+  });
+});
+
+// A Docker-managed container that is already up when the panel boots:
+// runManagedLifecycle("start") answers success with alreadyRunning and
+// starts nothing, and the auto-start used to log "PZ server auto-started
+// successfully" for it anyway.
+describe("describeAutoStartSuccess()", () => {
+  it("says a container that was already running was not started", async () => {
+    const managed = {
+      handled: true,
+      success: true,
+      alreadyRunning: true,
+      message: "Container is already running",
+    };
+    const result = await startServerForAutoStart(
+      { id: "s1", dockerContainerName: "pz" },
+      {
+        runManaged: vi.fn(async () => managed),
+        serverManagerInstance: { startServer: vi.fn() },
+      },
+    );
+
+    expect(describeAutoStartSuccess(result)).toBe(
+      "PZ server container was already running - connecting RCON",
+    );
+    expect(describeAutoStartSuccess(result)).not.toMatch(/auto-started/);
+  });
+
+  it("says auto-started for a start that happened", () => {
+    expect(describeAutoStartSuccess({ success: true, message: "started" })).toBe(
+      "PZ server auto-started successfully",
+    );
+    expect(describeAutoStartSuccess({ handled: true, success: true })).toBe(
+      "PZ server auto-started successfully",
+    );
+  });
+
+  it("is what the auto-start's success line logs", () => {
+    const source = fs.readFileSync(new URL("../index.js", import.meta.url), "utf8");
+    expect(source).toContain("log.info(describeAutoStartSuccess(startResult));");
+    expect(source).not.toContain('log.info("PZ server auto-started successfully")');
   });
 });

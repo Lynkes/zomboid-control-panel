@@ -3275,6 +3275,16 @@ export async function startServerForAutoStart(
   return serverManagerInstance.startServer({ serverId });
 }
 
+// The auto-start's success line. runManagedLifecycle("start") answers for a
+// Docker-managed container that is already up with success and
+// alreadyRunning, having started nothing, so "auto-started" would log a
+// start that never happened.
+export function describeAutoStartSuccess(startResult) {
+  return startResult?.alreadyRunning
+    ? "PZ server container was already running - connecting RCON"
+    : "PZ server auto-started successfully";
+}
+
 // A failed start's reason for the auto-start log line -- a thrown Error or a
 // { success: false, error } result, never an empty string.
 export function describeAutoStartFailure(failure) {
@@ -3739,11 +3749,11 @@ async function start() {
                 try {
                   const startResult = await startServerForAutoStart(activeServer);
                   if (startResult.success) {
-                    log.info("PZ server auto-started successfully");
+                    log.info(describeAutoStartSuccess(startResult));
 
                     // Wait for server to fully start before connecting RCON
                     // Monitor the TCP port instead of hard waiting
-                    log.info("PZ server auto-started - Monitoring RCON port...");
+                    log.info("Auto-start: monitoring the RCON port...");
 
                     await rconService.loadConfig(); // Ensure clean config
                     const rconHost = rconService.config.host || "127.0.0.1";
