@@ -7,6 +7,7 @@
   "testOverride": "测试项目",
   "loading": "正在检查 PanelBridge 的安装方式…",
   "loadFailed": "无法加载 PanelBridge 的安装方式",
+  "refreshFailed": "无法刷新此状态，显示的内容可能已过时。",
   "retry": "重试",
   "needsServerControl": "启动或重启服务器需要 server.control 权限，此角色没有该权限。",
   "pro": "优点",
@@ -63,8 +64,11 @@
   },
   "state": {
     "local-ok": {
-      "title": "已是最新",
-      "body": "由面板安装：v{{version}}。"
+      "title": "已安装到游戏文件夹",
+      "body": "由面板安装：v{{version}}。",
+      "titleGuided": "PanelBridge 正在报告状态",
+      "bodyGuided": "此服务器上正在运行 PanelBridge v{{version}}。",
+      "restartToLoad": "正在运行的服务器仍报告 v{{running}}。它会在重启后加载 v{{version}}。"
     },
     "local-update-pending": {
       "title": "等待更新",
@@ -168,16 +172,16 @@
     "intro": "面板无法修改此服务器的文件。请使用托管服务商的文件管理器或配置编辑器进行以下更改：",
     "iniFallback": "服务器的 .ini 文件",
     "toWorkshop": {
-      "step1": "在 <code>{{file}}</code> 中，将 <code>{{value}}</code> 添加到 <code>Mods=</code> 行的末尾。",
+      "step1": "在 <file>{{file}}</file> 中，将 <code>{{value}}</code> 添加到 <code>Mods=</code> 行的末尾。",
       "step2": "将 <code>{{value}}</code> 添加到 <code>WorkshopItems=</code> 的末尾（如果没有该行，请添加）。",
       "step3": "如果你上传过以下文件，请将它们从服务器的游戏文件夹中删除：",
       "step4": "确认你的托管服务商不会使用 <code>-nosteam</code> 启动服务器。",
       "step5": "在托管服务商的管理后台中重启服务器。"
     },
     "toLocal": {
-      "step1": "在 <code>{{file}}</code> 中，从 <code>Mods=</code> 和 <code>WorkshopItems=</code> 行中移除以下 PanelBridge 条目：",
+      "step1": "在 <file>{{file}}</file> 中，从 <code>Mods=</code> 和 <code>WorkshopItems=</code> 行中移除以下 PanelBridge 条目：",
       "step2": "将 <code>PanelBridge.lua</code> 上传到服务器游戏文件夹的 <code>media/lua/server/</code> 中。",
-      "step3": "在 <code>{{file}}</code> 中设置 <code>DoLuaChecksum=false</code>。",
+      "step3": "在 <file>{{file}}</file> 中设置 <code>DoLuaChecksum=false</code>。",
       "step4": "在托管服务商的管理后台中重启服务器。"
     },
     "keepChecksumOff": "在此页面确认切换之前，请保持 DoLuaChecksum=false。",
@@ -185,7 +189,7 @@
   },
   "checksumOffer": {
     "title": "重新启用 Lua 完整性检查？",
-    "body": "PanelBridge 现在从 Steam 创意工坊加载，因此启用检查后玩家也能加入。",
+    "body": "PanelBridge 现在从 Steam 创意工坊加载，因此可以重新启用 Lua 完整性检查。",
     "ackNonAdmin": "我会用普通玩家账户测试。管理员账户会跳过此检查，所以管理员能进入并不能证明它有效。",
     "ackLinux": "早期游戏版本（41.77、42.13–42.14）在启用此检查时，即使文件完全相同，Linux 服务器也会拒绝 Windows 和 Mac 玩家。此版本尚未确认已修复。如果玩家无法加入，请在这里禁用它。",
     "ackRemoteFiles": "我已删除之前上传到服务器游戏文件夹中的 PanelBridge 文件。",
@@ -211,6 +215,7 @@
     "switchedToWorkshop": "{{server}} 现在从 Steam 创意工坊获取 PanelBridge",
     "switchedToLocal": "现在由面板在 {{server}} 上安装 PanelBridge",
     "switchFailed": "无法更改 PanelBridge 的安装方式",
+    "notRestored": "面板未能撤销所有已做的更改。启动服务器前，请在「服务器配置 › INI」中检查其设置文件；更改前已保存了该文件的备份。",
     "lifecycleFailed": "已切换，但服务器未能启动或重启",
     "installed": "游戏文件夹中的 PanelBridge 已是最新",
     "installFailed": "无法将 PanelBridge 复制到游戏文件夹",
@@ -222,7 +227,8 @@
     "actionFailed": "无法完成此操作"
   },
   "setupNote": {
-    "workshop": "此服务器从 Steam 创意工坊获取 PanelBridge，因此无需上传任何文件。请参阅上方的「PanelBridge 安装方式」。"
+    "workshop": "此服务器从 Steam 创意工坊获取 PanelBridge，因此无需上传任何文件。在上方的「PanelBridge 安装方式」确认切换之前，请保持 DoLuaChecksum=false。",
+    "waitingWorkshop": "面板已就绪。请启动或重启 PZ 服务器：它会从 Steam 创意工坊下载 PanelBridge。请参阅上方的「PanelBridge 安装方式」。"
   },
   "mods": {
     "badge": "面板桥接",

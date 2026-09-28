@@ -175,11 +175,45 @@ export function resolveStateActions(status: DeliveryStatus): DeliveryAction[] {
   })
 }
 
-// {{version}} for the local-ok / workshop-confirmed copy: what the live
-// heartbeat reports, else what the panel bundles (automatic local access
-// where the file on disk is current by definition of local-ok).
+// Title/body keys for the state callout. Only local-ok has two readings
+// (§4.5, §6.9): with automatic access it means the loose file on disk
+// matches the bundled one; with guided access the panel can't see that
+// file at all, and local-ok only means a live heartbeat exists -- which may
+// well be an old upload (the staleness alert above the block says so). So
+// guided gets copy that claims no more than "it's running".
+export function resolveStateCopy(status: DeliveryStatus): { titleKey: string; bodyKey: string } {
+  if (status.state === 'local-ok' && status.access === 'guided') {
+    return { titleKey: 'state.local-ok.titleGuided', bodyKey: 'state.local-ok.bodyGuided' }
+  }
+  const view = DELIVERY_STATE_VIEWS[status.state]
+  return { titleKey: view.titleKey, bodyKey: view.bodyKey }
+}
+
+// {{version}} for the local-ok / workshop-confirmed copy, taken from the
+// signal the state itself was decided on:
+//  - automatic local-ok: the file on disk, which is the bundled version by
+//    definition of that state. The heartbeat is NOT that file -- a game
+//    server that kept running across a panel update still reports the copy
+//    it loaded at start (see getRunningVersionNote);
+//  - guided local-ok and workshop-confirmed: the live heartbeat.
 export function getStateVersion(status: DeliveryStatus): string {
-  return status.live?.version ?? status.bundledVersion ?? '—'
+  if (status.state === 'local-ok' && status.access === 'automatic') return status.bundledVersion ?? '—'
+  return status.live?.version ?? '—'
+}
+
+// Automatic local-ok while the running server reports a different loose
+// copy than the one now on disk: the panel refreshed the file (boot
+// reconcile, "Update now") and the game only picks it up at its next start.
+// Two server-reported values shown side by side, not a state -- the state
+// is right, the operator only needs to know a restart is what loads it.
+// `loose` only: a copy under Zomboid/mods wins over the loose file (§2.2),
+// so for that one a restart would load nothing new.
+export function getRunningVersionNote(status: DeliveryStatus): { running: string; version: string } | null {
+  if (status.state !== 'local-ok' || status.access !== 'automatic') return null
+  const live = status.live
+  if (!live?.alive || live.delivery !== 'loose' || !live.version || !status.bundledVersion) return null
+  if (live.version === status.bundledVersion) return null
+  return { running: live.version, version: status.bundledVersion }
 }
 
 export function getBlockReasonKey(reason: DeliveryBlockReason): string {
@@ -268,20 +302,40 @@ export function getGuidedWorkshopManual(status: DeliveryStatus): GuidedManual {
   }
 }
 
-// Server Config › INI callout for DoLuaChecksum (§4.12). `delivery` is null
-// when GET /panel-bridge/delivery failed or hasn't answered; that falls
-// back to the local behaviour, which is the safe one (it only ever warns).
+// Server Config › INI callout for DoLuaChecksum (§4.12). The three inputs
+// are distinct on purpose:
+//  - undefined: GET /panel-bridge/delivery hasn't answered yet. No callout
+//    at all -- falling back to Local here would flash the destructive
+//    "players can't connect" alert on a confirmed Workshop server that has
+//    the check on legitimately.
+//  - null: the call failed. Falls back to the local behaviour, which is the
+//    safe one (it only ever warns).
+//  - a status: the server's method, state and checksum blockers.
 export type LuaChecksumCallout = 'localBlocked' | 'workshopNote' | 'workshopUnconfirmed'
 
+export interface LuaChecksumDelivery {
+  method: DeliveryMethod
+  state: DeliveryState
+  turnOnBlockers: readonly ChecksumBlocker[]
+}
+
 export function resolveLuaChecksumCallout(
-  delivery: { method: DeliveryMethod; state: DeliveryState } | null,
+  delivery: LuaChecksumDelivery | null | undefined,
   editorValue: string | undefined,
 ): LuaChecksumCallout | null {
+  if (delivery === undefined) return null
   const on = editorValue?.trim().toLowerCase() === 'true'
   const method = delivery?.method ?? 'local'
   if (method === 'local') return on ? 'localBlocked' : null
-  const confirmed = delivery?.state === 'workshop-confirmed'
-  if (confirmed) return on ? null : 'workshopNote'
+  if (delivery?.state === 'workshop-confirmed') {
+    if (on) return null
+    // "You can turn this on" only while the server has no reason against it
+    // (I5: leftover loose files would get every player refused). alreadyOn
+    // is the saved file's value, not the editor's, so it isn't a reason
+    // against the note.
+    const blocked = delivery.turnOnBlockers.some((blocker) => blocker !== 'alreadyOn')
+    return blocked ? null : 'workshopNote'
+  }
   return on ? 'workshopUnconfirmed' : null
 }
 

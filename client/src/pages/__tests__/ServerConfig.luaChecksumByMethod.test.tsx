@@ -117,4 +117,70 @@ describe('ServerConfig › INI: DoLuaChecksum callout per PanelBridge delivery',
     await renderWith(new Error('403'), 'true')
     await waitFor(() => expect(screen.getByText(localBody)).toBeInTheDocument())
   })
+
+  it('Workshop confirmed + off, but old loose files still in the game folder: no "you can turn this on"', async () => {
+    await renderWith(
+      makeWorkshopStatus({ checksum: { current: false, canTurnOn: false, turnOnBlockers: ['looseFilesPresent'], playersBlocked: false, requiresLinuxAck: false } }),
+      'false',
+    )
+    const c = callouts()
+    expect(c.note).toBeNull()
+    expect(c.localBody).toBeNull()
+    expect(c.unconfirmed).toBeNull()
+  })
+})
+
+describe('ServerConfig › INI: the delivery answer, not a guess, decides the callout', () => {
+  function prime(doLuaChecksum: string) {
+    getResolvedActive.mockResolvedValue({ server: { id: 1, name: 'Main Server', serverName: 'servertest', isRemote: false } as never })
+    getActive.mockResolvedValue({ server: { id: 1, isRemote: false } } as never)
+    getStatus.mockResolvedValue({ running: false } as never)
+    getPaths.mockResolvedValue({ exists: { ini: true, sandbox: false, spawnpoints: false, spawnregions: false } } as never)
+    getIni.mockResolvedValue({ settings: { DoLuaChecksum: doLuaChecksum, PVP: 'true' }, path: '/x/servertest.ini', serverName: 'servertest' } as never)
+  }
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((r) => { resolve = r })
+    return { promise, resolve }
+  }
+
+  it('shows no callout while the delivery status is still loading (no destructive flash on a Workshop server)', async () => {
+    prime('true')
+    const pending = deferred<DeliveryStatus>()
+    getDelivery.mockReturnValue(pending.promise)
+    render(
+      <MemoryRouter>
+        <ServerConfig />
+      </MemoryRouter>,
+    )
+    await screen.findByRole('button', { name: en.editorToolbar.saveAndReload })
+    expect(callouts().localBody).toBeNull()
+    expect(callouts().unconfirmed).toBeNull()
+    await act(async () => { pending.resolve(makeWorkshopStatus({ checksum: { ...makeWorkshopStatus().checksum, current: true, canTurnOn: false, turnOnBlockers: ['alreadyOn'] } })) })
+    // Confirmed Workshop delivery with the check on: nothing, ever.
+    expect(callouts().localBody).toBeNull()
+    expect(callouts().unconfirmed).toBeNull()
+    expect(callouts().note).toBeNull()
+  })
+
+  it('a slow answer from an earlier load never overwrites a newer one', async () => {
+    prime('true')
+    const slow = deferred<DeliveryStatus>()
+    getDelivery.mockReturnValueOnce(slow.promise).mockResolvedValueOnce(makeWorkshopStatus({ state: 'workshop-restart-needed' }))
+    render(
+      <MemoryRouter>
+        <ServerConfig />
+      </MemoryRouter>,
+    )
+    await screen.findByRole('button', { name: en.editorToolbar.saveAndReload })
+    // Reload (the same path activeServerChanged takes): a second request.
+    fireEvent.click(screen.getByRole('button', { name: en.pageHeader.refresh }))
+    await screen.findByRole('button', { name: en.editorToolbar.saveAndReload })
+    expect(await screen.findByText(en.iniTab.luaChecksumWorkshopUnconfirmed)).toBeInTheDocument()
+    // The first request (for what was active before) lands last.
+    await act(async () => { slow.resolve(makeLocalStatus()) })
+    expect(screen.getByText(en.iniTab.luaChecksumWorkshopUnconfirmed)).toBeInTheDocument()
+    expect(callouts().localBody).toBeNull()
+  })
 })

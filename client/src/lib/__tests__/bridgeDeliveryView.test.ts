@@ -15,11 +15,13 @@ import {
   getBlockReasonKey,
   getChecksumBlockerKey,
   getGuidedWorkshopManual,
+  getRunningVersionNote,
   getStateVersion,
   getWarningKey,
   isBridgeManagedMod,
   resolveLuaChecksumCallout,
   resolveStateActions,
+  resolveStateCopy,
 } from '../bridgeDeliveryView'
 import { makeLocalStatus, makeWorkshopStatus, WORKSHOP_ID } from '@/components/bridge/__tests__/deliveryFixtures'
 
@@ -119,11 +121,49 @@ describe('resolveStateActions: lifecycle and option-card de-duplication only, no
   })
 })
 
-describe('getStateVersion', () => {
-  it('prefers the live heartbeat, then the bundled version, then a dash', () => {
-    expect(getStateVersion(makeWorkshopStatus())).toBe('1.7.71')
+describe('local-ok copy and version: only what the state was decided on', () => {
+  // The game server kept running across a panel update: the boot reconcile
+  // already copied 1.7.70 to disk (so the state is local-ok), but the
+  // heartbeat still reports the 1.7.60 the game loaded at start.
+  const liveOlder = { alive: true, version: '1.7.60', delivery: 'loose' as const, workshopId: null, startedAt: 1, gameVersion: '42.20.0' }
+
+  it('automatic local-ok shows the file on disk (the bundled version), never the heartbeat', () => {
+    expect(getStateVersion(makeLocalStatus({ live: liveOlder }))).toBe('1.7.70')
     expect(getStateVersion(makeLocalStatus({ live: null }))).toBe('1.7.70')
     expect(getStateVersion(makeLocalStatus({ live: null, bundledVersion: null }))).toBe('—')
+  })
+
+  it('guided local-ok and workshop-confirmed show the heartbeat', () => {
+    expect(getStateVersion(makeLocalStatus({ access: 'guided', disk: null, live: liveOlder }))).toBe('1.7.60')
+    expect(getStateVersion(makeWorkshopStatus())).toBe('1.7.71')
+    expect(getStateVersion(makeWorkshopStatus({ live: null }))).toBe('—')
+  })
+
+  it('guided local-ok gets copy that only claims the bridge is running', () => {
+    expect(resolveStateCopy(makeLocalStatus({ access: 'guided', disk: null }))).toEqual({
+      titleKey: 'state.local-ok.titleGuided',
+      bodyKey: 'state.local-ok.bodyGuided',
+    })
+    expect(resolveStateCopy(makeLocalStatus())).toEqual({ titleKey: 'state.local-ok.title', bodyKey: 'state.local-ok.body' })
+    expect(resolveStateCopy(makeWorkshopStatus())).toEqual({
+      titleKey: 'state.workshop-confirmed.title',
+      bodyKey: 'state.workshop-confirmed.body',
+    })
+    for (const key of ['state.local-ok.titleGuided', 'state.local-ok.bodyGuided', 'state.local-ok.restartToLoad']) {
+      expect(exists(key), key).toBe(true)
+    }
+  })
+
+  it('notes the restart that loads the new file while the running copy differs', () => {
+    expect(getRunningVersionNote(makeLocalStatus({ live: liveOlder }))).toEqual({ running: '1.7.60', version: '1.7.70' })
+    // Same version, no heartbeat, a stale one, a Zomboid/mods copy (which a
+    // restart wouldn't replace), guided access or another state: no note.
+    expect(getRunningVersionNote(makeLocalStatus())).toBeNull()
+    expect(getRunningVersionNote(makeLocalStatus({ live: null }))).toBeNull()
+    expect(getRunningVersionNote(makeLocalStatus({ live: { ...liveOlder, alive: false } }))).toBeNull()
+    expect(getRunningVersionNote(makeLocalStatus({ live: { ...liveOlder, delivery: 'mod' } }))).toBeNull()
+    expect(getRunningVersionNote(makeLocalStatus({ access: 'guided', disk: null, live: liveOlder }))).toBeNull()
+    expect(getRunningVersionNote(makeLocalStatus({ state: 'local-update-pending', live: liveOlder }))).toBeNull()
   })
 })
 
@@ -140,20 +180,33 @@ describe('getGuidedWorkshopManual', () => {
 
 describe('resolveLuaChecksumCallout (Server Config › INI, spec §4.12)', () => {
   it.each([
-    [{ method: 'local', state: 'local-ok' }, 'true', 'localBlocked'],
-    [{ method: 'local', state: 'local-ok' }, 'false', null],
-    [{ method: 'workshop', state: 'workshop-confirmed' }, 'false', 'workshopNote'],
-    [{ method: 'workshop', state: 'workshop-confirmed' }, 'true', null],
-    [{ method: 'workshop', state: 'workshop-restart-needed' }, 'true', 'workshopUnconfirmed'],
-    [{ method: 'workshop', state: 'workshop-not-loaded' }, 'false', null],
+    [{ method: 'local', state: 'local-ok', turnOnBlockers: ['notWorkshop'] }, 'true', 'localBlocked'],
+    [{ method: 'local', state: 'local-ok', turnOnBlockers: ['notWorkshop'] }, 'false', null],
+    [{ method: 'workshop', state: 'workshop-confirmed', turnOnBlockers: [] }, 'false', 'workshopNote'],
+    [{ method: 'workshop', state: 'workshop-confirmed', turnOnBlockers: ['alreadyOn'] }, 'true', null],
+    [{ method: 'workshop', state: 'workshop-restart-needed', turnOnBlockers: ['notConfirmed'] }, 'true', 'workshopUnconfirmed'],
+    [{ method: 'workshop', state: 'workshop-not-loaded', turnOnBlockers: ['notConfirmed'] }, 'false', null],
   ] as const)('%o with DoLuaChecksum=%s -> %s', (delivery, value, expected) => {
     expect(resolveLuaChecksumCallout(delivery, value)).toBe(expected)
   })
 
-  it('falls back to local behaviour when the delivery status is unknown', () => {
+  it('never says "you can turn this on" while the server has a reason against it', () => {
+    const confirmed = { method: 'workshop', state: 'workshop-confirmed' } as const
+    expect(resolveLuaChecksumCallout({ ...confirmed, turnOnBlockers: ['looseFilesPresent'] }, 'false')).toBeNull()
+    // alreadyOn describes the saved file, not the editor: someone turning
+    // it off in the editor may still be told it can go back on.
+    expect(resolveLuaChecksumCallout({ ...confirmed, turnOnBlockers: ['alreadyOn'] }, 'false')).toBe('workshopNote')
+  })
+
+  it('falls back to local behaviour when the delivery status could not be read', () => {
     expect(resolveLuaChecksumCallout(null, 'TRUE')).toBe('localBlocked')
     expect(resolveLuaChecksumCallout(null, 'false')).toBeNull()
     expect(resolveLuaChecksumCallout(null, undefined)).toBeNull()
+  })
+
+  it('shows nothing while the delivery status has not answered yet', () => {
+    expect(resolveLuaChecksumCallout(undefined, 'true')).toBeNull()
+    expect(resolveLuaChecksumCallout(undefined, 'false')).toBeNull()
   })
 })
 

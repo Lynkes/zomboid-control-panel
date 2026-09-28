@@ -103,13 +103,13 @@ import { PageHeader } from '@/components/PageHeader'
 import { serverApi, serverFilesApi, serversApi, panelBridgeApi, ApiError, SpawnPointsByProfession, SpawnRegion, SandboxData, ConfigTemplate, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
 import { resolveServerRunning } from '@/lib/serverStatus'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
-import { resolveLuaChecksumCallout } from '@/lib/bridgeDeliveryView'
-import type { DeliveryMethod, DeliveryState } from '@/lib/bridgeDeliveryTypes'
+import { resolveLuaChecksumCallout, type LuaChecksumDelivery } from '@/lib/bridgeDeliveryView'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { formatModSettingDescription, formatModSettingLabel } from '@/lib/modSettingsLabels'
 import { EmptyState } from '@/components/EmptyState'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSocket } from '@/contexts/SocketContext'
+import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { DisabledReason } from '@/components/DisabledReason'
 import {
   INI_SCHEMA,
@@ -1157,10 +1157,13 @@ export default function ServerConfig() {
   const [activeServerRemote, setActiveServerRemote] = useState(false)
   const [activeServerName, setActiveServerName] = useState<string | null>(null)
   // How PanelBridge reaches the active server, only to word the
-  // DoLuaChecksum callout (§4.12). null until GET /panel-bridge/delivery
-  // answers, and on any failure -- which reads as panel-installed, the
-  // delivery that can only ever warn more, never less.
-  const [bridgeDelivery, setBridgeDelivery] = useState<{ method: DeliveryMethod; state: DeliveryState } | null>(null)
+  // DoLuaChecksum callout (§4.12). undefined while GET /panel-bridge/delivery
+  // hasn't answered (no callout yet: guessing Local would flash the
+  // destructive alert on a confirmed Workshop server), null once it failed
+  // -- which reads as panel-installed, the delivery that can only ever warn
+  // more, never less. See resolveLuaChecksumCallout.
+  const [bridgeDelivery, setBridgeDelivery] = useState<LuaChecksumDelivery | null | undefined>(undefined)
+  const bridgeDeliveryGuard = useRequestGuard()
   // Set when activeServerChanged fires while this page has unsaved edits --
   // GET/PUT /server-files/ini and /sandbox both resolve "the active server"
   // fresh on the server per-request rather than taking a server id, so
@@ -1213,11 +1216,20 @@ export default function ServerConfig() {
   // Fire-and-forget beside loadData, never inside its sequential chain: a
   // slow or refused delivery status must not delay or fail the config load.
   // GET /panel-bridge/delivery accepts serverfiles.manage, this page's gate.
+  // loadData runs again on activeServerChanged and after every save, so a
+  // slow answer for the previous server must not land after the new one
+  // (same race as the round-9 sweep), and the previous server's method is
+  // dropped while the new answer is pending -- the page is behind its
+  // loading skeleton for most of that anyway.
   const loadBridgeDelivery = async () => {
+    const requestId = bridgeDeliveryGuard.next()
+    setBridgeDelivery(undefined)
     try {
       const status = await panelBridgeApi.getDelivery()
-      setBridgeDelivery({ method: status.method, state: status.state })
+      if (bridgeDeliveryGuard.isStale(requestId)) return
+      setBridgeDelivery({ method: status.method, state: status.state, turnOnBlockers: status.checksum.turnOnBlockers })
     } catch {
+      if (bridgeDeliveryGuard.isStale(requestId)) return
       setBridgeDelivery(null)
     }
   }

@@ -16,13 +16,18 @@ interface GuidedStep {
   copy: string[]
 }
 
-function buildSteps(to: DeliveryMethod, manual: GuidedManual, file: string): GuidedStep[] {
+// null when there is nothing safe to show. The Workshop list needs both ini
+// entries (I1): a Mods= entry without its WorkshopItems= id names a mod no
+// one can download, and every join then fails with ModRequired (§3). So
+// with no known item id, the Mods= step is never shown on its own either.
+function buildSteps(to: DeliveryMethod, manual: GuidedManual, file: string): GuidedStep[] | null {
   if (to === 'workshop') {
+    if (!manual.workshopItemsEntry) return null
     const modsValue = `;${manual.modsEntry}`
-    const itemsValue = manual.workshopItemsEntry ? `;${manual.workshopItemsEntry}` : null
+    const itemsValue = `;${manual.workshopItemsEntry}`
     return [
       { key: 'guided.toWorkshop.step1', values: { file, value: modsValue }, copy: [modsValue] },
-      { key: 'guided.toWorkshop.step2', values: { value: itemsValue ?? '' }, copy: itemsValue ? [itemsValue] : [] },
+      { key: 'guided.toWorkshop.step2', values: { value: itemsValue }, copy: [itemsValue] },
       ...(manual.removeFiles.length > 0 ? [{ key: 'guided.toWorkshop.step3', copy: manual.removeFiles }] : []),
       { key: 'guided.toWorkshop.step4', copy: [] },
       { key: 'guided.toWorkshop.step5', copy: [] },
@@ -95,6 +100,13 @@ export function BridgeGuidedSteps({ to, manual, iniFileName }: BridgeGuidedSteps
   const { t } = useTranslation('bridgeDelivery')
   const file = iniFileName ?? t('guided.iniFallback')
   const steps = buildSteps(to, manual, file)
+  if (!steps) return null
+  // The translations wrap {{file}} in <file>, not <code>: a real file name
+  // is a value (monospace, forced LTR), but the fallback is a translated
+  // phrase ("the server's .ini file"), which must stay in the sentence's
+  // own direction -- an Arabic phrase inside an LTR embedding reads
+  // scrambled.
+  const fileComponent = iniFileName ? <code dir="ltr" className="rounded bg-background px-1 font-mono text-xs break-all" /> : <span />
 
   return (
     <div className="space-y-3 rounded-lg border border-border/60 bg-muted/40 p-3 text-sm" data-testid="bridge-guided-steps">
@@ -110,7 +122,10 @@ export function BridgeGuidedSteps({ to, manual, iniFileName }: BridgeGuidedSteps
                 t={t}
                 i18nKey={step.key}
                 values={step.values}
-                components={{ code: <code dir="ltr" className="rounded bg-background px-1 font-mono text-xs break-all" /> }}
+                components={{
+                  code: <code dir="ltr" className="rounded bg-background px-1 font-mono text-xs break-all" />,
+                  file: fileComponent,
+                }}
               />
             </p>
             {step.copy.length > 0 && (

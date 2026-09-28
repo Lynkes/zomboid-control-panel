@@ -7,6 +7,7 @@
   "testOverride": "Atik tès",
   "loading": "N ap verifye kijan PanelBridge enstale…",
   "loadFailed": "Pa t ka chaje kijan PanelBridge enstale",
+  "refreshFailed": "Pa t ka rafrechi estati sa a. Sa ki parèt la ka pa ajou.",
   "retry": "Eseye ankò",
   "needsServerControl": "Pou demare oswa redemare sèvè a, fò w gen otorizasyon server.control, e wòl sa a pa genyen l.",
   "pro": "Avantaj",
@@ -63,8 +64,11 @@
   },
   "state": {
     "local-ok": {
-      "title": "Ajou",
-      "body": "Panèl la enstale l: v{{version}}."
+      "title": "Enstale nan dosye jwèt la",
+      "body": "Panèl la enstale l: v{{version}}.",
+      "titleGuided": "PanelBridge ap bay nouvèl",
+      "bodyGuided": "PanelBridge v{{version}} ap mache sou sèvè sa a.",
+      "restartToLoad": "Sèvè k ap mache a toujou rapòte v{{running}}. L ap chaje v{{version}} lè li redemare."
     },
     "local-update-pending": {
       "title": "Mizajou ap tann",
@@ -168,16 +172,16 @@
     "intro": "Panèl la pa ka chanje fichye sèvè sa a. Fè chanjman sa yo ak jesyonè fichye oswa editè konfigirasyon ebèjè ou:",
     "iniFallback": "fichye .ini sèvè a",
     "toWorkshop": {
-      "step1": "Nan <code>{{file}}</code>, ajoute <code>{{value}}</code> nan fen liy <code>Mods=</code> la.",
+      "step1": "Nan <file>{{file}}</file>, ajoute <code>{{value}}</code> nan fen liy <code>Mods=</code> la.",
       "step2": "Ajoute <code>{{value}}</code> nan fen <code>WorkshopItems=</code> (ajoute liy lan si li pa la).",
       "step3": "Efase fichye sa yo nan dosye jwèt sèvè a, si ou te voye yo:",
       "step4": "Asire w ebèjè ou pa demare sèvè a ak <code>-nosteam</code>.",
       "step5": "Redemare sèvè a depi tablo ebèjè ou."
     },
     "toLocal": {
-      "step1": "Nan <code>{{file}}</code>, retire antre PanelBridge sa yo nan liy <code>Mods=</code> ak <code>WorkshopItems=</code>:",
+      "step1": "Nan <file>{{file}}</file>, retire antre PanelBridge sa yo nan liy <code>Mods=</code> ak <code>WorkshopItems=</code>:",
       "step2": "Voye <code>PanelBridge.lua</code> nan <code>media/lua/server/</code> nan dosye jwèt sèvè a.",
-      "step3": "Mete <code>DoLuaChecksum=false</code> nan <code>{{file}}</code>.",
+      "step3": "Mete <code>DoLuaChecksum=false</code> nan <file>{{file}}</file>.",
       "step4": "Redemare sèvè a depi tablo ebèjè ou."
     },
     "keepChecksumOff": "Kite DoLuaChecksum=false jiskaske paj sa a konfime chanjman an.",
@@ -185,7 +189,7 @@
   },
   "checksumOffer": {
     "title": "Reaktive verifikasyon entegrite Lua a?",
-    "body": "Kounye a PanelBridge chaje nan Steam Workshop, kidonk jwè yo ka antre ak verifikasyon an aktive.",
+    "body": "Kounye a PanelBridge chaje nan Steam Workshop, kidonk ou ka reaktive verifikasyon entegrite Lua a.",
     "ackNonAdmin": "M ap teste ak yon kont jwè nòmal. Kont administratè yo sote verifikasyon sa a, kidonk si yon administratè antre, sa pa pwouve li mache.",
     "ackLinux": "Ansyen vèsyon jwèt la (41.77, 42.13–42.14) te refize jwè Windows ak Mac sou sèvè Linux lè verifikasyon sa a te aktive, menm ak fichye idantik. Yo poko konfime sa korije sou vèsyon sa a. Si jwè yo pa ka antre, dezaktive l isit la.",
     "ackRemoteFiles": "Mwen efase fichye PanelBridge mwen te voye nan dosye jwèt sèvè a.",
@@ -211,6 +215,7 @@
     "switchedToWorkshop": "{{server}} resevwa PanelBridge nan Steam Workshop kounye a",
     "switchedToLocal": "Panèl la enstale PanelBridge sou {{server}} kounye a",
     "switchFailed": "Pa t ka chanje fason PanelBridge enstale",
+    "notRestored": "Panèl la pa t ka anile tout chanjman li te deja fè yo. Anvan ou demare sèvè a, verifye fichye paramèt li nan Konfigirasyon Sèvè › INI; yo te sove yon kopi li anvan chanjman an.",
     "lifecycleFailed": "Chanjman an fèt, men sèvè a pa t demare oswa redemare",
     "installed": "PanelBridge ajou nan dosye jwèt la",
     "installFailed": "Pa t ka kopye PanelBridge nan dosye jwèt la",
@@ -222,7 +227,8 @@
     "actionFailed": "Pa t ka fini aksyon sa a"
   },
   "setupNote": {
-    "workshop": "Sèvè sa a resevwa PanelBridge nan Steam Workshop, kidonk pa gen anyen pou voye. Gade “Kijan PanelBridge enstale” anwo a."
+    "workshop": "Sèvè sa a resevwa PanelBridge nan Steam Workshop, kidonk pa gen anyen pou voye. Kite DoLuaChecksum=false jiskaske “Kijan PanelBridge enstale” anwo a konfime chanjman an.",
+    "waitingWorkshop": "Panèl la pare. Demare oswa redemare sèvè PZ a: l ap telechaje PanelBridge nan Steam Workshop. Gade “Kijan PanelBridge enstale” anwo a."
   },
   "mods": {
     "badge": "Pon panèl la",

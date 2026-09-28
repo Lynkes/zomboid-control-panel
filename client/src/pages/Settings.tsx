@@ -4625,10 +4625,16 @@ export default function Settings() {
                 />
 
                 {/* Not running - setup flow. With Steam Workshop delivery
-                    there is no PanelBridge.lua to upload and DoLuaChecksum
-                    may stay on, so those two steps are replaced by a pointer
-                    to the delivery block above; the watcher/SFTP steps stay,
-                    since the panel reads the bridge's files either way. */}
+                    there is no PanelBridge.lua to upload, and
+                    "Set DoLuaChecksum=false" is no longer a standing
+                    requirement: it only has to stay off until the block
+                    confirms the switch, after which the block itself offers
+                    to turn it back on. An unconditional step here would tell
+                    the operator of a confirmed server to undo that. So both
+                    steps give way to setupNote.workshop, which points at the
+                    block and carries the until-confirmed rule (§4.6); the
+                    watcher/SFTP steps stay, since the panel reads the
+                    bridge's files either way. */}
                 {!bridgeStatus?.isRunning && (
                   <div className="p-4 bg-muted rounded-xl space-y-3">
                     {isRemoteServer ? (
@@ -4725,9 +4731,15 @@ export default function Settings() {
                     </AlertTitle>
                     <AlertDescription className="space-y-2">
                       <p>
+                        {/* waitingLocal asks for PanelBridge.lua and
+                            DoLuaChecksum=false, neither of which applies to
+                            a Workshop server -- and this is exactly the
+                            restart-needed/waiting window after a switch. */}
                         {isRemoteServer && bridgeStatus.transport?.type === "sftp"
                           ? t("bridge.waitingSftp")
-                          : t("bridge.waitingLocal")}
+                          : bridgeUsesWorkshop
+                            ? t("bridgeDelivery:setupNote.waitingWorkshop")
+                            : t("bridge.waitingLocal")}
                       </p>
                       {isRemoteServer && bridgeStatus.transport?.type === "sftp" ? (
                         <>

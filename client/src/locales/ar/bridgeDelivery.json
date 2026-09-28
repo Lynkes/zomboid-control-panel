@@ -7,6 +7,7 @@
   "testOverride": "عنصر اختبار",
   "loading": "جارٍ التحقق من طريقة تثبيت PanelBridge…",
   "loadFailed": "تعذّر تحميل طريقة تثبيت PanelBridge",
+  "refreshFailed": "تعذّر تحديث هذه الحالة. قد يكون المعروض قديمًا.",
   "retry": "إعادة المحاولة",
   "needsServerControl": "يتطلب تشغيل الخادم أو إعادة تشغيله إذن server.control، وهذا الدور لا يملكه.",
   "pro": "ميزة",
@@ -63,8 +64,11 @@
   },
   "state": {
     "local-ok": {
-      "title": "محدّث",
-      "body": "مثبّت بواسطة اللوحة: v{{version}}."
+      "title": "مثبّت في مجلد اللعبة",
+      "body": "مثبّت بواسطة اللوحة: v{{version}}.",
+      "titleGuided": "PanelBridge يُبلغ عن نفسه",
+      "bodyGuided": "يعمل PanelBridge v{{version}} على هذا الخادم.",
+      "restartToLoad": "لا يزال الخادم قيد التشغيل يُبلغ عن v{{running}}. سيحمّل v{{version}} عند إعادة تشغيله."
     },
     "local-update-pending": {
       "title": "تحديث بانتظار التطبيق",
@@ -168,16 +172,16 @@
     "intro": "لا تستطيع اللوحة تعديل ملفات هذا الخادم. أجرِ هذه التغييرات باستخدام مدير الملفات أو محرر الإعدادات لدى مزوّد الاستضافة:",
     "iniFallback": "ملف .ini الخاص بالخادم",
     "toWorkshop": {
-      "step1": "في <code>{{file}}</code>، أضف <code>{{value}}</code> إلى نهاية السطر <code>Mods=</code>.",
+      "step1": "في <file>{{file}}</file>، أضف <code>{{value}}</code> إلى نهاية السطر <code>Mods=</code>.",
       "step2": "أضف <code>{{value}}</code> إلى نهاية <code>WorkshopItems=</code> (أضف السطر إن لم يكن موجودًا).",
       "step3": "احذف هذه الملفات من مجلد اللعبة على الخادم إن كنت قد رفعتها:",
       "step4": "تأكّد من أن مزوّد الاستضافة لا يشغّل الخادم مع <code>-nosteam</code>.",
       "step5": "أعد تشغيل الخادم من واجهة مزوّد الاستضافة."
     },
     "toLocal": {
-      "step1": "في <code>{{file}}</code>، أزل إدخالات PanelBridge هذه من السطرين <code>Mods=</code> و<code>WorkshopItems=</code>:",
+      "step1": "في <file>{{file}}</file>، أزل إدخالات PanelBridge هذه من السطرين <code>Mods=</code> و<code>WorkshopItems=</code>:",
       "step2": "ارفع <code>PanelBridge.lua</code> إلى <code>media/lua/server/</code> في مجلد اللعبة على الخادم.",
-      "step3": "اضبط <code>DoLuaChecksum=false</code> في <code>{{file}}</code>.",
+      "step3": "اضبط <code>DoLuaChecksum=false</code> في <file>{{file}}</file>.",
       "step4": "أعد تشغيل الخادم من واجهة مزوّد الاستضافة."
     },
     "keepChecksumOff": "اترك DoLuaChecksum=false حتى تؤكّد هذه الصفحة التبديل.",
@@ -185,7 +189,7 @@
   },
   "checksumOffer": {
     "title": "هل تريد إعادة تفعيل فحص سلامة Lua؟",
-    "body": "يُحمَّل PanelBridge الآن من ورشة Steam، لذا يستطيع اللاعبون الانضمام والفحص مفعّل.",
+    "body": "يُحمَّل PanelBridge الآن من ورشة Steam، لذا يمكن إعادة تفعيل فحص سلامة Lua.",
     "ackNonAdmin": "سأختبر بحساب لاعب عادي. حسابات المسؤولين تتجاوز هذا الفحص، لذا فدخول مسؤول لا يثبت أنه يعمل.",
     "ackLinux": "كانت إصدارات سابقة من اللعبة (41.77 و42.13–42.14) ترفض لاعبي Windows وMac على خوادم Linux عند تفعيل هذا الفحص، حتى مع ملفات متطابقة. ولم يُؤكَّد إصلاح ذلك في هذا الإصدار. إذا لم يستطع اللاعبون الانضمام فعطّله من هنا.",
     "ackRemoteFiles": "حذفتُ ملفات PanelBridge التي رفعتها إلى مجلد اللعبة على الخادم.",
@@ -211,6 +215,7 @@
     "switchedToWorkshop": "يحصل {{server}} الآن على PanelBridge من ورشة Steam",
     "switchedToLocal": "تثبّت اللوحة الآن PanelBridge على {{server}}",
     "switchFailed": "تعذّر تغيير طريقة تثبيت PanelBridge",
+    "notRestored": "تعذّر على اللوحة التراجع عن كل التغييرات التي أجرتها. قبل تشغيل الخادم، افحص ملف إعداداته في تهيئة الخادم › INI؛ فقد حُفظت نسخة احتياطية منه قبل التغيير.",
     "lifecycleFailed": "تم التبديل، لكن الخادم لم يبدأ التشغيل أو إعادة التشغيل",
     "installed": "PanelBridge محدّث في مجلد اللعبة",
     "installFailed": "تعذّر نسخ PanelBridge إلى مجلد اللعبة",
@@ -222,7 +227,8 @@
     "actionFailed": "تعذّر إكمال هذا الإجراء"
   },
   "setupNote": {
-    "workshop": "يحصل هذا الخادم على PanelBridge من ورشة Steam، لذا لا يوجد ما يُرفع. راجع «طريقة تثبيت PanelBridge» أعلاه."
+    "workshop": "يحصل هذا الخادم على PanelBridge من ورشة Steam، لذا لا يوجد ما يُرفع. أبقِ DoLuaChecksum=false حتى يؤكد قسم «طريقة تثبيت PanelBridge» أعلاه التبديل.",
+    "waitingWorkshop": "اللوحة جاهزة. شغّل خادم PZ أو أعد تشغيله: سينزّل PanelBridge من ورشة Steam. راجع «طريقة تثبيت PanelBridge» أعلاه."
   },
   "mods": {
     "badge": "جسر اللوحة",

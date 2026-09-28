@@ -56,12 +56,19 @@ const restart = vi.mocked(serverApi.restart)
 const start = vi.mocked(serverApi.start)
 const saveIni = vi.mocked(serverFilesApi.saveIni)
 
-function renderPanel(status: DeliveryStatus, props: { playerCount?: number | null } = {}) {
+function renderPanel(
+  status: DeliveryStatus,
+  props: { playerCount?: number | null; activeServerId?: string | null } = {},
+) {
   getDelivery.mockResolvedValue(status)
   return render(
     <MemoryRouter>
       <TooltipProvider>
-        <BridgeDeliveryPanel activeServerId="srv-1" iniFileName="servertest.ini" playerCount={props.playerCount ?? null} />
+        <BridgeDeliveryPanel
+          activeServerId={props.activeServerId === undefined ? 'srv-1' : props.activeServerId}
+          iniFileName="servertest.ini"
+          playerCount={props.playerCount ?? null}
+        />
       </TooltipProvider>
     </MemoryRouter>,
   )
@@ -104,6 +111,44 @@ describe('BridgeDeliveryPanel: every DeliveryState renders its own copy', () => 
     const version = base.live?.version ?? ''
     expect(within(callout).getByText(copy.title.replace('{{version}}', version))).toBeInTheDocument()
     expect(within(callout).getByText(copy.body.replace('{{version}}', version))).toBeInTheDocument()
+  })
+})
+
+describe('BridgeDeliveryPanel: local-ok claims only what its state was decided on', () => {
+  // Panel updated while the game server kept running: the file on disk is
+  // 1.7.70 (so the server says local-ok), the heartbeat still says 1.7.60.
+  const liveOlder = { alive: true, version: '1.7.60', delivery: 'loose' as const, workshopId: null, startedAt: 1, gameVersion: '42.20.0' }
+
+  it('automatic: the version on disk, plus the restart that loads it', async () => {
+    renderPanel(makeLocalStatus({ live: liveOlder }))
+    await panelReady()
+    const callout = document.querySelector('[data-state="local-ok"]') as HTMLElement
+    expect(within(callout).getByText(en.state['local-ok'].title)).toBeInTheDocument()
+    expect(within(callout).getByText(en.state['local-ok'].body.replace('{{version}}', '1.7.70'))).toBeInTheDocument()
+    expect(
+      within(callout).getByText(
+        en.state['local-ok'].restartToLoad.replace('{{running}}', '1.7.60').replace('{{version}}', '1.7.70'),
+      ),
+    ).toBeInTheDocument()
+    expect(within(callout).queryByText(/1\.7\.60\.$/)).toBeNull()
+    expect(callout).not.toHaveTextContent('Up to date')
+  })
+
+  it('automatic, same version running: no restart note', async () => {
+    renderPanel(makeLocalStatus())
+    await panelReady()
+    const callout = document.querySelector('[data-state="local-ok"]') as HTMLElement
+    expect(within(callout).queryByText(/still reports/)).toBeNull()
+  })
+
+  it('guided: only that the bridge is reporting in, with the version it reports', async () => {
+    renderPanel(makeLocalStatus({ access: 'guided', disk: null, live: liveOlder, checksum: { ...makeLocalStatus().checksum, current: null } }))
+    await panelReady()
+    const callout = document.querySelector('[data-state="local-ok"]') as HTMLElement
+    expect(within(callout).getByText(en.state['local-ok'].titleGuided)).toBeInTheDocument()
+    expect(within(callout).getByText(en.state['local-ok'].bodyGuided.replace('{{version}}', '1.7.60'))).toBeInTheDocument()
+    expect(within(callout).queryByText(en.state['local-ok'].title)).toBeNull()
+    expect(within(callout).queryByText(/still reports/)).toBeNull()
   })
 })
 
@@ -225,7 +270,10 @@ describe('BridgeDeliveryPanel: the Lua integrity check', () => {
     await panelReady()
     const offer = screen.getByTestId('bridge-delivery-checksum-offer')
     expect(within(offer).getByText(en.checksumOffer.title)).toBeInTheDocument()
+    expect(within(offer).getByText(en.checksumOffer.body)).toBeInTheDocument()
     expect(within(offer).getByText(en.security.sentence)).toBeInTheDocument()
+    // The card makes no promise the Linux caveat (ackLinux) could break.
+    expect(en.checksumOffer.body).not.toMatch(/can join/i)
     fireEvent.click(within(offer).getByRole('button', { name: en.checksumOffer.turnOn }))
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: en.checksumOffer.ackNonAdmin })).toBeInTheDocument()
@@ -315,6 +363,20 @@ describe('BridgeDeliveryPanel: failure states and their actions', () => {
     await panelReady()
     fireEvent.click(screen.getByRole('button', { name: en.action.updateNow }))
     await waitFor(() => expect(installModAuto).toHaveBeenCalledWith('srv-1'))
+    await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: en.toast.installed, variant: 'success' })))
+  })
+
+  it('an install the server answers with success:false is reported as a failure, not "up to date"', async () => {
+    installModAuto.mockResolvedValue({ success: false, message: '', error: 'Disk full', path: 'x', serverName: 'Main Server' })
+    renderPanel(makeLocalStatus({ state: 'local-not-installed' }))
+    await panelReady()
+    fireEvent.click(screen.getByRole('button', { name: en.action.installNow }))
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({ title: en.toast.installFailed, description: 'Disk full', variant: 'destructive' }),
+      ),
+    )
+    expect(toastMock).not.toHaveBeenCalledWith(expect.objectContaining({ title: en.toast.installed }))
   })
 
   it('shows the standing update note in Workshop mode, by auto-restart setting', async () => {
@@ -341,6 +403,26 @@ describe('BridgeDeliveryPanel: failure states and their actions', () => {
     fireEvent.click(screen.getByRole('button', { name: en.retry }))
     await panelReady()
   })
+
+  it('keeps the last status when a refresh fails, and says it may be out of date', async () => {
+    saveIni.mockResolvedValue({ success: true, message: 'ok', path: 'x', settings: {} })
+    renderPanel(
+      makeLocalStatus({ checksum: { current: true, canTurnOn: false, turnOnBlockers: ['notWorkshop', 'alreadyOn'], playersBlocked: true, requiresLinuxAck: false } }),
+    )
+    await panelReady()
+    expect(screen.queryByTestId('bridge-delivery-refresh-failed')).toBeNull()
+    // Every mutation refetches; this one fails.
+    getDelivery.mockRejectedValueOnce(new Error('offline'))
+    fireEvent.click(screen.getByRole('button', { name: en.playersBlocked.turnOff }))
+    const notice = await screen.findByTestId('bridge-delivery-refresh-failed')
+    expect(notice).toHaveTextContent(en.refreshFailed)
+    // The last answer is still on screen, not replaced by the load error.
+    expect(screen.getByTestId('bridge-delivery-players-blocked')).toBeInTheDocument()
+    expect(screen.queryByText(en.loadFailed)).toBeNull()
+    getDelivery.mockResolvedValue(makeLocalStatus())
+    fireEvent.click(within(notice).getByRole('button', { name: en.retry }))
+    await waitFor(() => expect(screen.queryByTestId('bridge-delivery-refresh-failed')).toBeNull())
+  })
 })
 
 describe('BridgeDeliveryPanel: guided access (remote / hosted)', () => {
@@ -355,6 +437,21 @@ describe('BridgeDeliveryPanel: guided access (remote / hosted)', () => {
     expect(within(steps).getByText(en.guided.keepChecksumOff)).toBeInTheDocument()
     // Unknown lifecycle on a remote host: no start/restart buttons.
     expect(screen.queryByRole('button', { name: en.action.restartNow })).toBeNull()
+  })
+
+  it("doesn't name an .ini from the page's server list when that list disagrees with the status", async () => {
+    const guided = makeWorkshopStatus({ access: 'guided', disk: null, serverRunning: null, state: 'workshop-restart-needed', checksum: { current: null, canTurnOn: false, turnOnBlockers: ['notConfirmed'], playersBlocked: false, requiresLinuxAck: false } })
+    // The page still thinks srv-2 is active; the server answered for srv-1.
+    renderPanel(guided, { activeServerId: 'srv-2' })
+    await panelReady()
+    const first = within(screen.getByTestId('bridge-guided-steps')).getAllByRole('listitem')[0]
+    expect(first).toHaveTextContent(`In ${en.guided.iniFallback}, add`)
+    expect(first).not.toHaveTextContent('servertest.ini')
+    cleanup()
+
+    renderPanel(guided, { activeServerId: 'srv-1' })
+    await panelReady()
+    expect(within(screen.getByTestId('bridge-guided-steps')).getAllByRole('listitem')[0]).toHaveTextContent('In servertest.ini, add')
   })
 
   it('hides the manual steps once confirmed, and the offer needs no serverfiles.manage for instructions', async () => {

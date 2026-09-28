@@ -48,7 +48,7 @@ const getDelivery = vi.mocked(panelBridgeApi.getDelivery)
 const getAllServers = vi.mocked(serversApi.getAll)
 const getNetworkInterfaces = vi.mocked(serverApi.getNetworkInterfaces)
 
-function prime(deliveryMethod: 'local' | 'workshop') {
+function prime(deliveryMethod: 'local' | 'workshop', bridge: { isRunning: boolean } = { isRunning: false }) {
   getAppSettings.mockResolvedValue({ settings: { panelPort: 8080, httpsEnabled: false, httpsPort: 8443, corsAllowedOrigins: '', autoReconnect: false } } as never)
   getUpdateStatus.mockResolvedValue({ currentVersion: '1.0.0', updateAvailable: false, isChecking: false, isDownloading: false, downloadProgress: 0, updateMode: 'direct' } as never)
   preflight.mockResolvedValue({ ok: true, blockers: [], warnings: [], blockerDetails: [], warningDetails: [], info: { isPackaged: true, platform: 'win32', updateMode: 'direct' } } as never)
@@ -57,7 +57,7 @@ function prime(deliveryMethod: 'local' | 'workshop') {
   getAllServers.mockResolvedValue({
     servers: [{ id: 'srv-1', name: 'Main Server', serverName: 'servertest', isActive: true, isRemote: false, installPath: 'D:\\PZServer' }],
   } as never)
-  getBridgeStatus.mockResolvedValue({ isRunning: false, modConnected: false, bridgePath: null, connection: null, deliveryMethod } as never)
+  getBridgeStatus.mockResolvedValue({ isRunning: bridge.isRunning, modConnected: false, bridgePath: null, connection: null, deliveryMethod } as never)
   getDelivery.mockResolvedValue(deliveryMethod === 'workshop' ? makeWorkshopStatus() : makeLocalStatus())
 }
 
@@ -108,6 +108,26 @@ describe('Settings › PanelBridge: delivery block and setup flow', () => {
     expect(screen.queryByText(listItemText('Set DoLuaChecksum=false in your server INI'))).toBeNull()
     expect(screen.getByText(listItemText('Click Auto Setup to start the bridge watcher'))).toBeInTheDocument()
     expect(screen.getByRole('button', { name: enSettings.bridge.autoSetupButton })).toBeInTheDocument()
+  })
+
+  it('the Workshop setup note keeps the until-confirmed DoLuaChecksum rule (§4.6)', () => {
+    expect(enDelivery.setupNote.workshop).toContain('DoLuaChecksum=false')
+    expect(enDelivery.setupNote.workshop).toContain(enDelivery.sectionTitle)
+  })
+
+  it('"Waiting for PZ mod" asks a Workshop server for a start, not for PanelBridge.lua', async () => {
+    prime('workshop', { isRunning: true })
+    renderSettings()
+    expect(await screen.findByText(enSettings.bridge.waitingForModTitle)).toBeInTheDocument()
+    expect(screen.getByText(enDelivery.setupNote.waitingWorkshop)).toBeInTheDocument()
+    expect(screen.queryByText(enSettings.bridge.waitingLocal)).toBeNull()
+  })
+
+  it('"Waiting for PZ mod" keeps the local wording for panel-installed delivery', async () => {
+    prime('local', { isRunning: true })
+    renderSettings()
+    expect(await screen.findByText(enSettings.bridge.waitingLocal)).toBeInTheDocument()
+    expect(screen.queryByText(enDelivery.setupNote.waitingWorkshop)).toBeNull()
   })
 
   it('the Install & updates section uses the per-method wording', async () => {

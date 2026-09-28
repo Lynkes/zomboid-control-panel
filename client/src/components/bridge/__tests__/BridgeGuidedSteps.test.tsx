@@ -41,9 +41,29 @@ describe('BridgeGuidedSteps', () => {
     expect(screen.getByText(en.guided.keepChecksumOff)).toBeInTheDocument()
   })
 
-  it('falls back to a generic file name when the ini name is unknown', () => {
+  it('falls back to a generic file name when the ini name is unknown, as prose rather than a value', () => {
     render(<BridgeGuidedSteps to="workshop" manual={manual} iniFileName={null} />)
-    expect(screen.getAllByRole('listitem')[0]).toHaveTextContent(`In ${en.guided.iniFallback}, add`)
+    const first = screen.getAllByRole('listitem')[0]
+    expect(first).toHaveTextContent(`In ${en.guided.iniFallback}, add`)
+    // A translated phrase must keep the sentence's direction (an Arabic
+    // phrase in an LTR <code> reads scrambled); only real values are code.
+    for (const code of first.querySelectorAll('code')) expect(code.textContent).not.toBe(en.guided.iniFallback)
+    expect(screen.getByText(en.guided.iniFallback).closest('code')).toBeNull()
+  })
+
+  it('names a known ini file as a left-to-right value', () => {
+    render(<BridgeGuidedSteps to="local" manual={{ ...manual, removeFiles: [], setChecksumFalse: true }} iniFileName="servertest.ini" />)
+    const codes = [...screen.getByTestId('bridge-guided-steps').querySelectorAll('code')].filter((c) => c.textContent === 'servertest.ini')
+    expect(codes).toHaveLength(2)
+    for (const code of codes) expect(code).toHaveAttribute('dir', 'ltr')
+  })
+
+  it('shows nothing for a Workshop switch whose item id is unknown: never Mods= without WorkshopItems=', () => {
+    const { container } = render(
+      <BridgeGuidedSteps to="workshop" manual={{ ...manual, workshopItemsEntry: null }} iniFileName="servertest.ini" />,
+    )
+    expect(container).toBeEmptyDOMElement()
+    expect(screen.queryByRole('button', { name: 'Copy ;ZomboidControlPanelBridge' })).toBeNull()
   })
 
   it('copies a value and confirms it on the button', async () => {

@@ -23,7 +23,7 @@ import { DisabledReason } from '@/components/DisabledReason'
 import { useAuth } from '@/contexts/AuthContext'
 import { useBridgeDelivery } from '@/hooks/useBridgeDelivery'
 import { panelBridgeApi, serverApi, serverFilesApi } from '@/lib/api'
-import { getUserErrorMessage } from '@/lib/errorMessage'
+import { getResultErrorMessage, getUserErrorMessage } from '@/lib/errorMessage'
 import { cn } from '@/lib/utils'
 import type { DeliveryMethod, DeliveryStatus } from '@/lib/bridgeDeliveryTypes'
 import {
@@ -34,8 +34,10 @@ import {
   getChecksumBlockerKey,
   getDeliveryStateView,
   getGuidedWorkshopManual,
+  getRunningVersionNote,
   getStateVersion,
   resolveStateActions,
+  resolveStateCopy,
 } from '@/lib/bridgeDeliveryView'
 import { BridgeDeliverySwitchDialog } from './BridgeDeliverySwitchDialog'
 import { BridgeChecksumDialog } from './BridgeChecksumDialog'
@@ -86,6 +88,13 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
   const noServerControlReason = !canControlServer ? t('needsServerControl') : null
   const noServerFilesReason = !canManageServerFiles ? t('checksumOffer.needsServerFiles') : null
   const playersOnline = status?.live?.alive === true && (playerCount ?? 0) > 0
+  // iniFileName comes from Settings' own server list, which can lag the
+  // server's idea of "active" (another tab switching servers), while the
+  // status is always the server's answer for whatever is active now. Only
+  // name the file when both agree; otherwise the guided steps say "the
+  // server's .ini file" rather than naming the previous server's.
+  const statusIniFileName =
+    status && activeServerId != null && String(activeServerId) === status.serverId ? iniFileName : null
 
   const runAction = async (action: PendingAction, fn: () => Promise<unknown>, successTitle: string, failureTitle: string) => {
     setPending(action)
@@ -116,7 +125,18 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
       case 'installNow':
       case 'updateNow':
         if (!canSetupBridge) return
-        void runAction(action, () => panelBridgeApi.installModAuto(status.serverId), t('toast.installed'), t('toast.installFailed'))
+        void runAction(
+          action,
+          async () => {
+            // §5.6 keeps { success: false } (a 200, not a thrown error) for
+            // an install that failed; toasting "up to date" over it would
+            // claim a file is in place that isn't.
+            const result = await panelBridgeApi.installModAuto(status.serverId)
+            if (result.success === false) throw new Error(getResultErrorMessage(result, t('toast.installFailed')))
+          },
+          t('toast.installed'),
+          t('toast.installFailed'),
+        )
         return
       case 'restartNow':
         if (!canControlServer) return
@@ -196,7 +216,9 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
 
   const renderStateCallout = (s: DeliveryStatus) => {
     const view = getDeliveryStateView(s.state)
+    const copy = resolveStateCopy(s)
     const params = { version: getStateVersion(s) }
+    const runningNote = getRunningVersionNote(s)
     const warning = view.tone === 'warning'
     const icon = warning ? (
       <AlertTriangle className="h-4 w-4 text-warning" />
@@ -210,9 +232,10 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
     return (
       <Alert className={warning ? WARNING_CALLOUT : NEUTRAL_CALLOUT} aria-live="polite" data-state={s.state}>
         {icon}
-        <AlertTitle className={warning ? 'text-warning' : undefined}>{t(view.titleKey, params)}</AlertTitle>
+        <AlertTitle className={warning ? 'text-warning' : undefined}>{t(copy.titleKey, params)}</AlertTitle>
         <AlertDescription className="space-y-2">
-          <p>{t(view.bodyKey, params)}</p>
+          <p>{t(copy.bodyKey, params)}</p>
+          {runningNote && <p className="text-xs text-muted-foreground">{t('state.local-ok.restartToLoad', runningNote)}</p>}
           {s.state === 'workshop-start-failed' && s.lastStartFailure && (
             <div className="space-y-1">
               <p className="text-xs text-muted-foreground">{t('state.evidence')}</p>
@@ -463,6 +486,21 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
         {status && <p className="text-xs text-muted-foreground">{t('appliesTo', { server: status.serverName })}</p>}
       </div>
 
+      {/* A refetch failed but an earlier answer is still shown: keep it (a
+          blip shouldn't blank the block), but say it may be out of date.
+          Every write still carries status.serverId, which the server
+          checks against the active server, so acting on it stays safe. */}
+      {status && error != null && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-warning" role="status" data-testid="bridge-delivery-refresh-failed">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="min-w-0">{t('refreshFailed')}</span>
+          <Button type="button" size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs" onClick={() => void refetch()}>
+            <RefreshCw className="h-3 w-3" />
+            {t('retry')}
+          </Button>
+        </div>
+      )}
+
       {!status && loading && (
         <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -490,7 +528,7 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
           {renderBanners(status)}
           {renderChecksum(status)}
           {showGuidedReminder(status) && (
-            <BridgeGuidedSteps to="workshop" manual={getGuidedWorkshopManual(status)} iniFileName={iniFileName} />
+            <BridgeGuidedSteps to="workshop" manual={getGuidedWorkshopManual(status)} iniFileName={statusIniFileName} />
           )}
           <div className="grid gap-3 sm:grid-cols-2">
             {renderOptionCard(status, 'local')}
@@ -509,7 +547,7 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
             status={status}
             to={switchTarget ?? (status.method === 'local' ? 'workshop' : 'local')}
             playerCount={playerCount}
-            iniFileName={iniFileName}
+            iniFileName={statusIniFileName}
             onChanged={refetch}
           />
           <BridgeChecksumDialog

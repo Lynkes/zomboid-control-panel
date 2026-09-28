@@ -133,9 +133,15 @@ export function BridgeDeliverySwitchDialog({
         void onChanged()
         await loadPlan()
       } else {
+        // §5.5: a failed apply carries `restored`. false means the undo
+        // itself failed part-way (a broken I6), and the coded message's own
+        // "the panel put back what it had already changed" would then be
+        // untrue -- so it is replaced, not appended to.
+        const notRestored =
+          err instanceof ApiError && (err.data as { restored?: unknown } | undefined)?.restored === false
         toast({
           title: t('toast.switchFailed'),
-          description: getUserErrorMessage(err, t('toast.switchFailed')),
+          description: notRestored ? t('toast.notRestored') : getUserErrorMessage(err, t('toast.switchFailed')),
           variant: 'destructive',
         })
         void onChanged()
@@ -177,7 +183,7 @@ export function BridgeDeliverySwitchDialog({
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-h-[80vh] sm:max-w-2xl">
         <DialogHeader className="pe-6">
           <DialogTitle className="leading-snug">{title}</DialogTitle>
-          <DialogDescription>{guided ? t('guided.title') : t('dialog.intro')}</DialogDescription>
+          <DialogDescription>{guided && !plan?.blocked ? t('guided.title') : t('dialog.intro')}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
@@ -234,7 +240,12 @@ export function BridgeDeliverySwitchDialog({
             </div>
           )}
 
-          {plan && guided && plan.manual && (
+          {/* Guided steps are done by hand, outside the panel, so unlike the
+              automatic list they aren't merely informational: shown on a
+              blocked plan (e.g. -nosteam, or no known item id), following
+              them would get around the block. The block reason above is
+              all a blocked plan shows. */}
+          {plan && guided && plan.manual && !plan.blocked && (
             <BridgeGuidedSteps to={plan.to} manual={plan.manual} iniFileName={iniFileName} />
           )}
 

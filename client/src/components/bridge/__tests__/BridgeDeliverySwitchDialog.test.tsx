@@ -209,7 +209,28 @@ describe('BridgeDeliverySwitchDialog: apply', () => {
     await stepsList()
     fireEvent.click(screen.getByRole('button', { name: en.dialog.applyRestartEmpty }))
     await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: en.toast.switchFailed, variant: 'destructive' })))
+    expect(toastMock).not.toHaveBeenCalledWith(expect.objectContaining({ description: en.toast.notRestored }))
     expect(restart).not.toHaveBeenCalled()
+  })
+
+  it('a failed apply whose undo did not complete (restored:false) says so instead of "put back"', async () => {
+    planDelivery.mockResolvedValue(makePlan())
+    applyDelivery.mockRejectedValueOnce(
+      new ApiError("Couldn't update servertest.ini. The panel put back what it had already changed.", {
+        status: 500,
+        code: 'PANELBRIDGE_DELIVERY_INI_WRITE_FAILED',
+        data: { code: 'PANELBRIDGE_DELIVERY_INI_WRITE_FAILED', params: { fileName: 'servertest.ini' }, restored: false },
+      }),
+    )
+    renderDialog(makeLocalStatus())
+    await stepsList()
+    fireEvent.click(screen.getByRole('button', { name: en.dialog.applyOnly }))
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({ title: en.toast.switchFailed, description: en.toast.notRestored, variant: 'destructive' }),
+      ),
+    )
+    expect(toastMock).not.toHaveBeenCalledWith(expect.objectContaining({ description: expect.stringMatching(/put back what/) }))
   })
 
   it('reports a failed restart separately: the switch itself already happened', async () => {
@@ -249,6 +270,36 @@ describe('BridgeDeliverySwitchDialog: guided access', () => {
     await waitFor(() =>
       expect(applyDelivery).toHaveBeenCalledWith({ serverId: 'srv-1', method: 'workshop', expectedFrom: 'local' }),
     )
+  })
+
+  // The dry run re-plans on fresh data, so a status that said "available"
+  // can still come back blocked (-nosteam turned on meanwhile, the release
+  // became invalid). Guided steps are done by hand: showing them here would
+  // let the operator get around the block and add entries every join then
+  // fails on.
+  it.each([
+    ['noSteam', WORKSHOP_ID],
+    ['notPublished', null],
+  ] as const)('a blocked guided plan (%s) shows only the block reason, never the manual steps', async (reason, workshopItemsEntry) => {
+    planDelivery.mockResolvedValue(
+      makePlan({
+        access: 'guided',
+        blocked: { reason },
+        steps: [],
+        manual: {
+          modsEntry: 'ZomboidControlPanelBridge',
+          workshopItemsEntry,
+          removeFiles: ['media/lua/server/PanelBridge.lua', 'media/lua/client/PanelBridgeClient.lua'],
+          setChecksumFalse: false,
+        },
+      }),
+    )
+    renderDialog(makeLocalStatus({ access: 'guided', disk: null, serverRunning: null }))
+    expect((await screen.findAllByText(en.unavailable[reason])).length).toBeGreaterThan(0)
+    expect(screen.queryByTestId('bridge-guided-steps')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Copy ;ZomboidControlPanelBridge' })).toBeNull()
+    expect(screen.queryByText(en.guided.title)).toBeNull()
+    expect(screen.getByRole('button', { name: en.guided.done })).toBeDisabled()
   })
 
   it('switching a guided server back lists the reverse steps', async () => {

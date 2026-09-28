@@ -3010,13 +3010,17 @@ export const panelBridgeApi = {
   // expectedFrom is the method the operator saw in the preview; the server
   // answers 409 PANELBRIDGE_DELIVERY_STALE instead of applying when it no
   // longer matches. POSTs are never transport-retried (fetchWithRetry), so
-  // a timed-out apply can't silently run twice.
+  // a timed-out apply can't silently run twice. 60 s rather than the 15 s
+  // default: an apply installs, archives (copy + fsync) and rewrites every
+  // group ini under one lock, which a slow disk or network share can take
+  // past 15 s -- the client would then report a failure for a switch the
+  // server went on to complete.
   applyDelivery: (body: {
     serverId: string;
     method: import("./bridgeDeliveryTypes").DeliveryMethod;
     expectedFrom: import("./bridgeDeliveryTypes").DeliveryMethod;
   }) =>
-    apiPost("/panel-bridge/delivery", { ...body, dryRun: false }) as Promise<
+    apiPost("/panel-bridge/delivery", { ...body, dryRun: false }, { timeout: 60000 }) as Promise<
       import("./bridgeDeliveryTypes").DeliveryPlanResponse
     >,
 

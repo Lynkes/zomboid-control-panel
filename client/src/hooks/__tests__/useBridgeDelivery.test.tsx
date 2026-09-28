@@ -4,6 +4,7 @@ import { act, renderHook } from '@testing-library/react'
 import type { Socket } from 'socket.io-client'
 import { SocketContext } from '@/contexts/SocketContext'
 import { panelBridgeApi } from '@/lib/api'
+import { reportClientError } from '@/lib/client-errors'
 import { useBridgeDelivery } from '../useBridgeDelivery'
 import { makeLocalStatus, makeWorkshopStatus } from '@/components/bridge/__tests__/deliveryFixtures'
 
@@ -76,6 +77,52 @@ describe('useBridgeDelivery', () => {
     })
     expect(result.current.status?.serverId).toBe('srv-2')
     expect(getDelivery).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops the status when the active server goes away (id -> null)', async () => {
+    getDelivery.mockResolvedValue(makeLocalStatus())
+    const { result, rerender } = renderHook(({ id }) => useBridgeDelivery({ activeServerId: id }), {
+      wrapper: wrapperFor(null),
+      initialProps: { id: 'srv-1' as string | null },
+    })
+    await flush()
+    expect(result.current.status).not.toBeNull()
+    getDelivery.mockRejectedValueOnce(new Error('PANELBRIDGE_NO_ACTIVE_SERVER'))
+    rerender({ id: null })
+    expect(result.current.status).toBeNull()
+    await flush()
+    expect(result.current.status).toBeNull()
+    expect(result.current.error).toBeInstanceOf(Error)
+  })
+
+  it('keeps the last status when a refetch fails, with the error beside it', async () => {
+    getDelivery.mockResolvedValueOnce(makeLocalStatus())
+    const { result } = renderHook(() => useBridgeDelivery({ activeServerId: 'srv-1' }), { wrapper: wrapperFor(null) })
+    await flush()
+    getDelivery.mockRejectedValueOnce(new Error('offline'))
+    await act(async () => { await result.current.refetch() })
+    expect(result.current.status?.state).toBe('local-ok')
+    expect(result.current.error).toBeInstanceOf(Error)
+  })
+
+  it('reports a streak of failures once, and again only after a success', async () => {
+    const socket = makeSocket()
+    getDelivery.mockRejectedValue(new Error('403'))
+    renderHook(() => useBridgeDelivery({ activeServerId: 'srv-1' }), { wrapper: wrapperFor(socket) })
+    await flush()
+    for (let i = 0; i < 3; i++) {
+      act(() => socket.emit('server:status', {}))
+      await flush()
+    }
+    expect(getDelivery).toHaveBeenCalledTimes(4)
+    expect(reportClientError).toHaveBeenCalledTimes(1)
+
+    getDelivery.mockResolvedValueOnce(makeLocalStatus())
+    act(() => socket.emit('server:status', {}))
+    await flush()
+    act(() => socket.emit('server:status', {}))
+    await flush()
+    expect(reportClientError).toHaveBeenCalledTimes(2)
   })
 
   it('keeps the status on screen when the page merely learns the active id (null -> id)', async () => {

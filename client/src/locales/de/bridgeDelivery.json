@@ -7,6 +7,7 @@
   "testOverride": "Test-Element",
   "loading": "Prüfe, wie PanelBridge installiert ist…",
   "loadFailed": "Installationsart von PanelBridge konnte nicht geladen werden",
+  "refreshFailed": "Dieser Status konnte nicht aktualisiert werden. Die Anzeige ist möglicherweise veraltet.",
   "retry": "Erneut versuchen",
   "needsServerControl": "Zum Starten oder Neustarten des Servers ist die Berechtigung server.control nötig, die diese Rolle nicht hat.",
   "pro": "Vorteil",
@@ -63,8 +64,11 @@
   },
   "state": {
     "local-ok": {
-      "title": "Auf dem neuesten Stand",
-      "body": "Vom Panel installiert: v{{version}}."
+      "title": "Im Spielordner installiert",
+      "body": "Vom Panel installiert: v{{version}}.",
+      "titleGuided": "PanelBridge meldet sich",
+      "bodyGuided": "Auf diesem Server läuft PanelBridge v{{version}}.",
+      "restartToLoad": "Der laufende Server meldet noch v{{running}}. Er lädt v{{version}} beim nächsten Neustart."
     },
     "local-update-pending": {
       "title": "Update ausstehend",
@@ -168,16 +172,16 @@
     "intro": "Das Panel kann die Dateien dieses Servers nicht ändern. Nimm diese Änderungen mit dem Dateimanager oder Konfigurationseditor deines Hosters vor:",
     "iniFallback": "die .ini-Datei des Servers",
     "toWorkshop": {
-      "step1": "Füge in <code>{{file}}</code> <code>{{value}}</code> am Ende der Zeile <code>Mods=</code> hinzu.",
+      "step1": "Füge in <file>{{file}}</file> <code>{{value}}</code> am Ende der Zeile <code>Mods=</code> hinzu.",
       "step2": "Füge <code>{{value}}</code> am Ende von <code>WorkshopItems=</code> hinzu (lege die Zeile an, falls sie fehlt).",
       "step3": "Lösche diese Dateien aus dem Spielordner des Servers, falls du sie hochgeladen hast:",
       "step4": "Stelle sicher, dass dein Hoster den Server nicht mit <code>-nosteam</code> startet.",
       "step5": "Starte den Server über das Dashboard deines Hosters neu."
     },
     "toLocal": {
-      "step1": "Entferne in <code>{{file}}</code> diese PanelBridge-Einträge aus den Zeilen <code>Mods=</code> und <code>WorkshopItems=</code>:",
+      "step1": "Entferne in <file>{{file}}</file> diese PanelBridge-Einträge aus den Zeilen <code>Mods=</code> und <code>WorkshopItems=</code>:",
       "step2": "Lade <code>PanelBridge.lua</code> nach <code>media/lua/server/</code> im Spielordner des Servers hoch.",
-      "step3": "Setze <code>DoLuaChecksum=false</code> in <code>{{file}}</code>.",
+      "step3": "Setze <code>DoLuaChecksum=false</code> in <file>{{file}}</file>.",
       "step4": "Starte den Server über das Dashboard deines Hosters neu."
     },
     "keepChecksumOff": "Lass DoLuaChecksum=false, bis diese Seite den Wechsel bestätigt.",
@@ -185,7 +189,7 @@
   },
   "checksumOffer": {
     "title": "Lua-Integritätsprüfung wieder einschalten?",
-    "body": "PanelBridge wird jetzt aus dem Steam Workshop geladen, daher können Spieler bei eingeschalteter Prüfung beitreten.",
+    "body": "PanelBridge wird jetzt aus dem Steam Workshop geladen, daher kann die Lua-Integritätsprüfung wieder eingeschaltet werden.",
     "ackNonAdmin": "Ich teste mit einem normalen Spielerkonto. Admin-Konten überspringen diese Prüfung. Dass ein Admin hineinkommt, beweist also nichts.",
     "ackLinux": "Frühere Spiel-Builds (41.77, 42.13–42.14) haben Windows- und Mac-Spieler auf Linux-Servern mit dieser Prüfung abgewiesen, selbst bei identischen Dateien. Für diesen Build ist die Behebung nicht bestätigt. Wenn Spieler nicht beitreten können, schalte sie hier aus.",
     "ackRemoteFiles": "Ich habe die PanelBridge-Dateien gelöscht, die ich in den Spielordner des Servers hochgeladen hatte.",
@@ -211,6 +215,7 @@
     "switchedToWorkshop": "{{server}} bezieht PanelBridge jetzt aus dem Steam Workshop",
     "switchedToLocal": "Das Panel installiert PanelBridge jetzt auf {{server}}",
     "switchFailed": "Installationsart von PanelBridge konnte nicht geändert werden",
+    "notRestored": "Das Panel konnte nicht alle bereits vorgenommenen Änderungen rückgängig machen. Prüfe vor dem Serverstart die Einstellungsdatei unter Serverkonfiguration › INI; vor der Änderung wurde ein Backup davon gespeichert.",
     "lifecycleFailed": "Umgestellt, aber der Server wurde nicht gestartet oder neu gestartet",
     "installed": "PanelBridge ist im Spielordner aktuell",
     "installFailed": "PanelBridge konnte nicht in den Spielordner kopiert werden",
@@ -222,7 +227,8 @@
     "actionFailed": "Diese Aktion konnte nicht abgeschlossen werden"
   },
   "setupNote": {
-    "workshop": "Dieser Server bezieht PanelBridge aus dem Steam Workshop, es gibt also nichts hochzuladen. Siehe „Wie PanelBridge installiert wird“ oben."
+    "workshop": "Dieser Server bezieht PanelBridge aus dem Steam Workshop, es gibt also nichts hochzuladen. Lass DoLuaChecksum=false, bis „Wie PanelBridge installiert wird“ oben den Wechsel bestätigt.",
+    "waitingWorkshop": "Das Panel ist bereit. Starte den PZ-Server oder starte ihn neu: Er lädt PanelBridge aus dem Steam Workshop herunter. Siehe „Wie PanelBridge installiert wird“ oben."
   },
   "mods": {
     "badge": "Panel-Brücke",

@@ -39,6 +39,11 @@ export function useBridgeDelivery({ activeServerId = null, enabled = true }: Use
   const [error, setError] = useState<unknown>(null)
   const guard = useRequestGuard()
   const mountedRef = useRef(true)
+  // Refetches run on every server:status event and up to every 10 s from
+  // heartbeats, so a route that keeps failing (a 403, the server not
+  // updated yet) would otherwise send a client-error report per refetch
+  // for as long as the tab is open. One report per failure streak.
+  const failureReportedRef = useRef(false)
 
   useEffect(() => {
     mountedRef.current = true
@@ -52,13 +57,19 @@ export function useBridgeDelivery({ activeServerId = null, enabled = true }: Use
     const requestId = guard.next()
     try {
       const next = await panelBridgeApi.getDelivery()
+      failureReportedRef.current = false
       if (!mountedRef.current || guard.isStale(requestId)) return next
       setStatus(next)
       setError(null)
       return next
     } catch (err) {
       if (!mountedRef.current || guard.isStale(requestId)) return null
-      reportClientError('Failed to fetch PanelBridge delivery status.', err)
+      if (!failureReportedRef.current) {
+        failureReportedRef.current = true
+        reportClientError('Failed to fetch PanelBridge delivery status.', err)
+      }
+      // The last good status stays on screen (a blip shouldn't blank the
+      // block); the caller shows `error` beside it as "couldn't refresh".
       setError(err)
       return null
     } finally {
@@ -67,10 +78,11 @@ export function useBridgeDelivery({ activeServerId = null, enabled = true }: Use
   }, [enabled, guard])
 
   // Mount, and every active-server change. On a real switch from one
-  // server to another the old status is dropped first, so its buttons can't
-  // act on the new server while the refetch is in flight. The page's own
-  // server list arriving (null -> id) is not a switch: the status already
-  // fetched is for that same active server, so it stays on screen.
+  // server to another -- or to none, when the active server was deleted --
+  // the old status is dropped first, so its buttons can't act on the new
+  // server while the refetch is in flight. The page's own server list
+  // arriving (null -> id) is not a switch: the status already fetched is
+  // for that same active server, so it stays on screen.
   const lastServerIdRef = useRef(activeServerId)
   useEffect(() => {
     if (!enabled) {
@@ -79,8 +91,9 @@ export function useBridgeDelivery({ activeServerId = null, enabled = true }: Use
     }
     const previous = lastServerIdRef.current
     lastServerIdRef.current = activeServerId
-    if (previous != null && activeServerId != null && String(previous) !== String(activeServerId)) {
+    if (previous != null && (activeServerId == null || String(previous) !== String(activeServerId))) {
       setStatus(null)
+      setError(null)
       setLoading(true)
     }
     void refetch()

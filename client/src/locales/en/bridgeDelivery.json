@@ -7,6 +7,7 @@
   "testOverride": "Test item",
   "loading": "Checking how PanelBridge is installed…",
   "loadFailed": "Couldn't load how PanelBridge is installed",
+  "refreshFailed": "Couldn't refresh this status. What's shown may be out of date.",
   "retry": "Try again",
   "needsServerControl": "Starting or restarting the server requires the server.control permission, which this role doesn't have.",
   "pro": "Advantage",
@@ -63,8 +64,11 @@
   },
   "state": {
     "local-ok": {
-      "title": "Up to date",
-      "body": "Installed by the panel: v{{version}}."
+      "title": "Installed in the game folder",
+      "body": "Installed by the panel: v{{version}}.",
+      "titleGuided": "PanelBridge is reporting in",
+      "bodyGuided": "PanelBridge v{{version}} is running on this server.",
+      "restartToLoad": "The running server still reports v{{running}}. It loads v{{version}} when it restarts."
     },
     "local-update-pending": {
       "title": "Update waiting",
@@ -168,16 +172,16 @@
     "intro": "The panel can't change this server's files. Make these changes with your host's file manager or config editor:",
     "iniFallback": "the server's .ini file",
     "toWorkshop": {
-      "step1": "In <code>{{file}}</code>, add <code>{{value}}</code> to the end of the <code>Mods=</code> line.",
+      "step1": "In <file>{{file}}</file>, add <code>{{value}}</code> to the end of the <code>Mods=</code> line.",
       "step2": "Add <code>{{value}}</code> to the end of <code>WorkshopItems=</code> (add the line if it's missing).",
       "step3": "Delete these files from the server's game folder, if you uploaded them:",
       "step4": "Make sure your host doesn't start the server with <code>-nosteam</code>.",
       "step5": "Restart the server from your host's dashboard."
     },
     "toLocal": {
-      "step1": "In <code>{{file}}</code>, remove these PanelBridge entries from the <code>Mods=</code> and <code>WorkshopItems=</code> lines:",
+      "step1": "In <file>{{file}}</file>, remove these PanelBridge entries from the <code>Mods=</code> and <code>WorkshopItems=</code> lines:",
       "step2": "Upload <code>PanelBridge.lua</code> to <code>media/lua/server/</code> in the server's game folder.",
-      "step3": "Set <code>DoLuaChecksum=false</code> in <code>{{file}}</code>.",
+      "step3": "Set <code>DoLuaChecksum=false</code> in <file>{{file}}</file>.",
       "step4": "Restart the server from your host's dashboard."
     },
     "keepChecksumOff": "Leave DoLuaChecksum=false until this page confirms the switch.",
@@ -185,7 +189,7 @@
   },
   "checksumOffer": {
     "title": "Turn the Lua integrity check back on?",
-    "body": "PanelBridge now loads from the Steam Workshop, so players can join with the check on.",
+    "body": "PanelBridge now loads from the Steam Workshop, so the Lua integrity check can be turned back on.",
     "ackNonAdmin": "I'll test with a normal player account. Admin accounts skip this check, so an admin getting in doesn't prove it works.",
     "ackLinux": "Earlier game builds (41.77, 42.13–42.14) refused Windows and Mac players on Linux servers with this check on, even with identical files. It isn't confirmed fixed on this build. If players can't join, turn it off here.",
     "ackRemoteFiles": "I deleted the PanelBridge files I uploaded to the server's game folder.",
@@ -211,6 +215,7 @@
     "switchedToWorkshop": "{{server}} now gets PanelBridge from the Steam Workshop",
     "switchedToLocal": "The panel now installs PanelBridge on {{server}}",
     "switchFailed": "Couldn't change how PanelBridge is installed",
+    "notRestored": "The panel couldn't undo every change it had already made. Before starting the server, check its settings file in Server Config › INI; a backup of it was saved before the change.",
     "lifecycleFailed": "Switched, but the server didn't start or restart",
     "installed": "PanelBridge is up to date in the game folder",
     "installFailed": "Couldn't copy PanelBridge into the game folder",
@@ -222,7 +227,8 @@
     "actionFailed": "Couldn't complete that action"
   },
   "setupNote": {
-    "workshop": "This server gets PanelBridge from the Steam Workshop, so there's nothing to upload. See “How PanelBridge is installed” above."
+    "workshop": "This server gets PanelBridge from the Steam Workshop, so there's nothing to upload. Keep DoLuaChecksum=false until “How PanelBridge is installed” above confirms the switch.",
+    "waitingWorkshop": "The panel is ready. Start or restart the PZ server: it downloads PanelBridge from the Steam Workshop. See “How PanelBridge is installed” above."
   },
   "mods": {
     "badge": "Panel bridge",
