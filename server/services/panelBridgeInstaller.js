@@ -139,13 +139,38 @@ export function checkBridgeInstalled(server) {
 // so a game server process running as a different, unprivileged user can
 // still read it. chown requires elevated privileges on most systems and
 // doesn't exist at all on Windows, so failures here are logged, not thrown.
+//
+// The chown goes through a descriptor, never the path: chownSync follows a
+// symlink, and this matters exactly when it succeeds -- a panel running as
+// root, a game folder owned by a separate user who can write in it. A
+// PanelBridge.lua swapped for a link after writeLuaAtomic()'s rename would
+// have handed the link's target, any file on the host, to that user. The
+// open refuses a symlink (O_NOFOLLOW) and can't hang on a FIFO swapped in
+// instead (O_NONBLOCK), and anything but a regular file with one link is
+// left alone: O_NOFOLLOW doesn't stop a hard link to another file, which a
+// host with fs.protected_hardlinks=0 lets that user make. The file just
+// written (temp file + rename) has one. Same rule as bridgeDisk.js's
+// applyBridgeFileMeta().
+const OWNERSHIP_OPEN_FLAGS = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0);
+
 function matchOwnership(targetPath, referencePath) {
   if (process.platform === 'win32' || !referencePath) return;
+  let fd;
   try {
     const { uid, gid } = fs.statSync(referencePath);
-    fs.chownSync(targetPath, uid, gid);
+    fd = fs.openSync(targetPath, OWNERSHIP_OPEN_FLAGS);
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.nlink > 1) {
+      log.warn(`Not matching ownership for ${targetPath}: it is no longer a regular file with a single link`);
+      return;
+    }
+    fs.fchownSync(fd, uid, gid);
   } catch (error) {
     log.debug(`Could not match ownership for ${targetPath}: ${error.message}`);
+  } finally {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch { /* ignore */ }
+    }
   }
 }
 

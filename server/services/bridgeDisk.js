@@ -33,6 +33,10 @@ const CLIENT_MARKER = "PanelBridge client companion";
 const HEAD_BYTES = 4096;
 const ARCHIVE_DIR_NAME = "bridge-delivery-archive";
 const ARCHIVES_KEPT_PER_INSTALL = 5;
+// How applyBridgeFileMeta() opens a bridge file to fchown/fchmod it: never
+// through a symlink (O_NOFOLLOW), and without blocking on a FIFO swapped in
+// at that name (O_NONBLOCK). POSIX only; Windows never gets that far.
+const META_OPEN_FLAGS = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0);
 
 // The folder's real path when it exists (path.resolve otherwise), no
 // trailing separator, case-folded on Windows (where C:\PZ and c:\pz\ are
@@ -185,18 +189,48 @@ export function readBridgeFileMeta(filePath) {
 
 // Best-effort, like installBridge()'s own chown: changing the owner needs
 // privileges the panel often doesn't have, and the content is what matters
-// most. Owner first, since a chown can clear mode bits.
+// most. Owner first, since a chown can clear mode bits. Both go through one
+// descriptor, never the path: chown/chmod by path follow a symlink, so a
+// file swapped for a link between the rewrite just before this and the
+// chown would have handed some other file to the game folder's owner (a
+// panel running as root makes that any file on the host). The open refuses
+// a symlink and can't hang on a FIFO (META_OPEN_FLAGS), and anything but a
+// regular file with one link is left alone: O_NOFOLLOW doesn't stop a hard
+// link to another file, which a host with fs.protected_hardlinks=0 lets the
+// folder's owner make. The file just written (temp file + rename) has one.
 function applyBridgeFileMeta(filePath, meta) {
   if (!meta || process.platform === "win32") return;
+  let fd;
   try {
-    fs.chownSync(filePath, meta.uid, meta.gid);
+    fd = fs.openSync(filePath, META_OPEN_FLAGS);
   } catch (error) {
-    log.debug(`Could not restore the owner of ${filePath}: ${error.message}`);
+    log.warn(`Could not restore the owner and mode of ${filePath}: ${error.message}`);
+    return;
   }
   try {
-    fs.chmodSync(filePath, meta.mode);
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.nlink > 1) {
+      log.warn(`Not restoring the owner and mode of ${filePath}: it is no longer a regular file with a single link`);
+      return;
+    }
+    try {
+      fs.fchownSync(fd, meta.uid, meta.gid);
+    } catch (error) {
+      log.debug(`Could not restore the owner of ${filePath}: ${error.message}`);
+    }
+    try {
+      fs.fchmodSync(fd, meta.mode);
+    } catch (error) {
+      log.warn(`Could not restore the mode of ${filePath}: ${error.message}`);
+    }
   } catch (error) {
-    log.warn(`Could not restore the mode of ${filePath}: ${error.message}`);
+    log.warn(`Could not restore the owner and mode of ${filePath}: ${error.message}`);
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -255,7 +289,8 @@ function restoreEntries(entries) {
  * their install-relative paths, and writes manifest.json beside them. On a
  * failure part-way through, whatever was already moved is put back before
  * the error is rethrown with `fileName` set to the file that failed, so the
- * install folder is never left half-archived.
+ * install folder is never left half-archived. A file outside `installDir`
+ * is such a failure: this never moves anything from anywhere else.
  */
 export async function archiveLooseBridgeFiles(installDir, files, { reason = "manual" } = {}) {
   const list = (files || []).filter((file) => file?.path);
@@ -269,9 +304,12 @@ export async function archiveLooseBridgeFiles(installDir, files, { reason = "man
     fs.mkdirSync(archiveDir, { recursive: true });
     for (const file of list) {
       current = file.path;
-      let relative = path.relative(installDir, file.path);
-      if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
-        relative = path.basename(file.path);
+      // Only a file inside the install folder being cleaned up: the original
+      // is deleted once copied, so a path from anywhere else is refused
+      // rather than archived. That also keeps `to` inside archiveDir.
+      const relative = path.relative(installDir, file.path);
+      if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+        throw new Error(`${file.path} is not inside ${installDir}`);
       }
       const to = path.join(archiveDir, relative);
       const meta = readBridgeFileMeta(file.path);
