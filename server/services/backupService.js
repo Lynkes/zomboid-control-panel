@@ -4,6 +4,7 @@ import { createWriteStream } from "fs";
 import archiver from "archiver";
 import { createReadStream } from "fs";
 import { crc32 } from "zlib";
+import { randomUUID } from "crypto";
 import { createLogger } from "../utils/logger.js";
 import { escapeRegExp } from "../utils/regex.js";
 import { isPidAlive } from "../utils/pidLiveness.js";
@@ -18,6 +19,10 @@ import {
   flushWrites,
 } from "../database/init.js";
 import { sanitizeError } from "../utils/sanitize.js";
+import {
+  RESTORE_ROLLBACK_FAILED_PREFIX,
+  publicRestoreMessage,
+} from "../utils/restoreMessage.js";
 import { captureBackupSnapshot } from "../utils/backupSnapshot.js";
 import {
   addBackupRecord,
@@ -39,6 +44,11 @@ async function getUnzipper() {
   }
   return unzipper;
 }
+
+// The shape a page may pick for its own restore's id (see restoreBackup()'s
+// currentRestore/lastRestore comment) -- anything else gets a server-made
+// one. It is echoed back in GET /backup/status, so it stays short and plain.
+const RESTORE_REQUEST_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 
 async function* walkDirectory(rootDir) {
   const pending = [{ dirPath: rootDir, archivePath: "", isRoot: true }];
@@ -317,6 +327,10 @@ export class BackupService {
   constructor() {
     this.backupInProgress = false;
     this.restoreInProgress = false;
+    // The restore running right now and the one that ran last, as
+    // restoreBackup() records them -- see that method's comment.
+    this.currentRestore = null;
+    this.lastRestore = null;
     this.lastBackup = null;
     this.backupHistory = [];
     this.discordBot = null;
@@ -1451,6 +1465,8 @@ export class BackupService {
       ...settings,
       backupInProgress: this.backupInProgress,
       restoreInProgress: this.restoreInProgress || false,
+      currentRestore: this.currentRestore,
+      lastRestore: this.lastRestore,
       lastBackup: this.lastBackup,
       backupCount: backups.length,
       savesPath,
@@ -1528,10 +1544,59 @@ export class BackupService {
     // success:true and no error anywhere. Confirmed empirically (two
     // concurrent calls, force !== true, an artificial delay inside
     // getServerProcessDetails to widen the window), not just reasoned
-    // about -- bug-hunt-2026-08-27, backup-restore hunt. Every early return
-    // below now happens inside the try/finally so the flag is still always
-    // released, same as the pre-restore-backup-failure path already was.
+    // about -- bug-hunt-2026-08-27, backup-restore hunt. Every return in
+    // _runRestore() happens inside the try/finally below, so the flag is
+    // always released, same as the pre-restore-backup-failure path already
+    // was.
     this.restoreInProgress = true;
+    // GH#166: the HTTP response to POST /restore/:name used to be the only
+    // place a restore's outcome existed. A restore that outlived that
+    // request (a big world past the client's timeout, a reverse proxy
+    // cutting a long request, the browser's connection dropping, the
+    // operator navigating away) had no outcome anyone could read back, and
+    // a page that had only SEEN the restore running (another tab, a reload)
+    // could never learn it ended. GET /backup/status now carries both: the
+    // restore running right now, and how the last one ended -- set before
+    // restoreInProgress clears, so a status read that sees the flag down
+    // always sees the outcome with it. `id` is the requesting page's own
+    // requestId when it sent a well-formed one, which is how that page
+    // tells its own outcome from another restore's. 'restore:finished' is
+    // the push for the same moment: sent once both are recorded, where
+    // restore:progress's own 'complete'/'error' fire from inside the
+    // restore, before the flag is down (and not at all for a refusal).
+    const restore = {
+      id:
+        typeof options.requestId === "string" &&
+        RESTORE_REQUEST_ID_RE.test(options.requestId)
+          ? options.requestId
+          : randomUUID(),
+      backupName: path.basename(String(backupName ?? "")),
+      startedAt: new Date().toISOString(),
+    };
+    this.currentRestore = restore;
+    let result = null;
+    try {
+      result = await this._runRestore(backupName, options);
+      return result;
+    } finally {
+      this.lastRestore = {
+        ...restore,
+        finishedAt: new Date().toISOString(),
+        success: result?.success === true,
+        message:
+          result?.success === true
+            ? null
+            : publicRestoreMessage(result?.message ?? "Restore failed unexpectedly"),
+        duration: typeof result?.duration === "number" ? result.duration : null,
+      };
+      this.currentRestore = null;
+      this.restoreInProgress = false;
+      options.io?.emit("restore:finished", this.lastRestore);
+    }
+  }
+
+  // restoreBackup()'s body, run only while it holds restoreInProgress.
+  async _runRestore(backupName, options) {
     const startTime = Date.now();
     let stagingPath = null;
     const io = options.io; // Socket.IO for progress updates
@@ -1871,7 +1936,7 @@ export class BackupService {
               `Restore rollback failed - previous save is at ${retiredPath}: ${rollbackError.message}`,
             );
             throw new Error(
-              `Restore failed and the previous save could not be put back automatically. It is preserved at ${retiredPath}.`,
+              `${RESTORE_ROLLBACK_FAILED_PREFIX} It is preserved at ${retiredPath}.`,
             );
           }
         }
@@ -1931,9 +1996,10 @@ export class BackupService {
       return { success: false, message: error.message };
     } finally {
       // try/finally (not manual resets at each return) so this always runs,
-      // including the early return above when the pre-restore backup fails —
-      // that path used to leak the flag permanently, locking out all future
-      // restores until the process was restarted.
+      // including the early return above when the pre-restore backup fails.
+      // restoreInProgress itself is released by restoreBackup()'s own
+      // finally -- that path used to leak the flag permanently, locking out
+      // all future restores until the process was restarted.
       if (stagingPath) {
         try {
           fs.rmSync(stagingPath, { recursive: true, force: true });
@@ -1943,7 +2009,6 @@ export class BackupService {
           );
         }
       }
-      this.restoreInProgress = false;
     }
   }
 
