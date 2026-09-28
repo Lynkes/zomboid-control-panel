@@ -935,6 +935,15 @@ function iniWriteFailed(iniPath, restored = true) {
 // line ending, then re-read and verified. The undo that restores the exact
 // original bytes is registered BEFORE verification, so a write that landed
 // but reads back wrong is rolled back too.
+//
+// The lock is released after each edit, and the Mods page (mods.js) writes
+// through the same per-file lock without taking the lifecycle lock the
+// apply route holds. So by the time a later step fails, someone else may
+// have saved the file; putting back the bytes read before this edit would
+// silently discard their change. The undo therefore restores only while
+// the file still holds exactly what this edit wrote, and otherwise leaves
+// it alone and fails -- the apply then reports restored:false, and the
+// backup taken before the edit is still there.
 async function editIni(iniPath, transform, verify, undo, backups) {
   await withFileLock(iniPath, async () => {
     let original;
@@ -956,8 +965,27 @@ async function editIni(iniPath, transform, verify, undo, backups) {
       log.warn(`Could not write ${iniPath}: ${error.message}`);
       throw iniWriteFailed(iniPath);
     }
+    // Still inside the lock: exactly the bytes this edit left (the backup
+    // helper keeps the file's own line ending, so not simply `next`).
+    let written = null;
+    try {
+      written = fs.readFileSync(iniPath);
+    } catch {
+      written = null;
+    }
     undo.push(async () => {
-      await withFileLock(iniPath, async () => writeFileAtomic(iniPath, original.raw));
+      await withFileLock(iniPath, async () => {
+        let current = null;
+        try {
+          current = fs.readFileSync(iniPath);
+        } catch {
+          current = null;
+        }
+        if (written && current && !current.equals(written)) {
+          throw new Error(`${path.basename(iniPath)} changed after the switch edited it; left as it is`);
+        }
+        await writeFileAtomic(iniPath, original.raw);
+      });
     });
     backups.push({ file: iniPath, backupName: backup?.backedUp ? backup.name : null });
     const reread = readIniTextSafe(iniPath);

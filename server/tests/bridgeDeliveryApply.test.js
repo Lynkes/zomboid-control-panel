@@ -35,6 +35,9 @@ const TRACE_DEFAULTS = vi.hoisted(() => ({
   installWritesThenFails: false,
   // Records every writeFileAtomic() (the rollback's own writes) as write:<name>.
   traceWrites: false,
+  // Another writer (the Mods page) saving an ini between the switch's ini
+  // edit and the archive: { path, content }.
+  otherIniWrite: null,
 }));
 const trace = vi.hoisted(() => ({ order: [] }));
 
@@ -72,6 +75,7 @@ vi.mock("../services/bridgeDisk.js", async (importOriginal) => {
     archiveLooseBridgeFiles: async (installDir, files, options) => {
       if (options?.reason === "switch-to-workshop") {
         trace.order.push("archive");
+        if (trace.otherIniWrite) fs.writeFileSync(trace.otherIniWrite.path, trace.otherIniWrite.content);
         if (trace.failArchive) {
           const error = new Error("EPERM");
           error.fileName = "PanelBridge.lua";
@@ -250,6 +254,21 @@ describe("switch to Workshop", () => {
       "write:second.ini",
       "write:servertest.ini",
     ]);
+  });
+
+  // The per-file lock is released after each ini edit, so the Mods page can
+  // save the same file before a later step fails. Putting back the bytes
+  // read before the switch would silently throw that save away.
+  it("leaves an ini someone else saved since the switch edited it, and says it couldn't restore it", async () => {
+    const secondBefore = fs.readFileSync(two.iniPath);
+    trace.failArchive = true;
+    trace.otherIniWrite = { path: one.iniPath, content: `Mods=A;${MOD};SavedOnTheModsPage\r\nWorkshopItems=1;${WS_ID}\r\n` };
+    const error = await applyDeliverySwitch(dbState.servers[0], "workshop", { expectedFrom: "local", deps }).catch((e) => e);
+    expect(error).toMatchObject({ code: "PANELBRIDGE_DELIVERY_FILE_ARCHIVE_FAILED", restored: false });
+    expect(readText(one.iniPath)).toBe(`Mods=A;${MOD};SavedOnTheModsPage\nWorkshopItems=1;${WS_ID}\n`);
+    // The ini nobody else touched is put back exactly.
+    expect(fs.readFileSync(two.iniPath)).toEqual(secondBefore);
+    expect(dbState.servers.map((s) => s.bridgeDelivery)).toEqual([undefined, undefined]);
   });
 
   it("reports restored:false when the archive couldn't put back the files it had already moved", async () => {
