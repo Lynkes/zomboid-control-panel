@@ -18,6 +18,11 @@
                     id), and startup.json reports delivery, so the panel can
                     tell how the bridge was loaded. Additive fields only; the
                     queue protocol is unchanged.
+                - Fix: getGameTime's multiplier, getTimeSpeed and the startup
+                    time-speed reset read the raw game speed RCON's
+                    setTimeSpeed sets (getTrueMultiplier), not the ~0.8
+                    per-frame getMultiplier(). Normal speed now reads 1, and
+                    the reset no longer fires on every start.
 
                 v1.7.70 Changes:
                 - Add: lightweight save-backed player leaderboard telemetry
@@ -3881,6 +3886,23 @@ local function safeGetValue(obj, methodName, default)
     return default
 end
 
+-- The game speed RCON's setTimeSpeed sets, or nil when it can't be read.
+-- SetTimeSpeedCommand stores it with GameTime.setMultiplier(), a plain write
+-- of GameTime's own `multiplier` field, and getTrueMultiplier() reads that
+-- field back (times perObjectMultiplier, which the engine only moves inside
+-- its moving-object update loop and resets to 1 after it, so it is 1 on
+-- every OnTick and OnServerStarted call here). Vanilla pairs the same two
+-- methods for the debug panel's game-speed slider (ISGameDebugPanel.lua).
+-- Never getMultiplier(): that is the per-frame time step, the field times
+-- fpsMultiplier, multiplierBias, perObjectMultiplier, the slow-motion factor
+-- and a constant 0.8, so it reads about 0.8 at normal speed and drifts with
+-- the server's frame rate (javap zombie.GameTime, 42.20; a live 42.20.4
+-- server logged "Reset time speed from 0.800000011920929x" on every start).
+function PanelBridge.readTimeSpeed(gameTime)
+    if not gameTime then return nil end
+    return tonumber(PanelBridge.tryGet(gameTime, "getTrueMultiplier"))
+end
+
 -- Get game time info
 handlers.getGameTime = function(args)
     local gameTime = getGameTime()
@@ -3903,17 +3925,18 @@ handlers.getGameTime = function(args)
         timeSinceApo = 0,
         moonPhase = 0,
         nightsSurvived = gameTime:getNightsSurvived(),
-        -- Same GameTime singleton/field RCON's setTimeSpeed command writes
-        -- via GameTime.getInstance():setMultiplier() (confirmed against the
-        -- real jar) -- a real, authoritative read-back for the panel's
-        -- time-speed slider (client/src/pages/Events.tsx), not a decorative
-        -- one. Deliberately DEVIATES from every other getter above, which
-        -- use bare colon-calls specifically to dodge the Kahlua-trace-log
-        -- note at the top of this handler -- getMultiplier isn't one of the
-        -- vanilla-confirmed clock methods that note restricts bare calls
-        -- to, so it goes through tryGet instead, same as any other
-        -- not-yet-vanilla-confirmed probe elsewhere in this file.
-        multiplier = tonumber(PanelBridge.tryGet(gameTime, "getMultiplier")) or 1
+        -- The field RCON's setTimeSpeed command writes via
+        -- GameTime.getInstance():setMultiplier() (confirmed against the
+        -- real jar), read back raw by PanelBridge.readTimeSpeed: the
+        -- read-back for the panel's time-speed slider
+        -- (client/src/pages/Events.tsx), so 1 at normal speed, not the
+        -- ~0.8 composite getMultiplier() returns. Deliberately DEVIATES
+        -- from every other getter above, which use bare colon-calls to
+        -- dodge the Kahlua-trace-log note at the top of this handler:
+        -- vanilla only calls getTrueMultiplier from client Lua, so it goes
+        -- through tryGet instead, same as any other not-yet-server-confirmed
+        -- probe elsewhere in this file.
+        multiplier = PanelBridge.readTimeSpeed(gameTime) or 1
     }
 end
 
@@ -4020,7 +4043,7 @@ handlers.getTimeSpeed = function(args)
         return false, nil, "GameTime not available"
     end
 
-    local multiplier = tonumber(PanelBridge.tryGet(gt, "getMultiplier")) or 1
+    local multiplier = PanelBridge.readTimeSpeed(gt) or 1
 
     return true, { multiplier = multiplier }
 end
@@ -9706,10 +9729,15 @@ function PanelBridge.onServerStarted()
         delivery = PanelBridge.delivery
     })
 
-    -- Reset time speed to 1x so fast-forward doesn't persist across reboots
+    -- Reset time speed to 1x so fast-forward doesn't persist across reboots.
+    -- The world save keeps GameTime's raw `multiplier` field, so compare
+    -- that (PanelBridge.readTimeSpeed). Comparing the ~0.8 per-frame
+    -- getMultiplier() made this fire on every normal-speed start and log
+    -- "Reset time speed from 0.800000011920929x to 1x". An unreadable speed
+    -- leaves the clock alone.
     pcall(function()
         local gt = getGameTime()
-        local multiplier = tonumber(PanelBridge.tryGet(gt, "getMultiplier"))
+        local multiplier = PanelBridge.readTimeSpeed(gt)
         if multiplier and multiplier ~= 1 then
             if PanelBridge.invoke(gt, "setMultiplier", 1) then
                 print("[PanelBridge] Reset time speed from " .. tostring(multiplier) .. "x to 1x")
