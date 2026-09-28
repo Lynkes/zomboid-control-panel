@@ -58,7 +58,7 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 export const EN_DIR = "client/src/locales/en";
-export const ALL_LANGS = ["fr", "de", "es", "zh-CN", "zh-TW", "ht"];
+export const ALL_LANGS = ["fr", "de", "es", "zh-CN", "zh-TW", "ht", "pt-BR"];
 
 // Two locale values touched within this window of each other are treated as
 // part of ONE coherent change (a translator working through the same fix the

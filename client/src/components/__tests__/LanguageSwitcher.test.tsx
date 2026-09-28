@@ -31,6 +31,15 @@ describe('LanguageSwitcher', () => {
     expect(screen.getByText('Kreyòl ayisyen')).toBeInTheDocument()
   })
 
+  it('offers Brazilian Portuguese (pt-BR) and switches to it', () => {
+    render(<LanguageSwitcher />)
+    fireEvent.pointerDown(screen.getByRole('button'), { button: 0, ctrlKey: false })
+    fireEvent.click(screen.getByText('Português (Brasil)'))
+
+    expect(i18n.language).toBe('pt-BR')
+    expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe('pt-BR')
+  })
+
   it('picking a language actually switches i18n and persists the choice', () => {
     render(<LanguageSwitcher />)
     fireEvent.pointerDown(screen.getByRole('button'), { button: 0, ctrlKey: false })

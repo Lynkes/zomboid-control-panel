@@ -256,7 +256,7 @@ async function assertNoCapabilityEscalation(actingUserId, targetCapabilities) {
     // whole guard follows. Keeping the variable part isolated to `detail`
     // and the surrounding sentence in the locale template, rather than
     // baking the full sentence into `detail` itself, is what lets that
-    // template exist in 9 languages instead of only English leaking
+    // template exist in 10 languages instead of only English leaking
     // through untranslated. `message` (the thrown Error's own .message,
     // used server-side in logs) stays the full English sentence --
     // only `params.detail` needs to match the template's {{detail}} shape.
