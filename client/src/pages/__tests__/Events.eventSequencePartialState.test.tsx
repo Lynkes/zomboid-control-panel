@@ -171,6 +171,7 @@ describe('Events -- BridgeResultDisplay renders a real partial state for runEven
     fireEvent.click(screen.getByRole('button', { name: 'Run Operation' }))
 
     await screen.findByText('1 of 2 step(s) failed')
+    expect(screen.getByText('2 steps ran')).toBeInTheDocument()
     expect(screen.getByText('Step 2', { exact: false })).toBeInTheDocument()
     expect(screen.getByText(/Unsupported weather type/)).toBeInTheDocument()
     // The bug this fixes: a partial must not read as the plain failure card.
@@ -226,6 +227,30 @@ describe('Events -- BridgeResultDisplay renders a real partial state for runEven
     await screen.findByText('Event sequence completed')
     expect(screen.queryByText('Failed steps')).not.toBeInTheDocument()
     expect(screen.queryByText('Operation Failed')).not.toBeInTheDocument()
+  })
+
+  // The step count is a plural key (sequenceExecutedCount_one/_other); it
+  // used to be called without `count`, so i18next matched neither form and
+  // the card printed the bare key instead of "1 step ran".
+  it('words the number of steps that ran with the plural form that fits', async () => {
+    sendCommand.mockResolvedValue({
+      success: true,
+      data: {
+        message: 'Event sequence executed',
+        executed: 1,
+        maxSteps: 20,
+        failedCount: 0,
+        results: [{ index: 1, kind: 'chat', success: true, data: { message: 'ok' } }],
+      },
+    } as never)
+    renderEvents()
+    await openBridgeToolsWithEventSequence()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run Operation' }))
+
+    await screen.findByText('Event sequence completed')
+    expect(screen.getByText('1 step ran')).toBeInTheDocument()
+    expect(screen.queryByText(/sequenceExecutedCount/)).not.toBeInTheDocument()
   })
 
   it('still shows the generic failure card for an ordinary (non-sequence-shaped) bridge failure', async () => {

@@ -699,7 +699,7 @@ function EventSequenceResult({ data, timestamp }: { data: EventSequenceResultDat
         <span className="text-xs text-muted-foreground">{timestamp}</span>
       </div>
       <p className="text-xs text-muted-foreground">
-        {t('resultDisplay.sequenceExecutedCount', { executed })}
+        {t('resultDisplay.sequenceExecutedCount', { executed, count: executed })}
       </p>
       {failedSteps.length > 0 && (
         <div className="space-y-1.5">
