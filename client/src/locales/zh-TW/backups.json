@@ -93,7 +93,7 @@
     "taskUnnamedAll": "所有排程備份都落在某個排程重新啟動期間（例如 {{backupTime}} 的備份，落在 {{restartTime}} 的重新啟動期間）。",
     "autoRestart": "部分排程備份落在定期自動重新啟動期間（例如 {{backupTime}} 的備份，落在 {{restartTime}} 的重新啟動期間）。",
     "autoRestartAll": "所有排程備份都落在定期自動重新啟動期間（例如 {{backupTime}} 的備份，落在 {{restartTime}} 的重新啟動期間）。",
-    "consequence": "這些備份會等到重新啟動完成後再執行，因此最多會晚約 {{minutes}} 分鐘。若要準時執行，請把備份排在重新啟動排程時間之後至少 {{minutes}} 分鐘（例如，重新啟動在整點時，在 {{exampleTime}} 備份）。",
+    "consequence": "這些備份會等到重新啟動完成後再執行，因此最多會晚約 {{minutes}} 分鐘。若要準時執行，請把備份排在重新啟動排程時間之後至少 {{minutes}} 分鐘（例如，重新啟動在整點時，在每小時的 xx{{exampleTime}} 備份）。",
     "consequenceNoExample": "這些備份會等到重新啟動完成後再執行，因此最多會晚約 {{minutes}} 分鐘。若要準時執行，請把備份排在重新啟動排程時間之後至少 {{minutes}} 分鐘。"
   },
   "progress": {

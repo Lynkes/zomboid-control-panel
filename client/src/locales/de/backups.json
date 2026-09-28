@@ -93,7 +93,7 @@
     "taskUnnamedAll": "Alle geplanten Backups fallen in einen geplanten Neustart (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
     "autoRestart": "Einige geplante Backups fallen in den periodischen Neustart (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
     "autoRestartAll": "Alle geplanten Backups fallen in den periodischen Neustart (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
-    "consequence": "Diese Backups warten, bis der Neustart abgeschlossen ist, und laufen daher bis zu etwa {{minutes}} Min. zu spät. Damit sie pünktlich laufen, plane Backups mindestens {{minutes}} Min. nach der geplanten Zeit eines Neustarts (zum Beispiel bei Neustarts zur vollen Stunde ein Backup um {{exampleTime}}).",
+    "consequence": "Diese Backups warten, bis der Neustart abgeschlossen ist, und laufen daher bis zu etwa {{minutes}} Min. zu spät. Damit sie pünktlich laufen, plane Backups mindestens {{minutes}} Min. nach der geplanten Zeit eines Neustarts (zum Beispiel bei Neustarts zur vollen Stunde ein Backup um hh{{exampleTime}} Uhr).",
     "consequenceNoExample": "Diese Backups warten, bis der Neustart abgeschlossen ist, und laufen daher bis zu etwa {{minutes}} Min. zu spät. Damit sie pünktlich laufen, plane Backups mindestens {{minutes}} Min. nach der geplanten Zeit eines Neustarts."
   },
   "progress": {

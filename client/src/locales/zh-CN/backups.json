@@ -93,7 +93,7 @@
     "taskUnnamedAll": "所有计划备份都落在某个计划重启期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
     "autoRestart": "部分计划备份落在定期自动重启期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
     "autoRestartAll": "所有计划备份都落在定期自动重启期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
-    "consequence": "这些备份会等到重启完成后再运行，因此最多会晚约 {{minutes}} 分钟。若要准时运行，请把备份安排在重启计划时间之后至少 {{minutes}} 分钟（例如，重启在整点时，在 {{exampleTime}} 备份）。",
+    "consequence": "这些备份会等到重启完成后再运行，因此最多会晚约 {{minutes}} 分钟。若要准时运行，请把备份安排在重启计划时间之后至少 {{minutes}} 分钟（例如，重启在整点时，在每小时的 xx{{exampleTime}} 备份）。",
     "consequenceNoExample": "这些备份会等到重启完成后再运行，因此最多会晚约 {{minutes}} 分钟。若要准时运行，请把备份安排在重启计划时间之后至少 {{minutes}} 分钟。"
   },
   "progress": {
