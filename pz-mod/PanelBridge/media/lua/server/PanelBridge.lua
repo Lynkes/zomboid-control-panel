@@ -5230,7 +5230,7 @@ handlers.getAllSandboxOptions = function(args)
         info.shortName = safeStr(function() return opt:getShortName() end)
         -- Get the table/page name (mod or category grouping)
         info.tableName = safeStr(function() return opt:getTableName() end)
-        -- Get the tooltip text (not a translation key).
+        -- Get the already-translated tooltip text (not a translation key).
         -- B42 getTooltip already returns translated text, including defaults.
         -- Translating it again treats literal percentages as format strings.
         info.tooltip = safeStr(function() return opt:getTooltip() end)
@@ -5533,16 +5533,17 @@ handlers.setSandboxOption = function(args)
         ok, err = pcall(function() targetOpt:setValue(boolVal) end)
     elseif optType == "enum" then
         local intVal = tonumber(newValue)
-        if not intVal then return false, nil, "Invalid enum value" end
-        intVal = math.floor(intVal)
+        -- A fraction or a non-finite number is not a choice: reject it rather
+        -- than round it into a different one (inf % 1 is NaN, so it fails too).
+        if not intVal or intVal % 1 ~= 0 then return false, nil, "Invalid enum value" end
         -- Enum values are 1..N: EnumConfigOption(name, N, default) builds an
         -- IntegerConfigOption with min 1 and max N, and getNumValues() returns
         -- that max. Reject anything outside it. Clamping here once turned the
         -- last choice N into N-1, which then read back as a confirmed write.
+        if intVal < 1 then return false, nil, "Enum value must be at least 1" end
         local numVals = tonumber(PanelBridge.tryGet(targetOpt, "getNumValues"))
-        if intVal < 1 or (numVals and intVal > numVals) then
-            local range = numVals and ("1.." .. tostring(math.floor(numVals))) or "enum values start at 1"
-            return false, nil, "Enum value " .. tostring(intVal) .. " is out of range (" .. range .. ")"
+        if numVals and intVal > numVals then
+            return false, nil, "Enum value out of range (1.." .. numVals .. ")"
         end
         appliedValue = intVal
         ok, err = pcall(function() targetOpt:setValue(intVal) end)

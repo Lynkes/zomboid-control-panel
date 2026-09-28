@@ -124,7 +124,7 @@ describe('PanelBridge.lua handlers.setSandboxOption -- enum values are 1..N', ()
     const result = bridge.callHandler('setSandboxOption', { name: 'TestMod.Mode', value });
 
     expect(result.ok).toBe(false);
-    expect(result.err).toBe(`Enum value ${value} is out of range (1..3)`);
+    expect(result.err).toMatch(/^Enum value (must be at least 1|out of range \(1\.\.3\))$/);
     expect(bridge.getGlobal('SET_VALUE_CALLS')).toBe(0);
     expect(gameValue(bridge)).toBe(2);
   });

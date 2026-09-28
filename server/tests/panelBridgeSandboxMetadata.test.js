@@ -1,10 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import path from 'path';
 import { fileURLToPath } from 'url';
 import { loadPanelBridge } from './helpers/panelBridgeLua.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const source = path.join(__dirname, '..', '..', 'pz-mod', 'PanelBridge', 'media', 'lua', 'server', 'PanelBridge.lua');
+const source = fileURLToPath(new URL('../../pz-mod/PanelBridge/media/lua/server/PanelBridge.lua', import.meta.url));
 // Shapes verified in the deployed 42.20.4 class files. Missing Java calls
 // emit traces even when Lua pcall catches them, so count the attempts too.
 const stubs = `
@@ -74,11 +72,11 @@ describe('B42 sandbox metadata without exception-based probing', () => {
     expect(result.data.options.Test.find(o => o.name === 'Rate')).toMatchObject({min:0.1, max:5, default:1.6});
     expect(result.data.options.Test.find(o => o.name === 'Count')).toMatchObject({min:0.1, max:5, default:3});
   });
-  it('reads the 1..N range of enum options next to their labels', () => {
+  it('reads the inherited 1..N range of enum options next to their labels', () => {
     const bridge = loadPanelBridge(source, stubs);
     const result = bridge.callHandler('getAllSandboxOptions', {});
     expect(result.data.options.Test.find(o => o.name === 'Mode')).toMatchObject({
-      type: 'enum', min: 1, max: 3, default: 2, selectedIndex: 2,
+      type: 'enum', min: 1, max: 3, value: 2, default: 2, selectedIndex: 2,
       enumValues: ['Never', 'Instant', 'Delayed'],
     });
   });
