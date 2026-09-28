@@ -238,7 +238,11 @@
     "noMatches": "No settings match “{{query}}”{{suffix}}",
     "noMatchesInModified": " in modified options",
     "clearSearch": "Clear search",
-    "enumChoicesNeedRestart": "The running server still has an older PanelBridge that can't list these choices. Type the choice's number (1 is the first one), or restart the server to load the current PanelBridge."
+    "enumBridgeOutdatedTitle": "Restart the server to finish updating PanelBridge",
+    "enumBridgeOutdatedDesc": "The server is still running the older PanelBridge it loaded at start, which saves the last choice of a list setting as the one before it. Until the server restarts, the panel won't send a last choice. Where a setting's choices can't be listed, type the choice's number (1 is the first).",
+    "enumLastChoiceNeedsRestart": "The last choice ({{max}}) can be set after a server restart.",
+    "enumLastChoiceItem": "Choice {{value}} (after a restart)",
+    "enumTooManyChoices": "Too many choices to list. Type the choice's number (1 is the first)."
   },
   "stickySaveBar": {
     "unsavedChange_one": "{{count}} unsaved change",
@@ -376,6 +380,10 @@
     "copyFailed": "Failed to copy content to clipboard.",
     "optionUpdatedTitle": "Option Updated",
     "optionUpdatedDesc": "{{option}} set successfully",
+    "enumLastChoiceRefusedTitle": "Restart the server first",
+    "enumLastChoiceRefusedDesc": "{{option}} wasn't changed. The older PanelBridge still running on the server would save the last choice ({{max}}) as the one before it.",
+    "optionValueDifferentTitle": "Server kept a different value",
+    "optionValueDifferentDesc": "{{option}}: you asked for {{requested}}, but the server kept {{applied}}.",
     "bridgeUnverifiedDesc": "{{action}} was sent, but the mod could not confirm it took effect.",
     "bridgeOldBridgeDesc": "{{action}} may have worked, but this PanelBridge mod version doesn't report back whether it did. Update the mod to confirm results.",
     "appliedNotSavedTitle": "Applied, but not saved",

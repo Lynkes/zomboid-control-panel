@@ -238,7 +238,11 @@
     "noMatches": "沒有設定匹配“{{query}}”{{suffix}}",
     "noMatchesInModified": "（在已修改的選項中）",
     "clearSearch": "清除搜尋",
-    "enumChoicesNeedRestart": "執行中的伺服器仍在使用舊版 PanelBridge，無法列出這些選項。請輸入選項編號（1 表示第一個），或重新啟動伺服器以載入目前版本的 PanelBridge。"
+    "enumBridgeOutdatedTitle": "重新啟動伺服器以完成 PanelBridge 更新",
+    "enumBridgeOutdatedDesc": "伺服器仍在執行啟動時載入的舊版 PanelBridge，它會把清單設定的最後一個選項儲存為前一個選項。伺服器重新啟動前，面板不會傳送最後一個選項。無法列出選項的設定需輸入選項編號（1 表示第一個）。",
+    "enumLastChoiceNeedsRestart": "最後一個選項（{{max}}）需在伺服器重新啟動後才能設定。",
+    "enumLastChoiceItem": "選項 {{value}}（重新啟動後可選）",
+    "enumTooManyChoices": "選項過多，無法列出。輸入選項編號（1 表示第一個）。"
   },
   "stickySaveBar": {
     "unsavedChange_one": "{{count}} 項未儲存的變更",
@@ -376,6 +380,10 @@
     "copyFailed": "複製內容到剪貼簿失敗。",
     "optionUpdatedTitle": "選項已更新",
     "optionUpdatedDesc": "{{option}} 設定成功",
+    "enumLastChoiceRefusedTitle": "先重新啟動伺服器",
+    "enumLastChoiceRefusedDesc": "{{option}} 未變更。伺服器上仍在執行的舊版 PanelBridge 會把最後一個選項（{{max}}）儲存為前一個選項。",
+    "optionValueDifferentTitle": "伺服器保留了其他值",
+    "optionValueDifferentDesc": "{{option}}：要求的值為 {{requested}}，但伺服器保留了 {{applied}}。",
     "bridgeUnverifiedDesc": "{{action}} 已傳送，但模組無法確認是否生效。",
     "bridgeOldBridgeDesc": "{{action}} 可能已生效，但此版本的 PanelBridge 模組不會回報結果。請更新模組以確認結果。",
     "appliedNotSavedTitle": "已套用，但未儲存",

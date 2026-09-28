@@ -238,7 +238,11 @@
     "noMatches": "Keine Einstellungen stimmen mit „{{query}}“{{suffix}} überein.",
     "noMatchesInModified": " in den geänderten Optionen",
     "clearSearch": "Suche löschen",
-    "enumChoicesNeedRestart": "Der laufende Server nutzt noch eine ältere PanelBridge-Version, die diese Auswahl nicht auflisten kann. Gib die Nummer der Auswahl ein (1 ist die erste) oder starte den Server neu, damit er die aktuelle PanelBridge-Version lädt."
+    "enumBridgeOutdatedTitle": "Server neu starten, um die neue PanelBridge-Version zu laden",
+    "enumBridgeOutdatedDesc": "Der Server nutzt noch die ältere PanelBridge-Version, die er beim Start geladen hat. Sie speichert die letzte Auswahl einer Listen-Einstellung als die davor. Bis zum Neustart des Servers sendet das Panel keine letzte Auswahl. Lassen sich die Auswahlmöglichkeiten einer Einstellung nicht auflisten, gib die Nummer der Auswahl ein (1 ist die erste).",
+    "enumLastChoiceNeedsRestart": "Die letzte Auswahl ({{max}}) lässt sich nach einem Neustart des Servers setzen.",
+    "enumLastChoiceItem": "Auswahl {{value}} (nach einem Neustart)",
+    "enumTooManyChoices": "Zu viele Auswahlmöglichkeiten für eine Liste. Gib die Nummer der Auswahl ein (1 ist die erste)."
   },
   "stickySaveBar": {
     "unsavedChange_one": "{{count}} ungespeicherte Änderung",
@@ -371,6 +375,10 @@
     "copyFailed": "Kopieren des Inhalts in die Zwischenablage fehlgeschlagen.",
     "optionUpdatedTitle": "Option aktualisiert",
     "optionUpdatedDesc": "{{option}} erfolgreich gesetzt",
+    "enumLastChoiceRefusedTitle": "Zuerst den Server neu starten",
+    "enumLastChoiceRefusedDesc": "{{option}} wurde nicht geändert. Die ältere PanelBridge-Version, die noch auf dem Server läuft, würde die letzte Auswahl ({{max}}) als die davor speichern.",
+    "optionValueDifferentTitle": "Server hat einen anderen Wert behalten",
+    "optionValueDifferentDesc": "{{option}}: Angefragt war {{requested}}, der Server hat aber {{applied}} behalten.",
     "bridgeUnverifiedDesc": "{{action}} wurde gesendet, aber das Mod konnte nicht bestätigen, dass es wirksam wurde.",
     "bridgeOldBridgeDesc": "{{action}} hat möglicherweise funktioniert, aber diese Version des PanelBridge-Mods meldet nicht zurück, ob es so war. Aktualisiere das Mod, um Ergebnisse zu bestätigen.",
     "appliedNotSavedTitle": "Angewendet, aber nicht gespeichert",

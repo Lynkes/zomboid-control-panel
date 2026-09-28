@@ -164,6 +164,52 @@ const VANILLA_SANDBOX_GROUPS = new Set([
 // getAllSandboxOptions lists at most this many labels per enum (PanelBridge.lua).
 const BRIDGE_ENUM_LABEL_CAP = 50
 
+type ModEnumControl = {
+  /** Labels for values 1..length, shown as a list. null: type the number. */
+  listLabels: string[] | null
+  /** The one value the running PanelBridge can't save, or null. */
+  blockedValue: number | null
+  /** More values than the bridge lists labels for. */
+  tooManyToList: boolean
+}
+
+/**
+ * How Mod Settings edits an enum option. Enum values run 1..N, and the bridge
+ * sends N as `max` and label i for value i, with the number standing in for a
+ * missing translation so labels never shift.
+ *
+ * A game server that hasn't restarted since the panel update still runs the
+ * old Lua (PanelBridge 1.7.70 or older). It read labels from index 0, which
+ * Build 42 always rejects, never asked for N, and dropped labels without a
+ * translation, so its list is always shorter than today's. Its
+ * setSandboxOption also saves N as N-1 and reports that as confirmed, so N is
+ * blocked until the restart. With exactly N-1 labels none was dropped, and
+ * they still line up with values 1..N-1.
+ */
+function describeModEnumControl(opt: { type?: string; enumValues?: string[]; max?: number }): ModEnumControl | null {
+  if (opt.type !== 'enum') return null
+  const labels = Array.isArray(opt.enumValues) ? opt.enumValues : []
+  const max = typeof opt.max === 'number' ? opt.max : undefined
+  if (max === undefined) {
+    return labels.length > 0 ? { listLabels: labels, blockedValue: null, tooManyToList: false } : null
+  }
+  if (labels.length === max) return { listLabels: labels, blockedValue: null, tooManyToList: false }
+  if (labels.length < Math.min(max, BRIDGE_ENUM_LABEL_CAP)) {
+    return {
+      listLabels: labels.length > 0 && labels.length === max - 1 ? labels : null,
+      blockedValue: max,
+      tooManyToList: false,
+    }
+  }
+  return { listLabels: null, blockedValue: null, tooManyToList: labels.length < max }
+}
+
+// A double may not survive the trip through the bridge's number formatting
+// bit for bit, so only a real difference counts.
+function sameNumber(a: number, b: number): boolean {
+  return Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b))
+}
+
 // These were shown by older panel releases but Build 42 does not support them.
 const UNSUPPORTED_INI_KEYS = new Set([
   'ServerImageLoginScreen',
@@ -1121,6 +1167,13 @@ export default function ServerConfig() {
     return c
   }, [modSettings, isOptModified])
 
+  // Any enum whose last value the running PanelBridge can't save means the
+  // server still runs the old Lua: one callout for the tab, not one per row.
+  const modSettingsBridgeOutdated = useMemo(() => {
+    if (!modSettings) return false
+    return Object.values(modSettings).some(opts => opts.some(o => describeModEnumControl(o)?.blockedValue != null))
+  }, [modSettings])
+
   // Memoize filtered mod settings groups to avoid duplicate filter logic
   const filteredModGroups = useMemo(() => {
     if (!modSettings || !modSettingsGroups.length) return []
@@ -1650,12 +1703,24 @@ export default function ServerConfig() {
         // updates. That's the correct signal either way: an un-migrated mod
         // genuinely IS an old bridge relative to this contract.
         const verifyState = getBridgeVerifiedState('setSandboxOption', response.data)
+        // `value` is what the game holds after the write. A bridge-side clamp
+        // or rounding (an integer option given 2.5, or PanelBridge 1.7.70 and
+        // older saving an enum's last value N as N-1) still reports success,
+        // so name the value the server kept instead of "Option updated".
+        const keptOtherNumber = typeof newValue === 'number' && typeof confirmedVal === 'number'
+          && !sameNumber(newValue, confirmedVal)
         toast(
-          verifyState === 'unverifiable'
-            ? { title: t('toasts.optionUpdatedTitle'), description: t('toasts.bridgeUnverifiedDesc', { action: optName }), variant: 'default' }
-            : verifyState === 'old-bridge'
-              ? { title: t('toasts.optionUpdatedTitle'), description: t('toasts.bridgeOldBridgeDesc', { action: optName }), variant: 'default' }
-              : { title: t('toasts.optionUpdatedTitle'), description: t('toasts.optionUpdatedDesc', { option: optName }) },
+          keptOtherNumber
+            ? {
+                title: t('toasts.optionValueDifferentTitle'),
+                description: t('toasts.optionValueDifferentDesc', { option: optName, requested: newValue, applied: confirmedVal }),
+                variant: 'warning',
+              }
+            : verifyState === 'unverifiable'
+              ? { title: t('toasts.optionUpdatedTitle'), description: t('toasts.bridgeUnverifiedDesc', { action: optName }), variant: 'default' }
+              : verifyState === 'old-bridge'
+                ? { title: t('toasts.optionUpdatedTitle'), description: t('toasts.bridgeOldBridgeDesc', { action: optName }), variant: 'default' }
+                : { title: t('toasts.optionUpdatedTitle'), description: t('toasts.optionUpdatedDesc', { option: optName }) },
         )
 
         // See isWorldSaveFailure()'s own comment for the persisted/saveError
@@ -1728,6 +1793,17 @@ export default function ServerConfig() {
       })
     }
   }, [toast, t, serverChangedSinceLoad])
+
+  // PanelBridge 1.7.70 and older save an enum's last value N as N-1 and call
+  // it confirmed (see describeModEnumControl), so the panel holds N back
+  // until the server restarts on the current bridge.
+  const refuseBlockedEnumValue = useCallback((optName: string, value: number) => {
+    toast({
+      title: t('toasts.enumLastChoiceRefusedTitle'),
+      description: t('toasts.enumLastChoiceRefusedDesc', { option: optName, max: value }),
+      variant: 'warning',
+    })
+  }, [toast, t])
 
   // File browser: open the dialog for a specific INI key
   const openFileBrowser = useCallback(async (key: string, extensions?: string[]) => {
@@ -4161,6 +4237,14 @@ export default function ServerConfig() {
                 />
               )}
 
+              {modSettings && modSettingsBridgeOutdated && (
+                <Alert className="mb-3 border-warning/40 bg-warning/10">
+                  <AlertTriangle className="h-4 w-4 text-warning" />
+                  <AlertTitle className="text-warning">{t('modSettingsTab.enumBridgeOutdatedTitle')}</AlertTitle>
+                  <AlertDescription>{t('modSettingsTab.enumBridgeOutdatedDesc')}</AlertDescription>
+                </Alert>
+              )}
+
               {modSettings && modSettingsGroups.length > 0 && (
                 <ScrollArea className="h-[calc(100vh-440px)] min-h-[400px] pe-4">
                   <div className="mb-3 flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
@@ -4266,22 +4350,14 @@ export default function ServerConfig() {
                                   : false
                                 const isSaving = opt.name ? savingOptions.has(opt.name) : false
                                 const isModified = isOptModified(opt)
-                                // Enum values run 1..N and the bridge sends N as max,
-                                // with label i for value i. A game server that hasn't
-                                // restarted since the panel update still runs the old
-                                // Lua, which never listed value N and dropped labels
-                                // without a translation, so label positions no longer
-                                // match values. Past the bridge's label cap the list is
-                                // short too. When the labels don't cover 1..max, edit
-                                // the number instead of offering a list that sends the
-                                // wrong value.
-                                const enumLabels = typeLabel === 'enum' ? opt.enumValues ?? [] : []
-                                const enumMax = typeLabel === 'enum' && typeof opt.max === 'number' ? opt.max : undefined
-                                const enumAsList = enumLabels.length > 0 && (enumMax === undefined || enumLabels.length === enumMax)
-                                const enumAsNumber = enumMax !== undefined && !enumAsList
-                                // Fewer labels than today's bridge sends: the old Lua.
-                                const enumBridgeOutdated = enumMax !== undefined && !enumAsList && enumLabels.length > 0
-                                  && enumLabels.length < Math.min(enumMax, BRIDGE_ENUM_LABEL_CAP)
+                                // A list only when its labels line up with the values;
+                                // otherwise the choice's number (describeModEnumControl).
+                                const enumControl = describeModEnumControl(opt)
+                                const enumAsNumber = enumControl !== null && enumControl.listLabels === null
+                                const blockedEnumValue = enumControl?.blockedValue ?? null
+                                const enumHintId = blockedEnumValue !== null || enumControl?.tooManyToList
+                                  ? `mod-enum-hint-${(opt.name || `${group.name}-${idx}`).replace(/\s+/g, '_')}`
+                                  : undefined
 
                                 return (
                                   <div
@@ -4300,9 +4376,15 @@ export default function ServerConfig() {
                                       {opt.name && opt.name !== displayName && (
                                         <div className="text-[10px] text-muted-foreground/40 font-mono truncate mt-0.5" title={opt.name}>{opt.name}</div>
                                       )}
-                                      {enumBridgeOutdated && (
-                                        <div className="text-xs text-warning mt-0.5">{t('modSettingsTab.enumChoicesNeedRestart')}</div>
-                                      )}
+                                      {blockedEnumValue !== null ? (
+                                        <div id={enumHintId} className="text-xs text-warning mt-0.5">
+                                          {t('modSettingsTab.enumLastChoiceNeedsRestart', { max: blockedEnumValue })}
+                                        </div>
+                                      ) : enumControl?.tooManyToList ? (
+                                        <div id={enumHintId} className="text-xs text-muted-foreground/70 mt-0.5">
+                                          {t('modSettingsTab.enumTooManyChoices')}
+                                        </div>
+                                      ) : null}
                                     </div>
                                     <div className="flex items-center gap-2 shrink-0">
                                       {typeLabel === 'boolean' ? (
@@ -4317,7 +4399,7 @@ export default function ServerConfig() {
                                             {boolValue ? t('modSettingsTab.onCaps') : t('modSettingsTab.offCaps')}
                                           </span>
                                         </div>
-                                      ) : enumAsList ? (
+                                      ) : enumControl?.listLabels ? (
                                         <Select
                                           value={opt.selectedIndex !== undefined ? String(opt.selectedIndex) : displayValue}
                                           onValueChange={(val) => {
@@ -4328,15 +4410,25 @@ export default function ServerConfig() {
                                           }}
                                           disabled={isSaving}
                                         >
-                                          <SelectTrigger className="h-7 w-full sm:w-[180px] text-xs font-mono" aria-label={displayName}>
+                                          <SelectTrigger
+                                            className="h-7 w-full sm:w-[180px] text-xs font-mono"
+                                            aria-label={displayName}
+                                            aria-describedby={enumHintId}
+                                          >
                                             <SelectValue />
                                           </SelectTrigger>
                                           <SelectContent>
-                                            {enumLabels.map((ev, ei) => (
+                                            {enumControl.listLabels.map((ev, ei) => (
                                               <SelectItem key={ei} value={String(ei + 1)} className="text-xs font-mono">
                                                 {ev}
                                               </SelectItem>
                                             ))}
+                                            {/* The old bridge never read the last label, and would save this value as the one before it. */}
+                                            {blockedEnumValue !== null && (
+                                              <SelectItem value={String(blockedEnumValue)} disabled className="text-xs font-mono">
+                                                {t('modSettingsTab.enumLastChoiceItem', { value: blockedEnumValue })}
+                                              </SelectItem>
+                                            )}
                                           </SelectContent>
                                         </Select>
                                       ) : typeLabel === 'number' || typeLabel === 'double' || typeLabel === 'integer' || enumAsNumber ? (
@@ -4353,12 +4445,18 @@ export default function ServerConfig() {
                                           step={(typeLabel === 'integer' || enumAsNumber) && Number.isInteger(opt.min ?? 0) ? 1 : 'any'}
                                           disabled={isSaving}
                                           aria-label={displayName}
+                                          aria-describedby={enumHintId}
                                           onBlur={(e) => {
                                             let num = parseFloat(e.target.value)
                                             if (isNaN(num) || !opt.name) return
                                             if (opt.min !== undefined) num = Math.max(opt.min, num)
                                             if (opt.max !== undefined) num = Math.min(opt.max, num)
                                             if (num === rawVal) return
+                                            if (num === blockedEnumValue) {
+                                              e.target.value = displayValue
+                                              refuseBlockedEnumValue(opt.name, num)
+                                              return
+                                            }
                                             e.target.value = String(num)
                                             handleOptionChange(opt.name, num, group.name)
                                           }}
@@ -4399,7 +4497,14 @@ export default function ServerConfig() {
                                             <button
                                               type="button"
                                               className="text-xs text-muted-foreground/50 hover:text-primary whitespace-nowrap flex items-center gap-1"
-                                              onClick={() => opt.name && opt.default !== undefined && handleOptionChange(opt.name, opt.default, group.name)}
+                                              onClick={() => {
+                                                if (!opt.name || opt.default === undefined) return
+                                                if (blockedEnumValue !== null && opt.default === blockedEnumValue) {
+                                                  refuseBlockedEnumValue(opt.name, blockedEnumValue)
+                                                  return
+                                                }
+                                                handleOptionChange(opt.name, opt.default, group.name)
+                                              }}
                                               disabled={isSaving}
                                               // eslint-disable-next-line local/no-dead-disabled-title -- pure hint naming the action + value; disables only transiently while a save is in flight (the adjacent spinner is the self-evident why). Triaged 2026-08-27. Note: the wrapping Radix Tooltip here has the same "no pointer/focus events on a disabled native button" limitation as this title, so its content is equally unreachable while isSaving -- out of scope for this rule (it only checks title+disabled), flagged here rather than fixed since isSaving is brief and self-evident.
                                               title={t('modSettingsTab.resetToDefaultTitle', { value: formatRawConfigValue(opt.default) })}

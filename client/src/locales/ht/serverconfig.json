@@ -238,7 +238,11 @@
     "noMatches": "Pa gen paramèt ki koresponn ak “{{query}}”{{suffix}}",
     "noMatchesInModified": " nan opsyon modifye",
     "clearSearch": "Efase rechèch",
-    "enumChoicesNeedRestart": "Sèvè a ki ap fonksyone a toujou gen yon ansyen vèsyon PanelBridge ki pa ka lis chwa sa yo. Tape nimewo chwa a (1 se premye a), oswa redemare sèvè a pou li chaje vèsyon aktyèl PanelBridge la."
+    "enumBridgeOutdatedTitle": "Redemare sèvè a pou fini mete PanelBridge ajou",
+    "enumBridgeOutdatedDesc": "Sèvè a toujou ap itilize ansyen vèsyon PanelBridge li te chaje lè li te demare a, epi vèsyon sa a sove dènye chwa yon paramèt ki gen lis tankou chwa ki anvan l la. Jiskaske sèvè a redemare, panèl la p ap voye yon dènye chwa. Si chwa yon paramèt pa ka parèt nan yon lis, tape nimewo chwa a (1 se premye a).",
+    "enumLastChoiceNeedsRestart": "Ou ka mete dènye chwa a ({{max}}) apre sèvè a redemare.",
+    "enumLastChoiceItem": "Chwa {{value}} (apre redemaraj)",
+    "enumTooManyChoices": "Twòp chwa pou mete nan yon lis. Tape nimewo chwa a (1 se premye a)."
   },
   "stickySaveBar": {
     "unsavedChange_one": "{{count}} chanjman ki pa sove",
@@ -376,6 +380,10 @@
     "copyFailed": "Pa t kapab kopye kontni nan clipboard.",
     "optionUpdatedTitle": "Opsyon Mete Ajou",
     "optionUpdatedDesc": "{{option}} defini avèk siksè",
+    "enumLastChoiceRefusedTitle": "Redemare sèvè a anvan",
+    "enumLastChoiceRefusedDesc": "{{option}} pa t chanje. Ansyen vèsyon PanelBridge ki toujou ap fonksyone sou sèvè a ta sove dènye chwa a ({{max}}) tankou chwa ki anvan l la.",
+    "optionValueDifferentTitle": "Sèvè a kenbe yon lòt valè",
+    "optionValueDifferentDesc": "{{option}}: ou te mande {{requested}}, men sèvè a kenbe {{applied}}.",
     "bridgeUnverifiedDesc": "{{action}} te voye, men mod la pa t kapab konfime li te fè efè.",
     "bridgeOldBridgeDesc": "{{action}} ka te fonksyone, men vèsyon mod PanelBridge sa a pa rapòte si li te fè sa. Mete mod la ajou pou konfime rezilta yo.",
     "appliedNotSavedTitle": "Aplike, men pa sove",
