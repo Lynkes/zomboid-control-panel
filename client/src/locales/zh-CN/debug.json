@@ -148,8 +148,8 @@
       "note": "将面板指向活动服务器的桥接文件夹并启动监视器。之后游戏服务器必须在安装了 PanelBridge.lua 的情况下运行。"
     },
     "bridgeWritableOrHeartbeat": {
-      "label": "打开服务器查找器",
-      "note": "重新部署 PanelBridge，确保服务器正在运行，并检查桥接文件夹的写入权限。"
+      "label": "打开「设置 › PanelBridge」",
+      "note": "在「设置 › PanelBridge」中检查桥接文件夹以及面板能否写入该文件夹，确保服务器正在运行，然后查看「PanelBridge 安装方式」，了解此服务器如何获取 PanelBridge。"
     },
     "dbExistsOrWritable": {
       "label": "打开设置",

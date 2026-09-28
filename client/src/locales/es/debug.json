@@ -153,8 +153,8 @@
       "note": "Apunta el panel a la carpeta de Bridge del servidor activo e inicia la supervisión. El servidor de juego debe estar en ejecución con PanelBridge.lua instalado."
     },
     "bridgeWritableOrHeartbeat": {
-      "label": "Abrir buscador de servidores",
-      "note": "Volver a implementar PanelBridge, comprobar que el servidor esté en ejecución y verificar los permisos de escritura en la carpeta de Bridge."
+      "label": "Abrir Ajustes › PanelBridge",
+      "note": "En Ajustes › PanelBridge, comprobar la carpeta de Bridge y que el panel pueda escribir en ella, verificar que el servidor esté en ejecución y consultar «Cómo se instala PanelBridge» para ver cómo recibe PanelBridge este servidor."
     },
     "dbExistsOrWritable": {
       "label": "Abrir ajustes",

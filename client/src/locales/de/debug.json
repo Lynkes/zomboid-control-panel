@@ -148,8 +148,8 @@
       "note": "Verweist das Panel auf den Brückenordner des aktiven Servers und startet den Watcher. Der Spielserver muss anschließend mit installierter PanelBridge.lua laufen."
     },
     "bridgeWritableOrHeartbeat": {
-      "label": "Serversuche öffnen",
-      "note": "Stelle PanelBridge erneut bereit, stelle sicher, dass der Server läuft, und überprüfe die Schreibrechte für den Brückenordner."
+      "label": "Einstellungen › PanelBridge öffnen",
+      "note": "Prüfe unter Einstellungen › PanelBridge den Brückenordner und ob das Panel darin schreiben darf, stelle sicher, dass der Server läuft, und sieh bei „Wie PanelBridge installiert wird“ nach, wie dieser Server PanelBridge bekommt."
     },
     "dbExistsOrWritable": {
       "label": "Einstellungen öffnen",

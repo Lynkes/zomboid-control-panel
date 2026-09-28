@@ -153,8 +153,8 @@
       "note": "Pointe le panneau vers le dossier bridge du serveur actif et démarre l'observateur. Le serveur de jeu doit ensuite tourner avec PanelBridge.lua installé."
     },
     "bridgeWritableOrHeartbeat": {
-      "label": "Ouvrir Recherche de serveur",
-      "note": "Redéployez PanelBridge, assurez-vous que le serveur tourne, et vérifiez les permissions d'écriture sur le dossier bridge."
+      "label": "Ouvrir Paramètres › PanelBridge",
+      "note": "Dans Paramètres › PanelBridge, vérifiez le dossier bridge et que le panneau peut y écrire, assurez-vous que le serveur tourne, puis consultez « Mode d'installation de PanelBridge » pour savoir comment ce serveur reçoit PanelBridge."
     },
     "dbExistsOrWritable": {
       "label": "Ouvrir les paramètres",

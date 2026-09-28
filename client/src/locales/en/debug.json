@@ -148,8 +148,8 @@
       "note": "Points the panel at the active server’s bridge folder and starts the watcher. The game server must then be running with PanelBridge.lua installed."
     },
     "bridgeWritableOrHeartbeat": {
-      "label": "Open Server Finder",
-      "note": "Re-deploy PanelBridge, ensure the server is running, and check write permissions on the bridge folder."
+      "label": "Open Settings › PanelBridge",
+      "note": "In Settings › PanelBridge, check the bridge folder and that the panel can write to it, make sure the server is running, then see “How PanelBridge is installed” for how this server gets PanelBridge."
     },
     "dbExistsOrWritable": {
       "label": "Open Settings",

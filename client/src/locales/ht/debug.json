@@ -148,8 +148,8 @@
       "note": "Pwente panèl la nan dosye bridge sèvè aktif la epi demare siveyan an. Sèvè jwèt la dwe apre sa ap fonksyone ak PanelBridge.lua enstale."
     },
     "bridgeWritableOrHeartbeat": {
-      "label": "Louvri Chèchè Sèvè",
-      "note": "Redeplwaye PanelBridge, asire sèvè a ap fonksyone, epi verifye pèmisyon ekriti sou dosye bridge la."
+      "label": "Louvri Paramèt › PanelBridge",
+      "note": "Nan Paramèt › PanelBridge, verifye dosye bridge la ak si panèl la ka ekri ladan l, asire sèvè a ap fonksyone, epi gade “Kijan PanelBridge enstale” pou wè kijan sèvè sa a resevwa PanelBridge."
     },
     "dbExistsOrWritable": {
       "label": "Louvri Paramèt",

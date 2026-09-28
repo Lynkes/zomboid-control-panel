@@ -129,7 +129,9 @@ describe('getDiagnosticsFixAction fallback branch (uncovered check ids)', () => 
     { ids: ['server.bridgeMod'], manualRoute: '/settings?tab=bridge' },
     { ids: ['server.configDrift'], manualRoute: '/server-config' },
     { ids: ['scheduler', 'services.error'], manualRoute: '/settings' },
-    { ids: ['bridge.writable', 'bridge.heartbeat'], manualRoute: '/server-finder' },
+    // Settings › PanelBridge, not Server Finder (the public server browser,
+    // which has nothing for the bridge).
+    { ids: ['bridge.writable', 'bridge.heartbeat'], manualRoute: '/settings?tab=bridge' },
     { ids: ['db.exists'], manualRoute: '/settings' },
     { ids: ['logs.writable'], manualRoute: '/settings' },
     {

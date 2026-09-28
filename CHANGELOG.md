@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The Events page's sequence result showed a raw translation key** instead of "1 step ran" / "2 steps ran", in every language.
 - **The panel now reads `DoLuaChecksum`, `Mods=` and `WorkshopItems=` exactly as the game does.** For example, `0` means off, and a `Mods =` line with a space before `=` is ignored. A settings edit the game still wouldn't read fails and is rolled back.
 - **Diagnostics' "No mod heartbeat" check no longer says to look for PanelBridge in the server's mod list and Workshop subscription.** The panel-installed PanelBridge, the default, is in neither. The check now says PanelBridge reports once the world has loaded, and if it stays silent, points to "How PanelBridge is installed" in Settings > PanelBridge, which knows how this server gets it. This applies in every language.
+- **The fix button on the bridge folder and heartbeat checks now opens Settings > PanelBridge.** It opened Browse Public Servers, which has nothing for the bridge, and its note said to re-deploy PanelBridge, which the panel refuses to do for a server on Steam Workshop delivery.
 
 ## [1.3.8] - 2026-09-20
 

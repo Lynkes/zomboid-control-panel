@@ -148,8 +148,8 @@
       "note": "將面板指向活動伺服器的PanelBridge 資料夾並啟動監視器。之後遊戲伺服器必須在安裝了 PanelBridge.lua 的情況下執行。"
     },
     "bridgeWritableOrHeartbeat": {
-      "label": "開啟伺服器查詢器",
-      "note": "重新部署 PanelBridge，確保伺服器正在執行，並檢查PanelBridge 資料夾的寫入權限。"
+      "label": "開啟「設定 › PanelBridge」",
+      "note": "在「設定 › PanelBridge」中檢查 PanelBridge 資料夾以及面板能否寫入該資料夾，確保伺服器正在執行，然後查看「PanelBridge 安裝方式」，了解此伺服器如何取得 PanelBridge。"
     },
     "dbExistsOrWritable": {
       "label": "開啟設定",

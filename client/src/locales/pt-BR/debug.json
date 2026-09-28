@@ -153,8 +153,8 @@
       "note": "Aponta o painel para a pasta da ponte do servidor ativo e inicia o monitor. Depois, o servidor do jogo precisa estar em execução com o PanelBridge.lua instalado."
     },
     "bridgeWritableOrHeartbeat": {
-      "label": "Explorar servidores públicos",
-      "note": "Implante o PanelBridge novamente, confirme que o servidor está em execução e verifique as permissões de gravação na pasta da ponte."
+      "label": "Abrir Configurações › PanelBridge",
+      "note": "Em Configurações › PanelBridge, confira a pasta da ponte e se o painel consegue gravar nela, confirme que o servidor está em execução e veja “Como o PanelBridge é instalado” para saber como este servidor recebe o PanelBridge."
     },
     "dbExistsOrWritable": {
       "label": "Abrir Configurações",

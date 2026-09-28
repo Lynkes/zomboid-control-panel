@@ -676,10 +676,14 @@ export function getDiagnosticsFixAction(
       };
     case "bridge.writable":
     case "bridge.heartbeat":
+      // Settings › PanelBridge holds the bridge folder setup, its connection
+      // checks and "How PanelBridge is installed" for the server's delivery
+      // method. Server Finder is the public server browser and has none of
+      // them, and "re-deploy PanelBridge" was wrong for a Workshop server.
       return {
         label: t("fixActions.bridgeWritableOrHeartbeat.label"),
         automated: false,
-        manualRoute: "/server-finder",
+        manualRoute: "/settings?tab=bridge",
         note: t("fixActions.bridgeWritableOrHeartbeat.note"),
       };
 
