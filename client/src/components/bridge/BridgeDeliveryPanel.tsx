@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
   Check,
   CheckCircle2,
   Cloud,
   Download,
+  ExternalLink,
   HardDrive,
   Info,
   Loader2,
@@ -45,6 +47,7 @@ import {
   resolveStateActions,
   resolveStateCopy,
   resolveStateView,
+  SERVER_CONFIG_CHECKSUM_LINK,
 } from '@/lib/bridgeDeliveryView'
 import { BridgeDeliverySwitchDialog } from './BridgeDeliverySwitchDialog'
 import { BridgeChecksumDialog } from './BridgeChecksumDialog'
@@ -500,6 +503,21 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
             <p className="text-xs text-muted-foreground">{t('security.sentence')}</p>
           </div>
           {blockedReason && <p className="text-xs text-warning">{blockedReason}</p>}
+          {/* Guided: checksum.current is always null, so this offer stays up
+              after the operator turned the check on by hand, and "Turn it off
+              again" never appears. Say so, and where the way back is. */}
+          {s.access === 'guided' && (
+            <div className="space-y-1.5" data-testid="bridge-delivery-checksum-guided-off">
+              <p className="text-xs text-muted-foreground">{t('checksumOffer.guidedTurnOffHint')}</p>
+              <Link
+                to={SERVER_CONFIG_CHECKSUM_LINK}
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-primary underline-offset-4 hover:underline"
+              >
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('checksumOffer.openServerConfig')}
+              </Link>
+            </div>
+          )}
           <DisabledReason reason={reason} className="max-w-full">
             <Button
               type="button"

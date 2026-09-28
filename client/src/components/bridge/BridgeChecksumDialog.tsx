@@ -19,9 +19,8 @@ import { useDeliveryDialogServer } from '@/hooks/useBridgeDelivery'
 import { panelBridgeApi, serverApi, serverFilesApi } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import type { DeliveryStatus } from '@/lib/bridgeDeliveryTypes'
-import { getRestartWarning, isDeliveryStatus } from '@/lib/bridgeDeliveryView'
+import { getRestartWarning, isDeliveryStatus, SERVER_CONFIG_CHECKSUM_LINK } from '@/lib/bridgeDeliveryView'
 
-const SERVER_CONFIG_CHECKSUM_LINK = '/server-config?tab=ini&search=DoLuaChecksum'
 // Same footer button shape as BridgeDeliverySwitchDialog: full-width and
 // wrapping on phones, content-width from sm up.
 const DIALOG_ACTION = 'h-auto min-h-11 w-full gap-2 whitespace-normal sm:min-h-9 sm:w-auto'
@@ -165,8 +164,16 @@ export function BridgeChecksumDialog({ open, onOpenChange, status, playerCount, 
         {phase === 'confirm' ? (
           <div className="space-y-3">
             <Ack id={`${baseId}-non-admin`} checked={ackNonAdmin} onChange={setAckNonAdmin} label={t('checksumOffer.ackNonAdmin')} />
+            {/* "Turn it off here" only exists where the panel can read the
+                check (automatic access); a guided server gets the manual way
+                back instead of a promise of a button it never shows. */}
             {needsLinuxAck && (
-              <Ack id={`${baseId}-linux`} checked={ackLinux} onChange={setAckLinux} label={t('checksumOffer.ackLinux')} />
+              <Ack
+                id={`${baseId}-linux`}
+                checked={ackLinux}
+                onChange={setAckLinux}
+                label={t(guided ? 'checksumOffer.ackLinuxGuided' : 'checksumOffer.ackLinux')}
+              />
             )}
             {guided && (
               <Ack

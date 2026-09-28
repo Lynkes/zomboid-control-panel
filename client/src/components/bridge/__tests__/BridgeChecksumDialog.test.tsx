@@ -117,6 +117,16 @@ describe('BridgeChecksumDialog: required acknowledgements', () => {
     expect(saveIni).not.toHaveBeenCalled()
   })
 
+  // A guided server's checksum.current is always null, so the block never
+  // shows "Turn it off again": the acknowledgement must not promise it.
+  it('gives a guided server the manual way back in the Linux acknowledgement, not "turn it off here"', () => {
+    renderDialog(makeWorkshopStatus({ access: 'guided', disk: null, hostOs: 'unknown', checksum: { current: null, canTurnOn: true, turnOnBlockers: [], playersBlocked: false, requiresLinuxAck: true } }))
+    expect(screen.getByRole('checkbox', { name: en.checksumOffer.ackLinuxGuided })).toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: en.checksumOffer.ackLinux })).toBeNull()
+    expect(en.checksumOffer.ackLinuxGuided).toContain('DoLuaChecksum=false')
+    expect(en.checksumOffer.ackLinuxGuided).not.toMatch(/turn it off here/i)
+  })
+
   it('the remote-files acknowledgement never shows for automatic access', () => {
     renderDialog(makeWorkshopStatus())
     expect(screen.queryByRole('checkbox', { name: en.checksumOffer.ackRemoteFiles })).toBeNull()

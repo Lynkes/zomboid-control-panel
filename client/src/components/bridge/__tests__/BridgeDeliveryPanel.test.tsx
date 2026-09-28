@@ -703,6 +703,26 @@ describe('BridgeDeliveryPanel: guided access (remote / hosted)', () => {
     expect(within(screen.getByTestId('bridge-guided-steps')).getAllByRole('listitem')[0]).toHaveTextContent('In servertest.ini, add')
   })
 
+  // The panel can't read a guided server's ini, so the offer stays up after
+  // the operator turned the check on by hand and "Turn it off again" never
+  // appears: the card says how to turn it off and links Server Config › INI.
+  it('the guided offer says how to turn the check off again, with the Server Config link', async () => {
+    renderPanel(makeWorkshopStatus({ access: 'guided', disk: null, checksum: { current: null, canTurnOn: true, turnOnBlockers: [], playersBlocked: false, requiresLinuxAck: true } }))
+    await panelReady()
+    const hint = within(screen.getByTestId('bridge-delivery-checksum-offer')).getByTestId('bridge-delivery-checksum-guided-off')
+    expect(hint).toHaveTextContent(en.checksumOffer.guidedTurnOffHint)
+    expect(within(hint).getByRole('link', { name: en.checksumOffer.openServerConfig })).toHaveAttribute(
+      'href',
+      '/server-config?tab=ini&search=DoLuaChecksum',
+    )
+    expect(screen.queryByRole('button', { name: en.checksumOffer.turnOff })).toBeNull()
+    cleanup()
+
+    renderPanel(makeWorkshopStatus())
+    await panelReady()
+    expect(screen.queryByTestId('bridge-delivery-checksum-guided-off')).toBeNull()
+  })
+
   it('hides the manual steps once confirmed, and the offer needs no serverfiles.manage for instructions', async () => {
     mockCan = (capability) => capability !== 'serverfiles.manage'
     renderPanel(makeWorkshopStatus({ access: 'guided', disk: null, checksum: { current: null, canTurnOn: true, turnOnBlockers: [], playersBlocked: false, requiresLinuxAck: false } }))

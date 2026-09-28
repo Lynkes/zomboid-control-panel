@@ -507,6 +507,10 @@ export function resolveLuaChecksumCallout(
   return on ? 'workshopUnconfirmed' : null
 }
 
+// Server Config › INI, opened on DoLuaChecksum: where the operator of a
+// guided server (whose files the panel can't write) changes the check.
+export const SERVER_CONFIG_CHECKSUM_LINK = '/server-config?tab=ini&search=DoLuaChecksum'
+
 // Mods page: whether an "Active on server" row is the bridge's own entry,
 // which the server keeps in Mods=/WorkshopItems= while on the Workshop
 // (GET /api/mods/current-config `bridgeManaged`, §4.11).
