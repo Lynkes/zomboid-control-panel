@@ -46,6 +46,10 @@
     "deferredForRestart": "Fällig seit {{time}} – wartet, bis der Server-Neustart abgeschlossen ist",
     "lastScheduledSkippedForRestart": "Letztes geplantes Backup wegen Neustart übersprungen ({{time}})"
   },
+  "scheduledAttempt": {
+    "restartStuck": "Nicht ausgeführt: Der Server-Neustart lief seit {{minutes}} Min. ({{warningMinutes}} Min. Vorwarnung), ohne abzuschließen – weit länger, als ein Neustart dauert. Er wirkte also hängen geblieben, und manuelle Backups waren gesperrt, solange er lief. Wenn noch ein Neustart zu laufen scheint, prüfe, ob der Spielserver wieder hochgefahren ist, und starte dann das Panel neu, um den hängenden Neustart aufzulösen. Wenn du danach ein Backup erstellst, verschwindet auch die Warnung zum fehlgeschlagenen Backup.",
+    "restartStuckSinceDue": "Nicht ausgeführt: Der Server-Neustart, der lief, als dieses Backup fällig wurde, war {{minutes}} Min. später immer noch nicht abgeschlossen – weit länger, als ein Neustart dauert. Er wirkte also hängen geblieben, und manuelle Backups waren gesperrt, solange er lief. Wenn noch ein Neustart zu laufen scheint, prüfe, ob der Spielserver wieder hochgefahren ist, und starte dann das Panel neu, um den hängenden Neustart aufzulösen. Wenn du danach ein Backup erstellst, verschwindet auch die Warnung zum fehlgeschlagenen Backup."
+  },
   "schedule": {
     "every15Min": "alle 15 Minuten",
     "every30Min": "alle 30 Minuten",

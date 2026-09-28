@@ -1460,6 +1460,12 @@ export class BackupService {
         ? {
             success: !!lastScheduledAttempt.success,
             message: lastScheduledAttempt.message,
+            // Set when `message` is the panel's own prose (a backup given up
+            // on because a restart looked stuck -- see logScheduleExecution),
+            // so the page renders it translated; null for raw errors, and
+            // for rows written before the key existed.
+            messageKey: lastScheduledAttempt.message_key ?? null,
+            messageParams: lastScheduledAttempt.message_params ?? null,
             executedAt: lastScheduledAttempt.executed_at,
             // 'restart' for the pre-deferral "skipped, a restart was in
             // progress" rows (see LEGACY_RESTART_SKIP_MESSAGE) -- not a

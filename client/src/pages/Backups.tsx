@@ -54,7 +54,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { EmptyState } from '@/components/EmptyState'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { BackupRestartOverlapNotice } from '@/components/BackupRestartOverlapNotice'
-import { scheduledBackupHealth } from '@/lib/scheduledBackupHealth'
+import { scheduledAttemptMessage, scheduledBackupHealth } from '@/lib/scheduledBackupHealth'
 import { isolateLtrForRtl } from '@/lib/paramTranslation'
 import { useBackupScheduleCheck, precheckBackupSchedule, backupScheduleErrorText } from '@/hooks/useBackupScheduleCheck'
 import { BackupScheduleNextRun, BackupScheduleValidity } from '@/components/BackupSchedulePreview'
@@ -890,6 +890,13 @@ export default function Backups() {
   const skippedForRestartLine = lastScheduledSkippedForRestart && backupStatus?.lastScheduledBackupAttempt
     ? t('statusCards.lastScheduledSkippedForRestart', { time: formatDate(backupStatus.lastScheduledBackupAttempt.executedAt) })
     : null
+  // The failed attempt's reason: translated where the panel wrote it (a
+  // restart that looked stuck), a raw error as is.
+  const lastScheduledAttemptMessage = scheduledAttemptMessage(
+    backupStatus?.lastScheduledBackupAttempt?.message,
+    backupStatus?.lastScheduledBackupAttempt?.messageKey,
+    backupStatus?.lastScheduledBackupAttempt?.messageParams,
+  ) ?? ''
   // bug-hunt-2026-09-08 (honest-unknown class): backupStatus is null both
   // before the first fetch resolves and after a confirmed failure -- only
   // the latter gets this treatment (matching Settings.tsx's own scheduled-
@@ -1123,11 +1130,11 @@ export default function Backups() {
               ) : lastScheduledAttemptFailed ? (
                 <p
                   className="text-[11px] text-amber-600 dark:text-amber-400 truncate"
-                  title={backupStatus?.lastScheduledBackupAttempt?.message || ''}
+                  title={lastScheduledAttemptMessage}
                 >
                   {t('statusCards.lastScheduledAttemptFailed', {
                     time: formatDate(backupStatus!.lastScheduledBackupAttempt!.executedAt),
-                    message: backupStatus?.lastScheduledBackupAttempt?.message || '',
+                    message: lastScheduledAttemptMessage,
                   })}
                 </p>
               ) : (

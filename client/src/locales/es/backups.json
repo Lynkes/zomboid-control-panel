@@ -47,6 +47,10 @@
     "deferredForRestart": "Pendiente desde {{time}}: esperando a que termine el reinicio del servidor",
     "lastScheduledSkippedForRestart": "Última copia de seguridad programada omitida por un reinicio ({{time}})"
   },
+  "scheduledAttempt": {
+    "restartStuck": "No se ejecutó: el reinicio del servidor llevaba {{minutes}} min en curso (aviso de {{warningMinutes}} min) sin terminar, mucho más de lo que tarda un reinicio, así que parecía atascado, y las copias de seguridad manuales estuvieron bloqueadas mientras duró. Si todavía parece haber un reinicio en curso, comprueba si el servidor de juego volvió a arrancar y luego reinicia el panel para desbloquearlo. Crear una copia de seguridad después también quita el aviso de copia de seguridad fallida.",
+    "restartStuckSinceDue": "No se ejecutó: el reinicio del servidor que estaba en curso cuando tocaba esta copia de seguridad seguía sin terminar {{minutes}} min después, mucho más de lo que tarda un reinicio, así que parecía atascado, y las copias de seguridad manuales estuvieron bloqueadas mientras duró. Si todavía parece haber un reinicio en curso, comprueba si el servidor de juego volvió a arrancar y luego reinicia el panel para desbloquearlo. Crear una copia de seguridad después también quita el aviso de copia de seguridad fallida."
+  },
   "schedule": {
     "every15Min": "cada 15 minutos",
     "every30Min": "cada 30 minutos",

@@ -47,6 +47,10 @@
     "deferredForRestart": "Prévue le {{time}} — en attente de la fin du redémarrage du serveur",
     "lastScheduledSkippedForRestart": "Dernière sauvegarde planifiée sautée pendant un redémarrage ({{time}})"
   },
+  "scheduledAttempt": {
+    "restartStuck": "Non exécutée : le redémarrage du serveur durait depuis {{minutes}} min (avertissement de {{warningMinutes}} min) sans se terminer — bien plus longtemps qu'un redémarrage ne le demande. Il semblait bloqué, et les sauvegardes manuelles étaient refusées tant qu'il durait. Si un redémarrage semble toujours en cours, vérifiez si le serveur de jeu est revenu, puis redémarrez le panneau pour le débloquer. Créer ensuite une sauvegarde efface aussi l'avertissement de sauvegarde en échec.",
+    "restartStuckSinceDue": "Non exécutée : le redémarrage du serveur en cours à l'heure prévue de cette sauvegarde n'était toujours pas terminé {{minutes}} min plus tard — bien plus longtemps qu'un redémarrage ne le demande. Il semblait bloqué, et les sauvegardes manuelles étaient refusées tant qu'il durait. Si un redémarrage semble toujours en cours, vérifiez si le serveur de jeu est revenu, puis redémarrez le panneau pour le débloquer. Créer ensuite une sauvegarde efface aussi l'avertissement de sauvegarde en échec."
+  },
   "schedule": {
     "every15Min": "toutes les 15 minutes",
     "every30Min": "toutes les 30 minutes",

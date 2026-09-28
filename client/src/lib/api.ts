@@ -946,6 +946,10 @@ export interface ScheduleHistoryEntry {
   command: string;
   success: number;
   message: string | null;
+  // Same key-beside-text convention for the message: set only where the
+  // panel wrote the message itself (see ScheduledBackupAttempt.messageKey).
+  message_key?: ScheduleMessageKey | null;
+  message_params?: ScheduleMessageParams | null;
   duration: number | null;
   executed_at: string;
 }
@@ -3270,9 +3274,20 @@ export interface BackupStatus extends BackupSettings {
   backupDeferredSince?: string | null;
 }
 
+// A Schedule History message the panel wrote as prose of its own (see
+// server/database/init.js logScheduleExecution): rendered from
+// backups:scheduledAttempt.<key> with these params, the English `message`
+// being the fallback.
+export type ScheduleMessageKey = 'restartStuck' | 'restartStuckSinceDue';
+export type ScheduleMessageParams = Record<string, string | number>;
+
 export interface ScheduledBackupAttempt {
   success: boolean;
   message: string | null;
+  // Set for a backup given up on because a restart looked stuck; null for a
+  // raw error. Optional -- older servers don't send it.
+  messageKey?: ScheduleMessageKey | null;
+  messageParams?: ScheduleMessageParams | null;
   executedAt: string;
   // 'restart' for the old "Skipped: a restart was in progress" rows panels
   // up to v1.3.8 wrote -- a skip, not a backup that broke. Current servers

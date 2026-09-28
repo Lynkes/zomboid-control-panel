@@ -46,6 +46,10 @@
     "deferredForRestart": "Te dwe fèt {{time}} — ap tann sèvè a fin redemare",
     "lastScheduledSkippedForRestart": "Dènye kopi sovgad pwograme a sote pandan yon redemaraj ({{time}})"
   },
+  "scheduledAttempt": {
+    "restartStuck": "Pa kouri: redemaraj sèvè a t ap kouri depi {{minutes}} min (avètisman {{warningMinutes}} min) san l pa fini — pi lontan pase jan yon redemaraj pran, kidonk li te sanble bloke, epi kopi sovgad manyèl yo te bloke pandan tout tan li te dire. Si yon redemaraj toujou sanble ap kouri, tcheke si sèvè jwèt la te retounen, epi redemare panèl la pou debloke l. Kreye yon kopi sovgad apre sa efase avètisman kopi sovgad ki echwe a tou.",
+    "restartStuckSinceDue": "Pa kouri: redemaraj sèvè a ki t ap kouri lè kopi sovgad sa a te dwe fèt pa t ko fini {{minutes}} min apre — pi lontan pase jan yon redemaraj pran, kidonk li te sanble bloke, epi kopi sovgad manyèl yo te bloke pandan tout tan li te dire. Si yon redemaraj toujou sanble ap kouri, tcheke si sèvè jwèt la te retounen, epi redemare panèl la pou debloke l. Kreye yon kopi sovgad apre sa efase avètisman kopi sovgad ki echwe a tou."
+  },
   "schedule": {
     "every15Min": "chak 15 minit",
     "every30Min": "chak 30 minit",

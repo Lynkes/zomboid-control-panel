@@ -1319,19 +1319,36 @@ export class Scheduler {
   // restart had done nothing. What the operator should do next stays
   // conditional ("if a restart still seems to be running") for the same
   // reason.
+  //
+  // Prose the panel wrote, not a raw error, so the row also carries a
+  // message key and its numbers (restartStuck / restartStuckSinceDue): the
+  // Dashboard, the Backups card, the Scheduler card and Schedule History
+  // render it in the operator's language. The English stays as `message`,
+  // for the log and for a client that doesn't know the key.
   async _logStuckRestartBackup(deferredAt) {
     const now = Date.now();
     const waited = now - deferredAt;
     const restart = this.activeRestart;
+    const minutes = Math.round((restart ? now - restart.startedAt : waited) / 60000);
     const stuck = restart
-      ? `the server restart had been running for ${Math.round((now - restart.startedAt) / 60000)} min (${restart.warningMinutes}-minute warning) without finishing`
-      : `the server restart running when this backup came due still hadn't finished ${Math.round(waited / 60000)} min later`;
+      ? `the server restart had been running for ${minutes} min (${restart.warningMinutes}-minute warning) without finishing`
+      : `the server restart running when this backup came due still hadn't finished ${minutes} min later`;
     const message =
       `Not run: ${stuck} -- far longer than a restart takes, so it looked stuck, and manual backups were blocked while it lasted. ` +
       "If a restart still seems to be running, check whether the game server came back up, then restart the panel to clear it. " +
       "Creating a backup after that also clears the failed-backup warning.";
     log.error(`Scheduled backup -- ${message}`);
-    await logScheduleExecution(null, "Scheduled Backup", "backup", false, message, waited);
+    await logScheduleExecution(
+      null,
+      "Scheduled Backup",
+      "backup",
+      false,
+      message,
+      waited,
+      restart
+        ? { messageKey: "restartStuck", messageParams: { minutes, warningMinutes: restart.warningMinutes } }
+        : { messageKey: "restartStuckSinceDue", messageParams: { minutes } },
+    );
   }
 
   async _runScheduledBackup(settings, { deferredAt = null } = {}) {

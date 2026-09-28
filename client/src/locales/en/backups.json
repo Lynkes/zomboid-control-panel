@@ -46,6 +46,10 @@
     "deferredForRestart": "Due since {{time}} — waiting for the server restart to finish",
     "lastScheduledSkippedForRestart": "Last scheduled backup skipped for a restart ({{time}})"
   },
+  "scheduledAttempt": {
+    "restartStuck": "Not run: the server restart had been running for {{minutes}} min ({{warningMinutes}}-minute warning) without finishing — far longer than a restart takes, so it looked stuck, and manual backups were blocked while it lasted. If a restart still seems to be running, check whether the game server came back up, then restart the panel to clear it. Creating a backup after that also clears the failed-backup warning.",
+    "restartStuckSinceDue": "Not run: the server restart running when this backup came due still hadn't finished {{minutes}} min later — far longer than a restart takes, so it looked stuck, and manual backups were blocked while it lasted. If a restart still seems to be running, check whether the game server came back up, then restart the panel to clear it. Creating a backup after that also clears the failed-backup warning."
+  },
   "schedule": {
     "every15Min": "every 15 minutes",
     "every30Min": "every 30 minutes",

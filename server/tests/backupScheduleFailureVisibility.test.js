@@ -105,6 +105,34 @@ describe("BackupService.getStatus() -- a later successful backup, and a restart 
     );
   });
 
+  it("carries a panel-written message's key and numbers through to the status, so the page can translate it", async () => {
+    await setSetting("backupEnabled", true);
+    await logScheduleExecution(null, "Scheduled Backup", "backup", false, "Not run: the server restart had been running for 28 min ...", 28 * 60_000, {
+      messageKey: "restartStuck",
+      messageParams: { minutes: 28, warningMinutes: 5 },
+    });
+
+    const status = await new BackupService().getStatus();
+    expect(status.lastScheduledBackupAttempt).toEqual(
+      expect.objectContaining({
+        success: false,
+        message: "Not run: the server restart had been running for 28 min ...",
+        messageKey: "restartStuck",
+        messageParams: { minutes: 28, warningMinutes: 5 },
+      }),
+    );
+  });
+
+  it("reports no message key for a raw error", async () => {
+    await setSetting("backupEnabled", true);
+    await logScheduleExecution(null, "Scheduled Backup", "backup", false, "ENOSPC: no space left on device", 30);
+
+    const status = await new BackupService().getStatus();
+    expect(status.lastScheduledBackupAttempt).toEqual(
+      expect.objectContaining({ messageKey: null, messageParams: null }),
+    );
+  });
+
   it("marks the pre-deferral 'Skipped: a restart was in progress' row as skipReason 'restart', not a plain failure", async () => {
     await setSetting("backupEnabled", true);
     await logScheduleExecution(null, "Scheduled Backup", "backup", false, "Skipped: a restart was in progress", 0);

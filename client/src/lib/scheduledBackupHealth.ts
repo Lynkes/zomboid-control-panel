@@ -1,4 +1,5 @@
-import type { ScheduledBackupAttempt } from '@/lib/api'
+import type { ScheduledBackupAttempt, ScheduleMessageKey, ScheduleMessageParams } from '@/lib/api'
+import { extractTranslationParams, resolveRegisteredTranslation } from '@/lib/paramTranslation'
 
 // What the newest scheduled backup attempt means for the operator right now.
 // Dashboard.tsx (verdict + Backups row) and Backups.tsx (Auto-Backup card)
@@ -28,4 +29,24 @@ export function scheduledBackupHealth(
   if (attempt.success || attempt.recoveredAt) return 'ok'
   if (attempt.skipReason === 'restart') return 'skippedForRestart'
   return 'failing'
+}
+
+// A scheduled attempt's message in the operator's language. Most messages
+// are raw errors passed on as they came (ENOSPC ..., a backup service
+// refusal) and are shown as is. A few are prose the panel wrote itself -- a
+// backup given up on because a restart looked stuck, with advice on what
+// to do -- and those carry a key and their numbers: rendered from
+// backups:scheduledAttempt.<key>. The English `message` is the fallback for
+// an unknown key, missing params, or an older server that sends no key.
+// Used for the newest attempt (Dashboard, Backups, Scheduler cards) and
+// for every Schedule History row.
+export function scheduledAttemptMessage(
+  message: string | null | undefined,
+  messageKey: ScheduleMessageKey | null | undefined,
+  messageParams: ScheduleMessageParams | null | undefined,
+): string | null {
+  const translated = messageKey
+    ? resolveRegisteredTranslation('backups', `scheduledAttempt.${messageKey}`, extractTranslationParams(messageParams))
+    : null
+  return translated ?? message ?? null
 }

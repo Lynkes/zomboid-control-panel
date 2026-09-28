@@ -70,7 +70,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { DisabledReason } from '@/components/DisabledReason'
 import { HelpTip } from '@/components/HelpTip'
 import { BackupRestartOverlapNotice } from '@/components/BackupRestartOverlapNotice'
-import { scheduledBackupHealth } from '@/lib/scheduledBackupHealth'
+import { scheduledAttemptMessage, scheduledBackupHealth } from '@/lib/scheduledBackupHealth'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
 
@@ -1466,7 +1466,8 @@ export default function Scheduler() {
                     ? t('timezone.backupLastAttemptSkippedForRestart', { date })
                     : t('timezone.backupLastAttemptFailed', {
                         date,
-                        reason: attempt.message || t('scheduledTasks.lastRunFailedUnknownReason'),
+                        reason: scheduledAttemptMessage(attempt.message, attempt.messageKey, attempt.messageParams)
+                          || t('scheduledTasks.lastRunFailedUnknownReason'),
                       })
                 return (
                   <>
@@ -2119,7 +2120,9 @@ export default function Scheduler() {
                     <div className="mt-1 ms-6 text-sm">
                       {entry.message && (
                         <p className={entry.success ? 'text-muted-foreground' : 'text-destructive'}>
-                          {entry.message}
+                          {/* Translated where the panel wrote the message
+                              itself (message_key); a raw error as is. */}
+                          {scheduledAttemptMessage(entry.message, entry.message_key, entry.message_params)}
                         </p>
                       )}
                       {entry.duration !== null && (

@@ -47,6 +47,10 @@
     "deferredForRestart": "Pendente desde {{time}} — aguardando o reinício do servidor terminar",
     "lastScheduledSkippedForRestart": "Último backup agendado pulado por causa de um reinício ({{time}})"
   },
+  "scheduledAttempt": {
+    "restartStuck": "Não executado: o reinício do servidor estava em andamento havia {{minutes}} min (aviso de {{warningMinutes}} min) sem terminar — muito mais do que um reinício leva, então parecia travado, e os backups manuais ficaram bloqueados enquanto ele durou. Se um reinício ainda parecer em andamento, verifique se o servidor do jogo voltou e depois reinicie o painel para liberá-lo. Criar um backup depois disso também remove o aviso de backup com falha.",
+    "restartStuckSinceDue": "Não executado: o reinício do servidor em andamento quando este backup deveria rodar ainda não tinha terminado {{minutes}} min depois — muito mais do que um reinício leva, então parecia travado, e os backups manuais ficaram bloqueados enquanto ele durou. Se um reinício ainda parecer em andamento, verifique se o servidor do jogo voltou e depois reinicie o painel para liberá-lo. Criar um backup depois disso também remove o aviso de backup com falha."
+  },
   "schedule": {
     "every15Min": "a cada 15 minutos",
     "every30Min": "a cada 30 minutos",

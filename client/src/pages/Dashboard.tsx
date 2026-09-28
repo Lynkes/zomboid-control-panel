@@ -24,7 +24,7 @@ import {
   panelUpdateApi, modsApi, schedulerApi, ServerInstance, PanelUpdateStatus, ComposedServerStatus,
   MountDiscoveryCandidate, ScheduledBackupAttempt,
 } from '@/lib/api'
-import { scheduledBackupHealth } from '@/lib/scheduledBackupHealth'
+import { scheduledAttemptMessage, scheduledBackupHealth } from '@/lib/scheduledBackupHealth'
 import { useRuntimeInfo } from '@/hooks/useRuntimeInfo'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
@@ -1279,10 +1279,13 @@ export default function Dashboard() {
     // it's failing" beats a generic "you have none yet" whenever both would
     // otherwise be true at once.
     if (maintenance.schedulerLoaded && !activeServer?.isRemote && backupHealth === 'failing') {
+      const attempt = maintenance.lastScheduledBackupAttempt
       return {
         level: 'warning',
         headline: t('verdict.backupAttemptFailing'),
-        detail: maintenance.lastScheduledBackupAttempt?.message || undefined,
+        // Translated where the panel wrote the message itself (a restart
+        // that looked stuck, and what to do about it); a raw error as is.
+        detail: scheduledAttemptMessage(attempt?.message, attempt?.messageKey, attempt?.messageParams) || undefined,
         action: { label: t('verdict.reviewBackups'), to: '/backups' },
       }
     }

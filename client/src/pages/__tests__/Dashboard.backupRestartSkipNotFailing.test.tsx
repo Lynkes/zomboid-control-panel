@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Dashboard from '../Dashboard'
+import i18n from '@/i18n'
 import {
   serverApi, serversApi, playersApi, panelBridgeApi, backupApi, configApi,
   debugApi, panelUpdateApi, modsApi, schedulerApi, type ServerInstance,
@@ -138,6 +139,7 @@ function renderDashboard() {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  void i18n.changeLanguage('en')
 })
 
 describe('Dashboard.tsx: a restart-skipped or since-recovered scheduled backup is not "failing"', () => {
@@ -190,5 +192,47 @@ describe('Dashboard.tsx: a restart-skipped or since-recovered scheduled backup i
     expect(within(backupsLink).queryByText(/attempt failed/)).not.toBeInTheDocument()
     expect(screen.queryByText('Scheduled backup failing')).not.toBeInTheDocument()
     expect(screen.queryByText('Scheduled backup skipped for a restart')).not.toBeInTheDocument()
+  })
+})
+
+// Review of the merge: the stuck-restart failure row is prose the panel
+// writes (what happened, and to restart the panel), and it was shown in
+// English on the verdict in every language -- on a crisis path. The server
+// now sends a message key and its numbers beside the English.
+describe('Dashboard.tsx: a backup given up on for a stuck restart is explained in the operator\'s language', () => {
+  const ENGLISH = 'Not run: the server restart had been running for 28 min (5-minute warning) without finishing -- far longer than a restart takes, so it looked stuck, and manual backups were blocked while it lasted.'
+
+  it('renders the verdict detail from the key under pt-BR, not the English message', async () => {
+    await i18n.changeLanguage('pt-BR')
+    await setUpFixtures({
+      success: false,
+      message: ENGLISH,
+      messageKey: 'restartStuck',
+      messageParams: { minutes: 28, warningMinutes: 5 },
+      executedAt: new Date().toISOString(),
+      skipReason: null,
+      recoveredAt: null,
+    })
+    renderDashboard()
+
+    const verdict = await screen.findByRole('status', { name: /./ })
+    expect(await within(verdict).findByText('Backup agendado falhando')).toBeInTheDocument()
+    expect(within(verdict).getByText(/^Não executado: o reinício do servidor estava em andamento havia 28 min \(aviso de 5 min\) sem terminar/)).toBeInTheDocument()
+    expect(screen.queryByText(ENGLISH)).not.toBeInTheDocument()
+  })
+
+  it('falls back to the English message from a server that sends no key', async () => {
+    await setUpFixtures({
+      success: false,
+      message: ENGLISH,
+      executedAt: new Date().toISOString(),
+      skipReason: null,
+      recoveredAt: null,
+    })
+    renderDashboard()
+
+    const verdict = await screen.findByRole('status', { name: 'Server verdict' })
+    expect(await within(verdict).findByText('Scheduled backup failing')).toBeInTheDocument()
+    expect(within(verdict).getByText(ENGLISH)).toBeInTheDocument()
   })
 })

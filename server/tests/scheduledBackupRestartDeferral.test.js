@@ -182,8 +182,32 @@ describe("Scheduler: a scheduled backup that lands on a restart is deferred, not
     // Shown verbatim on the Dashboard and the Backups card: no raw UTC ISO
     // timestamps, which read as the wrong time next to a local browser.
     expect(rows[0][4]).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
+    // Review finding: the English prose was shown verbatim in every locale.
+    // The row also carries a message key and its numbers, which the pages
+    // render translated; the English above stays for logs and old clients.
+    expect(rows[0][6]).toEqual({
+      messageKey: "restartStuck",
+      messageParams: { minutes: 28, warningMinutes: 5 },
+    });
     // The wait is over -- the next tick gets a fresh chance.
     expect(scheduler.getDeferredBackupSince()).toBeNull();
+  });
+
+  it("keys the row by how long the backup waited when the running restart's own start isn't known", async () => {
+    // restartInProgress with no activeRestart record: the deadline and the
+    // message fall back to the moment the backup came due.
+    scheduler.restartInProgress = true;
+    const tick = capturedBackupCallback();
+    await vi.advanceTimersByTimeAsync(111 * MINUTE);
+    await tick;
+
+    const rows = backupRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0][4]).toMatch(/^Not run: the server restart running when this backup came due still hadn't finished (\d+) min later/);
+    const minutes = Number(rows[0][4].match(/finished (\d+) min later/)[1]);
+    expect(rows[0][6]).toEqual({ messageKey: "restartStuckSinceDue", messageParams: { minutes } });
+    expect(createBackup).not.toHaveBeenCalled();
+    scheduler.restartInProgress = false;
   });
 
   it("a later tick during the SAME stuck restart reports how long the restart has been running, not '0 min'", async () => {
@@ -206,6 +230,10 @@ describe("Scheduler: a scheduled backup that lands on a restart is deferred, not
     expect(rows[1][3]).toBe(false);
     expect(rows[1][4]).toMatch(/the server restart had been running for 240 min \(5-minute warning\) without finishing/);
     expect(rows[1][4]).not.toMatch(/\b0 min\b/);
+    expect(rows[1][6]).toEqual({
+      messageKey: "restartStuck",
+      messageParams: { minutes: 240, warningMinutes: 5 },
+    });
     expect(createBackup).not.toHaveBeenCalled();
   });
 
