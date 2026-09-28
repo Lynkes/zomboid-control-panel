@@ -2005,8 +2005,8 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
     // the native path below, there is nothing further to poll for. The
     // scan-poll below is ALSO a local host process scan, which for a
     // container-managed server can never see PZ running as PID 1 of a
-    // *different* container (GH#114) -- polling it here would just run 30
-    // times and always time out, exactly the gap this fix closes. Emit
+    // *different* container (GH#114) -- polling it here would just run for
+    // 30s and always time out, exactly the gap this fix closes. Emit
     // immediately and go straight to waiting for RCON, skipping the poll
     // entirely for this path.
     if (managed.handled) {
@@ -2051,15 +2051,33 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
       return;
     }
 
-    // Poll for server to actually be running (takes a few seconds to start)
-    let attempts = 0;
-    const maxAttempts = 30; // 30 seconds max
-    let pollCleared = false;
+    // Poll for server to actually be running (takes a few seconds to start).
+    // One scan at a time: each check schedules the next only once its own
+    // scan has settled. This was setInterval(async ..., 1000), whose ticks
+    // never waited for each other -- a Windows process scan takes longer
+    // than 1s, so two or three ticks were in flight at once, each saw
+    // running:true after the first had already stopped the interval, and
+    // each started its own waitForRconAfterStart(). Those waiters then
+    // force-reset each other's RCON connection (2026-09-28 live Workshop
+    // test on 42.21: three "Server detected as running" a second apart,
+    // then "Connection attempt cancelled (force reset occurred)" and the
+    // phase flapping running/unresponsive), and each one sent its own
+    // Discord serverStart notice. The 30s budget is elapsed time, as it was
+    // with the interval, so a slow scan doesn't stretch it to 30 scans --
+    // performance.now(), which a wall-clock step can't move: the poll holds
+    // the lifecycle lock, which has no expiry, so Stop and Restart would
+    // answer 409 for as long as a backward step added.
+    const pollDeadline = performance.now() + 30000; // 30 seconds max
+    const endStartingWindow = () => {
+      if (rconService.setServerStarting) {
+        rconService.setServerStarting(false);
+      } else {
+        rconService.serverStarting = false;
+      }
+    };
 
-    const pollInterval = setInterval(async () => {
-      if (pollCleared) return; // Safety check
+    const pollOnce = async () => {
       try {
-        attempts++;
         // checkServerRunning() collapses a failed detection scan into a
         // bare `false`, indistinguishable from "confirmed not yet running"
         // -- hardcoding scanFailed: false here made that same mistake one
@@ -2076,29 +2094,24 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
           typeof serverManager.getServerProcessDetails === "function"
             ? await serverManager.getServerProcessDetails()
             : { running: false, scanFailed: true };
+        const timedOut = performance.now() >= pollDeadline;
 
         if (!processDetails || processDetails.scanFailed) {
-          if (attempts >= maxAttempts) {
-            pollCleared = true;
-            clearInterval(pollInterval);
+          if (timedOut) {
             releaseLifecycleLock();
-            if (rconService.setServerStarting) {
-              rconService.setServerStarting(false);
-            } else {
-              rconService.serverStarting = false;
-            }
+            endStartingWindow();
             log.warn(
               "Server start polling timed out without confirming process state",
             );
+            return;
           }
+          setTimeout(pollOnce, 1000);
           return;
         }
 
         const isRunning = Boolean(processDetails.running);
 
         if (isRunning) {
-          pollCleared = true;
-          clearInterval(pollInterval);
           // See the managed branch's own comment above: the host process
           // existing is not the same claim as the server being ready, so
           // this asks checkServerStatusNow to compute the real phase
@@ -2123,30 +2136,21 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
             );
           }
           releaseLifecycleLock();
-        } else if (attempts >= maxAttempts) {
-          pollCleared = true;
-          clearInterval(pollInterval);
+        } else if (timedOut) {
           releaseLifecycleLock();
-          if (rconService.setServerStarting) {
-            rconService.setServerStarting(false);
-          } else {
-            rconService.serverStarting = false;
-          }
+          endStartingWindow();
           log.warn("Server start polling timed out");
+        } else {
+          setTimeout(pollOnce, 1000);
         }
       } catch (err) {
-        // Clear interval on error to prevent memory leak
-        pollCleared = true;
-        clearInterval(pollInterval);
+        // No next check is scheduled after an error, so the poll ends here.
         releaseLifecycleLock();
-        if (rconService.setServerStarting) {
-          rconService.setServerStarting(false);
-        } else {
-          rconService.serverStarting = false;
-        }
+        endStartingWindow();
         log.error(`Server status poll failed: ${err.message}`);
       }
-    }, 1000);
+    };
+    setTimeout(pollOnce, 1000);
     lifecycleLockTransferred = true;
 
     // Send immediate response
