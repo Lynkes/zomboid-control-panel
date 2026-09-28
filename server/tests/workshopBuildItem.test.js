@@ -23,7 +23,7 @@ import {
   readRepoText,
   sha256Hex,
 } from "../../scripts/workshop/lib.mjs";
-import { readPublishedWorkshopJson } from "../../build.js";
+import { readPublishedWorkshopJson, renderReleaseReadme } from "../../build.js";
 
 // scripts/workshop/build-item.mjs turns pz-mod/PanelBridge into the Build 42
 // Workshop layout and refuses anything the game or the in-game uploader would
@@ -437,12 +437,43 @@ describe("build.js: published.json is embedded in the binary", () => {
     expect(bundled.exports).toBe(raw);
   });
 
-  it("describes both install methods in the release README", () => {
-    const buildJs = fs.readFileSync(path.join(REPO_ROOT, "build.js"), "utf8");
-    expect(buildJs).not.toMatch(/NOT a Workshop mod/);
-    expect(buildJs).not.toMatch(/no \.ini changes needed/);
-    expect(buildJs).toMatch(/Installed by the panel \(default\)/);
-    expect(buildJs).toMatch(/Steam Workshop \(Build 42 servers running with Steam\)/);
-    expect(buildJs).toMatch(/DoLuaChecksum=false/);
+  it("reads published.json before the client build, so a broken file fails fast", () => {
+    const main = fs.readFileSync(path.join(REPO_ROOT, "build.js"), "utf8").split("async function main()")[1];
+    const read = main.indexOf("readPublishedWorkshopJson()");
+    expect(read).toBeGreaterThan(-1);
+    expect(read).toBeLessThan(main.indexOf("cleanDir(distDir)"));
+    expect(read).toBeLessThan(main.indexOf("execSync(\"npm run build\""));
+    expect(main).toMatch(/writeReleaseReadme\(\{ bridgeWorkshopId \}\)/);
   });
+
+  // The README is the only guide an operator on a hosted server gets offline,
+  // so the Workshop steps carry the safety conditions of spec §4.6.
+  const collapse = (text) => text.replace(/\s+/g, " ");
+
+  it("describes both install methods in the release README, with this release's Workshop id", () => {
+    const readme = collapse(renderReleaseReadme({ bridgeWorkshopId: "3712345678" }));
+    expect(readme).not.toMatch(/NOT a Workshop mod/);
+    expect(readme).not.toMatch(/no \.ini changes needed/);
+    expect(readme).toMatch(/Installed by the panel \(default\).* Set DoLuaChecksum=false in the server's \.ini, or players can't join\./);
+    expect(readme).toMatch(/Steam Workshop \(Build 42 servers running with Steam\): the server downloads PanelBridge \(Workshop item 3712345678\)/);
+    expect(readme).toMatch(
+      /add ;ZomboidControlPanelBridge to the end of the Mods= line and ;3712345678 to the end of the WorkshopItems= line/,
+    );
+    expect(readme).toMatch(/Always add both together: a Mods= entry without its WorkshopItems= ID stops every player from joining\./);
+    expect(readme).toMatch(
+      /Delete media\/lua\/server\/PanelBridge\.lua and media\/lua\/client\/PanelBridgeClient\.lua from the server's game folder if you uploaded them\./,
+    );
+    expect(readme).toMatch(/doesn't start with -nosteam/);
+    expect(readme).toMatch(/Leave DoLuaChecksum=false until Settings > PanelBridge confirms the switch\./);
+  });
+
+  it.each([[null], [undefined], [""], ["not-an-id"]])(
+    "offers no Workshop steps in the release README without a published id (%j)",
+    (bridgeWorkshopId) => {
+      const readme = collapse(renderReleaseReadme({ bridgeWorkshopId }));
+      expect(readme).toMatch(/Steam Workshop: not available in this release\. The PanelBridge Workshop item hasn't been published yet/);
+      expect(readme).toMatch(/Installed by the panel \(default\)/);
+      expect(readme).not.toMatch(/Mods= line|WorkshopItems=/);
+    },
+  );
 });

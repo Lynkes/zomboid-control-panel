@@ -64,7 +64,8 @@ publish). Either way the id, version and date go into ${BRIDGE_FILES.published}.
   --changenote-file <file>  Change note text. Default: the Lua header's
                             "vX Changes:" blocks since the last publish.
   --steamcmd <path>         steamcmd executable. Default: steamcmd on PATH.
-  --dry-run                 Check everything and print the item.vdf; run nothing.
+  --dry-run                 Check everything and print the item.vdf, even when a
+                            real run would refuse (it then exits 1); run nothing.
   --allow-unreleased        Publish code that differs from ${BRIDGE_FILES.lock}
                             (live-test iterations only).
   --force                   Publish although this VERSION was already published.
@@ -100,7 +101,17 @@ function parseArgs(argv) {
     }
     if (name === "--help" || name === "-h") return { mode: "help", options };
     const kind = allowed[name];
-    if (!kind) throw new PublishError(`Unknown argument for ${mode}: ${raw}\n\n${USAGE}`);
+    if (!kind) {
+      // Only an option name is echoed. Anything else is most likely a password
+      // typed the way steamcmd takes it (+login <user> <password>), and must
+      // not end up on screen or in a terminal log.
+      if (/^--?[A-Za-z][A-Za-z0-9-]*$/.test(name)) {
+        throw new PublishError(`Unknown argument for ${mode}: ${name}\n\n${USAGE}`);
+      }
+      throw new PublishError(
+        `Unexpected extra argument for ${mode} (not shown). This tool never takes a password: steamcmd prompts for it itself.\n\n${USAGE}`,
+      );
+    }
     if (kind === "flag") {
       if (inlineValue !== undefined) throw new PublishError(`${name} takes no value`);
       options[name.slice(2)] = true;
@@ -148,7 +159,10 @@ export function readVdfPublishedFileId(vdfText) {
 
 // The "vX Changes:" blocks of the PanelBridge.lua header comment that are
 // newer than the last published version (only the current one on a first
-// publish, not the whole history). "vNEXT" is the not-yet-released block.
+// publish, not the whole history). "vNEXT" is the not-yet-released block:
+// release.ps1 renames it, so it only reaches a change note for unreleased code
+// (--allow-unreleased, or a dry run), where VERSION still names the last
+// release. It gets its own heading rather than a second "v<VERSION> Changes:".
 export function changeNoteFromLua(luaText, { version, publishedVersion }) {
   const header = /--\[\[([\s\S]*?)\]\]/.exec(normalizeText(luaText))?.[1] ?? "";
   const blocks = [];
@@ -176,7 +190,7 @@ export function changeNoteFromLua(luaText, { version, publishedVersion }) {
   });
   if (!wanted.length) return `PanelBridge ${version}`;
   const note = wanted
-    .map((block) => [`v${block.version === "NEXT" ? version : block.version} Changes:`, ...block.lines].join("\n"))
+    .map((block) => [block.version === "NEXT" ? "Unreleased changes:" : `v${block.version} Changes:`, ...block.lines].join("\n"))
     .join("\n\n");
   return note.length > MAX_CHANGENOTE_LENGTH ? `${note.slice(0, MAX_CHANGENOTE_LENGTH - 1)}…` : note;
 }
@@ -268,21 +282,26 @@ async function runPublish(options, { repoRoot, spawn, now, log, warn }) {
     throw error;
   }
   const status = loadVersionStatus(repoRoot);
+  // Release-policy refusals. A dry run still prints the VDF, so the preview
+  // shows everything, and then fails with the same reasons a real run would.
+  const refusals = [];
   if (status.changed) {
-    if (!options["allow-unreleased"]) {
-      throw new PublishError(
+    if (options["allow-unreleased"]) {
+      warn(`Publishing UNRELEASED PanelBridge code as ${status.version} (--allow-unreleased). Live-test iterations only.`);
+    } else {
+      refusals.push(
         `PanelBridge code differs from the released ${status.lockVersion} (${BRIDGE_FILES.lock}). ` +
           "Publish from the tagged release tree, or pass --allow-unreleased for a live-test iteration.",
       );
     }
-    warn(`Publishing UNRELEASED PanelBridge code as ${status.version} (--allow-unreleased). Live-test iterations only.`);
   }
   if (doc.publishedVersion === status.version && !options.force) {
-    throw new PublishError(
+    refusals.push(
       `PanelBridge ${status.version} is already published. Every publish makes new joins fail on every Workshop server ` +
         "until it restarts, so republishing the same version needs --force.",
     );
   }
+  if (refusals.length && !options["dry-run"]) throw new PublishError(refusals.join("\n"));
 
   const template = parseWorkshopTxt(readRepoText(repoRoot, BRIDGE_FILES.workshopTxt));
   const outDir = path.join(repoRoot, DEFAULT_OUT_DIR);
@@ -311,6 +330,7 @@ async function runPublish(options, { repoRoot, spawn, now, log, warn }) {
     log(`Dry run: ${vdfPath} would contain:\n`);
     log(vdf);
     log(`Would run: ${steamcmd} ${steamArgs.join(" ")}`);
+    if (refusals.length) throw new PublishError(`A real run would refuse:\n${refusals.join("\n")}`);
     return 0;
   }
 
@@ -326,14 +346,31 @@ async function runPublish(options, { repoRoot, spawn, now, log, warn }) {
     child.on("error", reject);
     child.on("close", (code) => resolve(code));
   });
+  // steamcmd writes the new item's id back into the VDF on the first publish
+  // (LIVE: whether it also does so when the upload fails after creating the
+  // item). The VDF is regenerated from published.json on every run, so an
+  // item created but not recorded would make the next run create a second one.
+  const vdfId = readVdfPublishedFileId(fs.readFileSync(vdfPath, "utf8"));
+  const workshopId = vdfId && /^\d+$/.test(vdfId) && vdfId !== "0" ? vdfId : null;
+  const firstPublish = !doc.workshopId;
+  const recordHint = (id) => `node scripts/workshop/publish.mjs record --id ${id} --visibility ${visibility}`;
   if (exitCode !== 0) {
-    throw new PublishError(`steamcmd exited with code ${exitCode}; ${BRIDGE_FILES.published} is unchanged`);
+    throw new PublishError(
+      `steamcmd exited with code ${exitCode}; ${BRIDGE_FILES.published} is unchanged.` +
+        (firstPublish && workshopId
+          ? ` steamcmd did create Workshop item ${workshopId}. Record it before retrying, so the retry updates that item ` +
+            `instead of creating another: ${recordHint(workshopId)}, then publish again with --force.`
+          : ""),
+    );
   }
-
-  // steamcmd writes the new item's id back into the VDF on the first publish.
-  const workshopId = readVdfPublishedFileId(fs.readFileSync(vdfPath, "utf8"));
-  if (!workshopId || !/^\d+$/.test(workshopId) || workshopId === "0") {
-    throw new PublishError(`steamcmd finished but ${vdfPath} holds no Workshop item id; ${BRIDGE_FILES.published} is unchanged`);
+  if (!workshopId) {
+    throw new PublishError(
+      firstPublish
+        ? `steamcmd finished but didn't write the new item's id into ${vdfPath}; ${BRIDGE_FILES.published} is unchanged. ` +
+          "It has probably created the Workshop item already, so don't publish again (that would create a second item). " +
+          `Find the id in the steamcmd output above or under Workshop Items on the account's Steam profile, then run: ${recordHint("<id>")}`
+        : `steamcmd finished but ${vdfPath} holds no Workshop item id; ${BRIDGE_FILES.published} is unchanged`,
+    );
   }
   assertCanRecordId(doc, workshopId);
   writePublished(repoRoot, published.text, {
@@ -343,6 +380,14 @@ async function runPublish(options, { repoRoot, spawn, now, log, warn }) {
     publishedAt: now().toISOString(),
   });
   log(`Published PanelBridge ${status.version} as Workshop item ${workshopId} (${visibility}).`);
+  // stdio stays attached to the terminal (steamcmd prompts there), so its
+  // output can't be checked here, and on an update the VDF held this id
+  // before steamcmd ran: exit code 0 is the only signal this tool gets.
+  log(
+    `steamcmd's exit code doesn't prove the upload worked. Before committing, check that the change note shows on ` +
+      `https://steamcommunity.com/sharedfiles/filedetails/changelog/${workshopId}. If it doesn't, keep the recorded id ` +
+      "and publish again with --force.",
+  );
   log(`Commit ${BRIDGE_FILES.published}.`);
   log("If the tags are missing on the Steam page, set them once in the in-game uploader.");
   return 0;

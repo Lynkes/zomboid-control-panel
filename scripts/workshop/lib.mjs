@@ -13,7 +13,6 @@ import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
 
 export const MOD_ID = "ZomboidControlPanelBridge";
-export const ITEM_TITLE = "Zomboid Control Panel Bridge";
 export const STEAM_APP_ID = "108600";
 export const WORKSHOP_TAGS = "Build 42;Multiplayer;Framework";
 // SteamWorkshopItem.validatePreviewImage (42.20): Files.size > 1024000 -> PreviewFileSize.
@@ -387,10 +386,6 @@ export function firstExecutableLine(luaText) {
     return line.replace(/--.*$/, "").replace(/\s+/g, " ").trim();
   }
   return null;
-}
-
-export function normalizeLuaStatement(statement) {
-  return String(statement).replace(/\s+/g, " ").trim();
 }
 
 // ---------------------------------------------------------------------------

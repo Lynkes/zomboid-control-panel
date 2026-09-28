@@ -148,6 +148,26 @@ describe("workshop publish: credentials", () => {
     expect(result.err).toMatch(/must be a Steam account name/);
   });
 
+  it.each([
+    [["--steam-user", "maint", "hunter2", "--dry-run"]],
+    [["--steam-user", "maint", "-hunter2$", "--dry-run"]],
+    [["record", "--id", "1", "hunter2"]],
+  ])("never echoes a stray value that may be a password: %j", async (argv) => {
+    const steamcmd = fakeSteamcmd();
+    const result = await run(makeRepo(), argv, { spawn: steamcmd.spawn });
+    expect(result.code).toBe(1);
+    expect(`${result.out}\n${result.err}`).not.toMatch(/hunter/);
+    expect(result.err).toMatch(/Unexpected extra argument for (publish|record) \(not shown\)\. This tool never takes a password/);
+    expect(steamcmd.calls).toHaveLength(0);
+  });
+
+  it("names an unknown option, but not its inline value", async () => {
+    const result = await run(makeRepo(), ["--steam-user", "maint", "--changenote=secret", "--dry-run"]);
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/Unknown argument for publish: --changenote\n/);
+    expect(result.err).not.toMatch(/secret/);
+  });
+
   it("runs steamcmd attached to the terminal so it prompts for the secrets itself", async () => {
     const repo = makeRepo();
     const steamcmd = fakeSteamcmd();
@@ -260,6 +280,10 @@ describe("workshop publish: recording the id", () => {
     expect(repo.readPublishedText()).toMatch(/^ {2}"liveVerified": \{ "windowsServer": null, "linuxServer": null \}$/m);
     expect(result.out).toMatch(/Commit pz-mod\/workshop\/published\.json\./);
     expect(result.out).toMatch(/set them once in the in-game uploader/);
+    // Exit code 0 is all steamcmd reports back, so the maintainer is sent to check.
+    expect(result.out).toMatch(
+      /exit code doesn't prove the upload worked\. .*sharedfiles\/filedetails\/changelog\/3712345678\. .*publish again with --force/,
+    );
     // The item was built for steamcmd to upload.
     expect(fs.existsSync(path.join(repo.root, "dist-workshop", "ZomboidControlPanelBridge", "Contents", "mods"))).toBe(true);
   });
@@ -287,11 +311,45 @@ describe("workshop publish: recording the id", () => {
     const before = repo.readPublishedText();
     const failed = await run(repo, ["--steam-user", "maint"], { spawn: fakeSteamcmd({ exitCode: 5 }).spawn });
     expect(failed.code).toBe(1);
-    expect(failed.err).toMatch(/steamcmd exited with code 5/);
+    expect(failed.err).toMatch(/steamcmd exited with code 5; pz-mod\/workshop\/published\.json is unchanged\.$/);
     const noId = await run(repo, ["--steam-user", "maint"], { spawn: fakeSteamcmd({ writeId: null }).spawn });
     expect(noId.code).toBe(1);
-    expect(noId.err).toMatch(/holds no Workshop item id/);
+    expect(noId.err).toMatch(/didn't write the new item's id/);
     expect(repo.readPublishedText()).toBe(before);
+  });
+
+  it("on a first publish with no id back, warns that the item probably exists and says how to record it", async () => {
+    const repo = makeRepo();
+    const result = await run(repo, ["--steam-user", "maint", "--visibility", "public"], {
+      spawn: fakeSteamcmd({ writeId: null }).spawn,
+    });
+    expect(result.code).toBe(1);
+    // A rerun regenerates the VDF with publishedfileid 0 and would create a second item.
+    expect(result.err).toMatch(/probably created the Workshop item already, so don't publish again/);
+    expect(result.err).toMatch(/node scripts\/workshop\/publish\.mjs record --id <id> --visibility public$/);
+  });
+
+  it("when steamcmd fails after creating the item, says to record it before retrying", async () => {
+    const repo = makeRepo();
+    const before = repo.readPublishedText();
+    const steamcmd = fakeSteamcmd({ exitCode: 7 });
+    // steamcmd created the item and wrote its id back, then failed the upload.
+    const spawn = (command, args, options) => {
+      fs.writeFileSync(args[3], fs.readFileSync(args[3], "utf8").replace(/("publishedfileid"\s+)"0"/, "$1\"3712345678\""));
+      return steamcmd.spawn(command, args, options);
+    };
+    const result = await run(repo, ["--steam-user", "maint"], { spawn });
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/steamcmd exited with code 7; .* is unchanged\. steamcmd did create Workshop item 3712345678\./);
+    expect(result.err).toMatch(/record --id 3712345678 --visibility unlisted, then publish again with --force\.$/);
+    expect(repo.readPublishedText()).toBe(before);
+  });
+
+  it("keeps the plain error when an update's steamcmd run fails", async () => {
+    const repo = makeRepo({ published: { workshopId: "3712345678", publishedVersion: "1.7.1" } });
+    const result = await run(repo, ["--steam-user", "maint"], { spawn: fakeSteamcmd({ exitCode: 5 }).spawn });
+    expect(result.code).toBe(1);
+    expect(result.err).toBe("steamcmd exited with code 5; pz-mod/workshop/published.json is unchanged.");
   });
 
   it("record --id writes the same fields as a publish", async () => {
@@ -348,6 +406,25 @@ describe("workshop publish: preconditions", () => {
     expect(steamcmd.calls).toHaveLength(1);
   });
 
+  it("--dry-run still prints the VDF when a real run would refuse, then fails with the reasons", async () => {
+    const repo = makeRepo({ published: { workshopId: "3712345678", publishedVersion: VERSION } });
+    repo.write(BRIDGE_FILES.serverLua, serverLua("-- an unreleased change"));
+    const steamcmd = fakeSteamcmd();
+    const before = repo.readPublishedText();
+    const result = await run(repo, ["--steam-user", "maint", "--dry-run"], { spawn: steamcmd.spawn });
+    expect(result.code).toBe(1);
+    expect(result.out).toMatch(/"publishedfileid"\s+"3712345678"/);
+    expect(result.out).toMatch(/Would run: steamcmd \+login maint/);
+    expect(result.err).toMatch(/^A real run would refuse:\nPanelBridge code differs from the released .*\nPanelBridge .* is already published/);
+    expect(steamcmd.calls).toHaveLength(0);
+    expect(fs.existsSync(path.join(repo.root, "dist-workshop"))).toBe(false);
+    expect(repo.readPublishedText()).toBe(before);
+
+    const allowed = await run(repo, ["--steam-user", "maint", "--dry-run", "--allow-unreleased", "--force"]);
+    expect(allowed.code).toBe(0);
+    expect(allowed.err).toMatch(/WARNING: Publishing UNRELEASED PanelBridge code/);
+  });
+
   it("refuses code the release lock doesn't describe unless --allow-unreleased", async () => {
     const repo = makeRepo();
     repo.write(BRIDGE_FILES.serverLua, serverLua("-- an unreleased change"));
@@ -386,13 +463,19 @@ describe("workshop publish: change notes from the Lua header", () => {
   const lua = serverLua();
 
   it("uses the current block (and vNEXT) on a first publish, not the whole history", () => {
+    // vNEXT only reaches a change note in an --allow-unreleased publish, where
+    // VERSION still names the last release: it must not get a second
+    // "v<VERSION> Changes:" heading.
     expect(changeNoteFromLua(lua, { version: VERSION, publishedVersion: null })).toBe([
-      `v${VERSION} Changes:`,
+      "Unreleased changes:",
       "- Add: delivery reporting.",
       "",
       `v${VERSION} Changes:`,
       "- Add: lightweight save-backed player leaderboard telemetry.",
     ].join("\n"));
+    expect(changeNoteFromLua(lua, { version: VERSION, publishedVersion: VERSION })).toBe(
+      "Unreleased changes:\n- Add: delivery reporting.",
+    );
   });
 
   it("uses every block newer than the last published version", () => {

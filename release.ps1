@@ -303,8 +303,19 @@ if ($PanelBridgeVersion -notmatch '^\d+\.\d+\.\d+$') {
     throw "PanelBridge version is not a numeric SemVer: $PanelBridgeVersion"
 }
 $bridgeVersionChanged = $PanelBridgeVersion -ne [string]$bridgeState.lockVersion
-if ($bridgeVersionChanged) {
+# Which publish path to point at. With no pinned item id yet, the first
+# publish goes through the in-game uploader (spec path B): it validates the
+# preview image and sets the tags, which steamcmd may not.
+$bridgePublishedPath = Join-Path $RepoDir "pz-mod\workshop\published.json"
+try {
+    $bridgeWorkshopId = [string](Get-Content $bridgePublishedPath -Raw | ConvertFrom-Json).workshopId
+} catch {
+    throw "Could not read the PanelBridge Workshop item id from ${bridgePublishedPath}: $($_.Exception.Message)"
+}
+if ($bridgeVersionChanged -and $bridgeWorkshopId) {
     Write-Host "  PanelBridge changed -> v$PanelBridgeVersion. Workshop servers get it only after you publish: npm run workshop:publish -- --steam-user <account>" -ForegroundColor Magenta
+} elseif ($bridgeVersionChanged) {
+    Write-Host "  PanelBridge changed -> v$PanelBridgeVersion. Workshop servers get it only after you publish: the item has no Workshop id yet, so do the first publish with the in-game uploader (steps at the end of this run)" -ForegroundColor Magenta
 } else {
     Write-Host "  PanelBridge unchanged, keeping $PanelBridgeVersion" -ForegroundColor Magenta
 }
@@ -977,9 +988,16 @@ if (-not $SkipBuild)  { Write-Host "   [x] Windows + Linux archives packaged" -F
 if (-not $SkipDocker) { Write-Host "   [x] Docker image built" -ForegroundColor Green }
 if (-not $SkipGitHub) { Write-Host "   [x] Pushed to GitHub" -ForegroundColor Green }
 if (-not $SkipGitHub) { Write-Host "   [x] GitHub Release created (Keep a Changelog format)" -ForegroundColor Green }
-if ($bridgeVersionChanged) {
+if ($bridgeVersionChanged -and $bridgeWorkshopId) {
     Write-Host "   [ ] PanelBridge v$PanelBridgeVersion is not on the Steam Workshop yet. Publish it from this tagged tree:" -ForegroundColor Yellow
     Write-Host "       npm run workshop:publish -- --steam-user <account>, then commit pz-mod/workshop/published.json" -ForegroundColor Yellow
+} elseif ($bridgeVersionChanged) {
+    Write-Host "   [ ] PanelBridge v$PanelBridgeVersion is not on the Steam Workshop yet, and the item has never been published." -ForegroundColor Yellow
+    Write-Host "       First publish, from this tagged tree, with the in-game uploader:" -ForegroundColor Yellow
+    Write-Host "       1. npm run workshop:build -- --out ~/Zomboid/Workshop" -ForegroundColor Yellow
+    Write-Host "       2. In Project Zomboid: Workshop > Upload, pick ZomboidControlPanelBridge, submit and confirm the upload warning" -ForegroundColor Yellow
+    Write-Host "       3. node scripts/workshop/publish.mjs record --from-staged ~/Zomboid/Workshop/ZomboidControlPanelBridge --visibility unlisted" -ForegroundColor Yellow
+    Write-Host "       4. Commit pz-mod/workshop/published.json" -ForegroundColor Yellow
 }
 Write-Host ""
 Write-Host " Note: live deployment to production (Docker on the game host) is" -ForegroundColor DarkGray

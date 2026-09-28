@@ -233,8 +233,40 @@ function resolveBuiltBinaryPath(target) {
   return candidates.find((candidate) => fs.existsSync(candidate)) || null;
 }
 
-export function writeReleaseReadme() {
-  const readme = `# Zomboid Control Panel
+// The Workshop steps name the item id this release embeds, and are left out
+// while there is none: a Mods= entry without its WorkshopItems= id makes every
+// player's join fail (ModRequired), so half a setup is worse than none. The
+// checksum and leftover-file steps match what Settings > PanelBridge shows
+// for a server the panel can't reach.
+function releaseReadmeWorkshopMethod(bridgeWorkshopId) {
+  if (!/^\d{1,20}$/.test(String(bridgeWorkshopId ?? ""))) {
+    return `- Steam Workshop: not available in this release. The PanelBridge Workshop
+  item hasn't been published yet, so this panel version doesn't know its ID.
+  A panel update will turn it on.`;
+  }
+  return `- Steam Workshop (Build 42 servers running with Steam): the server downloads
+  PanelBridge (Workshop item ${bridgeWorkshopId}) when it starts, and players get
+  it when they join. When the panel can reach the server's files, Settings >
+  PanelBridge makes these changes for you. Otherwise (hosted or remote
+  servers), make them with your host's file manager:
+  1. In the server's .ini, add ;ZomboidControlPanelBridge to the end of the
+     Mods= line and ;${bridgeWorkshopId} to the end of the WorkshopItems= line
+     (add the line if it's missing). Always add both together: a Mods= entry
+     without its WorkshopItems= ID stops every player from joining.
+  2. Delete media/lua/server/PanelBridge.lua and
+     media/lua/client/PanelBridgeClient.lua from the server's game folder if
+     you uploaded them.
+  3. Make sure the server doesn't start with -nosteam.
+  4. Leave DoLuaChecksum=false until Settings > PanelBridge confirms the
+     switch.`;
+}
+
+export function writeReleaseReadme(options = {}) {
+  fs.writeFileSync("./release/README.txt", renderReleaseReadme(options));
+}
+
+export function renderReleaseReadme({ bridgeWorkshopId = null } = {}) {
+  return `# Zomboid Control Panel
 
 ## First 10 Minutes
 
@@ -335,10 +367,7 @@ shows the exact values for your server:
   pz-mod/PanelBridge/media/lua/server/PanelBridge.lua to
   Install/media/lua/server/PanelBridge.lua yourself. Set DoLuaChecksum=false in
   the server's .ini, or players can't join.
-- Steam Workshop (Build 42 servers running with Steam): add
-  ZomboidControlPanelBridge to the Mods= line and the PanelBridge Workshop item
-  ID to the WorkshopItems= line of the server's .ini. The server downloads it
-  at startup and players get it when they join.
+${releaseReadmeWorkshopMethod(bridgeWorkshopId)}
 Restart your PZ server after either change.
 
 ## Upgrading
@@ -351,8 +380,6 @@ Restart your PZ server after either change.
 - If you ever lose db.json, check data/backups/ — the panel keeps the last
   5 auto-snapshots and will restore from the newest on next startup.
 `;
-
-  fs.writeFileSync("./release/README.txt", readme);
 }
 
 export function generateStartBat() {
@@ -1631,6 +1658,23 @@ async function main() {
   });
   const apiContractVersion = resolveApiContractVersion();
 
+  // Pin the PanelBridge Steam Workshop item id to this release. A binary-only
+  // auto-update leaves the on-disk pz-mod/ folder stale (see the PanelBridge.lua
+  // embed below), and the id must never be fetched from the network, so the
+  // binary carries its own copy; server/services/bridgeWorkshopRelease.js reads
+  // it before the file. Unlike the Lua, a missing or broken file fails the
+  // build: shipping without it would silently turn Workshop delivery off. Read
+  // first, so that failure comes before the minutes-long client build.
+  let publishedWorkshopJson;
+  let bridgeWorkshopId = null;
+  try {
+    publishedWorkshopJson = readPublishedWorkshopJson();
+    bridgeWorkshopId = JSON.parse(publishedWorkshopJson)?.workshopId ?? null;
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
+  }
+
   await cleanDir(distDir);
   if (!fs.existsSync(distDir)) {
     fs.mkdirSync(distDir, { recursive: true });
@@ -1694,20 +1738,6 @@ async function main() {
     console.warn(
       `WARNING: ${luaSourcePath} not found — binary will not be able to auto-update the Lua mod.`,
     );
-  }
-
-  // Pin the PanelBridge Steam Workshop item id to this release. A binary-only
-  // auto-update leaves the on-disk pz-mod/ folder stale (see the Lua comment
-  // above), and the id must never be fetched from the network, so the binary
-  // carries its own copy; server/services/bridgeWorkshopRelease.js reads it
-  // before the file. Unlike the Lua, a missing or broken file fails the build:
-  // shipping without it would silently turn Workshop delivery off.
-  let publishedWorkshopJson;
-  try {
-    publishedWorkshopJson = readPublishedWorkshopJson();
-  } catch (error) {
-    console.error(error.message);
-    process.exit(1);
   }
 
   await esbuild.build({
@@ -2012,7 +2042,7 @@ Recommended safe-upgrade commands:
     ),
   );
 
-  writeReleaseReadme();
+  writeReleaseReadme({ bridgeWorkshopId });
 
   console.log("Release package created successfully");
   console.log("Location: ./release/");
