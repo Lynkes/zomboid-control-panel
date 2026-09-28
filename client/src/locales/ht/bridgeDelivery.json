@@ -47,6 +47,7 @@
     "notPublished": "Poko disponib: atik Workshop PanelBridge la poko pibliye, kidonk vèsyon panèl sa a pa konnen ID li. Yon mizajou panèl la ap aktive sa.",
     "idInvalid": "ID atik Workshop panèl sa a pa valab. Reenstale oswa mete panèl la ajou.",
     "noSteam": "Sèvè sa a demare san Steam (GOG/LAN). Atik Workshop pa ka telechaje nan mòd sa a.",
+    "noSteamShared": "Sèvè sa a oswa yon sèvè ki pataje dosye jwèt li ({{servers}}) demare san Steam (GOG/LAN). Atik Workshop pa ka telechaje nan mòd sa a.",
     "gameVersionUnsupported": "Atik Workshop PanelBridge la se pou Build 42. Sèvè sa a di {{version}}.",
     "iniNotFound": "Demare sèvè a yon fwa pou l ka kreye fichye paramèt li, apre sa chanje.",
     "iniDuplicateKeys": "Fichye paramèt la gen Mods= oswa WorkshopItems= de fwa. Korije sa an premye nan Konfigirasyon Sèvè › INI (brit).",
@@ -55,6 +56,7 @@
   "warn": {
     "serverRunning": "Sa ap pran efè lè sèvè a redemare.",
     "customLauncher": "Sèvè sa a itilize pwòp script demaraj li. Si script sa a demare sèvè a san Steam, PanelBridge p ap telechaje.",
+    "customLauncherShared": "Sèvè sa a oswa yon sèvè ki pataje dosye jwèt li ({{servers}}) itilize pwòp script demaraj li. Si script sa a demare sèvè a san Steam, PanelBridge p ap telechaje.",
     "sharedInstall": "Sèvè ki pataje dosye jwèt sa a chanje tou: {{servers}}.",
     "gameVersionUnknown": "Panèl la poko ka konfime sèvè sa a ap fonksyone ak Build 42. Konekte PanelBridge yon fwa, oswa asire w se sa.",
     "previewItem": "Previzyon: moun ki okipe pwojè a poko verifye l sou yon sèvè reyèl.",

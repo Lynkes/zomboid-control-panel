@@ -251,11 +251,17 @@ export function getRunningVersionNote(status: DeliveryStatus): { running: string
   return { running: live.version, version: status.bundledVersion }
 }
 
-export function getBlockReasonKey(reason: DeliveryBlockReason): string {
+// The server judges noSteam and customLauncher over every profile that
+// shares the game folder (the whole group switches, and the Workshop entries
+// go into each one's ini), so when there are siblings the copy can't say it
+// is "this server" -- `shared` picks the wording that names them.
+export function getBlockReasonKey(reason: DeliveryBlockReason, shared = false): string {
+  if (reason === 'noSteam' && shared) return 'unavailable.noSteamShared'
   return `unavailable.${reason}`
 }
 
-export function getWarningKey(warning: DeliveryWarning): string {
+export function getWarningKey(warning: DeliveryWarning, shared = false): string {
+  if (warning === 'customLauncher' && shared) return 'warn.customLauncherShared'
   return `warn.${warning}`
 }
 

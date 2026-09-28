@@ -47,6 +47,7 @@
     "notPublished": "尚無法使用：PanelBridge 的創意工坊專案尚未發佈，因此此版本的面板不知道其 ID。更新面板後即可啟用。",
     "idInvalid": "此面板中的創意工坊專案 ID 無效。請重新安裝或更新面板。",
     "noSteam": "此伺服器不透過 Steam 啟動（GOG/LAN）。此模式下無法下載創意工坊專案。",
+    "noSteamShared": "此伺服器或共用其遊戲資料夾的伺服器（{{servers}}）不透過 Steam 啟動（GOG/LAN）。此模式下無法下載創意工坊專案。",
     "gameVersionUnsupported": "PanelBridge 的創意工坊專案適用於 Build 42。此伺服器回報的版本為 {{version}}。",
     "iniNotFound": "請先啟動一次伺服器以產生其設定檔，然後再切換。",
     "iniDuplicateKeys": "設定檔中 Mods= 或 WorkshopItems= 出現了兩次。請先在「伺服器設定 › INI（原始）」中修正。",
@@ -55,6 +56,7 @@
   "warn": {
     "serverRunning": "將在伺服器重新啟動後生效。",
     "customLauncher": "此伺服器使用自己的啟動腳本。如果該腳本不透過 Steam 啟動伺服器，將無法下載 PanelBridge。",
+    "customLauncherShared": "此伺服器或共用其遊戲資料夾的伺服器（{{servers}}）使用自己的啟動腳本。如果該腳本不透過 Steam 啟動伺服器，將無法下載 PanelBridge。",
     "sharedInstall": "共用此遊戲資料夾的伺服器也會一起切換：{{servers}}。",
     "gameVersionUnknown": "面板暫時無法確認此伺服器執行的是 Build 42。請先連線一次 PanelBridge，或自行確認。",
     "previewItem": "預覽版：維護者尚未在實際伺服器上驗證。",

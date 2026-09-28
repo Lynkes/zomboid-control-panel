@@ -47,6 +47,7 @@
     "notPublished": "Not available yet: the PanelBridge Workshop item hasn't been published, so this panel version doesn't know its ID. A panel update will turn this on.",
     "idInvalid": "This panel's Workshop item ID is invalid. Reinstall or update the panel.",
     "noSteam": "This server launches without Steam (GOG/LAN). Workshop items can't download in that mode.",
+    "noSteamShared": "This server or one that shares its game folder ({{servers}}) launches without Steam (GOG/LAN). Workshop items can't download in that mode.",
     "gameVersionUnsupported": "The PanelBridge Workshop item is for Build 42. This server reports {{version}}.",
     "iniNotFound": "Start the server once so it creates its settings file, then switch.",
     "iniDuplicateKeys": "The settings file has Mods= or WorkshopItems= twice. Fix it in Server Config › INI (raw) first.",
@@ -55,6 +56,7 @@
   "warn": {
     "serverRunning": "Takes effect when the server restarts.",
     "customLauncher": "This server uses its own launch script. If that script starts the server without Steam, PanelBridge won't download.",
+    "customLauncherShared": "This server or one that shares its game folder ({{servers}}) uses its own launch script. If that script starts the server without Steam, PanelBridge won't download.",
     "sharedInstall": "Servers that share this game folder switch too: {{servers}}.",
     "gameVersionUnknown": "The panel can't confirm this server runs Build 42 yet. Connect PanelBridge once, or make sure it does.",
     "previewItem": "Preview: not yet verified on a live server by the maintainer.",

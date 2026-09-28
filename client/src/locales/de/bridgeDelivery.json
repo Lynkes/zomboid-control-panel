@@ -47,6 +47,7 @@
     "notPublished": "Noch nicht verfügbar: Das Workshop-Element von PanelBridge wurde noch nicht veröffentlicht, daher kennt diese Panel-Version seine ID nicht. Ein Panel-Update schaltet diese Option frei.",
     "idInvalid": "Die Workshop-Element-ID dieses Panels ist ungültig. Installiere das Panel neu oder aktualisiere es.",
     "noSteam": "Dieser Server startet ohne Steam (GOG/LAN). In diesem Modus können keine Workshop-Elemente heruntergeladen werden.",
+    "noSteamShared": "Dieser Server oder ein Server, der seinen Spielordner teilt ({{servers}}), startet ohne Steam (GOG/LAN). In diesem Modus können keine Workshop-Elemente heruntergeladen werden.",
     "gameVersionUnsupported": "Das Workshop-Element von PanelBridge ist für Build 42. Dieser Server meldet {{version}}.",
     "iniNotFound": "Starte den Server einmal, damit er seine Einstellungsdatei anlegt, und wechsle dann.",
     "iniDuplicateKeys": "Die Einstellungsdatei enthält Mods= oder WorkshopItems= doppelt. Behebe das zuerst unter Serverkonfiguration › INI (roh).",
@@ -55,6 +56,7 @@
   "warn": {
     "serverRunning": "Wirkt beim nächsten Neustart des Servers.",
     "customLauncher": "Dieser Server nutzt ein eigenes Startskript. Wenn es den Server ohne Steam startet, wird PanelBridge nicht heruntergeladen.",
+    "customLauncherShared": "Dieser Server oder ein Server, der seinen Spielordner teilt ({{servers}}), nutzt ein eigenes Startskript. Wenn es den Server ohne Steam startet, wird PanelBridge nicht heruntergeladen.",
     "sharedInstall": "Server, die diesen Spielordner teilen, wechseln mit: {{servers}}.",
     "gameVersionUnknown": "Das Panel kann noch nicht bestätigen, dass dieser Server Build 42 ausführt. Verbinde PanelBridge einmal oder stelle es selbst sicher.",
     "previewItem": "Vorschau: vom Maintainer noch nicht auf einem Live-Server geprüft.",

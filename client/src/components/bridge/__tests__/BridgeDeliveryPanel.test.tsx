@@ -209,6 +209,23 @@ describe('BridgeDeliveryPanel: option cards and Workshop availability', () => {
     expect(within(option('workshop')).getByRole('button', { name: en.action.switchToWorkshop })).toBeDisabled()
   })
 
+  it('noSteam on a shared game folder names the servers that share it (any of them can be the one)', async () => {
+    renderPanel(
+      makeLocalStatus({
+        sharedWith: [{ id: 'srv-2', name: 'GOG Copy' }],
+        switchAvailability: {
+          toWorkshop: { available: false, reason: 'noSteam', warnings: [] },
+          toLocal: { available: false, reason: 'sameMethod', warnings: [] },
+        },
+      }),
+    )
+    await panelReady()
+    expect(
+      within(option('workshop')).getByText(en.unavailable.noSteamShared.replace('{{servers}}', 'GOG Copy')),
+    ).toBeInTheDocument()
+    expect(within(option('workshop')).queryByText(en.unavailable.noSteam)).toBeNull()
+  })
+
   it('gameVersionUnsupported names the version the server reports', async () => {
     renderPanel(
       makeLocalStatus({

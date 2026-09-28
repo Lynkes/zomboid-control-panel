@@ -62,6 +62,22 @@ describe('bridgeDeliveryView: every contract value maps to an existing bridgeDel
     expect(exists(getWarningKey(warning))).toBe(true)
   })
 
+  it.each(DELIVERY_BLOCK_REASONS)('block reason %s on a shared game folder', (reason) => {
+    expect(exists(getBlockReasonKey(reason, true))).toBe(true)
+  })
+
+  it.each(DELIVERY_WARNINGS)('warning %s on a shared game folder', (warning) => {
+    expect(exists(getWarningKey(warning, true))).toBe(true)
+  })
+
+  it('only noSteam and customLauncher change wording on a shared game folder', () => {
+    expect(getBlockReasonKey('noSteam', true)).toBe('unavailable.noSteamShared')
+    expect(getWarningKey('customLauncher', true)).toBe('warn.customLauncherShared')
+    expect(getBlockReasonKey('noSteam', false)).toBe('unavailable.noSteam')
+    expect(getBlockReasonKey('iniNotFound', true)).toBe('unavailable.iniNotFound')
+    expect(getWarningKey('serverRunning', true)).toBe('warn.serverRunning')
+  })
+
   it.each(CHECKSUM_BLOCKERS)('checksum blocker %s', (blocker) => {
     expect(exists(getChecksumBlockerKey(blocker))).toBe(true)
   })

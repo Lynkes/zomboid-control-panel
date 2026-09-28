@@ -135,7 +135,10 @@ export function BridgeDeliverySwitchDialog({
   const playersOnline = status.live?.alive === true && (playerCount ?? 0) > 0
   const noBridgeSetupReason = !canSetupBridge ? t('permissions.noBridgeSetup', { ns: 'settings' }) : null
   const blockedReason = plan?.blocked
-    ? t(getBlockReasonKey(plan.blocked.reason), getAvailabilityParams(status, i18n.language, plan.sharedWith))
+    ? t(
+        getBlockReasonKey(plan.blocked.reason, plan.sharedWith.length > 0),
+        getAvailabilityParams(status, i18n.language, plan.sharedWith),
+      )
     : null
   const baseReason = noBridgeSetupReason ?? blockedReason
   const lifecycleReason = baseReason ?? (!canControlServer ? t('needsServerControl') : null)
@@ -312,7 +315,10 @@ export function BridgeDeliverySwitchDialog({
                 <ul className="list-disc space-y-1 ps-5">
                   {plan.warnings.map((warning) => (
                     <li key={warning}>
-                      {t(getWarningKey(warning), getAvailabilityParams(status, i18n.language, plan.sharedWith))}
+                      {t(
+                        getWarningKey(warning, plan.sharedWith.length > 0),
+                        getAvailabilityParams(status, i18n.language, plan.sharedWith),
+                      )}
                     </li>
                   ))}
                 </ul>

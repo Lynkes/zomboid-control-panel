@@ -297,7 +297,7 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
     const availability = method === 'workshop' ? s.switchAvailability.toWorkshop : s.switchAvailability.toLocal
     const blockedReason =
       !isCurrent && !availability.available && availability.reason && availability.reason !== 'sameMethod'
-        ? t(getBlockReasonKey(availability.reason), getAvailabilityParams(s, i18n.language))
+        ? t(getBlockReasonKey(availability.reason, s.sharedWith.length > 0), getAvailabilityParams(s, i18n.language))
         : null
     const Icon = method === 'local' ? HardDrive : Cloud
     const switchReason = noBridgeSetupReason ?? blockedReason
@@ -372,7 +372,7 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
     if (s.method === 'local' && s.checksum.current !== true) {
       const workshop = s.switchAvailability.toWorkshop
       const blocked = !workshop.available && workshop.reason && workshop.reason !== 'sameMethod'
-        ? t(getBlockReasonKey(workshop.reason), getAvailabilityParams(s, i18n.language))
+        ? t(getBlockReasonKey(workshop.reason, s.sharedWith.length > 0), getAvailabilityParams(s, i18n.language))
         : null
       const reason = noBridgeSetupReason ?? blocked
       return (

@@ -47,6 +47,7 @@
     "notPublished": "Aún no disponible: el elemento de Workshop de PanelBridge no se ha publicado, así que esta versión del panel no conoce su ID. Una actualización del panel lo activará.",
     "idInvalid": "El ID del elemento de Workshop de este panel no es válido. Reinstala o actualiza el panel.",
     "noSteam": "Este servidor se inicia sin Steam (GOG/LAN). Los elementos de Workshop no se pueden descargar en ese modo.",
+    "noSteamShared": "Este servidor o uno que comparte su carpeta del juego ({{servers}}) se inicia sin Steam (GOG/LAN). Los elementos de Workshop no se pueden descargar en ese modo.",
     "gameVersionUnsupported": "El elemento de Workshop de PanelBridge es para la Build 42. Este servidor informa {{version}}.",
     "iniNotFound": "Inicia el servidor una vez para que cree su archivo de ajustes y luego cambia.",
     "iniDuplicateKeys": "El archivo de ajustes tiene Mods= o WorkshopItems= dos veces. Corrígelo primero en Configuración del servidor › INI (en bruto).",
@@ -55,6 +56,7 @@
   "warn": {
     "serverRunning": "Se aplica cuando el servidor se reinicie.",
     "customLauncher": "Este servidor usa su propio script de inicio. Si ese script inicia el servidor sin Steam, PanelBridge no se descargará.",
+    "customLauncherShared": "Este servidor o uno que comparte su carpeta del juego ({{servers}}) usa su propio script de inicio. Si ese script inicia el servidor sin Steam, PanelBridge no se descargará.",
     "sharedInstall": "Los servidores que comparten esta carpeta del juego también cambian: {{servers}}.",
     "gameVersionUnknown": "El panel aún no puede confirmar que este servidor ejecuta la Build 42. Conecta PanelBridge una vez o compruébalo tú.",
     "previewItem": "Versión preliminar: el mantenedor aún no la ha verificado en un servidor real.",
