@@ -16,6 +16,7 @@ import {
   writeLoose,
 } from "./helpers/bridgeDeliveryFixtures.js";
 import { getDataPaths } from "../utils/paths.js";
+import { UNPUBLISHED_WORKSHOP_RELEASE } from "./helpers/workshopRelease.js";
 
 // GET/POST /api/panel-bridge/delivery over real HTTP, through the real
 // routers (bridgeDelivery.js mounted above panelBridge.js, as index.js does)
@@ -94,6 +95,8 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  vi.stubGlobal("PANEL_BRIDGE_WORKSHOP_JSON", UNPUBLISHED_WORKSHOP_RELEASE);
+  _resetWorkshopReleaseCacheForTests();
   root = createRoot();
   files = createServerFiles(root, { ini: "PVP=true\r\nMods=OtherMod\r\nWorkshopItems=111\r\nDoLuaChecksum=false\r\n" });
   dbState.servers = [makeServer(files, { serverConfigPath: path.join(files.dataDir, "Server") })];
@@ -103,6 +106,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   _resetWorkshopReleaseCacheForTests();
   fs.rmSync(root, { recursive: true, force: true });

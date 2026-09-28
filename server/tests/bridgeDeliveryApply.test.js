@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 import path from "path";
+import { UNPUBLISHED_WORKSHOP_RELEASE } from "./helpers/workshopRelease.js";
 import {
   CLIENT_COMPANION,
   MOD,
@@ -153,6 +154,8 @@ function trackedPaths() {
 }
 
 beforeEach(() => {
+  vi.stubGlobal("PANEL_BRIDGE_WORKSHOP_JSON", UNPUBLISHED_WORKSHOP_RELEASE);
+  _resetWorkshopReleaseCacheForTests();
   root = createRoot();
   Object.assign(trace, { order: [], ...TRACE_DEFAULTS });
   dbState.failUpdate = false;
@@ -162,6 +165,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   _resetWorkshopReleaseCacheForTests();
   fs.rmSync(root, { recursive: true, force: true });

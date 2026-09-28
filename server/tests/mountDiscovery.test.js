@@ -13,14 +13,18 @@ import {
 } from "../services/mountDiscovery.js";
 import { isContainerized } from "../utils/dockerDetect.js";
 import { _resetWorkshopReleaseCacheForTests } from "../services/bridgeWorkshopRelease.js";
+import { UNPUBLISHED_WORKSHOP_RELEASE } from "./helpers/workshopRelease.js";
 
 let tmpRoot;
 
 beforeEach(() => {
+  vi.stubGlobal("PANEL_BRIDGE_WORKSHOP_JSON", UNPUBLISHED_WORKSHOP_RELEASE);
+  _resetWorkshopReleaseCacheForTests();
   tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pz-mount-discovery-"));
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   try {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   } catch {

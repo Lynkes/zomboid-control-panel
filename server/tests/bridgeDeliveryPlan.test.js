@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 import path from "path";
+import { UNPUBLISHED_WORKSHOP_RELEASE } from "./helpers/workshopRelease.js";
 import {
   CLIENT_COMPANION,
   MOD,
@@ -56,6 +57,8 @@ function snapshotTree(dir) {
 }
 
 beforeEach(() => {
+  vi.stubGlobal("PANEL_BRIDGE_WORKSHOP_JSON", UNPUBLISHED_WORKSHOP_RELEASE);
+  _resetWorkshopReleaseCacheForTests();
   root = createRoot();
   files = createServerFiles(root);
   vi.stubEnv("PANEL_BRIDGE_WORKSHOP_ID", WS_ID);
@@ -63,6 +66,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   _resetWorkshopReleaseCacheForTests();

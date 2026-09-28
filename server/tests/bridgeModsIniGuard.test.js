@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
+import { UNPUBLISHED_WORKSHOP_RELEASE } from "./helpers/workshopRelease.js";
 import {
   MOD,
   WS_ID,
@@ -55,6 +56,8 @@ const WORKSHOP = {
 };
 
 beforeEach(() => {
+  vi.stubGlobal("PANEL_BRIDGE_WORKSHOP_JSON", UNPUBLISHED_WORKSHOP_RELEASE);
+  _resetWorkshopReleaseCacheForTests();
   root = createRoot();
   files = createServerFiles(root, {
     ini: `PVP=true\r\nMods=First;${MOD};Last\r\nWorkshopItems=111;${WS_ID};222\r\nDoLuaChecksum=true\r\n`,
@@ -64,6 +67,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   _resetWorkshopReleaseCacheForTests();
   fs.rmSync(root, { recursive: true, force: true });

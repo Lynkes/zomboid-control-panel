@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { loadPanelBridge } from "./helpers/panelBridgeLua.js";
+import { UNPUBLISHED_WORKSHOP_RELEASE } from "./helpers/workshopRelease.js";
 import {
   MOD,
   WS_ID,
@@ -136,6 +137,8 @@ function workshopServer(record = {}) {
 }
 
 beforeEach(() => {
+  vi.stubGlobal("PANEL_BRIDGE_WORKSHOP_JSON", UNPUBLISHED_WORKSHOP_RELEASE);
+  _resetWorkshopReleaseCacheForTests();
   root = createRoot("bridge-heartbeat-");
   files = createServerFiles(root, {
     ini: `Mods=OtherMod;${MOD}\r\nWorkshopItems=111;${WS_ID}\r\nDoLuaChecksum=false\r\n`,
@@ -150,6 +153,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   _resetWorkshopReleaseCacheForTests();
   fs.rmSync(root, { recursive: true, force: true });
