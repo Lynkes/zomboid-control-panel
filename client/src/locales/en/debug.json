@@ -929,7 +929,7 @@
             },
             "never": {
               "label": "No mod heartbeat",
-              "message": "status.json has never been written. Mod is not loaded on the server.",
+              "message": "status.json has not been written yet.",
               "hint": "PanelBridge reports once the world has loaded. If it stays silent, see “How PanelBridge is installed” in Settings › PanelBridge."
             }
           }

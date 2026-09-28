@@ -934,7 +934,7 @@
             },
             "never": {
               "label": "Sin latido del mod",
-              "message": "status.json nunca se ha escrito. El mod no está cargado en el servidor.",
+              "message": "status.json todavía no se ha escrito.",
               "hint": "PanelBridge informa en cuanto termina de cargar el mundo. Si sigue sin responder, consultar «Cómo se instala PanelBridge» en Ajustes › PanelBridge."
             }
           }

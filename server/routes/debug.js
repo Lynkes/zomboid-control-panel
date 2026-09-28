@@ -4726,12 +4726,15 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
             // The remedy doesn't assume a delivery method: the default
             // panel-installed PanelBridge is never in Mods= or WorkshopItems=,
             // so it points at the block that knows how this server gets it
-            // (as panelBridge.js's bridgeSilentSinceStart does).
+            // (as panelBridge.js's bridgeSilentSinceStart does). Nor does the
+            // message claim the mod isn't loaded: this also fires during a
+            // normal start, while the world is still loading (minutes on
+            // Build 42), before PanelBridge's first write.
             checks.push(
               diagFail(
                 "bridge.heartbeat",
                 "No mod heartbeat",
-                "status.json has never been written. Mod is not loaded on the server.",
+                "status.json has not been written yet.",
                 {
                   category: "bridge",
                   hint: "PanelBridge reports once the world has loaded. If it stays silent, see “How PanelBridge is installed” in Settings › PanelBridge.",

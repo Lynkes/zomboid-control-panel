@@ -934,7 +934,7 @@
             },
             "never": {
               "label": "Aucun battement du mod",
-              "message": "status.json n'a jamais été écrit. Le mod n'est pas chargé sur le serveur.",
+              "message": "status.json n'a pas encore été écrit.",
               "hint": "PanelBridge transmet son statut une fois le monde chargé. S'il reste silencieux, consultez « Mode d'installation de PanelBridge » dans Paramètres › PanelBridge."
             }
           }

@@ -929,7 +929,7 @@
             },
             "never": {
               "label": "Pa gen batman kè mod",
-              "message": "status.json pa janm ekri. Mod la pa chaje sou sèvè a.",
+              "message": "status.json poko ekri.",
               "hint": "PanelBridge voye rapò lè mond lan fin chaje. Si li rete an silans, gade “Kijan PanelBridge enstale” nan Paramèt › PanelBridge."
             }
           }
