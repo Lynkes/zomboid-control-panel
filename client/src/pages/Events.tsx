@@ -1467,15 +1467,16 @@ export default function Events() {
           setGameHour(Math.floor(timeRes.value.data.hour))
           setGameDay(timeRes.value.data.day)
           setGameMonth(timeRes.value.data.month)
-          // getGameTime's multiplier field reads the same zombie.GameTime
-          // singleton RCON's setTimeSpeed command writes to (confirmed via
-          // the real jar: SetTimeSpeedCommand calls
-          // GameTime.getInstance().setMultiplier(), the exact object/field
-          // this reads) -- a real, authoritative read-back, not a decorative
-          // one. Without this the slider was local-only useState(1), never
-          // reassigned by any fetch, and could show a stale multiplier
-          // after any change made outside the panel (RCON, another admin,
-          // a restart).
+          // getGameTime's multiplier field is the game speed RCON's
+          // setTimeSpeed command writes (confirmed via the real jar:
+          // SetTimeSpeedCommand calls GameTime.getInstance().setMultiplier(),
+          // and PanelBridge.readTimeSpeed reads that raw field back with
+          // getTrueMultiplier()) -- a real, authoritative read-back, 1 at
+          // normal speed. Without this the slider was local-only
+          // useState(1), never reassigned by any fetch, and could show a
+          // stale multiplier after any change made outside the panel (RCON,
+          // another admin, a restart). Bridges up to v1.7.70 read the
+          // per-frame getMultiplier() instead, about 0.8 at normal speed.
           if (
             typeof timeRes.value.data.multiplier === 'number' &&
             Date.now() >= timeSpeedDirtyUntilRef.current
@@ -1991,10 +1992,12 @@ export default function Events() {
   // clock" -- checked against the real jar rather than trusted, and it's
   // wrong. SetTimeSpeedCommand.class's own method refs are
   // GameTime.getInstance() -> GameTime.setMultiplier(), the exact same
-  // singleton and field PanelBridge.lua's getGameTime/getTimeSpeed read via
-  // gt:getMultiplier(). RCON's setTimeSpeed IS the authoritative multiplier,
-  // not a separate, disconnected value -- which is why reading it back
-  // (getGameTime's poll, below) is safe to treat as real state.
+  // singleton and raw field PanelBridge.lua's getGameTime/getTimeSpeed read
+  // back via gt:getTrueMultiplier() (PanelBridge.readTimeSpeed; not
+  // getMultiplier(), the ~0.8 per-frame time step). RCON's setTimeSpeed IS
+  // the authoritative multiplier, not a separate, disconnected value --
+  // which is why reading it back (getGameTime's poll, above) is safe to
+  // treat as real state.
   const setGameTimeSpeed = () => executeCommand(`setTimeSpeed ${timeSpeed}`)
 
   // Teleport commands

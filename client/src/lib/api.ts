@@ -2838,7 +2838,9 @@ export const panelBridgeApi = {
         // Optional: added 2026-08-30 (panelbridge-audit) to the Lua
         // handler's response, and read defensively (typeof check, not a
         // required field) by Events.tsx's time-speed slider -- a bridge
-        // mod predating that Lua change simply won't send it yet.
+        // mod predating that Lua change simply won't send it yet. The raw
+        // game speed RCON's setTimeSpeed sets, 1 at normal speed; bridges
+        // up to v1.7.70 sent the ~0.8 per-frame getMultiplier() instead.
         multiplier?: number;
       };
     }>,

@@ -14,8 +14,12 @@ import { playersApi, panelBridgeApi } from '@/lib/api'
 // slider was local useState(1), never reassigned by any poll, so it could
 // show a stale multiplier after a change made via RCON, another admin, or a
 // restart. Fixed by reading the multiplier PanelBridge.lua's getGameTime
-// now reports (the same zombie.GameTime singleton/field RCON's setTimeSpeed
-// command writes, confirmed via the real jar -- not a decorative read-back).
+// now reports: the raw zombie.GameTime field RCON's setTimeSpeed command
+// writes, read back with getTrueMultiplier() (confirmed via the real jar --
+// not a decorative read-back), so 1 at normal speed and 10 after
+// setTimeSpeed 10. The Lua side is pinned by
+// server/tests/panelBridgeGameTimeMultiplier.test.js; these tests mock the
+// bridge response and only cover what the page does with it.
 
 class StubResizeObserver {
   observe() {}
