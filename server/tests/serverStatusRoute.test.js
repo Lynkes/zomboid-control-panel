@@ -226,6 +226,97 @@ describe("GET /api/servers/active/status", () => {
     expect(resolveDockerHostSignal).not.toHaveBeenCalled();
   });
 
+  // The dashboard's uptime is computed client-side from host.startedAt, so
+  // this route is where "when did the server start" is decided per
+  // provider: the OS for a native process (serverManager.resolveStartTime,
+  // which covers the scanned PID and a systemd unit's MainPID alike),
+  // Docker for a container, nothing at all for a remote host.
+  it("reports a running native server's start time from serverManager.resolveStartTime()", async () => {
+    getActiveServer.mockResolvedValue({ id: 1, isRemote: false });
+    const details = { running: true, scanFailed: false, matched: [{ pid: "4242" }] };
+    const resolveStartTime = vi.fn(async () => new Date("2026-09-27T07:00:00.000Z"));
+    const response = createResponse();
+
+    await getStatusHandler()(
+      {
+        app: fakeApp({
+          serverManager: { getServerProcessDetails: async () => details, resolveStartTime },
+        }),
+      },
+      response,
+    );
+
+    expect(resolveStartTime).toHaveBeenCalledWith(details);
+    const payload = response.json.mock.calls[0][0];
+    expect(payload.host).toMatchObject({
+      status: "running",
+      startedAt: "2026-09-27T07:00:00.000Z",
+    });
+    // This host's clock as it answered: the client counts uptime on its
+    // own clock and uses this to take host/browser skew back out.
+    expect(payload.serverTime).toEqual(expect.any(Number));
+  });
+
+  it("never asks for a start time when the native host isn't confirmed running", async () => {
+    getActiveServer.mockResolvedValue({ id: 1, isRemote: false });
+    const resolveStartTime = vi.fn(async () => new Date("2026-09-27T07:00:00.000Z"));
+    const response = createResponse();
+
+    await getStatusHandler()(
+      {
+        app: fakeApp({
+          serverManager: {
+            getServerProcessDetails: async () => ({ running: false, scanFailed: true }),
+            resolveStartTime,
+          },
+        }),
+      },
+      response,
+    );
+
+    expect(resolveStartTime).not.toHaveBeenCalled();
+    expect(response.json.mock.calls[0][0].host).not.toHaveProperty("startedAt");
+  });
+
+  it("does not attribute a local process's start time to a remote SFTP server", async () => {
+    getActiveServer.mockResolvedValue({ id: 1, isRemote: true });
+    const resolveStartTime = vi.fn(async () => new Date("2026-09-27T07:00:00.000Z"));
+    const response = createResponse();
+
+    await getStatusHandler()(
+      {
+        app: fakeApp({
+          serverManager: {
+            getServerProcessDetails: async () => ({ running: true, scanFailed: false, matched: [{ pid: "1" }] }),
+            resolveStartTime,
+          },
+        }),
+      },
+      response,
+    );
+
+    expect(resolveStartTime).not.toHaveBeenCalled();
+    expect(response.json.mock.calls[0][0].host).not.toHaveProperty("startedAt");
+  });
+
+  it("reports a running container's start time from Docker", async () => {
+    getActiveServer.mockResolvedValue({ id: "docker-server", dockerContainerName: "pz-container", isRemote: false });
+    resolveDockerHostSignal.mockResolvedValue({
+      running: true,
+      scanFailed: false,
+      startedAt: "2026-09-26T21:15:03.123456789Z",
+    });
+    const response = createResponse();
+
+    await getStatusHandler()({ app: fakeApp() }, response);
+
+    expect(response.json.mock.calls[0][0].host).toMatchObject({
+      status: "running",
+      label: "Container",
+      startedAt: "2026-09-26T21:15:03.123Z",
+    });
+  });
+
   it("returns 500 with a sanitized error when the database lookup throws", async () => {
     getActiveServer.mockRejectedValue(new Error("db exploded"));
     const response = createResponse();

@@ -74,6 +74,23 @@ describe("ServerManager managed Linux lifecycle", () => {
     expect(manager.serverProcess).toBeNull();
   });
 
+  // Server uptime: the managed start used to keep any start time already
+  // recorded (`this.startTime || new Date()`), so a service stopped by hand
+  // and started again from the panel before a status poll noticed the stop
+  // kept counting from the previous run -- and for OpenRC (no MainPID for
+  // the OS to answer about) that record is the only uptime there is.
+  it("records a fresh launch time on start instead of keeping a previous run's", async () => {
+    const previousRun = new Date(Date.now() - 2 * 24 * 3600 * 1000);
+    manager.startTime = previousRun;
+    manager._startTimePid = "4242";
+
+    const before = Date.now();
+    await manager.startServer();
+
+    expect(manager.startTime.getTime()).toBeGreaterThanOrEqual(before);
+    expect(manager._startTimePid).toBeNull();
+  });
+
   // Regression (2026-08-31 services sweep): the SteamCMD guard used to sit
   // AFTER the managed-lifecycle branch's own early return, so it never ran
   // for a systemd/openrc-managed install -- systemctl would start the

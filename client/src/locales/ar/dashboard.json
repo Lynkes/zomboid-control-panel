@@ -112,7 +112,6 @@
   "header": {
     "ariaLabel": "حالة الخادم",
     "everythingNominal": "كل شيء على ما يُرام",
-    "upPrefix": "يعمل منذ {{uptime}}",
     "mapTooltip": "الخريطة (من PanelBridge)",
     "remoteBadge": "بعيد",
     "noActiveServer": "لا يوجد خادم نشط"

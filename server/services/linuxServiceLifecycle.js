@@ -314,13 +314,23 @@ export function buildLifecycleTemplate(server, provider, options = {}) {
   };
 }
 
+// The XDG runtime directory `systemctl --user` and `rc-service --user` run
+// against: the panel's own, or the standard per-uid one when the panel was
+// started without a login session (a service account -- see the systemd
+// template's enable-linger comment above). One helper for both the exec
+// environment below and inspect()'s direct read of OpenRC's state under
+// it, so the two can never look in different places.
+function userRuntimeDirectory() {
+  if (process.env.XDG_RUNTIME_DIR) return process.env.XDG_RUNTIME_DIR;
+  const uid = typeof process.getuid === "function" ? process.getuid() : null;
+  return Number.isInteger(uid) ? `/run/user/${uid}` : null;
+}
+
 function defaultExecFile(command, args) {
   return new Promise((resolve) => {
-    const uid = typeof process.getuid === "function" ? process.getuid() : null;
     const env = { ...process.env };
-    if (!env.XDG_RUNTIME_DIR && Number.isInteger(uid)) {
-      env.XDG_RUNTIME_DIR = `/run/user/${uid}`;
-    }
+    const runtimeDirectory = userRuntimeDirectory();
+    if (runtimeDirectory) env.XDG_RUNTIME_DIR = runtimeDirectory;
     nodeExecFile(command, args, { timeout: 15000, env }, (error, stdout, stderr) => {
       // error.code is the child's own exit code (an integer) when the
       // command actually ran and exited non-zero. When the exec itself
@@ -361,6 +371,10 @@ export class LinuxServiceLifecycle {
     this.execFile = options.execFile || defaultExecFile;
     this.fileExists = options.fileExists || fs.existsSync;
     this.readFile = options.readFile || ((file) => fs.readFileSync(file, "utf8"));
+    this.runtimeDirectory =
+      options.runtimeDirectory !== undefined
+        ? options.runtimeDirectory
+        : userRuntimeDirectory();
     this.platform = options.platform || process.platform;
     this.containerized = options.containerized ?? isContainerized();
     this.waitForState = options.waitForState !== false;
@@ -390,12 +404,21 @@ export class LinuxServiceLifecycle {
         "--property=LoadState",
         "--property=ActiveState",
         "--property=Environment",
+        "--property=MainPID",
       ]);
       const values = parseSystemdShow(result.stdout);
       const registered = values.LoadState && values.LoadState !== "not-found";
       const running = ["active", "activating", "reloading"].includes(
         values.ActiveState,
       );
+      // The unit's main process (the ExecStart= launcher, which lives exactly
+      // as long as the game server under it) -- read in this same call so
+      // the panel can ask the OS when the server started, including after a
+      // panel restart or a Restart=on-failure it never saw. "0" means the
+      // unit has no running process.
+      const mainPid = /^[1-9]\d*$/.test(values.MainPID || "")
+        ? values.MainPID
+        : null;
       return {
         registered: Boolean(registered),
         running,
@@ -403,6 +426,7 @@ export class LinuxServiceLifecycle {
         markerMatches: Boolean(
           registered && String(values.Environment || "").includes(marker),
         ),
+        ...(running && mainPid ? { mainPid } : {}),
         error:
           !registered && result.stderr
             ? result.stderr.trim().slice(0, 300)
@@ -456,9 +480,11 @@ export class LinuxServiceLifecycle {
     // activeState: "inactive", so status()'s `scanFailed: activeState ===
     // "unknown"` could never fire for OpenRC no matter what actually failed.
     const execFailed = Boolean(status.execFailed);
+    const running = registered && !execFailed && status.code === 0;
+    const mainPid = running && markerMatches ? this.readSupervisedChildPid() : null;
     return {
       registered,
-      running: registered && !execFailed && status.code === 0,
+      running,
       activeState: !registered
         ? "not-found"
         : execFailed
@@ -467,10 +493,45 @@ export class LinuxServiceLifecycle {
             ? "active"
             : "inactive",
       markerMatches,
+      ...(mainPid ? { mainPid } : {}),
       error: execFailed || (status.code !== 0 && status.code !== 3)
         ? status.stderr.trim().slice(0, 300)
         : null,
     };
+  }
+
+  // The game server's own PID under supervise-daemon -- OpenRC's
+  // counterpart of systemd's MainPID, so a started OpenRC service has a
+  // start time too, including after a panel restart. Not the pidfile the
+  // generated init script hands supervise-daemon: that holds the
+  // SUPERVISOR's pid, which outlives every respawn of the server under it,
+  // so its start time would be a confident wrong answer after a crash.
+  // supervise-daemon itself records the child (for rc-status): each child
+  // it forks writes its own pid to <svcdir>/options/<service>/child_pid
+  // before exec'ing the launcher, a respawn overwrites it, and a stop
+  // clears it. In user mode svcdir is $XDG_RUNTIME_DIR/openrc -- the same
+  // runtime directory the `rc-service --user status` call above answered
+  // from. During the --respawn-delay after a crash the file still names
+  // the dead child; /proc then has no entry for it and the start time is
+  // unknown for those seconds, not the dead child's. null when unreadable.
+  readSupervisedChildPid() {
+    if (!this.runtimeDirectory) return null;
+    try {
+      const value = String(
+        this.readFile(
+          path.posix.join(
+            this.runtimeDirectory,
+            "openrc",
+            "options",
+            this.serviceName,
+            "child_pid",
+          ),
+        ),
+      ).trim();
+      return /^[1-9]\d*$/.test(value) ? value : null;
+    } catch {
+      return null;
+    }
   }
 
   async preflightActivation() {
@@ -546,6 +607,13 @@ export class LinuxServiceLifecycle {
       running: status.running,
       scanFailed: ["unknown", "deactivating"].includes(status.activeState),
       activeState: status.activeState,
+      // The process whose start time is the server's: systemd's MainPID, or
+      // the child supervise-daemon recorded for OpenRC (see
+      // readSupervisedChildPid()). Absent while there is none, such as
+      // systemd's auto-restart window after a crash --
+      // ServerManager.resolveStartTime() then reports the uptime as unknown
+      // rather than the previous process's.
+      ...(status.mainPid ? { mainPid: status.mainPid } : {}),
       error: status.error,
     };
   }

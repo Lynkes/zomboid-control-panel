@@ -76,7 +76,6 @@
   "header": {
     "ariaLabel": "Стан сервера",
     "everythingNominal": "Усе в нормі",
-    "upPrefix": "працює {{uptime}}",
     "mapTooltip": "Карта (з PanelBridge)",
     "remoteBadge": "віддалений",
     "noActiveServer": "Немає активного сервера"

@@ -39,7 +39,6 @@
   "header": {
     "ariaLabel": "Estado del servidor",
     "everythingNominal": "Todo en orden",
-    "upPrefix": "activo {{uptime}}",
     "mapTooltip": "Mapa (de PanelBridge)",
     "remoteBadge": "remoto",
     "noActiveServer": "Ningún servidor activo"

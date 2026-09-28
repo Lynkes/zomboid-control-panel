@@ -87,6 +87,7 @@ import { serversApi, serversDetectApi, dockerApi, DockerContainerStats, DockerCo
 import { resolveClientProvider, resolveServerCardRunning, waitForServerState } from '@/lib/serverStatus'
 import { getInstallProgressMessage } from '@/lib/installProgressMessage'
 import { ServerStatusBadge } from '@/components/ServerStatusBadge'
+import { ServerUptime } from '@/components/ServerUptime'
 import { SocketContext } from '@/contexts/SocketContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -327,7 +328,7 @@ export default function Servers() {
   const [servers, setServers] = useState<ServerInstance[] | null>(null)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const serversConfirmedEmpty = servers !== null && servers.length === 0
-  const [serverStatuses, setServerStatuses] = useState<Record<string, { running: boolean; pid: string | null; stateUnknown?: boolean }>>({})
+  const [serverStatuses, setServerStatuses] = useState<Record<string, { running: boolean; pid: string | null; stateUnknown?: boolean; startedAt?: string | null }>>({})
   const [rconStatuses, setRconStatuses] = useState<Record<string, string>>({})
   const [dockerAvailable, setDockerAvailable] = useState(false)
   const [dockerContainers, setDockerContainers] = useState<DockerContainerSummary[]>([])
@@ -624,9 +625,9 @@ export default function Servers() {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
     try {
       const data = await serversApi.getStatus({ retries: 0 })
-      const next: Record<string, { running: boolean; pid: string | null; stateUnknown?: boolean }> = {}
+      const next: Record<string, { running: boolean; pid: string | null; stateUnknown?: boolean; startedAt?: string | null }> = {}
       for (const s of data.servers || []) {
-        next[String(s.id)] = { running: !!s.running, pid: s.pid, stateUnknown: s.stateUnknown === true }
+        next[String(s.id)] = { running: !!s.running, pid: s.pid, stateUnknown: s.stateUnknown === true, startedAt: s.startedAt ?? null }
       }
       setServerStatuses(next)
     } catch (error) {
@@ -2137,6 +2138,23 @@ export default function Servers() {
                               : { status: 'disconnected', label: t('card.rcon'), detail: rconStatus === 'auth_failed' ? t('card.statusAuthFailed') : t('card.statusUnavailable') }
                           : undefined
                         return <ServerStatusBadge compact host={host} server={rcon} />
+                      })()}
+                      {(() => {
+                        // Uptime sits with the status it qualifies. Same source
+                        // split as the badge above: the selected server's
+                        // composed status (provider-aware -- OS, Docker, or
+                        // nothing for a remote host), otherwise this card's own
+                        // row from the per-server list, which only a native or
+                        // managed-lifecycle server has. Unknown renders nothing
+                        // here; the badge already says when the host itself is
+                        // unknown.
+                        const row = serverStatuses[String(server.id)]
+                        const startedAt = server.isActive && currentActiveStatus
+                          ? currentActiveStatus.host.startedAt
+                          : resolveClientProvider(server) === 'native' && row?.running && !row.stateUnknown
+                            ? row.startedAt
+                            : null
+                        return <ServerUptime startedAt={startedAt} className="text-xs font-normal text-muted-foreground" />
                       })()}
                       {server.isRemote && (
                         <Badge variant="outline" className="text-xs">

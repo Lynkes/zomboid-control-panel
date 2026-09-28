@@ -53,12 +53,25 @@ router.get("/active/status", async (req, res) => {
       processDetails = dockerSignal;
       dockerContainer = dockerSignal.scanFailed
         ? { handled: true, error: "Docker container status unavailable" }
-        : { handled: true, running: dockerSignal.running };
+        : { handled: true, running: dockerSignal.running, startedAt: dockerSignal.startedAt };
     } else {
       processDetails = typeof serverManager?.getServerProcessDetails === "function"
         ? await serverManager.getServerProcessDetails()
         : { running: !!serverManager?.isRunning, scanFailed: false };
     }
+
+    // The native process's start time, from the OS for the process the
+    // check above just found (see ServerManager.resolveStartTime()). Only
+    // asked for a native server: a remote-sftp profile's local scan says
+    // nothing about the remote host, and a container provider's start time
+    // comes from Docker instead.
+    const startedAt =
+      provider === "native" &&
+      processDetails.running &&
+      !processDetails.scanFailed &&
+      typeof serverManager?.resolveStartTime === "function"
+        ? await serverManager.resolveStartTime(processDetails)
+        : null;
 
     // GH#114: PZ in this provider runs as PID 1 of a *different* container,
     // so the local process scan above can never see it -- it's asked for
@@ -77,6 +90,7 @@ router.get("/active/status", async (req, res) => {
       // observes running:true -> false. See serverStatusModel.js's own
       // describeStopReason for how this renders.
       stopReason: serverManager?.lastStopReason,
+      startedAt,
       rcon: {
         ...rconConfig,
         connecting: !!(rconService?.connecting || rconService?.reconnecting),
@@ -88,7 +102,11 @@ router.get("/active/status", async (req, res) => {
       },
     });
 
-    res.json(status);
+    // serverTime: this host's clock as it answered. host.startedAt is read
+    // off the host's (or Docker's) clock while the client counts uptime on
+    // its own, so the client shifts it by (its receipt time - serverTime)
+    // to keep any skew between the two out of the displayed uptime.
+    res.json({ ...status, serverTime: Date.now() });
   } catch (error) {
     log.error(`Failed to get composed server status: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });

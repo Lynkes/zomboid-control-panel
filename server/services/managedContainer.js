@@ -142,7 +142,7 @@ export async function resolveDockerHostSignal(
   ) {
     const container = await dockerClient.inspectManagedContainer(containerRef);
     return container
-      ? { running: container.State?.Running === true, scanFailed: false }
+      ? runningContainerSignal(container)
       : { running: false, scanFailed: true };
   }
 
@@ -153,9 +153,29 @@ export async function resolveDockerHostSignal(
   if (managed.handled) {
     return managed.error
       ? { running: false, scanFailed: true }
-      : { running: managed.running === true, scanFailed: false };
+      : runningContainerSignal(managed.container);
   }
   return { running: false, scanFailed: true };
+}
+
+// The container's own State.StartedAt -- already in the inspect result both
+// paths above just fetched, so no extra Docker API cost. It is when the
+// CONTAINER started: the game server's start as long as PZ runs as the
+// container's main process and isn't relaunched inside it (an operator's
+// own docker-local image may loop PZ in its entrypoint, where this is
+// container uptime instead). It is still the only start time the panel can
+// state here -- its local process scan (and so serverManager.
+// resolveStartTime()) never sees that process. Carried only while running;
+// the status model validates it (see resolveHostStartedAt() in
+// serverStatusModel.js).
+function runningContainerSignal(container) {
+  const running = container?.State?.Running === true;
+  const startedAt = running ? container.State.StartedAt : null;
+  return {
+    running,
+    scanFailed: false,
+    ...(typeof startedAt === "string" && startedAt ? { startedAt } : {}),
+  };
 }
 
 /**

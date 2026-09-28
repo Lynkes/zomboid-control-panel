@@ -627,6 +627,21 @@ router.get("/status", async (req, res) => {
       log.debug(`Per-server status detection failed: ${err.message}`);
     }
 
+    // Each running row's start time for the process that row was attributed
+    // (for a managed lifecycle, systemd's MainPID or OpenRC's supervised
+    // child -- see LinuxServiceLifecycle.status()) -- through the same
+    // serverManager.startTimeOf() the active server's resolveStartTime()
+    // uses, so a card and the dashboard can't disagree: on Windows it rides
+    // on the scan row above, elsewhere it is two /proc reads. ISO string, or
+    // null when unknown (stopped, unverifiable, or the OS couldn't say).
+    const startedAtFor = async (entry, running) => {
+      if (!running || !entry?.pid || typeof serverManager?.startTimeOf !== "function") {
+        return null;
+      }
+      const startedMs = await serverManager.startTimeOf(entry);
+      return startedMs === null ? null : new Date(startedMs).toISOString();
+    };
+
     const statuses = await Promise.all(servers.map(async (server) => {
       if (isManagedLifecycleProvider(server.lifecycleProvider)) {
         try {
@@ -634,6 +649,7 @@ router.get("/status", async (req, res) => {
             server,
             server.lifecycleProvider,
           ).status();
+          const known = status.running && !status.scanFailed;
           return {
             id: server.id,
             name: server.name,
@@ -642,6 +658,7 @@ router.get("/status", async (req, res) => {
             isActive: server.id === activeId,
             provider: server.lifecycleProvider,
             stateUnknown: Boolean(status.scanFailed),
+            startedAt: await startedAtFor({ pid: status.mainPid }, known),
           };
         } catch (error) {
           return {
@@ -652,6 +669,7 @@ router.get("/status", async (req, res) => {
             isActive: server.id === activeId,
             provider: server.lifecycleProvider,
             stateUnknown: true,
+            startedAt: null,
             error: sanitizeError(error.message),
           };
         }
@@ -668,10 +686,12 @@ router.get("/status", async (req, res) => {
       };
       let running = false;
       let pid;
+      let attributed = null;
       for (const m of matched) {
         if (scoreServerProcessOwnership(m.cmd, descriptor) > 0) {
           running = true;
           pid = m.pid;
+          attributed = m;
           break;
         }
       }
@@ -703,6 +723,7 @@ router.get("/status", async (req, res) => {
       // row the same "don't know yet" signal every other site already has
       // instead of forcing a confident guess.
       let activeFallbackUnknown = false;
+      let fallbackEntry = null;
       if (!running && server.id === activeId && typeof serverManager?.getServerProcessDetails === "function") {
         try {
           const activeDetails = await serverManager.getServerProcessDetails();
@@ -710,12 +731,14 @@ router.get("/status", async (req, res) => {
             activeFallbackUnknown = true;
           } else if (activeDetails.running) {
             running = true;
+            fallbackEntry = activeDetails.matched?.[0] || null;
           }
         } catch (err) {
           activeFallbackUnknown = true;
           log.debug(`Active-server fallback detection failed: ${err.message}`);
         }
       }
+      const stateUnknown = Boolean(detectionError) || activeFallbackUnknown;
       return {
         id: server.id,
         name: server.name,
@@ -723,7 +746,8 @@ router.get("/status", async (req, res) => {
         pid: pid || null,
         isActive: server.id === activeId,
         provider: "direct",
-        stateUnknown: Boolean(detectionError) || activeFallbackUnknown,
+        stateUnknown,
+        startedAt: await startedAtFor(attributed || fallbackEntry, running && !stateUnknown),
       };
     }));
 
@@ -731,6 +755,9 @@ router.get("/status", async (req, res) => {
       servers: statuses,
       detectedProcesses: matched.length,
       detectionError,
+      // This host's clock as it answered, so the client can count the
+      // rows' startedAt in its own clock -- see the client's hostClock.ts.
+      serverTime: Date.now(),
     });
   } catch (error) {
     log.error(`Failed to get per-server status: ${error.message}`);

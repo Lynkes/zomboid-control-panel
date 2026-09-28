@@ -482,4 +482,157 @@ describe("Linux managed-service lifecycle", () => {
       expect(execFile).toHaveBeenCalledTimes(1);
     });
   });
+
+  // Uptime for a systemd-managed server: the panel's process scan never
+  // runs for one, so the unit's own MainPID -- read in the same
+  // `systemctl show` call status() already makes -- is the only PID the
+  // panel can ask the OS about. Without it, a systemd server's uptime was
+  // unknown after every panel restart and whenever systemd started it.
+  describe("systemd MainPID", () => {
+    function systemdLifecycle(showLines) {
+      const execFile = vi.fn(async () => ({
+        code: 0,
+        stdout: `${showLines.join("\n")}\n`,
+        stderr: "",
+      }));
+      const lifecycle = new LinuxServiceLifecycle(server, "systemd", {
+        execFile,
+        platform: "linux",
+        containerized: false,
+      });
+      return { lifecycle, execFile };
+    }
+
+    it("reports the running unit's main PID from the same show call", async () => {
+      const { lifecycle, execFile } = systemdLifecycle([
+        "LoadState=loaded",
+        "ActiveState=active",
+        "Environment=ZOMBOID_PANEL_SERVER_ID=alpha-1",
+        "MainPID=31337",
+      ]);
+
+      await expect(lifecycle.status()).resolves.toMatchObject({
+        running: true,
+        scanFailed: false,
+        mainPid: "31337",
+      });
+      expect(execFile).toHaveBeenCalledTimes(1);
+      expect(execFile.mock.calls[0][1]).toContain("--property=MainPID");
+    });
+
+    it("reports no PID for a stopped unit (MainPID=0)", async () => {
+      const { lifecycle } = systemdLifecycle([
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "Environment=ZOMBOID_PANEL_SERVER_ID=alpha-1",
+        "MainPID=0",
+      ]);
+
+      const status = await lifecycle.status();
+
+      expect(status.running).toBe(false);
+      expect(status).not.toHaveProperty("mainPid");
+    });
+
+    it("never reports a PID for a unit that fails the ownership check", async () => {
+      const { lifecycle } = systemdLifecycle([
+        "LoadState=loaded",
+        "ActiveState=active",
+        "Environment=ZOMBOID_PANEL_SERVER_ID=other",
+        "MainPID=31337",
+      ]);
+
+      const status = await lifecycle.status();
+
+      expect(status.scanFailed).toBe(true);
+      expect(status).not.toHaveProperty("mainPid");
+    });
+  });
+
+  // OpenRC's counterpart: the pidfile the init script hands supervise-daemon
+  // holds the SUPERVISOR's pid, which outlives every respawn, so the start
+  // time has to come from the child supervise-daemon records for itself
+  // (<svcdir>/options/<service>/child_pid, svcdir = $XDG_RUNTIME_DIR/openrc
+  // in user mode -- read from OpenRC's supervise-daemon.c and librc.c).
+  describe("OpenRC supervised child PID", () => {
+    const childPidPath =
+      "/run/user/1000/openrc/options/zomboid-panel-server-alpha-1/child_pid";
+
+    function openrcLifecycle({ rcStatus = 0, childPid, marker = server.id } = {}) {
+      const readFile = vi.fn((file) => {
+        if (file === childPidPath) {
+          if (childPid === undefined) throw new Error("ENOENT");
+          return childPid;
+        }
+        return `X-Zomboid-Panel-Server-ID: ${marker}`;
+      });
+      const lifecycle = new LinuxServiceLifecycle(server, "openrc", {
+        platform: "linux",
+        containerized: false,
+        fileExists: () => true,
+        readFile,
+        runtimeDirectory: "/run/user/1000",
+        execFile: vi.fn(async () => ({ code: rcStatus, stdout: "", stderr: "" })),
+      });
+      return { lifecycle, readFile };
+    }
+
+    it("reports the child supervise-daemon recorded for a started service", async () => {
+      const { lifecycle, readFile } = openrcLifecycle({ childPid: "4321\n" });
+
+      await expect(lifecycle.status()).resolves.toMatchObject({
+        running: true,
+        scanFailed: false,
+        mainPid: "4321",
+      });
+      expect(readFile).toHaveBeenCalledWith(childPidPath);
+    });
+
+    it("reports no PID when supervise-daemon has not recorded one", async () => {
+      const { lifecycle } = openrcLifecycle();
+
+      const status = await lifecycle.status();
+
+      expect(status.running).toBe(true);
+      expect(status).not.toHaveProperty("mainPid");
+    });
+
+    it("ignores a child_pid file that does not hold a pid", async () => {
+      const { lifecycle } = openrcLifecycle({ childPid: "0" });
+
+      expect(await lifecycle.status()).not.toHaveProperty("mainPid");
+    });
+
+    it("does not read or report a PID for a stopped service", async () => {
+      const { lifecycle, readFile } = openrcLifecycle({ rcStatus: 3, childPid: "4321" });
+
+      const status = await lifecycle.status();
+
+      expect(status.running).toBe(false);
+      expect(status).not.toHaveProperty("mainPid");
+      expect(readFile).not.toHaveBeenCalledWith(childPidPath);
+    });
+
+    it("never reports a PID for a service that fails the ownership check", async () => {
+      const { lifecycle } = openrcLifecycle({ childPid: "4321", marker: "other" });
+
+      const status = await lifecycle.status();
+
+      expect(status.scanFailed).toBe(true);
+      expect(status).not.toHaveProperty("mainPid");
+    });
+
+    it("reports no PID when there is no runtime directory to look in", async () => {
+      const lifecycle = new LinuxServiceLifecycle(server, "openrc", {
+        platform: "linux",
+        containerized: false,
+        fileExists: () => true,
+        readFile: () => `X-Zomboid-Panel-Server-ID: ${server.id}`,
+        runtimeDirectory: null,
+        execFile: vi.fn(async () => ({ code: 0, stdout: "", stderr: "" })),
+      });
+
+      expect(await lifecycle.status()).not.toHaveProperty("mainPid");
+    });
+  });
 });

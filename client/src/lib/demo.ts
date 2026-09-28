@@ -495,7 +495,7 @@ function demoServerStatus() {
   return {
     running: false,
     startTime: null,
-    uptime: 0,
+    uptime: null,
     serverPath: '/opt/pz',
     configured: true,
     localIp: '127.0.0.1',

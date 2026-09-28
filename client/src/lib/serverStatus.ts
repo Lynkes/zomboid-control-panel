@@ -23,7 +23,10 @@ export function resolveClientProvider(
 }
 
 export interface ComposedStatusSignals {
-  host: { status: string }
+  // startedAt: present only for a host the server confirmed running AND
+  // whose start time it could establish (see resolveHostStartedAt() in
+  // server/utils/serverStatusModel.js) -- absent means unknown.
+  host: { status: string; startedAt?: string | null }
   server: { status: string }
   bridge: { status: string }
 }
@@ -64,7 +67,12 @@ export interface DashboardStatusInput {
   // typed as a plain string on ComposedServerStatus in lib/api.ts) over the
   // client-side resolveClientProvider() guess whenever it's available.
   provider: string | null
-  status: { running?: boolean; scanFailed?: boolean; rcon?: { connected?: boolean } } | null | undefined
+  status: {
+    running?: boolean
+    scanFailed?: boolean
+    startTime?: string | null
+    rcon?: { connected?: boolean }
+  } | null | undefined
   composedStatus: ComposedStatusSignals | null | undefined
 }
 
@@ -74,6 +82,9 @@ export interface DashboardStatusOutput {
   bridgeActive: boolean
   hostUnknown: boolean
   online: boolean
+  // When the host process/container started (ISO string), or null when it
+  // can't be known -- the header counts uptime from this.
+  startedAt: string | null
 }
 
 /**
@@ -139,7 +150,17 @@ export function deriveDashboardStatus({
     (composedStatus
       ? hostRunning || rconConnected || bridgeActive
       : (localProcessStatus ?? !!status?.running))
-  return { hostRunning, rconConnected, bridgeActive, hostUnknown, online }
+  // Provider-aware like everything above: the composed status decides
+  // (the OS's answer for a native process, Docker's for a container,
+  // nothing for a remote host). The plain local-scan snapshot's startTime
+  // is only a stand-in for a native server whose scan confirmed it running
+  // -- when the composed fetch failed, or raced a poll behind it -- never
+  // for a provider that scan can't see.
+  const startedAt = !hostRunning
+    ? null
+    : composedStatus?.host.startedAt ??
+      (localProcessStatus === true ? status?.startTime ?? null : null)
+  return { hostRunning, rconConnected, bridgeActive, hostUnknown, online, startedAt }
 }
 
 /**

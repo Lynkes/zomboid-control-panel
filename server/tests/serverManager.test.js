@@ -282,7 +282,9 @@ describe('ServerManager status state', () => {
 
     expect(status.running).toBe(false);
     expect(status.startTime).toBeNull();
-    expect(status.uptime).toBe(0);
+    // null, not 0: a stopped server has no uptime, and 0 reads as "just
+    // started" to anything that displays it.
+    expect(status.uptime).toBeNull();
   });
 
   it('does not corrupt the tracked running state when a scan fails to determine anything', async () => {

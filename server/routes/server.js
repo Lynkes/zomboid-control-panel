@@ -1595,6 +1595,9 @@ router.get("/status", async (req, res) => {
     res.json({
       ...status,
       rcon: rconStatus,
+      // For the client to re-express startTime in its own clock -- see
+      // routes/serverStatus.js, which sends the same field.
+      serverTime: Date.now(),
     });
   } catch (error) {
     log.error(`Failed to get server status: ${error.message}`);
