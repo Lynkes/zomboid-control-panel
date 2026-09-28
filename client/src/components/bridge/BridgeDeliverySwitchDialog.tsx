@@ -159,6 +159,13 @@ export function BridgeDeliverySwitchDialog({
         setStaleNotice(true)
         void onChanged()
         await loadPlan()
+      } else if (err instanceof ApiError && err.code === 'PANELBRIDGE_DELIVERY_UNAVAILABLE') {
+        // The switch became blocked since the preview (-nosteam turned on,
+        // the release became invalid...). The error carries only a raw
+        // reason code; the fresh preview shows the same block with its
+        // localized reason, and nothing was written.
+        void onChanged()
+        await loadPlan()
       } else {
         // §5.5: a failed apply carries `restored`. false means the undo
         // itself failed part-way (a broken I6), and the coded message's own

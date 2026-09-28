@@ -236,6 +236,32 @@ describe('BridgeDeliverySwitchDialog: apply', () => {
     expect(await screen.findAllByText(en.unavailable.sameMethod)).not.toHaveLength(0)
   })
 
+  // The server's 400 carries only the raw reason code ("...right now
+  // (noSteam)."); the re-planned preview shows the localized block instead.
+  it('on 400 PANELBRIDGE_DELIVERY_UNAVAILABLE it re-plans and shows the localized block, not the raw code', async () => {
+    planDelivery
+      .mockResolvedValueOnce(makePlan())
+      .mockResolvedValueOnce(makePlan({ blocked: { reason: 'noSteam' }, steps: [] }))
+    applyDelivery.mockRejectedValueOnce(
+      new ApiError("This change isn't available for this server right now (noSteam).", {
+        status: 400,
+        code: 'PANELBRIDGE_DELIVERY_UNAVAILABLE',
+        data: { code: 'PANELBRIDGE_DELIVERY_UNAVAILABLE', params: { reason: 'noSteam' } },
+      }),
+    )
+    const { onChanged, onOpenChange } = renderDialog(makeLocalStatus())
+    await stepsList()
+    fireEvent.click(screen.getByRole('button', { name: en.dialog.applyRestartEmpty }))
+    await waitFor(() => expect(planDelivery).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText(en.dialog.blockedTitle)).toBeInTheDocument()
+    expect((await screen.findAllByText(en.unavailable.noSteam)).length).toBeGreaterThan(0)
+    expect(toastMock).not.toHaveBeenCalledWith(expect.objectContaining({ title: en.toast.switchFailed }))
+    expect(screen.queryByText(/\(noSteam\)/)).toBeNull()
+    expect(restart).not.toHaveBeenCalled()
+    expect(onChanged).toHaveBeenCalled()
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+  })
+
   it('any other apply error is a toast, and nothing restarts', async () => {
     planDelivery.mockResolvedValue(makePlan())
     applyDelivery.mockRejectedValueOnce(new ApiError('nope', { status: 500, code: 'PANELBRIDGE_DELIVERY_INI_WRITE_FAILED' }))
