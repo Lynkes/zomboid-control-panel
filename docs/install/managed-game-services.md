@@ -54,9 +54,15 @@ The generated service runs the server's own `start-server_<name>.sh` from its
 install folder, or your own launcher when the profile's path points at a `.sh`
 file. Before every start and restart it performs, the panel rewrites
 that script from the server's current settings (server name, save folder,
-admin password, memory). If it can't write the script, it refuses to start
-the service and says why. A `systemctl --user start` or `rc-service` run by
-hand uses whatever the panel wrote last.
+admin password, memory). If the script is missing and the panel can't write
+it, the start stops and says why. If an older copy is there, the panel starts
+the service with it and logs a warning that it may carry old settings.
+
+A start the panel doesn't perform, such as a `systemctl --user start` or
+`rc-service` run by hand, or the service manager starting the enabled service
+at boot, runs whatever script the panel wrote last. Start the server from the
+panel once first, so the script exists. Until then the service can't start,
+and the service manager keeps retrying it.
 
 Service files downloaded from panel 1.3.8 or earlier named the stock
 `start-server.sh` when the server had never been started from the panel. That

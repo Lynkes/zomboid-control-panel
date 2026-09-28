@@ -381,6 +381,37 @@ release notes before assuming an upgrade already covers this.
 
 ---
 
+### The startup script `start-server_<name>.sh` is missing from this server's install folder
+
+**What you see:** Start or Restart fails with `The startup script
+start-server_<name>.sh is missing from this server's install folder`
+(`StartServer_<name>.bat` on Windows). The Scheduler page's Execution
+History and the panel log show the same refusal as `Startup script
+start-server_<name>.sh is missing from <folder>`. For the panel's auto-start,
+the log line begins with `Error during auto-start:`.
+
+**What it means:** before every start, the panel writes this server's own
+startup script from its settings (server name, save folder, admin password,
+memory) into the folder the game is launched from. This time the write
+failed and no older copy was there. The panel won't run the game's stock
+`start-server.sh` or `StartServer64.bat` instead: it opens the default
+`servertest` world, not your server, and can stop at a prompt for a new
+admin password.
+
+**What to do:** search the panel log for `Could not write` just above the
+refusal. It names the file and the error. Almost always the panel's account
+can't write to that folder: see
+[Permission denied on mounted PZ folders](#permission-denied-on-mounted-pz-folders)
+(on Docker, check `PUID` and `PGID`). Also check that the install path in
+**My Servers** still points at a folder that exists. Then press Start again.
+
+If an older copy of the script is in that folder, the start doesn't stop.
+It runs that copy, and the log warns `Could not regenerate ... which may
+carry older settings`. A password or memory change you made since then
+won't reach the game until the panel can write the script again.
+
+---
+
 ### Permission denied on mounted PZ folders
 
 **What you see (Linux/Docker):** `Cannot read /some/path (EACCES). The
