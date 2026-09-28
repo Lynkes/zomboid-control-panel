@@ -21,6 +21,7 @@ import {
   getRunningVersionNote,
   getStateHintKey,
   getStateVersion,
+  getSteamListingNotice,
   getWarningKey,
   isBridgeManagedMod,
   isDeliveryPlanResponse,
@@ -72,13 +73,33 @@ describe('bridgeDeliveryView: every contract value maps to an existing bridgeDel
     expect(exists(getWarningKey(warning, true))).toBe(true)
   })
 
-  it('only noSteam and customLauncher change wording on a shared game folder', () => {
+  it('only noSteam, customLauncher and steamFlagMissing change wording on a shared game folder', () => {
     expect(getBlockReasonKey('noSteam', true)).toBe('unavailable.noSteamShared')
     expect(getWarningKey('customLauncher', true)).toBe('warn.customLauncherShared')
+    expect(getWarningKey('steamFlagMissing', true)).toBe('warn.steamFlagMissingShared')
+    expect(getWarningKey('steamFlagMissing', false)).toBe('warn.steamFlagMissing')
     expect(getBlockReasonKey('noSteam', false)).toBe('unavailable.noSteam')
     expect(getBlockReasonKey('iniNotFound', true)).toBe('unavailable.iniNotFound')
     expect(getWarningKey('serverRunning', true)).toBe('warn.serverRunning')
   })
+
+  // Every launch-related copy names the flag the game needs for Steam: a
+  // launcher without -Dzomboid.steam=1 runs without Steam and says nothing.
+  it.each(['warn.customLauncher', 'warn.customLauncherShared', 'warn.steamFlagMissing', 'warn.steamFlagMissingShared', 'state.causes.notLoaded', 'banner.steamModeOff'])(
+    '%s names -Dzomboid.steam=1',
+    (key) => {
+      expect(i18n.t(key, { ns: 'bridgeDelivery', lng: 'en' })).toContain('-Dzomboid.steam=1')
+    },
+  )
+
+  // The game's -nosteam argument turns Steam back off after the flag, so
+  // the copy that says what to fix names it too.
+  it.each(['warn.customLauncher', 'warn.customLauncherShared', 'banner.steamModeOff'])(
+    '%s names -nosteam',
+    (key) => {
+      expect(i18n.t(key, { ns: 'bridgeDelivery', lng: 'en' })).toContain('-nosteam')
+    },
+  )
 
   it.each(CHECKSUM_BLOCKERS)('checksum blocker %s', (blocker) => {
     expect(exists(getChecksumBlockerKey(blocker))).toBe(true)
@@ -372,6 +393,44 @@ describe('getStateHintKey', () => {
     }
     expect(getStateHintKey(offered)).toBeNull()
     expect(getStateHintKey(makeLocalStatus())).toBeNull()
+  })
+})
+
+// The 42.21 live test: Steam's public details API said "not found" for the
+// item before and after a dedicated server downloaded it and started with
+// it. "The server won't start" belongs only next to a start that failed on
+// the item itself.
+describe('getSteamListingNotice', () => {
+  const failedOnItem = makeWorkshopStatus({
+    state: 'workshop-start-failed',
+    serverRunning: false,
+    steamReportsUnavailable: true,
+    lastStartFailure: { kind: 'itemDownload', line: `Workshop: onItemNotDownloaded itemID=${WORKSHOP_ID} result=9`, result: 9, logMtime: '2026-10-02T10:05:00.000Z' },
+  })
+
+  it('warns that the server won\'t start only next to a start that failed on the item', () => {
+    expect(getSteamListingNotice(failedOnItem)).toBe('unavailable')
+    const steamDown = { ...failedOnItem, lastStartFailure: { ...failedOnItem.lastStartFailure!, kind: 'steamUnreachable' as const, result: null } }
+    expect(getSteamListingNotice(steamDown)).toBe('hidden')
+  })
+
+  it.each(['workshop-restart-needed', 'workshop-waiting', 'workshop-stopped', 'workshop-not-loaded'] as const)(
+    'is only a note on %s',
+    (state) => {
+      expect(getSteamListingNotice(makeWorkshopStatus({ state, steamReportsUnavailable: true }))).toBe('hidden')
+    },
+  )
+
+  it('says nothing on a confirmed or panel-installed server, when Steam lists the item, or when the server runs without Steam', () => {
+    expect(getSteamListingNotice(makeWorkshopStatus({ steamReportsUnavailable: true }))).toBeNull()
+    expect(getSteamListingNotice(makeLocalStatus({ steamReportsUnavailable: true }))).toBeNull()
+    expect(getSteamListingNotice(makeWorkshopStatus({ state: 'workshop-waiting' }))).toBeNull()
+    expect(getSteamListingNotice(makeWorkshopStatus({ state: 'workshop-waiting', steamReportsUnavailable: true, steamModeOff: true }))).toBeNull()
+  })
+
+  it('every note it and the Steam-mode banner use exists, and the plain note never says "won\'t start"', () => {
+    for (const key of ['banner.steamUnavailable', 'banner.steamListingHidden', 'banner.steamModeOff']) expect(exists(key), key).toBe(true)
+    expect(i18n.t('banner.steamListingHidden', { ns: 'bridgeDelivery', lng: 'en' })).not.toMatch(/won't start/)
   })
 })
 

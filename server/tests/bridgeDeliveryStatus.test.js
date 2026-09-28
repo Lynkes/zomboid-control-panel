@@ -394,9 +394,12 @@ describe("states: Steam Workshop", () => {
 
   it("steamReportsUnavailable and modAutoRestart come from modChecker", async () => {
     const status = await statusFor(switchedToWorkshop(), {
-      modChecker: { lastUnavailableWorkshopIds: new Map([[WS_ID, "removed"]]), autoRestartEnabled: true },
+      modChecker: {
+        lastUnavailableWorkshopIds: new Map([[WS_ID, { resultCode: 9, reason: "removed" }]]),
+        autoRestartEnabled: true,
+      },
     });
-    expect(status).toMatchObject({ steamReportsUnavailable: true, modAutoRestart: true });
+    expect(status).toMatchObject({ state: "workshop-restart-needed", steamReportsUnavailable: true, modAutoRestart: true });
   });
 
   it("reports the disk: leftovers, ini entries and the downloaded item", async () => {
@@ -424,6 +427,184 @@ describe("states: Steam Workshop", () => {
     fs.writeFileSync(files.iniPath, ini);
     const { disk } = await statusFor(switchedToWorkshop());
     expect(disk.iniEntries).toEqual(expected);
+  });
+});
+
+// The 42.21 live test: Steam's public GetPublishedFileDetails answered
+// result 9 for the item before and after a dedicated server downloaded it
+// anonymously and started with it -- and the page said "The server won't
+// start" on a panel-installed server and on a confirmed Workshop one alike.
+describe("Steam's public listing of the item (steamReportsUnavailable)", () => {
+  const hiddenOnSteam = () => ({
+    lastUnavailableWorkshopIds: new Map([[WS_ID, { resultCode: 9, reason: "removed" }]]),
+  });
+  const confirmedRun = { alive: true, startedAt: 2000, delivery: { method: "workshop", workshopId: WS_ID } };
+
+  it("is never set on a panel-installed server", async () => {
+    writeLoose(files.installDir, "media/lua/server/PanelBridge.lua", bundledLua());
+    const status = await statusFor(makeServer(files), { modChecker: hiddenOnSteam() });
+    expect(status).toMatchObject({ method: "local", state: "local-ok", effectiveWorkshopId: WS_ID });
+    expect(status.steamReportsUnavailable).toBe(false);
+  });
+
+  it("is never set once the server confirmed loading the item from the Workshop", async () => {
+    const status = await statusFor(switchedToWorkshop(), { modStatus: confirmedRun, modChecker: hiddenOnSteam() });
+    expect(status.state).toBe("workshop-confirmed");
+    expect(status.steamReportsUnavailable).toBe(false);
+  });
+
+  it("is set on a Workshop server that hasn't confirmed, including next to a start that failed on the item", async () => {
+    runningState.value = false;
+    fs.writeFileSync(
+      path.join(files.dataDir, "server-console.txt"),
+      `Workshop: onItemNotDownloaded itemID=${WS_ID} result=9\r\n`,
+    );
+    const failed = await statusFor(switchedToWorkshop(), { modChecker: hiddenOnSteam() });
+    expect(failed).toMatchObject({
+      state: "workshop-start-failed",
+      lastStartFailure: { kind: "itemDownload" },
+      steamReportsUnavailable: true,
+    });
+  });
+
+  it("is not set for another item Steam doesn't list", async () => {
+    const status = await statusFor(switchedToWorkshop(), {
+      modChecker: { lastUnavailableWorkshopIds: new Map([["111", { resultCode: 9, reason: "removed" }]]) },
+    });
+    expect(status.steamReportsUnavailable).toBe(false);
+  });
+});
+
+// Steam is opt-in for the game (SteamUtils.init: zomboid.steam must be
+// "1"). The live test's first run used the client install's
+// ProjectZomboidServer.bat, which leaves -Dzomboid.steam=1 out: "SteamUtils
+// started without Steam", no Workshop download, no bridge -- and a normal
+// SERVER STARTED.
+describe("Steam mode: -Dzomboid.steam=1", () => {
+  // 42.21's client-install ProjectZomboidServer.bat, as shipped.
+  const CLIENT_SERVER_BAT =
+    '@setlocal enableextensions\r\n@cd /d "%~dp0"\r\nSET _JAVA_OPTIONS=\r\nSET PZ_CLASSPATH=./;projectzomboid.jar\r\n' +
+    '".\\jre64\\bin\\java.exe" --enable-native-access=ALL-UNNAMED -XX:+UseZGC -Xmx3072m ' +
+    "-Djava.library.path=./natives/;./natives/win64/;./ -cp %PZ_CLASSPATH% zombie.network.GameServer\r\nPAUSE\r\n";
+  const DEDICATED_BAT =
+    '@setlocal enableextensions\r\n@cd /d "%~dp0"\r\nSET PZ_CLASSPATH=java/;java/projectzomboid.jar\r\n' +
+    '".\\jre64\\bin\\java.exe" -Djava.awt.headless=true -Dzomboid.steam=1 -Dzomboid.znetlog=1 -Xmx8g ' +
+    "-cp %PZ_CLASSPATH% zombie.network.GameServer -statistic 0 %1 %2\r\nPAUSE\r\n";
+  const START_SERVER_SH = '#!/bin/bash\ncd "`dirname $0`"\nLD_PRELOAD="${LD_PRELOAD}:libjsig.so" ./ProjectZomboid64 "$@"\n';
+
+  function writeLauncher(name, content) {
+    const launcher = path.join(files.installDir, name);
+    fs.mkdirSync(path.dirname(launcher), { recursive: true });
+    fs.writeFileSync(launcher, content);
+    return launcher;
+  }
+
+  it("names the missing flag when a custom launcher runs the server's main class without it", async () => {
+    const launcher = writeLauncher("ProjectZomboidServer.bat", CLIENT_SERVER_BAT);
+    const { toWorkshop } = (await statusFor(makeServer(files, { installPath: launcher }))).switchAvailability;
+    expect(toWorkshop.available).toBe(true);
+    expect(toWorkshop.warnings).toContain("steamFlagMissing");
+    expect(toWorkshop.warnings).not.toContain("customLauncher");
+  });
+
+  it.each([
+    ["passes the flag (the dedicated server's StartServer64.bat)", "StartServer64.bat", DEDICATED_BAT],
+    ["goes through ProjectZomboid64, whose flags live in its .json", "start-server.sh", START_SERVER_SH],
+  ])("keeps the plain custom-launcher warning for a launcher that %s", async (_label, name, content) => {
+    const launcher = writeLauncher(name, content);
+    const { toWorkshop } = (await statusFor(makeServer(files, { installPath: launcher }))).switchAvailability;
+    expect(toWorkshop.warnings).toContain("customLauncher");
+    expect(toWorkshop.warnings).not.toContain("steamFlagMissing");
+  });
+
+  // A custom start command names a script; the flags are in that script
+  // (the live test's own start command was such a .bat).
+  it("reads the script a custom start command runs", async () => {
+    writeLauncher("launch/nosteam.bat", "@echo off\r\njava -Dzomboid.steam=0 -cp x zombie.network.GameServer -nosteam\r\n");
+    writeLauncher("launch/client.bat", CLIENT_SERVER_BAT);
+    writeLauncher("launch/panel.bat", DEDICATED_BAT);
+    const withCommand = async (startCommand) =>
+      (await statusFor(makeServer(files, { startCommand }))).switchAvailability.toWorkshop;
+
+    expect(await withCommand("launch/nosteam.bat -servername servertest")).toMatchObject({ available: false, reason: "noSteam" });
+    expect((await withCommand(path.join(files.installDir, "launch", "client.bat"))).warnings).toContain("steamFlagMissing");
+    const panel = await withCommand(`"${path.join(files.installDir, "launch", "panel.bat")}" -servername servertest`);
+    expect(panel.warnings).toContain("customLauncher");
+    expect(panel.warnings).not.toContain("steamFlagMissing");
+  });
+
+  it("steamModeOff: a Workshop server whose launch leaves the flag out, until it confirms", async () => {
+    const launcher = writeLauncher("ProjectZomboidServer.bat", CLIENT_SERVER_BAT);
+    const pending = await statusFor(switchedToWorkshop({ installPath: launcher }));
+    expect(pending).toMatchObject({ state: "workshop-restart-needed", steamModeOff: true });
+
+    const confirmed = await statusFor(switchedToWorkshop({ installPath: launcher }), {
+      modStatus: { alive: true, startedAt: 2000, delivery: { method: "workshop", workshopId: WS_ID } },
+    });
+    expect(confirmed).toMatchObject({ state: "workshop-confirmed", steamModeOff: false });
+
+    writeLoose(files.installDir, "media/lua/server/PanelBridge.lua", bundledLua());
+    expect((await statusFor(makeServer(files, { installPath: launcher }))).steamModeOff).toBe(false);
+    expect((await statusFor(switchedToWorkshop())).steamModeOff).toBe(false);
+  });
+
+  it("steamModeOff: the console of a start since the switch says the game ran without Steam", async () => {
+    runningState.value = true;
+    const server = () =>
+      switchedToWorkshop({}, { at: new Date(Date.now() - 30 * 60 * 1000).toISOString() });
+    const consolePath = path.join(files.dataDir, "server-console.txt");
+    const started = { startTime: new Date(Date.now() - 10 * 60 * 1000) };
+
+    fs.writeFileSync(consolePath, "LOG  : General f:0> Loading ZNetNoSteam64...\r\nLOG  : General f:0> SteamUtils started without Steam\r\n");
+    expect(await statusFor(server(), started)).toMatchObject({ state: "workshop-not-loaded", steamModeOff: true });
+
+    const beforeSwitch = new Date(Date.now() - 60 * 60 * 1000);
+    fs.utimesSync(consolePath, beforeSwitch, beforeSwitch);
+    expect((await statusFor(server(), started)).steamModeOff).toBe(false);
+
+    fs.writeFileSync(consolePath, "LOG  : General f:0> SteamUtils initialised successfully\r\n");
+    expect((await statusFor(server(), started)).steamModeOff).toBe(false);
+  });
+
+  // The launch read from disk is a guess (the first 64 KB of a script; a
+  // flag set through JAVA_TOOL_OPTIONS or an @argfile is invisible to it).
+  // What the game logged at a start since the switch is not.
+  it("steamModeOff: the console of a start since the switch outranks the launch script", async () => {
+    runningState.value = false;
+    const launcher = writeLauncher("ProjectZomboidServer.bat", CLIENT_SERVER_BAT);
+    const server = () => switchedToWorkshop({ installPath: launcher });
+    const consolePath = path.join(files.dataDir, "server-console.txt");
+
+    fs.writeFileSync(consolePath, "LOG  : General f:0> SteamUtils initialised successfully\r\n");
+    expect(await statusFor(server())).toMatchObject({ state: "workshop-restart-needed", steamModeOff: false });
+
+    fs.writeFileSync(consolePath, "LOG  : General f:0> SteamUtils started without Steam\r\n");
+    expect((await statusFor(server())).steamModeOff).toBe(true);
+
+    // Older than the switch: back to the launch script.
+    const beforeSwitch = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    fs.writeFileSync(consolePath, "LOG  : General f:0> SteamUtils initialised successfully\r\n");
+    fs.utimesSync(consolePath, beforeSwitch, beforeSwitch);
+    expect((await statusFor(server())).steamModeOff).toBe(true);
+  });
+
+  // "Switch, restart later": the run that was going at the switch keeps
+  // writing its console, so the file is newer than the switch, but it says
+  // how that run came up, not how the next start (the panel's own launch,
+  // with the flag) will.
+  it("steamModeOff: ignores the console of a run still going from before the switch", async () => {
+    runningState.value = true;
+    const server = switchedToWorkshop({}, { at: new Date(Date.now() - 30 * 60 * 1000).toISOString() });
+    const beforeSwitch = { startTime: new Date(Date.now() - 60 * 60 * 1000) };
+    fs.writeFileSync(
+      path.join(files.dataDir, "server-console.txt"),
+      "LOG  : General f:0> SteamUtils started without Steam\r\n",
+    );
+    expect(await statusFor(server, beforeSwitch)).toMatchObject({
+      state: "workshop-restart-needed",
+      restartedSinceSwitch: false,
+      steamModeOff: false,
+    });
   });
 });
 

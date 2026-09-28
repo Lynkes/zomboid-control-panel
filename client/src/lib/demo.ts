@@ -514,6 +514,7 @@ export function getDemoBridgeDelivery(): DeliveryStatus {
     },
     lastStartFailure: null,
     steamReportsUnavailable: false,
+    steamModeOff: false,
     modAutoRestart: false,
     bundledVersion: null,
     checksum: {

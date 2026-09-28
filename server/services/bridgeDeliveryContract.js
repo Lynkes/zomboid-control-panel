@@ -13,7 +13,7 @@ export const DELIVERY_BLOCK_REASONS = Object.freeze([
 ]);
 export const DELIVERY_WARNINGS = Object.freeze([
   "serverRunning", "customLauncher", "sharedInstall", "gameVersionUnknown", "previewItem", "envOverride",
-  "siblingIniMissing", "unrecognizedLooseFile", "checksumWillBeTurnedOff",
+  "siblingIniMissing", "unrecognizedLooseFile", "checksumWillBeTurnedOff", "steamFlagMissing",
 ]);
 export const CHECKSUM_BLOCKERS = Object.freeze(["notWorkshop", "notConfirmed", "looseFilesPresent", "alreadyOn"]);
 export const LOOSE_FILE_KINDS = Object.freeze(["server", "client", "rootModInfo"]);

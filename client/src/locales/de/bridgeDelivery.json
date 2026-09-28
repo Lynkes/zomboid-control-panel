@@ -55,8 +55,10 @@
   },
   "warn": {
     "serverRunning": "Wirkt beim nächsten Neustart des Servers.",
-    "customLauncher": "Dieser Server nutzt ein eigenes Startskript. Wenn es den Server ohne Steam startet, wird PanelBridge nicht heruntergeladen.",
-    "customLauncherShared": "Dieser Server oder ein Server, der seinen Spielordner teilt ({{servers}}), nutzt ein eigenes Startskript. Wenn es den Server ohne Steam startet, wird PanelBridge nicht heruntergeladen.",
+    "customLauncher": "Dieser Server nutzt ein eigenes Startskript. Wenn es den Server ohne Steam startet (ohne -Dzomboid.steam=1 in der Java-Zeile oder mit -nosteam), wird PanelBridge nicht heruntergeladen.",
+    "customLauncherShared": "Dieser Server oder ein Server, der seinen Spielordner teilt ({{servers}}), nutzt ein eigenes Startskript. Wenn es den Server ohne Steam startet (ohne -Dzomboid.steam=1 in der Java-Zeile oder mit -nosteam), wird PanelBridge nicht heruntergeladen.",
+    "steamFlagMissing": "Das Startskript dieses Servers übergibt Java kein -Dzomboid.steam=1. Der Server läuft daher ohne Steam, und PanelBridge wird nicht heruntergeladen. Ergänze es zuerst in der Java-Zeile des Skripts.",
+    "steamFlagMissingShared": "Dieser Server oder ein Server, der seinen Spielordner teilt ({{servers}}), hat ein Startskript, das Java kein -Dzomboid.steam=1 übergibt. Dieser Server läuft daher ohne Steam, und PanelBridge wird nicht heruntergeladen. Ergänze es zuerst in der Java-Zeile des Skripts.",
     "sharedInstall": "Server, die diesen Spielordner teilen, wechseln mit: {{servers}}.",
     "gameVersionUnknown": "Das Panel kann noch nicht bestätigen, dass dieser Server Build 42 ausführt. Verbinde PanelBridge einmal oder stelle es selbst sicher.",
     "previewItem": "Vorschau: vom Maintainer noch nicht auf einem Live-Server geprüft.",
@@ -123,7 +125,7 @@
       "body": "Diese Panel-Version kennt die ID des PanelBridge-Workshop-Elements nicht."
     },
     "causes": {
-      "notLoaded": "Mögliche Ursachen: Die Einstellungen wurden außerhalb des Panels geändert (ein Neustart über das Panel fügt die Einträge wieder hinzu), der Server wurde ohne Steam gestartet, oder eine andere Mod liefert media/lua/server/PanelBridge.lua mit.",
+      "notLoaded": "Mögliche Ursachen: Die Einstellungen wurden außerhalb des Panels geändert (ein Neustart über das Panel fügt die Einträge wieder hinzu), der Server wurde ohne Steam gestartet (Java braucht -Dzomboid.steam=1), oder eine andere Mod liefert media/lua/server/PanelBridge.lua mit.",
       "startFailed": "Mögliche Ursachen: Steam ist ausgefallen oder blockiert, oder das Workshop-Element wurde ausgeblendet oder entfernt.",
       "steamUnreachable": "Mögliche Ursachen: Steam ist ausgefallen, oder eine Firewall, ein Proxy oder ein Netzwerkproblem blockiert den Rechner, auf dem der Server läuft. Starte ihn erneut, sobald Steam erreichbar ist."
     },
@@ -132,6 +134,8 @@
   },
   "banner": {
     "steamUnavailable": "Steam meldet das PanelBridge-Workshop-Element als nicht verfügbar. Der Server startet erst wieder, wenn es zurück ist oder du zu „Vom Panel installiert“ wechselst.",
+    "steamModeOff": "Dieser Server läuft ohne Steam und kann PanelBridge daher nicht aus dem Workshop herunterladen. Das Spiel schaltet Steam nur ein, wenn Java mit -Dzomboid.steam=1 startet und der Server nicht mit -nosteam gestartet wird: Ergänze -Dzomboid.steam=1 in der Java-Zeile des Startskripts oder Startbefehls dieses Servers, entferne ein vorhandenes -nosteam und starte den Server dann neu.",
+    "steamListingHidden": "Die öffentliche Steam-Workshop-Seite zeigt das PanelBridge-Element gerade nicht an. Das kann passieren, während Steam ein neues oder aktualisiertes Element prüft, oder bei einem nicht gelisteten Element, und Server können es trotzdem herunterladen. Scheitert ein Start deswegen, zeigt diese Seite es an.",
     "autoRestartOn": "PanelBridge-Updates starten diesen Server automatisch neu (Einstellungen › Mods & Workshop).",
     "autoRestartOff": "Nach jedem PanelBridge-Update können neue Spieler erst nach einem Neustart beitreten. Schalte automatische Neustarts unter Einstellungen › Mods & Workshop ein.",
     "leftovers": "Alte PanelBridge-Dateien liegen noch im Spielordner: {{files}}. Mit eingeschalteter Lua-Integritätsprüfung werden Spieler abgewiesen. Ein Start oder Neustart des Servers über das Panel verschiebt sie."
@@ -193,7 +197,7 @@
       "step1": "Füge in <file>{{file}}</file> <code>{{value}}</code> am Ende der Zeile <code>Mods=</code> hinzu.",
       "step2": "Füge <code>{{value}}</code> am Ende von <code>WorkshopItems=</code> hinzu (lege die Zeile an, falls sie fehlt).",
       "step3": "Lösche diese Dateien aus dem Spielordner des Servers, falls du sie hochgeladen hast:",
-      "step4": "Stelle sicher, dass der Server nicht mit <code>-nosteam</code> gestartet wird.",
+      "step4": "Stelle sicher, dass der Server im Steam-Modus läuft: nicht mit <code>-nosteam</code> gestartet und mit <code>-Dzomboid.steam=1</code> in der Java-Zeile, wenn du Java selbst startest.",
       "step5": "Starte den Server neu."
     },
     "toLocal": {

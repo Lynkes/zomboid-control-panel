@@ -55,8 +55,10 @@
   },
   "warn": {
     "serverRunning": "Takes effect when the server restarts.",
-    "customLauncher": "This server uses its own launch script. If that script starts the server without Steam, PanelBridge won't download.",
-    "customLauncherShared": "This server or one that shares its game folder ({{servers}}) uses its own launch script. If that script starts the server without Steam, PanelBridge won't download.",
+    "customLauncher": "This server uses its own launch script. If that script starts the server without Steam (no -Dzomboid.steam=1 on its java line, or -nosteam), PanelBridge won't download.",
+    "customLauncherShared": "This server or one that shares its game folder ({{servers}}) uses its own launch script. If that script starts the server without Steam (no -Dzomboid.steam=1 on its java line, or -nosteam), PanelBridge won't download.",
+    "steamFlagMissing": "This server's launch script doesn't pass -Dzomboid.steam=1 to Java, so the server runs without Steam and PanelBridge won't download. Add it to the script's java line first.",
+    "steamFlagMissingShared": "This server or one that shares its game folder ({{servers}}) has a launch script that doesn't pass -Dzomboid.steam=1 to Java, so that server runs without Steam and PanelBridge won't download. Add it to the script's java line first.",
     "sharedInstall": "Servers that share this game folder switch too: {{servers}}.",
     "gameVersionUnknown": "The panel can't confirm this server runs Build 42 yet. Connect PanelBridge once, or make sure it does.",
     "previewItem": "Preview: not yet verified on a live server by the maintainer.",
@@ -123,7 +125,7 @@
       "body": "This panel version doesn't know the PanelBridge Workshop item ID."
     },
     "causes": {
-      "notLoaded": "Possible causes: the settings were changed outside the panel (restarting from the panel adds the entries back), the server was launched without Steam, or another mod ships media/lua/server/PanelBridge.lua.",
+      "notLoaded": "Possible causes: the settings were changed outside the panel (restarting from the panel adds the entries back), the server was launched without Steam (Java needs -Dzomboid.steam=1), or another mod ships media/lua/server/PanelBridge.lua.",
       "startFailed": "Possible causes: Steam is down or blocked, or the Workshop item was hidden or removed.",
       "steamUnreachable": "Possible causes: Steam is down, or a firewall, proxy or network problem blocks the machine that runs the server. Start it again once Steam can be reached."
     },
@@ -132,6 +134,8 @@
   },
   "banner": {
     "steamUnavailable": "Steam reports the PanelBridge Workshop item as unavailable. The server won't start until it's back or you switch to panel-installed.",
+    "steamModeOff": "This server runs without Steam, so it can't download PanelBridge from the Workshop. The game turns Steam on only when Java starts with -Dzomboid.steam=1 and the server isn't started with -nosteam: add -Dzomboid.steam=1 to the java line of this server's launch script or start command, remove -nosteam if it's there, then restart the server.",
+    "steamListingHidden": "Steam's public Workshop page doesn't show the PanelBridge item right now. This can happen while Steam reviews a new or updated item, or for an unlisted one, and servers can still download it. If a start fails because of it, this page will say so.",
     "autoRestartOn": "PanelBridge updates restart this server automatically (Settings › Mods & Workshop).",
     "autoRestartOff": "After each PanelBridge update, new players can't join until you restart. Turn on automatic restarts in Settings › Mods & Workshop.",
     "leftovers": "Old PanelBridge files are still in the game folder: {{files}}. With the Lua integrity check on, players will be refused. Starting or restarting the server from the panel moves them out."
@@ -193,7 +197,7 @@
       "step1": "In <file>{{file}}</file>, add <code>{{value}}</code> to the end of the <code>Mods=</code> line.",
       "step2": "Add <code>{{value}}</code> to the end of <code>WorkshopItems=</code> (add the line if it's missing).",
       "step3": "Delete these files from the server's game folder, if you uploaded them:",
-      "step4": "Make sure the server isn't started with <code>-nosteam</code>.",
+      "step4": "Make sure the server runs in Steam mode: not started with <code>-nosteam</code>, and with <code>-Dzomboid.steam=1</code> on its java line if you start Java yourself.",
       "step5": "Restart the server."
     },
     "toLocal": {

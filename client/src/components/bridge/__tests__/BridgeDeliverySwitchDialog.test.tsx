@@ -156,6 +156,22 @@ describe('BridgeDeliverySwitchDialog: the preview lists every step, in order, wi
     expect(screen.getByText(en.warn.sharedInstall.replace('{{servers}}', 'Second'))).toBeInTheDocument()
   })
 
+  // A launch script that runs the game without -Dzomboid.steam=1 runs it
+  // without Steam, with no error: the warning names the flag, and on a
+  // shared game folder the servers.
+  it('names the missing -Dzomboid.steam=1, and the servers sharing the folder', async () => {
+    planDelivery.mockResolvedValue(makePlan({ warnings: ['steamFlagMissing'] }))
+    renderDialog(makeLocalStatus())
+    await stepsList()
+    expect(screen.getByText(en.warn.steamFlagMissing)).toHaveTextContent('-Dzomboid.steam=1')
+    cleanup()
+
+    planDelivery.mockResolvedValue(makePlan({ warnings: ['steamFlagMissing'], sharedWith: [{ id: 'srv-2', name: 'Second' }] }))
+    renderDialog(makeLocalStatus())
+    await stepsList()
+    expect(screen.getByText(en.warn.steamFlagMissingShared.replace('{{servers}}', 'Second'))).toBeInTheDocument()
+  })
+
   it('a blocked plan disables every apply button and says why', async () => {
     planDelivery.mockResolvedValue(makePlan({ blocked: { reason: 'iniDuplicateKeys' }, steps: [] }))
     renderDialog(makeLocalStatus())

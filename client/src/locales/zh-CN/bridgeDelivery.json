@@ -55,8 +55,10 @@
   },
   "warn": {
     "serverRunning": "将在服务器重启后生效。",
-    "customLauncher": "此服务器使用自己的启动脚本。如果该脚本不通过 Steam 启动服务器，将无法下载 PanelBridge。",
-    "customLauncherShared": "此服务器或共用其游戏文件夹的服务器（{{servers}}）使用自己的启动脚本。如果该脚本不通过 Steam 启动服务器，将无法下载 PanelBridge。",
+    "customLauncher": "此服务器使用自己的启动脚本。如果该脚本不通过 Steam 启动服务器（java 行中没有 -Dzomboid.steam=1，或带有 -nosteam），将无法下载 PanelBridge。",
+    "customLauncherShared": "此服务器或共用其游戏文件夹的服务器（{{servers}}）使用自己的启动脚本。如果该脚本不通过 Steam 启动服务器（java 行中没有 -Dzomboid.steam=1，或带有 -nosteam），将无法下载 PanelBridge。",
+    "steamFlagMissing": "此服务器的启动脚本没有向 Java 传入 -Dzomboid.steam=1，因此服务器会在没有 Steam 的情况下运行，无法下载 PanelBridge。请先将它添加到脚本的 java 行中。",
+    "steamFlagMissingShared": "此服务器或共用其游戏文件夹的服务器（{{servers}}）的启动脚本没有向 Java 传入 -Dzomboid.steam=1，因此该服务器会在没有 Steam 的情况下运行，无法下载 PanelBridge。请先将它添加到脚本的 java 行中。",
     "sharedInstall": "共用此游戏文件夹的服务器也会一起切换：{{servers}}。",
     "gameVersionUnknown": "面板暂时无法确认此服务器运行的是 Build 42。请先连接一次 PanelBridge，或自行确认。",
     "previewItem": "预览版：维护者尚未在真实服务器上验证。",
@@ -123,7 +125,7 @@
       "body": "此版本的面板不知道 PanelBridge 创意工坊项目的 ID。"
     },
     "causes": {
-      "notLoaded": "可能原因：设置在面板之外被修改（从面板重启会重新添加这些条目）、服务器未通过 Steam 启动，或其他模组也包含 media/lua/server/PanelBridge.lua。",
+      "notLoaded": "可能原因：设置在面板之外被修改（从面板重启会重新添加这些条目）、服务器未通过 Steam 启动（Java 需要 -Dzomboid.steam=1），或其他模组也包含 media/lua/server/PanelBridge.lua。",
       "startFailed": "可能原因：Steam 宕机或被屏蔽，或创意工坊项目已被隐藏或移除。",
       "steamUnreachable": "可能原因：Steam 宕机，或防火墙、代理或网络问题阻挡了运行服务器的机器。待 Steam 可以访问后再次启动服务器。"
     },
@@ -132,6 +134,8 @@
   },
   "banner": {
     "steamUnavailable": "Steam 报告 PanelBridge 的创意工坊项目不可用。在其恢复或你切换为由面板安装之前，服务器将无法启动。",
+    "steamModeOff": "此服务器在没有 Steam 的情况下运行，因此无法从创意工坊下载 PanelBridge。只有 Java 以 -Dzomboid.steam=1 启动、且服务器启动时未带 -nosteam，游戏才会启用 Steam：请将 -Dzomboid.steam=1 添加到此服务器启动脚本或启动命令的 java 行中，如有 -nosteam 请将其删除，然后重启服务器。",
+    "steamListingHidden": "Steam 的创意工坊公开页面目前没有显示 PanelBridge 项目。Steam 审核新项目或更新后的项目时，或者项目未公开列出时，都可能出现这种情况，服务器仍然可以下载它。如果因此导致启动失败，此页面会告诉你。",
     "autoRestartOn": "PanelBridge 更新后会自动重启此服务器（设置 › 模组与创意工坊）。",
     "autoRestartOff": "PanelBridge 每次更新后，新玩家在你重启之前都无法加入。请在「设置 › 模组与创意工坊」中启用自动重启。",
     "leftovers": "游戏文件夹中仍有旧的 PanelBridge 文件：{{files}}。启用 Lua 完整性检查后，玩家将被拒绝。从面板启动或重启服务器会将它们移出。"
@@ -193,7 +197,7 @@
       "step1": "在 <file>{{file}}</file> 中，将 <code>{{value}}</code> 添加到 <code>Mods=</code> 行的末尾。",
       "step2": "将 <code>{{value}}</code> 添加到 <code>WorkshopItems=</code> 的末尾（如果没有该行，请添加）。",
       "step3": "如果你上传过以下文件，请将它们从服务器的游戏文件夹中删除：",
-      "step4": "确认服务器不是以 <code>-nosteam</code> 启动的。",
+      "step4": "确认服务器以 Steam 模式运行：不以 <code>-nosteam</code> 启动；如果你自己启动 Java，java 行中要有 <code>-Dzomboid.steam=1</code>。",
       "step5": "重启服务器。"
     },
     "toLocal": {

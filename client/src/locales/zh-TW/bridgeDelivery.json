@@ -55,8 +55,10 @@
   },
   "warn": {
     "serverRunning": "將在伺服器重新啟動後生效。",
-    "customLauncher": "此伺服器使用自己的啟動腳本。如果該腳本不透過 Steam 啟動伺服器，將無法下載 PanelBridge。",
-    "customLauncherShared": "此伺服器或共用其遊戲資料夾的伺服器（{{servers}}）使用自己的啟動腳本。如果該腳本不透過 Steam 啟動伺服器，將無法下載 PanelBridge。",
+    "customLauncher": "此伺服器使用自己的啟動腳本。如果該腳本不透過 Steam 啟動伺服器（java 行中沒有 -Dzomboid.steam=1，或帶有 -nosteam），將無法下載 PanelBridge。",
+    "customLauncherShared": "此伺服器或共用其遊戲資料夾的伺服器（{{servers}}）使用自己的啟動腳本。如果該腳本不透過 Steam 啟動伺服器（java 行中沒有 -Dzomboid.steam=1，或帶有 -nosteam），將無法下載 PanelBridge。",
+    "steamFlagMissing": "此伺服器的啟動腳本沒有向 Java 傳入 -Dzomboid.steam=1，因此伺服器會在沒有 Steam 的情況下執行，無法下載 PanelBridge。請先將它加到腳本的 java 行中。",
+    "steamFlagMissingShared": "此伺服器或共用其遊戲資料夾的伺服器（{{servers}}）的啟動腳本沒有向 Java 傳入 -Dzomboid.steam=1，因此該伺服器會在沒有 Steam 的情況下執行，無法下載 PanelBridge。請先將它加到腳本的 java 行中。",
     "sharedInstall": "共用此遊戲資料夾的伺服器也會一起切換：{{servers}}。",
     "gameVersionUnknown": "面板暫時無法確認此伺服器執行的是 Build 42。請先連線一次 PanelBridge，或自行確認。",
     "previewItem": "預覽版：維護者尚未在實際伺服器上驗證。",
@@ -123,7 +125,7 @@
       "body": "此版本的面板不知道 PanelBridge 創意工坊專案的 ID。"
     },
     "causes": {
-      "notLoaded": "可能原因：設定在面板之外被修改（從面板重新啟動會重新加入這些項目）、伺服器未透過 Steam 啟動，或其他模組也包含 media/lua/server/PanelBridge.lua。",
+      "notLoaded": "可能原因：設定在面板之外被修改（從面板重新啟動會重新加入這些項目）、伺服器未透過 Steam 啟動（Java 需要 -Dzomboid.steam=1），或其他模組也包含 media/lua/server/PanelBridge.lua。",
       "startFailed": "可能原因：Steam 停擺或遭封鎖，或創意工坊專案已被隱藏或移除。",
       "steamUnreachable": "可能原因：Steam 停擺，或防火牆、代理伺服器或網路問題阻擋了執行伺服器的機器。待 Steam 可以連線後再次啟動伺服器。"
     },
@@ -132,6 +134,8 @@
   },
   "banner": {
     "steamUnavailable": "Steam 回報 PanelBridge 的創意工坊專案無法使用。在其恢復或你切換為由面板安裝之前，伺服器將無法啟動。",
+    "steamModeOff": "此伺服器在沒有 Steam 的情況下執行，因此無法從創意工坊下載 PanelBridge。只有 Java 以 -Dzomboid.steam=1 啟動、且伺服器啟動時未帶 -nosteam，遊戲才會啟用 Steam：請將 -Dzomboid.steam=1 加到此伺服器啟動腳本或啟動命令的 java 行中，如有 -nosteam 請將其移除，然後重新啟動伺服器。",
+    "steamListingHidden": "Steam 的創意工坊公開頁面目前沒有顯示 PanelBridge 專案。Steam 審核新專案或更新後的專案時，或者專案未公開列出時，都可能出現這種情況，伺服器仍然可以下載它。如果因此導致啟動失敗，此頁面會告訴你。",
     "autoRestartOn": "PanelBridge 更新後會自動重新啟動此伺服器（設定 › 模組與創意工坊）。",
     "autoRestartOff": "PanelBridge 每次更新後，新玩家在你重新啟動之前都無法加入。請在「設定 › 模組與創意工坊」中啟用自動重新啟動。",
     "leftovers": "遊戲資料夾中仍有舊的 PanelBridge 檔案：{{files}}。啟用 Lua 完整性檢查後，玩家將被拒絕。從面板啟動或重新啟動伺服器會將它們移出。"
@@ -193,7 +197,7 @@
       "step1": "在 <file>{{file}}</file> 中，將 <code>{{value}}</code> 加到 <code>Mods=</code> 這一行的結尾。",
       "step2": "將 <code>{{value}}</code> 加到 <code>WorkshopItems=</code> 的結尾（如果沒有這一行，請新增）。",
       "step3": "如果你上傳過以下檔案，請將它們從伺服器的遊戲資料夾中刪除：",
-      "step4": "確認伺服器不是以 <code>-nosteam</code> 啟動的。",
+      "step4": "確認伺服器以 Steam 模式執行：不以 <code>-nosteam</code> 啟動；如果你自己啟動 Java，java 行中要有 <code>-Dzomboid.steam=1</code>。",
       "step5": "重新啟動伺服器。"
     },
     "toLocal": {

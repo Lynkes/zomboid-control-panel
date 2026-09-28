@@ -55,8 +55,10 @@
   },
   "warn": {
     "serverRunning": "Se aplica cuando el servidor se reinicie.",
-    "customLauncher": "Este servidor usa su propio script de inicio. Si ese script inicia el servidor sin Steam, PanelBridge no se descargará.",
-    "customLauncherShared": "Este servidor o uno que comparte su carpeta del juego ({{servers}}) usa su propio script de inicio. Si ese script inicia el servidor sin Steam, PanelBridge no se descargará.",
+    "customLauncher": "Este servidor usa su propio script de inicio. Si ese script inicia el servidor sin Steam (sin -Dzomboid.steam=1 en su línea de java, o con -nosteam), PanelBridge no se descargará.",
+    "customLauncherShared": "Este servidor o uno que comparte su carpeta del juego ({{servers}}) usa su propio script de inicio. Si ese script inicia el servidor sin Steam (sin -Dzomboid.steam=1 en su línea de java, o con -nosteam), PanelBridge no se descargará.",
+    "steamFlagMissing": "El script de inicio de este servidor no le pasa -Dzomboid.steam=1 a Java, así que el servidor funciona sin Steam y PanelBridge no se descargará. Añádelo primero a la línea de java del script.",
+    "steamFlagMissingShared": "Este servidor o uno que comparte su carpeta del juego ({{servers}}) tiene un script de inicio que no le pasa -Dzomboid.steam=1 a Java, así que ese servidor funciona sin Steam y PanelBridge no se descargará. Añádelo primero a la línea de java del script.",
     "sharedInstall": "Los servidores que comparten esta carpeta del juego también cambian: {{servers}}.",
     "gameVersionUnknown": "El panel aún no puede confirmar que este servidor ejecuta la Build 42. Conecta PanelBridge una vez o compruébalo tú.",
     "previewItem": "Versión preliminar: el mantenedor aún no la ha verificado en un servidor real.",
@@ -123,7 +125,7 @@
       "body": "Esta versión del panel no conoce el ID del elemento de Workshop de PanelBridge."
     },
     "causes": {
-      "notLoaded": "Posibles causas: los ajustes se cambiaron fuera del panel (reiniciar desde el panel vuelve a añadir las entradas), el servidor se inició sin Steam u otro mod incluye media/lua/server/PanelBridge.lua.",
+      "notLoaded": "Posibles causas: los ajustes se cambiaron fuera del panel (reiniciar desde el panel vuelve a añadir las entradas), el servidor se inició sin Steam (Java necesita -Dzomboid.steam=1) u otro mod incluye media/lua/server/PanelBridge.lua.",
       "startFailed": "Posibles causas: Steam está caído o bloqueado, o el elemento de Workshop se ocultó o eliminó.",
       "steamUnreachable": "Posibles causas: Steam está caído, o un cortafuegos, un proxy o un problema de red bloquea la máquina que ejecuta el servidor. Vuelve a iniciarlo cuando se pueda acceder a Steam."
     },
@@ -132,6 +134,8 @@
   },
   "banner": {
     "steamUnavailable": "Steam indica que el elemento de Workshop de PanelBridge no está disponible. El servidor no arrancará hasta que vuelva o cambies a la instalación por el panel.",
+    "steamModeOff": "Este servidor funciona sin Steam, así que no puede descargar PanelBridge desde Workshop. El juego solo activa Steam cuando Java se inicia con -Dzomboid.steam=1 y el servidor no se inicia con -nosteam: añade -Dzomboid.steam=1 a la línea de java del script de inicio o del comando de inicio de este servidor, quita -nosteam si aparece y luego reinicia el servidor.",
+    "steamListingHidden": "La página pública de Steam Workshop no muestra el elemento de PanelBridge en este momento. Puede pasar mientras Steam revisa un elemento nuevo o actualizado, o con uno no listado, y los servidores pueden descargarlo igualmente. Si un inicio falla por eso, esta página lo indicará.",
     "autoRestartOn": "Las actualizaciones de PanelBridge reinician este servidor automáticamente (Ajustes › Mods y Workshop).",
     "autoRestartOff": "Tras cada actualización de PanelBridge, los jugadores nuevos no pueden entrar hasta que reinicies. Activa los reinicios automáticos en Ajustes › Mods y Workshop.",
     "leftovers": "Aún quedan archivos antiguos de PanelBridge en la carpeta del juego: {{files}}. Con la comprobación de integridad de Lua activada, se rechazará a los jugadores. Iniciar o reiniciar el servidor desde el panel los mueve fuera."
@@ -193,7 +197,7 @@
       "step1": "En <file>{{file}}</file>, añade <code>{{value}}</code> al final de la línea <code>Mods=</code>.",
       "step2": "Añade <code>{{value}}</code> al final de <code>WorkshopItems=</code> (añade la línea si falta).",
       "step3": "Elimina estos archivos de la carpeta del juego del servidor, si los subiste:",
-      "step4": "Asegúrate de que el servidor no se inicia con <code>-nosteam</code>.",
+      "step4": "Asegúrate de que el servidor funcione en modo Steam: que no se inicie con <code>-nosteam</code> y que lleve <code>-Dzomboid.steam=1</code> en su línea de java si inicias Java tú mismo.",
       "step5": "Reinicia el servidor."
     },
     "toLocal": {

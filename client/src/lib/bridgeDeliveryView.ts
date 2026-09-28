@@ -300,18 +300,38 @@ export function getRunningVersionNote(status: DeliveryStatus): { running: string
   return { running: live.version, version: status.bundledVersion }
 }
 
-// The server judges noSteam and customLauncher over every profile that
-// shares the game folder (the whole group switches, and the Workshop entries
-// go into each one's ini), so when there are siblings the copy can't say it
-// is "this server" -- `shared` picks the wording that names them.
+// The server judges noSteam, customLauncher and steamFlagMissing over every
+// profile that shares the game folder (the whole group switches, and the
+// Workshop entries go into each one's ini), so when there are siblings the
+// copy can't say it is "this server" -- `shared` picks the wording that
+// names them.
+const SHARED_WARNING_KEYS: Partial<Record<DeliveryWarning, string>> = {
+  customLauncher: 'warn.customLauncherShared',
+  steamFlagMissing: 'warn.steamFlagMissingShared',
+}
+
 export function getBlockReasonKey(reason: DeliveryBlockReason, shared = false): string {
   if (reason === 'noSteam' && shared) return 'unavailable.noSteamShared'
   return `unavailable.${reason}`
 }
 
 export function getWarningKey(warning: DeliveryWarning, shared = false): string {
-  if (warning === 'customLauncher' && shared) return 'warn.customLauncherShared'
-  return `warn.${warning}`
+  return (shared && SHARED_WARNING_KEYS[warning]) || `warn.${warning}`
+}
+
+// How the block words Steam's public listing of the PanelBridge item
+// (steamReportsUnavailable). The public details API answers "not found" for
+// an item Steam still reviews while dedicated servers download it fine, so
+// on its own it is only a note; "won't start" is said only next to a start
+// that failed on the item itself. Nothing when the server runs without Steam
+// (steamModeOff says what matters then), and never on a Local or confirmed
+// server -- the server doesn't set it there either.
+export type SteamListingNotice = 'unavailable' | 'hidden'
+
+export function getSteamListingNotice(status: DeliveryStatus): SteamListingNotice | null {
+  if (!status.steamReportsUnavailable || status.method !== 'workshop' || status.state === 'workshop-confirmed') return null
+  if (status.state === 'workshop-start-failed' && status.lastStartFailure?.kind === 'itemDownload') return 'unavailable'
+  return status.steamModeOff ? null : 'hidden'
 }
 
 export function getChecksumBlockerKey(blocker: ChecksumBlocker): string {

@@ -17,6 +17,7 @@ import { EventEmitter } from "events";
 import { sanitizeError } from "../utils/sanitize.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import panelBridge from "./panelBridge.js";
+import { getWorkshopRelease } from "./bridgeWorkshopRelease.js";
 
 export const MOD_CHECK_INTERVAL_MINUTES_MIN = 1;
 export const MOD_CHECK_INTERVAL_MINUTES_MAX = 120;
@@ -219,6 +220,34 @@ function compareModInfoCandidates(leftCandidate, rightCandidate) {
   }
 
   return leftCandidate.order - rightCandidate.order;
+}
+
+// PanelBridge's own Workshop item: the id this panel build ships with, and
+// the one the active server switched with (a build that predates the item
+// keeps using that one). Steam's public details API answers "not found"
+// (EResult 9) for it while Steam's content check still holds a new or
+// updated upload back, and dedicated servers download it all the same (the
+// 42.21 live test: result 9 before and after a 2.4 s anonymous download and
+// a confirmed start). So it never goes on the Mods page's "no longer exists
+// on the Workshop" list, whose remove button would only fight the bridge's
+// own Mods=/WorkshopItems= entries: Settings › PanelBridge reports on the
+// item instead (bridgeDelivery's steamReportsUnavailable, read from
+// lastUnavailableWorkshopIds, which keeps it).
+async function bridgeWorkshopIds() {
+  const ids = new Set();
+  try {
+    const { workshopId } = getWorkshopRelease();
+    if (workshopId) ids.add(String(workshopId));
+  } catch {
+    /* no release on hand */
+  }
+  try {
+    const recorded = (await getActiveServer())?.bridgeDeliverySwitch?.workshopId;
+    if (recorded) ids.add(String(recorded));
+  } catch {
+    /* no active server */
+  }
+  return ids;
 }
 
 export class ModChecker extends EventEmitter {
@@ -1414,12 +1443,22 @@ export class ModChecker extends EventEmitter {
     }
 
     this.lastUnavailableWorkshopIds = unavailable;
+    const bridgeIds = unavailable.size > 0 ? await bridgeWorkshopIds() : new Set();
     const removedIds = [...unavailable.entries()]
-      .filter(([, info]) => info.reason === "removed")
+      .filter(([id, info]) => info.reason === "removed" && !bridgeIds.has(String(id)))
       .map(([id]) => id);
     if (removedIds.length > 0) {
       log.warn(
         `Steam confirms ${removedIds.length} workshop item(s) no longer exist (removed or made private): ${removedIds.join(", ")}`,
+      );
+    }
+    for (const id of bridgeIds) {
+      const info = unavailable.get(id);
+      if (!info) continue;
+      // See bridgeWorkshopIds(): not a removal the Mods tools should act on.
+      log.debug(
+        `Steam's public Workshop listing doesn't show the PanelBridge item ${id} (result ${info.resultCode}); ` +
+          "servers can still download it while Steam reviews it. Settings › PanelBridge reports on it.",
       );
     }
 
@@ -1967,6 +2006,13 @@ export class ModChecker extends EventEmitter {
         .map((mod) => String(mod?.workshop_id ?? "").trim())
         .filter(Boolean),
     );
+    const bridgeIds =
+      this.lastUnavailableWorkshopIds.size > 0
+        ? await bridgeWorkshopIds()
+        : new Set();
+    // Which ids Steam didn't answer "found" for go on the Mods page's lists.
+    const listedUnavailable = (id) =>
+      trackedWorkshopIds.has(String(id)) && !bridgeIds.has(String(id));
     const workshopInfo = await this.getWorkshopInfo();
     // Only count updates for mods that actually belong to the ACTIVE server.
     // Same UNION-of-ini-and-tracked relevance as checkForUpdates() (see its
@@ -2026,10 +2072,10 @@ export class ModChecker extends EventEmitter {
       // Only surface IDs that are still tracked. The ACF can retain a dead
       // subscription after the operator removes it, so exposing the raw
       // Steam-result cache here would keep the warning alive forever.
+      // PanelBridge's own item never (see bridgeWorkshopIds()).
       removedWorkshopIds: [...this.lastUnavailableWorkshopIds.entries()]
         .filter(
-          ([id, info]) =>
-            info.reason === "removed" && trackedWorkshopIds.has(String(id)),
+          ([id, info]) => info.reason === "removed" && listedUnavailable(id),
         )
         .map(([id]) => id),
       // Workshop IDs Steam answered with a non-1, non-9 result -- neither
@@ -2042,8 +2088,7 @@ export class ModChecker extends EventEmitter {
       // from a support ticket, "result code 15" is.
       unknownWorkshopIds: [...this.lastUnavailableWorkshopIds.entries()]
         .filter(
-          ([id, info]) =>
-            info.reason === "unknown" && trackedWorkshopIds.has(String(id)),
+          ([id, info]) => info.reason === "unknown" && listedUnavailable(id),
         )
         .map(([id, info]) => ({ id, resultCode: info.resultCode })),
       autoRestartEnabled: this.autoRestartEnabled,

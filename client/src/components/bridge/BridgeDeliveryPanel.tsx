@@ -42,6 +42,7 @@ import {
   getRestartWarning,
   getRunningVersionNote,
   getStateHintKey,
+  getSteamListingNotice,
   needsRestartAfterLocalSwitch,
   type RestartWarning,
   resolveStateActions,
@@ -536,29 +537,46 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
     return null
   }
 
-  const renderBanners = (s: DeliveryStatus) => (
-    <>
-      {s.steamReportsUnavailable && (
-        <Alert className={WARNING_CALLOUT} data-testid="bridge-delivery-steam-unavailable">
-          <AlertTriangle className="h-4 w-4 text-warning" />
-          <AlertDescription>{t('banner.steamUnavailable')}</AlertDescription>
-        </Alert>
-      )}
-      {s.method === 'workshop' && s.access === 'automatic' && s.disk && s.disk.looseFiles.length > 0 && (
-        <Alert className={WARNING_CALLOUT} data-testid="bridge-delivery-leftovers">
-          <AlertTriangle className="h-4 w-4 text-warning" />
-          <AlertDescription className="break-words">
-            {t('banner.leftovers', {
-              files: formatList(
-                s.disk.looseFiles.map((f) => formatPathInSentence(f.path, s.disk?.installDir)),
-                i18n.language,
-              ),
-            })}
-          </AlertDescription>
-        </Alert>
-      )}
-    </>
-  )
+  const renderBanners = (s: DeliveryStatus) => {
+    const listing = getSteamListingNotice(s)
+    return (
+      <>
+        {s.steamModeOff && (
+          <Alert className={WARNING_CALLOUT} data-testid="bridge-delivery-steam-mode-off">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertDescription className="break-words">{t('banner.steamModeOff')}</AlertDescription>
+          </Alert>
+        )}
+        {listing === 'unavailable' && (
+          <Alert className={WARNING_CALLOUT} data-testid="bridge-delivery-steam-unavailable">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertDescription>{t('banner.steamUnavailable')}</AlertDescription>
+          </Alert>
+        )}
+        {s.method === 'workshop' && s.access === 'automatic' && s.disk && s.disk.looseFiles.length > 0 && (
+          <Alert className={WARNING_CALLOUT} data-testid="bridge-delivery-leftovers">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertDescription className="break-words">
+              {t('banner.leftovers', {
+                files: formatList(
+                  s.disk.looseFiles.map((f) => formatPathInSentence(f.path, s.disk?.installDir)),
+                  i18n.language,
+                ),
+              })}
+            </AlertDescription>
+          </Alert>
+        )}
+        {/* Only a note: Steam's public listing hides an item it still
+            reviews, and servers download it all the same. */}
+        {listing === 'hidden' && (
+          <Alert className={NEUTRAL_CALLOUT} data-testid="bridge-delivery-steam-listing">
+            <Info className="h-4 w-4 text-primary" />
+            <AlertDescription>{t('banner.steamListingHidden')}</AlertDescription>
+          </Alert>
+        )}
+      </>
+    )
+  }
 
   const showGuidedReminder = (s: DeliveryStatus) =>
     s.method === 'workshop' &&

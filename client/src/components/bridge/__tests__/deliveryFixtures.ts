@@ -45,6 +45,7 @@ export function makeLocalStatus(overrides: Partial<DeliveryStatus> = {}): Delive
     },
     lastStartFailure: null,
     steamReportsUnavailable: false,
+    steamModeOff: false,
     modAutoRestart: false,
     bundledVersion: '1.7.70',
     checksum: { current: false, canTurnOn: false, turnOnBlockers: ['notWorkshop'], playersBlocked: false, requiresLinuxAck: false },

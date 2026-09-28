@@ -55,8 +55,10 @@
   },
   "warn": {
     "serverRunning": "Sa ap pran efè lè sèvè a redemare.",
-    "customLauncher": "Sèvè sa a itilize pwòp script demaraj li. Si script sa a demare sèvè a san Steam, PanelBridge p ap telechaje.",
-    "customLauncherShared": "Sèvè sa a oswa yon sèvè ki pataje dosye jwèt li ({{servers}}) itilize pwòp script demaraj li. Si script sa a demare sèvè a san Steam, PanelBridge p ap telechaje.",
+    "customLauncher": "Sèvè sa a itilize pwòp script demaraj li. Si script sa a demare sèvè a san Steam (san -Dzomboid.steam=1 sou liy java li, oswa ak -nosteam), PanelBridge p ap telechaje.",
+    "customLauncherShared": "Sèvè sa a oswa yon sèvè ki pataje dosye jwèt li ({{servers}}) itilize pwòp script demaraj li. Si script sa a demare sèvè a san Steam (san -Dzomboid.steam=1 sou liy java li, oswa ak -nosteam), PanelBridge p ap telechaje.",
+    "steamFlagMissing": "Script demaraj sèvè sa a pa bay Java -Dzomboid.steam=1, kidonk sèvè a mache san Steam epi PanelBridge p ap telechaje. Ajoute l sou liy java script la anvan.",
+    "steamFlagMissingShared": "Sèvè sa a oswa yon sèvè ki pataje dosye jwèt li ({{servers}}) gen yon script demaraj ki pa bay Java -Dzomboid.steam=1, kidonk sèvè sa a mache san Steam epi PanelBridge p ap telechaje. Ajoute l sou liy java script la anvan.",
     "sharedInstall": "Sèvè ki pataje dosye jwèt sa a chanje tou: {{servers}}.",
     "gameVersionUnknown": "Panèl la poko ka konfime sèvè sa a ap fonksyone ak Build 42. Konekte PanelBridge yon fwa, oswa asire w se sa.",
     "previewItem": "Previzyon: moun ki okipe pwojè a poko verifye l sou yon sèvè reyèl.",
@@ -123,7 +125,7 @@
       "body": "Vèsyon panèl sa a pa konnen ID atik Workshop PanelBridge la."
     },
     "causes": {
-      "notLoaded": "Kòz posib: yo chanje paramèt yo andeyò panèl la (redemare depi panèl la remete antre yo), yo demare sèvè a san Steam, oswa yon lòt mod gen media/lua/server/PanelBridge.lua ladan l.",
+      "notLoaded": "Kòz posib: yo chanje paramèt yo andeyò panèl la (redemare depi panèl la remete antre yo), yo demare sèvè a san Steam (Java bezwen -Dzomboid.steam=1), oswa yon lòt mod gen media/lua/server/PanelBridge.lua ladan l.",
       "startFailed": "Kòz posib: Steam an pàn oswa bloke, oswa yo kache oswa retire atik Workshop la.",
       "steamUnreachable": "Kòz posib: Steam an pàn, oswa yon firewall, yon proxy oswa yon pwoblèm rezo bloke machin ki fè sèvè a mache a. Demare l ankò lè Steam disponib ankò."
     },
@@ -132,6 +134,8 @@
   },
   "banner": {
     "steamUnavailable": "Steam di atik Workshop PanelBridge la pa disponib. Sèvè a p ap demare jiskaske li tounen oswa ou pase sou enstalasyon pa panèl la.",
+    "steamModeOff": "Sèvè sa a mache san Steam, kidonk li pa ka telechaje PanelBridge nan Workshop la. Jwèt la limen Steam sèlman lè Java demare ak -Dzomboid.steam=1 epi sèvè a pa demare ak -nosteam: ajoute -Dzomboid.steam=1 sou liy java script demaraj la oswa kòmand demaraj sèvè sa a, retire -nosteam si li la, epi redemare sèvè a.",
+    "steamListingHidden": "Paj piblik Steam Workshop la pa montre atik PanelBridge la kounye a. Sa ka rive pandan Steam ap revize yon atik ki nouvo oswa ki mete ajou, oswa pou yon atik ki pa nan lis piblik la, epi sèvè yo ka toujou telechaje l. Si yon demaraj echwe akoz sa, paj sa a ap di l.",
     "autoRestartOn": "Mizajou PanelBridge yo redemare sèvè sa a otomatikman (Paramèt › Mod ak Workshop).",
     "autoRestartOff": "Apre chak mizajou PanelBridge, nouvo jwè pa ka antre jiskaske ou redemare. Aktive redemaraj otomatik nan Paramèt › Mod ak Workshop.",
     "leftovers": "Ansyen fichye PanelBridge toujou nan dosye jwèt la: {{files}}. Avèk verifikasyon entegrite Lua a aktive, y ap refize jwè yo. Lè w demare oswa redemare sèvè a depi panèl la, sa deplase yo."
@@ -193,7 +197,7 @@
       "step1": "Nan <file>{{file}}</file>, ajoute <code>{{value}}</code> nan fen liy <code>Mods=</code> la.",
       "step2": "Ajoute <code>{{value}}</code> nan fen <code>WorkshopItems=</code> (ajoute liy lan si li pa la).",
       "step3": "Efase fichye sa yo nan dosye jwèt sèvè a, si ou te voye yo:",
-      "step4": "Asire w yo pa demare sèvè a ak <code>-nosteam</code>.",
+      "step4": "Asire w sèvè a mache an mòd Steam: yo pa demare l ak <code>-nosteam</code>, epi li gen <code>-Dzomboid.steam=1</code> sou liy java li si se ou menm ki demare Java.",
       "step5": "Redemare sèvè a."
     },
     "toLocal": {

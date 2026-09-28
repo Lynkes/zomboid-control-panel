@@ -427,10 +427,53 @@ describe('BridgeDeliveryPanel: failure states and their actions', () => {
     expect(planDelivery).not.toHaveBeenCalled()
   })
 
-  it('warns when Steam reports the item unavailable', async () => {
-    renderPanel(makeWorkshopStatus({ steamReportsUnavailable: true }))
+  // The 42.21 live test: Steam's public details API said "not found" for
+  // the item while servers downloaded it and started with it, and this
+  // banner said "The server won't start" on a confirmed Workshop server and
+  // on a panel-installed one.
+  it('says the server won\'t start only next to a start that failed on the item', async () => {
+    const line = `Workshop: onItemNotDownloaded itemID=${WORKSHOP_ID} result=9`
+    renderPanel(
+      makeWorkshopStatus({
+        state: 'workshop-start-failed',
+        serverRunning: false,
+        live: null,
+        steamReportsUnavailable: true,
+        lastStartFailure: { kind: 'itemDownload', line, result: 9, logMtime: '2026-10-02T10:05:00.000Z' },
+      }),
+    )
     await panelReady()
     expect(screen.getByTestId('bridge-delivery-steam-unavailable')).toHaveTextContent(en.banner.steamUnavailable)
+    expect(screen.queryByTestId('bridge-delivery-steam-listing')).toBeNull()
+  })
+
+  it('is only a note while a Workshop server hasn\'t confirmed the item', async () => {
+    renderPanel(makeWorkshopStatus({ state: 'workshop-restart-needed', restartedSinceSwitch: false, steamReportsUnavailable: true }))
+    await panelReady()
+    const note = screen.getByTestId('bridge-delivery-steam-listing')
+    expect(note).toHaveTextContent(en.banner.steamListingHidden)
+    expect(note.className).not.toContain('border-warning')
+    expect(screen.queryByTestId('bridge-delivery-steam-unavailable')).toBeNull()
+    expect(screen.queryByText(en.banner.steamUnavailable)).toBeNull()
+  })
+
+  it.each([
+    ['a confirmed Workshop server', () => makeWorkshopStatus({ steamReportsUnavailable: true })],
+    ['a panel-installed server', () => makeLocalStatus({ steamReportsUnavailable: true })],
+  ])('says nothing about Steam\'s listing on %s', async (_label, status) => {
+    renderPanel(status())
+    await panelReady()
+    expect(screen.queryByTestId('bridge-delivery-steam-unavailable')).toBeNull()
+    expect(screen.queryByTestId('bridge-delivery-steam-listing')).toBeNull()
+  })
+
+  it('names -Dzomboid.steam=1 when the server runs without Steam, instead of the listing note', async () => {
+    renderPanel(makeWorkshopStatus({ state: 'workshop-not-loaded', steamReportsUnavailable: true, steamModeOff: true }))
+    await panelReady()
+    expect(screen.getByTestId('bridge-delivery-steam-mode-off')).toHaveTextContent(en.banner.steamModeOff)
+    expect(screen.queryByTestId('bridge-delivery-steam-listing')).toBeNull()
+    const callout = document.querySelector('[data-state="workshop-not-loaded"]') as HTMLElement
+    expect(within(callout).getByText(en.state.causes.notLoaded)).toHaveTextContent('-Dzomboid.steam=1')
   })
 
   it('local-workshop-loaded explains the mismatch, and the manual fix while there is no switch back', async () => {

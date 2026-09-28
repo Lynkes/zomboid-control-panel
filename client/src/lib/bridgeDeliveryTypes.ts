@@ -17,7 +17,7 @@ export type DeliveryBlockReason = (typeof DELIVERY_BLOCK_REASONS)[number]
 
 export const DELIVERY_WARNINGS = [
   'serverRunning', 'customLauncher', 'sharedInstall', 'gameVersionUnknown', 'previewItem', 'envOverride',
-  'siblingIniMissing', 'unrecognizedLooseFile', 'checksumWillBeTurnedOff',
+  'siblingIniMissing', 'unrecognizedLooseFile', 'checksumWillBeTurnedOff', 'steamFlagMissing',
 ] as const
 export type DeliveryWarning = (typeof DELIVERY_WARNINGS)[number]
 
@@ -68,7 +68,12 @@ export interface DeliveryStatus {
   live: DeliveryLive | null
   disk: DeliveryDisk | null
   lastStartFailure: { kind: 'itemDownload' | 'steamUnreachable'; line: string; result: number | null; logMtime: string } | null
+  // Workshop method, not confirmed: Steam's public details API doesn't list
+  // the item right now (see getSteamListingNotice).
   steamReportsUnavailable: boolean
+  // Workshop method, not confirmed: the server runs the game without Steam
+  // (its launch leaves -Dzomboid.steam=1 out, or its console says so).
+  steamModeOff: boolean
   modAutoRestart: boolean
   bundledVersion: string | null
   checksum: { current: boolean | null; canTurnOn: boolean; turnOnBlockers: ChecksumBlocker[]; playersBlocked: boolean; requiresLinuxAck: boolean }

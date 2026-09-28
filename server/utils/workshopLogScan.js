@@ -3,10 +3,14 @@
  *
  * PZ rewrites that file at every server start (42.20 GameServer.main opens
  * it through LimitSizeFileOutputStream, whose constructor passes
- * append=false to FileOutputStream), so its tail describes the latest run
- * only -- which is exactly the question every caller here asks ("did THIS
- * start fail to get its Workshop items?"), and why each reader only ever
- * looks at the last 256 KB.
+ * append=false to FileOutputStream), so the whole file describes the latest
+ * run only -- which is exactly the question every caller here asks ("did
+ * THIS start fail to get its Workshop items?"). A failed start ends in its
+ * last lines, so the failure readers look at the last 256 KB. The lines a
+ * start that went on writes before the world loads (Steam start-up, every
+ * Workshop item's state and folder) are at the top of the file instead, and
+ * a 42.21 console passes 256 KB around SERVER STARTED: the readers of those
+ * lines read the head of the file too.
  *
  * scanWorkshopFailures() moved here from routes/debug.js (which
  * re-exports it) so services/bridgeDelivery.js can reuse the same log
@@ -16,6 +20,14 @@ import fs from "fs";
 import path from "path";
 
 const MAX_TAIL_BYTES = 256 * 1024;
+// The live 42.21 test's console had PanelBridge's "installed to" line at
+// byte ~11 KB of ~273 KB by SERVER STARTED. 1 MB leaves room for the
+// download lines of a server fetching hundreds of items at its first start
+// (a line every ~130 ms per item while it downloads), and bounds the read
+// on a console that has grown for days.
+const MAX_HEAD_BYTES = 1024 * 1024;
+// Steam's start-up lines come before the Workshop phase (~9 KB in on 42.21).
+const STEAM_HEAD_BYTES = 64 * 1024;
 const MAX_LINE_CHARS = 300;
 
 // Both tail readers open the log first and stat the open handle, never the
@@ -101,8 +113,9 @@ export async function scanWorkshopFailures(zPath) {
 }
 
 // Synchronous twin of the tail read above, for callers that sit inside a
-// synchronous status computation (bridgeDisk.detectWorkshopItem). 256 KB is
-// small enough that blocking on it is not a concern.
+// synchronous status computation (bridgeDelivery's start-failure check).
+// 256 KB is small enough that blocking on it is not a concern; so is the
+// 1 MB head readConsoleHeadAndTailSync() adds for the pre-world-load lines.
 function readConsoleTailSync(zPath) {
   if (!zPath) return null;
   const logPath = path.join(zPath, "server-console.txt");
@@ -116,6 +129,43 @@ function readConsoleTailSync(zPath) {
     const buf = Buffer.alloc(length);
     const bytesRead = fs.readSync(fd, buf, 0, length, start);
     return { text: buf.toString("utf-8", 0, bytesRead), mtime: stat.mtime };
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
+// The first `headBytes` and the last `tailBytes` of the log, in file order,
+// for the readers of lines a start writes before the world loads. The head
+// ends at its last whole line: a folder path cut in the middle would read as
+// another folder. A file that fits in both windows is read once, whole.
+function readConsoleHeadAndTailSync(zPath, headBytes, tailBytes) {
+  if (!zPath) return null;
+  const logPath = path.join(zPath, "server-console.txt");
+  let fd;
+  try {
+    fd = fs.openSync(logPath, LOG_OPEN_FLAGS);
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.size === 0) return null;
+    const readAt = (start, length) => {
+      const buf = Buffer.alloc(length);
+      const bytesRead = fs.readSync(fd, buf, 0, length, start);
+      return buf.toString("utf-8", 0, bytesRead);
+    };
+    if (stat.size <= headBytes + tailBytes) {
+      return { chunks: [readAt(0, stat.size)], mtime: stat.mtime };
+    }
+    const head = readAt(0, headBytes);
+    const chunks = [head.slice(0, head.lastIndexOf("\n") + 1)];
+    if (tailBytes > 0) chunks.push(readAt(stat.size - tailBytes, tailBytes));
+    return { chunks, mtime: stat.mtime };
   } catch {
     return null;
   } finally {
@@ -215,16 +265,47 @@ export function scanBridgeStartFailure(zPath, workshopId, { notBefore = null } =
  * GameServerWorkshopItems.Install builds it from the long item id and then
  * the folder (bytecode offsets 476-485: lload 6, aload 8, then the concat
  * recipe "\u0001 installed to \u0001"), and noise() prefixes "Workshop: ".
+ * It is written before the world loads, so on a server that has finished
+ * starting it is in the head of the log, not the tail.
  */
 export function scanWorkshopInstallFolder(zPath, workshopId) {
   if (!workshopId) return null;
-  const tail = readConsoleTailSync(zPath);
-  if (!tail) return null;
-  const re = /Workshop:\s+(\d+)\s+installed to\s+(.+)$/gm;
+  const log = readConsoleHeadAndTailSync(zPath, MAX_HEAD_BYTES, MAX_TAIL_BYTES);
+  if (!log) return null;
   let folder = null;
-  let match;
-  while ((match = re.exec(tail.text)) !== null) {
-    if (match[1] === String(workshopId)) folder = match[2].trim();
+  for (const text of log.chunks) {
+    const re = /Workshop:\s+(\d+)\s+installed to\s+(.+)$/gm;
+    let match;
+    while ((match = re.exec(text)) !== null) {
+      if (match[1] === String(workshopId)) folder = match[2].trim();
+    }
   }
   return folder || null;
+}
+
+/**
+ * Whether the latest start ran with Steam, from the line SteamUtils logs:
+ * { steam: false, line } for "SteamUtils started without Steam",
+ * { steam: true, line } for "SteamUtils initialised successfully" (42.21's
+ * wording for both), or null when the log has neither (no log yet, another
+ * build's wording) or is older than `notBefore` (as for
+ * scanBridgeStartFailure()). Steam is opt-in for the game: 42.21's
+ * SteamUtils.init turns it on only when the java system property
+ * zomboid.steam is "1" (-Dzomboid.steam=1, which the panel's own launch
+ * scripts and the dedicated server's StartServer64.bat pass, and the client
+ * install's ProjectZomboidServer.bat doesn't). Without it the game logs the
+ * first line and carries on: the server starts with no Workshop item at all
+ * and no error (the missing mod is only a WARN). Either line comes before
+ * the Workshop phase, near the top.
+ */
+export function scanSteamStartup(zPath, { notBefore = null } = {}) {
+  const log = readConsoleHeadAndTailSync(zPath, STEAM_HEAD_BYTES, 0);
+  if (!log) return null;
+  const threshold = toTimestamp(notBefore);
+  if (threshold !== null && log.mtime.getTime() < threshold) return null;
+  const text = log.chunks[0];
+  const off = /SteamUtils started without Steam/.exec(text);
+  if (off) return { steam: false, line: lineAround(text, off.index) };
+  const on = /SteamUtils initialised successfully/.exec(text);
+  return on ? { steam: true, line: lineAround(text, on.index) } : null;
 }

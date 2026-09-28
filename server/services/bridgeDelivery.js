@@ -58,8 +58,8 @@ import {
   restoreBridgeFileBytes,
 } from "./bridgeDisk.js";
 import { getWorkshopRelease } from "./bridgeWorkshopRelease.js";
-import { resolveLaunchMode } from "./serverManager.js";
-import { scanBridgeStartFailure } from "../utils/workshopLogScan.js";
+import { parseCustomStartCommand, resolveLaunchMode } from "./serverManager.js";
+import { scanBridgeStartFailure, scanSteamStartup } from "../utils/workshopLogScan.js";
 import { candidateIniPaths } from "../utils/zomboidPaths.js";
 import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
 import { writeIniWithBackup } from "../utils/configBackup.js";
@@ -104,6 +104,19 @@ const APPLY_LOCK_WAIT_MS = 10_000;
 const WAITING_GRACE_MS = 5 * 60 * 1000;
 const LAUNCHER_SCAN_BYTES = 64 * 1024;
 const NO_STEAM_RE = /-nosteam\b|zomboid\.steam=0/i;
+// Steam is opt-in for the game: 42.21's SteamUtils.init turns it on only when
+// the java system property zomboid.steam is "1". A launch that runs the
+// server's main class itself must pass -Dzomboid.steam=1 (the panel's own
+// scripts and the dedicated server's StartServer64.bat do; the client
+// install's ProjectZomboidServer.bat doesn't), or the server silently runs
+// without Steam and never downloads a Workshop item. A launch that goes
+// through ProjectZomboid64 / start-server.sh names no main class: its flags
+// live in ProjectZomboid64.json, which this doesn't judge.
+const STEAM_ON_RE = /zomboid\.steam=1(?!\d)/i;
+const GAME_SERVER_MAIN_RE = /zombie\.network\.GameServer\b/;
+// The start command's own script is read only when it is one (never a
+// binary): the extensions serverManager.startServer() runs, minus .exe.
+const START_SCRIPT_EXTENSIONS = new Set([".bat", ".cmd", ".sh"]);
 const LIVE_DELIVERIES = new Set(["workshop", "mod", "loose"]);
 const AUTO_UPDATE_REASONS = new Set(["boot", "activate", "launch"]);
 const MANUAL_REMOVE_FILES = Object.freeze([
@@ -178,7 +191,7 @@ export function resolveBridgeIniPath(server) {
 function readLauncherHead(launcherPath) {
   let fd;
   try {
-    // codeql[js/path-injection] launcherPath is serverManager.resolveLaunchMode()'s custom launcher: the profile's own serverPath/installPath ending in .bat/.sh/.exe, an operator setting accepted only by the servers.manage / server.install routes (POST /api/servers' validateInstallPathShape; /install and /quick-setup's isValidPath: absolute, no "..") and the very script the panel launches as-is -- this only reads its first 64 KB to test NO_STEAM_RE and returns nothing but that boolean.
+    // codeql[js/path-injection] launcherPath is either serverManager.resolveLaunchMode()'s custom launcher (the profile's own serverPath/installPath ending in .bat/.sh/.exe, an operator setting accepted only by the servers.manage / server.install routes: POST /api/servers' validateInstallPathShape; /install and /quick-setup's isValidPath: absolute, no "..") or the .bat/.cmd/.sh script of the profile's own startCommand (servers.manage only), resolved against the install folder as serverManager.startServer() does -- in both cases the very script the panel launches as-is. This only reads its first 64 KB to test NO_STEAM_RE and the Steam flag, and returns nothing but those booleans.
     fd = fs.openSync(launcherPath, "r");
     const buf = Buffer.alloc(LAUNCHER_SCAN_BYTES);
     const read = fs.readSync(fd, buf, 0, LAUNCHER_SCAN_BYTES, 0);
@@ -196,19 +209,54 @@ function readLauncherHead(launcherPath) {
   }
 }
 
+// The script a custom start command runs, when it is one: its command
+// resolved against the install folder, as serverManager.startServer() does.
+function startCommandScript(server, startCommand) {
+  const { cmd } = parseCustomStartCommand(startCommand);
+  if (!cmd || !START_SCRIPT_EXTENSIONS.has(path.extname(cmd).toLowerCase())) return null;
+  if (path.isAbsolute(cmd)) return cmd;
+  const base = resolveInstallDir(server);
+  return base ? path.resolve(base, cmd) : null;
+}
+
+// What an operator's own launch hands the game, as far as the panel can
+// read it: the start command, the head of the script it runs, and the head
+// of a custom launcher (a serverPath/installPath naming a script). "" for a
+// managed launch -- the panel writes that script itself, following
+// useNoSteam and always passing zomboid.steam.
+function readLaunchText(server) {
+  const parts = [];
+  const startCommand = typeof server.startCommand === "string" ? server.startCommand.trim() : "";
+  if (startCommand) {
+    parts.push(startCommand);
+    const script = startCommandScript(server, startCommand);
+    if (script) parts.push(readLauncherHead(script));
+  }
+  const launch = resolveLaunchMode(server);
+  if (launch.mode === "custom" && launch.launcherPath) parts.push(readLauncherHead(launch.launcherPath));
+  return parts.join("\n");
+}
+
 // A server that launches without Steam never downloads Workshop items, so
 // with Workshop delivery it would start with no bridge and refuse every
 // join (Mods= names a mod nobody has). The panel-generated launch scripts
-// follow useNoSteam; an operator's own launcher or start command is read.
+// follow useNoSteam; an operator's own launcher or start command (and the
+// script that one runs) is read.
 export function launchLooksNoSteam(server) {
   if (!server) return false;
   if (server.useNoSteam === true) return true;
-  if (typeof server.startCommand === "string" && NO_STEAM_RE.test(server.startCommand)) return true;
-  const launch = resolveLaunchMode(server);
-  if (launch.mode === "custom" && launch.launcherPath) {
-    return NO_STEAM_RE.test(readLauncherHead(launch.launcherPath));
-  }
-  return false;
+  return NO_STEAM_RE.test(readLaunchText(server));
+}
+
+// The quieter way to the same result: an operator's own launch that runs
+// the server's main class without -Dzomboid.steam=1 (see STEAM_ON_RE). Not
+// a block like launchLooksNoSteam() -- the panel reads only the first 64 KB
+// of a script, and a script may set the flag in a way this can't see -- but
+// named in the switch preview's warnings and on the Workshop status.
+export function launchSkipsSteam(server) {
+  if (!server || server.useNoSteam === true) return false;
+  const text = readLaunchText(server);
+  return GAME_SERVER_MAIN_RE.test(text) && !STEAM_ON_RE.test(text) && !NO_STEAM_RE.test(text);
 }
 
 // The profiles of `server`'s install group that launch without Steam while
@@ -686,7 +734,11 @@ function availabilityToWorkshop(ctx) {
   }
 
   if (!ctx.live?.gameVersion) warnings.push("gameVersionUnknown");
-  if (!noSteam && ctx.group.some((member) => usesCustomLauncher(member))) warnings.push("customLauncher");
+  // A launch read as leaving -Dzomboid.steam=1 out gets the warning that
+  // names the flag; any other operator launch the "if it runs without
+  // Steam" one.
+  if (!noSteam && ctx.group.some((member) => launchSkipsSteam(member))) warnings.push("steamFlagMissing");
+  else if (!noSteam && ctx.group.some((member) => usesCustomLauncher(member))) warnings.push("customLauncher");
   if (ctx.sharedWith.length > 0) warnings.push("sharedInstall");
   if (ctx.serverRunning === true) warnings.push("serverRunning");
   if (ctx.release.status === "published" && ctx.release.preview) warnings.push("previewItem");
@@ -801,12 +853,39 @@ async function statusFromContext(ctx) {
     current === true &&
     !(workshopCopyWithChecksumOn(ctx.iniText) && !disk.looseFiles.some(isLooseLua));
 
+  // Steam's public details API (the Mods update check asks it) answering
+  // anything but "found" for the item. Only a Workshop server that hasn't
+  // confirmed the item cares: the API says "not found" (result 9) for an
+  // item Steam's content check still holds back -- a new or updated one
+  // -- while dedicated servers download it fine (42.21 live test: result 9
+  // before and after a 2.4 s anonymous download and a confirmed start). How
+  // strongly the page words it is the client's (getSteamListingNotice):
+  // "won't start" only next to a start that failed on the item itself.
   const modChecker = ctx.deps?.modChecker;
   let steamReportsUnavailable = false;
-  try {
-    steamReportsUnavailable = Boolean(effectiveWorkshopId) && modChecker?.lastUnavailableWorkshopIds?.has?.(effectiveWorkshopId) === true;
-  } catch {
-    steamReportsUnavailable = false;
+  if (method === "workshop" && state !== "workshop-confirmed" && effectiveWorkshopId) {
+    try {
+      steamReportsUnavailable = modChecker?.lastUnavailableWorkshopIds?.has?.(effectiveWorkshopId) === true;
+    } catch {
+      steamReportsUnavailable = false;
+    }
+  }
+  // A Workshop server that runs (or, from its launch, will run) the game
+  // without Steam, so the item never downloads. Nothing else reports it --
+  // the game starts normally, just without PanelBridge. What its latest
+  // start since the switch logged decides ("SteamUtils started without
+  // Steam" / "... initialised successfully"): the launch as read from disk
+  // (launchSkipsSteam()) only when there is no such line, since a script can
+  // set the flag in a way that read can't see. A run still going from
+  // before the switch keeps writing its console past the switch time, and
+  // says nothing about how the next start comes up: not read then.
+  let steamModeOff = false;
+  if (method === "workshop" && state !== "workshop-confirmed") {
+    const steamStartup =
+      access === "automatic" && !(serverRunning === true && restartedSinceSwitch === false)
+        ? scanSteamStartup(server.zomboidDataPath, { notBefore: ctx.switchRecord?.at ?? null })
+        : null;
+    steamModeOff = steamStartup ? !steamStartup.steam : launchSkipsSteam(server);
   }
 
   return {
@@ -831,6 +910,7 @@ async function statusFromContext(ctx) {
     disk,
     lastStartFailure,
     steamReportsUnavailable,
+    steamModeOff,
     modAutoRestart: modChecker?.autoRestartEnabled === true,
     bundledVersion: getBundledBridgeVersion(),
     checksum: {
@@ -1440,7 +1520,16 @@ async function reconcileInner(server, reason) {
       const id = resolveEffectiveWorkshopId(fresh, getInstallGroup(fresh, all), getWorkshopRelease());
       if (!id) warnings.push("workshopIdUnknown");
       else if (launchLooksNoSteam(fresh)) warnings.push("noSteam");
-      else await reconcileWorkshopIni(fresh, id, actions, warnings);
+      else {
+        if (launchSkipsSteam(fresh)) {
+          log.warn(
+            `${displayName(fresh) || installDir} gets PanelBridge from the Steam Workshop, but its launch runs ` +
+              "zombie.network.GameServer without -Dzomboid.steam=1: the game then runs without Steam and never " +
+              "downloads the item. Add -Dzomboid.steam=1 to the java command line.",
+          );
+        }
+        await reconcileWorkshopIni(fresh, id, actions, warnings);
+      }
     }
 
     const summary =
