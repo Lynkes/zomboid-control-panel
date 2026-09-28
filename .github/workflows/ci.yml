@@ -288,8 +288,15 @@ jobs:
       # .test.js had the same gap (three win32-gated cases, mocked execFile)
       # and is listed with it. dockerClient.test.js is the other way round
       # -- POSIX-only, skipped on Windows -- and runs in the ubuntu job.
+      #
+      # bridgeDisk.test.js and bridgeDeliveryPlan.test.js (PanelBridge
+      # delivery, 2026-09-28): the game-folder key that groups server
+      # profiles folds case and resolves junctions on Windows only, and the
+      # cases that check it (a junction to the install folder, an upper-case
+      # installPath that must still share a Workshop sibling's folder) take
+      # their Windows branch only here.
       - name: Exercise bundle transaction and generated supervisor
-        run: npx vitest run server/tests/panelUpdateBundle.test.js server/tests/supervisor-restart.test.js server/tests/serverManagerSpacedPathCmdQuoting.test.js server/tests/serverManagerWindowsSpawnFixes.test.js server/tests/serverManagerCustomStartCommandQuoting.test.js server/tests/serverManagerCommandLineRoundTrip.test.js server/tests/serverManagerEmptyScanWindows.test.js server/tests/serverManager-stopTimeout.test.js server/tests/setDataPaths.test.js server/tests/serverManagerWindowsProcessRow.test.js server/tests/serverManagerScanGenerationGuard.test.js
+        run: npx vitest run server/tests/panelUpdateBundle.test.js server/tests/supervisor-restart.test.js server/tests/serverManagerSpacedPathCmdQuoting.test.js server/tests/serverManagerWindowsSpawnFixes.test.js server/tests/serverManagerCustomStartCommandQuoting.test.js server/tests/serverManagerCommandLineRoundTrip.test.js server/tests/serverManagerEmptyScanWindows.test.js server/tests/serverManager-stopTimeout.test.js server/tests/setDataPaths.test.js server/tests/serverManagerWindowsProcessRow.test.js server/tests/serverManagerScanGenerationGuard.test.js server/tests/bridgeDisk.test.js server/tests/bridgeDeliveryPlan.test.js
 
       - name: Build packaged Windows executable
         run: node build.js --windows
