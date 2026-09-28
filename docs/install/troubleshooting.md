@@ -451,7 +451,9 @@ folder permissions to) an account that can read the path.
 4. If it's been well over a minute since restart and it's still stuck on
    "Bridge waiting," check the PZ server's own console/log for a Lua error
    from PanelBridge, and check the panel's log for whether it's still
-   watching for the mod's status file at all.
+   watching for the mod's status file at all. Four `NoSuchFileException`
+   errors naming `ZCPB` aren't the cause; see
+   [Server console shows NoSuchFileException errors naming ZCPB](#server-console-shows-nosuchfileexception-errors-naming-zcpb).
 5. For a remote server without a shared filesystem, confirm **Settings →
    PanelBridge → Remote connection** has a working SFTP connection
    ("Verify and prepare SFTP" succeeds) and that **Start SFTP bridge** has
@@ -608,6 +610,36 @@ for a copy in a mods folder. The usual causes:
 check the two `.ini` entries and your provider's startup parameters, then
 restart from its dashboard. If PanelBridge still doesn't load, click
 **Switch to panel-installed** in Settings → PanelBridge.
+
+---
+
+### Server console shows NoSuchFileException errors naming ZCPB
+
+**What you see:** on a server that loads PanelBridge as a mod (Steam
+Workshop delivery, or a copy in a `mods` folder), the server console
+(`server-console.txt`) logs four `ERROR` entries with Java stack traces
+while the server starts. Each reads
+`AdvancedAnimator$1.visitFileFailed> Exception thrown`, then
+`java.nio.file.NoSuchFileException` for one of these folders:
+- `…/mods/ZCPB/common/media/AnimSets`
+- `…/mods/ZCPB/common/media/actiongroups`
+- `…/mods/ZCPB/42/media/AnimSets`
+- `…/mods/ZCPB/42/media/actiongroups`
+
+**What it means:** nothing is wrong. At startup the game looks for
+animation files in the folders of every mod in `Mods=`, and logs an error
+for each of those folders that doesn't exist. `ZCPB` is PanelBridge's mod
+ID, and PanelBridge only has Lua files, so it has none of them. Any other
+Lua-only mod gets the same lines. PanelBridge still loads: look for
+`[PanelBridge] Loaded from: …` further down the console. The
+panel-installed `PanelBridge.lua` isn't a mod, so it doesn't cause these
+lines.
+
+**What to do:** nothing. Don't create the missing folders to silence the
+errors: they're harmless, and with Workshop delivery Steam manages the mod
+folder. If PanelBridge doesn't work, look for other lines that mention
+`PanelBridge` instead, and see
+[PanelBridge shows disconnected](#panelbridge-shows-disconnected).
 
 ---
 

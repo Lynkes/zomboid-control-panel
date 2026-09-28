@@ -259,6 +259,9 @@ file or the variable.
    - `status.json` has `delivery.method` `workshop`, the right
      `workshopId`, and `modActive: true`;
    - the server console has `[PanelBridge] Loaded from: workshop <id>`;
+     the four `AdvancedAnimator` `NoSuchFileException` errors for
+     `ZCPB/{common,42}/media/{AnimSets,actiongroups}` above it are expected
+     for a Lua-only mod (see [troubleshooting](../install/troubleshooting.md#server-console-shows-nosuchfileexception-errors-naming-zcpb));
    - **record** the `Workshop: <id> installed to <folder>` line from
      `server-console.txt` (the folder is what this step settles);
    - Settings → PanelBridge and Debug & Logs → Checks & Fixes (*"PanelBridge
