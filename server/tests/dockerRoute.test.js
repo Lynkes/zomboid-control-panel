@@ -28,8 +28,12 @@ vi.mock("../services/rcon.js", () => ({
 }));
 
 const { default: router } = await import("../routes/docker.js");
-const { acquireLifecycleLock, lifecycleInProgressResponse, setServerDisplayNameResolver } =
-  await import("../services/lifecycleCoordinator.js");
+const {
+  acquireLifecycleLock,
+  lifecycleInProgressResponse,
+  setBeforeLaunchHook,
+  setServerDisplayNameResolver,
+} = await import("../services/lifecycleCoordinator.js");
 
 beforeEach(() => {
   getServer.mockReset();
@@ -336,6 +340,101 @@ describe("POST /api/docker/containers/:id/:action", () => {
     const payload = response.json.mock.calls[0][0];
     expect(payload.error).toMatch(/EACCES/);
     expect(payload.error).not.toContain("/var/run/docker.sock");
+  });
+
+  // PanelBridge delivery: this route drives the container itself, so it has
+  // to run the same before-launch hook managedContainer.runManagedLifecycle()
+  // runs -- otherwise a Workshop server started from the Servers page keeps
+  // its loose PanelBridge.lua and misses its re-added ini entries.
+  describe("before-launch hook", () => {
+    afterEach(() => setBeforeLaunchHook(null));
+
+    function stoppedContainer(order) {
+      return {
+        enabled: true,
+        available: true,
+        inspectManagedContainer: vi.fn(async () => ({ State: { Running: false } })),
+        runManagedAction: vi.fn(async (_id, action) => {
+          order.push(`docker:${action}`);
+          return { success: true };
+        }),
+      };
+    }
+
+    it.each(["start", "restart"])("runs it with the verified server record right before docker %s", async (action) => {
+      const order = [];
+      setBeforeLaunchHook(async (server) => {
+        order.push(`hook:${server.id}`);
+      });
+      getServer.mockResolvedValue({ id: "server-1", dockerContainerName: "managed" });
+      const client = stoppedContainer(order);
+
+      await runRoute("/containers/:id/:action", "post", {
+        user: { role: "admin" },
+        params: { id: "managed", action },
+        body: { serverId: "server-1" },
+        app: { get: () => client },
+      }, createResponse());
+
+      expect(order).toEqual(["hook:server-1", `docker:${action}`]);
+    });
+
+    it("does not run it for stop", async () => {
+      const order = [];
+      setBeforeLaunchHook(async () => {
+        order.push("hook");
+      });
+      getServer.mockResolvedValue({ id: "server-1", dockerContainerName: "managed" });
+      const client = stoppedContainer(order);
+
+      await runRoute("/containers/:id/:action", "post", {
+        user: { role: "admin" },
+        params: { id: "managed", action: "stop" },
+        body: { serverId: "server-1" },
+        app: { get: () => client },
+      }, createResponse());
+
+      expect(order).toEqual(["docker:stop"]);
+    });
+
+    it("a throwing hook never blocks the container start", async () => {
+      const order = [];
+      setBeforeLaunchHook(async () => {
+        throw new Error("reconcile blew up");
+      });
+      getServer.mockResolvedValue({ id: "server-1", dockerContainerName: "managed" });
+      const client = stoppedContainer(order);
+      const response = createResponse();
+
+      await runRoute("/containers/:id/:action", "post", {
+        user: { role: "admin" },
+        params: { id: "managed", action: "start" },
+        body: { serverId: "server-1" },
+        app: { get: () => client },
+      }, response);
+
+      expect(order).toEqual(["docker:start"]);
+      expect(response.json).toHaveBeenCalledWith({ success: true });
+    });
+
+    it("never runs for a container that isn't mapped to the server", async () => {
+      const order = [];
+      setBeforeLaunchHook(async () => {
+        order.push("hook");
+      });
+      getServer.mockResolvedValue({ id: "server-1", dockerContainerName: "other" });
+      const response = createResponse();
+
+      await runRoute("/containers/:id/:action", "post", {
+        user: { role: "admin" },
+        params: { id: "managed", action: "start" },
+        body: { serverId: "server-1" },
+        app: { get: () => stoppedContainer(order) },
+      }, response);
+
+      expect(response.status).toHaveBeenCalledWith(403);
+      expect(order).toEqual([]);
+    });
   });
 });
 

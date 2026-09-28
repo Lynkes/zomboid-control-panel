@@ -1001,10 +1001,9 @@ setServerDisplayNameResolver(peekServerDisplayName);
 // update), Discord, boot auto-start and post-update funnel through
 // serverManager.startServer() or managedContainer.runManagedLifecycle(),
 // which call this right before the launch: PanelBridge is brought in line
-// with the server's delivery method for the JVM about to start. Never
-// throws, bounded to 15 s. Not covered: the Servers page's per-container
-// Start/Restart (routes/docker.js POST /containers/:id/:action), which
-// calls dockerClient.runManagedAction() directly.
+// with the server's delivery method for the JVM about to start. The Servers
+// page's per-container Start/Restart (routes/docker.js) calls it too. Never
+// throws, bounded to 15 s.
 setBeforeLaunchHook((server) => reconcileBridge(server, { reason: "launch" }));
 const modChecker = new ModChecker();
 const logTailer = new LogTailer();

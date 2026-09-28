@@ -7,6 +7,7 @@ import { ErrorCode } from "../utils/errorCodes.js";
 import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
+  runBeforeLaunchHook,
 } from "../services/lifecycleCoordinator.js";
 import { resolveDockerHostSignal } from "../services/managedContainer.js";
 
@@ -164,6 +165,14 @@ router.post("/containers/:id/:action", requirePermission("docker.manage"), async
           params: sanitizeErrorParams({ reason }),
         });
       }
+    }
+    // PanelBridge delivery (lifecycleCoordinator.setBeforeLaunchHook): this
+    // route drives the container directly instead of going through
+    // managedContainer.runManagedLifecycle(), so it runs the same before-
+    // launch step itself -- the container start IS the launch. Never throws
+    // and is bounded to 15 s, so it can't block the action.
+    if (req.params.action === "start" || req.params.action === "restart") {
+      await runBeforeLaunchHook(server);
     }
     const result = await dockerClient.runManagedAction(req.params.id, req.params.action);
     if (!result.success) {
