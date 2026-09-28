@@ -154,7 +154,9 @@
     "sectionLabel": "Opções do servidor",
     "sectionSublabel": "INI · comportamento, rede, jogadores",
     "luaChecksumTitle": "O checksum de Lua está ativado",
-    "luaChecksumBody": "O PanelBridge modifica arquivos Lua do lado do servidor. Com o checksum de Lua ativado, os clientes falham na verificação e não conseguem se conectar. Desative <1>DoLuaChecksum</1> na categoria Mods para permitir que os jogadores entrem.",
+    "luaChecksumBody": "O PanelBridge instalado pelo painel adiciona ao servidor arquivos Lua que os jogadores não têm, então, com <1>DoLuaChecksum</1> ativado, eles não conseguem se conectar. Desative-o ou, para mantê-lo ativado, mude o PanelBridge para a entrega pela Workshop da Steam em Configurações › PanelBridge.",
+    "luaChecksumWorkshopNote": "O PanelBridge vem da Workshop da Steam, então você pode ativar esta opção. Configurações › PanelBridge mostra o passo a passo.",
+    "luaChecksumWorkshopUnconfirmed": "Se o PanelBridge ainda for carregado da pasta do jogo, os jogadores não conseguem entrar com esta opção ativada.",
     "disableNow": "desativar agora"
   },
   "sandboxTab": {
@@ -810,7 +812,7 @@
       },
       "DoLuaChecksum": {
         "label": "Checksum de Lua",
-        "description": "Verifica se o Lua do cliente corresponde ao do servidor. Precisa estar desativado ao usar o PanelBridge — o mod modifica arquivos Lua do lado do servidor, o que causa divergência de checksum e impede os jogadores de se conectar."
+        "description": "Expulsa jogadores cujos arquivos de Lua, script ou animação não correspondem aos do servidor. Precisa estar desativado com o PanelBridge instalado pelo painel; pode ficar ativado com a entrega pela Workshop da Steam."
       }
     },
     "steam": {

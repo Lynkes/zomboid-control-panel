@@ -499,5 +499,17 @@
   "WRITABILITY_TARGET_UNSUPPORTED": "Destino de gravação desconhecido ou não suportado",
   "WRITABILITY_TARGET_MISSING": "O arquivo não existe",
   "WRITABILITY_CHMOD_FAILED": "Não foi possível alterar as permissões de arquivo",
-  "WRITABILITY_STILL_BLOCKED": "O arquivo continua sem permissão de escrita depois de remover o atributo somente leitura — parece ser um problema de propriedade ou de permissões"
+  "WRITABILITY_STILL_BLOCKED": "O arquivo continua sem permissão de escrita depois de remover o atributo somente leitura — parece ser um problema de propriedade ou de permissões",
+  "PANELBRIDGE_DELIVERY_METHOD_INVALID": "A entrega do PanelBridge precisa ser \"local\" ou \"workshop\".",
+  "PANELBRIDGE_DELIVERY_NOT_ACTIVE_SERVER": "O servidor ativo mudou. Recarregue esta página e tente novamente.",
+  "PANELBRIDGE_DELIVERY_STALE": "A entrega do PanelBridge deste servidor mudou desde que você abriu esta página (agora: {{current}}). Revise as etapas de novo.",
+  "PANELBRIDGE_DELIVERY_UNAVAILABLE": "Esta alteração não está disponível para este servidor agora ({{reason}}).",
+  "PANELBRIDGE_DELIVERY_INI_WRITE_FAILED": "Não foi possível alterar {{fileName}}. O painel desfez o que já tinha alterado.",
+  "PANELBRIDGE_DELIVERY_FILE_ARCHIVE_FAILED": "Não foi possível retirar {{fileName}} da pasta do jogo. Verifique as permissões de arquivo dele e tente novamente. O painel desfez o que já tinha alterado.",
+  "PANELBRIDGE_DELIVERY_INSTALL_FAILED": "Não foi possível copiar o PanelBridge.lua para a pasta do jogo. Nada foi alterado.",
+  "PANELBRIDGE_DELIVERY_WORKSHOP_ACTIVE": "O servidor {{serverName}} recebe o PanelBridge da Workshop da Steam, então o painel não copia o PanelBridge.lua para a pasta do jogo dele. Primeiro, mude-o de volta para instalado pelo painel em Configurações › PanelBridge.",
+  "SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE": "Este servidor recebe o PanelBridge da Workshop da Steam, que precisa da Steam. Mude o PanelBridge para instalado pelo painel em Configurações › PanelBridge antes de ativar Iniciar sem a Steam.",
+  "SERVER_NOSTEAM_SIBLING_CONFLICTS_WITH_WORKSHOP_BRIDGE": "Este servidor recebe o PanelBridge da Workshop da Steam, que precisa da Steam, e todos os servidores que compartilham uma pasta do jogo o recebem da mesma forma. Estes servidores nessa pasta iniciam sem a Steam: {{names}}. Primeiro, mude o PanelBridge deste servidor para instalado pelo painel em Configurações › PanelBridge ou faça esses servidores iniciarem com a Steam.",
+  "PANELBRIDGE_INSTALL_FAILED": "Não foi possível copiar o PanelBridge.lua para a pasta do jogo. Veja o motivo no log do painel.",
+  "PANELBRIDGE_INSTALL_STILL_RUNNING": "A instalação do PanelBridge está demorando mais que o normal e continua em segundo plano. Verifique de novo daqui a pouco."
 }

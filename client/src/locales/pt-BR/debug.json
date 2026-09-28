@@ -114,8 +114,10 @@
       "note": "Defina a senha RCON na Configuração do servidor (e o mesmo valor em Configurações)."
     },
     "serverBridgeMod": {
-      "label": "Explorar servidores públicos",
-      "note": "Implante novamente o mod PanelBridge pela página Explorar servidores públicos."
+      "label": "Abrir Configurações › PanelBridge",
+      "note": "Instale-o em Configurações › PanelBridge.",
+      "noteWorkshopNotDownloaded": "Inicie o servidor para que ele baixe o PanelBridge da Workshop da Steam. Configurações › PanelBridge mostra se ele foi carregado e pode mudar o servidor de volta para instalado pelo painel.",
+      "noteLooseLeftover": "Inicie ou reinicie o servidor pelo painel para retirá-los de lá. Configurações › PanelBridge também lista esses arquivos."
     },
     "serverConfigDrift": {
       "label": "Abrir Configuração do servidor",
@@ -439,12 +441,26 @@
         "bridgeMod": {
           "ok": {
             "label": "Mod PanelBridge presente",
-            "message": "PanelBridge.lua está instalado no servidor."
+            "message": "PanelBridge.lua está instalado no servidor.",
+            "workshop": {
+              "label": "Item da Workshop do PanelBridge presente",
+              "message": "PanelBridge v{{version}} baixado da Workshop da Steam."
+            }
           },
           "warn": {
             "label": "Mod PanelBridge não detectado",
             "message": "Não foi possível encontrar PanelBridge.lua no servidor. Recursos avançados (teleporte, clima, exportação de personagem) ficarão indisponíveis.",
-            "hint": "Copie pz-mod/PanelBridge para a pasta media/lua/server do servidor"
+            "hint": "Configurações › PanelBridge pode instalá-lo",
+            "workshopNotDownloaded": {
+              "label": "PanelBridge ainda não baixado",
+              "message": "Este servidor recebe o PanelBridge da Workshop da Steam, mas ele ainda não foi baixado.",
+              "hint": "Inicie o servidor. Se ele não iniciar, veja Configurações › PanelBridge."
+            },
+            "looseLeftover": {
+              "label": "Arquivos antigos do PanelBridge na pasta do jogo",
+              "message": "Ainda na pasta do jogo: {{files}}. Com a verificação de integridade de Lua ativada, os jogadores serão recusados.",
+              "hint": "Inicie ou reinicie o servidor pelo painel para retirá-los de lá."
+            }
           }
         },
         "recentCrash": {

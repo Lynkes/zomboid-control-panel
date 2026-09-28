@@ -403,7 +403,7 @@
     "setupStep2Desc": "Aponta o painel para a pasta de dados correta do servidor e inicia o monitor.",
     "setupStep3Title": "Iniciar o servidor PZ",
     "setupStep3Desc": "Quando o jogo carregar o mod, o status muda de <b1>Aguardando</b1> para <b>Conectado</b>.",
-    "requiresLuaChecksum": "<b>Requer DoLuaChecksum=false</b> no INI do servidor. Os comandos podem falhar com o checksum ativado.",
+    "requiresLuaChecksum": "<b>O PanelBridge instalado pelo painel requer DoLuaChecksum=false.</b> A entrega pela Workshop da Steam funciona com ele ativado.",
     "connectedTo": "Conectado a {{server}}",
     "connectedFallback": "um servidor",
     "modVersionLabel": "Versão do mod:",
@@ -501,8 +501,8 @@
     "listLogs": "Listar logs",
     "selectFileHint": "Selecione um arquivo para carregar os últimos 256 KB.",
     "tailOfPrefix": "últimos ",
-    "autoUpdateLabel": "Atualizar o mod automaticamente ao iniciar o painel",
-    "autoUpdateDesc": "Quando o painel iniciar, copia automaticamente para o servidor PZ o PanelBridge.lua mais recente incluído no painel, se as versões forem diferentes.",
+    "autoUpdateLabel": "Manter atualizado o PanelBridge instalado pelo painel",
+    "autoUpdateDesc": "Antes de cada inicialização do servidor e quando o painel iniciar, copia para a pasta do jogo o PanelBridge.lua incluído no painel, se ele tiver mudado. Não é usado com a entrega pela Workshop da Steam.",
     "installTitle": "Instalar PanelBridge.lua",
     "selectServerPlaceholder": "Selecione o servidor...",
     "noServersConfigured": "Nenhum servidor configurado",
@@ -516,6 +516,7 @@
       "updateAvailableTitle": "Atualização do mod da ponte disponível",
       "updateNowButton": "Atualizar agora",
       "protocolMismatchBody": "Este painel espera o protocolo da ponte '{{expected}}', mas o mod no seu servidor informa '{{actual}}'. Os dois são distribuídos como um par, então alguns recursos podem não funcionar direito até voltarem a ser compatíveis.",
+      "protocolMismatchWorkshopBody": "O PanelBridge deste servidor (da Workshop da Steam) informa o protocolo '{{actual}}', mas este painel espera '{{expected}}'. Reinicie o servidor para obter a versão mais recente da Workshop ou atualize o painel.",
       "remoteUpdateBody": "Seu servidor está executando o mod da ponte v{{liveVersion}}, mais antigo que a v{{bundledVersion}} incluída neste painel. Este painel não consegue atualizar os arquivos de um servidor remoto/gerenciado por SFTP -- envie de novo o PanelBridge.lua atualizado da mesma forma que você o instalou.",
       "localUpdateBody": "O mod da ponte instalado (v{{liveVersion}}) é mais antigo que a versão incluída neste painel."
     }
@@ -1017,6 +1018,9 @@
     "installFailed": {
       "title": "Falha na instalação",
       "fallback": "Não foi possível copiar o PanelBridge.lua. Verifique o caminho do servidor e as permissões de arquivo e tente novamente."
+    },
+    "bridgeInstallStillRunning": {
+      "title": "O PanelBridge ainda está sendo instalado"
     },
     "backupCreated": {
       "title": "Backup criado",
