@@ -34,7 +34,7 @@ const LUA_PATH = path.join(
 const STUBS = `
 FakeEnumClass = setmetatable({}, { __tostring = function() return "class zombie.SandboxOptions$EnumSandboxOption" end })
 
-FakeEnumOption = { name = "ElecShut", short = "ElecShut", tbl = "Utilities", value = 0 }
+FakeEnumOption = { name = "ElecShut", short = "ElecShut", tbl = "Utilities", value = 1 }
 function FakeEnumOption:getName() return self.name end
 function FakeEnumOption:getShortName() return self.short end
 function FakeEnumOption:getTableName() return self.tbl end
@@ -42,7 +42,8 @@ function FakeEnumOption:getValue() return self.value end
 function FakeEnumOption:getClass() return FakeEnumClass end
 function FakeEnumOption:getNumValues() return 3 end
 function FakeEnumOption:getValueTranslationByIndexOrNull(i)
-  local names = { [0] = "Never", [1] = "Instant", [2] = "Delayed" }
+  assert(i >= 1 and i <= 3, "B42 enum translation index must be 1..N")
+  local names = { [1] = "Never", [2] = "Instant", [3] = "Delayed" }
   return names[i]
 end
 
@@ -67,10 +68,11 @@ describe('PanelBridge.lua handlers.getAllSandboxOptions -- enum values via the r
     expect(option.enumValues).toEqual(['Never', 'Instant', 'Delayed']);
   });
 
-  it('a partially-missing translation (nil for one index) is skipped, not inserted as the literal string "nil"', () => {
+  it('a missing translation preserves its index with a numeric label', () => {
     const bridge = loadPanelBridge(LUA_PATH, STUBS + `
       function FakeEnumOption:getValueTranslationByIndexOrNull(i)
-        local names = { [0] = "Never", [2] = "Delayed" }
+        assert(i >= 1 and i <= 3, "B42 enum translation index must be 1..N")
+        local names = { [1] = "Never", [3] = "Delayed" }
         return names[i]
       end
     `);
@@ -78,7 +80,7 @@ describe('PanelBridge.lua handlers.getAllSandboxOptions -- enum values via the r
 
     expect(result.ok).toBe(true);
     const option = result.data.options.Utilities[0];
-    expect(option.enumValues).toEqual(['Never', 'Delayed']);
+    expect(option.enumValues).toEqual(['Never', '2', 'Delayed']);
     expect(option.enumValues).not.toContain('nil');
   });
 });
