@@ -115,7 +115,8 @@
     },
     "workshop-start-failed": {
       "title": "服务器未能启动",
-      "body": "服务器在从 Steam 创意工坊获取 PanelBridge 时停止了。"
+      "body": "服务器在从 Steam 创意工坊获取 PanelBridge 时停止了。",
+      "bodySteamUnreachable": "服务器无法连接到 Steam，在下载任何内容之前就停止了。任何以 Steam 模式运行的服务器都会这样停止，与 PanelBridge 的安装方式无关。"
     },
     "workshop-id-unknown": {
       "title": "创意工坊项目未知",
@@ -123,7 +124,8 @@
     },
     "causes": {
       "notLoaded": "可能原因：设置在面板之外被修改（从面板重启会重新添加这些条目）、服务器未通过 Steam 启动，或其他模组也包含 media/lua/server/PanelBridge.lua。",
-      "startFailed": "可能原因：Steam 宕机或被屏蔽、服务器未通过 Steam 启动，或创意工坊项目已被隐藏或移除。"
+      "startFailed": "可能原因：Steam 宕机或被屏蔽，或创意工坊项目已被隐藏或移除。",
+      "steamUnreachable": "可能原因：Steam 宕机，或防火墙、代理或网络问题阻挡了运行服务器的机器。待 Steam 可以访问后再次启动服务器。"
     },
     "evidence": "来自服务器控制台日志：",
     "restartAfterLocalSwitch": "切换为由面板安装将在服务器重启后生效。在此之前，它会继续运行启动时加载的 PanelBridge。"

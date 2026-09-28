@@ -115,7 +115,8 @@
     },
     "workshop-start-failed": {
       "title": "El servidor no arrancó",
-      "body": "El servidor se detuvo mientras obtenía PanelBridge de Steam Workshop."
+      "body": "El servidor se detuvo mientras obtenía PanelBridge de Steam Workshop.",
+      "bodySteamUnreachable": "El servidor no pudo conectarse a Steam y se detuvo antes de descargar nada. Cualquier servidor en modo Steam se detiene así, sin importar cómo esté instalado PanelBridge."
     },
     "workshop-id-unknown": {
       "title": "Elemento de Workshop desconocido",
@@ -123,7 +124,8 @@
     },
     "causes": {
       "notLoaded": "Posibles causas: los ajustes se cambiaron fuera del panel (reiniciar desde el panel vuelve a añadir las entradas), el servidor se inició sin Steam u otro mod incluye media/lua/server/PanelBridge.lua.",
-      "startFailed": "Posibles causas: Steam está caído o bloqueado, el servidor se inició sin Steam o el elemento de Workshop se ocultó o eliminó."
+      "startFailed": "Posibles causas: Steam está caído o bloqueado, o el elemento de Workshop se ocultó o eliminó.",
+      "steamUnreachable": "Posibles causas: Steam está caído, o un cortafuegos, un proxy o un problema de red bloquea la máquina que ejecuta el servidor. Vuelve a iniciarlo cuando se pueda acceder a Steam."
     },
     "evidence": "Según el registro de consola del servidor:",
     "restartAfterLocalSwitch": "El cambio a instalado por el panel se aplica cuando el servidor se reinicie. Hasta entonces, sigue ejecutando el PanelBridge que cargó al arrancar."

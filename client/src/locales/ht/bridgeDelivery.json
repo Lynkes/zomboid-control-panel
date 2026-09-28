@@ -115,7 +115,8 @@
     },
     "workshop-start-failed": {
       "title": "Sèvè a pa t demare",
-      "body": "Sèvè a te sispann pandan l t ap pran PanelBridge nan Steam Workshop."
+      "body": "Sèvè a te sispann pandan l t ap pran PanelBridge nan Steam Workshop.",
+      "bodySteamUnreachable": "Sèvè a pa t ka konekte ak Steam, kidonk li sispann anvan li telechaje anyen. Nenpòt sèvè ki mache an mòd Steam sispann konsa, kèlkeswa jan PanelBridge enstale."
     },
     "workshop-id-unknown": {
       "title": "Atik Workshop enkoni",
@@ -123,7 +124,8 @@
     },
     "causes": {
       "notLoaded": "Kòz posib: yo chanje paramèt yo andeyò panèl la (redemare depi panèl la remete antre yo), yo demare sèvè a san Steam, oswa yon lòt mod gen media/lua/server/PanelBridge.lua ladan l.",
-      "startFailed": "Kòz posib: Steam an pàn oswa bloke, yo demare sèvè a san Steam, oswa yo kache oswa retire atik Workshop la."
+      "startFailed": "Kòz posib: Steam an pàn oswa bloke, oswa yo kache oswa retire atik Workshop la.",
+      "steamUnreachable": "Kòz posib: Steam an pàn, oswa yon firewall, yon proxy oswa yon pwoblèm rezo bloke machin ki fè sèvè a mache a. Demare l ankò lè Steam disponib ankò."
     },
     "evidence": "Dapre jounal konsòl sèvè a:",
     "restartAfterLocalSwitch": "Chanjman pou pase sou enstalasyon pa panèl la ap pran efè lè sèvè a redemare. Jiskaske sa rive, l ap kontinye fè PanelBridge li te chaje lè l te demare a mache."

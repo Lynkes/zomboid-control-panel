@@ -310,6 +310,24 @@ describe("states: Steam Workshop", () => {
     expect(status.lastStartFailure).toMatchObject({ kind: "itemDownload", result: 9 });
   });
 
+  // No item is named: 42.20 checks the Steam connection for every server in
+  // Steam mode, before any download. The client words and acts on it by kind.
+  it("workshop-start-failed with kind steamUnreachable when the latest log shows Steam unreachable", async () => {
+    runningState.value = false;
+    fs.writeFileSync(
+      path.join(files.dataDir, "server-console.txt"),
+      "LOG  : General , 1> Waiting for response from Steam servers\r\nLOG  : General , 2> Failed to connect to Steam servers\r\n",
+    );
+    const status = await statusFor(switchedToWorkshop());
+    expect(status.state).toBe("workshop-start-failed");
+    expect(status.lastStartFailure).toMatchObject({
+      kind: "steamUnreachable",
+      result: null,
+      line: "LOG  : General , 2> Failed to connect to Steam servers",
+    });
+    expect(status.switchAvailability.toLocal.available).toBe(true);
+  });
+
   it("steamReportsUnavailable and modAutoRestart come from modChecker", async () => {
     const status = await statusFor(switchedToWorkshop(), {
       modChecker: { lastUnavailableWorkshopIds: new Map([[WS_ID, "removed"]]), autoRestartEnabled: true },

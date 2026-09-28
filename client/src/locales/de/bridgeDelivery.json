@@ -115,7 +115,8 @@
     },
     "workshop-start-failed": {
       "title": "Der Server ist nicht gestartet",
-      "body": "Der Server hat sich beim Abrufen von PanelBridge aus dem Steam Workshop beendet."
+      "body": "Der Server hat sich beim Abrufen von PanelBridge aus dem Steam Workshop beendet.",
+      "bodySteamUnreachable": "Der Server konnte keine Verbindung zu Steam herstellen und hat sich beendet, bevor etwas heruntergeladen wurde. Jeder Server im Steam-Modus beendet sich so, egal wie PanelBridge installiert ist."
     },
     "workshop-id-unknown": {
       "title": "Workshop-Element unbekannt",
@@ -123,7 +124,8 @@
     },
     "causes": {
       "notLoaded": "Mögliche Ursachen: Die Einstellungen wurden außerhalb des Panels geändert (ein Neustart über das Panel fügt die Einträge wieder hinzu), der Server wurde ohne Steam gestartet, oder eine andere Mod liefert media/lua/server/PanelBridge.lua mit.",
-      "startFailed": "Mögliche Ursachen: Steam ist ausgefallen oder blockiert, der Server wurde ohne Steam gestartet, oder das Workshop-Element wurde ausgeblendet oder entfernt."
+      "startFailed": "Mögliche Ursachen: Steam ist ausgefallen oder blockiert, oder das Workshop-Element wurde ausgeblendet oder entfernt.",
+      "steamUnreachable": "Mögliche Ursachen: Steam ist ausgefallen, oder eine Firewall, ein Proxy oder ein Netzwerkproblem blockiert den Rechner, auf dem der Server läuft. Starte ihn erneut, sobald Steam erreichbar ist."
     },
     "evidence": "Aus dem Konsolenprotokoll des Servers:",
     "restartAfterLocalSwitch": "Der Wechsel zu „Vom Panel installiert“ wirkt beim nächsten Neustart des Servers. Bis dahin läuft weiter das PanelBridge, das er beim Start geladen hat."

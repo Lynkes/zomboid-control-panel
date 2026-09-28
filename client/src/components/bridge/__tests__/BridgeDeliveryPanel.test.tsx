@@ -404,6 +404,29 @@ describe('BridgeDeliveryPanel: failure states and their actions', () => {
     await waitFor(() => expect(restart).toHaveBeenCalledWith(0))
   })
 
+  it('start-failed because Steam was unreachable says so and offers a start, not the switch back', async () => {
+    start.mockResolvedValue({ success: true, message: 'ok' })
+    const line = 'Failed to connect to Steam servers'
+    renderPanel(
+      makeWorkshopStatus({
+        state: 'workshop-start-failed',
+        serverRunning: false,
+        live: null,
+        lastStartFailure: { kind: 'steamUnreachable', line, result: null, logMtime: '2026-10-02T10:05:00.000Z' },
+      }),
+    )
+    await panelReady()
+    const callout = document.querySelector('[data-state="workshop-start-failed"]') as HTMLElement
+    expect(within(callout).getByText(en.state['workshop-start-failed'].bodySteamUnreachable)).toBeInTheDocument()
+    expect(within(callout).getByText(en.state.causes.steamUnreachable)).toBeInTheDocument()
+    expect(within(callout).queryByText(en.state['workshop-start-failed'].body)).toBeNull()
+    expect(within(callout).getByText(line)).toBeInTheDocument()
+    expect(within(callout).queryByRole('button', { name: en.action.switchToLocalAndStart })).toBeNull()
+    fireEvent.click(within(callout).getByRole('button', { name: en.action.startServer }))
+    await waitFor(() => expect(start).toHaveBeenCalled())
+    expect(planDelivery).not.toHaveBeenCalled()
+  })
+
   it('warns when Steam reports the item unavailable', async () => {
     renderPanel(makeWorkshopStatus({ steamReportsUnavailable: true }))
     await panelReady()

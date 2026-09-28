@@ -115,7 +115,8 @@
     },
     "workshop-start-failed": {
       "title": "Le serveur n'a pas démarré",
-      "body": "Le serveur s'est arrêté en récupérant PanelBridge depuis le Steam Workshop."
+      "body": "Le serveur s'est arrêté en récupérant PanelBridge depuis le Steam Workshop.",
+      "bodySteamUnreachable": "Le serveur n'a pas pu se connecter à Steam et s'est arrêté avant de télécharger quoi que ce soit. Tout serveur en mode Steam s'arrête ainsi, quelle que soit la façon dont PanelBridge est installé."
     },
     "workshop-id-unknown": {
       "title": "Élément Workshop inconnu",
@@ -123,7 +124,8 @@
     },
     "causes": {
       "notLoaded": "Causes possibles : les paramètres ont été modifiés hors du panneau (un redémarrage depuis le panneau rajoute les entrées), le serveur a été lancé sans Steam, ou un autre mod fournit media/lua/server/PanelBridge.lua.",
-      "startFailed": "Causes possibles : Steam est en panne ou bloqué, le serveur a été lancé sans Steam, ou l'élément Workshop a été masqué ou supprimé."
+      "startFailed": "Causes possibles : Steam est en panne ou bloqué, ou l'élément Workshop a été masqué ou supprimé.",
+      "steamUnreachable": "Causes possibles : Steam est en panne, ou un pare-feu, un proxy ou un problème réseau bloque la machine qui exécute le serveur. Relancez-le dès que Steam est de nouveau joignable."
     },
     "evidence": "D'après le journal de la console du serveur :",
     "restartAfterLocalSwitch": "Le passage à l'installation par le panneau prend effet au redémarrage du serveur. D'ici là, il continue d'exécuter le PanelBridge chargé au démarrage."

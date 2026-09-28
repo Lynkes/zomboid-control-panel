@@ -153,7 +153,11 @@ function lineAround(text, index) {
  * line names `workshopId` -- another item failing is the Mods page's
  * problem, not a reason to tell the operator to switch PanelBridge back.
  * "Failed to connect to Steam servers" names no item but aborts startup
- * before ANY item downloads, so it counts too.
+ * before ANY item downloads, so it counts too -- as its own kind: 42.20's
+ * GameServer.main runs that check for every dedicated server in Steam mode,
+ * whether or not WorkshopItems= lists anything (offsets 1664-1962, before
+ * GameServerWorkshopItems.Install at 1989), so a panel-installed server
+ * stops the same way and the page doesn't offer switching back for it.
  *
  * `notBefore`: a log older than this (the switch time) describes a run
  * from before the switch and is ignored.

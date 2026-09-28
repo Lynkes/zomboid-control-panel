@@ -124,8 +124,30 @@ export const DELIVERY_STATE_VIEWS: Readonly<Record<DeliveryState, DeliveryStateV
   },
 }
 
-export function getDeliveryStateView(state: DeliveryState): DeliveryStateView {
-  return DELIVERY_STATE_VIEWS[state]
+// workshop-start-failed has two causes, told apart by the server
+// (lastStartFailure.kind). An item that didn't download is PanelBridge's own
+// problem, and switching back to panel-installed is the way out. "Failed to
+// connect to Steam servers" is not: 42.20's GameServer.main runs that check
+// for every dedicated server in Steam mode, before any Workshop item and
+// whether or not WorkshopItems= lists one (bytecode offsets 1664-1962), so a
+// panel-installed server stops the same way and the switch would fix
+// nothing. Starting again once Steam is reachable is the action; the switch
+// stays on the panel-installed card for an operator who wants it anyway.
+const STEAM_UNREACHABLE_VIEW: DeliveryStateView = {
+  tone: 'warning',
+  titleKey: 'state.workshop-start-failed.title',
+  bodyKey: 'state.workshop-start-failed.bodySteamUnreachable',
+  causesKey: 'state.causes.steamUnreachable',
+  actions: ['startServer'],
+}
+
+// The view the block renders for this status: the state's own, or the
+// variant above.
+export function resolveStateView(status: DeliveryStatus): DeliveryStateView {
+  if (status.state === 'workshop-start-failed' && status.lastStartFailure?.kind === 'steamUnreachable') {
+    return STEAM_UNREACHABLE_VIEW
+  }
+  return DELIVERY_STATE_VIEWS[status.state]
 }
 
 export const DELIVERY_ACTION_KEYS: Readonly<Record<DeliveryAction, string>> = {
@@ -158,7 +180,7 @@ export function switchActionFor(target: DeliveryMethod): DeliveryAction {
 // "Restart now" to whatever the Local state offers (see
 // needsRestartAfterLocalSwitch).
 export function resolveStateActions(status: DeliveryStatus): DeliveryAction[] {
-  const view = DELIVERY_STATE_VIEWS[status.state]
+  const view = resolveStateView(status)
   const actions: readonly DeliveryAction[] =
     needsRestartAfterLocalSwitch(status) && !view.actions.includes('restartNow')
       ? [...view.actions, 'restartNow']
@@ -207,7 +229,7 @@ export interface DeliveryStateCopy {
 }
 
 export function resolveStateCopy(status: DeliveryStatus): DeliveryStateCopy {
-  const view = DELIVERY_STATE_VIEWS[status.state]
+  const view = resolveStateView(status)
   const guided = status.state === 'local-ok' && status.access === 'guided'
   const titleKey = guided ? 'state.local-ok.titleGuided' : view.titleKey
   const bodyKey = guided ? 'state.local-ok.bodyGuided' : view.bodyKey

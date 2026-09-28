@@ -35,7 +35,6 @@ import {
   getAvailabilityParams,
   getBlockReasonKey,
   getChecksumBlockerKey,
-  getDeliveryStateView,
   getGuidedWorkshopManual,
   getRestartWarning,
   getRunningVersionNote,
@@ -44,6 +43,7 @@ import {
   type RestartWarning,
   resolveStateActions,
   resolveStateCopy,
+  resolveStateView,
 } from '@/lib/bridgeDeliveryView'
 import { BridgeDeliverySwitchDialog } from './BridgeDeliverySwitchDialog'
 import { BridgeChecksumDialog } from './BridgeChecksumDialog'
@@ -244,7 +244,7 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
     )
 
   const renderStateCallout = (s: DeliveryStatus) => {
-    const view = getDeliveryStateView(s.state)
+    const view = resolveStateView(s)
     const copy = resolveStateCopy(s)
     const hintKey = getStateHintKey(s)
     const runningNote = getRunningVersionNote(s)

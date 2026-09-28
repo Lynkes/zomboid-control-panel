@@ -115,7 +115,8 @@
     },
     "workshop-start-failed": {
       "title": "The server didn't start",
-      "body": "The server stopped while getting PanelBridge from the Steam Workshop."
+      "body": "The server stopped while getting PanelBridge from the Steam Workshop.",
+      "bodySteamUnreachable": "The server couldn't connect to Steam and stopped before downloading anything. Any server in Steam mode stops this way, however PanelBridge is installed."
     },
     "workshop-id-unknown": {
       "title": "Workshop item unknown",
@@ -123,7 +124,8 @@
     },
     "causes": {
       "notLoaded": "Possible causes: the settings were changed outside the panel (restarting from the panel adds the entries back), the server was launched without Steam, or another mod ships media/lua/server/PanelBridge.lua.",
-      "startFailed": "Possible causes: Steam is down or blocked, the server was launched without Steam, or the Workshop item was hidden or removed."
+      "startFailed": "Possible causes: Steam is down or blocked, or the Workshop item was hidden or removed.",
+      "steamUnreachable": "Possible causes: Steam is down, or a firewall, proxy or network problem blocks the machine that runs the server. Start it again once Steam can be reached."
     },
     "evidence": "From the server's console log:",
     "restartAfterLocalSwitch": "The switch to panel-installed takes effect when the server restarts. Until then, it keeps running the PanelBridge it loaded at start."

@@ -29,6 +29,7 @@ import {
   resolveLuaChecksumCallout,
   resolveStateActions,
   resolveStateCopy,
+  resolveStateView,
 } from '../bridgeDeliveryView'
 import { makeLocalStatus, makePlan, makeWorkshopStatus, WORKSHOP_ID } from '@/components/bridge/__tests__/deliveryFixtures'
 
@@ -162,6 +163,36 @@ describe('resolveStateActions: lifecycle and option-card de-duplication only, no
     expect(needsRestartAfterLocalSwitch(makeWorkshopStatus({ state: 'workshop-restart-needed', restartedSinceSwitch: false }))).toBe(false)
     // Added once, after the state's own actions.
     expect(resolveStateActions({ ...pending, state: 'local-update-pending' })).toEqual(['updateNow', 'restartNow'])
+  })
+
+  // "Failed to connect to Steam servers" stops every Steam-mode server, the
+  // panel-installed one too: no switch back as the way out, and no "launched
+  // without Steam" (a -nosteam server skips the Steam block entirely).
+  it('workshop-start-failed because Steam was unreachable offers a start, not the switch back', () => {
+    const failed = makeWorkshopStatus({
+      state: 'workshop-start-failed',
+      serverRunning: false,
+      lastStartFailure: { kind: 'steamUnreachable', line: 'Failed to connect to Steam servers', result: null, logMtime: '2026-10-02T10:05:00.000Z' },
+    })
+    expect(resolveStateActions(failed)).toEqual(['startServer'])
+    const view = resolveStateView(failed)
+    expect(view).toMatchObject({
+      tone: 'warning',
+      bodyKey: 'state.workshop-start-failed.bodySteamUnreachable',
+      causesKey: 'state.causes.steamUnreachable',
+    })
+    for (const key of [view.titleKey, view.bodyKey, view.causesKey!]) expect(exists(key), key).toBe(true)
+    expect(resolveStateCopy(failed)).toEqual({
+      titleKey: 'state.workshop-start-failed.title',
+      bodyKey: 'state.workshop-start-failed.bodySteamUnreachable',
+      params: {},
+    })
+    const itemFailed = { ...failed, lastStartFailure: { ...failed.lastStartFailure!, kind: 'itemDownload' as const, result: 9 } }
+    expect(resolveStateView(itemFailed)).toBe(DELIVERY_STATE_VIEWS['workshop-start-failed'])
+    expect(resolveStateActions(itemFailed)).toEqual(['switchToLocalAndStart'])
+    for (const key of ['state.causes.startFailed', 'state.causes.steamUnreachable']) {
+      expect(i18n.t(key, { ns: 'bridgeDelivery', lng: 'en' })).not.toMatch(/without Steam/)
+    }
   })
 
   it('local install states offer the existing install endpoint', () => {
