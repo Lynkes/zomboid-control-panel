@@ -129,9 +129,12 @@ export function listLooseBridgeFiles(installDir) {
   }
   // Only a mod.info that is PanelBridge's own: the game ignores a root
   // mod.info, but an operator's install can still hold an unrelated one.
+  // Older panels wrote it with id=PanelBridge; an installer from a dev tree
+  // between the Workshop mod.info landing and the installer no longer
+  // writing a root copy wrote it with the Workshop mod id.
   for (const file of childrenNamed(installDir, "mod.info", false)) {
     const lines = readModInfoLines(file);
-    if (lines && lines.includes("id=PanelBridge")) {
+    if (lines && (lines.includes("id=PanelBridge") || lines.includes(`id=${BRIDGE_MOD_ID}`))) {
       files.push({ path: file, kind: "rootModInfo", recognized: true });
     }
   }

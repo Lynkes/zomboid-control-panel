@@ -81,6 +81,16 @@ describe("listLooseBridgeFiles", () => {
     ]);
   });
 
+  it("also lists a root mod.info carrying the Workshop mod id (a dev-tree install's leftover)", () => {
+    put("mod.info", "name=Zomboid Control Panel Bridge\nid=ZomboidControlPanelBridge\nmodversion=1.7.70\n");
+    expect(listLooseBridgeFiles(installDir)).toEqual([
+      { path: path.join(installDir, "mod.info"), kind: "rootModInfo", recognized: true },
+    ]);
+    // Only the exact id counts: a mod whose id merely starts with ours isn't ours.
+    put("mod.info", "name=Other\nid=ZomboidControlPanelBridgeAddon\n");
+    expect(listLooseBridgeFiles(installDir)).toEqual([]);
+  });
+
   it("is empty for a clean folder or no folder at all", () => {
     expect(listLooseBridgeFiles(installDir)).toEqual([]);
     expect(listLooseBridgeFiles(null)).toEqual([]);
