@@ -1,4 +1,4 @@
-import type { DeliveryMethod, DeliveryPlanResponse, DeliveryStatus } from './bridgeDeliveryTypes'
+import { BRIDGE_MOD_ID, type DeliveryMethod, type DeliveryPlanResponse, type DeliveryStatus } from './bridgeDeliveryTypes'
 
 const DEMO_FLAGS = new Set(['1', 'true', 'yes', 'on'])
 
@@ -489,7 +489,7 @@ export function getDemoBridgeDelivery(): DeliveryStatus {
     release: {
       status: 'not-published',
       source: 'none',
-      modId: 'ZCPB',
+      modId: BRIDGE_MOD_ID,
       workshopId: null,
       visibility: null,
       publishedVersion: null,
