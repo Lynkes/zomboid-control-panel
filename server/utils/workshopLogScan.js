@@ -8,7 +8,7 @@
  * start fail to get its Workshop items?"), and why each reader only ever
  * looks at the last 256 KB.
  *
- * scanWorkshopFailures() moved here verbatim from routes/debug.js (which
+ * scanWorkshopFailures() moved here from routes/debug.js (which
  * re-exports it) so services/bridgeDelivery.js can reuse the same log
  * reading without a service importing a route module.
  */
@@ -17,6 +17,15 @@ import path from "path";
 
 const MAX_TAIL_BYTES = 256 * 1024;
 const MAX_LINE_CHARS = 300;
+
+// Both tail readers open the log first and stat the open handle, never the
+// path: PZ truncates and rewrites this file at every server start -- the
+// moment these readers are asked about -- so a path stat followed by a
+// separate open could size the read from a file that no longer matches the
+// one read. The text is cut at the bytes actually read for the same reason.
+// O_NONBLOCK (POSIX only; Windows has no FIFOs on disk) keeps the open from
+// hanging on a FIFO at this path now that the isFile() check comes after it.
+const LOG_OPEN_FLAGS = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0);
 
 // Tail-read `server-console.txt` and look for failed Workshop downloads.
 // PZ's GameServerWorkshopItems.Install() crashes with a NullPointerException
@@ -34,26 +43,22 @@ const MAX_LINE_CHARS = 300;
 export async function scanWorkshopFailures(zPath) {
   if (!zPath) return null;
   const logPath = path.join(zPath, "server-console.txt");
-  let stat;
-  try {
-    stat = await fs.promises.stat(logPath);
-  } catch {
-    return null;
-  }
-  if (!stat.isFile() || stat.size === 0) return null;
 
   // Only the tail matters — the relevant lines come from the most recent
   // server start. Cap at 256 KB to keep this cheap on huge log files.
   const MAX_TAIL = 256 * 1024;
-  const start = Math.max(0, stat.size - MAX_TAIL);
-  const length = stat.size - start;
+  let stat;
   let text = "";
   let fd;
   try {
-    fd = await fs.promises.open(logPath, "r");
+    fd = await fs.promises.open(logPath, LOG_OPEN_FLAGS);
+    stat = await fd.stat();
+    if (!stat.isFile() || stat.size === 0) return null;
+    const start = Math.max(0, stat.size - MAX_TAIL);
+    const length = stat.size - start;
     const buf = Buffer.alloc(length);
-    await fd.read(buf, 0, length, start);
-    text = buf.toString("utf-8");
+    const { bytesRead } = await fd.read(buf, 0, length, start);
+    text = buf.toString("utf-8", 0, bytesRead);
   } catch {
     return null;
   } finally {
@@ -101,21 +106,16 @@ export async function scanWorkshopFailures(zPath) {
 function readConsoleTailSync(zPath) {
   if (!zPath) return null;
   const logPath = path.join(zPath, "server-console.txt");
-  let stat;
-  try {
-    stat = fs.statSync(logPath);
-  } catch {
-    return null;
-  }
-  if (!stat.isFile() || stat.size === 0) return null;
-  const start = Math.max(0, stat.size - MAX_TAIL_BYTES);
-  const length = stat.size - start;
   let fd;
   try {
-    fd = fs.openSync(logPath, "r");
+    fd = fs.openSync(logPath, LOG_OPEN_FLAGS);
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.size === 0) return null;
+    const start = Math.max(0, stat.size - MAX_TAIL_BYTES);
+    const length = stat.size - start;
     const buf = Buffer.alloc(length);
-    fs.readSync(fd, buf, 0, length, start);
-    return { text: buf.toString("utf-8"), mtime: stat.mtime };
+    const bytesRead = fs.readSync(fd, buf, 0, length, start);
+    return { text: buf.toString("utf-8", 0, bytesRead), mtime: stat.mtime };
   } catch {
     return null;
   } finally {
