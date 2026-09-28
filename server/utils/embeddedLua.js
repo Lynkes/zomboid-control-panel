@@ -75,7 +75,8 @@ function ensureReadableDirTree(dir) {
 
 /**
  * Atomically write PanelBridge.lua to the target path:
- *   1. Write to `.tmp.<pid>` alongside the destination.
+ *   1. Write to `.tmp.<pid>` alongside the destination, always as a newly
+ *      created file (see the 'wx' open below).
  *   2. fsync, then rename over the destination.
  * If anything goes wrong before the rename, the old Lua is untouched.
  * If the rename itself fails (Windows file lock, antivirus), we clean up
@@ -100,8 +101,17 @@ export function writeLuaAtomic(destPath, content) {
   const tmpPath = path.join(dir, `.PanelBridge.lua.tmp.${process.pid}`);
   let fd;
   try {
+    // The temp name is predictable, so whatever already sits there -- a
+    // leftover from a crashed process that had this pid, or a symlink
+    // planted by whoever else can write in the game folder -- is removed
+    // first (unlink never follows a link), and 'wx' (O_CREAT | O_EXCL) then
+    // insists on a brand-new file. With plain 'w', a panel running as root
+    // wrote the payload through such a link into its target: any file on
+    // the host. A racer recreating the name in between only fails this
+    // write (EEXIST), which the caller reports.
+    try { fs.unlinkSync(tmpPath); } catch { /* nothing there */ }
     // codeql[js/path-injection] destPath's only caller is panelBridgeInstaller.installBridge(), which builds it from the server profile's own install folder (resolveTargetPath) plus the fixed media/lua/server/PanelBridge.lua suffix -- never from request input (the arbitrary-folder POST /install-mod route was removed).
-    fd = fs.openSync(tmpPath, 'w', 0o644);
+    fd = fs.openSync(tmpPath, 'wx', 0o644);
     fs.writeSync(fd, content, 0, 'utf8');
     try { fs.fsyncSync(fd); } catch { /* best-effort; some FS/OSes reject */ }
     try { fs.fchmodSync(fd, 0o644); } catch { /* best-effort: Windows / network shares */ }
