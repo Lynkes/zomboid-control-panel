@@ -123,6 +123,7 @@
   "BACKUP_RESTORE_SERVER_RUNNING": "O servidor precisa estar parado antes de restaurar um backup. Pare o servidor primeiro.",
   "BACKUP_INVALID_DAYS_PARAMETER": "Parâmetro de dias inválido. Deve ser um número inteiro >= 1",
   "BACKUP_ACTIVE_SERVER_CHANGED": "O servidor ativo mudou desde que estas configurações foram carregadas. Recarregue as configurações de backup antes de salvar.",
+  "BACKUP_SCHEDULE_TOO_FREQUENT": "Os backups não podem ser executados mais de uma vez a cada 5 minutos",
   "BACKUP_UPLOAD_REMOTE_NOT_AVAILABLE": "O upload de backup não está disponível para servidores remotos.",
   "BACKUP_UPLOAD_NO_FILE": "Nenhum arquivo enviado. Envie o corpo zip com Content-Type: application/zip.",
   "BACKUP_UPLOAD_INVALID_ZIP_SIGNATURE": "O arquivo não parece ser um .zip válido.",

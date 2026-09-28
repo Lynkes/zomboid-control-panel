@@ -234,6 +234,8 @@
     "backupHealthTitle": "Saúde do agendamento de backup",
     "backupLastAttemptOk": "Última tentativa concluída · {{date}}",
     "backupLastAttemptFailed": "Última tentativa falhou · {{date}} — {{reason}}",
+    "backupLastAttemptSkippedForRestart": "Última tentativa pulada por causa de um reinício · {{date}}",
+    "backupRecoveredSince": "Um backup foi concluído desde então · {{date}}",
     "backupNoAttemptYet": "Nenhum backup agendado foi executado ainda",
     "backupNextRun": "Próxima execução · {{date}}",
     "savedDesc": "Os agendamentos agora usam {{tz}}.",

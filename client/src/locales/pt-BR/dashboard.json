@@ -39,7 +39,6 @@
   "header": {
     "ariaLabel": "Status do servidor",
     "everythingNominal": "Tudo normal",
-    "upPrefix": "ativo há {{uptime}}",
     "mapTooltip": "Mapa (via PanelBridge)",
     "remoteBadge": "remoto",
     "noActiveServer": "Nenhum servidor ativo"
@@ -212,6 +211,8 @@
     "reviewMods": "Revisar mods",
     "noBackups": "Nenhum backup",
     "backupAttemptFailing": "Backup agendado falhando",
+    "backupSkippedForRestart": "Backup agendado pulado por causa de um reinício",
+    "backupSkippedForRestartHelp": "O horário dele caiu durante um reinício do servidor, então ele não foi executado. Agora os backups agendados esperam o reinício terminar em vez de serem pulados, então o próximo é executado normalmente e remove este aviso. Criar um backup agora também remove o aviso.",
     "reviewBackups": "Revisar backups",
     "modUpdatesWaiting_many": "{{count}} atualizações de mod pendentes"
   },
@@ -339,6 +340,7 @@
     "backupsStoredLast_one": "{{count}} armazenado, último {{age}}",
     "backupsStoredLast_other": "{{count}} armazenados, último {{age}}",
     "backupsAttemptFailed": "falha na tentativa, {{age}}",
+    "backupsSkippedForRestart": "pulado por reinício, {{age}}",
     "scheduleNoneActive": "nenhum ativo",
     "scheduleActive_one": "{{count}} ativo",
     "scheduleActive_other": "{{count}} ativos",

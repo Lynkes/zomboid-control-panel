@@ -451,6 +451,8 @@
       "fileNotReadable": "Não é possível ler {{filename}}: {{error}}",
       "statusFileMissing": "O arquivo de status está ausente. Inicie o servidor de jogo com o PanelBridge ativado.",
       "statusFileStale": "O arquivo de status não muda há {{age}} — o servidor PZ está em execução?",
+      "serverExited": "O servidor de jogo parou. O PanelBridge se reconecta quando o servidor iniciar novamente.",
+      "bridgeSilentSinceStart": "O servidor de jogo foi iniciado há {{age}}, mas o PanelBridge ainda não enviou status. Ele envia o status assim que o mundo termina de carregar; se continuar em silêncio, verifique se o PanelBridge está na lista de mods ativos do servidor.",
       "statusFileMetadataFailed": "Não foi possível ler os metadados do arquivo de status: {{error}}",
       "healthy": "A conexão por arquivos da ponte parece saudável."
     },
