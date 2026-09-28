@@ -13,6 +13,7 @@ import { getDiskFree } from "../utils/diskSpace.js";
 import { resolveLaunchMode } from "../services/serverManager.js";
 import { scanWorkshopFailures } from "../utils/workshopLogScan.js";
 import { resolveInstallDir } from "../services/panelBridgeInstaller.js";
+import { compareModVersions } from "../utils/embeddedLua.js";
 import { detectWorkshopItem, listLooseBridgeFiles } from "../services/bridgeDisk.js";
 import { describeDelivery } from "../services/bridgeDelivery.js";
 import { BRIDGE_MOD_ID } from "../services/bridgeDeliveryContract.js";
@@ -719,6 +720,12 @@ const SUPPORT_INI_KEYS = [
 const SANDBOX_DIAGNOSTIC_MAX_LOG_BYTES = 512 * 1024;
 const SANDBOX_DIAGNOSTIC_MAX_EXCERPTS = 8;
 const SANDBOX_DIAGNOSTIC_MAX_MODS = 500;
+// PanelBridge up to and including this version read every enum's labels from
+// index 0. Build 42 enum labels run 1..N (EnumConfigOption is an
+// IntegerConfigOption with min 1), so getValueTranslationByIndexOrNull(0)
+// threw ArrayIndexOutOfBoundsException on every getAllSandboxOptions call,
+// with or without mods installed. Later bridges read 1..N only.
+const SANDBOX_ENUM_INDEX_ZERO_LAST_BRIDGE = "1.7.70";
 
 async function readTailText(filePath, maxBytes = SANDBOX_DIAGNOSTIC_MAX_LOG_BYTES) {
   let handle = null;
@@ -886,6 +893,18 @@ async function buildSandboxOptionsDiagnostics(activeServer, knownSecrets = []) {
   const pzVersion = logText?.match(/\bversion=([^\s]+)\s+b[0-9a-f]+/i)?.[1] || null;
   const bridgeVersion = logText?.match(/\[PanelBridge\]\s+Initializing v([^\s]+)/i)?.[1] || null;
   const detected = exceptionCount > 0;
+  // The bridge's own index-0 read is the likely cause whenever it is old
+  // enough to make it. null: the log has no PanelBridge line, so no telling.
+  const bridgeReadsIndexZero = bridgeVersion
+    ? compareModVersions(bridgeVersion, SANDBOX_ENUM_INDEX_ZERO_LAST_BRIDGE) <= 0
+    : null;
+  const modNote = "The PZ stack does not include the option name. Candidate mods are listed below from installed mod.info and sandbox-option metadata.";
+  let note = modNote;
+  if (bridgeReadsIndexZero === true) {
+    note = `PanelBridge ${bridgeVersion} reads enum labels from index 0, but Build 42 enum labels run 1..N, so PanelBridge itself raises this exception on every getAllSandboxOptions call. It does not point to a mod, so no candidate mods are listed. Updating PanelBridge past ${SANDBOX_ENUM_INDEX_ZERO_LAST_BRIDGE} and restarting the game server stops it.`;
+  } else if (bridgeReadsIndexZero === null) {
+    note = `The log does not show the PanelBridge version. PanelBridge ${SANDBOX_ENUM_INDEX_ZERO_LAST_BRIDGE} and older raise this exception themselves on every getAllSandboxOptions call (they read enum labels from index 0), so rule that out first. ${modNote}`;
+  }
   return {
     available: true,
     serverName,
@@ -904,12 +923,15 @@ async function buildSandboxOptionsDiagnostics(activeServer, knownSecrets = []) {
           actionCount,
           excerpts,
           optionName: null,
-          note: "The PZ stack does not include the option name. Candidate mods are listed below from installed mod.info and sandbox-option metadata.",
+          likelyCause: bridgeReadsIndexZero === true ? "panelbridge-enum-index-zero" : "unknown",
+          note,
         }
       : { exceptionCount: 0, actionCount },
-    candidateMods: installedMods.filter(
-      (mod) => mod.configuredIds.length > 0 || mod.sandboxOptionFiles.length > 0,
-    ),
+    candidateMods: detected && bridgeReadsIndexZero === true
+      ? []
+      : installedMods.filter(
+          (mod) => mod.configuredIds.length > 0 || mod.sandboxOptionFiles.length > 0,
+        ),
     installedMods,
     logFiles: logText ? [logPath] : [],
   };

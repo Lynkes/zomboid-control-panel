@@ -336,6 +336,30 @@ describe("support bundle: sandbox-options diagnostics identify the failure and c
   let configDir;
   let installDir;
 
+  // bridgeVersion null leaves out the "[PanelBridge] Initializing" line.
+  function writeConsole(bridgeVersion) {
+    fs.writeFileSync(
+      path.join(dataDir, "server-console.txt"),
+      [
+        "version=42.20.4 b0bbce05d5 demo=false",
+        ...(bridgeVersion ? [`[PanelBridge] Initializing v${bridgeVersion}`] : []),
+        "POST /command: action=getAllSandboxOptions args={}",
+        "java.lang.ArrayIndexOutOfBoundsException at SandboxOptions$EnumSandboxOption.getValueTranslationByIndexOrNull(SandboxOptions.java:1270).",
+        "Lua(Vanilla).getAllSandboxOptions(PanelBridge.lua:4864)",
+      ].join("\n"),
+    );
+  }
+
+  function diagnose() {
+    return buildSandboxOptionsDiagnostics({
+      name: "servertest",
+      serverName: "servertest",
+      serverConfigPath: configDir,
+      zomboidDataPath: dataDir,
+      installPath: installDir,
+    });
+  }
+
   beforeEach(() => {
     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "pz-bundle-sandbox-data-"));
     configDir = fs.mkdtempSync(path.join(os.tmpdir(), "pz-bundle-sandbox-config-"));
@@ -356,16 +380,7 @@ describe("support bundle: sandbox-options diagnostics identify the failure and c
       path.join(configDir, "servertest.ini"),
       "Mods=ExampleMod\nWorkshopItems=123\n",
     );
-    fs.writeFileSync(
-      path.join(dataDir, "server-console.txt"),
-      [
-        "version=42.20.4 b0bbce05d5 demo=false",
-        "[PanelBridge] Initializing v1.7.57",
-        "POST /command: action=getAllSandboxOptions args={}",
-        "java.lang.ArrayIndexOutOfBoundsException at SandboxOptions$EnumSandboxOption.getValueTranslationByIndexOrNull(SandboxOptions.java:1270).",
-        "Lua(Vanilla).getAllSandboxOptions(PanelBridge.lua:4864)",
-      ].join("\n"),
-    );
+    writeConsole("1.7.71");
     fs.writeFileSync(
       path.join(modRoot, "mod.info"),
       "name=Example Mod\nid=ExampleMod\nmodversion=2.4.1\npzversion=42.20\n",
@@ -383,19 +398,14 @@ describe("support bundle: sandbox-options diagnostics identify the failure and c
   });
 
   it("captures the PZ exception, versions, and installed mod metadata", async () => {
-    const result = await buildSandboxOptionsDiagnostics({
-      name: "servertest",
-      serverName: "servertest",
-      serverConfigPath: configDir,
-      zomboidDataPath: dataDir,
-      installPath: installDir,
-    });
+    const result = await diagnose();
 
     expect(result.detected).toBe(true);
     expect(result.pzVersion).toBe("42.20.4");
-    expect(result.panelBridgeVersion).toBe("1.7.57");
+    expect(result.panelBridgeVersion).toBe("1.7.71");
     expect(result.error.javaMethod).toContain("getValueTranslationByIndexOrNull");
     expect(result.error.optionName).toBeNull();
+    expect(result.error.likelyCause).toBe("unknown");
     expect(result.candidateMods).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -407,6 +417,34 @@ describe("support bundle: sandbox-options diagnostics identify the failure and c
           ]),
         }),
       ]),
+    );
+  });
+
+  // PanelBridge <= 1.7.70 read enum labels from index 0, which Build 42
+  // rejects, so its own getAllSandboxOptions raised the exception.
+  it.each(["1.7.57", "1.7.70"])("blames PanelBridge %s's index-0 enum read, not the installed mods", async (version) => {
+    writeConsole(version);
+    const result = await diagnose();
+
+    expect(result.detected).toBe(true);
+    expect(result.error.likelyCause).toBe("panelbridge-enum-index-zero");
+    expect(result.error.note).toContain(`PanelBridge ${version} reads enum labels from index 0`);
+    expect(result.error.note).toContain("does not point to a mod");
+    expect(result.candidateMods).toEqual([]);
+    expect(result.installedMods).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "Example Mod" })]),
+    );
+  });
+
+  it("lists candidate mods but says to rule out an old PanelBridge when the log has no bridge version", async () => {
+    writeConsole(null);
+    const result = await diagnose();
+
+    expect(result.panelBridgeVersion).toBeNull();
+    expect(result.error.likelyCause).toBe("unknown");
+    expect(result.error.note).toContain("PanelBridge 1.7.70 and older raise this exception themselves");
+    expect(result.candidateMods).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "Example Mod" })]),
     );
   });
 });
