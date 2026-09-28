@@ -133,6 +133,25 @@ function cloudflare524() {
   return new ApiError(body, { status: 524, code: 'HTTP_524', isRetryable: true, data: body })
 }
 
+// A status read while the panel can't be reached, and a restore request
+// whose answer never came, the way api.ts builds them.
+function panelUnreachable() {
+  return new ApiError('Unable to reach the server.', { code: 'NETWORK_ERROR', isNetworkError: true, isRetryable: true })
+}
+
+function requestTimedOut() {
+  return new ApiError('The request timed out. Check your connection and try again.', {
+    code: 'TIMEOUT',
+    isTimeout: true,
+    isNetworkError: true,
+    isRetryable: true,
+  })
+}
+
+// How long the panel must stay unreachable before a restore ends as
+// "couldn't confirm" (restoreOutcome.ts), with the reads it takes.
+const GIVE_UP_AFTER_MS = 10 * 60 * 1000 + 3 * RESTORE_STATUS_POLL_MS
+
 const SAFETY_BACKUP_PROGRESS = { phase: 'archiving', percent: 40, message: 'Archiving files... (400/1000)' }
 
 function makeMockSocket() {
@@ -424,6 +443,99 @@ describe('Backups.tsx: the Restore card always reaches a finished state (GH#166)
 
     expect(await screen.findByText(en.restoreResult.unknownTitle)).toBeInTheDocument()
     expect(screen.queryByText(en.restoreResult.successTitle)).not.toBeInTheDocument()
+  })
+
+  it("says it couldn't confirm -- not an endless \"Restoring…\" -- while the panel stays unreachable after the safety backup's mid-restore status read", async () => {
+    // The realistic order: the safety backup's 'complete' re-reads the
+    // status mid-restore, which names this very restore as running -- and
+    // no failed read replaces that. It must not read as a restore running
+    // elsewhere once this one has given up.
+    const { socket, fire } = makeMockSocket()
+    setUp()
+    let loseTheAnswer!: () => void
+    restoreBackup.mockImplementation(() => new Promise((_, reject) => {
+      loseTheAnswer = () => reject(requestTimedOut())
+    }))
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    renderBackups(socket)
+    const requestId = await startRestoreFromTheRow()
+    getStatus.mockResolvedValue(running(requestId))
+    const readsBefore = getStatus.mock.calls.length
+    act(() => { fire('backup:progress', { phase: 'complete', percent: 100, message: 'Backup complete!' }) })
+    await waitFor(() => expect(getStatus.mock.calls.length).toBeGreaterThan(readsBefore))
+    await act(async () => {})
+
+    // Then the panel drops off the network, the restore's answer with it.
+    getStatus.mockRejectedValue(panelUnreachable())
+    await act(async () => { loseTheAnswer() })
+    expect(await screen.findByText(en.restoreProgress.responseLost)).toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(GIVE_UP_AFTER_MS) })
+
+    expect(await screen.findByText(en.restoreResult.unknownTitle)).toBeInTheDocument()
+    expect(screen.getByText(en.restoreResult.unknownDetail)).toBeInTheDocument()
+    expect(screen.queryByText(fill(en.restoreProgress.title, { name: testBackup.name }))).not.toBeInTheDocument()
+    expect(screen.queryByText(en.restoreProgress.note)).not.toBeInTheDocument()
+
+    // The panel is back, the restore still running. socket.io stopped
+    // reconnecting long ago, so no 'connect': the page's own re-check finds
+    // it, and blocks new actions meanwhile.
+    getStatus.mockResolvedValue(running(requestId))
+    await act(async () => { await vi.advanceTimersByTimeAsync(RESTORE_STATUS_POLL_MS) })
+    expect(await screen.findByText(fill(en.restoreProgress.title, { name: testBackup.name }))).toBeInTheDocument()
+    expect(screen.queryByText(en.restoreResult.unknownTitle)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: en.pageHeader.createBackup })).toBeDisabled()
+
+    getStatus.mockResolvedValue(ended({ id: requestId ?? 'unknown', duration: 900 }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(RESTORE_STATUS_POLL_MS) })
+    expect(await screen.findByText(en.restoreResult.successTitle)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: en.pageHeader.createBackup })).not.toBeDisabled())
+  })
+
+  it("replaces \"couldn't confirm\" with the recorded outcome on its own re-check once the panel is back, with no socket reconnect", async () => {
+    const { socket } = makeMockSocket()
+    setUp()
+    restoreBackup.mockImplementation(async () => {
+      getStatus.mockRejectedValue(panelUnreachable())
+      throw requestTimedOut()
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    renderBackups(socket)
+    const requestId = await startRestoreFromTheRow()
+    await act(async () => { await vi.advanceTimersByTimeAsync(GIVE_UP_AFTER_MS) })
+    expect(await screen.findByText(en.restoreResult.unknownTitle)).toBeInTheDocument()
+
+    getStatus.mockResolvedValue(ended({ id: requestId ?? 'unknown', success: false, message: 'Disk full', duration: null }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(RESTORE_STATUS_POLL_MS) })
+
+    expect(await screen.findByText(en.restoreResult.failedTitle)).toBeInTheDocument()
+    expect(screen.getByText('Disk full')).toBeInTheDocument()
+    expect(screen.queryByText(en.restoreResult.unknownTitle)).not.toBeInTheDocument()
+  })
+
+  it("stops re-checking a \"couldn't confirm\" restore once a read gets through with no record of it (the panel restarted)", async () => {
+    const { socket } = makeMockSocket()
+    setUp()
+    restoreBackup.mockImplementation(async () => {
+      getStatus.mockRejectedValue(panelUnreachable())
+      throw requestTimedOut()
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    renderBackups(socket)
+    await startRestoreFromTheRow()
+    await act(async () => { await vi.advanceTimersByTimeAsync(GIVE_UP_AFTER_MS) })
+    expect(await screen.findByText(en.restoreResult.unknownTitle)).toBeInTheDocument()
+
+    getStatus.mockResolvedValue(idleStatus)
+    await act(async () => { await vi.advanceTimersByTimeAsync(RESTORE_STATUS_POLL_MS) })
+    await waitFor(() => expect(getStatus).toHaveLastResolvedWith(idleStatus))
+    const readsAfterPanelBack = getStatus.mock.calls.length
+    await act(async () => { await vi.advanceTimersByTimeAsync(6 * RESTORE_STATUS_POLL_MS) })
+
+    expect(getStatus.mock.calls.length).toBe(readsAfterPanelBack)
+    expect(screen.getByText(en.restoreResult.unknownTitle)).toBeInTheDocument()
   })
 
   it("a proxy's refusal (an HTML error page) of a restore that never started says so in a sentence, not the page's markup", async () => {

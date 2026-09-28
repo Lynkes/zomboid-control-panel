@@ -114,7 +114,7 @@
     "notStartedProxy": "A proxy or tunnel in front of the panel refused the request (HTTP {{status}}). The panel has no record of this restore, so it didn't start.",
     "failedNextStep": "Unless the reason above says otherwise, the current world was left as it was. Fix the cause, then try again.",
     "unknownTitle": "Couldn't confirm how the restore ended",
-    "unknownDetail": "The page couldn't get this restore's result from the panel (the connection was down too long, or the panel restarted), so it may not have finished, or even started. Before you start the server, check Debug Logs › Logs for a \"Restore completed\" line (after a panel restart, in the log files on disk there), or ask an administrator to. If there isn't one, restore again.",
+    "unknownDetail": "The page couldn't get this restore's result from the panel (the connection was down too long, or the panel restarted), so it may not have finished, or even started. Before you start the server, open Debug Logs › Activity and search for \"restore\". A backup_restored entry for this backup since you started the restore means it finished; a restore_failed entry since then says why it failed. If there's neither, restore again. If you can't open Debug Logs, ask an administrator.",
     "dismiss": "Dismiss",
     "dismissAria": "Dismiss the restore result"
   },

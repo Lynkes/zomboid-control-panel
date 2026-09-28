@@ -383,8 +383,10 @@ export default function Backups() {
           // This page's own restore, still running in a read sent after its
           // request settled: the answer that request got was wrong (an
           // error page in front of the panel that looked like the panel's
-          // own), so it's followed like any other restore instead of
-          // leaving "Restore failed" over a world still being replaced.
+          // own), or there was none (the panel unreachable too long, the
+          // card at "couldn't confirm"), so it's followed like any other
+          // restore instead of leaving "Restore failed" or "couldn't
+          // confirm" over a world still being replaced.
           if (id !== null && id === ownRestoreIdRef.current && seq > ownRestoreSettledAtReadRef.current) {
             ownRestoreIdRef.current = null
             setOwnRestoreId(null)
@@ -593,6 +595,22 @@ export default function Backups() {
     return () => clearInterval(interval)
   }, [restoreInProgressElsewhere, fetchBackupStatus])
 
+  // The same re-check for this page's own "couldn't confirm" restore while
+  // the panel still can't be reached: the socket's reconnect read is no
+  // promise here -- socket.io gives up after 10 attempts (see App.tsx),
+  // well before the 10 minutes it takes to get here, and only retries once
+  // the tab is shown again or the network comes back. The
+  // first read that gets through says it all (see fetchBackupStatus): the
+  // restore running still, how it ended, or -- no record of it, the panel
+  // restarted -- nothing more to wait for.
+  const unknownOwnRestoreUnreachable =
+    restoreResult?.status === 'unknown' && restoreResult.requestId !== null && backupStatusLoadError
+  useEffect(() => {
+    if (!unknownOwnRestoreUnreachable) return
+    const interval = setInterval(() => { void fetchBackupStatus() }, RESTORE_STATUS_POLL_MS)
+    return () => clearInterval(interval)
+  }, [unknownOwnRestoreUnreachable, fetchBackupStatus])
+
   // See serverChangedSinceLoad's own comment above for why this exists.
   useEffect(() => {
     if (!socket) return
@@ -799,12 +817,16 @@ export default function Backups() {
     } catch (error) {
       if (error instanceof RestoreOutcomeUnknownError) {
         result = { status: 'unknown', backupName: name, requestId }
-        // Unknown includes "the panel was unreachable too long" -- if this
-        // restore turns out to be running still, the status must be free to
-        // show it (and block new actions) like any other; if it turns out
-        // to have ended, its outcome replaces this (see fetchBackupStatus).
-        ownRestoreIdRef.current = null
-        setOwnRestoreId(null)
+        // Unknown includes "the panel was unreachable too long". The status
+        // this page last read is then likely the one its safety backup's
+        // 'complete' took mid-restore, naming this very restore as running
+        // -- and a failed read never replaces it. So this restore stays
+        // this page's own (ownRestoreId): dropping it would turn that stale
+        // read into "a restore is in progress elsewhere", hiding this card
+        // behind a spinner for as long as the panel can't be reached. Once
+        // it can, a read that still shows this restore running hands it to
+        // the watcher (see fetchBackupStatus), and one that shows how it
+        // ended replaces this card with that.
         unknownRestoreIdRef.current = requestId
         toast({
           title: t('restoreResult.unknownTitle'),

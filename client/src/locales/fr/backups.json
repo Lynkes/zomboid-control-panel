@@ -237,7 +237,7 @@
     "notStartedProxy": "Un proxy ou un tunnel placé devant le panneau a refusé la requête (HTTP {{status}}). Le panneau n'a aucune trace de cette restauration : elle n'a pas démarré.",
     "failedNextStep": "Sauf indication contraire dans la raison ci-dessus, le monde actuel est resté tel quel. Corrigez la cause, puis réessayez.",
     "unknownTitle": "Impossible de confirmer comment la restauration s'est terminée",
-    "unknownDetail": "La page n'a pas pu obtenir le résultat de cette restauration auprès du panneau (la connexion a été coupée trop longtemps, ou le panneau a redémarré) : elle n'est donc peut-être pas terminée, voire pas commencée. Avant de démarrer le serveur, cherchez une ligne « Restore completed » dans Journaux de débogage › Journaux (après un redémarrage du panneau, dans les fichiers journaux sur le disque), ou demandez à un administrateur de le faire. S'il n'y en a pas, relancez la restauration.",
+    "unknownDetail": "La page n'a pas pu obtenir le résultat de cette restauration auprès du panneau (la connexion a été coupée trop longtemps, ou le panneau a redémarré) : elle n'est donc peut-être pas terminée, voire pas commencée. Avant de démarrer le serveur, ouvrez Journaux de débogage › Activité et cherchez « restore ». Une entrée backup_restored pour cette sauvegarde, postérieure au lancement de la restauration, signifie que la restauration s'est terminée ; une entrée restore_failed postérieure indique pourquoi elle a échoué. S'il n'y a ni l'une ni l'autre, relancez la restauration. Si vous ne pouvez pas ouvrir Journaux de débogage, demandez à un administrateur.",
     "dismiss": "Ignorer",
     "dismissAria": "Ignorer le résultat de la restauration"
   }

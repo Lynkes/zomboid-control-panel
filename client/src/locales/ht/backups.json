@@ -114,7 +114,7 @@
     "notStartedProxy": "Yon proxy oswa yon tinèl ki devan panèl la refize demann nan (HTTP {{status}}). Panèl la pa gen okenn dosye sou retablisman sa a, kidonk li pa t kòmanse.",
     "failedNextStep": "Sof si rezon ki anlè a di lòt bagay, mond aktyèl la rete jan li te ye a. Korije pwoblèm nan, epi eseye ankò.",
     "unknownTitle": "Pa t kapab konfime kijan retablisman an fini",
-    "unknownDetail": "Paj la pa t kapab jwenn rezilta retablisman sa a nan men panèl la (koneksyon an te koupe twò lontan, oswa panèl la te redemare), kidonk li ka pa t fini, oswa menm pa t kòmanse. Anvan w demare sèvè a, chèche yon liy \"Restore completed\" nan Jounal Debogaj › Jounal (apre panèl la redemare, nan fichye jounal sou disk ki la yo), oswa mande yon administratè fè l pou ou. Si pa genyen, retabli ankò.",
+    "unknownDetail": "Paj la pa t kapab jwenn rezilta retablisman sa a nan men panèl la (koneksyon an te koupe twò lontan, oswa panèl la te redemare), kidonk li ka pa t fini, oswa menm pa t kòmanse. Anvan w demare sèvè a, louvri Jounal Debogaj › Aktivite epi chèche \"restore\". Yon antre backup_restored pou kopi sovgad sa a, depi w te lanse retablisman an, vle di li fini; yon antre restore_failed depi lè sa a di poukisa li echwe. Si pa gen ni youn ni lòt, retabli ankò. Si w pa ka louvri Jounal Debogaj, mande yon administratè fè l pou ou.",
     "dismiss": "Fèmen",
     "dismissAria": "Fèmen rezilta retablisman an"
   },

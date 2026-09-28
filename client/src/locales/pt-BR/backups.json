@@ -115,7 +115,7 @@
     "notStartedProxy": "Um proxy ou túnel na frente do painel recusou a solicitação (HTTP {{status}}). O painel não tem registro desta restauração, então ela não começou.",
     "failedNextStep": "A menos que o motivo acima diga o contrário, o mundo atual ficou como estava. Corrija a causa e tente de novo.",
     "unknownTitle": "Não foi possível confirmar como a restauração terminou",
-    "unknownDetail": "A página não conseguiu obter do painel o resultado desta restauração (a conexão ficou fora do ar por tempo demais ou o painel reiniciou), então talvez ela não tenha terminado, nem mesmo começado. Antes de iniciar o servidor, procure uma linha \"Restore completed\" em Logs de depuração › Logs (depois de uma reinicialização do painel, nos arquivos de log no disco dessa aba), ou peça a um administrador que faça isso. Se não houver, restaure de novo.",
+    "unknownDetail": "A página não conseguiu obter do painel o resultado desta restauração (a conexão ficou fora do ar por tempo demais ou o painel reiniciou), então talvez ela não tenha terminado, nem mesmo começado. Antes de iniciar o servidor, abra Logs de depuração › Atividade e pesquise \"restore\". Uma entrada backup_restored deste backup, posterior ao início da restauração, significa que ela terminou; uma entrada restore_failed posterior informa por que ela falhou. Se não houver nenhuma das duas, restaure de novo. Se você não conseguir abrir os Logs de depuração, peça a um administrador que faça isso.",
     "dismiss": "Dispensar",
     "dismissAria": "Dispensar o resultado da restauração"
   },

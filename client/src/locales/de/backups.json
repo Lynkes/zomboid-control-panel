@@ -231,7 +231,7 @@
     "notStartedProxy": "Ein Proxy oder Tunnel vor dem Panel hat die Anfrage abgelehnt (HTTP {{status}}). Das Panel hat keine Aufzeichnung dieser Wiederherstellung, sie wurde also nicht gestartet.",
     "failedNextStep": "Sofern der Grund oben nichts anderes sagt, ist die aktuelle Welt unverändert. Behebe die Ursache und versuche es erneut.",
     "unknownTitle": "Ausgang der Wiederherstellung unklar",
-    "unknownDetail": "Die Seite konnte das Ergebnis dieser Wiederherstellung nicht vom Panel abrufen (die Verbindung war zu lange unterbrochen oder das Panel wurde neu gestartet). Vielleicht ist sie also nicht fertig geworden oder hat gar nicht erst begonnen. Suche vor dem Serverstart unter Debug-Protokolle › Protokolle nach einer Zeile „Restore completed“ (nach einem Neustart des Panels in den Protokolldateien auf der Festplatte dort) oder bitte einen Administrator darum. Fehlt sie, stelle das Backup erneut wieder her.",
+    "unknownDetail": "Die Seite konnte das Ergebnis dieser Wiederherstellung nicht vom Panel abrufen (die Verbindung war zu lange unterbrochen oder das Panel wurde neu gestartet). Vielleicht ist sie also nicht fertig geworden oder hat gar nicht erst begonnen. Öffne vor dem Serverstart Debug-Protokolle › Aktivität und suche nach „restore“. Ein Eintrag backup_restored zu diesem Backup seit dem Start der Wiederherstellung bedeutet, dass sie abgeschlossen ist; ein Eintrag restore_failed seitdem nennt den Grund, warum sie fehlgeschlagen ist. Gibt es keinen von beiden, stelle das Backup erneut wieder her. Kannst du Debug-Protokolle nicht öffnen, bitte einen Administrator darum.",
     "dismiss": "Verwerfen",
     "dismissAria": "Ergebnis der Wiederherstellung verwerfen"
   }
