@@ -48,7 +48,7 @@ describe('Mod Settings enum values', () => {
           enumValues: ['Never', 'Instant', 'Delayed'] }] },
         groups: [{ name: 'General', count: 1 }], totalCount: 1, enumerated: true,
       } } as never).mockResolvedValue({ success: true, data: {
-        name: 'General.TestOption', value: 3, type: 'enum', verified: true, persisted: true,
+        name: 'General.TestOption', value: 3, type: 'enum', verified: 'confirmed', persisted: true,
       } } as never)
 
       render(<MemoryRouter initialEntries={['/server-config']}>

@@ -5174,7 +5174,7 @@ handlers.getAllSandboxOptions = function(args)
         info.shortName = safeStr(function() return opt:getShortName() end)
         -- Get the table/page name (mod or category grouping)
         info.tableName = safeStr(function() return opt:getTableName() end)
-        -- Get the tooltip/translation key
+        -- Get the already-translated tooltip text
         -- B42 getTooltip already returns translated text, including defaults.
         -- Translating it again treats literal percentages as format strings.
         info.tooltip = safeStr(function() return opt:getTooltip() end)
@@ -5475,12 +5475,13 @@ handlers.setSandboxOption = function(args)
         ok, err = pcall(function() targetOpt:setValue(boolVal) end)
     elseif optType == "enum" then
         local intVal = tonumber(newValue)
-        if not intVal then return false, nil, "Invalid enum value" end
-        intVal = math.floor(intVal)
-        -- Bounds-check against getNumValues if available
+        if not intVal or intVal % 1 ~= 0 then return false, nil, "Invalid enum value" end
+        -- Enums use 1..N. Reject invalid input instead of changing the choice.
+        if intVal < 1 then return false, nil, "Enum value must be at least 1" end
         local numVals = tonumber(PanelBridge.tryGet(targetOpt, "getNumValues"))
-        if numVals and intVal >= numVals then intVal = numVals - 1 end
-        if intVal < 0 then intVal = 0 end
+        if numVals and intVal > numVals then
+            return false, nil, "Enum value out of range (1.." .. numVals .. ")"
+        end
         appliedValue = intVal
         ok, err = pcall(function() targetOpt:setValue(intVal) end)
     elseif optType == "integer" then

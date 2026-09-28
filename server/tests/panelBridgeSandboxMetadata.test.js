@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import path from 'path';
+import { fileURLToPath } from 'url';
 import { loadPanelBridge } from './helpers/panelBridgeLua.js';
 
-const source = path.resolve('pz-mod/PanelBridge/media/lua/server/PanelBridge.lua');
+const source = fileURLToPath(new URL('../../pz-mod/PanelBridge/media/lua/server/PanelBridge.lua', import.meta.url));
 // Shapes verified in the deployed 42.20.4 class files. Missing Java calls
 // emit traces even when Lua pcall catches them, so count the attempts too.
 const stubs = `
@@ -23,6 +23,10 @@ function option(kind, name, value)
   if kind == "Integer" or kind == "Double" then
     function o:getMin() return 0.1 end
     function o:getMax() return 5 end
+  elseif kind == "Enum" then
+    function o:getMin() return 1 end
+    function o:getMax() return 3 end
+    function o:getNumValues() return 3 end
   end
   return setmetatable(o, {__index=function(_, key)
     if key == "getMin" or key == "getMax" then rangeProbes = rangeProbes + 1 end
@@ -30,7 +34,8 @@ function option(kind, name, value)
   end})
 end
 options = {option("Boolean", "Toggle", true), option("String", "Text", "hello"),
-           option("Double", "Rate", 1.6), option("Integer", "Count", 3)}
+           option("Double", "Rate", 1.6), option("Integer", "Count", 3),
+           option("Enum", "Choice", 2)}
 sandbox = {}
 function sandbox:getNumOptions() return #options end
 function sandbox:getOptionByIndex(i) return options[i+1] end
@@ -55,10 +60,16 @@ describe('B42 sandbox metadata without exception-based probing', () => {
   it('preserves values, defaults and numeric ranges', () => {
     const bridge = loadPanelBridge(source, stubs);
     const result = bridge.callHandler('getAllSandboxOptions', {});
-    expect(result.data.totalCount).toBe(4);
+    expect(result.data.totalCount).toBe(5);
     expect(Object.fromEntries(result.data.options.Test.map(o => [o.name, o.value])))
-      .toEqual({Toggle:true, Text:'hello', Rate:1.6, Count:3});
+      .toEqual({Toggle:true, Text:'hello', Rate:1.6, Count:3, Choice:2});
     expect(result.data.options.Test.find(o => o.name === 'Rate')).toMatchObject({min:0.1, max:5, default:1.6});
     expect(result.data.options.Test.find(o => o.name === 'Count')).toMatchObject({min:0.1, max:5, default:3});
+  });
+  it('preserves the inherited integer bounds of enum options', () => {
+    const bridge = loadPanelBridge(source, stubs);
+    const result = bridge.callHandler('getAllSandboxOptions', {});
+    expect(result.data.options.Test.find(o => o.name === 'Choice'))
+      .toMatchObject({type:'enum', min:1, max:3, value:2, default:2});
   });
 });
