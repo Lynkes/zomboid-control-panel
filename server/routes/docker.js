@@ -7,7 +7,7 @@ import { ErrorCode } from "../utils/errorCodes.js";
 import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
-  runBeforeLaunchHook,
+  prepareForLaunch,
 } from "../services/lifecycleCoordinator.js";
 import { resolveDockerHostSignal } from "../services/managedContainer.js";
 
@@ -166,13 +166,14 @@ router.post("/containers/:id/:action", requirePermission("docker.manage"), async
         });
       }
     }
-    // PanelBridge delivery (lifecycleCoordinator.setBeforeLaunchHook): this
+    // The before-launch step (lifecycleCoordinator.prepareForLaunch() --
+    // current RCON password into the ini, then PanelBridge delivery): this
     // route drives the container directly instead of going through
-    // managedContainer.runManagedLifecycle(), so it runs the same before-
-    // launch step itself -- the container start IS the launch. Never throws
-    // and is bounded to 15 s, so it can't block the action.
+    // managedContainer.runManagedLifecycle(), so it runs the same step
+    // itself -- the container start IS the launch. Never throws, so it
+    // can't block the action.
     if (req.params.action === "start" || req.params.action === "restart") {
-      await runBeforeLaunchHook(server);
+      await prepareForLaunch(server, { container: true });
     }
     const result = await dockerClient.runManagedAction(req.params.id, req.params.action);
     if (!result.success) {

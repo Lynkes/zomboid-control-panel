@@ -135,6 +135,7 @@
   "USER_SELF_ROLE_CHANGE_REFUSED": "Du kannst deine eigene Rolle nicht ändern. Bitte stattdessen einen anderen Administrator darum.",
   "ROLE_GRANT_EXCEEDS_CALLER_CAPABILITIES": "Kann keine Rolle zuweisen, die {{detail}} gewährt, ohne dies selbst zu besitzen.",
   "SERVER_START_REMOTE_REFUSED": "Ein externer Server kann nicht gestartet werden. Externe Server werden extern verwaltet — verwende RCON zur Interaktion.",
+  "SERVER_START_SCRIPT_MISSING": "Das Startskript {{script}} fehlt im Installationsordner dieses Servers. Das Panel schreibt es vor jedem Start aus den Servereinstellungen, konnte das diesmal aber nicht — prüfe, ob der Installationsordner existiert und das Panel darin schreiben darf (den genauen Grund findest du im Panel-Protokoll), und starte den Server dann erneut. Das Panel weicht nicht auf {{fallback}} aus: Dieses Skript startet statt dieses Servers die Standardwelt „servertest“ von Project Zomboid und kann bei der Abfrage eines neuen Admin-Passworts stehen bleiben.",
   "SERVER_FORCE_STOP_REMOTE_REFUSED": "Ein externer Server kann nicht zwangsgestoppt werden. Der Prozess wird nicht von diesem Panel verwaltet.",
   "SERVER_RESTART_REMOTE_REFUSED": "Ein externer Server kann nicht neu gestartet werden. Der Prozess wird nicht von diesem Panel verwaltet.",
   "SERVER_STOP_RCON_NOT_CONNECTED": "RCON nicht verbunden. Der Server kann nicht sauber gestoppt werden.",

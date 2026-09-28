@@ -139,7 +139,21 @@ function quoteShellLiteral(value) {
 // -- the same "correct on the machine that generated it, refused by the
 // machine that has to run it" defect already fixed once in this file for
 // WorkingDirectory= (see plainSystemdValue's comment).
-function resolveLaunchTarget(server, fileExists = fs.existsSync) {
+//
+// GH #167: a directory install always launches the server's own
+// start-server_<name>.sh, whether or not it exists when the template is
+// generated. This used to be `fileExists(generated) ? generated :
+// start-server.sh`, baked into the unit once: a template downloaded before
+// the first Start (an existing install added through Servers > Add writes
+// no script) ran the stock start-server.sh on every start, boot auto-start
+// included -- no -servername or -cachedir, so the default "servertest"
+// world, whose admin-password prompt dies on the unit's /dev/null stdin and
+// Restart=on-failure turns into a restart loop. The panel writes the named
+// script before every start it performs (lifecycleCoordinator's
+// prepareForLaunch()) into this same folder, and ServerManager refuses to
+// call systemctl/rc-service start or restart while it is still missing
+// (_assertNamedStartupScriptPresent()).
+function resolveLaunchTarget(server) {
   if (server?.startCommand) {
     throw new Error(
       "Managed lifecycle services do not accept a custom start command. Configure a .sh launcher path instead.",
@@ -161,15 +175,12 @@ function resolveLaunchTarget(server, fileExists = fs.existsSync) {
   }
 
   const serverName = assertPlainValue(server?.serverName, "Server name");
-  const generated = path.posix.join(
-    configuredPath,
-    `start-server_${serverName}.sh`,
-  );
   return {
     workingDirectory: configuredPath,
-    launcherPath: fileExists(generated)
-      ? generated
-      : path.posix.join(configuredPath, "start-server.sh"),
+    launcherPath: path.posix.join(
+      configuredPath,
+      `start-server_${serverName}.sh`,
+    ),
   };
 }
 
@@ -186,7 +197,7 @@ export function buildLifecycleTemplate(server, provider, options = {}) {
   if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(serviceUser)) {
     throw new Error("Service user contains unsupported characters");
   }
-  const launch = resolveLaunchTarget(server, options.fileExists);
+  const launch = resolveLaunchTarget(server);
   const description = `Project Zomboid server ${String(
     server.name || server.serverName,
   ).replace(/[\r\n]/g, " ")}`;

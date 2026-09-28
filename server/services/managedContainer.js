@@ -13,7 +13,7 @@
  * owns the lifecycle action and performs the Docker half.
  */
 import { getActiveServer, getServer } from "../database/init.js";
-import { runBeforeLaunchHook } from "./lifecycleCoordinator.js";
+import { prepareForLaunch } from "./lifecycleCoordinator.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("ManagedContainer");
@@ -217,15 +217,19 @@ export async function runManagedLifecycle(
       };
     }
 
-    // PanelBridge delivery (lifecycleCoordinator.setBeforeLaunchHook): the
+    // The before-launch step (lifecycleCoordinator.prepareForLaunch()): the
     // container start IS the launch for a Docker-managed server, so this is
-    // the last moment a bridge file or ini change can reach it. The record
-    // lookup is inside the same never-blocks guarantee as the hook itself.
+    // the last moment an ini change (the server's current RCON password) or
+    // a bridge file can reach it. Callers used to refresh RCON only after
+    // this function returned -- after `docker start`/`docker restart` had
+    // already booted the game against the old ini. The image owns the launch
+    // command, so no script is written. The record lookup is inside the same
+    // never-blocks guarantee as the step itself.
     if (action === "start" || action === "restart") {
       const target = await Promise.resolve()
         .then(() => (serverId ? getServer(serverId) : getActiveServer()))
         .catch(() => null);
-      await runBeforeLaunchHook(target);
+      await prepareForLaunch(target, { container: true });
     }
 
     const result = await dockerClient.runManagedAction(current.ref, action);

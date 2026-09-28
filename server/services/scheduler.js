@@ -13,10 +13,7 @@ import {
 } from "./lifecycleCoordinator.js";
 import { createBackupIfChanged } from "../utils/configBackup.js";
 import { resolveServerPhase } from "../utils/serverStatus.js";
-import {
-  candidateIniPaths,
-  refreshLaunchTargetBeforeStart,
-} from "../routes/server.js";
+import { candidateIniPaths } from "../routes/server.js";
 import {
   getScheduledTasks,
   updateTaskLastRun,
@@ -1808,15 +1805,14 @@ export class Scheduler {
         // provider. A managed container must never fall through to the native
         // JVM path: that would create a second server outside Docker.
         // files are already static -- same coverage as the main branch
-        // below, see _backupConfigBeforeRestart()'s own comment. Also
-        // refresh the launch target first, same as the manual /start route
-        // does, so this branch doesn't reintroduce the stale-script defect
-        // just because it takes a different path than the main one below --
-        // see refreshLaunchTargetBeforeStart()'s own comment.
+        // below, see _backupConfigBeforeRestart()'s own comment. The launch
+        // target (RCON in the ini, the generated script) is refreshed by
+        // both start calls below themselves, the same way as for the
+        // dashboard's Start -- see lifecycleCoordinator.prepareForLaunch().
         log.info(
           "Auto-restart triggered but server was not running - starting server",
         );
-        const restartTarget = await this._backupConfigBeforeRestart(pinnedServerId);
+        await this._backupConfigBeforeRestart(pinnedServerId);
         const managedStart = await runManagedLifecycle("start", {
           serverId: pinnedServerId,
         });
@@ -1824,9 +1820,6 @@ export class Scheduler {
         if (managedStart.handled) {
           started = managedStart;
         } else {
-          await refreshLaunchTargetBeforeStart(restartTarget, {
-            managedHandled: false,
-          });
           started = await serverManager.startServer({
             serverId: pinnedServerId,
           });
@@ -2167,17 +2160,14 @@ export class Scheduler {
       // started yet), on both the managed-container and directly-spawned
       // paths below, so this runs unconditionally regardless of which one
       // this restart takes.
-      const restartTarget = await this._backupConfigBeforeRestart(pinnedServerId);
+      await this._backupConfigBeforeRestart(pinnedServerId);
 
-      // Refresh RCON config and the launch script against current settings,
-      // same as the manual /start route -- see
-      // refreshLaunchTargetBeforeStart()'s own comment. RCON always runs
-      // (matches the route); script regen is skipped for a managed
-      // container the same way the route skips it, since Docker owns the
-      // launch command there.
-      await refreshLaunchTargetBeforeStart(restartTarget, {
-        managedHandled: managed.handled,
-      });
+      // No launch-target refresh here: serverManager.startServer() below
+      // rewrites RCON in the ini and the launch script from current
+      // settings itself, and for a managed container runManagedLifecycle()
+      // above already wrote the ini BEFORE `docker restart` -- see
+      // lifecycleCoordinator.prepareForLaunch(). This used to run here,
+      // after the container had already restarted on the old ini.
 
       // Set flag to prevent RCON auto-reconnect from interfering during startup
       // Use setServerStarting which has a 5-minute failsafe timeout

@@ -156,6 +156,37 @@ describe("scheduler:action_result socket emission", () => {
     });
   });
 
+  // GH #167: same forwarding as POST /server/restart -- see
+  // serverRestartActionResultSocket.test.js.
+  it("POST /restart-now forwards SERVER_START_SCRIPT_MISSING's code and params with the failure", async () => {
+    const { namedStartupScriptMissingError } = await import("../services/serverManager.js");
+    const refusal = namedStartupScriptMissingError({
+      script: "StartServer_Restored.bat",
+      folder: "D:\\PZ",
+      fallback: "StartServer64.bat",
+    });
+    const emit = vi.fn();
+    const performRestart = vi.fn().mockRejectedValue(refusal);
+
+    await getHandler("/restart-now", "post")(
+      {
+        user: { role: "automation_and_control" },
+        body: {},
+        app: { get: (key) => (key === "scheduler" ? { performRestart } : key === "io" ? { emit } : null) },
+      },
+      createResponse(),
+    );
+    await flushMicrotasks();
+
+    expect(emit).toHaveBeenCalledWith("scheduler:action_result", {
+      kind: "restart",
+      success: false,
+      message: refusal.message,
+      code: "SERVER_START_SCRIPT_MISSING",
+      params: { script: "StartServer_Restored.bat", fallback: "StartServer64.bat" },
+    });
+  });
+
   // bug-hunt-2026-08-26 backlog, dispatched 2026-08-27 (Jim's ranked #2):
   // the operator could type a custom restart-warning time above the
   // server's 60-minute cap, and the immediate response never said the

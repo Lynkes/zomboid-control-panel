@@ -34,7 +34,6 @@ describe("linuxServiceLifecycle systemd account bootstrap (linger)", () => {
     const template = buildLifecycleTemplate(server, "systemd", {
       serviceUser: "pzuser",
       homeDirectory: "/home/pzuser",
-      fileExists: () => false,
     });
 
     const lingerIndex = template.commands.findIndex((c) =>

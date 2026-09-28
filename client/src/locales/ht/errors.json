@@ -135,6 +135,7 @@
   "USER_SELF_ROLE_CHANGE_REFUSED": "Ou pa ka chanje pwòp wòl pa ou. Mande yon lòt administratè fè l pito.",
   "ROLE_GRANT_EXCEEDS_CALLER_CAPABILITIES": "Pa ka bay yon wòl ki akòde {{detail}} si ou pa gen kapasite sa a ou menm.",
   "SERVER_START_REMOTE_REFUSED": "Pa ka demare yon sèvè aleka. Sèvè aleka jere soti deyò — itilize RCON pou entèraji.",
+  "SERVER_START_SCRIPT_MISSING": "Script demaraj {{script}} la manke nan dosye enstalasyon sèvè sa a. Panèl la ekri l apati paramèt sèvè a anvan chak demaraj, men li pa t kapab fè l fwa sa a — tcheke si dosye enstalasyon an egziste epi si panèl la ka ekri ladan l (jounal panèl la bay rezon egzak la), epi demare l ankò. Panèl la pa p itilize {{fallback}} nan plas li: script sa a demare mond pa defo “servertest” Project Zomboid la olye sèvè sa a, epi li ka rete kanpe sou yon demann pou yon nouvo modpas administratè.",
   "SERVER_FORCE_STOP_REMOTE_REFUSED": "Pa ka fòse sispann yon sèvè aleka. Pwosesis la pa jere pa panèl sa a.",
   "SERVER_RESTART_REMOTE_REFUSED": "Pa ka redemare yon sèvè aleka. Pwosesis la pa jere pa panèl sa a.",
   "SERVER_STOP_RCON_NOT_CONNECTED": "RCON pa konekte. Pa ka sispann sèvè a san danje.",
