@@ -36,6 +36,9 @@ function deliveryDeps(req) {
     serverManager: req.app?.get?.("serverManager"),
     rconService: req.app?.get?.("rconService"),
     modChecker: req.app?.get?.("modChecker"),
+    // A Docker server's start time (see resolveGameStartMs()); undefined
+    // falls back to managedContainer.js's shared client.
+    dockerClient: req.app?.get?.("dockerClient"),
     bridge,
   };
 }

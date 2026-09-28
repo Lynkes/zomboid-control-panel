@@ -79,6 +79,8 @@ import {
 } from "../utils/bridgeIni.js";
 import { resolveObservedServerRunning } from "../utils/serverStatus.js";
 import { resolveProvider } from "../utils/serverStatusModel.js";
+import { isPlausibleStartMs } from "../utils/processStartTime.js";
+import { resolveDockerHostSignal } from "./managedContainer.js";
 import { isPidAlive } from "../utils/pidLiveness.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { LIFECYCLE_IN_PROGRESS_CODE } from "./lifecycleCoordinator.js";
@@ -443,10 +445,45 @@ function startTimeMs(serverManager) {
   return Number.isFinite(time) ? time : null;
 }
 
-// "Has the game started since the switch?" Either the panel itself saw a
-// start after the switch, or the bridge reports a different startedAt than
-// it did at switch time -- a bridge value against a bridge value, so no two
-// clocks are compared.
+// When the running game started, in epoch ms, or null when unknown -- what
+// the three start-time comparisons below (restartedSinceSwitch, the
+// previous-run heartbeat, the Workshop waiting grace) measure against; all
+// three use it only while the server runs.
+//
+// For a native server that is serverManager.startTime (see
+// PREVIOUS_RUN_SLACK_MS). A Docker server's never lands there: its starts
+// go through the container (runManagedLifecycle, no launch record), and the
+// process scan behind resolveStartTime() can't see a process in another
+// container. The container's own State.StartedAt, from the same inspect the
+// Dashboard's uptime reads (runningContainerSignal()), is that start as
+// long as PZ runs as the container's main process; it is only asked for
+// while the server runs. An image that relaunches PZ inside a container
+// that stays up gives an older time, which only makes the comparisons fall
+// back to the bridge's own startedAt and the switch time. Without it, a
+// Docker restart long after a switch measured the waiting grace from the
+// switch and showed "Not loaded from the Workshop" through the new run's
+// world load, and the previous run's heartbeat went unrecognised.
+async function resolveGameStartMs(server, deps, serverRunning) {
+  const provider = resolveProvider(server);
+  if (provider !== "docker-local" && provider !== "docker-managed") {
+    return startTimeMs(deps?.serverManager);
+  }
+  if (serverRunning !== true) return null;
+  try {
+    const signal = await resolveDockerHostSignal(server, deps?.dockerClient);
+    if (signal?.scanFailed || !signal?.running || !signal.startedAt) return null;
+    const ms = Date.parse(signal.startedAt);
+    return isPlausibleStartMs(ms) ? ms : null;
+  } catch (error) {
+    log.debug(`Could not read the container's start time: ${error.message}`);
+    return null;
+  }
+}
+
+// "Has the game started since the switch?" Either the game's start time
+// (resolveGameStartMs()) is after the switch, or the bridge reports a
+// different startedAt than it did at switch time -- a bridge value against
+// a bridge value, so no two clocks are compared.
 //
 // That baseline only exists on the record of the profile whose bridge was
 // read at switch time (see applyDeliverySwitch). A sibling on the same game
@@ -457,10 +494,9 @@ function startTimeMs(serverManager) {
 // its startedAt and the switch time share one clock and can be compared
 // directly. A remote host's clock can't be trusted against the panel's; it
 // keeps the plain rule.
-function computeRestartedSinceSwitch(switchRecord, serverRunning, serverManager, live, isRemote) {
+function computeRestartedSinceSwitch(switchRecord, serverRunning, startedAt, live, isRemote) {
   if (!switchRecord) return null;
   const switchedAt = Date.parse(switchRecord.at);
-  const startedAt = startTimeMs(serverManager);
   if (serverRunning === true && startedAt !== null && Number.isFinite(switchedAt) && startedAt > switchedAt) {
     return true;
   }
@@ -474,7 +510,8 @@ function computeRestartedSinceSwitch(switchRecord, serverRunning, serverManager,
 // Slack for the one clock comparison below: serverManager.startTime is the
 // OS's start time for the game process (resolveStartTime()) or, until a
 // status check has asked the OS, the moment the panel launched it, which can
-// land a moment after the real start. A new run's bridge reports in far
+// land a moment after the real start. (A Docker server's is its container's
+// start, which comes before the game's.) A new run's bridge reports in far
 // later than that (the world has to load first), so a few seconds cost
 // nothing.
 const PREVIOUS_RUN_SLACK_MS = 5_000;
@@ -506,7 +543,7 @@ function heartbeatFromPreviousRun(ctx, restartedSinceSwitch) {
     return true;
   }
   if (ctx.server.isRemote) return false;
-  const started = startTimeMs(ctx.deps?.serverManager);
+  const started = ctx.gameStartedAtMs;
   return ctx.serverRunning === true && started !== null && live.startedAt < started - PREVIOUS_RUN_SLACK_MS;
 }
 
@@ -544,6 +581,7 @@ async function buildContext(server, deps = {}) {
   const modStatus = readModStatus(deps.bridge);
   const live = toLive(modStatus);
   const serverRunning = await resolveServerRunning(deps);
+  const gameStartedAtMs = await resolveGameStartMs(fresh, deps, serverRunning);
   const iniPath = access === "automatic" ? resolveBridgeIniPath(fresh) : null;
   const iniText = iniPath ? readIniTextSafe(iniPath) : null;
   const sharedWith = group
@@ -563,6 +601,7 @@ async function buildContext(server, deps = {}) {
     modStatus,
     live,
     serverRunning,
+    gameStartedAtMs,
     iniPath,
     iniText,
     sharedWith,
@@ -707,7 +746,7 @@ function deriveState(ctx, { restartedSinceSwitch, lastStartFailure }) {
   if (current) return "workshop-not-loaded";
   if (serverRunning === false) return "workshop-stopped";
   const switchedAt = Date.parse(ctx.switchRecord?.at ?? "");
-  const baseline = Math.max(startTimeMs(ctx.deps?.serverManager) ?? 0, Number.isFinite(switchedAt) ? switchedAt : 0);
+  const baseline = Math.max(ctx.gameStartedAtMs ?? 0, Number.isFinite(switchedAt) ? switchedAt : 0);
   return serverRunning === true && Date.now() - baseline < WAITING_GRACE_MS
     ? "workshop-waiting"
     : "workshop-not-loaded";
@@ -718,7 +757,7 @@ async function statusFromContext(ctx) {
   const restartedSinceSwitch = computeRestartedSinceSwitch(
     ctx.switchRecord,
     serverRunning,
-    ctx.deps?.serverManager,
+    ctx.gameStartedAtMs,
     live,
     server.isRemote === true,
   );

@@ -35,12 +35,23 @@ const { _resetWorkshopReleaseCacheForTests } = await import("../services/bridgeW
 let root;
 let files;
 
-function deps({ modStatus = null, startTime = null, modChecker = {} } = {}) {
+function deps({ modStatus = null, startTime = null, modChecker = {}, dockerClient } = {}) {
   return {
     serverManager: { startTime },
     rconService: { connected: false },
     modChecker,
     bridge: { getStatus: () => ({ modStatus }) },
+    ...(dockerClient ? { dockerClient } : {}),
+  };
+}
+
+// A Docker client whose managed container is running and started at
+// `startedAt` (an ISO string, or null for an inspect with no start time).
+function fakeDockerClient(startedAt) {
+  return {
+    enabled: true,
+    available: true,
+    inspectManagedContainer: vi.fn(async () => ({ State: { Running: true, StartedAt: startedAt } })),
   };
 }
 
@@ -326,6 +337,56 @@ describe("states: Steam Workshop", () => {
       line: "LOG  : General , 2> Failed to connect to Steam servers",
     });
     expect(status.switchAvailability.toLocal.available).toBe(true);
+  });
+
+  // Docker servers: serverManager.startTime is never set (starts go through
+  // the container, and the process scan can't see PZ in another container),
+  // so the container's own State.StartedAt stands in for the game's start.
+  describe("Docker: the container's start time", () => {
+    const docker = (record = {}) => switchedToWorkshop({ dockerContainerName: "pz" }, record);
+    const tenSecondsAgo = () => new Date(Date.now() - 10 * 1000).toISOString();
+
+    it("a restart long after the switch is waiting through the world load, not restart-needed or not-loaded", async () => {
+      runningState.value = true;
+      const dockerClient = fakeDockerClient(tenSecondsAgo());
+      const status = await statusFor(docker({ at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString() }), {
+        dockerClient,
+      });
+      expect(status).toMatchObject({ state: "workshop-waiting", restartedSinceSwitch: true });
+      expect(dockerClient.inspectManagedContainer).toHaveBeenCalledWith("pz");
+    });
+
+    it("recognises the previous run's heartbeat against the container's start", async () => {
+      runningState.value = true;
+      const status = await statusFor(docker({ bridgeStartedAt: null }), {
+        modStatus: { alive: true, startedAt: Date.now() - 20 * 60 * 1000, delivery: { method: "loose" } },
+        dockerClient: fakeDockerClient(tenSecondsAgo()),
+      });
+      expect(status.state).toBe("workshop-waiting");
+
+      const reported = await statusFor(docker({ bridgeStartedAt: null }), {
+        modStatus: { alive: true, startedAt: Date.now() - 2 * 1000, delivery: { method: "workshop", workshopId: WS_ID } },
+        dockerClient: fakeDockerClient(tenSecondsAgo()),
+      });
+      expect(reported.state).toBe("workshop-confirmed");
+    });
+
+    it("never takes serverManager.startTime for a container, and keeps the old rules without a container start", async () => {
+      runningState.value = true;
+      const status = await statusFor(docker(), {
+        startTime: new Date(),
+        dockerClient: fakeDockerClient(null),
+      });
+      expect(status).toMatchObject({ state: "workshop-restart-needed", restartedSinceSwitch: false });
+    });
+
+    it("doesn't ask Docker while the server is stopped", async () => {
+      runningState.value = false;
+      const dockerClient = fakeDockerClient(tenSecondsAgo());
+      const status = await statusFor(docker(), { dockerClient });
+      expect(status.state).toBe("workshop-restart-needed");
+      expect(dockerClient.inspectManagedContainer).not.toHaveBeenCalled();
+    });
   });
 
   it("steamReportsUnavailable and modAutoRestart come from modChecker", async () => {
