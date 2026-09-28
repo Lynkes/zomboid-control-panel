@@ -14,6 +14,7 @@ import {
 } from "../../scripts/workshop/publish.mjs";
 import { writeBridgeVersionLock } from "../../scripts/check-bridge-version.mjs";
 import { BRIDGE_FILES, REPO_ROOT, readRepoText } from "../../scripts/workshop/lib.mjs";
+import { escapeRegExp } from "../utils/regex.js";
 
 // scripts/workshop/publish.mjs (spec §8.9). steamcmd is never run here: the
 // spawn is injected. The properties that matter most: no password ever passes
@@ -496,7 +497,7 @@ describe("workshop publish: preconditions", () => {
     const steamcmd = fakeSteamcmd();
     const refused = await run(repo, ["--steam-user", "maint"], { spawn: steamcmd.spawn });
     expect(refused.code).toBe(1);
-    expect(refused.err).toMatch(new RegExp(`PanelBridge ${VERSION.replace(/\./g, "\\.")} is already published`));
+    expect(refused.err).toMatch(new RegExp(`PanelBridge ${escapeRegExp(VERSION)} is already published`));
     expect(steamcmd.calls).toHaveLength(0);
     const forced = await run(repo, ["--steam-user", "maint", "--force"], { spawn: steamcmd.spawn });
     expect(forced.code).toBe(0);
@@ -540,7 +541,7 @@ describe("workshop publish: preconditions", () => {
     expect(allowed.err).toMatch(
       new RegExp(
         "WARNING: Workshop item 3712345678 now holds unreleased code, but pz-mod/workshop/published\\.json records it as " +
-          `${VERSION.replace(/\./g, "\\.")}, so release\\.ps1 won't ask you to publish again\\. Publish from the next tagged ` +
+          `${escapeRegExp(VERSION)}, so release\\.ps1 won't ask you to publish again\\. Publish from the next tagged ` +
           "release even if these changes are reverted \\(with --force if that release keeps",
       ),
     );

@@ -43,9 +43,11 @@ function workshopRecord(extra = {}) {
 function snapshotTree(dir) {
   const out = {};
   const walk = (current) => {
-    for (const name of fs.readdirSync(current)) {
-      const full = path.join(current, name);
-      if (fs.statSync(full).isDirectory()) walk(full);
+    // The entry type comes from the directory listing itself, so no separate
+    // stat of the path precedes the read.
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) walk(full);
       else out[full] = fs.readFileSync(full).toString("base64");
     }
   };
