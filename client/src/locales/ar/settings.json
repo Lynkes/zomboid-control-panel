@@ -461,6 +461,7 @@
       "fileNotReadable": "{{filename}} غير قابل للقراءة: {{error}}",
       "statusFileMissing": "ملف الحالة مفقود. شغّل خادم اللعبة مع تفعيل PanelBridge.",
       "statusFileStale": "ملف الحالة قديم ({{age}}) — هل خادم PZ قيد التشغيل؟",
+      "serverExited": "توقف خادم اللعبة. سيعيد PanelBridge الاتصال عند تشغيل الخادم من جديد.",
       "statusFileMetadataFailed": "تعذّرت قراءة بيانات ملف الحالة الوصفية: {{error}}",
       "healthy": "يبدو اتصال ملف الجسر سليمًا."
     },

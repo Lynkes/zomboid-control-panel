@@ -205,7 +205,10 @@ describe("buildBridgeSignal", () => {
     ).toBe("active");
   });
 
-  it("reports offline when an authoritative host has confirmed the process gone, whatever the heartbeat says", () => {
+  it("reports offline when an authoritative host has confirmed the process gone and only the idle tolerance still counts the heartbeat", () => {
+    const idleStretched = { configured: true, running: true, modConnected: true, heartbeatAgeMs: 120_000, heartbeatFreshMs: 45_000 };
+    expect(buildBridgeSignal({ ...idleStretched, hostConfirmedStopped: true }).status).toBe("offline");
+    // No age to go on: the host's confirmed answer wins.
     expect(
       buildBridgeSignal({ configured: true, running: true, modConnected: true, hostConfirmedStopped: true })
         .status,
@@ -213,6 +216,25 @@ describe("buildBridgeSignal", () => {
     expect(
       buildBridgeSignal({ configured: false, hostConfirmedStopped: true }).status,
     ).toBe("not-installed");
+    // The idle tolerance itself is untouched while the host is not saying stopped.
+    expect(buildBridgeSignal(idleStretched).status).toBe("active");
+  });
+
+  // A mod that wrote status.json seconds ago is alive now. The completed
+  // scan that says "stopped" beside it is the one that is wrong -- it could
+  // not attribute this server's JVM (ffd8aaf3's wrapper case) -- and
+  // Settings > Bridge and the Dashboard both read that mod as connected.
+  it("keeps a heartbeat written within the normal freshness window active even when the host says stopped", () => {
+    expect(
+      buildBridgeSignal({
+        configured: true,
+        running: true,
+        modConnected: true,
+        heartbeatAgeMs: 3_000,
+        heartbeatFreshMs: 45_000,
+        hostConfirmedStopped: true,
+      }).status,
+    ).toBe("active");
   });
 
   it("reports offline when configured but not fully connected", () => {
@@ -357,9 +379,17 @@ describe("isHostSignalAuthoritative", () => {
 // minutes. PanelBridge's liveness is only status.json's age (5 minutes of
 // tolerance when the last write said 0 players), so the exited server's last
 // heartbeat outlived it; the card and the Dashboard offer Stop while any
-// signal is up. A confirmed-stopped authoritative host now wins.
+// signal is up. A confirmed-stopped authoritative host now wins over a
+// heartbeat that only the idle tolerance still counts.
 describe("composeServerStatus -- a heartbeat cannot outlive its process", () => {
-  const staleHeartbeat = { configured: true, running: true, modConnected: true };
+  // Two minutes old, still "connected" through the 0-player idle tolerance.
+  const staleHeartbeat = {
+    configured: true,
+    running: true,
+    modConnected: true,
+    heartbeatAgeMs: 120_000,
+    heartbeatFreshMs: 45_000,
+  };
 
   it("reports PanelBridge offline when a completed native scan confirms the process gone", () => {
     const result = composeServerStatus({
@@ -418,6 +448,24 @@ describe("composeServerStatus -- a heartbeat cannot outlive its process", () => 
       bridge: staleHeartbeat,
     });
 
+    expect(result.bridge.status).toBe("active");
+  });
+
+  // The completed scan cannot attribute a JVM some wrappers launch
+  // (ffd8aaf3), so it reads "stopped" beside a server that is up, its mod
+  // writing every 3s. The Stop button stays through RCON either way; the
+  // badge must not call a mod that just wrote "Down" when Settings > Bridge
+  // and the Dashboard read it connected.
+  it("keeps PanelBridge active beside a stopped host while the mod's heartbeat is seconds old", () => {
+    const result = composeServerStatus({
+      server: { isRemote: false },
+      isRunning: false,
+      scanFailed: false,
+      rcon: { connected: true, host: "127.0.0.1", port: 27015 },
+      bridge: { ...staleHeartbeat, heartbeatAgeMs: 2_000 },
+    });
+
+    expect(result.host.status).toBe("stopped");
     expect(result.bridge.status).toBe("active");
   });
 

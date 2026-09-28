@@ -583,7 +583,13 @@ class PanelBridge extends EventEmitter {
         const exitedServerWrite =
           this.exitedServerStatusMtimeMs !== null && stats.mtimeMs === this.exitedServerStatusMtimeMs;
         checks.statusFresh = !exitedServerWrite && ageMs < diagStaleMs;
-        if (!checks.statusFresh) {
+        if (exitedServerWrite) {
+          // Its own message rather than statusFileStale's: seconds after a
+          // stop that one read "Status file is stale (2s old) -- is the PZ
+          // server running?", an age too young for "stale" and a question
+          // the panel already knows the answer to.
+          pushIssue('serverExited', 'The game server has stopped. PanelBridge reconnects when the server starts again.');
+        } else if (!checks.statusFresh) {
           const age = formatAge(ageMs);
           pushIssue('statusFileStale', `Status file is stale (${age} old) — is the PZ server running?`, { age });
         }

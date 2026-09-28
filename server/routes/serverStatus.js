@@ -88,6 +88,12 @@ router.get("/active/status", async (req, res) => {
         configured: !!panelBridge.bridgePath,
         running: !!panelBridge.isRunning,
         modConnected: panelBridge.isModConnected ? panelBridge.isModConnected() : false,
+        // How old the mod's last status.json write is, against the normal
+        // (not idle-stretched) freshness window: once the host confirms the
+        // process gone, only a heartbeat inside that window still counts --
+        // see buildBridgeSignal.
+        heartbeatAgeMs: panelBridge.modStatus?.age ?? null,
+        heartbeatFreshMs: panelBridge.config?.statusStaleMs ?? null,
       },
     });
 

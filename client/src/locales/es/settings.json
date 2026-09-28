@@ -451,6 +451,7 @@
       "fileNotReadable": "No se puede leer {{filename}}: {{error}}",
       "statusFileMissing": "Falta el archivo de estado. Inicia el servidor del juego con PanelBridge habilitado.",
       "statusFileStale": "El archivo de estado está desactualizado ({{age}}) — ¿está en ejecución el servidor de PZ?",
+      "serverExited": "El servidor de juego se ha detenido. PanelBridge se reconectará cuando el servidor vuelva a iniciarse.",
       "statusFileMetadataFailed": "No se pudieron leer los metadatos del archivo de estado: {{error}}",
       "healthy": "La conexión del archivo del bridge parece saludable."
     },

@@ -6,7 +6,13 @@ vi.mock("../database/init.js", () => ({
   getActiveServer,
 }));
 
-const fakeBridge = { bridgePath: null, isRunning: false, isModConnected: () => false };
+const fakeBridge = {
+  bridgePath: null,
+  isRunning: false,
+  isModConnected: () => false,
+  modStatus: null,
+  config: { statusStaleMs: 45000 },
+};
 vi.mock("../services/panelBridge.js", () => ({ default: fakeBridge }));
 
 const resolveDockerHostSignal = vi.fn(async () => ({ running: false, scanFailed: true }));
@@ -46,6 +52,7 @@ describe("GET /api/servers/active/status", () => {
     fakeBridge.bridgePath = null;
     fakeBridge.isRunning = false;
     fakeBridge.isModConnected = () => false;
+    fakeBridge.modStatus = null;
   });
 
   it("returns 404 when no server is configured", async () => {
@@ -221,11 +228,13 @@ describe("GET /api/servers/active/status", () => {
   // age, tolerated for 5 minutes when the last write said 0 players, so it
   // outlived the process it lives in; the card offers Stop while any signal
   // is up. A completed scan that finds no process is the authority here.
-  it("reports the bridge offline once a completed scan confirms the process gone, even while the mod's last heartbeat is still fresh", async () => {
+  it("reports the bridge offline once a completed scan confirms the process gone, while only the idle tolerance still counts the mod's last heartbeat", async () => {
     getActiveServer.mockResolvedValue({ id: 1, isRemote: false });
     fakeBridge.bridgePath = "C:\\PZServer_Data\\Lua\\panelbridge\\MAZE";
     fakeBridge.isRunning = true;
-    fakeBridge.isModConnected = () => true; // stale heartbeat, still inside the idle window
+    // Two minutes old, 0 players: still "connected" through the 5-minute idle window.
+    fakeBridge.isModConnected = () => true;
+    fakeBridge.modStatus = { alive: true, age: 120000, playerCount: 0 };
     const response = createResponse();
 
     await getStatusHandler()(
@@ -263,6 +272,7 @@ describe("GET /api/servers/active/status", () => {
     fakeBridge.bridgePath = "/home/pz/Zomboid/Lua/panelbridge/MAZE";
     fakeBridge.isRunning = true;
     fakeBridge.isModConnected = () => true;
+    fakeBridge.modStatus = { alive: true, age: 120000, playerCount: 0 };
     const response = createResponse();
 
     await getStatusHandler()(
@@ -285,6 +295,39 @@ describe("GET /api/servers/active/status", () => {
       expect.objectContaining({
         host: expect.objectContaining({ status: "stopped" }),
         bridge: expect.objectContaining({ status: "offline" }),
+      }),
+    );
+  });
+
+  // The other side of that rule: a completed scan that cannot attribute a
+  // wrapper-launched JVM (ffd8aaf3) says "stopped" beside a server whose mod
+  // is still writing every 3s. Settings > Bridge and the Dashboard read that
+  // mod connected, so the card's badge has to as well -- the route must hand
+  // the model the heartbeat's age for it to tell the two cases apart.
+  it("keeps the bridge active beside a stopped host while the mod's heartbeat is seconds old", async () => {
+    getActiveServer.mockResolvedValue({ id: 1, isRemote: false });
+    fakeBridge.bridgePath = "/data/panelbridge";
+    fakeBridge.isRunning = true;
+    fakeBridge.isModConnected = () => true;
+    fakeBridge.modStatus = { alive: true, age: 2000, playerCount: 3 };
+    const response = createResponse();
+
+    await getStatusHandler()(
+      {
+        app: fakeApp({
+          rconService: {
+            getConfig: () => ({ connected: true, host: "127.0.0.1", port: 27015 }),
+            connecting: false,
+          },
+        }),
+      },
+      response,
+    );
+
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        host: expect.objectContaining({ status: "stopped" }),
+        bridge: expect.objectContaining({ status: "active" }),
       }),
     );
   });

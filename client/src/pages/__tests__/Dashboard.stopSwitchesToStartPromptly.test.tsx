@@ -33,6 +33,12 @@ vi.mock('@/contexts/AuthContext', () => ({
   }),
 }))
 
+const toastSpy = vi.hoisted(() => vi.fn())
+vi.mock('@/components/ui/use-toast', () => ({
+  useToast: () => ({ toast: toastSpy, dismiss: vi.fn(), toasts: [] }),
+  toast: toastSpy,
+}))
+
 vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
   return {
@@ -224,8 +230,10 @@ describe('Dashboard.tsx: Start replaces Stop within seconds of the server stoppi
   // accepted, and the composed status from before the Stop, both still say
   // running. Clearing `loading` before the post-Stop refresh landed put
   // Stop, Force stop and Restart back on screen, enabled, on that stale
-  // answer -- a second Stop click waiting to happen.
-  it('keeps Stop, Force stop and Restart disabled until the post-Stop refresh has landed', async () => {
+  // answer -- a second Stop click waiting to happen. The "Server stopped"
+  // toast waits for the same refresh: the confirm dialog stays up until
+  // it lands, and the toast should not announce the stop beside it.
+  it('keeps Stop, Force stop and Restart disabled, and holds the toast, until the post-Stop refresh has landed', async () => {
     setUp()
     stop.mockResolvedValue({ success: true, confirmed: false } as never)
     renderDashboard()
@@ -253,6 +261,7 @@ describe('Dashboard.tsx: Start replaces Stop within seconds of the server stoppi
     expect(within(header).getByRole('button', { name: /^stop$/i, hidden: true })).toBeDisabled()
     expect(within(header).getByRole('button', { name: /^force stop$/i, hidden: true })).toBeDisabled()
     expect(within(header).getByRole('button', { name: /^restart$/i, hidden: true })).toBeDisabled()
+    expect(toastSpy).not.toHaveBeenCalled()
 
     await act(async () => {
       resolvePlain({
@@ -266,5 +275,9 @@ describe('Dashboard.tsx: Start replaces Stop within seconds of the server stoppi
     const start = await within(await statusHeader()).findByRole('button', { name: /^start$/i }, PROMPT)
     await waitFor(() => expect(start).toBeEnabled())
     expect(within(await statusHeader()).queryByRole('button', { name: /^stop$/i })).toBeNull()
+    expect(toastSpy).toHaveBeenCalledTimes(1)
+    expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: 'Server stopped', variant: 'success' }))
+    // The dialog closed together with the toast.
+    expect(screen.queryByRole('button', { name: 'Stop server', hidden: true })).toBeNull()
   })
 })

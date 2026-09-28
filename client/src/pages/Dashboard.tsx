@@ -944,6 +944,26 @@ export default function Dashboard() {
           action === 'Start server',
         )
       }
+      // waitForServerState's own onStatus callback writes into the bulk
+      // list's shape (id/running/pid/stateUnknown), not this page's richer
+      // singular ServerStatus (uptime, memory, ...) -- fetchStatus() here
+      // refreshes the real display state once, after the wait, instead of
+      // live-writing a shape mismatch during it.
+      if (isLifecycleAction && mountedRef.current) {
+        // Start vs Stop reads `online`, which comes from composedStatus
+        // whenever it exists -- refreshing only the plain status left the
+        // button on the pre-action answer until the next 15s poll. Awaited,
+        // not fired off: the plain status fetched right after the request
+        // was accepted still says running, so letting `loading` clear first
+        // re-enabled Stop/Force Stop/Restart on that stale answer for a
+        // second or two (Servers.tsx's inline refreshAfterInlineAction
+        // awaits for the same reason). And awaited before the toast below:
+        // the Stop/Force Stop confirm dialog stays open until this function
+        // returns, and both fetches run a fresh process scan (~1.5s on
+        // Windows), so toasting first said "Server stopped" beside a dialog
+        // that was still busy.
+        await Promise.allSettled([fetchStatus(), fetchComposedStatus()])
+      }
       // A stuck disabled button is worse than a premature success claim --
       // an operator can recover from a wrong label by clicking again, not
       // from a dead control without a reload. On timeout (confirmed===false)
@@ -988,27 +1008,8 @@ export default function Dashboard() {
         const honestlyUnconfirmed = action === 'Start server' && confirmed === false
         toast({ title: copy.title, description: copy.description, variant: honestlyUnconfirmed ? 'default' as const : 'success' as const })
       }
-      // waitForServerState's own onStatus callback writes into the bulk
-      // list's shape (id/running/pid/stateUnknown), not this page's richer
-      // singular ServerStatus (uptime, memory, ...) -- fetchStatus() here
-      // (unchanged from every non-lifecycle action's existing call) refreshes
-      // the real display state once, after the wait, instead of live-writing
-      // a shape mismatch during it.
-      if (mountedRef.current) {
-        if (isLifecycleAction) {
-          // Start vs Stop reads `online`, which comes from composedStatus
-          // whenever it exists -- refreshing only the plain status left the
-          // button on the pre-action answer until the next 15s poll. Awaited
-          // before `loading` clears (same as Servers.tsx's inline
-          // refreshAfterInlineAction): the plain status fetched right after
-          // the request was accepted still says running, so clearing first
-          // re-enabled Stop/Force Stop/Restart on that stale answer for a
-          // second or two after the "Server stopped" toast.
-          await Promise.allSettled([fetchStatus(), fetchComposedStatus()])
-        } else {
-          fetchStatus()
-        }
-      }
+      // Every other action refreshes after its toast, as it always has.
+      if (!isLifecycleAction && mountedRef.current) fetchStatus()
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),

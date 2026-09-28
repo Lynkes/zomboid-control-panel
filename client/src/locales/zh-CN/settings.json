@@ -451,6 +451,7 @@
       "fileNotReadable": "{{filename}} 不可读：{{error}}",
       "statusFileMissing": "状态文件缺失。请启用 PanelBridge 并启动游戏服务器。",
       "statusFileStale": "状态文件已过期（{{age}}前）— PZ 服务器是否正在运行？",
+      "serverExited": "游戏服务器已停止。服务器再次启动后，PanelBridge 会重新连接。",
       "statusFileMetadataFailed": "无法读取状态文件的元数据：{{error}}",
       "healthy": "桥接文件连接看起来正常。"
     },

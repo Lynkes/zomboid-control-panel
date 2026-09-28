@@ -399,6 +399,7 @@
       "fileNotReadable": "{{filename}} pa ka li: {{error}}",
       "statusFileMissing": "Fichye estati a manke. Demare sèvè jwèt la ak PanelBridge aktive.",
       "statusFileStale": "Fichye estati a demode ({{age}}) — èske sèvè PZ a ap kouri?",
+      "serverExited": "Sèvè jwèt la sispann. PanelBridge ap rekonekte lè sèvè a demare ankò.",
       "statusFileMetadataFailed": "Pa t ka li metadone fichye estati a: {{error}}",
       "healthy": "Koneksyon fichye bridge la sanble an sante."
     },

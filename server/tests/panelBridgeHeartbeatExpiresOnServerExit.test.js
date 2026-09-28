@@ -97,7 +97,13 @@ describe("PanelBridge.markServerExited -- a heartbeat cannot outlive its server"
     expect(diagnostics.healthy).toBe(false);
     expect(diagnostics.canSendCommands).toBe(false);
     expect(diagnostics.checks.statusFresh).toBe(false);
-    expect(diagnostics.summary.key).toBe("statusFileStale");
+    // Says what happened, not "Status file is stale (2s old)" -- an age too
+    // young for the word, and a question the panel already has the answer to.
+    expect(diagnostics.summary).toEqual({
+      key: "serverExited",
+      text: "The game server has stopped. PanelBridge reconnects when the server starts again.",
+    });
+    expect(diagnostics.issues.map((issue) => issue.key)).not.toContain("statusFileStale");
 
     // And healthy again once a started server writes.
     writeStatus(tmpDir, { ageMs: 0 });

@@ -129,6 +129,36 @@ describe("resolveObservedServerRunning -- split-container / cross-container RCON
     expect(await resolveObservedServerRunning(serverManager, { connected: false })).toBe(true);
   });
 
+  // The unit's answer only outvotes RCON and PanelBridge when it is a
+  // settled one. `rc-service status` exits 4 while OpenRC is still stopping
+  // the service -- the JVM, its RCON listener and the mod can all still be
+  // up -- and that used to read as a confirmed stop, so the watchdog
+  // announced "stopped" (Discord, stop reason, PanelBridge expired) before
+  // the process had exited. Wired through the real status() rather than a
+  // hand-shaped { scanFailed } so the exit-code mapping itself is covered.
+  it("keeps a managed OpenRC unit that is still stopping (exit 4) running while RCON and PanelBridge are still up", async () => {
+    const { LinuxServiceLifecycle } = await import("../services/linuxServiceLifecycle.js");
+    const server = { id: "s1", lifecycleProvider: "openrc" };
+    getActiveServer.mockResolvedValue(server);
+    const lifecycle = new LinuxServiceLifecycle(server, "openrc", {
+      platform: "linux",
+      containerized: false,
+      fileExists: () => true,
+      readFile: () => "X-Zomboid-Panel-Server-ID: s1",
+      execFile: async () => ({ code: 4, stdout: "", stderr: " * status: stopping" }),
+    });
+    // What getServerProcessDetails()'s managed branch returns.
+    const serverManager = {
+      getServerProcessDetails: vi.fn(async () => {
+        const status = await lifecycle.status();
+        return { running: status.running, scanFailed: Boolean(status.scanFailed), provider: "openrc" };
+      }),
+    };
+    fakeBridge.isModConnected.mockReturnValue(true);
+
+    expect(await resolveObservedServerRunning(serverManager, { connected: true })).toBe(true);
+  });
+
   it("reports RUNNING for a remote-sftp server via RCON alone (no local process to scan)", async () => {
     getActiveServer.mockResolvedValue({ id: "s1", isRemote: true });
     const serverManager = fakeServerManager({ running: true, scanFailed: false });

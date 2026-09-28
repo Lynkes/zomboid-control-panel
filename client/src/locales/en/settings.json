@@ -399,6 +399,7 @@
       "fileNotReadable": "{{filename}} is not readable: {{error}}",
       "statusFileMissing": "Status file is missing. Start the game server with PanelBridge enabled.",
       "statusFileStale": "Status file is stale ({{age}} old) — is the PZ server running?",
+      "serverExited": "The game server has stopped. PanelBridge reconnects when the server starts again.",
       "statusFileMetadataFailed": "Could not read status file metadata: {{error}}",
       "healthy": "Bridge file connection looks healthy."
     },

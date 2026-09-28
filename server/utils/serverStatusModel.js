@@ -52,10 +52,13 @@ const MANAGED_LIFECYCLE_PROVIDERS = ["systemd", "openrc"];
  * authoritative as a completed scan: the panel's systemd unit is
  * Type=simple with KillMode=control-group, so "inactive"/"failed" means
  * every process in it (the JVM, and the PanelBridge mod inside it) is gone
- * (OpenRC's supervise-daemon likewise takes its child down on stop), and
- * linuxServiceLifecycle.js's status() already downgrades every state it
- * cannot vouch for (unregistered unit, failed ownership check, "unknown",
- * "deactivating") to scanFailed. Leaving managed units out entirely kept the
+ * (OpenRC's supervise-daemon likewise takes its child down on stop, so its
+ * "stopped" is as final), and linuxServiceLifecycle.js's status() downgrades
+ * every state it cannot vouch for to scanFailed: an unregistered unit, a
+ * failed ownership check, systemd's "deactivating" and "unknown", and every
+ * `rc-service status` answer but started/stopped/starting -- OpenRC's
+ * "stopping" included, which inspect() maps onto "deactivating" because the
+ * JVM is still shutting down then. Leaving managed units out entirely kept the
  * reported bug alive there: after a Stop that systemctl had confirmed, an
  * exited server's PanelBridge heartbeat still outvoted the unit for up to
  * five minutes. Only when a systemd/openrc server's answer came from the
@@ -169,18 +172,41 @@ export function buildServerSignal({ connected, connecting, host, port } = {}) {
 }
 
 // hostConfirmedStopped: an authoritative host signal (isHostSignalAuthoritative)
-// has just confirmed the process/container gone. PanelBridge's own liveness
-// is nothing more than the age of the mod's status.json (panelBridge.js's
-// checkModStatus: 45s, or 5 minutes when the last write reported 0 players,
-// statusStaleIdleMs) -- so the last heartbeat an exited server wrote kept
-// this signal "active" for up to five minutes after every quiet stop. Both
-// the server card and the Dashboard offer Stop while ANY signal is live, so
-// they kept showing Stop right beside "Process Down" (2026-09 Discord
-// report, Windows native). The mod runs inside that process: once the
-// process is confirmed gone, its heartbeat cannot be live.
-export function buildBridgeSignal({ configured, running, modConnected, hostConfirmedStopped = false } = {}) {
+// has confirmed the process/container gone. PanelBridge's own liveness is
+// nothing more than the age of the mod's status.json (panelBridge.js's
+// checkModStatus: under statusStaleMs, 45s, stretched to statusStaleIdleMs,
+// 5 minutes, when the last write reported 0 players) -- so the last
+// heartbeat an exited server wrote kept this signal "active" for up to five
+// minutes after every quiet stop. Both the server card and the Dashboard
+// offer Stop while ANY signal is live, so they kept showing Stop right
+// beside "Process Down" (2026-09 Discord report, Windows native).
+//
+// Every stop the watchdog or the panel sees happen expires that heartbeat
+// outright (PanelBridge.markServerExited(), ahead of the server:status push
+// every page refetches on), so modConnected is already false for those.
+// What is left for this gate is an exit nothing saw as a transition: a
+// completed scan that cannot attribute a live server to this record (a
+// wrapper-launched JVM -- ffd8aaf3) calls it stopped the whole time, so
+// when that server later quits on its own there is no running -> stopped
+// edge to hook. With the host confirming the process gone, only the idle
+// stretch is withdrawn: a heartbeat written within heartbeatFreshMs
+// (statusStaleMs; the mod writes every 3s) is a mod that is alive now, and
+// reporting it offline would put this badge at odds with Settings > Bridge
+// and the Dashboard's PanelBridge line, which read modConnected directly.
+// An age the caller could not supply counts as not fresh.
+export function buildBridgeSignal({
+  configured,
+  running,
+  modConnected,
+  heartbeatAgeMs = null,
+  heartbeatFreshMs = null,
+  hostConfirmedStopped = false,
+} = {}) {
   if (!configured) return { status: "not-installed", label: "PanelBridge", detail: null };
-  const status = running && modConnected && !hostConfirmedStopped ? "active" : "offline";
+  const heartbeatFresh =
+    Number.isFinite(heartbeatAgeMs) && Number.isFinite(heartbeatFreshMs) && heartbeatAgeMs < heartbeatFreshMs;
+  const outlivedProcess = hostConfirmedStopped && !heartbeatFresh;
+  const status = running && modConnected && !outlivedProcess ? "active" : "offline";
   return { status, label: "PanelBridge", detail: null };
 }
 
@@ -218,10 +244,8 @@ export function composeServerStatus({ server, isRunning, scanFailed, rcon, bridg
   // authoritative -- an "unknown" host (failed scan, unresolved container,
   // remote) and a systemd/openrc server answered by the plain scan keep
   // whatever the bridge says, the same cases the watchdog still lets
-  // RCON/PanelBridge decide. The flip side, accepted with the watchdog's
-  // own verdict: a live PZ process the completed scan cannot attribute to
-  // this server reads PanelBridge offline here even while its mod is still
-  // writing -- the panel already calls that host stopped everywhere else.
+  // RCON/PanelBridge decide. Even then a heartbeat the mod wrote within
+  // the normal freshness window still counts (see buildBridgeSignal).
   const hostConfirmedStopped =
     host.status === "stopped" &&
     isHostSignalAuthoritative(provider, server?.lifecycleProvider, hostAnsweredBy);
