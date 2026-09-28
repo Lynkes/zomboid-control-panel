@@ -187,9 +187,7 @@
     "uploadedDesc": "已存储为 {{name}}。使用「恢复」应用该备份。",
     "uploadFailedTitle": "上传失败",
     "uploadFailedFallback": "备份上传失败",
-    "restoredTitle": "恢复点已还原",
     "restoredDesc": "已在 {{seconds}} 秒内回滚至 {{name}}",
-    "restoreFailedTitle": "恢复失败",
     "restoreFailedFallback": "备份恢复失败",
     "snapshotUnavailableTitle": "快照不可用",
     "snapshotUnavailableFallback": "无法读取备份快照",
@@ -230,9 +228,10 @@
     "successDetail": "耗时 {{seconds}} 秒。被替换的世界已先保存为安全备份——就是下方列表中最新的那一个。准备好后即可启动服务器。",
     "successDetailNoSafetyBackup": "耗时 {{seconds}} 秒。此次恢复启动时未创建安全备份，被替换的世界没有保留。准备好后即可启动服务器。",
     "failedTitle": "恢复失败",
+    "notStartedProxy": "面板前面的代理或隧道拒绝了此请求（HTTP {{status}}）。面板没有这次恢复的记录，因此恢复并未开始。",
     "failedNextStep": "除非上面的原因另有说明，当前世界保持原样。请先解决问题，然后重试。",
     "unknownTitle": "无法确认恢复的结果",
-    "unknownDetail": "面板没有这次恢复如何结束的记录——连接已断开，或面板已重启，因此恢复可能未完成，甚至可能未开始。启动服务器之前，在「调试日志」的面板日志中查找「Restore completed」这一行；如果没有，请重新恢复。",
+    "unknownDetail": "页面无法从面板获取这次恢复的结果（连接中断时间过长，或面板已重启），因此恢复可能未完成，甚至可能未开始。启动服务器之前，请在「调试日志 › 日志」中查找「Restore completed」这一行（面板重启后，请查看其中磁盘上的日志文件），或请管理员代为查看。如果没有，请重新恢复。",
     "dismiss": "关闭",
     "dismissAria": "关闭恢复结果"
   }

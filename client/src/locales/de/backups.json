@@ -187,9 +187,7 @@
     "uploadedDesc": "Gespeichert als {{name}}. Verwende „Wiederherstellen“, um es anzuwenden.",
     "uploadFailedTitle": "Upload fehlgeschlagen",
     "uploadFailedFallback": "Backup konnte nicht hochgeladen werden",
-    "restoredTitle": "Wiederherstellungspunkt wiederhergestellt",
     "restoredDesc": "In {{seconds}}s auf {{name}} zurückgesetzt",
-    "restoreFailedTitle": "Wiederherstellung fehlgeschlagen",
     "restoreFailedFallback": "Backup konnte nicht wiederhergestellt werden",
     "snapshotUnavailableTitle": "Snapshot nicht verfügbar",
     "snapshotUnavailableFallback": "Backup-Snapshot konnte nicht gelesen werden",
@@ -230,9 +228,10 @@
     "successDetail": "Dauer: {{seconds}} s. Von der ersetzten Welt wurde vorher ein Sicherheits-Backup erstellt — es ist das neueste in der Liste unten. Starte den Server, wenn du so weit bist.",
     "successDetailNoSafetyBackup": "Dauer: {{seconds}} s. Die Wiederherstellung wurde ohne Sicherheits-Backup gestartet, die ersetzte Welt wurde also nicht aufbewahrt. Starte den Server, wenn du so weit bist.",
     "failedTitle": "Wiederherstellung fehlgeschlagen",
+    "notStartedProxy": "Ein Proxy oder Tunnel vor dem Panel hat die Anfrage abgelehnt (HTTP {{status}}). Das Panel hat keine Aufzeichnung dieser Wiederherstellung, sie wurde also nicht gestartet.",
     "failedNextStep": "Sofern der Grund oben nichts anderes sagt, ist die aktuelle Welt unverändert. Behebe die Ursache und versuche es erneut.",
     "unknownTitle": "Ausgang der Wiederherstellung unklar",
-    "unknownDetail": "Das Panel hat keine Aufzeichnung darüber, wie diese Wiederherstellung geendet hat — die Verbindung ist abgebrochen oder das Panel wurde neu gestartet. Vielleicht ist sie also nicht fertig geworden oder hat gar nicht erst begonnen. Suche vor dem Serverstart im Panel-Protokoll (Debug-Protokolle) nach einer Zeile „Restore completed“; fehlt sie, stelle das Backup erneut wieder her.",
+    "unknownDetail": "Die Seite konnte das Ergebnis dieser Wiederherstellung nicht vom Panel abrufen (die Verbindung war zu lange unterbrochen oder das Panel wurde neu gestartet). Vielleicht ist sie also nicht fertig geworden oder hat gar nicht erst begonnen. Suche vor dem Serverstart unter Debug-Protokolle › Protokolle nach einer Zeile „Restore completed“ (nach einem Neustart des Panels in den Protokolldateien auf der Festplatte dort) oder bitte einen Administrator darum. Fehlt sie, stelle das Backup erneut wieder her.",
     "dismiss": "Verwerfen",
     "dismissAria": "Ergebnis der Wiederherstellung verwerfen"
   }

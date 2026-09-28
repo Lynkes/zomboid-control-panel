@@ -1,4 +1,4 @@
-import { ApiError, backupApi, type RestoreOutcome } from '@/lib/api'
+import { ApiError, backupApi, type BackupStatus, type RestoreOutcome } from '@/lib/api'
 
 // GH#166: a restore's outcome used to live only in the response to the POST
 // that started it -- a request held open for the whole pre-restore backup,
@@ -15,8 +15,20 @@ import { ApiError, backupApi, type RestoreOutcome } from '@/lib/api'
 export const RESTORE_STATUS_POLL_MS = 5000
 
 // How long reading the outcome back may keep failing (the panel restarting
-// or unreachable) before the page stops waiting and says it couldn't tell.
+// or unreachable) before the page stops waiting and says it couldn't tell,
+// and how many failed reads in a row that also takes: a laptop that slept
+// through part of it is past the time on its first read after waking,
+// while its network is still coming back.
 const STATUS_UNREACHABLE_GIVE_UP_MS = 10 * 60 * 1000
+const STATUS_UNREACHABLE_GIVE_UP_READS = 3
+
+// How many reads in a row may show no restore running and none recorded as
+// this one before the page takes it as never started, or lost. An answer
+// lost early (a proxy's quick 502, a reset connection) can come back before
+// the panel has marked the restore running: the route first checks the
+// active server and scans for the game's process (up to 8 s on Windows,
+// 16 s elsewhere). Reads are RESTORE_STATUS_POLL_MS apart, so 5 span 20 s.
+const ABSENT_READS_BEFORE_UNKNOWN = 5
 
 // Thrown when neither the POST's response nor the status could say how the
 // restore ended: the panel restarted mid-restore (its record of the restore
@@ -26,6 +38,20 @@ export class RestoreOutcomeUnknownError extends Error {
   constructor() {
     super('The restore outcome could not be confirmed')
     this.name = 'RestoreOutcomeUnknownError'
+  }
+}
+
+// Thrown when something in front of the panel (a proxy, a tunnel) refused
+// the request with an error status of its own, and the status shows the
+// panel never ran this restore. That refusal's body is usually a whole HTML
+// error page, not a reason to put in front of an operator, so pages say it
+// in their own words, with the HTTP status the proxy gave.
+export class RestoreNotStartedError extends Error {
+  status: number
+  constructor(status: number) {
+    super('Something in front of the panel refused the restore request; the restore did not start')
+    this.name = 'RestoreNotStartedError'
+    this.status = status
   }
 }
 
@@ -80,21 +106,34 @@ function sleep(ms: number) {
 
 // Reads the outcome of restore `requestId` back from the status: waits while
 // a restore is still running, returns the outcome once the status records
-// it, and throws RestoreOutcomeUnknownError if no restore is running and the
-// last one recorded isn't this one (it never started, or the panel
-// restarted and lost it).
+// it, and throws RestoreOutcomeUnknownError once reads keep showing no
+// restore running and none recorded as this one (it never started, or the
+// panel restarted and lost it), or keep failing.
 export async function waitForRestoreOutcome(requestId: string): Promise<RestoreOutcome> {
   let unreachableSince: number | null = null
+  let failedReads = 0
+  let absentReads = 0
   for (;;) {
+    let status: BackupStatus | null = null
     try {
-      const status = await backupApi.getStatus()
+      status = await backupApi.getStatus()
+    } catch {
+      failedReads += 1
+      unreachableSince ??= Date.now()
+      if (
+        failedReads >= STATUS_UNREACHABLE_GIVE_UP_READS &&
+        Date.now() - unreachableSince >= STATUS_UNREACHABLE_GIVE_UP_MS
+      ) {
+        throw new RestoreOutcomeUnknownError()
+      }
+    }
+    if (status) {
+      failedReads = 0
       unreachableSince = null
       if (status.lastRestore?.id === requestId) return status.lastRestore
-      if (!status.restoreInProgress) throw new RestoreOutcomeUnknownError()
-    } catch (error) {
-      if (error instanceof RestoreOutcomeUnknownError) throw error
-      unreachableSince ??= Date.now()
-      if (Date.now() - unreachableSince >= STATUS_UNREACHABLE_GIVE_UP_MS) {
+      if (status.restoreInProgress) {
+        absentReads = 0
+      } else if (++absentReads >= ABSENT_READS_BEFORE_UNKNOWN) {
         throw new RestoreOutcomeUnknownError()
       }
     }
@@ -107,9 +146,15 @@ export async function waitForRestoreOutcome(requestId: string): Promise<RestoreO
 // panel answered it, otherwise the one read back from the status.
 // `onResponseLost` fires when the page switches to reading it back, so it
 // can say it's still waiting for an answer rather than still restoring.
-// Rejects with the panel's own error for a failed or refused restore (or a
-// proxy's refusal, when the status shows this restore never ran), or with
-// RestoreOutcomeUnknownError when nothing could say.
+// Rejects with the panel's own error for a failed or refused restore, with
+// RestoreNotStartedError when a proxy refused it and the status shows it
+// never ran, or with RestoreOutcomeUnknownError when nothing could say.
+//
+// It keeps reading the status after the page that called it is gone, on
+// purpose: the restore card tells the operator they may leave the page,
+// and the toast this ends with (the Toaster sits above every page) is then
+// the one place the outcome still reaches them. It stops when the restore
+// does, or once the panel has been unreachable for 10 minutes.
 export async function restoreBackupAndConfirm(
   name: string,
   requestId: string,
@@ -123,8 +168,13 @@ export async function restoreBackupAndConfirm(
     const kind = restoreFailureKind(error)
     if (kind === 'answered') throw error
     // A proxy refusing the request: when the panel has no trace of this
-    // restore, it never ran, and that refusal is the outcome after all.
-    if (kind === 'proxy-refusal' && !(await statusMayNameRestore(requestId))) throw error
+    // restore, it never ran, and that refusal is the outcome after all --
+    // as RestoreNotStartedError when it came with an error status (an error
+    // page, whose body is no reason to show); anything else (a 200 that
+    // isn't JSON) already carries a short message of api.ts's own.
+    if (kind === 'proxy-refusal' && !(await statusMayNameRestore(requestId))) {
+      throw typeof error.status === 'number' && error.status >= 400 ? new RestoreNotStartedError(error.status) : error
+    }
     onResponseLost?.()
     const outcome = await waitForRestoreOutcome(requestId)
     if (outcome.success) return { duration: outcome.duration }

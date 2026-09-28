@@ -109,6 +109,7 @@ import {
 } from "@/lib/api";
 import { getUserErrorMessage } from "@/lib/errorMessage";
 import {
+  RestoreNotStartedError,
   RestoreOutcomeUnknownError,
   newRestoreRequestId,
   restoreBackupAndConfirm,
@@ -1979,8 +1980,12 @@ export default function Settings() {
       }
       toast({
         title: t("toasts.restoreFailed.title"),
+        // A proxy's refusal: its error page is no reason to show -- the
+        // Backups page's own words for it.
         description:
-          getUserErrorMessage(error, t("toasts.restoreFailed.fallback")),
+          error instanceof RestoreNotStartedError
+            ? t("restoreResult.notStartedProxy", { ns: "backups", status: error.status })
+            : getUserErrorMessage(error, t("toasts.restoreFailed.fallback")),
         variant: "destructive",
       });
     } finally {

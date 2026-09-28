@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, backupApi, type BackupStatus } from '@/lib/api'
 import {
   RESTORE_STATUS_POLL_MS,
+  RestoreNotStartedError,
   RestoreOutcomeUnknownError,
   newRestoreRequestId,
   restoreBackupAndConfirm,
@@ -151,21 +152,73 @@ describe('restoreBackupAndConfirm', () => {
   it('on a proxy 5xx for a restore the panel has no record of, says it could not confirm rather than "failed"', async () => {
     // A 520 can mean the panel died mid-restore and came back without its
     // record -- not proof the world was left alone.
+    vi.useFakeTimers()
     restoreBackup.mockRejectedValue(proxyError(520))
     getStatus.mockResolvedValue(idle)
 
-    await expect(restoreBackupAndConfirm('world.zip', 'request-0001')).rejects.toBeInstanceOf(RestoreOutcomeUnknownError)
+    const pending = restoreBackupAndConfirm('world.zip', 'request-0001')
+    const settled = expect(pending).rejects.toBeInstanceOf(RestoreOutcomeUnknownError)
+    await vi.advanceTimersByTimeAsync(4 * RESTORE_STATUS_POLL_MS)
+    await settled
   })
 
-  it("rethrows a proxy's refusal when the panel has no trace of the restore -- it never ran", async () => {
-    const refusal = proxyError(403)
-    restoreBackup.mockRejectedValue(refusal)
+  it('follows a restore whose answer was lost before the panel had even marked it running', async () => {
+    // A proxy's quick 502 or a reset connection can come back while the
+    // route is still checking the active server and scanning for the game's
+    // process (seconds on Windows): the first reads show nothing running and
+    // no record of it -- and then it starts. Not "couldn't confirm".
+    vi.useFakeTimers()
+    restoreBackup.mockRejectedValue(proxyError(502, 'Bad Gateway'))
+    getStatus
+      .mockResolvedValueOnce(idle)
+      .mockResolvedValueOnce(idle)
+      .mockResolvedValueOnce({ ...idle, restoreInProgress: true, currentRestore: { id: 'request-0001', backupName: 'world.zip', startedAt: '', preRestoreBackup: true } })
+      .mockResolvedValueOnce({ ...idle, lastRestore: outcome('request-0001', true) })
+
+    const pending = restoreBackupAndConfirm('world.zip', 'request-0001')
+    await vi.advanceTimersByTimeAsync(3 * RESTORE_STATUS_POLL_MS)
+
+    await expect(pending).resolves.toEqual({ duration: 720 })
+    expect(getStatus).toHaveBeenCalledTimes(4)
+  })
+
+  it('takes a restore as never started or lost only once 5 reads in a row, 20 s end to end, show no trace of it', async () => {
+    vi.useFakeTimers()
+    restoreBackup.mockRejectedValue(timeout())
+    getStatus.mockResolvedValue(idle)
+    let rejected = false
+
+    const pending = restoreBackupAndConfirm('world.zip', 'request-0001')
+    pending.catch(() => { rejected = true })
+    await vi.advanceTimersByTimeAsync(4 * RESTORE_STATUS_POLL_MS - 1)
+    expect(rejected).toBe(false)
+    expect(getStatus).toHaveBeenCalledTimes(4)
+
+    const settled = expect(pending).rejects.toBeInstanceOf(RestoreOutcomeUnknownError)
+    await vi.advanceTimersByTimeAsync(1)
+    await settled
+    expect(getStatus).toHaveBeenCalledTimes(5)
+  })
+
+  it("says a proxy's refusal in its own words when the panel has no trace of the restore -- it never ran", async () => {
+    // The refusal's body is a whole HTML page: no reason to put on screen.
+    restoreBackup.mockRejectedValue(proxyError(403))
     getStatus.mockResolvedValue({ ...idle, lastRestore: outcome('someone-else-01', true) })
     const onResponseLost = vi.fn()
 
-    await expect(restoreBackupAndConfirm('world.zip', 'request-0001', { onResponseLost })).rejects.toBe(refusal)
+    const error = await restoreBackupAndConfirm('world.zip', 'request-0001', { onResponseLost }).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(RestoreNotStartedError)
+    expect((error as RestoreNotStartedError).status).toBe(403)
     expect(getStatus).toHaveBeenCalledTimes(1)
     expect(onResponseLost).not.toHaveBeenCalled()
+  })
+
+  it("rethrows a non-JSON 200 as it is when the panel has no trace of the restore -- its message is api.ts's own", async () => {
+    const invalid = new ApiError('The server returned an invalid response.', { status: 200, code: 'INVALID_RESPONSE' })
+    restoreBackup.mockRejectedValue(invalid)
+    getStatus.mockResolvedValue(idle)
+
+    await expect(restoreBackupAndConfirm('world.zip', 'request-0001')).rejects.toBe(invalid)
   })
 
   it("follows the restore anyway when a proxy's refusal came back for a restore the panel did run", async () => {
@@ -199,10 +252,14 @@ describe('restoreBackupAndConfirm', () => {
   })
 
   it("does not take another restore's outcome for its own", async () => {
+    vi.useFakeTimers()
     restoreBackup.mockRejectedValue(timeout())
     getStatus.mockResolvedValue({ ...idle, lastRestore: outcome('someone-else-01', true) })
 
-    await expect(restoreBackupAndConfirm('world.zip', 'request-0001')).rejects.toBeInstanceOf(RestoreOutcomeUnknownError)
+    const pending = restoreBackupAndConfirm('world.zip', 'request-0001')
+    const settled = expect(pending).rejects.toBeInstanceOf(RestoreOutcomeUnknownError)
+    await vi.advanceTimersByTimeAsync(4 * RESTORE_STATUS_POLL_MS)
+    await settled
   })
 
   it('keeps trying while the panel is unreachable, then gives up as "unknown" rather than "failed"', async () => {
@@ -215,5 +272,26 @@ describe('restoreBackupAndConfirm', () => {
     await vi.advanceTimersByTimeAsync(10 * 60 * 1000 + RESTORE_STATUS_POLL_MS)
     await settled
     expect(getStatus.mock.calls.length).toBeGreaterThan(100)
+  })
+
+  it("doesn't give up on the first failed read after a laptop wakes up past the give-up time", async () => {
+    // Asleep mid-restore: the clock jumps with no read in between, and the
+    // first read after waking fails while the network comes back.
+    vi.useFakeTimers()
+    restoreBackup.mockRejectedValue(timeout())
+    const offline = () => new ApiError('offline', { code: 'NETWORK_ERROR', isNetworkError: true })
+    getStatus
+      .mockRejectedValueOnce(offline())
+      .mockRejectedValueOnce(offline())
+      .mockResolvedValueOnce({ ...idle, lastRestore: outcome('request-0001', true) })
+
+    const pending = restoreBackupAndConfirm('world.zip', 'request-0001')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(getStatus).toHaveBeenCalledTimes(1)
+    vi.setSystemTime(Date.now() + 60 * 60 * 1000)
+    await vi.advanceTimersByTimeAsync(2 * RESTORE_STATUS_POLL_MS)
+
+    await expect(pending).resolves.toEqual({ duration: 720 })
+    expect(getStatus).toHaveBeenCalledTimes(3)
   })
 })

@@ -190,9 +190,7 @@
     "uploadedDesc": "Guardada como {{name}}. Usar «Restaurar» para aplicarla.",
     "uploadFailedTitle": "Error al subir",
     "uploadFailedFallback": "No se pudo subir la copia de seguridad",
-    "restoredTitle": "Punto de recuperación restaurado",
     "restoredDesc": "Se revirtió a {{name}} en {{seconds}} s",
-    "restoreFailedTitle": "Error al restaurar",
     "restoreFailedFallback": "No se pudo restaurar la copia de seguridad",
     "snapshotUnavailableTitle": "Instantánea no disponible",
     "snapshotUnavailableFallback": "No se pudo leer la instantánea de la copia de seguridad",
@@ -236,9 +234,10 @@
     "successDetail": "Tardó {{seconds}} s. El mundo reemplazado se guardó antes — esa copia de seguridad de emergencia es la más reciente de la lista de abajo. Inicia el servidor cuando quieras.",
     "successDetailNoSafetyBackup": "Tardó {{seconds}} s. Se inició sin copia de seguridad de emergencia, así que el mundo reemplazado no se conservó. Inicia el servidor cuando quieras.",
     "failedTitle": "Error al restaurar",
+    "notStartedProxy": "Un proxy o túnel delante del panel rechazó la solicitud (HTTP {{status}}). El panel no tiene constancia de esta restauración, así que no llegó a empezar.",
     "failedNextStep": "Salvo que el motivo de arriba diga lo contrario, el mundo actual quedó como estaba. Corrige la causa y vuelve a intentarlo.",
     "unknownTitle": "No se pudo confirmar cómo terminó la restauración",
-    "unknownDetail": "El panel no tiene constancia de cómo terminó esta restauración — se cortó la conexión o el panel se reinició, así que puede que no haya terminado, o ni siquiera empezado. Antes de iniciar el servidor, busca una línea «Restore completed» en el registro del panel (Registros de depuración); si no está, vuelve a restaurar.",
+    "unknownDetail": "La página no pudo obtener del panel el resultado de esta restauración (la conexión estuvo caída demasiado tiempo o el panel se reinició), así que puede que no haya terminado, o ni siquiera empezado. Antes de iniciar el servidor, busca una línea «Restore completed» en Registros de depuración › Registros (tras un reinicio del panel, en los archivos de registro en disco de esa pestaña), o pide a un administrador que lo haga. Si no está, vuelve a restaurar.",
     "dismiss": "Descartar",
     "dismissAria": "Descartar el resultado de la restauración"
   }

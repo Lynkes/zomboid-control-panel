@@ -50,6 +50,7 @@ import { cn } from '@/lib/utils'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import {
   RESTORE_STATUS_POLL_MS,
+  RestoreNotStartedError,
   RestoreOutcomeUnknownError,
   newRestoreRequestId,
   restoreBackupAndConfirm,
@@ -100,16 +101,18 @@ interface BackupProgress {
 // finished state, kept on screen until dismissed or another restore starts
 // -- a restore runs for minutes, and a toast alone is gone by the time the
 // operator looks back. 'unknown' is the honest answer when nothing could
-// say (see RestoreOutcomeUnknownError). `safetyBackup`: the replaced world
-// was backed up first -- always for this page's own restores, and for a
+// say (see RestoreOutcomeUnknownError); its `requestId` is this page's own
+// restore's, whose real outcome replaces it if the status records one
+// later (see fetchBackupStatus). `safetyBackup`: the replaced world was
+// backed up first -- always for this page's own restores, and for a
 // watched one only when the status says so.
 type RestoreResult =
   | { status: 'success'; backupName: string | null; seconds: number | null; safetyBackup: boolean }
   | { status: 'failed'; backupName: string | null; reason: string | null }
-  | { status: 'unknown'; backupName: string | null }
+  | { status: 'unknown'; backupName: string | null; requestId: string | null }
 
 function restoreResultFrom(outcome: RestoreOutcome | null, backupName: string | null): RestoreResult {
-  if (!outcome) return { status: 'unknown', backupName }
+  if (!outcome) return { status: 'unknown', backupName, requestId: null }
   if (outcome.success) {
     return {
       status: 'success',
@@ -210,6 +213,9 @@ export default function Backups() {
   // A restore this page didn't start, seen running in the status: which one,
   // so its end can be read off lastRestore.
   const watchedRestoreRef = useRef<{ id: string | null; backupName: string | null } | null>(null)
+  // This page's own restore that ended "couldn't confirm": the panel was
+  // unreachable too long, and may well record how it ended once it's back.
+  const unknownRestoreIdRef = useRef<string | null>(null)
   // Status reads overlap (socket events, the restore re-check, a refresh);
   // an answer older than one already applied is dropped -- a read taken
   // mid-restore landing after the restore ended would put it back on
@@ -385,6 +391,9 @@ export default function Backups() {
           }
           if ((id === null || id !== ownRestoreIdRef.current) && watchedRestoreRef.current?.id !== id) {
             watchedRestoreRef.current = { id, backupName: running?.backupName ?? null }
+            // The card now follows this restore -- this page's own
+            // "couldn't confirm" one among them, still running after all.
+            unknownRestoreIdRef.current = null
             setRestoreResult(null)
           }
         } else if (watchedRestoreRef.current) {
@@ -394,6 +403,19 @@ export default function Backups() {
           const outcome = last && (watched.id === null || last.id === watched.id) ? last : null
           setRestoreResult(restoreResultFrom(outcome, watched.backupName))
           // Its safety backup is new in the list.
+          void fetchBackups()
+        } else if (unknownRestoreIdRef.current !== null && status.lastRestore?.id === unknownRestoreIdRef.current) {
+          // This page's own restore ended "couldn't confirm" because the
+          // panel stayed unreachable (a long network drop, a laptop asleep)
+          // -- and the panel, reachable again (a socket reconnect reads the
+          // status), has recorded how it ended after all: that's the answer.
+          const outcome = status.lastRestore
+          unknownRestoreIdRef.current = null
+          setRestoreResult((prev) => (
+            prev?.status === 'unknown' && prev.requestId === outcome.id
+              ? restoreResultFrom(outcome, prev.backupName)
+              : prev
+          ))
           void fetchBackups()
         }
       }
@@ -591,6 +613,7 @@ export default function Backups() {
       setDeleteOlderDialog(false)
       // A finished restore's result is about the server this page showed
       // until now.
+      unknownRestoreIdRef.current = null
       setRestoreResult(null)
       refreshAll().finally(() => setServerChangedSinceLoad(false))
     }
@@ -753,6 +776,7 @@ export default function Backups() {
     ownRestoreInFlightRef.current = true
     ownRestoreIdRef.current = requestId
     watchedRestoreRef.current = null
+    unknownRestoreIdRef.current = null
     setOwnRestoreId(requestId)
     setRestoreResult(null)
     setRestoreResponseLost(false)
@@ -766,29 +790,34 @@ export default function Backups() {
         onResponseLost: () => setRestoreResponseLost(true),
       })
       result = { status: 'success', backupName: name, seconds: duration, safetyBackup: true }
+      // The card's own words, so the toast and the card agree.
       toast({
-        title: t('toasts.restoredTitle'),
+        title: t('restoreResult.successTitle'),
         description: t('toasts.restoredDesc', { name, seconds: (duration || 0).toFixed(1) }),
         variant: 'success' as const,
       })
     } catch (error) {
       if (error instanceof RestoreOutcomeUnknownError) {
-        result = { status: 'unknown', backupName: name }
+        result = { status: 'unknown', backupName: name, requestId }
         // Unknown includes "the panel was unreachable too long" -- if this
         // restore turns out to be running still, the status must be free to
-        // show it (and block new actions) like any other.
+        // show it (and block new actions) like any other; if it turns out
+        // to have ended, its outcome replaces this (see fetchBackupStatus).
         ownRestoreIdRef.current = null
         setOwnRestoreId(null)
+        unknownRestoreIdRef.current = requestId
         toast({
           title: t('restoreResult.unknownTitle'),
           description: t('restoreResult.unknownDetail'),
           variant: 'warning',
         })
       } else {
-        const reason = getUserErrorMessage(error, t('toasts.restoreFailedFallback'))
+        const reason = error instanceof RestoreNotStartedError
+          ? t('restoreResult.notStartedProxy', { status: error.status })
+          : getUserErrorMessage(error, t('toasts.restoreFailedFallback'))
         result = { status: 'failed', backupName: name, reason }
         toast({
-          title: t('toasts.restoreFailedTitle'),
+          title: t('restoreResult.failedTitle'),
           description: reason,
           variant: 'destructive',
         })

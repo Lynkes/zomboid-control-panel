@@ -296,8 +296,39 @@ describe('Backups.tsx: the Restore card always reaches a finished state (GH#166)
     await act(async () => { await vi.advanceTimersByTimeAsync(RESTORE_STATUS_POLL_MS) })
 
     expect(await screen.findByText(en.restoreResult.successTitle)).toBeInTheDocument()
-    expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: en.toasts.restoredTitle }))
-    expect(toastSpy).not.toHaveBeenCalledWith(expect.objectContaining({ title: en.toasts.restoreFailedTitle }))
+    expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: en.restoreResult.successTitle }))
+    expect(toastSpy).not.toHaveBeenCalledWith(expect.objectContaining({ title: en.restoreResult.failedTitle }))
+  })
+
+  it('still tells the operator how a restore with a lost answer ended after they left the page', async () => {
+    // The card says they may leave; the toast (the Toaster sits above every
+    // page) is then the one place the outcome reaches them.
+    const { socket } = makeMockSocket()
+    setUp()
+    let serverSide: 'idle' | 'running' | 'done' = 'idle'
+    const requestIdSent = () => restoreBackup.mock.calls[0]?.[1]?.requestId ?? 'unknown'
+    getStatus.mockImplementation(async () => (
+      serverSide === 'running'
+        ? running(requestIdSent())
+        : serverSide === 'done'
+          ? ended({ id: requestIdSent(), duration: 700 })
+          : idleStatus
+    ))
+    restoreBackup.mockImplementation(async () => {
+      serverSide = 'running'
+      throw cloudflare524()
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    const { unmount } = renderBackups(socket)
+    await startRestoreFromTheRow()
+    expect(await screen.findByText(en.restoreProgress.responseLost)).toBeInTheDocument()
+    unmount()
+
+    serverSide = 'done'
+    await act(async () => { await vi.advanceTimersByTimeAsync(RESTORE_STATUS_POLL_MS) })
+
+    expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: en.restoreResult.successTitle }))
   })
 
   it("says it couldn't confirm the outcome -- not success, not failure -- when the panel lost the restore (it restarted mid-restore)", async () => {
@@ -310,14 +341,105 @@ describe('Backups.tsx: the Restore card always reaches a finished state (GH#166)
       isNetworkError: true,
       isRetryable: true,
     }))
+    vi.useFakeTimers({ shouldAdvanceTime: true })
 
     renderBackups(socket)
     await startRestoreFromTheRow()
+    // Not on the first read: a restore whose answer was lost early may not
+    // be marked running yet.
+    expect(await screen.findByText(en.restoreProgress.responseLost)).toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(4 * RESTORE_STATUS_POLL_MS) })
 
     expect(await screen.findByText(en.restoreResult.unknownTitle)).toBeInTheDocument()
     expect(screen.getByText(en.restoreResult.unknownDetail)).toBeInTheDocument()
     expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: en.restoreResult.unknownTitle, variant: 'warning' }))
-    expect(toastSpy).not.toHaveBeenCalledWith(expect.objectContaining({ title: en.toasts.restoredTitle }))
+    expect(toastSpy).not.toHaveBeenCalledWith(expect.objectContaining({ title: en.restoreResult.successTitle }))
+  })
+
+  it("replaces \"couldn't confirm\" with the real outcome once the panel, unreachable for too long, is back and has recorded it", async () => {
+    const { socket, fire } = makeMockSocket()
+    setUp()
+    const requestIdSent = () => restoreBackup.mock.calls[0]?.[1]?.requestId ?? 'unknown'
+    restoreBackup.mockImplementation(async () => {
+      // The answer is lost, and the panel with it: every status read fails
+      // from here on (a long network drop, a laptop asleep).
+      getStatus.mockRejectedValue(new ApiError('Unable to reach the server.', {
+        code: 'NETWORK_ERROR',
+        isNetworkError: true,
+        isRetryable: true,
+      }))
+      throw new ApiError('The request timed out. Check your connection and try again.', {
+        code: 'TIMEOUT',
+        isTimeout: true,
+        isNetworkError: true,
+        isRetryable: true,
+      })
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    renderBackups(socket)
+    await startRestoreFromTheRow()
+    expect(await screen.findByText(en.restoreProgress.responseLost)).toBeInTheDocument()
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(10 * 60 * 1000 + RESTORE_STATUS_POLL_MS) })
+    expect(await screen.findByText(en.restoreResult.unknownTitle)).toBeInTheDocument()
+
+    // The panel is back, the socket reconnects -- and the status has how
+    // this very restore ended.
+    getStatus.mockResolvedValue(ended({ id: requestIdSent(), duration: 640 }))
+    act(() => { fire('connect') })
+
+    expect(await screen.findByText(en.restoreResult.successTitle)).toBeInTheDocument()
+    expect(screen.getByText(fill(en.restoreResult.successDetail, { seconds: '640.0' }))).toBeInTheDocument()
+    expect(screen.queryByText(en.restoreResult.unknownTitle)).not.toBeInTheDocument()
+  })
+
+  it("keeps \"couldn't confirm\" when the restore the panel recorded since is another one", async () => {
+    const { socket, fire } = makeMockSocket()
+    setUp()
+    restoreBackup.mockImplementation(async () => {
+      getStatus.mockRejectedValue(new ApiError('Unable to reach the server.', {
+        code: 'NETWORK_ERROR',
+        isNetworkError: true,
+        isRetryable: true,
+      }))
+      throw new ApiError('The request timed out. Check your connection and try again.', {
+        code: 'TIMEOUT',
+        isTimeout: true,
+        isNetworkError: true,
+        isRetryable: true,
+      })
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    renderBackups(socket)
+    await startRestoreFromTheRow()
+    await act(async () => { await vi.advanceTimersByTimeAsync(10 * 60 * 1000 + RESTORE_STATUS_POLL_MS) })
+    expect(await screen.findByText(en.restoreResult.unknownTitle)).toBeInTheDocument()
+
+    getStatus.mockResolvedValue(ended({ id: 'someone-elses-restore', duration: 5 }))
+    const readsBefore = getStatus.mock.calls.length
+    act(() => { fire('connect') })
+    await waitFor(() => expect(getStatus.mock.calls.length).toBeGreaterThan(readsBefore))
+
+    expect(await screen.findByText(en.restoreResult.unknownTitle)).toBeInTheDocument()
+    expect(screen.queryByText(en.restoreResult.successTitle)).not.toBeInTheDocument()
+  })
+
+  it("a proxy's refusal (an HTML error page) of a restore that never started says so in a sentence, not the page's markup", async () => {
+    const { socket } = makeMockSocket()
+    setUp()
+    const body = '<!DOCTYPE html><html><head><title>403 Forbidden</title></head><body><h1>Forbidden</h1><hr><center>nginx</center></body></html>'
+    restoreBackup.mockRejectedValue(new ApiError(body, { status: 403, code: 'HTTP_403', data: body }))
+
+    renderBackups(socket)
+    await startRestoreFromTheRow()
+
+    const reason = fill(en.restoreResult.notStartedProxy, { status: '403' })
+    expect(await screen.findByText(en.restoreResult.failedTitle)).toBeInTheDocument()
+    expect(screen.getByText(reason)).toBeInTheDocument()
+    expect(screen.queryByText(/DOCTYPE|<html>/)).not.toBeInTheDocument()
+    expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: en.restoreResult.failedTitle, description: reason }))
   })
 
   it("a restore behind Cloudflare, whose request the tunnel gave up on (524), is followed to its real outcome -- not reported as failed", async () => {
@@ -352,7 +474,7 @@ describe('Backups.tsx: the Restore card always reaches a finished state (GH#166)
     expect(await screen.findByText(en.restoreResult.successTitle)).toBeInTheDocument()
     expect(screen.getByText(fill(en.restoreResult.successDetail, { seconds: '312.5' }))).toBeInTheDocument()
     expect(screen.queryByText(en.restoreResult.failedTitle)).not.toBeInTheDocument()
-    expect(toastSpy).not.toHaveBeenCalledWith(expect.objectContaining({ title: en.toasts.restoreFailedTitle }))
+    expect(toastSpy).not.toHaveBeenCalledWith(expect.objectContaining({ title: en.restoreResult.failedTitle }))
   })
 
   it("hands the card to the restore when a failure answer came back for a restore that is still running", async () => {
