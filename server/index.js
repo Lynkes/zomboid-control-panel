@@ -3604,13 +3604,14 @@ async function start() {
     // Initialize mod checker with scheduler, serverManager, and socket.io
     await modChecker.init(scheduler, serverManager, io);
 
-    // Start mod checker if workshop ACF file is found
-    if (modChecker.workshopAcfPath) {
-      modChecker.start();
-    } else {
+    // Start mod checker if workshop ACF file is found. Otherwise it starts
+    // by itself once one appears: the server writes its own on its first
+    // Workshop download (ModChecker.watchForWorkshopAcf()).
+    if (!modChecker.workshopAcfPath || !modChecker.start()) {
       log.info(
-        "Mod checker: Workshop ACF not found — configure server install path",
+        "Mod checker: Workshop ACF not found yet — it starts once the server has downloaded a Workshop item, or configure the server install path",
       );
+      modChecker.watchForWorkshopAcf();
     }
 
     // Initialize Discord bot

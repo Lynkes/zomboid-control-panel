@@ -581,16 +581,19 @@ describe("mod name resolution from disk", () => {
 });
 
 describe("workshop ACF candidate discovery", () => {
-  it("walks up from a nested startup script to the SteamCMD workshop path", () => {
-    const installScript = path.join(
-      "C:\\PZServer",
-      "steamapps",
-      "common",
-      "ProjectZomboid",
-      "StartServer64.bat",
+  // The server downloads into its own working folder's steamapps/workshop;
+  // the library's steamapps/workshop around a steamapps/common install is
+  // the Steam client's (workshopAcfSteamLibraryLayout.test.js).
+  it("resolves a nested startup script to the install's own workshop path", () => {
+    const install = path.join("C:\\PZServer", "steamapps", "common", "ProjectZomboid");
+    const candidates = getWorkshopAcfCandidates(
+      path.join(install, "StartServer64.bat"),
     );
 
-    expect(getWorkshopAcfCandidates(installScript)).toContain(
+    expect(candidates[0]).toBe(
+      path.join(install, "steamapps", "workshop", "appworkshop_108600.acf"),
+    );
+    expect(candidates).not.toContain(
       path.join("C:\\PZServer", "steamapps", "workshop", "appworkshop_108600.acf"),
     );
   });
@@ -614,17 +617,22 @@ describe("workshop checker lifecycle", () => {
     expect(modChecker.stop).not.toHaveBeenCalled();
   });
 
-  it("stops polling when the ACF path disappears", async () => {
+  it("stops polling when the ACF path disappears, and waits for one to appear", async () => {
     const modChecker = {
       findWorkshopAcfPath: vi.fn().mockResolvedValue(null),
       isRunning: true,
       start: vi.fn(),
       stop: vi.fn(),
+      watchForWorkshopAcf: vi.fn(),
     };
 
     await expect(refreshWorkshopChecker(modChecker)).resolves.toBeNull();
     expect(modChecker.start).not.toHaveBeenCalled();
     expect(modChecker.stop).toHaveBeenCalledOnce();
+    expect(modChecker.watchForWorkshopAcf).toHaveBeenCalledOnce();
+    expect(modChecker.stop.mock.invocationCallOrder[0]).toBeLessThan(
+      modChecker.watchForWorkshopAcf.mock.invocationCallOrder[0],
+    );
   });
 });
 

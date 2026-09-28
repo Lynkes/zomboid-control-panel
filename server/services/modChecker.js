@@ -34,42 +34,107 @@ export function minutesToCheckIntervalMs(minutes) {
   return value * 60 * 1000;
 }
 
+const WORKSHOP_ACF_NAME = "appworkshop_108600.acf";
+// How often a checker with no ACF to read looks for one again
+// (ModChecker.watchForWorkshopAcf()).
+export const WORKSHOP_ACF_WATCH_INTERVAL_MS = 60 * 1000;
+
+function isNamed(dir, name) {
+  return path.basename(dir).toLowerCase() === name;
+}
+
+// The app folder of a Steam library install (<library>/steamapps/common/<app>)
+// at or above `dir`, or null. Folder names compared ignoring case: older
+// Steam clients wrote SteamApps/.
+function steamLibraryAppFolder(dir) {
+  let current = dir;
+  for (;;) {
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    if (
+      isNamed(parent, "common") &&
+      isNamed(path.dirname(parent), "steamapps")
+    ) {
+      return current;
+    }
+    current = parent;
+  }
+}
+
+// True for <x>/steamapps/workshop/appworkshop_108600.acf when <x>/steamapps
+// is a Steam library (it holds common/): the Steam client's own download
+// folder -- the operator's player subscriptions -- or SteamCMD's, never the
+// dedicated server's.
+function isSteamLibraryWorkshopAcf(acfPath) {
+  const workshopDir = path.dirname(acfPath);
+  const steamappsDir = path.dirname(workshopDir);
+  return (
+    isNamed(workshopDir, "workshop") &&
+    isNamed(steamappsDir, "steamapps") &&
+    fs.existsSync(path.join(steamappsDir, "common"))
+  );
+}
+
+// Where appworkshop_108600.acf can be for a server installed at
+// `installPath` (a folder or its launch script), best first. The dedicated
+// server downloads Workshop items into <working folder>/steamapps/workshop,
+// and the panel launches it from its install folder, so that comes first.
+// For an install in a Steam library (<library>/steamapps/common/<app>),
+// nothing outside the app folder is listed: the library's own
+// steamapps/workshop is the Steam client's, and taking it reported the
+// operator's player subscriptions as the server's (live test, 42.21). The
+// rest are older guesses kept for other layouts: a configured path that is
+// itself a steamapps or workshop folder (the Mods page's folder picker
+// saves whatever folder was chosen), then parent folders, never past a
+// library app folder and never a Steam library's workshop folder.
 export function getWorkshopAcfCandidates(installPath) {
   if (typeof installPath !== "string" || !installPath.trim()) return [];
 
   const rawPath = installPath.trim();
   const baseRoot = path.normalize(rawPath);
-  const roots = [];
   const extension = path.extname(rawPath).toLowerCase();
-  let currentRoot = [".bat", ".cmd", ".exe", ".sh"].includes(extension)
+  let installRoot = [".bat", ".cmd", ".exe", ".sh"].includes(extension)
     ? path.dirname(baseRoot)
     : baseRoot;
-  for (let depth = 0; depth < 5; depth += 1) {
-    roots.push(currentRoot);
-    const parentRoot = path.dirname(currentRoot);
-    if (parentRoot === currentRoot) break;
-    currentRoot = parentRoot;
+  const fsRoot = path.parse(installRoot).root;
+  while (installRoot.length > fsRoot.length && /[\\/]$/.test(installRoot)) {
+    installRoot = installRoot.slice(0, -1);
   }
 
   const candidates = [];
   const seen = new Set();
-  const addCandidate = (candidate) => {
+  const addCandidate = (candidate, { own = false } = {}) => {
     const normalized = path.normalize(candidate);
-    if (!seen.has(normalized)) {
-      seen.add(normalized);
-      candidates.push(normalized);
-    }
+    if (seen.has(normalized)) return;
+    if (!own && isSteamLibraryWorkshopAcf(normalized)) return;
+    seen.add(normalized);
+    candidates.push(normalized);
   };
 
-  for (const root of roots) {
+  addCandidate(
+    path.join(installRoot, "steamapps", "workshop", WORKSHOP_ACF_NAME),
+    { own: true },
+  );
+  addCandidate(path.join(installRoot, "workshop", WORKSHOP_ACF_NAME), {
+    own: true,
+  });
+  addCandidate(path.join(installRoot, WORKSHOP_ACF_NAME), { own: true });
+
+  const appFolder = steamLibraryAppFolder(installRoot);
+  let currentRoot = installRoot;
+  for (let depth = 0; depth < 5; depth += 1) {
     addCandidate(
-      path.join(root, "steamapps", "workshop", "appworkshop_108600.acf"),
+      path.join(currentRoot, "steamapps", "workshop", WORKSHOP_ACF_NAME),
     );
-    addCandidate(path.join(root, "workshop", "appworkshop_108600.acf"));
-    addCandidate(path.join(root, "appworkshop_108600.acf"));
+    addCandidate(path.join(currentRoot, "workshop", WORKSHOP_ACF_NAME));
+    addCandidate(path.join(currentRoot, WORKSHOP_ACF_NAME));
+    if (currentRoot === appFolder) break;
     addCandidate(
-      path.join(root, "..", "steamapps", "workshop", "appworkshop_108600.acf"),
+      path.join(currentRoot, "..", "steamapps", "workshop", WORKSHOP_ACF_NAME),
     );
+    const parentRoot = path.dirname(currentRoot);
+    if (parentRoot === currentRoot) break;
+    currentRoot = parentRoot;
   }
 
   return candidates;
@@ -81,8 +146,9 @@ export async function refreshWorkshopChecker(modChecker) {
   const workshopAcfPath = await modChecker.findWorkshopAcfPath();
   if (workshopAcfPath) {
     if (!modChecker.isRunning) modChecker.start();
-  } else if (modChecker.isRunning) {
-    modChecker.stop();
+  } else {
+    if (modChecker.isRunning) modChecker.stop();
+    modChecker.watchForWorkshopAcf?.();
   }
   return workshopAcfPath;
 }
@@ -178,6 +244,8 @@ export class ModChecker extends EventEmitter {
     this.serverManager = null; // Will be set by init()
     this.io = null; // Socket.io instance for emitting events
     this.workshopAcfPath = null; // Path to appworkshop_108600.acf
+    this.workshopAcfLookups = 0; // findWorkshopAcfPath() calls, see checkForUpdates()
+    this.acfWatchInterval = null; // see watchForWorkshopAcf()
 
     // Track the last reported set of mods needing updates so we don't
     // re-emit the same news on every 5-minute poll. Without this, a stale
@@ -315,49 +383,111 @@ export class ModChecker extends EventEmitter {
 
   // Find the workshop ACF file path from server config
   async findWorkshopAcfPath() {
-    try {
-      this.workshopAcfPath = null;
+    this.workshopAcfLookups += 1;
+    const acfPath = await this.resolveWorkshopAcfPath();
+    this.useWorkshopAcfPath(acfPath);
+    return acfPath;
+  }
 
+  // Records the ACF path to read, logging only a change: checkForUpdates()
+  // resolves it again on every check.
+  useWorkshopAcfPath(acfPath) {
+    if (acfPath === this.workshopAcfPath) return;
+    if (acfPath) {
+      log.info(`Found workshop ACF at ${acfPath}`);
+    } else {
+      log.info(`Workshop ACF no longer found (was ${this.workshopAcfPath})`);
+    }
+    this.workshopAcfPath = acfPath;
+  }
+
+  // Where the active server's appworkshop_108600.acf is right now, or null.
+  // Reads the settings and the disk only; the callers decide what to keep.
+  async resolveWorkshopAcfPath() {
+    try {
       // Allow manual override from settings
       const manualPath = await getSetting("modWorkshopAcfPath");
-      if (manualPath && fs.existsSync(manualPath)) {
-        this.workshopAcfPath = manualPath;
-        log.info(`Using configured workshop ACF: ${manualPath}`);
-        return manualPath;
-      }
+      if (manualPath && fs.existsSync(manualPath)) return manualPath;
 
+      // The folder the server is launched from comes first -- the server
+      // downloads into its steamapps/workshop, and serverManager launches
+      // from serverPath || installPath -- then installPath, which is what
+      // the Mods page's folder picker saves.
       const activeServer = await getActiveServer();
-      let installPath = activeServer?.installPath;
+      let installPaths = [
+        ...new Set([activeServer?.serverPath, activeServer?.installPath].filter(Boolean)),
+      ];
 
-      if (!installPath) {
-        installPath = await getSetting("serverPath");
+      if (installPaths.length === 0) {
+        const settingPath = await getSetting("serverPath");
+        if (settingPath) installPaths = [settingPath];
       }
 
       // The all-in-one Docker image has a fixed server path before the
       // first panel server record is created.
-      if (!installPath) {
-        installPath = process.env.PZ_SERVER_PATH;
+      if (installPaths.length === 0 && process.env.PZ_SERVER_PATH) {
+        installPaths = [process.env.PZ_SERVER_PATH];
       }
 
-      if (!installPath) {
+      if (installPaths.length === 0) {
         log.debug("Server install path not configured");
         return null;
       }
 
-      for (const acfPath of getWorkshopAcfCandidates(installPath)) {
-        if (fs.existsSync(acfPath)) {
-          this.workshopAcfPath = acfPath;
-          log.info(`Found workshop ACF at ${acfPath}`);
-          return acfPath;
-        }
-      }
+      const acfPath = installPaths
+        .flatMap((installPath) => getWorkshopAcfCandidates(installPath))
+        .find((candidate) => fs.existsSync(candidate));
+      if (acfPath) return acfPath;
 
-      log.debug(`Workshop ACF not found for install path ${installPath}`);
+      log.debug(`Workshop ACF not found for install path ${installPaths.join(" or ")}`);
       return null;
     } catch (error) {
       log.warn(`Failed to find workshop ACF: ${error.message}`);
       return null;
     }
+  }
+
+  // The checker can't run without an ACF, and nothing else starts it once
+  // one appears: the dedicated server writes its own
+  // <install>/steamapps/workshop/appworkshop_108600.acf on its first
+  // Workshop download, usually on a start long after the panel booted --
+  // and for an install in a Steam library, the Steam client's ACF beside it
+  // no longer stands in meanwhile (getWorkshopAcfCandidates()). So while
+  // there is none, look again every minute and start as soon as there is.
+  // A settings read and a few existsSync calls: cheap enough to keep up on
+  // an install that never gets one (GOG, #148). start() and stop() end it.
+  watchForWorkshopAcf() {
+    if (this.acfWatchInterval || this.isRunning) return;
+    this.acfWatchInterval = setInterval(() => {
+      this.startWhenWorkshopAcfFound().catch((error) => {
+        log.debug(`Workshop ACF lookup failed: ${error.message}`);
+      });
+    }, WORKSHOP_ACF_WATCH_INTERVAL_MS);
+    this.acfWatchInterval.unref?.();
+  }
+
+  stopWatchingForWorkshopAcf() {
+    if (this.acfWatchInterval) {
+      clearInterval(this.acfWatchInterval);
+      this.acfWatchInterval = null;
+    }
+  }
+
+  // Starts the checker once the active server's ACF exists; true when it
+  // runs. A server switch or edit that lands during the lookup wins, as in
+  // checkForUpdates(): refreshWorkshopChecker() decides for the new server.
+  async startWhenWorkshopAcfFound() {
+    if (this.isRunning) {
+      this.stopWatchingForWorkshopAcf();
+      return true;
+    }
+    const lookups = this.workshopAcfLookups;
+    const acfPath = await this.resolveWorkshopAcfPath();
+    if (!acfPath || lookups !== this.workshopAcfLookups || this.isRunning) {
+      return this.isRunning;
+    }
+    this.useWorkshopAcfPath(acfPath);
+    return this.start();
   }
 
   // Parse Steam's VDF/ACF format (robust stack-based parser)
@@ -698,6 +828,8 @@ export class ModChecker extends EventEmitter {
       return false;
     }
 
+    this.stopWatchingForWorkshopAcf();
+
     // Clear existing timers to prevent double-start leaks and stale delayed checks.
     if (this.intervalId) {
       clearInterval(this.intervalId);
@@ -742,6 +874,7 @@ export class ModChecker extends EventEmitter {
   }
 
   stop() {
+    this.stopWatchingForWorkshopAcf();
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
@@ -1302,9 +1435,17 @@ export class ModChecker extends EventEmitter {
     this.checkInProgress = true;
 
     try {
-      // Make sure we have the ACF path
-      if (!this.workshopAcfPath) {
-        await this.findWorkshopAcfPath();
+      // Resolved again on every check, not kept from the first hit: the
+      // server creates its own <install>/steamapps/workshop on its first
+      // Workshop download, which can come long after the panel started, and
+      // it outranks any fallback found before that. Finding nothing keeps
+      // the current path. A server switch or edit replaces it outright
+      // (refreshWorkshopChecker()); when one does while this lookup is in
+      // flight, this lookup may have read the previous server and is dropped.
+      const lookups = this.workshopAcfLookups;
+      const resolvedAcfPath = await this.resolveWorkshopAcfPath();
+      if (resolvedAcfPath && lookups === this.workshopAcfLookups) {
+        this.useWorkshopAcfPath(resolvedAcfPath);
       }
 
       if (!this.workshopAcfPath || !fs.existsSync(this.workshopAcfPath)) {
@@ -1813,6 +1954,13 @@ export class ModChecker extends EventEmitter {
   }
 
   async getStatus() {
+    // While the checker waits for an ACF (watchForWorkshopAcf()), a page
+    // asking is a reason to look now rather than at the next tick: the Mods
+    // page would otherwise keep offering "Fix path" for up to a minute after
+    // the server's first Workshop download.
+    if (this.acfWatchInterval) {
+      await this.startWhenWorkshopAcfFound().catch(() => false);
+    }
     const trackedMods = (await getTrackedMods()) || [];
     const trackedWorkshopIds = new Set(
       trackedMods

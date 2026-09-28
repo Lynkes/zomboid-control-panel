@@ -415,10 +415,13 @@ function inspectBridgeItemFolder(folder) {
 
 /**
  * Where the server downloaded the PanelBridge Workshop item, or null.
- * The server's own log line wins; otherwise the SteamCMD layouts next to the
- * install (the same candidates modChecker uses for appworkshop_108600.acf).
- * The operator's own Steam client folders are deliberately NOT searched: a
- * player subscription on the same PC would look like a server download.
+ * The server's own log line wins; otherwise <install>/steamapps/workshop,
+ * where the server downloads, then the other layouts next to the install
+ * (the same candidates modChecker uses for appworkshop_108600.acf). The
+ * operator's own Steam client folders are deliberately NOT searched,
+ * including the steamapps/workshop of the Steam library the server is
+ * installed in: a player subscription on the same PC would look like a
+ * server download.
  */
 export function detectWorkshopItem(installDir, workshopId, { zomboidDataPath = null } = {}) {
   if (!workshopId) return null;
