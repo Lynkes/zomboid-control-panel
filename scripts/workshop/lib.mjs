@@ -216,12 +216,15 @@ export function formatLock(version, codeSha256) {
 // published.json
 // ---------------------------------------------------------------------------
 
-// Stricter than the spec's field rule by one value: 0 is item.vdf's "create a
-// new item", never a published item, yet isValidSteamID accepts it, so a
-// hand-edited "0" would reach WorkshopItems=0 and abort a Workshop server's
-// startup.
+// Stricter than the spec's field rule: 0 is item.vdf's "create a new item",
+// never a published item, yet isValidSteamID accepts it, so a hand-edited
+// "0" would reach WorkshopItems=0 and abort a Workshop server's startup. And
+// the id is taken in its plain decimal form only: the bridge heartbeat
+// reports that form and the panel compares the two as strings, so a
+// leading-zero "03712345678" would never be confirmed. The panel's reader
+// (server/services/bridgeWorkshopRelease.js) applies the same rule.
 export function isValidWorkshopId(id) {
-  return typeof id === "string" && /^\d{1,20}$/.test(id) && BigInt(id) > 0n && BigInt(id) <= MAX_STEAM_ID;
+  return typeof id === "string" && /^[1-9]\d{0,19}$/.test(id) && BigInt(id) <= MAX_STEAM_ID;
 }
 
 export function publishedDocErrors(doc) {
@@ -230,7 +233,7 @@ export function publishedDocErrors(doc) {
   if (doc.schema !== 1) errors.push(`published.json schema must be 1 (found ${JSON.stringify(doc.schema)})`);
   if (doc.modId !== MOD_ID) errors.push(`published.json modId must be ${MOD_ID} (found ${JSON.stringify(doc.modId)})`);
   if (doc.workshopId !== null && !isValidWorkshopId(doc.workshopId)) {
-    errors.push(`published.json workshopId must be null or a non-zero numeric Steam id string (found ${JSON.stringify(doc.workshopId)})`);
+    errors.push(`published.json workshopId must be null or a non-zero numeric Steam id string, without leading zeros (found ${JSON.stringify(doc.workshopId)})`);
   }
   if (![null, "public", "unlisted"].includes(doc.visibility)) {
     errors.push(`published.json visibility must be null, "public" or "unlisted" (found ${JSON.stringify(doc.visibility)})`);

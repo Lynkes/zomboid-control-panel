@@ -21,11 +21,15 @@ import { createLogger } from "../utils/logger.js";
 const log = createLogger("BridgeWorkshopRelease");
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Same bound as the engine's isValidSteamID (an unsigned 64-bit id):
+// Same upper bound as the engine's isValidSteamID (an unsigned 64-bit id):
 // GameServer drops any WorkshopItems= entry that fails it, which would leave
 // Mods= naming a mod nobody can download -- every join then fails with
-// ModRequired.
-const WORKSHOP_ID_RE = /^\d{1,20}$/;
+// ModRequired. Stricter at the bottom, like scripts/workshop/lib.mjs: 0 is
+// never a published item (isValidSteamID accepts it, so WorkshopItems=0
+// would abort a Workshop server's startup), and the id is taken only in
+// its plain decimal form. The heartbeat reports that form, and the status
+// compares the two as strings, so "03712345678" would never confirm.
+const WORKSHOP_ID_RE = /^[1-9]\d{0,19}$/;
 const MAX_STEAM_ID = 18446744073709551615n;
 const VISIBILITIES = new Set(["public", "unlisted"]);
 

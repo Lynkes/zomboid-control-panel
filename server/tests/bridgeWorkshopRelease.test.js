@@ -137,4 +137,27 @@ describe("isValidWorkshopId", () => {
     expect(isValidWorkshopId("")).toBe(false);
     expect(isValidWorkshopId(123)).toBe(false);
   });
+
+  // 0 would reach WorkshopItems=0 and abort a Workshop server's startup; a
+  // leading zero never equals the plain id the heartbeat reports, so the
+  // server could never be confirmed.
+  it.each(["0", "000", "03712345678", "+3712345678"])("rejects %j", (value) => {
+    expect(isValidWorkshopId(value)).toBe(false);
+  });
+
+  it("ignores a PANEL_BRIDGE_WORKSHOP_ID that isn't a plain non-zero id", () => {
+    writeDiskDoc({ ...BASE, workshopId: "111" });
+    vi.stubEnv("PANEL_BRIDGE_WORKSHOP_ID", "0");
+    _resetWorkshopReleaseCacheForTests();
+    expect(getWorkshopRelease()).toMatchObject({ source: "file", workshopId: "111" });
+    vi.stubEnv("PANEL_BRIDGE_WORKSHOP_ID", "03712345678");
+    _resetWorkshopReleaseCacheForTests();
+    expect(getWorkshopRelease()).toMatchObject({ source: "file", workshopId: "111" });
+  });
+
+  it("marks a published.json with a leading-zero id invalid", () => {
+    writeDiskDoc({ ...BASE, workshopId: "03712345678" });
+    _resetWorkshopReleaseCacheForTests();
+    expect(getWorkshopRelease()).toMatchObject({ status: "invalid", workshopId: null });
+  });
 });

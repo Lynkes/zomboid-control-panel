@@ -286,7 +286,9 @@ describe("build-item: published.json", () => {
 
   // isValidSteamID accepts 0, so a hand-edited "0" would reach WorkshopItems=0
   // and abort a Workshop server's startup; record and publish refuse it too.
-  it.each(["0", "000", "18446744073709551616", "-1", 3712345678])("rejects workshopId %j", (workshopId) => {
+  // A leading zero is refused as well: the panel compares the id with the
+  // plain one the bridge reports, so the server could never be confirmed.
+  it.each(["0", "000", "03712345678", "18446744073709551616", "-1", 3712345678])("rejects workshopId %j", (workshopId) => {
     expect(publishedDocErrors({ ...JSON.parse(CONTRACT_PUBLISHED), workshopId }).join("\n"))
       .toMatch(/workshopId must be null or a non-zero numeric Steam id string/);
   });
