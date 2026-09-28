@@ -125,6 +125,7 @@ import { useTheme, type ThemeName } from "@/contexts/ThemeContext";
 import { platformTranslationKey, useRuntimeInfo } from "@/hooks/useRuntimeInfo";
 import { useRequestGuard } from "@/hooks/useRequestGuard";
 import { BridgeStatusBadge } from "@/components/BridgeStatusBadge";
+import { BackupRestartOverlapNotice } from "@/components/BackupRestartOverlapNotice";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
@@ -5648,6 +5649,14 @@ export default function Settings() {
                           {t("backups.maxBackupsHelp")}
                         </p>
                       </div>
+                      {/* This field edits the same schedule as the Backups
+                          page, so it warns about the same restart
+                          collisions (GET /backup/status) -- for the saved
+                          schedule only: an unsaved edit here has no preview,
+                          unlike the Backups page's frequency picker. */}
+                      {backupSchedule.trim() === backupStatus.schedule && (
+                        <BackupRestartOverlapNotice overlaps={backupStatus.restartOverlaps} className="sm:col-span-2" />
+                      )}
                       <div className="sm:col-span-2">
                         <DisabledReason reason={backupPanelServerChanged ? t("toasts.backupPanelServerChanged.description") : null}>
                           <Button

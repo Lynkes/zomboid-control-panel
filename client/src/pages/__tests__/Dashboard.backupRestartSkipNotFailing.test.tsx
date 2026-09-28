@@ -159,7 +159,12 @@ describe('Dashboard.tsx: a restart-skipped or since-recovered scheduled backup i
     const help = within(verdict).getByRole('button', { name: 'Help: Scheduled backup skipped for a restart' })
     expect(within(verdict).queryByText(/didn't run/)).not.toBeInTheDocument()
     fireEvent.click(help)
-    expect((await screen.findAllByText(/so it didn't run\. Creating a backup clears this warning\./)).length).toBeGreaterThan(0)
+    // Says what happens from now on, not just how to clear it: the reporter
+    // suspected the schedule conflict, and would otherwise go restaggering
+    // schedules that no longer need it.
+    expect((await screen.findAllByText(
+      /so it didn't run\. Scheduled backups now wait for a restart to finish instead of being skipped, so the next one runs as usual and clears this warning\. Creating a backup now clears it too\./,
+    )).length).toBeGreaterThan(0)
     expect(within(verdict).getByRole('button', { name: /Create backup/ })).toBeInTheDocument()
     expect(screen.queryByText('Scheduled backup failing')).not.toBeInTheDocument()
 

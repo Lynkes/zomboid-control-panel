@@ -1,6 +1,6 @@
 import React from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Backups from '../Backups'
 import { backupApi, serversApi, type BackupStatus, type BackupScheduleValidation } from '@/lib/api'
@@ -54,6 +54,9 @@ vi.mock('@/components/ui/select', () => {
   }
 })
 
+// Which capabilities the signed-in role has -- everything, unless a test
+// narrows it.
+const auth = vi.hoisted(() => ({ can: (_capability: string) => true }))
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
     user: { id: 'u1', username: 'someone', role: 'admin', capabilities: [] },
@@ -63,11 +66,25 @@ vi.mock('@/contexts/AuthContext', () => ({
     needsSetup: false,
     logout: vi.fn(),
     getToken: () => 'fake-token',
-    can: () => true,
+    can: (capability: string) => auth.can(capability),
   }),
 }))
 
-vi.mock('@/contexts/SocketContext', () => ({ useSocket: () => null }))
+// A fake socket the tests can fire events on. Stable across renders: the
+// page's socket effects depend on it.
+const socketHandlers = vi.hoisted(() => new Map<string, Set<(payload?: unknown) => void>>())
+const fakeSocket = vi.hoisted(() => ({
+  on: (event: string, handler: (payload?: unknown) => void) => {
+    if (!socketHandlers.has(event)) socketHandlers.set(event, new Set())
+    socketHandlers.get(event)!.add(handler)
+  },
+  off: (event: string, handler: (payload?: unknown) => void) => {
+    socketHandlers.get(event)?.delete(handler)
+  },
+}))
+vi.mock('@/contexts/SocketContext', () => ({ useSocket: () => fakeSocket }))
+const emitSocket = (event: string, payload?: unknown) =>
+  act(() => { socketHandlers.get(event)?.forEach((handler) => handler(payload)) })
 
 vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
@@ -126,6 +143,8 @@ function renderBackups() {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  auth.can = () => true
+  socketHandlers.clear()
 })
 
 describe('Backups.tsx: custom cron schedule', () => {
@@ -229,8 +248,10 @@ describe('Backups.tsx: scheduled backups and scheduled restarts', () => {
     expect(screen.getByText(
       'Every scheduled backup lands inside the scheduled restart "Restart every 4h" (for example, the 04:00 backup, during the 04:00 restart).',
     )).toBeInTheDocument()
-    expect(screen.getByText(/held until the restart finishes, so they usually run a few minutes late/)).toBeInTheDocument()
-    expect(screen.getByText(/leave at least 10 min between a restart's scheduled time and the next backup/)).toBeInTheDocument()
+    expect(screen.getByText(/wait for the restart to finish, so they run up to about 10 min late/)).toBeInTheDocument()
+    expect(screen.getByText(
+      /schedule backups at least 10 min after a restart's scheduled time \(for example, with restarts on the hour, back up at :30\)\./,
+    )).toBeInTheDocument()
   })
 
   it('says "some" when only part of the schedule collides, and words a restart it may not name without one', async () => {
@@ -304,12 +325,13 @@ describe('Backups.tsx: scheduled backups and scheduled restarts', () => {
       fireEvent.change(maxBackups, { target: { value: '25' } })
       expect(maxBackups).toHaveValue(25)
 
-      // The wait ends as a stuck-restart failure: a History row, no socket
-      // event -- only the page's own re-check can notice.
+      // The wait ends as a stuck-restart failure, and the socket event
+      // saying so was missed (a dropped connection) -- only the page's own
+      // re-check can notice.
       getStatus.mockResolvedValue(statusWith({
         lastScheduledBackupAttempt: {
           success: false,
-          message: 'Not run: this backup came due during a server restart (5-minute warning), and that restart still had not finished 25 min later',
+          message: "Not run: the server restart that started 25 min ago (5-minute warning) still hasn't finished -- far longer than a restart takes, so it looks stuck.",
           executedAt: '2026-09-27T04:25:00.000Z',
           skipReason: null,
           recoveredAt: null,
@@ -326,5 +348,105 @@ describe('Backups.tsx: scheduled backups and scheduled restarts', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('shows "waiting for the restart" as soon as the server says a backup is being held -- no refresh needed', async () => {
+    prime(statusWith({}))
+    renderBackups()
+    expect(await screen.findByText('Runs every 6 hours · keep 10')).toBeInTheDocument()
+
+    // A restart begins with the page open and the next backup tick lands in it.
+    getStatus.mockResolvedValue(statusWith({ backupDeferredSince: '2026-09-27T04:00:00.000Z' }))
+    emitSocket('backup:deferred', { since: '2026-09-27T04:00:00.000Z' })
+    expect(await screen.findByText(/waiting for the server restart to finish/)).toBeInTheDocument()
+
+    // ...and the held run starts once the restart is over.
+    getStatus.mockResolvedValue(statusWith({}))
+    emitSocket('backup:deferred', { since: null })
+    await waitFor(() => expect(screen.queryByText(/waiting for the server restart to finish/)).not.toBeInTheDocument())
+  })
+})
+
+describe('Backups.tsx: the settings panel preview holds steady while the schedule is edited', () => {
+  const overlap = {
+    kind: 'task' as const, name: 'Restart every 4h', cron: '0 */4 * * *', restartTime: '00:00', backupTime: '00:00',
+    allBackups: true, windowMinutes: 10,
+  }
+  const TITLE = 'Backups overlap a scheduled restart'
+
+  it("opening the panel keeps the saved schedule's warning on screen -- no gap while the first check runs", async () => {
+    prime(statusWith({ schedule: '0 */4 * * *', restartOverlaps: [overlap] }))
+    // The first check never answers: whatever shows, shows without it.
+    validateSchedule.mockImplementation(() => new Promise(() => {}))
+    renderBackups()
+    expect(await screen.findByText(TITLE)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^settings$/i }))
+    await screen.findByRole('combobox', { name: 'Backup Frequency' })
+    // Same notice, now as the panel's own warning for the schedule it edits.
+    expect(screen.getByText(TITLE)).toHaveClass('text-warning')
+    expect(screen.getAllByText(TITLE)).toHaveLength(1)
+  })
+
+  it('keeps the last verdict mounted, marked stale, while a newer edit is being checked -- then replaces it in place', async () => {
+    prime(statusWith({ schedule: '0 */4 * * *', restartOverlaps: [overlap] }))
+    const pending = new Map<string, (result: BackupScheduleValidation) => void>()
+    validateSchedule.mockImplementation((schedule: string) =>
+      schedule === '0 */4 * * *'
+        ? Promise.resolve({ ...VALID, restartOverlaps: [overlap] })
+        : new Promise((resolve) => { pending.set(schedule, resolve) }),
+    )
+    renderBackups()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
+    const frequency = await screen.findByRole('combobox', { name: 'Backup Frequency' })
+    const nextRun = await screen.findByText(/^Next backup:/)
+    const notice = screen.getByText(TITLE).closest('[role="status"]')
+    // A polite live region, not an assertive alert: it previews an edit.
+    expect(notice).not.toBeNull()
+    expect(notice).not.toHaveAttribute('aria-busy')
+
+    fireEvent.change(frequency, { target: { value: 'custom' } })
+    const input = await screen.findByLabelText('Cron expression')
+    fireEvent.change(input, { target: { value: '30 */4 * * *' } })
+
+    // Pending: the same elements stay, dimmed and busy -- nothing collapses.
+    expect(screen.getByText(TITLE).closest('[role="status"]')).toBe(notice)
+    expect(notice).toHaveAttribute('aria-busy', 'true')
+    expect(notice).toHaveClass('opacity-60')
+    expect(screen.getByText(/^Next backup:/)).toBe(nextRun)
+
+    await waitFor(() => expect(pending.has('30 */4 * * *')).toBe(true))
+    act(() => pending.get('30 */4 * * *')!(VALID))
+    // The staggered schedule collides with nothing: the notice goes, and
+    // what stays is current again.
+    await waitFor(() => expect(screen.queryByText(TITLE)).not.toBeInTheDocument())
+    expect(screen.getByText('Valid schedule')).not.toHaveAttribute('aria-busy')
+    expect(screen.getByText(/^Next backup:/).parentElement).not.toHaveAttribute('aria-busy')
+  })
+
+  it('clears the verdict when the custom field is emptied', async () => {
+    prime(statusWith({ schedule: '30 3 * * 1-5' }))
+    renderBackups()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
+    expect(await screen.findByText('Valid schedule')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Cron expression'), { target: { value: '' } })
+    expect(screen.queryByText('Valid schedule')).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Next backup:/)).not.toBeInTheDocument()
+  })
+
+  it("a role without backups.manage keeps the saved schedule's warning in the panel and never calls the preview it isn't allowed", async () => {
+    auth.can = (capability) => capability !== 'backups.manage'
+    prime(statusWith({ schedule: '0 */4 * * *', restartOverlaps: [overlap] }))
+    renderBackups()
+
+    fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
+    await screen.findByRole('combobox', { name: 'Backup Frequency' })
+    expect(screen.getByText(TITLE)).toBeInTheDocument()
+    // Past the preview's 400 ms debounce.
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(validateSchedule).not.toHaveBeenCalled()
+    expect(screen.getByText(TITLE)).toBeInTheDocument()
   })
 })

@@ -73,7 +73,7 @@
     "maxBackupsHelp": "Kopi sovgad ki pi ansyen yo ap efase otomatikman lè limit la rive",
     "customLabel": "Ekspresyon cron",
     "customPlaceholder": "pa egzanp: 30 3 * * *",
-    "customHint": "Fòma: minit èdtan jou mwa jou semèn. \"30 3 * * *\" kouri chak jou a 3:30. Pa plis pase yon fwa chak 5 minit.",
+    "customHint": "Fòma: minit èdtan jou mwa jou semèn. \"{{example}}\" kouri chak jou a 3:30. Pa plis pase yon fwa chak 5 minit.",
     "customValid": "Orè valid",
     "customInvalid": "Se pa yon ekspresyon cron valid",
     "nextRun": "Pwochen kopi sovgad: {{date}}",
@@ -89,7 +89,8 @@
     "taskUnnamedAll": "Tout kopi sovgad pwograme yo tonbe pandan yon redemaraj pwograme (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
     "autoRestart": "Kèk kopi sovgad pwograme tonbe pandan redemaraj peryodik la (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
     "autoRestartAll": "Tout kopi sovgad pwograme yo tonbe pandan redemaraj peryodik la (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
-    "consequence": "Kopi sovgad sa yo rete ap tann jiskaske redemaraj la fini, kidonk anjeneral yo kouri kèk minit an reta. Pou yo kouri alè, kite omwen {{minutes}} min ant lè yon redemaraj pwograme ak pwochen kopi sovgad la (pa egzanp, fè kopi sovgad la a :30, oswa redemare a :05)."
+    "consequence": "Kopi sovgad sa yo tann redemaraj la fini, kidonk yo ka kouri jiska anviwon {{minutes}} min an reta. Pou yo kouri alè, pwograme kopi sovgad yo omwen {{minutes}} min apre lè yon redemaraj pwograme (pa egzanp, si redemaraj yo fèt lè a jis, fè kopi sovgad la a {{exampleTime}}).",
+    "consequenceNoExample": "Kopi sovgad sa yo tann redemaraj la fini, kidonk yo ka kouri jiska anviwon {{minutes}} min an reta. Pou yo kouri alè, pwograme kopi sovgad yo omwen {{minutes}} min apre lè yon redemaraj pwograme."
   },
   "progress": {
     "startingFallback": "Ap kòmanse kopi sovgad...",

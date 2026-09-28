@@ -74,7 +74,7 @@
     "maxBackupsHelp": "Las copias de seguridad más antiguas se eliminarán automáticamente al alcanzar el límite",
     "customLabel": "Expresión cron",
     "customPlaceholder": "p. ej., 30 3 * * *",
-    "customHint": "Formato: minuto hora día mes día de la semana. «30 3 * * *» se ejecuta todos los días a las 3:30. Como máximo una vez cada 5 minutos.",
+    "customHint": "Formato: minuto hora día mes día de la semana. «{{example}}» se ejecuta todos los días a las 3:30. Como máximo una vez cada 5 minutos.",
     "customValid": "Horario válido",
     "customInvalid": "No es una expresión cron válida",
     "nextRun": "Próxima copia de seguridad: {{date}}",
@@ -90,7 +90,8 @@
     "taskUnnamedAll": "Todas las copias de seguridad programadas caen dentro de un reinicio programado (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
     "autoRestart": "Algunas copias de seguridad programadas caen dentro del reinicio periódico (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
     "autoRestartAll": "Todas las copias de seguridad programadas caen dentro del reinicio periódico (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
-    "consequence": "Esas copias se retienen hasta que termina el reinicio, así que normalmente se ejecutan con unos minutos de retraso. Para que se ejecuten a tiempo, deja al menos {{minutes}} min entre la hora programada de un reinicio y la siguiente copia de seguridad (por ejemplo, copia de seguridad a las :30, o reinicio a las :05)."
+    "consequence": "Esas copias esperan a que termine el reinicio, así que se ejecutan con hasta unos {{minutes}} min de retraso. Para que se ejecuten a tiempo, prográmalas al menos {{minutes}} min después de la hora programada de un reinicio (por ejemplo, con reinicios a la hora en punto, copia de seguridad a las {{exampleTime}}).",
+    "consequenceNoExample": "Esas copias esperan a que termine el reinicio, así que se ejecutan con hasta unos {{minutes}} min de retraso. Para que se ejecuten a tiempo, prográmalas al menos {{minutes}} min después de la hora programada de un reinicio."
   },
   "progress": {
     "startingFallback": "Iniciando copia de seguridad…",

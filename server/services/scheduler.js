@@ -216,6 +216,11 @@ function onScheduleMissed(taskId, label, command, context) {
 // A scheduled backup that comes due while a restart is running waits for
 // it (see _onScheduledBackupTick()). How often it re-checks:
 const DEFERRED_BACKUP_POLL_MS = 5000;
+// How long a scheduled backup tick that sees no restart waits before looking
+// once more -- long enough for a restart due in the same second to claim
+// restartInProgress first (see _onScheduledBackupTick()), and nothing next
+// to a backup's own run time.
+const SAME_SECOND_RESTART_SETTLE_MS = 5000;
 // How long past the running restart's own warning countdown that wait may
 // last before the restart is called stuck. performRestart()'s post-countdown
 // sequence is bounded by its own timeouts -- about a minute of final
@@ -1102,29 +1107,26 @@ export class Scheduler {
   // still writing, and right after a failed restart is when an operator
   // most wants a fresh backup.
   //
-  // Only a tick that already SEES restartInProgress is held back. When the
-  // backup and a restart are due in the same second, node-cron arms one
-  // heartbeat timer per job, so which callback runs first isn't
-  // guaranteed -- and performRestart() sets the flag only after its own
-  // `await getActiveServer()` (a scheduled restart task has more awaits
-  // before that). If the backup wins that race it starts immediately and
-  // runs through the restart's warning countdown instead: fine for a zip
-  // that finishes within the countdown (5 minutes by default), still an
-  // overlap with the world save/quit for one that outlasts it. Closing
-  // that fully would mean performRestart() waiting on an in-flight
-  // scheduled backup, the reverse of the one-directional rule above -- so
-  // the Backups/Scheduler pages' overlap notice says "usually" and
-  // recommends staggering the two schedules instead of promising the wait.
+  // The same-second tie -- the reported setup exactly: backup and restart
+  // both "0 */4 * * *". node-cron arms one heartbeat timer per job, so which
+  // callback runs first isn't guaranteed, and performRestart() sets
+  // restartInProgress only after its own `await getActiveServer()` (a
+  // scheduled restart task has a few more awaits before that, all in-memory
+  // reads). A backup tick that ran first would see no restart and start
+  // zipping straight through the countdown and, for a big world, into the
+  // world save/quit. So a tick that sees no restart settles for
+  // SAME_SECOND_RESTART_SETTLE_MS and looks again: a restart due in the same
+  // second has claimed the flag by then, and the backup is held like any
+  // other. A restart that starts AFTER that while the backup is still
+  // zipping -- one scheduled a few minutes later, or a manual Restart Now --
+  // is the one overlap left: its countdown usually outlasts the zip, and
+  // closing it fully would mean performRestart() waiting on a backup, the
+  // reverse of the one-directional rule above.
   async _onScheduledBackupTick(settings) {
-    if (this.deferredBackup) {
-      // A tick landing while an earlier one is still waiting out (or
-      // running after) a restart folds into it: a second queued copy would
-      // only race the first into createBackup()'s "Backup already in
-      // progress" refusal and log a failure for a backup that IS happening.
-      log.info(
-        "Scheduled backup tick folded into the one already held back by a server restart",
-      );
-      return;
+    if (this._foldIntoDeferredBackup()) return;
+    if (!this.restartInProgress) {
+      await this.sleep(SAME_SECOND_RESTART_SETTLE_MS);
+      if (this._foldIntoDeferredBackup()) return;
     }
     if (this.restartInProgress) {
       await this._deferScheduledBackupUntilRestartEnds();
@@ -1132,6 +1134,18 @@ export class Scheduler {
     }
     log.info("Executing scheduled backup");
     await this._runScheduledBackup(settings);
+  }
+
+  // A tick landing while an earlier one is still waiting out (or running
+  // after) a restart folds into it: a second queued copy would only race the
+  // first into createBackup()'s "Backup already in progress" refusal and log
+  // a failure for a backup that IS happening.
+  _foldIntoDeferredBackup() {
+    if (!this.deferredBackup) return false;
+    log.info(
+      "Scheduled backup tick folded into the one already held back by a server restart",
+    );
+    return true;
   }
 
   // Waits for the in-progress restart, then runs the backup that came due
@@ -1144,6 +1158,7 @@ export class Scheduler {
     const deferredAt = Date.now();
     const marker = { since: new Date(deferredAt).toISOString(), running: false };
     this.deferredBackup = marker;
+    this._emitBackupDeferralChanged();
     log.info(
       "Scheduled backup deferred: a server restart is in progress -- it will run as soon as the restart finishes",
     );
@@ -1166,6 +1181,7 @@ export class Scheduler {
           // refusal -- a logged failure -- instead of another wait.
           if (!this.restartInProgress) {
             marker.running = true;
+            this._emitBackupDeferralChanged();
             await this._runScheduledBackup(settings, { deferredAt });
             return;
           }
@@ -1192,6 +1208,20 @@ export class Scheduler {
       ).catch(() => {});
     } finally {
       if (this.deferredBackup === marker) this.deferredBackup = null;
+      // A wait that ended without running (stuck restart, backups turned
+      // off, an error) -- the start of a run already said so above.
+      if (!marker.running) this._emitBackupDeferralChanged();
+    }
+  }
+
+  // getDeferredBackupSince() changes without any backup:progress event -- a
+  // tick being held, or the held run starting -- so an open Backups page is
+  // told to re-read status rather than left saying the schedule simply
+  // didn't fire (or still "waiting" once it runs). Same broadcast shape as
+  // backupService's own backup:progress.
+  _emitBackupDeferralChanged() {
+    if (typeof this.io?.emit === "function") {
+      this.io.emit("backup:deferred", { since: this.getDeferredBackupSince() });
     }
   }
 
@@ -1210,6 +1240,19 @@ export class Scheduler {
     return deferredAt + MAX_RESTART_WARNING_MINUTES * 60000 + RESTART_SEQUENCE_BUDGET_MS;
   }
 
+  // How long the restart has been stuck is measured from the restart's own
+  // start, not from when this backup began waiting: once one tick has given
+  // up, every later tick during the same stuck restart is past the deadline
+  // the moment it arrives, and "not finished 0 min later" would read as a
+  // restart that had only just begun.
+  //
+  // The advice has to work in exactly this state. createBackup() refuses
+  // every backup -- a manual one too -- while restartInProgress is set, and
+  // cancelRestart() only acts during the countdown, so a restart hung past
+  // it holds until the panel itself restarts (restartInProgress lives in
+  // memory). "Create a backup manually" alone would send the operator
+  // straight into "A server restart is in progress, please wait".
+  //
   // No absolute timestamps in the message: it is shown verbatim as the
   // Dashboard's "Scheduled backup failing" detail and in the Backups card's
   // tooltip, and a panel running in UTC (the usual Docker setup) would
@@ -1217,14 +1260,16 @@ export class Scheduler {
   // executedAt is already shown localized; this says how long, relative
   // to that.
   async _logStuckRestartBackup(deferredAt) {
-    const waited = Date.now() - deferredAt;
+    const now = Date.now();
+    const waited = now - deferredAt;
     const restart = this.activeRestart;
-    const restartNote = restart
-      ? `a server restart (${restart.warningMinutes}-minute warning)`
-      : "a server restart";
+    const stuck = restart
+      ? `the server restart that started ${Math.round((now - restart.startedAt) / 60000)} min ago (${restart.warningMinutes}-minute warning) still hasn't finished`
+      : `the server restart running when this backup came due still hasn't finished ${Math.round(waited / 60000)} min later`;
     const message =
-      `Not run: this backup came due during ${restartNote}, and that restart still had not finished ${Math.round(waited / 60000)} min later -- ` +
-      "far longer than a restart takes, so it looks stuck. Check the server's status, then create a backup manually.";
+      `Not run: ${stuck} -- far longer than a restart takes, so it looks stuck. ` +
+      "Manual backups are blocked until it ends as well. Check whether the game server came back up; " +
+      "restarting the panel clears the stuck restart, and a backup can be created after that.";
     log.error(`Scheduled backup -- ${message}`);
     await logScheduleExecution(null, "Scheduled Backup", "backup", false, message, waited);
   }

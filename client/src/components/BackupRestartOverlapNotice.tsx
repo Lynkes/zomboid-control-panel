@@ -21,13 +21,24 @@ import { cn } from '@/lib/utils'
 // backup is late, not lost, and an operator who backs up right after each
 // restart on purpose shouldn't live with an amber banner they can't clear
 // (DESIGN.md, Callouts).
+//
+// `live`: for the Backups settings panel, where this previews the schedule
+// being edited and so can change while the operator types. A polite status
+// region there instead of Alert's own role="alert" -- an advisory preview
+// must not interrupt typing -- and `stale` dims it (aria-busy) while a check
+// for a newer edit is pending, rather than the notice vanishing and coming
+// back on every keystroke.
 export function BackupRestartOverlapNotice({
   overlaps,
   tone = 'warning',
+  live = false,
+  stale = false,
   className,
 }: {
   overlaps: BackupRestartOverlap[] | undefined
   tone?: 'warning' | 'neutral'
+  live?: boolean
+  stale?: boolean
   className?: string
 }) {
   const { t } = useTranslation('backups')
@@ -54,9 +65,29 @@ export function BackupRestartOverlapNotice({
     })
   }
 
+  // Every overlap shares the one window: performRestart()'s default
+  // countdown -- RESTART_WARNING_MINUTES, which the operator can change --
+  // plus the typical save/relaunch tail. The example has to obey the rule
+  // it illustrates, so it is picked from the window rather than fixed
+  // (":30" beside "at least 35 min" would contradict it); past 45 there is
+  // no tidy minute left in the hour to point at, so the sentence goes
+  // without one. It only ever moves the backups: the other side may be
+  // AUTO_RESTART_CRON, an environment variable, not a setting on a page.
+  const windowMinutes = overlaps[0].windowMinutes
+  const exampleMinute = [30, 45].find((minute) => minute >= windowMinutes)
+
   const neutral = tone === 'neutral'
   return (
-    <Alert className={cn(neutral ? 'border-border/60 bg-muted/40' : 'border-warning/40 bg-warning/10', className)}>
+    <Alert
+      role={live ? 'status' : undefined}
+      aria-busy={stale || undefined}
+      className={cn(
+        neutral ? 'border-border/60 bg-muted/40' : 'border-warning/40 bg-warning/10',
+        live && 'transition-opacity',
+        stale && 'opacity-60',
+        className,
+      )}
+    >
       {neutral ? (
         <CalendarClock className="h-4 w-4 text-primary" />
       ) : (
@@ -67,9 +98,16 @@ export function BackupRestartOverlapNotice({
         {overlaps.map((overlap, index) => (
           <p key={`${overlap.kind}:${index}`}>{describe(overlap)}</p>
         ))}
-        {/* Every overlap shares the one window (performRestart()'s default
-            countdown plus the typical save/relaunch tail). */}
-        <p>{t('restartOverlap.consequence', { minutes: overlaps[0].windowMinutes })}</p>
+        <p>
+          {exampleMinute !== undefined
+            ? t('restartOverlap.consequence', {
+                minutes: windowMinutes,
+                // ":30" is all neutral characters -- an RTL sentence would
+                // lay it out as "30:" without the isolate.
+                exampleTime: isolateLtrForRtl(`:${exampleMinute}`),
+              })
+            : t('restartOverlap.consequenceNoExample', { minutes: windowMinutes })}
+        </p>
       </AlertDescription>
     </Alert>
   )

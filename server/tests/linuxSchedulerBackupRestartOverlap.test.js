@@ -102,7 +102,16 @@ describe("Scheduler: scheduled backup defers to an in-progress restart", () => {
     expect(capturedBackupCallback).toBeTypeOf("function");
 
     scheduler.restartInProgress = false;
-    await capturedBackupCallback();
+    // A tick that sees no restart settles a few seconds first, so a restart
+    // due in the same second can claim the flag (_onScheduledBackupTick()).
+    vi.useFakeTimers();
+    try {
+      const tick = capturedBackupCallback();
+      await vi.advanceTimersByTimeAsync(10 * 1000);
+      await tick;
+    } finally {
+      vi.useRealTimers();
+    }
 
     expect(createBackup).toHaveBeenCalledTimes(1);
     expect(logScheduleExecution).toHaveBeenCalledWith(

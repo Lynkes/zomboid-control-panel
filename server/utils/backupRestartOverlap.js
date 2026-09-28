@@ -63,29 +63,22 @@ function parseDaySchedule(expression) {
   for (let minute = 0; minute < MINUTES_PER_DAY; minute++) {
     if (fireMinutes[minute]) list.push(minute);
   }
-  return {
-    fireMinutes,
-    list,
-    doms,
-    months,
-    dows,
-    domIsWildcard: domField === "*",
-    dowIsWildcard: dowField === "*",
-  };
+  return { fireMinutes, list, doms, months, dows };
 }
 
-// Same day rule computeNextRun() applies (cron's own: when BOTH day fields
-// are restricted, either one matching is enough). Both schedules run in the
-// same scheduler timezone, so comparing LOCAL wall-clock dates is exactly
-// the question -- the weekday of a local calendar date is plain Gregorian
-// arithmetic, no zone lookup needed.
+// node-cron's own day rule, the one that decides when the jobs actually
+// fire: month, day-of-month and day-of-week must ALL match (TimeMatcher.match
+// in node-cron 4.x ANDs them; a "*" field expands to every value, so it
+// never excludes a day). That is NOT the classic cron rule, where two
+// restricted day fields match if EITHER does -- computeNextRun() still
+// applies that one, a separate pre-existing divergence that only differs
+// for a schedule restricting both fields ("0 4 1 * 1"). Both schedules run
+// in the same scheduler timezone, so comparing LOCAL wall-clock dates is
+// exactly the question -- the weekday of a local calendar date is plain
+// Gregorian arithmetic, no zone lookup needed.
 function firesOnDay(schedule, year, month, day) {
-  if (!schedule.months.has(month)) return false;
-  if (schedule.domIsWildcard && schedule.dowIsWildcard) return true;
-  const weekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
-  if (schedule.dowIsWildcard) return schedule.doms.has(day);
-  if (schedule.domIsWildcard) return schedule.dows.has(weekday);
-  return schedule.doms.has(day) || schedule.dows.has(weekday);
+  if (!schedule.months.has(month) || !schedule.doms.has(day)) return false;
+  return schedule.dows.has(new Date(Date.UTC(year, month - 1, day)).getUTCDay());
 }
 
 function localDate(start, offsetDays) {

@@ -164,13 +164,42 @@ describe("Scheduler: a scheduled backup that lands on a restart is deferred, not
     const rows = backupRows();
     expect(rows).toHaveLength(1);
     expect(rows[0][3]).toBe(false);
-    expect(rows[0][4]).toMatch(/during a server restart \(5-minute warning\)/);
-    expect(rows[0][4]).toMatch(/still had not finished 25 min later .* looks stuck/);
+    expect(rows[0][4]).toMatch(
+      /^Not run: the server restart that started 25 min ago \(5-minute warning\) still hasn't finished -- .* looks stuck\./,
+    );
+    // A next step that works in this state: createBackup() refuses manual
+    // backups too while the restart flag is up, and only a panel restart
+    // clears a restart hung past its countdown.
+    expect(rows[0][4]).toMatch(/Manual backups are blocked until it ends as well/);
+    expect(rows[0][4]).toMatch(/restarting the panel clears the stuck restart/);
     // Shown verbatim on the Dashboard and the Backups card: no raw UTC ISO
     // timestamps, which read as the wrong time next to a local browser.
     expect(rows[0][4]).not.toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
     // The wait is over -- the next tick gets a fresh chance.
     expect(scheduler.getDeferredBackupSince()).toBeNull();
+  });
+
+  it("a later tick during the SAME stuck restart reports how long the restart has been running, not '0 min'", async () => {
+    // Review finding: the second tick arrives already past the deadline
+    // (it's measured from the restart's own start), so it gives up at
+    // once -- and its row, the newest one, is what the Dashboard shows.
+    beginRestart(5);
+    const first = capturedBackupCallback();
+    await vi.advanceTimersByTimeAsync(26 * MINUTE);
+    await first;
+
+    // 08:00 -- the next "0 */4 * * *" tick, the restart still hung.
+    vi.setSystemTime(new Date("2026-09-27T08:00:00.000Z"));
+    const second = capturedBackupCallback();
+    await vi.advanceTimersByTimeAsync(0);
+    await second;
+
+    const rows = backupRows();
+    expect(rows).toHaveLength(2);
+    expect(rows[1][3]).toBe(false);
+    expect(rows[1][4]).toMatch(/the server restart that started 240 min ago \(5-minute warning\) still hasn't finished/);
+    expect(rows[1][4]).not.toMatch(/\b0 min\b/);
+    expect(createBackup).not.toHaveBeenCalled();
   });
 
   it("measures 'stuck' against the running restart's own countdown -- a 60-minute manual countdown is not stuck at minute 30", async () => {
@@ -255,8 +284,69 @@ describe("Scheduler: a scheduled backup that lands on a restart is deferred, not
     expect(backupRows()[0][3]).toBe(true);
   });
 
-  it("positive control: with no restart running, the tick backs up immediately with no deferral note", async () => {
-    await capturedBackupCallback();
+  it("same-second tie (the reported setup): a restart that claims the flag just AFTER the backup tick fired still holds the backup", async () => {
+    // node-cron gives no order between two jobs due in the same second, and
+    // performRestart() sets restartInProgress only after an await -- so the
+    // backup tick can run first and see no restart at all.
+    runManagedLifecycle.mockResolvedValue({ handled: true, success: true });
+    const order = [];
+    const rconService = {
+      connected: true,
+      execute: vi.fn().mockResolvedValue({ success: true }),
+      serverMessage: vi.fn().mockResolvedValue({ success: true }),
+      save: vi.fn(async () => {
+        order.push("world save");
+        return { success: true };
+      }),
+    };
+    const serverManager = {
+      _serverId: 1,
+      getServerProcessDetails: vi.fn().mockResolvedValue({ running: true, scanFailed: false }),
+    };
+    createBackup.mockImplementation(async () => {
+      order.push(scheduler.restartInProgress ? "backup DURING restart" : "backup after restart");
+      return { success: true, backup: { name: "Tavern_2026-09-27.zip" } };
+    });
+
+    const tick = capturedBackupCallback(); // the backup's heartbeat wins
+    expect(scheduler.restartInProgress).toBe(false);
+    await vi.advanceTimersByTimeAsync(50);
+    const restart = scheduler.performRestart(0, { rconService, serverManager });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(scheduler.restartInProgress).toBe(true);
+    expect(createBackup).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(3 * MINUTE);
+    expect((await restart).success).toBe(true);
+    await tick;
+
+    expect(order).toEqual(["world save", "backup after restart"]);
+    expect(backupRows()).toHaveLength(1);
+    expect(backupRows()[0][3]).toBe(true);
+    expect(backupRows()[0][4]).toMatch(/held back until a server restart/);
+  });
+
+  it("tells open pages when a held backup starts waiting and when it starts running", async () => {
+    const emit = vi.fn();
+    scheduler.setIo({ emit });
+    beginRestart();
+    const tick = capturedBackupCallback();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(emit).toHaveBeenCalledWith("backup:deferred", { since: "2026-09-27T04:00:00.000Z" });
+
+    endRestart();
+    await vi.advanceTimersByTimeAsync(10 * 1000);
+    await tick;
+    expect(emit).toHaveBeenLastCalledWith("backup:deferred", { since: null });
+    expect(emit.mock.calls.filter(([event]) => event === "backup:deferred")).toHaveLength(2);
+  });
+
+  it("positive control: with no restart running, the tick backs up after its short settle, with no deferral note", async () => {
+    const tick = capturedBackupCallback();
+    await vi.advanceTimersByTimeAsync(4 * 1000);
+    expect(createBackup).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+    await tick;
 
     expect(createBackup).toHaveBeenCalledTimes(1);
     expect(backupRows()).toHaveLength(1);

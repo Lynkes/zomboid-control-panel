@@ -85,6 +85,18 @@ describe("findBackupRestartOverlaps", () => {
     ]);
   });
 
+  it("follows node-cron's day rule when both day fields are restricted: the 1st of the month AND a Monday, not either", () => {
+    // node-cron 4.x ANDs day-of-month and day-of-week (TimeMatcher.match),
+    // so this backup only ever fires on a Monday the 1st -- never on a
+    // Tuesday, when the restart runs. Under the classic cron OR rule it
+    // would also fire on every 1st, and a Tuesday the 1st would collide.
+    expect(find("0 4 1 * 1", [task("0 4 * * 2")])).toEqual([]);
+    // Same backup against a Monday restart: it does collide, on those days.
+    expect(find("0 4 1 * 1", [task("0 4 * * 1")])).toEqual([
+      expect.objectContaining({ restartTime: "04:00", backupTime: "04:00", allBackups: true }),
+    ]);
+  });
+
   it("reports each overlapping restart schedule once, and skips ones it can't parse", () => {
     const overlaps = find("0 */6 * * *", [
       task("0 */6 * * *", "A"),

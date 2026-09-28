@@ -73,7 +73,7 @@
     "maxBackupsHelp": "達到數量上限後，最舊的備份將被自動刪除",
     "customLabel": "cron 表示式",
     "customPlaceholder": "例如：30 3 * * *",
-    "customHint": "格式：分鐘 小時 日 月 星期。「30 3 * * *」表示每天 3:30 執行。最多每 5 分鐘一次。",
+    "customHint": "格式：分鐘 小時 日 月 星期。「{{example}}」表示每天 3:30 執行。最多每 5 分鐘一次。",
     "customValid": "排程有效",
     "customInvalid": "不是有效的 cron 表示式",
     "nextRun": "下次備份：{{date}}",
@@ -89,7 +89,8 @@
     "taskUnnamedAll": "所有排程備份都落在某個排程重新啟動期間（例如 {{backupTime}} 的備份，落在 {{restartTime}} 的重新啟動期間）。",
     "autoRestart": "部分排程備份落在定期自動重新啟動期間（例如 {{backupTime}} 的備份，落在 {{restartTime}} 的重新啟動期間）。",
     "autoRestartAll": "所有排程備份都落在定期自動重新啟動期間（例如 {{backupTime}} 的備份，落在 {{restartTime}} 的重新啟動期間）。",
-    "consequence": "這些備份會暫緩到重新啟動完成後再執行，因此通常會晚幾分鐘。若要準時執行，請讓重新啟動的排程時間與下一次備份至少相隔 {{minutes}} 分鐘（例如在 :30 備份，或在 :05 重新啟動）。"
+    "consequence": "這些備份會等到重新啟動完成後再執行，因此最多會晚約 {{minutes}} 分鐘。若要準時執行，請把備份排在重新啟動排程時間之後至少 {{minutes}} 分鐘（例如，重新啟動在整點時，在 {{exampleTime}} 備份）。",
+    "consequenceNoExample": "這些備份會等到重新啟動完成後再執行，因此最多會晚約 {{minutes}} 分鐘。若要準時執行，請把備份排在重新啟動排程時間之後至少 {{minutes}} 分鐘。"
   },
   "progress": {
     "startingFallback": "正在開始備份…",

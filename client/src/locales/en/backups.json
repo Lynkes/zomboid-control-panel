@@ -73,7 +73,7 @@
     "maxBackupsHelp": "Oldest backups will be auto-deleted when limit is reached",
     "customLabel": "Cron expression",
     "customPlaceholder": "e.g., 30 3 * * *",
-    "customHint": "Format: minute hour day month weekday. \"30 3 * * *\" runs every day at 3:30. At most once every 5 minutes.",
+    "customHint": "Format: minute hour day month weekday. \"{{example}}\" runs every day at 3:30. At most once every 5 minutes.",
     "customValid": "Valid schedule",
     "customInvalid": "Not a valid cron expression",
     "nextRun": "Next backup: {{date}}",
@@ -89,7 +89,8 @@
     "taskUnnamedAll": "Every scheduled backup lands inside a scheduled restart (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
     "autoRestart": "Some scheduled backups land inside the periodic auto-restart (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
     "autoRestartAll": "Every scheduled backup lands inside the periodic auto-restart (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
-    "consequence": "Those backups are held until the restart finishes, so they usually run a few minutes late. To keep them on time, leave at least {{minutes}} min between a restart's scheduled time and the next backup (for example, back up at :30, or restart at :05)."
+    "consequence": "Those backups wait for the restart to finish, so they run up to about {{minutes}} min late. To keep them on time, schedule backups at least {{minutes}} min after a restart's scheduled time (for example, with restarts on the hour, back up at {{exampleTime}}).",
+    "consequenceNoExample": "Those backups wait for the restart to finish, so they run up to about {{minutes}} min late. To keep them on time, schedule backups at least {{minutes}} min after a restart's scheduled time."
   },
   "progress": {
     "startingFallback": "Starting backup...",

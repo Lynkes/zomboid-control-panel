@@ -170,7 +170,7 @@
     "noBackups": "No backups",
     "backupAttemptFailing": "Scheduled backup failing",
     "backupSkippedForRestart": "Scheduled backup skipped for a restart",
-    "backupSkippedForRestartHelp": "It came due while the server was restarting, so it didn't run. Creating a backup clears this warning.",
+    "backupSkippedForRestartHelp": "It came due while the server was restarting, so it didn't run. Scheduled backups now wait for a restart to finish instead of being skipped, so the next one runs as usual and clears this warning. Creating a backup now clears it too.",
     "reviewBackups": "Review backups"
   },
   "panelUpdateBanner": {

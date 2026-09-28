@@ -74,7 +74,7 @@
     "maxBackupsHelp": "Le panneau supprime automatiquement les sauvegardes les plus anciennes lorsque cette limite est atteinte",
     "customLabel": "Expression cron",
     "customPlaceholder": "ex. : 30 3 * * *",
-    "customHint": "Format : minute heure jour mois jour de la semaine. « 30 3 * * * » s'exécute chaque jour à 3 h 30. Au plus une fois toutes les 5 minutes.",
+    "customHint": "Format : minute heure jour mois jour de la semaine. « {{example}} » s'exécute chaque jour à 3 h 30. Au plus une fois toutes les 5 minutes.",
     "customValid": "Planification valide",
     "customInvalid": "Expression cron non valide",
     "nextRun": "Prochaine sauvegarde : {{date}}",
@@ -90,7 +90,8 @@
     "taskUnnamedAll": "Toutes les sauvegardes planifiées tombent pendant un redémarrage planifié (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
     "autoRestart": "Certaines sauvegardes planifiées tombent pendant le redémarrage périodique (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
     "autoRestartAll": "Toutes les sauvegardes planifiées tombent pendant le redémarrage périodique (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
-    "consequence": "Ces sauvegardes sont retenues jusqu'à la fin du redémarrage, et s'exécutent donc généralement avec quelques minutes de retard. Pour qu'elles restent à l'heure, laissez au moins {{minutes}} min entre l'heure prévue d'un redémarrage et la sauvegarde suivante (par exemple, une sauvegarde à :30, ou un redémarrage à :05)."
+    "consequence": "Ces sauvegardes attendent la fin du redémarrage, et s'exécutent donc jusqu'à environ {{minutes}} min en retard. Pour qu'elles restent à l'heure, planifiez-les au moins {{minutes}} min après l'heure prévue d'un redémarrage (par exemple, avec des redémarrages à l'heure pile, une sauvegarde à {{exampleTime}}).",
+    "consequenceNoExample": "Ces sauvegardes attendent la fin du redémarrage, et s'exécutent donc jusqu'à environ {{minutes}} min en retard. Pour qu'elles restent à l'heure, planifiez-les au moins {{minutes}} min après l'heure prévue d'un redémarrage."
   },
   "progress": {
     "startingFallback": "Démarrage de la sauvegarde...",

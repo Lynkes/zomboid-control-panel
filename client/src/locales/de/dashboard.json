@@ -170,7 +170,7 @@
     "noBackups": "Keine Backups",
     "backupAttemptFailing": "Geplantes Backup schlägt fehl",
     "backupSkippedForRestart": "Geplantes Backup wegen Neustart übersprungen",
-    "backupSkippedForRestartHelp": "Es war fällig, während der Server neu startete, und lief deshalb nicht. Sobald du ein Backup erstellst, verschwindet diese Meldung.",
+    "backupSkippedForRestartHelp": "Es war fällig, während der Server neu startete, und lief deshalb nicht. Geplante Backups warten jetzt, bis ein Neustart abgeschlossen ist, statt übersprungen zu werden – das nächste läuft also normal und lässt diese Meldung verschwinden. Wenn du jetzt ein Backup erstellst, verschwindet sie ebenfalls.",
     "reviewBackups": "Backups überprüfen"
   },
   "panelUpdateBanner": {

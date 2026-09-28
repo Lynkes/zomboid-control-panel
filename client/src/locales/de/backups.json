@@ -73,7 +73,7 @@
     "maxBackupsHelp": "Die ältesten Backups werden automatisch gelöscht, sobald das Limit erreicht ist",
     "customLabel": "Cron-Ausdruck",
     "customPlaceholder": "z. B. 30 3 * * *",
-    "customHint": "Format: Minute Stunde Tag Monat Wochentag. „30 3 * * *“ läuft täglich um 3:30 Uhr. Höchstens alle 5 Minuten.",
+    "customHint": "Format: Minute Stunde Tag Monat Wochentag. „{{example}}“ läuft täglich um 3:30 Uhr. Höchstens alle 5 Minuten.",
     "customValid": "Gültiger Zeitplan",
     "customInvalid": "Kein gültiger Cron-Ausdruck",
     "nextRun": "Nächstes Backup: {{date}}",
@@ -89,7 +89,8 @@
     "taskUnnamedAll": "Alle geplanten Backups fallen in einen geplanten Neustart (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
     "autoRestart": "Einige geplante Backups fallen in den periodischen Neustart (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
     "autoRestartAll": "Alle geplanten Backups fallen in den periodischen Neustart (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
-    "consequence": "Diese Backups werden zurückgehalten, bis der Neustart abgeschlossen ist, und laufen daher meist ein paar Minuten zu spät. Damit sie pünktlich laufen, lass mindestens {{minutes}} Min. zwischen der geplanten Zeit eines Neustarts und dem nächsten Backup (zum Beispiel Backup um :30 oder Neustart um :05)."
+    "consequence": "Diese Backups warten, bis der Neustart abgeschlossen ist, und laufen daher bis zu etwa {{minutes}} Min. zu spät. Damit sie pünktlich laufen, plane Backups mindestens {{minutes}} Min. nach der geplanten Zeit eines Neustarts (zum Beispiel bei Neustarts zur vollen Stunde ein Backup um {{exampleTime}}).",
+    "consequenceNoExample": "Diese Backups warten, bis der Neustart abgeschlossen ist, und laufen daher bis zu etwa {{minutes}} Min. zu spät. Damit sie pünktlich laufen, plane Backups mindestens {{minutes}} Min. nach der geplanten Zeit eines Neustarts."
   },
   "progress": {
     "startingFallback": "Backup wird gestartet...",

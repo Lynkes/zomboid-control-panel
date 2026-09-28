@@ -345,10 +345,17 @@ export default function Backups() {
       }
     }
 
+    // A scheduled backup starting to wait on a restart, or that wait ending
+    // (scheduler.js _emitBackupDeferralChanged()) -- a change to
+    // backupDeferredSince that no progress event announces.
+    const handleBackupDeferred = () => { void fetchBackupStatus() }
+
     socket.on('backup:progress', handleBackupProgress)
+    socket.on('backup:deferred', handleBackupDeferred)
 
     return () => {
       socket.off('backup:progress', handleBackupProgress)
+      socket.off('backup:deferred', handleBackupDeferred)
       // Clear timeout on unmount
       if (progressTimeoutRef.current) {
         clearTimeout(progressTimeoutRef.current)
@@ -380,14 +387,12 @@ export default function Backups() {
     return () => clearInterval(interval)
   }, [creatingBackup, fetchBackups])
 
-  // A scheduled backup held for a restart (backupDeferredSince) stops
-  // waiting in ways this page gets no event for: the restart ends and the
-  // backup starts (progress events only refetch on 'complete'/'error'), the
-  // wait gives up on a stuck restart (a Schedule History row, nothing on
-  // the socket), or backups are turned off in another tab meanwhile.
-  // Re-check while the card says "waiting", so it can't keep saying so after
-  // the wait is over -- a restart that hangs is exactly when the operator
-  // is watching this page.
+  // A scheduled backup held for a restart (backupDeferredSince) announces
+  // each change on 'backup:deferred' (above) -- but a socket that dropped
+  // and reconnected meanwhile misses it, and a restart that hangs is exactly
+  // when the operator is watching this page. So while the card says
+  // "waiting", it also re-checks on its own, and can't keep saying so after
+  // the wait is over.
   const backupDeferred = Boolean(backupStatus?.enabled && backupStatus.backupDeferredSince)
   useEffect(() => {
     if (!backupDeferred) return
@@ -703,7 +708,22 @@ export default function Backups() {
 
   // What Save stores: the typed expression in Custom mode, else the preset.
   const scheduleToSave = customSchedule ? customCron.trim() : backupSchedule
-  const currentScheduleCheck = scheduleCheck?.schedule === scheduleToSave ? scheduleCheck.result : null
+  // The newest verdict stays on screen while the check for a newer edit is
+  // pending -- dimmed and aria-busy, the way Scheduler.tsx keeps its cron
+  // verdict until the next one replaces it -- instead of the whole preview
+  // (validity, next run, the restart-overlap notice) collapsing on every
+  // keystroke and moving the Save button with it. Cleared only for an empty
+  // field, a failed check, or a closed panel (the effect below).
+  const shownScheduleCheck = scheduleToSave ? scheduleCheck?.result ?? null : null
+  const scheduleCheckPending = shownScheduleCheck !== null && scheduleCheck?.schedule !== scheduleToSave
+  // Until the panel has a verdict of its own -- the first check after it
+  // opens, or never, for a role that can't run it -- the saved schedule's
+  // overlaps from GET /status stand in, so opening the panel doesn't drop
+  // the warning the page was already showing and bring it back a round
+  // trip later.
+  const panelRestartOverlaps = shownScheduleCheck
+    ? shownScheduleCheck.valid ? shownScheduleCheck.restartOverlaps : undefined
+    : scheduleToSave === backupStatus?.schedule ? backupStatus.restartOverlaps : undefined
 
   // A rejected schedule, in the operator's language: the registered error
   // code's translation, else the server's own sentence.
@@ -716,8 +736,17 @@ export default function Backups() {
   // effect's own cleanup, with a generation counter so a slow answer can't
   // land over a newer one -- the same shape as Scheduler.tsx's cron preview.
   // Only while the settings panel is open: that's the only place it shows.
+  // Never for a role without backups.manage: POST /backup/validate-schedule
+  // is gated on it (403), and such a role can't save a schedule anyway --
+  // the panel shows the saved schedule's overlaps instead (above).
   useEffect(() => {
-    if (!showSettings || !scheduleToSave) return
+    if (!showSettings || !canManageBackups || !scheduleToSave) {
+      // Also drops a check still in flight, so a closed panel reopens on
+      // fresh data rather than on what it last showed.
+      scheduleCheckIdRef.current++
+      setScheduleCheck(null)
+      return
+    }
     const checkId = ++scheduleCheckIdRef.current
     const timer = setTimeout(() => {
       backupApi.validateSchedule(scheduleToSave)
@@ -733,7 +762,7 @@ export default function Backups() {
         })
     }, 400)
     return () => clearTimeout(timer)
-  }, [showSettings, scheduleToSave])
+  }, [showSettings, canManageBackups, scheduleToSave])
 
   const handleFrequencyChange = (value: string) => {
     if (value === CUSTOM_SCHEDULE_VALUE) {
@@ -1187,8 +1216,9 @@ export default function Backups() {
 
       {/* The saved schedule's restart collisions. While the settings panel is
           open it shows the same notice for the schedule being edited
-          instead, so the two never sit on screen together. Neutral here, a
-          warning in the panel -- see BackupRestartOverlapNotice's `tone`. */}
+          instead (starting from this one -- see panelRestartOverlaps), so
+          the two never sit on screen together. Neutral here, a warning in
+          the panel -- see BackupRestartOverlapNotice's `tone`. */}
       {!showSettings && backupStatus?.enabled && (
         <BackupRestartOverlapNotice overlaps={backupStatus.restartOverlaps} tone="neutral" />
       )}
@@ -1255,37 +1285,43 @@ export default function Backups() {
                   aria-describedby="backup-schedule-cron-hint"
                 />
                 <p id="backup-schedule-cron-hint" className="text-xs text-muted-foreground">
-                  {t('settingsPanel.customHint')}
+                  {t('settingsPanel.customHint', { example: isolateLtrForRtl('30 3 * * *') })}
                 </p>
-                {currentScheduleCheck && (
+                {shownScheduleCheck && (
                   <p
-                    className={cn('flex items-center gap-1.5 text-xs', currentScheduleCheck.valid ? 'text-primary' : 'text-destructive')}
+                    className={cn(
+                      'flex items-center gap-1.5 text-xs transition-opacity',
+                      shownScheduleCheck.valid ? 'text-primary' : 'text-destructive',
+                      scheduleCheckPending && 'opacity-60',
+                    )}
                     aria-live="polite"
+                    aria-busy={scheduleCheckPending || undefined}
                   >
-                    {currentScheduleCheck.valid ? (
+                    {shownScheduleCheck.valid ? (
                       <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                     ) : (
                       <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                     )}
-                    {currentScheduleCheck.valid ? t('settingsPanel.customValid') : scheduleCheckError(currentScheduleCheck)}
+                    {shownScheduleCheck.valid ? t('settingsPanel.customValid') : scheduleCheckError(shownScheduleCheck)}
                   </p>
                 )}
               </div>
             )}
-            {currentScheduleCheck?.valid && (
-              <div className="space-y-1 text-xs text-muted-foreground">
-                {currentScheduleCheck.nextRun && (
+            {shownScheduleCheck?.valid && (
+              <div
+                className={cn('space-y-1 text-xs text-muted-foreground transition-opacity', scheduleCheckPending && 'opacity-60')}
+                aria-busy={scheduleCheckPending || undefined}
+              >
+                {shownScheduleCheck.nextRun && (
                   <p className="flex items-center gap-1">
                     <Clock className="h-3 w-3 shrink-0" aria-hidden="true" />
-                    {t('settingsPanel.nextRun', { date: formatInZone(currentScheduleCheck.nextRun, currentScheduleCheck.timezone) })}
+                    {t('settingsPanel.nextRun', { date: formatInZone(shownScheduleCheck.nextRun, shownScheduleCheck.timezone) })}
                   </p>
                 )}
-                <p>{t('settingsPanel.timezoneNotice', { tz: currentScheduleCheck.timezone })}</p>
+                <p>{t('settingsPanel.timezoneNotice', { tz: shownScheduleCheck.timezone })}</p>
               </div>
             )}
-            {currentScheduleCheck?.valid && (
-              <BackupRestartOverlapNotice overlaps={currentScheduleCheck.restartOverlaps} />
-            )}
+            <BackupRestartOverlapNotice overlaps={panelRestartOverlaps} live stale={scheduleCheckPending} />
             <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 text-xs text-muted-foreground">
                 {backupStatus?.savesPath && (
