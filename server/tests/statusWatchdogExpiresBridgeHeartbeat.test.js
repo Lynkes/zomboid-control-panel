@@ -186,7 +186,7 @@ describe("status watchdog -- a running server is not described as stopped in the
 
     const diagnostics = panelBridge.getConnectionDiagnostics();
     expect(diagnostics.summary.key).toBe("bridgeSilentSinceStart");
-    expect(diagnostics.summary.params).toEqual({ age: "0s" });
+    expect(diagnostics.summary.params).toEqual({ age: "0s", ageSeconds: 0 });
     expect(diagnostics.canSendCommands).toBe(false);
     panelBridge.checkModStatus();
     expect(panelBridge.isModConnected()).toBe(false);

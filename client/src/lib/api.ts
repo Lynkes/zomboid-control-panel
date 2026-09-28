@@ -2520,8 +2520,10 @@ export const panelBridgeApi = {
         // key+defaultValue convention as capabilities.<key>.label. See
         // Settings.tsx's resolveBridgeDiagText() and Events.tsx's
         // checkBridgeStatus().
-        summary: { key: string; params?: Record<string, string>; text: string };
-        issues: Array<{ key: string; params?: Record<string, string>; text: string }>;
+        // params may carry an age as a number (ageSeconds) beside its
+        // English text (age) -- see lib/bridgeDiagnostics.ts.
+        summary: { key: string; params?: Record<string, string | number>; text: string };
+        issues: Array<{ key: string; params?: Record<string, string | number>; text: string }>;
         checks: {
           bridgePathConfigured: boolean;
           bridgePathExists: boolean;

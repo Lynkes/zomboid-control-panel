@@ -82,6 +82,15 @@ function formatAge(ms) {
   return `${d}d`;
 }
 
+// The same age as a number, beside formatAge()'s English text in a
+// diagnostic's params: the client words it with its own duration units
+// (serverUptime's "12 min", "12 Min.", "12 хв"), which a translated
+// sentence needs -- a bare "12m" reads as metres in Portuguese. Left out
+// when there is no sensible age, so the client keeps the text as sent.
+function ageSecondsParam(ms) {
+  return Number.isFinite(ms) && ms >= 0 ? { ageSeconds: Math.floor(ms / 1000) } : {};
+}
+
 class PanelBridge extends EventEmitter {
   constructor() {
     super();
@@ -596,11 +605,12 @@ class PanelBridge extends EventEmitter {
           // says how long it has been silent since the start, the one
           // number that tells those two apart, instead of claiming the
           // server is stopped beside a Dashboard that says it is running.
-          const age = formatAge(Date.now() - this.serverRunningAgainSinceMs);
+          const silentMs = Date.now() - this.serverRunningAgainSinceMs;
+          const age = formatAge(silentMs);
           pushIssue(
             'bridgeSilentSinceStart',
             `The game server started ${age} ago, but PanelBridge has not reported yet. It reports once the world has loaded; if it stays silent, check that PanelBridge is in the server's active mod list.`,
-            { age },
+            { age, ...ageSecondsParam(silentMs) },
           );
         } else if (exitedServerWrite) {
           // Its own message rather than statusFileStale's: seconds after a
@@ -610,7 +620,7 @@ class PanelBridge extends EventEmitter {
           pushIssue('serverExited', 'The game server has stopped. PanelBridge reconnects when the server starts again.');
         } else if (!checks.statusFresh) {
           const age = formatAge(ageMs);
-          pushIssue('statusFileStale', `Status file is stale (${age} old) — is the PZ server running?`, { age });
+          pushIssue('statusFileStale', `Status file is stale (${age} old) — is the PZ server running?`, { age, ...ageSecondsParam(ageMs) });
         }
       } catch (e) {
         pushIssue('statusFileMetadataFailed', `Could not read status file metadata: ${e.message}`, { error: e.message });

@@ -63,6 +63,7 @@ import { Switch } from '@/components/ui/switch'
 import { useToast } from '@/components/ui/use-toast'
 import { rconApi, serverApi, playersApi, panelBridgeApi, ApiError, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
+import { bridgeDiagnosticParams } from '@/lib/bridgeDiagnostics'
 import { buildTeleportPlayerCommand, buildTeleportToCommand } from '@/lib/teleportCommands'
 import { Link } from 'react-router-dom'
 import { PageHeader } from '@/components/PageHeader'
@@ -1395,7 +1396,8 @@ export default function Events() {
         status.connection?.summary
           ? t(`bridge.diagnostics.${status.connection.summary.key}`, {
               ns: 'settings',
-              ...(status.connection.summary.params ?? {}),
+              // Ages worded in the UI language's units, as Settings does.
+              ...bridgeDiagnosticParams(status.connection.summary.params),
               defaultValue: status.connection.summary.text,
             })
           : null,

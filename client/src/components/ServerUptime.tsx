@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Clock } from 'lucide-react'
 import { HelpTip } from '@/components/HelpTip'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { cn, splitUptime } from '@/lib/utils'
+import { formatElapsed } from '@/lib/durationText'
+import { cn } from '@/lib/utils'
 
 // A start time further ahead of this browser's clock than this is a clock
 // problem, not a server that is about to start: shown as unknown rather
@@ -90,15 +91,11 @@ export function ServerUptime({ startedAt, showUnknown = false, className }: Serv
     )
   }
 
-  const elapsedSeconds = Math.floor(elapsedMs / 1000)
-  const shownSeconds = elapsedSeconds < 60 ? elapsedSeconds : elapsedSeconds - (elapsedSeconds % 60)
-  // Unit wording is the translators' (units.* in serverUptime.json), as for
-  // every other duration in the UI -- not CLDR's narrow units, which put
-  // "2г 3х" in Ukrainian and "1 T" in German next to the dashboard's own
-  // "год"/"хв" and "Tg.".
-  const uptime = splitUptime(shownSeconds)
-    .map(({ unit, count }) => t(`units.${unit}`, { count }))
-    .join(' ')
+  // Unit wording is the translators' (units.* in serverUptime.json) -- not
+  // CLDR's narrow units, which put "2г 3х" in Ukrainian and "1 T" in German
+  // next to the dashboard's own "год"/"хв" and "Tg.". formatElapsed() also
+  // words the ages in Settings > Bridge's diagnostics, so the two agree.
+  const uptime = formatElapsed(elapsedMs / 1000)
   const started = new Date(startMs)
   // The exact start is a tooltip on the uptime itself rather than a
   // `title`, for the same reason as the unknown state's HelpTip: the uptime

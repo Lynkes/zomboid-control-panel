@@ -452,7 +452,7 @@
       "statusFileMissing": "狀態檔案遺失。請啟用 PanelBridge 並啟動遊戲伺服器。",
       "statusFileStale": "狀態檔案已過期（{{age}}前）— PZ 伺服器是否正在執行？",
       "serverExited": "遊戲伺服器已停止。伺服器再次啟動後，PanelBridge 會重新連線。",
-      "bridgeSilentSinceStart": "遊戲伺服器已於 {{age}} 前啟動，但 PanelBridge 尚未回報狀態。世界載入完成後它才會回報；如果一直沒有回報，請檢查 PanelBridge 是否在伺服器的活動模組列表中。",
+      "bridgeSilentSinceStart": "遊戲伺服器已於 {{age}}前啟動，但 PanelBridge 尚未回報狀態。世界載入完成後它才會回報；如果一直沒有回報，請檢查 PanelBridge 是否在伺服器的活動模組列表中。",
       "statusFileMetadataFailed": "無法讀取狀態檔案的中繼資料：{{error}}",
       "healthy": "橋接檔案連線看起來正常。"
     },

@@ -192,7 +192,9 @@ describe("PanelBridge.markServerRunning -- a running server is not described as 
     const diagnostics = bridge.getConnectionDiagnostics();
     expect(diagnostics.summary).toEqual({
       key: "bridgeSilentSinceStart",
-      params: { age: "20m" },
+      // ageSeconds: the same age as a number, for the client to word in
+      // its own units -- "20m" is English and reads as metres in pt-BR.
+      params: { age: "20m", ageSeconds: 20 * 60 },
       text: "The game server started 20m ago, but PanelBridge has not reported yet. It reports once the world has loaded; if it stays silent, check that PanelBridge is in the server's active mod list.",
     });
     expect(diagnostics.issues.map((issue) => issue.key)).not.toContain("serverExited");
@@ -224,7 +226,7 @@ describe("PanelBridge.markServerRunning -- a running server is not described as 
     vi.setSystemTime(Date.now() + 3 * 60_000);
     bridge.markServerRunning(); // the watchdog's next running tick
 
-    expect(bridge.getConnectionDiagnostics().summary.params).toEqual({ age: "3m" });
+    expect(bridge.getConnectionDiagnostics().summary.params).toEqual({ age: "3m", ageSeconds: 3 * 60 });
   });
 
   it("goes back to 'stopped' when the server stops again before its mod ever wrote", () => {
@@ -260,5 +262,26 @@ describe("PanelBridge.markServerRunning -- a running server is not described as 
     expect(bridge.serverRunningAgainSinceMs).toBeNull();
     expect(bridge.isModConnected()).toBe(true);
     expect(bridge.getConnectionDiagnostics().summary.key).toBe("healthy");
+  });
+});
+
+// Review of the merge: the ages inside these diagnostics were only the
+// server's English compact units ("12m"), which translated sentences then
+// carried verbatim -- a bare m reads as metres in pt-BR. They now also
+// travel as a number, for the client to word in its own units.
+describe("PanelBridge diagnostics -- ages travel as a number too", () => {
+  it("gives a stale status file's age in whole seconds beside the English text", () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "panelbridge-exit-"));
+    const bridge = new PanelBridge();
+    bridge.configure(tmpDir, true);
+    writeStatus(tmpDir, { ageMs: 12 * 60_000 + 30_000, playerCount: 3 });
+
+    const { summary } = bridge.getConnectionDiagnostics();
+
+    expect(summary.key).toBe("statusFileStale");
+    expect(summary.params.age).toBe("13m");
+    // Within a second or so of the mtime set above.
+    expect(summary.params.ageSeconds).toBeGreaterThanOrEqual(750);
+    expect(summary.params.ageSeconds).toBeLessThan(760);
   });
 });
