@@ -406,7 +406,8 @@
   "loadOrder": {
     "emptyTitle": "加载顺序中没有模组",
     "emptyDesc": "请先在「已启用模组」标签页中启用模组。",
-    "dragHint": "拖动以重新排序。更改在点击保存前不会生效。",
+    "dragHint": "拖动或使用箭头按钮以重新排序。更改在点击保存前不会生效。",
+    "previewLockHint": "请先应用或取消下方的建议顺序，再手动调整排序。",
     "autoSort": "按依赖关系自动排序",
     "proposedOrder_one": "建议顺序：{{count}} 个模组将移动",
     "proposedOrder_other": "建议顺序：{{count}} 个模组将移动",

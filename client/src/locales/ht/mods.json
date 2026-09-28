@@ -406,7 +406,8 @@
   "loadOrder": {
     "emptyTitle": "Pa gen mods nan òd chajman",
     "emptyDesc": "Aktive mods nan onglè Mods Aktif dabò.",
-    "dragHint": "Trennen pou reòdone. Chanjman yo pa sove jiskaske w klike Sove.",
+    "dragHint": "Trennen oswa sèvi ak bouton flèch yo pou reòdone. Chanjman yo pa sove jiskaske w klike Sove.",
+    "previewLockHint": "Aplike oswa anile òd pwopoze ki anba a anvan ou reòdone alamen.",
     "autoSort": "Klase otomatikman pa depandans",
     "proposedOrder_one": "Òd pwopoze: {{count}} mod ap deplase",
     "proposedOrder_other": "Òd pwopoze: {{count}} mods ap deplase",

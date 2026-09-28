@@ -379,7 +379,8 @@
   "loadOrder": {
     "emptyTitle": "No mods in load order",
     "emptyDesc": "Enable mods in the Active Mods tab first.",
-    "dragHint": "Drag to reorder. Changes are not saved until you click Save.",
+    "dragHint": "Drag or use the arrow buttons to reorder. Changes are not saved until you click Save.",
+    "previewLockHint": "Apply or cancel the proposed order below before reordering by hand.",
     "autoSort": "Auto-sort by dependencies",
     "proposedOrder_one": "Proposed order: {{count}} mod would move",
     "proposedOrder_other": "Proposed order: {{count}} mods would move",

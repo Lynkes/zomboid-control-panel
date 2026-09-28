@@ -16,24 +16,34 @@ export interface LoadOrderMoveControlsProps {
   modId: string
   /** Called with this row's `index`. Pass a stable function -- see memo below. */
   onMove: (index: number, move: LoadOrderMove) => void
+  /**
+   * Turns every control off at once, for a state that locks the whole list
+   * (Save Order in flight, an Auto-sort proposal open). The page states that
+   * reason once, above the list: a DisabledReason here would put four
+   * tooltips and four dead Tab stops on each of 200+ rows.
+   */
+  disabled?: boolean
 }
 
 /**
  * Move to top / up / down / to bottom for one Load Order row. Each button
- * carries `data-move-action` so the page can put focus back on the same
- * control after the row has jumped (see Mods.tsx's moveModInLoadOrder); a
+ * carries `data-move-action` so the page can put focus back on a control of
+ * this row after it has jumped (see Mods.tsx's moveModInLoadOrder); a
  * control with nowhere to go is disabled and says why instead of no-opping.
  * Strings live with the rest of the Load Order tab in mods.json (loadOrder.*).
  *
  * Memoized because it renders once per row of a list that can hold 200+
- * mods, inside a page that re-renders on every keystroke and socket event:
- * with a stable `onMove`, only rows whose position actually changed re-render.
+ * mods, inside a page that re-renders on every keystroke and socket event.
+ * The page keeps `onMove` stable across those unrelated re-renders, so they
+ * skip every row; a move itself changes `onMove` (it closes over the order)
+ * and re-renders all rows' controls, once per click.
  */
 export const LoadOrderMoveControls = memo(function LoadOrderMoveControls({
   index,
   total,
   modId,
   onMove,
+  disabled = false,
 }: LoadOrderMoveControlsProps) {
   const { t } = useTranslation('mods')
   const controls: Array<{ move: LoadOrderMove; Icon: LucideIcon; label: string; hint: string }> = [
@@ -46,13 +56,18 @@ export const LoadOrderMoveControls = memo(function LoadOrderMoveControls({
     <div className="flex shrink-0">
       {controls.map(({ move, Icon, label, hint }) => {
         const icon = <Icon className="w-3.5 h-3.5" aria-hidden="true" />
-        if (loadOrderMoveTarget(index, total, move) === null) {
+        const atEdge = loadOrderMoveTarget(index, total, move) === null
+        if (disabled || atEdge) {
+          const button = (
+            <button key={move} type="button" data-move-action={move} disabled className={CONTROL_CLASS} aria-label={label}>
+              {icon}
+            </button>
+          )
+          if (disabled) return button
           const reason = move === 'top' || move === 'up' ? t('loadOrder.alreadyFirst') : t('loadOrder.alreadyLast')
           return (
             <DisabledReason key={move} reason={reason}>
-              <button type="button" data-move-action={move} disabled className={CONTROL_CLASS} aria-label={label}>
-                {icon}
-              </button>
+              {button}
             </DisabledReason>
           )
         }

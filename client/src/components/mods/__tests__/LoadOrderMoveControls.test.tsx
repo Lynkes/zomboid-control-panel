@@ -13,10 +13,10 @@ afterEach(() => {
   cleanup()
 })
 
-function renderControls(index: number, total: number, onMove = vi.fn()) {
+function renderControls(index: number, total: number, onMove = vi.fn(), disabled?: boolean) {
   render(
     <TooltipProvider>
-      <LoadOrderMoveControls index={index} total={total} modId="NewMod" onMove={onMove} />
+      <LoadOrderMoveControls index={index} total={total} modId="NewMod" onMove={onMove} disabled={disabled} />
     </TooltipProvider>,
   )
   return onMove
@@ -89,6 +89,21 @@ describe('LoadOrderMoveControls', () => {
     for (const name of ['Move NewMod to the top', 'Move NewMod up', 'Move NewMod down', 'Move NewMod to the bottom']) {
       expect(control(name)).toBeDisabled()
     }
+  })
+
+  it('turns every control off when the page locks the list, without a per-button reason', () => {
+    // The first row, so top/up would otherwise carry DisabledReason wrappers.
+    const onMove = renderControls(0, 10, vi.fn(), true)
+
+    for (const name of ['Move NewMod to the top', 'Move NewMod up', 'Move NewMod down', 'Move NewMod to the bottom']) {
+      expect(control(name)).toBeDisabled()
+      expect(control(name)).not.toHaveAttribute('title')
+      // The page states the lock's reason once above the list; a focusable
+      // wrapper on every button of 200+ rows would be 800+ dead Tab stops.
+      expect(control(name).parentElement).not.toHaveAttribute('tabindex')
+      fireEvent.click(control(name))
+    }
+    expect(onMove).not.toHaveBeenCalled()
   })
 
   it('tags each control with its move so the page can re-focus it after the row jumps', () => {

@@ -421,7 +421,8 @@
   "loadOrder": {
     "emptyTitle": "No hay mods en el orden de carga",
     "emptyDesc": "Habilitar mods en la pestaña Mods activos primero.",
-    "dragHint": "Arrastrar para reordenar. Los cambios no se guardan hasta hacer clic en Guardar.",
+    "dragHint": "Arrastrar o usar los botones de flecha para reordenar. Los cambios no se guardan hasta hacer clic en Guardar.",
+    "previewLockHint": "Aplica o cancela el orden propuesto de abajo antes de reordenar a mano.",
     "autoSort": "Ordenar automáticamente por dependencias",
     "proposedOrder_one": "Orden propuesto: {{count}} mod cambiaría de posición",
     "proposedOrder_other": "Orden propuesto: {{count}} mods cambiarían de posición",
