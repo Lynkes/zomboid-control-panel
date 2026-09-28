@@ -74,6 +74,10 @@ function emitActiveServerChanged() {
   socketHandlers.get('activeServerChanged')?.forEach((h) => h())
 }
 
+// jsdom doesn't implement scrollIntoView; the Load Order move controls call
+// it to bring the moved row back into view.
+Element.prototype.scrollIntoView = vi.fn()
+
 const getTrackedMods = vi.mocked(modsApi.getTrackedMods)
 const getStatus = vi.mocked(modsApi.getStatus)
 const getCurrentConfig = vi.mocked(modsApi.getCurrentConfig)
@@ -158,8 +162,7 @@ describe('Mods.tsx: activeServerChanged also blocks the inline conflict "Make X 
     // Create a pending, unsaved reorder the same way
     // Mods.activeServerChanged.test.tsx does for Save Order.
     fireEvent.click(await screen.findByRole('button', { name: /load order/i }))
-    const moveDownButtons = await screen.findAllByRole('button', { name: /move down/i })
-    fireEvent.click(moveDownButtons[0])
+    fireEvent.click(await screen.findByRole('button', { name: 'Move modA down' }))
 
     // Switch the active server elsewhere while that reorder is unsaved --
     // this is what flips serverChangedSinceLoad and (correctly) disables
