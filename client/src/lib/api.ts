@@ -2515,6 +2515,10 @@ export const panelBridgeApi = {
         installPath: string;
         zomboidDataPath: string;
       } | null;
+      // Effective PanelBridge delivery for the active server. When it is
+      // "workshop" the server nulls localInstall/remoteBridgeVersionCheck
+      // (no loose file to compare). Absent is treated as "local".
+      deliveryMethod?: import("./bridgeDeliveryTypes").DeliveryMethod;
     }>,
 
   // Auto-configure bridge from server (uses db settings)
@@ -2984,9 +2988,41 @@ export const panelBridgeApi = {
       error?: string;
     }>,
 
-  // Install mod to server (manual path - Lua folder)
-  installMod: (serverLuaPath: string) =>
-    apiPost("/panel-bridge/install-mod", { serverLuaPath }),
+  // How PanelBridge reaches the active server: copied into its game folder
+  // by the panel ("local") or downloaded from the Steam Workshop
+  // ("workshop"). The server computes every field, including `state`;
+  // shapes are the contract in lib/bridgeDeliveryTypes.ts.
+  getDelivery: (serverId?: string | number) =>
+    apiGet(
+      `/panel-bridge/delivery${serverId != null ? `?serverId=${encodeURIComponent(String(serverId))}` : ""}`,
+    ) as Promise<import("./bridgeDeliveryTypes").DeliveryStatus>,
+
+  // Preview only: dryRun is forced on, so nothing on disk or in the
+  // database changes.
+  planDelivery: (body: {
+    serverId: string;
+    method: import("./bridgeDeliveryTypes").DeliveryMethod;
+  }) =>
+    apiPost("/panel-bridge/delivery", { ...body, dryRun: true }) as Promise<
+      import("./bridgeDeliveryTypes").DeliveryPlanResponse
+    >,
+
+  // expectedFrom is the method the operator saw in the preview; the server
+  // answers 409 PANELBRIDGE_DELIVERY_STALE instead of applying when it no
+  // longer matches. POSTs are never transport-retried (fetchWithRetry), so
+  // a timed-out apply can't silently run twice. 60 s rather than the 15 s
+  // default: an apply installs, archives (copy + fsync) and rewrites every
+  // group ini under one lock, which a slow disk or network share can take
+  // past 15 s -- the client would then report a failure for a switch the
+  // server went on to complete.
+  applyDelivery: (body: {
+    serverId: string;
+    method: import("./bridgeDeliveryTypes").DeliveryMethod;
+    expectedFrom: import("./bridgeDeliveryTypes").DeliveryMethod;
+  }) =>
+    apiPost("/panel-bridge/delivery", { ...body, dryRun: false }, { timeout: 60000 }) as Promise<
+      import("./bridgeDeliveryTypes").DeliveryPlanResponse
+    >,
 
   // =============================================
   // V1.2.0 SOUND/NOISE CONTROLS

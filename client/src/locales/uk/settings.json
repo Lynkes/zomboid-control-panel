@@ -409,7 +409,7 @@
     "setupStep2Desc": "Вказує панелі правильну теку даних сервера й запускає спостерігач.",
     "setupStep3Title": "Запустіть сервер PZ",
     "setupStep3Desc": "Коли гра завантажить мод, статус зміниться з <b1>Очікування</b1> на <b>Підключено</b>.",
-    "requiresLuaChecksum": "<b>Потрібно DoLuaChecksum=false</b> в INI вашого сервера. З увімкненою перевіркою контрольної суми команди можуть не спрацьовувати.",
+    "requiresLuaChecksum": "<b>PanelBridge, який встановлює панель, потребує DoLuaChecksum=false.</b> Доставка через Steam Workshop працює й з увімкненою перевіркою.",
     "connectedTo": "Підключено до {{server}}",
     "connectedFallback": "сервера",
     "modVersionLabel": "Версія мода:",
@@ -505,8 +505,8 @@
     "listLogs": "Показати журнали",
     "selectFileHint": "Виберіть файл, щоб завантажити останні 256 КБ.",
     "tailOfPrefix": "кінець ",
-    "autoUpdateLabel": "Автоматично оновлювати мод під час запуску панелі",
-    "autoUpdateDesc": "Під час запуску панелі автоматично копіювати найновіший вбудований PanelBridge.lua на сервер PZ, якщо версії відрізняються.",
+    "autoUpdateLabel": "Оновлювати PanelBridge, який встановлює панель",
+    "autoUpdateDesc": "Перед кожним запуском сервера та під час запуску панелі копіювати вбудований PanelBridge.lua до теки гри, якщо він змінився. Не використовується з доставкою через Steam Workshop.",
     "installTitle": "Встановлення PanelBridge.lua",
     "selectServerPlaceholder": "Виберіть сервер...",
     "noServersConfigured": "Немає налаштованих серверів",
@@ -520,6 +520,7 @@
       "updateAvailableTitle": "Bridge mod update available",
       "updateNowButton": "Update Now",
       "protocolMismatchBody": "This panel expects bridge protocol '{{expected}}', but the mod on your server reports '{{actual}}'. They ship as a matched pair, so some features may not work correctly until they're back in sync.",
+      "protocolMismatchWorkshopBody": "PanelBridge на цьому сервері (зі Steam Workshop) повідомляє протокол «{{actual}}», але ця панель очікує «{{expected}}». Перезапустіть сервер, щоб отримати найновішу версію з Workshop, або оновіть панель.",
       "remoteUpdateBody": "Your server is running bridge mod v{{liveVersion}}, older than the v{{bundledVersion}} this panel bundles. This panel can't update a remote/SFTP-managed server's files for you -- re-upload the updated PanelBridge.lua the same way you installed it.",
       "localUpdateBody": "The installed bridge mod (v{{liveVersion}}) is older than what this panel bundles."
     }

@@ -147,7 +147,9 @@
     "sectionLabel": "Paramèt sèvè",
     "sectionSublabel": "INI · konpòtman, rezo, jwè",
     "luaChecksumTitle": "Lua Checksum aktive",
-    "luaChecksumBody": "PanelBridge modifye fichye Lua sèvè a. Lè Lua Checksum aktive, kliyan yo ap echwe verifikasyon epi yo pa ka konekte. Dezaktive <1>DoLuaChecksum</1> nan kategori Mod pou pèmèt jwè antre.",
+    "luaChecksumBody": "PanelBridge panèl la enstale a ajoute fichye Lua bò sèvè a ke jwè yo pa genyen, kidonk lè <1>DoLuaChecksum</1> aktive, yo pa ka konekte. Dezaktive l, oswa pase PanelBridge sou distribisyon atravè Steam Workshop nan Paramèt › PanelBridge pou kenbe l aktive.",
+    "luaChecksumWorkshopNote": "PanelBridge soti nan Steam Workshop, kidonk ou ka aktive sa. Paramèt › PanelBridge ap gide w etap pa etap.",
+    "luaChecksumWorkshopUnconfirmed": "Si PanelBridge toujou ap chaje nan dosye jwèt la, jwè yo pa ka antre pandan sa a aktive.",
     "disableNow": "dezaktive kounye a"
   },
   "sandboxTab": {
@@ -797,7 +799,7 @@
       },
       "DoLuaChecksum": {
         "label": "Lua Checksum",
-        "description": "Verify client Lua matches server. Must be disabled when using PanelBridge — the mod modifies server-side Lua files, which causes checksum mismatches and prevents players from connecting."
+        "description": "Mete deyò jwè ki gen fichye Lua, script oswa animasyon ki pa matche ak pa sèvè a. Dwe dezaktive avèk PanelBridge panèl la enstale a; ka rete aktive avèk distribisyon atravè Steam Workshop."
       }
     },
     "steam": {

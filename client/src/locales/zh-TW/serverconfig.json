@@ -147,7 +147,9 @@
     "sectionLabel": "伺服器設定",
     "sectionSublabel": "INI · 行為、網路、玩家",
     "luaChecksumTitle": "已啟用 Lua 校驗和",
-    "luaChecksumBody": "PanelBridge 會修改伺服器端的 Lua 檔案。啟用 Lua 校驗和後，客戶端將無法通過校驗，也無法連線。請在「模組」分類中停用 <1>DoLuaChecksum</1>，以允許玩家加入。",
+    "luaChecksumBody": "由面板安裝的 PanelBridge 會在伺服器端加入玩家沒有的 Lua 檔案，因此啟用 <1>DoLuaChecksum</1> 時玩家無法連線。請停用它，或在「設定 › PanelBridge」中將 PanelBridge 改為 Steam 創意工坊發佈，以便保持啟用。",
+    "luaChecksumWorkshopNote": "PanelBridge 來自 Steam 創意工坊，因此可以啟用此項。「設定 › PanelBridge」會一步步引導你完成。",
+    "luaChecksumWorkshopUnconfirmed": "如果 PanelBridge 仍從遊戲資料夾載入，啟用此項後玩家將無法加入。",
     "disableNow": "立即停用"
   },
   "sandboxTab": {
@@ -797,7 +799,7 @@
       },
       "DoLuaChecksum": {
         "label": "Lua Checksum",
-        "description": "Verify client Lua matches server. Must be disabled when using PanelBridge — the mod modifies server-side Lua files, which causes checksum mismatches and prevents players from connecting."
+        "description": "踢出 Lua、腳本或動畫檔案與伺服器不一致的玩家。使用由面板安裝的 PanelBridge 時必須停用；使用 Steam 創意工坊發佈時可保持啟用。"
       }
     },
     "steam": {

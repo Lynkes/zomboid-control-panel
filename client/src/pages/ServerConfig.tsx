@@ -103,11 +103,13 @@ import { PageHeader } from '@/components/PageHeader'
 import { serverApi, serverFilesApi, serversApi, panelBridgeApi, ApiError, SpawnPointsByProfession, SpawnRegion, SandboxData, ConfigTemplate, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
 import { resolveServerRunning } from '@/lib/serverStatus'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
+import { isDeliveryStatus, resolveLuaChecksumCallout, type LuaChecksumDelivery } from '@/lib/bridgeDeliveryView'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { formatModSettingDescription, formatModSettingLabel } from '@/lib/modSettingsLabels'
 import { EmptyState } from '@/components/EmptyState'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSocket } from '@/contexts/SocketContext'
+import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { DisabledReason } from '@/components/DisabledReason'
 import {
   INI_SCHEMA,
@@ -1154,6 +1156,14 @@ export default function ServerConfig() {
   // isRemote-flag-fetched-independently pattern as Backups.tsx.
   const [activeServerRemote, setActiveServerRemote] = useState(false)
   const [activeServerName, setActiveServerName] = useState<string | null>(null)
+  // How PanelBridge reaches the active server, only to word the
+  // DoLuaChecksum callout (§4.12). undefined while GET /panel-bridge/delivery
+  // hasn't answered (no callout yet: guessing Local would flash the
+  // destructive alert on a confirmed Workshop server), null once it failed
+  // -- which reads as panel-installed, the delivery that can only ever warn
+  // more, never less. See resolveLuaChecksumCallout.
+  const [bridgeDelivery, setBridgeDelivery] = useState<LuaChecksumDelivery | null | undefined>(undefined)
+  const bridgeDeliveryGuard = useRequestGuard()
   // Set when activeServerChanged fires while this page has unsaved edits --
   // GET/PUT /server-files/ini and /sandbox both resolve "the active server"
   // fresh on the server per-request rather than taking a server id, so
@@ -1203,6 +1213,33 @@ export default function ServerConfig() {
     }
   }, [])
 
+  // Fire-and-forget beside loadData, never inside its sequential chain: a
+  // slow or refused delivery status must not delay or fail the config load.
+  // GET /panel-bridge/delivery accepts serverfiles.manage, this page's gate.
+  // loadData runs again on activeServerChanged and after every save, so a
+  // slow answer for the previous server must not land after the new one
+  // (same race as the round-9 sweep), and the previous server's method is
+  // dropped while the new answer is pending -- the page is behind its
+  // loading skeleton for most of that anyway.
+  const loadBridgeDelivery = async () => {
+    const requestId = bridgeDeliveryGuard.next()
+    setBridgeDelivery(undefined)
+    try {
+      const status: unknown = await panelBridgeApi.getDelivery()
+      if (bridgeDeliveryGuard.isStale(requestId)) return
+      // An answer that isn't a DeliveryStatus (the demo build's catch-all)
+      // counts as a failed call: the local fallback below.
+      setBridgeDelivery(
+        isDeliveryStatus(status)
+          ? { method: status.method, state: status.state, turnOnBlockers: status.checksum.turnOnBlockers }
+          : null,
+      )
+    } catch {
+      if (bridgeDeliveryGuard.isStale(requestId)) return
+      setBridgeDelivery(null)
+    }
+  }
+
   // 2026-09-08 (retry-stacking sweep, page 5 of 5): `manual` distinguishes
   // this page's THREE human-initiated triggers (two Retry buttons on the
   // error/server-changed banners, plus the page header's own Refresh
@@ -1213,6 +1250,7 @@ export default function ServerConfig() {
   const loadData = async (opts?: { manual?: boolean }) => {
     const retries = opts?.manual ? { retries: 0 } : undefined
     setLoading(true)
+    void loadBridgeDelivery()
     setServerChangedSinceLoad(false)
     const active = await serversApi.getResolvedActive().catch(() => ({ server: null }))
     const isRemote = !!active.server?.isRemote
@@ -1339,6 +1377,8 @@ export default function ServerConfig() {
       setLoadingRaw(false)
     }
   }
+
+  const luaChecksumCallout = resolveLuaChecksumCallout(bridgeDelivery, iniSettings['DoLuaChecksum'])
 
   // Check for unsaved changes
   const hasIniChanges = useMemo(() => {
@@ -2866,7 +2906,7 @@ export default function ServerConfig() {
               }
             />
             <div className="p-4">
-              {iniSettings['DoLuaChecksum']?.toLowerCase() === 'true' && (
+              {luaChecksumCallout === 'localBlocked' && (
                 <Alert variant="destructive" className="mb-4">
                   <AlertTriangle className="h-4 w-4" />
                   <AlertTitle>{t('iniTab.luaChecksumTitle')}</AlertTitle>
@@ -2885,6 +2925,31 @@ export default function ServerConfig() {
                       </Button>
                     </div>
                   </AlertDescription>
+                </Alert>
+              )}
+              {luaChecksumCallout === 'workshopUnconfirmed' && (
+                <Alert className="mb-4 border-warning/40 bg-warning/10">
+                  <AlertTriangle className="h-4 w-4 text-warning" />
+                  <AlertTitle className="text-warning">{t('iniTab.luaChecksumTitle')}</AlertTitle>
+                  <AlertDescription>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <span className="min-w-0 flex-1">{t('iniTab.luaChecksumWorkshopUnconfirmed')}</span>
+                      <Button
+                        size="sm"
+                        variant="command"
+                        className="h-7 shrink-0 gap-1.5 text-xs font-medium"
+                        onClick={() => updateIniValue('DoLuaChecksum', 'false')}
+                      >
+                        {t('iniTab.disableNow')}
+                      </Button>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+              {luaChecksumCallout === 'workshopNote' && (
+                <Alert className="mb-4 border-border/60 bg-muted/40">
+                  <Info className="h-4 w-4 text-primary" />
+                  <AlertDescription>{t('iniTab.luaChecksumWorkshopNote')}</AlertDescription>
                 </Alert>
               )}
               {editorMode === 'raw' ? (

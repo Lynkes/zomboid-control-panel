@@ -147,7 +147,9 @@
     "sectionLabel": "Servereinstellungen",
     "sectionSublabel": "INI · Verhalten, Netzwerk, Spieler",
     "luaChecksumTitle": "Lua Checksum ist aktiviert",
-    "luaChecksumBody": "PanelBridge verändert serverseitige Lua-Dateien. Wenn Lua Checksum aktiviert ist, schlägt die Überprüfung bei Clients fehl und sie können sich nicht verbinden. Deaktiviere <1>DoLuaChecksum</1> in der Kategorie Mods, damit Spieler beitreten können.",
+    "luaChecksumBody": "Das vom Panel installierte PanelBridge fügt serverseitige Lua-Dateien hinzu, die Spieler nicht haben. Mit eingeschaltetem <1>DoLuaChecksum</1> können sie sich daher nicht verbinden. Schalte es aus oder stelle PanelBridge unter Einstellungen › PanelBridge auf Bereitstellung über den Steam Workshop um, damit es an bleiben kann.",
+    "luaChecksumWorkshopNote": "PanelBridge kommt aus dem Steam Workshop, du kannst diese Option also einschalten. Einstellungen › PanelBridge führt dich durch die Schritte.",
+    "luaChecksumWorkshopUnconfirmed": "Wenn PanelBridge noch aus dem Spielordner geladen wird, können Spieler mit eingeschalteter Option nicht beitreten.",
     "disableNow": "Jetzt deaktivieren"
   },
   "sandboxTab": {
@@ -797,7 +799,7 @@
       },
       "DoLuaChecksum": {
         "label": "Lua Checksum",
-        "description": "Verify client Lua matches server. Must be disabled when using PanelBridge — the mod modifies server-side Lua files, which causes checksum mismatches and prevents players from connecting."
+        "description": "Kickt Spieler, deren Lua-, Skript- oder Animationsdateien nicht mit denen des Servers übereinstimmen. Muss mit dem vom Panel installierten PanelBridge aus sein; kann bei Bereitstellung über den Steam Workshop an bleiben."
       }
     },
     "steam": {
