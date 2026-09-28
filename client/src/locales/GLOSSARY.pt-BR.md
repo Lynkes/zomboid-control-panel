@@ -478,7 +478,7 @@ follow the game's vocabulary, or say that the term is the panel's own.
 | gunshot / noise | tiro / ruído | |
 | game speed / time speed | velocidade do jogo / velocidade do tempo | |
 | zombies killed | zumbis mortos | `IGUI_char_Zombies_Killed` |
-| kills (leaderboard) | abates | the panel's own word (the game only has *zumbis mortos*): *abates atuais*, *abates totais* |
+| kills (leaderboard) | abates | the panel's own word (the game only has *zumbis mortos*): *abates atuais*, *abates acumulados* (one survivor across every life), *total de abates* (the whole server's sum) |
 | deaths | mortes | |
 | days survived | dias sobrevividos | |
 | favorite weapon | arma favorita | `IGUI_char_Favourite_Weapon` |
