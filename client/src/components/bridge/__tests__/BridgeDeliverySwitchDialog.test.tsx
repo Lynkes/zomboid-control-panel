@@ -123,6 +123,28 @@ describe('BridgeDeliverySwitchDialog: the preview lists every step, in order, wi
     expect(within(items[1]).getByText('ZomboidControlPanelBridge').tagName).toBe('CODE')
   })
 
+  // community-feedback's dialog fix: DialogContent is capped at the visible
+  // (dvh) height, and a DialogBody child is the only part that scrolls. A
+  // per-call-site max-h-[85vh] replaced that cap, and with no body the
+  // Cancel/Switch/Restart row scrolled away below long steps on a phone.
+  // jsdom has no layout, so this pins the structure that produces it.
+  it('scrolls only the steps and warnings, keeping the action row on screen', async () => {
+    planDelivery.mockResolvedValue(makePlan({ warnings: ['serverRunning'] }))
+    renderDialog(makeLocalStatus())
+    const list = await stepsList()
+    const dialog = screen.getByRole('dialog')
+    const body = screen.getByTestId('bridge-delivery-dialog-body')
+    const actions = screen.getByTestId('bridge-delivery-dialog-actions')
+    expect(body).toHaveAttribute('data-dialog-body')
+    expect(body.parentElement).toBe(dialog)
+    expect(actions.parentElement).toBe(dialog)
+    expect(body).toContainElement(list)
+    expect(body).toContainElement(screen.getByText(en.warn.serverRunning))
+    expect(body).not.toContainElement(actions)
+    expect(dialog.className).toContain('max-h-[calc(100dvh-2rem)]')
+    expect(dialog.className).not.toMatch(/max-h-\[\d+vh\]/)
+  })
+
   it('titles the dialog with the server and shows the plan warnings', async () => {
     planDelivery.mockResolvedValue(
       makePlan({ warnings: ['serverRunning', 'sharedInstall'], sharedWith: [{ id: 'srv-2', name: 'Second' }] }),

@@ -3,6 +3,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -240,7 +241,11 @@ export function BridgeDeliverySwitchDialog({
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next) }}>
       <DialogContent
-        className="max-h-[85vh] overflow-y-auto sm:max-h-[80vh] sm:max-w-2xl"
+        // Height bound: DialogContent's own dvh cap. The alerts, steps,
+        // guided Copy blocks and warnings scroll in a DialogBody, so the
+        // title and the Cancel/Switch/Restart row stay on screen on a phone
+        // or a zoomed-in window instead of scrolling away below them.
+        className="sm:max-w-2xl"
         // Radix links the description by default and warns when there is
         // none; with no description the link is dropped explicitly.
         {...(description ? {} : { 'aria-describedby': undefined })}
@@ -250,7 +255,7 @@ export function BridgeDeliverySwitchDialog({
           {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>
 
-        <div className="space-y-4">
+        <DialogBody className="space-y-4" data-testid="bridge-delivery-dialog-body">
           {notRestoredNotice && (
             <Alert variant="destructive" role="alert" data-testid="bridge-delivery-not-restored">
               <AlertTriangle className="h-4 w-4" />
@@ -339,9 +344,9 @@ export function BridgeDeliverySwitchDialog({
               </AlertDescription>
             </Alert>
           )}
-        </div>
+        </DialogBody>
 
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end" data-testid="bridge-delivery-dialog-actions">
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>
             {t('dialog.cancel')}
           </Button>

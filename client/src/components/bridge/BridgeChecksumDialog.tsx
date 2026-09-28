@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { AlertTriangle, ExternalLink, Loader2, ShieldCheck } from 'lucide-react'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -152,7 +153,11 @@ export function BridgeChecksumDialog({ open, onOpenChange, status, playerCount, 
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next) }}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-h-[80vh] sm:max-w-xl">
+      {/* Height bound: DialogContent's own dvh cap. The acknowledgements
+          (three of them, plus the manual steps, on a guided server) scroll
+          in a DialogBody so the buttons stay on screen on a phone or a
+          zoomed-in window; the short restart prompt needs no body. */}
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader className="pe-6">
           <DialogTitle className="flex items-center gap-2 leading-snug">
             <ShieldCheck className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
@@ -162,7 +167,7 @@ export function BridgeChecksumDialog({ open, onOpenChange, status, playerCount, 
         </DialogHeader>
 
         {phase === 'confirm' ? (
-          <div className="space-y-3">
+          <DialogBody className="space-y-3" data-testid="bridge-checksum-dialog-body">
             <Ack id={`${baseId}-non-admin`} checked={ackNonAdmin} onChange={setAckNonAdmin} label={t('checksumOffer.ackNonAdmin')} />
             {/* "Turn it off here" only exists where the panel can read the
                 check (automatic access); a guided server gets the manual way
@@ -186,7 +191,7 @@ export function BridgeChecksumDialog({ open, onOpenChange, status, playerCount, 
             {guided && (
               <p className="rounded-lg border border-border/60 bg-muted/40 p-3 text-sm">{t('checksumOffer.guidedInstructions')}</p>
             )}
-          </div>
+          </DialogBody>
         ) : (
           <div className="space-y-1.5 rounded-lg border border-border/60 bg-muted/40 p-3 text-sm" role="status">
             <p>{t('checksumOffer.restartPrompt')}</p>

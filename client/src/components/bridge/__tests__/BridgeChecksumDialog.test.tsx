@@ -73,6 +73,21 @@ afterEach(() => {
 })
 
 describe('BridgeChecksumDialog: required acknowledgements', () => {
+  // Same layout rule as the switch dialog: DialogContent's dvh cap, and the
+  // acknowledgements in a DialogBody so the buttons stay on screen.
+  it('scrolls only the acknowledgements, keeping the buttons on screen', () => {
+    renderDialog(makeWorkshopStatus({ access: 'guided', disk: null, checksum: { current: null, canTurnOn: true, turnOnBlockers: [], playersBlocked: false, requiresLinuxAck: true } }))
+    const dialog = screen.getByRole('dialog')
+    const body = screen.getByTestId('bridge-checksum-dialog-body')
+    expect(body).toHaveAttribute('data-dialog-body')
+    expect(body.parentElement).toBe(dialog)
+    expect(body).toContainElement(screen.getByRole('checkbox', { name: en.checksumOffer.ackNonAdmin }))
+    expect(body).toContainElement(screen.getByText(en.checksumOffer.guidedInstructions))
+    expect(body).not.toContainElement(screen.getByRole('button', { name: en.dialog.cancel }))
+    expect(dialog.className).toContain('max-h-[calc(100dvh-2rem)]')
+    expect(dialog.className).not.toMatch(/max-h-\[\d+vh\]/)
+  })
+
   it('uses the §4.3 security sentence and never says "anti-cheat"', () => {
     renderDialog(makeWorkshopStatus())
     expect(screen.getByText(en.security.sentence)).toBeInTheDocument()
