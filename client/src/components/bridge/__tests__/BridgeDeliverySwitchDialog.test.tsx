@@ -370,6 +370,40 @@ describe('BridgeDeliverySwitchDialog: guided access', () => {
     await waitFor(() =>
       expect(applyDelivery).toHaveBeenCalledWith({ serverId: 'srv-1', method: 'workshop', expectedFrom: 'local' }),
     )
+    // Only the choice was recorded; nothing is confirmed until the bridge
+    // reports in, so the toast claims no more than that.
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({ title: en.toast.guidedRecorded.replace('{{server}}', 'Main Server'), variant: 'success' }),
+      ),
+    )
+    expect(toastMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: en.toast.switchedToWorkshop.replace('{{server}}', 'Main Server') }),
+    )
+  })
+
+  it('a guided switch back never claims the panel now installs PanelBridge', async () => {
+    planDelivery.mockResolvedValue(
+      makePlan({
+        from: 'workshop',
+        to: 'local',
+        access: 'guided',
+        steps: [{ kind: 'recordMethod', method: 'local', servers: ['Main Server'] }],
+        manual: { modsEntry: 'ZomboidControlPanelBridge', workshopItemsEntry: WORKSHOP_ID, removeFiles: [], setChecksumFalse: true },
+      }),
+    )
+    applyDelivery.mockResolvedValue(makePlan({ from: 'workshop', to: 'local', access: 'guided', applied: true }))
+    renderDialog(makeWorkshopStatus({ access: 'guided', disk: null, serverRunning: null }), { to: 'local' })
+    await screen.findByTestId('bridge-guided-steps')
+    fireEvent.click(screen.getByRole('button', { name: en.guided.done }))
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({ title: en.toast.guidedRecorded.replace('{{server}}', 'Main Server') }),
+      ),
+    )
+    expect(toastMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: en.toast.switchedToLocal.replace('{{server}}', 'Main Server') }),
+    )
   })
 
   // The dry run re-plans on fresh data, so a status that said "available"

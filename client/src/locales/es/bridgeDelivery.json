@@ -235,6 +235,7 @@
   "toast": {
     "switchedToWorkshop": "{{server}} ahora recibe PanelBridge desde Steam Workshop",
     "switchedToLocal": "El panel ahora instala PanelBridge en {{server}}",
+    "guidedRecorded": "Guardado. Esta página confirmará el cambio en cuanto PanelBridge dé señales desde {{server}}.",
     "switchFailed": "No se pudo cambiar cómo se instala PanelBridge",
     "notRestored": "El panel no pudo deshacer todos los cambios que ya había hecho. Antes de iniciar el servidor, revisa su archivo de ajustes en Configuración del servidor › INI; se guardó una copia de seguridad antes del cambio.",
     "notRestoredFile": "No se pudo cambiar {{fileName}}, y el panel no pudo deshacer todos los cambios que ya había hecho. Antes de iniciar el servidor, revisa su archivo de ajustes en Configuración del servidor › INI; se guardó una copia de seguridad antes del cambio.",

@@ -235,6 +235,7 @@
   "toast": {
     "switchedToWorkshop": "{{server}} 现在从 Steam 创意工坊获取 PanelBridge",
     "switchedToLocal": "现在由面板在 {{server}} 上安装 PanelBridge",
+    "guidedRecorded": "已保存。PanelBridge 从 {{server}} 报告状态后，此页面会确认该更改。",
     "switchFailed": "无法更改 PanelBridge 的安装方式",
     "notRestored": "面板未能撤销所有已做的更改。启动服务器前，请在「服务器配置 › INI」中检查其设置文件；更改前已保存了该文件的备份。",
     "notRestoredFile": "无法更改 {{fileName}}，且面板未能撤销所有已做的更改。启动服务器前，请在「服务器配置 › INI」中检查其设置文件；更改前已保存了该文件的备份。",

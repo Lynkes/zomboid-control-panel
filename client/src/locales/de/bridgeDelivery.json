@@ -235,6 +235,7 @@
   "toast": {
     "switchedToWorkshop": "{{server}} bezieht PanelBridge jetzt aus dem Steam Workshop",
     "switchedToLocal": "Das Panel installiert PanelBridge jetzt auf {{server}}",
+    "guidedRecorded": "Gespeichert. Diese Seite bestätigt die Änderung, sobald sich PanelBridge von {{server}} meldet.",
     "switchFailed": "Installationsart von PanelBridge konnte nicht geändert werden",
     "notRestored": "Das Panel konnte nicht alle bereits vorgenommenen Änderungen rückgängig machen. Prüfe vor dem Serverstart die Einstellungsdatei unter Serverkonfiguration › INI; vor der Änderung wurde ein Backup davon gespeichert.",
     "notRestoredFile": "{{fileName}} konnte nicht geändert werden, und das Panel konnte nicht alle bereits vorgenommenen Änderungen rückgängig machen. Prüfe vor dem Serverstart die Einstellungsdatei unter Serverkonfiguration › INI; vor der Änderung wurde ein Backup davon gespeichert.",

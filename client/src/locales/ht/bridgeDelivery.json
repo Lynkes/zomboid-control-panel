@@ -235,6 +235,7 @@
   "toast": {
     "switchedToWorkshop": "{{server}} resevwa PanelBridge nan Steam Workshop kounye a",
     "switchedToLocal": "Panèl la enstale PanelBridge sou {{server}} kounye a",
+    "guidedRecorded": "Anrejistre. Paj sa a ap konfime chanjman an depi PanelBridge bay nouvèl sou {{server}}.",
     "switchFailed": "Pa t ka chanje fason PanelBridge enstale",
     "notRestored": "Panèl la pa t ka anile tout chanjman li te deja fè yo. Anvan ou demare sèvè a, verifye fichye paramèt li nan Konfigirasyon Sèvè › INI; yo te sove yon kopi li anvan chanjman an.",
     "notRestoredFile": "Pa t ka chanje {{fileName}}, epi panèl la pa t ka anile tout chanjman li te deja fè yo. Anvan ou demare sèvè a, verifye fichye paramèt li nan Konfigirasyon Sèvè › INI; yo te sove yon kopi li anvan chanjman an.",

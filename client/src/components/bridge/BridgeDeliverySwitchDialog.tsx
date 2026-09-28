@@ -189,10 +189,17 @@ export function BridgeDeliverySwitchDialog({
       return
     }
 
-    toast({
-      title: t(plan.to === 'workshop' ? 'toast.switchedToWorkshop' : 'toast.switchedToLocal', { server: pinned.serverName }),
-      variant: 'success',
-    })
+    // A guided apply only records the choice (§4.6, §4.8): the operator made
+    // the file changes by hand, and nothing is confirmed until the bridge
+    // reports in. "The panel now installs PanelBridge" would be untrue for a
+    // server whose files the panel can't write.
+    const successKey =
+      plan.access === 'guided'
+        ? 'toast.guidedRecorded'
+        : plan.to === 'workshop'
+          ? 'toast.switchedToWorkshop'
+          : 'toast.switchedToLocal'
+    toast({ title: t(successKey, { server: pinned.serverName }), variant: 'success' })
     // Two explicit calls, never a chain hidden on the server: the switch
     // above is already committed, so a failed start/restart is reported on
     // its own and doesn't pretend the switch didn't happen.
