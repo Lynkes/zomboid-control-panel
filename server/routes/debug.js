@@ -15,6 +15,7 @@ import { scanWorkshopFailures } from "../utils/workshopLogScan.js";
 import { resolveInstallDir } from "../services/panelBridgeInstaller.js";
 import { detectWorkshopItem, listLooseBridgeFiles } from "../services/bridgeDisk.js";
 import { describeDelivery } from "../services/bridgeDelivery.js";
+import { BRIDGE_MOD_ID } from "../services/bridgeDeliveryContract.js";
 import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
@@ -2288,7 +2289,8 @@ export function findNearMissTypo(modId, candidateNames) {
 }
 
 // Classifies each unresolved Mods= entry into exactly one cause. Order
-// matters: a typo match is checked first because it's the most specific,
+// matters: after PanelBridge's own entry (below), a typo match is checked
+// first because it's the most specific,
 // actionable signal -- an entry that's ALSO true (loosely) because a
 // download happens to be running elsewhere shouldn't hide a clean typo fix.
 // "stillDownloading" and "workshopNotOnDisk" are deliberately coarse (whole-
@@ -2296,13 +2298,27 @@ export function findNearMissTypo(modId, candidateNames) {
 // unresolved mod ID to a specific not-yet-downloaded Workshop item before
 // that item's mod.info actually exists on disk, so this doesn't pretend to
 // know more than it does.
+//
+// PanelBridge's own Mods= entry (BRIDGE_MOD_ID) stays out of the typo match
+// both ways. The id is four characters, so the length-scaled threshold (two
+// edits, or any case-only difference) paired it with unrelated short ids: a
+// bridge item Steam hadn't delivered yet read as a typo of an installed "ZCP"
+// or "zcpb", with a one-click "Use" in Server Config that swapped the bridge
+// out of Mods=, and an operator's unresolved "ZCP" was "corrected" to the
+// bridge. The panel writes that entry itself, and Settings › PanelBridge
+// (and the server.bridgeMod check) knows whether the item has downloaded,
+// so the entry gets its own cause that points there.
 export function triageUnresolvedMods(
   unresolvedMods,
   installedModNames,
   { steamOperationActive, anyWorkshopMissingFromDisk },
 ) {
+  const typoCandidates = [...installedModNames].filter(
+    (name) => name !== BRIDGE_MOD_ID,
+  );
   return unresolvedMods.map((modId) => {
-    const suggestion = findNearMissTypo(modId, installedModNames);
+    if (modId === BRIDGE_MOD_ID) return { modId, cause: "panelBridge" };
+    const suggestion = findNearMissTypo(modId, typoCandidates);
     if (suggestion) return { modId, cause: "typo", suggestion };
     if (steamOperationActive) return { modId, cause: "stillDownloading" };
     if (anyWorkshopMissingFromDisk)

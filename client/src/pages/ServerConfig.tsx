@@ -822,8 +822,11 @@ const SERVER_CONFIG_TABS = new Set(['ini', 'sandbox', 'spawnpoints', 'spawnregio
 // unrecognized cause (an older diagnostics fetch predating this, or a value
 // this build doesn't know yet) is dropped rather than trusted, same
 // defensive stance Debug.tsx takes reading the same querystring value.
-export type UnresolvedModCause = 'typo' | 'stillDownloading' | 'workshopNotOnDisk' | 'absent'
-const UNRESOLVED_MOD_CAUSES = new Set<UnresolvedModCause>(['typo', 'stillDownloading', 'workshopNotOnDisk', 'absent'])
+// 'panelBridge' is PanelBridge's own Mods= entry, which the panel writes and
+// Settings › PanelBridge manages, so it is never offered a typo swap or a
+// removal here.
+export type UnresolvedModCause = 'typo' | 'stillDownloading' | 'workshopNotOnDisk' | 'absent' | 'panelBridge'
+const UNRESOLVED_MOD_CAUSES = new Set<UnresolvedModCause>(['typo', 'stillDownloading', 'workshopNotOnDisk', 'absent', 'panelBridge'])
 
 export function resolveServerConfigDeepLink(searchParams: URLSearchParams) {
   const requestedTab = searchParams.get('tab')
@@ -2767,6 +2770,11 @@ export default function ServerConfig() {
                           {t('unresolvedReview.removeAction')}
                         </Button>
                       )}
+                      {triage?.cause === 'panelBridge' && (
+                        <Button asChild size="sm" variant="ghost" className="h-6 px-2 text-xs">
+                          <Link to="/settings?tab=bridge">{t('unresolvedReview.openBridgeSettings')}</Link>
+                        </Button>
+                      )}
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {!triage && t('unresolvedReview.causeUnknown')}
@@ -2774,6 +2782,7 @@ export default function ServerConfig() {
                       {triage?.cause === 'stillDownloading' && t('unresolvedReview.causeStillDownloading')}
                       {triage?.cause === 'workshopNotOnDisk' && t('unresolvedReview.causeWorkshopNotOnDisk')}
                       {triage?.cause === 'absent' && t('unresolvedReview.causeAbsent')}
+                      {triage?.cause === 'panelBridge' && t('unresolvedReview.causePanelBridge')}
                     </p>
                   </div>
                 )

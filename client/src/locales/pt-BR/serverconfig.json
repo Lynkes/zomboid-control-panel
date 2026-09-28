@@ -46,6 +46,8 @@
     "causeWorkshopNotOnDisk": "Listado em WorkshopItems=, mas o conteúdo não está no disco e nada está baixando no momento. Reinicie o servidor ou valide de novo o download da Workshop e, em seguida, execute o diagnóstico novamente.",
     "rerunDiagnostics": "Executar diagnóstico novamente",
     "causeAbsent": "Nenhum mod instalado, da Workshop ou local, corresponde a este ID.",
+    "causePanelBridge": "É a entrada do próprio PanelBridge. Ela é resolvida quando a Steam termina de baixar o item da Workshop do PanelBridge; Configurações › PanelBridge mostra se isso já aconteceu e o que fazer se não.",
+    "openBridgeSettings": "Abrir Configurações › PanelBridge",
     "removeAction": "Remover de Mods=",
     "correctedTitle": "Entrada de Mods= corrigida",
     "correctedToast": "Mods= agora usa \"{{suggestion}}\" no lugar de \"{{modId}}\". Não salvo — revise e salve abaixo.",

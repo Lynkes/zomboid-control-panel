@@ -106,6 +106,8 @@
     "causeWorkshopNotOnDisk": "مُدرَج في WorkshopItems= لكن محتواه غير موجود على القرص ولا يجري تنزيله الآن. أعد تشغيل الخادم أو أعد التحقق من تنزيل الورشة، ثم أعد تشغيل التشخيص.",
     "rerunDiagnostics": "إعادة تشغيل التشخيص",
     "causeAbsent": "لا يطابق هذا المعرّف أي مود مثبَّت من الورشة أو مود محلي.",
+    "causePanelBridge": "هذا إدخال PanelBridge نفسه. يُحلّ بعد أن ينزّل Steam عنصر الورشة الخاص بـ PanelBridge؛ وتعرض الإعدادات › PanelBridge ما إذا كان قد نُزّل وما العمل إن لم يكن كذلك.",
+    "openBridgeSettings": "فتح الإعدادات › PanelBridge",
     "removeAction": "إزالة من Mods=",
     "correctedTitle": "تم تصحيح إدخال Mods=",
     "correctedToast": "تم استبدال \"{{modId}}\" بـ \"{{suggestion}}\" في Mods=. غير محفوظ — راجِع التغيير واحفظه أدناه.",

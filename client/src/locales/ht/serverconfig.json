@@ -44,6 +44,8 @@
     "causeWorkshopNotOnDisk": "Li nan lis WorkshopItems= men kontni li a pa sou disk la e anyen p ap telechaje l kounye a. Redemare sèvè a oswa revalide telechajman Workshop la, epi egzekite dyagnostik yo ankò.",
     "rerunDiagnostics": "Egzekite dyagnostik yo ankò",
     "causeAbsent": "Pa gen okenn mod Workshop oswa lokal ki enstale ki matche ak ID sa a.",
+    "causePanelBridge": "Se antre PanelBridge li menm. L ap rezoud lè Steam fin telechaje atik Workshop PanelBridge la; Paramèt › PanelBridge montre si sa fèt deja ak sa pou fè si li poko fèt.",
+    "openBridgeSettings": "Louvri Paramèt › PanelBridge",
     "removeAction": "Retire nan Mods=",
     "correctedTitle": "Antre Mods= korije",
     "correctedToast": "Ranplase \"{{modId}}\" ak \"{{suggestion}}\" nan Mods=. Pa anrejistre — verifye epi anrejistre anba a.",

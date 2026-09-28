@@ -76,6 +76,8 @@
     "causeWorkshopNotOnDisk": "Вказано в WorkshopItems=, але вмісту немає на диску і зараз ніщо його не завантажує. Перезапустіть сервер або перевірте завантаження з Workshop, а тоді запустіть діагностику ще раз.",
     "rerunDiagnostics": "Повторити діагностику",
     "causeAbsent": "Жоден встановлений мод із Workshop або локальний мод не відповідає цьому ID.",
+    "causePanelBridge": "Це власний запис PanelBridge. Його буде розпізнано, щойно Steam завантажить об'єкт Workshop для PanelBridge; «Налаштування › PanelBridge» показує, чи це вже сталося і що робити, якщо ні.",
+    "openBridgeSettings": "Відкрити «Налаштування › PanelBridge»",
     "removeAction": "Прибрати з Mods=",
     "correctedTitle": "Запис у Mods= виправлено",
     "correctedToast": "«{{modId}}» замінено на «{{suggestion}}» у Mods=. Не збережено — перевірте та збережіть нижче.",

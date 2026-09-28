@@ -44,6 +44,8 @@
     "causeWorkshopNotOnDisk": "Listed in WorkshopItems= but its content isn't on disk and nothing is downloading it right now. Restart the server or re-validate the Workshop download, then re-run diagnostics.",
     "rerunDiagnostics": "Re-run diagnostics",
     "causeAbsent": "No installed Workshop or local mod matches this ID.",
+    "causePanelBridge": "PanelBridge's own entry. It resolves once Steam has downloaded the PanelBridge Workshop item; Settings › PanelBridge shows whether it has and what to do if it hasn't.",
+    "openBridgeSettings": "Open Settings › PanelBridge",
     "removeAction": "Remove from Mods=",
     "correctedTitle": "Mods= entry corrected",
     "correctedToast": "Replaced \"{{modId}}\" with \"{{suggestion}}\" in Mods=. Unsaved — review and save below.",

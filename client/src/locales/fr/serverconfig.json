@@ -46,6 +46,8 @@
     "causeWorkshopNotOnDisk": "Listé dans WorkshopItems= mais son contenu n'est pas sur le disque et rien ne le télécharge actuellement. Redémarrez le serveur ou revalidez le téléchargement Workshop, puis relancez les diagnostics.",
     "rerunDiagnostics": "Relancer les diagnostics",
     "causeAbsent": "Aucun mod Workshop ou local installé ne correspond à cet ID.",
+    "causePanelBridge": "C'est l'entrée de PanelBridge lui-même. Elle sera résolue dès que Steam aura téléchargé l'élément Workshop de PanelBridge ; Paramètres › PanelBridge indique si c'est le cas et que faire sinon.",
+    "openBridgeSettings": "Ouvrir Paramètres › PanelBridge",
     "removeAction": "Retirer de Mods=",
     "correctedTitle": "Entrée Mods= corrigée",
     "correctedToast": "« {{modId}} » remplacé par « {{suggestion}} » dans Mods=. Non enregistré — vérifiez et enregistrez ci-dessous.",

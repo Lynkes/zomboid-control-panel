@@ -332,11 +332,17 @@ const UNRESOLVED_MOD_CAUSES = new Set([
   "stillDownloading",
   "workshopNotOnDisk",
   "absent",
+  "panelBridge",
 ]);
 
 interface UnresolvedModTriageEntry {
   modId: string;
-  cause: "typo" | "stillDownloading" | "workshopNotOnDisk" | "absent";
+  cause:
+    | "typo"
+    | "stillDownloading"
+    | "workshopNotOnDisk"
+    | "absent"
+    | "panelBridge";
   suggestion?: string;
 }
 

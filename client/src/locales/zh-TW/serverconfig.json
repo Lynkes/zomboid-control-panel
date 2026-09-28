@@ -44,6 +44,8 @@
     "causeWorkshopNotOnDisk": "已列在 WorkshopItems= 中，但其內容不在磁碟上，且當前沒有正在下載。請重新啟動伺服器或重新驗證 Workshop 下載，然後重新執行診斷。",
     "rerunDiagnostics": "重新執行診斷",
     "causeAbsent": "沒有已安裝的 Workshop 或本地模組與此 ID 匹配。",
+    "causePanelBridge": "這是 PanelBridge 自己的條目。Steam 下載完 PanelBridge 的創意工坊專案後即可解析；「設定 › PanelBridge」會顯示是否已下載，以及尚未下載時該怎麼做。",
+    "openBridgeSettings": "開啟「設定 › PanelBridge」",
     "removeAction": "從 Mods= 中移除",
     "correctedTitle": "Mods= 條目已更正",
     "correctedToast": "已將 Mods= 中的 \"{{modId}}\" 替換為 \"{{suggestion}}\"。尚未儲存 — 請在下方檢視並儲存。",

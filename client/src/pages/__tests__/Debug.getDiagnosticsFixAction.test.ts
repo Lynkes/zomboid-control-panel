@@ -70,6 +70,23 @@ describe('getDiagnosticsFixAction fallback branch (uncovered check ids)', () => 
     )
   })
 
+  it("forwards PanelBridge's own panelBridge cause", () => {
+    const action = getDiagnosticsFixAction(
+      fallbackCheck({
+        id: 'mods.resolved',
+        hint: 'Fix in server.ini.',
+        meta: {
+          unresolvedMods: ['ZCPB'],
+          unresolvedTriage: [{ modId: 'ZCPB', cause: 'panelBridge' }],
+        },
+      }),
+      t,
+    )
+    expect(action?.manualRoute).toBe(
+      '/server-config?tab=ini&search=Mods&unresolved=ZCPB&unresolvedCause=ZCPB%7CpanelBridge%7C',
+    )
+  })
+
   it('drops an unrecognized triage cause instead of forwarding it verbatim', () => {
     const action = getDiagnosticsFixAction(
       fallbackCheck({
