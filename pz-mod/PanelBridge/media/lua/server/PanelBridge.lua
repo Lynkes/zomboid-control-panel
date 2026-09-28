@@ -23,6 +23,13 @@
                     setTimeSpeed sets (getTrueMultiplier), not the ~0.8
                     per-frame getMultiplier(). Normal speed now reads 1, and
                     the reset no longer fires on every start.
+                - Fix: sandbox enum options follow Build 42's 1..N values
+                    (thanks rmssantos, PR #169). getAllSandboxOptions reads
+                    labels 1..N and keeps an untranslated one in place under
+                    its number, and setSandboxOption rejects a value outside
+                    1..N instead of clamping the last choice to N-1. Tooltips
+                    are sent as the game's translated text, and getMin/getMax
+                    are only asked of number and enum options.
 
                 v1.7.70 Changes:
                 - Add: lightweight save-backed player leaderboard telemetry
