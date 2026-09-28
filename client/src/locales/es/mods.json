@@ -420,8 +420,8 @@
   },
   "loadOrder": {
     "emptyTitle": "No hay mods en el orden de carga",
-    "emptyDesc": "Habilitar mods en la pestaña Mods activos primero.",
-    "dragHint": "Arrastra o usa los botones de flecha para reordenar. Los cambios no se guardan hasta que hagas clic en Guardar.",
+    "emptyDesc": "Habilita primero algunos mods en Activos en el servidor.",
+    "dragHint": "Arrastra o usa los botones de flecha para reordenar. Los cambios no se guardan hasta que hagas clic en Guardar orden.",
     "previewLockHint": "Aplica o cancela el orden propuesto de abajo antes de reordenar a mano.",
     "filteredHint": "Solo se muestran los mods que coinciden con «{{query}}» (el filtro de Activos en el servidor). No puedes arrastrar mientras esté activo; los botones de flecha siguen moviendo los mods dentro del orden de carga completo.",
     "autoSort": "Ordenar automáticamente por dependencias",

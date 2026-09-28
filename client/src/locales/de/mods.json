@@ -296,8 +296,8 @@
   },
   "loadOrder": {
     "emptyTitle": "Keine Mods in der Ladereihenfolge",
-    "emptyDesc": "Aktiviere zuerst Mods im Tab „Aktive Mods“.",
-    "dragHint": "Zum Neuordnen ziehen oder die Pfeilschaltflächen nutzen. Änderungen werden erst gespeichert, wenn du auf „Speichern“ klickst.",
+    "emptyDesc": "Aktiviere zuerst Mods unter „Aktiv auf dem Server“.",
+    "dragHint": "Zieh zum Neuordnen oder nutze die Pfeilschaltflächen. Änderungen werden erst gespeichert, wenn du auf „Reihenfolge speichern“ klickst.",
     "previewLockHint": "Wende die vorgeschlagene Reihenfolge unten erst an oder brich sie ab, bevor du von Hand umsortierst.",
     "filteredHint": "Es werden nur Mods angezeigt, die zu „{{query}}“ passen (Filter aus „Aktiv auf dem Server“). Solange der Filter gesetzt ist, ist Ziehen deaktiviert; die Pfeilschaltflächen verschieben Mods weiterhin innerhalb der gesamten Ladereihenfolge.",
     "autoSort": "Automatisch nach Abhängigkeiten sortieren",

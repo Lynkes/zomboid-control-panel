@@ -378,8 +378,8 @@
   },
   "loadOrder": {
     "emptyTitle": "No mods in load order",
-    "emptyDesc": "Enable mods in the Active Mods tab first.",
-    "dragHint": "Drag or use the arrow buttons to reorder. Changes are not saved until you click Save.",
+    "emptyDesc": "Enable mods in Active on server first.",
+    "dragHint": "Drag or use the arrow buttons to reorder. Changes are not saved until you click Save Order.",
     "previewLockHint": "Apply or cancel the proposed order below before reordering by hand.",
     "filteredHint": "Showing only mods matching \"{{query}}\" (filter set on Active on server). Drag is off while filtered; the arrow buttons still move mods within the full load order.",
     "autoSort": "Auto-sort by dependencies",

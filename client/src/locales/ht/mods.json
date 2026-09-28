@@ -405,8 +405,8 @@
   },
   "loadOrder": {
     "emptyTitle": "Pa gen mods nan òd chajman",
-    "emptyDesc": "Aktive mods nan onglè Mods Aktif dabò.",
-    "dragHint": "Trennen oswa sèvi ak bouton flèch yo pou reòdone. Chanjman yo pa sove jiskaske w klike Sove.",
+    "emptyDesc": "Aktive mods nan Aktif sou sèvè a dabò.",
+    "dragHint": "Trennen oswa sèvi ak bouton flèch yo pou reòdone. Chanjman yo pa sove jiskaske w klike Sove Òd.",
     "previewLockHint": "Aplike oswa anile òd pwopoze ki anba a anvan ou reòdone alamen.",
     "filteredHint": "Se sèlman mods ki matche \"{{query}}\" ki parèt (filtè ki nan Aktif sou sèvè a). Ou pa ka trennen pandan filtè a aktif; bouton flèch yo toujou deplase mods yo nan tout òd chajman an.",
     "autoSort": "Klase otomatikman pa depandans",

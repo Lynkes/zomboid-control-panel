@@ -383,7 +383,7 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
       totalMods: MOD_IDS.length,
     } as never)
     await openLoadOrder()
-    expect(screen.getByText('Drag or use the arrow buttons to reorder. Changes are not saved until you click Save.')).toBeInTheDocument()
+    expect(screen.getByText('Drag or use the arrow buttons to reorder. Changes are not saved until you click Save Order.')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /auto-sort by dependencies/i }))
     await screen.findByRole('button', { name: /^apply$/i })
