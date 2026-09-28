@@ -135,7 +135,7 @@
   "USER_SELF_ROLE_CHANGE_REFUSED": "无法更改自己的角色，请让另一位管理员代为操作。",
   "ROLE_GRANT_EXCEEDS_CALLER_CAPABILITIES": "无法分配授予 {{detail}} 的角色，因为你自己没有该权限。",
   "SERVER_START_REMOTE_REFUSED": "无法启动远程服务器。远程服务器由外部管理——请使用 RCON 进行交互。",
-  "SERVER_START_SCRIPT_MISSING": "此服务器的安装文件夹中缺少启动脚本 {{script}}。面板会在每次启动前根据服务器设置写入它，但这次未能写入——请检查安装文件夹是否存在、面板能否写入该文件夹（面板日志中有具体原因），然后再次启动。面板不会改用 {{fallback}}：它会启动 Project Zomboid 默认的“servertest”世界而不是此服务器，并停在要求设置新管理员密码的提示处。",
+  "SERVER_START_SCRIPT_MISSING": "此服务器的安装文件夹中缺少启动脚本 {{script}}。面板会在每次启动前根据服务器设置写入它，但这次未能写入——请检查安装文件夹是否存在、面板能否写入该文件夹（面板日志中有具体原因），然后再次启动。面板不会改用 {{fallback}}：它会启动 Project Zomboid 默认的“servertest”世界而不是此服务器，并可能停在要求设置新管理员密码的提示处。",
   "SERVER_FORCE_STOP_REMOTE_REFUSED": "无法强制停止远程服务器。该进程不受此面板管理。",
   "SERVER_RESTART_REMOTE_REFUSED": "无法重启远程服务器。该进程不受此面板管理。",
   "SERVER_STOP_RCON_NOT_CONNECTED": "RCON 未连接，无法正常停止服务器。",

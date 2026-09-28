@@ -320,7 +320,7 @@ export function managedStartupScriptName(serverName, windows = isWindows) {
 // panel log and the boot auto-start print.
 export function namedStartupScriptMissingError({ script, folder, fallback }) {
   const error = new Error(
-    `Startup script ${script} is missing from ${folder}. The panel writes it from this server's settings before every start but couldn't this time -- check that this folder exists and that the panel can write to it (the panel log has the exact error), then start again. The panel won't fall back to ${fallback}: that starts Project Zomboid's default "servertest" world instead of this server and stops at a prompt for a new admin password.`,
+    `Startup script ${script} is missing from ${folder}. The panel writes it from this server's settings before every start but couldn't this time -- check that this folder exists and that the panel can write to it (the panel log has the exact error), then start again. The panel won't fall back to ${fallback}: that starts Project Zomboid's default "servertest" world instead of this server, and can stop at a prompt for a new admin password.`,
   );
   error.code = ErrorCode.SERVER_START_SCRIPT_MISSING;
   error.params = { script, fallback };
