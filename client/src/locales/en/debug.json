@@ -454,7 +454,7 @@
             "looseLeftover": {
               "label": "Old PanelBridge files in the game folder",
               "message": "Still in the game folder: {{files}}. With the Lua integrity check on, players will be refused.",
-              "hint": "Start the server from the panel to move them out."
+              "hint": "Start or restart the server from the panel to move them out."
             }
           }
         },

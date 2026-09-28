@@ -134,7 +134,7 @@
     "steamUnavailable": "Steam 报告 PanelBridge 的创意工坊项目不可用。在其恢复或你切换为由面板安装之前，服务器将无法启动。",
     "autoRestartOn": "PanelBridge 更新后会自动重启此服务器（设置 › 模组）。",
     "autoRestartOff": "PanelBridge 每次更新后，新玩家在你重启之前都无法加入。请在「设置 › 模组」中启用自动重启。",
-    "leftovers": "游戏文件夹中仍有旧的 PanelBridge 文件：{{files}}。启用 Lua 完整性检查后，玩家将被拒绝。从面板启动服务器会将它们移出。"
+    "leftovers": "游戏文件夹中仍有旧的 PanelBridge 文件：{{files}}。启用 Lua 完整性检查后，玩家将被拒绝。从面板启动或重启服务器会将它们移出。"
   },
   "action": {
     "switchToWorkshop": "切换到 Steam 创意工坊",
@@ -228,7 +228,7 @@
     "blockers": {
       "notWorkshop": "仅在使用 Steam 创意工坊分发时可用。",
       "notConfirmed": "请等待此页面确认 PanelBridge 已从 Steam 创意工坊加载。",
-      "looseFilesPresent": "游戏文件夹中仍有旧的 PanelBridge 文件。请先从面板启动服务器，将它们移出。",
+      "looseFilesPresent": "游戏文件夹中仍有旧的 PanelBridge 文件。请先从面板启动或重启服务器，将它们移出。",
       "alreadyOn": "Lua 完整性检查已处于启用状态。"
     }
   },

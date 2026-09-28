@@ -454,7 +454,7 @@
             "looseLeftover": {
               "label": "Alte PanelBridge-Dateien im Spielordner",
               "message": "Noch im Spielordner: {{files}}. Mit aktivierter Lua-Integritätsprüfung werden Spieler abgewiesen.",
-              "hint": "Starte den Server über das Panel, um sie zu verschieben."
+              "hint": "Starte den Server über das Panel (oder starte ihn dort neu), um sie zu verschieben."
             }
           }
         },

@@ -134,7 +134,7 @@
     "steamUnavailable": "Steam di atik Workshop PanelBridge la pa disponib. Sèvè a p ap demare jiskaske li tounen oswa ou pase sou enstalasyon pa panèl la.",
     "autoRestartOn": "Mizajou PanelBridge yo redemare sèvè sa a otomatikman (Paramèt › Mods).",
     "autoRestartOff": "Apre chak mizajou PanelBridge, nouvo jwè pa ka antre jiskaske ou redemare. Aktive redemaraj otomatik nan Paramèt › Mods.",
-    "leftovers": "Ansyen fichye PanelBridge toujou nan dosye jwèt la: {{files}}. Avèk verifikasyon entegrite Lua a aktive, y ap refize jwè yo. Lè w demare sèvè a depi panèl la, sa deplase yo."
+    "leftovers": "Ansyen fichye PanelBridge toujou nan dosye jwèt la: {{files}}. Avèk verifikasyon entegrite Lua a aktive, y ap refize jwè yo. Lè w demare oswa redemare sèvè a depi panèl la, sa deplase yo."
   },
   "action": {
     "switchToWorkshop": "Pase sou Steam Workshop",
@@ -228,7 +228,7 @@
     "blockers": {
       "notWorkshop": "Disponib sèlman ak distribisyon atravè Steam Workshop.",
       "notConfirmed": "Tann paj sa a konfime PanelBridge chaje nan Steam Workshop.",
-      "looseFilesPresent": "Ansyen fichye PanelBridge toujou nan dosye jwèt la. Demare sèvè a depi panèl la an premye pou deplase yo.",
+      "looseFilesPresent": "Ansyen fichye PanelBridge toujou nan dosye jwèt la. Demare oswa redemare sèvè a depi panèl la an premye pou deplase yo.",
       "alreadyOn": "Verifikasyon entegrite Lua a deja aktive."
     }
   },

@@ -134,7 +134,7 @@
     "steamUnavailable": "Steam indica que el elemento de Workshop de PanelBridge no está disponible. El servidor no arrancará hasta que vuelva o cambies a la instalación por el panel.",
     "autoRestartOn": "Las actualizaciones de PanelBridge reinician este servidor automáticamente (Ajustes › Mods).",
     "autoRestartOff": "Tras cada actualización de PanelBridge, los jugadores nuevos no pueden entrar hasta que reinicies. Activa los reinicios automáticos en Ajustes › Mods.",
-    "leftovers": "Aún quedan archivos antiguos de PanelBridge en la carpeta del juego: {{files}}. Con la comprobación de integridad de Lua activada, se rechazará a los jugadores. Iniciar el servidor desde el panel los mueve fuera."
+    "leftovers": "Aún quedan archivos antiguos de PanelBridge en la carpeta del juego: {{files}}. Con la comprobación de integridad de Lua activada, se rechazará a los jugadores. Iniciar o reiniciar el servidor desde el panel los mueve fuera."
   },
   "action": {
     "switchToWorkshop": "Cambiar a Steam Workshop",
@@ -228,7 +228,7 @@
     "blockers": {
       "notWorkshop": "Solo está disponible con la entrega por Steam Workshop.",
       "notConfirmed": "Espera a que esta página confirme que PanelBridge se carga desde Steam Workshop.",
-      "looseFilesPresent": "Aún quedan archivos antiguos de PanelBridge en la carpeta del juego. Primero inicia el servidor desde el panel para moverlos fuera.",
+      "looseFilesPresent": "Aún quedan archivos antiguos de PanelBridge en la carpeta del juego. Primero inicia o reinicia el servidor desde el panel para moverlos fuera.",
       "alreadyOn": "La comprobación de integridad de Lua ya está activada."
     }
   },

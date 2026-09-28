@@ -454,7 +454,7 @@
             "looseLeftover": {
               "label": "Ansyen fichye PanelBridge nan dosye jwèt la",
               "message": "Toujou nan dosye jwèt la: {{files}}. Lè verifikasyon entegrite Lua a aktive, jwè yo ap refize.",
-              "hint": "Demare sèvè a nan panèl la pou deplase yo."
+              "hint": "Demare oswa redemare sèvè a nan panèl la pou deplase yo."
             }
           }
         },

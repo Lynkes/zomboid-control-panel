@@ -134,7 +134,7 @@
     "steamUnavailable": "Steam reports the PanelBridge Workshop item as unavailable. The server won't start until it's back or you switch to panel-installed.",
     "autoRestartOn": "PanelBridge updates restart this server automatically (Settings › Mods).",
     "autoRestartOff": "After each PanelBridge update, new players can't join until you restart. Turn on automatic restarts in Settings › Mods.",
-    "leftovers": "Old PanelBridge files are still in the game folder: {{files}}. With the Lua integrity check on, players will be refused. Starting the server from the panel moves them out."
+    "leftovers": "Old PanelBridge files are still in the game folder: {{files}}. With the Lua integrity check on, players will be refused. Starting or restarting the server from the panel moves them out."
   },
   "action": {
     "switchToWorkshop": "Switch to Steam Workshop",
@@ -228,7 +228,7 @@
     "blockers": {
       "notWorkshop": "Only available with Steam Workshop delivery.",
       "notConfirmed": "Wait until this page confirms PanelBridge loads from the Steam Workshop.",
-      "looseFilesPresent": "Old PanelBridge files are still in the game folder. Start the server from the panel to move them out first.",
+      "looseFilesPresent": "Old PanelBridge files are still in the game folder. Start or restart the server from the panel to move them out first.",
       "alreadyOn": "The Lua integrity check is already on."
     }
   },

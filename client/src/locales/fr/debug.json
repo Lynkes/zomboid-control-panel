@@ -459,7 +459,7 @@
             "looseLeftover": {
               "label": "Anciens fichiers PanelBridge dans le dossier du jeu",
               "message": "Toujours dans le dossier du jeu : {{files}}. Avec la vérification d'intégrité Lua activée, les joueurs seront refusés.",
-              "hint": "Démarrez le serveur depuis le panneau pour les déplacer."
+              "hint": "Démarrez ou redémarrez le serveur depuis le panneau pour les déplacer."
             }
           }
         },
