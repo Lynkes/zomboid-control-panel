@@ -7,6 +7,7 @@
   "testOverride": "Test item",
   "loading": "Checking how PanelBridge is installed…",
   "loadFailed": "Couldn't load how PanelBridge is installed",
+  "unexpectedResponse": "The panel returned an unexpected response. Reload the page, and update the panel if it keeps happening.",
   "refreshFailed": "Couldn't refresh this status. What's shown may be out of date.",
   "retry": "Try again",
   "needsServerControl": "Starting or restarting the server requires the server.control permission, which this role doesn't have.",
@@ -66,13 +67,15 @@
     "local-ok": {
       "title": "Installed in the game folder",
       "body": "Installed by the panel: v{{version}}.",
+      "bodyNoVersion": "Installed by the panel.",
       "titleGuided": "PanelBridge is reporting in",
       "bodyGuided": "PanelBridge v{{version}} is running on this server.",
+      "bodyGuidedNoVersion": "PanelBridge is running on this server.",
       "restartToLoad": "The running server still reports v{{running}}. It loads v{{version}} when it restarts."
     },
     "local-update-pending": {
       "title": "Update waiting",
-      "body": "An updated PanelBridge is copied in at the next start."
+      "body": "The game folder has an older PanelBridge than this panel's. Update it now, or let the next start copy it in (only while “Keep the panel-installed PanelBridge up to date” is on)."
     },
     "local-not-installed": {
       "title": "Not installed",
@@ -84,7 +87,8 @@
     },
     "local-workshop-loaded": {
       "title": "Loaded from the Steam Workshop",
-      "body": "This server loads PanelBridge from the Steam Workshop, but it's set to panel-installed."
+      "body": "This server loads PanelBridge from the Steam Workshop, but it's set to panel-installed.",
+      "manualHint": "To keep the panel-installed bridge instead, remove <code>{{modId}}</code> from <code>Mods=</code> and the PanelBridge item ID from <code>WorkshopItems=</code> in the server's settings file (Server Config › INI), then restart the server."
     },
     "workshop-restart-needed": {
       "title": "Restart needed",
@@ -96,7 +100,8 @@
     },
     "workshop-confirmed": {
       "title": "Confirmed",
-      "body": "Loaded from the Steam Workshop: v{{version}}."
+      "body": "Loaded from the Steam Workshop: v{{version}}.",
+      "bodyNoVersion": "Loaded from the Steam Workshop."
     },
     "workshop-not-loaded": {
       "title": "Not loaded from the Workshop",
@@ -140,6 +145,13 @@
     "copyFailed": "Couldn't copy. Select the text and copy it yourself.",
     "restartWarningNote": "Players online get a 5-minute warning first."
   },
+  "confirmRestart": {
+    "title": "Restart {{server}}?",
+    "playersOnline": "Players online get a 5-minute warning, then the server restarts.",
+    "nobodyOnline": "Nobody is online, so the server restarts right away.",
+    "playersUnknown": "The panel can't see who is online right now, so players get a 5-minute warning first, then the server restarts.",
+    "confirm": "Restart"
+  },
   "dialog": {
     "titleToWorkshop": "Switch {{server}} to Steam Workshop delivery?",
     "titleToLocal": "Switch {{server}} to panel-installed delivery?",
@@ -150,6 +162,7 @@
     "blockedTitle": "This change isn't available right now",
     "warningsTitle": "Before you switch",
     "staleNotice": "How PanelBridge is installed on this server changed since you opened this window. Review the updated steps.",
+    "serverChanged": "The active server changed, so this window was closed.",
     "applyRestartPlayers": "Switch and restart now (players get a 5-minute warning)",
     "applyRestartEmpty": "Switch and restart now",
     "applyStart": "Switch and start the server",
@@ -198,6 +211,7 @@
     "confirm": "Turn it on",
     "turnOff": "Turn it off again",
     "isOn": "The Lua integrity check is on.",
+    "onUnconfirmedBody": "PanelBridge isn't confirmed to load from the Steam Workshop yet. If it still loads from the game folder, players can't join with this check on.",
     "guidedInstructions": "Set DoLuaChecksum=true in the server's .ini file, then restart the server.",
     "openServerConfig": "Open Server Config › INI",
     "needsServerFiles": "Changing DoLuaChecksum requires the serverfiles.manage permission, which this role doesn't have.",
@@ -216,7 +230,9 @@
     "switchedToLocal": "The panel now installs PanelBridge on {{server}}",
     "switchFailed": "Couldn't change how PanelBridge is installed",
     "notRestored": "The panel couldn't undo every change it had already made. Before starting the server, check its settings file in Server Config › INI; a backup of it was saved before the change.",
+    "notRestoredFile": "Couldn't change {{fileName}}, and the panel couldn't undo every change it had already made. Before starting the server, check its settings file in Server Config › INI; a backup of it was saved before the change.",
     "lifecycleFailed": "Switched, but the server didn't start or restart",
+    "lifecycleSkipped": "Switched, but the active server changed meanwhile, so {{server}} wasn't started or restarted.",
     "installed": "PanelBridge is up to date in the game folder",
     "installFailed": "Couldn't copy PanelBridge into the game folder",
     "checksumOn": "DoLuaChecksum=true saved",

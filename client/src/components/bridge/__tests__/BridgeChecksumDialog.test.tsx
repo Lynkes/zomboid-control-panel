@@ -46,14 +46,15 @@ const start = vi.mocked(serverApi.start)
 function renderDialog(status: DeliveryStatus, playerCount: number | null = null) {
   const onOpenChange = vi.fn()
   const onChanged = vi.fn()
-  render(
+  const tree = (next: DeliveryStatus) => (
     <MemoryRouter>
       <TooltipProvider>
-        <BridgeChecksumDialog open onOpenChange={onOpenChange} status={status} playerCount={playerCount} onChanged={onChanged} />
+        <BridgeChecksumDialog open onOpenChange={onOpenChange} status={next} playerCount={playerCount} onChanged={onChanged} />
       </TooltipProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
   )
-  return { onOpenChange, onChanged }
+  const { rerender } = render(tree(status))
+  return { onOpenChange, onChanged, rerenderWith: (next: DeliveryStatus) => rerender(tree(next)) }
 }
 
 const confirmButton = () => screen.getByRole('button', { name: en.checksumOffer.confirm })
@@ -154,14 +155,38 @@ describe('BridgeChecksumDialog: turning it on (automatic access)', () => {
     expect(saveIni).not.toHaveBeenCalled()
   })
 
+  // lib/demo.ts's catch-all, or anything else that isn't a status: never
+  // a reason to write.
+  it('refuses when the fresh answer is not a delivery status at all', async () => {
+    getDelivery.mockResolvedValue({ success: true, demo: true } as unknown as DeliveryStatus)
+    renderDialog(makeWorkshopStatus())
+    tick(en.checksumOffer.ackNonAdmin)
+    fireEvent.click(confirmButton())
+    expect(await screen.findByText(en.checksumOffer.noLongerAvailable)).toBeInTheDocument()
+    expect(saveIni).not.toHaveBeenCalled()
+  })
+
   it('then offers the restart, with a warning when players are online', async () => {
     getDelivery.mockResolvedValue(makeWorkshopStatus())
     const { onOpenChange } = renderDialog(makeWorkshopStatus(), 2)
     tick(en.checksumOffer.ackNonAdmin)
     fireEvent.click(confirmButton())
+    expect(await screen.findByText(en.action.restartWarningNote)).toBeInTheDocument()
     fireEvent.click(await screen.findByRole('button', { name: en.action.restartNow }))
     await waitFor(() => expect(restart).toHaveBeenCalledWith(5))
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it.each([
+    ['unknown (bridge not reporting)', null, 5],
+    ['known empty', 0, 0],
+  ] as const)('player count %s restarts with %s -> %s-minute warning', async (_label, playerCount, minutes) => {
+    getDelivery.mockResolvedValue(makeWorkshopStatus())
+    renderDialog(makeWorkshopStatus(), playerCount)
+    tick(en.checksumOffer.ackNonAdmin)
+    fireEvent.click(confirmButton())
+    fireEvent.click(await screen.findByRole('button', { name: en.action.restartNow }))
+    await waitFor(() => expect(restart).toHaveBeenCalledWith(minutes))
   })
 
   it('offers Start instead when the server is stopped', async () => {
@@ -180,5 +205,28 @@ describe('BridgeChecksumDialog: turning it on (automatic access)', () => {
     expect(confirmButton()).toBeDisabled()
     fireEvent.focus(confirmButton().parentElement!)
     expect((await screen.findAllByText(en.checksumOffer.needsServerFiles)).length).toBeGreaterThan(0)
+  })
+})
+
+describe('BridgeChecksumDialog: the active server changes while it is open', () => {
+  it('closes rather than carry the acknowledgements over to another server', async () => {
+    const { onOpenChange, rerenderWith } = renderDialog(makeWorkshopStatus())
+    tick(en.checksumOffer.ackNonAdmin)
+    rerenderWith(makeWorkshopStatus({ serverId: 'srv-2', serverName: 'Second' }))
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: en.dialog.serverChanged }))
+    expect(saveIni).not.toHaveBeenCalled()
+  })
+
+  it('checks the fresh status against the server it opened for, not the one the page now shows', async () => {
+    // The fresh answer agrees with the page's new status (srv-2), which is
+    // exactly why the page status can't be the reference.
+    getDelivery.mockResolvedValue(makeWorkshopStatus({ serverId: 'srv-2', serverName: 'Second' }))
+    const { rerenderWith } = renderDialog(makeWorkshopStatus())
+    tick(en.checksumOffer.ackNonAdmin)
+    fireEvent.click(confirmButton())
+    rerenderWith(makeWorkshopStatus({ serverId: 'srv-2', serverName: 'Second' }))
+    expect(await screen.findByText(en.checksumOffer.noLongerAvailable)).toBeInTheDocument()
+    expect(saveIni).not.toHaveBeenCalled()
   })
 })

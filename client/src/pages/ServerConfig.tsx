@@ -103,7 +103,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { serverApi, serverFilesApi, serversApi, panelBridgeApi, ApiError, SpawnPointsByProfession, SpawnRegion, SandboxData, ConfigTemplate, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
 import { resolveServerRunning } from '@/lib/serverStatus'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
-import { resolveLuaChecksumCallout, type LuaChecksumDelivery } from '@/lib/bridgeDeliveryView'
+import { isDeliveryStatus, resolveLuaChecksumCallout, type LuaChecksumDelivery } from '@/lib/bridgeDeliveryView'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { formatModSettingDescription, formatModSettingLabel } from '@/lib/modSettingsLabels'
 import { EmptyState } from '@/components/EmptyState'
@@ -1225,9 +1225,15 @@ export default function ServerConfig() {
     const requestId = bridgeDeliveryGuard.next()
     setBridgeDelivery(undefined)
     try {
-      const status = await panelBridgeApi.getDelivery()
+      const status: unknown = await panelBridgeApi.getDelivery()
       if (bridgeDeliveryGuard.isStale(requestId)) return
-      setBridgeDelivery({ method: status.method, state: status.state, turnOnBlockers: status.checksum.turnOnBlockers })
+      // An answer that isn't a DeliveryStatus (the demo build's catch-all)
+      // counts as a failed call: the local fallback below.
+      setBridgeDelivery(
+        isDeliveryStatus(status)
+          ? { method: status.method, state: status.state, turnOnBlockers: status.checksum.turnOnBlockers }
+          : null,
+      )
     } catch {
       if (bridgeDeliveryGuard.isStale(requestId)) return
       setBridgeDelivery(null)

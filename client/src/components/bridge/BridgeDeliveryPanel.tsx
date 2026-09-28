@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
+import { Trans, useTranslation } from 'react-i18next'
 import {
   AlertTriangle,
   Check,
@@ -21,29 +21,32 @@ import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/use-toast'
 import { DisabledReason } from '@/components/DisabledReason'
 import { useAuth } from '@/contexts/AuthContext'
+import { useConfirm } from '@/contexts/ConfirmContext'
 import { useBridgeDelivery } from '@/hooks/useBridgeDelivery'
 import { panelBridgeApi, serverApi, serverFilesApi } from '@/lib/api'
 import { getResultErrorMessage, getUserErrorMessage } from '@/lib/errorMessage'
 import { cn } from '@/lib/utils'
-import type { DeliveryMethod, DeliveryStatus } from '@/lib/bridgeDeliveryTypes'
+import { BRIDGE_MOD_ID, type DeliveryMethod, type DeliveryStatus } from '@/lib/bridgeDeliveryTypes'
 import {
   DELIVERY_ACTION_KEYS,
   type DeliveryAction,
+  DeliveryResponseError,
+  formatList,
   getAvailabilityParams,
   getBlockReasonKey,
   getChecksumBlockerKey,
   getDeliveryStateView,
   getGuidedWorkshopManual,
+  getRestartWarning,
   getRunningVersionNote,
-  getStateVersion,
+  getStateHintKey,
+  type RestartWarning,
   resolveStateActions,
   resolveStateCopy,
 } from '@/lib/bridgeDeliveryView'
 import { BridgeDeliverySwitchDialog } from './BridgeDeliverySwitchDialog'
 import { BridgeChecksumDialog } from './BridgeChecksumDialog'
 import { BridgeGuidedSteps } from './BridgeGuidedSteps'
-
-const RESTART_WARNING_MINUTES = 5
 
 const WARNING_CALLOUT = 'border-warning/40 bg-warning/10'
 const NEUTRAL_CALLOUT = 'border-border/60 bg-muted/40'
@@ -65,14 +68,21 @@ interface BridgeDeliveryPanelProps {
 
 type PendingAction = DeliveryAction | 'checksumOff'
 
+const RESTART_CONFIRM_KEYS: Readonly<Record<RestartWarning['players'], string>> = {
+  some: 'confirmRestart.playersOnline',
+  none: 'confirmRestart.nobodyOnline',
+  unknown: 'confirmRestart.playersUnknown',
+}
+
 // Settings › PanelBridge: "How PanelBridge is installed" for the active
 // server (§4). Every state, availability and checksum decision comes from
 // GET /panel-bridge/delivery; this component only maps them to copy and
 // buttons (lib/bridgeDeliveryView.ts).
 export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }: BridgeDeliveryPanelProps) {
-  const { t } = useTranslation('bridgeDelivery')
+  const { t, i18n } = useTranslation('bridgeDelivery')
   const { toast } = useToast()
   const { can } = useAuth()
+  const confirm = useConfirm()
   const canSetupBridge = can('bridge.setup')
   const canManageServerFiles = can('serverfiles.manage')
   const canControlServer = can('server.control')
@@ -87,7 +97,7 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
   const noBridgeSetupReason = !canSetupBridge ? t('permissions.noBridgeSetup', { ns: 'settings' }) : null
   const noServerControlReason = !canControlServer ? t('needsServerControl') : null
   const noServerFilesReason = !canManageServerFiles ? t('checksumOffer.needsServerFiles') : null
-  const playersOnline = status?.live?.alive === true && (playerCount ?? 0) > 0
+  const restartWarning = status ? getRestartWarning(status, playerCount) : null
   // iniFileName comes from Settings' own server list, which can lag the
   // server's idea of "active" (another tab switching servers), while the
   // status is always the server's answer for whatever is active now. Only
@@ -138,15 +148,26 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
           t('toast.installFailed'),
         )
         return
-      case 'restartNow':
+      case 'restartNow': {
         if (!canControlServer) return
-        void runAction(
-          action,
-          () => serverApi.restart(playersOnline ? RESTART_WARNING_MINUTES : 0),
-          t('toast.restartStarted'),
-          t('toast.actionFailed'),
-        )
+        // A restart disconnects everyone on the server, so it takes the
+        // same two steps as every other restart in the panel (DESIGN.md,
+        // Dashboard's restart): this button only asks. The switch and
+        // checksum dialogs need no second prompt -- they are the prompt.
+        const warning = getRestartWarning(status, playerCount)
+        void (async () => {
+          const confirmed = await confirm({
+            title: t('confirmRestart.title', { server: status.serverName }),
+            description: t(RESTART_CONFIRM_KEYS[warning.players]),
+            confirmLabel: t('confirmRestart.confirm'),
+            cancelLabel: t('dialog.cancel'),
+            variant: 'warning',
+          })
+          if (!confirmed) return
+          await runAction(action, () => serverApi.restart(warning.minutes), t('toast.restartStarted'), t('toast.actionFailed'))
+        })()
         return
+      }
       case 'startServer':
         if (!canControlServer) return
         void runAction(action, () => serverApi.start(), t('toast.startStarted'), t('toast.actionFailed'))
@@ -208,7 +229,7 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
             )
           })}
         </div>
-        {actions.includes('restartNow') && playersOnline && (
+        {actions.includes('restartNow') && restartWarning && restartWarning.minutes > 0 && (
           <p className="text-xs text-muted-foreground">{t('action.restartWarningNote')}</p>
         )}
       </div>
@@ -217,7 +238,7 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
   const renderStateCallout = (s: DeliveryStatus) => {
     const view = getDeliveryStateView(s.state)
     const copy = resolveStateCopy(s)
-    const params = { version: getStateVersion(s) }
+    const hintKey = getStateHintKey(s)
     const runningNote = getRunningVersionNote(s)
     const warning = view.tone === 'warning'
     const icon = warning ? (
@@ -232,9 +253,19 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
     return (
       <Alert className={warning ? WARNING_CALLOUT : NEUTRAL_CALLOUT} aria-live="polite" data-state={s.state}>
         {icon}
-        <AlertTitle className={warning ? 'text-warning' : undefined}>{t(copy.titleKey, params)}</AlertTitle>
+        <AlertTitle className={warning ? 'text-warning' : undefined}>{t(copy.titleKey, copy.params)}</AlertTitle>
         <AlertDescription className="space-y-2">
-          <p>{t(copy.bodyKey, params)}</p>
+          <p>{t(copy.bodyKey, copy.params)}</p>
+          {hintKey && (
+            <p className="break-words text-xs text-muted-foreground" data-testid="bridge-delivery-state-hint">
+              <Trans
+                t={t}
+                i18nKey={hintKey}
+                values={{ modId: BRIDGE_MOD_ID }}
+                components={{ code: <code dir="ltr" className="rounded bg-background/60 px-1 font-mono text-xs" /> }}
+              />
+            </p>
+          )}
           {runningNote && <p className="text-xs text-muted-foreground">{t('state.local-ok.restartToLoad', runningNote)}</p>}
           {s.state === 'workshop-start-failed' && s.lastStartFailure && (
             <div className="space-y-1">
@@ -259,7 +290,7 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
     const availability = method === 'workshop' ? s.switchAvailability.toWorkshop : s.switchAvailability.toLocal
     const blockedReason =
       !isCurrent && !availability.available && availability.reason && availability.reason !== 'sameMethod'
-        ? t(getBlockReasonKey(availability.reason), getAvailabilityParams(s))
+        ? t(getBlockReasonKey(availability.reason), getAvailabilityParams(s, i18n.language))
         : null
     const Icon = method === 'local' ? HardDrive : Cloud
     const switchReason = noBridgeSetupReason ?? blockedReason
@@ -334,7 +365,7 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
     if (s.method === 'local' && s.checksum.current !== true) {
       const workshop = s.switchAvailability.toWorkshop
       const blocked = !workshop.available && workshop.reason && workshop.reason !== 'sameMethod'
-        ? t(getBlockReasonKey(workshop.reason), getAvailabilityParams(s))
+        ? t(getBlockReasonKey(workshop.reason), getAvailabilityParams(s, i18n.language))
         : null
       const reason = noBridgeSetupReason ?? blocked
       return (
@@ -391,26 +422,49 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
     // "Turn it off again" stays reachable for as long as the check is on
     // with Workshop delivery, whatever the state -- it is the escape hatch
     // if players turn out to be refused (the Linux caveat, a leftover file).
+    // Only a confirmed state makes "on" the expected, quiet outcome; in
+    // every other Workshop state nothing yet shows PanelBridge isn't still
+    // loading from the game folder, which would refuse every player -- the
+    // same warning Server Config › INI gives (§4.12 workshopUnconfirmed).
     if (s.method === 'workshop' && s.checksum.current === true) {
+      const turnOffButton = (
+        <DisabledReason reason={noServerFilesReason} className="max-w-full">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className={WRAPPING_BUTTON}
+            disabled={!canManageServerFiles || pending !== null}
+            onClick={turnChecksumOff}
+          >
+            {pending === 'checksumOff' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {t('checksumOffer.turnOff')}
+          </Button>
+        </DisabledReason>
+      )
+      if (s.state !== 'workshop-confirmed') {
+        return (
+          <Alert className={WARNING_CALLOUT} data-testid="bridge-delivery-checksum-on" data-tone="warning">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertTitle className="text-warning">{t('checksumOffer.isOn')}</AlertTitle>
+            <AlertDescription className="space-y-2">
+              <p>{t('checksumOffer.onUnconfirmedBody')}</p>
+              {turnOffButton}
+            </AlertDescription>
+          </Alert>
+        )
+      }
       return (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3" data-testid="bridge-delivery-checksum-on">
+        <div
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3"
+          data-testid="bridge-delivery-checksum-on"
+          data-tone="ok"
+        >
           <p className="flex items-center gap-2 text-sm">
             <ShieldCheck className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
             {t('checksumOffer.isOn')}
           </p>
-          <DisabledReason reason={noServerFilesReason} className="max-w-full">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className={WRAPPING_BUTTON}
-              disabled={!canManageServerFiles || pending !== null}
-              onClick={turnChecksumOff}
-            >
-              {pending === 'checksumOff' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {t('checksumOffer.turnOff')}
-            </Button>
-          </DisabledReason>
+          {turnOffButton}
         </div>
       )
     }
@@ -462,7 +516,7 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
         <Alert className={WARNING_CALLOUT} data-testid="bridge-delivery-leftovers">
           <AlertTriangle className="h-4 w-4 text-warning" />
           <AlertDescription>
-            {t('banner.leftovers', { files: s.disk.looseFiles.map((f) => f.path).join(', ') })}
+            {t('banner.leftovers', { files: formatList(s.disk.looseFiles.map((f) => f.path), i18n.language) })}
           </AlertDescription>
         </Alert>
       )}
@@ -513,7 +567,7 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
           <AlertTriangle className="h-4 w-4 text-warning" />
           <AlertTitle className="text-warning">{t('loadFailed')}</AlertTitle>
           <AlertDescription className="space-y-2">
-            <p>{getUserErrorMessage(error, t('loadFailed'))}</p>
+            <p>{error instanceof DeliveryResponseError ? t('unexpectedResponse') : getUserErrorMessage(error, t('loadFailed'))}</p>
             <Button type="button" size="sm" variant="outline" className="gap-2" onClick={() => void refetch()}>
               <RefreshCw className="h-3.5 w-3.5" />
               {t('retry')}

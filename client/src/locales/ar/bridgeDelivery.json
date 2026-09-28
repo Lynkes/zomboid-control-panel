@@ -7,6 +7,7 @@
   "testOverride": "عنصر اختبار",
   "loading": "جارٍ التحقق من طريقة تثبيت PanelBridge…",
   "loadFailed": "تعذّر تحميل طريقة تثبيت PanelBridge",
+  "unexpectedResponse": "أعادت اللوحة استجابة غير متوقعة. أعد تحميل الصفحة، وحدّث اللوحة إن تكرر ذلك.",
   "refreshFailed": "تعذّر تحديث هذه الحالة. قد يكون المعروض قديمًا.",
   "retry": "إعادة المحاولة",
   "needsServerControl": "يتطلب تشغيل الخادم أو إعادة تشغيله إذن server.control، وهذا الدور لا يملكه.",
@@ -66,13 +67,15 @@
     "local-ok": {
       "title": "مثبّت في مجلد اللعبة",
       "body": "مثبّت بواسطة اللوحة: v{{version}}.",
+      "bodyNoVersion": "مثبّت بواسطة اللوحة.",
       "titleGuided": "PanelBridge يُبلغ عن نفسه",
       "bodyGuided": "يعمل PanelBridge v{{version}} على هذا الخادم.",
+      "bodyGuidedNoVersion": "يعمل PanelBridge على هذا الخادم.",
       "restartToLoad": "لا يزال الخادم قيد التشغيل يُبلغ عن v{{running}}. سيحمّل v{{version}} عند إعادة تشغيله."
     },
     "local-update-pending": {
       "title": "تحديث بانتظار التطبيق",
-      "body": "ستُنسخ نسخة محدّثة من PanelBridge عند التشغيل القادم."
+      "body": "في مجلد اللعبة نسخة من PanelBridge أقدم من نسخة هذه اللوحة. حدّثها الآن، أو دع التشغيل القادم ينسخها (فقط ما دام «إبقاء PanelBridge المثبّت بواسطة اللوحة محدّثًا» مفعّلًا)."
     },
     "local-not-installed": {
       "title": "غير مثبّت",
@@ -84,7 +87,8 @@
     },
     "local-workshop-loaded": {
       "title": "محمّل من ورشة Steam",
-      "body": "يحمّل هذا الخادم PanelBridge من ورشة Steam، لكنه مضبوط على التثبيت بواسطة اللوحة."
+      "body": "يحمّل هذا الخادم PanelBridge من ورشة Steam، لكنه مضبوط على التثبيت بواسطة اللوحة.",
+      "manualHint": "للإبقاء على PanelBridge المثبّت بواسطة اللوحة، أزل <code>{{modId}}</code> من <code>Mods=</code> ومعرّف عنصر الورشة الخاص بـ PanelBridge من <code>WorkshopItems=</code> في ملف إعدادات الخادم (تهيئة الخادم › INI)، ثم أعد تشغيل الخادم."
     },
     "workshop-restart-needed": {
       "title": "تلزم إعادة التشغيل",
@@ -96,7 +100,8 @@
     },
     "workshop-confirmed": {
       "title": "مؤكَّد",
-      "body": "محمّل من ورشة Steam: v{{version}}."
+      "body": "محمّل من ورشة Steam: v{{version}}.",
+      "bodyNoVersion": "محمّل من ورشة Steam."
     },
     "workshop-not-loaded": {
       "title": "لم يُحمَّل من الورشة",
@@ -140,6 +145,13 @@
     "copyFailed": "تعذّر النسخ. حدّد النص وانسخه بنفسك.",
     "restartWarningNote": "يتلقى اللاعبون المتصلون تحذيرًا قبل 5 دقائق."
   },
+  "confirmRestart": {
+    "title": "إعادة تشغيل {{server}}؟",
+    "playersOnline": "يتلقى اللاعبون المتصلون تحذيرًا قبل 5 دقائق، ثم يُعاد تشغيل الخادم.",
+    "nobodyOnline": "لا يوجد أحد متصل، لذا يُعاد تشغيل الخادم فورًا.",
+    "playersUnknown": "لا تستطيع اللوحة الآن معرفة من المتصل، لذا يتلقى اللاعبون تحذيرًا قبل 5 دقائق أولًا، ثم يُعاد تشغيل الخادم.",
+    "confirm": "إعادة التشغيل"
+  },
   "dialog": {
     "titleToWorkshop": "هل تريد نقل {{server}} إلى التوزيع عبر ورشة Steam؟",
     "titleToLocal": "هل تريد نقل {{server}} إلى التثبيت بواسطة اللوحة؟",
@@ -150,6 +162,7 @@
     "blockedTitle": "هذا التغيير غير متاح الآن",
     "warningsTitle": "قبل التبديل",
     "staleNotice": "تغيّرت طريقة تثبيت PanelBridge على هذا الخادم منذ فتحت هذه النافذة. راجع الخطوات المحدّثة.",
+    "serverChanged": "تغيّر الخادم النشط، لذا أُغلقت هذه النافذة.",
     "applyRestartPlayers": "التبديل وإعادة التشغيل الآن (يتلقى اللاعبون تحذيرًا قبل 5 دقائق)",
     "applyRestartEmpty": "التبديل وإعادة التشغيل الآن",
     "applyStart": "التبديل وتشغيل الخادم",
@@ -198,6 +211,7 @@
     "confirm": "تفعيله",
     "turnOff": "تعطيله مجددًا",
     "isOn": "فحص سلامة Lua مفعّل.",
+    "onUnconfirmedBody": "لم يتأكد بعد أن PanelBridge يُحمَّل من ورشة Steam. إن كان لا يزال يُحمَّل من مجلد اللعبة، فلن يستطيع اللاعبون الانضمام ما دام هذا الفحص مفعّلًا.",
     "guidedInstructions": "اضبط DoLuaChecksum=true في ملف .ini الخاص بالخادم، ثم أعد تشغيل الخادم.",
     "openServerConfig": "فتح تهيئة الخادم › INI",
     "needsServerFiles": "يتطلب تغيير DoLuaChecksum إذن serverfiles.manage، وهذا الدور لا يملكه.",
@@ -216,7 +230,9 @@
     "switchedToLocal": "تثبّت اللوحة الآن PanelBridge على {{server}}",
     "switchFailed": "تعذّر تغيير طريقة تثبيت PanelBridge",
     "notRestored": "تعذّر على اللوحة التراجع عن كل التغييرات التي أجرتها. قبل تشغيل الخادم، افحص ملف إعداداته في تهيئة الخادم › INI؛ فقد حُفظت نسخة احتياطية منه قبل التغيير.",
+    "notRestoredFile": "تعذّر تغيير {{fileName}}، وتعذّر على اللوحة التراجع عن كل التغييرات التي أجرتها. قبل تشغيل الخادم، افحص ملف إعداداته في تهيئة الخادم › INI؛ فقد حُفظت نسخة احتياطية منه قبل التغيير.",
     "lifecycleFailed": "تم التبديل، لكن الخادم لم يبدأ التشغيل أو إعادة التشغيل",
+    "lifecycleSkipped": "تم التبديل، لكن الخادم النشط تغيّر في الأثناء، لذا لم يُشغَّل {{server}} ولم يُعَد تشغيله.",
     "installed": "PanelBridge محدّث في مجلد اللعبة",
     "installFailed": "تعذّر نسخ PanelBridge إلى مجلد اللعبة",
     "checksumOn": "تم حفظ DoLuaChecksum=true",

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { panelBridgeApi } from '@/lib/api'
 import { reportClientError } from '@/lib/client-errors'
 import type { DeliveryStatus } from '@/lib/bridgeDeliveryTypes'
+import { DeliveryResponseError, isDeliveryStatus } from '@/lib/bridgeDeliveryView'
 import { useSocket } from '@/contexts/SocketContext'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
 
@@ -56,7 +57,10 @@ export function useBridgeDelivery({ activeServerId = null, enabled = true }: Use
     if (!enabled) return null
     const requestId = guard.next()
     try {
-      const next = await panelBridgeApi.getDelivery()
+      const next: unknown = await panelBridgeApi.getDelivery()
+      // Not a DeliveryStatus (the demo build's catch-all, a panel without
+      // the route): a failed load, never a status to render.
+      if (!isDeliveryStatus(next)) throw new DeliveryResponseError('GET /api/panel-bridge/delivery')
       failureReportedRef.current = false
       if (!mountedRef.current || guard.isStale(requestId)) return next
       setStatus(next)
@@ -153,4 +157,52 @@ export function useBridgeDelivery({ activeServerId = null, enabled = true }: Use
   }, [waiting, enabled])
 
   return { status, loading, error, refetch }
+}
+
+export interface DeliveryDialogServer {
+  serverId: string
+  serverName: string
+  // The status has moved on to another server since the dialog opened.
+  changed: boolean
+}
+
+// For a dialog that acts on the status's server (the switch preview, the
+// checksum dialog). useBridgeDelivery follows whatever server is active, so
+// while a dialog is open its `status` can turn into another server's --
+// another tab switched the active server and a refetch landed before this
+// page's own server list caught up. The dialog keeps the server it opened
+// for (its preview, its title, the id it re-checks against), and
+// `onServerChanged` runs once the dialog is idle, so the caller can close
+// it: a preview quietly rebuilt for a different server under the
+// operator's cursor, or acknowledgements given for one server applied to
+// another, would be worse than no dialog.
+export function useDeliveryDialogServer(
+  open: boolean,
+  status: DeliveryStatus,
+  busy: boolean,
+  onServerChanged: () => void,
+): DeliveryDialogServer {
+  const [pinned, setPinned] = useState<{ serverId: string; serverName: string } | null>(null)
+  useEffect(() => {
+    if (!open) {
+      setPinned(null)
+      return
+    }
+    setPinned((current) => current ?? { serverId: status.serverId, serverName: status.serverName })
+  }, [open, status.serverId, status.serverName])
+
+  const changed = open && pinned !== null && pinned.serverId !== status.serverId
+  const onServerChangedRef = useRef(onServerChanged)
+  useEffect(() => {
+    onServerChangedRef.current = onServerChanged
+  })
+  useEffect(() => {
+    if (changed && !busy) onServerChangedRef.current()
+  }, [changed, busy])
+
+  return {
+    serverId: pinned?.serverId ?? status.serverId,
+    serverName: pinned?.serverName ?? status.serverName,
+    changed,
+  }
 }

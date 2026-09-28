@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ApiError, panelBridgeApi, serverApi } from '@/lib/api'
-import type { DeliveryMethod, DeliveryStatus } from '@/lib/bridgeDeliveryTypes'
+import type { DeliveryMethod, DeliveryPlanResponse, DeliveryStatus } from '@/lib/bridgeDeliveryTypes'
 import en from '@/locales/en/bridgeDelivery.json'
 import enSettings from '@/locales/en/settings.json'
 import { BridgeDeliverySwitchDialog } from '../BridgeDeliverySwitchDialog'
@@ -51,22 +51,23 @@ function renderDialog(
 ) {
   const onOpenChange = vi.fn()
   const onChanged = vi.fn()
-  render(
+  const tree = (next: DeliveryStatus) => (
     <MemoryRouter>
       <TooltipProvider>
         <BridgeDeliverySwitchDialog
           open
           onOpenChange={onOpenChange}
-          status={status}
+          status={next}
           to={to}
           playerCount={playerCount}
           iniFileName="servertest.ini"
           onChanged={onChanged}
         />
       </TooltipProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
   )
-  return { onOpenChange, onChanged }
+  const { rerender } = render(tree(status))
+  return { onOpenChange, onChanged, rerenderWith: (next: DeliveryStatus) => rerender(tree(next)) }
 }
 
 async function stepsList() {
@@ -139,6 +140,29 @@ describe('BridgeDeliverySwitchDialog: the preview lists every step, in order, wi
     expect((await screen.findAllByText(en.unavailable.iniDuplicateKeys)).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: en.dialog.applyOnly })).toBeDisabled()
     expect(screen.getByRole('button', { name: en.dialog.applyRestartEmpty })).toBeDisabled()
+    // No "makes these changes, in this order:" over a list that isn't there.
+    expect(screen.queryByText(en.dialog.intro)).toBeNull()
+  })
+
+  it('heads a real list of steps with the intro, and nothing while the preview loads', async () => {
+    let resolvePlan: (plan: DeliveryPlanResponse) => void = () => {}
+    planDelivery.mockReturnValueOnce(new Promise((resolve) => { resolvePlan = resolve }))
+    renderDialog(makeLocalStatus())
+    expect(await screen.findByText(en.dialog.planning)).toBeInTheDocument()
+    expect(screen.queryByText(en.dialog.intro)).toBeNull()
+    resolvePlan(makePlan())
+    await stepsList()
+    expect(screen.getByText(en.dialog.intro)).toBeInTheDocument()
+  })
+
+  // lib/demo.ts acknowledges every POST it has no route for with
+  // { success: true, message }; rendered as a plan, `steps.length` threw.
+  it('an answer that is not a plan shows the preview error, not a crash', async () => {
+    planDelivery.mockResolvedValue({ success: true, message: 'Demo mode' } as unknown as DeliveryPlanResponse)
+    renderDialog(makeLocalStatus())
+    expect(await screen.findByText(en.dialog.planFailed)).toBeInTheDocument()
+    expect(screen.getByText(en.unexpectedResponse)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: en.dialog.applyOnly })).toBeDisabled()
   })
 })
 
@@ -213,7 +237,7 @@ describe('BridgeDeliverySwitchDialog: apply', () => {
     expect(restart).not.toHaveBeenCalled()
   })
 
-  it('a failed apply whose undo did not complete (restored:false) says so instead of "put back"', async () => {
+  it('a failed apply whose undo did not complete (restored:false) says so instead of "put back", naming the file', async () => {
     planDelivery.mockResolvedValue(makePlan())
     applyDelivery.mockRejectedValueOnce(
       new ApiError("Couldn't update servertest.ini. The panel put back what it had already changed.", {
@@ -227,10 +251,27 @@ describe('BridgeDeliverySwitchDialog: apply', () => {
     fireEvent.click(screen.getByRole('button', { name: en.dialog.applyOnly }))
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledWith(
-        expect.objectContaining({ title: en.toast.switchFailed, description: en.toast.notRestored, variant: 'destructive' }),
+        expect.objectContaining({
+          title: en.toast.switchFailed,
+          description: en.toast.notRestoredFile.replace('{{fileName}}', 'servertest.ini'),
+          variant: 'destructive',
+        }),
       ),
     )
     expect(toastMock).not.toHaveBeenCalledWith(expect.objectContaining({ description: expect.stringMatching(/put back what/) }))
+  })
+
+  it('restored:false without a file name keeps the generic not-restored text', async () => {
+    planDelivery.mockResolvedValue(makePlan())
+    applyDelivery.mockRejectedValueOnce(
+      new ApiError('failed', { status: 500, code: 'PANELBRIDGE_DELIVERY_INSTALL_FAILED', data: { code: 'PANELBRIDGE_DELIVERY_INSTALL_FAILED', restored: false } }),
+    )
+    renderDialog(makeLocalStatus())
+    await stepsList()
+    fireEvent.click(screen.getByRole('button', { name: en.dialog.applyOnly }))
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: en.toast.switchFailed, description: en.toast.notRestored })),
+    )
   })
 
   it('reports a failed restart separately: the switch itself already happened', async () => {
@@ -243,6 +284,48 @@ describe('BridgeDeliverySwitchDialog: apply', () => {
     expect(toastMock).toHaveBeenCalledWith(
       expect.objectContaining({ title: en.toast.switchedToWorkshop.replace('{{server}}', 'Main Server') }),
     )
+  })
+})
+
+// useBridgeDelivery follows whatever server is active; another tab can
+// switch it while this preview is open.
+describe('BridgeDeliverySwitchDialog: the active server changes while it is open', () => {
+  it('closes instead of rebuilding the preview for the other server', async () => {
+    planDelivery.mockResolvedValue(makePlan())
+    const { onOpenChange, rerenderWith } = renderDialog(makeLocalStatus())
+    await stepsList()
+    rerenderWith(makeLocalStatus({ serverId: 'srv-2', serverName: 'Second' }))
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: en.dialog.serverChanged }))
+    expect(planDelivery).toHaveBeenCalledTimes(1)
+    expect(planDelivery).toHaveBeenCalledWith({ serverId: 'srv-1', method: 'workshop' })
+    // The title still names the server the preview is for.
+    expect(screen.getByRole('heading', { name: en.dialog.titleToWorkshop.replace('{{server}}', 'Main Server') })).toBeInTheDocument()
+  })
+
+  // /server/restart acts on whatever is active: after the switch of the
+  // first server, restarting would hit the second.
+  it('a switch applied while the server changed skips the restart and says so', async () => {
+    planDelivery.mockResolvedValue(makePlan())
+    let resolveApply: (plan: DeliveryPlanResponse) => void = () => {}
+    applyDelivery.mockReturnValueOnce(new Promise((resolve) => { resolveApply = resolve }))
+    const { onOpenChange, rerenderWith } = renderDialog(makeLocalStatus())
+    await stepsList()
+    fireEvent.click(screen.getByRole('button', { name: en.dialog.applyRestartEmpty }))
+    rerenderWith(makeLocalStatus({ serverId: 'srv-2', serverName: 'Second' }))
+    // Busy: not closed underneath the running apply.
+    expect(onOpenChange).not.toHaveBeenCalled()
+    resolveApply(makePlan({ applied: true }))
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({ title: en.toast.lifecycleSkipped.replace('{{server}}', 'Main Server') }),
+      ),
+    )
+    expect(restart).not.toHaveBeenCalled()
+    expect(toastMock).toHaveBeenCalledWith(
+      expect.objectContaining({ title: en.toast.switchedToWorkshop.replace('{{server}}', 'Main Server') }),
+    )
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 })
 

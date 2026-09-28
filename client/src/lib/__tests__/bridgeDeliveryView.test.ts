@@ -12,18 +12,24 @@ import {
   DELIVERY_ACTION_KEYS,
   DELIVERY_STATE_VIEWS,
   describeDeliveryStep,
+  formatList,
+  getAvailabilityParams,
   getBlockReasonKey,
   getChecksumBlockerKey,
   getGuidedWorkshopManual,
+  getRestartWarning,
   getRunningVersionNote,
+  getStateHintKey,
   getStateVersion,
   getWarningKey,
   isBridgeManagedMod,
+  isDeliveryPlanResponse,
+  isDeliveryStatus,
   resolveLuaChecksumCallout,
   resolveStateActions,
   resolveStateCopy,
 } from '../bridgeDeliveryView'
-import { makeLocalStatus, makeWorkshopStatus, WORKSHOP_ID } from '@/components/bridge/__tests__/deliveryFixtures'
+import { makeLocalStatus, makePlan, makeWorkshopStatus, WORKSHOP_ID } from '@/components/bridge/__tests__/deliveryFixtures'
 
 // The client maps server-computed delivery state to copy and actions and
 // decides nothing else (spec §4.5, §6.9). These tests pin that mapping to
@@ -130,27 +136,58 @@ describe('local-ok copy and version: only what the state was decided on', () => 
   it('automatic local-ok shows the file on disk (the bundled version), never the heartbeat', () => {
     expect(getStateVersion(makeLocalStatus({ live: liveOlder }))).toBe('1.7.70')
     expect(getStateVersion(makeLocalStatus({ live: null }))).toBe('1.7.70')
-    expect(getStateVersion(makeLocalStatus({ live: null, bundledVersion: null }))).toBe('—')
+    expect(getStateVersion(makeLocalStatus({ live: null, bundledVersion: null }))).toBeNull()
   })
 
   it('guided local-ok and workshop-confirmed show the heartbeat', () => {
     expect(getStateVersion(makeLocalStatus({ access: 'guided', disk: null, live: liveOlder }))).toBe('1.7.60')
     expect(getStateVersion(makeWorkshopStatus())).toBe('1.7.71')
-    expect(getStateVersion(makeWorkshopStatus({ live: null }))).toBe('—')
+    expect(getStateVersion(makeWorkshopStatus({ live: null }))).toBeNull()
   })
 
   it('guided local-ok gets copy that only claims the bridge is running', () => {
     expect(resolveStateCopy(makeLocalStatus({ access: 'guided', disk: null }))).toEqual({
       titleKey: 'state.local-ok.titleGuided',
       bodyKey: 'state.local-ok.bodyGuided',
+      params: { version: '1.7.70' },
     })
-    expect(resolveStateCopy(makeLocalStatus())).toEqual({ titleKey: 'state.local-ok.title', bodyKey: 'state.local-ok.body' })
+    expect(resolveStateCopy(makeLocalStatus())).toEqual({
+      titleKey: 'state.local-ok.title',
+      bodyKey: 'state.local-ok.body',
+      params: { version: '1.7.70' },
+    })
     expect(resolveStateCopy(makeWorkshopStatus())).toEqual({
       titleKey: 'state.workshop-confirmed.title',
       bodyKey: 'state.workshop-confirmed.body',
+      params: { version: '1.7.71' },
     })
     for (const key of ['state.local-ok.titleGuided', 'state.local-ok.bodyGuided', 'state.local-ok.restartToLoad']) {
       expect(exists(key), key).toBe(true)
+    }
+  })
+
+  // "Installed by the panel: v—." is what a missing version used to read.
+  it('switches to a version-less body when the signal it reads has no version', () => {
+    expect(resolveStateCopy(makeLocalStatus({ bundledVersion: null }))).toEqual({
+      titleKey: 'state.local-ok.title',
+      bodyKey: 'state.local-ok.bodyNoVersion',
+      params: {},
+    })
+    expect(resolveStateCopy(makeLocalStatus({ access: 'guided', disk: null, live: { ...liveOlder, version: null } }))).toEqual({
+      titleKey: 'state.local-ok.titleGuided',
+      bodyKey: 'state.local-ok.bodyGuidedNoVersion',
+      params: {},
+    })
+    expect(resolveStateCopy(makeWorkshopStatus({ live: { ...makeWorkshopStatus().live!, version: null } }))).toEqual({
+      titleKey: 'state.workshop-confirmed.title',
+      bodyKey: 'state.workshop-confirmed.bodyNoVersion',
+      params: {},
+    })
+    // States whose copy has no {{version}} never ask for one.
+    expect(resolveStateCopy(makeLocalStatus({ state: 'local-not-installed', bundledVersion: null })).params).toEqual({})
+    for (const key of ['state.local-ok.bodyNoVersion', 'state.local-ok.bodyGuidedNoVersion', 'state.workshop-confirmed.bodyNoVersion']) {
+      expect(exists(key), key).toBe(true)
+      expect(i18n.t(key, { ns: 'bridgeDelivery', lng: 'en' })).not.toContain('{{')
     }
   })
 
@@ -221,5 +258,84 @@ describe('isBridgeManagedMod', () => {
   it('matches nothing else, and nothing at all while the server is not on the Workshop', () => {
     expect(isBridgeManagedMod(managed, '999', ['SomeOtherMod'])).toBe(false)
     expect(isBridgeManagedMod(null, WORKSHOP_ID, ['ZomboidControlPanelBridge'])).toBe(false)
+  })
+})
+
+describe('getStateHintKey', () => {
+  it('gives local-workshop-loaded the manual fix while the server offers no switch back', () => {
+    const loaded = makeLocalStatus({ state: 'local-workshop-loaded' })
+    expect(getStateHintKey(loaded)).toBe('state.local-workshop-loaded.manualHint')
+    expect(exists('state.local-workshop-loaded.manualHint')).toBe(true)
+    const offered = {
+      ...loaded,
+      switchAvailability: { ...loaded.switchAvailability, toLocal: { available: true, reason: null, warnings: [] } },
+    }
+    expect(getStateHintKey(offered)).toBeNull()
+    expect(getStateHintKey(makeLocalStatus())).toBeNull()
+  })
+})
+
+describe('formatList / getAvailabilityParams: lists joined the way the UI language joins them', () => {
+  it.each([
+    ['en', 'Alpha, Beta, and Gamma'],
+    ['fr', 'Alpha, Beta et Gamma'],
+    ['zh-CN', 'Alpha、Beta和Gamma'],
+    ['ar', 'Alpha وBeta وGamma'],
+  ])('%s', (language, expected) => {
+    expect(formatList(['Alpha', 'Beta', 'Gamma'], language)).toBe(expected)
+  })
+
+  it('falls back to a plain comma list for a language the runtime has no list data for', () => {
+    expect(formatList(['Alpha', 'Beta'], 'ht')).toBe('Alpha, Beta')
+    expect(formatList(['Alpha', 'Beta'], 'not a tag!')).toBe('Alpha, Beta')
+  })
+
+  it('names the servers that share the install in the UI language', () => {
+    const status = makeLocalStatus({ sharedWith: [{ id: 'a', name: 'North' }, { id: 'b', name: 'South' }] })
+    expect(getAvailabilityParams(status, 'zh-TW').servers).toBe('North和South')
+    expect(getAvailabilityParams(status, 'de', [{ id: 'c', name: 'East' }]).servers).toBe('East')
+  })
+})
+
+describe('getRestartWarning', () => {
+  it('warns players the heartbeat reports, restarts an empty server at once', () => {
+    expect(getRestartWarning(makeWorkshopStatus(), 3)).toEqual({ minutes: 5, players: 'some' })
+    expect(getRestartWarning(makeWorkshopStatus(), 0)).toEqual({ minutes: 0, players: 'none' })
+  })
+
+  // workshop-not-loaded after the grace period, or restart-needed on a
+  // server whose bridge never connected: no heartbeat, so no count, and
+  // players may still be on the server.
+  it('treats an unknown count as players online, never as an empty server', () => {
+    expect(getRestartWarning(makeWorkshopStatus({ live: null }), null)).toEqual({ minutes: 5, players: 'unknown' })
+    expect(getRestartWarning(makeWorkshopStatus({ live: { ...makeWorkshopStatus().live!, alive: false } }), 0)).toEqual({
+      minutes: 5,
+      players: 'unknown',
+    })
+    expect(getRestartWarning(makeWorkshopStatus(), null)).toEqual({ minutes: 5, players: 'unknown' })
+  })
+})
+
+describe('isDeliveryStatus / isDeliveryPlanResponse', () => {
+  it('accept contract-shaped answers', () => {
+    expect(isDeliveryStatus(makeLocalStatus())).toBe(true)
+    expect(isDeliveryStatus(makeWorkshopStatus({ access: 'guided', disk: null, live: null }))).toBe(true)
+    expect(isDeliveryPlanResponse(makePlan())).toBe(true)
+    expect(isDeliveryPlanResponse(makePlan({ blocked: { reason: 'noSteam' }, steps: [], manual: null }))).toBe(true)
+  })
+
+  // lib/demo.ts answers every GET it has no route for with this body.
+  it('reject the demo build catch-all and other non-contract bodies', () => {
+    expect(isDeliveryStatus({ success: true, demo: true })).toBe(false)
+    expect(isDeliveryPlanResponse({ success: true, message: 'Demo mode: action acknowledged (no backend connected).' })).toBe(false)
+    expect(isDeliveryStatus(null)).toBe(false)
+    expect(isDeliveryStatus('ok')).toBe(false)
+    expect(isDeliveryStatus({ ...makeLocalStatus(), state: 'local-something-new' })).toBe(false)
+    expect(isDeliveryStatus({ ...makeLocalStatus(), checksum: undefined })).toBe(false)
+    expect(
+      isDeliveryStatus({ ...makeLocalStatus(), switchAvailability: { toWorkshop: { available: true, reason: null, warnings: [] } } }),
+    ).toBe(false)
+    expect(isDeliveryPlanResponse({ ...makePlan(), steps: [{ kind: 'somethingNew' }] })).toBe(false)
+    expect(isDeliveryPlanResponse({ ...makePlan(), warnings: undefined })).toBe(false)
   })
 })

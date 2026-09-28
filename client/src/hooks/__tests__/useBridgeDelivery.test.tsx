@@ -5,7 +5,9 @@ import type { Socket } from 'socket.io-client'
 import { SocketContext } from '@/contexts/SocketContext'
 import { panelBridgeApi } from '@/lib/api'
 import { reportClientError } from '@/lib/client-errors'
-import { useBridgeDelivery } from '../useBridgeDelivery'
+import { DeliveryResponseError } from '@/lib/bridgeDeliveryView'
+import type { DeliveryStatus } from '@/lib/bridgeDeliveryTypes'
+import { useBridgeDelivery, useDeliveryDialogServer } from '../useBridgeDelivery'
 import { makeLocalStatus, makeWorkshopStatus } from '@/components/bridge/__tests__/deliveryFixtures'
 
 vi.mock('@/lib/api', async () => {
@@ -203,6 +205,24 @@ describe('useBridgeDelivery', () => {
     expect(result.current.error).toBeNull()
   })
 
+  // The public demo build's fetch shim answers every GET it has no route
+  // for with this body; rendered as a status it threw inside Settings'
+  // error boundary and took the whole page down.
+  it('treats a 200 that is not a DeliveryStatus as a failed load, never as a status', async () => {
+    getDelivery.mockResolvedValue({ success: true, demo: true } as unknown as DeliveryStatus)
+    const { result } = renderHook(() => useBridgeDelivery({ activeServerId: 'srv-1' }), { wrapper: wrapperFor(null) })
+    await flush()
+    expect(result.current.status).toBeNull()
+    expect(result.current.loading).toBe(false)
+    expect(result.current.error).toBeInstanceOf(DeliveryResponseError)
+    expect(reportClientError).toHaveBeenCalledTimes(1)
+    // A later good answer replaces it as usual.
+    getDelivery.mockResolvedValue(makeLocalStatus())
+    await act(async () => { await result.current.refetch() })
+    expect(result.current.status?.state).toBe('local-ok')
+    expect(result.current.error).toBeNull()
+  })
+
   it('does nothing at all when disabled (no capability to read it)', async () => {
     const socket = makeSocket()
     const { result } = renderHook(() => useBridgeDelivery({ activeServerId: 'srv-1', enabled: false }), { wrapper: wrapperFor(socket) })
@@ -211,5 +231,36 @@ describe('useBridgeDelivery', () => {
     await flush()
     expect(getDelivery).not.toHaveBeenCalled()
     expect(result.current.loading).toBe(false)
+  })
+})
+
+describe('useDeliveryDialogServer', () => {
+  const second = makeLocalStatus({ serverId: 'srv-2', serverName: 'Second' })
+
+  function renderPin(initial: { open: boolean; status: DeliveryStatus; busy: boolean }) {
+    const onServerChanged = vi.fn()
+    const view = renderHook(({ open, status, busy }) => useDeliveryDialogServer(open, status, busy, onServerChanged), {
+      initialProps: initial,
+    })
+    return { ...view, onServerChanged }
+  }
+
+  it('keeps the server the dialog opened for, and reports the change once idle', () => {
+    const { result, rerender, onServerChanged } = renderPin({ open: true, status: makeLocalStatus(), busy: false })
+    expect(result.current).toEqual({ serverId: 'srv-1', serverName: 'Main Server', changed: false })
+    // Another tab switched the active server while an apply was running.
+    rerender({ open: true, status: second, busy: true })
+    expect(result.current).toEqual({ serverId: 'srv-1', serverName: 'Main Server', changed: true })
+    expect(onServerChanged).not.toHaveBeenCalled()
+    rerender({ open: true, status: second, busy: false })
+    expect(onServerChanged).toHaveBeenCalledTimes(1)
+  })
+
+  it('pins afresh on every opening', () => {
+    const { result, rerender, onServerChanged } = renderPin({ open: true, status: makeLocalStatus(), busy: false })
+    rerender({ open: false, status: second, busy: false })
+    rerender({ open: true, status: second, busy: false })
+    expect(result.current).toEqual({ serverId: 'srv-2', serverName: 'Second', changed: false })
+    expect(onServerChanged).not.toHaveBeenCalled()
   })
 })

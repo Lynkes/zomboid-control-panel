@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { MemoryRouter } from 'react-router-dom'
 import i18n from '@/i18n'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { ConfirmProvider } from '@/contexts/ConfirmContext'
 import { panelBridgeApi, serverApi, serverFilesApi } from '@/lib/api'
 import { DELIVERY_STATES, type DeliveryStatus } from '@/lib/bridgeDeliveryTypes'
 import en from '@/locales/en/bridgeDelivery.json'
@@ -61,14 +62,22 @@ function renderPanel(
   props: { playerCount?: number | null; activeServerId?: string | null } = {},
 ) {
   getDelivery.mockResolvedValue(status)
+  return renderPanelOnly(props)
+}
+
+// Same providers as the app (App.tsx): the block's restart asks through
+// the app-wide ConfirmProvider.
+function renderPanelOnly(props: { playerCount?: number | null; activeServerId?: string | null; iniFileName?: string | null } = {}) {
   return render(
     <MemoryRouter>
       <TooltipProvider>
-        <BridgeDeliveryPanel
-          activeServerId={props.activeServerId === undefined ? 'srv-1' : props.activeServerId}
-          iniFileName="servertest.ini"
-          playerCount={props.playerCount ?? null}
-        />
+        <ConfirmProvider>
+          <BridgeDeliveryPanel
+            activeServerId={props.activeServerId === undefined ? 'srv-1' : props.activeServerId}
+            iniFileName={props.iniFileName === undefined ? 'servertest.ini' : props.iniFileName}
+            playerCount={props.playerCount ?? null}
+          />
+        </ConfirmProvider>
       </TooltipProvider>
     </MemoryRouter>,
   )
@@ -139,6 +148,14 @@ describe('BridgeDeliveryPanel: local-ok claims only what its state was decided o
     await panelReady()
     const callout = document.querySelector('[data-state="local-ok"]') as HTMLElement
     expect(within(callout).queryByText(/still reports/)).toBeNull()
+  })
+
+  it('says "Installed by the panel." rather than "v—" when there is no version to show', async () => {
+    renderPanel(makeLocalStatus({ bundledVersion: null }))
+    await panelReady()
+    const callout = document.querySelector('[data-state="local-ok"]') as HTMLElement
+    expect(within(callout).getByText(en.state['local-ok'].bodyNoVersion)).toBeInTheDocument()
+    expect(callout).not.toHaveTextContent('v—')
   })
 
   it('guided: only that the bridge is reporting in, with the version it reports', async () => {
@@ -303,6 +320,30 @@ describe('BridgeDeliveryPanel: the Lua integrity check', () => {
     fireEvent.click(within(on).getByRole('button', { name: en.checksumOffer.turnOff }))
     await waitFor(() => expect(saveIni).toHaveBeenCalledWith({ DoLuaChecksum: 'false' }))
   })
+
+  // Server Config › INI warns about exactly this (§4.12
+  // workshopUnconfirmed); the block must not show it as a green tick.
+  it.each(['workshop-restart-needed', 'workshop-waiting', 'workshop-not-loaded'] as const)(
+    'check on while %s is a warning, not a success',
+    async (state) => {
+      renderPanel(makeWorkshopStatus({ state, checksum: { current: true, canTurnOn: false, turnOnBlockers: ['notConfirmed', 'alreadyOn'], playersBlocked: false, requiresLinuxAck: false } }))
+      await panelReady()
+      const on = screen.getByTestId('bridge-delivery-checksum-on')
+      expect(on).toHaveAttribute('data-tone', 'warning')
+      expect(within(on).getByText(en.checksumOffer.isOn)).toBeInTheDocument()
+      expect(within(on).getByText(en.checksumOffer.onUnconfirmedBody)).toBeInTheDocument()
+      expect(within(on).getByRole('button', { name: en.checksumOffer.turnOff })).toBeEnabled()
+    },
+  )
+
+  it('check on while confirmed is the quiet, expected outcome', async () => {
+    renderPanel(makeWorkshopStatus({ checksum: { current: true, canTurnOn: false, turnOnBlockers: ['alreadyOn'], playersBlocked: false, requiresLinuxAck: false } }))
+    await panelReady()
+    const on = screen.getByTestId('bridge-delivery-checksum-on')
+    expect(on).toHaveAttribute('data-tone', 'ok')
+    expect(within(on).queryByText(en.checksumOffer.onUnconfirmedBody)).toBeNull()
+    expect(within(on).getByRole('button', { name: en.checksumOffer.turnOff })).toBeEnabled()
+  })
 })
 
 describe('BridgeDeliveryPanel: failure states and their actions', () => {
@@ -334,21 +375,109 @@ describe('BridgeDeliveryPanel: failure states and their actions', () => {
     expect(screen.getByTestId('bridge-delivery-steam-unavailable')).toHaveTextContent(en.banner.steamUnavailable)
   })
 
-  it('local-workshop-loaded explains the mismatch', async () => {
-    renderPanel(makeLocalStatus({ state: 'local-workshop-loaded', live: { alive: true, version: '1.7.71', delivery: 'workshop', workshopId: WORKSHOP_ID, startedAt: 1, gameVersion: '42.20.0' } }))
+  it('local-workshop-loaded explains the mismatch, and the manual fix while there is no switch back', async () => {
+    const workshopLive = { alive: true, version: '1.7.71', delivery: 'workshop' as const, workshopId: WORKSHOP_ID, startedAt: 1, gameVersion: '42.20.0' }
+    renderPanel(makeLocalStatus({ state: 'local-workshop-loaded', live: workshopLive }))
     await panelReady()
     expect(screen.getByText(en.state['local-workshop-loaded'].body)).toBeInTheDocument()
+    const hint = screen.getByTestId('bridge-delivery-state-hint')
+    expect(hint).toHaveTextContent('remove ZomboidControlPanelBridge from Mods= and the PanelBridge item ID from WorkshopItems=')
+    expect(within(hint).getByText('ZomboidControlPanelBridge').tagName).toBe('CODE')
+    cleanup()
+
+    renderPanel(
+      makeLocalStatus({
+        state: 'local-workshop-loaded',
+        live: workshopLive,
+        switchAvailability: {
+          toWorkshop: { available: true, reason: null, warnings: [] },
+          toLocal: { available: true, reason: null, warnings: [] },
+        },
+      }),
+    )
+    await panelReady()
+    expect(screen.queryByTestId('bridge-delivery-state-hint')).toBeNull()
   })
 
-  it('restart-needed restarts with a 5-minute warning when players are online', async () => {
+  it('names the leftover files as a list in the UI language', async () => {
+    renderPanel(
+      makeWorkshopStatus({
+        disk: {
+          ...makeWorkshopStatus().disk!,
+          looseFiles: [
+            { path: 'media/lua/server/PanelBridge.lua', kind: 'server', recognized: true },
+            { path: 'media/lua/client/PanelBridgeClient.lua', kind: 'client', recognized: true },
+          ],
+        },
+      }),
+    )
+    await panelReady()
+    expect(screen.getByTestId('bridge-delivery-leftovers')).toHaveTextContent(
+      'media/lua/server/PanelBridge.lua and media/lua/client/PanelBridgeClient.lua',
+    )
+  })
+})
+
+// A restart disconnects everyone on the server, so the block's "Restart
+// now" asks first, like every other restart in the panel.
+describe('BridgeDeliveryPanel: "Restart now" asks first', () => {
+  async function clickRestart() {
+    fireEvent.click(screen.getByRole('button', { name: en.action.restartNow }))
+    return screen.findByRole('alertdialog')
+  }
+
+  it('players online: confirms with the 5-minute warning, then restarts with it', async () => {
     restart.mockResolvedValue({})
     renderPanel(makeWorkshopStatus({ state: 'workshop-restart-needed' }), { playerCount: 3 })
     await panelReady()
     expect(screen.getByText(en.action.restartWarningNote)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: en.action.restartNow }))
+    const dialog = await clickRestart()
+    expect(within(dialog).getByText(en.confirmRestart.title.replace('{{server}}', 'Main Server'))).toBeInTheDocument()
+    expect(within(dialog).getByText(en.confirmRestart.playersOnline)).toBeInTheDocument()
+    expect(restart).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: en.confirmRestart.confirm }))
     await waitFor(() => expect(restart).toHaveBeenCalledWith(5))
   })
 
+  // workshop-not-loaded after the grace period: the bridge isn't reporting,
+  // so nothing says the server is empty.
+  it('player count unknown: still the 5-minute warning, never an instant kick', async () => {
+    restart.mockResolvedValue({})
+    renderPanel(
+      makeWorkshopStatus({ state: 'workshop-not-loaded', live: { ...makeWorkshopStatus().live!, alive: false } }),
+      { playerCount: null },
+    )
+    await panelReady()
+    expect(screen.getByText(en.action.restartWarningNote)).toBeInTheDocument()
+    const dialog = await clickRestart()
+    expect(within(dialog).getByText(en.confirmRestart.playersUnknown)).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: en.confirmRestart.confirm }))
+    await waitFor(() => expect(restart).toHaveBeenCalledWith(5))
+    expect(restart).not.toHaveBeenCalledWith(0)
+  })
+
+  it('nobody online: says so and restarts right away', async () => {
+    restart.mockResolvedValue({})
+    renderPanel(makeWorkshopStatus({ state: 'workshop-restart-needed' }), { playerCount: 0 })
+    await panelReady()
+    expect(screen.queryByText(en.action.restartWarningNote)).toBeNull()
+    const dialog = await clickRestart()
+    expect(within(dialog).getByText(en.confirmRestart.nobodyOnline)).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: en.confirmRestart.confirm }))
+    await waitFor(() => expect(restart).toHaveBeenCalledWith(0))
+  })
+
+  it('cancel restarts nothing', async () => {
+    renderPanel(makeWorkshopStatus({ state: 'workshop-restart-needed' }), { playerCount: 3 })
+    await panelReady()
+    const dialog = await clickRestart()
+    fireEvent.click(within(dialog).getByRole('button', { name: en.dialog.cancel }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(restart).not.toHaveBeenCalled()
+  })
+})
+
+describe('BridgeDeliveryPanel: start, install, and loading the status', () => {
   it('workshop-stopped offers Start server', async () => {
     start.mockResolvedValue({})
     renderPanel(makeWorkshopStatus({ state: 'workshop-stopped', serverRunning: false, live: null }))
@@ -391,14 +520,21 @@ describe('BridgeDeliveryPanel: failure states and their actions', () => {
 
   it('offers a retry when the status cannot be loaded', async () => {
     getDelivery.mockRejectedValueOnce(new Error('boom'))
-    render(
-      <MemoryRouter>
-        <TooltipProvider>
-          <BridgeDeliveryPanel activeServerId="srv-1" iniFileName={null} playerCount={null} />
-        </TooltipProvider>
-      </MemoryRouter>,
-    )
+    renderPanelOnly({ iniFileName: null })
     expect(await screen.findByText(en.loadFailed)).toBeInTheDocument()
+    getDelivery.mockResolvedValue(makeLocalStatus())
+    fireEvent.click(screen.getByRole('button', { name: en.retry }))
+    await panelReady()
+  })
+
+  // lib/demo.ts's catch-all answer. It used to reach the renderer as a
+  // "status" and throw, taking all of Settings down with it.
+  it('a 200 that is not a delivery status shows the load error, not a crash', async () => {
+    getDelivery.mockResolvedValueOnce({ success: true, demo: true } as unknown as DeliveryStatus)
+    renderPanelOnly()
+    expect(await screen.findByText(en.loadFailed)).toBeInTheDocument()
+    expect(screen.getByText(en.unexpectedResponse)).toBeInTheDocument()
+    expect(document.querySelector('[data-state]')).toBeNull()
     getDelivery.mockResolvedValue(makeLocalStatus())
     fireEvent.click(screen.getByRole('button', { name: en.retry }))
     await panelReady()

@@ -15,11 +15,12 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { useToast } from '@/components/ui/use-toast'
 import { DisabledReason } from '@/components/DisabledReason'
 import { useAuth } from '@/contexts/AuthContext'
+import { useDeliveryDialogServer } from '@/hooks/useBridgeDelivery'
 import { panelBridgeApi, serverApi, serverFilesApi } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import type { DeliveryStatus } from '@/lib/bridgeDeliveryTypes'
+import { getRestartWarning, isDeliveryStatus } from '@/lib/bridgeDeliveryView'
 
-const RESTART_WARNING_MINUTES = 5
 const SERVER_CONFIG_CHECKSUM_LINK = '/server-config?tab=ini&search=DoLuaChecksum'
 // Same footer button shape as BridgeDeliverySwitchDialog: full-width and
 // wrapping on phones, content-width from sm up.
@@ -92,7 +93,16 @@ export function BridgeChecksumDialog({ open, onOpenChange, status, playerCount, 
   const ackReason = !acknowledged ? t('checksumOffer.ackRequired') : null
   const serverFilesReason = !canManageServerFiles ? t('checksumOffer.needsServerFiles') : null
   const busy = pending !== null
-  const playersOnline = status.live?.alive === true && (playerCount ?? 0) > 0
+  // Same rule as the block's "Restart now": an unknown player count gets
+  // the 5-minute warning too, never an instant kick.
+  const restartWarning = getRestartWarning(status, playerCount)
+
+  // The acknowledgements were given for the server this opened for; if the
+  // status moves on to another one, close rather than carry them over.
+  const pinned = useDeliveryDialogServer(open, status, busy, () => {
+    toast({ title: t('dialog.serverChanged'), variant: 'warning' })
+    onOpenChange(false)
+  })
 
   const turnOn = async () => {
     if (guided || !acknowledged || !canManageServerFiles) return
@@ -103,8 +113,8 @@ export function BridgeChecksumDialog({ open, onOpenChange, status, playerCount, 
       // outside the panel may have brought a loose file back, which would
       // lock every player out the moment the check is on. Re-ask the
       // server instead of trusting the page.
-      const fresh = await panelBridgeApi.getDelivery()
-      if (fresh.serverId !== status.serverId || !fresh.checksum.canTurnOn) {
+      const fresh: unknown = await panelBridgeApi.getDelivery()
+      if (!isDeliveryStatus(fresh) || fresh.serverId !== pinned.serverId || !fresh.checksum.canTurnOn) {
         setError(t('checksumOffer.noLongerAvailable'))
         void onChanged()
         return
@@ -121,11 +131,12 @@ export function BridgeChecksumDialog({ open, onOpenChange, status, playerCount, 
   }
 
   const runLifecycle = async () => {
-    if (!canControlServer) return
+    // /server/restart and /server/start act on whatever is active.
+    if (!canControlServer || pinned.changed) return
     setPending('lifecycle')
     try {
       if (status.serverRunning === true) {
-        await serverApi.restart(playersOnline ? RESTART_WARNING_MINUTES : 0)
+        await serverApi.restart(restartWarning.minutes)
         toast({ title: t('toast.restartStarted'), variant: 'success' })
       } else {
         await serverApi.start()
@@ -170,9 +181,12 @@ export function BridgeChecksumDialog({ open, onOpenChange, status, playerCount, 
             )}
           </div>
         ) : (
-          <p className="rounded-lg border border-border/60 bg-muted/40 p-3 text-sm" role="status">
-            {t('checksumOffer.restartPrompt')}
-          </p>
+          <div className="space-y-1.5 rounded-lg border border-border/60 bg-muted/40 p-3 text-sm" role="status">
+            <p>{t('checksumOffer.restartPrompt')}</p>
+            {status.serverRunning === true && restartWarning.minutes > 0 && (
+              <p className="text-xs text-muted-foreground">{t('action.restartWarningNote')}</p>
+            )}
+          </div>
         )}
 
         {error && (

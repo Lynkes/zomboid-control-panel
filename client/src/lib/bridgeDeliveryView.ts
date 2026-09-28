@@ -1,5 +1,7 @@
 import {
   BRIDGE_MOD_ID,
+  DELIVERY_METHODS,
+  DELIVERY_STATES,
   type BridgeManaged,
   type ChecksumBlocker,
   type DeliveryBlockReason,
@@ -181,12 +183,31 @@ export function resolveStateActions(status: DeliveryStatus): DeliveryAction[] {
 // file at all, and local-ok only means a live heartbeat exists -- which may
 // well be an old upload (the staleness alert above the block says so). So
 // guided gets copy that claims no more than "it's running".
-export function resolveStateCopy(status: DeliveryStatus): { titleKey: string; bodyKey: string } {
-  if (status.state === 'local-ok' && status.access === 'guided') {
-    return { titleKey: 'state.local-ok.titleGuided', bodyKey: 'state.local-ok.bodyGuided' }
-  }
+//
+// The bodies that print v{{version}} have a version-less twin for when the
+// signal they read has none (no bundled version embedded, an old heartbeat
+// without one): "Installed by the panel." reads right, "v—" doesn't.
+const VERSIONLESS_BODY_KEYS: Readonly<Record<string, string>> = {
+  'state.local-ok.body': 'state.local-ok.bodyNoVersion',
+  'state.local-ok.bodyGuided': 'state.local-ok.bodyGuidedNoVersion',
+  'state.workshop-confirmed.body': 'state.workshop-confirmed.bodyNoVersion',
+}
+
+export interface DeliveryStateCopy {
+  titleKey: string
+  bodyKey: string
+  params: { version?: string }
+}
+
+export function resolveStateCopy(status: DeliveryStatus): DeliveryStateCopy {
   const view = DELIVERY_STATE_VIEWS[status.state]
-  return { titleKey: view.titleKey, bodyKey: view.bodyKey }
+  const guided = status.state === 'local-ok' && status.access === 'guided'
+  const titleKey = guided ? 'state.local-ok.titleGuided' : view.titleKey
+  const bodyKey = guided ? 'state.local-ok.bodyGuided' : view.bodyKey
+  const versionless = VERSIONLESS_BODY_KEYS[bodyKey]
+  if (!versionless) return { titleKey, bodyKey, params: {} }
+  const version = getStateVersion(status)
+  return version ? { titleKey, bodyKey, params: { version } } : { titleKey, bodyKey: versionless, params: {} }
 }
 
 // {{version}} for the local-ok / workshop-confirmed copy, taken from the
@@ -196,9 +217,23 @@ export function resolveStateCopy(status: DeliveryStatus): { titleKey: string; bo
 //    server that kept running across a panel update still reports the copy
 //    it loaded at start (see getRunningVersionNote);
 //  - guided local-ok and workshop-confirmed: the live heartbeat.
-export function getStateVersion(status: DeliveryStatus): string {
-  if (status.state === 'local-ok' && status.access === 'automatic') return status.bundledVersion ?? '—'
-  return status.live?.version ?? '—'
+// null when that signal carries no version (see resolveStateCopy).
+export function getStateVersion(status: DeliveryStatus): string | null {
+  if (status.state === 'local-ok' && status.access === 'automatic') return status.bundledVersion || null
+  return status.live?.version || null
+}
+
+// An extra line under a state's body, for the one state whose remedy the
+// panel can't always run itself. local-workshop-loaded means the ini still
+// lists the Workshop item while the server is set to panel-installed; §4.5
+// has "Switch to panel-installed" remove those entries, but while the
+// server reports that switch as `sameMethod` there is no button for it
+// (resolveStateActions), so the operator gets the manual edit instead.
+export function getStateHintKey(status: DeliveryStatus): string | null {
+  if (status.state === 'local-workshop-loaded' && !status.switchAvailability.toLocal.available) {
+    return 'state.local-workshop-loaded.manualHint'
+  }
+  return null
 }
 
 // Automatic local-ok while the running server reports a different loose
@@ -228,17 +263,67 @@ export function getChecksumBlockerKey(blocker: ChecksumBlocker): string {
   return `checksumOffer.blockers.${blocker}`
 }
 
+// Intl.ListFormat is ES2021; the client's TypeScript lib stops at ES2020,
+// so the two members used here are typed locally.
+type ListFormatConstructor = {
+  new (locale: string, options: { style: 'long'; type: 'conjunction' }): { format(items: readonly string[]): string }
+  supportedLocalesOf(locales: string[]): string[]
+}
+
+// A list inside a translated sentence, joined the way the UI language joins
+// one ("A, B, and C", "A、B和C", "A وB"). A language the runtime has no list
+// data for (ht, in current ICU builds) gets a plain comma list instead of
+// the default locale's -- which would drop an English "and" into a Creole
+// sentence.
+export function formatList(items: readonly string[], language: string): string {
+  const ListFormat = (Intl as unknown as { ListFormat?: ListFormatConstructor }).ListFormat
+  try {
+    if (ListFormat && ListFormat.supportedLocalesOf([language]).length > 0) {
+      return new ListFormat(language, { style: 'long', type: 'conjunction' }).format(items)
+    }
+  } catch {
+    // An unparseable language tag: fall through to the plain list.
+  }
+  return items.join(', ')
+}
+
 // Params every block reason / warning template can ask for. Supplying the
 // whole set to each key is harmless (i18next ignores unused params) and
 // keeps callers from needing a per-key switch.
 export function getAvailabilityParams(
   status: DeliveryStatus,
+  language: string,
   sharedWith: DeliveryStatus['sharedWith'] = status.sharedWith,
 ): Record<string, string> {
   return {
     version: status.live?.gameVersion ?? '—',
-    servers: sharedWith.map((s) => s.name).join(', '),
+    servers: formatList(sharedWith.map((s) => s.name), language),
   }
+}
+
+// How much warning a restart the operator asks for from this block gives
+// (the state callout's "Restart now", the checksum dialog's restart). The
+// player count comes from the bridge heartbeat, so it is only known while
+// the bridge is alive -- and the states that offer a restart
+// (workshop-restart-needed, workshop-not-loaded) are exactly the ones where
+// it often isn't. Unknown is not "empty": players may well be on a server
+// whose bridge didn't load, so they get the same 5-minute warning as a
+// server known to have players, never an instant kick.
+//
+// The switch dialog keeps §4.6's literal rule instead (warning only when
+// the heartbeat reports players); its button says which one it will do.
+export const RESTART_WARNING_MINUTES = 5
+
+export interface RestartWarning {
+  minutes: number
+  players: 'some' | 'none' | 'unknown'
+}
+
+export function getRestartWarning(status: DeliveryStatus, playerCount: number | null): RestartWarning {
+  if (status.live?.alive === true && playerCount != null) {
+    return playerCount > 0 ? { minutes: RESTART_WARNING_MINUTES, players: 'some' } : { minutes: 0, players: 'none' }
+  }
+  return { minutes: RESTART_WARNING_MINUTES, players: 'unknown' }
 }
 
 export interface DeliveryStepView {
@@ -350,4 +435,85 @@ export function isBridgeManagedMod(
   if (!bridgeManaged) return false
   if (workshopId && workshopId === bridgeManaged.workshopId) return true
   return modIds.includes(bridgeManaged.modId)
+}
+
+// Shape checks for the two /panel-bridge/delivery answers, before anything
+// renders them. A 200 isn't proof of a DeliveryStatus: the public demo
+// build's fetch shim (lib/demo.ts) answers every GET it has no route for
+// with { success: true, demo: true }, and so would any proxy or catch-all
+// in front of a panel that predates the route. Rendered as-is, that throws
+// inside Settings' error boundary and replaces the whole page; rejected
+// here, it becomes the block's own "couldn't load" with Try again. The
+// checks cover what the UI dereferences, not every field -- a contract
+// value the UI only prints can't crash it.
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isAvailability(value: unknown): boolean {
+  return isRecord(value) && typeof value.available === 'boolean' && Array.isArray(value.warnings)
+}
+
+export function isDeliveryStatus(value: unknown): value is DeliveryStatus {
+  if (!isRecord(value)) return false
+  const { switchAvailability, checksum, release, live, disk } = value
+  return (
+    typeof value.serverId === 'string' &&
+    typeof value.serverName === 'string' &&
+    (DELIVERY_METHODS as readonly unknown[]).includes(value.method) &&
+    (DELIVERY_STATES as readonly unknown[]).includes(value.state) &&
+    (value.access === 'automatic' || value.access === 'guided') &&
+    Array.isArray(value.sharedWith) &&
+    isRecord(release) &&
+    isRecord(switchAvailability) &&
+    isAvailability(switchAvailability.toWorkshop) &&
+    isAvailability(switchAvailability.toLocal) &&
+    isRecord(checksum) &&
+    Array.isArray(checksum.turnOnBlockers) &&
+    (live == null || isRecord(live)) &&
+    (disk == null || (isRecord(disk) && Array.isArray(disk.looseFiles)))
+  )
+}
+
+// Every step kind describeDeliveryStep() knows; a Record so a kind added to
+// the contract fails to compile here until it has copy.
+const DELIVERY_STEP_KINDS: Readonly<Record<DeliveryStep['kind'], true>> = {
+  iniAdd: true,
+  iniRemove: true,
+  iniSet: true,
+  archiveFile: true,
+  installFile: true,
+  recordMethod: true,
+}
+
+export function isDeliveryPlanResponse(value: unknown): value is DeliveryPlanResponse {
+  if (!isRecord(value)) return false
+  const { blocked, steps, manual } = value
+  return (
+    typeof value.serverId === 'string' &&
+    (DELIVERY_METHODS as readonly unknown[]).includes(value.from) &&
+    (DELIVERY_METHODS as readonly unknown[]).includes(value.to) &&
+    (value.access === 'automatic' || value.access === 'guided') &&
+    (blocked === null || (isRecord(blocked) && typeof blocked.reason === 'string')) &&
+    Array.isArray(steps) &&
+    steps.every(
+      (step) =>
+        isRecord(step) &&
+        typeof step.kind === 'string' &&
+        Object.prototype.hasOwnProperty.call(DELIVERY_STEP_KINDS, step.kind),
+    ) &&
+    Array.isArray(value.warnings) &&
+    Array.isArray(value.sharedWith) &&
+    (manual == null || (isRecord(manual) && Array.isArray(manual.removeFiles)))
+  )
+}
+
+// Thrown (by useBridgeDelivery, the dialogs) for an answer that failed the
+// checks above, so the UI can say "unexpected response" rather than show
+// this English message. Still an Error: reportClientError logs it as one.
+export class DeliveryResponseError extends Error {
+  constructor(route: string) {
+    super(`Unexpected response from ${route}`)
+    this.name = 'DeliveryResponseError'
+  }
 }

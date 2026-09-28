@@ -81,6 +81,17 @@ describe('BridgeGuidedSteps', () => {
     await waitFor(() => expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: en.action.copyFailed })))
   })
 
+  // size="iconDense" is h-11 w-11 on phones, sm:h-8 sm:w-8 above; a bare
+  // h-8/w-8 beside it wins in tailwind-merge and drops the 44 px target.
+  it('keeps the copy buttons at the phone touch-target size', () => {
+    render(<BridgeGuidedSteps to="workshop" manual={manual} iniFileName="servertest.ini" />)
+    const button = screen.getByRole('button', { name: `Copy ;${WORKSHOP_ID}` })
+    const classes = button.className.split(/\s+/)
+    expect(classes).toEqual(expect.arrayContaining(['h-11', 'w-11', 'sm:h-8', 'sm:w-8']))
+    expect(classes).not.toContain('h-8')
+    expect(classes).not.toContain('w-8')
+  })
+
   it('values render left-to-right even inside an RTL sentence', () => {
     render(<BridgeGuidedSteps to="workshop" manual={manual} iniFileName="servertest.ini" />)
     for (const code of screen.getByTestId('bridge-guided-steps').querySelectorAll('code')) {

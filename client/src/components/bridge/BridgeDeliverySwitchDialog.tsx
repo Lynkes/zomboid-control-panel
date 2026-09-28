@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import {
@@ -13,26 +13,25 @@ import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/use-toast'
 import { DisabledReason } from '@/components/DisabledReason'
 import { useAuth } from '@/contexts/AuthContext'
+import { useDeliveryDialogServer } from '@/hooks/useBridgeDelivery'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { ApiError, panelBridgeApi, serverApi } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import type { DeliveryMethod, DeliveryPlanResponse, DeliveryStatus } from '@/lib/bridgeDeliveryTypes'
 import {
+  DeliveryResponseError,
   describeDeliveryStep,
   getAvailabilityParams,
   getBlockReasonKey,
   getWarningKey,
+  isDeliveryPlanResponse,
+  RESTART_WARNING_MINUTES,
 } from '@/lib/bridgeDeliveryView'
 import { BridgeGuidedSteps } from './BridgeGuidedSteps'
 
 // 'guided' is the one-click "I've made these changes" of a server whose
 // files the panel can't reach: it records the choice and nothing else.
 type ApplyMode = 'restart' | 'start' | 'later' | 'guided'
-
-// Players online get this much warning before a "Switch and restart now";
-// an empty server restarts immediately. Same /server/restart call the rest
-// of the panel uses.
-const RESTART_WARNING_MINUTES = 5
 
 // Full-width, wrapping footer buttons on phones ("Switch and restart now
 // (players get a 5-minute warning)" is two lines at 360 px, longer still
@@ -64,7 +63,7 @@ export function BridgeDeliverySwitchDialog({
   iniFileName,
   onChanged,
 }: BridgeDeliverySwitchDialogProps) {
-  const { t } = useTranslation('bridgeDelivery')
+  const { t, i18n } = useTranslation('bridgeDelivery')
   const { toast } = useToast()
   const { can } = useAuth()
   const canSetupBridge = can('bridge.setup')
@@ -75,20 +74,37 @@ export function BridgeDeliverySwitchDialog({
   const [planError, setPlanError] = useState<string | null>(null)
   const [staleNotice, setStaleNotice] = useState(false)
   const [pending, setPending] = useState<ApplyMode | null>(null)
+  const busy = pending !== null
 
-  const serverId = status.serverId
+  const pinned = useDeliveryDialogServer(open, status, busy, () => {
+    toast({ title: t('dialog.serverChanged'), variant: 'warning' })
+    onOpenChange(false)
+  })
+  const serverId = pinned.serverId
+  // What is active right now, for the start/restart after an apply: both
+  // act on the active server (/server/start and /server/restart take no
+  // id), so if it changed while the switch was being applied, running one
+  // would restart a server nobody chose.
+  const activeServerIdRef = useRef(status.serverId)
+  useEffect(() => {
+    activeServerIdRef.current = status.serverId
+  }, [status.serverId])
+
   const loadPlan = useCallback(async () => {
     const requestId = guard.next()
     setPlanLoading(true)
     setPlanError(null)
     try {
-      const next = await panelBridgeApi.planDelivery({ serverId, method: to })
+      const next: unknown = await panelBridgeApi.planDelivery({ serverId, method: to })
+      if (!isDeliveryPlanResponse(next)) throw new DeliveryResponseError('POST /api/panel-bridge/delivery')
       if (guard.isStale(requestId)) return
       setPlan(next)
     } catch (err) {
       if (guard.isStale(requestId)) return
       setPlan(null)
-      setPlanError(getUserErrorMessage(err, t('dialog.planFailed')))
+      setPlanError(
+        err instanceof DeliveryResponseError ? t('unexpectedResponse') : getUserErrorMessage(err, t('dialog.planFailed')),
+      )
     } finally {
       if (!guard.isStale(requestId)) setPlanLoading(false)
     }
@@ -107,14 +123,17 @@ export function BridgeDeliverySwitchDialog({
     void loadPlan()
   }, [open, loadPlan, guard])
 
+  // §4.6's rule, kept literally here: the warning only when the heartbeat
+  // reports players, and the button label says which restart it is. The
+  // block's own "Restart now" treats an unknown count as players online
+  // instead (getRestartWarning), since that button has no preview around it.
   const playersOnline = status.live?.alive === true && (playerCount ?? 0) > 0
   const noBridgeSetupReason = !canSetupBridge ? t('permissions.noBridgeSetup', { ns: 'settings' }) : null
   const blockedReason = plan?.blocked
-    ? t(getBlockReasonKey(plan.blocked.reason), getAvailabilityParams(status, plan.sharedWith))
+    ? t(getBlockReasonKey(plan.blocked.reason), getAvailabilityParams(status, i18n.language, plan.sharedWith))
     : null
   const baseReason = noBridgeSetupReason ?? blockedReason
   const lifecycleReason = baseReason ?? (!canControlServer ? t('needsServerControl') : null)
-  const busy = pending !== null
   const canApply = Boolean(plan) && !plan?.blocked && canSetupBridge && !planLoading
 
   const apply = async (mode: ApplyMode) => {
@@ -136,12 +155,18 @@ export function BridgeDeliverySwitchDialog({
         // §5.5: a failed apply carries `restored`. false means the undo
         // itself failed part-way (a broken I6), and the coded message's own
         // "the panel put back what it had already changed" would then be
-        // untrue -- so it is replaced, not appended to.
-        const notRestored =
-          err instanceof ApiError && (err.data as { restored?: unknown } | undefined)?.restored === false
+        // untrue -- so it is replaced, not appended to. The file the code
+        // named (INI_WRITE_FAILED / FILE_ARCHIVE_FAILED `fileName`) is kept:
+        // it is the first thing the operator has to check by hand.
+        const data = err instanceof ApiError && err.data && typeof err.data === 'object'
+          ? (err.data as { restored?: unknown; params?: { fileName?: unknown } })
+          : null
+        const notRestored = data?.restored === false
+        const fileName = typeof data?.params?.fileName === 'string' && data.params.fileName ? data.params.fileName : null
+        const notRestoredMessage = fileName ? t('toast.notRestoredFile', { fileName }) : t('toast.notRestored')
         toast({
           title: t('toast.switchFailed'),
-          description: notRestored ? t('toast.notRestored') : getUserErrorMessage(err, t('toast.switchFailed')),
+          description: notRestored ? notRestoredMessage : getUserErrorMessage(err, t('toast.switchFailed')),
           variant: 'destructive',
         })
         void onChanged()
@@ -151,13 +176,15 @@ export function BridgeDeliverySwitchDialog({
     }
 
     toast({
-      title: t(plan.to === 'workshop' ? 'toast.switchedToWorkshop' : 'toast.switchedToLocal', { server: status.serverName }),
+      title: t(plan.to === 'workshop' ? 'toast.switchedToWorkshop' : 'toast.switchedToLocal', { server: pinned.serverName }),
       variant: 'success',
     })
     // Two explicit calls, never a chain hidden on the server: the switch
     // above is already committed, so a failed start/restart is reported on
     // its own and doesn't pretend the switch didn't happen.
-    if (withLifecycle) {
+    if (withLifecycle && activeServerIdRef.current !== plan.serverId) {
+      toast({ title: t('toast.lifecycleSkipped', { server: pinned.serverName }), variant: 'warning' })
+    } else if (withLifecycle) {
       try {
         if (mode === 'restart') await serverApi.restart(playersOnline ? RESTART_WARNING_MINUTES : 0)
         else await serverApi.start()
@@ -174,16 +201,25 @@ export function BridgeDeliverySwitchDialog({
     void onChanged()
   }
 
-  const title = t(to === 'workshop' ? 'dialog.titleToWorkshop' : 'dialog.titleToLocal', { server: status.serverName })
+  const title = t(to === 'workshop' ? 'dialog.titleToWorkshop' : 'dialog.titleToLocal', { server: pinned.serverName })
   const guided = plan?.access === 'guided'
+  // "The panel makes these changes, in this order:" only heads a list that
+  // follows: not while the preview loads or failed, and not on a blocked
+  // plan, which shows its reason and no steps.
+  const description = plan && !plan.blocked ? (guided ? t('guided.title') : t('dialog.intro')) : null
   const codeComponent = <code dir="ltr" className="rounded bg-muted px-1 font-mono text-xs break-all" />
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!busy) onOpenChange(next) }}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-h-[80vh] sm:max-w-2xl">
+      <DialogContent
+        className="max-h-[85vh] overflow-y-auto sm:max-h-[80vh] sm:max-w-2xl"
+        // Radix links the description by default and warns when there is
+        // none; with no description the link is dropped explicitly.
+        {...(description ? {} : { 'aria-describedby': undefined })}
+      >
         <DialogHeader className="pe-6">
           <DialogTitle className="leading-snug">{title}</DialogTitle>
-          <DialogDescription>{guided && !plan?.blocked ? t('guided.title') : t('dialog.intro')}</DialogDescription>
+          {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>
 
         <div className="space-y-4">
@@ -256,7 +292,9 @@ export function BridgeDeliverySwitchDialog({
               <AlertDescription>
                 <ul className="list-disc space-y-1 ps-5">
                   {plan.warnings.map((warning) => (
-                    <li key={warning}>{t(getWarningKey(warning), getAvailabilityParams(status, plan.sharedWith))}</li>
+                    <li key={warning}>
+                      {t(getWarningKey(warning), getAvailabilityParams(status, i18n.language, plan.sharedWith))}
+                    </li>
                   ))}
                 </ul>
               </AlertDescription>

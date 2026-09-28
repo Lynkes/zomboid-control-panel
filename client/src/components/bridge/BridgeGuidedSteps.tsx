@@ -75,7 +75,7 @@ function CopyValue({ value }: { value: string }) {
         type="button"
         variant="ghost"
         size="iconDense"
-        className="h-8 w-8 shrink-0"
+        className="shrink-0"
         onClick={() => void onCopy()}
         title={copied ? t('action.copied') : t('action.copy')}
         aria-label={copied ? t('action.copied') : t('action.copyValueAria', { value })}

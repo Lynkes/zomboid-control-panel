@@ -7,6 +7,7 @@
   "testOverride": "Test-Element",
   "loading": "Prüfe, wie PanelBridge installiert ist…",
   "loadFailed": "Installationsart von PanelBridge konnte nicht geladen werden",
+  "unexpectedResponse": "Das Panel hat eine unerwartete Antwort geliefert. Lade die Seite neu und aktualisiere das Panel, falls das wieder passiert.",
   "refreshFailed": "Dieser Status konnte nicht aktualisiert werden. Die Anzeige ist möglicherweise veraltet.",
   "retry": "Erneut versuchen",
   "needsServerControl": "Zum Starten oder Neustarten des Servers ist die Berechtigung server.control nötig, die diese Rolle nicht hat.",
@@ -66,13 +67,15 @@
     "local-ok": {
       "title": "Im Spielordner installiert",
       "body": "Vom Panel installiert: v{{version}}.",
+      "bodyNoVersion": "Vom Panel installiert.",
       "titleGuided": "PanelBridge meldet sich",
       "bodyGuided": "Auf diesem Server läuft PanelBridge v{{version}}.",
+      "bodyGuidedNoVersion": "Auf diesem Server läuft PanelBridge.",
       "restartToLoad": "Der laufende Server meldet noch v{{running}}. Er lädt v{{version}} beim nächsten Neustart."
     },
     "local-update-pending": {
       "title": "Update ausstehend",
-      "body": "Beim nächsten Start wird eine aktualisierte Version von PanelBridge kopiert."
+      "body": "Im Spielordner liegt ein älteres PanelBridge als das dieses Panels. Aktualisiere es jetzt oder lass es beim nächsten Start hineinkopieren (nur solange „Vom Panel installiertes PanelBridge aktuell halten“ an ist)."
     },
     "local-not-installed": {
       "title": "Nicht installiert",
@@ -84,7 +87,8 @@
     },
     "local-workshop-loaded": {
       "title": "Aus dem Steam Workshop geladen",
-      "body": "Dieser Server lädt PanelBridge aus dem Steam Workshop, ist aber auf „Vom Panel installiert“ eingestellt."
+      "body": "Dieser Server lädt PanelBridge aus dem Steam Workshop, ist aber auf „Vom Panel installiert“ eingestellt.",
+      "manualHint": "Um beim vom Panel installierten PanelBridge zu bleiben, entferne <code>{{modId}}</code> aus <code>Mods=</code> und die ID des Workshop-Elements von PanelBridge aus <code>WorkshopItems=</code> in der Einstellungsdatei des Servers (Serverkonfiguration › INI) und starte den Server dann neu."
     },
     "workshop-restart-needed": {
       "title": "Neustart nötig",
@@ -96,7 +100,8 @@
     },
     "workshop-confirmed": {
       "title": "Bestätigt",
-      "body": "Aus dem Steam Workshop geladen: v{{version}}."
+      "body": "Aus dem Steam Workshop geladen: v{{version}}.",
+      "bodyNoVersion": "Aus dem Steam Workshop geladen."
     },
     "workshop-not-loaded": {
       "title": "Nicht aus dem Workshop geladen",
@@ -140,6 +145,13 @@
     "copyFailed": "Kopieren fehlgeschlagen. Markiere den Text und kopiere ihn selbst.",
     "restartWarningNote": "Online-Spieler werden 5 Minuten vorher gewarnt."
   },
+  "confirmRestart": {
+    "title": "{{server}} neu starten?",
+    "playersOnline": "Online-Spieler werden 5 Minuten vorher gewarnt, dann startet der Server neu.",
+    "nobodyOnline": "Niemand ist online, daher startet der Server sofort neu.",
+    "playersUnknown": "Das Panel sieht gerade nicht, wer online ist. Deshalb werden Spieler 5 Minuten vorher gewarnt, dann startet der Server neu.",
+    "confirm": "Neu starten"
+  },
   "dialog": {
     "titleToWorkshop": "{{server}} auf Bereitstellung über den Steam Workshop umstellen?",
     "titleToLocal": "{{server}} auf Installation durch das Panel umstellen?",
@@ -150,6 +162,7 @@
     "blockedTitle": "Diese Änderung ist gerade nicht verfügbar",
     "warningsTitle": "Bevor du wechselst",
     "staleNotice": "Die Installationsart von PanelBridge auf diesem Server hat sich geändert, seit du dieses Fenster geöffnet hast. Prüfe die aktualisierten Schritte.",
+    "serverChanged": "Der aktive Server hat sich geändert, daher wurde dieses Fenster geschlossen.",
     "applyRestartPlayers": "Umstellen und jetzt neu starten (Spieler werden 5 Minuten vorher gewarnt)",
     "applyRestartEmpty": "Umstellen und jetzt neu starten",
     "applyStart": "Umstellen und Server starten",
@@ -198,6 +211,7 @@
     "confirm": "Einschalten",
     "turnOff": "Wieder ausschalten",
     "isOn": "Die Lua-Integritätsprüfung ist an.",
+    "onUnconfirmedBody": "Noch ist nicht bestätigt, dass PanelBridge aus dem Steam Workshop geladen wird. Lädt es noch aus dem Spielordner, können Spieler bei eingeschalteter Prüfung nicht beitreten.",
     "guidedInstructions": "Setze DoLuaChecksum=true in der .ini-Datei des Servers und starte den Server dann neu.",
     "openServerConfig": "Serverkonfiguration › INI öffnen",
     "needsServerFiles": "Zum Ändern von DoLuaChecksum ist die Berechtigung serverfiles.manage nötig, die diese Rolle nicht hat.",
@@ -216,7 +230,9 @@
     "switchedToLocal": "Das Panel installiert PanelBridge jetzt auf {{server}}",
     "switchFailed": "Installationsart von PanelBridge konnte nicht geändert werden",
     "notRestored": "Das Panel konnte nicht alle bereits vorgenommenen Änderungen rückgängig machen. Prüfe vor dem Serverstart die Einstellungsdatei unter Serverkonfiguration › INI; vor der Änderung wurde ein Backup davon gespeichert.",
+    "notRestoredFile": "{{fileName}} konnte nicht geändert werden, und das Panel konnte nicht alle bereits vorgenommenen Änderungen rückgängig machen. Prüfe vor dem Serverstart die Einstellungsdatei unter Serverkonfiguration › INI; vor der Änderung wurde ein Backup davon gespeichert.",
     "lifecycleFailed": "Umgestellt, aber der Server wurde nicht gestartet oder neu gestartet",
+    "lifecycleSkipped": "Umgestellt, aber inzwischen hat sich der aktive Server geändert, daher wurde {{server}} weder gestartet noch neu gestartet.",
     "installed": "PanelBridge ist im Spielordner aktuell",
     "installFailed": "PanelBridge konnte nicht in den Spielordner kopiert werden",
     "checksumOn": "DoLuaChecksum=true gespeichert",
