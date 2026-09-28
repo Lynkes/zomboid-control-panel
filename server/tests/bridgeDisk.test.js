@@ -245,4 +245,27 @@ describe("installDirKey", () => {
     }
     expect(installDirKey("")).toBeNull();
   });
+
+  // One physical folder reached by two paths is one install group: a Local
+  // profile on the link must not write a loose file into the folder a
+  // Workshop profile uses under its real path (I3). A junction needs no
+  // privilege on Windows; elsewhere a directory symlink.
+  it("keys a folder reached through a junction or symlink on the folder itself", () => {
+    const link = path.join(path.dirname(installDir), `${path.basename(installDir)}-link`);
+    fs.symlinkSync(installDir, link, process.platform === "win32" ? "junction" : "dir");
+    try {
+      expect(installDirKey(link)).toBe(installDirKey(installDir));
+      expect(installDirKey(path.join(link, "."))).toBe(installDirKey(installDir));
+    } finally {
+      // Removes the link only, never the folder it points at.
+      if (process.platform === "win32") fs.rmdirSync(link);
+      else fs.unlinkSync(link);
+    }
+  });
+
+  it("falls back to the path as written for a folder that doesn't exist", () => {
+    const missing = path.join(installDir, "not-there-yet");
+    const expected = process.platform === "win32" ? path.resolve(missing).toLowerCase() : path.resolve(missing);
+    expect(installDirKey(`${missing}${path.sep}`)).toBe(expected);
+  });
 });

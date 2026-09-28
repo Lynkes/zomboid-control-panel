@@ -34,13 +34,23 @@ const HEAD_BYTES = 4096;
 const ARCHIVE_DIR_NAME = "bridge-delivery-archive";
 const ARCHIVES_KEPT_PER_INSTALL = 5;
 
-// path.resolve, no trailing separator, case-folded on Windows (where
-// C:\PZ and c:\pz\ are the same folder). Two profiles pointing at the same
-// game install must produce the same key, because loose files live in the
-// install folder and so belong to every profile that uses it.
+// The folder's real path when it exists (path.resolve otherwise), no
+// trailing separator, case-folded on Windows (where C:\PZ and c:\pz\ are
+// the same folder). Two profiles pointing at the same game install must
+// produce the same key, because loose files live in the install folder and
+// so belong to every profile that uses it -- including when they reach it
+// by different paths: a junction or symlink, or a mapped drive and its UNC
+// path. Keyed on the spelling alone, those were two groups, and a Local
+// profile's launch wrote a loose PanelBridge.lua into the folder a Workshop
+// profile uses (I3), refusing its players while DoLuaChecksum is on.
 export function installDirKey(dir) {
   if (!dir) return null;
   let resolved = path.resolve(String(dir));
+  try {
+    resolved = fs.realpathSync.native(resolved);
+  } catch {
+    // Not there (yet), or unreadable: the path as written.
+  }
   const root = path.parse(resolved).root;
   while (resolved.length > root.length && /[\\/]$/.test(resolved)) {
     resolved = resolved.slice(0, -1);
