@@ -519,6 +519,11 @@ export const ErrorCode = Object.freeze({
    * policy chunks.js's shared CHUNKS_STALE_SERVER_SCAN already follows for
    * its own 2 delete routes). */
   BACKUP_ACTIVE_SERVER_CHANGED: "BACKUP_ACTIVE_SERVER_CHANGED",
+  /** server/routes/backup.js (sites: POST /settings, POST
+   * /validate-schedule) -- isCronTooFrequent() rejects a backup schedule
+   * firing more than once every 5 minutes. Its own code rather than
+   * SCHEDULER_CRON_TOO_FREQUENT, whose translated text says "Tasks". */
+  BACKUP_SCHEDULE_TOO_FREQUENT: "BACKUP_SCHEDULE_TOO_FREQUENT",
   /** server/routes/backup.js -- POST /api/backup/upload, active server is
    * remote. Distinct from the create/restore remote-refusal codes above --
    * own wording, own call site. */
@@ -549,6 +554,23 @@ export const ErrorCode = Object.freeze({
 
   /** server/routes/server.js -- POST /api/server/start, active server is remote. */
   SERVER_START_REMOTE_REFUSED: "SERVER_START_REMOTE_REFUSED",
+  /** server/services/serverManager.js -- startServer() (thrown, forwarded by
+   * POST /api/server/start, and by a failed Restart's scheduler:action_result
+   * via routes/scheduler.js's codedActionResultFields()): a managed server's generated
+   * StartServer_<name>.bat / start-server_<name>.sh is still missing right
+   * before the spawn, and the panel refuses the stock launcher that would
+   * start the default "servertest" world instead (GH #167). Carries
+   * {{script}} (the missing file's name) and {{fallback}} (the stock
+   * launcher it won't run). */
+  SERVER_START_SCRIPT_MISSING: "SERVER_START_SCRIPT_MISSING",
+  /** server/services/serverManager.js -- assertNamedStartupScriptLaunchable(),
+   * thrown by scheduler.js's performRestart() before its countdown, save and
+   * quit (forwarded like SERVER_START_SCRIPT_MISSING above by a failed
+   * Restart's scheduler:action_result): the running server's generated
+   * startup script is missing and the panel can't write it, so the relaunch
+   * would be refused -- the restart is called off and the server is left
+   * running. Same {{script}} and {{fallback}} params. */
+  SERVER_RESTART_SCRIPT_MISSING: "SERVER_RESTART_SCRIPT_MISSING",
   /** server/routes/server.js -- POST /api/server/force-stop, active server is
    * remote. Own wording/code, not reused across start/force-stop/restart --
    * same reasoning as SERVER_RUNNING_RCON_UNAVAILABLE above: which action was
@@ -1489,31 +1511,12 @@ export const ErrorCode = Object.freeze({
    * teleportPlayer() threw. Fixed generic catch string, same reasoning as
    * PANELBRIDGE_GET_PLAYER_DETAILS_FAILED above. */
   PANELBRIDGE_TELEPORT_FAILED: "PANELBRIDGE_TELEPORT_FAILED",
-  /** server/routes/panelBridge.js -- POST /install/from-lua-path, auto-
-   * install refused (isRemote/canAutoInstall check). */
-  PANELBRIDGE_AUTO_INSTALL_NOT_AVAILABLE: "PANELBRIDGE_AUTO_INSTALL_NOT_AVAILABLE",
-  /** server/routes/panelBridge.js -- POST /install, active server is
-   * remote. Own wording from PANELBRIDGE_AUTO_INSTALL_NOT_AVAILABLE above
-   * -- kept separate. */
+  /** server/routes/panelBridge.js -- POST /install-mod-auto, the target
+   * server is remote. */
   PANELBRIDGE_INSTALL_REMOTE_NOT_AVAILABLE: "PANELBRIDGE_INSTALL_REMOTE_NOT_AVAILABLE",
-  /** server/routes/panelBridge.js -- POST /install, canAutoInstall()
+  /** server/routes/panelBridge.js -- POST /install-mod-auto, canAutoInstall()
    * false for a local server. */
   PANELBRIDGE_INSTALL_CANNOT_AUTO_INSTALL: "PANELBRIDGE_INSTALL_CANNOT_AUTO_INSTALL",
-  /** server/routes/panelBridge.js -- POST /install/from-lua-path, no
-   * `serverLuaPath` in the body. */
-  PANELBRIDGE_SERVER_LUA_PATH_REQUIRED: "PANELBRIDGE_SERVER_LUA_PATH_REQUIRED",
-  /** server/routes/panelBridge.js -- POST /install/from-lua-path,
-   * `serverLuaPath` isn't a string or exceeds 500 characters. */
-  PANELBRIDGE_SERVER_LUA_PATH_FORMAT_INVALID: "PANELBRIDGE_SERVER_LUA_PATH_FORMAT_INVALID",
-  /** server/routes/panelBridge.js -- POST /install/from-lua-path,
-   * `serverLuaPath` isn't absolute. */
-  PANELBRIDGE_SERVER_LUA_PATH_NOT_ABSOLUTE: "PANELBRIDGE_SERVER_LUA_PATH_NOT_ABSOLUTE",
-  /** server/routes/panelBridge.js -- POST /install/from-lua-path, resolved
-   * path doesn't end in media/lua/server/. */
-  PANELBRIDGE_SERVER_LUA_PATH_WRONG_DIRECTORY: "PANELBRIDGE_SERVER_LUA_PATH_WRONG_DIRECTORY",
-  /** server/routes/panelBridge.js -- POST /install/from-lua-path, no
-   * embedded Lua and no on-disk pz-mod source found to copy. */
-  PANELBRIDGE_SOURCE_MOD_NOT_FOUND: "PANELBRIDGE_SOURCE_MOD_NOT_FOUND",
   /** server/routes/panelBridge.js -- POST /audio/play-sound (or similar),
    * x/y out of range. Own wording ("Coordinates out of range") from
    * PANELBRIDGE_TELEPORT_XY_OUT_OF_RANGE above -- kept separate, own
@@ -1860,12 +1863,17 @@ export const ErrorCode = Object.freeze({
    * POST /validate-cron) -- node-cron's own cron.validate() rejects the
    * expression. Identical meaning at all three sites; the raw English text
    * differs at the validate-cron site (a shorter preview-only phrasing) but
-   * the client translates by this code, not the raw string, so that's fine. */
+   * the client translates by this code, not the raw string, so that's fine.
+   * Also server/routes/backup.js (POST /settings, POST /validate-schedule)
+   * for the backup schedule: the same check, and the translated text names
+   * no task, so it reads right there too. */
   SCHEDULER_INVALID_CRON_EXPRESSION: "SCHEDULER_INVALID_CRON_EXPRESSION",
   /** server/routes/scheduler.js (sites: POST /tasks, PUT /tasks/:id,
    * POST /validate-cron) -- a 6-field (seconds-precision) cron expression;
    * the panel only supports the standard 5-field form. Identical
-   * wording/meaning all three sites, shared code. */
+   * wording/meaning all three sites, shared code. Also server/routes/
+   * backup.js (POST /settings, POST /validate-schedule), same reasoning as
+   * SCHEDULER_INVALID_CRON_EXPRESSION above. */
   SCHEDULER_CRON_SECONDS_UNSUPPORTED: "SCHEDULER_CRON_SECONDS_UNSUPPORTED",
   /** server/routes/scheduler.js (sites: POST /tasks, PUT /tasks/:id,
    * POST /validate-cron) -- isCronTooFrequent() rejects a schedule firing
@@ -2149,6 +2157,53 @@ export const ErrorCode = Object.freeze({
    * denial this route can't resolve, not the read-only attribute it's
    * built to clear. */
   WRITABILITY_STILL_BLOCKED: "WRITABILITY_STILL_BLOCKED",
+  // --- PanelBridge delivery (panel-installed vs Steam Workshop) ---
+
+  /** server/routes/bridgeDelivery.js -- POST /api/panel-bridge/delivery,
+   * `method` (or `expectedFrom` on an apply) is not "local"/"workshop". */
+  PANELBRIDGE_DELIVERY_METHOD_INVALID: "PANELBRIDGE_DELIVERY_METHOD_INVALID",
+  /** server/routes/bridgeDelivery.js -- GET/POST /api/panel-bridge/delivery,
+   * the request names a server that is no longer the active one. */
+  PANELBRIDGE_DELIVERY_NOT_ACTIVE_SERVER: "PANELBRIDGE_DELIVERY_NOT_ACTIVE_SERVER",
+  /** server/services/bridgeDelivery.js -- applyDeliverySwitch(), the
+   * effective method changed since the preview. Carries {{current}}. */
+  PANELBRIDGE_DELIVERY_STALE: "PANELBRIDGE_DELIVERY_STALE",
+  /** server/services/bridgeDelivery.js -- applyDeliverySwitch(), the switch
+   * is blocked for this server. Carries {{reason}} (a DeliveryBlockReason). */
+  PANELBRIDGE_DELIVERY_UNAVAILABLE: "PANELBRIDGE_DELIVERY_UNAVAILABLE",
+  /** server/services/bridgeDelivery.js -- applyDeliverySwitch(), an ini
+   * read, write or read-back failed; everything already changed was put
+   * back. Carries {{fileName}} (basename only). */
+  PANELBRIDGE_DELIVERY_INI_WRITE_FAILED: "PANELBRIDGE_DELIVERY_INI_WRITE_FAILED",
+  /** server/services/bridgeDelivery.js -- applyDeliverySwitch(), moving a
+   * loose bridge file into the archive failed. Carries {{fileName}}. */
+  PANELBRIDGE_DELIVERY_FILE_ARCHIVE_FAILED: "PANELBRIDGE_DELIVERY_FILE_ARCHIVE_FAILED",
+  /** server/services/bridgeDelivery.js -- applyDeliverySwitch() to Local,
+   * installing the loose PanelBridge.lua failed before anything else ran. */
+  PANELBRIDGE_DELIVERY_INSTALL_FAILED: "PANELBRIDGE_DELIVERY_INSTALL_FAILED",
+  /** server/routes/panelBridge.js -- POST /install-mod-auto, the target
+   * server gets PanelBridge from the Steam Workshop. Carries {{serverName}}. */
+  PANELBRIDGE_DELIVERY_WORKSHOP_ACTIVE: "PANELBRIDGE_DELIVERY_WORKSHOP_ACTIVE",
+  /** server/routes/servers.js -- PUT /:id and POST /, and
+   * server/routes/server.js -- POST /install and /quick-setup: the profile
+   * being saved or set up would launch without Steam (useNoSteam, a
+   * -nosteam start command or launcher, a move into a Workshop game folder)
+   * while its effective PanelBridge delivery is the Steam Workshop. */
+  SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE: "SERVER_NOSTEAM_CONFLICTS_WITH_WORKSHOP_BRIDGE",
+  /** server/routes/servers.js -- PUT /:id, the edit moves a server whose
+   * PanelBridge comes from the Steam Workshop (installPath, serverPath, or
+   * remote to local) into a game folder other profiles launch without Steam
+   * from; they would turn Workshop too. Carries {{names}} (those profiles'
+   * display names, comma-separated). */
+  SERVER_NOSTEAM_SIBLING_CONFLICTS_WITH_WORKSHOP_BRIDGE: "SERVER_NOSTEAM_SIBLING_CONFLICTS_WITH_WORKSHOP_BRIDGE",
+  /** server/routes/panelBridge.js -- POST /install-mod-auto, the Install
+   * button's copy of PanelBridge.lua failed (reconcile warning
+   * installFailed). */
+  PANELBRIDGE_INSTALL_FAILED: "PANELBRIDGE_INSTALL_FAILED",
+  /** server/routes/panelBridge.js -- POST /install-mod-auto, the reconcile
+   * behind the Install button wasn't done after 10 s
+   * (MANUAL_INSTALL_WAIT_MS); it keeps running in the background. */
+  PANELBRIDGE_INSTALL_STILL_RUNNING: "PANELBRIDGE_INSTALL_STILL_RUNNING",
 });
 
 /**

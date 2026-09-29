@@ -107,6 +107,14 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: node scripts/verify-release-version.mjs "${{ github.ref_name }}"
 
+      # release.ps1 rewrites pz-mod/bridge-version.lock.json in the release
+      # commit, so a tagged tree whose bridge code differs from the lock was
+      # not produced by it (the embedded PanelBridge would carry a version
+      # that describes different bytes).
+      - name: Verify PanelBridge version lock
+        if: startsWith(github.ref, 'refs/tags/')
+        run: node scripts/check-bridge-version.mjs --release
+
       - name: Verify Linux ABI compatibility
         if: runner.os == 'Linux'
         shell: bash

@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { buildRequiresMap, computeAutoSortedOrder, createRequirementResolver } from '../modLoadOrder'
+import {
+  buildRequiresMap,
+  computeAutoSortedOrder,
+  createRequirementResolver,
+  loadOrderMoveTarget,
+  moveLoadOrderEntry,
+} from '../modLoadOrder'
 
 const requires = (entries: Record<string, string[]>) => new Map(Object.entries(entries))
 
@@ -309,5 +315,87 @@ describe('buildRequiresMap', () => {
 
   it('handles a missing workshop map', () => {
     expect(buildRequiresMap(undefined).size).toBe(0)
+  })
+})
+
+// Discord request: a newly added mod lands at the bottom of a 200+ entry
+// Mods= list, and getting it into the first few slots meant dragging it the
+// whole way up through a scrolling list. Move to top/bottom jump there in one
+// step; up/down stay one-step nudges from wherever it landed.
+describe('loadOrderMoveTarget', () => {
+  it('sends top to the first slot and bottom to the last, from anywhere', () => {
+    expect(loadOrderMoveTarget(199, 200, 'top')).toBe(0)
+    expect(loadOrderMoveTarget(3, 200, 'bottom')).toBe(199)
+  })
+
+  it('moves up and down by exactly one slot', () => {
+    expect(loadOrderMoveTarget(5, 10, 'up')).toBe(4)
+    expect(loadOrderMoveTarget(5, 10, 'down')).toBe(6)
+  })
+
+  it('reports a no-op for top/up on the first row and bottom/down on the last', () => {
+    expect(loadOrderMoveTarget(0, 10, 'top')).toBeNull()
+    expect(loadOrderMoveTarget(0, 10, 'up')).toBeNull()
+    expect(loadOrderMoveTarget(9, 10, 'bottom')).toBeNull()
+    expect(loadOrderMoveTarget(9, 10, 'down')).toBeNull()
+    // The row next to the edge can still move onto it.
+    expect(loadOrderMoveTarget(1, 10, 'top')).toBe(0)
+    expect(loadOrderMoveTarget(8, 10, 'bottom')).toBe(9)
+  })
+
+  it('has nowhere to go in a one-mod list', () => {
+    for (const move of ['top', 'up', 'down', 'bottom'] as const) {
+      expect(loadOrderMoveTarget(0, 1, move)).toBeNull()
+    }
+  })
+
+  it('rejects an index outside the list instead of inventing a target', () => {
+    expect(loadOrderMoveTarget(-1, 10, 'top')).toBeNull()
+    expect(loadOrderMoveTarget(10, 10, 'top')).toBeNull()
+    expect(loadOrderMoveTarget(0, 0, 'bottom')).toBeNull()
+    expect(loadOrderMoveTarget(1.5, 10, 'up')).toBeNull()
+  })
+})
+
+describe('moveLoadOrderEntry', () => {
+  it('pulls an entry to the front and shifts everything it passed down by one', () => {
+    expect(moveLoadOrderEntry(['A', 'B', 'C', 'NewMod'], 3, 0)).toEqual(['NewMod', 'A', 'B', 'C'])
+  })
+
+  it('sends an entry to the back and keeps the rest in relative order', () => {
+    expect(moveLoadOrderEntry(['Library', 'A', 'B', 'C'], 0, 3)).toEqual(['A', 'B', 'C', 'Library'])
+  })
+
+  it('matches the drag handler for a one-slot move (a swap with the neighbour)', () => {
+    expect(moveLoadOrderEntry(['A', 'B', 'C'], 1, 0)).toEqual(['B', 'A', 'C'])
+    expect(moveLoadOrderEntry(['A', 'B', 'C'], 1, 2)).toEqual(['A', 'C', 'B'])
+  })
+
+  it('moves only the entry at `from` when the list holds a duplicate ID', () => {
+    // A hand-edited INI can repeat a mod ID; the index, not the ID, picks the row.
+    expect(moveLoadOrderEntry(['Dup', 'A', 'Dup', 'B'], 2, 0)).toEqual(['Dup', 'Dup', 'A', 'B'])
+    expect(moveLoadOrderEntry(['Dup', 'A', 'Dup', 'B'], 0, 3)).toEqual(['A', 'Dup', 'B', 'Dup'])
+  })
+
+  it('returns an unchanged copy, never the same array, for a no-op or out-of-range move', () => {
+    const order = ['A', 'B', 'C']
+    for (const [from, to] of [[1, 1], [-1, 0], [0, 3], [3, 0]] as const) {
+      const result = moveLoadOrderEntry(order, from, to)
+      expect(result).toEqual(order)
+      expect(result).not.toBe(order)
+    }
+  })
+
+  it('composes with loadOrderMoveTarget for every control', () => {
+    const order = ['A', 'B', 'C', 'D']
+    const apply = (from: number, move: 'top' | 'up' | 'down' | 'bottom') => {
+      const to = loadOrderMoveTarget(from, order.length, move)
+      return to === null ? order : moveLoadOrderEntry(order, from, to)
+    }
+    expect(apply(2, 'top')).toEqual(['C', 'A', 'B', 'D'])
+    expect(apply(2, 'up')).toEqual(['A', 'C', 'B', 'D'])
+    expect(apply(1, 'down')).toEqual(['A', 'C', 'B', 'D'])
+    expect(apply(1, 'bottom')).toEqual(['A', 'C', 'D', 'B'])
+    expect(apply(0, 'top')).toBe(order)
   })
 })

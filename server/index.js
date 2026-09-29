@@ -54,7 +54,10 @@ import {
 import { RconService } from "./services/rcon.js";
 import { ServerManager } from "./services/serverManager.js";
 import { DockerClient } from "./services/dockerClient.js";
-import { setDockerClient } from "./services/managedContainer.js";
+import {
+  runManagedLifecycle,
+  setDockerClient,
+} from "./services/managedContainer.js";
 import { ModChecker } from "./services/modChecker.js";
 import { Scheduler } from "./services/scheduler.js";
 import { DiscordBot } from "./services/discordBot.js";
@@ -85,12 +88,7 @@ import { loadOrCreateCerts } from "./utils/certs.js";
 import { sanitizeError, sanitizeErrorParams } from "./utils/sanitize.js";
 import { ErrorCode } from "./utils/errorCodes.js";
 import { getSftpCachePath } from "./services/panelBridgeSftp.js";
-import { autoInstallBridgeIfNeeded, resolveInstallDir } from "./services/panelBridgeInstaller.js";
-import {
-  getEmbeddedPanelBridgeLua,
-  compareModVersions,
-  writeLuaAtomic,
-} from "./utils/embeddedLua.js";
+import { reconcileBridge } from "./services/bridgeDelivery.js";
 import {
   clientDistMatchesMetadata,
   getEmbeddedClientDistPath,
@@ -101,7 +99,12 @@ import { resolveObservedServerRunning, resolveServerPhase } from "./utils/server
 import { discoverMounts } from "./services/mountDiscovery.js";
 import { shouldAutoOpenBrowser } from "./utils/browserLaunch.js";
 import { isLinuxPanelSupervisor } from "./utils/restartSupervisor.js";
-import { acquireLifecycleLock, setServerDisplayNameResolver } from "./services/lifecycleCoordinator.js";
+import {
+  acquireLifecycleLock,
+  setBeforeLaunchHook,
+  setLaunchTargetRefresher,
+  setServerDisplayNameResolver,
+} from "./services/lifecycleCoordinator.js";
 
 // === Supervisor bootstrap ===
 // If the .exe was double-clicked directly (no PANEL_SUPERVISOR_V env var) and
@@ -288,7 +291,10 @@ process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 // Routes
-import serverRoutes from "./routes/server.js";
+import serverRoutes, {
+  isFirstBootMissingAdminPassword,
+  refreshLaunchTargetForLaunch,
+} from "./routes/server.js";
 import discoveryRoutes from "./routes/discovery.js";
 import serversRoutes from "./routes/servers.js";
 import serverStatusRoutes from "./routes/serverStatus.js";
@@ -305,6 +311,7 @@ import { getDiskFree } from "./utils/diskSpace.js";
 import { getSwapInfo } from "./utils/swapInfo.js";
 import serverFinderRoutes from "./routes/serverFinder.js";
 import panelBridgeRoutes from "./routes/panelBridge.js";
+import bridgeDeliveryRoutes from "./routes/bridgeDelivery.js";
 import backupRoutes from "./routes/backup.js";
 import mapProxyRoutes from "./routes/mapProxy.js";
 import systemRoutes from "./routes/system.js";
@@ -918,8 +925,8 @@ app.use("/api/chunks/delete-region", strictLimiter);
 app.use("/api/server-files/raw", strictLimiter);
 app.use("/api/server-files/restore", strictLimiter);
 app.use("/api/server-files/save-and-reload", strictLimiter);
-app.use("/api/panel-bridge/install-mod", strictLimiter);
-app.use("/api/panel-bridge/install-local", strictLimiter);
+// POST only: GET /delivery is a status read the Settings page polls.
+app.post("/api/panel-bridge/delivery", strictLimiter);
 app.use("/api/panel-bridge/character/export", strictLimiter);
 app.use("/api/panel-bridge/character/import", strictLimiter);
 app.use("/api/panel/update-check", strictLimiter);
@@ -997,6 +1004,19 @@ setDockerClient(dockerClient);
 // statically importing database/init.js (see its own comment on why: dozens
 // of test files mock that module with only the exports they need).
 setServerDisplayNameResolver(peekServerDisplayName);
+// Starts and restarts from the dashboard, the scheduler (scheduled, mod-
+// update), Discord, boot auto-start and post-update funnel through
+// serverManager.startServer() or managedContainer.runManagedLifecycle(),
+// which call this right before the launch: PanelBridge is brought in line
+// with the server's delivery method for the JVM about to start. The Servers
+// page's per-container Start/Restart (routes/docker.js) calls it too. Never
+// throws, bounded to 15 s.
+setBeforeLaunchHook((server) => reconcileBridge(server, { reason: "launch" }));
+// The other half of that same before-launch step, run just ahead of the hook
+// above: RCON credentials into the ini and the generated launch script
+// rewritten from the server's CURRENT settings (GH #167 -- the boot
+// auto-start used to skip it). See refreshLaunchTargetForLaunch().
+setLaunchTargetRefresher(refreshLaunchTargetForLaunch);
 const modChecker = new ModChecker();
 const logTailer = new LogTailer();
 const scheduler = new Scheduler(rconService, serverManager);
@@ -1150,8 +1170,9 @@ async function findPanelBridgePath() {
 /**
  * Start PanelBridge if a valid bridge path is found
  * This is called both at startup and when RCON connects
+ * (exported for panelBridgeBootReconcileOrder.test.js)
  */
-async function tryStartPanelBridge(trigger = "unknown") {
+export async function tryStartPanelBridge(trigger = "unknown") {
   if (panelBridge.isRunning) {
     log.debug(`Already running (trigger: ${trigger})`);
     return true;
@@ -1183,94 +1204,35 @@ async function tryStartPanelBridge(trigger = "unknown") {
     return false;
   }
 
-  // Auto-update PanelBridge.lua on the PZ server if bundled version is newer
-  const autoUpdateEnabled =
-    (await getSetting("panelBridgeAutoUpdate")) !== false; // default true
-  if (!autoUpdateEnabled) {
-    log.debug("PanelBridge mod auto-update disabled by setting");
-  }
-  if (autoUpdateEnabled)
-    try {
-      const activeServer = await getActiveServer();
-      const installDir = resolveInstallDir(activeServer);
-      if (installDir) {
-        // Keep the complete mod payload synchronized before the legacy
-        // embedded-Lua fallback below runs. The client companion and mod.info
-        // are just as load-bearing as the server Lua, but the embedded binary
-        // only carries the server file for backwards compatibility.
-        autoInstallBridgeIfNeeded(activeServer);
-        const destLuaFile = path.join(
-          installDir,
-          "media",
-          "lua",
-          "server",
-          "PanelBridge.lua",
-        );
-
-        // Prefer the Lua content embedded in the binary at bundle time — this is
-        // the only source guaranteed to match the running panel version after a
-        // binary-only auto-update. Falls back to on-disk pz-mod for dev mode and
-        // legacy builds that lack the embedded string.
-        let srcContent = getEmbeddedPanelBridgeLua();
-
-        if (!srcContent) {
-          const possibleModPaths = [
-            path.join(__dirname, "..", "pz-mod", "PanelBridge"),
-            path.join(process.cwd(), "pz-mod", "PanelBridge"),
-            path.join(path.dirname(process.execPath), "pz-mod", "PanelBridge"),
-          ];
-          for (const modPath of possibleModPaths) {
-            const candidate = path.join(
-              modPath,
-              "media",
-              "lua",
-              "server",
-              "PanelBridge.lua",
-            );
-            if (fs.existsSync(candidate)) {
-              srcContent = fs.readFileSync(candidate, "utf8");
-              break;
-            }
-          }
-        }
-
-        if (srcContent && fs.existsSync(destLuaFile)) {
-          const destContent = fs.readFileSync(destLuaFile, "utf8");
-          const srcVersion = (srcContent.match(/VERSION\s*=\s*"([^"]+)"/) ||
-            [])[1];
-          const destVersion = (destContent.match(/VERSION\s*=\s*"([^"]+)"/) ||
-            [])[1];
-          // Only overwrite if embedded version is STRICTLY newer. If the on-disk
-          // Lua is the same or newer (e.g. a dev hand-installed a newer build),
-          // leave it alone — silently downgrading would clobber their work.
-          if (
-            srcVersion &&
-            destVersion &&
-            compareModVersions(srcVersion, destVersion) > 0
-          ) {
-            writeLuaAtomic(destLuaFile, srcContent);
-            log.info(
-              `PanelBridge mod auto-updated on server: ${destVersion} → ${srcVersion}`,
-            );
-          }
-        } else if (srcContent && !fs.existsSync(destLuaFile)) {
-          writeLuaAtomic(destLuaFile, srcContent);
-          log.info("PanelBridge mod auto-installed to server");
-        }
-      }
-    } catch (modError) {
-      log.warn(`Auto-update mod check failed: ${modError.message}`);
-    }
-
+  let started = false;
   try {
     panelBridge.configure(result.path, true);
     panelBridge.start();
     log.info(`Started from ${result.source} (trigger: ${trigger})`);
-    return true;
+    started = true;
   } catch (error) {
     log.warn(`Failed to start - ${error.message}`);
-    return false;
   }
+
+  // Bring the active server's game folder in line with its PanelBridge
+  // delivery method: keep the loose PanelBridge.lua current (gated by the
+  // panelBridgeAutoUpdate setting), or, with Steam Workshop delivery, move
+  // loose copies out and re-add the ini entries. The embedded-over-stale-
+  // disk source priority this block used to carry itself now lives in
+  // panelBridgeInstaller.installBridge(). Never throws.
+  //
+  // AFTER the bridge is configured, not before: reconcile touches the game
+  // folder and the server's .ini, never the bridge folder the watcher
+  // reads, and it can take up to its 15 s bound on a slow or network game
+  // folder. Run first, it held off configure() past the status watchdog's
+  // first tick (+10 s), whose first stopped observation is the only one
+  // that pins a quietly stopped server's last heartbeat as dead
+  // (PanelBridge.markServerExited()) -- with no bridge path yet it pinned
+  // nothing and never retried, so that heartbeat read as alive for up to
+  // statusStaleIdleMs once the bridge started. Still awaited, so callers
+  // that start the game server next (boot auto-start) find it done.
+  await reconcileBridge(await getActiveServer().catch(() => null), { reason: "boot" });
+  return started;
 }
 
 // server-running-determination-convention sweep, 2026-09-08: panelBridge is
@@ -1444,6 +1406,8 @@ app.use("/api/chunks", chunksRoutes);
 app.use("/api/discord", discordRoutes);
 app.use("/api/debug", debugRoutes);
 app.use("/api/server-finder", serverFinderRoutes);
+// Above the /api/panel-bridge router so /delivery is never shadowed by it.
+app.use("/api/panel-bridge/delivery", bridgeDeliveryRoutes);
 app.use("/api/panel-bridge", panelBridgeRoutes);
 app.use("/api/backup", backupRoutes);
 app.use("/api/map", mapProxyRoutes);
@@ -3143,6 +3107,29 @@ export async function checkServerStatusNow(detectionReason = "watchdog") {
     // transitioned.
     const reannounceAfterUnknown = lastObservationWasUnknown;
     lastObservationWasUnknown = false;
+    // A stopped verdict that is new -- a running -> stopped transition, or
+    // this panel process's first observation (a panel restarted minutes
+    // after a quiet stop) -- means the PanelBridge heartbeat on disk was
+    // written by a process that is gone, and must stop counting as a live
+    // mod now, not up to five minutes from now (PanelBridge.markServerExited()).
+    // Not repeated on every stopped tick, so a live mod the scan can't
+    // attribute is never re-expired every 10s. Ordered BEFORE the
+    // server:status emit below: every page refetches the composed status
+    // (host/RCON/PanelBridge) on that push, and it must already read
+    // PanelBridge offline when they do.
+    if (running === false && lastKnownRunning !== false) {
+      panelBridge.markServerExited();
+    }
+    // The other half: a running server stops being described as stopped in
+    // the bridge diagnostics (PanelBridge.markServerRunning()), while the
+    // exited write itself stays dead until the new process writes. Every
+    // running tick rather than only a transition: a restart that pushes its
+    // own verified transitions can stop and relaunch the server between two
+    // ticks, so this watchdog never sees it stopped. Idempotent, and it
+    // never changes whether the mod counts as connected.
+    if (running === true) {
+      panelBridge.markServerRunning();
+    }
     if (runningChanged || phaseChanged || reannounceAfterUnknown) {
       log.info(
         runningChanged || phaseChanged
@@ -3250,6 +3237,64 @@ export async function probeRconFallbackIfConfigured(
     log.debug(`Fallback RCON probe error: ${e.message}`);
   }
   return rconPortOccupied;
+}
+
+// The boot auto-start's launch, made the same as the dashboard's Start (POST
+// /api/server/start) where the two used to differ (GH #167): a Docker-managed
+// server starts through Docker -- calling serverManager.startServer() for one
+// spawned a second, native server beside its container -- and a server that
+// has never booted without an admin password is refused with the same reason
+// instead of launched into a console prompt nobody can answer. The launch
+// target refresh itself happens inside both launch paths
+// (lifecycleCoordinator.prepareForLaunch()). Exported for testing, with the
+// two launchers injectable the same way as probeRconFallbackIfConfigured().
+export async function startServerForAutoStart(
+  activeServer,
+  {
+    serverManagerInstance = serverManager,
+    runManaged = runManagedLifecycle,
+  } = {},
+) {
+  const serverId = activeServer?.id ?? null;
+  const managed = await runManaged("start", { serverId });
+  if (managed.handled) {
+    return managed.success
+      ? managed
+      : { success: false, error: managed.error || "Container start failed" };
+  }
+  if (isFirstBootMissingAdminPassword(activeServer)) {
+    const name = activeServer.name || activeServer.serverName;
+    return {
+      success: false,
+      error:
+        `${name} has never started before and has no admin password set, so Project Zomboid would stop at a ` +
+        `console prompt for one that the panel can't answer. Set an admin password for this server (My Servers → ` +
+        `${name} → Admin Password), then press Start or restart the panel.`,
+    };
+  }
+  return serverManagerInstance.startServer({ serverId });
+}
+
+// The auto-start's success line. runManagedLifecycle("start") answers for a
+// Docker-managed container that is already up with success and
+// alreadyRunning, having started nothing, so "auto-started" would log a
+// start that never happened.
+export function describeAutoStartSuccess(startResult) {
+  return startResult?.alreadyRunning
+    ? "PZ server container was already running - connecting RCON"
+    : "PZ server auto-started successfully";
+}
+
+// A failed start's reason for the auto-start log line -- a thrown Error or a
+// { success: false, error } result, never an empty string.
+export function describeAutoStartFailure(failure) {
+  const detail =
+    typeof failure === "string"
+      ? failure
+      : failure instanceof Error
+        ? failure.message
+        : failure?.error || failure?.message;
+  return String(detail || "").trim() || "no reason was given";
 }
 
 // Every /api/* route (except /api/auth/*, /api/health, and the two <img>-tag
@@ -3559,13 +3604,14 @@ async function start() {
     // Initialize mod checker with scheduler, serverManager, and socket.io
     await modChecker.init(scheduler, serverManager, io);
 
-    // Start mod checker if workshop ACF file is found
-    if (modChecker.workshopAcfPath) {
-      modChecker.start();
-    } else {
+    // Start mod checker if workshop ACF file is found. Otherwise it starts
+    // by itself once one appears: the server writes its own on its first
+    // Workshop download (ModChecker.watchForWorkshopAcf()).
+    if (!modChecker.workshopAcfPath || !modChecker.start()) {
       log.info(
-        "Mod checker: Workshop ACF not found — configure server install path",
+        "Mod checker: Workshop ACF not found yet — it starts once the server has downloaded a Workshop item, or configure the server install path",
       );
+      modChecker.watchForWorkshopAcf();
     }
 
     // Initialize Discord bot
@@ -3702,15 +3748,13 @@ async function start() {
                 rconService.setServerStarting(true);
 
                 try {
-                  const startResult = await serverManager.startServer({
-                    serverId: activeServer?.id ?? null,
-                  });
+                  const startResult = await startServerForAutoStart(activeServer);
                   if (startResult.success) {
-                    log.info("PZ server auto-started successfully");
+                    log.info(describeAutoStartSuccess(startResult));
 
                     // Wait for server to fully start before connecting RCON
                     // Monitor the TCP port instead of hard waiting
-                    log.info("PZ server auto-started - Monitoring RCON port...");
+                    log.info("Auto-start: monitoring the RCON port...");
 
                     await rconService.loadConfig(); // Ensure clean config
                     const rconHost = rconService.config.host || "127.0.0.1";
@@ -3770,13 +3814,19 @@ async function start() {
                       }
                     }
                   } else {
+                    // One template string, not log.error(msg, detail): the
+                    // logger (winston, no splat format) drops a second string
+                    // argument, which is why GH #167's log read "Error
+                    // during auto-start:" with nothing after it.
                     log.error(
-                      "Failed to auto-start PZ server:",
-                      startResult.error,
+                      `Failed to auto-start PZ server: ${describeAutoStartFailure(startResult)}`,
                     );
                   }
                 } catch (e) {
-                  log.error("Error during auto-start:", e.message);
+                  // startServer()'s error already carries the exit code and
+                  // the tail of the game's own output (server-launch.log)
+                  // when the process died right after launching.
+                  log.error(`Error during auto-start: ${describeAutoStartFailure(e)}`);
                 } finally {
                   // Clear the flag so auto-reconnect can resume normally
                   rconService.setServerStarting(false);

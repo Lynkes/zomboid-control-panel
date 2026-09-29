@@ -30,6 +30,18 @@ function isRemoteFile(entryType) {
   return entryType === true || entryType === '-';
 }
 
+// True only when both files exist and hold the same bytes. Any failure (no
+// local copy yet, a file that vanished) answers false, so the caller
+// replaces the local copy exactly as before.
+function hasSameContent(firstPath, secondPath) {
+  try {
+    if (fs.statSync(firstPath).size !== fs.statSync(secondPath).size) return false;
+    return fs.readFileSync(firstPath).equals(fs.readFileSync(secondPath));
+  } catch (_) {
+    return false;
+  }
+}
+
 // Single source of truth for classifying an SFTP failure: which ErrorCode it
 // is, AND the English guidance sentence that code's errors.json translation
 // mirrors exactly (see that file for the {{detail}}-carrying versions of
@@ -365,6 +377,22 @@ export class PanelBridgeSftpTransport {
     fs.mkdirSync(path.dirname(localPath), { recursive: true, mode: 0o700 });
     const temporaryPath = `${localPath}.${this.transferId}.download`;
     await client.fastGet(remotePath, temporaryPath);
+    // The local copy's mtime is the heartbeat PanelBridge.checkModStatus()
+    // judges (and what markServerExited() pins), so it may only move when
+    // the remote file really changed. Replacing it on every sync stamped a
+    // fresh mtime on the status.json a stopped or crashed remote server left
+    // behind every few seconds, which kept that server "running" (Stop
+    // button, PanelBridge Up, Discord online) for as long as the SFTP host
+    // answered, and released the stop pin on the next sync. Comparing bytes
+    // rather than the remote stat avoids SFTP's one-second mtime and the
+    // remote host's clock; the mod stamps a millisecond timestamp into every
+    // status write, so a live mod always changes it.
+    if (hasSameContent(temporaryPath, localPath)) {
+      try {
+        fs.unlinkSync(temporaryPath);
+      } catch (_) { /* the next sync's download overwrites it */ }
+      return true;
+    }
     fs.renameSync(temporaryPath, localPath);
     return true;
   }
@@ -621,7 +649,7 @@ export async function testSftpBridge(config) {
       latencyMs: Date.now() - startedAt,
       nextStep: statusExists
         ? 'The remote bridge is ready. Start the SFTP bridge.'
-        : 'Folders are ready. Start or restart the PZ server with PanelBridge.lua installed and DoLuaChecksum=false to create status.json.',
+        : 'Folders are ready. Start or restart the PZ server with PanelBridge installed (see Settings › PanelBridge) to create status.json.',
     };
   } finally {
     await client.end().catch(() => {});

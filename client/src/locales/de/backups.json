@@ -42,7 +42,13 @@
     "runsSchedule": "Läuft {{schedule}} · behält {{count}}",
     "noScheduled": "Keine geplanten Backups",
     "toggleAria": "Geplante Backups umschalten",
-    "lastScheduledAttemptFailed": "Letzter geplanter Versuch fehlgeschlagen ({{time}}): {{message}}"
+    "lastScheduledAttemptFailed": "Letzter geplanter Versuch fehlgeschlagen ({{time}}): {{message}}",
+    "deferredForRestart": "Fällig seit {{time}} – wartet, bis der Server-Neustart abgeschlossen ist",
+    "lastScheduledSkippedForRestart": "Letztes geplantes Backup wegen Neustart übersprungen ({{time}})"
+  },
+  "scheduledAttempt": {
+    "restartStuck": "Nicht ausgeführt: Der Server-Neustart lief seit {{minutes}} Min. ({{warningMinutes}} Min. Vorwarnung), ohne abzuschließen – weit länger, als ein Neustart dauert. Er wirkte also hängen geblieben, und manuelle Backups waren gesperrt, solange er lief. Wenn noch ein Neustart zu laufen scheint, prüfe, ob der Spielserver wieder hochgefahren ist, und starte dann das Panel neu, um den hängenden Neustart aufzulösen. Wenn du danach ein Backup erstellst, verschwindet auch die Warnung zum fehlgeschlagenen Backup.",
+    "restartStuckSinceDue": "Nicht ausgeführt: Der Server-Neustart, der lief, als dieses Backup fällig wurde, war {{minutes}} Min. später immer noch nicht abgeschlossen – weit länger, als ein Neustart dauert. Er wirkte also hängen geblieben, und manuelle Backups waren gesperrt, solange er lief. Wenn noch ein Neustart zu laufen scheint, prüfe, ob der Spielserver wieder hochgefahren ist, und starte dann das Panel neu, um den hängenden Neustart aufzulösen. Wenn du danach ein Backup erstellst, verschwindet auch die Warnung zum fehlgeschlagenen Backup."
   },
   "schedule": {
     "every15Min": "alle 15 Minuten",
@@ -57,6 +63,8 @@
     "daily6am": "täglich um 6 Uhr",
     "dailyNoon": "täglich mittags",
     "daily6pm": "täglich um 18 Uhr",
+    "customOption": "Benutzerdefiniert (Cron-Ausdruck)",
+    "custom": "nach eigenem Zeitplan ({{cron}})",
     "none": "Kein Zeitplan"
   },
   "settingsPanel": {
@@ -67,8 +75,27 @@
     "frequencyHelp": "Wie oft automatisch Backups erstellt werden sollen",
     "maxBackupsLabel": "Maximale Anzahl an Backups",
     "maxBackupsHelp": "Die ältesten Backups werden automatisch gelöscht, sobald das Limit erreicht ist",
+    "customLabel": "Cron-Ausdruck",
+    "customHint": "Format: Minute Stunde Tag Monat Wochentag. „{{example}}“ läuft täglich um 3:30 Uhr. Höchstens alle 5 Minuten.",
+    "customValid": "Gültiger Zeitplan",
+    "customInvalid": "Kein gültiger Cron-Ausdruck",
+    "nextRun": "Nächstes Backup: {{date}}",
+    "timezoneNotice": "Die Zeiten gelten in der Zeitzone des Panels, {{tz}} (änderbar unter Geplante Aufgaben).",
+    "scheduledBackupsOff": "Geplante Backups sind aus – dieser Zeitplan gilt, sobald du sie einschaltest.",
+    "bothDayFieldsNote": "Tag des Monats und Wochentag müssen beide passen: Backups laufen nur an Tagen, die beides erfüllen, nicht nur eines davon.",
     "savesLabel": "Spielstände: {{path}}",
     "saveButton": "Einstellungen speichern"
+  },
+  "restartOverlap": {
+    "title": "Backups überschneiden sich mit einem geplanten Neustart",
+    "task": "Einige geplante Backups fallen in den geplanten Neustart „{{name}}“ (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
+    "taskAll": "Alle geplanten Backups fallen in den geplanten Neustart „{{name}}“ (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
+    "taskUnnamed": "Einige geplante Backups fallen in einen geplanten Neustart (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
+    "taskUnnamedAll": "Alle geplanten Backups fallen in einen geplanten Neustart (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
+    "autoRestart": "Einige geplante Backups fallen in den periodischen Neustart (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
+    "autoRestartAll": "Alle geplanten Backups fallen in den periodischen Neustart (zum Beispiel das Backup um {{backupTime}} während des Neustarts um {{restartTime}}).",
+    "consequence": "Diese Backups warten, bis der Neustart abgeschlossen ist, und laufen daher bis zu etwa {{minutes}} Min. zu spät. Damit sie pünktlich laufen, plane Backups mindestens {{minutes}} Min. nach der geplanten Zeit eines Neustarts (zum Beispiel bei Neustarts zur vollen Stunde ein Backup um hh{{exampleTime}} Uhr).",
+    "consequenceNoExample": "Diese Backups warten, bis der Neustart abgeschlossen ist, und laufen daher bis zu etwa {{minutes}} Min. zu spät. Damit sie pünktlich laufen, plane Backups mindestens {{minutes}} Min. nach der geplanten Zeit eines Neustarts."
   },
   "progress": {
     "startingFallback": "Backup wird gestartet...",
@@ -161,9 +188,7 @@
     "uploadedDesc": "Gespeichert als {{name}}. Verwende „Wiederherstellen“, um es anzuwenden.",
     "uploadFailedTitle": "Upload fehlgeschlagen",
     "uploadFailedFallback": "Backup konnte nicht hochgeladen werden",
-    "restoredTitle": "Wiederherstellungspunkt wiederhergestellt",
     "restoredDesc": "In {{seconds}}s auf {{name}} zurückgesetzt",
-    "restoreFailedTitle": "Wiederherstellung fehlgeschlagen",
     "restoreFailedFallback": "Backup konnte nicht wiederhergestellt werden",
     "snapshotUnavailableTitle": "Snapshot nicht verfügbar",
     "snapshotUnavailableFallback": "Backup-Snapshot konnte nicht gelesen werden",
@@ -196,6 +221,19 @@
   "restoreProgress": {
     "title": "{{name}} wird wiederhergestellt…",
     "titleUnknown": "Für diesen Server läuft bereits eine Wiederherstellung…",
-    "note": "Das kann je nach Weltgröße einige Minuten dauern. Schließe das Panel nicht und wechsle nicht die Seite."
+    "note": "Das kann je nach Weltgröße einige Minuten dauern. Du kannst diese Seite verlassen und später zurückkommen — beende das Panel aber nicht und starte es nicht neu, bevor die Wiederherstellung abgeschlossen ist.",
+    "responseLost": "Das Panel hat auf diese Anfrage nicht geantwortet. Die Wiederherstellung läuft im Panel selbst und ist daher möglicherweise noch im Gange. Das Ergebnis wird beim Panel abgefragt…"
+  },
+  "restoreResult": {
+    "successTitle": "Wiederherstellung abgeschlossen",
+    "successDetail": "Dauer: {{seconds}} s. Von der ersetzten Welt wurde vorher ein Sicherheits-Backup erstellt — es ist das neueste in der Liste unten. Starte den Server, wenn du so weit bist.",
+    "successDetailNoSafetyBackup": "Dauer: {{seconds}} s. Die Wiederherstellung wurde ohne Sicherheits-Backup gestartet, die ersetzte Welt wurde also nicht aufbewahrt. Starte den Server, wenn du so weit bist.",
+    "failedTitle": "Wiederherstellung fehlgeschlagen",
+    "notStartedProxy": "Ein Proxy oder Tunnel vor dem Panel hat die Anfrage abgelehnt (HTTP {{status}}). Das Panel hat keine Aufzeichnung dieser Wiederherstellung, sie wurde also nicht gestartet.",
+    "failedNextStep": "Sofern der Grund oben nichts anderes sagt, ist die aktuelle Welt unverändert. Behebe die Ursache und versuche es erneut.",
+    "unknownTitle": "Ausgang der Wiederherstellung unklar",
+    "unknownDetail": "Die Seite konnte das Ergebnis dieser Wiederherstellung nicht vom Panel abrufen (die Verbindung war zu lange unterbrochen oder das Panel wurde neu gestartet). Vielleicht ist sie also nicht fertig geworden oder hat gar nicht erst begonnen. Öffne vor dem Serverstart Debug-Protokolle › Aktivität und suche nach „restore“. Ein Eintrag backup_restored zu diesem Backup seit dem Start der Wiederherstellung bedeutet, dass sie abgeschlossen ist; ein Eintrag restore_failed seitdem nennt den Grund, warum sie fehlgeschlagen ist. Gibt es keinen von beiden, stelle das Backup erneut wieder her. Kannst du Debug-Protokolle nicht öffnen, bitte einen Administrator darum.",
+    "dismiss": "Verwerfen",
+    "dismissAria": "Ergebnis der Wiederherstellung verwerfen"
   }
 }

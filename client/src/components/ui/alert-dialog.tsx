@@ -38,8 +38,12 @@ const AlertDialogContent = React.forwardRef<
       // RTL sweep (2026-09-04): see dialog.tsx's identical note -- this
       // centers the dialog on the viewport, so left-[50%]/-50% and its
       // slide keyframes are symmetric and deliberately left physical.
+      // max-h/overflow-y-auto: the same viewport bound as dialog.tsx's
+      // DialogContent (see the note there) -- a confirm that lists what it
+      // is about to delete can outgrow a zoomed-in laptop screen too.
       className={cn(
         "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border border-border/70 bg-background p-6 shadow-[0_28px_90px_-45px_hsl(var(--foreground)/0.45)] duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[49%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[49%] sm:rounded-lg",
+        "max-h-[calc(100dvh-2rem)] overflow-y-auto",
         className
       )}
       {...props}

@@ -139,7 +139,21 @@ function quoteShellLiteral(value) {
 // -- the same "correct on the machine that generated it, refused by the
 // machine that has to run it" defect already fixed once in this file for
 // WorkingDirectory= (see plainSystemdValue's comment).
-function resolveLaunchTarget(server, fileExists = fs.existsSync) {
+//
+// GH #167: a directory install always launches the server's own
+// start-server_<name>.sh, whether or not it exists when the template is
+// generated. This used to be `fileExists(generated) ? generated :
+// start-server.sh`, baked into the unit once: a template downloaded before
+// the first Start (an existing install added through Servers > Add writes
+// no script) ran the stock start-server.sh on every start, boot auto-start
+// included -- no -servername or -cachedir, so the default "servertest"
+// world, whose admin-password prompt dies on the unit's /dev/null stdin and
+// Restart=on-failure turns into a restart loop. The panel writes the named
+// script before every start it performs (lifecycleCoordinator's
+// prepareForLaunch()) into this same folder, and ServerManager refuses to
+// call systemctl/rc-service start or restart while it is still missing
+// (_assertNamedStartupScriptPresent()).
+function resolveLaunchTarget(server) {
   if (server?.startCommand) {
     throw new Error(
       "Managed lifecycle services do not accept a custom start command. Configure a .sh launcher path instead.",
@@ -161,15 +175,12 @@ function resolveLaunchTarget(server, fileExists = fs.existsSync) {
   }
 
   const serverName = assertPlainValue(server?.serverName, "Server name");
-  const generated = path.posix.join(
-    configuredPath,
-    `start-server_${serverName}.sh`,
-  );
   return {
     workingDirectory: configuredPath,
-    launcherPath: fileExists(generated)
-      ? generated
-      : path.posix.join(configuredPath, "start-server.sh"),
+    launcherPath: path.posix.join(
+      configuredPath,
+      `start-server_${serverName}.sh`,
+    ),
   };
 }
 
@@ -186,7 +197,7 @@ export function buildLifecycleTemplate(server, provider, options = {}) {
   if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(serviceUser)) {
     throw new Error("Service user contains unsupported characters");
   }
-  const launch = resolveLaunchTarget(server, options.fileExists);
+  const launch = resolveLaunchTarget(server);
   const description = `Project Zomboid server ${String(
     server.name || server.serverName,
   ).replace(/[\r\n]/g, " ")}`;
@@ -314,13 +325,23 @@ export function buildLifecycleTemplate(server, provider, options = {}) {
   };
 }
 
+// The XDG runtime directory `systemctl --user` and `rc-service --user` run
+// against: the panel's own, or the standard per-uid one when the panel was
+// started without a login session (a service account -- see the systemd
+// template's enable-linger comment above). One helper for both the exec
+// environment below and inspect()'s direct read of OpenRC's state under
+// it, so the two can never look in different places.
+function userRuntimeDirectory() {
+  if (process.env.XDG_RUNTIME_DIR) return process.env.XDG_RUNTIME_DIR;
+  const uid = typeof process.getuid === "function" ? process.getuid() : null;
+  return Number.isInteger(uid) ? `/run/user/${uid}` : null;
+}
+
 function defaultExecFile(command, args) {
   return new Promise((resolve) => {
-    const uid = typeof process.getuid === "function" ? process.getuid() : null;
     const env = { ...process.env };
-    if (!env.XDG_RUNTIME_DIR && Number.isInteger(uid)) {
-      env.XDG_RUNTIME_DIR = `/run/user/${uid}`;
-    }
+    const runtimeDirectory = userRuntimeDirectory();
+    if (runtimeDirectory) env.XDG_RUNTIME_DIR = runtimeDirectory;
     nodeExecFile(command, args, { timeout: 15000, env }, (error, stdout, stderr) => {
       // error.code is the child's own exit code (an integer) when the
       // command actually ran and exited non-zero. When the exec itself
@@ -350,6 +371,16 @@ function parseSystemdShow(stdout) {
   return values;
 }
 
+// openrc-run.sh's _status() exit codes that say something definite about
+// the service, as the systemd ActiveState inspect() reports for them. Any
+// code not listed here is "unknown" -- see inspect()'s OpenRC branch.
+const OPENRC_STATUS_ACTIVE_STATES = Object.freeze({
+  0: "active", // started
+  3: "inactive", // stopped
+  4: "deactivating", // stopping
+  8: "activating", // starting
+});
+
 export class LinuxServiceLifecycle {
   constructor(server, provider, options = {}) {
     if (!isManagedLifecycleProvider(provider)) {
@@ -361,6 +392,10 @@ export class LinuxServiceLifecycle {
     this.execFile = options.execFile || defaultExecFile;
     this.fileExists = options.fileExists || fs.existsSync;
     this.readFile = options.readFile || ((file) => fs.readFileSync(file, "utf8"));
+    this.runtimeDirectory =
+      options.runtimeDirectory !== undefined
+        ? options.runtimeDirectory
+        : userRuntimeDirectory();
     this.platform = options.platform || process.platform;
     this.containerized = options.containerized ?? isContainerized();
     this.waitForState = options.waitForState !== false;
@@ -390,12 +425,21 @@ export class LinuxServiceLifecycle {
         "--property=LoadState",
         "--property=ActiveState",
         "--property=Environment",
+        "--property=MainPID",
       ]);
       const values = parseSystemdShow(result.stdout);
       const registered = values.LoadState && values.LoadState !== "not-found";
       const running = ["active", "activating", "reloading"].includes(
         values.ActiveState,
       );
+      // The unit's main process (the ExecStart= launcher, which lives exactly
+      // as long as the game server under it) -- read in this same call so
+      // the panel can ask the OS when the server started, including after a
+      // panel restart or a Restart=on-failure it never saw. "0" means the
+      // unit has no running process.
+      const mainPid = /^[1-9]\d*$/.test(values.MainPID || "")
+        ? values.MainPID
+        : null;
       return {
         registered: Boolean(registered),
         running,
@@ -403,6 +447,7 @@ export class LinuxServiceLifecycle {
         markerMatches: Boolean(
           registered && String(values.Environment || "").includes(marker),
         ),
+        ...(running && mainPid ? { mainPid } : {}),
         error:
           !registered && result.stderr
             ? result.stderr.trim().slice(0, 300)
@@ -456,21 +501,74 @@ export class LinuxServiceLifecycle {
     // activeState: "inactive", so status()'s `scanFailed: activeState ===
     // "unknown"` could never fire for OpenRC no matter what actually failed.
     const execFailed = Boolean(status.execFailed);
+    // `rc-service <svc> status` exits with openrc-run.sh's _status() code,
+    // and only 0 (started) and 3 (stopped) are settled answers. Every other
+    // code used to collapse into "inactive" -- a confirmed stop -- which is
+    // wrong for the transitional ones: while a Stop is still in progress
+    // (4) the JVM, its RCON listener and the PanelBridge mod can all still
+    // be up, and since a managed unit's own answer outvotes RCON and
+    // PanelBridge (serverStatusModel.js's isHostSignalAuthoritative), the
+    // watchdog announced "stopped" before the process had exited. So these
+    // map onto the systemd ActiveStates the rest of this file already
+    // handles: 4 -> "deactivating" (status() reports scanFailed, run()
+    // skips its "already stopped" shortcut) and 8 -> "activating"
+    // (running, as systemd reports a unit mid-start). 16 (inactive: OpenRC
+    // parked the start until a dependency comes up), 32 (crashed: the
+    // service is still marked started but the supervise-daemon it recorded
+    // is gone, and a child orphaned by that is not accounted for) and any
+    // other code (rc-service itself failing) say nothing reliable about the
+    // game process, so they are "unknown", never a confident stop.
+    const activeState = !registered
+      ? "not-found"
+      : execFailed
+        ? "unknown"
+        : OPENRC_STATUS_ACTIVE_STATES[status.code] || "unknown";
+    const running = ["active", "activating"].includes(activeState);
+    const mainPid = running && markerMatches ? this.readSupervisedChildPid() : null;
     return {
       registered,
-      running: registered && !execFailed && status.code === 0,
-      activeState: !registered
-        ? "not-found"
-        : execFailed
-          ? "unknown"
-          : status.code === 0
-            ? "active"
-            : "inactive",
+      running,
+      activeState,
       markerMatches,
-      error: execFailed || (status.code !== 0 && status.code !== 3)
+      ...(mainPid ? { mainPid } : {}),
+      error: activeState === "unknown"
         ? status.stderr.trim().slice(0, 300)
         : null,
     };
+  }
+
+  // The game server's own PID under supervise-daemon -- OpenRC's
+  // counterpart of systemd's MainPID, so a started OpenRC service has a
+  // start time too, including after a panel restart. Not the pidfile the
+  // generated init script hands supervise-daemon: that holds the
+  // SUPERVISOR's pid, which outlives every respawn of the server under it,
+  // so its start time would be a confident wrong answer after a crash.
+  // supervise-daemon itself records the child (for rc-status): each child
+  // it forks writes its own pid to <svcdir>/options/<service>/child_pid
+  // before exec'ing the launcher, a respawn overwrites it, and a stop
+  // clears it. In user mode svcdir is $XDG_RUNTIME_DIR/openrc -- the same
+  // runtime directory the `rc-service --user status` call above answered
+  // from. During the --respawn-delay after a crash the file still names
+  // the dead child; /proc then has no entry for it and the start time is
+  // unknown for those seconds, not the dead child's. null when unreadable.
+  readSupervisedChildPid() {
+    if (!this.runtimeDirectory) return null;
+    try {
+      const value = String(
+        this.readFile(
+          path.posix.join(
+            this.runtimeDirectory,
+            "openrc",
+            "options",
+            this.serviceName,
+            "child_pid",
+          ),
+        ),
+      ).trim();
+      return /^[1-9]\d*$/.test(value) ? value : null;
+    } catch {
+      return null;
+    }
   }
 
   async preflightActivation() {
@@ -546,6 +644,13 @@ export class LinuxServiceLifecycle {
       running: status.running,
       scanFailed: ["unknown", "deactivating"].includes(status.activeState),
       activeState: status.activeState,
+      // The process whose start time is the server's: systemd's MainPID, or
+      // the child supervise-daemon recorded for OpenRC (see
+      // readSupervisedChildPid()). Absent while there is none, such as
+      // systemd's auto-restart window after a crash --
+      // ServerManager.resolveStartTime() then reports the uptime as unknown
+      // rather than the previous process's.
+      ...(status.mainPid ? { mainPid: status.mainPid } : {}),
       error: status.error,
     };
   }

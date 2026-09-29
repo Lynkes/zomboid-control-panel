@@ -48,6 +48,10 @@ import { ConflictScanResult, ScanStreamModScanned, ScanStreamConflictFound } fro
 import { WorkshopCollectionPanel } from '@/components/WorkshopCollectionPanel'
 import { ConflictsPanel } from '@/components/mods/ConflictsPanel'
 import { ModRow, WorkshopIdChip, WorkshopLinkAction, WorkshopThumb } from '@/components/mods/ModRow'
+import { LoadOrderMoveControls, type LoadOrderMoveSource } from '@/components/mods/LoadOrderMoveControls'
+import { BridgeManagedBadge } from '@/components/mods/BridgeManagedBadge'
+import { isBridgeManagedMod } from '@/lib/bridgeDeliveryView'
+import type { BridgeManaged } from '@/lib/bridgeDeliveryTypes'
 import {
   useLocalStorageState,
   type TrackedMod,
@@ -100,7 +104,15 @@ import {
 import { useToast } from '@/components/ui/use-toast'
 import { modsApi, serversApi, ApiError } from '@/lib/api'
 import { FolderBrowser } from '@/components/FolderBrowser'
-import { buildRequiresMap, computeAutoSortedOrder, createRequirementResolver, type AutoSortResult } from '@/lib/modLoadOrder'
+import {
+  buildRequiresMap,
+  computeAutoSortedOrder,
+  createRequirementResolver,
+  loadOrderMoveTarget,
+  moveLoadOrderEntry,
+  type AutoSortResult,
+  type LoadOrderMove,
+} from '@/lib/modLoadOrder'
 import { EmptyState } from '@/components/EmptyState'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
@@ -135,6 +147,11 @@ interface IniConfig {
   error?: string
   workshopModMap?: Record<string, Array<{ id: string; name: string; enabled: boolean; require?: string[] }>>
   duplicateKeys?: Array<{ key: string; count: number }>
+  // Set while the active server gets PanelBridge from the Steam Workshop
+  // (GET /mods/current-config, spec §4.11): that item's enable and remove
+  // controls are locked in "Active on server". The server's ini guard
+  // (routes/mods.js) is the real enforcement and puts the entries back.
+  bridgeManaged?: BridgeManaged | null
 }
 
 // ── Pure helper — parse workshop ID from URL or numeric input ──
@@ -349,6 +366,21 @@ export default function Mods() {
   const [pendingAddServerChanged, setPendingAddServerChanged] = useState(false)
   const [autoSortPreview, setAutoSortPreview] = useState<AutoSortResult | null>(null)
   const [draggedModIndex, setDraggedModIndex] = useState<number | null>(null)
+  // Load Order move controls (top/up/down/bottom). With 200+ mods a jump to
+  // the top lands the row a whole scroll-height away from the button that
+  // was clicked, so the page scrolls it back into view, puts focus back on
+  // it, marks the row, and announces its new position.
+  //
+  // `order` is the exact orderedModIds array that move produced, and the
+  // mark and announcement apply only while that array is still the order on
+  // screen (lastMoveOnScreen below). Whatever replaces it -- a drag, Reset,
+  // Auto-sort, a save's reload, a mod toggled on another tab -- retires both
+  // without any of those paths having to remember to clear them, so the
+  // live region never keeps describing an order that is gone, and a move
+  // that happens to restore the saved order is still announced.
+  const [lastLoadOrderMove, setLastLoadOrderMove] = useState<{ order: string[]; index: number; announcement: string } | null>(null)
+  const loadOrderListRef = useRef<HTMLDivElement | null>(null)
+  const pendingMoveFocusRef = useRef<{ index: number; move: LoadOrderMove; source: LoadOrderMoveSource } | null>(null)
   // Expand/collapse states
   const [repairingMaps, setRepairingMaps] = useState(false)
   const [mapRepairResult, setMapRepairResult] = useState<{ removed: string[]; added?: string[]; remaining: string[]; message: string } | null>(null)
@@ -1968,21 +2000,36 @@ export default function Mods() {
     }
   }
 
-  // Drag & drop handlers for mod load order
+  // Drag & drop handlers for mod load order. Reordering is local until Save,
+  // but Save needs mods.manage, so every reorder path (drag, the move
+  // controls, auto-sort) is gated on it too rather than letting a role
+  // without it build an order the server will refuse to write.
+  //
+  // Manual reordering is also locked while Save Order is in flight or an
+  // Auto-sort proposal is open, the two states Auto-sort's own button is
+  // already disabled for: a move made then would be silently thrown away --
+  // the save's reload overwrites orderedModIds with what the server wrote,
+  // and Apply writes the proposal computed from the order as it was.
+  //
+  // The guard sits in handleDragOver too, not just handleDragStart: dragover
+  // is what actually rewrites the order, and draggedModIndex can outlive its
+  // drag -- a dragend the page never sees (the source row unmounted mid-drag
+  // by a reload, say) leaves it set, and every later dragover over the list,
+  // a file or a text selection included, would otherwise reorder with it.
+  const loadOrderLocked = savingModOrder || autoSortPreview !== null
+
   const handleDragStart = (index: number) => {
+    if (!canManageMods || loadOrderLocked) return
     setDraggedModIndex(index)
   }
 
   const handleDragOver = (e: React.DragEvent, index: number) => {
     e.preventDefault()
+    if (!canManageMods || loadOrderLocked) return
     if (draggedModIndex === null || draggedModIndex === index) return
     if (draggedModIndex < 0 || draggedModIndex >= orderedModIds.length) return
 
-    // Reorder the mods
-    const newOrder = [...orderedModIds]
-    const [draggedItem] = newOrder.splice(draggedModIndex, 1)
-    newOrder.splice(index, 0, draggedItem)
-    setOrderedModIds(newOrder)
+    setOrderedModIds(moveLoadOrderEntry(orderedModIds, draggedModIndex, index))
     setDraggedModIndex(index)
   }
 
@@ -1990,23 +2037,71 @@ export default function Mods() {
     setDraggedModIndex(null)
   }
 
-  const moveModUp = (index: number) => {
-    if (index === 0) return
-    const newOrder = [...orderedModIds]
-    ;[newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]]
-    setOrderedModIds(newOrder)
-  }
+  // Move to top / up / down / to bottom. Same state as a drag (orderedModIds),
+  // so the unsaved marker, Reset and Save Order all work unchanged.
+  // useCallback keeps it stable across the page's unrelated re-renders
+  // (keystrokes, socket events), which the memoized per-row
+  // LoadOrderMoveControls then skip. It closes over orderedModIds, so a move
+  // itself still re-renders every row's controls -- once per click.
+  const moveModInLoadOrder = useCallback((index: number, move: LoadOrderMove, source: LoadOrderMoveSource) => {
+    if (!canManageMods || loadOrderLocked) return
+    const to = loadOrderMoveTarget(index, orderedModIds.length, move)
+    if (to === null) return
+    const next = moveLoadOrderEntry(orderedModIds, index, to)
+    setOrderedModIds(next)
+    // No drag is in progress while a button is being pressed; clear any
+    // index a lost dragend left behind (see loadOrderLocked's comment) so it
+    // can't fade a row or steer a later dragover in the new order.
+    setDraggedModIndex(null)
+    setLastLoadOrderMove({
+      order: next,
+      index: to,
+      announcement: t('loadOrder.movedAnnouncement', { name: orderedModIds[index], position: to + 1, total: next.length }),
+    })
+    pendingMoveFocusRef.current = { index: to, move, source }
+  }, [canManageMods, loadOrderLocked, orderedModIds, t])
 
-  const moveModDown = (index: number) => {
-    if (index === orderedModIds.length - 1) return
-    const newOrder = [...orderedModIds]
-    ;[newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]]
-    setOrderedModIds(newOrder)
-  }
+  // Runs after the reordered list has rendered. The row keeps its DOM node
+  // (rows are keyed by mod ID), but React may re-insert it to reorder the
+  // list, and a focused node that is re-inserted loses focus; at either end
+  // the pressed control is also swapped for a disabled one. Without this,
+  // focus drops to <body> and a keyboard user has to Tab back down from the
+  // top of the page.
+  useEffect(() => {
+    const pending = pendingMoveFocusRef.current
+    if (!pending) return
+    pendingMoveFocusRef.current = null
+    const row = loadOrderListRef.current?.querySelector<HTMLElement>(`[data-load-order-index="${pending.index}"]`)
+    if (!row) return
+    // 'nearest' only scrolls the list (and the page, if the list itself is
+    // off-screen) as far as needed -- a one-step move of a visible row
+    // doesn't scroll at all.
+    row.scrollIntoView({ block: 'nearest' })
+    // The same control again, so pressing Move up/down repeatedly keeps
+    // working.
+    const pressed = row.querySelector<HTMLButtonElement>(`button[data-move-action="${pending.move}"]`)
+    if (pressed && !pressed.disabled) {
+      pressed.focus({ preventScroll: true })
+      return
+    }
+    // The move reached the first or last slot and disabled the pressed
+    // control. Never hand focus to a control that moves the other way: a
+    // held or repeated Enter on "Move up" would then walk the mod straight
+    // back down, and at the bottom flip again. From the keyboard, focus the
+    // disabled control's DisabledReason wrapper -- Enter there does nothing,
+    // and the "Already first in the load order" tooltip that focus opens is
+    // the feedback a keyboard user needs. From a mouse or a tap, focus the
+    // row itself: the same tooltip popping up right after a click that just
+    // worked reads as an error.
+    const wrapper = pressed?.parentElement
+    const target = pending.source === 'keyboard' && wrapper && wrapper.tabIndex >= 0 ? wrapper : row
+    target.focus({ preventScroll: true })
+  }, [orderedModIds])
 
   // Dependency-aware auto-sort. Computes a proposal only; nothing is written
   // until the user applies it and then saves the order.
   const handleAutoSort = () => {
+    if (!canManageMods) return
     const requiresByModId = buildRequiresMap(iniConfig?.workshopModMap)
     const result = computeAutoSortedOrder(orderedModIds, requiresByModId)
 
@@ -2033,10 +2128,13 @@ export default function Mods() {
     }
 
     setAutoSortPreview(result)
+    // The proposal locks the list; drop any index a lost dragend left behind
+    // (see loadOrderLocked's comment).
+    setDraggedModIndex(null)
   }
 
   const applyAutoSort = () => {
-    if (!autoSortPreview) return
+    if (!autoSortPreview || !canManageMods) return
     setOrderedModIds(autoSortPreview.order)
     const movedCount = autoSortPreview.moved.length
     setAutoSortPreview(null)
@@ -2059,6 +2157,7 @@ export default function Mods() {
     busyRef.current = true
     try {
       setSavingModOrder(true)
+      setDraggedModIndex(null)
       await modsApi.saveModOrder(orderedModIds)
       setConflicts(prev => prev ? recalculateConflictWinners(prev, orderedModIds) : prev)
       setScanIniSnapshot(createConflictScanSnapshot(iniConfig?.workshopIds, orderedModIds))
@@ -2066,7 +2165,13 @@ export default function Mods() {
         title: t('toasts.modOrderSavedTitle'),
         description: t('toasts.modOrderSavedDesc'),
       })
-      fetchData()
+      // Awaited (fetchData never throws) so savingModOrder -- which locks
+      // drag and the row move controls -- stays set until this reload has
+      // replaced orderedModIds with what the server wrote. Released any
+      // earlier, a move made in that window was overwritten a moment later,
+      // and for that round-trip the footer still said "Unsaved order
+      // changes" with Save enabled again.
+      await fetchData()
     } catch (error) {
       toast({
         title: t('toasts.saveOrderFailedTitle'),
@@ -2130,7 +2235,10 @@ export default function Mods() {
         title: t('toasts.loadOrderUpdatedTitle'),
         description: t('toasts.loadOrderUpdatedDesc', { winner: winnerName, loser: loserName }),
       })
-      fetchData()
+      // Awaited for the same reason as in handleSaveModOrder: savingModOrder
+      // also locks the Load Order tab, and a move made there before this
+      // reload lands would be overwritten by it.
+      await fetchData()
     } catch (error) {
       toast({
         title: t('toasts.couldNotUpdateLoadOrderTitle'),
@@ -2148,6 +2256,10 @@ export default function Mods() {
     if (orderedModIds.length !== iniConfig.modIds.length) return true // Different count = changed
     return orderedModIds.some((id, i) => id !== iniConfig.modIds[i])
   }, [orderedModIds, iniConfig?.modIds])
+
+  // The last row-control move, only while the order on screen is still the
+  // one it produced (see lastLoadOrderMove's comment).
+  const lastMoveOnScreen = lastLoadOrderMove?.order === orderedModIds ? lastLoadOrderMove : null
 
   // See serverChangedSinceLoad's own comment above. Unlike the other
   // mods:* socket events above (which always just refetch), fetchData()
@@ -4348,8 +4460,20 @@ export default function Mods() {
                   const q = deferredModManagerSearch.toLowerCase().trim()
                   const inspectedGroup = groups.find(g => g.wsId === selectedActiveWsId) || displayGroups[0] || null
 
+                  // PanelBridge's own Workshop entry while the active server
+                  // gets it from the Steam Workshop (spec §4.11): its enable
+                  // and remove controls are locked, with the badge's text as
+                  // the reason. Only those -- reordering it stays allowed, as
+                  // its position in the load order doesn't matter.
+                  const bridgeLockReason = t('mods.badgeTooltip', { ns: 'bridgeDelivery' })
+                  const isBridgeGroup = (g: { wsId: string; mods: Array<{ id: string }> }) =>
+                    isBridgeManagedMod(iniConfig?.bridgeManaged, g.wsId, g.mods.map(m => m.id))
+                  const inspectedLocked = !!inspectedGroup && isBridgeGroup(inspectedGroup)
+                  const inspectedLockReason = !canManageMods ? t('permissions.noModsManage') : inspectedLocked ? bridgeLockReason : null
+
                   const toggleMod = async (mod: ModEntry, wsId: string) => {
                     if (busyRef.current || !canManageMods) return
+                    if (isBridgeManagedMod(iniConfig?.bridgeManaged, wsId, [mod.id])) return
                     const on = !mod.enabled
                     busyRef.current = true
                     try {
@@ -4404,7 +4528,7 @@ export default function Mods() {
                   }
 
                   const toggleAllInGroup = async (g: WsGroup) => {
-                    if (busyRef.current || !canManageMods) return
+                    if (busyRef.current || !canManageMods || isBridgeGroup(g)) return
                     const on = !g.allEnabled
                     const modsToToggle = g.mods.filter(mod => mod.enabled !== on)
                     if (modsToToggle.length === 0) return
@@ -4443,6 +4567,7 @@ export default function Mods() {
 
                   const removeWorkshop = async (wsId: string, knownModIds?: string[]) => {
                     if (!canManageMods) return
+                    if (isBridgeManagedMod(iniConfig?.bridgeManaged, wsId, knownModIds ?? [])) return
                     try {
                       await modsApi.removeFromIni(wsId, undefined, knownModIds)
                       const updated = await modsApi.getCurrentConfig()
@@ -4710,6 +4835,8 @@ export default function Mods() {
                                 const isInspected = inspectedGroup?.wsId === g.wsId
                                 const label = getGroupLabel(g)
                                 const att = groupAttention(g)
+                                const bridgeLocked = isBridgeGroup(g)
+                                const rowLockReason = !canManageMods ? t('permissions.noModsManage') : bridgeLocked ? bridgeLockReason : null
                                 const enabledN = g.mods.filter(m => m.enabled).length
                                 const totalN = g.mods.length
                                 // Chips are the dense part of the row. Compact keeps them in the
@@ -4743,26 +4870,26 @@ export default function Mods() {
                                         {t('activeMods.copyWorkshopId')}
                                       </DropdownMenuItem>
                                       <DropdownMenuSeparator />
-                                      <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null} className="w-full">
+                                      <DisabledReason reason={rowLockReason} className="w-full">
                                         <DropdownMenuItem
                                           className="text-destructive focus:text-destructive"
-                                          // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage) now lives in the DisabledReason wrapper above; this title carries only the always-relevant "what removing does" hint, correctly absent (via DisabledReason's own tooltip taking over) rather than dead when actually disabled.
+                                          // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage, or PanelBridge's Workshop lock) now lives in the DisabledReason wrapper above; this title carries only the always-relevant "what removing does" hint, correctly absent (via DisabledReason's own tooltip taking over) rather than dead when actually disabled.
                                           title={t('activeMods.removeFromIniHint')}
-                                          onClick={() => { if (!canManageMods) return; setConfirmRemoveWorkshop({ wsId: g.wsId, knownModIds: g.mods.map(m => m.id) }) }}
-                                          disabled={!canManageMods}
+                                          onClick={() => { if (!canManageMods || bridgeLocked) return; setConfirmRemoveWorkshop({ wsId: g.wsId, knownModIds: g.mods.map(m => m.id) }) }}
+                                          disabled={!canManageMods || bridgeLocked}
                                         >
                                           <Trash2 className="me-2 h-4 w-4" />
                                           {t('activeMods.removeFromIni')}
                                         </DropdownMenuItem>
                                       </DisabledReason>
                                       <DropdownMenuSeparator />
-                                      <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null} className="w-full">
+                                      <DisabledReason reason={rowLockReason} className="w-full">
                                         <DropdownMenuItem
                                           className="text-destructive focus:text-destructive"
-                                          // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage) now lives in the DisabledReason wrapper above; this title carries only the always-relevant "what removing does" hint, correctly absent (via DisabledReason's own tooltip taking over) rather than dead when actually disabled.
+                                          // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage, or PanelBridge's Workshop lock) now lives in the DisabledReason wrapper above; this title carries only the always-relevant "what removing does" hint, correctly absent (via DisabledReason's own tooltip taking over) rather than dead when actually disabled.
                                           title={t('activeMods.removeFromServerHint')}
-                                          onClick={() => { if (!canManageMods) return; setConfirmRemoveMod({ wsId: g.wsId, label }) }}
-                                          disabled={!canManageMods}
+                                          onClick={() => { if (!canManageMods || bridgeLocked) return; setConfirmRemoveMod({ wsId: g.wsId, label }) }}
+                                          disabled={!canManageMods || bridgeLocked}
                                         >
                                           <Trash2 className="me-2 h-4 w-4" />
                                           {t('activeMods.removeFromServer')}
@@ -4792,11 +4919,14 @@ export default function Mods() {
                                       dimmed={!mod0.enabled}
                                       onClick={() => setSelectedActiveWsId(g.wsId)}
                                       leading={
-                                        <Checkbox
-                                          checked={mod0.enabled}
-                                          onCheckedChange={() => toggleMod(mod0, g.wsId)}
-                                          aria-label={t('activeMods.toggleEnableAria', { action: mod0.enabled ? t('activeMods.disableAction') : t('activeMods.enableAction'), name: mod0.name || mod0.id })}
-                                        />
+                                        <DisabledReason reason={bridgeLocked ? bridgeLockReason : null}>
+                                          <Checkbox
+                                            checked={mod0.enabled}
+                                            onCheckedChange={() => toggleMod(mod0, g.wsId)}
+                                            disabled={bridgeLocked}
+                                            aria-label={t('activeMods.toggleEnableAria', { action: mod0.enabled ? t('activeMods.disableAction') : t('activeMods.enableAction'), name: mod0.name || mod0.id })}
+                                          />
+                                        </DisabledReason>
                                       }
                                       title={<span className="truncate text-sm font-semibold leading-tight text-foreground">{mod0.name || mod0.id}</span>}
                                       titleBadges={
@@ -4811,6 +4941,7 @@ export default function Mods() {
                                               {t('activeMods.duplicate')}
                                             </span>
                                           )}
+                                          {bridgeLocked && <BridgeManagedBadge />}
                                         </>
                                       }
                                       meta={
@@ -4844,15 +4975,18 @@ export default function Mods() {
                                     }
                                     title={<span className="truncate text-sm font-semibold leading-tight text-foreground">{label}</span>}
                                     titleBadges={
-                                      <span
-                                        className={`inline-flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium tabular-nums ${countTone}`}
-                                        title={t('activeMods.enabledOfTotalTooltip', { enabled: enabledN, total: totalN })}
-                                      >
-                                        <span>{enabledN}</span>
-                                        <span className="opacity-60">{t('activeMods.of')}</span>
-                                        <span>{totalN}</span>
-                                        <span className="hidden opacity-75 sm:inline">{t('activeMods.enabledLabel')}</span>
-                                      </span>
+                                      <>
+                                        <span
+                                          className={`inline-flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium tabular-nums ${countTone}`}
+                                          title={t('activeMods.enabledOfTotalTooltip', { enabled: enabledN, total: totalN })}
+                                        >
+                                          <span>{enabledN}</span>
+                                          <span className="opacity-60">{t('activeMods.of')}</span>
+                                          <span>{totalN}</span>
+                                          <span className="hidden opacity-75 sm:inline">{t('activeMods.enabledLabel')}</span>
+                                        </span>
+                                        {bridgeLocked && <BridgeManagedBadge />}
+                                      </>
                                     }
                                     meta={<WorkshopIdChip wsId={g.wsId} onCopied={(id) => toast({ title: t('installedTab.copiedTitle'), description: t('installedTab.copiedWorkshopId', { id }) })} />}
                                     actions={
@@ -4933,10 +5067,10 @@ export default function Mods() {
                                                           ? 'bg-success/15 text-success hover:bg-success/25'
                                                           : 'bg-muted/15 text-muted-foreground/75 hover:text-muted-foreground hover:bg-muted/25')
                                                 return (
-                                                  <DisabledReason key={mod.id} reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                                                  <DisabledReason key={mod.id} reason={rowLockReason}>
                                                   <button
                                                     onClick={(e) => { e.stopPropagation(); toggleMod(mod, g.wsId) }}
-                                                    disabled={!canManageMods}
+                                                    disabled={!canManageMods || bridgeLocked}
                                                     // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage) now lives in the DisabledReason wrapper above; this title carries only the always-relevant chip tooltip (id/name, dupe/clash/overlap warnings, click hint), correctly absent rather than dead when actually disabled.
                                                     title={tooltipBits}
                                                     className={`mod-toggle-pill inline-flex max-w-[200px] items-center gap-1 truncate rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 ${canManageMods ? 'cursor-pointer' : ''} ${styleClass}`}
@@ -5069,15 +5203,21 @@ export default function Mods() {
                                 )
                               })}
                               {/* Orphaned mods */}
-                              {!filterMultiId && orphaned.filter(id => !q || id.toLowerCase().includes(q)).map(id => (
+                              {/* PanelBridge's mod id shows here until Steam has
+                                  downloaded its Workshop item (the first start
+                                  after a switch), so the same lock applies. */}
+                              {!filterMultiId && orphaned.filter(id => !q || id.toLowerCase().includes(q)).map(id => {
+                                const orphanBridgeLocked = isBridgeManagedMod(iniConfig?.bridgeManaged, null, [id])
+                                return (
                                 <div key={`orphan-${id}`} className="group flex items-center gap-3 px-3 py-1.5 opacity-60">
                                   <AlertTriangle className="w-3 h-3 text-warning/60 shrink-0" />
                                   <span className="text-xs font-mono truncate flex-1">{id}</span>
+                                  {orphanBridgeLocked && <BridgeManagedBadge />}
                                   <span className="text-[11px] text-warning/50">{t('activeMods.orphanNotOnDisk')}</span>
-                                  <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                                  <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : orphanBridgeLocked ? bridgeLockReason : null}>
                                   <button
                                     onClick={async () => {
-                                      if (busyRef.current || !canManageMods) return
+                                      if (busyRef.current || !canManageMods || orphanBridgeLocked) return
                                       busyRef.current = true
                                       try {
                                         await modsApi.toggleModId(id, false)
@@ -5086,7 +5226,7 @@ export default function Mods() {
                                         if (updated?.modIds) setOrderedModIds(updated.modIds)
                                       } catch (e) { reportClientError('Failed to remove orphaned mod', e); toast({ variant: 'destructive', title: t('toasts.failedToRemoveOrphanedModTitle'), description: getUserErrorMessage(e, t('toasts.failedToRemoveOrphanedModFallback')) }) } finally { busyRef.current = false }
                                     }}
-                                    disabled={!canManageMods}
+                                    disabled={!canManageMods || orphanBridgeLocked}
                                     className="text-destructive/80 hover:text-destructive hover:bg-destructive/15 rounded p-1.5 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/50 disabled:opacity-40 disabled:cursor-not-allowed"
                                     // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (what removing this orphan does); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                                     title={t('activeMods.removeOrphanTooltip', { id })}
@@ -5096,7 +5236,8 @@ export default function Mods() {
                                   </button>
                                   </DisabledReason>
                                 </div>
-                              ))}
+                                )
+                              })}
                             </div>
                           </ScrollArea>
                         ) : (
@@ -5132,6 +5273,7 @@ export default function Mods() {
                             <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
                               <span className="inline-flex items-center rounded border border-border/35 bg-muted/20 px-1.5 py-0.5 font-mono tabular-nums">WS {inspectedGroup.wsId}</span>
                               {inspectedGroup.mods.length > 1 && <span className="inline-flex items-center rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-primary">{t('activeMods.multiIdBadge')}</span>}
+                              {inspectedLocked && <BridgeManagedBadge />}
                             </div>
                           </div>
 
@@ -5159,11 +5301,11 @@ export default function Mods() {
                             <div className="space-y-1.5">
                               <div className="flex items-center justify-between gap-2">
                                 <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/75">{t('activeMods.loadedIds')}</p>
-                                <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                                <DisabledReason reason={inspectedLockReason}>
                                   <button
                                     type="button"
                                     onClick={() => toggleAllInGroup(inspectedGroup)}
-                                    disabled={!canManageMods}
+                                    disabled={!canManageMods || inspectedLocked}
                                     className="rounded border border-border/45 bg-muted/25 px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50"
                                   >
                                     {inspectedGroup.allEnabled ? t('activeMods.disableAll') : t('activeMods.enableAll')}
@@ -5175,11 +5317,11 @@ export default function Mods() {
                                   const missing = missingDepsMap.get(mod.id) || []
                                   const isDupe = duplicateModIds.has(mod.id)
                                   return (
-                                    <DisabledReason key={mod.id} reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                                    <DisabledReason key={mod.id} reason={inspectedLockReason}>
                                     <button
                                       type="button"
                                       onClick={() => toggleMod(mod, inspectedGroup.wsId)}
-                                      disabled={!canManageMods}
+                                      disabled={!canManageMods || inspectedLocked}
                                       className={`flex w-full items-center gap-2 rounded border px-2 py-1.5 text-start text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 ${mod.enabled ? 'border-success/25 bg-success/10 text-success' : 'border-border/45 bg-muted/20 text-muted-foreground hover:text-foreground'}`}
                                       // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage) now lives in the DisabledReason wrapper above; this title carries only the always-relevant click-to-toggle hint, correctly absent rather than dead when actually disabled.
                                       title={`${mod.enabled ? t('activeMods.clickToDisable') : t('activeMods.clickToEnable')} ${mod.id}`}
@@ -5342,16 +5484,18 @@ export default function Mods() {
                             )}
 
                             <div className="border-t border-border/35 pt-3">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                onClick={() => setConfirmRemoveWorkshop({ wsId: inspectedGroup.wsId, knownModIds: inspectedGroup.mods.map(m => m.id) })}
-                                disabled={!canManageMods}
-                              >
-                                <Trash2 className="me-2 h-3.5 w-3.5" />
-                                {t('activeMods.removeFromIni')}
-                              </Button>
+                              <DisabledReason reason={inspectedLockReason} className="w-full">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                  onClick={() => { if (!canManageMods || inspectedLocked) return; setConfirmRemoveWorkshop({ wsId: inspectedGroup.wsId, knownModIds: inspectedGroup.mods.map(m => m.id) }) }}
+                                  disabled={!canManageMods || inspectedLocked}
+                                >
+                                  <Trash2 className="me-2 h-3.5 w-3.5" />
+                                  {t('activeMods.removeFromIni')}
+                                </Button>
+                              </DisabledReason>
                             </div>
                           </div>
                         </aside>
@@ -5415,6 +5559,8 @@ export default function Mods() {
                       }
                     }
                   }
+                  // Row keys, see where the list is rendered below.
+                  const loadOrderKeyRepeats = new Map<string, number>()
 
                   return (
                   <div className="space-y-3 sub-tab-enter">
@@ -5429,17 +5575,36 @@ export default function Mods() {
                     ) : (
                     <>
                     <div className="flex items-center justify-between gap-3 flex-wrap">
-                      <p className="text-xs text-muted-foreground">{t('loadOrder.dragHint')}</p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 text-xs"
-                        onClick={handleAutoSort}
-                        disabled={savingModOrder || !!autoSortPreview}
-                      >
-                        <Wand2 className="w-3 h-3 me-1" />
-                        {t('loadOrder.autoSort')}
-                      </Button>
+                      {/* Without mods.manage the per-row move controls are
+                          hidden, and while an Auto-sort proposal is open
+                          they are disabled; a reason on each would be four
+                          tooltips and dead tab stops per row, times 200+
+                          rows, so it goes here once. (During Save Order they
+                          are disabled too, and Save's spinner says why.)
+                          The Active tab's filter also narrows this list, and
+                          turns drag off, from a tab the operator has left --
+                          so say so here too, or rows just seem to be missing. */}
+                      <p className="text-xs text-muted-foreground">
+                        {!canManageMods
+                          ? t('permissions.noModsManage')
+                          : autoSortPreview
+                            ? t('loadOrder.previewLockHint')
+                            : modManagerSearch.trim()
+                              ? t('loadOrder.filteredHint', { query: modManagerSearch.trim() })
+                              : t('loadOrder.dragHint')}
+                      </p>
+                      <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs"
+                          onClick={handleAutoSort}
+                          disabled={savingModOrder || !!autoSortPreview || !canManageMods}
+                        >
+                          <Wand2 className="w-3 h-3 me-1" />
+                          {t('loadOrder.autoSort')}
+                        </Button>
+                      </DisabledReason>
                     </div>
 
                     {autoSortPreview && (
@@ -5493,9 +5658,30 @@ export default function Mods() {
                     )}
                     <div className="rounded-lg border border-border bg-muted/50 shadow-md overflow-hidden">
                       <ScrollArea className="h-[calc(100vh-320px)] min-h-[200px]">
-                        <div className="divide-y divide-border/60 [&>*:nth-child(even)]:bg-card/70">
+                        {/* onDrop: the drop event bubbles here from a row that
+                            is still mounted, so it ends a drag even when its
+                            dragend is lost; preventDefault also stops a file
+                            dropped on the list (every row accepts drops, via
+                            handleDragOver) from navigating the tab to it. */}
+                        <div
+                          ref={loadOrderListRef}
+                          className="divide-y divide-border/60 [&>*:nth-child(even)]:bg-card/70"
+                          onDrop={(e) => { e.preventDefault(); setDraggedModIndex(null) }}
+                        >
                           {orderedModIds
-                            .map((modId, idx) => ({ modId, idx }))
+                            .map((modId, idx) => {
+                              // Keyed by mod ID plus which repeat of it this is
+                              // (Mods= can list an ID twice), not by position:
+                              // a position key gave every row between the old
+                              // and new slot a new key on each reorder, so the
+                              // dragged row itself was unmounted by the first
+                              // dragover -- its dragend then never reached the
+                              // page -- and Move to top remounted every row
+                              // instead of reordering them.
+                              const repeat = loadOrderKeyRepeats.get(modId) ?? 0
+                              loadOrderKeyRepeats.set(modId, repeat + 1)
+                              return { modId, idx, key: `${modId}#${repeat}` }
+                            })
                             .filter(({ modId }) => {
                               const q = deferredModManagerSearch.toLowerCase().trim()
                               if (!q) return true
@@ -5503,37 +5689,65 @@ export default function Mods() {
                               const name = modIdNameMap.get(modId)
                               return name ? name.toLowerCase().includes(q) : false
                             })
-                            .map(({ modId, idx }) => {
+                            .map(({ modId, idx, key }) => {
                                 const displayName = modIdNameMap.get(modId)
+                                const canDrag = canManageMods && !loadOrderLocked && !modManagerSearch.trim()
+                                // Same accent as a selected ModRow, on the row the
+                                // last move control put there, for as long as that
+                                // move's order is the one on screen. The `!` on it
+                                // and on the drag tint: the list stripes even rows
+                                // with a child selector (specificity 0,2,0) that a
+                                // plain bg class on the row (0,1,0) loses to, so
+                                // without it neither tint showed on even rows.
+                                const justMoved = lastMoveOnScreen?.index === idx
                                 return (
                                 <div
-                                  key={`${modId}-${idx}`}
-                                  draggable={!modManagerSearch.trim()}
+                                  key={key}
+                                  data-load-order-index={idx}
+                                  // Focusable from script only: where focus goes
+                                  // after a mouse move reaches the first or last
+                                  // slot (see the move-focus effect). The row's
+                                  // own accent marks it, so no outline.
+                                  tabIndex={-1}
+                                  draggable={canDrag}
                                   onDragStart={() => handleDragStart(idx)}
                                   onDragOver={(e) => handleDragOver(e, idx)}
                                   onDragEnd={handleDragEnd}
-                                  className={`flex items-center gap-2 px-2.5 py-1 cursor-move transition-colors duration-150 hover:bg-muted/15 ${
-                                    draggedModIndex === idx ? 'opacity-30 bg-primary/5' : ''
-                                  }`}
+                                  className={`flex items-center gap-2 px-2.5 py-1 outline-none transition-colors duration-150 hover:bg-muted/15 ${canDrag ? 'cursor-move' : ''} ${
+                                    draggedModIndex === idx ? 'opacity-30 !bg-primary/5' : ''
+                                  } ${justMoved ? '!bg-primary/[0.055] shadow-[inset_2px_0_0_hsl(var(--primary)/0.55)]' : ''}`}
                                 >
-                                  <GripVertical className="w-3 h-3 text-muted-foreground/30 shrink-0" />
+                                  {/* Only where the row can actually be dragged;
+                                      `invisible` keeps its column so rows don't
+                                      shift sideways while the list is locked. */}
+                                  <GripVertical className={`w-3 h-3 text-muted-foreground/30 shrink-0 ${canDrag ? '' : 'invisible'}`} aria-hidden="true" />
                                   <span className="text-[11px] tabular-nums text-muted-foreground w-5 text-end shrink-0">{idx + 1}</span>
-                                  <span className="text-[11px] font-mono truncate shrink-0">{modId}</span>
+                                  {/* Shrinkable (truncates) so the four move
+                                      controls stay on-screen at phone width
+                                      instead of being clipped by the ScrollArea. */}
+                                  <span className="text-[11px] font-mono truncate min-w-0">{modId}</span>
                                   {displayName && <span className="text-[11px] text-muted-foreground/60 truncate flex-1">{displayName}</span>}
                                   {!displayName && <span className="flex-1" />}
-                                  <div className="flex shrink-0">
-                                    <button onClick={() => moveModUp(idx)} disabled={idx === 0} className="p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center hover:bg-muted/30 disabled:opacity-30 rounded transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50" aria-label={t('loadOrder.moveUpAria')}>
-                                      <ChevronRight className="w-3.5 h-3.5 -rotate-90" />
-                                    </button>
-                                    <button onClick={() => moveModDown(idx)} disabled={idx === orderedModIds.length - 1} className="p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center hover:bg-muted/30 disabled:opacity-30 rounded transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50" aria-label={t('loadOrder.moveDownAria')}>
-                                      <ChevronRight className="w-3.5 h-3.5 rotate-90" />
-                                    </button>
-                                  </div>
+                                  {canManageMods && (
+                                    <LoadOrderMoveControls
+                                      index={idx}
+                                      total={orderedModIds.length}
+                                      modId={modId}
+                                      onMove={moveModInLoadOrder}
+                                      disabled={loadOrderLocked}
+                                    />
+                                  )}
                                 </div>
                               )})
                             }
                         </div>
                       </ScrollArea>
+                      {/* Not gated on hasModOrderChanged: a move that puts
+                          the saved order back (a nudge undone) is still a
+                          move, and must still be announced. */}
+                      <p className="sr-only" role="status" aria-live="polite">
+                        {lastMoveOnScreen?.announcement}
+                      </p>
                       {hasModOrderChanged && (
                         <div className="px-3 py-2 border-t border-border/40 bg-muted/20 flex items-center justify-between">
                           <span className="text-[11px] text-warning">{t('loadOrder.unsavedChanges')}</span>

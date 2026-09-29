@@ -97,6 +97,7 @@ import { DisabledReason } from "@/components/DisabledReason";
 import { BridgeStatusBadge } from "@/components/BridgeStatusBadge";
 import { NumberInput } from "@/components/NumberInput";
 import { cn, copyText } from "@/lib/utils";
+import { formatElapsed } from "@/lib/durationText";
 import {
   apiFetch,
   ApiError,
@@ -331,11 +332,17 @@ const UNRESOLVED_MOD_CAUSES = new Set([
   "stillDownloading",
   "workshopNotOnDisk",
   "absent",
+  "panelBridge",
 ]);
 
 interface UnresolvedModTriageEntry {
   modId: string;
-  cause: "typo" | "stillDownloading" | "workshopNotOnDisk" | "absent";
+  cause:
+    | "typo"
+    | "stillDownloading"
+    | "workshopNotOnDisk"
+    | "absent"
+    | "panelBridge";
   suggestion?: string;
 }
 
@@ -518,6 +525,23 @@ export function getDiagnosticsFixAction(
         note: t("fixActions.serverZomboidData.note"),
       };
     case "server.startScript":
+      // GH #167: a named managed server's own script is written by the
+      // panel before every start, so re-running detection or reinstalling
+      // the game (the note below) fixes neither of these. Not written yet:
+      // the next Start writes it. Can't be written: the fix is the folder's
+      // permissions or the server's install path, which the hint spells out.
+      if (check.variant === "notWrittenYet") {
+        return { label: L("openDashboard"), automated: false, manualRoute: "/" };
+      }
+      if (check.variant === "folderNotWritable") {
+        return { label: L("openServers"), automated: false, manualRoute: "/servers" };
+      }
+      return {
+        label: t("fixActions.serverStartScriptOrJre.label"),
+        automated: false,
+        manualRoute: "/server-finder",
+        note: t("fixActions.serverStartScriptOrJre.note"),
+      };
     case "server.jre":
     case "server.jreWorks":
       return {
@@ -569,11 +593,21 @@ export function getDiagnosticsFixAction(
         note: t("fixActions.serverRconPassword.note"),
       };
     case "server.bridgeMod":
+      // Settings › PanelBridge is where the bridge is installed now, for
+      // both delivery methods -- Server Finder no longer deploys it. The note
+      // follows the server's variant: a missing panel-installed file, a
+      // Workshop item not downloaded yet, or loose files a Workshop server
+      // still has in its game folder (a start from the panel moves them).
       return {
         label: t("fixActions.serverBridgeMod.label"),
         automated: false,
-        manualRoute: "/server-finder",
-        note: t("fixActions.serverBridgeMod.note"),
+        manualRoute: "/settings?tab=bridge",
+        note:
+          check.variant === "workshopNotDownloaded"
+            ? t("fixActions.serverBridgeMod.noteWorkshopNotDownloaded")
+            : check.variant === "looseLeftover"
+              ? t("fixActions.serverBridgeMod.noteLooseLeftover")
+              : t("fixActions.serverBridgeMod.note"),
       };
     case "server.configDrift":
       return {
@@ -665,10 +699,14 @@ export function getDiagnosticsFixAction(
       };
     case "bridge.writable":
     case "bridge.heartbeat":
+      // Settings › PanelBridge holds the bridge folder setup, its connection
+      // checks and "How PanelBridge is installed" for the server's delivery
+      // method. Server Finder is the public server browser and has none of
+      // them, and "re-deploy PanelBridge" was wrong for a Workshop server.
       return {
         label: t("fixActions.bridgeWritableOrHeartbeat.label"),
         automated: false,
-        manualRoute: "/server-finder",
+        manualRoute: "/settings?tab=bridge",
         note: t("fixActions.bridgeWritableOrHeartbeat.note"),
       };
 
@@ -2678,12 +2716,6 @@ export default function Debug() {
 
   const formatMemory = (bytes: number) => {
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  };
-
-  const formatUptime = (seconds: number) => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    return `${hours}h ${minutes}m`;
   };
 
   const formatTimestamp = useCallback(
@@ -6034,7 +6066,7 @@ export default function Debug() {
                 <span>
                   {t("performanceTab.showingSnapshots", {
                     count: performanceHistory.length,
-                    duration: formatUptime(Math.round(performanceStats.spanMs / 1000)),
+                    duration: formatElapsed(performanceStats.spanMs / 1000),
                   })}
                 </span>
               ) : (
@@ -6649,7 +6681,7 @@ export default function Debug() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold">
-                {healthStatus ? formatUptime(healthStatus.uptime) : "-"}
+                {healthStatus ? formatElapsed(healthStatus.uptime) : "-"}
               </div>
               <p className="text-sm text-muted-foreground mt-1">
                 {healthStatus &&
@@ -6699,7 +6731,7 @@ export default function Debug() {
               </CardHeader>
               <CardContent>
                 <span className="text-2xl font-bold">
-                  {systemInfo ? formatUptime(systemInfo.uptime) : systemInfoFailed ? t("systemTab.unavailable") : "-"}
+                  {systemInfo ? formatElapsed(systemInfo.uptime) : systemInfoFailed ? t("systemTab.unavailable") : "-"}
                 </span>
               </CardContent>
             </Card>

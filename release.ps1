@@ -28,8 +28,12 @@
     Path to a markdown file with release notes. If omitted, auto-generates from commits.
 
 .PARAMETER PanelBridgeVersion
-    PanelBridge version to ship. If omitted, a new application release increments
-    the current PanelBridge patch version; an explicit same-version release keeps it.
+    PanelBridge version to ship. If omitted, scripts/check-bridge-version.mjs --next
+    picks it: the version stays the same while the normalized Lua/mod.info bytes
+    match pz-mod/bridge-version.lock.json, and goes up one patch when they changed.
+    An explicit value must not be below the lock, and must differ from it exactly
+    when the code changed. The release rewrites the lock. It never publishes the
+    Steam Workshop item; see scripts/workshop/publish.mjs.
 
 .PARAMETER SkipBuild
     Skip the client and exe build steps (use existing release/ folder).
@@ -97,14 +101,6 @@ function Write-Ok($msg)   { Write-Host "  OK: $msg" -ForegroundColor Green }
 function Write-Skip($msg) { Write-Host "  SKIP: $msg" -ForegroundColor Yellow }
 function Write-Dry($msg)  { Write-Host "  DRY RUN: $msg" -ForegroundColor Magenta }
 function Write-Warn($msg) { Write-Host "  WARN: $msg" -ForegroundColor Yellow }
-
-function Get-NextPatchVersion($currentVersion, $label) {
-    $match = [regex]::Match([string]$currentVersion, '^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$')
-    if (-not $match.Success) {
-        throw "$label version is not a numeric SemVer: $currentVersion"
-    }
-    return "$($match.Groups['major'].Value).$($match.Groups['minor'].Value).$([int]$match.Groups['patch'].Value + 1)"
-}
 
 function Compare-SemVer($left, $right) {
     $leftParts = ([string]$left -split '\.') | ForEach-Object { [int]$_ }
@@ -250,11 +246,28 @@ function Get-ChangelogSection($changelogPath, $version) {
     return $match.Groups[1].Value.Trim("`r", "`n")
 }
 
+# Generated release notes reach gh as a file (--notes-file), never inline with
+# --notes. Windows caps a whole command line at 32,767 characters, and one
+# CHANGELOG section can come close on its own (1.4.0's is about 28K). Past the
+# cap gh cannot even start, and by then step 5 has already pushed main.
+function Write-GeneratedReleaseNotes($notes, $tagName) {
+    $notesPath = Join-Path ([System.IO.Path]::GetTempPath()) "zcp-$tagName-notes-$([guid]::NewGuid().ToString('N')).md"
+    [System.IO.File]::WriteAllText($notesPath, $notes, [System.Text.UTF8Encoding]::new($false))
+    return $notesPath
+}
+
+# One line that runs the same command again when pasted into PowerShell.
+function Format-PowerShellCommandLine($command, $arguments) {
+    $parts = @($command) + @($arguments | ForEach-Object {
+        $text = [string]$_
+        if ($text -eq "" -or $text -match '[\s''"`$;&|(){}@,<>#]') { "'" + ($text -replace "'", "''") + "'" } else { $text }
+    })
+    return $parts -join " "
+}
+
 # ============================================
 # AUTO-VERSION: Increment from current package.json if no -Version given
 # ============================================
-$versionWasProvided = -not [string]::IsNullOrWhiteSpace($Version)
-$originalPanelVersion = (Get-Content (Join-Path $RepoDir "package.json") -Raw | ConvertFrom-Json).version
 if (-not $Version) {
     $pkgContent = Get-Content (Join-Path $RepoDir "package.json") -Raw | ConvertFrom-Json
     $currentVersion = $pkgContent.version
@@ -275,16 +288,63 @@ if (-not $Version) {
 }
 
 $bridgeLuaPath = Join-Path $RepoDir "pz-mod\PanelBridge\media\lua\server\PanelBridge.lua"
-$bridgeLuaBeforeRelease = Get-Content $bridgeLuaPath -Raw
-$bridgeRuntimeMatch = [regex]::Match($bridgeLuaBeforeRelease, '(?m)^\s*VERSION\s*=\s*"([^"]+)"')
-if (-not $bridgeRuntimeMatch.Success) {
-    throw "PanelBridge runtime VERSION declaration not found"
+
+# The PanelBridge version follows its code, not the panel version. Every
+# published bridge update makes each Steam Workshop server refuse new joins
+# until it restarts, so a release whose Lua/mod.info bytes are unchanged must
+# keep the version. scripts/check-bridge-version.mjs compares the normalized
+# bytes with pz-mod/bridge-version.lock.json (written by this script at every
+# release) and owns the rules, so this script and CI can't disagree.
+$bridgeVersionCheck = Join-Path $RepoDir "scripts\check-bridge-version.mjs"
+if (-not (Test-Path $bridgeVersionCheck)) {
+    throw "PanelBridge version checker is missing: $bridgeVersionCheck"
+}
+$bridgeStateJson = & node $bridgeVersionCheck --print-json
+if ($LASTEXITCODE -ne 0) { throw "Could not read the PanelBridge version lock" }
+$bridgeState = ($bridgeStateJson | Out-String) | ConvertFrom-Json
+if (-not $bridgeState.lockVersion) {
+    throw "pz-mod\bridge-version.lock.json is missing or invalid; run: node scripts/check-bridge-version.mjs --write-lock <released PanelBridge version>"
 }
 if (-not $PanelBridgeVersion) {
-    $PanelBridgeVersion = if ($versionWasProvided -and $Version -eq $originalPanelVersion) {
-        $bridgeRuntimeMatch.Groups[1].Value
-    } else {
-        Get-NextPatchVersion $bridgeRuntimeMatch.Groups[1].Value "PanelBridge"
+    $bridgeNextOutput = & node $bridgeVersionCheck --next
+    if ($LASTEXITCODE -ne 0) { throw "Could not compute the next PanelBridge version" }
+    $PanelBridgeVersion = ([string]($bridgeNextOutput | Select-Object -Last 1)).Trim()
+} else {
+    & node $bridgeVersionCheck --validate $PanelBridgeVersion
+    if ($LASTEXITCODE -ne 0) { throw "-PanelBridgeVersion $PanelBridgeVersion is not allowed (see above)" }
+}
+if ($PanelBridgeVersion -notmatch '^\d+\.\d+\.\d+$') {
+    throw "PanelBridge version is not a numeric SemVer: $PanelBridgeVersion"
+}
+$bridgeVersionChanged = $PanelBridgeVersion -ne [string]$bridgeState.lockVersion
+$bridgePublishedPath = Join-Path $RepoDir "pz-mod\workshop\published.json"
+try {
+    $bridgePublished = Get-Content $bridgePublishedPath -Raw | ConvertFrom-Json
+} catch {
+    throw "Could not read the PanelBridge Workshop record ${bridgePublishedPath}: $($_.Exception.Message)"
+}
+$bridgeWorkshopId = [string]$bridgePublished.workshopId
+$bridgeWorkshopVersion = [string]$bridgePublished.publishedVersion
+$bridgeWorkshopVersionLabel = if ($bridgeWorkshopVersion) { "v$bridgeWorkshopVersion" } else { "an unrecorded version" }
+# Workshop servers run the published item, not the release. A publish that
+# was skipped stays owed through later releases that don't move the bridge
+# version, so the reminder follows published.json, not just this release.
+$bridgeWorkshopBehind = $bridgeWorkshopId -and $bridgeWorkshopVersion -ne $PanelBridgeVersion
+if ($bridgeVersionChanged) {
+    # node, not npm run: npm echoes the whole command line, so a password
+    # typed after the account would reach the screen before publish.mjs could
+    # refuse it without showing it.
+    Write-Host "  PanelBridge changed -> v$PanelBridgeVersion. Workshop servers get it only after you publish: node scripts/workshop/publish.mjs --steam-user <account>" -ForegroundColor Magenta
+    # With no pinned item id yet, the first publish goes through the in-game
+    # uploader instead (spec path B): it validates the preview image and sets
+    # the tags, which steamcmd may not.
+    if (-not $bridgeWorkshopId) {
+        Write-Host "  The item has no Workshop id yet, so do this first publish with the in-game uploader instead (steps at the end of this run)" -ForegroundColor Magenta
+    }
+} else {
+    Write-Host "  PanelBridge unchanged, keeping $PanelBridgeVersion" -ForegroundColor Magenta
+    if ($bridgeWorkshopBehind) {
+        Write-Host "  The Steam Workshop item is at $bridgeWorkshopVersionLabel, not v${PanelBridgeVersion}: publish it (see the end of this run)" -ForegroundColor Yellow
     }
 }
 
@@ -319,9 +379,13 @@ Write-Step "0/6" "Pre-flight checks"
 Push-Location $RepoDir
 try {
     $gitStatus = git status --porcelain 2>$null
-    $currentBranch = (git branch --show-current 2>$null).Trim()
-    $upstreamBranch = (git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>$null).Trim()
-    $headCommit = (git rev-parse HEAD 2>$null).Trim()
+    # Interpolated first: git prints nothing for a branch without an upstream
+    # (any feature branch a dry run is tried on) or a detached HEAD, and
+    # .Trim() on that empty result (null even through a [string] cast) would
+    # abort the dry run instead of reaching the checks below.
+    $currentBranch = "$(git branch --show-current 2>$null)".Trim()
+    $upstreamBranch = "$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>$null)".Trim()
+    $headCommit = "$(git rev-parse HEAD 2>$null)".Trim()
     $originMainCommit = $null
     $existingRemoteTag = @()
     if (-not $DryRun -and -not $SkipGitHub) {
@@ -502,27 +566,59 @@ if (-not (Test-Path $bridgeModInfoPath)) {
     throw "PanelBridge manifest not found: $bridgeModInfoPath"
 }
 $bridgeLuaContent = Get-Content $bridgeLuaPath -Raw
+$bridgeModInfoContent = Get-Content $bridgeModInfoPath -Raw
 $bridgeHeaderPattern = '(?m)^    Version:\s*[^\r\n]+'
 $bridgeRuntimePattern = '(?m)^    VERSION\s*=\s*"[^"]+"'
 $bridgeModVersionPattern = '(?m)^modversion=[^\r\n]+'
-if ([regex]::Matches($bridgeLuaContent, $bridgeHeaderPattern).Count -ne 1 -or
-    [regex]::Matches($bridgeLuaContent, $bridgeRuntimePattern).Count -ne 1 -or
-    [regex]::Matches((Get-Content $bridgeModInfoPath -Raw), $bridgeModVersionPattern).Count -ne 1) {
+# Unreleased bridge changes are described under "vNEXT Changes:" in the Lua
+# header (feature branches never bump VERSION); the release names the block.
+$bridgeNextChangesPattern = '(?m)^(\s*)vNEXT Changes:'
+$bridgeHeaderMatches = [regex]::Matches($bridgeLuaContent, $bridgeHeaderPattern)
+$bridgeRuntimeMatches = [regex]::Matches($bridgeLuaContent, $bridgeRuntimePattern)
+$bridgeModVersionMatches = [regex]::Matches($bridgeModInfoContent, $bridgeModVersionPattern)
+if ($bridgeHeaderMatches.Count -ne 1 -or $bridgeRuntimeMatches.Count -ne 1 -or $bridgeModVersionMatches.Count -ne 1) {
     throw "Expected exactly one PanelBridge header, runtime, and manifest version"
 }
-$newBridgeLuaContent = $bridgeLuaContent -replace $bridgeHeaderPattern, "    Version: $PanelBridgeVersion"
+$bridgeHeaderReplacement = "    Version: $PanelBridgeVersion"
 $bridgeRuntimeReplacement = '    VERSION = "' + $PanelBridgeVersion + '"'
-$newBridgeLuaContent = $newBridgeLuaContent -replace $bridgeRuntimePattern, $bridgeRuntimeReplacement
-$newBridgeModInfoContent = (Get-Content $bridgeModInfoPath -Raw) -replace $bridgeModVersionPattern, "modversion=$PanelBridgeVersion"
-if ($DryRun) {
-    Write-Dry "Would update PanelBridge to $PanelBridgeVersion in Lua and mod.info"
+$bridgeModVersionReplacement = "modversion=$PanelBridgeVersion"
+# Rewrite only when a declaration actually moves: rewriting unchanged files
+# would still churn their bytes (line endings, BOM) for a no-op release.
+$bridgeNeedsRewrite = $bridgeHeaderMatches[0].Value.TrimEnd() -ne $bridgeHeaderReplacement -or
+    $bridgeRuntimeMatches[0].Value -ne $bridgeRuntimeReplacement -or
+    $bridgeModVersionMatches[0].Value.TrimEnd() -ne $bridgeModVersionReplacement -or
+    [regex]::IsMatch($bridgeLuaContent, $bridgeNextChangesPattern)
+if (-not $bridgeNeedsRewrite) {
+    Write-Ok "PanelBridge Lua and mod.info already declare $PanelBridgeVersion; left untouched"
 } else {
-    [System.IO.File]::WriteAllText($bridgeLuaPath, $newBridgeLuaContent, [System.Text.UTF8Encoding]::new($false))
-    [System.IO.File]::WriteAllText($bridgeModInfoPath, $newBridgeModInfoContent, [System.Text.UTF8Encoding]::new($false))
-    Write-Ok "Updated PanelBridge Lua and mod.info to $PanelBridgeVersion"
+    $newBridgeLuaContent = $bridgeLuaContent -replace $bridgeHeaderPattern, $bridgeHeaderReplacement
+    $newBridgeLuaContent = $newBridgeLuaContent -replace $bridgeRuntimePattern, $bridgeRuntimeReplacement
+    $newBridgeLuaContent = [regex]::Replace($newBridgeLuaContent, $bridgeNextChangesPattern, "`${1}v$PanelBridgeVersion Changes:")
+    $newBridgeModInfoContent = $bridgeModInfoContent -replace $bridgeModVersionPattern, $bridgeModVersionReplacement
+    if ($DryRun) {
+        Write-Dry "Would update PanelBridge to $PanelBridgeVersion in Lua and mod.info"
+    } else {
+        [System.IO.File]::WriteAllText($bridgeLuaPath, $newBridgeLuaContent, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText($bridgeModInfoPath, $newBridgeModInfoContent, [System.Text.UTF8Encoding]::new($false))
+        Write-Ok "Updated PanelBridge Lua and mod.info to $PanelBridgeVersion"
+    }
+}
+
+$bridgeWorkshopCheck = Join-Path $RepoDir "scripts\workshop\build-item.mjs"
+if ($DryRun) {
+    Write-Dry "Would run: node scripts/check-bridge-version.mjs --write-lock $PanelBridgeVersion"
+} else {
     Assert-ReleaseVersionParity $Version $PanelBridgeVersion
     Write-Ok "All package, lockfile, and PanelBridge versions are synchronized"
+    & node $bridgeVersionCheck --write-lock $PanelBridgeVersion
+    if ($LASTEXITCODE -ne 0) { throw "Could not write pz-mod\bridge-version.lock.json" }
+    Write-Ok "PanelBridge version lock records $PanelBridgeVersion"
 }
+# Read-only, so a dry run runs it too: it previews what the real release would
+# reject (in a dry run, against the files before the version rewrite).
+& node $bridgeWorkshopCheck --check
+if ($LASTEXITCODE -ne 0) { throw "PanelBridge Steam Workshop item check failed" }
+Write-Ok "PanelBridge Steam Workshop item passes its checks"
 
 # ============================================
 # STEP 2: Build client
@@ -718,6 +814,10 @@ if ($SkipGitHub) {
     Push-Location $RepoDir
     try {
         git add -u
+        # Named explicitly: -u only stages files git already tracks, and the
+        # release commit must carry the lock describing the bridge it ships.
+        git add -- "pz-mod/bridge-version.lock.json"
+        if ($LASTEXITCODE -ne 0) { throw "Could not stage pz-mod/bridge-version.lock.json" }
 
         # Check if there are changes to commit
         $status = git status --porcelain
@@ -744,6 +844,7 @@ if ($SkipGitHub) {
 # ============================================
 Write-Step "6/6" "Creating GitHub Release $TagName"
 
+$githubReleaseFailed = $false
 if ($SkipGitHub) {
     Write-Skip "GitHub release skipped (-SkipGitHub)"
 } elseif ($DryRun) {
@@ -779,7 +880,8 @@ if ($SkipGitHub) {
         "--target", $releaseCommit
     )
 
-    # Add release notes
+    # Add release notes, always as a file (see Write-GeneratedReleaseNotes)
+    $generatedNotesFile = $null
     if ($ReleaseNotes -and (Test-Path $ReleaseNotes)) {
         $ghArgs += "--notes-file"
         $ghArgs += $ReleaseNotes
@@ -801,8 +903,9 @@ if ($SkipGitHub) {
             if ($lastTag -and $lastTag -ne $TagName) {
                 $autoNotes += "`n**Full Changelog**: https://github.com/$GitHubRepo/compare/$lastTag...$TagName`n"
             }
-            $ghArgs += "--notes"
-            $ghArgs += $autoNotes
+            $generatedNotesFile = Write-GeneratedReleaseNotes $autoNotes $TagName
+            $ghArgs += "--notes-file"
+            $ghArgs += $generatedNotesFile
         } elseif ($lastTag -and $lastTag -ne $TagName) {
             # Fallback: CHANGELOG.md has no section for this version (STEP 0
             # normally prevents this) -- auto-generate Keep a Changelog format
@@ -880,8 +983,9 @@ if ($SkipGitHub) {
             $autoNotes += "- **ZomboidControlPanel-windows.zip** $emdash Windows full package (extract and run Start.bat)`n"
             $autoNotes += "- **ZomboidControlPanel-linux.tar.gz** $emdash Linux full package (extract and run ./start.sh)`n"
             $autoNotes += "- **checksums.txt** $emdash SHA256 verification hashes`n"
-            $ghArgs += "--notes"
-            $ghArgs += $autoNotes
+            $generatedNotesFile = Write-GeneratedReleaseNotes $autoNotes $TagName
+            $ghArgs += "--notes-file"
+            $ghArgs += $generatedNotesFile
         } else {
             $ghArgs += "--generate-notes"
         }
@@ -890,12 +994,30 @@ if ($SkipGitHub) {
     # Add release assets
     $ghArgs += $assetPaths
 
-    & gh @ghArgs
+    # main is already pushed at this point, so a failure here has to end in
+    # the exact command that finishes the release. A gh that can't start (not
+    # installed, or a command line Windows refuses) throws under
+    # ErrorActionPreference=Stop instead of setting $LASTEXITCODE.
+    $ghFailure = $null
+    try {
+        & gh @ghArgs
+        if ($LASTEXITCODE -ne 0) { $ghFailure = "gh exited with code $LASTEXITCODE" }
+    } catch {
+        $ghFailure = $_.Exception.Message
+    }
 
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "GitHub release creation failed. You can retry with:"
-        Write-Host "  gh release create $TagName --repo $GitHubRepo --title `"$ReleaseTitle`" --prerelease <asset paths>" -ForegroundColor Yellow
+    if ($ghFailure) {
+        $githubReleaseFailed = $true
+        Write-Warning "GitHub release creation failed: $ghFailure"
+        Write-Host "  main already has the release commit. Create the release with:" -ForegroundColor Yellow
+        Write-Host "  $(Format-PowerShellCommandLine 'gh' $ghArgs)" -ForegroundColor Yellow
+        if ($generatedNotesFile) {
+            Write-Host "  (the release notes stay in $generatedNotesFile for that command)" -ForegroundColor Yellow
+        }
     } else {
+        if ($generatedNotesFile) {
+            Remove-Item -LiteralPath $generatedNotesFile -Force -ErrorAction SilentlyContinue
+        }
         Write-Ok "GitHub Release $TagName created with all assets uploaded"
     }
 }
@@ -903,10 +1025,15 @@ if ($SkipGitHub) {
 # ============================================
 # DONE
 # ============================================
+$doneColor = if ($githubReleaseFailed) { "Yellow" } else { "Green" }
 Write-Host ""
-Write-Host "============================================" -ForegroundColor Green
-Write-Host " Release $TagName complete!" -ForegroundColor Green
-Write-Host "============================================" -ForegroundColor Green
+Write-Host "============================================" -ForegroundColor $doneColor
+if ($githubReleaseFailed) {
+    Write-Host " Release $TagName is pushed, but has no GitHub Release yet" -ForegroundColor Yellow
+} else {
+    Write-Host " Release $TagName complete!" -ForegroundColor Green
+}
+Write-Host "============================================" -ForegroundColor $doneColor
 Write-Host ""
 Write-Host " Checklist:" -ForegroundColor White
 Write-Host "   [x] Pre-flight checks passed" -ForegroundColor Green
@@ -915,8 +1042,34 @@ if (-not $SkipBuild)  { Write-Host "   [x] Windows + Linux binaries created" -Fo
 if (-not $SkipBuild)  { Write-Host "   [x] Windows + Linux archives packaged" -ForegroundColor Green }
 if (-not $SkipDocker) { Write-Host "   [x] Docker image built" -ForegroundColor Green }
 if (-not $SkipGitHub) { Write-Host "   [x] Pushed to GitHub" -ForegroundColor Green }
-if (-not $SkipGitHub) { Write-Host "   [x] GitHub Release created (Keep a Changelog format)" -ForegroundColor Green }
+if ($githubReleaseFailed) {
+    Write-Host "   [ ] GitHub Release not created: run the gh command printed in step 6" -ForegroundColor Yellow
+} elseif (-not $SkipGitHub) {
+    Write-Host "   [x] GitHub Release created (Keep a Changelog format)" -ForegroundColor Green
+}
+if ($bridgeWorkshopBehind) {
+    Write-Host "   [ ] PanelBridge v$PanelBridgeVersion is not on the Steam Workshop yet (the item is at $bridgeWorkshopVersionLabel). Publish it from this tagged tree:" -ForegroundColor Yellow
+    Write-Host "       node scripts/workshop/publish.mjs --steam-user <account>, then commit pz-mod/workshop/published.json" -ForegroundColor Yellow
+} elseif ($bridgeVersionChanged -and -not $bridgeWorkshopId) {
+    # The staged copy stays in the game's Workshop folder after the upload,
+    # and with Steam on the engine loads staged items ahead of the Workshop
+    # downloads (see stagedCopyWarning in scripts/workshop/lib.mjs). A push to
+    # main that touches pz-mod/ republishes the aio Docker image, so a new
+    # item id waits for the live test.
+    Write-Host "   [ ] PanelBridge v$PanelBridgeVersion is not on the Steam Workshop yet, and the item has never been published." -ForegroundColor Yellow
+    Write-Host "       First publish, from this tagged tree, with the in-game uploader:" -ForegroundColor Yellow
+    Write-Host "       1. npm run workshop:build -- --out ~/Zomboid/Workshop" -ForegroundColor Yellow
+    Write-Host "       2. In Project Zomboid: Workshop > Upload, pick ZCPB, submit and confirm the upload warning" -ForegroundColor Yellow
+    Write-Host "       3. node scripts/workshop/publish.mjs record --from-staged ~/Zomboid/Workshop/ZCPB --visibility unlisted" -ForegroundColor Yellow
+    Write-Host "       4. Move ~/Zomboid/Workshop/ZCPB out of ~/Zomboid/Workshop before testing on this machine." -ForegroundColor Yellow
+    Write-Host "          While it is there, the game and any Steam-mode server that uses this Zomboid folder load that staged copy" -ForegroundColor Yellow
+    Write-Host "          instead of the downloaded Workshop item, now and after every later publish. To upload in-game again," -ForegroundColor Yellow
+    Write-Host "          recreate it with its id: npm run workshop:build -- --out ~/Zomboid/Workshop" -ForegroundColor Yellow
+    Write-Host "       5. Run the live test with the recorded pz-mod/workshop/published.json, then commit it" -ForegroundColor Yellow
+    Write-Host "          (a push to main that touches pz-mod/ republishes the aio Docker image with this item id)" -ForegroundColor Yellow
+}
 Write-Host ""
 Write-Host " Note: live deployment to production (Docker on the game host) is" -ForegroundColor DarkGray
 Write-Host " a separate manual step, not part of this script." -ForegroundColor DarkGray
 Write-Host ""
+if ($githubReleaseFailed) { exit 1 }

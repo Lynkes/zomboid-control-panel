@@ -4,6 +4,7 @@ import { createWriteStream } from "fs";
 import archiver from "archiver";
 import { createReadStream } from "fs";
 import { crc32 } from "zlib";
+import { randomUUID } from "crypto";
 import { createLogger } from "../utils/logger.js";
 import { escapeRegExp } from "../utils/regex.js";
 import { isPidAlive } from "../utils/pidLiveness.js";
@@ -18,13 +19,22 @@ import {
   flushWrites,
 } from "../database/init.js";
 import { sanitizeError } from "../utils/sanitize.js";
+import {
+  RESTORE_ROLLBACK_FAILED_PREFIX,
+  publicRestoreMessage,
+} from "../utils/restoreMessage.js";
 import { captureBackupSnapshot } from "../utils/backupSnapshot.js";
-import { addBackupRecord, removeBackupRecord } from "./backupRecords.js";
+import {
+  addBackupRecord,
+  listBackupRecords,
+  removeBackupRecord,
+} from "./backupRecords.js";
 import { invalidateMapFolderScan } from "../routes/chunks.js";
 import {
   isCronTooFrequent,
   isSupportedFiveFieldCron,
 } from "../utils/cronValidation.js";
+import { LEGACY_RESTART_SKIP_MESSAGE } from "../utils/backupRestartOverlap.js";
 
 // Dynamic import for unzipper (CommonJS module)
 let unzipper;
@@ -34,6 +44,11 @@ async function getUnzipper() {
   }
   return unzipper;
 }
+
+// The shape a page may pick for its own restore's id (see restoreBackup()'s
+// currentRestore/lastRestore comment) -- anything else gets a server-made
+// one. It is echoed back in GET /backup/status, so it stays short and plain.
+const RESTORE_REQUEST_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 
 async function* walkDirectory(rootDir) {
   const pending = [{ dirPath: rootDir, archivePath: "", isRoot: true }];
@@ -312,6 +327,10 @@ export class BackupService {
   constructor() {
     this.backupInProgress = false;
     this.restoreInProgress = false;
+    // The restore running right now and the one that ran last, as
+    // restoreBackup() records them -- see that method's comment.
+    this.currentRestore = null;
+    this.lastRestore = null;
     this.lastBackup = null;
     this.backupHistory = [];
     this.discordBot = null;
@@ -1414,10 +1433,40 @@ export class BackupService {
       ? await getLatestScheduleExecutionByCommand("backup")
       : null;
 
+    // A failed scheduled attempt stops being a live problem the moment ANY
+    // backup succeeds after it -- a manual "Create Backup", a pre-restore
+    // safety backup, or a later scheduled run. Before this, only the next
+    // successful SCHEDULED run could clear the warning: manual backups never
+    // write Schedule History, so "try doing a backup" (the obvious advice,
+    // and the maintainer's, in the 2026-09-27 Discord report) left
+    // "Scheduled backup failing" on the Dashboard regardless. Read from the
+    // persisted backup records rather than lastBackup: a record is written
+    // only when createBackup() itself succeeds, whereas lastBackup can come
+    // from a listing whose newest file was merely uploaded (its timestamp
+    // says nothing about when the world was last actually backed up).
+    let recoveredAt = null;
+    if (lastScheduledAttempt && !lastScheduledAttempt.success) {
+      try {
+        const [newest] = await listBackupRecords({
+          serverId: lastScheduledAttempt.server_id ?? undefined,
+          limit: 1,
+        });
+        const failedAt = Date.parse(lastScheduledAttempt.executed_at);
+        const createdAt = Date.parse(newest?.createdAt);
+        if (Number.isFinite(failedAt) && Number.isFinite(createdAt) && createdAt > failedAt) {
+          recoveredAt = newest.createdAt;
+        }
+      } catch (error) {
+        log.debug(`Could not read backup records for the scheduled-attempt status: ${error.message}`);
+      }
+    }
+
     return {
       ...settings,
       backupInProgress: this.backupInProgress,
       restoreInProgress: this.restoreInProgress || false,
+      currentRestore: this.currentRestore,
+      lastRestore: this.lastRestore,
       lastBackup: this.lastBackup,
       backupCount: backups.length,
       savesPath,
@@ -1427,7 +1476,24 @@ export class BackupService {
         ? {
             success: !!lastScheduledAttempt.success,
             message: lastScheduledAttempt.message,
+            // Set when `message` is the panel's own prose (a backup given up
+            // on because a restart looked stuck -- see logScheduleExecution),
+            // so the page renders it translated; null for raw errors, and
+            // for rows written before the key existed.
+            messageKey: lastScheduledAttempt.message_key ?? null,
+            messageParams: lastScheduledAttempt.message_params ?? null,
             executedAt: lastScheduledAttempt.executed_at,
+            // 'restart' for the pre-deferral "skipped, a restart was in
+            // progress" rows (see LEGACY_RESTART_SKIP_MESSAGE) -- not a
+            // backup that broke, and the UI words it that way. Current code
+            // never writes a skip: it holds the backup until the restart
+            // ends (scheduler.js _onScheduledBackupTick()).
+            skipReason:
+              !lastScheduledAttempt.success &&
+              lastScheduledAttempt.message === LEGACY_RESTART_SKIP_MESSAGE
+                ? "restart"
+                : null,
+            recoveredAt,
           }
         : null,
     };
@@ -1478,10 +1544,67 @@ export class BackupService {
     // success:true and no error anywhere. Confirmed empirically (two
     // concurrent calls, force !== true, an artificial delay inside
     // getServerProcessDetails to widen the window), not just reasoned
-    // about -- bug-hunt-2026-08-27, backup-restore hunt. Every early return
-    // below now happens inside the try/finally so the flag is still always
-    // released, same as the pre-restore-backup-failure path already was.
+    // about -- bug-hunt-2026-08-27, backup-restore hunt. Every return in
+    // _runRestore() happens inside the try/finally below, so the flag is
+    // always released, same as the pre-restore-backup-failure path already
+    // was.
     this.restoreInProgress = true;
+    // GH#166: the HTTP response to POST /restore/:name used to be the only
+    // place a restore's outcome existed. A restore that outlived that
+    // request (a big world past the client's timeout, a reverse proxy
+    // cutting a long request, the browser's connection dropping, the
+    // operator navigating away) had no outcome anyone could read back, and
+    // a page that had only SEEN the restore running (another tab, a reload)
+    // could never learn it ended. GET /backup/status now carries both: the
+    // restore running right now, and how the last one ended -- set before
+    // restoreInProgress clears, so a status read that sees the flag down
+    // always sees the outcome with it. `id` is the requesting page's own
+    // requestId when it sent a well-formed one, which is how that page
+    // tells its own outcome from another restore's. `preRestoreBackup`
+    // says whether this restore backed the replaced world up first (both
+    // panel pages always ask for it, an API caller may not), so a page
+    // that only watched it never claims a safety backup that isn't there.
+    // 'restore:finished' is the push for the same moment: sent once both
+    // are recorded, where restore:progress's own 'complete'/'error' fire
+    // from inside the restore, before the flag is down (and not at all for
+    // a refusal). It carries the id alone: it goes to every signed-in
+    // socket, backup capability or not, and a rollback failure's message
+    // names a host path (see publicRestoreMessage()) -- pages read the
+    // outcome from GET /backup/status, which is capability-gated.
+    const restore = {
+      id:
+        typeof options.requestId === "string" &&
+        RESTORE_REQUEST_ID_RE.test(options.requestId)
+          ? options.requestId
+          : randomUUID(),
+      backupName: path.basename(String(backupName ?? "")),
+      startedAt: new Date().toISOString(),
+      preRestoreBackup: options.createPreRestoreBackup !== false,
+    };
+    this.currentRestore = restore;
+    let result = null;
+    try {
+      result = await this._runRestore(backupName, options);
+      return result;
+    } finally {
+      this.lastRestore = {
+        ...restore,
+        finishedAt: new Date().toISOString(),
+        success: result?.success === true,
+        message:
+          result?.success === true
+            ? null
+            : publicRestoreMessage(result?.message ?? "Restore failed unexpectedly"),
+        duration: typeof result?.duration === "number" ? result.duration : null,
+      };
+      this.currentRestore = null;
+      this.restoreInProgress = false;
+      options.io?.emit("restore:finished", { id: restore.id });
+    }
+  }
+
+  // restoreBackup()'s body, run only while it holds restoreInProgress.
+  async _runRestore(backupName, options) {
     const startTime = Date.now();
     let stagingPath = null;
     const io = options.io; // Socket.IO for progress updates
@@ -1821,7 +1944,7 @@ export class BackupService {
               `Restore rollback failed - previous save is at ${retiredPath}: ${rollbackError.message}`,
             );
             throw new Error(
-              `Restore failed and the previous save could not be put back automatically. It is preserved at ${retiredPath}.`,
+              `${RESTORE_ROLLBACK_FAILED_PREFIX} It is preserved at ${retiredPath}.`,
             );
           }
         }
@@ -1881,9 +2004,10 @@ export class BackupService {
       return { success: false, message: error.message };
     } finally {
       // try/finally (not manual resets at each return) so this always runs,
-      // including the early return above when the pre-restore backup fails —
-      // that path used to leak the flag permanently, locking out all future
-      // restores until the process was restarted.
+      // including the early return above when the pre-restore backup fails.
+      // restoreInProgress itself is released by restoreBackup()'s own
+      // finally -- that path used to leak the flag permanently, locking out
+      // all future restores until the process was restarted.
       if (stagingPath) {
         try {
           fs.rmSync(stagingPath, { recursive: true, force: true });
@@ -1893,7 +2017,6 @@ export class BackupService {
           );
         }
       }
-      this.restoreInProgress = false;
     }
   }
 

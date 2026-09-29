@@ -1,6 +1,10 @@
 -- PanelBridge client companion for effects that the dedicated server cannot
 -- reliably replicate through its own Lua API.
 
+-- Runs only in a multiplayer client session: mod Lua reloads after ConnectionManager sets
+-- GameClient.client=true. The dedicated server hashes media/lua/client but never runs it.
+if not (isClient and isClient()) then return end
+
 local function sendTeleportAck(requestId, status, x, y, z, errorMessage)
     if not sendClientCommand then return end
     pcall(function()

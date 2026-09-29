@@ -43,15 +43,12 @@ async function runRoute(routePath, method, req, res) {
 // requireRole("admin") guard every other privileged PanelBridge route has
 // (see /sftp/*, /command).
 describe("PanelBridge mod-install routes require admin", () => {
-  it("rejects POST /install-local for a non-admin authenticated user", async () => {
-    const response = createResponse();
-    await runRoute(
-      "/install-local",
-      "post",
-      { body: {}, user: { role: "viewer" } },
-      response,
-    );
-    expect(response.status).toHaveBeenCalledWith(403);
+  // PanelBridge delivery: /install-local (no client caller) and /install-mod
+  // (an arbitrary-folder writer that could not respect a server's delivery
+  // method) were removed; /install-mod-auto is the one manual install route.
+  it("POST /install-local and POST /install-mod no longer exist", () => {
+    expect(getLayer("/install-local", "post")).toBeUndefined();
+    expect(getLayer("/install-mod", "post")).toBeUndefined();
   });
 
   it("rejects POST /install-mod-auto for a non-admin authenticated user", async () => {
@@ -86,16 +83,5 @@ describe("PanelBridge mod-install routes require admin", () => {
       error: expect.stringMatching(/remote servers.*SFTP/i),
       code: "PANELBRIDGE_INSTALL_REMOTE_NOT_AVAILABLE",
     });
-  });
-
-  it("rejects POST /install-mod for a non-admin authenticated user", async () => {
-    const response = createResponse();
-    await runRoute(
-      "/install-mod",
-      "post",
-      { body: {}, user: { role: "viewer" } },
-      response,
-    );
-    expect(response.status).toHaveBeenCalledWith(403);
   });
 });

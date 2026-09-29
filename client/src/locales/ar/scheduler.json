@@ -272,6 +272,8 @@
     "backupHealthTitle": "صحة جدولة النسخ الاحتياطي",
     "backupLastAttemptOk": "نجحت آخر محاولة · {{date}}",
     "backupLastAttemptFailed": "فشلت آخر محاولة · {{date}} — {{reason}}",
+    "backupLastAttemptSkippedForRestart": "تم تخطي آخر محاولة بسبب إعادة تشغيل · {{date}}",
+    "backupRecoveredSince": "نجحت نسخة احتياطية منذ ذلك الحين · {{date}}",
     "backupNoAttemptYet": "لم تُنفَّذ أي نسخة احتياطية مجدولة بعد",
     "backupNextRun": "التشغيل التالي · {{date}}",
     "savedDesc": "تعمل الجداول الآن بتوقيت {{tz}}.",
@@ -295,7 +297,8 @@
       "fr": "الفرنسية",
       "de": "الألمانية",
       "es": "الإسبانية",
-      "ht": "الكريولية الهايتية"
+      "ht": "الكريولية الهايتية",
+      "pt-BR": "البرتغالية (البرازيل)"
     }
   },
   "toasts": {

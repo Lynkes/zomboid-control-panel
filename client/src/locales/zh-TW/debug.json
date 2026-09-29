@@ -109,8 +109,10 @@
       "note": "在伺服器設定中設定 RCON 密碼（並在設定中填入相同的值）。"
     },
     "serverBridgeMod": {
-      "label": "開啟伺服器查詢器",
-      "note": "通過伺服器查詢器重新部署 PanelBridge 模組。"
+      "label": "開啟「設定 › PanelBridge」",
+      "note": "在「設定 › PanelBridge」中安裝。",
+      "noteWorkshopNotDownloaded": "啟動伺服器，讓它從 Steam 創意工坊下載 PanelBridge。「設定 › PanelBridge」會顯示它是否已載入，也可以把伺服器切換回由面板安裝。",
+      "noteLooseLeftover": "從面板啟動或重新啟動伺服器即可將其移出。「設定 › PanelBridge」中也會列出這些檔案。"
     },
     "serverConfigDrift": {
       "label": "開啟伺服器設定",
@@ -146,8 +148,8 @@
       "note": "將面板指向活動伺服器的PanelBridge 資料夾並啟動監視器。之後遊戲伺服器必須在安裝了 PanelBridge.lua 的情況下執行。"
     },
     "bridgeWritableOrHeartbeat": {
-      "label": "開啟伺服器查詢器",
-      "note": "重新部署 PanelBridge，確保伺服器正在執行，並檢查PanelBridge 資料夾的寫入權限。"
+      "label": "開啟「設定 › PanelBridge」",
+      "note": "在「設定 › PanelBridge」中檢查 PanelBridge 資料夾以及面板能否寫入該資料夾，確保伺服器正在執行，然後查看「PanelBridge 安裝方式」，了解此伺服器如何取得 PanelBridge。"
     },
     "dbExistsOrWritable": {
       "label": "開啟設定",
@@ -385,6 +387,18 @@
             "notFound": {
               "label": "找不到啟動指令碼",
               "message": "安裝路徑中沒有 {{pattern}}。無法從面板啟動伺服器。"
+            },
+            "notWrittenYet": {
+              "label": "啟動指令碼尚未寫入",
+              "message": "安裝資料夾中還沒有 {{script}}。面板會在每次啟動前根據此伺服器的設定寫入它。",
+              "hint": "首次啟動前無需任何操作。如果之後啟動因缺少該指令碼而失敗，請檢查面板能否寫入安裝資料夾。"
+            }
+          },
+          "fail": {
+            "folderNotWritable": {
+              "label": "缺少啟動指令碼",
+              "message": "安裝資料夾中沒有 {{script}}，且面板無法寫入該資料夾。在面板能夠寫入之前，每次啟動都會因錯誤而中止。",
+              "hint": "為面板所用的帳戶授予安裝資料夾的寫入權限（Docker 下請檢查 PUID/PGID），或在「伺服器 → 編輯」中將此伺服器指向面板可以寫入的資料夾。"
             }
           },
           "ok": {
@@ -434,12 +448,26 @@
         "bridgeMod": {
           "ok": {
             "label": "PanelBridge 模組已就緒",
-            "message": "PanelBridge.lua 已部署在伺服器上。"
+            "message": "PanelBridge.lua 已部署在伺服器上。",
+            "workshop": {
+              "label": "PanelBridge 創意工坊項目已就緒",
+              "message": "已從 Steam 創意工坊下載 PanelBridge v{{version}}。"
+            }
           },
           "warn": {
             "label": "未檢測到 PanelBridge 模組",
             "message": "在伺服器中找不到 PanelBridge.lua。高階功能（傳送、天氣、角色匯出）將無法使用。",
-            "hint": "將 pz-mod/PanelBridge 複製到伺服器的 media/lua/server 資料夾中"
+            "hint": "可在「設定 › PanelBridge」中安裝",
+            "workshopNotDownloaded": {
+              "label": "PanelBridge 尚未下載",
+              "message": "此伺服器從 Steam 創意工坊取得 PanelBridge，但尚未下載。",
+              "hint": "啟動伺服器。如果無法啟動，查看「設定 › PanelBridge」。"
+            },
+            "looseLeftover": {
+              "label": "遊戲資料夾中有舊的 PanelBridge 檔案",
+              "message": "仍在遊戲資料夾中：{{files}}。開啟 Lua 完整性檢查後，玩家將被拒絕加入。",
+              "hint": "從面板啟動或重新啟動伺服器即可將其移出。"
+            }
           }
         },
         "recentCrash": {
@@ -913,8 +941,8 @@
             },
             "never": {
               "label": "沒有模組心跳訊號",
-              "message": "status.json 從未被寫入。模組未在伺服器上載入。",
-              "hint": "確認 PanelBridge 在伺服器的模組列表和 Workshop 訂閱中"
+              "message": "status.json 尚未寫入。",
+              "hint": "世界載入完成後 PanelBridge 才會回報。如果一直沒有回報，請查看「設定 › PanelBridge」中的「PanelBridge 安裝方式」。"
             }
           }
         },
@@ -1141,7 +1169,7 @@
             "warn": {
               "label": "模組未連線",
               "message": "PanelBridge 正在執行，但遊戲內模組尚未寫入 status.json。玩家、載具和安全屋將不會顯示。",
-              "hint": "啟動 PZ 伺服器，並確認 PanelBridge 模組在活動模組列表中。"
+              "hint": "啟動 PZ 伺服器。如果世界載入完成後 PanelBridge 仍沒有回報，請查看「設定 › PanelBridge」中的「PanelBridge 安裝方式」。"
             }
           },
           "heartbeat": {

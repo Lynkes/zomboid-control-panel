@@ -57,6 +57,21 @@ function mapBrowserLanguage(raw: string | null | undefined): SupportedLanguage |
   ) {
     return 'zh-CN'
   }
+  // Portuguese: pt-BR is the only Portuguese locale, so every Portuguese tag
+  // resolves to it -- bare pt, pt-PT, the African variants (pt-AO, pt-MZ,
+  // ...), and any casing of pt-br (the exact match above is case-sensitive).
+  // This has to live here in the first pass, like zh-* above, rather than be
+  // left to the bare-subtag fallback in detectInitialLanguage(): that
+  // fallback only accepts a bare subtag that is itself a registered code,
+  // and 'pt' is not one (the row is 'pt-BR'), so a browser reporting
+  // ['pt-PT', 'pt', 'en-US', 'en'] would reach 'en' first and land on
+  // English. A tag that merely starts with the letters "pt" (another
+  // language's 3-letter code) is not Portuguese, hence the exact 'pt' /
+  // 'pt-' match. Checked against the offered list so a pt-BR row flagged
+  // hidden again is still honoured (see LanguageDef.hidden).
+  if (lower === 'pt' || lower.startsWith('pt-')) {
+    return isSupportedLanguage('pt-BR') ? 'pt-BR' : null
+  }
   return null
 }
 
@@ -81,7 +96,7 @@ export function detectInitialLanguage(): SupportedLanguage {
     if (mapped) return mapped
   }
   // Second pass, bare-subtag fallback: mapBrowserLanguage() above only
-  // exact-matches a full tag or special-cases zh-*, so a browser reporting
+  // exact-matches a full tag or special-cases zh-* and pt-*, so a browser reporting
   // a region-qualified tag with no exact/zh match (fr-FR, de-DE, es-ES,
   // ht-HT, or a real ar-PS/ar-EG/ar-SA once Arabic is registered -- see
   // rtl-and-new-languages) fell straight through to English. This restores

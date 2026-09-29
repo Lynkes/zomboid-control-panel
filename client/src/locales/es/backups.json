@@ -43,7 +43,13 @@
     "runsSchedule": "Se ejecuta {{schedule}} · conservar {{count}}",
     "noScheduled": "No hay copias de seguridad programadas",
     "toggleAria": "Alternar copias de seguridad programadas",
-    "lastScheduledAttemptFailed": "El último intento programado falló ({{time}}): {{message}}"
+    "lastScheduledAttemptFailed": "El último intento programado falló ({{time}}): {{message}}",
+    "deferredForRestart": "Pendiente desde {{time}}: esperando a que termine el reinicio del servidor",
+    "lastScheduledSkippedForRestart": "Última copia de seguridad programada omitida por un reinicio ({{time}})"
+  },
+  "scheduledAttempt": {
+    "restartStuck": "No se ejecutó: el reinicio del servidor llevaba {{minutes}} min en curso (aviso de {{warningMinutes}} min) sin terminar, mucho más de lo que tarda un reinicio, así que parecía atascado, y las copias de seguridad manuales estuvieron bloqueadas mientras duró. Si todavía parece haber un reinicio en curso, comprueba si el servidor de juego volvió a arrancar y luego reinicia el panel para desbloquearlo. Crear una copia de seguridad después también quita el aviso de copia de seguridad fallida.",
+    "restartStuckSinceDue": "No se ejecutó: el reinicio del servidor que estaba en curso cuando tocaba esta copia de seguridad seguía sin terminar {{minutes}} min después, mucho más de lo que tarda un reinicio, así que parecía atascado, y las copias de seguridad manuales estuvieron bloqueadas mientras duró. Si todavía parece haber un reinicio en curso, comprueba si el servidor de juego volvió a arrancar y luego reinicia el panel para desbloquearlo. Crear una copia de seguridad después también quita el aviso de copia de seguridad fallida."
   },
   "schedule": {
     "every15Min": "cada 15 minutos",
@@ -58,6 +64,8 @@
     "daily6am": "diariamente a las 6 a. m.",
     "dailyNoon": "diariamente a mediodía",
     "daily6pm": "diariamente a las 6 p. m.",
+    "customOption": "Personalizado (expresión cron)",
+    "custom": "con un horario personalizado ({{cron}})",
     "none": "Sin horario"
   },
   "settingsPanel": {
@@ -68,8 +76,27 @@
     "frequencyHelp": "Con qué frecuencia se crean copias de seguridad automáticamente",
     "maxBackupsLabel": "Máximo de copias de seguridad a conservar",
     "maxBackupsHelp": "Las copias de seguridad más antiguas se eliminarán automáticamente al alcanzar el límite",
+    "customLabel": "Expresión cron",
+    "customHint": "Formato: minuto hora día mes día de la semana. «{{example}}» se ejecuta todos los días a las 3:30. Como máximo una vez cada 5 minutos.",
+    "customValid": "Horario válido",
+    "customInvalid": "No es una expresión cron válida",
+    "nextRun": "Próxima copia de seguridad: {{date}}",
+    "timezoneNotice": "Los horarios usan la zona horaria del panel, {{tz}} (se cambia en Tareas programadas).",
+    "scheduledBackupsOff": "Las copias de seguridad programadas están desactivadas: esta programación se aplicará en cuanto las actives.",
+    "bothDayFieldsNote": "El día del mes y el día de la semana deben coincidir a la vez: las copias de seguridad solo se ejecutan los días que cumplen ambos, no uno solo.",
     "savesLabel": "Partidas guardadas: {{path}}",
     "saveButton": "Guardar ajustes"
+  },
+  "restartOverlap": {
+    "title": "Las copias de seguridad coinciden con un reinicio programado",
+    "task": "Algunas copias de seguridad programadas caen dentro del reinicio programado «{{name}}» (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "taskAll": "Todas las copias de seguridad programadas caen dentro del reinicio programado «{{name}}» (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "taskUnnamed": "Algunas copias de seguridad programadas caen dentro de un reinicio programado (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "taskUnnamedAll": "Todas las copias de seguridad programadas caen dentro de un reinicio programado (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "autoRestart": "Algunas copias de seguridad programadas caen dentro del reinicio periódico (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "autoRestartAll": "Todas las copias de seguridad programadas caen dentro del reinicio periódico (por ejemplo, la copia de las {{backupTime}}, durante el reinicio de las {{restartTime}}).",
+    "consequence": "Esas copias esperan a que termine el reinicio, así que se ejecutan con hasta unos {{minutes}} min de retraso. Para que se ejecuten a tiempo, prográmalas al menos {{minutes}} min después de la hora programada de un reinicio (por ejemplo, con reinicios a la hora en punto, programa las copias a las hh{{exampleTime}}).",
+    "consequenceNoExample": "Esas copias esperan a que termine el reinicio, así que se ejecutan con hasta unos {{minutes}} min de retraso. Para que se ejecuten a tiempo, prográmalas al menos {{minutes}} min después de la hora programada de un reinicio."
   },
   "progress": {
     "startingFallback": "Iniciando copia de seguridad…",
@@ -164,9 +191,7 @@
     "uploadedDesc": "Guardada como {{name}}. Usar «Restaurar» para aplicarla.",
     "uploadFailedTitle": "Error al subir",
     "uploadFailedFallback": "No se pudo subir la copia de seguridad",
-    "restoredTitle": "Punto de recuperación restaurado",
     "restoredDesc": "Se revirtió a {{name}} en {{seconds}} s",
-    "restoreFailedTitle": "Error al restaurar",
     "restoreFailedFallback": "No se pudo restaurar la copia de seguridad",
     "snapshotUnavailableTitle": "Instantánea no disponible",
     "snapshotUnavailableFallback": "No se pudo leer la instantánea de la copia de seguridad",
@@ -202,6 +227,19 @@
   "restoreProgress": {
     "title": "Restaurando {{name}}…",
     "titleUnknown": "Ya hay una restauración en curso para este servidor…",
-    "note": "Esto puede tardar unos minutos según el tamaño del mundo. No cierres el panel ni salgas de esta página."
+    "note": "Esto puede tardar unos minutos según el tamaño del mundo. Puedes salir de esta página y volver más tarde, pero no detengas ni reinicies el panel hasta que termine.",
+    "responseLost": "El panel no respondió a esta solicitud. La restauración se ejecuta en el propio panel, así que puede que siga en curso. Consultando el resultado al panel…"
+  },
+  "restoreResult": {
+    "successTitle": "Restauración completada",
+    "successDetail": "Tardó {{seconds}} s. El mundo reemplazado se guardó antes — esa copia de seguridad de emergencia es la más reciente de la lista de abajo. Inicia el servidor cuando quieras.",
+    "successDetailNoSafetyBackup": "Tardó {{seconds}} s. Se inició sin copia de seguridad de emergencia, así que el mundo reemplazado no se conservó. Inicia el servidor cuando quieras.",
+    "failedTitle": "Error al restaurar",
+    "notStartedProxy": "Un proxy o túnel delante del panel rechazó la solicitud (HTTP {{status}}). El panel no tiene constancia de esta restauración, así que no llegó a empezar.",
+    "failedNextStep": "Salvo que el motivo de arriba diga lo contrario, el mundo actual quedó como estaba. Corrige la causa y vuelve a intentarlo.",
+    "unknownTitle": "No se pudo confirmar cómo terminó la restauración",
+    "unknownDetail": "La página no pudo obtener del panel el resultado de esta restauración (la conexión estuvo caída demasiado tiempo o el panel se reinició), así que puede que no haya terminado, o ni siquiera empezado. Antes de iniciar el servidor, abre Registros de depuración › Actividad y busca «restore». Una entrada backup_restored de esta copia de seguridad posterior al inicio de la restauración significa que la restauración terminó; una entrada restore_failed posterior indica por qué falló. Si no hay ninguna de las dos, vuelve a restaurar. Si no puedes abrir Registros de depuración, pídeselo a un administrador.",
+    "dismiss": "Descartar",
+    "dismissAria": "Descartar el resultado de la restauración"
   }
 }

@@ -124,3 +124,51 @@ describe('getBridgeStalenessTitle / getBridgeStalenessBody -- every case has a n
     expect(body).toContain('queue-v2')
   })
 })
+
+describe('detectBridgeStaleness with Steam Workshop delivery', () => {
+  it('a protocol mismatch on a Workshop server points at a restart, not a re-upload', () => {
+    const info = detectBridgeStaleness({
+      modConnected: true,
+      deliveryMethod: 'workshop',
+      modStatus: { protocolVersionMismatch: { expected: 'queue-v1', actual: 'queue-v0' } },
+    })
+    expect(info).toEqual({ kind: 'protocolMismatch', expected: 'queue-v1', actual: 'queue-v0', deliveryMethod: 'workshop' })
+    const body = getBridgeStalenessBody(info!)
+    expect(body).toBe(
+      "The PanelBridge on this server (from the Steam Workshop) reports protocol 'queue-v0', but this panel expects 'queue-v1'. Restart the server to get the latest Workshop version, or update the panel.",
+    )
+    expect(getBridgeStalenessActionLabel(info!)).toBeNull()
+  })
+
+  it('a panel-installed server keeps the original protocol-mismatch body', () => {
+    const info = detectBridgeStaleness({
+      modConnected: true,
+      deliveryMethod: 'local',
+      modStatus: { protocolVersionMismatch: { expected: 'queue-v1', actual: 'queue-v0' } },
+    })
+    expect(info).toEqual({ kind: 'protocolMismatch', expected: 'queue-v1', actual: 'queue-v0' })
+    expect(getBridgeStalenessBody(info!)).toContain('They ship as a matched pair')
+  })
+
+  it('never reports a local or remote update kind for a Workshop server, whatever the status carries', () => {
+    expect(
+      detectBridgeStaleness({
+        modConnected: true,
+        deliveryMethod: 'workshop',
+        modStatus: {},
+        remoteBridgeVersionCheck: { bundledVersion: '1.8.0', liveVersion: '1.7.0', behind: true },
+        localInstall: { needsUpdate: true, canAutoInstall: true, version: '1.7.0' },
+      }),
+    ).toBeNull()
+  })
+
+  it('a missing deliveryMethod behaves exactly as before (local)', () => {
+    expect(
+      detectBridgeStaleness({
+        modConnected: true,
+        modStatus: {},
+        localInstall: { needsUpdate: true, canAutoInstall: true, version: '1.7.0' },
+      }),
+    ).toEqual({ kind: 'localUpdateAvailable', liveVersion: '1.7.0', canAutoInstall: true })
+  })
+})

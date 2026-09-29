@@ -108,6 +108,12 @@ import {
   ServerInstance,
 } from "@/lib/api";
 import { getUserErrorMessage } from "@/lib/errorMessage";
+import {
+  RestoreNotStartedError,
+  RestoreOutcomeUnknownError,
+  newRestoreRequestId,
+  restoreBackupAndConfirm,
+} from "@/lib/restoreOutcome";
 import { resolveRegisteredTranslation } from "@/lib/paramTranslation";
 import {
   getAllowOutOfRangeSandboxValues,
@@ -125,6 +131,15 @@ import { useTheme, type ThemeName } from "@/contexts/ThemeContext";
 import { platformTranslationKey, useRuntimeInfo } from "@/hooks/useRuntimeInfo";
 import { useRequestGuard } from "@/hooks/useRequestGuard";
 import { BridgeStatusBadge } from "@/components/BridgeStatusBadge";
+import { bridgeDiagnosticParams, type BridgeDiagnostic } from "@/lib/bridgeDiagnostics";
+import { BackupRestartOverlapNotice } from "@/components/BackupRestartOverlapNotice";
+import { BackupScheduleNextRun, BackupScheduleValidity } from "@/components/BackupSchedulePreview";
+import {
+  backupScheduleErrorText,
+  precheckBackupSchedule,
+  useBackupScheduleCheck,
+} from "@/hooks/useBackupScheduleCheck";
+import { BridgeDeliveryPanel } from "@/components/bridge/BridgeDeliveryPanel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
@@ -442,6 +457,7 @@ export default function Settings() {
   const canManageDiagnostics = can("diagnostics.manage"); // Access tab: Reload CORS Rules, Clear Blocked Log
   const canConfigureServerSettings = can("server.configure"); // Connection tab: Test (RCON recheck)
   const canSetupBridge = can("bridge.setup"); // Bridge tab: every write action on it
+  const canManageBackups = can("backups.manage"); // Backups tab: the Schedule field's live check (POST /backup/validate-schedule is gated on it)
 
   // Change password state
   const [currentPassword, setCurrentPassword] = useState("");
@@ -500,8 +516,8 @@ export default function Settings() {
       // {key, params, text} -- resolveBridgeDiagText() below translates via
       // t(`bridge.diagnostics.${key}`, {...params, defaultValue: text}),
       // same key+defaultValue convention as capabilities.<key>.label.
-      summary: { key: string; params?: Record<string, string>; text: string };
-      issues: Array<{ key: string; params?: Record<string, string>; text: string }>;
+      summary: BridgeDiagnostic;
+      issues: BridgeDiagnostic[];
       checks: Record<string, boolean | number | null>;
     };
     statusFile?: {
@@ -543,17 +559,19 @@ export default function Settings() {
       liveVersion: string | null;
       behind: boolean | null;
     } | null;
+    deliveryMethod?: "local" | "workshop";
   } | null>(null);
   const [bridgeLoading, setBridgeLoading] = useState(false);
   const [bridgeError, setBridgeError] = useState<string | null>(null);
   // Resolves a getConnectionDiagnostics() summary/issue entry through its
   // key+params via i18next, falling back to the server's own English text
   // when no translation entry exists for that key yet -- same
-  // key+defaultValue convention as capabilities.<key>.label.
+  // key+defaultValue convention as capabilities.<key>.label. Ages in the
+  // params are worded in the UI language's units (bridgeDiagnosticParams).
   const resolveBridgeDiagText = (
-    entry: { key: string; params?: Record<string, string>; text: string } | undefined,
+    entry: BridgeDiagnostic | undefined,
   ): string | undefined =>
-    entry ? t(`bridge.diagnostics.${entry.key}`, { ...(entry.params ?? {}), defaultValue: entry.text }) : undefined;
+    entry ? t(`bridge.diagnostics.${entry.key}`, { ...bridgeDiagnosticParams(entry.params), defaultValue: entry.text }) : undefined;
   const [pinging, setPinging] = useState(false);
   const [manualBridgePath, setManualBridgePath] = useState("");
   const [testingSftp, setTestingSftp] = useState(false);
@@ -1707,11 +1725,18 @@ export default function Settings() {
         variant: "success" as const,
       });
     } catch (error) {
+      // 504 PANELBRIDGE_INSTALL_STILL_RUNNING isn't a failure: the server
+      // stopped waiting on the install (usually queued behind another
+      // reconcile of the same folder), which finishes in the background.
+      const stillRunning =
+        error instanceof ApiError && error.code === "PANELBRIDGE_INSTALL_STILL_RUNNING";
       toast({
-        title: t("toasts.installFailed.title"),
+        title: stillRunning
+          ? t("toasts.bridgeInstallStillRunning.title")
+          : t("toasts.installFailed.title"),
         description:
           getUserErrorMessage(error, t("toasts.installFailed.fallback")),
-        variant: "destructive",
+        ...(stillRunning ? {} : { variant: "destructive" as const }),
       });
     } finally {
       setInstallingMod(false);
@@ -1930,23 +1955,37 @@ export default function Settings() {
     }
     setRestoringBackup(name);
     try {
-      // POST /backup/restore/:name always responds non-2xx on failure, so
-      // handleResponse() throws into the catch below -- this never sees
-      // result.success === false.
-      const result = await backupApi.restoreBackup(name, {
-        createPreRestoreBackup: true,
-      });
+      // GH#166: the same call as the Backups page -- a lost response (a
+      // long restore past the client timeout, a proxy cutting it) reads the
+      // real outcome back from the status instead of reporting a failure
+      // for a restore that finished. A failed or refused restore lands in
+      // the catch below, never as success: false here.
+      const { duration } = await restoreBackupAndConfirm(name, newRestoreRequestId());
       toast({
         title: t("toasts.backupRestored.title"),
-        description: t("toasts.backupRestored.description", { name, seconds: (result.duration || 0).toFixed(1) }),
+        description: t("toasts.backupRestored.description", { name, seconds: (duration || 0).toFixed(1) }),
         variant: "success" as const,
       });
       await fetchBackups();
     } catch (error) {
+      // Nothing could say how it ended: not a failure, and the Backups
+      // page's own words for it.
+      if (error instanceof RestoreOutcomeUnknownError) {
+        toast({
+          title: t("restoreResult.unknownTitle", { ns: "backups" }),
+          description: t("restoreResult.unknownDetail", { ns: "backups" }),
+          variant: "warning",
+        });
+        return;
+      }
       toast({
         title: t("toasts.restoreFailed.title"),
+        // A proxy's refusal: its error page is no reason to show -- the
+        // Backups page's own words for it.
         description:
-          getUserErrorMessage(error, t("toasts.restoreFailed.fallback")),
+          error instanceof RestoreNotStartedError
+            ? t("restoreResult.notStartedProxy", { ns: "backups", status: error.status })
+            : getUserErrorMessage(error, t("toasts.restoreFailed.fallback")),
         variant: "destructive",
       });
     } finally {
@@ -1955,33 +1994,26 @@ export default function Settings() {
     }
   };
 
-  // Basic cron validation helper
-  const isValidCron = (cron: string): boolean => {
-    const parts = cron.trim().split(/\s+/);
-    if (parts.length !== 5) return false;
-
-    const patterns = [
-      /^(\*|\d+|\*\/\d+|\d+-\d+|\d+(,\d+)*)$/, // minute
-      /^(\*|\d+|\*\/\d+|\d+-\d+|\d+(,\d+)*)$/, // hour
-      /^(\*|\d+|\*\/\d+|\d+-\d+|\d+(,\d+)*)$/, // day of month
-      /^(\*|\d+|\*\/\d+|\d+-\d+|\d+(,\d+)*)$/, // month
-      /^(\*|\d+|\*\/\d+|\d+-\d+|\d+(,\d+)*)$/, // day of week
-    ];
-
-    return parts.every((part, i) => patterns[i].test(part));
-  };
+  // The Schedule field below edits the same saved schedule as the Backups
+  // page's Backup Frequency picker, and is judged by the same server check
+  // (useBackupScheduleCheck): live as it's typed, and again on Save. It used
+  // to be a local regex here -- no numeric bounds, no month/weekday names,
+  // no 5-minute floor -- so "99 * * * *" passed and then failed to save,
+  // "0 3 * * MON" was refused though the Backups page and the server accept
+  // it, and the two editors disagreed about the one setting they share.
+  // Only while the field is on screen: this tab, scheduled backups on.
+  // Computed on every render of the whole page, not just this tab's -- a
+  // status payload without a schedule (fetchBackupStatus() copies whatever
+  // came back) must not take every other tab down with it.
+  const backupScheduleInput = (backupSchedule ?? "").trim();
+  const { check: backupScheduleCheck, pending: backupScheduleCheckPending } =
+    useBackupScheduleCheck(
+      backupScheduleInput,
+      activeSection === "backups" && Boolean(backupStatus?.enabled) && canManageBackups,
+    );
 
   const handleSaveBackupSettings = async () => {
-    // Validate cron expression before saving
-    if (!isValidCron(backupSchedule)) {
-      toast({
-        title: t("toasts.invalidSchedule.title"),
-        description: t("toasts.invalidSchedule.description"),
-        variant: "destructive",
-      });
-      return;
-    }
-
+    if (backupLoading) return;
     if (backupPanelServerChanged) {
       toast({
         title: settingsFallback(
@@ -1996,14 +2028,31 @@ export default function Settings() {
       });
       return;
     }
+    // Busy before the first await: the pre-check below is a round trip of
+    // its own, and a Save left enabled during it lets a double click send
+    // two POST /backup/settings.
     setBackupLoading(true);
     try {
+      // Same pre-check as the Backups page's Save, so a bad expression gets
+      // the server's specific reason ("more often than every 5 minutes")
+      // rather than a generic failed save. If the check itself can't run,
+      // the save goes ahead and POST /backup/settings -- identical rules --
+      // decides.
+      const rejected = await precheckBackupSchedule(backupScheduleInput);
+      if (rejected) {
+        toast({
+          title: t("toasts.invalidSchedule.title"),
+          description: backupScheduleErrorText(rejected, t("toasts.invalidSchedule.description")),
+          variant: "destructive",
+        });
+        return;
+      }
       // pz-bughunt round 18: expectedServerId is defense in depth alongside
       // backupPanelServerChanged above.
       await backupApi.updateSettings(
         {
           enabled: backupStatus?.enabled || false,
-          schedule: backupSchedule,
+          schedule: backupScheduleInput,
           maxBackups: backupMaxCount,
         },
         backupActiveServerId,
@@ -2485,6 +2534,7 @@ export default function Settings() {
     null;
   const activeServer = servers.find((server) => server.isActive) || null;
   const isRemoteServer = Boolean(activeServer?.isRemote);
+  const bridgeUsesWorkshop = bridgeStatus?.deliveryMethod === "workshop";
   const trimmedHttpsKeyPath = settings.httpsKeyPath.trim();
   const trimmedHttpsCertPath = settings.httpsCertPath.trim();
   const hasPartialHttpsCertPath =
@@ -4612,7 +4662,32 @@ export default function Settings() {
                   );
                 })()}
 
-                {/* Not running - setup flow */}
+                {/* How PanelBridge reaches the active server: panel-installed
+                    (default) or Steam Workshop. Everything it shows is
+                    computed by GET /panel-bridge/delivery. Only with an
+                    active server: without one that call answers 400
+                    PANELBRIDGE_NO_ACTIVE_SERVER, and a first-run operator
+                    would get a "couldn't load" warning whose Try again
+                    can't help. */}
+                {activeServer && (
+                  <BridgeDeliveryPanel
+                    activeServerId={activeServer.id}
+                    iniFileName={activeServer.serverName ? `${activeServer.serverName}.ini` : null}
+                    playerCount={bridgeStatus?.modStatus?.alive ? (bridgeStatus.modStatus.playerCount ?? 0) : null}
+                  />
+                )}
+
+                {/* Not running - setup flow. With Steam Workshop delivery
+                    there is no PanelBridge.lua to upload, and
+                    "Set DoLuaChecksum=false" is no longer a standing
+                    requirement: it only has to stay off until the block
+                    confirms the switch, after which the block itself offers
+                    to turn it back on. An unconditional step here would tell
+                    the operator of a confirmed server to undo that. So both
+                    steps give way to setupNote.workshop, which points at the
+                    block and carries the until-confirmed rule (§4.6); the
+                    watcher/SFTP steps stay, since the panel reads the
+                    bridge's files either way. */}
                 {!bridgeStatus?.isRunning && (
                   <div className="p-4 bg-muted rounded-xl space-y-3">
                     {isRemoteServer ? (
@@ -4621,9 +4696,16 @@ export default function Settings() {
                         <p className="text-sm text-muted-foreground">
                           {t("bridge.remoteSetupDesc")}
                         </p>
+                        {bridgeUsesWorkshop && (
+                          <p className="text-sm text-muted-foreground">{t("bridgeDelivery:setupNote.workshop")}</p>
+                        )}
                         <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside">
-                          <li><Trans t={t} i18nKey="bridge.remoteStep1" components={{ b: <strong className="text-foreground" /> }} /></li>
-                          <li><Trans t={t} i18nKey="bridge.remoteStep2" components={{ b: <strong className="text-foreground" /> }} /></li>
+                          {!bridgeUsesWorkshop && (
+                            <>
+                              <li><Trans t={t} i18nKey="bridge.remoteStep1" components={{ b: <strong className="text-foreground" /> }} /></li>
+                              <li><Trans t={t} i18nKey="bridge.remoteStep2" components={{ b: <strong className="text-foreground" /> }} /></li>
+                            </>
+                          )}
                           <li><Trans t={t} i18nKey="bridge.remoteStep3" components={{ b: <strong className="text-foreground" /> }} /></li>
                           <li><Trans t={t} i18nKey="bridge.remoteStep4" components={{ b: <strong className="text-foreground" /> }} /></li>
                           <li>{t("bridge.remoteStep5")}</li>
@@ -4635,9 +4717,16 @@ export default function Settings() {
                     ) : (
                       <>
                         <p className="text-sm font-medium">{t("bridge.getStartedTitle")}</p>
+                        {bridgeUsesWorkshop && (
+                          <p className="text-sm text-muted-foreground">{t("bridgeDelivery:setupNote.workshop")}</p>
+                        )}
                         <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside">
-                          <li><Trans t={t} i18nKey="bridge.localStep1" components={{ b: <strong className="text-foreground" /> }} /></li>
-                          <li><Trans t={t} i18nKey="bridge.localStep2" components={{ b: <strong className="text-foreground" /> }} /></li>
+                          {!bridgeUsesWorkshop && (
+                            <>
+                              <li><Trans t={t} i18nKey="bridge.localStep1" components={{ b: <strong className="text-foreground" /> }} /></li>
+                              <li><Trans t={t} i18nKey="bridge.localStep2" components={{ b: <strong className="text-foreground" /> }} /></li>
+                            </>
+                          )}
                           <li><Trans t={t} i18nKey="bridge.localStep3" components={{ b: <strong className="text-foreground" /> }} /></li>
                           <li>{t("bridge.localStep4")}</li>
                         </ol>
@@ -4695,9 +4784,15 @@ export default function Settings() {
                     </AlertTitle>
                     <AlertDescription className="space-y-2">
                       <p>
+                        {/* waitingLocal asks for PanelBridge.lua and
+                            DoLuaChecksum=false, neither of which applies to
+                            a Workshop server -- and this is exactly the
+                            restart-needed/waiting window after a switch. */}
                         {isRemoteServer && bridgeStatus.transport?.type === "sftp"
                           ? t("bridge.waitingSftp")
-                          : t("bridge.waitingLocal")}
+                          : bridgeUsesWorkshop
+                            ? t("bridgeDelivery:setupNote.waitingWorkshop")
+                            : t("bridge.waitingLocal")}
                       </p>
                       {isRemoteServer && bridgeStatus.transport?.type === "sftp" ? (
                         <>
@@ -5626,12 +5721,25 @@ export default function Settings() {
                           value={backupSchedule}
                           onChange={(e) => setBackupSchedule(e.target.value)}
                           placeholder="0 */6 * * *"
+                          // Left-to-right in every language, as on the
+                          // Backups page: in an RTL page a cron's neutral
+                          // '*' and '/' would otherwise lay out reversed.
+                          dir="ltr"
                           className="font-mono"
                           maxLength={100}
+                          aria-describedby="backup-schedule-help"
                         />
-                        <p className="text-xs text-muted-foreground">
+                        <p id="backup-schedule-help" className="text-xs text-muted-foreground">
                           {t("backups.scheduleHelp")}
                         </p>
+                        {/* The Backups page's custom-cron field shows the
+                            same two things, from the same check. */}
+                        <BackupScheduleValidity check={backupScheduleCheck} pending={backupScheduleCheckPending} />
+                        <BackupScheduleNextRun
+                          check={backupScheduleCheck}
+                          pending={backupScheduleCheckPending}
+                          backupsEnabled={backupStatus.enabled}
+                        />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="backup-max">{t("backups.maxBackupsLabel")}</Label>
@@ -5648,6 +5756,23 @@ export default function Settings() {
                           {t("backups.maxBackupsHelp")}
                         </p>
                       </div>
+                      {/* This field edits the same schedule as the Backups
+                          page, so it warns about the same restart
+                          collisions, the same way: for what is typed, from
+                          the live check, with the saved schedule's (GET
+                          /backup/status) standing in until that check has
+                          answered. */}
+                      <BackupRestartOverlapNotice
+                        overlaps={
+                          backupScheduleCheck
+                            ? backupScheduleCheck.valid ? backupScheduleCheck.restartOverlaps : undefined
+                            : backupScheduleInput === backupStatus.schedule ? backupStatus.restartOverlaps : undefined
+                        }
+                        live
+                        stale={backupScheduleCheckPending}
+                        hideTimeZone={Boolean(backupScheduleCheck?.valid)}
+                        className="sm:col-span-2"
+                      />
                       <div className="sm:col-span-2">
                         <DisabledReason reason={backupPanelServerChanged ? t("toasts.backupPanelServerChanged.description") : null}>
                           <Button

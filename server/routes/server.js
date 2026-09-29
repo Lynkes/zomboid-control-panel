@@ -14,9 +14,14 @@ import {
   setSetting,
   getSetting,
   getActiveServer,
+  getServer,
   getServers,
 } from "../database/init.js";
-import { sanitizeError, sanitizeIniValue } from "../utils/sanitize.js";
+import {
+  sanitizeError,
+  sanitizeErrorParams,
+  sanitizeIniValue,
+} from "../utils/sanitize.js";
 import {
   hasIniKeyValue,
   setIniKeyLine,
@@ -24,6 +29,7 @@ import {
   restoreLineEnding,
 } from "../utils/iniKeyWrite.js";
 import {
+  managedStartupScriptName,
   resolveLaunchMode,
   ServerManager,
   scoreServerProcessOwnership,
@@ -48,8 +54,14 @@ import {
 import { ErrorCode } from "../utils/errorCodes.js";
 import { ProgressCode } from "../utils/progressCodes.js";
 import { invalidateMapFolderScan } from "./chunks.js";
-import { emitActionResult } from "./scheduler.js";
-import { autoInstallBridgeIfNeeded } from "../services/panelBridgeInstaller.js";
+import { codedActionResultFields, emitActionResult } from "./scheduler.js";
+import panelBridge from "../services/panelBridge.js";
+import { candidateIniPaths } from "../utils/zomboidPaths.js";
+import {
+  newProfileConflictsWithWorkshop,
+  noSteamWorkshopConflictResponse,
+  reconcileBridge,
+} from "../services/bridgeDelivery.js";
 import { parseBoundedInteger } from "../utils/queryNumbers.js";
 import { confineToRoots } from "../utils/browseRoots.js";
 import { isContainerized } from "../utils/dockerDetect.js";
@@ -776,37 +788,20 @@ export function isFirstBootMissingAdminPassword(activeServer) {
   return !fs.existsSync(saveDir);
 }
 
-// Every location serverManager.js's getServerConfig() will accept as "the"
-// INI for a server, in the same preference order, given a config directory
-// (the Server/ subdirectory a modern PZ install uses) and its parent data
-// directory (the legacy layout some installs still have the real file
-// under). ensureRconConfigured() below used to check ONLY the first of
-// these -- if a particular install's real, fully-configured INI happened to
-// live at one of the others, that ini "didn't exist" as far as this
-// function could tell, and it would pre-create a bare RCON-only stub AT THE
-// WRONG PATH with no backup, discarding every other setting the moment PZ
-// picked that file up (2026-08-27 user report: "ini and sandbox settings
-// reverted to default" after a restart). Mirrors getServerConfig()'s own
-// fallback chain exactly so both halves of the panel agree on where a
-// server's real INI is.
-export function candidateIniPaths(serverConfigPath, zomboidDataPath, serverName) {
-  const candidates = [];
-  if (serverConfigPath) {
-    candidates.push(path.join(serverConfigPath, `${serverName}.ini`));
-  }
-  if (zomboidDataPath) {
-    candidates.push(path.join(zomboidDataPath, `${serverName}.ini`));
-    candidates.push(path.join(zomboidDataPath, "servertest.ini"));
-    candidates.push(path.join(zomboidDataPath, "serveroptions.ini"));
-  }
-  return candidates;
-}
+// candidateIniPaths() moved to utils/zomboidPaths.js (services need it too);
+// re-exported so scheduler.js and existing importers keep this path.
+export { candidateIniPaths };
 
 // Helper to auto-configure RCON in the server's .ini file
 // Called BEFORE server starts to ensure PZ reads the correct RCON credentials on boot.
 // If the INI file doesn't exist yet (first run), creates the directory + a minimal INI
 // so PZ will merge its defaults with our RCON settings instead of generating a blank password.
-export async function ensureRconConfigured() {
+// `server` is the server about to launch (refreshLaunchTargetBeforeStart()
+// passes it); without one it falls back to the active server, as the
+// startup-wait retry below does. A scheduled restart of a server that isn't
+// the active one used to write the ACTIVE server's password into the
+// active server's ini and leave its own untouched.
+export async function ensureRconConfigured(server = null) {
   // Declared ahead of the try block, not inside it, so the outer catch
   // below can still reach them to build EACCES guidance -- which of the two
   // configured paths serverConfigPath actually derives from decides only
@@ -816,7 +811,7 @@ export async function ensureRconConfigured() {
   let serverConfigPathKind = "install";
   let serverConfigPath = null;
   try {
-    const activeServer = await getActiveServer();
+    const activeServer = server || (await getActiveServer());
     if (!activeServer) {
       log.debug("ensureRconConfigured: No active server");
       return false;
@@ -1486,13 +1481,17 @@ function hashScriptContent(content) {
  * problem than data loss, and every install already has an operator who can
  * clean them up manually. Deliberate choice, not an oversight.
  *
- * Returns an array of human-readable messages, one per file that was backed
- * up (empty if none were). Never throws for a single file's backup/read
- * failure -- that file's regeneration still proceeds and a warning is logged
+ * Returns `backupMessages`, human-readable, one per file that was backed up
+ * (empty if none were), and `failedPaths`, every file it could not write.
+ * Never throws for a single file's backup, read or write failure -- that
+ * file's regeneration still proceeds, or is skipped, with a warning logged
  * server-side, since "config changes take effect" must not depend on the
- * backup step succeeding.
+ * backup step succeeding. `failedPaths` is how the caller knows a write
+ * failed without a throw (GH #167: the refresh used to log "Regenerated
+ * startup scripts" right after a failed write, next to the refusal it
+ * then caused).
  */
-export function regenerateStartupScriptsWithBackup(installPath, files) {
+export function writeStartupScriptsWithBackup(installPath, files) {
   const fingerprintPath = path.join(installPath, SCRIPT_FINGERPRINT_FILE);
   let fingerprints = {};
   try {
@@ -1502,6 +1501,7 @@ export function regenerateStartupScriptsWithBackup(installPath, files) {
   }
 
   const backupMessages = [];
+  const failedPaths = [];
   for (const { path: filePath, content } of files) {
     const fileName = path.basename(filePath);
     let existingContent = null;
@@ -1547,6 +1547,7 @@ export function regenerateStartupScriptsWithBackup(installPath, files) {
       );
       fingerprints[fileName] = hashScriptContent(content);
     } catch (writeErr) {
+      failedPaths.push(filePath);
       log.warn(`Could not write ${filePath}: ${writeErr.message}`);
     }
   }
@@ -1561,7 +1562,13 @@ export function regenerateStartupScriptsWithBackup(installPath, files) {
     log.warn(`Could not persist script fingerprint file: ${fpErr.message}`);
   }
 
-  return backupMessages;
+  return { backupMessages, failedPaths };
+}
+
+// writeStartupScriptsWithBackup() for callers that only want the backup
+// notices -- its shape before failed writes were reported.
+export function regenerateStartupScriptsWithBackup(installPath, files) {
+  return writeStartupScriptsWithBackup(installPath, files).backupMessages;
 }
 
 // Role sweep for this file: routes below are grouped into what's actually
@@ -1595,6 +1602,9 @@ router.get("/status", async (req, res) => {
     res.json({
       ...status,
       rcon: rconStatus,
+      // For the client to re-express startTime in its own clock -- see
+      // routes/serverStatus.js, which sends the same field.
+      serverTime: Date.now(),
     });
   } catch (error) {
     log.error(`Failed to get server status: ${error.message}`);
@@ -1618,10 +1628,17 @@ router.get("/network-interfaces", async (req, res) => {
 // Refresh everything PZ needs to launch correctly against this server's
 // CURRENT settings: RCON credentials in the ini, and the generated launch
 // script (which bakes -cachedir/-servername/memory/admin-password as
-// literal text at generation time -- see generateStartupScripts()). Shared
-// by the manual /start route below AND scheduler.js's performRestart(), so
-// a scheduled restart launches the server exactly the way a manual start
-// does instead of silently diverging on this. Before this existed, a
+// literal text at generation time -- see generateStartupScripts()).
+//
+// GH #167: called from ONE place now, lifecycleCoordinator.prepareForLaunch()
+// (wired in server/index.js), which serverManager.startServer() and the two
+// Docker-managed launch paths run right before launching -- so the boot
+// auto-start, Discord, mod-update and post-update starts refresh exactly the
+// way the dashboard's Start does. It used to be called by the /start route
+// and scheduler.js's performRestart() only: the auto-start launched the stock
+// start-server.sh on a fresh install and kept old RCON/admin passwords after
+// an edit, and a Docker-managed server got its RCON password only after the
+// container had already booted. Before this existed at all, a
 // Settings-UI edit to zomboidDataPath/serverName updated the database
 // immediately but left the already-written launch script untouched until
 // the next MANUAL start regenerated it -- the next SCHEDULED restart in
@@ -1638,20 +1655,25 @@ router.get("/network-interfaces", async (req, res) => {
 // Operator ruling 2026-08-27 (custom-launcher-as-a-real-supported-mode-not-
 // an-accident): a stored serverPath/installPath ending in .bat/.sh/.exe is
 // CUSTOM LAUNCHER mode, not an error -- resolveLaunchMode() (serverManager.js)
-// is the one predicate both this function AND scheduler.js's performRestart()
-// (via this same function) ask, so the two agree on what "managed" means
+// is the one predicate both this function AND serverManager.loadConfig() (to
+// pick the script it launches) ask, so the two agree on what "managed" means
 // without either growing its own notion of it.
 export async function refreshLaunchTargetBeforeStart(
   activeServer,
   { managedHandled = false } = {},
 ) {
   try {
-    const rconReady = await ensureRconConfigured();
+    const rconReady = await ensureRconConfigured(activeServer);
     if (rconReady) {
       log.info("RCON pre-configured in INI before server start");
     } else {
+      // No "will retry" here: this runs before every launch path, and only
+      // POST /start's waitForRconAfterStart() tries ensureRconConfigured()
+      // again -- the boot auto-start, the scheduler, Discord and post-update
+      // starts don't. ensureRconConfigured() logs its own reason (no RCON
+      // password set, no ini folder or server name, or the write error).
       log.warn(
-        "Could not pre-configure RCON — will retry during startup polling",
+        "Could not pre-configure RCON in the server's ini before this start -- the game uses the RCON settings already in it",
       );
     }
   } catch (rconErr) {
@@ -1660,16 +1682,19 @@ export async function refreshLaunchTargetBeforeStart(
 
   let scriptBackupWarnings = [];
   const launchMode = resolveLaunchMode(activeServer);
-  if (
-    !managedHandled &&
-    activeServer &&
-    !activeServer.startCommand &&
-    activeServer.installPath &&
-    launchMode.mode === "custom"
-  ) {
+  // The folder the game is launched from: `serverPath || installPath`, the
+  // same one serverManager.loadConfig() spawns in and checks for the named
+  // script, and the one a systemd/OpenRC unit runs it from
+  // (linuxServiceLifecycle.js's resolveLaunchTarget()). The scripts used to
+  // be written into installPath alone, so a record with a separate
+  // serverPath folder never launched what was written here.
+  const launchDir = activeServer?.serverPath || activeServer?.installPath;
+  const panelLaunches =
+    !managedHandled && activeServer && !activeServer.startCommand && launchDir;
+  if (panelLaunches && launchMode.mode === "custom") {
     // CUSTOM LAUNCHER mode (operator ruling 2026-08-27): the panel does not
     // manage this script. Regenerating would join a filename onto the
-    // launcher PATH itself (installPath here is a file, not a directory)
+    // launcher PATH itself (launchDir here is a file, not a directory)
     // and either write into a broken nested path or silently do nothing --
     // neither is "not regenerating," so this must not even attempt the
     // write, unlike before this feature existed.
@@ -1677,14 +1702,14 @@ export async function refreshLaunchTargetBeforeStart(
       `Custom launcher mode active (${launchMode.launcherPath}) — not regenerating; the panel does not manage this script.`,
     );
   } else if (
-    !managedHandled &&
-    activeServer &&
-    !activeServer.startCommand &&
-    activeServer.installPath
+    panelLaunches &&
+    // No name, no named script to write (it would be
+    // StartServer_undefined.bat); such a server launches the stock one.
+    activeServer.serverName
   ) {
     try {
       const scripts = generateStartupScripts({
-        installPath: activeServer.installPath,
+        installPath: launchDir,
         serverName: activeServer.serverName,
         minMemory: activeServer.minMemory || 4,
         maxMemory: activeServer.maxMemory || 8,
@@ -1695,31 +1720,76 @@ export async function refreshLaunchTargetBeforeStart(
         useDebug: activeServer.useDebug || false,
       });
       const batPath = path.join(
-        activeServer.installPath,
-        `StartServer_${activeServer.serverName}.bat`,
+        launchDir,
+        managedStartupScriptName(activeServer.serverName, true),
       );
       const shPath = path.join(
-        activeServer.installPath,
-        `start-server_${activeServer.serverName}.sh`,
+        launchDir,
+        managedStartupScriptName(activeServer.serverName, false),
       );
-      scriptBackupWarnings = regenerateStartupScriptsWithBackup(
-        activeServer.installPath,
+      const { backupMessages, failedPaths } = writeStartupScriptsWithBackup(
+        launchDir,
         [
           { path: batPath, content: scripts.bat },
           { path: shPath, content: scripts.sh.replace(/\r\n/g, "\n") },
         ],
       );
+      scriptBackupWarnings = backupMessages;
       if (scriptBackupWarnings.length > 0) {
         log.warn(
           `Startup script regeneration backed up existing content: ${scriptBackupWarnings.join(" ")}`,
         );
       }
-      log.info("Regenerated startup scripts with current server config");
+      // Success is logged only when both files were written. A failed write
+      // used to be followed by "Regenerated startup scripts ..." anyway,
+      // right before the start's SERVER_START_SCRIPT_MISSING refusal that
+      // sends the operator to this log (GH #167). The launcher this
+      // platform runs decides what a failure means for the start that
+      // follows.
+      const launched = managedStartupScriptName(activeServer.serverName);
+      const launchedPath = path.join(launchDir, launched);
+      if (failedPaths.length === 0) {
+        log.info("Regenerated startup scripts with current server config");
+      } else if (!failedPaths.includes(launchedPath)) {
+        log.warn(
+          `Regenerated ${launched}, but not ${failedPaths.map((failed) => path.basename(failed)).join(", ")} (see the warning above)`,
+        );
+      } else if (fs.existsSync(launchedPath)) {
+        log.warn(
+          `Could not regenerate ${launched} (see the warning above) -- this start runs the copy already in ${launchDir}, which may carry older settings`,
+        );
+      } else {
+        log.warn(
+          `Could not write ${launched} (see the warning above) -- the start refuses to run without it until the panel can write to ${launchDir}`,
+        );
+      }
     } catch (scriptErr) {
       log.warn(`Could not regenerate startup scripts: ${scriptErr.message}`);
     }
   }
   return { scriptBackupWarnings };
+}
+
+// What lifecycleCoordinator.prepareForLaunch() runs (wired in server/index.js
+// with setLaunchTargetRefresher()). `server` is whatever record the launching
+// code holds -- for the shared ServerManager, the one it loaded at boot or on
+// the last server switch, which an edit of the RCON or admin password alone
+// doesn't reload (GH #167's follow-up: a restart of the panel's container
+// brought the game back with the OLD passwords). So the record is read
+// again by id and the refresh uses that; the passed one is only a fallback
+// for a record with no id or a failed read. A remote server is never
+// launched by the panel, so there is nothing to refresh for one.
+export async function refreshLaunchTargetForLaunch(server, options = {}) {
+  let current = server;
+  if (server?.id !== null && server?.id !== undefined) {
+    try {
+      current = (await getServer(server.id)) || server;
+    } catch {
+      current = server;
+    }
+  }
+  if (!current || current.isRemote) return null;
+  return refreshLaunchTargetBeforeStart(current, options);
 }
 
 // Once the process/container is confirmed running, wait for RCON to come up
@@ -1866,15 +1936,12 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
     const serverManager = req.app.get("serverManager");
     const rconService = req.app.get("rconService");
 
-    // Keep PanelBridge.lua current on disk before anything spawns -- PZ
-    // loads Lua at Java-process startup, so this is the last moment a write
-    // here can reach the launch that's about to happen. Must run before
-    // BOTH branches below: runManagedLifecycle() below is itself the spawn
-    // for a docker-local (bind-mounted) server, and serverManager.startServer()
-    // further down is the spawn for a native one. Best-effort and silent by
-    // design (autoInstallBridgeIfNeeded's own comment) -- a failed install
-    // must never block starting the server (2026-09-02 bridge-enforcement).
-    autoInstallBridgeIfNeeded(activeServer);
+    // The launch target (RCON credentials in the ini, the generated launch
+    // script) and PanelBridge are brought up to date by the before-launch
+    // step inside both launch paths below -- runManagedLifecycle() and
+    // serverManager.startServer() -- so the boot auto-start and scheduled,
+    // Discord and mod-update restarts get exactly what this route gets
+    // (lifecycleCoordinator.prepareForLaunch()).
 
     // A container-managed server is started through Docker: the panel has no
     // process to spawn, and after a `docker stop` there is nothing left running
@@ -1913,23 +1980,13 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
       });
     }
 
-    // Pre-configure RCON in the INI and regenerate the launch script against
-    // this server's CURRENT settings BEFORE starting the process -- see
-    // refreshLaunchTargetBeforeStart()'s own comment. Skipped for a managed
-    // container: its image owns the launch command.
-    const { scriptBackupWarnings } = await refreshLaunchTargetBeforeStart(
-      activeServer,
-      { managedHandled: managed.handled },
-    );
-
+    // startServer() refreshes the launch target itself and carries any
+    // script backup notices back as result.scriptWarnings.
     const result = managed.handled
       ? { success: true, message: managed.message || "Container starting" }
       : await serverManager.startServer({
           serverId: activeServer?.id ?? null,
         });
-    if (scriptBackupWarnings.length > 0) {
-      result.scriptWarnings = scriptBackupWarnings;
-    }
 
     // Emit status update via Socket.IO
     const io = req.app.get("io");
@@ -1948,8 +2005,8 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
     // the native path below, there is nothing further to poll for. The
     // scan-poll below is ALSO a local host process scan, which for a
     // container-managed server can never see PZ running as PID 1 of a
-    // *different* container (GH#114) -- polling it here would just run 30
-    // times and always time out, exactly the gap this fix closes. Emit
+    // *different* container (GH#114) -- polling it here would just run for
+    // 30s and always time out, exactly the gap this fix closes. Emit
     // immediately and go straight to waiting for RCON, skipping the poll
     // entirely for this path.
     if (managed.handled) {
@@ -1994,15 +2051,33 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
       return;
     }
 
-    // Poll for server to actually be running (takes a few seconds to start)
-    let attempts = 0;
-    const maxAttempts = 30; // 30 seconds max
-    let pollCleared = false;
+    // Poll for server to actually be running (takes a few seconds to start).
+    // One scan at a time: each check schedules the next only once its own
+    // scan has settled. This was setInterval(async ..., 1000), whose ticks
+    // never waited for each other -- a Windows process scan takes longer
+    // than 1s, so two or three ticks were in flight at once, each saw
+    // running:true after the first had already stopped the interval, and
+    // each started its own waitForRconAfterStart(). Those waiters then
+    // force-reset each other's RCON connection (2026-09-28 live Workshop
+    // test on 42.21: three "Server detected as running" a second apart,
+    // then "Connection attempt cancelled (force reset occurred)" and the
+    // phase flapping running/unresponsive), and each one sent its own
+    // Discord serverStart notice. The 30s budget is elapsed time, as it was
+    // with the interval, so a slow scan doesn't stretch it to 30 scans --
+    // performance.now(), which a wall-clock step can't move: the poll holds
+    // the lifecycle lock, which has no expiry, so Stop and Restart would
+    // answer 409 for as long as a backward step added.
+    const pollDeadline = performance.now() + 30000; // 30 seconds max
+    const endStartingWindow = () => {
+      if (rconService.setServerStarting) {
+        rconService.setServerStarting(false);
+      } else {
+        rconService.serverStarting = false;
+      }
+    };
 
-    const pollInterval = setInterval(async () => {
-      if (pollCleared) return; // Safety check
+    const pollOnce = async () => {
       try {
-        attempts++;
         // checkServerRunning() collapses a failed detection scan into a
         // bare `false`, indistinguishable from "confirmed not yet running"
         // -- hardcoding scanFailed: false here made that same mistake one
@@ -2019,29 +2094,24 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
           typeof serverManager.getServerProcessDetails === "function"
             ? await serverManager.getServerProcessDetails()
             : { running: false, scanFailed: true };
+        const timedOut = performance.now() >= pollDeadline;
 
         if (!processDetails || processDetails.scanFailed) {
-          if (attempts >= maxAttempts) {
-            pollCleared = true;
-            clearInterval(pollInterval);
+          if (timedOut) {
             releaseLifecycleLock();
-            if (rconService.setServerStarting) {
-              rconService.setServerStarting(false);
-            } else {
-              rconService.serverStarting = false;
-            }
+            endStartingWindow();
             log.warn(
               "Server start polling timed out without confirming process state",
             );
+            return;
           }
+          setTimeout(pollOnce, 1000);
           return;
         }
 
         const isRunning = Boolean(processDetails.running);
 
         if (isRunning) {
-          pollCleared = true;
-          clearInterval(pollInterval);
           // See the managed branch's own comment above: the host process
           // existing is not the same claim as the server being ready, so
           // this asks checkServerStatusNow to compute the real phase
@@ -2066,41 +2136,57 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
             );
           }
           releaseLifecycleLock();
-        } else if (attempts >= maxAttempts) {
-          pollCleared = true;
-          clearInterval(pollInterval);
+        } else if (timedOut) {
           releaseLifecycleLock();
-          if (rconService.setServerStarting) {
-            rconService.setServerStarting(false);
-          } else {
-            rconService.serverStarting = false;
-          }
+          endStartingWindow();
           log.warn("Server start polling timed out");
+        } else {
+          setTimeout(pollOnce, 1000);
         }
       } catch (err) {
-        // Clear interval on error to prevent memory leak
-        pollCleared = true;
-        clearInterval(pollInterval);
+        // No next check is scheduled after an error, so the poll ends here.
         releaseLifecycleLock();
-        if (rconService.setServerStarting) {
-          rconService.setServerStarting(false);
-        } else {
-          rconService.serverStarting = false;
-        }
+        endStartingWindow();
         log.error(`Server status poll failed: ${err.message}`);
       }
-    }, 1000);
+    };
+    setTimeout(pollOnce, 1000);
     lifecycleLockTransferred = true;
 
     // Send immediate response
     res.json(result);
   } catch (error) {
     log.error(`Failed to start server: ${error.message}`);
-    res.status(500).json({ error: sanitizeError(error.message) });
+    const body = { error: sanitizeError(error.message) };
+    // startServer()'s one coded refusal (GH #167) -- a registered code, so
+    // the dashboard shows it in the operator's language. Any other error
+    // (e.g. a raw fs "ENOENT") keeps the plain-message shape.
+    if (error.code === ErrorCode.SERVER_START_SCRIPT_MISSING) {
+      body.code = error.code;
+      if (error.params) body.params = sanitizeErrorParams(error.params);
+    }
+    res.status(500).json(body);
   } finally {
     if (!lifecycleLockTransferred) releaseLifecycleLock();
   }
 });
+
+// The panel has just confirmed the active game server gone: a Docker or
+// systemd/openrc stop that only returns once it is, a kill that
+// serverManager.stopServer() confirmed, or the graceful-stop poll's
+// completed scan no longer finding the process. The mod's last status.json
+// write is from that process, so expire it now (PanelBridge.markServerExited())
+// instead of leaving it to the watchdog, which only does so on a stopped
+// VERDICT -- and while that heartbeat still read live, the verdict itself
+// ORed it back in as "running" whenever the host signal was not the final
+// word (a scan that failed right after the stop, a systemd server the plain
+// scan answered for), so PanelBridge Up and Stop stayed on screen for up to
+// five minutes. Called before checkServerStatusNow() so that re-check, and
+// the composed status every client refetches on its push, already read
+// PanelBridge offline.
+function expireExitedServerHeartbeat() {
+  panelBridge.markServerExited();
+}
 
 // Stop server (graceful via RCON)
 router.post("/stop", requirePermission("server.control"), async (req, res) => {
@@ -2188,6 +2274,7 @@ router.post("/stop", requirePermission("server.control"), async (req, res) => {
       // not just accepted, so this claim (including clearing serverManager's
       // cached run state) is honest as-is.
       serverManager?.markServerStopped?.();
+      expireExitedServerHeartbeat();
       const io = req.app.get("io");
       const checkServerStatusNow = req.app.get("checkServerStatusNow");
       if (typeof checkServerStatusNow === "function") {
@@ -2242,15 +2329,27 @@ router.post("/stop", requirePermission("server.control"), async (req, res) => {
       result.message =
         result.message || result.response || "Shutdown requested";
       result.confirmed = false;
-      monitorGracefulStop({
-        serverManager,
-        releaseLifecycleLock,
-        serverId: activeServer?.id ?? null,
-        io: req.app.get("io"),
-        checkServerStatusNow,
-        discordBot: req.app.get("discordBot"),
-      });
-      lifecycleLockTransferred = true;
+      // A remote server's process is on another host: the monitor's local
+      // scan can never see it, so its first poll "confirmed" every remote
+      // stop at once and expired the PanelBridge heartbeat while the game
+      // could still be saving and writing it (the next write revived it: a
+      // second Discord notification and the Stop button back). Had the scan
+      // attributed a local PZ process to it instead, the monitor would have
+      // force-killed that process after 60s. A remote stop is left to the
+      // status watchdog, whose remote verdict is RCON and PanelBridge; the
+      // lock is released below, as the panel cannot start, restart or
+      // force-stop a remote server anyway.
+      if (!activeServer?.isRemote) {
+        monitorGracefulStop({
+          serverManager,
+          releaseLifecycleLock,
+          serverId: activeServer?.id ?? null,
+          io: req.app.get("io"),
+          checkServerStatusNow,
+          discordBot: req.app.get("discordBot"),
+        });
+        lifecycleLockTransferred = true;
+      }
     }
 
     res.json(result);
@@ -2332,6 +2431,7 @@ function monitorGracefulStop({
       const forced = await serverManager.stopServer({ serverId });
       if (forced?.success && forced.confirmed !== false) {
         serverManager?.markServerStopped?.();
+        expireExitedServerHeartbeat();
         announceStopped("graceful-stop-escalated");
         await logServerEventBestEffort(
           "server_stop",
@@ -2360,7 +2460,16 @@ function monitorGracefulStop({
     try {
       const details = await serverManager.getServerProcessDetails();
       if (details && !details.scanFailed && details.running === false) {
+        // Still under the lifecycle lock, so the active server -- whose
+        // bridge this is -- cannot have been switched since the stop.
+        expireExitedServerHeartbeat();
         releaseLifecycleLock();
+        // This poll is the first thing to see the process gone. Without
+        // the nudge the stop reached clients only on the watchdog's next
+        // 10s tick whenever the one-shot RCON-disconnect re-check (3s after
+        // the connection drops) still caught PZ mid-save -- Stop stayed on
+        // screen that long after the process had already exited.
+        announceStopped("graceful-stop-confirmed");
         return;
       }
     } catch (error) {
@@ -2487,6 +2596,7 @@ router.post("/force-stop", requirePermission("server.control"), async (req, res)
     }
 
     serverManager?.markServerStopped?.();
+    expireExitedServerHeartbeat();
 
     const io = req.app.get("io");
     const checkServerStatusNow = req.app.get("checkServerStatusNow");
@@ -2556,13 +2666,6 @@ router.post("/restart", requirePermission("server.control"), async (req, res) =>
     // before the 2026-08-26 bug hunt fixed it there, just never fixed here.
     const io = req.app.get("io");
 
-    // Same reasoning as POST /start: this must run before performRestart()
-    // actually respawns the process, not after. A restart can carry a
-    // multi-minute warning countdown, so doing this now (synchronously,
-    // before performRestart is even invoked) is strictly earlier than
-    // necessary, not just early enough (2026-09-02 bridge-enforcement).
-    autoInstallBridgeIfNeeded(activeServer);
-
     const restartPromise = Promise.resolve(
       scheduler.performRestart(warningMinutes, {
         label: "Manual restart",
@@ -2584,6 +2687,7 @@ router.post("/restart", requirePermission("server.control"), async (req, res) =>
           kind: "restart",
           success: false,
           message: err.message,
+          ...codedActionResultFields(err),
         });
       })
       .finally(() => lifecycleLock.release());
@@ -3164,6 +3268,13 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
       return res.status(409).json(lifecycleInProgressResponse());
     }
 
+    // The game folder decides the PanelBridge delivery: a folder another
+    // profile gets PanelBridge for from the Steam Workshop can't take a
+    // profile (or launch scripts) that start without Steam.
+    if (useNoSteam === true && newProfileConflictsWithWorkshop({ installPath, useNoSteam }, await getServers())) {
+      return res.status(409).json(noSteamWorkshopConflictResponse());
+    }
+
     try {
       ensureWritableDirectory(installPath);
     } catch (directoryError) {
@@ -3670,7 +3781,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
               log.warn(`Failed to create startup scripts: ${batchError.message}`);
               warnings.push({
                 progressCode: ProgressCode.INSTALL_STARTUP_SCRIPT_FAILED,
-                message: `Could not generate this server's custom startup script (${sanitizeError(batchError.message)}). The server can still be started -- it will use the default script until this regenerates, which also happens automatically on the next start.`,
+                message: `Could not generate this server's custom startup script (${sanitizeError(batchError.message)}). The panel tries again every time you start the server; if it still can't write the script then, the start stops and says why instead of running the default script.`,
                 params: { reason: sanitizeError(batchError.message) },
               });
             }
@@ -3701,50 +3812,23 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
               });
             }
 
-            // Auto-install PanelBridge mod to the server
-            try {
-              const possibleModPaths = [
-                path.join(process.cwd(), "pz-mod", "PanelBridge"),
-                path.join(path.dirname(process.execPath), "pz-mod", "PanelBridge"),
-              ];
-
-              let modSourcePath = null;
-              for (const p of possibleModPaths) {
-                if (fs.existsSync(p)) {
-                  modSourcePath = p;
-                  break;
-                }
-              }
-
-              if (modSourcePath) {
-                const sourceLuaFile = path.join(
-                  modSourcePath,
-                  "media",
-                  "lua",
-                  "server",
-                  "PanelBridge.lua",
-                );
-                const destLuaDir = path.join(installPath, "media", "lua", "server");
-                const destLuaFile = path.join(destLuaDir, "PanelBridge.lua");
-
-                if (fs.existsSync(sourceLuaFile)) {
-                  if (!fs.existsSync(destLuaDir)) {
-                    fs.mkdirSync(destLuaDir, { recursive: true });
-                  }
-                  fs.copyFileSync(sourceLuaFile, destLuaFile);
-                  io.emit("install:log", {
-                    type: "stdout",
-                    text: "PanelBridge mod installed automatically",
-                    progressCode: ProgressCode.PANELBRIDGE_AUTO_INSTALLED,
-                    ...installEventScope,
-                  });
-                  log.info("PanelBridge mod auto-installed to server");
-                }
-              }
-            } catch (modError) {
-              log.warn(
-                `Failed to auto-install PanelBridge mod: ${modError.message}`,
-              );
+            // PanelBridge goes in through the same delivery gate as every
+            // other writer (bridgeDelivery.reconcileBridge), so a game folder
+            // another profile already gets PanelBridge for from the Steam
+            // Workshop is left alone. The profile doesn't exist yet, so a
+            // pseudo-record stands in for it. Never throws.
+            const bridgeSetup = await reconcileBridge(
+              { id: null, installPath, serverPath: installPath, isRemote: false },
+              { reason: "setup" },
+            );
+            if (bridgeSetup.actions.some((action) => action.kind === "installed" || action.kind === "updated")) {
+              io.emit("install:log", {
+                type: "stdout",
+                text: "PanelBridge mod installed automatically",
+                progressCode: ProgressCode.PANELBRIDGE_AUTO_INSTALLED,
+                ...installEventScope,
+              });
+              log.info("PanelBridge mod auto-installed to server");
             }
 
             io.emit("install:complete", {
@@ -3989,6 +4073,11 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
       return res.status(409).json(lifecycleInProgressResponse());
     }
 
+    // See /install above: no -nosteam profile on a Steam Workshop folder.
+    if (useNoSteam === true && newProfileConflictsWithWorkshop({ installPath, useNoSteam }, await getServers())) {
+      return res.status(409).json(noSteamWorkshopConflictResponse());
+    }
+
     try {
       ensureWritableDirectory(installPath);
     } catch (directoryError) {
@@ -4155,45 +4244,15 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
         ? `StartServer_${serverName}.bat`
         : `start-server_${serverName}.sh`;
 
-    // Auto-install PanelBridge mod to the server
-    let panelBridgeInstalled = false;
-    try {
-      const possibleModPaths = [
-        path.join(process.cwd(), "pz-mod", "PanelBridge"),
-        path.join(path.dirname(process.execPath), "pz-mod", "PanelBridge"),
-      ];
-
-      let modSourcePath = null;
-      for (const p of possibleModPaths) {
-        if (fs.existsSync(p)) {
-          modSourcePath = p;
-          break;
-        }
-      }
-
-      if (modSourcePath) {
-        const sourceLuaFile = path.join(
-          modSourcePath,
-          "media",
-          "lua",
-          "server",
-          "PanelBridge.lua",
-        );
-        const destLuaDir = path.join(installPath, "media", "lua", "server");
-        const destLuaFile = path.join(destLuaDir, "PanelBridge.lua");
-
-        if (fs.existsSync(sourceLuaFile)) {
-          if (!fs.existsSync(destLuaDir)) {
-            fs.mkdirSync(destLuaDir, { recursive: true });
-          }
-          fs.copyFileSync(sourceLuaFile, destLuaFile);
-          panelBridgeInstalled = true;
-          log.info("PanelBridge mod auto-installed to server");
-        }
-      }
-    } catch (modError) {
-      log.warn(`Failed to auto-install PanelBridge mod: ${modError.message}`);
-    }
+    // Same delivery gate as the install wizard above (never throws).
+    const bridgeSetup = await reconcileBridge(
+      { id: null, installPath, serverPath: installPath, isRemote: false },
+      { reason: "setup" },
+    );
+    const panelBridgeInstalled = bridgeSetup.actions.some(
+      (action) => action.kind === "installed" || action.kind === "updated",
+    );
+    if (panelBridgeInstalled) log.info("PanelBridge mod auto-installed to server");
 
     await logServerEventBestEffort(
       "server_quick_setup",

@@ -43,6 +43,26 @@ export function emitActionResult(io, payload) {
   if (typeof io?.emit === 'function') io.emit('scheduler:action_result', payload);
 }
 
+// The code and path-free params of a coded refusal thrown on the way
+// through performRestart(), spread into a failed action result so Layout
+// shows it in the operator's language, the way POST /api/server/start's
+// response does. Today that is serverManager.startServer()'s
+// SERVER_START_SCRIPT_MISSING (GH #167) and its restart-time counterpart
+// SERVER_RESTART_SCRIPT_MISSING (performRestart()'s check before it stops
+// anything): both messages name the install folder and are English-only.
+// Any other error adds nothing and keeps the bare message it always had.
+const CODED_ACTION_RESULT_CODES = new Set([
+  ErrorCode.SERVER_START_SCRIPT_MISSING,
+  ErrorCode.SERVER_RESTART_SCRIPT_MISSING,
+]);
+
+export function codedActionResultFields(err) {
+  if (!CODED_ACTION_RESULT_CODES.has(err?.code)) return {};
+  return err.params
+    ? { code: err.code, params: sanitizeErrorParams(err.params) }
+    : { code: err.code };
+}
+
 const router = express.Router();
 
 // Task automation (create/edit/delete/run scheduled commands, trigger an
@@ -613,6 +633,7 @@ router.post('/tasks/:id/run', async (req, res) => {
           taskName: task.name,
           success: !!result?.success,
           message: result?.message || (result?.success ? 'Task completed' : 'Task failed'),
+          ...(result?.success ? {} : codedActionResultFields(result)),
         });
       })
       .catch(err => {
@@ -699,6 +720,7 @@ router.post('/restart-now', async (req, res) => {
           kind: 'restart',
           success: false,
           message: err.message,
+          ...codedActionResultFields(err),
         });
       });
 

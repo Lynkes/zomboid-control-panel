@@ -7,6 +7,7 @@ import {
   findNearMissTypo,
   triageUnresolvedMods,
 } from "../routes/debug.js";
+import { BRIDGE_MOD_ID } from "../services/bridgeDeliveryContract.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_DIR = path.join(__dirname, "..");
@@ -504,6 +505,21 @@ describe("diagnostics check locale registry (self-enforcing, mirrors errorCodeRe
     expect(en.plain.get("server.process::ok")).toBeTruthy();
   });
 
+  // GH #167 follow-up: server.startScript moved out of the handler into
+  // buildStartScriptCheck(), which sits after the handler but before the
+  // world-map route, inside the scanned range. Its two named-script
+  // variants (the panel hasn't written the script yet / can't write it)
+  // are what Diagnostics shows instead of "Using StartServer64.bat" for a
+  // named managed server. If they drop out of the scan, the per-id
+  // completeness tests below would pass on less than the handler emits.
+  it("sees server.startScript's named-script variants in buildStartScriptCheck()", () => {
+    expect(source.withVariant.has("server.startScript::warn::notWrittenYet")).toBe(true);
+    expect(source.withVariant.has("server.startScript::fail::folderNotWritable")).toBe(true);
+    expect(source.withVariant.has("server.startScript::warn::notFound")).toBe(true);
+    expect(source.withVariant.has("server.startScript::warn::notExecutable")).toBe(true);
+    expect(source.plain.has("server.startScript::ok")).toBe(true);
+  });
+
   // rcon-command-rejections-check-has-never-rendered-in-any-language,
   // 2026-09-09: a check's `category` value is only ever read at render
   // time (Debug.tsx groups by category===catKey over DIAG_CATEGORIES'
@@ -694,6 +710,51 @@ describe("triageUnresolvedMods (mods.resolved per-ID triage)", () => {
         { steamOperationActive: false, anyWorkshopMissingFromDisk: false },
       );
       expect(result).toEqual([{ modId: "TotallyMadeUpModId", cause: "absent" }]);
+    });
+
+    // Review of the ZCPB rename: the four-character bridge id sits inside the
+    // length-scaled threshold (two edits, or a case-only difference) of many
+    // short ids, so a bridge item Steam hadn't delivered yet came back as a
+    // "typo" with a one-click swap to another mod, and an operator's short
+    // unresolved id was "corrected" to the bridge.
+    it("never calls PanelBridge's own unresolved entry a typo, whatever is installed", () => {
+      for (const installed of ["ZCP", "zcpb", "SCPB", "ZCPB2", "CP"]) {
+        for (const flags of [
+          { steamOperationActive: false, anyWorkshopMissingFromDisk: true },
+          { steamOperationActive: true, anyWorkshopMissingFromDisk: true },
+          { steamOperationActive: false, anyWorkshopMissingFromDisk: false },
+        ]) {
+          expect(
+            triageUnresolvedMods([BRIDGE_MOD_ID], [installed], flags),
+            `${installed} ${JSON.stringify(flags)}`,
+          ).toEqual([{ modId: BRIDGE_MOD_ID, cause: "panelBridge" }]);
+        }
+      }
+    });
+    it("never suggests PanelBridge's id as the fix for another unresolved entry", () => {
+      const result = triageUnresolvedMods(
+        ["ZCP", "TCP", "CP", "SCPB", "zcpb"],
+        [BRIDGE_MOD_ID, "Footprint"],
+        { steamOperationActive: false, anyWorkshopMissingFromDisk: false },
+      );
+      expect(result.map((entry) => entry.cause)).toEqual([
+        "absent",
+        "absent",
+        "absent",
+        "absent",
+        "absent",
+      ]);
+      expect(result.some((entry) => entry.suggestion)).toBe(false);
+    });
+    it("still finds a typo of another mod while PanelBridge is installed", () => {
+      const result = triageUnresolvedMods(
+        ["Footprnt"],
+        new Set([BRIDGE_MOD_ID, "Footprint"]),
+        { steamOperationActive: false, anyWorkshopMissingFromDisk: false },
+      );
+      expect(result).toEqual([
+        { modId: "Footprnt", cause: "typo", suggestion: "Footprint" },
+      ]);
     });
   });
 });

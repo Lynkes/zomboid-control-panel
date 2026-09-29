@@ -27,9 +27,9 @@ describe('ServerManager pidfile fast path', () => {
 
   it('hits the fast path and skips the OS scan when the pidfile is valid and the cmdline still matches', async () => {
     manager._writePidFile(4242);
-    manager._getLiveCommandLine = async (pid) => {
+    manager._getLiveProcess = async (pid) => {
       expect(String(pid)).toBe('4242');
-      return 'java -cp pz.jar zombie.network.GameServer -servername PidTestServer';
+      return { cmd: 'java -cp pz.jar zombie.network.GameServer -servername PidTestServer' };
     };
     let scanCalled = false;
     manager._scanDedicatedServerProcesses = async () => {
@@ -44,9 +44,26 @@ describe('ServerManager pidfile fast path', () => {
     expect(scanCalled).toBe(false);
   });
 
+  it('carries the start time the Windows lookup read alongside the command line', async () => {
+    // Server uptime: on Windows the start time comes from the same
+    // Win32_Process row as the command line (see ServerManager.
+    // startTimeOf()), so the fast path must pass it on, not drop it.
+    const startedMs = Date.UTC(2026, 8, 27, 7, 0, 0);
+    manager._writePidFile(4242);
+    manager._getLiveProcess = async () => ({
+      cmd: 'java -cp pz.jar zombie.network.GameServer -servername PidTestServer',
+      startedMs,
+    });
+
+    const details = await manager.getServerProcessDetails();
+
+    expect(details.matched[0]).toMatchObject({ pid: '4242', startedMs });
+    expect(details.owned[0]).toMatchObject({ pid: '4242', startedMs });
+  });
+
   it('falls back to the OS scan when there is no pidfile', async () => {
     // No _writePidFile call -- pidfile is missing.
-    manager._getLiveCommandLine = async () => {
+    manager._getLiveProcess = async () => {
       throw new Error('should not be called when there is no pidfile');
     };
     let scanCalled = false;
@@ -63,7 +80,7 @@ describe('ServerManager pidfile fast path', () => {
 
   it('falls back to the OS scan when the recorded PID is dead', async () => {
     manager._writePidFile(9999);
-    manager._getLiveCommandLine = async () => null; // PID not alive.
+    manager._getLiveProcess = async () => null; // PID not alive.
     let scanCalled = false;
     manager._scanDedicatedServerProcesses = async () => {
       scanCalled = true;
@@ -92,7 +109,7 @@ describe('ServerManager pidfile fast path', () => {
     // against: trusting a stale pidfile here would be a confident wrong
     // "running" (or "not running") answer, which is worse than a slow
     // correct one.
-    manager._getLiveCommandLine = async () => 'notepad.exe C:\\Users\\me\\notes.txt';
+    manager._getLiveProcess = async () => ({ cmd: 'notepad.exe C:\\Users\\me\\notes.txt' });
     let scanCalled = false;
     manager._scanDedicatedServerProcesses = async () => {
       scanCalled = true;
@@ -110,8 +127,9 @@ describe('ServerManager pidfile fast path', () => {
     // Still a real PZ dedicated-server process, but -servername proves it
     // is NOT this manager's server -- another reuse-adjacent case: the PID
     // could have been recycled into a different configured server's process.
-    manager._getLiveCommandLine = async () =>
-      'java zombie.network.GameServer -servername SomeOtherServer -cachedir="C:\\Zomboid\\Other"';
+    manager._getLiveProcess = async () => ({
+      cmd: 'java zombie.network.GameServer -servername SomeOtherServer -cachedir="C:\\Zomboid\\Other"',
+    });
     let scanCalled = false;
     manager._scanDedicatedServerProcesses = async () => {
       scanCalled = true;
@@ -141,8 +159,9 @@ describe('ServerManager pidfile fast path', () => {
     // would never have that confidence for the same command line without
     // first checking there was no better-attributed alternative.
     manager._writePidFile(3131);
-    manager._getLiveCommandLine = async () =>
-      'java zombie.network.GameServer'; // no -servername, no -cachedir, no install path
+    manager._getLiveProcess = async () => ({
+      cmd: 'java zombie.network.GameServer', // no -servername, no -cachedir, no install path
+    });
     let scanCalled = false;
     manager._scanDedicatedServerProcesses = async () => {
       scanCalled = true;
@@ -157,7 +176,7 @@ describe('ServerManager pidfile fast path', () => {
 
   it('falls back to the OS scan when the live command-line lookup itself fails or times out', async () => {
     manager._writePidFile(6161);
-    manager._getLiveCommandLine = async () => null; // lookup failure is indistinguishable from "not alive" by design
+    manager._getLiveProcess = async () => null; // lookup failure is indistinguishable from "not alive" by design
     let scanCalled = false;
     manager._scanDedicatedServerProcesses = async () => {
       scanCalled = true;

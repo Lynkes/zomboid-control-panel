@@ -103,11 +103,13 @@ import { PageHeader } from '@/components/PageHeader'
 import { serverApi, serverFilesApi, serversApi, panelBridgeApi, ApiError, SpawnPointsByProfession, SpawnRegion, SandboxData, ConfigTemplate, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
 import { resolveServerRunning } from '@/lib/serverStatus'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
+import { isDeliveryStatus, resolveLuaChecksumCallout, type LuaChecksumDelivery } from '@/lib/bridgeDeliveryView'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { formatModSettingDescription, formatModSettingLabel } from '@/lib/modSettingsLabels'
 import { EmptyState } from '@/components/EmptyState'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSocket } from '@/contexts/SocketContext'
+import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { DisabledReason } from '@/components/DisabledReason'
 import {
   INI_SCHEMA,
@@ -158,6 +160,54 @@ const VANILLA_SANDBOX_GROUPS = new Set([
   'MultiplierConfig',
   'Basement',
 ])
+
+// getAllSandboxOptions lists at most this many labels per enum: the
+// `math.min(numVals, 50)` in PanelBridge.lua. A lower Lua cap would make every
+// current bridge with more values look old here and hold its last value back;
+// server/tests/sandboxEnumLabelCapParity.test.js keeps the two equal.
+const BRIDGE_ENUM_LABEL_CAP = 50
+
+type ModEnumControl = {
+  /** Labels for values 1..length, shown as a list. null: type the number. */
+  listLabels: string[] | null
+  /** The one value the running PanelBridge can't save, or null. */
+  blockedValue: number | null
+  /** More values than the bridge lists labels for. */
+  tooManyToList: boolean
+}
+
+/**
+ * How Mod Settings edits an enum option. Enum values run 1..N, and the bridge
+ * sends N as `max` and label i for value i, with the number standing in for a
+ * missing translation so labels never shift.
+ *
+ * After a panel update a game server can still run the old Lua (PanelBridge
+ * 1.7.70 or older): until it restarts, and until the new PanelBridge.lua
+ * reaches its game folder (a manual re-upload on hosted and SFTP servers).
+ * The old Lua read labels from index 0, which Build 42 always rejects, never
+ * asked for N, and dropped labels without a translation, so its list is
+ * always shorter than today's. Its setSandboxOption also saves N as N-1 and
+ * reports that as confirmed, so N is blocked until PanelBridge is updated.
+ * With exactly N-1 labels none was dropped, and they still line up with
+ * values 1..N-1.
+ */
+function describeModEnumControl(opt: { type?: string; enumValues?: string[]; max?: number }): ModEnumControl | null {
+  if (opt.type !== 'enum') return null
+  const labels = Array.isArray(opt.enumValues) ? opt.enumValues : []
+  const max = typeof opt.max === 'number' ? opt.max : undefined
+  if (max === undefined) {
+    return labels.length > 0 ? { listLabels: labels, blockedValue: null, tooManyToList: false } : null
+  }
+  if (labels.length === max) return { listLabels: labels, blockedValue: null, tooManyToList: false }
+  if (labels.length < Math.min(max, BRIDGE_ENUM_LABEL_CAP)) {
+    return {
+      listLabels: labels.length > 0 && labels.length === max - 1 ? labels : null,
+      blockedValue: max,
+      tooManyToList: false,
+    }
+  }
+  return { listLabels: null, blockedValue: null, tooManyToList: labels.length < max }
+}
 
 // These were shown by older panel releases but Build 42 does not support them.
 const UNSUPPORTED_INI_KEYS = new Set([
@@ -820,8 +870,11 @@ const SERVER_CONFIG_TABS = new Set(['ini', 'sandbox', 'spawnpoints', 'spawnregio
 // unrecognized cause (an older diagnostics fetch predating this, or a value
 // this build doesn't know yet) is dropped rather than trusted, same
 // defensive stance Debug.tsx takes reading the same querystring value.
-export type UnresolvedModCause = 'typo' | 'stillDownloading' | 'workshopNotOnDisk' | 'absent'
-const UNRESOLVED_MOD_CAUSES = new Set<UnresolvedModCause>(['typo', 'stillDownloading', 'workshopNotOnDisk', 'absent'])
+// 'panelBridge' is PanelBridge's own Mods= entry, which the panel writes and
+// Settings › PanelBridge manages, so it is never offered a typo swap or a
+// removal here.
+export type UnresolvedModCause = 'typo' | 'stillDownloading' | 'workshopNotOnDisk' | 'absent' | 'panelBridge'
+const UNRESOLVED_MOD_CAUSES = new Set<UnresolvedModCause>(['typo', 'stillDownloading', 'workshopNotOnDisk', 'absent', 'panelBridge'])
 
 export function resolveServerConfigDeepLink(searchParams: URLSearchParams) {
   const requestedTab = searchParams.get('tab')
@@ -1113,6 +1166,13 @@ export default function ServerConfig() {
     return c
   }, [modSettings, isOptModified])
 
+  // Any enum whose last value the running PanelBridge can't save means the
+  // server still runs the old Lua: one callout for the tab, not one per row.
+  const modSettingsBridgeOutdated = useMemo(() => {
+    if (!modSettings) return false
+    return Object.values(modSettings).some(opts => opts.some(o => describeModEnumControl(o)?.blockedValue != null))
+  }, [modSettings])
+
   // Memoize filtered mod settings groups to avoid duplicate filter logic
   const filteredModGroups = useMemo(() => {
     if (!modSettings || !modSettingsGroups.length) return []
@@ -1154,6 +1214,14 @@ export default function ServerConfig() {
   // isRemote-flag-fetched-independently pattern as Backups.tsx.
   const [activeServerRemote, setActiveServerRemote] = useState(false)
   const [activeServerName, setActiveServerName] = useState<string | null>(null)
+  // How PanelBridge reaches the active server, only to word the
+  // DoLuaChecksum callout (§4.12). undefined while GET /panel-bridge/delivery
+  // hasn't answered (no callout yet: guessing Local would flash the
+  // destructive alert on a confirmed Workshop server), null once it failed
+  // -- which reads as panel-installed, the delivery that can only ever warn
+  // more, never less. See resolveLuaChecksumCallout.
+  const [bridgeDelivery, setBridgeDelivery] = useState<LuaChecksumDelivery | null | undefined>(undefined)
+  const bridgeDeliveryGuard = useRequestGuard()
   // Set when activeServerChanged fires while this page has unsaved edits --
   // GET/PUT /server-files/ini and /sandbox both resolve "the active server"
   // fresh on the server per-request rather than taking a server id, so
@@ -1203,6 +1271,33 @@ export default function ServerConfig() {
     }
   }, [])
 
+  // Fire-and-forget beside loadData, never inside its sequential chain: a
+  // slow or refused delivery status must not delay or fail the config load.
+  // GET /panel-bridge/delivery accepts serverfiles.manage, this page's gate.
+  // loadData runs again on activeServerChanged and after every save, so a
+  // slow answer for the previous server must not land after the new one
+  // (same race as the round-9 sweep), and the previous server's method is
+  // dropped while the new answer is pending -- the page is behind its
+  // loading skeleton for most of that anyway.
+  const loadBridgeDelivery = async () => {
+    const requestId = bridgeDeliveryGuard.next()
+    setBridgeDelivery(undefined)
+    try {
+      const status: unknown = await panelBridgeApi.getDelivery()
+      if (bridgeDeliveryGuard.isStale(requestId)) return
+      // An answer that isn't a DeliveryStatus (the demo build's catch-all)
+      // counts as a failed call: the local fallback below.
+      setBridgeDelivery(
+        isDeliveryStatus(status)
+          ? { method: status.method, state: status.state, turnOnBlockers: status.checksum.turnOnBlockers }
+          : null,
+      )
+    } catch {
+      if (bridgeDeliveryGuard.isStale(requestId)) return
+      setBridgeDelivery(null)
+    }
+  }
+
   // 2026-09-08 (retry-stacking sweep, page 5 of 5): `manual` distinguishes
   // this page's THREE human-initiated triggers (two Retry buttons on the
   // error/server-changed banners, plus the page header's own Refresh
@@ -1213,6 +1308,7 @@ export default function ServerConfig() {
   const loadData = async (opts?: { manual?: boolean }) => {
     const retries = opts?.manual ? { retries: 0 } : undefined
     setLoading(true)
+    void loadBridgeDelivery()
     setServerChangedSinceLoad(false)
     const active = await serversApi.getResolvedActive().catch(() => ({ server: null }))
     const isRemote = !!active.server?.isRemote
@@ -1339,6 +1435,8 @@ export default function ServerConfig() {
       setLoadingRaw(false)
     }
   }
+
+  const luaChecksumCallout = resolveLuaChecksumCallout(bridgeDelivery, iniSettings['DoLuaChecksum'])
 
   // Check for unsaved changes
   const hasIniChanges = useMemo(() => {
@@ -1682,6 +1780,17 @@ export default function ServerConfig() {
       })
     }
   }, [toast, t, serverChangedSinceLoad])
+
+  // PanelBridge 1.7.70 and older save an enum's last value N as N-1 and call
+  // it confirmed (see describeModEnumControl), so the panel holds N back
+  // until the server runs the current bridge.
+  const refuseBlockedEnumValue = useCallback((optName: string, value: number) => {
+    toast({
+      title: t('toasts.enumLastChoiceRefusedTitle'),
+      description: t('toasts.enumLastChoiceRefusedDesc', { option: optName, max: value }),
+      variant: 'warning',
+    })
+  }, [toast, t])
 
   // File browser: open the dialog for a specific INI key
   const openFileBrowser = useCallback(async (key: string, extensions?: string[]) => {
@@ -2727,6 +2836,11 @@ export default function ServerConfig() {
                           {t('unresolvedReview.removeAction')}
                         </Button>
                       )}
+                      {triage?.cause === 'panelBridge' && (
+                        <Button asChild size="sm" variant="ghost" className="h-6 px-2 text-xs">
+                          <Link to="/settings?tab=bridge">{t('unresolvedReview.openBridgeSettings')}</Link>
+                        </Button>
+                      )}
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {!triage && t('unresolvedReview.causeUnknown')}
@@ -2734,6 +2848,7 @@ export default function ServerConfig() {
                       {triage?.cause === 'stillDownloading' && t('unresolvedReview.causeStillDownloading')}
                       {triage?.cause === 'workshopNotOnDisk' && t('unresolvedReview.causeWorkshopNotOnDisk')}
                       {triage?.cause === 'absent' && t('unresolvedReview.causeAbsent')}
+                      {triage?.cause === 'panelBridge' && t('unresolvedReview.causePanelBridge')}
                     </p>
                   </div>
                 )
@@ -2866,7 +2981,7 @@ export default function ServerConfig() {
               }
             />
             <div className="p-4">
-              {iniSettings['DoLuaChecksum']?.toLowerCase() === 'true' && (
+              {luaChecksumCallout === 'localBlocked' && (
                 <Alert variant="destructive" className="mb-4">
                   <AlertTriangle className="h-4 w-4" />
                   <AlertTitle>{t('iniTab.luaChecksumTitle')}</AlertTitle>
@@ -2885,6 +3000,31 @@ export default function ServerConfig() {
                       </Button>
                     </div>
                   </AlertDescription>
+                </Alert>
+              )}
+              {luaChecksumCallout === 'workshopUnconfirmed' && (
+                <Alert className="mb-4 border-warning/40 bg-warning/10">
+                  <AlertTriangle className="h-4 w-4 text-warning" />
+                  <AlertTitle className="text-warning">{t('iniTab.luaChecksumTitle')}</AlertTitle>
+                  <AlertDescription>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <span className="min-w-0 flex-1">{t('iniTab.luaChecksumWorkshopUnconfirmed')}</span>
+                      <Button
+                        size="sm"
+                        variant="command"
+                        className="h-7 shrink-0 gap-1.5 text-xs font-medium"
+                        onClick={() => updateIniValue('DoLuaChecksum', 'false')}
+                      >
+                        {t('iniTab.disableNow')}
+                      </Button>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+              {luaChecksumCallout === 'workshopNote' && (
+                <Alert className="mb-4 border-border/60 bg-muted/40">
+                  <Info className="h-4 w-4 text-primary" />
+                  <AlertDescription>{t('iniTab.luaChecksumWorkshopNote')}</AlertDescription>
                 </Alert>
               )}
               {editorMode === 'raw' ? (
@@ -4084,6 +4224,19 @@ export default function ServerConfig() {
                 />
               )}
 
+              {modSettings && modSettingsBridgeOutdated && (
+                <Alert className="mb-3 border-warning/40 bg-warning/10">
+                  <AlertTriangle className="h-4 w-4 text-warning" />
+                  <AlertTitle className="text-warning">{t('modSettingsTab.enumBridgeOutdatedTitle')}</AlertTitle>
+                  <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <span className="min-w-0">{t('modSettingsTab.enumBridgeOutdatedDesc')}</span>
+                    <Button asChild variant="outline" size="sm" className="shrink-0 self-start sm:self-center">
+                      <Link to="/settings?tab=bridge">{t('unresolvedReview.openBridgeSettings')}</Link>
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
+
               {modSettings && modSettingsGroups.length > 0 && (
                 <ScrollArea className="h-[calc(100vh-440px)] min-h-[400px] pe-4">
                   <div className="mb-3 flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
@@ -4189,6 +4342,14 @@ export default function ServerConfig() {
                                   : false
                                 const isSaving = opt.name ? savingOptions.has(opt.name) : false
                                 const isModified = isOptModified(opt)
+                                // A list only when its labels line up with the values;
+                                // otherwise the choice's number (describeModEnumControl).
+                                const enumControl = describeModEnumControl(opt)
+                                const enumAsNumber = enumControl !== null && enumControl.listLabels === null
+                                const blockedEnumValue = enumControl?.blockedValue ?? null
+                                const enumHintId = blockedEnumValue !== null || enumControl?.tooManyToList
+                                  ? `mod-enum-hint-${(opt.name || `${group.name}-${idx}`).replace(/\s+/g, '_')}`
+                                  : undefined
 
                                 return (
                                   <div
@@ -4207,6 +4368,15 @@ export default function ServerConfig() {
                                       {opt.name && opt.name !== displayName && (
                                         <div className="text-[10px] text-muted-foreground/40 font-mono truncate mt-0.5" title={opt.name}>{opt.name}</div>
                                       )}
+                                      {blockedEnumValue !== null ? (
+                                        <div id={enumHintId} className="text-xs text-warning mt-0.5">
+                                          {t('modSettingsTab.enumLastChoiceHeldBack', { max: blockedEnumValue })}
+                                        </div>
+                                      ) : enumControl?.tooManyToList ? (
+                                        <div id={enumHintId} className="text-xs text-muted-foreground/70 mt-0.5">
+                                          {t('modSettingsTab.enumTooManyChoices')}
+                                        </div>
+                                      ) : null}
                                     </div>
                                     <div className="flex items-center gap-2 shrink-0">
                                       {typeLabel === 'boolean' ? (
@@ -4221,29 +4391,46 @@ export default function ServerConfig() {
                                             {boolValue ? t('modSettingsTab.onCaps') : t('modSettingsTab.offCaps')}
                                           </span>
                                         </div>
-                                      ) : typeLabel === 'enum' && opt.enumValues && opt.enumValues.length > 0 ? (
+                                      ) : enumControl?.listLabels ? (
                                         <Select
                                           value={opt.selectedIndex !== undefined ? String(opt.selectedIndex) : displayValue}
                                           onValueChange={(val) => {
                                             if (!opt.name || isSaving) return
                                             const idx = parseInt(val, 10)
                                             if (isNaN(idx)) return
+                                            // The item is disabled too; this keeps all three paths on one guard.
+                                            if (idx === blockedEnumValue) {
+                                              refuseBlockedEnumValue(opt.name, idx)
+                                              return
+                                            }
                                             handleOptionChange(opt.name, idx, group.name)
                                           }}
                                           disabled={isSaving}
                                         >
-                                          <SelectTrigger className="h-7 w-full sm:w-[180px] text-xs font-mono" aria-label={displayName}>
+                                          <SelectTrigger
+                                            className="h-7 w-full sm:w-[180px] text-xs font-mono"
+                                            aria-label={displayName}
+                                            aria-describedby={enumHintId}
+                                          >
                                             <SelectValue />
                                           </SelectTrigger>
                                           <SelectContent>
-                                            {opt.enumValues.map((ev, ei) => (
-                                              <SelectItem key={ei} value={String(ei)} className="text-xs font-mono">
+                                            {enumControl.listLabels.map((ev, ei) => (
+                                              <SelectItem key={ei} value={String(ei + 1)} className="text-xs font-mono">
                                                 {ev}
                                               </SelectItem>
                                             ))}
+                                            {/* The old bridge never read the last label, and would save this value as
+                                                the one before it. The label stays neutral: it is also what the trigger
+                                                shows when the option already holds this value. */}
+                                            {blockedEnumValue !== null && (
+                                              <SelectItem value={String(blockedEnumValue)} disabled className="text-xs font-mono">
+                                                {t('modSettingsTab.enumLastChoiceItem', { value: blockedEnumValue })}
+                                              </SelectItem>
+                                            )}
                                           </SelectContent>
                                         </Select>
-                                      ) : typeLabel === 'number' || typeLabel === 'double' || typeLabel === 'integer' ? (
+                                      ) : typeLabel === 'number' || typeLabel === 'double' || typeLabel === 'integer' || enumAsNumber ? (
                                         <Input
                                           key={`${opt.name}-${displayValue}`}
                                           type="number"
@@ -4254,15 +4441,21 @@ export default function ServerConfig() {
                                           // The browser counts valid values up from `min` in `step`
                                           // increments, so a fractional min like 0.001 with step 1
                                           // rejects every whole number the user types.
-                                          step={typeLabel === 'integer' && Number.isInteger(opt.min ?? 0) ? 1 : 'any'}
+                                          step={(typeLabel === 'integer' || enumAsNumber) && Number.isInteger(opt.min ?? 0) ? 1 : 'any'}
                                           disabled={isSaving}
                                           aria-label={displayName}
+                                          aria-describedby={enumHintId}
                                           onBlur={(e) => {
                                             let num = parseFloat(e.target.value)
                                             if (isNaN(num) || !opt.name) return
                                             if (opt.min !== undefined) num = Math.max(opt.min, num)
                                             if (opt.max !== undefined) num = Math.min(opt.max, num)
                                             if (num === rawVal) return
+                                            if (num === blockedEnumValue) {
+                                              e.target.value = displayValue
+                                              refuseBlockedEnumValue(opt.name, num)
+                                              return
+                                            }
                                             e.target.value = String(num)
                                             handleOptionChange(opt.name, num, group.name)
                                           }}
@@ -4303,7 +4496,14 @@ export default function ServerConfig() {
                                             <button
                                               type="button"
                                               className="text-xs text-muted-foreground/50 hover:text-primary whitespace-nowrap flex items-center gap-1"
-                                              onClick={() => opt.name && opt.default !== undefined && handleOptionChange(opt.name, opt.default, group.name)}
+                                              onClick={() => {
+                                                if (!opt.name || opt.default === undefined) return
+                                                if (blockedEnumValue !== null && opt.default === blockedEnumValue) {
+                                                  refuseBlockedEnumValue(opt.name, blockedEnumValue)
+                                                  return
+                                                }
+                                                handleOptionChange(opt.name, opt.default, group.name)
+                                              }}
                                               disabled={isSaving}
                                               // eslint-disable-next-line local/no-dead-disabled-title -- pure hint naming the action + value; disables only transiently while a save is in flight (the adjacent spinner is the self-evident why). Triaged 2026-08-27. Note: the wrapping Radix Tooltip here has the same "no pointer/focus events on a disabled native button" limitation as this title, so its content is equally unreachable while isSaving -- out of scope for this rule (it only checks title+disabled), flagged here rather than fixed since isSaving is brief and self-evident.
                                               title={t('modSettingsTab.resetToDefaultTitle', { value: formatRawConfigValue(opt.default) })}
@@ -4422,7 +4622,23 @@ export default function ServerConfig() {
         </div>
       )}
       <Dialog open={showBackups} onOpenChange={setShowBackups}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
+        {/* flex flex-col, here and in Templates below (same fix as
+            FolderBrowser.tsx): the fixed h-[400px] ScrollArea is most of the
+            dialog, and as a grid row it never shrinks to the height cap, so
+            the whole dialog scrolled instead -- Close was below the fold at
+            open even at 1366x768, 100% zoom, and the wheel over the list
+            scrolled the list first. In a flex column the list gives up the
+            height and the filter row and footer stay on screen, down to the
+            list's min-h-32 floor: its root is overflow-hidden, so without one
+            it shrank to nothing on a short window (1280x720 at 200% zoom, a
+            landscape phone) and left the count and Close around an empty
+            strip, every Restore out of reach. Below the floor the whole
+            dialog scrolls instead (DialogContent's overflow-y-auto). The
+            height cap is DialogContent's dvh default, not the old 85vh/80vh:
+            in a column a lower cap only takes rows off the list. Measured in
+            Chromium, the list keeps 373px at 1366x768 and 156px at 1366x768
+            at 150% zoom, and reaches the floor at 1280x720 at 150%. */}
+        <DialogContent className="max-w-2xl flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <RotateCcw className="w-5 h-5" />
@@ -4433,8 +4649,10 @@ export default function ServerConfig() {
             </DialogDescription>
           </DialogHeader>
 
-          {/* Filter tabs */}
-          <div className="flex items-center gap-2 border-b pb-3">
+          {/* Filter tabs. flex-wrap: five buttons are wider than a phone-width
+              dialog; unwrapped they either widened the whole dialog into a
+              sideways scroll (grid) or squashed into each other (flex-col). */}
+          <div className="flex flex-wrap items-center gap-2 border-b pb-3">
             <span className="text-sm text-muted-foreground me-2">
               <Filter className="w-4 h-4 inline me-1" />
               {t('backupsDialog.filterLabel')}
@@ -4452,7 +4670,7 @@ export default function ServerConfig() {
             ))}
           </div>
 
-          <ScrollArea className="h-[400px]">
+          <ScrollArea className="h-[400px] min-h-32">
             {backups.length === 0 ? (
               <EmptyState type="noData" title={t('backupsDialog.emptyTitle')} description={t('backupsDialog.emptyDesc')} compact />
             ) : (
@@ -4551,7 +4769,9 @@ export default function ServerConfig() {
 
       {/* Templates Dialog */}
       <Dialog open={showTemplates} onOpenChange={setShowTemplates}>
-        <DialogContent className="max-w-2xl">
+        {/* flex flex-col, and the list's min-h-32 floor: see the Backups
+            dialog above. */}
+        <DialogContent className="max-w-2xl flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Bookmark className="w-5 h-5" />
@@ -4576,7 +4796,7 @@ export default function ServerConfig() {
             </Button>
           </div>
 
-          <ScrollArea className="h-[400px]">
+          <ScrollArea className="h-[400px] min-h-32">
             {templates.length === 0 ? (
               <EmptyState type="noData" title={t('templatesDialog.emptyTitle')} description={t('templatesDialog.emptyDesc')} compact />
             ) : (

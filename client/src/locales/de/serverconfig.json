@@ -44,6 +44,8 @@
     "causeWorkshopNotOnDisk": "In WorkshopItems= gelistet, aber der Inhalt ist nicht auf der Festplatte und wird derzeit nicht heruntergeladen. Starte den Server neu oder validiere den Workshop-Download erneut, dann führe die Diagnose erneut aus.",
     "rerunDiagnostics": "Diagnose erneut ausführen",
     "causeAbsent": "Kein installierter Workshop- oder lokaler Mod entspricht dieser ID.",
+    "causePanelBridge": "Das ist der eigene Eintrag von PanelBridge. Er wird aufgelöst, sobald Steam das Workshop-Element von PanelBridge heruntergeladen hat; unter Einstellungen › PanelBridge siehst du, ob das passiert ist und was sonst zu tun ist.",
+    "openBridgeSettings": "Einstellungen › PanelBridge öffnen",
     "removeAction": "Aus Mods= entfernen",
     "correctedTitle": "Mods=-Eintrag korrigiert",
     "correctedToast": "\"{{modId}}\" wurde in Mods= durch \"{{suggestion}}\" ersetzt. Nicht gespeichert — unten prüfen und speichern.",
@@ -147,7 +149,9 @@
     "sectionLabel": "Servereinstellungen",
     "sectionSublabel": "INI · Verhalten, Netzwerk, Spieler",
     "luaChecksumTitle": "Lua Checksum ist aktiviert",
-    "luaChecksumBody": "PanelBridge verändert serverseitige Lua-Dateien. Wenn Lua Checksum aktiviert ist, schlägt die Überprüfung bei Clients fehl und sie können sich nicht verbinden. Deaktiviere <1>DoLuaChecksum</1> in der Kategorie Mods, damit Spieler beitreten können.",
+    "luaChecksumBody": "Das vom Panel installierte PanelBridge fügt serverseitige Lua-Dateien hinzu, die Spieler nicht haben. Mit eingeschaltetem <1>DoLuaChecksum</1> können sie sich daher nicht verbinden. Schalte es aus oder stelle PanelBridge unter Einstellungen › PanelBridge auf Bereitstellung über den Steam Workshop um, damit es an bleiben kann.",
+    "luaChecksumWorkshopNote": "PanelBridge kommt aus dem Steam Workshop, du kannst diese Option also einschalten. Einstellungen › PanelBridge führt dich durch die Schritte.",
+    "luaChecksumWorkshopUnconfirmed": "Wenn PanelBridge noch aus dem Spielordner geladen wird, können Spieler mit eingeschalteter Option nicht beitreten.",
     "disableNow": "Jetzt deaktivieren"
   },
   "sandboxTab": {
@@ -233,7 +237,12 @@
     "showAllOptions": "Alle Optionen anzeigen",
     "noMatches": "Keine Einstellungen stimmen mit „{{query}}“{{suffix}} überein.",
     "noMatchesInModified": " in den geänderten Optionen",
-    "clearSearch": "Suche löschen"
+    "clearSearch": "Suche löschen",
+    "enumBridgeOutdatedTitle": "Dieser Server nutzt eine ältere PanelBridge-Version",
+    "enumBridgeOutdatedDesc": "Sie speichert die letzte Auswahl einer Listeneinstellung als die davor. Deshalb sendet das Panel keine letzte Auswahl, bis PanelBridge aktualisiert und der Server neu gestartet ist. Unter Einstellungen › PanelBridge siehst du, was dieser Server braucht. Lassen sich die Auswahlmöglichkeiten einer Einstellung nicht auflisten, gib die Nummer der Auswahl ein (1 ist die erste).",
+    "enumLastChoiceHeldBack": "Die letzte Auswahl ({{max}}) lässt sich hier erst wählen, wenn PanelBridge aktualisiert ist.",
+    "enumLastChoiceItem": "Auswahl {{value}}",
+    "enumTooManyChoices": "Zu viele Auswahlmöglichkeiten für eine Liste. Gib die Nummer der Auswahl ein (1 ist die erste)."
   },
   "stickySaveBar": {
     "unsavedChange_one": "{{count}} ungespeicherte Änderung",
@@ -366,6 +375,8 @@
     "copyFailed": "Kopieren des Inhalts in die Zwischenablage fehlgeschlagen.",
     "optionUpdatedTitle": "Option aktualisiert",
     "optionUpdatedDesc": "{{option}} erfolgreich gesetzt",
+    "enumLastChoiceRefusedTitle": "Zuerst PanelBridge aktualisieren",
+    "enumLastChoiceRefusedDesc": "{{option}} wurde nicht geändert. Die ältere PanelBridge-Version auf diesem Server würde die letzte Auswahl ({{max}}) als die davor speichern.",
     "bridgeUnverifiedDesc": "{{action}} wurde gesendet, aber das Mod konnte nicht bestätigen, dass es wirksam wurde.",
     "bridgeOldBridgeDesc": "{{action}} hat möglicherweise funktioniert, aber diese Version des PanelBridge-Mods meldet nicht zurück, ob es so war. Aktualisiere das Mod, um Ergebnisse zu bestätigen.",
     "appliedNotSavedTitle": "Angewendet, aber nicht gespeichert",
@@ -797,7 +808,7 @@
       },
       "DoLuaChecksum": {
         "label": "Lua Checksum",
-        "description": "Verify client Lua matches server. Must be disabled when using PanelBridge — the mod modifies server-side Lua files, which causes checksum mismatches and prevents players from connecting."
+        "description": "Kickt Spieler, deren Lua-, Skript- oder Animationsdateien nicht mit denen des Servers übereinstimmen. Muss mit dem vom Panel installierten PanelBridge aus sein; kann bei Bereitstellung über den Steam Workshop an bleiben."
       }
     },
     "steam": {

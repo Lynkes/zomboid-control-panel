@@ -21,3 +21,4 @@ docker-compose.yml
 Dockerfile
 .dockerignore
 LICENSE
+dist-workshop/

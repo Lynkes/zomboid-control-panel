@@ -169,7 +169,7 @@ Visual map selector for reclaiming disk space from an aging save. Delete individ
 
 ### Extend
 - **Events & weather** — Rain, storms, blizzards, climate control, time control, sound triggers, zombie management.
-- **PanelBridge** — Server-side Lua mod for actions RCON can't reach: teleport, heal, god mode, character export/import, inventory.
+- **PanelBridge** — Server-side Lua mod for actions RCON can't reach: teleport, heal, god mode, character export/import, inventory. The panel copies it into the game folder, or a Build 42 server running with Steam downloads it from the Steam Workshop, which lets you keep the Lua integrity check on.
 - **Discord bot** — Slash commands and two-way chat relay.
 - **Single sign-on (SSO)** — OpenID Connect login, with ready-made presets for Google, Authentik, Keycloak, Azure AD, Okta, and Auth0, or any other compliant provider entered by hand. Full discovery + PKCE + state/nonce flow, with a one-click credential test before you commit to it.
 - **Multi-server** — Manage multiple PZ servers from one panel.
@@ -188,7 +188,7 @@ Visual map selector for reclaiming disk space from an aging save. Delete individ
   RCONPassword=choose-a-strong-password
   DoLuaChecksum=false
   ```
-  Use the actual RCON port and password configured for your server. `DoLuaChecksum=false` is needed only for PanelBridge features.
+  Use the actual RCON port and password configured for your server. `DoLuaChecksum=false` is needed only for the panel-installed PanelBridge (the default). With Steam Workshop delivery it can stay on; see [PanelBridge](#panelbridge-optional).
 - **`curl`** for World Map build detection (Docker, Windows, and macOS already have it; a bare-metal Linux tarball install might not). Without it, the map still works — it just falls back to a fixed build and stops tracking new Project Zomboid map releases, which Debug > World Map will flag.
 
 The packaged binary includes its own runtime — no Node.js, Python, or Java install needed on the panel host.
@@ -261,14 +261,23 @@ If you installed a brand-new server with the Setup Wizard, steps 2 and 3 are alr
 
 ### PanelBridge (Optional)
 
-PanelBridge is a server-side Lua drop-in that enables features RCON can't reach — teleport, heal, weather control, character export/import, inventory editing, sound triggers.
+PanelBridge is a server-side Lua mod that enables features RCON can't reach — teleport, heal, weather control, character export/import, inventory editing, sound triggers.
 
-There is no client-side component. Players don't install anything. The panel copies `PanelBridge.lua` into your server's `Install/media/lua/server/` folder, then you set `DoLuaChecksum=false` in the server INI, restart the PZ server, and enable it in **Settings → PanelBridge**.
+It can reach your server in two ways. Choose one per server under **Settings → PanelBridge → How PanelBridge is installed**. The choice covers every server profile that uses the same game folder.
+
+- **Installed by the panel** (the default). The panel copies `PanelBridge.lua` into the server's `Install/media/lua/server/` folder and brings it up to date before every start. It works with servers that launch without Steam, and players download nothing. The drawback is the Lua integrity check: players can only join while `DoLuaChecksum=false` is set in the server INI, so the server doesn't compare players' Lua, script and animation files with its own (#168). Hosted and SFTP servers need a manual re-upload of `PanelBridge.lua` after each panel update.
+- **Steam Workshop** (Build 42 servers running in Steam mode). The server downloads the "Zomboid Control Panel Bridge" Workshop item when it starts, and players install it with one click when they join. The server INI needs two entries, `ZCPB` in `Mods=` and the item's ID in `WorkshopItems=`. The panel adds them when it can reach the server's files. For other servers it lists them for you to add. This turns the Lua integrity check back on: players whose Lua, script or animation files differ from the server's are refused. It doesn't stop modified game clients, and admin accounts skip this check. The drawbacks: after each PanelBridge update on the Workshop, new players can't join until the server restarts, and if Steam can't deliver PanelBridge, the server won't start. You can switch back to panel-installed at any time.
+
+The panel never turns `DoLuaChecksum` on by itself. Once the server reports that it loaded PanelBridge from the Workshop and no old PanelBridge files are left in the game folder, Settings → PanelBridge offers to turn it on. Test that with a normal player account, not an admin.
+
+The Steam Workshop option reads "Not available yet" until a panel release carries the Workshop item's ID, which ships with each release and is never fetched from the network. It is marked **Preview** until the maintainer has verified it on live Windows and Linux servers.
 
 For a remote server without a shared filesystem, use the **Remote server via
-SFTP** option in the same panel. It syncs the bridge command and result files
-through a local cache; it does not expose the server's full filesystem to the
-panel.
+SFTP** option in the same panel, whichever way PanelBridge is installed. It
+syncs the bridge command and result files through a local cache; it does not
+expose the server's full filesystem to the panel. See
+[docs/install/hosted.md](docs/install/hosted.md) for both install methods on a
+server you can only reach through a file manager.
 
 ---
 
@@ -354,6 +363,8 @@ Frontend at `http://localhost:5173`, backend at `http://localhost:3001`.
 node build.js --all        # Build Windows + Linux binaries
 npm test                   # Run tests
 ```
+
+Maintainers publishing the PanelBridge Steam Workshop item: see [docs/maintainers/workshop-publishing.md](docs/maintainers/workshop-publishing.md).
 
 ---
 

@@ -42,7 +42,13 @@
     "runsSchedule": "{{schedule}}运行 · 保留 {{count}} 份",
     "noScheduled": "没有计划备份",
     "toggleAria": "切换计划备份",
-    "lastScheduledAttemptFailed": "上次计划任务失败（{{time}}）：{{message}}"
+    "lastScheduledAttemptFailed": "上次计划任务失败（{{time}}）：{{message}}",
+    "deferredForRestart": "应于 {{time}} 运行——正在等待服务器重启完成",
+    "lastScheduledSkippedForRestart": "上次计划备份因重启被跳过（{{time}}）"
+  },
+  "scheduledAttempt": {
+    "restartStuck": "未运行：服务器重启已进行 {{minutes}} 分钟（提前 {{warningMinutes}} 分钟警告）仍未完成——远超重启所需的时间，看起来已卡住，且在此期间手动备份被阻止。如果重启似乎仍在进行，检查游戏服务器是否已恢复运行，然后重启面板以解除卡住的重启。之后创建一次备份也会清除备份失败警告。",
+    "restartStuckSinceDue": "未运行：此备份到期时正在进行的服务器重启，{{minutes}} 分钟后仍未完成——远超重启所需的时间，看起来已卡住，且在此期间手动备份被阻止。如果重启似乎仍在进行，检查游戏服务器是否已恢复运行，然后重启面板以解除卡住的重启。之后创建一次备份也会清除备份失败警告。"
   },
   "schedule": {
     "every15Min": "每 15 分钟",
@@ -57,6 +63,8 @@
     "daily6am": "每天 6 点",
     "dailyNoon": "每天正午",
     "daily6pm": "每天 18 点",
+    "customOption": "自定义（cron 表达式）",
+    "custom": "按自定义计划（{{cron}}）",
     "none": "无计划"
   },
   "settingsPanel": {
@@ -67,8 +75,27 @@
     "frequencyHelp": "自动创建备份的频率",
     "maxBackupsLabel": "最大保留备份数",
     "maxBackupsHelp": "达到数量上限后，最旧的备份将被自动删除",
+    "customLabel": "cron 表达式",
+    "customHint": "格式：分钟 小时 日 月 星期。“{{example}}”表示每天 3:30 运行。最多每 5 分钟一次。",
+    "customValid": "计划有效",
+    "customInvalid": "不是有效的 cron 表达式",
+    "nextRun": "下次备份：{{date}}",
+    "timezoneNotice": "计划时间按面板时区 {{tz}} 计算（可在“计划任务”中更改）。",
+    "scheduledBackupsOff": "计划备份已关闭——开启后才会按此计划运行。",
+    "bothDayFieldsNote": "日期和星期必须同时匹配：只在同时满足两者的日子备份，而不是满足其一即可。",
     "savesLabel": "存档：{{path}}",
     "saveButton": "保存设置"
+  },
+  "restartOverlap": {
+    "title": "备份与计划重启时间重叠",
+    "task": "部分计划备份落在计划重启“{{name}}”期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "taskAll": "所有计划备份都落在计划重启“{{name}}”期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "taskUnnamed": "部分计划备份落在某个计划重启期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "taskUnnamedAll": "所有计划备份都落在某个计划重启期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "autoRestart": "部分计划备份落在定期自动重启期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "autoRestartAll": "所有计划备份都落在定期自动重启期间（例如 {{backupTime}} 的备份，落在 {{restartTime}} 的重启期间）。",
+    "consequence": "这些备份会等到重启完成后再运行，因此最多会晚约 {{minutes}} 分钟。若要准时运行，请把备份安排在重启计划时间之后至少 {{minutes}} 分钟（例如，重启在整点时，在每小时的 xx{{exampleTime}} 备份）。",
+    "consequenceNoExample": "这些备份会等到重启完成后再运行，因此最多会晚约 {{minutes}} 分钟。若要准时运行，请把备份安排在重启计划时间之后至少 {{minutes}} 分钟。"
   },
   "progress": {
     "startingFallback": "正在开始备份…",
@@ -161,9 +188,7 @@
     "uploadedDesc": "已存储为 {{name}}。使用「恢复」应用该备份。",
     "uploadFailedTitle": "上传失败",
     "uploadFailedFallback": "备份上传失败",
-    "restoredTitle": "恢复点已还原",
     "restoredDesc": "已在 {{seconds}} 秒内回滚至 {{name}}",
-    "restoreFailedTitle": "恢复失败",
     "restoreFailedFallback": "备份恢复失败",
     "snapshotUnavailableTitle": "快照不可用",
     "snapshotUnavailableFallback": "无法读取备份快照",
@@ -196,6 +221,19 @@
   "restoreProgress": {
     "title": "正在恢复 {{name}}…",
     "titleUnknown": "该服务器已有一个还原正在进行…",
-    "note": "根据世界大小，可能需要几分钟。请勿关闭面板或离开此页面。"
+    "note": "根据世界大小，可能需要几分钟。可以离开此页面稍后再回来，但完成之前请勿停止或重启面板。",
+    "responseLost": "面板没有响应此请求。恢复在面板上运行，因此可能仍在进行中。正在向面板确认结果…"
+  },
+  "restoreResult": {
+    "successTitle": "恢复完成",
+    "successDetail": "耗时 {{seconds}} 秒。被替换的世界已先保存为安全备份——就是下方列表中最新的那一个。准备好后即可启动服务器。",
+    "successDetailNoSafetyBackup": "耗时 {{seconds}} 秒。此次恢复启动时未创建安全备份，被替换的世界没有保留。准备好后即可启动服务器。",
+    "failedTitle": "恢复失败",
+    "notStartedProxy": "面板前面的代理或隧道拒绝了此请求（HTTP {{status}}）。面板没有这次恢复的记录，因此恢复并未开始。",
+    "failedNextStep": "除非上面的原因另有说明，当前世界保持原样。请先解决问题，然后重试。",
+    "unknownTitle": "无法确认恢复的结果",
+    "unknownDetail": "页面无法从面板获取这次恢复的结果（连接中断时间过长，或面板已重启），因此恢复可能未完成，甚至可能未开始。启动服务器之前，请打开「调试日志 › 活动」并搜索「restore」。如果开始恢复之后有这个备份的 backup_restored 记录，说明恢复已完成；如果之后有 restore_failed 记录，其中会写明失败原因。如果两者都没有，请重新恢复。如果无法打开调试日志，请联系管理员。",
+    "dismiss": "关闭",
+    "dismissAria": "关闭恢复结果"
   }
 }

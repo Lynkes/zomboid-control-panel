@@ -6,6 +6,31 @@
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
 
+                vNEXT Changes:
+                - Add: PanelBridge can also ship as the Steam Workshop mod
+                    Zomboid Control Panel Bridge (mod id ZCPB). Every
+                    player's game runs each mod's media/lua/server, so this
+                    file now stops before doing anything unless it runs on a
+                    dedicated server, and the client companion only runs in
+                    a multiplayer session.
+                - Add: status.json reports startedAt, gameVersion and
+                    delivery (workshop, mod or loose, plus the Workshop item
+                    id), and startup.json reports delivery, so the panel can
+                    tell how the bridge was loaded. Additive fields only; the
+                    queue protocol is unchanged.
+                - Fix: getGameTime's multiplier, getTimeSpeed and the startup
+                    time-speed reset read the raw game speed RCON's
+                    setTimeSpeed sets (getTrueMultiplier), not the ~0.8
+                    per-frame getMultiplier(). Normal speed now reads 1, and
+                    the reset no longer fires on every start.
+                - Fix: sandbox enum options follow Build 42's 1..N values
+                    (thanks rmssantos, PR #169). getAllSandboxOptions reads
+                    labels 1..N and keeps an untranslated one in place under
+                    its number, and setSandboxOption rejects a value outside
+                    1..N instead of clamping the last choice to N-1. Tooltips
+                    are sent as the game's translated text, and getMin/getMax
+                    are only asked of number and enum options.
+
                 v1.7.70 Changes:
                 - Add: lightweight save-backed player leaderboard telemetry
                     for current-life kills/days, all-time kills, deaths, and
@@ -560,12 +585,24 @@
     - Fixed snow to auto-enable rain
 ]]
 
+-- Every player's game loads and runs each mod's media/lua/server (GameLoadingState.enter), so only
+-- the dedicated server may run the bridge. isServer() is GameServer.server, already true when
+-- server Lua loads (GameServer.main); it is false on MP clients and in single player. A
+-- `not isClient()` test would let single player through. Keep this the first statement: nothing
+-- may register an event or touch a file before it.
+if not (isServer and isServer()) then return end
+
 -- Forward declaration (referenced in log() before definition below)
 local json
 
 local PanelBridge = {
     VERSION = "1.7.70",
+    -- Change only for a breaking wire-format change. Bridge changes must be additive: a
+    -- Workshop server runs whatever version was last published, not the panel's bundled one.
     PROTOCOL_VERSION = "queue-v1",
+    -- Steam Workshop mod id (mod.info id=). Permanent once published: Mods= lines, the panel's
+    -- delivery detection and the Workshop build all key on it.
+    MOD_ID = "ZCPB",
     CHECK_INTERVAL = 250, -- milliseconds (fast command polling)
     lastCheck = 0,
     lastStatusUpdate = 0,
@@ -1636,7 +1673,8 @@ function PanelBridge.getBasePath()
     end
 
     -- For dedicated servers, we write to the Lua folder itself
-    -- Files will be created in: {ServerInstall}/Lua/panelbridge/{serverName}/
+    -- Files will be created in: <cachedir>/Lua/panelbridge/{serverName}/ (the Zomboid data
+    -- folder, not the game install), whether this file runs from the install or from a mod.
     -- This is within the allowed write path for getFileWriter
     local serverName = getServerName()
     local safeServerName = nil
@@ -3855,6 +3893,23 @@ local function safeGetValue(obj, methodName, default)
     return default
 end
 
+-- The game speed RCON's setTimeSpeed sets, or nil when it can't be read.
+-- SetTimeSpeedCommand stores it with GameTime.setMultiplier(), a plain write
+-- of GameTime's own `multiplier` field, and getTrueMultiplier() reads that
+-- field back (times perObjectMultiplier, which the engine only moves inside
+-- its moving-object update loop and sets back to 1 when that loop ends, so
+-- it is 1 whenever this bridge's tick handler or OnServerStarted runs). Vanilla pairs the same two
+-- methods for the debug panel's game-speed slider (ISGameDebugPanel.lua).
+-- Never getMultiplier(): that is the per-frame time step, the field times
+-- fpsMultiplier, multiplierBias, perObjectMultiplier, the slow-motion factor
+-- and a constant 0.8, so it reads about 0.8 at normal speed and drifts with
+-- the server's frame rate (javap zombie.GameTime, 42.20; a live 42.20.4
+-- server logged "Reset time speed from 0.800000011920929x" on every start).
+function PanelBridge.readTimeSpeed(gameTime)
+    if not gameTime then return nil end
+    return tonumber(PanelBridge.tryGet(gameTime, "getTrueMultiplier"))
+end
+
 -- Get game time info
 handlers.getGameTime = function(args)
     local gameTime = getGameTime()
@@ -3877,17 +3932,18 @@ handlers.getGameTime = function(args)
         timeSinceApo = 0,
         moonPhase = 0,
         nightsSurvived = gameTime:getNightsSurvived(),
-        -- Same GameTime singleton/field RCON's setTimeSpeed command writes
-        -- via GameTime.getInstance():setMultiplier() (confirmed against the
-        -- real jar) -- a real, authoritative read-back for the panel's
-        -- time-speed slider (client/src/pages/Events.tsx), not a decorative
-        -- one. Deliberately DEVIATES from every other getter above, which
-        -- use bare colon-calls specifically to dodge the Kahlua-trace-log
-        -- note at the top of this handler -- getMultiplier isn't one of the
-        -- vanilla-confirmed clock methods that note restricts bare calls
-        -- to, so it goes through tryGet instead, same as any other
-        -- not-yet-vanilla-confirmed probe elsewhere in this file.
-        multiplier = tonumber(PanelBridge.tryGet(gameTime, "getMultiplier")) or 1
+        -- The field RCON's setTimeSpeed command writes via
+        -- GameTime.getInstance():setMultiplier() (confirmed against the
+        -- real jar), read back raw by PanelBridge.readTimeSpeed: the
+        -- read-back for the panel's time-speed slider
+        -- (client/src/pages/Events.tsx), so 1 at normal speed, not the
+        -- ~0.8 composite getMultiplier() returns. Deliberately DEVIATES
+        -- from every other getter above, which use bare colon-calls to
+        -- dodge the Kahlua-trace-log note at the top of this handler:
+        -- vanilla only calls getTrueMultiplier from client Lua, so it goes
+        -- through tryGet instead, same as any other not-yet-server-confirmed
+        -- probe elsewhere in this file.
+        multiplier = PanelBridge.readTimeSpeed(gameTime) or 1
     }
 end
 
@@ -3994,7 +4050,7 @@ handlers.getTimeSpeed = function(args)
         return false, nil, "GameTime not available"
     end
 
-    local multiplier = tonumber(PanelBridge.tryGet(gt, "getMultiplier")) or 1
+    local multiplier = PanelBridge.readTimeSpeed(gt) or 1
 
     return true, { multiplier = multiplier }
 end
@@ -5174,20 +5230,12 @@ handlers.getAllSandboxOptions = function(args)
         info.shortName = safeStr(function() return opt:getShortName() end)
         -- Get the table/page name (mod or category grouping)
         info.tableName = safeStr(function() return opt:getTableName() end)
-        -- Get the tooltip/translation key
+        -- Get the already-translated tooltip text (not a translation key).
+        -- B42 getTooltip already returns translated text, including defaults.
+        -- Translating it again treats literal percentages as format strings.
         info.tooltip = safeStr(function() return opt:getTooltip() end)
-        -- Try to resolve tooltip via PZ translation (getText returns the translated string)
-        if info.tooltip then
-            pcall(function()
-                local translated = getText(info.tooltip)
-                if translated and translated ~= info.tooltip and translated ~= "" then
-                    info.tooltipText = translated
-                end
-            end)
-            -- If getText didn't work, check if tooltip already contains plain text (not a key)
-            if not info.tooltipText and info.tooltip:find(" ") then
-                info.tooltipText = info.tooltip
-            end
+        if info.tooltip and info.tooltip ~= "" then
+            info.tooltipText = info.tooltip
         end
         -- Get the translated name if available
         info.translatedName = safeStr(function() return opt:getTranslatedName() end)
@@ -5225,12 +5273,14 @@ handlers.getAllSandboxOptions = function(args)
                     local numVals = tonumber(PanelBridge.tryGet(opt, "getNumValues"))
                     if numVals and numVals > 0 then
                         info.enumValues = {}
+                        -- Mod Settings compares against this cap to spot an old bridge
+                        -- (BRIDGE_ENUM_LABEL_CAP in ServerConfig.tsx); keep them equal.
                         local cap = math.min(numVals, 50)
-                        for i = 0, cap - 1 do
+                        -- B42 translation indices and selected values are 1..N.
+                        -- Keep missing labels in place so later choices never shift.
+                        for i = 1, cap do
                             local translated = PanelBridge.tryGet(opt, "getValueTranslationByIndexOrNull", i)
-                            if translated ~= nil then
-                                table.insert(info.enumValues, tostring(translated))
-                            end
+                            table.insert(info.enumValues, translated ~= nil and tostring(translated) or tostring(i))
                         end
                     end
                 end)
@@ -5251,11 +5301,14 @@ handlers.getAllSandboxOptions = function(args)
                 info.type = className
             end
         end)
-        -- Get min/max for numeric types
-        local minValue = PanelBridge.tryGet(opt, "getMin")
-        if type(minValue) == "number" then info.min = minValue end
-        local maxValue = PanelBridge.tryGet(opt, "getMax")
-        if type(maxValue) == "number" then info.max = maxValue end
+        -- B42 booleans/strings do not implement numeric bounds. Even a caught
+        -- missing Java method emits a trace, so do not probe those types.
+        if info.type == "number" or info.type == "enum" then
+            local minValue = PanelBridge.tryGet(opt, "getMin")
+            if type(minValue) == "number" then info.min = minValue end
+            local maxValue = PanelBridge.tryGet(opt, "getMax")
+            if type(maxValue) == "number" then info.max = maxValue end
+        end
         -- Get default value
         local defaultValue = PanelBridge.tryGet(opt, "getDefaultValue")
         if defaultValue ~= nil then
@@ -5480,12 +5533,18 @@ handlers.setSandboxOption = function(args)
         ok, err = pcall(function() targetOpt:setValue(boolVal) end)
     elseif optType == "enum" then
         local intVal = tonumber(newValue)
-        if not intVal then return false, nil, "Invalid enum value" end
-        intVal = math.floor(intVal)
-        -- Bounds-check against getNumValues if available
+        -- A fraction or a non-finite number is not a choice: reject it rather
+        -- than round it into a different one (inf % 1 is NaN, so it fails too).
+        if not intVal or intVal % 1 ~= 0 then return false, nil, "Invalid enum value" end
+        -- Enum values are 1..N: EnumConfigOption(name, N, default) builds an
+        -- IntegerConfigOption with min 1 and max N, and getNumValues() returns
+        -- that max. Reject anything outside it. Clamping here once turned the
+        -- last choice N into N-1, which then read back as a confirmed write.
+        if intVal < 1 then return false, nil, "Enum value must be at least 1" end
         local numVals = tonumber(PanelBridge.tryGet(targetOpt, "getNumValues"))
-        if numVals and intVal >= numVals then intVal = numVals - 1 end
-        if intVal < 0 then intVal = 0 end
+        if numVals and intVal > numVals then
+            return false, nil, "Enum value out of range (1.." .. numVals .. ")"
+        end
         appliedValue = intVal
         ok, err = pcall(function() targetOpt:setValue(intVal) end)
     elseif optType == "integer" then
@@ -9477,6 +9536,13 @@ function PanelBridge.updateStatus()
             end
         end
 
+        -- detectVersion leaves build at "unknown" when getCore():getVersion() fails; omit it then.
+        local detected = PanelBridge.detectedVersion
+        local gameVersion = nil
+        if detected and detected.build ~= nil and detected.build ~= "unknown" then
+            gameVersion = tostring(detected.build)
+        end
+
         local status = {
             alive = true,
             version = PanelBridge.VERSION,
@@ -9496,7 +9562,14 @@ function PanelBridge.updateStatus()
             queue = {
                 lastCommandSeq = PanelBridge.queueState.lastCommandSeq,
                 nextResultSeq = PanelBridge.queueState.nextResultSeq
-            }
+            },
+            -- How this run was started and delivered. nil (so omitted) until onServerStarted has
+            -- set them; the panel reads a missing delivery as a loose install. startedAt only
+            -- changes when the server restarts, which is how the panel tells a restart happened
+            -- without comparing its clock with the game host's.
+            startedAt = PanelBridge.stats.startTime,
+            gameVersion = gameVersion,
+            delivery = PanelBridge.delivery
         }
 
         PanelBridge.writeJSON("status.json", status)
@@ -9542,6 +9615,69 @@ function PanelBridge.onTick()
     end
 end
 
+-- Never called: its compiled prototype carries the path of the file this chunk was loaded from.
+local function panelBridgeSelfLocator() end
+
+-- Reports how this copy of the bridge was delivered, for status.json/startup.json:
+-- { method = "workshop"|"mod"|"loose", workshopId = "<digits>" (workshop only),
+--   modActive = bool, modVersion = "<mod.info modversion>" (when known) }.
+-- There is no debug library in Kahlua, so the running file is found through getFilenameOfClosure.
+function PanelBridge.detectDelivery()
+    local d = { method = nil, modActive = false }
+    -- 1) Which file is actually running. RunLua receives the activeFileMap path, so a mod copy that
+    --    overrides a loose copy reports the mod path (42.20: LoadDirBase 446-482, FuncState.code 117-120).
+    local ok, file = pcall(function()
+        if type(getFilenameOfClosure) ~= "function" then return nil end
+        return getFilenameOfClosure(panelBridgeSelfLocator)
+    end)
+    if ok and type(file) == "string" and file ~= "" then
+        local src = string.lower((string.gsub(file, "\\", "/")))
+        local wsid = string.match(src, "/workshop/content/108600/(%d+)/")
+        if wsid then
+            d.method = "workshop"
+            d.workshopId = wsid
+        elseif string.find(src, "/mods/" .. string.lower(PanelBridge.MOD_ID) .. "/", 1, true) then
+            d.method = "mod"
+        else
+            d.method = "loose"
+        end
+    end
+    -- 2) Cross-check with the active mod list.
+    pcall(function()
+        if type(getActivatedMods) == "function" then
+            for _, id in ipairs(collectJavaCollection(getActivatedMods(), "Activated mods") or {}) do
+                if tostring(id) == PanelBridge.MOD_ID then
+                    d.modActive = true
+                    break
+                end
+            end
+        end
+        -- Only look the mod up when it is in play (active, or its own folder is running). For an
+        -- id that isn't loaded, getModDetails (42.20) reads the mod.info of every installed mod
+        -- folder and caches them all, which neither the default loose install nor another
+        -- Workshop item's PanelBridge.lua overriding this one has any reason to trigger.
+        if not (d.modActive or d.method == "mod") then return end
+        local info = type(getModInfoByID) == "function" and getModInfoByID(PanelBridge.MOD_ID) or nil
+        if not info then return end
+        local v = PanelBridge.tryGet(info, "getModVersion")
+        if v and tostring(v) ~= "" then d.modVersion = tostring(v) end
+        -- Fallback when the running file's path is unavailable: an active mod with a Workshop
+        -- id came from the Workshop. 42.20 sets it from a numeric <id>/mods/<mod> folder and
+        -- leaves it "" for a mod in Zomboid/mods (nil is tolerated too).
+        if not d.method and d.modActive then
+            local w = tostring(PanelBridge.tryGet(info, "getWorkshopID") or "")
+            if string.match(w, "^%d+$") then
+                d.method = "workshop"
+                d.workshopId = w
+            else
+                d.method = "mod"
+            end
+        end
+    end)
+    d.method = d.method or "loose"
+    return d
+end
+
 function PanelBridge.onServerStarted()
     print("[PanelBridge] ========================================")
     print("[PanelBridge] Initializing v" .. PanelBridge.VERSION)
@@ -9575,6 +9711,10 @@ function PanelBridge.onServerStarted()
     -- Detect version and available APIs
     PanelBridge.detectVersion()
 
+    -- Detect how this copy was delivered (Workshop, local mod or panel-installed file)
+    PanelBridge.delivery = PanelBridge.detectDelivery()
+    print("[PanelBridge] Loaded from: " .. PanelBridge.delivery.method .. (PanelBridge.delivery.workshopId and (" " .. PanelBridge.delivery.workshopId) or ""))
+
     if PanelBridge.reconcileStartupPower() then
         print("[PanelBridge] Restored startup power from the configured sandbox countdown")
     end
@@ -9595,13 +9735,19 @@ function PanelBridge.onServerStarted()
         startTime = PanelBridge.stats.startTime,
         path = PanelBridge.getBasePath(),
         detectedVersion = PanelBridge.detectedVersion,
-        serverName = getServerName()
+        serverName = getServerName(),
+        delivery = PanelBridge.delivery
     })
 
-    -- Reset time speed to 1x so fast-forward doesn't persist across reboots
+    -- Reset time speed to 1x so fast-forward doesn't persist across reboots.
+    -- The world save keeps GameTime's raw `multiplier` field, so compare
+    -- that (PanelBridge.readTimeSpeed). Comparing the ~0.8 per-frame
+    -- getMultiplier() made this fire on every normal-speed start and log
+    -- "Reset time speed from 0.800000011920929x to 1x". An unreadable speed
+    -- leaves the clock alone.
     pcall(function()
         local gt = getGameTime()
-        local multiplier = tonumber(PanelBridge.tryGet(gt, "getMultiplier"))
+        local multiplier = PanelBridge.readTimeSpeed(gt)
         if multiplier and multiplier ~= 1 then
             if PanelBridge.invoke(gt, "setMultiplier", 1) then
                 print("[PanelBridge] Reset time speed from " .. tostring(multiplier) .. "x to 1x")

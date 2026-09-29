@@ -231,4 +231,42 @@ describe("resolveDockerHostSignal", () => {
     expect(getServer).toHaveBeenCalledWith(1);
     expect(result).toEqual({ running: false, scanFailed: true });
   });
+
+  // PZ is the container's PID 1 here, so the container's own start time is
+  // the game server's -- the only uptime source for a container provider,
+  // since the panel's local process scan can't see that process at all.
+  it("carries a running container's State.StartedAt, from the inspect it already made", async () => {
+    const client = createClient({
+      inspectManagedContainer: vi.fn(async () => ({
+        State: { Running: true, StartedAt: "2026-09-26T21:15:03.123456789Z" },
+      })),
+    });
+
+    const result = await resolveDockerHostSignal(
+      { id: 1, dockerContainerName: "pz-container" },
+      client,
+    );
+
+    expect(result).toEqual({
+      running: true,
+      scanFailed: false,
+      startedAt: "2026-09-26T21:15:03.123456789Z",
+    });
+    expect(client.inspectManagedContainer).toHaveBeenCalledTimes(1);
+  });
+
+  it("carries no start time for a stopped container (StartedAt is then the LAST run's)", async () => {
+    const client = createClient({
+      inspectManagedContainer: vi.fn(async () => ({
+        State: { Running: false, StartedAt: "2026-09-26T21:15:03Z" },
+      })),
+    });
+
+    const result = await resolveDockerHostSignal(
+      { id: 1, dockerContainerName: "pz-container" },
+      client,
+    );
+
+    expect(result).toEqual({ running: false, scanFailed: false });
+  });
 });

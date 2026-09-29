@@ -65,7 +65,6 @@ describe("Linux managed-service lifecycle", () => {
     const template = buildLifecycleTemplate(server, "systemd", {
       serviceUser: "pzuser",
       homeDirectory: "/home/pzuser",
-      fileExists: (candidate) => candidate.endsWith("start-server_servertest.sh"),
     });
 
     expect(template.filename).toBe("zomboid-panel-server-alpha-1.service");
@@ -96,7 +95,6 @@ describe("Linux managed-service lifecycle", () => {
     const template = buildLifecycleTemplate(server, "openrc", {
       serviceUser: "pzuser",
       homeDirectory: "/home/pzuser",
-      fileExists: () => false,
     });
 
     expect(template.filename).toBe("zomboid-panel-server-alpha-1");
@@ -123,12 +121,37 @@ describe("Linux managed-service lifecycle", () => {
       "--chdir '/opt/pz server' \\",
     );
     expect(template.content).toContain(
-      "-- /bin/bash '/opt/pz server/start-server.sh'",
+      "-- /bin/bash '/opt/pz server/start-server_servertest.sh'",
     );
     expect(template.installPath).toBe(
       "/home/pzuser/.config/rc/init.d/zomboid-panel-server-alpha-1",
     );
   });
+
+  // GH #167: the launcher used to be `fileExists(named) ? named :
+  // start-server.sh`, decided once, when the template was downloaded. A
+  // template fetched before the first Start (an existing install added
+  // through Servers > Add writes no script) baked in the stock
+  // start-server.sh, and the unit ran it on every start: no -servername or
+  // -cachedir, so the default "servertest" world, whose admin-password
+  // prompt dies on the unit's /dev/null stdin. The panel writes the named
+  // script before every start it performs, so the unit names it whether or
+  // not it exists yet. None of the templates above can see the named
+  // script on disk either -- "/opt/pz server" doesn't exist on the test host.
+  it.each(["systemd", "openrc"])(
+    "%s: a directory install always runs the server's own start-server_<name>.sh, even before it exists",
+    (provider) => {
+      const fresh = { ...server, serverName: "Restored", installPath: "/srv/pz-fresh" };
+
+      const template = buildLifecycleTemplate(fresh, provider, {
+        serviceUser: "pzuser",
+        homeDirectory: "/home/pzuser",
+      });
+
+      expect(template.content).toContain("/srv/pz-fresh/start-server_Restored.sh");
+      expect(template.content).not.toContain("start-server.sh");
+    },
+  );
 
   // god's addendum to hunt-wave5-2026-08-29: assert against path.posix
   // computed here, not a hand-typed expected string, and prove the check
@@ -158,7 +181,6 @@ describe("Linux managed-service lifecycle", () => {
     const systemdTemplate = buildLifecycleTemplate(server, "systemd", {
       serviceUser: "pzuser",
       homeDirectory,
-      fileExists: (candidate) => candidate.endsWith(launcherName),
     });
     const expectedLauncherPath = path.posix.join(installDir, launcherName);
     const expectedSystemdInstallPath = path.posix.join(
@@ -183,12 +205,7 @@ describe("Linux managed-service lifecycle", () => {
     const openrcTemplate = buildLifecycleTemplate(server, "openrc", {
       serviceUser: "pzuser",
       homeDirectory,
-      fileExists: () => false,
     });
-    const expectedFallbackLauncherPath = path.posix.join(
-      installDir,
-      "start-server.sh",
-    );
     const expectedOpenrcInstallPath = path.posix.join(
       homeDirectory,
       ".config",
@@ -201,7 +218,7 @@ describe("Linux managed-service lifecycle", () => {
       `--chdir '${installDir}' \\`,
     );
     expect(openrcTemplate.content).toContain(
-      `-- /bin/bash '${expectedFallbackLauncherPath}'`,
+      `-- /bin/bash '${expectedLauncherPath}'`,
     );
     expect(openrcTemplate.installPath).not.toContain("\\");
     // No blanket "content has no backslash" check here, unlike the systemd
@@ -222,9 +239,7 @@ describe("Linux managed-service lifecycle", () => {
     // real OpenRC: "rc-service ... start" echoed "Starting ... \$CoolServer"
     // instead of "$CoolServer".
     const dollarServer = { ...server, name: "Alpha $CoolServer" };
-    const template = buildLifecycleTemplate(dollarServer, "openrc", {
-      fileExists: () => false,
-    });
+    const template = buildLifecycleTemplate(dollarServer, "openrc");
     expect(template.content).toContain(
       "name='Project Zomboid server Alpha $CoolServer'",
     );
@@ -367,6 +382,10 @@ describe("Linux managed-service lifecycle", () => {
         containerized: false,
         fileExists: () => true,
         readFile: () => `X-Zomboid-Panel-Server-ID: ${server.id}`,
+        // No child_pid lookup: the default runtime directory is null on
+        // Windows and /run/user/<uid> on Linux, which made these cases take
+        // a different path per host (see "OpenRC supervised child PID").
+        runtimeDirectory: null,
         execFile,
       });
     }
@@ -406,6 +425,40 @@ describe("Linux managed-service lifecycle", () => {
       expect(status.scanFailed).toBe(true);
       expect(status.running).toBe(false);
     });
+
+    // openrc-run.sh's _status(): 0 started, 3 stopped, 4 stopping, 8
+    // starting, 16 inactive, 32 crashed. Only 3 is a confirmed stop. A unit's
+    // confirmed answer outvotes RCON and PanelBridge in the status watchdog,
+    // so reading "stopping" as stopped announced a stop while the JVM (and
+    // its RCON and mod) were still shutting down.
+    it("does not report a service that is still stopping (exit 4) as a confirmed stop", async () => {
+      const status = await openrcLifecycle(
+        vi.fn(async () => ({ code: 4, stdout: "", stderr: " * status: stopping" })),
+      ).status();
+
+      expect(status).toMatchObject({ running: false, scanFailed: true, activeState: "deactivating" });
+    });
+
+    it("reports a service that is still starting (exit 8) as running, like systemd's activating", async () => {
+      const status = await openrcLifecycle(
+        vi.fn(async () => ({ code: 8, stdout: "", stderr: " * status: starting" })),
+      ).status();
+
+      expect(status).toMatchObject({ running: true, scanFailed: false, activeState: "activating" });
+    });
+
+    it("reports scanFailed for OpenRC states that say nothing reliable about the process (inactive, crashed, anything else)", async () => {
+      for (const [code, stderr] of [
+        [16, " * status: inactive"],
+        [32, " * status: crashed"],
+        [1, " * rc-service: service `zomboid-panel-server-alpha-1' does not exist"],
+      ]) {
+        const status = await openrcLifecycle(vi.fn(async () => ({ code, stdout: "", stderr }))).status();
+
+        expect(status, `exit ${code}`).toMatchObject({ running: false, scanFailed: true, activeState: "unknown" });
+        expect(status.error, `exit ${code}`).toBe(stderr.trim());
+      }
+    });
   });
 
   // 2026-09-08 harden-updater dispatch: status()'s scanFailed fix above only
@@ -422,6 +475,10 @@ describe("Linux managed-service lifecycle", () => {
         containerized: false,
         fileExists: () => true,
         readFile: () => `X-Zomboid-Panel-Server-ID: ${server.id}`,
+        // No child_pid lookup: the default runtime directory is null on
+        // Windows and /run/user/<uid> on Linux, which made these cases take
+        // a different path per host (see "OpenRC supervised child PID").
+        runtimeDirectory: null,
         execFile,
       });
     }
@@ -480,6 +537,209 @@ describe("Linux managed-service lifecycle", () => {
       });
       // Shortcut taken -- only the one inspect() probe, no stop command issued.
       expect(execFile).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not confirm 'already stopped' while the service is still stopping -- issues the stop and waits for exit 3", async () => {
+      const codes = [4, 0, 4, 3];
+      const execFile = vi.fn(async (_command, args) =>
+        args.includes("stop") ? { code: 0, stdout: "", stderr: "" } : { code: codes.shift(), stdout: "", stderr: "" },
+      );
+      const lifecycle = new LinuxServiceLifecycle(server, "openrc", {
+        platform: "linux",
+        containerized: false,
+        fileExists: () => true,
+        readFile: () => `X-Zomboid-Panel-Server-ID: ${server.id}`,
+        execFile,
+        sleep: async () => {},
+      });
+
+      const result = await lifecycle.run("stop");
+
+      expect(result).toMatchObject({ success: true, confirmed: true });
+      expect(result.message).not.toBe("Server is already stopped");
+      expect(execFile).toHaveBeenCalledWith("rc-service", ["--user", "zomboid-panel-server-alpha-1", "stop"]);
+      // The pre-check (4), then the confirmation poll through 0 and 4 until 3.
+      expect(codes).toEqual([]);
+    });
+  });
+
+  // Uptime for a systemd-managed server: the panel's process scan never
+  // runs for one, so the unit's own MainPID -- read in the same
+  // `systemctl show` call status() already makes -- is the only PID the
+  // panel can ask the OS about. Without it, a systemd server's uptime was
+  // unknown after every panel restart and whenever systemd started it.
+  describe("systemd MainPID", () => {
+    function systemdLifecycle(showLines) {
+      const execFile = vi.fn(async () => ({
+        code: 0,
+        stdout: `${showLines.join("\n")}\n`,
+        stderr: "",
+      }));
+      const lifecycle = new LinuxServiceLifecycle(server, "systemd", {
+        execFile,
+        platform: "linux",
+        containerized: false,
+      });
+      return { lifecycle, execFile };
+    }
+
+    it("reports the running unit's main PID from the same show call", async () => {
+      const { lifecycle, execFile } = systemdLifecycle([
+        "LoadState=loaded",
+        "ActiveState=active",
+        "Environment=ZOMBOID_PANEL_SERVER_ID=alpha-1",
+        "MainPID=31337",
+      ]);
+
+      await expect(lifecycle.status()).resolves.toMatchObject({
+        running: true,
+        scanFailed: false,
+        mainPid: "31337",
+      });
+      expect(execFile).toHaveBeenCalledTimes(1);
+      expect(execFile.mock.calls[0][1]).toContain("--property=MainPID");
+    });
+
+    it("reports no PID for a stopped unit (MainPID=0)", async () => {
+      const { lifecycle } = systemdLifecycle([
+        "LoadState=loaded",
+        "ActiveState=inactive",
+        "Environment=ZOMBOID_PANEL_SERVER_ID=alpha-1",
+        "MainPID=0",
+      ]);
+
+      const status = await lifecycle.status();
+
+      expect(status.running).toBe(false);
+      expect(status).not.toHaveProperty("mainPid");
+    });
+
+    it("never reports a PID for a unit that fails the ownership check", async () => {
+      const { lifecycle } = systemdLifecycle([
+        "LoadState=loaded",
+        "ActiveState=active",
+        "Environment=ZOMBOID_PANEL_SERVER_ID=other",
+        "MainPID=31337",
+      ]);
+
+      const status = await lifecycle.status();
+
+      expect(status.scanFailed).toBe(true);
+      expect(status).not.toHaveProperty("mainPid");
+    });
+  });
+
+  // OpenRC's counterpart: the pidfile the init script hands supervise-daemon
+  // holds the SUPERVISOR's pid, which outlives every respawn, so the start
+  // time has to come from the child supervise-daemon records for itself
+  // (<svcdir>/options/<service>/child_pid, svcdir = $XDG_RUNTIME_DIR/openrc
+  // in user mode -- read from OpenRC's supervise-daemon.c and librc.c).
+  describe("OpenRC supervised child PID", () => {
+    const childPidPath =
+      "/run/user/1000/openrc/options/zomboid-panel-server-alpha-1/child_pid";
+
+    function openrcLifecycle({ rcStatus = 0, childPid, marker = server.id } = {}) {
+      const readFile = vi.fn((file) => {
+        if (file === childPidPath) {
+          if (childPid === undefined) throw new Error("ENOENT");
+          return childPid;
+        }
+        return `X-Zomboid-Panel-Server-ID: ${marker}`;
+      });
+      const lifecycle = new LinuxServiceLifecycle(server, "openrc", {
+        platform: "linux",
+        containerized: false,
+        fileExists: () => true,
+        readFile,
+        runtimeDirectory: "/run/user/1000",
+        execFile: vi.fn(async () => ({ code: rcStatus, stdout: "", stderr: "" })),
+      });
+      return { lifecycle, readFile };
+    }
+
+    it("reports the child supervise-daemon recorded for a started service", async () => {
+      const { lifecycle, readFile } = openrcLifecycle({ childPid: "4321\n" });
+
+      await expect(lifecycle.status()).resolves.toMatchObject({
+        running: true,
+        scanFailed: false,
+        mainPid: "4321",
+      });
+      expect(readFile).toHaveBeenCalledWith(childPidPath);
+    });
+
+    it("reports no PID when supervise-daemon has not recorded one", async () => {
+      const { lifecycle } = openrcLifecycle();
+
+      const status = await lifecycle.status();
+
+      expect(status.running).toBe(true);
+      expect(status).not.toHaveProperty("mainPid");
+    });
+
+    it("ignores a child_pid file that does not hold a pid", async () => {
+      const { lifecycle } = openrcLifecycle({ childPid: "0" });
+
+      expect(await lifecycle.status()).not.toHaveProperty("mainPid");
+    });
+
+    it("does not read or report a PID for a stopped service", async () => {
+      const { lifecycle, readFile } = openrcLifecycle({ rcStatus: 3, childPid: "4321" });
+
+      const status = await lifecycle.status();
+
+      expect(status.running).toBe(false);
+      expect(status).not.toHaveProperty("mainPid");
+      expect(readFile).not.toHaveBeenCalledWith(childPidPath);
+    });
+
+    // The merge of the uptime and stale-Stop branches made this rule: the
+    // child is read for every state that counts as running -- "starting"
+    // (exit 8, activating) included, like systemd's MainPID while
+    // activating -- and for none that doesn't.
+    it("reads the child for a service that is still starting (exit 8)", async () => {
+      const { lifecycle, readFile } = openrcLifecycle({ rcStatus: 8, childPid: "4321" });
+
+      await expect(lifecycle.status()).resolves.toMatchObject({
+        running: true,
+        activeState: "activating",
+        mainPid: "4321",
+      });
+      expect(readFile).toHaveBeenCalledWith(childPidPath);
+    });
+
+    it("does not read or report a PID for a service that is stopping, inactive or crashed (exit 4, 16, 32)", async () => {
+      for (const rcStatus of [4, 16, 32]) {
+        const { lifecycle, readFile } = openrcLifecycle({ rcStatus, childPid: "4321" });
+
+        const status = await lifecycle.status();
+
+        expect(status, `exit ${rcStatus}`).toMatchObject({ running: false, scanFailed: true });
+        expect(status, `exit ${rcStatus}`).not.toHaveProperty("mainPid");
+        expect(readFile, `exit ${rcStatus}`).not.toHaveBeenCalledWith(childPidPath);
+      }
+    });
+
+    it("never reports a PID for a service that fails the ownership check", async () => {
+      const { lifecycle } = openrcLifecycle({ childPid: "4321", marker: "other" });
+
+      const status = await lifecycle.status();
+
+      expect(status.scanFailed).toBe(true);
+      expect(status).not.toHaveProperty("mainPid");
+    });
+
+    it("reports no PID when there is no runtime directory to look in", async () => {
+      const lifecycle = new LinuxServiceLifecycle(server, "openrc", {
+        platform: "linux",
+        containerized: false,
+        fileExists: () => true,
+        readFile: () => `X-Zomboid-Panel-Server-ID: ${server.id}`,
+        runtimeDirectory: null,
+        execFile: vi.fn(async () => ({ code: 0, stdout: "", stderr: "" })),
+      });
+
+      expect(await lifecycle.status()).not.toHaveProperty("mainPid");
     });
   });
 });

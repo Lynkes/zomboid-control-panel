@@ -43,7 +43,13 @@
     "runsSchedule": "S'exécute {{schedule}} · conserve {{count}}",
     "noScheduled": "Aucune sauvegarde planifiée",
     "toggleAria": "Activer/désactiver les sauvegardes planifiées",
-    "lastScheduledAttemptFailed": "Dernière tentative planifiée échouée ({{time}}) : {{message}}"
+    "lastScheduledAttemptFailed": "Dernière tentative planifiée échouée ({{time}}) : {{message}}",
+    "deferredForRestart": "Prévue le {{time}} — en attente de la fin du redémarrage du serveur",
+    "lastScheduledSkippedForRestart": "Dernière sauvegarde planifiée sautée pendant un redémarrage ({{time}})"
+  },
+  "scheduledAttempt": {
+    "restartStuck": "Non exécutée : le redémarrage du serveur durait depuis {{minutes}} min (avertissement de {{warningMinutes}} min) sans se terminer — bien plus longtemps qu'un redémarrage ne le demande. Il semblait bloqué, et les sauvegardes manuelles étaient refusées tant qu'il durait. Si un redémarrage semble toujours en cours, vérifiez si le serveur de jeu est revenu, puis redémarrez le panneau pour le débloquer. Créer ensuite une sauvegarde efface aussi l'avertissement de sauvegarde en échec.",
+    "restartStuckSinceDue": "Non exécutée : le redémarrage du serveur en cours à l'heure prévue de cette sauvegarde n'était toujours pas terminé {{minutes}} min plus tard — bien plus longtemps qu'un redémarrage ne le demande. Il semblait bloqué, et les sauvegardes manuelles étaient refusées tant qu'il durait. Si un redémarrage semble toujours en cours, vérifiez si le serveur de jeu est revenu, puis redémarrez le panneau pour le débloquer. Créer ensuite une sauvegarde efface aussi l'avertissement de sauvegarde en échec."
   },
   "schedule": {
     "every15Min": "toutes les 15 minutes",
@@ -58,6 +64,8 @@
     "daily6am": "chaque jour à 6 h",
     "dailyNoon": "chaque jour à midi",
     "daily6pm": "chaque jour à 18 h",
+    "customOption": "Personnalisée (expression cron)",
+    "custom": "selon une planification personnalisée ({{cron}})",
     "none": "Aucune planification"
   },
   "settingsPanel": {
@@ -68,8 +76,27 @@
     "frequencyHelp": "Fréquence de création automatique des sauvegardes",
     "maxBackupsLabel": "Nombre maximum de sauvegardes à conserver",
     "maxBackupsHelp": "Le panneau supprime automatiquement les sauvegardes les plus anciennes lorsque cette limite est atteinte",
+    "customLabel": "Expression cron",
+    "customHint": "Format : minute heure jour mois jour de la semaine. « {{example}} » s'exécute chaque jour à 3 h 30. Au plus une fois toutes les 5 minutes.",
+    "customValid": "Planification valide",
+    "customInvalid": "Expression cron non valide",
+    "nextRun": "Prochaine sauvegarde : {{date}}",
+    "timezoneNotice": "Les horaires suivent le fuseau horaire du panneau, {{tz}} (modifiable dans Tâches planifiées).",
+    "scheduledBackupsOff": "Les sauvegardes planifiées sont désactivées — cette planification s'appliquera dès que vous les activerez.",
+    "bothDayFieldsNote": "Le jour du mois et le jour de la semaine doivent correspondre tous les deux : les sauvegardes ne s'exécutent que les jours qui remplissent les deux conditions, pas l'une ou l'autre.",
     "savesLabel": "Sauvegardes de jeu : {{path}}",
     "saveButton": "Enregistrer les paramètres"
+  },
+  "restartOverlap": {
+    "title": "Des sauvegardes chevauchent un redémarrage planifié",
+    "task": "Certaines sauvegardes planifiées tombent pendant le redémarrage planifié « {{name}} » (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
+    "taskAll": "Toutes les sauvegardes planifiées tombent pendant le redémarrage planifié « {{name}} » (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
+    "taskUnnamed": "Certaines sauvegardes planifiées tombent pendant un redémarrage planifié (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
+    "taskUnnamedAll": "Toutes les sauvegardes planifiées tombent pendant un redémarrage planifié (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
+    "autoRestart": "Certaines sauvegardes planifiées tombent pendant le redémarrage périodique (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
+    "autoRestartAll": "Toutes les sauvegardes planifiées tombent pendant le redémarrage périodique (par exemple, la sauvegarde de {{backupTime}}, pendant le redémarrage de {{restartTime}}).",
+    "consequence": "Ces sauvegardes attendent la fin du redémarrage, et s'exécutent donc jusqu'à environ {{minutes}} min en retard. Pour qu'elles restent à l'heure, planifiez-les au moins {{minutes}} min après l'heure prévue d'un redémarrage (par exemple, avec des redémarrages à l'heure pile, des sauvegardes à hh{{exampleTime}}).",
+    "consequenceNoExample": "Ces sauvegardes attendent la fin du redémarrage, et s'exécutent donc jusqu'à environ {{minutes}} min en retard. Pour qu'elles restent à l'heure, planifiez-les au moins {{minutes}} min après l'heure prévue d'un redémarrage."
   },
   "progress": {
     "startingFallback": "Démarrage de la sauvegarde...",
@@ -164,9 +191,7 @@
     "uploadedDesc": "Enregistrée sous {{name}}. Utilisez Restaurer pour l'appliquer.",
     "uploadFailedTitle": "Échec de l'import",
     "uploadFailedFallback": "Échec de l'import de la sauvegarde",
-    "restoredTitle": "Point de récupération restauré",
     "restoredDesc": "Revenu à {{name}} en {{seconds}} s",
-    "restoreFailedTitle": "Échec de la restauration",
     "restoreFailedFallback": "Échec de la restauration de la sauvegarde",
     "snapshotUnavailableTitle": "Instantané indisponible",
     "snapshotUnavailableFallback": "Impossible de lire l'instantané de la sauvegarde",
@@ -202,6 +227,19 @@
   "restoreProgress": {
     "title": "Restauration de {{name}}…",
     "titleUnknown": "Une restauration est déjà en cours pour ce serveur…",
-    "note": "Cela peut prendre quelques minutes selon la taille du monde. Ne fermez pas le panneau et ne quittez pas cette page."
+    "note": "Cela peut prendre quelques minutes selon la taille du monde. Vous pouvez quitter cette page et revenir plus tard — mais n'arrêtez pas et ne redémarrez pas le panneau avant la fin.",
+    "responseLost": "Le panneau n'a pas répondu à cette requête. La restauration s'exécute sur le panneau lui-même, elle est donc peut-être toujours en cours. Vérification du résultat auprès du panneau…"
+  },
+  "restoreResult": {
+    "successTitle": "Restauration terminée",
+    "successDetail": "Durée : {{seconds}} s. Le monde remplacé a d'abord été sauvegardé — cette sauvegarde de sécurité est la plus récente de la liste ci-dessous. Démarrez le serveur quand vous êtes prêt.",
+    "successDetailNoSafetyBackup": "Durée : {{seconds}} s. Elle a été lancée sans sauvegarde de sécurité : le monde remplacé n'a pas été conservé. Démarrez le serveur quand vous êtes prêt.",
+    "failedTitle": "Échec de la restauration",
+    "notStartedProxy": "Un proxy ou un tunnel placé devant le panneau a refusé la requête (HTTP {{status}}). Le panneau n'a aucune trace de cette restauration : elle n'a pas démarré.",
+    "failedNextStep": "Sauf indication contraire dans la raison ci-dessus, le monde actuel est resté tel quel. Corrigez la cause, puis réessayez.",
+    "unknownTitle": "Impossible de confirmer comment la restauration s'est terminée",
+    "unknownDetail": "La page n'a pas pu obtenir le résultat de cette restauration auprès du panneau (la connexion a été coupée trop longtemps, ou le panneau a redémarré) : elle n'est donc peut-être pas terminée, voire pas commencée. Avant de démarrer le serveur, ouvrez Journaux de débogage › Activité et cherchez « restore ». Une entrée backup_restored pour cette sauvegarde, postérieure au lancement de la restauration, signifie que la restauration s'est terminée ; une entrée restore_failed postérieure indique pourquoi elle a échoué. S'il n'y a ni l'une ni l'autre, relancez la restauration. Si vous ne pouvez pas ouvrir Journaux de débogage, demandez à un administrateur.",
+    "dismiss": "Ignorer",
+    "dismissAria": "Ignorer le résultat de la restauration"
   }
 }

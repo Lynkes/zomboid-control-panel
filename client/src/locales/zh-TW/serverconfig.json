@@ -44,6 +44,8 @@
     "causeWorkshopNotOnDisk": "已列在 WorkshopItems= 中，但其內容不在磁碟上，且當前沒有正在下載。請重新啟動伺服器或重新驗證 Workshop 下載，然後重新執行診斷。",
     "rerunDiagnostics": "重新執行診斷",
     "causeAbsent": "沒有已安裝的 Workshop 或本地模組與此 ID 匹配。",
+    "causePanelBridge": "這是 PanelBridge 自己的條目。Steam 下載完 PanelBridge 的創意工坊專案後即可解析；「設定 › PanelBridge」會顯示是否已下載，以及尚未下載時該怎麼做。",
+    "openBridgeSettings": "開啟「設定 › PanelBridge」",
     "removeAction": "從 Mods= 中移除",
     "correctedTitle": "Mods= 條目已更正",
     "correctedToast": "已將 Mods= 中的 \"{{modId}}\" 替換為 \"{{suggestion}}\"。尚未儲存 — 請在下方檢視並儲存。",
@@ -147,7 +149,9 @@
     "sectionLabel": "伺服器設定",
     "sectionSublabel": "INI · 行為、網路、玩家",
     "luaChecksumTitle": "已啟用 Lua 校驗和",
-    "luaChecksumBody": "PanelBridge 會修改伺服器端的 Lua 檔案。啟用 Lua 校驗和後，客戶端將無法通過校驗，也無法連線。請在「模組」分類中停用 <1>DoLuaChecksum</1>，以允許玩家加入。",
+    "luaChecksumBody": "由面板安裝的 PanelBridge 會在伺服器端加入玩家沒有的 Lua 檔案，因此啟用 <1>DoLuaChecksum</1> 時玩家無法連線。請停用它，或在「設定 › PanelBridge」中將 PanelBridge 改為 Steam 創意工坊發佈，以便保持啟用。",
+    "luaChecksumWorkshopNote": "PanelBridge 來自 Steam 創意工坊，因此可以啟用此項。「設定 › PanelBridge」會一步步引導你完成。",
+    "luaChecksumWorkshopUnconfirmed": "如果 PanelBridge 仍從遊戲資料夾載入，啟用此項後玩家將無法加入。",
     "disableNow": "立即停用"
   },
   "sandboxTab": {
@@ -233,7 +237,12 @@
     "showAllOptions": "顯示所有選項",
     "noMatches": "沒有設定匹配“{{query}}”{{suffix}}",
     "noMatchesInModified": "（在已修改的選項中）",
-    "clearSearch": "清除搜尋"
+    "clearSearch": "清除搜尋",
+    "enumBridgeOutdatedTitle": "此伺服器執行的是舊版 PanelBridge",
+    "enumBridgeOutdatedDesc": "它會把清單設定的最後一個選項儲存為前一個選項，因此在 PanelBridge 更新且伺服器重新啟動之前，面板不會傳送最後一個選項。「設定 › PanelBridge」會顯示此伺服器需要做什麼。無法列出選項的設定需輸入選項編號（1 表示第一個）。",
+    "enumLastChoiceHeldBack": "在 PanelBridge 更新之前，無法在此選擇最後一個選項（{{max}}）。",
+    "enumLastChoiceItem": "選項 {{value}}",
+    "enumTooManyChoices": "選項過多，無法列出。輸入選項編號（1 表示第一個）。"
   },
   "stickySaveBar": {
     "unsavedChange_one": "{{count}} 項未儲存的變更",
@@ -371,6 +380,8 @@
     "copyFailed": "複製內容到剪貼簿失敗。",
     "optionUpdatedTitle": "選項已更新",
     "optionUpdatedDesc": "{{option}} 設定成功",
+    "enumLastChoiceRefusedTitle": "先更新 PanelBridge",
+    "enumLastChoiceRefusedDesc": "{{option}} 未變更。此伺服器執行的舊版 PanelBridge 會把最後一個選項（{{max}}）儲存為前一個選項。",
     "bridgeUnverifiedDesc": "{{action}} 已傳送，但模組無法確認是否生效。",
     "bridgeOldBridgeDesc": "{{action}} 可能已生效，但此版本的 PanelBridge 模組不會回報結果。請更新模組以確認結果。",
     "appliedNotSavedTitle": "已套用，但未儲存",
@@ -797,7 +808,7 @@
       },
       "DoLuaChecksum": {
         "label": "Lua Checksum",
-        "description": "Verify client Lua matches server. Must be disabled when using PanelBridge — the mod modifies server-side Lua files, which causes checksum mismatches and prevents players from connecting."
+        "description": "踢出 Lua、腳本或動畫檔案與伺服器不一致的玩家。使用由面板安裝的 PanelBridge 時必須停用；使用 Steam 創意工坊發佈時可保持啟用。"
       }
     },
     "steam": {

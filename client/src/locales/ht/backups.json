@@ -42,7 +42,13 @@
     "runsSchedule": "Fonksyone {{schedule}} · kenbe {{count}}",
     "noScheduled": "Pa gen kopi sovgad pwograme",
     "toggleAria": "Aktive/dezaktive kopi sovgad pwograme",
-    "lastScheduledAttemptFailed": "Dènye tantativ pwograme echwe ({{time}}): {{message}}"
+    "lastScheduledAttemptFailed": "Dènye tantativ pwograme echwe ({{time}}): {{message}}",
+    "deferredForRestart": "Te dwe fèt {{time}} — ap tann sèvè a fin redemare",
+    "lastScheduledSkippedForRestart": "Dènye kopi sovgad pwograme a sote pandan yon redemaraj ({{time}})"
+  },
+  "scheduledAttempt": {
+    "restartStuck": "Pa kouri: redemaraj sèvè a t ap kouri depi {{minutes}} min (avètisman {{warningMinutes}} min) san l pa fini — pi lontan pase jan yon redemaraj pran, kidonk li te sanble bloke, epi kopi sovgad manyèl yo te bloke pandan tout tan li te dire. Si yon redemaraj toujou sanble ap kouri, tcheke si sèvè jwèt la te retounen, epi redemare panèl la pou debloke l. Kreye yon kopi sovgad apre sa efase avètisman kopi sovgad ki echwe a tou.",
+    "restartStuckSinceDue": "Pa kouri: redemaraj sèvè a ki t ap kouri lè kopi sovgad sa a te dwe fèt pa t ko fini {{minutes}} min apre — pi lontan pase jan yon redemaraj pran, kidonk li te sanble bloke, epi kopi sovgad manyèl yo te bloke pandan tout tan li te dire. Si yon redemaraj toujou sanble ap kouri, tcheke si sèvè jwèt la te retounen, epi redemare panèl la pou debloke l. Kreye yon kopi sovgad apre sa efase avètisman kopi sovgad ki echwe a tou."
   },
   "schedule": {
     "every15Min": "chak 15 minit",
@@ -57,6 +63,8 @@
     "daily6am": "chak jou a 6è nan maten",
     "dailyNoon": "chak jou a midi",
     "daily6pm": "chak jou a 6è nan aswè",
+    "customOption": "Pèsonalize (ekspresyon cron)",
+    "custom": "sou yon orè pèsonalize ({{cron}})",
     "none": "Pa gen orè"
   },
   "settingsPanel": {
@@ -67,8 +75,27 @@
     "frequencyHelp": "Kantite fwa pou kreye kopi sovgad otomatikman",
     "maxBackupsLabel": "Maksimòm Kopi Sovgad pou Kenbe",
     "maxBackupsHelp": "Kopi sovgad ki pi ansyen yo ap efase otomatikman lè limit la rive",
+    "customLabel": "Ekspresyon cron",
+    "customHint": "Fòma: minit èdtan jou mwa jou semèn. \"{{example}}\" kouri chak jou a 3:30. Pa plis pase yon fwa chak 5 minit.",
+    "customValid": "Orè valid",
+    "customInvalid": "Se pa yon ekspresyon cron valid",
+    "nextRun": "Pwochen kopi sovgad: {{date}}",
+    "timezoneNotice": "Lè yo nan orè a swiv fizo orè panèl la, {{tz}} (ou ka chanje l nan Tach Pwograme).",
+    "scheduledBackupsOff": "Kopi sovgad pwograme yo dezaktive — orè sa a ap aplike depi ou aktive yo.",
+    "bothDayFieldsNote": "Jou nan mwa a ak jou nan semèn nan dwe koresponn toude: kopi sovgad yo fèt sèlman jou ki satisfè toude, pa sèlman youn ladan yo.",
     "savesLabel": "Sovgad: {{path}}",
     "saveButton": "Sove Paramèt"
+  },
+  "restartOverlap": {
+    "title": "Kopi sovgad yo tonbe sou yon redemaraj pwograme",
+    "task": "Kèk kopi sovgad pwograme tonbe pandan redemaraj pwograme \"{{name}}\" (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "taskAll": "Tout kopi sovgad pwograme yo tonbe pandan redemaraj pwograme \"{{name}}\" (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "taskUnnamed": "Kèk kopi sovgad pwograme tonbe pandan yon redemaraj pwograme (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "taskUnnamedAll": "Tout kopi sovgad pwograme yo tonbe pandan yon redemaraj pwograme (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "autoRestart": "Kèk kopi sovgad pwograme tonbe pandan redemaraj peryodik la (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "autoRestartAll": "Tout kopi sovgad pwograme yo tonbe pandan redemaraj peryodik la (pa egzanp, kopi sovgad ki pou fèt a {{backupTime}}, pandan redemaraj ki kòmanse a {{restartTime}}).",
+    "consequence": "Kopi sovgad sa yo tann redemaraj la fini, kidonk yo ka kouri jiska anviwon {{minutes}} min an reta. Pou yo kouri alè, pwograme kopi sovgad yo omwen {{minutes}} min apre lè yon redemaraj pwograme (pa egzanp, si redemaraj yo fèt lè a jis, fè kopi sovgad la a hh{{exampleTime}}).",
+    "consequenceNoExample": "Kopi sovgad sa yo tann redemaraj la fini, kidonk yo ka kouri jiska anviwon {{minutes}} min an reta. Pou yo kouri alè, pwograme kopi sovgad yo omwen {{minutes}} min apre lè yon redemaraj pwograme."
   },
   "progress": {
     "startingFallback": "Ap kòmanse kopi sovgad...",
@@ -77,7 +104,20 @@
   "restoreProgress": {
     "title": "Ap retabli {{name}}…",
     "titleUnknown": "Gen yon restorasyon k ap fèt deja pou sèvè sa a…",
-    "note": "Sa a ka pran kèk minit selon gwosè mond lan. Pa fèmen panèl la oswa ale nan yon lòt paj."
+    "note": "Sa a ka pran kèk minit selon gwosè mond lan. Ou ka kite paj sa a epi retounen pita — men pa kanpe oswa redemare panèl la anvan li fini.",
+    "responseLost": "Panèl la pa t reponn demann sa a. Retablisman an ap fèt sou panèl la menm, kidonk li ka toujou ap kontinye. N ap mande panèl la ki rezilta a…"
+  },
+  "restoreResult": {
+    "successTitle": "Retablisman fini",
+    "successDetail": "Li pran {{seconds}}s. Anvan sa, panèl la te fè yon kopi sovgad sekirite mond ki te la a — se kopi ki pi resan nan lis anba a. Demare sèvè a lè w pare.",
+    "successDetailNoSafetyBackup": "Li pran {{seconds}}s. Retablisman sa a te kòmanse san kopi sovgad sekirite, kidonk mond ki te la a pa t konsève. Demare sèvè a lè w pare.",
+    "failedTitle": "Retablisman echwe",
+    "notStartedProxy": "Yon proxy oswa yon tinèl ki devan panèl la refize demann nan (HTTP {{status}}). Panèl la pa gen okenn dosye sou retablisman sa a, kidonk li pa t kòmanse.",
+    "failedNextStep": "Sof si rezon ki anlè a di lòt bagay, mond aktyèl la rete jan li te ye a. Korije pwoblèm nan, epi eseye ankò.",
+    "unknownTitle": "Pa t kapab konfime kijan retablisman an fini",
+    "unknownDetail": "Paj la pa t kapab jwenn rezilta retablisman sa a nan men panèl la (koneksyon an te koupe twò lontan, oswa panèl la te redemare), kidonk li ka pa t fini, oswa menm pa t kòmanse. Anvan w demare sèvè a, louvri Jounal Debogaj › Aktivite epi chèche \"restore\". Yon antre backup_restored pou kopi sovgad sa a, depi w te lanse retablisman an, vle di li fini; yon antre restore_failed depi lè sa a di poukisa li echwe. Si pa gen ni youn ni lòt, retabli ankò. Si w pa ka louvri Jounal Debogaj, mande yon administratè fè l pou ou.",
+    "dismiss": "Fèmen",
+    "dismissAria": "Fèmen rezilta retablisman an"
   },
   "mainCard": {
     "title": "Fichye Kopi Sovgad",
@@ -166,9 +206,7 @@
     "uploadedDesc": "Estoke kòm {{name}}. Itilize Retabli pou aplike li.",
     "uploadFailedTitle": "Telechajman Echwe",
     "uploadFailedFallback": "Pa t kapab telechaje kopi sovgad",
-    "restoredTitle": "Pwen Rekiperasyon Retabli",
     "restoredDesc": "Retounen nan {{name}} nan {{seconds}}s",
-    "restoreFailedTitle": "Retablisman Echwe",
     "restoreFailedFallback": "Pa t kapab retabli kopi sovgad",
     "snapshotUnavailableTitle": "Enstantane pa disponib",
     "snapshotUnavailableFallback": "Pa t kapab li enstantane kopi sovgad la",

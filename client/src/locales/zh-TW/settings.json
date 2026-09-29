@@ -403,7 +403,7 @@
     "setupStep2Desc": "將面板指向正確的伺服器資料資料夾並啟動監視程式。",
     "setupStep3Title": "啟動 PZ 伺服器",
     "setupStep3Desc": "當遊戲載入該模組後，狀態將從 <b1>等待中</b1> 變為 <b>已連線</b>。",
-    "requiresLuaChecksum": "伺服器 INI 中<b>需要設定 DoLuaChecksum=false</b>。啟用校驗和時命令可能失敗。",
+    "requiresLuaChecksum": "<b>由面板安裝的 PanelBridge 需要設定 DoLuaChecksum=false。</b>使用 Steam 創意工坊發佈時可保持啟用。",
     "connectedTo": "已連線到 {{server}}",
     "connectedFallback": "伺服器",
     "modVersionLabel": "模組版本：",
@@ -449,8 +449,10 @@
       "directoryNotReadable": "橋接目錄無法讀取：{{error}}",
       "directoryNotWritable": "橋接目錄無法寫入：{{error}}",
       "fileNotReadable": "{{filename}} 無法讀取：{{error}}",
-      "statusFileMissing": "狀態檔案遺失。請啟用 PanelBridge 並啟動遊戲伺服器。",
+      "statusFileMissing": "狀態檔案遺失。遊戲伺服器的世界載入完成後，PanelBridge 才會寫入它；如果伺服器執行期間它一直遺失，請查看「設定 › PanelBridge」中的「PanelBridge 安裝方式」。",
       "statusFileStale": "狀態檔案已過期（{{age}}前）— PZ 伺服器是否正在執行？",
+      "serverExited": "遊戲伺服器已停止。伺服器再次啟動後，PanelBridge 會重新連線。",
+      "bridgeSilentSinceStart": "遊戲伺服器已於 {{age}}前啟動，但 PanelBridge 尚未回報狀態。世界載入完成後它才會回報；如果一直沒有回報，請查看「設定 › PanelBridge」中的「PanelBridge 安裝方式」。",
       "statusFileMetadataFailed": "無法讀取狀態檔案的中繼資料：{{error}}",
       "healthy": "橋接檔案連線看起來正常。"
     },
@@ -498,8 +500,8 @@
     "listLogs": "列出日誌",
     "selectFileHint": "選擇一個檔案以載入最後 256 KB 內容。",
     "tailOfPrefix": "末尾：",
-    "autoUpdateLabel": "面板啟動時自動更新模組",
-    "autoUpdateDesc": "面板啟動時，若版本不一致，將自動把最新內建的 PanelBridge.lua 複製到 PZ 伺服器。",
+    "autoUpdateLabel": "保持由面板安裝的 PanelBridge 為最新版本",
+    "autoUpdateDesc": "每次啟動伺服器前以及面板啟動時，如果內建的 PanelBridge.lua 有變動，就將其複製到遊戲資料夾。使用 Steam 創意工坊發佈時不使用此項。",
     "installTitle": "安裝 PanelBridge.lua",
     "selectServerPlaceholder": "選擇伺服器…",
     "noServersConfigured": "尚未設定伺服器",
@@ -510,12 +512,13 @@
     "serversLoadFailed": "無法載入伺服器列表——請嘗試重新開啟此頁面",
     "statusFetchFailedFallback": "無法訪問 Bridge 狀態介面。",
     "staleness": {
-      "protocolMismatchTitle": "Panel and bridge mod don't match",
-      "updateAvailableTitle": "Bridge mod update available",
-      "updateNowButton": "Update Now",
-      "protocolMismatchBody": "This panel expects bridge protocol '{{expected}}', but the mod on your server reports '{{actual}}'. They ship as a matched pair, so some features may not work correctly until they're back in sync.",
-      "remoteUpdateBody": "Your server is running bridge mod v{{liveVersion}}, older than the v{{bundledVersion}} this panel bundles. This panel can't update a remote/SFTP-managed server's files for you -- re-upload the updated PanelBridge.lua the same way you installed it.",
-      "localUpdateBody": "The installed bridge mod (v{{liveVersion}}) is older than what this panel bundles."
+      "protocolMismatchTitle": "面板與 PanelBridge 模組不相符",
+      "updateAvailableTitle": "PanelBridge 模組有可用更新",
+      "updateNowButton": "立即更新",
+      "protocolMismatchBody": "此面板需要橋接協定「{{expected}}」，但你伺服器上的模組回報的是「{{actual}}」。兩者成對發布，在重新保持一致之前，部分功能可能無法正常運作。",
+      "protocolMismatchWorkshopBody": "此伺服器上的 PanelBridge（來自 Steam 創意工坊）回報的協定為「{{actual}}」，但此面板需要「{{expected}}」。請重新啟動伺服器以取得創意工坊上的最新版本，或更新面板。",
+      "remoteUpdateBody": "你的伺服器正在執行 PanelBridge 模組 v{{liveVersion}}，比此面板隨附的 v{{bundledVersion}} 舊。此面板無法替你更新遠端或透過 SFTP 管理的伺服器上的檔案——請依照當初安裝的方式重新上傳更新後的 PanelBridge.lua。",
+      "localUpdateBody": "已安裝的 PanelBridge 模組（v{{liveVersion}}）比此面板隨附的版本舊。"
     }
   },
   "mods": {
@@ -1002,6 +1005,9 @@
       "title": "安裝失敗",
       "fallback": "面板無法複製 PanelBridge.lua，請檢查伺服器路徑和權限後重試。"
     },
+    "bridgeInstallStillRunning": {
+      "title": "PanelBridge 仍在安裝中"
+    },
     "backupCreated": {
       "title": "備份已建立",
       "description": "已在 {{seconds}} 秒內建立 {{name}}"
@@ -1087,7 +1093,7 @@
     },
     "modNoResponse": {
       "title": "模組無響應",
-      "fallback": "PanelBridge.lua 無響應。請確認遊戲伺服器正在執行且模組已啟用。",
+      "fallback": "PanelBridge.lua 無響應。請確認遊戲伺服器正在執行且其世界已載入完成；「設定 › PanelBridge」會顯示此伺服器如何取得 PanelBridge。",
       "openBridge": "開啟 Bridge",
       "openBridgeAlt": "開啟 PanelBridge 設定"
     },

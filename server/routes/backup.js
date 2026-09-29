@@ -3,8 +3,13 @@ import path from "path";
 import fs from "fs";
 import { createLogger } from "../utils/logger.js";
 import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
+import { publicRestoreMessage } from "../utils/restoreMessage.js";
 import { getActiveServer } from "../database/init.js";
-import { requirePermission, requireAnyPermission } from "../services/permissions.js";
+import {
+  getCapabilitiesForRole,
+  requirePermission,
+  requireAnyPermission,
+} from "../services/permissions.js";
 import { listBackupRecords } from "../services/backupRecords.js";
 import {
   acquireLifecycleLock,
@@ -12,10 +17,12 @@ import {
 } from "../services/lifecycleCoordinator.js";
 import { hasActiveSteamOperation } from "../services/activeSteamOperations.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import cron from "node-cron";
 import {
+  hasUnsupportedCronFieldCount,
   isCronTooFrequent,
-  isSupportedFiveFieldCron,
 } from "../utils/cronValidation.js";
+import { nodeCronNextRun, restrictsBothDayFields } from "../utils/cronNextRun.js";
 import { parseClampedInteger } from "../utils/queryNumbers.js";
 import {
   streamUploadToFile,
@@ -62,6 +69,72 @@ function parseBackupMaxCount(value) {
     : undefined;
 }
 
+// One verdict for a backup schedule, shared by POST /settings (which
+// refuses to save anything else) and POST /validate-schedule (the Backups
+// page's live preview of a custom expression) so the preview can never call
+// "valid" what the save then rejects -- the same parity reason the
+// Scheduler's /validate-cron shares its checks with POST /tasks. The same
+// rules setupBackupSchedule() applies when it arms the job: exactly 5 cron
+// fields node-cron accepts, no more often than every 5 minutes.
+function validateBackupSchedule(schedule) {
+  if (typeof schedule !== "string" || !schedule.trim() || schedule.length > 100) {
+    return {
+      valid: false,
+      error: "Invalid cron expression format",
+      code: ErrorCode.SCHEDULER_INVALID_CRON_EXPRESSION,
+    };
+  }
+  // Same order as /validate-cron: node-cron's own verdict first, so a
+  // malformed expression isn't mislabelled a seconds-precision one just
+  // because its field count is also wrong.
+  if (!cron.validate(schedule)) {
+    return {
+      valid: false,
+      error: "Invalid cron expression format",
+      code: ErrorCode.SCHEDULER_INVALID_CRON_EXPRESSION,
+    };
+  }
+  if (hasUnsupportedCronFieldCount(schedule)) {
+    return {
+      valid: false,
+      error: "The panel does not support seconds-precision schedules. Use exactly 5 fields: minute hour day month weekday.",
+      code: ErrorCode.SCHEDULER_CRON_SECONDS_UNSUPPORTED,
+    };
+  }
+  if (isCronTooFrequent(schedule)) {
+    return {
+      valid: false,
+      error: "Backups cannot run more often than every 5 minutes",
+      code: ErrorCode.BACKUP_SCHEDULE_TOO_FREQUENT,
+    };
+  }
+  return { valid: true };
+}
+
+// Advisory data riding along on a status/preview response -- a failure
+// computing it must never turn the whole response into a 500.
+//
+// Each overlap names the restart task and its cron expression, which are
+// otherwise only readable through /api/scheduler (automation.manage on
+// every route there), while these backup routes admit backups.manage,
+// .download or .restore. A caller without automation.manage still gets the
+// warning -- the times, and whether every backup is affected -- just not
+// which task it is (the page words that case without a name).
+async function getRestartOverlaps(req, scheduler, schedule) {
+  if (typeof scheduler?.getBackupRestartOverlaps !== "function") return [];
+  let overlaps;
+  try {
+    overlaps = await scheduler.getBackupRestartOverlaps(schedule);
+  } catch (error) {
+    log.debug(`Could not compute backup/restart overlaps: ${error.message}`);
+    return [];
+  }
+  if (!Array.isArray(overlaps) || overlaps.length === 0) return [];
+  const capabilities = await getCapabilitiesForRole(req.user?.role);
+  if (capabilities?.includes("automation.manage")) return overlaps;
+  return overlaps.map((overlap) => ({ ...overlap, name: null, cron: null }));
+}
+
 // Get backup status and settings
 router.get("/status", requireAnyBackupCapability, async (req, res) => {
   try {
@@ -79,6 +152,15 @@ router.get("/status", requireAnyBackupCapability, async (req, res) => {
     res.json({
       ...status,
       backupNextRun: scheduler ? scheduler.getBackupNextRun() : null,
+      // Same route-layer composition, for the two restart interactions the
+      // backup pages explain: the scheduled restarts this schedule keeps
+      // landing inside (those backups wait for the restart and run late),
+      // and a backup waiting on a restart right now. Only for an enabled
+      // schedule -- an off one collides with nothing.
+      restartOverlaps: status.enabled
+        ? await getRestartOverlaps(req, scheduler, status.schedule)
+        : [],
+      backupDeferredSince: scheduler?.getDeferredBackupSince?.() ?? null,
     });
   } catch (error) {
     log.error(`Failed to get backup status: ${error.message}`);
@@ -193,14 +275,12 @@ router.post("/settings", requirePermission("backups.manage"), async (req, res) =
       allowed.enabled = enabled;
     }
     if (req.body.schedule !== undefined) {
-      if (
-        !isSupportedFiveFieldCron(req.body.schedule) ||
-        isCronTooFrequent(req.body.schedule)
-      ) {
+      const verdict = validateBackupSchedule(req.body.schedule);
+      if (!verdict.valid) {
         return res.status(400).json({
           success: false,
-          error:
-            "Invalid backup schedule. Use exactly 5 cron fields and no more than one run every 5 minutes.",
+          error: verdict.error,
+          code: verdict.code,
         });
       }
       allowed.schedule = req.body.schedule.trim();
@@ -237,6 +317,41 @@ router.post("/settings", requirePermission("backups.manage"), async (req, res) =
   } catch (error) {
     log.error(`Failed to update backup settings: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Live preview for the Backups page's schedule picker -- a custom cron
+// expression above all, but presets too, since both get the restart-overlap
+// check. Advisory only (POST /settings re-validates on save), and scoped to
+// backups.manage rather than reusing /api/scheduler/validate-cron: that
+// router requires automation.manage, which a backups-only role lacks.
+// nextRun is computed in the scheduler's own timezone, like every backup
+// the job actually fires -- and by node-cron itself, the engine that fires
+// it, not the panel's own calculation: that one applied classic cron's
+// "day-of-month OR weekday" rule, so "0 4 1 * 1" previewed as the next 1st
+// while node-cron (which requires BOTH) ran it only on a 1st that is a
+// Monday, months later. bothDayFieldsRestricted lets the page say so for
+// the schedules where that rule matters.
+router.post("/validate-schedule", requirePermission("backups.manage"), async (req, res) => {
+  try {
+    const schedule = req.body?.schedule;
+    const verdict = validateBackupSchedule(schedule);
+    if (!verdict.valid) return res.json(verdict);
+
+    const scheduler = req.app.get("scheduler");
+    const timezone =
+      scheduler?.effectiveTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const trimmed = schedule.trim();
+    res.json({
+      valid: true,
+      nextRun: nodeCronNextRun(trimmed, timezone),
+      bothDayFieldsRestricted: restrictsBothDayFields(trimmed),
+      timezone,
+      restartOverlaps: await getRestartOverlaps(req, scheduler, trimmed),
+    });
+  } catch (error) {
+    log.error(`Failed to validate backup schedule: ${error.message}`);
+    res.status(500).json({ valid: false, error: sanitizeError(error.message) });
   }
 });
 
@@ -475,26 +590,10 @@ router.post("/restore/:name", requirePermission("backups.restore"), async (req, 
       // error site in this codebase redacts that via sanitizeError()
       // (see the catch three lines below). This route was the one
       // exception, passing `result` straight through unsanitized.
-      //
-      // A blanket sanitizeError() here would fix that leak but ALSO
-      // redact the one message that deliberately needs its path visible:
-      // the rollback-failure branch, which names the exact path the
-      // preserved original save is sitting at -- the single most
-      // important string in the whole restore flow when it fires, and
-      // the operator's only way to find their data back. So this is
-      // surgical, not blanket: sanitize everything except that one
-      // deliberately-informative message. 2026-08-26 partial-failure-
-      // state hunt.
-      const isRollbackFailureMessage =
-        typeof result.message === "string" &&
-        result.message.startsWith(
-          "Restore failed and the previous save could not be put back automatically.",
-        );
-      res.status(400).json(
-        isRollbackFailureMessage
-          ? result
-          : { ...result, message: sanitizeError(result.message) },
-      );
+      // publicRestoreMessage() redacts everything except the one message
+      // that deliberately needs its path visible (the rollback failure --
+      // see its own comment). 2026-08-26 partial-failure-state hunt.
+      res.status(400).json({ ...result, message: publicRestoreMessage(result.message) });
     }
   } catch (error) {
     log.error(`Failed to restore backup: ${error.message}`);

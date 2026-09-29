@@ -38,7 +38,6 @@
   "header": {
     "ariaLabel": "Estati sèvè",
     "everythingNominal": "Tout bagay nòmal",
-    "upPrefix": "an fonksyone depi {{uptime}}",
     "mapTooltip": "Kat (soti nan PanelBridge)",
     "remoteBadge": "aleka",
     "noActiveServer": "Pa gen sèvè aktif"
@@ -169,6 +168,8 @@
     "reviewMods": "Egzamine mods",
     "noBackups": "Pa gen kopi sovgad",
     "backupAttemptFailing": "Kopi sovgad pwograme a echwe",
+    "backupSkippedForRestart": "Kopi sovgad pwograme a sote pandan yon redemaraj",
+    "backupSkippedForRestartHelp": "Lè li te dwe fèt, sèvè a t ap redemare, kidonk li pa t kouri. Kounye a, kopi sovgad pwograme yo tann yon redemaraj fini olye yo sote, kidonk pwochen an ap kouri nòmalman epi l ap efase avètisman sa a. Kreye yon kopi sovgad kounye a efase l tou.",
     "reviewBackups": "Egzamine kopi sovgad"
   },
   "panelUpdateBanner": {
@@ -294,6 +295,7 @@
     "backupsStoredLast_one": "{{count}} sere, dènye {{age}}",
     "backupsStoredLast_other": "{{count}} sere, dènye {{age}}",
     "backupsAttemptFailed": "tantativ echwe, {{age}}",
+    "backupsSkippedForRestart": "sote akoz redemaraj, {{age}}",
     "scheduleNoneActive": "okenn aktif",
     "scheduleActive_one": "{{count}} aktif",
     "scheduleActive_other": "{{count}} aktif"

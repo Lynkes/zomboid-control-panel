@@ -95,9 +95,9 @@
   },
   "headerActions": {
     "bundling": "جارٍ التجميع…",
-    "supportBundleZip": "حزمة الدعم (.zip)",
-    "supportBundleTooltip": "سجلات اللوحة · سجلات خادم Zomboid · تفريغات الأعطال · التشخيصات، كلها في ملف .zip واحد.",
-    "fullLogTxt": "السجل الكامل (.txt)",
+    "supportBundleZip": "حزمة الدعم (\u200e.zip)",
+    "supportBundleTooltip": "سجلات اللوحة · سجلات خادم Zomboid · تفريغات الأعطال · التشخيصات، كلها في ملف \u200e.zip واحد.",
+    "fullLogTxt": "السجل الكامل (\u200e.txt)",
     "fullLogTooltip": "سجل تطبيق هذه اللوحة نفسه فقط — لا يتضمن سجلات خادم Zomboid أو تفريغات الأعطال. استخدم حزمة الدعم للحصول على ذلك."
   },
   "tabs": {
@@ -200,7 +200,7 @@
     },
     "serverIniOrSandboxVars": {
       "label": "فتح إعدادات الخادم",
-      "note": "هيّئ إعدادات الخادم لتوليد ملفات .ini أو إصلاحها."
+      "note": "هيّئ إعدادات الخادم لتوليد ملفات \u200e.ini أو إصلاحها."
     },
     "serverSandboxVars": {
       "label": "إنشاء SandboxVars.lua",
@@ -215,8 +215,10 @@
       "note": "حدّد كلمة مرور RCON في إعدادات الخادم (وقيمة مطابقة لها في الإعدادات)."
     },
     "serverBridgeMod": {
-      "label": "فتح باحث الخوادم",
-      "note": "أعد نشر تعديل PanelBridge عبر باحث الخوادم."
+      "label": "فتح الإعدادات › PanelBridge",
+      "note": "ثبّته من الإعدادات › PanelBridge.",
+      "noteWorkshopNotDownloaded": "شغّل الخادم لكي ينزّل PanelBridge من ورشة Steam. تعرض الإعدادات › PanelBridge ما إذا كان قد حُمّل، وتتيح إعادة الخادم إلى التثبيت بواسطة اللوحة.",
+      "noteLooseLeftover": "شغّل الخادم أو أعد تشغيله من اللوحة لنقلها. وتعرضها الإعدادات › PanelBridge أيضًا."
     },
     "serverConfigDrift": {
       "label": "فتح إعدادات الخادم",
@@ -252,8 +254,8 @@
       "note": "يوجّه اللوحة إلى مجلد الجسر الخاص بالخادم النشط ويبدأ المراقِب. ويجب بعد ذلك أن يكون خادم اللعبة قيد التشغيل مع تثبيت PanelBridge.lua."
     },
     "bridgeWritableOrHeartbeat": {
-      "label": "فتح باحث الخوادم",
-      "note": "أعد نشر PanelBridge، وتأكّد من أن الخادم يعمل، وتحقّق من أذونات الكتابة على مجلد الجسر."
+      "label": "فتح الإعدادات › PanelBridge",
+      "note": "في الإعدادات › PanelBridge، تحقّق من مجلد الجسر ومن أن اللوحة تستطيع الكتابة فيه، وتأكّد من أن الخادم يعمل، ثم راجع «طريقة تثبيت PanelBridge» لمعرفة كيف يحصل هذا الخادم على PanelBridge."
     },
     "dbExistsOrWritable": {
       "label": "فتح الإعدادات",
@@ -491,6 +493,18 @@
             "notFound": {
               "label": "لم يُعثر على سكربت البدء",
               "message": "لا يوجد {{pattern}} في مسار التثبيت. لا يمكن بدء تشغيل الخادم من اللوحة."
+            },
+            "notWrittenYet": {
+              "label": "لم يُكتب سكربت البدء بعد",
+              "message": "{{script}} غير موجود في مجلد التثبيت بعد. تكتبه اللوحة من إعدادات هذا الخادم قبل كل تشغيل.",
+              "hint": "لا حاجة لأي إجراء قبل التشغيل الأول. إن فشل التشغيل بعد ذلك لأن السكربت مفقود، فتحقّق من أن اللوحة تستطيع الكتابة في مجلد التثبيت."
+            }
+          },
+          "fail": {
+            "folderNotWritable": {
+              "label": "سكربت البدء مفقود",
+              "message": "{{script}} غير موجود في مجلد التثبيت، ولا تستطيع اللوحة الكتابة في هذا المجلد. سيتوقف كل تشغيل بخطأ إلى أن تتمكن اللوحة من كتابته.",
+              "hint": "امنح حساب اللوحة صلاحية الكتابة في مجلد التثبيت (في Docker، تحقّق من PUID/PGID)، أو وجّه هذا الخادم من الخوادم ← تحرير إلى مجلد تستطيع اللوحة الكتابة فيه."
             }
           },
           "ok": {
@@ -540,12 +554,26 @@
         "bridgeMod": {
           "ok": {
             "label": "تعديل PanelBridge موجود",
-            "message": "الملف PanelBridge.lua منشور على الخادم."
+            "message": "الملف PanelBridge.lua منشور على الخادم.",
+            "workshop": {
+              "label": "عنصر PanelBridge في ورشة Steam موجود",
+              "message": "نُزِّل PanelBridge v{{version}} من ورشة Steam."
+            }
           },
           "warn": {
             "label": "لم يُكتشَف تعديل PanelBridge",
             "message": "تعذّر العثور على PanelBridge.lua داخل الخادم. ولن تتوفّر الميزات المتقدّمة (النقل الآني، والطقس، وتصدير الشخصية).",
-            "hint": "انسخ pz-mod/PanelBridge إلى مجلد media/lua/server الخاص بالخادم"
+            "hint": "يمكن تثبيته من الإعدادات › PanelBridge",
+            "workshopNotDownloaded": {
+              "label": "لم يُنزَّل PanelBridge بعد",
+              "message": "يحصل هذا الخادم على PanelBridge من ورشة Steam، لكنه لم يُنزَّل بعد.",
+              "hint": "شغّل الخادم. وإن لم يبدأ، فراجع الإعدادات › PanelBridge."
+            },
+            "looseLeftover": {
+              "label": "ملفات PanelBridge قديمة في مجلد اللعبة",
+              "message": "لا يزال في مجلد اللعبة: {{files}}. ومع تفعيل فحص سلامة ملفات Lua سيُرفض اللاعبون.",
+              "hint": "شغّل الخادم أو أعد تشغيله من اللوحة لنقلها."
+            }
           }
         },
         "recentCrash": {
@@ -1019,8 +1047,8 @@
             },
             "never": {
               "label": "لا توجد نبضة من التعديل",
-              "message": "لم يُكتب الملف status.json قط. التعديل غير محمّل على الخادم.",
-              "hint": "تأكّد من وجود PanelBridge في قائمة تعديلات الخادم وفي اشتراك الورشة"
+              "message": "لم يُكتب الملف status.json بعد.",
+              "hint": "يرسل PanelBridge تقاريره بعد اكتمال تحميل العالم. وإذا بقي صامتًا، فراجع «طريقة تثبيت PanelBridge» في الإعدادات › PanelBridge."
             }
           }
         },
@@ -1247,7 +1275,7 @@
             "warn": {
               "label": "التعديل غير متصل",
               "message": "PanelBridge يعمل لكن التعديل داخل اللعبة لم يكتب الملف status.json بعد. ولن يظهر اللاعبون ولا المركبات ولا البيوت الآمنة.",
-              "hint": "شغّل خادم PZ وتأكّد من وجود تعديل PanelBridge في قائمة التعديلات النشطة."
+              "hint": "شغّل خادم PZ. وإذا بقي PanelBridge صامتًا بعد اكتمال تحميل العالم، فراجع «طريقة تثبيت PanelBridge» في الإعدادات › PanelBridge."
             }
           },
           "heartbeat": {
@@ -1534,9 +1562,9 @@
     "logsFetchFailedDesc": "لم تُحدَّث قائمة السجلات. تحقّق من اتصال اللوحة وحاول مجددًا.",
     "exportTrigger": "تصدير",
     "exportPlaceholder": "تصدير السجلات...",
-    "exportFullTxt": "ملف السجل الكامل (.txt)",
-    "exportFilteredTxt": "العرض المصفّى (.txt)",
-    "exportFilteredJson": "العرض المصفّى (.json)",
+    "exportFullTxt": "ملف السجل الكامل (\u200e.txt)",
+    "exportFilteredTxt": "العرض المصفّى (\u200e.txt)",
+    "exportFilteredJson": "العرض المصفّى (\u200e.json)",
     "clearDisplayTooltip": "مسح العرض",
     "searchLogsPlaceholder": "بحث في السجلات...",
     "searchLogsAria": "بحث في سجلات التصحيح",
@@ -1556,8 +1584,8 @@
     "logFilesDesc": "نزّل سجلات اللوحة بشكل فردي، أو احصل على حزمة دعم واحدة تضم سجلات اللوحة وسجلات خادم Zomboid وملفات الأعطال.",
     "recommendedEyebrow": "موصى به",
     "supportBundleTitle": "حزمة دعم بنقرة واحدة",
-    "supportBundleDesc": "سجلات اللوحة · سجلات خادم Zomboid · تفريغات الأعطال · التشخيصات، كلها في ملف .zip واحد.",
-    "downloadZip": "تنزيل ملف .zip",
+    "supportBundleDesc": "سجلات اللوحة · سجلات خادم Zomboid · تفريغات الأعطال · التشخيصات، كلها في ملف \u200e.zip واحد.",
+    "downloadZip": "تنزيل ملف \u200e.zip",
     "individualFiles": "ملفات فردية",
     "downloadFileAria": "تنزيل {{name}}",
     "downloadButton": "تنزيل",

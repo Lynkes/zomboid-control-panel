@@ -185,6 +185,30 @@ describe('resolveServerCardRunning', () => {
     expect(resolveServerCardRunning({ isActive: true }, null, composed('stopped', 'connecting', 'offline'))).toBeNull()
   })
 
+  // 2026-09 Discord report: "Process Down", "RCON Down", "PanelBridge Up" and
+  // a Stop button on the same card. The button is a pure function of the
+  // three badges beside it -- Stop exactly when one of them reads Up, Start
+  // exactly when Process and RCON read Down and PanelBridge does not read
+  // Up, unknown otherwise -- so the fix for that report belongs in the
+  // badge data the server sends (a heartbeat can't outlive its process),
+  // never in a second, client-only rule that could drift from the badges.
+  it('offers Stop exactly when a badge reads Up and Start exactly when Process and RCON read Down', () => {
+    const up = new Set(['running', 'connected', 'active'])
+    for (const host of ['running', 'stopped', 'unknown', 'not-applicable']) {
+      for (const rcon of ['connected', 'disconnected', 'connecting']) {
+        for (const bridge of ['active', 'offline', 'not-installed']) {
+          const expected = [host, rcon, bridge].some((status) => up.has(status))
+            ? true
+            : host === 'stopped' && rcon === 'disconnected' ? false : null
+          expect(
+            resolveServerCardRunning({ isActive: true }, null, composed(host, rcon, bridge)),
+            `${host}/${rcon}/${bridge}`,
+          ).toBe(expected)
+        }
+      }
+    }
+  })
+
   it('returns unknown while an active server has no trustworthy status', () => {
     expect(resolveServerCardRunning({ isActive: true }, null, null)).toBeNull()
     expect(resolveServerCardRunning({ isActive: true }, { running: false, stateUnknown: true }, null)).toBeNull()
@@ -348,6 +372,75 @@ describe('deriveDashboardStatus', () => {
     })
     expect(result.hostUnknown).toBe(true)
     expect(result.online).toBe(false)
+  })
+
+  // The header's uptime counts from startedAt, so this is where "is the
+  // start time trustworthy for THIS provider" is decided client-side.
+  describe('startedAt', () => {
+    const STARTED = '2026-09-27T07:00:00.000Z'
+    const withStart = (host: string, startedAt?: string) => ({
+      host: startedAt ? { status: host, startedAt } : { status: host },
+      server: { status: 'connected' },
+      bridge: { status: 'offline' },
+    })
+
+    it('takes the composed host start time for a running native server', () => {
+      const result = deriveDashboardStatus({
+        hasServer: true,
+        provider: 'native',
+        status: { running: true, startTime: '2020-01-01T00:00:00.000Z', rcon: { connected: true } },
+        composedStatus: withStart('running', STARTED),
+      })
+      expect(result.startedAt).toBe(STARTED)
+    })
+
+    it('takes a running container\'s start time from the composed status -- the local snapshot can never see it', () => {
+      const result = deriveDashboardStatus({
+        hasServer: true,
+        provider: 'docker-local',
+        status: { running: false, startTime: null, rcon: { connected: true } },
+        composedStatus: withStart('running', STARTED),
+      })
+      expect(result.startedAt).toBe(STARTED)
+    })
+
+    it('falls back to the local snapshot\'s start time for a native server only when its scan confirmed it running', () => {
+      const noComposed = deriveDashboardStatus({
+        hasServer: true,
+        provider: 'native',
+        status: { running: true, startTime: STARTED, rcon: { connected: false } },
+        composedStatus: null,
+      })
+      expect(noComposed.startedAt).toBe(STARTED)
+
+      const failedScan = deriveDashboardStatus({
+        hasServer: true,
+        provider: 'native',
+        status: { running: false, scanFailed: true, startTime: STARTED, rcon: { connected: true } },
+        composedStatus: withStart('unknown'),
+      })
+      expect(failedScan.startedAt).toBeNull()
+    })
+
+    it('is null -- unknown, not a guess -- for a server that is up only by RCON evidence (remote host, invisible process)', () => {
+      const remote = deriveDashboardStatus({
+        hasServer: true,
+        provider: 'remote-sftp',
+        status: { running: false, startTime: null, rcon: { connected: true } },
+        composedStatus: withStart('unknown'),
+      })
+      expect(remote.online).toBe(true)
+      expect(remote.startedAt).toBeNull()
+
+      const invisible = deriveDashboardStatus({
+        hasServer: true,
+        provider: 'native',
+        status: { running: false, startTime: null, rcon: { connected: true } },
+        composedStatus: withStart('stopped'),
+      })
+      expect(invisible.online).toBe(true)
+      expect(invisible.startedAt).toBeNull()
+    })
   })
 })
 

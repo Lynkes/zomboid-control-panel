@@ -37,6 +37,18 @@ describe('resolveServerConfigDeepLink: unresolvedCause triage parsing', () => {
     })
   })
 
+  // Review of the ZCPB rename: PanelBridge's own Mods= entry gets its own
+  // cause (never a typo swap or a removal), pointing at Settings › PanelBridge.
+  it("keeps PanelBridge's own panelBridge cause", () => {
+    const result = resolveServerConfigDeepLink(
+      params([
+        ['unresolved', 'ZCPB'],
+        ['unresolvedCause', 'ZCPB|panelBridge|'],
+      ]),
+    )
+    expect(result.unresolvedTriage.get('ZCPB')).toEqual({ cause: 'panelBridge' })
+  })
+
   it('drops a triage entry whose modId is not in the unresolved list (does not trust a hand-edited URL)', () => {
     const result = resolveServerConfigDeepLink(
       params([

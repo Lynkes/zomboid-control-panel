@@ -261,7 +261,13 @@ describe('ServerConfig -- Backups dialog fits a short mobile viewport', () => {
     fireEvent.click(backupsButton)
 
     const dialog = await screen.findByRole('dialog')
-    assertDialogFitsShortViewport(dialog)
+    // 2026-09 dialog viewport sweep: this dialog is now a flex column whose
+    // backup list shrinks (ServerConfig.listDialogsPinnedFooter.test.tsx),
+    // and its own 85vh/80vh cap gave way to DialogContent's dvh bound -- in
+    // a column a lower cap only took rows off the list. Same guarantee:
+    // bounded to the viewport, and whatever doesn't fit scrolls.
+    expect(dialog.className).toContain('max-h-[calc(100dvh-2rem)]')
+    expect(dialog.className).toMatch(/overflow-y-auto/)
     const firstBackupRow = within(dialog).getByText(/ini-backup-0\.zip/)
     expect(dialog.contains(firstBackupRow)).toBe(true)
   })

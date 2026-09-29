@@ -70,6 +70,7 @@ command names, cron expressions, and anything inside `{{double braces}}`.
 | process-detection scan (noun, the OS-level mechanism that checks whether the PZ server process is running — distinct from the *eskane* verb above, which queries the live server through PanelBridge) | eskanaj deteksyon pwosesis | **uncertain** — compound noun built from *eskane* (scan) + *deteksyon pwosesis* (process detection); no established precedent for this exact noun form in the glossary or elsewhere in ht. First use: errors.json `SERVER_STATE_UNKNOWN` (2026-08-24, re-translating a key that had gone stale against a same-day English rewrite). Flagged for review if a native speaker becomes available. |
 | catalog | katalòg | |
 | Safehouse (Project Zomboid mechanic) | kay sekirize | **uncertain** — descriptive translation ("secured house"), not a known established Kreyòl gaming term. Flagged for native-speaker review; if a real Kreyòl PZ community term exists, it should replace this. |
+| kills (leaderboard) | touye | **uncertain** — the panel's own word, not a game string: *touye aktyèl* (current life), *touye nan tout lavi yo* (one survivor across every life), *touye total* (the whole server's sum). The all-time phrase is a descriptive guess; flagged for native-speaker review. |
 
 ## Access control
 

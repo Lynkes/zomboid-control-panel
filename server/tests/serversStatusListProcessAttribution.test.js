@@ -46,6 +46,14 @@ vi.mock("../services/serverManager.js", async () => {
   };
 });
 
+// Real implementation unless a test swaps in its own managed lifecycle.
+const createLinuxServiceLifecycle = vi.fn();
+vi.mock("../services/linuxServiceLifecycle.js", async () => {
+  const actual = await vi.importActual("../services/linuxServiceLifecycle.js");
+  createLinuxServiceLifecycle.mockImplementation(actual.createLinuxServiceLifecycle);
+  return { ...actual, createLinuxServiceLifecycle };
+});
+
 const { default: router } = await import("../routes/servers.js");
 
 function createResponse() {
@@ -234,5 +242,87 @@ describe("GET /api/servers/status -- active-server fallback freshness", () => {
     const payload = response.json.mock.calls[0][0];
     expect(payload.servers.find((s) => s.id === 1).running).toBe(true);
     expect(payload.servers.find((s) => s.id === 2).running).toBe(false);
+  });
+});
+
+// Managed Servers cards show each running server's uptime, so every row
+// carries the start time of the process it was attributed -- asked through
+// the SAME serverManager.startTimeOf() the dashboard's own status uses, so
+// the two can't disagree. Unknown is null, never a guess.
+describe("GET /api/servers/status -- per-server start time", () => {
+  beforeEach(() => {
+    getServers.mockReset();
+    getActiveServer.mockReset().mockResolvedValue({ id: 1 });
+    scanHostForServerProcesses.mockReset();
+  });
+
+  it("reports each running row's start time for the process it was attributed, and none for a stopped row", async () => {
+    getServers.mockResolvedValue([
+      { id: 1, name: "Active", installPath: "C:\\Servers\\Active" },
+      { id: 2, name: "Other", installPath: "C:\\Servers\\Other" },
+    ]);
+    // On Windows the scan row itself carries the start time, so the whole
+    // row goes to startTimeOf(), not just its pid.
+    const row = {
+      pid: "222",
+      cmd: '"C:\\Servers\\Other\\java.exe" -cp pz.jar zombie.network.GameServer',
+      startedMs: Date.UTC(2026, 8, 27, 7, 0, 0),
+    };
+    scanHostForServerProcesses.mockResolvedValue({ matched: [row] });
+    const startTimeOf = vi.fn(async (entry) => entry.startedMs);
+    const getServerProcessDetails = vi.fn(async () => ({ running: false, scanFailed: false }));
+    const response = createResponse();
+
+    await getStatusHandler()(
+      { app: fakeApp({ serverManager: { getServerProcessDetails, startTimeOf } }) },
+      response,
+    );
+
+    const payload = response.json.mock.calls[0][0];
+    expect(startTimeOf).toHaveBeenCalledTimes(1);
+    expect(startTimeOf).toHaveBeenCalledWith(row);
+    expect(payload.servers.find((s) => s.id === 2).startedAt).toBe("2026-09-27T07:00:00.000Z");
+    expect(payload.servers.find((s) => s.id === 1).startedAt).toBeNull();
+    // This host's clock as it answered, for the client's skew correction.
+    expect(payload.serverTime).toEqual(expect.any(Number));
+  });
+
+  it("reports null when the OS can't say", async () => {
+    getServers.mockResolvedValue([{ id: 2, name: "Other", installPath: "C:\\Servers\\Other" }]);
+    scanHostForServerProcesses.mockResolvedValue({
+      matched: [{ pid: "222", cmd: '"C:\\Servers\\Other\\java.exe" -cp pz.jar zombie.network.GameServer' }],
+    });
+    const response = createResponse();
+
+    await getStatusHandler()(
+      { app: fakeApp({ serverManager: { startTimeOf: async () => null } }) },
+      response,
+    );
+
+    const row = response.json.mock.calls[0][0].servers[0];
+    expect(row.running).toBe(true);
+    expect(row.startedAt).toBeNull();
+  });
+
+  it("asks about a systemd-managed row's MainPID -- it has no scanned PID", async () => {
+    getServers.mockResolvedValue([
+      { id: 3, name: "Managed", installPath: "/opt/pz", lifecycleProvider: "systemd" },
+    ]);
+    getActiveServer.mockResolvedValue({ id: 3 });
+    scanHostForServerProcesses.mockResolvedValue({ matched: [] });
+    createLinuxServiceLifecycle.mockReturnValueOnce({
+      status: async () => ({ running: true, scanFailed: false, activeState: "active", mainPid: "31337" }),
+    });
+    const startTimeOf = vi.fn(async () => Date.UTC(2026, 8, 27, 7, 0, 0));
+    const response = createResponse();
+
+    await getStatusHandler()(
+      { app: fakeApp({ serverManager: { startTimeOf } }) },
+      response,
+    );
+
+    const row = response.json.mock.calls[0][0].servers[0];
+    expect(startTimeOf).toHaveBeenCalledWith({ pid: "31337" });
+    expect(row).toMatchObject({ running: true, pid: null, startedAt: "2026-09-27T07:00:00.000Z" });
   });
 });

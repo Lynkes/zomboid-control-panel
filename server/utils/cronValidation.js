@@ -67,14 +67,27 @@ export function isSupportedFiveFieldCron(expression) {
 // reuse the exact same 0-based field expansion this file's own DST checks
 // already rely on, instead of a second, independently-typed parser that
 // could disagree with THIS file about what a given cron field means.
-export function expandCronField(field, max) {
+//
+// `min` defaults to 0 (minute/hour); cronNextRun.js's expandCronFieldRanged
+// passes 1 for the 1-based day-of-month and month fields.
+//
+// A range whose start is past its end WRAPS, the way node-cron 4 expands it
+// (convertRanges in node_modules/node-cron/dist/_shared.js): "22-2" in the
+// hour field is 22,23,0,1,2, "22-2/2" is 22,0,2, "5-1" in the weekday field
+// is Fri..Mon. It used to be refused as unparseable, and every caller reads
+// "unparseable" as "reject": isCronTooFrequent() called "0 22-2 * * *" (an
+// hourly schedule node-cron runs fine) "more often than every 5 minutes",
+// so the backup-schedule and Scheduler checks refused it for a reason that
+// was not true.
+export function expandCronField(field, max, min = 0) {
   const values = new Set();
+  const size = max - min + 1;
 
   for (const part of field.split(",")) {
     const match = /^(\*|\d+)(?:-(\d+))?(?:\/(\d+))?$/.exec(part);
     if (!match) return null;
 
-    const start = match[1] === "*" ? 0 : Number(match[1]);
+    const start = match[1] === "*" ? min : Number(match[1]);
     const end = match[2] === undefined
       ? (match[1] === "*" ? max : start)
       : Number(match[2]);
@@ -83,16 +96,21 @@ export function expandCronField(field, max) {
       !Number.isInteger(start) ||
       !Number.isInteger(end) ||
       !Number.isInteger(step) ||
-      start < 0 ||
+      start < min ||
+      start > max ||
+      end < min ||
       end > max ||
-      start > end ||
       step < 1
     ) {
       return null;
     }
 
-    for (let value = start; value <= end; value += step) {
-      values.add(value);
+    // Same walk as node-cron's: offsets 0..span from `start`, folded back
+    // into min..max -- identical to start..end when start <= end.
+    const span = (((end - start) % size) + size) % size;
+    for (let offset = 0; offset <= span; offset += step) {
+      const value = start + offset;
+      values.add(value > max ? value - size : value);
     }
   }
 

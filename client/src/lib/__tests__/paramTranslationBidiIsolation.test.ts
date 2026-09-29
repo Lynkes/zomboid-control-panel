@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import i18n from '@/i18n'
-import { resolveRegisteredTranslation } from '../paramTranslation'
+import { isolateLtrForRtl, resolveRegisteredTranslation } from '../paramTranslation'
 
 // bug-hunt-2026-09-08 (Arabic render pass): confirmed against a real disk
 // (952.8 GB total, 196.2 GB free, server-side params verified correct) that
@@ -62,5 +62,21 @@ describe('resolveRegisteredTranslation -- bidi isolation on interpolated params'
     expect(result).not.toContain(ISOLATE_START)
     expect(result).not.toContain(ISOLATE_END)
     expect(result).toContain('1')
+  })
+})
+
+describe('isolateLtrForRtl -- a cron expression interpolated through plain t()', () => {
+  afterEach(() => {
+    void i18n.changeLanguage('en')
+  })
+
+  it('isolates the value left-to-right in an RTL language', async () => {
+    await i18n.changeLanguage('ar')
+    expect(isolateLtrForRtl('30 */4 * * *')).toBe(`${ISOLATE_START}30 */4 * * *${ISOLATE_END}`)
+  })
+
+  it('leaves it untouched in an LTR language', async () => {
+    await i18n.changeLanguage('en')
+    expect(isolateLtrForRtl('30 */4 * * *')).toBe('30 */4 * * *')
   })
 })

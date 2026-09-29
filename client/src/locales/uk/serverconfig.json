@@ -76,6 +76,8 @@
     "causeWorkshopNotOnDisk": "Вказано в WorkshopItems=, але вмісту немає на диску і зараз ніщо його не завантажує. Перезапустіть сервер або перевірте завантаження з Workshop, а тоді запустіть діагностику ще раз.",
     "rerunDiagnostics": "Повторити діагностику",
     "causeAbsent": "Жоден встановлений мод із Workshop або локальний мод не відповідає цьому ID.",
+    "causePanelBridge": "Це власний запис PanelBridge. Його буде розпізнано, щойно Steam завантажить об'єкт Workshop для PanelBridge; «Налаштування › PanelBridge» показує, чи це вже сталося і що робити, якщо ні.",
+    "openBridgeSettings": "Відкрити «Налаштування › PanelBridge»",
     "removeAction": "Прибрати з Mods=",
     "correctedTitle": "Запис у Mods= виправлено",
     "correctedToast": "«{{modId}}» замінено на «{{suggestion}}» у Mods=. Не збережено — перевірте та збережіть нижче.",
@@ -189,7 +191,9 @@
     "sectionLabel": "Налаштування сервера",
     "sectionSublabel": "INI · поведінка, мережа, гравці",
     "luaChecksumTitle": "Увімкнено перевірку контрольної суми Lua",
-    "luaChecksumBody": "PanelBridge змінює серверні файли Lua. З увімкненою перевіркою контрольної суми Lua клієнти не пройдуть перевірку й не зможуть під'єднатися. Вимкніть <1>DoLuaChecksum</1> у категорії «Моди», щоб гравці могли заходити.",
+    "luaChecksumBody": "PanelBridge, який встановлює панель, додає на сервері файли Lua, яких у гравців немає, тож з увімкненим <1>DoLuaChecksum</1> вони не можуть під'єднатися. Вимкніть його або переведіть PanelBridge на доставку через Steam Workshop у розділі Налаштування › PanelBridge, щоб лишити його ввімкненим.",
+    "luaChecksumWorkshopNote": "PanelBridge надходить зі Steam Workshop, тож цю опцію можна ввімкнути. Розділ Налаштування › PanelBridge проведе вас крок за кроком.",
+    "luaChecksumWorkshopUnconfirmed": "Якщо PanelBridge досі завантажується з теки гри, гравці не зможуть приєднатися, поки цю опцію ввімкнено.",
     "disableNow": "вимкнути зараз"
   },
   "sandboxTab": {
@@ -278,6 +282,11 @@
     "noMatches": "Немає налаштувань, що відповідають «{{query}}»{{suffix}}",
     "noMatchesInModified": " серед змінених параметрів",
     "clearSearch": "Очистити пошук",
+    "enumBridgeOutdatedTitle": "Цей сервер працює зі старішою версією PanelBridge",
+    "enumBridgeOutdatedDesc": "Вона зберігає останній варіант параметра зі списком як попередній, тому панель не надсилатиме останній варіант, доки PanelBridge не буде оновлено, а сервер не перезапуститься. У розділі Налаштування › PanelBridge показано, що потрібно цьому серверу. Якщо варіанти параметра неможливо показати списком, введіть номер варіанта (1 — перший).",
+    "enumLastChoiceHeldBack": "Останній варіант ({{max}}) не можна вибрати тут, доки PanelBridge не буде оновлено.",
+    "enumLastChoiceItem": "Варіант {{value}}",
+    "enumTooManyChoices": "Забагато варіантів для списку. Введіть номер варіанта (1 — перший).",
     "sectionSublabelLoaded_few": "Модів: {{count}} · наживо з PanelBridge",
     "sectionSublabelLoaded_many": "Модів: {{count}} · наживо з PanelBridge",
     "groupModifiedTitle_few": "Параметрів, що відрізняються від типових: {{count}}",
@@ -425,6 +434,8 @@
     "copyFailed": "Не вдалося скопіювати вміст у буфер обміну.",
     "optionUpdatedTitle": "Параметр оновлено",
     "optionUpdatedDesc": "{{option}} успішно встановлено",
+    "enumLastChoiceRefusedTitle": "Спершу оновіть PanelBridge",
+    "enumLastChoiceRefusedDesc": "{{option}} не змінено. Старіша версія PanelBridge, з якою працює цей сервер, зберегла б останній варіант ({{max}}) як попередній.",
     "bridgeUnverifiedDesc": "{{action}} — запит надіслано, але мод не зміг підтвердити, що дію застосовано.",
     "bridgeOldBridgeDesc": "{{action}} — можливо, спрацювало, але ця версія мода PanelBridge не повідомляє про результат. Оновіть мод, щоб підтверджувати результати.",
     "appliedNotSavedTitle": "Застосовано, але не збережено",
@@ -851,7 +862,7 @@
       },
       "DoLuaChecksum": {
         "label": "Контрольна сума Lua",
-        "description": "Перевіряти, чи Lua клієнта збігається із серверним. Має бути вимкнено при використанні PanelBridge — цей мод змінює серверні файли Lua, через що контрольні суми не збігаються і гравці не можуть під'єднатися."
+        "description": "Виганяє гравців, чиї файли Lua, скриптів або анімацій не збігаються із серверними. Має бути вимкнено з PanelBridge, який встановлює панель; може лишатися ввімкненим з доставкою через Steam Workshop."
       }
     },
     "steam": {

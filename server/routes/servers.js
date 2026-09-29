@@ -28,7 +28,14 @@ import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
 } from "../services/lifecycleCoordinator.js";
-import { autoInstallBridgeIfNeeded } from "../services/panelBridgeInstaller.js";
+import {
+  findNoSteamWorkshopConflicts,
+  launchLooksNoSteam,
+  newProfileConflictsWithWorkshop,
+  noSteamSiblingConflictResponse,
+  noSteamWorkshopConflictResponse,
+  reconcileBridge,
+} from "../services/bridgeDelivery.js";
 import { refreshWorkshopChecker } from "../services/modChecker.js";
 import {
   parseBoundedInteger,
@@ -627,6 +634,21 @@ router.get("/status", async (req, res) => {
       log.debug(`Per-server status detection failed: ${err.message}`);
     }
 
+    // Each running row's start time for the process that row was attributed
+    // (for a managed lifecycle, systemd's MainPID or OpenRC's supervised
+    // child -- see LinuxServiceLifecycle.status()) -- through the same
+    // serverManager.startTimeOf() the active server's resolveStartTime()
+    // uses, so a card and the dashboard can't disagree: on Windows it rides
+    // on the scan row above, elsewhere it is two /proc reads. ISO string, or
+    // null when unknown (stopped, unverifiable, or the OS couldn't say).
+    const startedAtFor = async (entry, running) => {
+      if (!running || !entry?.pid || typeof serverManager?.startTimeOf !== "function") {
+        return null;
+      }
+      const startedMs = await serverManager.startTimeOf(entry);
+      return startedMs === null ? null : new Date(startedMs).toISOString();
+    };
+
     const statuses = await Promise.all(servers.map(async (server) => {
       if (isManagedLifecycleProvider(server.lifecycleProvider)) {
         try {
@@ -634,6 +656,7 @@ router.get("/status", async (req, res) => {
             server,
             server.lifecycleProvider,
           ).status();
+          const known = status.running && !status.scanFailed;
           return {
             id: server.id,
             name: server.name,
@@ -642,6 +665,7 @@ router.get("/status", async (req, res) => {
             isActive: server.id === activeId,
             provider: server.lifecycleProvider,
             stateUnknown: Boolean(status.scanFailed),
+            startedAt: await startedAtFor({ pid: status.mainPid }, known),
           };
         } catch (error) {
           return {
@@ -652,6 +676,7 @@ router.get("/status", async (req, res) => {
             isActive: server.id === activeId,
             provider: server.lifecycleProvider,
             stateUnknown: true,
+            startedAt: null,
             error: sanitizeError(error.message),
           };
         }
@@ -668,10 +693,12 @@ router.get("/status", async (req, res) => {
       };
       let running = false;
       let pid;
+      let attributed = null;
       for (const m of matched) {
         if (scoreServerProcessOwnership(m.cmd, descriptor) > 0) {
           running = true;
           pid = m.pid;
+          attributed = m;
           break;
         }
       }
@@ -703,6 +730,7 @@ router.get("/status", async (req, res) => {
       // row the same "don't know yet" signal every other site already has
       // instead of forcing a confident guess.
       let activeFallbackUnknown = false;
+      let fallbackEntry = null;
       if (!running && server.id === activeId && typeof serverManager?.getServerProcessDetails === "function") {
         try {
           const activeDetails = await serverManager.getServerProcessDetails();
@@ -710,12 +738,14 @@ router.get("/status", async (req, res) => {
             activeFallbackUnknown = true;
           } else if (activeDetails.running) {
             running = true;
+            fallbackEntry = activeDetails.matched?.[0] || null;
           }
         } catch (err) {
           activeFallbackUnknown = true;
           log.debug(`Active-server fallback detection failed: ${err.message}`);
         }
       }
+      const stateUnknown = Boolean(detectionError) || activeFallbackUnknown;
       return {
         id: server.id,
         name: server.name,
@@ -723,7 +753,8 @@ router.get("/status", async (req, res) => {
         pid: pid || null,
         isActive: server.id === activeId,
         provider: "direct",
-        stateUnknown: Boolean(detectionError) || activeFallbackUnknown,
+        stateUnknown,
+        startedAt: await startedAtFor(attributed || fallbackEntry, running && !stateUnknown),
       };
     }));
 
@@ -731,6 +762,9 @@ router.get("/status", async (req, res) => {
       servers: statuses,
       detectedProcesses: matched.length,
       detectionError,
+      // This host's clock as it answered, so the client can count the
+      // rows' startedAt in its own clock -- see the client's hostClock.ts.
+      serverTime: Date.now(),
     });
   } catch (error) {
     log.error(`Failed to get per-server status: ${error.message}`);
@@ -1165,6 +1199,20 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
       }
     }
 
+    // Same rule as PUT /:id: the game folder decides the PanelBridge
+    // delivery, so a new profile on a folder that gets it from the Steam
+    // Workshop can't be one that launches without Steam (useNoSteam, or an
+    // installPath naming a -nosteam launcher script). PUT's other direction
+    // can't happen here: a new profile is never Workshop by its own choice.
+    const launchCandidate = { installPath: config.installPath, useNoSteam: config.useNoSteam === true };
+    if (
+      !isRemote &&
+      launchLooksNoSteam(launchCandidate) &&
+      newProfileConflictsWithWorkshop(launchCandidate, await getServers())
+    ) {
+      return res.status(409).json(noSteamWorkshopConflictResponse());
+    }
+
     const server = await createServer({
       name: config.name,
       serverName,
@@ -1464,6 +1512,30 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
       }
     }
 
+    // A server that gets PanelBridge from the Steam Workshop needs Steam to
+    // download it: launched without Steam it starts with no bridge and, with
+    // the item still listed in Mods=, refuses every join. Switching delivery
+    // back to panel-installed has to come first (Settings › PanelBridge).
+    // Judged on the records AFTER this edit, both ways round: this profile
+    // turning no-Steam or moving into a Workshop game folder, and a Workshop
+    // profile moving (installPath, serverPath, remote to local) into a
+    // folder another profile launches without Steam from -- the folder
+    // decides, so that profile would turn Workshop too. Only conflicts the
+    // edit creates count: the edit dialog saves the whole record, so a
+    // profile already in that state must stay renameable.
+    if (["useNoSteam", "startCommand", "installPath", "serverPath", "isRemote"].some((key) => key in updates)) {
+      const target = await getServer(serverId);
+      if (target) {
+        const conflicts = findNoSteamWorkshopConflicts(target, { ...target, ...updates }, await getServers());
+        if (conflicts.self) {
+          return res.status(409).json(noSteamWorkshopConflictResponse());
+        }
+        if (conflicts.siblings.length > 0) {
+          return res.status(409).json(noSteamSiblingConflictResponse(conflicts.siblings));
+        }
+      }
+    }
+
     const maskedSecretsOnly =
       Object.keys(body).length > 0 &&
       Object.entries(body).every(
@@ -1757,9 +1829,10 @@ async function reloadServicesForNewActiveServer(req, server) {
     }
   }
 
-  // Best-effort: keep PanelBridge.lua current on servers the panel can
-  // reach directly on disk. Never let an install failure block activation.
-  autoInstallBridgeIfNeeded(server);
+  // Best-effort: bring the newly active server's game folder in line with
+  // its PanelBridge delivery method (bridgeDelivery.reconcileBridge never
+  // throws). Not awaited: activation must not wait on disk work.
+  void reconcileBridge(server, { reason: "activate" });
 
   // continuous-bug-hunt round 21: index.js's own 5s player-roster poll
   // shares this same rconService singleton but never got repointed here --

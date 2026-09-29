@@ -79,8 +79,13 @@ if (!CAN_RUN) {
   );
 }
 
+// The launcher buildLifecycleTemplate() names for makeServer()'s serverName
+// below -- always the server's own generated script for a folder install,
+// never the stock start-server.sh (GH #167).
+const LAUNCHER_NAME = "start-server_servertest.sh";
+
 function writeFakeLauncher(dir) {
-  const launcherPath = path.join(dir, "start-server.sh");
+  const launcherPath = path.join(dir, LAUNCHER_NAME);
   // Deliberately does NOT interpolate `dir` (which for the injection CASE
   // below literally contains "$(...)") into this script's own bash source --
   // doing that with a JS template literal was tried first and produced a
@@ -244,11 +249,7 @@ describeRealOpenrc(
 
         const server = makeServer({ installPath: workDir });
         const serviceName = getLifecycleServiceName(server);
-        const template = buildLifecycleTemplate(
-          server,
-          "openrc",
-          { fileExists: (candidate) => candidate === path.join(workDir, "start-server.sh") },
-        );
+        const template = buildLifecycleTemplate(server, "openrc");
         expect(template.filename).toBe(serviceName);
         installedServiceNames.add(serviceName);
         install(serviceName, template.content);
@@ -284,11 +285,7 @@ describeRealOpenrc(
 
       const server = makeServer({ installPath: workDir });
       const serviceName = getLifecycleServiceName(server);
-      const template = buildLifecycleTemplate(
-        server,
-        "openrc",
-        { fileExists: (candidate) => candidate === path.join(workDir, "start-server.sh") },
-      );
+      const template = buildLifecycleTemplate(server, "openrc");
       installedServiceNames.add(serviceName);
       install(serviceName, template.content);
 
@@ -351,11 +348,7 @@ describeRealOpenrc(
 
       const server = makeServer({ name: "Alpha $CoolServer", installPath: workDir });
       const serviceName = getLifecycleServiceName(server);
-      const template = buildLifecycleTemplate(
-        server,
-        "openrc",
-        { fileExists: (candidate) => candidate === path.join(workDir, "start-server.sh") },
-      );
+      const template = buildLifecycleTemplate(server, "openrc");
       installedServiceNames.add(serviceName);
       install(serviceName, template.content);
 

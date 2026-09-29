@@ -38,7 +38,6 @@
   "header": {
     "ariaLabel": "伺服器狀態",
     "everythingNominal": "一切正常",
-    "upPrefix": "已執行 {{uptime}}",
     "mapTooltip": "地圖（來自 PanelBridge）",
     "remoteBadge": "遠端",
     "noActiveServer": "沒有活動伺服器"
@@ -211,6 +210,8 @@
     "reviewMods": "檢視模組",
     "noBackups": "暫無備份",
     "backupAttemptFailing": "排程備份失敗",
+    "backupSkippedForRestart": "排程備份因重新啟動而略過",
+    "backupSkippedForRestartHelp": "它在伺服器重新啟動期間到期，因此沒有執行。排程備份現在會等待重新啟動完成，而不是被略過，因此下一次備份會照常執行並清除此提示。現在建立一次備份也可以清除它。",
     "reviewBackups": "檢視備份"
   },
   "panelUpdateBanner": {
@@ -336,6 +337,7 @@
     "backupsStoredLast_one": "已儲存 {{count}} 個，最近 {{age}}",
     "backupsStoredLast_other": "已儲存 {{count}} 個，最近 {{age}}",
     "backupsAttemptFailed": "嘗試失敗，{{age}}",
+    "backupsSkippedForRestart": "因重新啟動略過，{{age}}",
     "scheduleNoneActive": "無生效任務",
     "scheduleActive_one": "{{count}} 個生效中",
     "scheduleActive_other": "{{count}} 個生效中"

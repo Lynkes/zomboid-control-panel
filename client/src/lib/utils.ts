@@ -26,21 +26,28 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatUptime(seconds: number): string {
-  if (!seconds || seconds < 0) return '0s'
-  
+export type DurationUnit = 'day' | 'hour' | 'minute' | 'second'
+
+// A duration's non-zero units from days down to seconds, or 0 seconds, for
+// a caller that words each unit itself: formatElapsed() (lib/durationText.ts)
+// takes them from serverUptime.json, where translators own the
+// abbreviations ("3 Tg." in German, "3 дн" in Ukrainian). It words the
+// Dashboard and Servers uptime, Debug's panel and system uptimes, and the
+// ages in Settings > Bridge's diagnostics and Server Setup's resume banner.
+export function splitUptime(seconds: number): Array<{ unit: DurationUnit; count: number }> {
+  if (!seconds || seconds < 0) return [{ unit: 'second', count: 0 }]
+
   const days = Math.floor(seconds / 86400)
   const hours = Math.floor((seconds % 86400) / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
   const secs = Math.floor(seconds % 60)
-  
-  const parts: string[] = []
-  if (days > 0) parts.push(`${days}d`)
-  if (hours > 0) parts.push(`${hours}h`)
-  if (minutes > 0) parts.push(`${minutes}m`)
-  if (secs > 0 || parts.length === 0) parts.push(`${secs}s`)
-  
-  return parts.join(' ')
+
+  const parts: Array<{ unit: DurationUnit; count: number }> = []
+  if (days > 0) parts.push({ unit: 'day', count: days })
+  if (hours > 0) parts.push({ unit: 'hour', count: hours })
+  if (minutes > 0) parts.push({ unit: 'minute', count: minutes })
+  if (secs > 0 || parts.length === 0) parts.push({ unit: 'second', count: secs })
+  return parts
 }
 
 /**

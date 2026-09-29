@@ -2,6 +2,7 @@ import { reportClientWarning } from "./client-errors";
 import { clearAccessToken, getAccessToken, setAccessToken } from "./authToken";
 import { toast } from "@/components/ui/use-toast";
 import i18n from "@/i18n";
+import { hostTimeToLocal } from "./hostClock";
 
 const API_BASE = "/api";
 
@@ -631,8 +632,13 @@ export interface CharacterImportResponse {
 
 // Server API
 export const serverApi = {
+  // startTime arrives on the host's clock; see hostTimeToLocal().
   getStatus: (options?: { retries?: number }) =>
-    apiGet("/server/status", undefined, options?.retries),
+    apiGet("/server/status", undefined, options?.retries).then((status) =>
+      status && typeof status === "object"
+        ? { ...status, startTime: hostTimeToLocal(status.startTime, status.serverTime) }
+        : status,
+    ),
   getNetworkInterfaces: (): Promise<{
     interfaces: { name: string; address: string }[];
   }> => apiGet("/server/network-interfaces"),
@@ -940,12 +946,16 @@ export interface ScheduleHistoryEntry {
   command: string;
   success: number;
   message: string | null;
+  // Same key-beside-text convention for the message: set only where the
+  // panel wrote the message itself (see ScheduledBackupAttempt.messageKey).
+  message_key?: ScheduleMessageKey | null;
+  message_params?: ScheduleMessageParams | null;
   duration: number | null;
   executed_at: string;
 }
 
 export interface RestartWarningSettings {
-  locale: "en" | "zh-CN" | "fr" | "de" | "es" | "ht";
+  locale: "en" | "zh-CN" | "fr" | "de" | "es" | "ht" | "pt-BR";
   template: string;
 }
 
@@ -1805,6 +1815,10 @@ export interface ServerStatusSignal {
   status: string;
   label: string;
   detail: string | null;
+  // Host signal only: when the process/container started (ISO string),
+  // already re-expressed in this browser's clock by getComposedStatus().
+  // Present only when running and known -- absent means unknown.
+  startedAt?: string;
 }
 
 export interface ComposedServerStatus {
@@ -1814,7 +1828,21 @@ export interface ComposedServerStatus {
   server: ServerStatusSignal;
   bridge: ServerStatusSignal;
   summary: string;
+  // The host's clock (epoch ms) as it answered -- see hostTimeToLocal().
+  serverTime?: number;
 }
+
+type ServerStatusRow = {
+  id: string;
+  name: string;
+  running: boolean;
+  pid: string | null;
+  isActive: boolean;
+  stateUnknown?: boolean;
+  // When this row's process started (ISO string, in this browser's clock
+  // -- see getStatus() below); null when stopped or unknown.
+  startedAt?: string | null;
+};
 
 // Servers API (multi-server management)
 export const serversApi = {
@@ -1830,8 +1858,14 @@ export const serversApi = {
     }>,
   getActive: () =>
     apiGet("/servers/active") as Promise<{ server: ServerInstance }>,
+  // host.startedAt arrives on the host's clock; see hostTimeToLocal().
   getComposedStatus: (options?: { retries?: number }) =>
-    apiGet("/servers/active/status", undefined, options?.retries) as Promise<ComposedServerStatus>,
+    (apiGet("/servers/active/status", undefined, options?.retries) as Promise<ComposedServerStatus>).then(
+      (status) =>
+        status?.host?.startedAt
+          ? { ...status, host: { ...status.host, startedAt: hostTimeToLocal(status.host.startedAt, status.serverTime) } }
+          : status,
+    ),
   getResolvedActive: async () => {
     const data = (await apiGet("/servers")) as { servers: ServerInstance[] };
     return {
@@ -1841,19 +1875,23 @@ export const serversApi = {
         null,
     };
   },
+  // Each row's startedAt arrives on the host's clock; see hostTimeToLocal().
   getStatus: (options?: { retries?: number }) =>
-    apiGet("/servers/status", undefined, options?.retries) as Promise<{
-      servers: Array<{
-        id: string;
-        name: string;
-        running: boolean;
-        pid: string | null;
-        isActive: boolean;
-        stateUnknown?: boolean;
-      }>;
+    (apiGet("/servers/status", undefined, options?.retries) as Promise<{
+      servers: ServerStatusRow[];
       detectedProcesses: number;
       detectionError: string | null;
-    }>,
+      serverTime?: number;
+    }>).then((data) =>
+      Array.isArray(data?.servers)
+        ? {
+            ...data,
+            servers: data.servers.map((row) =>
+              row.startedAt ? { ...row, startedAt: hostTimeToLocal(row.startedAt, data.serverTime) } : row,
+            ),
+          }
+        : data,
+    ),
   getRconStatuses: () =>
     apiGet("/servers/rcon-status") as Promise<{
       servers: Array<{ id: string; status: "connected" | "unreachable" | "auth_failed" | "unconfigured" | "unavailable" }>;
@@ -2482,8 +2520,10 @@ export const panelBridgeApi = {
         // key+defaultValue convention as capabilities.<key>.label. See
         // Settings.tsx's resolveBridgeDiagText() and Events.tsx's
         // checkBridgeStatus().
-        summary: { key: string; params?: Record<string, string>; text: string };
-        issues: Array<{ key: string; params?: Record<string, string>; text: string }>;
+        // params may carry an age as a number (ageSeconds) beside its
+        // English text (age) -- see lib/bridgeDiagnostics.ts.
+        summary: { key: string; params?: Record<string, string | number>; text: string };
+        issues: Array<{ key: string; params?: Record<string, string | number>; text: string }>;
         checks: {
           bridgePathConfigured: boolean;
           bridgePathExists: boolean;
@@ -2515,6 +2555,10 @@ export const panelBridgeApi = {
         installPath: string;
         zomboidDataPath: string;
       } | null;
+      // Effective PanelBridge delivery for the active server. When it is
+      // "workshop" the server nulls localInstall/remoteBridgeVersionCheck
+      // (no loose file to compare). Absent is treated as "local".
+      deliveryMethod?: import("./bridgeDeliveryTypes").DeliveryMethod;
     }>,
 
   // Auto-configure bridge from server (uses db settings)
@@ -2794,7 +2838,9 @@ export const panelBridgeApi = {
         // Optional: added 2026-08-30 (panelbridge-audit) to the Lua
         // handler's response, and read defensively (typeof check, not a
         // required field) by Events.tsx's time-speed slider -- a bridge
-        // mod predating that Lua change simply won't send it yet.
+        // mod predating that Lua change simply won't send it yet. The raw
+        // game speed RCON's setTimeSpeed sets, 1 at normal speed; bridges
+        // up to v1.7.70 sent the ~0.8 per-frame getMultiplier() instead.
         multiplier?: number;
       };
     }>,
@@ -2974,9 +3020,13 @@ export const panelBridgeApi = {
       suggestedInstallPath: string | null;
     }>,
 
-  // Auto-install mod to server's Lua folder (optionally specify serverId)
+  // Auto-install mod to server's Lua folder (optionally specify serverId).
+  // The server waits up to 10 s on the install (MANUAL_INSTALL_WAIT_MS in
+  // routes/panelBridge.js) and then answers 504 PANELBRIDGE_INSTALL_STILL_RUNNING;
+  // 30 s leaves room for the lookups around that wait on a slow disk, so
+  // the operator gets that coded answer rather than a client-side timeout.
   installModAuto: (serverId?: string | number) =>
-    apiPost("/panel-bridge/install-mod-auto", { serverId }) as Promise<{
+    apiPost("/panel-bridge/install-mod-auto", { serverId }, { timeout: 30000 }) as Promise<{
       success: boolean;
       message: string;
       path: string;
@@ -2984,9 +3034,41 @@ export const panelBridgeApi = {
       error?: string;
     }>,
 
-  // Install mod to server (manual path - Lua folder)
-  installMod: (serverLuaPath: string) =>
-    apiPost("/panel-bridge/install-mod", { serverLuaPath }),
+  // How PanelBridge reaches the active server: copied into its game folder
+  // by the panel ("local") or downloaded from the Steam Workshop
+  // ("workshop"). The server computes every field, including `state`;
+  // shapes are the contract in lib/bridgeDeliveryTypes.ts.
+  getDelivery: (serverId?: string | number) =>
+    apiGet(
+      `/panel-bridge/delivery${serverId != null ? `?serverId=${encodeURIComponent(String(serverId))}` : ""}`,
+    ) as Promise<import("./bridgeDeliveryTypes").DeliveryStatus>,
+
+  // Preview only: dryRun is forced on, so nothing on disk or in the
+  // database changes.
+  planDelivery: (body: {
+    serverId: string;
+    method: import("./bridgeDeliveryTypes").DeliveryMethod;
+  }) =>
+    apiPost("/panel-bridge/delivery", { ...body, dryRun: true }) as Promise<
+      import("./bridgeDeliveryTypes").DeliveryPlanResponse
+    >,
+
+  // expectedFrom is the method the operator saw in the preview; the server
+  // answers 409 PANELBRIDGE_DELIVERY_STALE instead of applying when it no
+  // longer matches. POSTs are never transport-retried (fetchWithRetry), so
+  // a timed-out apply can't silently run twice. 60 s rather than the 15 s
+  // default: an apply installs, archives (copy + fsync) and rewrites every
+  // group ini under one lock, which a slow disk or network share can take
+  // past 15 s -- the client would then report a failure for a switch the
+  // server went on to complete.
+  applyDelivery: (body: {
+    serverId: string;
+    method: import("./bridgeDeliveryTypes").DeliveryMethod;
+    expectedFrom: import("./bridgeDeliveryTypes").DeliveryMethod;
+  }) =>
+    apiPost("/panel-bridge/delivery", { ...body, dryRun: false }, { timeout: 60000 }) as Promise<
+      import("./bridgeDeliveryTypes").DeliveryPlanResponse
+    >,
 
   // =============================================
   // V1.2.0 SOUND/NOISE CONTROLS
@@ -3204,9 +3286,36 @@ export interface BackupSettings {
   includeDb: boolean;
 }
 
+// A restore as backupService.restoreBackup() records it (GH#166). `id` is
+// the requestId the page that started it sent (a server-made one otherwise),
+// which is how that page tells its own restore from another tab's.
+export interface RestoreRecord {
+  id: string;
+  backupName: string;
+  startedAt: string;
+  // Whether it backs the replaced world up first. Both panel pages always
+  // ask for that; an API caller may not.
+  preRestoreBackup: boolean;
+}
+
+export interface RestoreOutcome extends RestoreRecord {
+  finishedAt: string;
+  success: boolean;
+  // Why it failed, path-redacted like the POST's own response; null on success.
+  message: string | null;
+  duration: number | null;
+}
+
 export interface BackupStatus extends BackupSettings {
   backupInProgress: boolean;
   restoreInProgress: boolean;
+  // The restore running right now (null when none is), and how the last
+  // one since the panel started ended -- the outcome a page reads when the
+  // POST that started a restore never answered it (a timeout, a dropped
+  // connection, a reload, another tab). Optional: older servers don't send
+  // them.
+  currentRestore?: RestoreRecord | null;
+  lastRestore?: RestoreOutcome | null;
   lastBackup: {
     name: string;
     path: string;
@@ -3221,17 +3330,77 @@ export interface BackupStatus extends BackupSettings {
   // entry for the backup job, independent of whether it actually produced a
   // file. `lastBackup` above stays silent about a scheduler that has been
   // failing every attempt; this is what lets the UI say so.
-  lastScheduledBackupAttempt: {
-    success: boolean;
-    message: string | null;
-    executedAt: string;
-  } | null;
+  lastScheduledBackupAttempt: ScheduledBackupAttempt | null;
   // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): composed
   // at the route layer from the scheduler instance's own getBackupNextRun()
   // (server/routes/backup.js's GET /status) -- null whenever backups are
   // disabled (no schedule to compute a next run from).
   backupNextRun?: string | null;
+  // Same route-layer composition: the scheduled restarts the saved schedule
+  // keeps firing inside (those backups wait for the restart and run late),
+  // empty when backups are off; and when a scheduled backup is waiting on a
+  // restart right now, the moment it came due. Optional -- older servers
+  // don't send them.
+  restartOverlaps?: BackupRestartOverlap[];
+  backupDeferredSince?: string | null;
 }
+
+// A Schedule History message the panel wrote as prose of its own (see
+// server/database/init.js logScheduleExecution): rendered from
+// backups:scheduledAttempt.<key> with these params, the English `message`
+// being the fallback.
+export type ScheduleMessageKey = 'restartStuck' | 'restartStuckSinceDue';
+export type ScheduleMessageParams = Record<string, string | number>;
+
+export interface ScheduledBackupAttempt {
+  success: boolean;
+  message: string | null;
+  // Set for a backup given up on because a restart looked stuck; null for a
+  // raw error. Optional -- older servers don't send it.
+  messageKey?: ScheduleMessageKey | null;
+  messageParams?: ScheduleMessageParams | null;
+  executedAt: string;
+  // 'restart' for the old "Skipped: a restart was in progress" rows panels
+  // up to v1.3.8 wrote -- a skip, not a backup that broke. Current servers
+  // hold such a backup until the restart ends instead of skipping it.
+  skipReason?: 'restart' | null;
+  // Set when a backup (manual or scheduled) succeeded AFTER this failed
+  // attempt -- the failure no longer leaves the world without a fresh backup.
+  recoveredAt?: string | null;
+}
+
+// A scheduled restart the backup schedule collides with (server/utils/
+// backupRestartOverlap.js). Times are "HH:MM" in the scheduler's timezone:
+// the first restart fire time with a backup inside it, and that backup --
+// an example, not the whole set: `allBackups` says whether every backup
+// collides. `windowMinutes` is how long after a restart's start time a
+// backup still lands inside it. `name` and `cron` are null for a caller
+// without automation.manage (the Scheduler's own gate on task details).
+// `timezone` names that scheduler timezone, so a page can label the times
+// -- optional: older servers don't send it.
+export interface BackupRestartOverlap {
+  kind: 'task' | 'autoRestart';
+  name: string | null;
+  cron: string | null;
+  restartTime: string;
+  backupTime: string;
+  timezone?: string;
+  allBackups: boolean;
+  windowMinutes: number;
+}
+
+export type BackupScheduleValidation =
+  | {
+      valid: true;
+      nextRun: string | null;
+      // Both the day-of-month and the weekday are restricted ("0 4 1 * 1"):
+      // node-cron runs it only on days matching BOTH, not either as in
+      // classic cron. Absent from a server older than 1.4.0.
+      bothDayFieldsRestricted?: boolean;
+      timezone: string;
+      restartOverlaps: BackupRestartOverlap[];
+    }
+  | { valid: false; error?: string; code?: string };
 
 // backup.js/backupService.js's own shape (full .zip server backups --
 // listBackups()/createBackup() in backupService.js) -- distinct from
@@ -3287,6 +3456,12 @@ export const backupApi = {
       expectedServerId !== undefined ? { ...settings, expectedServerId } : settings,
     ),
 
+  // Live preview of a backup schedule (preset or custom cron): the same
+  // verdict POST /backup/settings applies, plus next run and the scheduled
+  // restarts it would land inside. Advisory -- saving re-validates.
+  validateSchedule: (schedule: string): Promise<BackupScheduleValidation> =>
+    apiPost("/backup/validate-schedule", { schedule }),
+
   // Create a manual backup. POST /backup/create awaits the full archive
   // (server/routes/backup.js -> backupService.createBackup()) before
   // responding -- socket `backup:progress` events give the UI live
@@ -3316,10 +3491,12 @@ export const backupApi = {
   // Restore a backup. Same held-open shape as createBackup above --
   // POST /backup/restore/:name awaits backupService.restoreBackup()
   // (extract + swap the save directory, plus its own pre-restore safety
-  // backup) before responding.
+  // backup) before responding. Pages go through restoreBackupAndConfirm()
+  // (lib/restoreOutcome.ts), which reads the outcome back from the status
+  // when this response never arrives; `requestId` is what it matches on.
   restoreBackup: (
     name: string,
-    options?: { createPreRestoreBackup?: boolean },
+    options?: { createPreRestoreBackup?: boolean; requestId?: string },
   ): Promise<{
     success: boolean;
     message?: string;

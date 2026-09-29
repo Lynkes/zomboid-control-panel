@@ -109,8 +109,10 @@
       "note": "Defini modpas RCON nan Konfigirasyon Sèvè (ak menm valè a nan Paramèt)."
     },
     "serverBridgeMod": {
-      "label": "Louvri Chèchè Sèvè",
-      "note": "Redeplwaye mod PanelBridge atravè Chèchè Sèvè."
+      "label": "Louvri Paramèt › PanelBridge",
+      "note": "Enstale l nan Paramèt › PanelBridge.",
+      "noteWorkshopNotDownloaded": "Demare sèvè a pou l telechaje PanelBridge nan Steam Workshop. Paramèt › PanelBridge montre si li chaje, epi li ka remete sèvè a sou metòd panèl la enstale a.",
+      "noteLooseLeftover": "Demare oswa redemare sèvè a nan panèl la pou deplase yo. Paramèt › PanelBridge montre yo tou."
     },
     "serverConfigDrift": {
       "label": "Louvri Konfigirasyon Sèvè",
@@ -146,8 +148,8 @@
       "note": "Pwente panèl la nan dosye bridge sèvè aktif la epi demare siveyan an. Sèvè jwèt la dwe apre sa ap fonksyone ak PanelBridge.lua enstale."
     },
     "bridgeWritableOrHeartbeat": {
-      "label": "Louvri Chèchè Sèvè",
-      "note": "Redeplwaye PanelBridge, asire sèvè a ap fonksyone, epi verifye pèmisyon ekriti sou dosye bridge la."
+      "label": "Louvri Paramèt › PanelBridge",
+      "note": "Nan Paramèt › PanelBridge, verifye dosye bridge la ak si panèl la ka ekri ladan l, asire sèvè a ap fonksyone, epi gade “Kijan PanelBridge enstale” pou wè kijan sèvè sa a resevwa PanelBridge."
     },
     "dbExistsOrWritable": {
       "label": "Louvri Paramèt",
@@ -385,6 +387,18 @@
             "notFound": {
               "label": "Script demaraj pa jwenn",
               "message": "Pa gen {{pattern}} nan chemen enstalasyon an. Sèvè a pa ka demare soti nan panèl la."
+            },
+            "notWrittenYet": {
+              "label": "Script demaraj la poko ekri",
+              "message": "{{script}} poko nan dosye enstalasyon an. Panèl la ekri l apati paramèt sèvè sa a anvan chak demaraj.",
+              "hint": "Pa gen anyen pou w fè anvan premye demaraj la. Si demaraj la echwe apre sa paske script la manke, tcheke si panèl la ka ekri nan dosye enstalasyon an."
+            }
+          },
+          "fail": {
+            "folderNotWritable": {
+              "label": "Script demaraj la manke",
+              "message": "{{script}} pa nan dosye enstalasyon an, epi panèl la pa ka ekri nan dosye sa a. Chak demaraj ap kanpe ak yon erè jiskaske panèl la kapab ekri ladan l.",
+              "hint": "Bay kont panèl la dwa pou ekri nan dosye enstalasyon an (sou Docker, tcheke PUID/PGID), oswa, nan Sèvè → Modifye, fè sèvè sa a itilize yon dosye panèl la ka ekri ladan l."
             }
           },
           "ok": {
@@ -434,12 +448,26 @@
         "bridgeMod": {
           "ok": {
             "label": "Mod PanelBridge prezan",
-            "message": "PanelBridge.lua deplwaye sou sèvè a."
+            "message": "PanelBridge.lua deplwaye sou sèvè a.",
+            "workshop": {
+              "label": "Atik Steam Workshop PanelBridge la prezan",
+              "message": "PanelBridge v{{version}} telechaje nan Steam Workshop."
+            }
           },
           "warn": {
             "label": "Mod PanelBridge pa detekte",
             "message": "Pa t kapab jwenn PanelBridge.lua anba sèvè a. Fonksyonalite avanse (teleportasyon, move tan, ekspòte pèsonaj) pa ap disponib.",
-            "hint": "Kopye pz-mod/PanelBridge nan dosye media/lua/server sèvè a"
+            "hint": "Paramèt › PanelBridge ka enstale l",
+            "workshopNotDownloaded": {
+              "label": "PanelBridge poko telechaje",
+              "message": "Sèvè sa a resevwa PanelBridge nan Steam Workshop, men li poko telechaje.",
+              "hint": "Demare sèvè a. Si li pa demare, gade Paramèt › PanelBridge."
+            },
+            "looseLeftover": {
+              "label": "Ansyen fichye PanelBridge nan dosye jwèt la",
+              "message": "Toujou nan dosye jwèt la: {{files}}. Lè verifikasyon entegrite Lua a aktive, jwè yo ap refize.",
+              "hint": "Demare oswa redemare sèvè a nan panèl la pou deplase yo."
+            }
           }
         },
         "recentCrash": {
@@ -913,8 +941,8 @@
             },
             "never": {
               "label": "Pa gen batman kè mod",
-              "message": "status.json pa janm ekri. Mod la pa chaje sou sèvè a.",
-              "hint": "Verifye PanelBridge nan lis mod sèvè a ak abònman Workshop"
+              "message": "status.json poko ekri.",
+              "hint": "PanelBridge voye rapò lè mond lan fin chaje. Si li rete an silans, gade “Kijan PanelBridge enstale” nan Paramèt › PanelBridge."
             }
           }
         },
@@ -1141,7 +1169,7 @@
             "warn": {
               "label": "Mod pa konekte",
               "message": "PanelBridge ap fonksyone men mod nan jwèt la poko ekri status.json. Jwè, veyikil ak kay sekirize pa ap parèt.",
-              "hint": "Demare sèvè PZ a epi konfime mod PanelBridge nan lis mod aktif yo."
+              "hint": "Demare sèvè PZ a. Si PanelBridge rete an silans apre mond lan fin chaje, gade “Kijan PanelBridge enstale” nan Paramèt › PanelBridge."
             }
           },
           "heartbeat": {

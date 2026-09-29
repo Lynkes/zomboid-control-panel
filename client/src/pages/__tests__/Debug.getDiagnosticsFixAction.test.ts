@@ -70,6 +70,23 @@ describe('getDiagnosticsFixAction fallback branch (uncovered check ids)', () => 
     )
   })
 
+  it("forwards PanelBridge's own panelBridge cause", () => {
+    const action = getDiagnosticsFixAction(
+      fallbackCheck({
+        id: 'mods.resolved',
+        hint: 'Fix in server.ini.',
+        meta: {
+          unresolvedMods: ['ZCPB'],
+          unresolvedTriage: [{ modId: 'ZCPB', cause: 'panelBridge' }],
+        },
+      }),
+      t,
+    )
+    expect(action?.manualRoute).toBe(
+      '/server-config?tab=ini&search=Mods&unresolved=ZCPB&unresolvedCause=ZCPB%7CpanelBridge%7C',
+    )
+  })
+
   it('drops an unrecognized triage cause instead of forwarding it verbatim', () => {
     const action = getDiagnosticsFixAction(
       fallbackCheck({
@@ -126,10 +143,12 @@ describe('getDiagnosticsFixAction fallback branch (uncovered check ids)', () => 
       manualRoute: '/server-config',
       links: [{ to: '/settings', label: 'fixActions.links.openSettings' }],
     },
-    { ids: ['server.bridgeMod'], manualRoute: '/server-finder' },
+    { ids: ['server.bridgeMod'], manualRoute: '/settings?tab=bridge' },
     { ids: ['server.configDrift'], manualRoute: '/server-config' },
     { ids: ['scheduler', 'services.error'], manualRoute: '/settings' },
-    { ids: ['bridge.writable', 'bridge.heartbeat'], manualRoute: '/server-finder' },
+    // Settings › PanelBridge, not Server Finder (the public server browser,
+    // which has nothing for the bridge).
+    { ids: ['bridge.writable', 'bridge.heartbeat'], manualRoute: '/settings?tab=bridge' },
     { ids: ['db.exists'], manualRoute: '/settings' },
     { ids: ['logs.writable'], manualRoute: '/settings' },
     {
@@ -156,6 +175,54 @@ describe('getDiagnosticsFixAction fallback branch (uncovered check ids)', () => 
       },
     )
   }
+
+  // PanelBridge delivery: the server tags server.bridgeMod with the delivery
+  // variant, and the note says what actually fixes that variant.
+  it.each([
+    [undefined, 'fixActions.serverBridgeMod.note'],
+    ['workshopNotDownloaded', 'fixActions.serverBridgeMod.noteWorkshopNotDownloaded'],
+    ['looseLeftover', 'fixActions.serverBridgeMod.noteLooseLeftover'],
+  ])('server.bridgeMod variant %s gets note %s', (variant, note) => {
+    const action = getDiagnosticsFixAction(
+      { ...fallbackCheck({ id: 'server.bridgeMod', status: 'warn', category: 'server' }), variant },
+      t,
+    )
+    expect(action).toMatchObject({
+      label: 'fixActions.serverBridgeMod.label',
+      manualRoute: '/settings?tab=bridge',
+      note,
+    })
+  })
+
+  // GH #167 follow-up: the panel writes a named managed server's start
+  // script itself before every start, so Server Finder's "re-run detection
+  // or reinstall the dedicated server files" fixes neither named-script
+  // variant. Not written yet -> the Dashboard's Start writes it; can't be
+  // written -> the install path in Servers (the hint covers permissions).
+  it.each([
+    ['notWrittenYet', 'warn', 'fixActions.links.openDashboard', '/'],
+    ['folderNotWritable', 'fail', 'fixActions.links.openServers', '/servers'],
+  ] as const)('server.startScript variant %s (%s) opens %s', (variant, status, label, route) => {
+    const action = getDiagnosticsFixAction(
+      { ...fallbackCheck({ id: 'server.startScript', status, category: 'server' }), variant },
+      t,
+    )
+    expect(action).toEqual({ label, automated: false, manualRoute: route })
+  })
+
+  it.each(['notFound', 'notExecutable'])(
+    'server.startScript variant %s still points at Server Finder',
+    (variant) => {
+      const action = getDiagnosticsFixAction(
+        { ...fallbackCheck({ id: 'server.startScript', status: 'warn', category: 'server' }), variant },
+        t,
+      )
+      expect(action).toMatchObject({
+        manualRoute: '/server-finder',
+        note: 'fixActions.serverStartScriptOrJre.note',
+      })
+    },
+  )
 
   it('opens server config when the hint contains the literal server.ini token', () => {
     const action = getDiagnosticsFixAction(

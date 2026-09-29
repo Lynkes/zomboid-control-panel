@@ -5,6 +5,7 @@ import os from "os";
 import path from "path";
 import {
   buildWindowsCmdLine,
+  parseWin32ProcessCsvRow,
   scoreServerProcessOwnership,
 } from "../services/serverManager.js";
 
@@ -90,11 +91,10 @@ const isWindows = process.platform === "win32";
       const rawCsvLine =
         '"1234","java.exe -jar ""C:\\Program Files (x86)\\Zomboid\\ProjectZomboid64.exe"" -servername=""My World"""';
 
-      // Exactly the parsing logic in serverManager.js's Windows process scan.
-      const csvMatch = rawCsvLine.match(/^"([^"]*)","((?:[^"]|"")*)"$/);
-      expect(csvMatch).not.toBeNull();
-      const pid = csvMatch[1];
-      const cmd = csvMatch[2].replace(/""/g, '"');
+      // The parser serverManager.js's Windows process scan itself uses.
+      const row = parseWin32ProcessCsvRow(rawCsvLine);
+      expect(row).not.toBeNull();
+      const { pid, cmd } = row;
 
       expect(pid).toBe("1234");
       expect(cmd).toBe(
@@ -139,10 +139,9 @@ const isWindows = process.platform === "win32";
         .find((l) => l.startsWith('"9999"'));
       expect(dataLine).toBeTruthy();
 
-      const csvMatch = dataLine.match(/^"([^"]*)","((?:[^"]|"")*)"$/);
-      expect(csvMatch).not.toBeNull();
-      const cmd = csvMatch[2].replace(/""/g, '"');
-      expect(cmd).toBe('java.exe -servername="Quoted Name"');
+      const row = parseWin32ProcessCsvRow(dataLine);
+      expect(row).not.toBeNull();
+      expect(row.cmd).toBe('java.exe -servername="Quoted Name"');
     });
   },
 );

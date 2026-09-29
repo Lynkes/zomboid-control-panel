@@ -50,6 +50,7 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
+  DialogBody,
   DialogTitle,
   DialogDescription,
   DialogFooter
@@ -86,6 +87,7 @@ import { serversApi, serversDetectApi, dockerApi, DockerContainerStats, DockerCo
 import { resolveClientProvider, resolveServerCardRunning, waitForServerState } from '@/lib/serverStatus'
 import { getInstallProgressMessage } from '@/lib/installProgressMessage'
 import { ServerStatusBadge } from '@/components/ServerStatusBadge'
+import { ServerUptime } from '@/components/ServerUptime'
 import { SocketContext } from '@/contexts/SocketContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -326,7 +328,7 @@ export default function Servers() {
   const [servers, setServers] = useState<ServerInstance[] | null>(null)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const serversConfirmedEmpty = servers !== null && servers.length === 0
-  const [serverStatuses, setServerStatuses] = useState<Record<string, { running: boolean; pid: string | null; stateUnknown?: boolean }>>({})
+  const [serverStatuses, setServerStatuses] = useState<Record<string, { running: boolean; pid: string | null; stateUnknown?: boolean; startedAt?: string | null }>>({})
   const [rconStatuses, setRconStatuses] = useState<Record<string, string>>({})
   const [dockerAvailable, setDockerAvailable] = useState(false)
   const [dockerContainers, setDockerContainers] = useState<DockerContainerSummary[]>([])
@@ -623,9 +625,9 @@ export default function Servers() {
     if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
     try {
       const data = await serversApi.getStatus({ retries: 0 })
-      const next: Record<string, { running: boolean; pid: string | null; stateUnknown?: boolean }> = {}
+      const next: Record<string, { running: boolean; pid: string | null; stateUnknown?: boolean; startedAt?: string | null }> = {}
       for (const s of data.servers || []) {
-        next[String(s.id)] = { running: !!s.running, pid: s.pid, stateUnknown: s.stateUnknown === true }
+        next[String(s.id)] = { running: !!s.running, pid: s.pid, stateUnknown: s.stateUnknown === true, startedAt: s.startedAt ?? null }
       }
       setServerStatuses(next)
     } catch (error) {
@@ -1265,6 +1267,20 @@ export default function Servers() {
     )
   }, [])
 
+  // What every inline start/stop outcome refetches. The selected server's
+  // card draws BOTH its Start/Stop button and its host/RCON/PanelBridge
+  // badges from the composed status (resolveServerCardRunning), which
+  // otherwise refreshes only on its 10s interval or a server:status push --
+  // refetching just the process list left a confirmed stop showing Stop
+  // until one of those arrived. A server that was only just activated gets
+  // its composed status from the activeServerId effect instead, once
+  // fetchServers() lands the switch.
+  const refreshAfterInlineAction = useCallback((server: ServerInstance) => Promise.allSettled([
+    fetchServers(),
+    fetchServerStatuses(),
+    server.isActive ? fetchActiveStatus(server.id) : undefined,
+  ]), [fetchServers, fetchServerStatuses, fetchActiveStatus])
+
   const handleInlineStart = useCallback(async (server: ServerInstance) => {
     if (!canInlineStartStop) return
     setServerActionPending(`start-${server.id}`)
@@ -1277,12 +1293,16 @@ export default function Servers() {
       // result.success === false.
       await serverApi.start()
       const confirmed = await waitForActionState(server.id, true)
+      // Refreshed before the toast, as on the Dashboard: the refetch runs a
+      // fresh process scan (~1.5s on Windows), and toasting first said
+      // "Server started" beside a card still showing its spinner and the
+      // pre-action badges.
+      await refreshAfterInlineAction(server)
       toast({
         title: confirmed ? t('toasts.serverStartedTitle') : t('toasts.serverStartRequestedTitle'),
         description: confirmed ? (server.name || server.serverName) : t('toasts.waitingForProcess'),
         variant: confirmed ? 'success' as const : 'default',
       })
-      await Promise.allSettled([fetchServers(), fetchServerStatuses()])
     } catch (error) {
       toast({
         title: t('toasts.startFailedTitle'),
@@ -1301,11 +1321,11 @@ export default function Servers() {
       // would eventually correct it either way; this closes the gap
       // immediately instead of leaving the wrong state on screen at the
       // moment it does the most damage.
-      void Promise.allSettled([fetchServers(), fetchServerStatuses()])
+      void refreshAfterInlineAction(server)
     } finally {
       setServerActionPending(null)
     }
-  }, [toast, fetchServers, fetchServerStatuses, waitForActionState, t, canInlineStartStop])
+  }, [toast, refreshAfterInlineAction, waitForActionState, t, canInlineStartStop])
 
   const handleInlineStop = useCallback(async (server: ServerInstance) => {
     if (!canInlineStartStop) return
@@ -1331,12 +1351,13 @@ export default function Servers() {
       // result.success === false.
       await serverApi.stop()
       const confirmed = await waitForActionState(server.id, false)
+      // Refreshed before the toast -- see handleInlineStart above.
+      await refreshAfterInlineAction(server)
       toast({
         title: confirmed ? t('toasts.serverStoppedTitle') : t('toasts.serverStopRequestedTitle'),
         description: confirmed ? (server.name || server.serverName) : t('toasts.waitingForStop'),
         variant: confirmed ? 'success' as const : 'default',
       })
-      await Promise.allSettled([fetchServers(), fetchServerStatuses()])
     } catch (error) {
       toast({
         title: t('toasts.stopFailedTitle'),
@@ -1347,11 +1368,11 @@ export default function Servers() {
       // handleInlineStart's catch above -- refetch immediately rather than
       // leave stale (possibly wrong) state on screen right when the
       // operator is watching and most likely to click Stop again.
-      void Promise.allSettled([fetchServers(), fetchServerStatuses()])
+      void refreshAfterInlineAction(server)
     } finally {
       setServerActionPending(null)
     }
-  }, [toast, fetchServers, fetchServerStatuses, waitForActionState, t, confirm, canInlineStartStop])
+  }, [toast, refreshAfterInlineAction, waitForActionState, t, confirm, canInlineStartStop])
 
   const handleDeleteServer = async () => {
     if (!deleteServer) return
@@ -2137,6 +2158,23 @@ export default function Servers() {
                           : undefined
                         return <ServerStatusBadge compact host={host} server={rcon} />
                       })()}
+                      {(() => {
+                        // Uptime sits with the status it qualifies. Same source
+                        // split as the badge above: the selected server's
+                        // composed status (provider-aware -- OS, Docker, or
+                        // nothing for a remote host), otherwise this card's own
+                        // row from the per-server list, which only a native or
+                        // managed-lifecycle server has. Unknown renders nothing
+                        // here; the badge already says when the host itself is
+                        // unknown.
+                        const row = serverStatuses[String(server.id)]
+                        const startedAt = server.isActive && currentActiveStatus
+                          ? currentActiveStatus.host.startedAt
+                          : resolveClientProvider(server) === 'native' && row?.running && !row.stateUnknown
+                            ? row.startedAt
+                            : null
+                        return <ServerUptime startedAt={startedAt} className="text-xs font-normal text-muted-foreground" />
+                      })()}
                       {server.isRemote && (
                         <Badge variant="outline" className="text-xs">
                           <Globe className="w-3 h-3 me-1" /> {t('card.remote')}
@@ -2517,7 +2555,12 @@ export default function Servers() {
 
       {/* Add Existing Server Dialog */}
       <Dialog open={showAddDialog} onOpenChange={(open) => !open && resetAddDialog()}>
-        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+        {/* Same layout as the Edit dialog below: every field, the tandem-install
+            notes and the local/remote switch scroll in a DialogBody, so the
+            title and Cancel/Add Server stay on screen on a short or zoomed-in
+            window instead of scrolling away with the form, and the height cap
+            is DialogContent's dvh default rather than its own 90vh. */}
+        <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>{addMode === 'remote' ? t('addDialog.titleRemote') : t('addDialog.titleLocal')}</DialogTitle>
             <DialogDescription>
@@ -2527,444 +2570,446 @@ export default function Servers() {
             </DialogDescription>
           </DialogHeader>
 
-          {addMode === 'local' && !!servers?.some(s => !s.isRemote) && (
-            <div className="space-y-1.5 rounded-md border border-border/60 p-3">
-              <p className="text-xs font-medium">{t('tandem.sectionTitle')}</p>
-              <ul className="space-y-1">
-                {[
-                  [t('tandem.installFolderLabel'), t('tandem.installFolderValue')],
-                  [t('tandem.dataFolderLabel'), t('tandem.dataFolderValue')],
-                  [t('tandem.configNameLabel'), t('tandem.configNameValue')],
-                  [t('tandem.gamePortLabel'), t('tandem.gamePortValue')],
-                  [t('tandem.rconPortLabel'), t('tandem.rconPortValue')],
-                  [t('tandem.steamcmdLabel'), t('tandem.steamcmdValue')],
-                ].map(([k, v]) => (
-                  <li key={k} className="grid grid-cols-[minmax(7rem,auto)_1fr] gap-2 text-xs">
-                    <span className="text-muted-foreground">{k}</span>
-                    <span>{v}</span>
-                  </li>
-                ))}
-              </ul>
+          <DialogBody className="space-y-4">
+            {addMode === 'local' && !!servers?.some(s => !s.isRemote) && (
+              <div className="space-y-1.5 rounded-md border border-border/60 p-3">
+                <p className="text-xs font-medium">{t('tandem.sectionTitle')}</p>
+                <ul className="space-y-1">
+                  {[
+                    [t('tandem.installFolderLabel'), t('tandem.installFolderValue')],
+                    [t('tandem.dataFolderLabel'), t('tandem.dataFolderValue')],
+                    [t('tandem.configNameLabel'), t('tandem.configNameValue')],
+                    [t('tandem.gamePortLabel'), t('tandem.gamePortValue')],
+                    [t('tandem.rconPortLabel'), t('tandem.rconPortValue')],
+                    [t('tandem.steamcmdLabel'), t('tandem.steamcmdValue')],
+                  ].map(([k, v]) => (
+                    <li key={k} className="grid grid-cols-[minmax(7rem,auto)_1fr] gap-2 text-xs">
+                      <span className="text-muted-foreground">{k}</span>
+                      <span>{v}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Mode Selector */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => { setAddMode('local'); setNewServer(defaultNewServer); setDetectResult(null); setDetectError(null); setSelectedServerConfig(''); setImportIniFrom(null) }}
+                className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-[background-color,border-color,color] ${
+                  addMode === 'local'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:border-muted-foreground/30'
+                }`}
+              >
+                <Monitor className={`w-5 h-5 ${addMode === 'local' ? 'text-primary' : 'text-muted-foreground'}`} />
+                <div className="text-start">
+                  <p className="text-sm font-medium">{t('addDialog.modeLocalTitle')}</p>
+                  <p className="text-xs text-muted-foreground">{t('addDialog.modeLocalDesc')}</p>
+                </div>
+              </button>
+              <button
+                onClick={() => { setAddMode('remote'); setNewServer({ ...defaultNewServer, isRemote: true, rconHost: '' }); setDetectResult(null); setDetectError(null); setSelectedServerConfig(''); setImportIniFrom(null) }}
+                className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-[background-color,border-color,color] ${
+                  addMode === 'remote'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:border-muted-foreground/30'
+                }`}
+              >
+                <Globe className={`w-5 h-5 ${addMode === 'remote' ? 'text-primary' : 'text-muted-foreground'}`} />
+                <div className="text-start">
+                  <p className="text-sm font-medium">{t('addDialog.modeRemoteTitle')}</p>
+                  <p className="text-xs text-muted-foreground">{t('addDialog.modeRemoteDesc')}</p>
+                </div>
+              </button>
             </div>
-          )}
 
-          {/* Mode Selector */}
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => { setAddMode('local'); setNewServer(defaultNewServer); setDetectResult(null); setDetectError(null); setSelectedServerConfig(''); setImportIniFrom(null) }}
-              className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-[background-color,border-color,color] ${
-                addMode === 'local'
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-muted-foreground/30'
-              }`}
-            >
-              <Monitor className={`w-5 h-5 ${addMode === 'local' ? 'text-primary' : 'text-muted-foreground'}`} />
-              <div className="text-start">
-                <p className="text-sm font-medium">{t('addDialog.modeLocalTitle')}</p>
-                <p className="text-xs text-muted-foreground">{t('addDialog.modeLocalDesc')}</p>
+            {/* Remote Server Info Banner */}
+            {addMode === 'remote' && (
+              <Alert className="border-primary/20 bg-primary/5">
+                <Wifi className="h-4 w-4 text-primary" />
+                <AlertTitle>{t('addDialog.rconOnlyTitle')}</AlertTitle>
+                <AlertDescription>
+                  {t('addDialog.rconOnlyDesc')}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            <div className="space-y-4 py-2">
+              {addMode === 'remote' ? (
+                /* ========== REMOTE SERVER FORM ========== */
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>{t('remoteForm.displayNameLabel')}</Label>
+                    <Input
+                      value={newServer.name}
+                      onChange={e => setNewServer({ ...newServer, name: e.target.value })}
+                      placeholder={t('remoteForm.displayNamePlaceholder')}
+                      maxLength={64}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>{t('remoteForm.hostLabel')}</Label>
+                      <Input
+                        value={newServer.rconHost}
+                        onChange={e => setNewServer({ ...newServer, rconHost: e.target.value })}
+                        placeholder={t('remoteForm.hostPlaceholder')}
+                        className="font-mono text-sm"
+                      />
+                      <p className="text-xs text-muted-foreground">{t('remoteForm.hostHint')}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{t('remoteForm.rconPortLabel')}</Label>
+                      <NumberInput
+                        value={newServer.rconPort}
+                        onChange={rconPort => setNewServer({ ...newServer, rconPort })}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>{t('remoteForm.rconPasswordLabel')}</Label>
+                    <PasswordInput
+                      value={newServer.rconPassword}
+                      onChange={value => setNewServer({ ...newServer, rconPassword: value })}
+                      placeholder={t('remoteForm.rconPasswordPlaceholder')}
+                      label={t('remoteForm.rconPasswordAria')}
+                    />
+                    <RconTestConnection
+                      host={newServer.rconHost}
+                      port={newServer.rconPort}
+                      password={newServer.rconPassword}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>{t('remoteForm.gamePortLabel')}</Label>
+                    <NumberInput
+                      min={1}
+                      max={65534}
+                      value={newServer.serverPort}
+                      onChange={serverPort => setNewServer({ ...newServer, serverPort })}
+                    />
+                    <p className="text-xs text-muted-foreground">{t('remoteForm.gamePortHint')}</p>
+                  </div>
+                </div>
+              ) : (
+                /* ========== LOCAL SERVER FORM ========== */
+                <>
+              {/* Auto Scan Section */}
+              <div className="p-4 rounded-lg bg-muted/50 border space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-sm">{t('localForm.autoDetectTitle')}</p>
+                    <p className="text-xs text-muted-foreground">{t('localForm.autoDetectDesc')}</p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowAutoScan(!showAutoScan)}
+                  >
+                    {showAutoScan ? t('localForm.manualEntry') : t('localForm.autoScan')}
+                  </Button>
+                </div>
+
+                {showAutoScan && (
+                  <div className="space-y-3 pt-2">
+                    <div className="flex gap-2">
+                      <Input
+                        value={autoScanPath}
+                        onChange={e => setAutoScanPath(e.target.value)}
+                        placeholder={t('localForm.scanPathPlaceholder')}
+                        className="font-mono text-sm flex-1"
+                      />
+                      <DisabledReason reason={!canServersDiscover ? t('localForm.discoverNoPermission') : null}>
+                        <Button
+                          onClick={handleAutoScan}
+                          disabled={autoScanning || !autoScanPath.trim() || !canServersDiscover}
+                        >
+                          {autoScanning ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <><Search className="w-4 h-4 me-1" /> {t('localForm.scan')}</>
+                          )}
+                        </Button>
+                      </DisabledReason>
+                    </div>
+
+                    {/* Auto Scan Results */}
+                    {autoScanResult && autoScanResult.detectedConfigs.length > 0 && (
+                      <div className="space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                          {t('localForm.foundServers', { count: autoScanResult.detectedConfigs.length })}
+                        </p>
+                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                          {autoScanResult.detectedConfigs.map((config, idx) => (
+                            <button
+                              type="button"
+                              key={config.serverName || idx}
+                              className="w-full text-start p-3 rounded border bg-background hover:bg-accent cursor-pointer transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                              onClick={() => handleSelectScannedConfig(config, autoScanResult.installPaths[0])}
+                              aria-label={t('localForm.selectScannedConfigAria', { name: config.publicName || config.serverName })}
+                            >
+                              <div className="flex items-center justify-between">
+                                <span className="font-medium">{config.publicName || config.serverName}</span>
+                                <Badge variant="secondary" className="text-xs font-mono">
+                                  {config.serverName}.ini
+                                </Badge>
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-1 font-mono truncate">
+                                {t('localForm.dataPrefix', { path: config.dataPath })}
+                              </div>
+                              {config.matchedBatFile ? (
+                                <div className="mt-1 text-xs font-mono text-primary truncate">
+                                  {t('localForm.matchedPrefix', { path: config.matchedBatFile })}
+                                </div>
+                              ) : autoScanResult.installPaths.length > 0 ? (
+                                <div className="mt-1 text-xs text-warning">
+                                  {t('localForm.noMatchingScript')}
+                                </div>
+                              ) : (
+                                <div className="mt-1 text-xs text-warning">
+                                  {t('localForm.noInstallPath')}
+                                </div>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Show available paths summary */}
+                        <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t">
+                          {autoScanResult.installPaths.length > 0 && (
+                            <p>{t('localForm.installPathsFound', { count: autoScanResult.installPaths.length })}</p>
+                          )}
+                          {autoScanResult.customBatFiles && autoScanResult.customBatFiles.length > 0 && (
+                            <p>{t('localForm.customScripts', { names: autoScanResult.customBatFiles.map(b => b.fileName).join(', ') })}</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            </button>
-            <button
-              onClick={() => { setAddMode('remote'); setNewServer({ ...defaultNewServer, isRemote: true, rconHost: '' }); setDetectResult(null); setDetectError(null); setSelectedServerConfig(''); setImportIniFrom(null) }}
-              className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-[background-color,border-color,color] ${
-                addMode === 'remote'
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border hover:border-muted-foreground/30'
-              }`}
-            >
-              <Globe className={`w-5 h-5 ${addMode === 'remote' ? 'text-primary' : 'text-muted-foreground'}`} />
-              <div className="text-start">
-                <p className="text-sm font-medium">{t('addDialog.modeRemoteTitle')}</p>
-                <p className="text-xs text-muted-foreground">{t('addDialog.modeRemoteDesc')}</p>
-              </div>
-            </button>
-          </div>
 
-          {/* Remote Server Info Banner */}
-          {addMode === 'remote' && (
-            <Alert className="border-primary/20 bg-primary/5">
-              <Wifi className="h-4 w-4 text-primary" />
-              <AlertTitle>{t('addDialog.rconOnlyTitle')}</AlertTitle>
-              <AlertDescription>
-                {t('addDialog.rconOnlyDesc')}
-              </AlertDescription>
-            </Alert>
-          )}
-
-          <div className="space-y-4 py-2">
-            {addMode === 'remote' ? (
-              /* ========== REMOTE SERVER FORM ========== */
+              {/* Manual Entry Section */}
+              {!showAutoScan && (
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label>{t('remoteForm.displayNameLabel')}</Label>
-                  <Input
-                    value={newServer.name}
-                    onChange={e => setNewServer({ ...newServer, name: e.target.value })}
-                    placeholder={t('remoteForm.displayNamePlaceholder')}
-                    maxLength={64}
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>{t('remoteForm.hostLabel')}</Label>
-                    <Input
-                      value={newServer.rconHost}
-                      onChange={e => setNewServer({ ...newServer, rconHost: e.target.value })}
-                      placeholder={t('remoteForm.hostPlaceholder')}
-                      className="font-mono text-sm"
-                    />
-                    <p className="text-xs text-muted-foreground">{t('remoteForm.hostHint')}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>{t('remoteForm.rconPortLabel')}</Label>
-                    <NumberInput
-                      value={newServer.rconPort}
-                      onChange={rconPort => setNewServer({ ...newServer, rconPort })}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>{t('remoteForm.rconPasswordLabel')}</Label>
-                  <PasswordInput
-                    value={newServer.rconPassword}
-                    onChange={value => setNewServer({ ...newServer, rconPassword: value })}
-                    placeholder={t('remoteForm.rconPasswordPlaceholder')}
-                    label={t('remoteForm.rconPasswordAria')}
-                  />
-                  <RconTestConnection
-                    host={newServer.rconHost}
-                    port={newServer.rconPort}
-                    password={newServer.rconPassword}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>{t('remoteForm.gamePortLabel')}</Label>
-                  <NumberInput
-                    min={1}
-                    max={65534}
-                    value={newServer.serverPort}
-                    onChange={serverPort => setNewServer({ ...newServer, serverPort })}
-                  />
-                  <p className="text-xs text-muted-foreground">{t('remoteForm.gamePortHint')}</p>
-                </div>
-              </div>
-            ) : (
-              /* ========== LOCAL SERVER FORM ========== */
-              <>
-            {/* Auto Scan Section */}
-            <div className="p-4 rounded-lg bg-muted/50 border space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-sm">{t('localForm.autoDetectTitle')}</p>
-                  <p className="text-xs text-muted-foreground">{t('localForm.autoDetectDesc')}</p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowAutoScan(!showAutoScan)}
-                >
-                  {showAutoScan ? t('localForm.manualEntry') : t('localForm.autoScan')}
-                </Button>
-              </div>
-
-              {showAutoScan && (
-                <div className="space-y-3 pt-2">
+                  <Label>{t('localForm.dataPathLabel')}</Label>
                   <div className="flex gap-2">
                     <Input
-                      value={autoScanPath}
-                      onChange={e => setAutoScanPath(e.target.value)}
-                      placeholder={t('localForm.scanPathPlaceholder')}
+                      value={newServer.zomboidDataPath}
+                      onChange={e => {
+                        setNewServer({ ...newServer, zomboidDataPath: e.target.value })
+                        setDetectResult(null)
+                        setDetectError(null)
+                        setImportIniFrom(null)
+                      }}
+                      placeholder={t('localForm.dataPathPlaceholder')}
                       className="font-mono text-sm flex-1"
+                      maxLength={260}
                     />
                     <DisabledReason reason={!canServersDiscover ? t('localForm.discoverNoPermission') : null}>
                       <Button
-                        onClick={handleAutoScan}
-                        disabled={autoScanning || !autoScanPath.trim() || !canServersDiscover}
+                        variant="secondary"
+                        onClick={handleDetectServer}
+                        disabled={detecting || !newServer.zomboidDataPath.trim() || !canServersDiscover}
                       >
-                        {autoScanning ? (
+                        {detecting ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
                         ) : (
-                          <><Search className="w-4 h-4 me-1" /> {t('localForm.scan')}</>
+                          <><Search className="w-4 h-4 me-1" /> {t('localForm.detect')}</>
                         )}
                       </Button>
                     </DisabledReason>
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t('localForm.dataPathHint')}
+                  </p>
+                </div>
 
-                  {/* Auto Scan Results */}
-                  {autoScanResult && autoScanResult.detectedConfigs.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground">
-                        {t('localForm.foundServers', { count: autoScanResult.detectedConfigs.length })}
-                      </p>
-                      <div className="space-y-2 max-h-64 overflow-y-auto">
-                        {autoScanResult.detectedConfigs.map((config, idx) => (
-                          <button
-                            type="button"
-                            key={config.serverName || idx}
-                            className="w-full text-start p-3 rounded border bg-background hover:bg-accent cursor-pointer transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                            onClick={() => handleSelectScannedConfig(config, autoScanResult.installPaths[0])}
-                            aria-label={t('localForm.selectScannedConfigAria', { name: config.publicName || config.serverName })}
+                <div className="space-y-2">
+                  <Label>{t('localForm.installPathLabel')}</Label>
+                  <Input
+                    value={newServer.installPath}
+                    onChange={e => setNewServer({ ...newServer, installPath: e.target.value })}
+                    placeholder={t(platformTranslationKey('localForm.installPathPlaceholder', runtimeInfo?.family))}
+                    className="font-mono text-sm"
+                    maxLength={260}
+                  />
+                  {isCustomLauncherPath(newServer.installPath) && (
+                    <Alert className="border-warning/40 bg-warning/10">
+                      <AlertCircle className="h-4 w-4 text-warning" />
+                      <AlertTitle className="text-warning">{t('localForm.customLauncherNoticeTitle')}</AlertTitle>
+                      <AlertDescription>{t('localForm.customLauncherNoticeBody')}</AlertDescription>
+                    </Alert>
+                  )}
+                </div>
+              </div>
+              )}
+
+              {/* Detection Error */}
+              {detectError && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive">
+                  <AlertCircle className="w-4 h-4" />
+                  <span className="text-sm">{detectError}</span>
+                </div>
+              )}
+
+              {/* Detection Result */}
+              {detectResult && (
+                <div className="space-y-4">
+                  {detectResult.detectedServers.length === 0 ? (
+                    <Alert className="border-warning/40 bg-warning/10">
+                      <AlertCircle className="h-4 w-4 text-warning" />
+                      <AlertTitle className="text-warning">{t('localForm.noConfigsFoundTitle')}</AlertTitle>
+                      <AlertDescription>{t('localForm.noConfigsFoundDesc')}</AlertDescription>
+                    </Alert>
+                  ) : (
+                    <>
+                      {/* Server Selection (if multiple) */}
+                      {detectResult.detectedServers.length > 1 && (
+                        <div className="space-y-2">
+                          <Label>{t('localForm.selectConfigLabel')}</Label>
+                          <Select
+                            value={selectedServerConfig}
+                            onValueChange={(val) => {
+                              const config = detectResult.detectedServers.find(s => s.serverName === val)
+                              if (config) handleSelectServerConfig(config)
+                            }}
                           >
-                            <div className="flex items-center justify-between">
-                              <span className="font-medium">{config.publicName || config.serverName}</span>
-                              <Badge variant="secondary" className="text-xs font-mono">
-                                {config.serverName}.ini
-                              </Badge>
-                            </div>
-                            <div className="text-xs text-muted-foreground mt-1 font-mono truncate">
-                              {t('localForm.dataPrefix', { path: config.dataPath })}
-                            </div>
-                            {config.matchedBatFile ? (
-                              <div className="mt-1 text-xs font-mono text-primary truncate">
-                                {t('localForm.matchedPrefix', { path: config.matchedBatFile })}
-                              </div>
-                            ) : autoScanResult.installPaths.length > 0 ? (
-                              <div className="mt-1 text-xs text-warning">
-                                {t('localForm.noMatchingScript')}
-                              </div>
-                            ) : (
-                              <div className="mt-1 text-xs text-warning">
-                                {t('localForm.noInstallPath')}
-                              </div>
-                            )}
-                          </button>
-                        ))}
-                      </div>
+                            <SelectTrigger>
+                              <SelectValue placeholder={t('localForm.selectConfigPlaceholder')} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {detectResult.detectedServers.map(s => (
+                                <SelectItem key={s.serverName} value={s.serverName}>
+                                  {s.publicName || s.serverName} ({s.serverName}.ini)
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
 
-                      {/* Show available paths summary */}
-                      <div className="text-xs text-muted-foreground space-y-1 pt-2 border-t">
-                        {autoScanResult.installPaths.length > 0 && (
-                          <p>{t('localForm.installPathsFound', { count: autoScanResult.installPaths.length })}</p>
-                        )}
-                        {autoScanResult.customBatFiles && autoScanResult.customBatFiles.length > 0 && (
-                          <p>{t('localForm.customScripts', { names: autoScanResult.customBatFiles.map(b => b.fileName).join(', ') })}</p>
-                        )}
-                      </div>
-                    </div>
+                      {/* Detected Settings Summary */}
+                      {selectedServerConfig && (
+                        <div className="space-y-3 rounded-lg border bg-muted/50 p-4">
+                          <div className="mb-3 flex items-center gap-2 text-primary">
+                            <CheckCircle className="w-4 h-4" />
+                            <span className="font-medium">{t('localForm.detectedTitle')}</span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                            <div>
+                              <span className="text-muted-foreground">{t('localForm.serverNameLabel')}</span>
+                              <p className="font-medium">{newServer.name}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">{t('localForm.configFileLabel')}</span>
+                              <p className="font-mono">{newServer.serverName}.ini</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">{t('localForm.gamePortLabel')}</span>
+                              <p className="font-mono">{newServer.serverPort}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">{t('localForm.rconPortLabel')}</span>
+                              <p className="font-mono">{newServer.rconPort}</p>
+                            </div>
+                          </div>
+
+                          {tandemConflicts.length > 0 && (
+                            <div className="space-y-1.5 rounded-md border border-destructive/50 bg-destructive/5 p-3">
+                              <p className="text-xs font-medium text-destructive">
+                                {t('tandem.conflictsTitle')}
+                              </p>
+                              <ul className="space-y-1">
+                                {tandemConflicts.map((c: { label: string; detail: string }, i: number) => (
+                                  <li key={`${c.label}-${i}`} className="grid grid-cols-[minmax(6rem,auto)_1fr] gap-2 text-xs">
+                                    <span className="text-muted-foreground">{c.label}</span>
+                                    <span>{c.detail}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {/* RCON Password Section */}
+                          <div className="space-y-2 mt-2">
+                            <Label>{t('localForm.rconPasswordLabel')}</Label>
+                            <PasswordInput
+                              placeholder={importIniFrom ? t('localForm.rconPasswordImportPlaceholder') : t('localForm.rconPasswordPlaceholder')}
+                              value={newServer.rconPassword}
+                              className="bg-background"
+                              onChange={value => {
+                                setNewServer({ ...newServer, rconPassword: value })
+                                setImportIniFrom(null)
+                              }}
+                              label={t('localForm.rconPasswordAria')}
+                            />
+                            {!newServer.rconPassword && importIniFrom ? (
+                              <p className="flex items-center gap-1 text-xs text-primary">
+                                <CheckCircle className="w-3 h-3" /> {t('localForm.passwordWillImport', { iniName: newServer.serverName })}
+                              </p>
+                            ) : !newServer.rconPassword ? (
+                              <p className="text-xs text-warning">
+                                <Trans
+                                  i18nKey="localForm.rconPasswordRequired"
+                                  t={t}
+                                  values={{ iniName: newServer.serverName }}
+                                  components={{ 1: <code className="rounded bg-warning/20 px-1" /> }}
+                                />
+                              </p>
+                            ) : (
+                              <p className="flex items-center gap-1 text-xs text-primary">
+                                <CheckCircle className="w-3 h-3" /> {t('localForm.passwordSet')}
+                              </p>
+                            )}
+                            <RconTestConnection
+                              host={newServer.rconHost || '127.0.0.1'}
+                              port={newServer.rconPort}
+                              password={newServer.rconPassword}
+                            />
+                          </div>
+
+                          {/* Memory Configuration */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                            <div className="space-y-2">
+                              <Label>{t('localForm.minMemoryLabel')}</Label>
+                              <NumberInput
+                                min={1}
+                                max={64}
+                                value={newServer.minMemory}
+                                className="bg-background"
+                                clamp={n => Math.max(1, n)}
+                                onChange={minMemory => setNewServer({ ...newServer, minMemory })}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>{t('localForm.maxMemoryLabel')}</Label>
+                              <NumberInput
+                                min={1}
+                                max={64}
+                                value={newServer.maxMemory}
+                                className="bg-background"
+                                clamp={n => Math.max(1, n)}
+                                onChange={maxMemory => setNewServer({ ...newServer, maxMemory })}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
+              </>
+              )}
             </div>
-
-            {/* Manual Entry Section */}
-            {!showAutoScan && (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>{t('localForm.dataPathLabel')}</Label>
-                <div className="flex gap-2">
-                  <Input
-                    value={newServer.zomboidDataPath}
-                    onChange={e => {
-                      setNewServer({ ...newServer, zomboidDataPath: e.target.value })
-                      setDetectResult(null)
-                      setDetectError(null)
-                      setImportIniFrom(null)
-                    }}
-                    placeholder={t('localForm.dataPathPlaceholder')}
-                    className="font-mono text-sm flex-1"
-                    maxLength={260}
-                  />
-                  <DisabledReason reason={!canServersDiscover ? t('localForm.discoverNoPermission') : null}>
-                    <Button
-                      variant="secondary"
-                      onClick={handleDetectServer}
-                      disabled={detecting || !newServer.zomboidDataPath.trim() || !canServersDiscover}
-                    >
-                      {detecting ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <><Search className="w-4 h-4 me-1" /> {t('localForm.detect')}</>
-                      )}
-                    </Button>
-                  </DisabledReason>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {t('localForm.dataPathHint')}
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label>{t('localForm.installPathLabel')}</Label>
-                <Input
-                  value={newServer.installPath}
-                  onChange={e => setNewServer({ ...newServer, installPath: e.target.value })}
-                  placeholder={t(platformTranslationKey('localForm.installPathPlaceholder', runtimeInfo?.family))}
-                  className="font-mono text-sm"
-                  maxLength={260}
-                />
-                {isCustomLauncherPath(newServer.installPath) && (
-                  <Alert className="border-warning/40 bg-warning/10">
-                    <AlertCircle className="h-4 w-4 text-warning" />
-                    <AlertTitle className="text-warning">{t('localForm.customLauncherNoticeTitle')}</AlertTitle>
-                    <AlertDescription>{t('localForm.customLauncherNoticeBody')}</AlertDescription>
-                  </Alert>
-                )}
-              </div>
-            </div>
-            )}
-
-            {/* Detection Error */}
-            {detectError && (
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive">
-                <AlertCircle className="w-4 h-4" />
-                <span className="text-sm">{detectError}</span>
-              </div>
-            )}
-
-            {/* Detection Result */}
-            {detectResult && (
-              <div className="space-y-4">
-                {detectResult.detectedServers.length === 0 ? (
-                  <Alert className="border-warning/40 bg-warning/10">
-                    <AlertCircle className="h-4 w-4 text-warning" />
-                    <AlertTitle className="text-warning">{t('localForm.noConfigsFoundTitle')}</AlertTitle>
-                    <AlertDescription>{t('localForm.noConfigsFoundDesc')}</AlertDescription>
-                  </Alert>
-                ) : (
-                  <>
-                    {/* Server Selection (if multiple) */}
-                    {detectResult.detectedServers.length > 1 && (
-                      <div className="space-y-2">
-                        <Label>{t('localForm.selectConfigLabel')}</Label>
-                        <Select
-                          value={selectedServerConfig}
-                          onValueChange={(val) => {
-                            const config = detectResult.detectedServers.find(s => s.serverName === val)
-                            if (config) handleSelectServerConfig(config)
-                          }}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder={t('localForm.selectConfigPlaceholder')} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {detectResult.detectedServers.map(s => (
-                              <SelectItem key={s.serverName} value={s.serverName}>
-                                {s.publicName || s.serverName} ({s.serverName}.ini)
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
-
-                    {/* Detected Settings Summary */}
-                    {selectedServerConfig && (
-                      <div className="space-y-3 rounded-lg border bg-muted/50 p-4">
-                        <div className="mb-3 flex items-center gap-2 text-primary">
-                          <CheckCircle className="w-4 h-4" />
-                          <span className="font-medium">{t('localForm.detectedTitle')}</span>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                          <div>
-                            <span className="text-muted-foreground">{t('localForm.serverNameLabel')}</span>
-                            <p className="font-medium">{newServer.name}</p>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">{t('localForm.configFileLabel')}</span>
-                            <p className="font-mono">{newServer.serverName}.ini</p>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">{t('localForm.gamePortLabel')}</span>
-                            <p className="font-mono">{newServer.serverPort}</p>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">{t('localForm.rconPortLabel')}</span>
-                            <p className="font-mono">{newServer.rconPort}</p>
-                          </div>
-                        </div>
-
-                        {tandemConflicts.length > 0 && (
-                          <div className="space-y-1.5 rounded-md border border-destructive/50 bg-destructive/5 p-3">
-                            <p className="text-xs font-medium text-destructive">
-                              {t('tandem.conflictsTitle')}
-                            </p>
-                            <ul className="space-y-1">
-                              {tandemConflicts.map((c: { label: string; detail: string }, i: number) => (
-                                <li key={`${c.label}-${i}`} className="grid grid-cols-[minmax(6rem,auto)_1fr] gap-2 text-xs">
-                                  <span className="text-muted-foreground">{c.label}</span>
-                                  <span>{c.detail}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-
-                        {/* RCON Password Section */}
-                        <div className="space-y-2 mt-2">
-                          <Label>{t('localForm.rconPasswordLabel')}</Label>
-                          <PasswordInput
-                            placeholder={importIniFrom ? t('localForm.rconPasswordImportPlaceholder') : t('localForm.rconPasswordPlaceholder')}
-                            value={newServer.rconPassword}
-                            className="bg-background"
-                            onChange={value => {
-                              setNewServer({ ...newServer, rconPassword: value })
-                              setImportIniFrom(null)
-                            }}
-                            label={t('localForm.rconPasswordAria')}
-                          />
-                          {!newServer.rconPassword && importIniFrom ? (
-                            <p className="flex items-center gap-1 text-xs text-primary">
-                              <CheckCircle className="w-3 h-3" /> {t('localForm.passwordWillImport', { iniName: newServer.serverName })}
-                            </p>
-                          ) : !newServer.rconPassword ? (
-                            <p className="text-xs text-warning">
-                              <Trans
-                                i18nKey="localForm.rconPasswordRequired"
-                                t={t}
-                                values={{ iniName: newServer.serverName }}
-                                components={{ 1: <code className="rounded bg-warning/20 px-1" /> }}
-                              />
-                            </p>
-                          ) : (
-                            <p className="flex items-center gap-1 text-xs text-primary">
-                              <CheckCircle className="w-3 h-3" /> {t('localForm.passwordSet')}
-                            </p>
-                          )}
-                          <RconTestConnection
-                            host={newServer.rconHost || '127.0.0.1'}
-                            port={newServer.rconPort}
-                            password={newServer.rconPassword}
-                          />
-                        </div>
-
-                        {/* Memory Configuration */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
-                          <div className="space-y-2">
-                            <Label>{t('localForm.minMemoryLabel')}</Label>
-                            <NumberInput
-                              min={1}
-                              max={64}
-                              value={newServer.minMemory}
-                              className="bg-background"
-                              clamp={n => Math.max(1, n)}
-                              onChange={minMemory => setNewServer({ ...newServer, minMemory })}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>{t('localForm.maxMemoryLabel')}</Label>
-                            <NumberInput
-                              min={1}
-                              max={64}
-                              value={newServer.maxMemory}
-                              className="bg-background"
-                              clamp={n => Math.max(1, n)}
-                              onChange={maxMemory => setNewServer({ ...newServer, maxMemory })}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-            </>
-            )}
-          </div>
+          </DialogBody>
 
           <DialogFooter>
             <Button variant="outline" onClick={resetAddDialog}>
@@ -2988,7 +3033,12 @@ export default function Servers() {
 
       {/* Edit Dialog */}
       <Dialog open={!!editingServer} onOpenChange={() => setEditingServer(null)}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
+        {/* 2026-09 community report: this form (install/data paths, the
+            lifecycle-provider block, RCON, ports, memory) is several screens
+            tall on a laptop at 125-150% zoom. DialogContent caps the dialog
+            to the viewport; DialogBody makes only the fields scroll, so the
+            title and Save/Cancel stay on screen at any window height. */}
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{t('editDialog.title')}</DialogTitle>
             <DialogDescription>
@@ -2997,7 +3047,7 @@ export default function Servers() {
           </DialogHeader>
 
           {editingServer && (
-            <div className="space-y-4">
+            <DialogBody className="space-y-4">
               {/* Remote server indicator */}
               {editingServer.isRemote && (
                 <Alert className="border-primary/20 bg-primary/5">
@@ -3355,7 +3405,7 @@ export default function Servers() {
                 </>
                 )}
               </div>
-            </div>
+            </DialogBody>
           )}
 
           <DialogFooter>

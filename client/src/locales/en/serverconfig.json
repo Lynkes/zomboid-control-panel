@@ -44,6 +44,8 @@
     "causeWorkshopNotOnDisk": "Listed in WorkshopItems= but its content isn't on disk and nothing is downloading it right now. Restart the server or re-validate the Workshop download, then re-run diagnostics.",
     "rerunDiagnostics": "Re-run diagnostics",
     "causeAbsent": "No installed Workshop or local mod matches this ID.",
+    "causePanelBridge": "PanelBridge's own entry. It resolves once Steam has downloaded the PanelBridge Workshop item; Settings › PanelBridge shows whether it has and what to do if it hasn't.",
+    "openBridgeSettings": "Open Settings › PanelBridge",
     "removeAction": "Remove from Mods=",
     "correctedTitle": "Mods= entry corrected",
     "correctedToast": "Replaced \"{{modId}}\" with \"{{suggestion}}\" in Mods=. Unsaved — review and save below.",
@@ -147,7 +149,9 @@
     "sectionLabel": "Server settings",
     "sectionSublabel": "INI · behavior, network, players",
     "luaChecksumTitle": "Lua Checksum is enabled",
-    "luaChecksumBody": "PanelBridge modifies server-side Lua files. With Lua Checksum enabled, clients will fail verification and cannot connect. Disable <1>DoLuaChecksum</1> in the Mods category to allow players to join.",
+    "luaChecksumBody": "The panel-installed PanelBridge adds server-side Lua files players don't have, so with <1>DoLuaChecksum</1> on they can't connect. Turn it off, or switch PanelBridge to Steam Workshop delivery in Settings › PanelBridge to keep it on.",
+    "luaChecksumWorkshopNote": "PanelBridge comes from the Steam Workshop, so you can turn this on. Settings › PanelBridge walks you through it.",
+    "luaChecksumWorkshopUnconfirmed": "If PanelBridge still loads from the game folder, players can't join with this on.",
     "disableNow": "disable now"
   },
   "sandboxTab": {
@@ -233,7 +237,12 @@
     "showAllOptions": "Show all options",
     "noMatches": "No settings match “{{query}}”{{suffix}}",
     "noMatchesInModified": " in modified options",
-    "clearSearch": "Clear search"
+    "clearSearch": "Clear search",
+    "enumBridgeOutdatedTitle": "This server runs an older PanelBridge",
+    "enumBridgeOutdatedDesc": "It saves the last choice of a list setting as the one before it, so the panel won't send a last choice until PanelBridge is updated and the server restarts. Settings › PanelBridge shows what this server needs. Where a setting's choices can't be listed, type the choice's number (1 is the first).",
+    "enumLastChoiceHeldBack": "The last choice ({{max}}) can't be picked here until PanelBridge is updated.",
+    "enumLastChoiceItem": "Choice {{value}}",
+    "enumTooManyChoices": "Too many choices to list. Type the choice's number (1 is the first)."
   },
   "stickySaveBar": {
     "unsavedChange_one": "{{count}} unsaved change",
@@ -371,6 +380,8 @@
     "copyFailed": "Failed to copy content to clipboard.",
     "optionUpdatedTitle": "Option Updated",
     "optionUpdatedDesc": "{{option}} set successfully",
+    "enumLastChoiceRefusedTitle": "Update PanelBridge first",
+    "enumLastChoiceRefusedDesc": "{{option}} wasn't changed. The older PanelBridge this server runs would save the last choice ({{max}}) as the one before it.",
     "bridgeUnverifiedDesc": "{{action}} was sent, but the mod could not confirm it took effect.",
     "bridgeOldBridgeDesc": "{{action}} may have worked, but this PanelBridge mod version doesn't report back whether it did. Update the mod to confirm results.",
     "appliedNotSavedTitle": "Applied, but not saved",
@@ -797,7 +808,7 @@
       },
       "DoLuaChecksum": {
         "label": "Lua Checksum",
-        "description": "Verify client Lua matches server. Must be disabled when using PanelBridge — the mod modifies server-side Lua files, which causes checksum mismatches and prevents players from connecting."
+        "description": "Kick players whose Lua, script or animation files don't match the server's. Must be off with the panel-installed PanelBridge; can stay on with Steam Workshop delivery."
       }
     },
     "steam": {

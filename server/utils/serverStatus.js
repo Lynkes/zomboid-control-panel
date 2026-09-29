@@ -1,5 +1,5 @@
 import { getActiveServer } from "../database/init.js";
-import { resolveProvider } from "./serverStatusModel.js";
+import { isHostSignalAuthoritative, resolveProvider } from "./serverStatusModel.js";
 import { resolveDockerHostSignal } from "../services/managedContainer.js";
 import panelBridge from "../services/panelBridge.js";
 
@@ -110,7 +110,7 @@ export async function resolveObservedServerRunning(serverManager, rconService, d
       rconConnected: rconService?.connected,
       bridgeConnected: panelBridge.isModConnected(),
       processScanFailed: dockerSignal.scanFailed,
-      hostStateAuthoritative: !dockerSignal.scanFailed,
+      hostStateAuthoritative: !dockerSignal.scanFailed && isHostSignalAuthoritative(provider),
     });
   }
 
@@ -127,6 +127,6 @@ export async function resolveObservedServerRunning(serverManager, rconService, d
     hostStateAuthoritative:
       Boolean(processDetails) &&
       !processDetails.scanFailed &&
-      !["systemd", "openrc"].includes(activeServer?.lifecycleProvider),
+      isHostSignalAuthoritative("native", activeServer?.lifecycleProvider, processDetails.provider),
   });
 }

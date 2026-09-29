@@ -1,3 +1,5 @@
+import { BRIDGE_MOD_ID, type DeliveryMethod, type DeliveryPlanResponse, type DeliveryStatus } from './bridgeDeliveryTypes'
+
 const DEMO_FLAGS = new Set(['1', 'true', 'yes', 'on'])
 
 export function isDemoMode(): boolean {
@@ -469,6 +471,85 @@ export function getDemoTemplates() {
   return { templates: demoTemplates }
 }
 
+// Settings › PanelBridge's delivery block in the demo: the panel-installed
+// bridge on a local server, with the Workshop option shown the way every
+// panel build shows it until the item is published ("Not available yet").
+export function getDemoBridgeDelivery(): DeliveryStatus {
+  const server = demoServer()
+  return {
+    serverId: server.id,
+    serverName: server.name,
+    method: 'local',
+    ownMethod: 'local',
+    state: 'local-ok',
+    access: 'automatic',
+    remote: false,
+    hostOs: 'linux',
+    sharedWith: [],
+    switch: null,
+    release: {
+      status: 'not-published',
+      source: 'none',
+      modId: BRIDGE_MOD_ID,
+      workshopId: null,
+      visibility: null,
+      publishedVersion: null,
+      publishedAt: null,
+      preview: true,
+      linuxChecksumVerified: false,
+    },
+    effectiveWorkshopId: null,
+    switchAvailability: {
+      toWorkshop: { available: false, reason: 'notPublished', warnings: [] },
+      toLocal: { available: false, reason: 'sameMethod', warnings: [] },
+    },
+    serverRunning: true,
+    restartedSinceSwitch: null,
+    live: null,
+    disk: {
+      installDir: server.installPath,
+      looseFiles: [{ path: `${server.installPath}/media/lua/server/PanelBridge.lua`, kind: 'server', recognized: true }],
+      iniPath: `${server.serverConfigPath}/${server.serverName}.ini`,
+      iniEntries: { mods: false, workshopItems: false },
+      workshopItem: null,
+    },
+    lastStartFailure: null,
+    steamReportsUnavailable: false,
+    steamModeOff: false,
+    modAutoRestart: false,
+    bundledVersion: null,
+    checksum: {
+      current: false,
+      canTurnOn: false,
+      turnOnBlockers: ['notWorkshop'],
+      playersBlocked: false,
+      requiresLinuxAck: true,
+    },
+  }
+}
+
+// POST /api/panel-bridge/delivery in the demo: the preview of a switch the
+// demo status above doesn't allow, so the dialog shows the block reason and
+// never offers an apply.
+export function getDemoBridgeDeliveryPlan(to: DeliveryMethod): DeliveryPlanResponse {
+  const status = getDemoBridgeDelivery()
+  return {
+    serverId: status.serverId,
+    from: status.method,
+    to,
+    access: status.access,
+    blocked: { reason: to === 'workshop' ? 'notPublished' : 'sameMethod' },
+    steps: [],
+    warnings: [],
+    sharedWith: [],
+    manual: null,
+    applied: false,
+    restartRequired: false,
+    backups: [],
+    status,
+  }
+}
+
 function demoStorageHealth() {
   return {
     diskSpace: {
@@ -495,7 +576,7 @@ function demoServerStatus() {
   return {
     running: false,
     startTime: null,
-    uptime: 0,
+    uptime: null,
     serverPath: '/opt/pz',
     configured: true,
     localIp: '127.0.0.1',
@@ -567,6 +648,11 @@ export function installDemoFetchShim(): void {
     }
     if (path === '/api/panel-bridge/status') {
       return jsonResponse({ configured: true, isRunning: false, modConnected: false, modStatus: null })
+    }
+    if (path === '/api/panel-bridge/delivery') {
+      if (method === 'GET') return jsonResponse(getDemoBridgeDelivery())
+      const body = await readJsonBody(init)
+      return jsonResponse(getDemoBridgeDeliveryPlan(body.method === 'workshop' ? 'workshop' : 'local'))
     }
     if (path === '/api/panel-info') {
       return jsonResponse({ localIp: '127.0.0.1', port: 3001, url: 'http://demo.local:3001' })

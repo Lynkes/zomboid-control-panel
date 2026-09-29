@@ -10,7 +10,17 @@ import { fileURLToPath } from "url";
 import archiver from "archiver";
 import { createLogger } from "../utils/logger.js";
 import { getDiskFree } from "../utils/diskSpace.js";
-import { resolveLaunchMode } from "../services/serverManager.js";
+import {
+  managedStartupScriptName,
+  resolveLaunchMode,
+  resolveManagedStartupScript,
+} from "../services/serverManager.js";
+import { scanWorkshopFailures } from "../utils/workshopLogScan.js";
+import { resolveInstallDir } from "../services/panelBridgeInstaller.js";
+import { compareModVersions } from "../utils/embeddedLua.js";
+import { detectWorkshopItem, listLooseBridgeFiles } from "../services/bridgeDisk.js";
+import { describeDelivery } from "../services/bridgeDelivery.js";
+import { BRIDGE_MOD_ID } from "../services/bridgeDeliveryContract.js";
 import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
@@ -704,6 +714,8 @@ const SUPPORT_INI_KEYS = [
   "MaxAccountsPerUser",
   "SteamVAC",
   "DoLuaChecksum",
+  "Mods",
+  "WorkshopItems",
   "UsernameDisguises",
   "HideDisguisedUserName",
   "AntiCheatProtectionType",
@@ -712,6 +724,15 @@ const SUPPORT_INI_KEYS = [
 const SANDBOX_DIAGNOSTIC_MAX_LOG_BYTES = 512 * 1024;
 const SANDBOX_DIAGNOSTIC_MAX_EXCERPTS = 8;
 const SANDBOX_DIAGNOSTIC_MAX_MODS = 500;
+// PanelBridge releases in this range read every enum's labels from index 0.
+// Build 42 enum labels run 1..N (EnumConfigOption is an IntegerConfigOption
+// with min 1), so getValueTranslationByIndexOrNull(0) threw
+// ArrayIndexOutOfBoundsException on every getAllSandboxOptions call, with or
+// without mods installed. 1.7.40 and older called a getValueName method that
+// doesn't exist, behind a field test that never passed, so they never read
+// labels at all. Later bridges read 1..N only.
+const SANDBOX_ENUM_INDEX_ZERO_FIRST_BRIDGE = "1.7.45";
+const SANDBOX_ENUM_INDEX_ZERO_LAST_BRIDGE = "1.7.70";
 
 async function readTailText(filePath, maxBytes = SANDBOX_DIAGNOSTIC_MAX_LOG_BYTES) {
   let handle = null;
@@ -879,6 +900,26 @@ async function buildSandboxOptionsDiagnostics(activeServer, knownSecrets = []) {
   const pzVersion = logText?.match(/\bversion=([^\s]+)\s+b[0-9a-f]+/i)?.[1] || null;
   const bridgeVersion = logText?.match(/\[PanelBridge\]\s+Initializing v([^\s]+)/i)?.[1] || null;
   const detected = exceptionCount > 0;
+  // A bridge that makes the index-0 read is the likely cause. null: the log
+  // has no PanelBridge line, so no telling.
+  const bridgeReadsIndexZero = bridgeVersion
+    ? compareModVersions(bridgeVersion, SANDBOX_ENUM_INDEX_ZERO_FIRST_BRIDGE) >= 0
+      && compareModVersions(bridgeVersion, SANDBOX_ENUM_INDEX_ZERO_LAST_BRIDGE) <= 0
+    : null;
+  // exceptionCount counts every ArrayIndexOutOfBoundsException line, so only
+  // blame the bridge outright when the log also names the enum label read.
+  const namesEnumLabelRead = lines.some((line) => /getValueTranslationByIndexOrNull/.test(line));
+  const blameBridge = bridgeReadsIndexZero === true && namesEnumLabelRead;
+  const indexZeroRange = `${SANDBOX_ENUM_INDEX_ZERO_FIRST_BRIDGE} to ${SANDBOX_ENUM_INDEX_ZERO_LAST_BRIDGE}`;
+  const modNote = "The PZ stack does not include the option name. Candidate mods are listed below from installed mod.info and sandbox-option metadata.";
+  let note = modNote;
+  if (blameBridge) {
+    note = `PanelBridge ${bridgeVersion} reads enum labels from index 0, but Build 42 enum labels run 1..N, so PanelBridge itself raises this exception on every getAllSandboxOptions call. It does not point to a mod, so no candidate mods are listed. Updating PanelBridge past ${SANDBOX_ENUM_INDEX_ZERO_LAST_BRIDGE} and restarting the game server stops it.`;
+  } else if (bridgeReadsIndexZero === true) {
+    note = `PanelBridge ${bridgeVersion} reads enum labels from index 0, which raises this exception, but no log line names getValueTranslationByIndexOrNull, so it may come from somewhere else. ${modNote}`;
+  } else if (bridgeReadsIndexZero === null) {
+    note = `The log does not show the PanelBridge version. PanelBridge releases ${indexZeroRange} raise this exception themselves on every getAllSandboxOptions call (they read enum labels from index 0), so rule that out first. ${modNote}`;
+  }
   return {
     available: true,
     serverName,
@@ -897,12 +938,15 @@ async function buildSandboxOptionsDiagnostics(activeServer, knownSecrets = []) {
           actionCount,
           excerpts,
           optionName: null,
-          note: "The PZ stack does not include the option name. Candidate mods are listed below from installed mod.info and sandbox-option metadata.",
+          likelyCause: blameBridge ? "panelbridge-enum-index-zero" : "unknown",
+          note,
         }
       : { exceptionCount: 0, actionCount },
-    candidateMods: installedMods.filter(
-      (mod) => mod.configuredIds.length > 0 || mod.sandboxOptionFiles.length > 0,
-    ),
+    candidateMods: detected && blameBridge
+      ? []
+      : installedMods.filter(
+          (mod) => mod.configuredIds.length > 0 || mod.sandboxOptionFiles.length > 0,
+        ),
     installedMods,
     logFiles: logText ? [logPath] : [],
   };
@@ -2282,7 +2326,8 @@ export function findNearMissTypo(modId, candidateNames) {
 }
 
 // Classifies each unresolved Mods= entry into exactly one cause. Order
-// matters: a typo match is checked first because it's the most specific,
+// matters: after PanelBridge's own entry (below), a typo match is checked
+// first because it's the most specific,
 // actionable signal -- an entry that's ALSO true (loosely) because a
 // download happens to be running elsewhere shouldn't hide a clean typo fix.
 // "stillDownloading" and "workshopNotOnDisk" are deliberately coarse (whole-
@@ -2290,13 +2335,27 @@ export function findNearMissTypo(modId, candidateNames) {
 // unresolved mod ID to a specific not-yet-downloaded Workshop item before
 // that item's mod.info actually exists on disk, so this doesn't pretend to
 // know more than it does.
+//
+// PanelBridge's own Mods= entry (BRIDGE_MOD_ID) stays out of the typo match
+// both ways. The id is four characters, so the length-scaled threshold (two
+// edits, or any case-only difference) paired it with unrelated short ids: a
+// bridge item Steam hadn't delivered yet read as a typo of an installed "ZCP"
+// or "zcpb", with a one-click "Use" in Server Config that swapped the bridge
+// out of Mods=, and an operator's unresolved "ZCP" was "corrected" to the
+// bridge. The panel writes that entry itself, and Settings › PanelBridge
+// (and the server.bridgeMod check) knows whether the item has downloaded,
+// so the entry gets its own cause that points there.
 export function triageUnresolvedMods(
   unresolvedMods,
   installedModNames,
   { steamOperationActive, anyWorkshopMissingFromDisk },
 ) {
+  const typoCandidates = [...installedModNames].filter(
+    (name) => name !== BRIDGE_MOD_ID,
+  );
   return unresolvedMods.map((modId) => {
-    const suggestion = findNearMissTypo(modId, installedModNames);
+    if (modId === BRIDGE_MOD_ID) return { modId, cause: "panelBridge" };
+    const suggestion = findNearMissTypo(modId, typoCandidates);
     if (suggestion) return { modId, cause: "typo", suggestion };
     if (steamOperationActive) return { modId, cause: "stillDownloading" };
     if (anyWorkshopMissingFromDisk)
@@ -2325,87 +2384,16 @@ async function pathWritableAsync(p) {
   }
 }
 
-// Tail-read `server-console.txt` and look for failed Workshop downloads.
-// PZ's GameServerWorkshopItems.Install() crashes with a NullPointerException
-// the moment a subscribed mod cannot be installed (delisted, private, region
-// blocked, etc). We detect both the failure lines and whether the install
-// step actually crashed.
-//
-// Returns null if no log; otherwise { ids, results, crashed, logMtime }.
-// Exported for direct testing (same reason getServerProcessState is
-// exported below) -- GET /diagnostics' full handler has enough of its own
-// dependency surface (req.app-injected services, several other database/
-// init.js lookups) that reaching this one check through a real route
-// invocation is its own, much larger undertaking; testing the function
-// directly proves its own behavior without needing that.
-export async function scanWorkshopFailures(zPath) {
-  if (!zPath) return null;
-  const logPath = path.join(zPath, "server-console.txt");
-  let stat;
-  try {
-    stat = await fs.promises.stat(logPath);
-  } catch {
-    return null;
-  }
-  if (!stat.isFile() || stat.size === 0) return null;
-
-  // Only the tail matters — the relevant lines come from the most recent
-  // server start. Cap at 256 KB to keep this cheap on huge log files.
-  const MAX_TAIL = 256 * 1024;
-  const start = Math.max(0, stat.size - MAX_TAIL);
-  const length = stat.size - start;
-  let text = "";
-  let fd;
-  try {
-    fd = await fs.promises.open(logPath, "r");
-    const buf = Buffer.alloc(length);
-    await fd.read(buf, 0, length, start);
-    text = buf.toString("utf-8");
-  } catch {
-    return null;
-  } finally {
-    if (fd) {
-      try {
-        await fd.close();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  // Pattern: `Workshop: onItemNotDownloaded itemID=<ID> result=<N>`
-  // result=9 is the common "item unavailable" / delisted case, but any
-  // non-zero result lands here — we surface them all.
-  const failedIds = [];
-  const resultByFailedId = {};
-  const re = /Workshop:\s+onItemNotDownloaded\s+itemID=(\d+)\s+result=(\d+)/g;
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    if (!resultByFailedId[m[1]]) {
-      failedIds.push(m[1]);
-      resultByFailedId[m[1]] = parseInt(m[2], 10);
-    }
-  }
-
-  // Crash chain: `GameServerWorkshopItems.Install` appears in the stack
-  // when the install step actually aborted the server boot.
-  const crashed =
-    /GameServerWorkshopItems\.Install/.test(text) ||
-    /Workshop:\s+item state DownloadPending\s+->\s+Fail/.test(text);
-
-  return {
-    ids: failedIds,
-    results: resultByFailedId,
-    crashed,
-    logPath,
-    logMtime: stat.mtime,
-  };
-}
+// scanWorkshopFailures() lives in utils/workshopLogScan.js now, next to the
+// PanelBridge Workshop start-failure scanner that reads the same log tail;
+// re-exported here so existing callers and tests keep importing it from
+// this route module unchanged.
+export { scanWorkshopFailures };
 
 // Generic crash scanner. Tail server-console.txt and report the most
 // recent fatal symptom (OOM, main-thread exception, FATAL log line).
 // Returns null when nothing notable is in the tail. Exported for direct
-// testing -- see scanWorkshopFailures's own comment above for why.
+// testing -- see scanWorkshopFailures's own comment (utils/workshopLogScan.js) for why.
 export async function scanRecentCrash(zPath) {
   if (!zPath) return null;
   const logPath = path.join(zPath, "server-console.txt");
@@ -3598,74 +3586,7 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
 
         if (installPath && (await safePathExists(installPath))) {
           const isWin = process.platform === "win32";
-          const serverName = activeServer.serverName || "";
-          // Linux is case-sensitive — list each script variant explicitly.
-          const candidates = isWin
-            ? [
-                serverName ? `StartServer_${serverName}.bat` : null,
-                "StartServer64.bat",
-                "StartServer64_nosteam.bat",
-                "StartServer32.bat",
-              ]
-            : [
-                serverName ? `start-server_${serverName}.sh` : null,
-                "start-server.sh",
-                "start-server-nosteam.sh",
-              ];
-          let foundScript = null;
-          let scriptStat = null;
-          for (const name of candidates) {
-            if (!name) continue;
-            const p = path.join(installPath, name);
-            const st = await safeStat(p);
-            if (st && st.isFile()) {
-              foundScript = name;
-              scriptStat = st;
-              break;
-            }
-          }
-          if (foundScript) {
-            // On Linux, verify the executable bit. On Windows, mode bits are
-            // meaningless so we just confirm presence.
-            if (!isWin && scriptStat && (scriptStat.mode & 0o111) === 0) {
-              // Two different "warn" scenarios for this id (not-executable
-              // vs not-found below) need distinct label/message text, not
-              // just different data in the same template -- variant, not
-              // params, same reasoning as server.installPath above.
-              checks.push(
-                diagWarn(
-                  "server.startScript",
-                  "Start script not executable",
-                  `${foundScript} exists but has no executable bit. The panel cannot launch it.`,
-                  {
-                    category: "server",
-                    hint: `Run: chmod +x ${foundScript}`,
-                    params: { script: foundScript },
-                    variant: "notExecutable",
-                  },
-                ),
-              );
-            } else {
-              checks.push(
-                diagOk(
-                  "server.startScript",
-                  "Start script found",
-                  `Using ${foundScript}.`,
-                  { category: "server", params: { script: foundScript } },
-                ),
-              );
-            }
-          } else {
-            const scriptPattern = isWin ? "StartServer*.bat" : "start-server*.sh";
-            checks.push(
-              diagWarn(
-                "server.startScript",
-                "Start script not found",
-                `No ${scriptPattern} in install path. Server can't be started from the panel.`,
-                { category: "server", params: { pattern: scriptPattern }, variant: "notFound" },
-              ),
-            );
-          }
+          checks.push(await buildStartScriptCheck(activeServer));
 
           // Java/JRE check — PZ ships its own JRE under jre64/.
           const isLinux = process.platform === "linux";
@@ -3783,62 +3704,69 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
           );
         }
 
-        if (zPath || installPath) {
-          // Cover both case variants (Linux is case-sensitive) and both
-          // mods/ + Workshop/ trees + the server install media path.
-          const bridgeCandidates = [];
-          if (zPath) {
-            for (const root of ["mods", "Mods"]) {
-              bridgeCandidates.push(
-                path.join(zPath, root, "PanelBridge", "mod.info"),
+        // PanelBridge on disk, judged by the server's delivery method: the
+        // loose media/lua/server file for panel-installed, the downloaded
+        // item for Steam Workshop. The previous candidate list counted ANY
+        // steamapps/workshop/content/108600 folder as "installed", so a
+        // server with any other Workshop mod always passed this check.
+        // Remote profiles are skipped: their game folder is on another host,
+        // so this disk would always say "missing" (bridge.heartbeat covers
+        // them from the bridge's own reports).
+        const bridgeInstallDir = activeServer.isRemote ? null : resolveInstallDir(activeServer);
+        if (bridgeInstallDir) {
+          let bridgeDelivery = { method: "local", workshopId: null };
+          try {
+            bridgeDelivery = describeDelivery(activeServer, await getServers());
+          } catch {
+            /* treat as panel-installed, the default */
+          }
+          const looseBridgeFiles = listLooseBridgeFiles(bridgeInstallDir);
+          if (bridgeDelivery.method === "workshop") {
+            const bridgeItem = bridgeDelivery.workshopId
+              ? detectWorkshopItem(bridgeInstallDir, bridgeDelivery.workshopId, { zomboidDataPath: zPath })
+              : null;
+            if (looseBridgeFiles.length > 0) {
+              const files = looseBridgeFiles
+                .map((file) => path.relative(bridgeInstallDir, file.path))
+                .join(", ");
+              checks.push(
+                diagWarn(
+                  "server.bridgeMod",
+                  "Old PanelBridge files in the game folder",
+                  `Still in the game folder: ${files}. With the Lua integrity check on, players will be refused.`,
+                  {
+                    category: "server",
+                    hint: "Start or restart the server from the panel to move them out.",
+                    params: { files },
+                    variant: "looseLeftover",
+                  },
+                ),
               );
-              bridgeCandidates.push(
-                path.join(
-                  zPath,
-                  root,
-                  "PanelBridge",
-                  "media",
-                  "lua",
-                  "server",
-                  "PanelBridge.lua",
+            } else if (bridgeItem) {
+              const version = bridgeItem.version || "?";
+              checks.push(
+                diagOk(
+                  "server.bridgeMod",
+                  "PanelBridge Workshop item present",
+                  `Downloaded PanelBridge v${version} from the Steam Workshop.`,
+                  { category: "server", params: { version }, variant: "workshop" },
+                ),
+              );
+            } else {
+              checks.push(
+                diagWarn(
+                  "server.bridgeMod",
+                  "PanelBridge not downloaded yet",
+                  "This server gets PanelBridge from the Steam Workshop, but it hasn't been downloaded yet.",
+                  {
+                    category: "server",
+                    hint: "Start the server. If it doesn't start, see Settings › PanelBridge.",
+                    variant: "workshopNotDownloaded",
+                  },
                 ),
               );
             }
-            bridgeCandidates.push(
-              path.join(zPath, "Workshop", "PanelBridge", "mod.info"),
-            );
-            bridgeCandidates.push(
-              path.join(zPath, "workshop", "PanelBridge", "mod.info"),
-            );
-          }
-          if (installPath) {
-            bridgeCandidates.push(
-              path.join(
-                installPath,
-                "media",
-                "lua",
-                "server",
-                "PanelBridge.lua",
-              ),
-            );
-            bridgeCandidates.push(
-              path.join(
-                installPath,
-                "steamapps",
-                "workshop",
-                "content",
-                "108600",
-              ),
-            );
-          }
-          let bridgeInstalled = false;
-          for (const p of bridgeCandidates) {
-            if (await safePathExists(p)) {
-              bridgeInstalled = true;
-              break;
-            }
-          }
-          if (bridgeInstalled) {
+          } else if (looseBridgeFiles.some((file) => file.kind === "server")) {
             checks.push(
               diagOk(
                 "server.bridgeMod",
@@ -3855,7 +3783,7 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
                 "Couldn't find PanelBridge.lua under the server. Advanced features (teleport, weather, character export) will be unavailable.",
                 {
                   category: "server",
-                  hint: "Copy pz-mod/PanelBridge into the server's media/lua/server folder",
+                  hint: "Settings › PanelBridge can install it",
                 },
               ),
             );
@@ -4765,14 +4693,21 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
               ),
             );
           } else {
+            // The remedy doesn't assume a delivery method: the default
+            // panel-installed PanelBridge is never in Mods= or WorkshopItems=,
+            // so it points at the block that knows how this server gets it
+            // (as panelBridge.js's bridgeSilentSinceStart does). Nor does the
+            // message claim the mod isn't loaded: this also fires during a
+            // normal start, while the world is still loading (minutes on
+            // Build 42), before PanelBridge's first write.
             checks.push(
               diagFail(
                 "bridge.heartbeat",
                 "No mod heartbeat",
-                "status.json has never been written. Mod is not loaded on the server.",
+                "status.json has not been written yet.",
                 {
                   category: "bridge",
-                  hint: "Verify PanelBridge is in the server's mod list and Workshop subscription",
+                  hint: "PanelBridge reports once the world has loaded. If it stays silent, see “How PanelBridge is installed” in Settings › PanelBridge.",
                   variant: "never",
                 },
               ),
@@ -5587,6 +5522,144 @@ export function buildUpdateRollbackNoticeCheck(installDir, currentVersion) {
   );
 }
 
+// server.startScript: the script a start of the active server runs, looked
+// for in the folder it runs it from. GH #167 changed which script that is
+// for a managed server with a name (resolveLaunchMode() "managed"): only its
+// own StartServer_<name>.bat / start-server_<name>.sh, which the panel
+// writes from the server's settings before every start
+// (routes/server.js's refreshLaunchTargetBeforeStart()) into
+// `serverPath || installPath`. While that file is missing, a start refuses
+// with SERVER_START_SCRIPT_MISSING (serverManager.js's
+// _assertNamedStartupScriptPresent()) and never falls back to the stock
+// StartServer64.bat / start-server.sh. This check used to take the first of
+// the named and stock scripts it found in `installPath || serverPath`, so it
+// reported "Start script found" for the exact setup whose every start fails:
+// a folder the panel can't write, with only the stock script in it.
+//
+// The stock candidates stay for every server the panel doesn't write the
+// named script for: no server name, a custom start command, a
+// Docker-mapped container (its image owns the launch command), and an
+// explicit PZ_SERVER_BAT (resolveManagedStartupScript()). A custom launcher
+// path keeps the lookup it always had.
+//
+// The write probe is fs.access(W_OK). On Linux, where #167 was reported, it
+// sees ownership, mode bits and a read-only mount. Windows answers it from
+// the read-only attribute alone, so there a folder the panel can't write
+// shows as "not written yet" (a warning), never as a false failure.
+// Exported so it can be tested without the whole handler; `platform` and
+// `env` are parameters only for tests.
+export async function buildStartScriptCheck(
+  activeServer,
+  { platform = process.platform, env = process.env } = {},
+) {
+  const isWin = platform === "win32";
+  const serverName = activeServer?.serverName || "";
+  const dockerMapped = ["docker-local", "docker-managed"].includes(
+    resolveProvider(activeServer),
+  );
+  const launchesNamedScript =
+    Boolean(serverName) &&
+    resolveLaunchMode(activeServer).mode === "managed" &&
+    !activeServer?.startCommand &&
+    !dockerMapped &&
+    resolveManagedStartupScript(serverName, { windows: isWin, env }) ===
+      managedStartupScriptName(serverName, isWin);
+
+  const dir = launchesNamedScript
+    ? activeServer.serverPath || activeServer.installPath
+    : activeServer?.installPath || activeServer?.serverPath;
+  // Linux is case-sensitive — list each script variant explicitly.
+  const candidates = launchesNamedScript
+    ? [managedStartupScriptName(serverName, isWin)]
+    : isWin
+      ? [
+          serverName ? `StartServer_${serverName}.bat` : null,
+          "StartServer64.bat",
+          "StartServer64_nosteam.bat",
+          "StartServer32.bat",
+        ]
+      : [
+          serverName ? `start-server_${serverName}.sh` : null,
+          "start-server.sh",
+          "start-server-nosteam.sh",
+        ];
+  let foundScript = null;
+  let scriptStat = null;
+  for (const name of candidates) {
+    if (!name || !dir) continue;
+    const st = await safeStat(path.join(dir, name));
+    if (st && st.isFile()) {
+      foundScript = name;
+      scriptStat = st;
+      break;
+    }
+  }
+
+  if (foundScript) {
+    // On Linux, verify the executable bit. On Windows, mode bits are
+    // meaningless so we just confirm presence.
+    if (!isWin && scriptStat && (scriptStat.mode & 0o111) === 0) {
+      // Different "warn" scenarios for this id (not-executable, not-found,
+      // not-written-yet) need distinct label/message text, not just
+      // different data in the same template -- variant, not params, same
+      // reasoning as server.installPath in the handler.
+      return diagWarn(
+        "server.startScript",
+        "Start script not executable",
+        `${foundScript} exists but has no executable bit. The panel cannot launch it.`,
+        {
+          category: "server",
+          hint: `Run: chmod +x ${foundScript}`,
+          params: { script: foundScript },
+          variant: "notExecutable",
+        },
+      );
+    }
+    return diagOk(
+      "server.startScript",
+      "Start script found",
+      `Using ${foundScript}.`,
+      { category: "server", params: { script: foundScript } },
+    );
+  }
+
+  if (launchesNamedScript) {
+    const script = candidates[0];
+    if (await safePathWritable(dir)) {
+      return diagWarn(
+        "server.startScript",
+        "Start script not written yet",
+        `${script} isn't in the install folder yet. The panel writes it from this server's settings before every start.`,
+        {
+          category: "server",
+          hint: "Nothing to do before the first start. If Start then fails because the script is missing, check that the panel can write to the install folder.",
+          params: { script },
+          variant: "notWrittenYet",
+        },
+      );
+    }
+    return diagFail(
+      "server.startScript",
+      "Start script missing",
+      `${script} isn't in the install folder, and the panel can't write to that folder. Every start will stop with an error until it can.`,
+      {
+        category: "server",
+        hint: "Give the panel's account write access to the install folder (on Docker, check PUID/PGID), or point this server at a folder it can write to in Servers → Edit.",
+        params: { script },
+        variant: "folderNotWritable",
+      },
+    );
+  }
+
+  const scriptPattern = isWin ? "StartServer*.bat" : "start-server*.sh";
+  return diagWarn(
+    "server.startScript",
+    "Start script not found",
+    `No ${scriptPattern} in install path. Server can't be started from the panel.`,
+    { category: "server", params: { pattern: scriptPattern }, variant: "notFound" },
+  );
+}
+
 // Turns a scanSaveStats() result into the server.staleLocks diagnostics
 // check (or null, when there's nothing to report). Kept as a standalone,
 // module-level function (not inlined at its call site above, and NOT moved
@@ -5936,7 +6009,7 @@ router.get("/worldmap", requirePermission("diagnostics.manage"), async (req, res
           "PanelBridge is running but the in-game mod has not written status.json yet. Players, vehicles and safehouses will not appear.",
           {
             category: "worldmap",
-            hint: "Start the PZ server and confirm the PanelBridge mod is in the active mod list.",
+            hint: "Start the PZ server. If PanelBridge stays silent once the world has loaded, see “How PanelBridge is installed” in Settings › PanelBridge.",
           },
         ),
       );

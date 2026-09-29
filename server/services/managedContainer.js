@@ -13,6 +13,7 @@
  * owns the lifecycle action and performs the Docker half.
  */
 import { getActiveServer, getServer } from "../database/init.js";
+import { prepareForLaunch } from "./lifecycleCoordinator.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("ManagedContainer");
@@ -142,7 +143,7 @@ export async function resolveDockerHostSignal(
   ) {
     const container = await dockerClient.inspectManagedContainer(containerRef);
     return container
-      ? { running: container.State?.Running === true, scanFailed: false }
+      ? runningContainerSignal(container)
       : { running: false, scanFailed: true };
   }
 
@@ -153,9 +154,29 @@ export async function resolveDockerHostSignal(
   if (managed.handled) {
     return managed.error
       ? { running: false, scanFailed: true }
-      : { running: managed.running === true, scanFailed: false };
+      : runningContainerSignal(managed.container);
   }
   return { running: false, scanFailed: true };
+}
+
+// The container's own State.StartedAt -- already in the inspect result both
+// paths above just fetched, so no extra Docker API cost. It is when the
+// CONTAINER started: the game server's start as long as PZ runs as the
+// container's main process and isn't relaunched inside it (an operator's
+// own docker-local image may loop PZ in its entrypoint, where this is
+// container uptime instead). It is still the only start time the panel can
+// state here -- its local process scan (and so serverManager.
+// resolveStartTime()) never sees that process. Carried only while running;
+// the status model validates it (see resolveHostStartedAt() in
+// serverStatusModel.js).
+function runningContainerSignal(container) {
+  const running = container?.State?.Running === true;
+  const startedAt = running ? container.State.StartedAt : null;
+  return {
+    running,
+    scanFailed: false,
+    ...(typeof startedAt === "string" && startedAt ? { startedAt } : {}),
+  };
 }
 
 /**
@@ -194,6 +215,21 @@ export async function runManagedLifecycle(
         alreadyRunning: true,
         message: "Container is already running",
       };
+    }
+
+    // The before-launch step (lifecycleCoordinator.prepareForLaunch()): the
+    // container start IS the launch for a Docker-managed server, so this is
+    // the last moment an ini change (the server's current RCON password) or
+    // a bridge file can reach it. Callers used to refresh RCON only after
+    // this function returned -- after `docker start`/`docker restart` had
+    // already booted the game against the old ini. The image owns the launch
+    // command, so no script is written. The record lookup is inside the same
+    // never-blocks guarantee as the step itself.
+    if (action === "start" || action === "restart") {
+      const target = await Promise.resolve()
+        .then(() => (serverId ? getServer(serverId) : getActiveServer()))
+        .catch(() => null);
+      await prepareForLaunch(target, { container: true });
     }
 
     const result = await dockerClient.runManagedAction(current.ref, action);

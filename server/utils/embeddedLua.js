@@ -75,7 +75,8 @@ function ensureReadableDirTree(dir) {
 
 /**
  * Atomically write PanelBridge.lua to the target path:
- *   1. Write to `.tmp.<pid>` alongside the destination.
+ *   1. Write to `.tmp.<pid>` alongside the destination, always as a newly
+ *      created file (see the 'wx' open below).
  *   2. fsync, then rename over the destination.
  * If anything goes wrong before the rename, the old Lua is untouched.
  * If the rename itself fails (Windows file lock, antivirus), we clean up
@@ -95,23 +96,33 @@ function ensureReadableDirTree(dir) {
  */
 export function writeLuaAtomic(destPath, content) {
   const dir = path.dirname(destPath);
-  // codeql[js/path-injection] destPath here traces back to only one currently-flagged caller, panelBridge.js's POST /install-mod, where targetPath is required absolute, realpath'd, and required to end in /media/lua/server(/) before writeLuaAtomic() is ever called.
+  // codeql[js/path-injection] destPath's only caller is panelBridgeInstaller.installBridge(), which builds it from the server profile's own install folder (resolveTargetPath) plus the fixed media/lua/server/PanelBridge.lua suffix -- never from request input (the arbitrary-folder POST /install-mod route was removed).
   ensureReadableDirTree(dir);
   const tmpPath = path.join(dir, `.PanelBridge.lua.tmp.${process.pid}`);
   let fd;
   try {
-    // codeql[js/path-injection] destPath here traces back to only one currently-flagged caller, panelBridge.js's POST /install-mod, where targetPath is required absolute, realpath'd, and required to end in /media/lua/server(/) before writeLuaAtomic() is ever called.
-    fd = fs.openSync(tmpPath, 'w', 0o644);
+    // The temp name is predictable, so whatever already sits there -- a
+    // leftover from a crashed process that had this pid, or a symlink
+    // planted by whoever else can write in the game folder -- is removed
+    // first (unlink never follows a link), and 'wx' (O_CREAT | O_EXCL) then
+    // insists on a brand-new file. With plain 'w', a panel running as root
+    // wrote the payload through such a link into its target: any file on
+    // the host. A racer recreating the name in between only fails this
+    // write (EEXIST), which the caller reports.
+    // codeql[js/path-injection] tmpPath is <folder of destPath>/.PanelBridge.lua.tmp.<pid>, and destPath's only caller is panelBridgeInstaller.installBridge(): resolveTargetPath(server), the profile's own install folder (tracked sources routes/server.js POST /install and POST /quick-setup installPath, behind requirePermission("server.install") and isValidPath(): absolute, no "..") plus the fixed media/lua/server/PanelBridge.lua suffix -- this only removes the panel's own fixed-name temp file, and unlink never follows a symlink.
+    try { fs.unlinkSync(tmpPath); } catch { /* nothing there */ }
+    // codeql[js/path-injection] destPath's only caller is panelBridgeInstaller.installBridge(), which builds it from the server profile's own install folder (resolveTargetPath) plus the fixed media/lua/server/PanelBridge.lua suffix -- never from request input (the arbitrary-folder POST /install-mod route was removed).
+    fd = fs.openSync(tmpPath, 'wx', 0o644);
     fs.writeSync(fd, content, 0, 'utf8');
     try { fs.fsyncSync(fd); } catch { /* best-effort; some FS/OSes reject */ }
     try { fs.fchmodSync(fd, 0o644); } catch { /* best-effort: Windows / network shares */ }
     fs.closeSync(fd);
     fd = null;
-    // codeql[js/path-injection] destPath here traces back to only one currently-flagged caller, panelBridge.js's POST /install-mod, where targetPath is required absolute, realpath'd, and required to end in /media/lua/server(/) before writeLuaAtomic() is ever called.
+    // codeql[js/path-injection] destPath's only caller is panelBridgeInstaller.installBridge(), which builds it from the server profile's own install folder (resolveTargetPath) plus the fixed media/lua/server/PanelBridge.lua suffix -- never from request input (the arbitrary-folder POST /install-mod route was removed).
     fs.renameSync(tmpPath, destPath);
   } catch (err) {
     try { if (fd != null) fs.closeSync(fd); } catch { /* ignore */ }
-    // codeql[js/path-injection] destPath here traces back to only one currently-flagged caller, panelBridge.js's POST /install-mod, where targetPath is required absolute, realpath'd, and required to end in /media/lua/server(/) before writeLuaAtomic() is ever called.
+    // codeql[js/path-injection] destPath's only caller is panelBridgeInstaller.installBridge(), which builds it from the server profile's own install folder (resolveTargetPath) plus the fixed media/lua/server/PanelBridge.lua suffix -- never from request input (the arbitrary-folder POST /install-mod route was removed).
     try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch { /* ignore */ }
     throw err;
   }

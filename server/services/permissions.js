@@ -157,7 +157,7 @@ export const CAPABILITIES = [
     group: "PanelBridge Integration",
     label: "Connect & configure PanelBridge",
     description:
-      "Connect or reconfigure the in-game mod bridge -- including entering and storing the SFTP login password used to reach a remote server, browsing arbitrary paths on that server over SFTP, and pointing the local bridge at any absolute host path outside a small blocked-directory list. Also installs the mod.",
+      "Connect or reconfigure the in-game mod bridge -- including entering and storing the SFTP login password used to reach a remote server, browsing arbitrary paths on that server over SFTP, and pointing the local bridge at any absolute host path outside a small blocked-directory list. Also installs the mod and chooses how it is delivered (panel-installed or Steam Workshop), which edits Mods=, WorkshopItems= and DoLuaChecksum in the server's settings file.",
   },
   {
     key: "bridge.diagnostics",

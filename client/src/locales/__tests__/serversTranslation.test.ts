@@ -5,8 +5,9 @@ import fr from '../fr/servers.json'
 import es from '../es/servers.json'
 import ht from '../ht/servers.json'
 import zhCN from '../zh-CN/servers.json'
+import ptBR from '../pt-BR/servers.json'
 
-const localizedServers = { de, fr, es, ht, 'zh-CN': zhCN }
+const localizedServers = { de, fr, es, ht, 'zh-CN': zhCN, 'pt-BR': ptBR }
 
 describe('server-management translations', () => {
   it('translates lifecycle help and command placeholders in every supported locale', () => {

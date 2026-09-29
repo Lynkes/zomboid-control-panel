@@ -17,10 +17,12 @@ import { afterEach, describe, expect, it } from "vitest";
 // it.
 const { logScheduleExecution, setSetting } = await import("../database/init.js");
 const { BackupService } = await import("../services/backupService.js");
+const { addBackupRecord } = await import("../services/backupRecords.js");
 
 afterEach(async () => {
   // Leave settings/history clean for later tests in the same run.
   await setSetting("backupEnabled", null);
+  await setSetting("backupRecords", []);
 });
 
 describe("BackupService.getStatus() -- surfaces the newest SCHEDULED backup attempt, not just the newest successful file", () => {
@@ -64,6 +66,80 @@ describe("BackupService.getStatus() -- surfaces the newest SCHEDULED backup atte
     const status = await new BackupService().getStatus();
     expect(status.lastScheduledBackupAttempt).toEqual(
       expect.objectContaining({ success: true, message: "Created: base.zip" }),
+    );
+  });
+});
+
+// 2026-09-27 Discord report: "Scheduled backup failing -- Skipped: a restart
+// was in progress" stayed on the Dashboard no matter what -- the maintainer's
+// own "try doing a backup" couldn't clear it, because a manual backup never
+// writes Schedule History and lastScheduledBackupAttempt reads nothing else.
+describe("BackupService.getStatus() -- a later successful backup, and a restart skip, are told apart from a live failure", () => {
+  const recordAt = (createdAt) =>
+    addBackupRecord({
+      backup: { name: `manual-${createdAt}.zip`, size: 1, created: createdAt },
+      server: null,
+      snapshot: null,
+    });
+
+  it("sets recoveredAt when ANY backup (e.g. a manual one) succeeded after the failed scheduled attempt", async () => {
+    await setSetting("backupEnabled", true);
+    await logScheduleExecution(null, "Scheduled Backup", "backup", false, "ENOSPC: no space left on device", 30);
+    const later = new Date(Date.now() + 60_000).toISOString();
+    await recordAt(later);
+
+    const status = await new BackupService().getStatus();
+    expect(status.lastScheduledBackupAttempt).toEqual(
+      expect.objectContaining({ success: false, recoveredAt: later, skipReason: null }),
+    );
+  });
+
+  it("leaves recoveredAt null when the newest backup predates the failure -- the failure is still live", async () => {
+    await setSetting("backupEnabled", true);
+    await recordAt(new Date(Date.now() - 60 * 60_000).toISOString());
+    await logScheduleExecution(null, "Scheduled Backup", "backup", false, "ENOSPC: no space left on device", 30);
+
+    const status = await new BackupService().getStatus();
+    expect(status.lastScheduledBackupAttempt).toEqual(
+      expect.objectContaining({ success: false, recoveredAt: null }),
+    );
+  });
+
+  it("carries a panel-written message's key and numbers through to the status, so the page can translate it", async () => {
+    await setSetting("backupEnabled", true);
+    await logScheduleExecution(null, "Scheduled Backup", "backup", false, "Not run: the server restart had been running for 28 min ...", 28 * 60_000, {
+      messageKey: "restartStuck",
+      messageParams: { minutes: 28, warningMinutes: 5 },
+    });
+
+    const status = await new BackupService().getStatus();
+    expect(status.lastScheduledBackupAttempt).toEqual(
+      expect.objectContaining({
+        success: false,
+        message: "Not run: the server restart had been running for 28 min ...",
+        messageKey: "restartStuck",
+        messageParams: { minutes: 28, warningMinutes: 5 },
+      }),
+    );
+  });
+
+  it("reports no message key for a raw error", async () => {
+    await setSetting("backupEnabled", true);
+    await logScheduleExecution(null, "Scheduled Backup", "backup", false, "ENOSPC: no space left on device", 30);
+
+    const status = await new BackupService().getStatus();
+    expect(status.lastScheduledBackupAttempt).toEqual(
+      expect.objectContaining({ messageKey: null, messageParams: null }),
+    );
+  });
+
+  it("marks the pre-deferral 'Skipped: a restart was in progress' row as skipReason 'restart', not a plain failure", async () => {
+    await setSetting("backupEnabled", true);
+    await logScheduleExecution(null, "Scheduled Backup", "backup", false, "Skipped: a restart was in progress", 0);
+
+    const status = await new BackupService().getStatus();
+    expect(status.lastScheduledBackupAttempt).toEqual(
+      expect.objectContaining({ success: false, skipReason: "restart", recoveredAt: null }),
     );
   });
 });

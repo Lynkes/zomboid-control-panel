@@ -282,7 +282,9 @@ describe('ServerManager status state', () => {
 
     expect(status.running).toBe(false);
     expect(status.startTime).toBeNull();
-    expect(status.uptime).toBe(0);
+    // null, not 0: a stopped server has no uptime, and 0 reads as "just
+    // started" to anything that displays it.
+    expect(status.uptime).toBeNull();
   });
 
   it('does not corrupt the tracked running state when a scan fails to determine anything', async () => {
@@ -333,8 +335,12 @@ describe('ServerManager status state', () => {
 
     expect(status.running).toBe(false);
     expect(status.scanFailed).toBe(true);
-    // A failed scan must not be treated as a confirmed stop: startTime is
-    // preserved rather than wiped, matching the existing _clearRunState guard.
-    expect(status.startTime).not.toBeNull();
+    // A failed scan must not be treated as a confirmed stop: the start time
+    // is preserved rather than wiped, matching the existing _clearRunState
+    // guard -- but it isn't reported as an uptime for a server the scan
+    // couldn't confirm running.
+    expect(manager.startTime).not.toBeNull();
+    expect(status.startTime).toBeNull();
+    expect(status.uptime).toBeNull();
   });
 });

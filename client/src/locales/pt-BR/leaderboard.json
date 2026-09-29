@@ -1,0 +1,72 @@
+{
+  "page": {
+    "title": "Placar",
+    "description": "Um placar simples do servidor para sobrevivência, abates, mortes e domínio de armas.",
+    "eyebrow": "// AO VIVO · RANKING DE SOBREVIVÊNCIA"
+  },
+  "bridge": {
+    "summary": "Lê o placar do PanelBridge armazenado no save do mundo."
+  },
+  "actions": {
+    "refresh": "Recarregar",
+    "retry": "Tentar novamente"
+  },
+  "metrics": {
+    "ariaLabel": "Métrica do placar",
+    "days": "Dias sobrevividos",
+    "currentKills": "Abates atuais",
+    "allTimeKills": "Abates acumulados",
+    "deaths": "Mortes",
+    "weapon": "Domínio de armas"
+  },
+  "summary": {
+    "players": "Jogadores",
+    "playersDetail": "{{online}} online agora",
+    "allTimeKills": "Total de abates",
+    "allTimeKillsDetail": "Entre os sobreviventes monitorados",
+    "deaths": "Total de mortes",
+    "deathsDetail": "Vidas perdidas neste servidor",
+    "leader": "Líder atual",
+    "noLeader": "Nenhum jogador no ranking"
+  },
+  "podium": {
+    "title": "O placar",
+    "subtitle": "Classificado por {{metric}}"
+  },
+  "trackingSince": "Monitorando desde {{date}}",
+  "table": {
+    "title": "Todos os sobreviventes",
+    "updated": "Atualizado em {{date}}",
+    "waitingForUpdate": "Aguardando a primeira leitura ao vivo",
+    "search": "Pesquisar sobreviventes...",
+    "searchAria": "Pesquisar no placar",
+    "player": "Sobrevivente",
+    "days": "Recorde de dias",
+    "currentKills": "Abates atuais",
+    "allTimeKills": "Abates acumulados",
+    "deaths": "Mortes",
+    "weapon": "Arma favorita",
+    "online": "Online",
+    "offline": "Offline",
+    "currentDaysTitle": "Vida atual: {{value}} dias",
+    "noMatchesTitle": "Nenhum sobrevivente encontrado",
+    "noMatchesDescription": "Tente outro nome ou arma."
+  },
+  "stale": {
+    "title": "Mostrando o último placar conhecido"
+  },
+  "footer": {
+    "refreshRate": "Recarrega a cada 30 segundos",
+    "historyNote": "A contagem acumulada começa quando o PanelBridge passa a coletar dados."
+  },
+  "errors": {
+    "title": "Placar indisponível",
+    "load": "Não foi possível ler o placar do PanelBridge.",
+    "unexpected": "O placar retornou uma resposta inesperada."
+  },
+  "empty": {
+    "title": "Nenhum sobrevivente no ranking ainda",
+    "description": "Conecte um jogador para iniciar o placar. O PanelBridge mantém o registro no save do mundo."
+  },
+  "loading": "Carregando placar"
+}

@@ -109,8 +109,10 @@
       "note": "Lege das RCON-Passwort in der Serverkonfiguration fest (und den passenden Wert in den Einstellungen)."
     },
     "serverBridgeMod": {
-      "label": "Serversuche öffnen",
-      "note": "Stelle den PanelBridge-Mod erneut über die Serversuche bereit."
+      "label": "Einstellungen › PanelBridge öffnen",
+      "note": "Installiere die Mod unter Einstellungen › PanelBridge.",
+      "noteWorkshopNotDownloaded": "Starte den Server, damit er PanelBridge aus dem Steam Workshop herunterlädt. Unter Einstellungen › PanelBridge siehst du, ob es geladen wurde, und kannst zurück zu „vom Panel installiert“ wechseln.",
+      "noteLooseLeftover": "Starte den Server über das Panel (oder starte ihn dort neu), um sie zu verschieben. Einstellungen › PanelBridge listet sie ebenfalls auf."
     },
     "serverConfigDrift": {
       "label": "Serverkonfiguration öffnen",
@@ -146,8 +148,8 @@
       "note": "Verweist das Panel auf den Brückenordner des aktiven Servers und startet den Watcher. Der Spielserver muss anschließend mit installierter PanelBridge.lua laufen."
     },
     "bridgeWritableOrHeartbeat": {
-      "label": "Serversuche öffnen",
-      "note": "Stelle PanelBridge erneut bereit, stelle sicher, dass der Server läuft, und überprüfe die Schreibrechte für den Brückenordner."
+      "label": "Einstellungen › PanelBridge öffnen",
+      "note": "Prüfe unter Einstellungen › PanelBridge den Brückenordner und ob das Panel darin schreiben darf, stelle sicher, dass der Server läuft, und sieh bei „Wie PanelBridge installiert wird“ nach, wie dieser Server PanelBridge bekommt."
     },
     "dbExistsOrWritable": {
       "label": "Einstellungen öffnen",
@@ -385,6 +387,18 @@
             "notFound": {
               "label": "Startskript nicht gefunden",
               "message": "{{pattern}} nicht im Installationspfad gefunden. Der Server kann nicht über das Panel gestartet werden."
+            },
+            "notWrittenYet": {
+              "label": "Startskript noch nicht geschrieben",
+              "message": "{{script}} liegt noch nicht im Installationsordner. Das Panel schreibt es vor jedem Start aus den Einstellungen dieses Servers.",
+              "hint": "Vor dem ersten Start ist nichts zu tun. Schlägt der Start danach fehl, weil das Skript fehlt, prüfe, ob das Panel in den Installationsordner schreiben darf."
+            }
+          },
+          "fail": {
+            "folderNotWritable": {
+              "label": "Startskript fehlt",
+              "message": "{{script}} liegt nicht im Installationsordner, und das Panel kann nicht in diesen Ordner schreiben. Jeder Start bricht mit einem Fehler ab, bis es das kann.",
+              "hint": "Gib dem Konto des Panels Schreibrechte für den Installationsordner (prüfe unter Docker PUID/PGID) oder stelle unter Server → Bearbeiten einen Ordner ein, in den das Panel schreiben kann."
             }
           },
           "ok": {
@@ -434,12 +448,26 @@
         "bridgeMod": {
           "ok": {
             "label": "PanelBridge-Mod vorhanden",
-            "message": "PanelBridge.lua ist auf dem Server bereitgestellt."
+            "message": "PanelBridge.lua ist auf dem Server bereitgestellt.",
+            "workshop": {
+              "label": "PanelBridge-Workshop-Element vorhanden",
+              "message": "PanelBridge v{{version}} aus dem Steam Workshop heruntergeladen."
+            }
           },
           "warn": {
             "label": "PanelBridge-Mod nicht erkannt",
             "message": "PanelBridge.lua wurde auf dem Server nicht gefunden. Erweiterte Funktionen (Teleport, Wetter, Charakterexport) sind dann nicht verfügbar.",
-            "hint": "pz-mod/PanelBridge in den media/lua/server-Ordner des Servers kopieren"
+            "hint": "Unter Einstellungen › PanelBridge lässt sich die Mod installieren",
+            "workshopNotDownloaded": {
+              "label": "PanelBridge noch nicht heruntergeladen",
+              "message": "Dieser Server bezieht PanelBridge aus dem Steam Workshop, es wurde aber noch nicht heruntergeladen.",
+              "hint": "Starte den Server. Wenn er nicht startet, sieh unter Einstellungen › PanelBridge nach."
+            },
+            "looseLeftover": {
+              "label": "Alte PanelBridge-Dateien im Spielordner",
+              "message": "Noch im Spielordner: {{files}}. Mit aktivierter Lua-Integritätsprüfung werden Spieler abgewiesen.",
+              "hint": "Starte den Server über das Panel (oder starte ihn dort neu), um sie zu verschieben."
+            }
           }
         },
         "recentCrash": {
@@ -913,8 +941,8 @@
             },
             "never": {
               "label": "Kein Mod-Heartbeat",
-              "message": "status.json wurde noch nie geschrieben. Die Mod ist auf dem Server nicht geladen.",
-              "hint": "Prüfe, ob PanelBridge in der Modliste des Servers und im Workshop-Abonnement enthalten ist."
+              "message": "status.json wurde noch nicht geschrieben.",
+              "hint": "PanelBridge meldet sich, sobald die Welt geladen ist. Bleibt es stumm, sieh unter Einstellungen › PanelBridge bei „Wie PanelBridge installiert wird“ nach."
             }
           }
         },
@@ -1141,7 +1169,7 @@
             "warn": {
               "label": "Mod nicht verbunden",
               "message": "PanelBridge läuft, aber die Mod im Spiel hat status.json noch nicht geschrieben. Spieler, Fahrzeuge und Safehouses erscheinen dann nicht.",
-              "hint": "Starte den PZ-Server und stelle sicher, dass die PanelBridge-Mod in der aktiven Modliste enthalten ist."
+              "hint": "Starte den PZ-Server. Bleibt PanelBridge stumm, nachdem die Welt geladen ist, sieh unter Einstellungen › PanelBridge bei „Wie PanelBridge installiert wird“ nach."
             }
           },
           "heartbeat": {

@@ -209,6 +209,8 @@
     "backupHealthTitle": "Sante orè sovgad la",
     "backupLastAttemptOk": "Dènye eseyè te reyisi · {{date}}",
     "backupLastAttemptFailed": "Dènye eseyè echwe · {{date}} — {{reason}}",
+    "backupLastAttemptSkippedForRestart": "Dènye eseyè a sote pandan yon redemaraj · {{date}}",
+    "backupRecoveredSince": "Yon kopi sovgad reyisi depi lè sa a · {{date}}",
     "backupNoAttemptYet": "Poko gen okenn sovgad pwograme ki fèt",
     "backupNextRun": "Pwochen egzekisyon · {{date}}",
     "savedDesc": "Orè yo kounye a fonksyone nan {{tz}}.",
@@ -232,7 +234,8 @@
       "fr": "Franse",
       "de": "Alman",
       "es": "Panyòl",
-      "ht": "Kreyòl ayisyen"
+      "ht": "Kreyòl ayisyen",
+      "pt-BR": "Pòtigè (Brezil)"
     }
   },
   "toasts": {

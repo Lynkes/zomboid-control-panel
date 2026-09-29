@@ -20,7 +20,9 @@ start/stop controls, and it cannot install a game update for a server it
 doesn't own the process of.
 
 **2. PanelBridge needs SFTP. Plain FTP will not work — at all, silently
-or otherwise.** The panel's file-sync code only speaks SFTP (SSH File
+or otherwise.** That holds whichever way PanelBridge gets onto the server
+(Phase 3): the panel talks to it through files it syncs over SFTP. The
+panel's file-sync code only speaks SFTP (SSH File
 Transfer Protocol); there is no FTP or FTPS client anywhere in it. If your
 provider's file manager or credentials page offers a choice, pick **SFTP**
 (usually port 22), not FTP or FTPS. If you paste FTP credentials into an
@@ -49,8 +51,8 @@ control, and you're now pointing it at the rented game server.
    their dashboard. If no RCON password is set yet, set one now — the panel
    cannot connect without one.
 3. Access to the provider's **web file manager** (sometimes called "File
-   Manager", "FTP/SFTP access", or similar) — this is how you'll upload
-   PanelBridge.lua and how the panel will sync files afterward.
+   Manager", "FTP/SFTP access", or similar) — this is how you'll edit the
+   server's `.ini` or upload PanelBridge.lua in Phase 3.
 4. Separately, your provider's **SFTP credentials** — host, port (usually
    22), username, and password. These are not always the same account or
    password as your provider dashboard login; look for an "FTP/SFTP access"
@@ -90,13 +92,83 @@ a file channel into the game, not just RCON.
 
 ---
 
-## Phase 3 — Install PanelBridge.lua
+## Phase 3 — Put PanelBridge on the server
+
+PanelBridge can reach a rented server in two ways. Pick one now; you can
+switch later under **Settings → PanelBridge → How PanelBridge is
+installed**. The panel can't change a rented server's files, so either way
+you make the changes yourself, through your provider's file manager or
+config editor.
+
+| | Option A: Steam Workshop | Option B: upload the file |
+| --- | --- | --- |
+| Works on | Build 42 servers running in Steam mode (not started with `-nosteam`) | Any server, including Build 41 and servers that launch without Steam |
+| What you change | Two entries in the server's `.ini` | Upload `PanelBridge.lua`, set `DoLuaChecksum=false` |
+| Players | Install "Zomboid Control Panel Bridge" with one click when they join | Download nothing |
+| Lua integrity check (`DoLuaChecksum`) | Can go back on once the panel confirms the switch | Must stay off, or players can't join |
+| After a panel update | Nothing to upload. After each PanelBridge update on the Workshop, new players can't join until the server restarts | Upload the new `PanelBridge.lua` |
+| If Steam can't deliver PanelBridge | The server won't start until Steam can, or you switch to Option B | Not affected |
+
+With the check back on, players whose Lua, script or animation files
+differ from the server's are refused. It doesn't stop modified game
+clients, and admin accounts skip this check.
+
+Option A needs this panel version to know the PanelBridge Workshop item's
+ID. If the **Steam Workshop** card under **How PanelBridge is installed**
+says *"Not available yet: the PanelBridge Workshop item hasn't been
+published, so this panel version doesn't know its ID"*, use Option B for
+now. You can switch after a panel update.
+
+Both options use steps 9–12, and Phase 4 continues from either.
+
+### Option A — Steam Workshop
+
+9. In the panel, open **Settings → PanelBridge**. Under **How PanelBridge
+   is installed** (it names the active server), click **Switch to Steam
+   Workshop**. The dialog (*Switch <server> to Steam Workshop delivery?*)
+   lists, under **Make these changes on the server**, the exact values with
+   a **Copy** button for each. Keep it open.
+10. Open your server's `.ini` file — through the provider's config editor,
+    or by downloading and re-uploading it through the file manager — and:
+    - add `;ZCPB` to the end of the `Mods=` line;
+    - add `;` followed by the item ID the dialog shows to the end of the
+      `WorkshopItems=` line (add the line if it's missing).
+
+    Always add both. A `Mods=` entry without its `WorkshopItems=` ID stops
+    every player from joining. If your provider manages these two lines
+    from its own mod list page, add the entries there instead, so the
+    provider doesn't write the old lines back.
+
+    Leave `DoLuaChecksum=false` (set it if the line is missing or says
+    `true`) until the panel confirms the switch in Phase 4.
+11. In the file manager, delete `media/lua/server/PanelBridge.lua` and
+    `media/lua/client/PanelBridgeClient.lua` from the server's game folder
+    if you uploaded them earlier. Check that the server isn't started with
+    `-nosteam` (look at your provider's startup parameters). Then click
+    **I've made these changes** in the dialog. The panel saves the choice
+    and confirms the switch once PanelBridge reports in, which needs the
+    SFTP bridge from Phase 4.
+12. Restart the PZ server from your **provider's dashboard** — not from the
+    panel, which doesn't own this server's lifecycle (see fact 1 above).
+    It downloads PanelBridge from the Steam Workshop as it starts.
+
+**You know it worked when:** the server comes back up and its console
+shows `[PanelBridge] Loaded from: workshop` followed by the item ID. The
+panel's own confirmation comes after Phase 4: **How PanelBridge is
+installed** then reads *"Loaded from the Steam Workshop: v…"*. Only then
+turn the Lua integrity check back on. The block offers **Turn on the Lua
+integrity check…**, which asks you to set `DoLuaChecksum=true` in the
+`.ini` and restart. Test with a normal player account: an admin getting in
+proves nothing. If the server doesn't come back up, see [Server won't start
+after switching to the
+Workshop](troubleshooting.md#server-wont-start-after-switching-to-the-workshop).
+
+### Option B — Upload PanelBridge.lua
 
 9. Find `PanelBridge.lua` inside your own panel install — it shipped
    alongside it, at `pz-mod/PanelBridge/media/lua/server/PanelBridge.lua`
    (Windows and Linux downloads both include a `pz-mod/` folder next to the
-   panel executable). This is a server-side drop-in, not a Workshop mod —
-   there's nothing for players to install.
+   panel executable). Players don't install anything with this option.
 10. In your provider's web file manager, upload that file into your PZ
     server's `Install/media/lua/server/` folder (the exact root name varies
     by provider — Indifferent Broccoli calls it the server's file root; look
@@ -108,12 +180,18 @@ a file channel into the game, not just RCON.
     ```ini
     DoLuaChecksum=false
     ```
+    With this option it has to stay off: with it on, players can't join.
 12. Restart the PZ server from your **provider's dashboard** — not from the
     panel, which doesn't own this server's lifecycle (see fact 1 above).
 
 **You know it worked when:** the `.ini` file you re-download shows
 `DoLuaChecksum=false`, and the server comes back up without a checksum
 error in its console.
+
+After each panel update, upload the new `PanelBridge.lua` the same way and
+restart. Once the SFTP bridge is running, Settings → PanelBridge shows
+**Bridge mod update available** when the server's copy is older than the
+panel's.
 
 ---
 
@@ -146,12 +224,13 @@ error in its console.
 **You know it worked when** step 16 (Verify and prepare SFTP) returns one
 of:
 - *"The remote bridge is ready. Start the SFTP bridge."* — status.json
-  already exists; PanelBridge.lua loaded on a previous start. Move on to
+  already exists; PanelBridge loaded on a previous start. Move on to
   step 17.
-- *"Folders are ready. Start or restart the PZ server with PanelBridge.lua
-  installed and DoLuaChecksum=false to create status.json."* — the SFTP
-  connection and folder itself are fine, but the game hasn't written its
-  status file yet. Restart the PZ server (Phase 3, step 12) and try again.
+- *"Folders are ready. Start or restart the PZ server with PanelBridge
+  installed (see Settings › PanelBridge) to create status.json."* — the
+  SFTP connection and folder itself are fine, but the game hasn't written
+  its status file yet. Check the Phase 3 option you followed, restart the
+  PZ server (Phase 3, step 12) and try again.
 
 If step 16 fails instead, the panel prepends a **Fix:** suggestion to the
 raw error — the exact text tells you which of these you're looking at:
@@ -167,7 +246,13 @@ raw error — the exact text tells you which of these you're looking at:
 After **Start SFTP bridge**, the connection page shows **Waiting for PZ
 mod** until the game writes its status file — that's normal for up to one
 sync interval (a few seconds) after the server finishes loading
-PanelBridge.lua.
+PanelBridge.
+
+If you followed Option A, **How PanelBridge is installed** now confirms
+the switch with *"Loaded from the Steam Workshop: v…"*. If it says *"The
+server started, but PanelBridge didn't load from the Workshop"* instead,
+see [PanelBridge not loaded from the
+Workshop](troubleshooting.md#panelbridge-not-loaded-from-the-workshop).
 
 ---
 

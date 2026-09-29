@@ -22,13 +22,14 @@ import {
 import {
   serverApi, rconApi, playersApi, panelBridgeApi, backupApi, configApi, serversApi, debugApi,
   panelUpdateApi, modsApi, schedulerApi, ServerInstance, PanelUpdateStatus, ComposedServerStatus,
-  MountDiscoveryCandidate,
+  MountDiscoveryCandidate, ScheduledBackupAttempt,
 } from '@/lib/api'
+import { scheduledAttemptMessage, scheduledBackupHealth } from '@/lib/scheduledBackupHealth'
 import { useRuntimeInfo } from '@/hooks/useRuntimeInfo'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
-import { formatUptime } from '@/lib/utils'
 import { resolveClientProvider, deriveDashboardStatus, waitForServerState } from '@/lib/serverStatus'
+import { ServerUptime } from '@/components/ServerUptime'
 import { useSocket } from '@/contexts/SocketContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -62,8 +63,13 @@ interface ServerStatus {
   // (lib/serverStatus.ts) reads this to avoid treating a scan hiccup as a
   // confident "server is down."
   scanFailed?: boolean
+  // When the local process started (the OS's answer -- see
+  // serverManager.js's resolveStartTime()), or null when unknown. The
+  // header's uptime reads it through deriveDashboardStatus() and counts
+  // from it live; `uptime` is the same fact as a duration frozen at poll
+  // time (null when unknown), kept for API compatibility and not read here.
   startTime: string | null
-  uptime: number
+  uptime: number | null
   serverPath: string
   // Renamed from `configured` server-side (2026-08-31): this has only ever
   // meant "does the local process-launch path have a directory to run in"
@@ -320,7 +326,7 @@ export default function Dashboard() {
     // BackupStatus (see that page's lastScheduledAttemptFailed), so this
     // page's wording can't drift from that one's.
     backupsEnabled: boolean
-    lastScheduledBackupAttempt: { success: boolean; message: string | null; executedAt: string } | null
+    lastScheduledBackupAttempt: ScheduledBackupAttempt | null
   }>({
     lastBackup: null, backupCount: 0, modUpdatesAvailable: 0, modsTracked: 0,
     scheduledTasksCount: 0, nextRun: null, errorCount: null, schedulerLoaded: false,
@@ -721,6 +727,12 @@ export default function Dashboard() {
         return prev
       })
       setLastUpdated(new Date())
+      // The merge above only reaches the plain `status`; Start vs Stop reads
+      // `online`, which is composedStatus's host/RCON/PanelBridge whenever
+      // composedStatus exists. Without this refetch a server that had just
+      // stopped kept its Stop button until the 15s poll (Servers.tsx's card
+      // already refetches on this same push).
+      void fetchComposedStatus()
     }
     const onPlayers = (d: Player[]) => setPlayers(d)
     const onActiveServer = (d?: { server?: ServerInstance | null }) => {
@@ -938,6 +950,26 @@ export default function Dashboard() {
           action === 'Start server',
         )
       }
+      // waitForServerState's own onStatus callback writes into the bulk
+      // list's shape (id/running/pid/stateUnknown), not this page's richer
+      // singular ServerStatus (uptime, memory, ...) -- fetchStatus() here
+      // refreshes the real display state once, after the wait, instead of
+      // live-writing a shape mismatch during it.
+      if (isLifecycleAction && mountedRef.current) {
+        // Start vs Stop reads `online`, which comes from composedStatus
+        // whenever it exists -- refreshing only the plain status left the
+        // button on the pre-action answer until the next 15s poll. Awaited,
+        // not fired off: the plain status fetched right after the request
+        // was accepted still says running, so letting `loading` clear first
+        // re-enabled Stop/Force Stop/Restart on that stale answer for a
+        // second or two (Servers.tsx's inline refreshAfterInlineAction
+        // awaits for the same reason). And awaited before the toast below:
+        // the Stop/Force Stop confirm dialog stays open until this function
+        // returns, and both fetches run a fresh process scan (~1.5s on
+        // Windows), so toasting first said "Server stopped" beside a dialog
+        // that was still busy.
+        await Promise.allSettled([fetchStatus(), fetchComposedStatus()])
+      }
       // A stuck disabled button is worse than a premature success claim --
       // an operator can recover from a wrong label by clicking again, not
       // from a dead control without a reload. On timeout (confirmed===false)
@@ -982,13 +1014,8 @@ export default function Dashboard() {
         const honestlyUnconfirmed = action === 'Start server' && confirmed === false
         toast({ title: copy.title, description: copy.description, variant: honestlyUnconfirmed ? 'default' as const : 'success' as const })
       }
-      // waitForServerState's own onStatus callback writes into the bulk
-      // list's shape (id/running/pid/stateUnknown), not this page's richer
-      // singular ServerStatus (uptime, memory, ...) -- fetchStatus() here
-      // (unchanged from every non-lifecycle action's existing call) refreshes
-      // the real display state once, after the wait, instead of live-writing
-      // a shape mismatch during it.
-      if (mountedRef.current) fetchStatus()
+      // Every other action refreshes after its toast, as it always has.
+      if (!isLifecycleAction && mountedRef.current) fetchStatus()
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),
@@ -1074,7 +1101,7 @@ export default function Dashboard() {
   // remote-SFTP from everything else; it was never a "this process is local
   // to this container" proxy, which is what this check actually needs.
   const provider = composedStatus?.provider ?? resolveClientProvider(activeServer)
-  const { hostRunning, rconConnected, hostUnknown, online } = deriveDashboardStatus({
+  const { hostRunning, rconConnected, hostUnknown, online, startedAt } = deriveDashboardStatus({
     hasServer,
     provider,
     status,
@@ -1107,6 +1134,24 @@ export default function Dashboard() {
     if (!joined) return { name: player.name }
     return { name: player.name, since: formatSinceJoined(t, joined) }
   })
+
+  // Shared by the verdict and the Backups row below -- see
+  // scheduledBackupHealth() for what each state means and why a manual
+  // backup now clears a failed scheduled attempt.
+  const backupHealth = scheduledBackupHealth(maintenance.backupsEnabled, maintenance.lastScheduledBackupAttempt)
+  // One click that fixes both backup verdicts that have no deeper cause to
+  // chase: an empty archive, and a scheduled backup a restart skipped (any
+  // later successful backup clears that one).
+  const createBackupVerdictAction = {
+    label: t('actions.createBackup'),
+    onClick: () => {
+      if (!canManageBackups) return
+      void handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))
+    },
+    busy: loading === 'Create backup',
+    disabled: loading !== null || !canManageBackups,
+    reason: !canManageBackups ? t('actions.noPermissionCreateBackup') : undefined,
+  }
 
   /* One verdict at a time, highest severity wins. Calm states say nothing at all. */
   const verdict: Verdict = (() => {
@@ -1233,14 +1278,35 @@ export default function Dashboard() {
     // lib/api.ts). Checked ahead of the empty-archive case: a specific "why
     // it's failing" beats a generic "you have none yet" whenever both would
     // otherwise be true at once.
-    if (maintenance.schedulerLoaded && !activeServer?.isRemote
-      && maintenance.backupsEnabled && maintenance.lastScheduledBackupAttempt
-      && !maintenance.lastScheduledBackupAttempt.success) {
+    if (maintenance.schedulerLoaded && !activeServer?.isRemote && backupHealth === 'failing') {
+      const attempt = maintenance.lastScheduledBackupAttempt
       return {
         level: 'warning',
         headline: t('verdict.backupAttemptFailing'),
-        detail: maintenance.lastScheduledBackupAttempt.message || undefined,
+        // Translated where the panel wrote the message itself (a restart
+        // that looked stuck, and what to do about it); a raw error as is.
+        detail: scheduledAttemptMessage(attempt?.message, attempt?.messageKey, attempt?.messageParams) || undefined,
         action: { label: t('verdict.reviewBackups'), to: '/backups' },
+      }
+    }
+    // A backup a restart pushed aside is not a broken backup (2026-09-27
+    // Discord report: "Scheduled backup failing -- Skipped: a restart was in
+    // progress", on every tick, because a restart schedule fired at the same
+    // times). Still worth a warning -- that backup didn't happen -- but it
+    // says what actually happened and offers the click that clears it,
+    // instead of sending the operator to hunt for a fault that isn't there.
+    // The why goes in a HelpTip like the RCON verdict's, not in `detail`:
+    // that slot is drawn as faint 10px log text, for raw server messages.
+    if (maintenance.schedulerLoaded && !activeServer?.isRemote && backupHealth === 'skippedForRestart') {
+      return {
+        level: 'warning',
+        headline: t('verdict.backupSkippedForRestart'),
+        headlineHelp: (
+          <HelpTip label={t('verdict.backupSkippedForRestart')} className="ms-1.5 align-[-2px]">
+            {t('verdict.backupSkippedForRestartHelp')}
+          </HelpTip>
+        ),
+        action: createBackupVerdictAction,
       }
     }
     /* Game errors are reported by the Errors row, which is already coloured by
@@ -1249,35 +1315,29 @@ export default function Dashboard() {
       return {
         level: 'warning',
         headline: t('verdict.noBackups'),
-        action: {
-          label: t('actions.createBackup'),
-          onClick: () => {
-            if (!canManageBackups) return
-            void handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))
-          },
-          busy: loading === 'Create backup',
-          disabled: loading !== null || !canManageBackups,
-          reason: !canManageBackups ? t('actions.noPermissionCreateBackup') : undefined,
-        },
+        action: createBackupVerdictAction,
       }
     }
     return { level: 'calm' }
   })()
 
   /* Readiness numbers live on the thing you act on, not in a read-only panel. */
-  // Same condition as the verdict's own backup-attempt-failing case above --
-  // an active scheduler failure outranks even a healthy-looking stored count,
-  // since a past success doesn't mean the NEXT scheduled attempt will land.
-  const backupAttemptFailed = Boolean(
-    maintenance.backupsEnabled && maintenance.lastScheduledBackupAttempt && !maintenance.lastScheduledBackupAttempt.success,
-  )
-  const backupState = backupAttemptFailed && maintenance.lastScheduledBackupAttempt
-    ? t('workItems.backupsAttemptFailed', { age: formatAge(t, maintenance.lastScheduledBackupAttempt.executedAt) })
-    : maintenance.lastBackup
-      ? t('workItems.backupsStoredLast', { count: maintenance.backupCount, age: formatAge(t, maintenance.lastBackup.created) })
-      : maintenance.backupCount > 0
-        ? t('workItems.backupsStored', { count: maintenance.backupCount })
-        : t('workItems.backupsNoneYet')
+  // Same states as the verdict's own backup cases above -- an active
+  // scheduler failure outranks even a healthy-looking stored count, since a
+  // past success doesn't mean the NEXT scheduled attempt will land.
+  const backupAttemptFailed = backupHealth === 'failing'
+  const lastAttemptAge = maintenance.lastScheduledBackupAttempt
+    ? formatAge(t, maintenance.lastScheduledBackupAttempt.executedAt)
+    : null
+  const backupState = backupAttemptFailed && lastAttemptAge
+    ? t('workItems.backupsAttemptFailed', { age: lastAttemptAge })
+    : backupHealth === 'skippedForRestart' && lastAttemptAge
+      ? t('workItems.backupsSkippedForRestart', { age: lastAttemptAge })
+      : maintenance.lastBackup
+        ? t('workItems.backupsStoredLast', { count: maintenance.backupCount, age: formatAge(t, maintenance.lastBackup.created) })
+        : maintenance.backupCount > 0
+          ? t('workItems.backupsStored', { count: maintenance.backupCount })
+          : t('workItems.backupsNoneYet')
 
   /* A count of tasks is trivia. The next time something will happen is the
      thing that decides whether you can walk away from the server. */
@@ -1331,7 +1391,7 @@ export default function Dashboard() {
       id: 'backups',
       to: '/backups', icon: Archive, label: t('workItems.backups'),
       state: backupState,
-      tone: backupAttemptFailed ? 'bad' : maintenance.backupCount === 0 ? 'warning' : 'good',
+      tone: backupAttemptFailed ? 'bad' : backupHealth === 'skippedForRestart' || maintenance.backupCount === 0 ? 'warning' : 'good',
     },
     { id: 'config', to: '/server-config', icon: Server, label: t('workItems.config') },
   ]
@@ -1374,41 +1434,62 @@ export default function Dashboard() {
       >
         {/* Main row */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3">
-          {/* Identity cluster: status + name + uptime */}
-          <div className="flex min-w-0 items-center gap-3">
-            {/* One light for the whole page: green calm, amber attention, red broken. */}
-            <span
-              className="relative flex h-2.5 w-2.5 shrink-0 items-center justify-center"
-              title={verdict.headline ?? t('header.everythingNominal')}
-            >
+          {/* Identity cluster: status + name + uptime. Wraps rather than
+              squeezes: the name is the page's h1 and says which server the
+              Stop/Restart buttons act on, so on a phone the uptime, map
+              and remote badge drop to a second line instead of truncating
+              it to a few characters (or to nothing -- "uptime unknown" is
+              long in es/fr/uk). */}
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            {/* The status light and the name travel together, as one item
+                that never wraps apart and is the one that shrinks (the h1
+                truncates) only when the name alone is wider than the row. */}
+            <div className="flex min-w-0 items-center gap-3">
+              {/* One light for the whole page: green calm, amber attention, red broken. */}
               <span
-                className={cn(
-                  'absolute inline-flex h-2.5 w-2.5 rounded-full opacity-25',
-                  verdict.level === 'critical' ? 'bg-destructive'
-                    : verdict.level === 'warning' ? 'bg-warning'
-                    : 'bg-success',
-                )}
-              />
-              <span
-                className={cn(
-                  'relative inline-flex h-1.5 w-1.5 rounded-full',
-                  verdict.level === 'critical' ? 'bg-destructive'
-                    : verdict.level === 'warning' ? 'bg-warning'
-                    : 'bg-success',
-                )}
-              />
-              <span className="sr-only">{verdict.headline ?? t('header.everythingNominal')}</span>
-            </span>
-
-            <h1 className="min-w-0 truncate font-mono text-base font-semibold text-foreground" title={activeServer?.serverName ?? t('header.noActiveServer')}>
-              {activeServer?.serverName ?? t('header.noActiveServer')}
-            </h1>
-
-            {/* Uptime */}
-            {online && status && status.uptime > 0 && (
-              <span className="hidden font-mono text-[11px] tabular-nums text-muted-foreground/60 sm:inline">
-                {t('header.upPrefix', { uptime: formatUptime(status.uptime) })}
+                className="relative flex h-2.5 w-2.5 shrink-0 items-center justify-center"
+                title={verdict.headline ?? t('header.everythingNominal')}
+              >
+                <span
+                  className={cn(
+                    'absolute inline-flex h-2.5 w-2.5 rounded-full opacity-25',
+                    verdict.level === 'critical' ? 'bg-destructive'
+                      : verdict.level === 'warning' ? 'bg-warning'
+                      : 'bg-success',
+                  )}
+                />
+                <span
+                  className={cn(
+                    'relative inline-flex h-1.5 w-1.5 rounded-full',
+                    verdict.level === 'critical' ? 'bg-destructive'
+                      : verdict.level === 'warning' ? 'bg-warning'
+                      : 'bg-success',
+                  )}
+                />
+                <span className="sr-only">{verdict.headline ?? t('header.everythingNominal')}</span>
               </span>
+
+              <h1 className="min-w-0 truncate font-mono text-base font-semibold text-foreground" title={activeServer?.serverName ?? t('header.noActiveServer')}>
+                {activeServer?.serverName ?? t('header.noActiveServer')}
+              </h1>
+            </div>
+
+            {/* Uptime. Was a faint (muted/60), desktop-only duration shown
+                only when the server's snapshot said uptime > 0 -- easy to
+                miss, and silently absent whenever the start time was
+                unknown, which read as "the panel doesn't show uptime"
+                (Discord request). Now visible at every width, counted live
+                from the start time, with "started at" on hover, and an
+                explicit "uptime unknown" when the server is up but the
+                panel can't tell since when -- except for a remote SFTP
+                server, which can never have a start time and whose REMOTE
+                badge already says why: there it would be permanent noise. */}
+            {online && (
+              <ServerUptime
+                startedAt={startedAt}
+                showUnknown={provider !== 'remote-sftp'}
+                className="font-mono text-[11px] text-muted-foreground"
+              />
             )}
             {/* Map name -- from getWorldStats, the only field it reports that
                 getZombieCount doesn't already cover. Bridge-sourced, so it's

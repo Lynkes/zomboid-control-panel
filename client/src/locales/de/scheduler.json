@@ -209,6 +209,8 @@
     "backupHealthTitle": "Status des Backup-Zeitplans",
     "backupLastAttemptOk": "Letzter Versuch erfolgreich · {{date}}",
     "backupLastAttemptFailed": "Letzter Versuch fehlgeschlagen · {{date}} — {{reason}}",
+    "backupLastAttemptSkippedForRestart": "Letzter Versuch wegen Neustart übersprungen · {{date}}",
+    "backupRecoveredSince": "Seitdem war ein Backup erfolgreich · {{date}}",
     "backupNoAttemptYet": "Es wurde noch kein geplantes Backup ausgeführt",
     "backupNextRun": "Nächste Ausführung · {{date}}",
     "savedDesc": "Zeitpläne laufen jetzt in {{tz}}.",
@@ -232,7 +234,8 @@
       "fr": "Französisch",
       "de": "Deutsch",
       "es": "Spanisch",
-      "ht": "Haitianisches Kreol"
+      "ht": "Haitianisches Kreol",
+      "pt-BR": "Portugiesisch (Brasilien)"
     }
   },
   "toasts": {

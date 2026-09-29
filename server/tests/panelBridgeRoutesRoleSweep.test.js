@@ -111,9 +111,9 @@ describe("panelBridge.js: existing SFTP + mod-install gates are unchanged (admin
     ["/sftp/logs/list", "post"],
     ["/sftp/logs/tail", "post"],
     ["/sftp/config/list", "post"],
-    ["/install-local", "post"],
+    // /install-local and /install-mod were removed with PanelBridge delivery
+    // (bridgeDeliveryRoutes.test.js asserts they are gone).
     ["/install-mod-auto", "post"],
-    ["/install-mod", "post"],
   ];
 
   it.each(ROUTES)("refuses a moderator on %s %s", async (routePath, method) => {

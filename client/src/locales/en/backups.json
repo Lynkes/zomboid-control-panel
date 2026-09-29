@@ -42,7 +42,13 @@
     "runsSchedule": "Runs {{schedule}} · keep {{count}}",
     "noScheduled": "No scheduled backups",
     "toggleAria": "Toggle scheduled backups",
-    "lastScheduledAttemptFailed": "Last scheduled attempt failed ({{time}}): {{message}}"
+    "lastScheduledAttemptFailed": "Last scheduled attempt failed ({{time}}): {{message}}",
+    "deferredForRestart": "Due since {{time}} — waiting for the server restart to finish",
+    "lastScheduledSkippedForRestart": "Last scheduled backup skipped for a restart ({{time}})"
+  },
+  "scheduledAttempt": {
+    "restartStuck": "Not run: the server restart had been running for {{minutes}} min ({{warningMinutes}}-minute warning) without finishing — far longer than a restart takes, so it looked stuck, and manual backups were blocked while it lasted. If a restart still seems to be running, check whether the game server came back up, then restart the panel to clear it. Creating a backup after that also clears the failed-backup warning.",
+    "restartStuckSinceDue": "Not run: the server restart running when this backup came due still hadn't finished {{minutes}} min later — far longer than a restart takes, so it looked stuck, and manual backups were blocked while it lasted. If a restart still seems to be running, check whether the game server came back up, then restart the panel to clear it. Creating a backup after that also clears the failed-backup warning."
   },
   "schedule": {
     "every15Min": "every 15 minutes",
@@ -57,6 +63,8 @@
     "daily6am": "daily at 6 AM",
     "dailyNoon": "daily at noon",
     "daily6pm": "daily at 6 PM",
+    "customOption": "Custom (cron expression)",
+    "custom": "on a custom schedule ({{cron}})",
     "none": "No schedule"
   },
   "settingsPanel": {
@@ -67,8 +75,27 @@
     "frequencyHelp": "How often to automatically create backups",
     "maxBackupsLabel": "Maximum Backups to Keep",
     "maxBackupsHelp": "Oldest backups will be auto-deleted when limit is reached",
+    "customLabel": "Cron expression",
+    "customHint": "Format: minute hour day month weekday. \"{{example}}\" runs every day at 3:30. At most once every 5 minutes.",
+    "customValid": "Valid schedule",
+    "customInvalid": "Not a valid cron expression",
+    "nextRun": "Next backup: {{date}}",
+    "timezoneNotice": "Schedule times are in the panel's timezone, {{tz}} (change it under Scheduled Tasks).",
+    "scheduledBackupsOff": "Scheduled backups are off — this schedule takes effect once you turn them on.",
+    "bothDayFieldsNote": "Day of month and weekday must both match: backups run only on days that satisfy both, not either one.",
     "savesLabel": "Saves: {{path}}",
     "saveButton": "Save Settings"
+  },
+  "restartOverlap": {
+    "title": "Backups overlap a scheduled restart",
+    "task": "Some scheduled backups land inside the scheduled restart \"{{name}}\" (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "taskAll": "Every scheduled backup lands inside the scheduled restart \"{{name}}\" (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "taskUnnamed": "Some scheduled backups land inside a scheduled restart (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "taskUnnamedAll": "Every scheduled backup lands inside a scheduled restart (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "autoRestart": "Some scheduled backups land inside the periodic auto-restart (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "autoRestartAll": "Every scheduled backup lands inside the periodic auto-restart (for example, the {{backupTime}} backup, during the {{restartTime}} restart).",
+    "consequence": "Those backups wait for the restart to finish, so they run up to about {{minutes}} min late. To keep them on time, schedule backups at least {{minutes}} min after a restart's scheduled time (for example, with restarts on the hour, back up at {{exampleTime}}).",
+    "consequenceNoExample": "Those backups wait for the restart to finish, so they run up to about {{minutes}} min late. To keep them on time, schedule backups at least {{minutes}} min after a restart's scheduled time."
   },
   "progress": {
     "startingFallback": "Starting backup...",
@@ -77,7 +104,20 @@
   "restoreProgress": {
     "title": "Restoring {{name}}…",
     "titleUnknown": "A restore is already in progress for this server…",
-    "note": "This can take a few minutes depending on world size. Don't close the panel or navigate away."
+    "note": "This can take a few minutes depending on world size. You can leave this page and come back — just don't stop or restart the panel until it's done.",
+    "responseLost": "The panel didn't answer this request. The restore runs on the panel itself, so it may still be going. Checking with the panel for the result…"
+  },
+  "restoreResult": {
+    "successTitle": "Restore finished",
+    "successDetail": "Took {{seconds}}s. The world it replaced was backed up first — that safety backup is the newest one in the list below. Start the server when you're ready.",
+    "successDetailNoSafetyBackup": "Took {{seconds}}s. It was started without a safety backup, so the world it replaced wasn't kept. Start the server when you're ready.",
+    "failedTitle": "Restore failed",
+    "notStartedProxy": "A proxy or tunnel in front of the panel refused the request (HTTP {{status}}). The panel has no record of this restore, so it didn't start.",
+    "failedNextStep": "Unless the reason above says otherwise, the current world was left as it was. Fix the cause, then try again.",
+    "unknownTitle": "Couldn't confirm how the restore ended",
+    "unknownDetail": "The page couldn't get this restore's result from the panel (the connection was down too long, or the panel restarted), so it may not have finished, or even started. Before you start the server, open Debug Logs › Activity and search for \"restore\". A backup_restored entry for this backup since you started the restore means it finished; a restore_failed entry since then says why it failed. If there's neither, restore again. If you can't open Debug Logs, ask an administrator.",
+    "dismiss": "Dismiss",
+    "dismissAria": "Dismiss the restore result"
   },
   "mainCard": {
     "title": "Backup Files",
@@ -166,9 +206,7 @@
     "uploadedDesc": "Stored as {{name}}. Use Restore to apply it.",
     "uploadFailedTitle": "Upload Failed",
     "uploadFailedFallback": "Failed to upload backup",
-    "restoredTitle": "Recovery Point Restored",
     "restoredDesc": "Rolled back to {{name}} in {{seconds}}s",
-    "restoreFailedTitle": "Restore Failed",
     "restoreFailedFallback": "Failed to restore backup",
     "snapshotUnavailableTitle": "Snapshot unavailable",
     "snapshotUnavailableFallback": "Could not read backup snapshot",

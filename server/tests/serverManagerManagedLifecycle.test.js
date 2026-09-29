@@ -1,5 +1,7 @@
+import fs from "fs";
+import os from "os";
 import path from "path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getServer = vi.fn();
 const getActiveServer = vi.fn();
@@ -14,21 +16,33 @@ vi.mock("../database/init.js", () => ({
   logServerEvent,
 }));
 
-const { ServerManager } = await import("../services/serverManager.js");
+const { ServerManager, managedStartupScriptName } = await import(
+  "../services/serverManager.js"
+);
 const {
   getActiveSteamOperations,
   clearActiveSteamOperation,
 } = await import("../services/activeSteamOperations.js");
 
+// A real folder holding the server's generated script: the unit runs it,
+// and a managed start or restart refuses to call systemctl without it
+// (GH #167).
+const installPath = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-managed-lifecycle-"));
+const namedScript = path.join(installPath, managedStartupScriptName("servertest"));
+
 const profile = {
   id: "managed-1",
   name: "Managed",
   serverName: "servertest",
-  installPath: "/opt/pz",
+  installPath,
   lifecycleProvider: "systemd",
   rconHost: "127.0.0.1",
   rconPort: 27015,
 };
+
+afterAll(() => {
+  fs.rmSync(installPath, { recursive: true, force: true });
+});
 
 describe("ServerManager managed Linux lifecycle", () => {
   let lifecycle;
@@ -49,6 +63,7 @@ describe("ServerManager managed Linux lifecycle", () => {
     };
     manager = new ServerManager({ lifecycleFactory: () => lifecycle });
     manager.sleep = vi.fn().mockResolvedValue(undefined);
+    fs.writeFileSync(namedScript, "#!/bin/bash\n");
   });
 
   it("uses the service manager as status authority without returning an owned PID", async () => {
@@ -72,6 +87,23 @@ describe("ServerManager managed Linux lifecycle", () => {
     expect(lifecycle.run).toHaveBeenCalledWith("start");
     expect(result.success).toBe(true);
     expect(manager.serverProcess).toBeNull();
+  });
+
+  // Server uptime: the managed start used to keep any start time already
+  // recorded (`this.startTime || new Date()`), so a service stopped by hand
+  // and started again from the panel before a status poll noticed the stop
+  // kept counting from the previous run -- and for OpenRC (no MainPID for
+  // the OS to answer about) that record is the only uptime there is.
+  it("records a fresh launch time on start instead of keeping a previous run's", async () => {
+    const previousRun = new Date(Date.now() - 2 * 24 * 3600 * 1000);
+    manager.startTime = previousRun;
+    manager._startTimePid = "4242";
+
+    const before = Date.now();
+    await manager.startServer();
+
+    expect(manager.startTime.getTime()).toBeGreaterThanOrEqual(before);
+    expect(manager._startTimePid).toBeNull();
   });
 
   // Regression (2026-08-31 services sweep): the SteamCMD guard used to sit
@@ -126,5 +158,34 @@ describe("ServerManager managed Linux lifecycle", () => {
     expect(lifecycle.run).toHaveBeenCalledWith("restart");
     expect(result.success).toBe(true);
     expect(manager.serverProcess).toBeNull();
+  });
+
+  // GH #167: the unit runs start-server_<name>.sh (see
+  // linuxServiceLifecycle.js's resolveLaunchTarget()). When it's missing,
+  // systemd fails it with exit 127 and Restart=on-failure keeps retrying,
+  // which reads as "activating" -- so the panel refuses before systemctl
+  // runs instead of reporting that start as a success.
+  it("refuses to systemctl-start when the server's generated script is missing", async () => {
+    fs.rmSync(namedScript);
+
+    const error = await manager.startServer().then(() => null, (caught) => caught);
+
+    expect(error?.code).toBe("SERVER_START_SCRIPT_MISSING");
+    expect(error.params.script).toBe(path.basename(namedScript));
+    expect(lifecycle.run).not.toHaveBeenCalled();
+  });
+
+  it("refuses a systemctl restart the same way", async () => {
+    fs.rmSync(namedScript);
+    const rcon = {
+      serverMessage: vi.fn().mockResolvedValue({ success: true }),
+      save: vi.fn().mockResolvedValue({ success: true }),
+      quit: vi.fn(),
+    };
+
+    const error = await manager.restartServer(rcon, 0).then(() => null, (caught) => caught);
+
+    expect(error?.code).toBe("SERVER_START_SCRIPT_MISSING");
+    expect(lifecycle.run).not.toHaveBeenCalled();
   });
 });

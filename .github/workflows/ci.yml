@@ -167,6 +167,16 @@ jobs:
       - name: Bridge routes audit (panelBridge.js routes -> Lua handlers)
         run: node scripts/audit-bridge-routes.mjs .
 
+      # The bridge VERSION follows its code (pz-mod/bridge-version.lock.json):
+      # a bump over unchanged Lua/mod.info would make every Workshop server
+      # restart for nothing. Changed code with the old version passes here;
+      # the release bumps it and rewrites the lock.
+      - name: PanelBridge version lock (no bump without a code change)
+        run: node scripts/check-bridge-version.mjs
+
+      - name: PanelBridge Workshop item (B42 layout, mod.info, load guards, images)
+        run: node scripts/workshop/build-item.mjs --check
+
       - name: RCON commands (panel-side denominator only -- see step comment above)
         run: node scripts/audit-rcon-commands.mjs .
 
@@ -266,8 +276,32 @@ jobs:
       # suppressions cite as their justification is actually exercised, not
       # assumed. The rest of the file's tests are platform-independent and
       # unaffected by running here too.
+      #
+      # serverManagerWindowsProcessRow.test.js (2026-09-28): all four cases
+      # are win32-gated, and one runs the real Get-CimInstance query with the
+      # StartMs column that every Windows process scan and the pidfile fast
+      # path now carry for the server's uptime -- the only check anywhere
+      # that the column works against real PowerShell
+      # (serverManagerCommandLineRoundTrip builds its own row without it).
+      # Neither it nor the file it replaced was listed, so this Windows
+      # uptime path had never run in CI. serverManagerScanGenerationGuard
+      # .test.js had the same gap (three win32-gated cases, mocked execFile)
+      # and is listed with it. dockerClient.test.js is the other way round
+      # -- POSIX-only, skipped on Windows -- and runs in the ubuntu job.
+      #
+      # bridgeDisk.test.js and bridgeDeliveryPlan.test.js (PanelBridge
+      # delivery, 2026-09-28): the game-folder key that groups server
+      # profiles folds case and resolves junctions on Windows only, and the
+      # cases that check it (a junction to the install folder, an upper-case
+      # installPath that must still share a Workshop sibling's folder) take
+      # their Windows branch only here.
+      #
+      # releaseScriptGitHubNotes.test.js (release.ps1, 2026-09-28): runs
+      # release.ps1's GitHub Release step under pwsh and starts a real
+      # process with the arguments gh would get, so only Windows has the
+      # 32,767-character command-line limit it checks against.
       - name: Exercise bundle transaction and generated supervisor
-        run: npx vitest run server/tests/panelUpdateBundle.test.js server/tests/supervisor-restart.test.js server/tests/serverManagerSpacedPathCmdQuoting.test.js server/tests/serverManagerWindowsSpawnFixes.test.js server/tests/serverManagerCustomStartCommandQuoting.test.js server/tests/serverManagerCommandLineRoundTrip.test.js server/tests/serverManagerEmptyScanWindows.test.js server/tests/serverManager-stopTimeout.test.js server/tests/setDataPaths.test.js
+        run: npx vitest run server/tests/panelUpdateBundle.test.js server/tests/supervisor-restart.test.js server/tests/serverManagerSpacedPathCmdQuoting.test.js server/tests/serverManagerWindowsSpawnFixes.test.js server/tests/serverManagerCustomStartCommandQuoting.test.js server/tests/serverManagerCommandLineRoundTrip.test.js server/tests/serverManagerEmptyScanWindows.test.js server/tests/serverManager-stopTimeout.test.js server/tests/setDataPaths.test.js server/tests/serverManagerWindowsProcessRow.test.js server/tests/serverManagerScanGenerationGuard.test.js server/tests/bridgeDisk.test.js server/tests/bridgeDeliveryPlan.test.js server/tests/releaseScriptGitHubNotes.test.js
 
       - name: Build packaged Windows executable
         run: node build.js --windows

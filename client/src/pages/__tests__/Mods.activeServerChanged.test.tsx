@@ -72,6 +72,10 @@ function emitActiveServerChanged() {
   socketHandlers.get('activeServerChanged')?.forEach((h) => h())
 }
 
+// jsdom doesn't implement scrollIntoView; the Load Order move controls call
+// it to bring the moved row back into view.
+Element.prototype.scrollIntoView = vi.fn()
+
 const getTrackedMods = vi.mocked(modsApi.getTrackedMods)
 const getStatus = vi.mocked(modsApi.getStatus)
 const getCurrentConfig = vi.mocked(modsApi.getCurrentConfig)
@@ -130,10 +134,9 @@ describe('Mods.tsx: activeServerChanged blocks Save Load Order while a reorder i
     await waitForLoaded()
 
     fireEvent.click(await screen.findByRole('button', { name: /load order/i }))
-    // Two mods -> two rows, each with its own Move up/Move down button --
-    // pick row 0's Move down (only disabled on the last row).
-    const moveDownButtons = await screen.findAllByRole('button', { name: /move down/i })
-    fireEvent.click(moveDownButtons[0])
+    // Two mods -> two rows, each with its own move controls named after the
+    // mod -- row 0's Move down (only disabled on the last row).
+    fireEvent.click(await screen.findByRole('button', { name: 'Move modA down' }))
 
     const saveButton = await screen.findByRole('button', { name: /save order/i })
     expect(saveButton).not.toBeDisabled()

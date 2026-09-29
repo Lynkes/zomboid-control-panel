@@ -88,6 +88,77 @@ describe("resolveObservedServerRunning -- split-container / cross-container RCON
     expect(serverManager.getServerProcessDetails).not.toHaveBeenCalled();
   });
 
+  // The watchdog's verdict and the composed-status badges share one
+  // definition of "which host signal wins" (serverStatusModel.js's
+  // isHostSignalAuthoritative): a completed native scan, or a managed
+  // systemd/openrc unit's own confirmed state, beats a PanelBridge heartbeat
+  // that outlived its process.
+  it("reports OFFLINE for a native server whose completed scan finds no process, even while a stale PanelBridge heartbeat still reads connected", async () => {
+    getActiveServer.mockResolvedValue({ id: "s1" });
+    const serverManager = fakeServerManager({ running: false, scanFailed: false });
+    fakeBridge.isModConnected.mockReturnValue(true);
+
+    expect(await resolveObservedServerRunning(serverManager, { connected: false })).toBe(false);
+  });
+
+  it("reports OFFLINE for a managed systemd/openrc unit whose own state reads stopped, even while a stale PanelBridge heartbeat still reads connected", async () => {
+    fakeBridge.isModConnected.mockReturnValue(true);
+    for (const lifecycleProvider of ["systemd", "openrc"]) {
+      getActiveServer.mockResolvedValue({ id: "s1", lifecycleProvider });
+      // getServerProcessDetails()'s managed branch stamps the provider.
+      const serverManager = fakeServerManager({ running: false, scanFailed: false, provider: lifecycleProvider });
+
+      expect(await resolveObservedServerRunning(serverManager, { connected: false })).toBe(false);
+    }
+  });
+
+  it("still lets PanelBridge vouch for a systemd server when the plain process scan, not the unit, answered", async () => {
+    getActiveServer.mockResolvedValue({ id: "s1", lifecycleProvider: "systemd" });
+    const serverManager = fakeServerManager({ running: false, scanFailed: false });
+    fakeBridge.isModConnected.mockReturnValue(true);
+
+    expect(await resolveObservedServerRunning(serverManager, { connected: false })).toBe(true);
+  });
+
+  it("does not call a managed unit stopped when its state could not be confirmed", async () => {
+    getActiveServer.mockResolvedValue({ id: "s1", lifecycleProvider: "systemd" });
+    const serverManager = fakeServerManager({ running: false, scanFailed: true, provider: "systemd" });
+
+    expect(await resolveObservedServerRunning(serverManager, { connected: false })).toBeNull();
+    fakeBridge.isModConnected.mockReturnValue(true);
+    expect(await resolveObservedServerRunning(serverManager, { connected: false })).toBe(true);
+  });
+
+  // The unit's answer only outvotes RCON and PanelBridge when it is a
+  // settled one. `rc-service status` exits 4 while OpenRC is still stopping
+  // the service -- the JVM, its RCON listener and the mod can all still be
+  // up -- and that used to read as a confirmed stop, so the watchdog
+  // announced "stopped" (Discord, stop reason, PanelBridge expired) before
+  // the process had exited. Wired through the real status() rather than a
+  // hand-shaped { scanFailed } so the exit-code mapping itself is covered.
+  it("keeps a managed OpenRC unit that is still stopping (exit 4) running while RCON and PanelBridge are still up", async () => {
+    const { LinuxServiceLifecycle } = await import("../services/linuxServiceLifecycle.js");
+    const server = { id: "s1", lifecycleProvider: "openrc" };
+    getActiveServer.mockResolvedValue(server);
+    const lifecycle = new LinuxServiceLifecycle(server, "openrc", {
+      platform: "linux",
+      containerized: false,
+      fileExists: () => true,
+      readFile: () => "X-Zomboid-Panel-Server-ID: s1",
+      execFile: async () => ({ code: 4, stdout: "", stderr: " * status: stopping" }),
+    });
+    // What getServerProcessDetails()'s managed branch returns.
+    const serverManager = {
+      getServerProcessDetails: vi.fn(async () => {
+        const status = await lifecycle.status();
+        return { running: status.running, scanFailed: Boolean(status.scanFailed), provider: "openrc" };
+      }),
+    };
+    fakeBridge.isModConnected.mockReturnValue(true);
+
+    expect(await resolveObservedServerRunning(serverManager, { connected: true })).toBe(true);
+  });
+
   it("reports RUNNING for a remote-sftp server via RCON alone (no local process to scan)", async () => {
     getActiveServer.mockResolvedValue({ id: "s1", isRemote: true });
     const serverManager = fakeServerManager({ running: true, scanFailed: false });

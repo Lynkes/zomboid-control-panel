@@ -1572,6 +1572,14 @@ const SYSTEM_TASK_NAME_KEYS = {
 // server is currently active (setupAutoRestart()/setupBackupSchedule()'s
 // cron callbacks never pass an override), so getActiveServerId() is the
 // correct answer for exactly those two, not just a fallback proxy.
+//
+// messageKey/messageParams: for the few messages the panel writes as prose
+// of its own rather than passing on a raw error (a scheduled backup given up
+// on because a restart looked stuck) -- the client renders
+// backups:scheduledAttempt.<messageKey> with messageParams in the
+// operator's language, and `message` stays the English original for the
+// logs and for any client that doesn't know the key. Same key-beside-text
+// convention as task_name_key above.
 export async function logScheduleExecution(
   taskId,
   taskName,
@@ -1579,6 +1587,7 @@ export async function logScheduleExecution(
   success,
   message = null,
   duration = null,
+  { messageKey = null, messageParams = null } = {},
 ) {
   const db = await getDb();
   if (!db.data.schedule_history) db.data.schedule_history = [];
@@ -1601,6 +1610,8 @@ export async function logScheduleExecution(
     command,
     success: success ? 1 : 0,
     message,
+    message_key: messageKey,
+    message_params: messageParams,
     duration,
     executed_at: new Date().toISOString(),
   };

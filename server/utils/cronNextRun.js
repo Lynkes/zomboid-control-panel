@@ -8,6 +8,11 @@
 // utcOffsetMinutes), rather than a second, independently-typed date-math
 // implementation that could disagree with those checks about what a given
 // cron expression + timezone combination actually means.
+//
+// Its day rule is node-cron 4's, not classic cron's: see computeNextRun.
+// nodeCronNextRun() below asks node-cron itself instead, for a preview that
+// must also cover the syntax these expanders don't (MON, L, 1#1, 7).
+import cron from "node-cron";
 import {
   hasUnsupportedCronFieldCount,
   expandCronField,
@@ -16,37 +21,15 @@ import {
 } from "./cronValidation.js";
 
 // Cron's own day-of-month/month fields are 1-based (unlike minute/hour,
-// which are 0-based and already correctly handled by expandCronField's
-// existing 0..max range) -- "*" must expand to 1..max, not 0..max, or a
-// bare "*" day-of-month field would wrongly treat day 0 as a valid match
-// and every other real value would still work by coincidence (0 never
-// actually appears in a zoned day-of-month), silently masking the bug
-// rather than ever surfacing it. A dedicated min-aware variant, not a
-// change to expandCronField itself -- that function's 0-based contract is
-// correct and load-bearing for its OWN callers (minute/hour fields).
-function expandCronFieldRanged(field, min, max) {
-  const values = new Set();
-  for (const part of field.split(",")) {
-    const match = /^(\*|\d+)(?:-(\d+))?(?:\/(\d+))?$/.exec(part);
-    if (!match) return null;
-    const start = match[1] === "*" ? min : Number(match[1]);
-    const end =
-      match[2] === undefined ? (match[1] === "*" ? max : start) : Number(match[2]);
-    const step = match[3] === undefined ? 1 : Number(match[3]);
-    if (
-      !Number.isInteger(start) ||
-      !Number.isInteger(end) ||
-      !Number.isInteger(step) ||
-      start < min ||
-      end > max ||
-      start > end ||
-      step < 1
-    ) {
-      return null;
-    }
-    for (let value = start; value <= end; value += step) values.add(value);
-  }
-  return values.size > 0 ? values : null;
+// which are 0-based) -- "*" must expand to 1..max, not 0..max, or a bare "*"
+// day-of-month field would wrongly treat day 0 as a valid match. The same
+// expander as the minute/hour fields (cronValidation.js's expandCronField,
+// wrap-around ranges included) with a 1-based lower bound, so the two can't
+// drift apart on what a field means.
+// Exported for backupRestartOverlap.js, which needs the same day-level
+// field expansion to decide whether two schedules can fire on the same day.
+export function expandCronFieldRanged(field, min, max) {
+  return expandCronField(field, max, min);
 }
 
 // Resolves a LOCAL wall-clock moment in `zone` to the real UTC instant it
@@ -67,22 +50,14 @@ function resolveZonedTimeToUtcMs(year, month, day, hour, minute, zone) {
   return guessUtc - offset2 * 60000;
 }
 
-const WEEKDAY_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-
-function zonedWeekday(ms, zone) {
-  const short = new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "short" }).format(
-    new Date(ms),
-  );
-  return WEEKDAY_INDEX[short] ?? null;
-}
-
 // How far ahead to search before giving up and reporting "no upcoming run
-// found" (null) rather than an unbounded/slow search. 400 days comfortably
-// covers every real pattern this scheduler supports (isCronTooFrequent already
-// floors the minimum interval at 5 minutes; nothing here fires less than
-// once a year in practice) while keeping the day-level outer loop's total
-// iteration count small and predictable.
-const MAX_LOOKAHEAD_DAYS = 400;
+// found" (null) rather than an unbounded/slow search. With node-cron's AND
+// day rule a schedule restricting both day fields can fire years apart
+// ("0 4 29 2 1": a Feb 29 that is a Monday, 2016 -> 2044), and the weekday
+// of a given date repeats on a 28-year cycle (within 1901-2099), so 28 years
+// finds every run node-cron would. The outer loop is plain calendar
+// arithmetic -- no Intl call -- so the full window stays cheap.
+const MAX_LOOKAHEAD_DAYS = 366 * 28;
 // Safety bound on the inner (same-day) minute walk, matching a full day.
 const MINUTES_PER_DAY = 24 * 60;
 
@@ -92,16 +67,21 @@ const MINUTES_PER_DAY = 24 * 60;
  * unsupported expression shape or if no match is found within the lookahead
  * window (a malformed or practically-impossible combination, e.g. Feb 30).
  *
+ * Day rule: node-cron 4's, the engine that actually fires every job -- the
+ * month, day-of-month AND day-of-week must all match (TimeMatcher.match in
+ * node_modules/node-cron/dist/_shared.js). NOT classic cron's rule, where two
+ * restricted day fields match if EITHER does: this used to apply that one,
+ * so "0 4 1 * 1" previewed as the next 1st of the month while node-cron ran
+ * it only on a 1st that is a Monday -- months later.
+ *
  * Two-level search, not a flat minute-by-minute walk over the whole window:
- * an outer loop advances by a full day (cheap — no Intl call needed to
- * decide whether to keep skipping, since day-of-month/month/day-of-week are
- * checked once per candidate day) until it finds a day that matches month +
- * (day-of-month OR day-of-week, cron's own combining rule when both fields
- * are restricted), then an inner loop walks that ONE day minute-by-minute
- * for the first hour:minute match. Bounds total Intl.DateTimeFormat calls to
- * roughly MAX_LOOKAHEAD_DAYS + 1440 in the worst case instead of
- * MAX_LOOKAHEAD_DAYS * 1440, the difference between computing this for a
- * page full of tasks comfortably within one request and not.
+ * an outer loop advances by a full day (cheap — no Intl call at all, since
+ * day-of-month/month/day-of-week are plain calendar checks once per
+ * candidate day) until it finds a day that matches, then an inner loop walks
+ * that ONE day minute-by-minute for the first hour:minute match. Intl calls
+ * happen only for fire times on matching days, not per day of the window,
+ * the difference between computing this for a page full of tasks
+ * comfortably within one request and not.
  */
 export function computeNextRun(cronExpression, timezone, fromDate = new Date()) {
   if (hasUnsupportedCronFieldCount(cronExpression)) return null;
@@ -115,9 +95,6 @@ export function computeNextRun(cronExpression, timezone, fromDate = new Date()) 
   const months = expandCronFieldRanged(monthField, 1, 12);
   const dows = expandCronFieldRanged(dowField, 0, 6);
   if (!minutes || !hours || !doms || !months || !dows) return null;
-
-  const domIsWildcard = domField.trim() === "*";
-  const dowIsWildcard = dowField.trim() === "*";
 
   let fromMs;
   try {
@@ -149,29 +126,13 @@ export function computeNextRun(cronExpression, timezone, fromDate = new Date()) 
       candidateDay = advanced.getUTCDate();
     }
 
-    if (!months.has(candidateMonth)) continue;
-
-    // Cron's own day-of-month/day-of-week combining rule: when BOTH fields
-    // are restricted (neither is "*"), a day qualifies if EITHER matches
-    // (OR, not AND) -- when only one is restricted, that one alone decides.
-    // Weekday is resolved lazily (noon local, to stay clear of any midnight
-    // DST edge) only when day-of-week actually participates in the
-    // decision, since it's the one check in this loop that costs an Intl
-    // call.
-    let dayMatches;
-    if (domIsWildcard && dowIsWildcard) {
-      dayMatches = true;
-    } else if (dowIsWildcard) {
-      dayMatches = doms.has(candidateDay);
-    } else {
-      const noonUtcForWeekday = resolveZonedTimeToUtcMs(
-        candidateYear, candidateMonth, candidateDay, 12, 0, timezone,
-      );
-      const weekday = zonedWeekday(noonUtcForWeekday, timezone);
-      const dowMatches = weekday !== null && dows.has(weekday);
-      dayMatches = domIsWildcard ? dowMatches : doms.has(candidateDay) || dowMatches;
-    }
-    if (!dayMatches) continue;
+    // node-cron's day rule (see the doc comment above): every day field
+    // must match, a "*" field matching every day. The weekday of a LOCAL
+    // calendar date is plain Gregorian arithmetic, no zone lookup -- the
+    // same computation node-cron's own MatcherWalker.matchesWeekday uses.
+    if (!months.has(candidateMonth) || !doms.has(candidateDay)) continue;
+    const weekday = new Date(Date.UTC(candidateYear, candidateMonth - 1, candidateDay)).getUTCDay();
+    if (!dows.has(weekday)) continue;
 
     // This calendar day matches -- walk its minutes for the first hour+
     // minute match at/after the real "start searching from" point (only
@@ -207,4 +168,63 @@ export function computeNextRun(cronExpression, timezone, fromDate = new Date()) 
   }
 
   return null;
+}
+
+// The next time node-cron itself would fire `expression` in `timezone`
+// (ISO string), or null when it can't say. For a live preview of a schedule
+// about to be armed: it is the same TimeMatcher the armed job's own
+// getNextRun() walks, so the two cannot disagree -- whatever syntax node-cron
+// accepts (names, L, 1#1, 7 for Sunday) and whatever its day rule is.
+// A stopped, never-started task (createTask, no start()): nothing is
+// scheduled, and getNextRuns() is node-cron's public way to ask a task that
+// isn't running (getNextRun() answers only for a started one). destroy()
+// takes it back out of node-cron's task registry -- which it can only do
+// for a zone Intl accepts (it formats the time for its task:destroyed
+// event), so an unusable zone is refused before any task exists.
+export function nodeCronNextRun(expression, timezone) {
+  if (timezone !== undefined) {
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+    } catch {
+      return null;
+    }
+  }
+  let task = null;
+  try {
+    task = cron.createTask(expression, () => {}, { timezone });
+    const [next] = task.getNextRuns(1);
+    return next instanceof Date && Number.isFinite(next.getTime()) ? next.toISOString() : null;
+  } catch {
+    // Invalid expression or zone, or no run within node-cron's own search
+    // window.
+    return null;
+  } finally {
+    try {
+      task?.destroy();
+    } catch {
+      // Nothing was started; nothing left to clean up.
+    }
+  }
+}
+
+// Whether `expression` restricts BOTH the day-of-month and the weekday --
+// the case where node-cron's day rule (both must match) differs from classic
+// cron's (either may). Read from node-cron's own expansion (cron.parse), so
+// "?", "1-31", "*/1" and "0-7" count as unrestricted exactly when they mean
+// every day. False for anything node-cron refuses.
+export function restrictsBothDayFields(expression) {
+  let fields;
+  try {
+    fields = cron.parse(expression);
+  } catch {
+    return false;
+  }
+  const coversAll = (values, min, max) => {
+    const set = new Set(values);
+    for (let value = min; value <= max; value++) {
+      if (!set.has(value)) return false;
+    }
+    return true;
+  };
+  return !coversAll(fields.dayOfMonth, 1, 31) && !coversAll(fields.dayOfWeek, 0, 6);
 }

@@ -6,7 +6,10 @@ import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
 // `path.isAbsolute(path.resolve(x))`
 // is structurally always true (resolve() always returns an absolute path,
 // resolved against cwd when given a relative input), so the check must run
-// on the RAW input before resolving. None of these three call sites had a
+// on the RAW input before resolving. The third, panelBridge.js's POST /install-mod,
+// was later removed outright with PanelBridge delivery (an arbitrary-folder
+// writer that couldn't respect a server's delivery method), so only two
+// remain covered here. None of these call sites had a
 // test before this fix -- exactly why the bug was invisible for as long as
 // it was: a relative path silently passed as if it had been rejected.
 vi.mock("../database/init.js", () => ({
@@ -56,18 +59,6 @@ describe("dead isAbsolute(resolve(x)) checks now reject a relative path before r
     const { default: serversRouter } = await import("../routes/servers.js");
     const res = await runRoute(serversRouter, "/detect", "post", {
       body: { dataPath: "some/relative/dir" },
-      user: { role: "admin" },
-    });
-    expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ error: "Must be an absolute path" }),
-    );
-  });
-
-  it("panelBridge.js POST /install-mod refuses a relative serverLuaPath", async () => {
-    const { default: panelBridgeRouter } = await import("../routes/panelBridge.js");
-    const res = await runRoute(panelBridgeRouter, "/install-mod", "post", {
-      body: { serverLuaPath: "some/relative/media/lua/server" },
       user: { role: "admin" },
     });
     expect(res.status).toHaveBeenCalledWith(400);
