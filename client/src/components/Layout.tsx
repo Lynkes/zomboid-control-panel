@@ -383,8 +383,8 @@ export default function Layout({ children }: LayoutProps) {
   // already navigated elsewhere by the time it resolves.
   //
   // A failure can carry a registered error code and its params (the server's
-  // codedActionResultFields(), today only SERVER_START_SCRIPT_MISSING from
-  // GH #167), shown translated like POST /api/server/start's own refusal;
+  // codedActionResultFields(), today SERVER_START_SCRIPT_MISSING and
+  // SERVER_RESTART_SCRIPT_MISSING from GH #167), shown translated like POST /api/server/start's own refusal;
   // the English message is the fallback.
   useEffect(() => {
     if (!socket) return

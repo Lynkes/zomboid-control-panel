@@ -390,6 +390,14 @@ History and the panel log show the same refusal as `Startup script
 start-server_<name>.sh is missing from <folder>`. For the panel's auto-start,
 the log line begins with `Error during auto-start:`.
 
+A Restart of a running server (Dashboard, Discord, a scheduled or
+mod-update restart) checks this before it warns players, saves or stops
+anything. If the script is missing and the panel can't write it, the
+restart is called off and the server keeps running. The message then
+begins `Restart called off before stopping the server`, and the panel log
+line just above it begins `Restart refused before stopping the server` and
+names the error. Fix it the same way as below, then restart again.
+
 **What it means:** before every start, the panel writes this server's own
 startup script from its settings (server name, save folder, admin password,
 memory) into the folder the game is launched from. This time the write
@@ -398,8 +406,9 @@ failed and no older copy was there. The panel won't run the game's stock
 `servertest` world, not your server, and can stop at a prompt for a new
 admin password.
 
-**What to do:** search the panel log for `Could not write` just above the
-refusal. It names the file and the error. Almost always the panel's account
+**What to do:** search the panel log for `Could not write` (or, for a
+called-off Restart, `Restart refused`) just above the refusal. It names the
+file and the error. Almost always the panel's account
 can't write to that folder: see
 [Permission denied on mounted PZ folders](#permission-denied-on-mounted-pz-folders)
 (on Docker, check `PUID` and `PGID`). Also check that the install path in

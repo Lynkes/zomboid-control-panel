@@ -563,6 +563,14 @@ export const ErrorCode = Object.freeze({
    * {{script}} (the missing file's name) and {{fallback}} (the stock
    * launcher it won't run). */
   SERVER_START_SCRIPT_MISSING: "SERVER_START_SCRIPT_MISSING",
+  /** server/services/serverManager.js -- assertNamedStartupScriptLaunchable(),
+   * thrown by scheduler.js's performRestart() before its countdown, save and
+   * quit (forwarded like SERVER_START_SCRIPT_MISSING above by a failed
+   * Restart's scheduler:action_result): the running server's generated
+   * startup script is missing and the panel can't write it, so the relaunch
+   * would be refused -- the restart is called off and the server is left
+   * running. Same {{script}} and {{fallback}} params. */
+  SERVER_RESTART_SCRIPT_MISSING: "SERVER_RESTART_SCRIPT_MISSING",
   /** server/routes/server.js -- POST /api/server/force-stop, active server is
    * remote. Own wording/code, not reused across start/force-stop/restart --
    * same reasoning as SERVER_RUNNING_RCON_UNAVAILABLE above: which action was

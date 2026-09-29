@@ -347,6 +347,40 @@ export function namedStartupScriptMissingError({ script, folder, fallback }) {
   return error;
 }
 
+// The same refusal, asked before a Restart stops anything (see
+// ServerManager.assertNamedStartupScriptLaunchable()), so it says the
+// server is still running and to restart, not start, again.
+export function namedStartupScriptRestartRefusedError({ script, folder, fallback }) {
+  const error = new Error(
+    `Restart called off before stopping the server, which is still running: startup script ${script} is missing from ${folder} and the panel can't write it there, so it couldn't start the server again. Check that this folder exists and that the panel can write to it (the panel log has the exact error), then restart again. The panel won't fall back to ${fallback}: that starts Project Zomboid's default "servertest" world instead of this server, and can stop at a prompt for a new admin password.`,
+  );
+  error.code = ErrorCode.SERVER_RESTART_SCRIPT_MISSING;
+  error.params = { script, fallback };
+  return error;
+}
+
+// Whether a new file can be created in `dir`: what writeFileAtomic() needs
+// to write a launch script there (a temp file beside it, then a rename).
+// Tried for real rather than asked with fs.accessSync(W_OK), which on
+// Windows only looks at a folder's read-only attribute, never its ACL.
+// Named like writeFileAtomic()'s own temp files, so its orphan sweep removes
+// one a crash left behind. Returns the error, or null when it could.
+function probeFolderWritable(dir, fileName) {
+  const suffix = Math.random().toString(36).slice(2, 8).padEnd(6, "0");
+  const probe = path.join(dir, `.${fileName}.${process.pid}.${suffix}.tmp`);
+  try {
+    fs.writeFileSync(probe, "", { flag: "wx" });
+  } catch (error) {
+    return error;
+  }
+  try {
+    fs.unlinkSync(probe);
+  } catch {
+    /* best effort -- writeFileAtomic()'s orphan sweep clears it */
+  }
+  return null;
+}
+
 // Carries prepareForLaunch()'s "your hand-edited script was backed up"
 // notices on a successful start's result, the field POST /api/server/start
 // has always answered with. A copy, so a lifecycle provider's own result
@@ -2972,6 +3006,63 @@ export class ServerManager {
       script: this.serverBat,
       folder: this.serverPath,
       fallback: stockStartupScript(this._serverRecord.useNoSteam),
+    });
+  }
+
+  // The check above, asked ahead of time: scheduler.js's performRestart()
+  // calls this before its countdown, world save and quit, because the check
+  // above only runs in the startServer() that follows the stop -- a server
+  // whose script is missing and can't be written (a launch folder the panel
+  // can't write to, which 1.3.8 papered over with the stock script) was
+  // stopped by a Restart and then left down. Throws
+  // SERVER_RESTART_SCRIPT_MISSING when the script is missing and the
+  // before-launch step couldn't write it either: routes/server.js's
+  // refreshLaunchTargetBeforeStart() writes it into `serverPath ||
+  // installPath`, and only for a server without a custom start command.
+  // Reads the record itself rather than loading it into this manager, so
+  // asking never changes which server this manager is pointed at;
+  // otherwise the same conditions as the check above. A server mapped to a
+  // Docker container is restarted through Docker, whose image owns the
+  // launch, so it is not asked about.
+  async assertNamedStartupScriptLaunchable({ serverId = null } = {}) {
+    let record;
+    try {
+      record =
+        serverId != null ? await getServer(serverId) : await getActiveServer();
+    } catch (error) {
+      log.debug(`Launch-script check skipped: ${error.message}`);
+      return;
+    }
+    if (!record || record.isRemote) return;
+    if (record.dockerContainerName || record.dockerContainerId) return;
+    if (resolveLaunchMode(record).mode === "custom" || !record.serverName) return;
+    const script = resolveManagedStartupScript(record.serverName);
+    if (script !== managedStartupScriptName(record.serverName)) return;
+    const launchDir = record.serverPath || record.installPath;
+    const folder = launchDir || process.env.PZ_SERVER_PATH || "";
+    if (!folder) return;
+    // A direct launch with a custom start command runs that command; only
+    // a systemd/OpenRC unit still runs the script then (startServer()).
+    const serviceLaunch = isManagedLifecycleProvider(
+      record.lifecycleProvider || "direct",
+    );
+    if (record.startCommand && !serviceLaunch) return;
+    if (fs.existsSync(path.join(folder, script))) return;
+    if (launchDir && !record.startCommand) {
+      const writeError = probeFolderWritable(launchDir, script);
+      if (!writeError) return;
+      log.warn(
+        `Restart refused before stopping the server: ${script} is missing and the panel can't write to ${launchDir}: ${writeError.message}`,
+      );
+    } else {
+      log.warn(
+        `Restart refused before stopping the server: ${script} is missing from ${folder}, and the panel doesn't write it for a server ${record.startCommand ? "with a custom start command" : "with no install folder set"}`,
+      );
+    }
+    throw namedStartupScriptRestartRefusedError({
+      script,
+      folder,
+      fallback: stockStartupScript(record.useNoSteam),
     });
   }
 

@@ -56,6 +56,26 @@ describe("Scheduler.runTaskNow return value", () => {
 
     expect(result).toEqual({ success: false, message: "world save failed" });
   });
+
+  it("carries a thrown error's code and params, so a restart task's refusal can be shown translated", async () => {
+    const { namedStartupScriptRestartRefusedError } = await import("../services/serverManager.js");
+    const refusal = namedStartupScriptRestartRefusedError({
+      script: "start-server_Main.sh",
+      folder: "/srv/pz",
+      fallback: "start-server.sh",
+    });
+    const rconService = { connected: true, save: vi.fn().mockRejectedValue(refusal) };
+    const scheduler = new Scheduler(rconService, { _serverId: null });
+
+    const result = await scheduler.runTaskNow({ id: 6, name: "Save", command: "save" });
+
+    expect(result).toEqual({
+      success: false,
+      message: refusal.message,
+      code: "SERVER_RESTART_SCRIPT_MISSING",
+      params: { script: "start-server_Main.sh", fallback: "start-server.sh" },
+    });
+  });
 });
 
 function getHandler(routePath, method) {
@@ -272,6 +292,67 @@ describe("scheduler:action_result socket emission", () => {
       taskName: "Nightly save",
       success: false,
       message: "RCON not connected",
+    });
+  });
+  // A restart task's "Run now" goes through runTaskNow(), not /restart-now:
+  // its coded refusal reaches the toast translated too.
+  it("POST /tasks/:id/run forwards SERVER_RESTART_SCRIPT_MISSING's code and params with the failure", async () => {
+    const emit = vi.fn();
+    const task = { id: 4, name: "Nightly restart", command: "restart" };
+    getScheduledTasks.mockResolvedValue([task]);
+    const runTaskNow = vi.fn().mockResolvedValue({
+      success: false,
+      message: "Restart called off before stopping the server",
+      code: "SERVER_RESTART_SCRIPT_MISSING",
+      params: { script: "start-server_Main.sh", fallback: "start-server.sh" },
+    });
+
+    await getHandler("/tasks/:id/run", "post")(
+      {
+        params: { id: "4" },
+        user: { role: "automation_and_control" },
+        app: { get: (key) => (key === "scheduler" ? { runTaskNow } : key === "io" ? { emit } : null) },
+      },
+      createResponse(),
+    );
+    await flushMicrotasks();
+
+    expect(emit).toHaveBeenCalledWith("scheduler:action_result", {
+      kind: "task",
+      taskName: "Nightly restart",
+      success: false,
+      message: "Restart called off before stopping the server",
+      code: "SERVER_RESTART_SCRIPT_MISSING",
+      params: { script: "start-server_Main.sh", fallback: "start-server.sh" },
+    });
+  });
+
+  it("POST /tasks/:id/run adds nothing for a code outside the forwarded set", async () => {
+    const emit = vi.fn();
+    const task = { id: 5, name: "Nightly save", command: "save" };
+    getScheduledTasks.mockResolvedValue([task]);
+    const runTaskNow = vi.fn().mockResolvedValue({
+      success: false,
+      message: "boom",
+      code: "SOME_OTHER_CODE",
+      params: { folder: "/srv/pz" },
+    });
+
+    await getHandler("/tasks/:id/run", "post")(
+      {
+        params: { id: "5" },
+        user: { role: "automation_and_control" },
+        app: { get: (key) => (key === "scheduler" ? { runTaskNow } : key === "io" ? { emit } : null) },
+      },
+      createResponse(),
+    );
+    await flushMicrotasks();
+
+    expect(emit).toHaveBeenCalledWith("scheduler:action_result", {
+      kind: "task",
+      taskName: "Nightly save",
+      success: false,
+      message: "boom",
     });
   });
 });

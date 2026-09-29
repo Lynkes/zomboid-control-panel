@@ -642,7 +642,13 @@ export class Scheduler {
         "scheduled_task_error",
         `${task.name}: ${error.message}`,
       );
-      return { success: false, message: error.message };
+      // A coded refusal's code and params ride along, so "Run now" on a
+      // restart task shows SERVER_START_SCRIPT_MISSING /
+      // SERVER_RESTART_SCRIPT_MISSING translated, like a Dashboard Restart
+      // (routes/scheduler.js's codedActionResultFields() picks which).
+      return error.code
+        ? { success: false, message: error.message, code: error.code, params: error.params }
+        : { success: false, message: error.message };
     } finally {
       this.runningTasks.delete(task.id);
     }
@@ -1902,6 +1908,25 @@ export class Scheduler {
         );
         logServerEvent("auto_restart_error", errorMsg);
         return { success: false, message: errorMsg, logged: true };
+      }
+
+      // GH #167: startServer() refuses a server whose generated startup
+      // script is missing and can't be written (SERVER_START_SCRIPT_MISSING).
+      // Asked here, before the countdown, save and quit -- that refusal only
+      // came after the stop below, and left a server that was running fine
+      // down until someone fixed the folder and pressed Start. Thrown into
+      // the catch below (Schedule History row, translated Restart toast).
+      // Nothing was stopped, so the restart intent set above is withdrawn
+      // rather than left for the next unrelated stop or crash.
+      if (typeof serverManager.assertNamedStartupScriptLaunchable === "function") {
+        try {
+          await serverManager.assertNamedStartupScriptLaunchable({
+            serverId: pinnedServerId,
+          });
+        } catch (error) {
+          if (serverManager.stopIntent === "restart") serverManager.stopIntent = null;
+          throw error;
+        }
       }
 
       log.info("Auto-restart: RCON verified, sending warnings...");
