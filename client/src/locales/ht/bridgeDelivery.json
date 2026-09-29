@@ -152,7 +152,8 @@
     "copied": "Li kopye",
     "copyValueAria": "Kopye {{value}}",
     "copyFailed": "Pa t ka kopye. Chwazi tèks la epi kopye l ou menm.",
-    "restartWarningNote": "Jwè ki anliy yo resevwa yon avètisman 5 minit anvan."
+    "restartWarningNote": "Jwè ki anliy yo resevwa yon avètisman 5 minit anvan.",
+    "remoteLifecycleNote": "Panèl la pa ka demare ni redemare yon sèvè aleka. Fè sa kote sèvè a ebèje a."
   },
   "confirmRestart": {
     "title": "Redemare {{server}}?",
@@ -253,7 +254,8 @@
     "checksumFailed": "Pa t ka chanje DoLuaChecksum",
     "restartStarted": "Redemaraj mande",
     "startStarted": "Demaraj mande",
-    "actionFailed": "Pa t ka fini aksyon sa a"
+    "actionFailed": "Pa t ka fini aksyon sa a",
+    "restartSkipped": "{{server}} pa sèvè aktif la ankò, kidonk anyen pa t redemare."
   },
   "setupNote": {
     "workshop": "Sèvè sa a resevwa PanelBridge nan Steam Workshop, kidonk pa gen anyen pou voye. Kite DoLuaChecksum=false jiskaske “Kijan PanelBridge enstale” anwo a konfime chanjman an.",

@@ -165,10 +165,13 @@ export function switchActionFor(target: DeliveryMethod): DeliveryAction {
 }
 
 // The state's action row, as rendered. Two filters, both presentation-only:
-//  - Start/restart need a known lifecycle: restart only while the server is
-//    known to run, start only while it is known to be stopped. `null`
-//    (remote/SFTP, where the panel can't see the process) shows neither --
-//    those servers are restarted from the host's own dashboard.
+//  - Start/restart need a server the panel starts and a known lifecycle:
+//    restart only while the server is known to run, start only while it is
+//    known to be stopped (`null`, a process scan that failed, shows
+//    neither). A remote profile gets neither at all: its serverRunning is
+//    still a boolean (RCON, the bridge), but /server/start and
+//    /server/restart refuse it, so the buttons could only fail -- it is
+//    started from wherever it is hosted (leavesLifecycleToHost says when).
 //  - A switch to the non-current method is already the primary button on
 //    that method's option card right below, so it isn't repeated here. The
 //    one that survives is local-workshop-loaded's "Switch to panel-installed"
@@ -179,18 +182,20 @@ export function switchActionFor(target: DeliveryMethod): DeliveryAction {
 // A switch back to panel-installed that still needs its restart adds
 // "Restart now" to whatever the Local state offers (see
 // needsRestartAfterLocalSwitch).
-export function resolveStateActions(status: DeliveryStatus): DeliveryAction[] {
+function stateActionsBeforeFilter(status: DeliveryStatus): readonly DeliveryAction[] {
   const view = resolveStateView(status)
-  const actions: readonly DeliveryAction[] =
-    needsRestartAfterLocalSwitch(status) && !view.actions.includes('restartNow')
-      ? [...view.actions, 'restartNow']
-      : view.actions
-  return actions.filter((action) => {
+  return needsRestartAfterLocalSwitch(status) && !view.actions.includes('restartNow')
+    ? [...view.actions, 'restartNow']
+    : view.actions
+}
+
+export function resolveStateActions(status: DeliveryStatus): DeliveryAction[] {
+  return stateActionsBeforeFilter(status).filter((action) => {
     switch (action) {
       case 'restartNow':
-        return status.serverRunning === true
+        return status.remote !== true && status.serverRunning === true
       case 'startServer':
-        return status.serverRunning === false
+        return status.remote !== true && status.serverRunning === false
       case 'switchToWorkshop':
       case 'switchToLocal': {
         const target: DeliveryMethod = action === 'switchToWorkshop' ? 'workshop' : 'local'
@@ -204,6 +209,18 @@ export function resolveStateActions(status: DeliveryStatus): DeliveryAction[] {
         return true
     }
   })
+}
+
+// A remote server in a state whose next step is a start or restart the
+// panel would offer on a server it runs itself: the block says where that
+// happens instead of leaving the operator to look for the missing button.
+export function leavesLifecycleToHost(status: DeliveryStatus): boolean {
+  if (status.remote !== true) return false
+  const actions = stateActionsBeforeFilter(status)
+  return (
+    (actions.includes('restartNow') && status.serverRunning === true) ||
+    (actions.includes('startServer') && status.serverRunning === false)
+  )
 }
 
 // Title/body keys for the state callout. Only local-ok has two readings

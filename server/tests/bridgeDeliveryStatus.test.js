@@ -182,6 +182,20 @@ describe("states: panel-installed (local)", () => {
     expect(live).toMatchObject({ state: "local-ok", access: "guided", disk: null, hostOs: "unknown" });
     expect(live.checksum.current).toBeNull();
   });
+
+  // /server/start and /server/restart refuse a remote profile, and its
+  // serverRunning is still a plain boolean (RCON / the bridge), so the block
+  // needs `remote` to leave those buttons out. Guided access alone doesn't
+  // say it: a game folder this host can't write is guided too, and the
+  // panel still starts that server.
+  it("remote is set for a remote profile only, not for every guided one", async () => {
+    runningState.value = true;
+    const remote = await statusFor(makeServer(files, { isRemote: true }));
+    expect(remote).toMatchObject({ access: "guided", remote: true, serverRunning: true });
+    const unreachable = await statusFor(makeServer(files, { installPath: path.join(root, "no-such-folder") }));
+    expect(unreachable).toMatchObject({ access: "guided", remote: false });
+    expect((await statusFor(makeServer(files))).remote).toBe(false);
+  });
 });
 
 describe("states: Steam Workshop", () => {

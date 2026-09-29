@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import {
@@ -43,6 +43,7 @@ import {
   getRunningVersionNote,
   getStateHintKey,
   getSteamListingNotice,
+  leavesLifecycleToHost,
   needsRestartAfterLocalSwitch,
   type RestartWarning,
   resolveStateActions,
@@ -97,6 +98,15 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
   const [switchTarget, setSwitchTarget] = useState<DeliveryMethod | null>(null)
   const [checksumOpen, setChecksumOpen] = useState(false)
   const [pending, setPending] = useState<PendingAction | null>(null)
+  // The server whose status is on screen now. /server/restart acts on
+  // whatever is active and takes no id, and the restart prompt is app-level:
+  // if the active server changes while it is open (another tab, another
+  // admin), the hook drops this status and loads the new server's, and
+  // confirming must not restart a server the prompt never named.
+  const shownServerIdRef = useRef<string | null>(status?.serverId ?? null)
+  useEffect(() => {
+    shownServerIdRef.current = status?.serverId ?? null
+  }, [status?.serverId])
 
   if (!canView) return null
 
@@ -177,6 +187,10 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
             variant: 'warning',
           })
           if (!confirmed) return
+          if (shownServerIdRef.current !== status.serverId) {
+            toast({ title: t('toast.restartSkipped', { server: status.serverName }), variant: 'warning' })
+            return
+          }
           await runAction(action, () => serverApi.restart(warning.minutes), t('toast.restartStarted'), t('toast.actionFailed'))
         })()
         return
@@ -294,6 +308,11 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
             </div>
           )}
           {view.causesKey && <p className="text-xs text-muted-foreground">{t(view.causesKey)}</p>}
+          {leavesLifecycleToHost(s) && (
+            <p className="text-xs text-muted-foreground" data-testid="bridge-delivery-remote-lifecycle">
+              {t('action.remoteLifecycleNote')}
+            </p>
+          )}
           {renderActions(resolveStateActions(s))}
         </AlertDescription>
       </Alert>

@@ -57,6 +57,10 @@ export interface DeliveryStatus {
   ownMethod: DeliveryMethod
   state: DeliveryState
   access: 'automatic' | 'guided'
+  // A remote (RCON/SFTP) profile: the panel doesn't start or restart its
+  // process (/server/start and /server/restart refuse it), whatever
+  // serverRunning says. Not implied by guided access.
+  remote: boolean
   hostOs: 'windows' | 'linux' | 'unknown'
   sharedWith: Array<{ id: string; name: string }>
   switch: DeliverySwitchRecord | null

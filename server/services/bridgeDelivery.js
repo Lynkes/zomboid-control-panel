@@ -895,6 +895,11 @@ async function statusFromContext(ctx) {
     ownMethod: ctx.ownMethod,
     state,
     access,
+    // A remote profile's process isn't the panel's: /server/start and
+    // /server/restart refuse it (SERVER_*_REMOTE_REFUSED), so the block
+    // offers neither. Not the same as guided access -- a Docker server
+    // without a host mount is guided, and the panel still starts it.
+    remote: server.isRemote === true,
     hostOs: ctx.hostOs,
     sharedWith: ctx.sharedWith,
     switch: ctx.switchRecord,

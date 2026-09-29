@@ -65,10 +65,12 @@ function renderPanel(
   return renderPanelOnly(props)
 }
 
+type PanelProps = { playerCount?: number | null; activeServerId?: string | null; iniFileName?: string | null }
+
 // Same providers as the app (App.tsx): the block's restart asks through
 // the app-wide ConfirmProvider.
-function renderPanelOnly(props: { playerCount?: number | null; activeServerId?: string | null; iniFileName?: string | null } = {}) {
-  return render(
+function panelTree(props: PanelProps = {}) {
+  return (
     <MemoryRouter>
       <TooltipProvider>
         <ConfirmProvider>
@@ -79,8 +81,12 @@ function renderPanelOnly(props: { playerCount?: number | null; activeServerId?: 
           />
         </ConfirmProvider>
       </TooltipProvider>
-    </MemoryRouter>,
+    </MemoryRouter>
   )
+}
+
+function renderPanelOnly(props: PanelProps = {}) {
+  return render(panelTree(props))
 }
 
 async function panelReady() {
@@ -613,6 +619,28 @@ describe('BridgeDeliveryPanel: "Restart now" asks first', () => {
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
     expect(restart).not.toHaveBeenCalled()
   })
+
+  // /server/restart takes no id and restarts whatever is active. The prompt
+  // is app-level and stays open while another admin activates a different
+  // server; confirming it then must not restart that one -- here with no
+  // warning at all, since the prompt was built for an empty server.
+  it('confirming after the active server changed restarts nothing', async () => {
+    restart.mockResolvedValue({})
+    const { rerender } = renderPanel(makeWorkshopStatus({ state: 'workshop-restart-needed' }), { playerCount: 0 })
+    await panelReady()
+    const dialog = await clickRestart()
+    expect(within(dialog).getByText(en.confirmRestart.nobodyOnline)).toBeInTheDocument()
+    getDelivery.mockResolvedValue(makeLocalStatus({ serverId: 'srv-2', serverName: 'Other Server' }))
+    rerender(panelTree({ activeServerId: 'srv-2', playerCount: 0 }))
+    await screen.findByText(en.appliesTo.replace('{{server}}', 'Other Server'))
+    fireEvent.click(within(dialog).getByRole('button', { name: en.confirmRestart.confirm }))
+    await waitFor(() =>
+      expect(toastMock).toHaveBeenCalledWith(
+        expect.objectContaining({ title: en.toast.restartSkipped.replace('{{server}}', 'Main Server'), variant: 'warning' }),
+      ),
+    )
+    expect(restart).not.toHaveBeenCalled()
+  })
 })
 
 describe('BridgeDeliveryPanel: start, install, and loading the status', () => {
@@ -729,6 +757,42 @@ describe('BridgeDeliveryPanel: guided access (remote / hosted)', () => {
     expect(within(steps).getByText(en.guided.keepChecksumOff)).toBeInTheDocument()
     // Unknown lifecycle on a remote host: no start/restart buttons.
     expect(screen.queryByRole('button', { name: en.action.restartNow })).toBeNull()
+  })
+
+  // What the server really sends for a remote profile: serverRunning is a
+  // plain boolean (RCON / the bridge), and /server/restart and /server/start
+  // answer SERVER_*_REMOTE_REFUSED. No button that can only fail; the block
+  // says where the restart happens instead.
+  it('a remote server gets no Restart now or Start server, and is told where to do it', async () => {
+    const remote = makeWorkshopStatus({
+      access: 'guided',
+      disk: null,
+      remote: true,
+      hostOs: 'unknown',
+      state: 'workshop-restart-needed',
+      restartedSinceSwitch: false,
+      serverRunning: true,
+      checksum: { current: null, canTurnOn: false, turnOnBlockers: ['notConfirmed'], playersBlocked: false, requiresLinuxAck: true },
+    })
+    renderPanel(remote, { playerCount: 0 })
+    await panelReady()
+    const callout = document.querySelector('[data-state="workshop-restart-needed"]') as HTMLElement
+    expect(within(callout).queryByRole('button', { name: en.action.restartNow })).toBeNull()
+    expect(within(callout).getByTestId('bridge-delivery-remote-lifecycle')).toHaveTextContent(en.action.remoteLifecycleNote)
+    cleanup()
+
+    renderPanel({ ...remote, state: 'workshop-stopped', serverRunning: false, live: null })
+    await panelReady()
+    expect(screen.queryByRole('button', { name: en.action.startServer })).toBeNull()
+    expect(screen.getByTestId('bridge-delivery-remote-lifecycle')).toBeInTheDocument()
+    cleanup()
+
+    // A guided server the panel does run (Docker without a host mount)
+    // keeps its button and gets no note.
+    renderPanel({ ...remote, remote: false, hostOs: 'linux' }, { playerCount: 0 })
+    await panelReady()
+    expect(screen.getByRole('button', { name: en.action.restartNow })).toBeInTheDocument()
+    expect(screen.queryByTestId('bridge-delivery-remote-lifecycle')).toBeNull()
   })
 
   it("doesn't name an .ini from the page's server list when that list disagrees with the status", async () => {

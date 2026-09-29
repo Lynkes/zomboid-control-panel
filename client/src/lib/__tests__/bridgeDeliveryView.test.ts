@@ -26,6 +26,7 @@ import {
   isBridgeManagedMod,
   isDeliveryPlanResponse,
   isDeliveryStatus,
+  leavesLifecycleToHost,
   needsRestartAfterLocalSwitch,
   resolveLuaChecksumCallout,
   resolveStateActions,
@@ -134,6 +135,39 @@ describe('resolveStateActions: lifecycle and option-card de-duplication only, no
     expect(resolveStateActions({ ...base, serverRunning: true })).toEqual(['restartNow'])
     expect(resolveStateActions({ ...base, serverRunning: false })).toEqual(['startServer'])
     expect(resolveStateActions({ ...base, serverRunning: null })).toEqual([])
+  })
+
+  // What the server really sends for a remote (SFTP/hosted) profile: guided,
+  // and serverRunning a plain boolean from RCON / the bridge. /server/start
+  // and /server/restart refuse it, so neither button is offered, and the
+  // block says where the start/restart happens instead.
+  it('a remote server gets no start or restart, whatever serverRunning says', () => {
+    const remote = makeWorkshopStatus({ access: 'guided', disk: null, remote: true, state: 'workshop-restart-needed', restartedSinceSwitch: false })
+    expect(resolveStateActions({ ...remote, serverRunning: true })).toEqual([])
+    expect(leavesLifecycleToHost({ ...remote, serverRunning: true })).toBe(true)
+    expect(resolveStateActions({ ...remote, state: 'workshop-stopped', serverRunning: false })).toEqual([])
+    expect(leavesLifecycleToHost({ ...remote, state: 'workshop-stopped', serverRunning: false })).toBe(true)
+    expect(resolveStateActions({ ...remote, state: 'workshop-not-loaded', serverRunning: true })).toEqual([])
+    // The restart a guided switch back to panel-installed still needs.
+    const switchedBack = makeLocalStatus({
+      access: 'guided',
+      disk: null,
+      remote: true,
+      switch: { to: 'local', at: '2026-10-02T10:00:00.000Z', by: 'admin', bridgeStartedAt: 1, workshopId: null },
+      restartedSinceSwitch: false,
+    })
+    expect(needsRestartAfterLocalSwitch(switchedBack)).toBe(true)
+    expect(resolveStateActions(switchedBack)).toEqual([])
+    expect(leavesLifecycleToHost(switchedBack)).toBe(true)
+    // Nothing to start or restart: no note either.
+    expect(leavesLifecycleToHost({ ...remote, state: 'workshop-confirmed' })).toBe(false)
+    expect(leavesLifecycleToHost({ ...remote, serverRunning: null })).toBe(false)
+    // Guided alone isn't remote: a Docker server without a host mount is
+    // still started and restarted by the panel.
+    const guidedLocalHost = { ...remote, remote: false, serverRunning: true }
+    expect(resolveStateActions(guidedLocalHost)).toEqual(['restartNow'])
+    expect(leavesLifecycleToHost(guidedLocalHost)).toBe(false)
+    expect(resolveStateActions({ ...guidedLocalHost, state: 'workshop-stopped', serverRunning: false })).toEqual(['startServer'])
   })
 
   it('drops a switch the other option card already offers', () => {

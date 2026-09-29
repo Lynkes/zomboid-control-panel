@@ -152,7 +152,8 @@
     "copied": "已复制",
     "copyValueAria": "复制 {{value}}",
     "copyFailed": "无法复制。请选中文本后自行复制。",
-    "restartWarningNote": "在线玩家会先收到 5 分钟的警告。"
+    "restartWarningNote": "在线玩家会先收到 5 分钟的警告。",
+    "remoteLifecycleNote": "面板无法启动或重启远程服务器，需在托管该服务器的地方操作。"
   },
   "confirmRestart": {
     "title": "重启 {{server}}？",
@@ -253,7 +254,8 @@
     "checksumFailed": "无法更改 DoLuaChecksum",
     "restartStarted": "已请求重启",
     "startStarted": "已请求启动",
-    "actionFailed": "无法完成此操作"
+    "actionFailed": "无法完成此操作",
+    "restartSkipped": "{{server}} 已不是活动服务器，因此未重启任何服务器。"
   },
   "setupNote": {
     "workshop": "此服务器从 Steam 创意工坊获取 PanelBridge，因此无需上传任何文件。在上方的「PanelBridge 安装方式」确认切换之前，请保持 DoLuaChecksum=false。",

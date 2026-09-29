@@ -152,7 +152,8 @@
     "copied": "تم النسخ",
     "copyValueAria": "نسخ {{value}}",
     "copyFailed": "تعذّر النسخ. حدّد النص وانسخه بنفسك.",
-    "restartWarningNote": "يتلقى اللاعبون المتصلون تحذيرًا قبل 5 دقائق."
+    "restartWarningNote": "يتلقى اللاعبون المتصلون تحذيرًا قبل 5 دقائق.",
+    "remoteLifecycleNote": "لا تستطيع اللوحة تشغيل خادم بعيد أو إعادة تشغيله. افعل ذلك من المكان الذي يُستضاف فيه الخادم."
   },
   "confirmRestart": {
     "title": "إعادة تشغيل {{server}}؟",
@@ -253,7 +254,8 @@
     "checksumFailed": "تعذّر تغيير DoLuaChecksum",
     "restartStarted": "طُلبت إعادة التشغيل",
     "startStarted": "طُلب التشغيل",
-    "actionFailed": "تعذّر إكمال هذا الإجراء"
+    "actionFailed": "تعذّر إكمال هذا الإجراء",
+    "restartSkipped": "لم يعد {{server}} هو الخادم النشط، لذا لم يُعَد تشغيل أي خادم."
   },
   "setupNote": {
     "workshop": "يحصل هذا الخادم على PanelBridge من ورشة Steam، لذا لا يوجد ما يُرفع. أبقِ DoLuaChecksum=false حتى يؤكد قسم «طريقة تثبيت PanelBridge» أعلاه التبديل.",

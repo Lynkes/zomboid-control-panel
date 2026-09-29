@@ -152,7 +152,8 @@
     "copied": "Copiado",
     "copyValueAria": "Copiar {{value}}",
     "copyFailed": "Não foi possível copiar. Selecione o texto e copie você mesmo.",
-    "restartWarningNote": "Os jogadores online recebem antes um aviso de 5 minutos."
+    "restartWarningNote": "Os jogadores online recebem antes um aviso de 5 minutos.",
+    "remoteLifecycleNote": "O painel não pode iniciar nem reiniciar um servidor remoto. Faça isso onde o servidor está hospedado."
   },
   "confirmRestart": {
     "title": "Reiniciar {{server}}?",
@@ -253,7 +254,8 @@
     "checksumFailed": "Não foi possível alterar DoLuaChecksum",
     "restartStarted": "Reinício solicitado",
     "startStarted": "Inicialização solicitada",
-    "actionFailed": "Não foi possível concluir essa ação"
+    "actionFailed": "Não foi possível concluir essa ação",
+    "restartSkipped": "O servidor {{server}} não é mais o servidor ativo, então nada foi reiniciado."
   },
   "setupNote": {
     "workshop": "Este servidor recebe o PanelBridge da Workshop da Steam, então não há nada para enviar. Mantenha DoLuaChecksum=false até “Como o PanelBridge é instalado”, acima, confirmar a mudança.",

@@ -483,6 +483,7 @@ export function getDemoBridgeDelivery(): DeliveryStatus {
     ownMethod: 'local',
     state: 'local-ok',
     access: 'automatic',
+    remote: false,
     hostOs: 'linux',
     sharedWith: [],
     switch: null,

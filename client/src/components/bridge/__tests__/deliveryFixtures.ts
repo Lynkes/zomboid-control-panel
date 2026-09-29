@@ -14,6 +14,7 @@ export function makeLocalStatus(overrides: Partial<DeliveryStatus> = {}): Delive
     ownMethod: 'local',
     state: 'local-ok',
     access: 'automatic',
+    remote: false,
     hostOs: 'windows',
     sharedWith: [],
     switch: null,
