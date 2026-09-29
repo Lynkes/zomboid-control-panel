@@ -144,6 +144,7 @@ Visual map selector for reclaiming disk space from an aging save. Delete individ
 - [Quick Start](#quick-start)
 - [Setup](#setup)
 - [PanelBridge](#panelbridge-optional)
+  - [PanelBridge on the Steam Workshop](#panelbridge-on-the-steam-workshop)
 - [Remote Access](#remote-access)
 - [Security](#security)
 - [Development](#development)
@@ -265,12 +266,38 @@ PanelBridge is a server-side Lua mod that enables features RCON can't reach — 
 
 It can reach your server in two ways. Choose one per server under **Settings → PanelBridge → How PanelBridge is installed**. The choice covers every server profile that uses the same game folder.
 
-- **Installed by the panel** (the default). The panel copies `PanelBridge.lua` into the server's `Install/media/lua/server/` folder and brings it up to date before every start. It works with servers that launch without Steam, and players download nothing. The drawback is the Lua integrity check: players can only join while `DoLuaChecksum=false` is set in the server INI, so the server doesn't compare players' Lua, script and animation files with its own (#168). Hosted and SFTP servers need a manual re-upload of `PanelBridge.lua` after each panel update.
-- **Steam Workshop** (Build 42 servers running in Steam mode). The server downloads the "Zomboid Control Panel Bridge" Workshop item when it starts, and players install it with one click when they join. The server INI needs two entries, `ZCPB` in `Mods=` and the item's ID in `WorkshopItems=`. The panel adds them when it can reach the server's files. For other servers it lists them for you to add. This turns the Lua integrity check back on: players whose Lua, script or animation files differ from the server's are refused. It doesn't stop modified game clients, and admin accounts skip this check. The drawbacks: after each PanelBridge update on the Workshop, new players can't join until the server restarts, and if Steam can't deliver PanelBridge, the server won't start. You can switch back to panel-installed at any time.
+| | **Installed by the panel** (default) | **Steam Workshop** (new in 1.4.0, Preview) |
+| --- | --- | --- |
+| How it gets there | The panel copies `PanelBridge.lua` into the game folder before every start | The server downloads it from the Workshop when it starts |
+| `DoLuaChecksum` | Must stay `false` | Can be turned back on |
+| Players | Download nothing | Get a one-click install prompt when they join |
+| Servers without Steam (`-nosteam`) | Work | Not supported |
+| Hosted / SFTP servers | Re-upload `PanelBridge.lua` after each panel update | Two INI entries, nothing to upload |
+| After a PanelBridge update | Nothing to do | New players can't join until the server restarts |
 
-The panel never turns `DoLuaChecksum` on by itself. Once the server reports that it loaded PanelBridge from the Workshop and no old PanelBridge files are left in the game folder, Settings → PanelBridge offers to turn it on. Test that with a normal player account, not an admin.
+#### PanelBridge on the Steam Workshop
 
-The Steam Workshop option reads "Not available yet" until a panel release carries the Workshop item's ID, which ships with each release and is never fetched from the network. It is marked **Preview** until the maintainer has verified it on live Windows and Linux servers.
+**What it is:** the same PanelBridge, published as the Workshop item [Zomboid Control Panel Bridge](https://steamcommunity.com/sharedfiles/filedetails/?id=3809901056) (mod id `ZCPB`, Build 42). Players get it the same way as any other server mod.
+
+**Why use it:** with the panel-installed bridge, `DoLuaChecksum` has to stay off, so the server doesn't compare players' Lua, script and animation files with its own (#168). From the Workshop, the check can go back on and players with different Lua files are refused. It doesn't stop modified game clients, and admin accounts skip the check.
+
+**Switch a server to it:**
+
+1. Open **Settings → PanelBridge** and click **Switch to Steam Workshop**.
+2. Review the preview. It adds `ZCPB` to `Mods=` and the item ID to `WorkshopItems=`, backs up the INI, and moves the old `PanelBridge.lua` out of the game folder. If a step fails, everything is put back.
+3. Click **Switch and restart now** (**Switch and start the server** if it's stopped, or **Switch, restart later**). The block reads *Confirmed: Loaded from the Steam Workshop: v…* once the bridge reports in.
+4. Optional: click **Turn on the Lua integrity check…**, restart, then join with a **normal player account**. An admin getting in proves nothing, because admins skip the check.
+
+On hosted or SFTP servers the panel can't edit files, so the preview lists the two INI entries and the files to delete. Make the changes in your host's file manager, click **I've made these changes**, then restart the server from your host. The panel confirms once the bridge reports in.
+
+**Good to know:**
+
+- The server must run in Steam mode. The switch is unavailable while it launches with `-nosteam`, and the panel warns if a launch script that starts Java itself leaves out `-Dzomboid.steam=1`.
+- After each PanelBridge update on the Workshop, new players can't join until the server restarts. Turn on automatic restarts in **Settings › Mods & Workshop** to handle this.
+- If Steam can't deliver the item, the server won't start. Click **Switch to panel-installed and start**, then **Switch and start the server** in the preview, to get it running again.
+- Switching back to panel-installed reinstalls the file, removes both INI entries and turns `DoLuaChecksum` off again.
+- On players' computers the mod only answers teleports from that server's admins, and it does nothing in single player.
+- The panel never turns `DoLuaChecksum` on by itself, and the option stays marked **Preview** until it has been verified with real players on Windows and Linux servers.
 
 For a remote server without a shared filesystem, use the **Remote server via
 SFTP** option in the same panel, whichever way PanelBridge is installed. It
