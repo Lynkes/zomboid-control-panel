@@ -82,6 +82,7 @@
     "nextRun": "下次备份：{{date}}",
     "timezoneNotice": "计划时间按面板时区 {{tz}} 计算（可在“计划任务”中更改）。",
     "scheduledBackupsOff": "计划备份已关闭——开启后才会按此计划运行。",
+    "bothDayFieldsNote": "日期和星期必须同时匹配：只在同时满足两者的日子备份，而不是满足其一即可。",
     "savesLabel": "存档：{{path}}",
     "saveButton": "保存设置"
   },

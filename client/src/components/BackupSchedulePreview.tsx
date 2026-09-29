@@ -100,6 +100,11 @@ export function BackupScheduleNextRun({
         </p>
       )}
       {backupsEnabled === false && <p>{t('settingsPanel.scheduledBackupsOff')}</p>}
+      {/* Classic cron runs "0 4 1 * 1" on the 1st OR a Monday; node-cron,
+          which fires the job, only on a 1st that IS a Monday. The date
+          above is already node-cron's -- this says why it may be months
+          away. */}
+      {check.bothDayFieldsRestricted && <p>{t('settingsPanel.bothDayFieldsNote')}</p>}
       <p>{t('settingsPanel.timezoneNotice', { tz: check.timezone })}</p>
     </div>
   )

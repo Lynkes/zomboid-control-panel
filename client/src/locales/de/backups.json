@@ -82,6 +82,7 @@
     "nextRun": "Nächstes Backup: {{date}}",
     "timezoneNotice": "Die Zeiten gelten in der Zeitzone des Panels, {{tz}} (änderbar unter Geplante Aufgaben).",
     "scheduledBackupsOff": "Geplante Backups sind aus – dieser Zeitplan gilt, sobald du sie einschaltest.",
+    "bothDayFieldsNote": "Tag des Monats und Wochentag müssen beide passen: Backups laufen nur an Tagen, die beides erfüllen, nicht nur eines davon.",
     "savesLabel": "Spielstände: {{path}}",
     "saveButton": "Einstellungen speichern"
   },

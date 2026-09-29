@@ -3393,6 +3393,10 @@ export type BackupScheduleValidation =
   | {
       valid: true;
       nextRun: string | null;
+      // Both the day-of-month and the weekday are restricted ("0 4 1 * 1"):
+      // node-cron runs it only on days matching BOTH, not either as in
+      // classic cron. Absent from a server older than 1.4.0.
+      bothDayFieldsRestricted?: boolean;
       timezone: string;
       restartOverlaps: BackupRestartOverlap[];
     }

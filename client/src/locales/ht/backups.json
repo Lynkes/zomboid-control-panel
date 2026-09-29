@@ -82,6 +82,7 @@
     "nextRun": "Pwochen kopi sovgad: {{date}}",
     "timezoneNotice": "Lè yo nan orè a swiv fizo orè panèl la, {{tz}} (ou ka chanje l nan Tach Pwograme).",
     "scheduledBackupsOff": "Kopi sovgad pwograme yo dezaktive — orè sa a ap aplike depi ou aktive yo.",
+    "bothDayFieldsNote": "Jou nan mwa a ak jou nan semèn nan dwe koresponn toude: kopi sovgad yo fèt sèlman jou ki satisfè toude, pa sèlman youn ladan yo.",
     "savesLabel": "Sovgad: {{path}}",
     "saveButton": "Sove Paramèt"
   },

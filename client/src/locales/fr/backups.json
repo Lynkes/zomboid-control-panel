@@ -83,6 +83,7 @@
     "nextRun": "Prochaine sauvegarde : {{date}}",
     "timezoneNotice": "Les horaires suivent le fuseau horaire du panneau, {{tz}} (modifiable dans Tâches planifiées).",
     "scheduledBackupsOff": "Les sauvegardes planifiées sont désactivées — cette planification s'appliquera dès que vous les activerez.",
+    "bothDayFieldsNote": "Le jour du mois et le jour de la semaine doivent correspondre tous les deux : les sauvegardes ne s'exécutent que les jours qui remplissent les deux conditions, pas l'une ou l'autre.",
     "savesLabel": "Sauvegardes de jeu : {{path}}",
     "saveButton": "Enregistrer les paramètres"
   },

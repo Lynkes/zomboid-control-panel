@@ -38,10 +38,11 @@ describe("computeNextRun", () => {
     expect(computeNextRun("0 0 1 * *", "UTC", FROM)).toBe("2026-10-01T00:00:00.000Z");
   });
 
-  it("combines day-of-month and day-of-week with cron's own OR rule when both are restricted", () => {
-    // "15th or Monday" -- from a Friday, the next Monday (2026-09-21) comes
-    // before the next 15th (2026-10-15), so Monday wins.
-    expect(computeNextRun("0 9 15 * 1", "UTC", FROM)).toBe("2026-09-21T09:00:00.000Z");
+  it("requires day-of-month AND day-of-week when both are restricted -- node-cron's rule, not classic cron's OR", () => {
+    // node-cron 4 (which fires every job) ANDs the two day fields: "the
+    // 15th, when it is a Monday" -- 2027-02-15, not the Monday 2026-09-21
+    // classic cron's "15th or Monday" would give.
+    expect(computeNextRun("0 9 15 * 1", "UTC", FROM)).toBe("2027-02-15T09:00:00.000Z");
   });
 
   it("returns null for an unsupported field count", () => {

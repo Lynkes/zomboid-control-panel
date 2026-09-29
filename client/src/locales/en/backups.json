@@ -82,6 +82,7 @@
     "nextRun": "Next backup: {{date}}",
     "timezoneNotice": "Schedule times are in the panel's timezone, {{tz}} (change it under Scheduled Tasks).",
     "scheduledBackupsOff": "Scheduled backups are off — this schedule takes effect once you turn them on.",
+    "bothDayFieldsNote": "Day of month and weekday must both match: backups run only on days that satisfy both, not either one.",
     "savesLabel": "Saves: {{path}}",
     "saveButton": "Save Settings"
   },

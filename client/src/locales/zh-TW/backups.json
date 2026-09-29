@@ -82,6 +82,7 @@
     "nextRun": "下次備份：{{date}}",
     "timezoneNotice": "排程時間依面板時區 {{tz}} 計算（可在「排程任務」中變更）。",
     "scheduledBackupsOff": "排程備份已關閉——開啟後才會依此排程執行。",
+    "bothDayFieldsNote": "日期與星期必須同時符合：只在同時滿足兩者的日子備份，而非符合其一即可。",
     "savesLabel": "存檔：{{path}}",
     "saveButton": "儲存設定"
   },

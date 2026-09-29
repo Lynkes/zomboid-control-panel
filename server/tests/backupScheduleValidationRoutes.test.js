@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
 
 // 2026-09-27 community request: a "Custom (cron expression)" option on the
@@ -121,6 +121,73 @@ describe("POST /backup/validate-schedule", () => {
     expect(res.getStatusCode()).toBe(200);
     expect(res.getBody()).toEqual(expect.objectContaining({ valid: false, code }));
     expect(services.scheduler.getBackupRestartOverlaps).not.toHaveBeenCalled();
+  });
+});
+
+// 1.4.0 pre-release bug round: the preview's "Next backup" came from the
+// panel's own calculation, which applied classic cron's "day-of-month OR
+// weekday" rule -- node-cron, which fires the job, requires BOTH. And a
+// wrap-around range ("22-2") node-cron runs fine was refused as "more often
+// than every 5 minutes".
+describe("POST /backup/validate-schedule -- node-cron's reading of the schedule", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const at = (iso) => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(iso));
+  };
+
+  it.each([
+    // [schedule, node-cron's first run from 2026-09-28 12:00 UTC]
+    ["0 4 1 * 1", "2027-02-01T04:00:00.000Z"], // a 1st that is a Monday, not Oct 1
+    ["0 4 1-7 * 1", "2026-10-05T04:00:00.000Z"], // first Monday, not Oct 1
+    ["0 4 13 * 5", "2026-11-13T04:00:00.000Z"], // Friday the 13th, not Oct 2
+  ])("%s: next backup %s, flagged as restricting both day fields", async (schedule, nextRun) => {
+    at("2026-09-28T12:00:00Z");
+    const res = await runRoute("/validate-schedule", "post", request({ schedule }));
+
+    expect(res.getBody()).toEqual(
+      expect.objectContaining({ valid: true, nextRun, bothDayFieldsRestricted: true }),
+    );
+  });
+
+  it("does not flag a schedule restricting only one day field", async () => {
+    at("2026-09-28T12:00:00Z");
+    const res = await runRoute("/validate-schedule", "post", request({ schedule: "0 4 * * MON" }));
+
+    expect(res.getBody()).toEqual(
+      expect.objectContaining({
+        valid: true,
+        nextRun: "2026-10-05T04:00:00.000Z",
+        bothDayFieldsRestricted: false,
+      }),
+    );
+  });
+
+  it("accepts a wrap-around hour range as the hourly schedule it is -- preview and save", async () => {
+    at("2026-09-28T12:00:00Z");
+    const preview = await runRoute(
+      "/validate-schedule",
+      "post",
+      request({ schedule: "0 22-2 * * *" }),
+    );
+    expect(preview.getBody()).toEqual(
+      expect.objectContaining({ valid: true, nextRun: "2026-09-28T22:00:00.000Z" }),
+    );
+
+    const save = await runRoute("/settings", "post", request({ schedule: "0 22-2 * * *" }));
+    expect(save.getStatusCode()).toBe(200);
+    expect(services.backupService.updateSettings).toHaveBeenCalledWith({ schedule: "0 22-2 * * *" });
+  });
+
+  it("still refuses a wrap-around range that really is too frequent", async () => {
+    const res = await runRoute("/validate-schedule", "post", request({ schedule: "50-2 * * * *" }));
+
+    expect(res.getBody()).toEqual(
+      expect.objectContaining({ valid: false, code: "BACKUP_SCHEDULE_TOO_FREQUENT" }),
+    );
   });
 });
 

@@ -22,7 +22,7 @@ import {
   hasUnsupportedCronFieldCount,
   isCronTooFrequent,
 } from "../utils/cronValidation.js";
-import { computeNextRun } from "../utils/cronNextRun.js";
+import { nodeCronNextRun, restrictsBothDayFields } from "../utils/cronNextRun.js";
 import { parseClampedInteger } from "../utils/queryNumbers.js";
 import {
   streamUploadToFile,
@@ -326,7 +326,12 @@ router.post("/settings", requirePermission("backups.manage"), async (req, res) =
 // backups.manage rather than reusing /api/scheduler/validate-cron: that
 // router requires automation.manage, which a backups-only role lacks.
 // nextRun is computed in the scheduler's own timezone, like every backup
-// the job actually fires.
+// the job actually fires -- and by node-cron itself, the engine that fires
+// it, not the panel's own calculation: that one applied classic cron's
+// "day-of-month OR weekday" rule, so "0 4 1 * 1" previewed as the next 1st
+// while node-cron (which requires BOTH) ran it only on a 1st that is a
+// Monday, months later. bothDayFieldsRestricted lets the page say so for
+// the schedules where that rule matters.
 router.post("/validate-schedule", requirePermission("backups.manage"), async (req, res) => {
   try {
     const schedule = req.body?.schedule;
@@ -339,7 +344,8 @@ router.post("/validate-schedule", requirePermission("backups.manage"), async (re
     const trimmed = schedule.trim();
     res.json({
       valid: true,
-      nextRun: computeNextRun(trimmed, timezone),
+      nextRun: nodeCronNextRun(trimmed, timezone),
+      bothDayFieldsRestricted: restrictsBothDayFields(trimmed),
       timezone,
       restartOverlaps: await getRestartOverlaps(req, scheduler, trimmed),
     });

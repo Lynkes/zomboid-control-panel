@@ -83,6 +83,7 @@
     "nextRun": "Próximo backup: {{date}}",
     "timezoneNotice": "Os horários do agendamento usam o fuso horário do painel, {{tz}} (altere em Tarefas agendadas).",
     "scheduledBackupsOff": "Os backups agendados estão desativados — este agendamento passa a valer quando você ativá-los.",
+    "bothDayFieldsNote": "O dia do mês e o dia da semana precisam coincidir ao mesmo tempo: os backups só rodam nos dias que atendem aos dois, não a apenas um deles.",
     "savesLabel": "Saves: {{path}}",
     "saveButton": "Salvar configurações"
   },

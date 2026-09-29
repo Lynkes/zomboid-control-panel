@@ -83,6 +83,7 @@
     "nextRun": "Próxima copia de seguridad: {{date}}",
     "timezoneNotice": "Los horarios usan la zona horaria del panel, {{tz}} (se cambia en Tareas programadas).",
     "scheduledBackupsOff": "Las copias de seguridad programadas están desactivadas: esta programación se aplicará en cuanto las actives.",
+    "bothDayFieldsNote": "El día del mes y el día de la semana deben coincidir a la vez: las copias de seguridad solo se ejecutan los días que cumplen ambos, no uno solo.",
     "savesLabel": "Partidas guardadas: {{path}}",
     "saveButton": "Guardar ajustes"
   },

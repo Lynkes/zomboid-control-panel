@@ -70,9 +70,8 @@ function parseDaySchedule(expression) {
 // fire: month, day-of-month and day-of-week must ALL match (TimeMatcher.match
 // in node-cron 4.x ANDs them; a "*" field expands to every value, so it
 // never excludes a day). That is NOT the classic cron rule, where two
-// restricted day fields match if EITHER does -- computeNextRun() still
-// applies that one, a separate pre-existing divergence that only differs
-// for a schedule restricting both fields ("0 4 1 * 1"). Both schedules run
+// restricted day fields match if EITHER does; computeNextRun() applies the
+// same AND rule as this, so the two agree on "0 4 1 * 1". Both schedules run
 // in the same scheduler timezone, so comparing LOCAL wall-clock dates is
 // exactly the question -- the weekday of a local calendar date is plain
 // Gregorian arithmetic, no zone lookup needed.
