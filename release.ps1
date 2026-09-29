@@ -246,6 +246,25 @@ function Get-ChangelogSection($changelogPath, $version) {
     return $match.Groups[1].Value.Trim("`r", "`n")
 }
 
+# Generated release notes reach gh as a file (--notes-file), never inline with
+# --notes. Windows caps a whole command line at 32,767 characters, and one
+# CHANGELOG section can come close on its own (1.4.0's is about 28K). Past the
+# cap gh cannot even start, and by then step 5 has already pushed main.
+function Write-GeneratedReleaseNotes($notes, $tagName) {
+    $notesPath = Join-Path ([System.IO.Path]::GetTempPath()) "zcp-$tagName-notes-$([guid]::NewGuid().ToString('N')).md"
+    [System.IO.File]::WriteAllText($notesPath, $notes, [System.Text.UTF8Encoding]::new($false))
+    return $notesPath
+}
+
+# One line that runs the same command again when pasted into PowerShell.
+function Format-PowerShellCommandLine($command, $arguments) {
+    $parts = @($command) + @($arguments | ForEach-Object {
+        $text = [string]$_
+        if ($text -eq "" -or $text -match '[\s''"`$;&|(){}@,<>#]') { "'" + ($text -replace "'", "''") + "'" } else { $text }
+    })
+    return $parts -join " "
+}
+
 # ============================================
 # AUTO-VERSION: Increment from current package.json if no -Version given
 # ============================================
@@ -825,6 +844,7 @@ if ($SkipGitHub) {
 # ============================================
 Write-Step "6/6" "Creating GitHub Release $TagName"
 
+$githubReleaseFailed = $false
 if ($SkipGitHub) {
     Write-Skip "GitHub release skipped (-SkipGitHub)"
 } elseif ($DryRun) {
@@ -860,7 +880,8 @@ if ($SkipGitHub) {
         "--target", $releaseCommit
     )
 
-    # Add release notes
+    # Add release notes, always as a file (see Write-GeneratedReleaseNotes)
+    $generatedNotesFile = $null
     if ($ReleaseNotes -and (Test-Path $ReleaseNotes)) {
         $ghArgs += "--notes-file"
         $ghArgs += $ReleaseNotes
@@ -882,8 +903,9 @@ if ($SkipGitHub) {
             if ($lastTag -and $lastTag -ne $TagName) {
                 $autoNotes += "`n**Full Changelog**: https://github.com/$GitHubRepo/compare/$lastTag...$TagName`n"
             }
-            $ghArgs += "--notes"
-            $ghArgs += $autoNotes
+            $generatedNotesFile = Write-GeneratedReleaseNotes $autoNotes $TagName
+            $ghArgs += "--notes-file"
+            $ghArgs += $generatedNotesFile
         } elseif ($lastTag -and $lastTag -ne $TagName) {
             # Fallback: CHANGELOG.md has no section for this version (STEP 0
             # normally prevents this) -- auto-generate Keep a Changelog format
@@ -961,8 +983,9 @@ if ($SkipGitHub) {
             $autoNotes += "- **ZomboidControlPanel-windows.zip** $emdash Windows full package (extract and run Start.bat)`n"
             $autoNotes += "- **ZomboidControlPanel-linux.tar.gz** $emdash Linux full package (extract and run ./start.sh)`n"
             $autoNotes += "- **checksums.txt** $emdash SHA256 verification hashes`n"
-            $ghArgs += "--notes"
-            $ghArgs += $autoNotes
+            $generatedNotesFile = Write-GeneratedReleaseNotes $autoNotes $TagName
+            $ghArgs += "--notes-file"
+            $ghArgs += $generatedNotesFile
         } else {
             $ghArgs += "--generate-notes"
         }
@@ -971,12 +994,30 @@ if ($SkipGitHub) {
     # Add release assets
     $ghArgs += $assetPaths
 
-    & gh @ghArgs
+    # main is already pushed at this point, so a failure here has to end in
+    # the exact command that finishes the release. A gh that can't start (not
+    # installed, or a command line Windows refuses) throws under
+    # ErrorActionPreference=Stop instead of setting $LASTEXITCODE.
+    $ghFailure = $null
+    try {
+        & gh @ghArgs
+        if ($LASTEXITCODE -ne 0) { $ghFailure = "gh exited with code $LASTEXITCODE" }
+    } catch {
+        $ghFailure = $_.Exception.Message
+    }
 
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "GitHub release creation failed. You can retry with:"
-        Write-Host "  gh release create $TagName --repo $GitHubRepo --title `"$ReleaseTitle`" --prerelease <asset paths>" -ForegroundColor Yellow
+    if ($ghFailure) {
+        $githubReleaseFailed = $true
+        Write-Warning "GitHub release creation failed: $ghFailure"
+        Write-Host "  main already has the release commit. Create the release with:" -ForegroundColor Yellow
+        Write-Host "  $(Format-PowerShellCommandLine 'gh' $ghArgs)" -ForegroundColor Yellow
+        if ($generatedNotesFile) {
+            Write-Host "  (the release notes stay in $generatedNotesFile for that command)" -ForegroundColor Yellow
+        }
     } else {
+        if ($generatedNotesFile) {
+            Remove-Item -LiteralPath $generatedNotesFile -Force -ErrorAction SilentlyContinue
+        }
         Write-Ok "GitHub Release $TagName created with all assets uploaded"
     }
 }
@@ -984,10 +1025,15 @@ if ($SkipGitHub) {
 # ============================================
 # DONE
 # ============================================
+$doneColor = if ($githubReleaseFailed) { "Yellow" } else { "Green" }
 Write-Host ""
-Write-Host "============================================" -ForegroundColor Green
-Write-Host " Release $TagName complete!" -ForegroundColor Green
-Write-Host "============================================" -ForegroundColor Green
+Write-Host "============================================" -ForegroundColor $doneColor
+if ($githubReleaseFailed) {
+    Write-Host " Release $TagName is pushed, but has no GitHub Release yet" -ForegroundColor Yellow
+} else {
+    Write-Host " Release $TagName complete!" -ForegroundColor Green
+}
+Write-Host "============================================" -ForegroundColor $doneColor
 Write-Host ""
 Write-Host " Checklist:" -ForegroundColor White
 Write-Host "   [x] Pre-flight checks passed" -ForegroundColor Green
@@ -996,7 +1042,11 @@ if (-not $SkipBuild)  { Write-Host "   [x] Windows + Linux binaries created" -Fo
 if (-not $SkipBuild)  { Write-Host "   [x] Windows + Linux archives packaged" -ForegroundColor Green }
 if (-not $SkipDocker) { Write-Host "   [x] Docker image built" -ForegroundColor Green }
 if (-not $SkipGitHub) { Write-Host "   [x] Pushed to GitHub" -ForegroundColor Green }
-if (-not $SkipGitHub) { Write-Host "   [x] GitHub Release created (Keep a Changelog format)" -ForegroundColor Green }
+if ($githubReleaseFailed) {
+    Write-Host "   [ ] GitHub Release not created: run the gh command printed in step 6" -ForegroundColor Yellow
+} elseif (-not $SkipGitHub) {
+    Write-Host "   [x] GitHub Release created (Keep a Changelog format)" -ForegroundColor Green
+}
 if ($bridgeWorkshopBehind) {
     Write-Host "   [ ] PanelBridge v$PanelBridgeVersion is not on the Steam Workshop yet (the item is at $bridgeWorkshopVersionLabel). Publish it from this tagged tree:" -ForegroundColor Yellow
     Write-Host "       node scripts/workshop/publish.mjs --steam-user <account>, then commit pz-mod/workshop/published.json" -ForegroundColor Yellow
@@ -1022,3 +1072,4 @@ Write-Host ""
 Write-Host " Note: live deployment to production (Docker on the game host) is" -ForegroundColor DarkGray
 Write-Host " a separate manual step, not part of this script." -ForegroundColor DarkGray
 Write-Host ""
+if ($githubReleaseFailed) { exit 1 }
