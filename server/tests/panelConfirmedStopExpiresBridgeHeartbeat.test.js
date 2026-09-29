@@ -29,6 +29,7 @@ vi.mock("../services/managedContainer.js", () => ({
 
 const { default: router } = await import("../routes/server.js");
 const { default: panelBridge } = await import("../services/panelBridge.js");
+const { getActiveServer } = await import("../database/init.js");
 
 function getHandler(routePath, method) {
   const layer = router.stack.find(
@@ -157,6 +158,46 @@ describe("a stop the panel itself confirmed expires the PanelBridge heartbeat be
     expect(markSpy).toHaveBeenCalledTimes(1);
     expect(serverManager.stopServer).not.toHaveBeenCalled();
     expect(bridgeConnectedAtRecheck.at(-1)).toEqual({ reason: "graceful-stop-confirmed", connected: false });
+  });
+
+  // The local scan can never see a remote server's process, so the graceful
+  // monitor's first poll "confirmed" every remote stop at once and expired
+  // the heartbeat while the game could still be writing it. The next write
+  // released the pin: the watchdog announced stopped, then running again (a
+  // second Discord notification), and the Stop button came back.
+  it("POST /stop on a remote server: never confirmed or escalated by the local scan, and the lock is released", async () => {
+    vi.useFakeTimers();
+    getActiveServer.mockResolvedValue({ id: "remote", isRemote: true });
+    try {
+      const serverManager = {
+        loadConfig: vi.fn().mockResolvedValue(undefined),
+        // What the local scan answers for a process on another host.
+        getServerProcessDetails: vi.fn(async () => ({ running: false, scanFailed: false })),
+        stopServer: vi.fn(),
+        markServerStopped: vi.fn(),
+      };
+      const { app, values, bridgeConnectedAtRecheck } = makeApp({ serverManager });
+      const response = createResponse();
+
+      await getHandler("/stop", "post")({ app, body: {} }, response);
+      await vi.advanceTimersByTimeAsync(65_000);
+
+      expect(values.rconService.quit).toHaveBeenCalledTimes(1);
+      expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ confirmed: false }));
+      expect(serverManager.getServerProcessDetails).not.toHaveBeenCalled();
+      expect(serverManager.stopServer).not.toHaveBeenCalled();
+      expect(markSpy).not.toHaveBeenCalled();
+      expect(panelBridge.isModConnected()).toBe(true);
+      expect(bridgeConnectedAtRecheck).toEqual([{ reason: "graceful-stop", connected: true }]);
+
+      // The lifecycle lock is free: the next lifecycle request reaches its
+      // own remote refusal instead of "another action is in progress".
+      const next = createResponse();
+      await getHandler("/force-stop", "post")({ app, body: {} }, next);
+      expect(next.status).toHaveBeenCalledWith(400);
+    } finally {
+      getActiveServer.mockResolvedValue({ id: "maze", isRemote: false });
+    }
   });
 
   it("POST /stop over RCON that had to escalate to a force stop", async () => {

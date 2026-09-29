@@ -2329,15 +2329,27 @@ router.post("/stop", requirePermission("server.control"), async (req, res) => {
       result.message =
         result.message || result.response || "Shutdown requested";
       result.confirmed = false;
-      monitorGracefulStop({
-        serverManager,
-        releaseLifecycleLock,
-        serverId: activeServer?.id ?? null,
-        io: req.app.get("io"),
-        checkServerStatusNow,
-        discordBot: req.app.get("discordBot"),
-      });
-      lifecycleLockTransferred = true;
+      // A remote server's process is on another host: the monitor's local
+      // scan can never see it, so its first poll "confirmed" every remote
+      // stop at once and expired the PanelBridge heartbeat while the game
+      // could still be saving and writing it (the next write revived it: a
+      // second Discord notification and the Stop button back). Had the scan
+      // attributed a local PZ process to it instead, the monitor would have
+      // force-killed that process after 60s. A remote stop is left to the
+      // status watchdog, whose remote verdict is RCON and PanelBridge; the
+      // lock is released below, as the panel cannot start, restart or
+      // force-stop a remote server anyway.
+      if (!activeServer?.isRemote) {
+        monitorGracefulStop({
+          serverManager,
+          releaseLifecycleLock,
+          serverId: activeServer?.id ?? null,
+          io: req.app.get("io"),
+          checkServerStatusNow,
+          discordBot: req.app.get("discordBot"),
+        });
+        lifecycleLockTransferred = true;
+      }
     }
 
     res.json(result);
