@@ -154,6 +154,7 @@
       "partialBody": "This server runs an older PanelBridge, so only condition and position are shown. Skills, traits and inventory need the current PanelBridge: see Settings › PanelBridge.",
       "bridgeOffline": "PanelBridge is not connected.",
       "timeout": "PanelBridge didn't answer in time.",
+      "timeoutBody": "Try again in a moment. Nothing has been saved for this character yet.",
       "showingSaved": "Showing what the panel saved {{when}}.",
       "offlineNoCacheTitle": "No saved character yet",
       "offlineNoCacheBody": "The panel saves a character when someone views it and shortly after the player logs in. Check back after they next play.",
@@ -227,7 +228,7 @@
       "xpAria": "XP toward the next level",
       "xpProgress": "{{xp}} / {{next}} XP",
       "xpMaxed": "{{xp}} XP",
-      "startsAt": "Starts at {{level}}",
+      "xpBoost": "XP boost +{{percent}}%",
       "bookMultiplier": "×{{multiplier}} from skill books",
       "since": "+{{levels}} since {{time}}",
       "passive": "Passive",
@@ -239,6 +240,7 @@
     "inventory": {
       "title": "Inventory",
       "intro": "Loaded on request: reading a large inventory takes the server a moment.",
+      "noneSaved": "No inventory saved for this character yet. It's saved when someone loads it while the player is online.",
       "load": "Load inventory",
       "loading": "Loading inventory…",
       "loadedAt": "Loaded {{time}}",
@@ -247,7 +249,7 @@
       "primary": "Primary hand",
       "secondary": "Secondary hand",
       "worn": "Worn",
-      "attachedTo": "On {{slot}}",
+      "attached": "Attached",
       "viewLabel": "View",
       "viewTree": "Containers",
       "viewByType": "By type",
@@ -264,6 +266,7 @@
       "expand": "Show what's in {{name}}",
       "collapse": "Hide what's in {{name}}",
       "givenViaPanel": "Given through the panel {{when}}",
+      "givenViaPanelPartial": "{{given}} of {{qty}} given through the panel {{when}}",
       "hiddenItem": "Hidden item",
       "debugItem": "Debug item",
       "obsoleteItem": "Obsolete item",
@@ -286,7 +289,8 @@
       "explainedEntry": "{{action}}: {{details}}, {{when}}",
       "actions": {
         "add_xp": "Gave XP",
-        "add_item": "Gave item"
+        "add_item": "Gave item",
+        "import": "Imported character"
       },
       "staff": "Staff account",
       "canSpawnItems": "This account's role can spawn items.",
@@ -296,7 +300,6 @@
       },
       "evidence": {
         "level": "level {{level}}",
-        "levelFromStart": "level {{level}}, starts at {{start}}",
         "jump": "{{from}} → {{to}}",
         "qty": "×{{qty}}"
       },
@@ -316,13 +319,13 @@
         "skillJump": {
           "title": "Fast skill gain",
           "detail": "{{total}} levels gained in the last {{minutes}} minutes.",
-          "rule": "Flags one skill gaining {{onePerk}} or more levels to reach level {{minLevel}}, a passive skill (Fitness, Strength) gaining {{passive}} or more, or {{totalLevels}} or more levels in total, within {{window}} minutes. Compared with the snapshot from {{sinceTime}}.",
-          "innocent": "Several skill books read in a row, a long burst of crafting or fighting, or XP an admin gave in-game."
+          "rule": "Flags one skill gaining {{onePerk}} or more levels to reach level {{minLevel}}, a passive skill (Fitness, Strength) gaining {{passive}} or more, or {{totalLevels}} or more levels above level {{floor}} in total, within {{window}} minutes. With an XP multiplier or a skill book, the gain is first divided by it: one skill stands out only if its XP, divided that way, is still {{rawXp}} or more. Compared with the snapshot from {{sinceTime}}.",
+          "innocent": "Several skill books read in a row, a long burst of crafting or fighting, a high XP multiplier, or XP an admin gave in-game."
         },
         "skillsAheadOfTime": {
           "title": "Skills ahead of play time",
           "detail": "{{advanced}} skill levels above level {{floor}} after about {{hours}} h of play this life, where about {{allowed}} is usual.",
-          "rule": "Counts every level above {{floor}} (or above the starting level, if higher) in non-passive skills, with skill-book levels at half weight. Usual is {{perHour}} levels per real hour of this life, times the server's XP multiplier ({{xpScale}}), plus {{grace}}. Stands out past twice that.",
+          "rule": "Counts every level above {{floor}} in non-passive skills, with skill-book levels at half weight. Usual is {{perHour}} levels per real hour of this life, times the server's XP multiplier ({{xpScale}}), plus {{grace}}. Stands out past twice that.",
           "innocent": "Long sessions spent on one skill, skill books and magazines, a high XP multiplier, or play time the estimate can't see."
         },
         "manyMaxedSkills": {

@@ -157,6 +157,7 @@
       "partialBody": "Ce serveur utilise une ancienne version de PanelBridge : seuls l'état et la position s'affichent. Les compétences, les traits et l'inventaire demandent la version actuelle : voir Paramètres › PanelBridge.",
       "bridgeOffline": "PanelBridge n'est pas connecté.",
       "timeout": "PanelBridge n'a pas répondu à temps.",
+      "timeoutBody": "Réessayez dans un instant. Rien n'a encore été enregistré pour ce personnage.",
       "showingSaved": "Affichage de ce que le panneau a enregistré {{when}}.",
       "offlineNoCacheTitle": "Aucun personnage enregistré",
       "offlineNoCacheBody": "Le panneau enregistre un personnage quand quelqu'un le consulte et peu après la connexion du joueur. Revenez après sa prochaine partie.",
@@ -230,7 +231,7 @@
       "xpAria": "XP vers le niveau suivant",
       "xpProgress": "{{xp}} / {{next}} XP",
       "xpMaxed": "{{xp}} XP",
-      "startsAt": "Commence au niveau {{level}}",
+      "xpBoost": "Bonus d'XP +{{percent}} %",
       "bookMultiplier": "×{{multiplier}} grâce aux livres",
       "since": "+{{levels}} depuis {{time}}",
       "passive": "Passive",
@@ -242,6 +243,7 @@
     "inventory": {
       "title": "Inventaire",
       "intro": "Chargé à la demande : lire un gros inventaire prend un moment au serveur.",
+      "noneSaved": "Aucun inventaire enregistré pour ce personnage pour l'instant. Il l'est quand quelqu'un le charge pendant que le joueur est en ligne.",
       "load": "Charger l'inventaire",
       "loading": "Chargement de l'inventaire…",
       "loadedAt": "Chargé à {{time}}",
@@ -250,7 +252,7 @@
       "primary": "Main principale",
       "secondary": "Main secondaire",
       "worn": "Porté",
-      "attachedTo": "Sur {{slot}}",
+      "attached": "Attaché",
       "viewLabel": "Affichage",
       "viewTree": "Conteneurs",
       "viewByType": "Par type",
@@ -267,6 +269,7 @@
       "expand": "Voir le contenu de {{name}}",
       "collapse": "Masquer le contenu de {{name}}",
       "givenViaPanel": "Donné via le panneau {{when}}",
+      "givenViaPanelPartial": "{{given}} sur {{qty}} donnés via le panneau {{when}}",
       "hiddenItem": "Objet caché",
       "debugItem": "Objet de débogage",
       "obsoleteItem": "Objet obsolète",
@@ -290,7 +293,8 @@
       "explainedEntry": "{{action}} : {{details}}, {{when}}",
       "actions": {
         "add_xp": "Don d'XP",
-        "add_item": "Don d'objet"
+        "add_item": "Don d'objet",
+        "import": "Import de personnage"
       },
       "staff": "Compte d'équipe",
       "canSpawnItems": "Le rôle de ce compte peut faire apparaître des objets.",
@@ -300,7 +304,6 @@
       },
       "evidence": {
         "level": "niveau {{level}}",
-        "levelFromStart": "niveau {{level}}, commence à {{start}}",
         "jump": "{{from}} → {{to}}",
         "qty": "×{{qty}}"
       },
@@ -320,13 +323,13 @@
         "skillJump": {
           "title": "Progression rapide",
           "detail": "{{total}} niveaux gagnés ces {{minutes}} dernières minutes.",
-          "rule": "Signale une compétence qui gagne {{onePerk}} niveaux ou plus pour atteindre le niveau {{minLevel}}, une compétence passive (Fitness, Force) qui en gagne {{passive}} ou plus, ou {{totalLevels}} niveaux ou plus au total, en {{window}} minutes. Comparé à l'instantané de {{sinceTime}}.",
-          "innocent": "Plusieurs livres de compétence lus d'affilée, une longue séance d'artisanat ou de combat, ou de l'XP donnée en jeu par un admin."
+          "rule": "Signale une compétence qui gagne {{onePerk}} niveaux ou plus pour atteindre le niveau {{minLevel}}, une compétence passive (Fitness, Force) qui en gagne {{passive}} ou plus, ou {{totalLevels}} niveaux ou plus au-dessus du niveau {{floor}} au total, en {{window}} minutes. Avec un multiplicateur d'XP ou un livre de compétence, le gain est d'abord divisé par celui-ci : une compétence ne ressort que si son XP, ainsi divisée, atteint encore {{rawXp}}. Comparé à l'instantané de {{sinceTime}}.",
+          "innocent": "Plusieurs livres de compétence lus d'affilée, une longue séance d'artisanat ou de combat, un multiplicateur d'XP élevé, ou de l'XP donnée en jeu par un admin."
         },
         "skillsAheadOfTime": {
           "title": "Compétences en avance sur le temps de jeu",
           "detail": "{{advanced}} niveaux de compétence au-dessus du niveau {{floor}} après environ {{hours}} h de jeu pour cette vie, alors qu'environ {{allowed}} est habituel.",
-          "rule": "Compte chaque niveau au-dessus de {{floor}} (ou du niveau de départ, s'il est plus haut) dans les compétences non passives, les niveaux obtenus avec des livres comptant pour moitié. L'habituel est {{perHour}} niveaux par heure réelle de cette vie, multipliés par le multiplicateur d'XP du serveur ({{xpScale}}), plus {{grace}}. Ressort nettement au-delà du double.",
+          "rule": "Compte chaque niveau au-dessus de {{floor}} dans les compétences non passives, les niveaux obtenus avec des livres comptant pour moitié. L'habituel est {{perHour}} niveaux par heure réelle de cette vie, multipliés par le multiplicateur d'XP du serveur ({{xpScale}}), plus {{grace}}. Ressort nettement au-delà du double.",
           "innocent": "De longues séances sur une seule compétence, des livres et magazines de compétence, un multiplicateur d'XP élevé, ou du temps de jeu que l'estimation ne voit pas."
         },
         "manyMaxedSkills": {

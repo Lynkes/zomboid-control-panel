@@ -79,10 +79,24 @@ export function flattenRows(rows: CharacterRow[], out: CharacterRow[] = []): Cha
   return out
 }
 
+/**
+ * Every row matching `query` across the tree, containers' contents included,
+ * as a flat list: what the "By type" view counts. Unlike filterTree, no
+ * ancestor or sibling is kept for context.
+ */
+export function matchingRows(rows: CharacterRow[], query: string): CharacterRow[] {
+  return flattenRows(rows).filter((row) => rowMatches(row, query))
+}
+
 /** One entry per item type across every container, for the "By type" view. */
 export function aggregateByType(rows: CharacterRow[]): InventoryTypeAggregate[] {
+  return aggregateRows(flattenRows(rows))
+}
+
+/** aggregateByType over rows that are already flat (see matchingRows). */
+export function aggregateRows(flatRows: CharacterRow[]): InventoryTypeAggregate[] {
   const byKey = new Map<string, InventoryTypeAggregate>()
-  for (const row of flattenRows(rows)) {
+  for (const row of flatRows) {
     const key = row.fullType ?? `name:${row.name ?? ''}`
     let entry = byKey.get(key)
     if (!entry) {
@@ -169,9 +183,15 @@ export function sortRows<T extends Sortable>(items: T[], key: InventorySortKey, 
 export interface InventoryAnnotation {
   debug?: boolean
   givenAt?: string
+  /** Units of this type the panel gave, and units carried (both across the inventory). */
+  given?: number
+  qty?: number
 }
 
-/** Per item type: flagged as a debug item, or given through the panel. */
+/**
+ * Per item type: flagged as a debug item, or given through the panel, with
+ * how many of how many when the panel gave only part of them.
+ */
 export function inventoryAnnotations(hints: CharacterHint[] | undefined): Map<string, InventoryAnnotation> {
   const map = new Map<string, InventoryAnnotation>()
   for (const hint of hints ?? []) {
@@ -179,7 +199,12 @@ export function inventoryAnnotations(hints: CharacterHint[] | undefined): Map<st
       if (evidence.kind !== 'item') continue
       const entry = map.get(evidence.ref) ?? {}
       if (hint.id === 'debugItems') entry.debug = true
-      if (evidence.detail?.givenAt) entry.givenAt = evidence.detail.givenAt
+      const detail = evidence.detail
+      if (detail?.givenAt) {
+        entry.givenAt = detail.givenAt
+        if (typeof detail.given === 'number') entry.given = detail.given
+        if (typeof detail.qty === 'number') entry.qty = detail.qty
+      }
       map.set(evidence.ref, entry)
     }
   }

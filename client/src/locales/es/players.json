@@ -157,6 +157,7 @@
       "partialBody": "Este servidor usa una versión antigua de PanelBridge, así que solo se muestran el estado y la posición. Las habilidades, los rasgos y el inventario necesitan la versión actual: consulta Ajustes › PanelBridge.",
       "bridgeOffline": "PanelBridge no está conectado.",
       "timeout": "PanelBridge no respondió a tiempo.",
+      "timeoutBody": "Vuelve a intentarlo en un momento. Todavía no se ha guardado nada de este personaje.",
       "showingSaved": "Se muestra lo que el panel guardó {{when}}.",
       "offlineNoCacheTitle": "Aún no hay ningún personaje guardado",
       "offlineNoCacheBody": "El panel guarda un personaje cuando alguien lo consulta y poco después de que el jugador se conecta. Vuelve a mirar después de su próxima partida.",
@@ -230,7 +231,7 @@
       "xpAria": "XP hacia el siguiente nivel",
       "xpProgress": "{{xp}} / {{next}} XP",
       "xpMaxed": "{{xp}} XP",
-      "startsAt": "Empieza en {{level}}",
+      "xpBoost": "Bonificación de XP +{{percent}} %",
       "bookMultiplier": "×{{multiplier}} por libros de habilidad",
       "since": "+{{levels}} desde las {{time}}",
       "passive": "Pasiva",
@@ -242,6 +243,7 @@
     "inventory": {
       "title": "Inventario",
       "intro": "Se carga a petición: leer un inventario grande le lleva un momento al servidor.",
+      "noneSaved": "Todavía no hay inventario guardado para este personaje. Se guarda cuando alguien lo carga mientras el jugador está conectado.",
       "load": "Cargar inventario",
       "loading": "Cargando inventario…",
       "loadedAt": "Cargado a las {{time}}",
@@ -250,7 +252,7 @@
       "primary": "Mano principal",
       "secondary": "Mano secundaria",
       "worn": "Puesto",
-      "attachedTo": "En {{slot}}",
+      "attached": "Acoplado",
       "viewLabel": "Vista",
       "viewTree": "Contenedores",
       "viewByType": "Por tipo",
@@ -267,6 +269,7 @@
       "expand": "Mostrar el contenido de {{name}}",
       "collapse": "Ocultar el contenido de {{name}}",
       "givenViaPanel": "Dado desde el panel {{when}}",
+      "givenViaPanelPartial": "{{given}} de {{qty}} dados desde el panel {{when}}",
       "hiddenItem": "Objeto oculto",
       "debugItem": "Objeto de depuración",
       "obsoleteItem": "Objeto obsoleto",
@@ -290,7 +293,8 @@
       "explainedEntry": "{{action}}: {{details}}, {{when}}",
       "actions": {
         "add_xp": "XP dada",
-        "add_item": "Objeto dado"
+        "add_item": "Objeto dado",
+        "import": "Personaje importado"
       },
       "staff": "Cuenta del equipo",
       "canSpawnItems": "El rol de esta cuenta puede generar objetos.",
@@ -300,7 +304,6 @@
       },
       "evidence": {
         "level": "nivel {{level}}",
-        "levelFromStart": "nivel {{level}}, empieza en {{start}}",
         "jump": "{{from}} → {{to}}",
         "qty": "×{{qty}}"
       },
@@ -320,13 +323,13 @@
         "skillJump": {
           "title": "Subida rápida de habilidades",
           "detail": "{{total}} niveles ganados en los últimos {{minutes}} minutos.",
-          "rule": "Señala una habilidad que gana {{onePerk}} niveles o más hasta llegar al nivel {{minLevel}}, una habilidad pasiva (Estado físico, Fuerza) que gana {{passive}} o más, o {{totalLevels}} niveles o más en total, en {{window}} minutos. Comparado con la instantánea de las {{sinceTime}}.",
-          "innocent": "Varios libros de habilidad leídos seguidos, una larga racha de fabricación o de combate, o XP dada en el juego por un admin."
+          "rule": "Señala una habilidad que gana {{onePerk}} niveles o más hasta llegar al nivel {{minLevel}}, una habilidad pasiva (Estado físico, Fuerza) que gana {{passive}} o más, o {{totalLevels}} niveles o más por encima del nivel {{floor}} en total, en {{window}} minutos. Con un multiplicador de XP o un libro de habilidad, la ganancia se divide primero entre él: una habilidad solo destaca si su XP, dividida así, sigue siendo de {{rawXp}} o más. Comparado con la instantánea de las {{sinceTime}}.",
+          "innocent": "Varios libros de habilidad leídos seguidos, una larga racha de fabricación o de combate, un multiplicador de XP alto, o XP dada en el juego por un admin."
         },
         "skillsAheadOfTime": {
           "title": "Habilidades por delante del tiempo de juego",
           "detail": "{{advanced}} niveles de habilidad por encima del nivel {{floor}} tras unas {{hours}} h de juego en esta vida, cuando lo habitual son unos {{allowed}}.",
-          "rule": "Cuenta cada nivel por encima de {{floor}} (o del nivel inicial, si es mayor) en las habilidades no pasivas; los niveles con libro cuentan la mitad. Lo habitual son {{perHour}} niveles por hora real de esta vida, por el multiplicador de XP del servidor ({{xpScale}}), más {{grace}}. Destaca a partir del doble.",
+          "rule": "Cuenta cada nivel por encima de {{floor}} en las habilidades no pasivas; los niveles con libro cuentan la mitad. Lo habitual son {{perHour}} niveles por hora real de esta vida, por el multiplicador de XP del servidor ({{xpScale}}), más {{grace}}. Destaca a partir del doble.",
           "innocent": "Largas sesiones dedicadas a una sola habilidad, libros y revistas de habilidad, un multiplicador de XP alto o tiempo de juego que la estimación no ve."
         },
         "manyMaxedSkills": {

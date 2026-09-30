@@ -11,6 +11,13 @@ import { formatNumber, formatShortTime } from './characterFormat'
 
 const MAX_LEVEL = 10
 
+// perk.boost is the game's XP-rate tier (XPBoostMap stores min(3, the level
+// the character started the skill at)), not a starting level. The vanilla
+// skill tooltip shows it the same way: 1, 2, 3 -> +75%, +100%, +125% XP.
+// Fitness and Strength always start at 5 or more, so theirs is always 3 and
+// says nothing: passive skills don't show it.
+const XP_BOOST_PERCENT: Record<number, number> = { 1: 75, 2: 100, 3: 125 }
+
 function xpProgress(perk: CharacterPerk): number | undefined {
   if (typeof perk.level !== 'number') return undefined
   if (perk.level >= MAX_LEVEL) return 100
@@ -40,7 +47,7 @@ function SkillRow({ perk, gain }: { perk: CharacterPerk; gain?: { levels: number
   const language = i18n.language
   const level = typeof perk.level === 'number' ? Math.max(0, Math.min(MAX_LEVEL, perk.level)) : 0
   const progress = xpProgress(perk)
-  const start = typeof perk.boost === 'number' ? Math.min(perk.boost, MAX_LEVEL) : 0
+  const boostPercent = !perk.passive && typeof perk.boost === 'number' ? XP_BOOST_PERCENT[perk.boost] : undefined
   return (
     <li className="space-y-1 py-1.5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -71,7 +78,9 @@ function SkillRow({ perk, gain }: { perk: CharacterPerk; gain?: { levels: number
               : t('character.skills.xpMaxed', { xp: formatNumber(perk.xp, language) })}
           </span>
         )}
-        {start > 0 && <span className="text-[11px] text-muted-foreground">{t('character.skills.startsAt', { level: start })}</span>}
+        {boostPercent !== undefined && (
+          <span className="text-[11px] text-muted-foreground">{t('character.skills.xpBoost', { percent: boostPercent })}</span>
+        )}
         {typeof perk.multiplier === 'number' && perk.multiplier > 1 && (
           <span className="text-[11px] text-muted-foreground">
             {t('character.skills.bookMultiplier', { multiplier: formatNumber(perk.multiplier, language, 1) })}

@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import i18n from '@/i18n'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { CharacterTab } from '../CharacterTab'
+import { CharacterInventory } from '../CharacterInventory'
 import type { CharacterSheetState } from '../useCharacterSheet'
-import type { CharacterHint, CharacterSheet, CharacterSheetResponse } from '@/lib/characterApi'
+import type { CharacterHint, CharacterInventory as CharacterInventoryData, CharacterSheet, CharacterSheetResponse } from '@/lib/characterApi'
 
 const THRESHOLDS = {
   advancedLevelFloor: 3,
@@ -20,6 +22,7 @@ const THRESHOLDS = {
   jumpLevelsPassive: 2,
   jumpTotalLevels: 6,
   jumpWindowMinutes: 60,
+  jumpRawXpFloor: 3000,
   unusualQuantity: 500,
   overCapacityFactor: 2,
 }
@@ -138,9 +141,14 @@ function renderTab(s: CharacterSheetState, { username = 'Kate', online = true } 
   )
 }
 
-afterEach(() => {
+afterEach(async () => {
   cleanup()
+  if (i18n.language !== 'en') await i18n.changeLanguage('en')
 })
+
+function inventorySection(container: HTMLElement) {
+  return container.querySelector('[aria-labelledby="character-inventory-heading"]') as HTMLElement
+}
 
 describe('CharacterTab: availability states', () => {
   it('asks for a player when none is selected', () => {
@@ -209,10 +217,23 @@ describe('CharacterTab: availability states', () => {
     expect(screen.queryByRole('button', { name: 'Load inventory' })).toBeNull()
   })
 
-  it('playerOffline with nothing saved: the no-players empty state', () => {
+  it('playerOffline with nothing saved: an empty state that says only that', () => {
     renderTab(state({ base: response({ availability: 'playerOffline', sheet: null, cached: null, hintSource: null }) }), { online: false })
     expect(screen.getByText('No saved character yet')).toBeInTheDocument()
-    expect(screen.getByText('No Players Online')).toBeInTheDocument()
+    // Not "No Players Online": the roster beside it lists who is.
+    expect(screen.queryByText('No Players Online')).toBeNull()
+    expect(screen.getByText('No Data')).toBeInTheDocument()
+  })
+
+  it('a timeout with nothing saved says to try again, not that the server is off or PanelBridge unconnected', () => {
+    const s = state({ base: response({ availability: 'timeout', transport: 'sftp', sheet: null, cached: null, record: null, hintSource: null }) })
+    const { container } = renderTab(s)
+    const text = container.textContent ?? ''
+    expect(text).toContain("PanelBridge didn't answer in time. Try again in a moment.")
+    expect(text).not.toContain('Server Offline')
+    expect(text).not.toContain('Connect PanelBridge')
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(s.retry).toHaveBeenCalled()
   })
 
   it.each([
@@ -239,8 +260,34 @@ describe('CharacterTab: availability states', () => {
     renderTab(s)
     expect(screen.getByText('Character unavailable')).toBeInTheDocument()
     expect(screen.getByText('Server Offline')).toBeInTheDocument()
+    expect(screen.getByText(/^PanelBridge is not connected\. Connect PanelBridge/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(s.retry).toHaveBeenCalled()
+  })
+
+  it('no role badge for an ordinary account (B42 "user", B41 "none"), one for any other role', () => {
+    const { unmount } = renderTab(state({ base: response({ sheet: { ...SHEET, role: { name: 'user', adminPower: false, canSpawnItems: false } } }) }))
+    expect(screen.queryByText('user')).toBeNull()
+    unmount()
+    renderTab(state({ base: response({ sheet: { ...SHEET, role: { name: 'moderator', adminPower: true, canSpawnItems: true } } }) }))
+    expect(screen.getByText('moderator')).toBeInTheDocument()
+  })
+
+  it('last known: the Condition says when it was read when that was before the rest', () => {
+    renderTab(
+      state({
+        base: response({
+          availability: 'playerOffline',
+          sheet: null,
+          cached: { at: '2026-09-25T18:00:00.000Z', inventoryAt: null, statsAt: '2026-09-21T10:00:00.000Z', sheet: SHEET },
+          hintSource: 'cached',
+        }),
+      }),
+      { online: false },
+    )
+    const condition = screen.getByRole('heading', { name: 'Condition' }).closest('section')!
+    const when = new Date('2026-09-21T10:00:00.000Z').toLocaleString('en', { dateStyle: 'medium', timeStyle: 'short' })
+    expect(within(condition).getByText(`Saved ${when}`)).toBeInTheDocument()
   })
 
   it('Refresh asks for a fresh read', () => {
@@ -256,7 +303,9 @@ describe('CharacterTab: skills', () => {
     renderTab(state({ base: response({ skillDelta: { since: '2026-09-29T11:40:00.000Z', source: 'view', perks: [{ id: 'Woodwork', fromLevel: 4, toLevel: 6 }] } }) }))
     expect(screen.getByRole('img', { name: 'Level 6 of 10' })).toBeInTheDocument()
     expect(screen.getByRole('progressbar', { name: 'XP toward the next level' })).toBeInTheDocument()
-    expect(screen.getByText('Starts at 3')).toBeInTheDocument()
+    // boost 3 is the XP-rate tier the game shows as "+125%", not a start.
+    expect(screen.getByText('XP boost +125%')).toBeInTheDocument()
+    expect(screen.queryByText(/^Starts at/)).toBeNull()
     expect(screen.getByText('×3 from skill books')).toBeInTheDocument()
     expect(screen.getByText(/^\+2 since /)).toBeInTheDocument()
     // Cooking and Aiming are untrained: folded, and an empty category is hidden.
@@ -265,6 +314,28 @@ describe('CharacterTab: skills', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show untrained skills (2)' }))
     expect(screen.getByText('Cooking')).toBeInTheDocument()
     expect(screen.getByText('Combat - Firearms')).toBeInTheDocument()
+  })
+})
+
+describe('CharacterTab: skills, XP boost', () => {
+  it('never shows the XP boost as a starting level, and not at all for Fitness and Strength', () => {
+    // IsoGameCharacter.applyTraits: Fitness/Strength start at 5, XPBoostMap
+    // stores min(3, level); a Carpenter with Handy starts Carpentry at 4.
+    const skills = {
+      categories: [{ id: 'Passiv' }, { id: 'Crafting' }],
+      perks: [
+        { id: 'Fitness', parent: 'Passiv', passive: true, level: 5, xp: 0, boost: 3 },
+        { id: 'Strength', parent: 'Passiv', passive: true, level: 5, xp: 0, boost: 3 },
+        { id: 'Woodwork', parent: 'Crafting', passive: false, level: 4, xp: 0, boost: 3 },
+        { id: 'Cooking', parent: 'Crafting', passive: false, level: 1, xp: 60, boost: 1 },
+      ],
+    }
+    renderTab(state({ base: response({ sheet: { ...SHEET, skills } }) }))
+    const row = (name: string) => screen.getByText(name).closest('li')!
+    expect(row('Fitness')).not.toHaveTextContent(/Starts at|XP boost/)
+    expect(row('Strength')).not.toHaveTextContent(/Starts at|XP boost/)
+    expect(row('Carpentry')).toHaveTextContent('XP boost +125%')
+    expect(row('Cooking')).toHaveTextContent('XP boost +75%')
   })
 })
 
@@ -317,6 +388,154 @@ describe('CharacterTab: inventory', () => {
     fireEvent.click(scope.getByRole('button', { name: 'By type' }))
     expect(scope.getByText('×30')).toBeInTheDocument()
   })
+
+  it('an inventory read that timed out says so, with Retry', () => {
+    const s = state({
+      inventoryRequested: true,
+      inventory: response({ availability: 'timeout', sheet: null, cached: null, hintSource: null }),
+    })
+    const { container } = renderTab(s)
+    const section = inventorySection(container)
+    expect(within(section).getByText("PanelBridge didn't answer in time.")).toBeInTheDocument()
+    expect(within(section).queryByRole('button', { name: 'Load inventory' })).toBeNull()
+    fireEvent.click(within(section).getByRole('button', { name: 'Retry' }))
+    expect(s.loadInventory).toHaveBeenCalledTimes(1)
+  })
+
+  it('an offline player with no saved inventory gets a line, not a bare heading', () => {
+    const { container } = renderTab(
+      state({
+        base: response({
+          availability: 'playerOffline',
+          sheet: null,
+          cached: { at: '2026-09-28T20:00:00.000Z', inventoryAt: null, sheet: SHEET },
+          hintSource: 'cached',
+        }),
+      }),
+      { online: false },
+    )
+    expect(inventorySection(container)).toHaveTextContent(/No inventory saved for this character yet/)
+  })
+
+  it('a panel gift of part of a stack says how many of how many, on the hint and the row', () => {
+    const partial: CharacterHint = {
+      id: 'debugItems',
+      weight: 'strong',
+      params: { types: 1, units: 5 },
+      evidence: [{ kind: 'item', ref: 'Base.TestMug', detail: { qty: 5, name: 'Test Mug', given: 1, givenAt: '2026-09-29T11:00:00.000Z' } }],
+      staff: false,
+      source: 'live',
+    }
+    const inventorySheet: CharacterSheet = {
+      username: 'Kate',
+      inventory: {
+        root: { kind: 'container', id: 'main', rows: [{ kind: 'stack', fullType: 'Base.TestMug', name: 'Test Mug', qty: 5 }] },
+        worn: [],
+        equipped: {},
+        attached: [],
+        totals: { itemCount: 5, distinctTypes: 1 },
+      },
+    }
+    const { container } = renderTab(
+      state({ base: response({ hints: [partial] }), inventoryRequested: true, inventory: response({ sheet: inventorySheet }) }),
+    )
+    const card = container.querySelector('[data-hint-id="debugItems"]') as HTMLElement
+    expect(card).toHaveTextContent(/1 of 5 given through the panel/)
+    expect(card).not.toHaveTextContent(/Given through the panel/)
+    expect(inventorySection(container)).toHaveTextContent(/1 of 5 given through the panel/)
+  })
+})
+
+const BAGS: CharacterInventoryData = {
+  root: {
+    kind: 'container',
+    id: 'main',
+    rows: [
+      { kind: 'container', itemId: '101', name: 'Alpha Bag', fullType: 'Base.Bag_A', rows: [{ kind: 'stack', name: 'Nails', fullType: 'Base.Nails', qty: 3 }] },
+      { kind: 'container', itemId: '102', name: 'Beta Bag', fullType: 'Base.Bag_B', rows: [{ kind: 'stack', name: 'Axe', fullType: 'Base.Axe', qty: 1 }] },
+    ],
+  },
+  worn: [],
+  equipped: {},
+  attached: [],
+  totals: {},
+}
+
+function renderInventory(inventory: CharacterInventoryData) {
+  const props = {
+    requested: true,
+    loading: false,
+    error: null,
+    canLoad: true,
+    onLoad: () => {},
+    onVisibleChange: () => {},
+    annotations: new Map(),
+  }
+  const view = render(<CharacterInventory inventory={inventory} {...props} />)
+  return { ...view, rerenderWith: (next: CharacterInventoryData) => view.rerender(<CharacterInventory inventory={next} {...props} />) }
+}
+
+describe('CharacterInventory: folding, search and badges', () => {
+  it('a folded bag stays folded, and only that one, when a search re-sorts the list', () => {
+    renderInventory(BAGS)
+    fireEvent.click(screen.getByRole('button', { name: "Hide what's in Alpha Bag" }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search the inventory' }), { target: { value: 'axe' } })
+    expect(screen.getByRole('button', { name: /what's in Beta Bag/ })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('Axe')).toBeInTheDocument()
+    // Back to the full list: Alpha is still the folded one.
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search the inventory' }), { target: { value: '' } })
+    expect(screen.getByRole('button', { name: /what's in Alpha Bag/ })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: /what's in Beta Bag/ })).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it("a search opens the bags on a match's path, even one folded before", () => {
+    renderInventory(BAGS)
+    fireEvent.click(screen.getByRole('button', { name: "Hide what's in Beta Bag" }))
+    expect(screen.queryByText('Axe')).toBeNull()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search the inventory' }), { target: { value: 'axe' } })
+    expect(screen.getByText('Axe')).toBeInTheDocument()
+  })
+
+  it("a poll that adds a bag sorting first doesn't move the fold to another bag", () => {
+    const { rerenderWith } = renderInventory(BAGS)
+    fireEvent.click(screen.getByRole('button', { name: "Hide what's in Alpha Bag" }))
+    rerenderWith({
+      ...BAGS,
+      root: {
+        ...BAGS.root!,
+        rows: [
+          { kind: 'container', itemId: '100', name: 'Aardvark Bag', fullType: 'Base.Bag_0', rows: [{ kind: 'stack', name: 'Rope', fullType: 'Base.Rope', qty: 1 }] },
+          ...BAGS.root!.rows,
+        ],
+      },
+    })
+    expect(screen.getByRole('button', { name: /what's in Alpha Bag/ })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: /what's in Aardvark Bag/ })).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('By type lists only what matches the search', () => {
+    renderInventory(BAGS)
+    fireEvent.click(screen.getByRole('button', { name: 'By type' }))
+    const search = screen.getByRole('textbox', { name: 'Search the inventory' })
+    fireEvent.change(search, { target: { value: 'axe' } })
+    let rows = screen.getAllByRole('listitem').map((li) => li.textContent ?? '')
+    expect(rows.some((r) => r.includes('Axe'))).toBe(true)
+    expect(rows.some((r) => r.includes('Beta Bag'))).toBe(false)
+    fireEvent.change(search, { target: { value: 'Alpha' } })
+    rows = screen.getAllByRole('listitem').map((li) => li.textContent ?? '')
+    expect(rows.some((r) => r.includes('Alpha Bag'))).toBe(true)
+    expect(rows.some((r) => r.includes('Nails'))).toBe(false)
+  })
+
+  it('an attached item says Attached in the reader\'s language, the game\'s slot id only on hover', async () => {
+    await i18n.changeLanguage('fr')
+    renderInventory({
+      ...BAGS,
+      root: { kind: 'container', id: 'main', rows: [{ kind: 'stack', name: 'Couperet', fullType: 'Base.MeatCleaver', qty: 1, attached: 'MeatCleaver Belt Left' }] },
+    })
+    expect(screen.queryByText(/MeatCleaver Belt Left/)).toBeNull()
+    expect(screen.getByText('Attaché')).toHaveAttribute('title', 'MeatCleaver Belt Left')
+  })
 })
 
 describe('CharacterTab: Worth a look', () => {
@@ -325,7 +544,7 @@ describe('CharacterTab: Worth a look', () => {
       id: 'skillsAheadOfTime',
       weight: 'strong',
       params: { advanced: 40, allowed: 12.5, hours: 2.2, xpScale: 1 },
-      evidence: [{ kind: 'perk', ref: 'Woodwork', detail: { level: 10, start: 3 } }],
+      evidence: [{ kind: 'perk', ref: 'Woodwork', detail: { level: 10 } }],
       staff: false,
       source: 'live',
     },
@@ -358,7 +577,8 @@ describe('CharacterTab: Worth a look', () => {
       scope.getByText('40 skill levels above level 3 after about 2.2 h of play this life, where about 12.5 is usual.'),
     ).toBeInTheDocument()
     expect(scope.getByText('Carpentry')).toBeInTheDocument()
-    expect(scope.getByText(/level 10, starts at 3/)).toBeInTheDocument()
+    expect(scope.getByText(/level 10/)).toBeInTheDocument()
+    expect(scope.queryByText(/starts at/)).toBeNull()
     // Staff-labelled, and the god mode flag named.
     expect(scope.getByText('Staff account')).toBeInTheDocument()
     expect(scope.getByText('God mode')).toBeInTheDocument()
@@ -401,6 +621,22 @@ describe('CharacterTab: Worth a look', () => {
       }),
     )
     expect(screen.getByText(/^Based on the character saved /)).toBeInTheDocument()
+  })
+
+  it("in Arabic a skill jump's arrow points at the new level (the locale's ←, which an RTL line lays out from the old level)", async () => {
+    await i18n.changeLanguage('ar')
+    const jump: CharacterHint = {
+      id: 'skillJump',
+      weight: 'strong',
+      params: { total: 4, minutes: 30, since: '2026-09-29T11:30:00.000Z', source: 'view' },
+      evidence: [{ kind: 'perk', ref: 'Woodwork', detail: { from: 2, to: 6 } }],
+      staff: false,
+      source: 'live',
+    }
+    const { container } = renderTab(state({ base: response({ hints: [jump] }) }))
+    const card = container.querySelector('[data-hint-id="skillJump"]') as HTMLElement
+    expect(card).toHaveTextContent('2 ← 6')
+    expect(card).not.toHaveTextContent('→')
   })
 
   it('a live item hint from an inventory read long ago says when that was, on its own card', () => {

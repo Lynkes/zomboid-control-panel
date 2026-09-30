@@ -6,8 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { CharacterInventory as CharacterInventoryData, CharacterRow } from '@/lib/characterApi'
 import {
-  aggregateByType,
+  aggregateRows,
   filterTree,
+  matchingRows,
   sortRows,
   totals,
   type InventoryAnnotation,
@@ -15,9 +16,26 @@ import {
 } from '@/lib/characterInventory'
 import { makeCollator } from '@/lib/characterLabels'
 import { cn } from '@/lib/utils'
-import { formatNumber, formatTime, formatWhen } from './characterFormat'
+import { formatNumber, formatTime, formatWhen, givenCopy } from './characterFormat'
 
 type View = 'tree' | 'type'
+
+const NO_KEYS: ReadonlySet<string> = new Set()
+
+// A row's key under its parent: the container's own item id when the bridge
+// sent one, else its type and name (numbered when siblings share them). Not
+// its position: search and every poll re-sort the list, and the collapsed
+// state has to stay with the bag it was set on.
+function rowKeys(rows: CharacterRow[], parentKey: string): string[] {
+  const seen = new Map<string, number>()
+  return rows.map((row) => {
+    if (row.kind === 'container' && row.itemId) return `${parentKey}/id:${row.itemId}`
+    const base = `${parentKey}/${row.kind}:${row.fullType ?? ''}:${row.name ?? ''}`
+    const count = (seen.get(base) ?? 0) + 1
+    seen.set(base, count)
+    return count === 1 ? base : `${base}#${count}`
+  })
+}
 
 function RowBadges({
   row,
@@ -37,8 +55,10 @@ function RowBadges({
       )}
       {row.worn && <Badge variant="outline" className={cn(badge, 'text-muted-foreground')}>{t('character.inventory.worn')}</Badge>}
       {row.attached && (
-        <Badge variant="outline" className={cn(badge, 'text-muted-foreground')}>
-          {t('character.inventory.attachedTo', { slot: row.attached })}
+        // The slot is the game's internal location id ("MeatCleaver Belt
+        // Left"), with no translation the panel ships: named on hover only.
+        <Badge variant="outline" className={cn(badge, 'text-muted-foreground')} title={row.attached}>
+          {t('character.inventory.attached')}
         </Badge>
       )}
       {annotation?.debug && <Badge variant="outline" className={cn(badge, 'border-warning/50 text-warning')}>{t('character.inventory.debugItem')}</Badge>}
@@ -46,7 +66,7 @@ function RowBadges({
       {row.obsolete && <Badge variant="outline" className={cn(badge, 'text-muted-foreground')}>{t('character.inventory.obsoleteItem')}</Badge>}
       {annotation?.givenAt && (
         <span className="text-[11px] text-muted-foreground">
-          {t('character.inventory.givenViaPanel', { when: formatWhen(annotation.givenAt, i18n.language) })}
+          {givenCopy(t, { given: annotation.given, qty: annotation.qty, givenAt: annotation.givenAt }, i18n.language)}
         </span>
       )}
     </>
@@ -73,16 +93,17 @@ function TreeRows({
   rows: CharacterRow[]
   depth: number
   path: string
-  collapsed: Set<string>
+  collapsed: ReadonlySet<string>
   toggle: (key: string) => void
   annotations: Map<string, InventoryAnnotation>
 }) {
   const { t, i18n } = useTranslation('players')
   const language = i18n.language
+  const keys = rowKeys(rows, path)
   return (
     <ul className={cn('space-y-1', depth > 0 && 'ms-4 border-s border-border/40 ps-3')}>
       {rows.map((row, index) => {
-        const key = `${path}.${index}`
+        const key = keys[index]
         const annotation = row.fullType ? annotations.get(row.fullType) : undefined
         if (row.kind === 'container') {
           const open = !collapsed.has(key)
@@ -204,6 +225,14 @@ export function CharacterInventory({
   const [view, setView] = useState<View>('tree')
   const [query, setQuery] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
+  // While searching, every bag on a match's path opens; what's folded then is
+  // kept apart and forgotten with the query, so clearing the search brings
+  // back the folds from before it.
+  const [searchCollapsed, setSearchCollapsed] = useState<{ query: string; keys: Set<string> }>(() => ({
+    query: '',
+    keys: new Set(),
+  }))
+  const searching = query.trim() !== ''
 
   // Polled only while it's on screen: shown, and asked for.
   useEffect(() => {
@@ -214,15 +243,28 @@ export function CharacterInventory({
   const rootRows = useMemo(() => inventory?.root?.rows ?? [], [inventory])
   const filtered = useMemo(() => filterTree(rootRows, query), [rootRows, query])
   const sortedTree = useMemo(() => sortRows(filtered.rows, 'name', collator), [filtered.rows, collator])
-  const byType = useMemo(() => sortRows(aggregateByType(filtered.rows), 'name', collator), [filtered.rows, collator])
+  // Only what matches: the tree keeps ancestors and a matching bag's contents
+  // for context, a flat list by type has no place for them.
+  const byType = useMemo(() => sortRows(aggregateRows(matchingRows(rootRows, query)), 'name', collator), [rootRows, query, collator])
   const all = useMemo(() => totals(rootRows), [rootRows])
-  const toggle = (key: string) =>
-    setCollapsed((previous) => {
-      const next = new Set(previous)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
+  const activeCollapsed: ReadonlySet<string> = searching
+    ? searchCollapsed.query === query
+      ? searchCollapsed.keys
+      : NO_KEYS
+    : collapsed
+  const flip = (previous: ReadonlySet<string>, key: string) => {
+    const next = new Set(previous)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return next
+  }
+  const toggle = (key: string) => {
+    if (searching) {
+      setSearchCollapsed((previous) => ({ query, keys: flip(previous.query === query ? previous.keys : NO_KEYS, key) }))
+    } else {
+      setCollapsed((previous) => flip(previous, key))
+    }
+  }
 
   const wornEquipped: Array<{ key: string; row: CharacterRow }> = []
   if (inventory) {
@@ -278,7 +320,10 @@ export function CharacterInventory({
             </Button>
             <p className="text-xs text-muted-foreground">{t('character.inventory.intro')}</p>
           </div>
-        ) : null
+        ) : (
+          // Last known, or the player isn't online: nothing to load it from.
+          <p className="text-sm text-muted-foreground">{t('character.inventory.noneSaved')}</p>
+        )
       ) : (
         <>
           <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
@@ -348,7 +393,7 @@ export function CharacterInventory({
           ) : filtered.rows.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t('character.inventory.noMatches', { query: query.trim() })}</p>
           ) : view === 'tree' ? (
-            <TreeRows rows={sortedTree} depth={0} path="root" collapsed={collapsed} toggle={toggle} annotations={annotations} />
+            <TreeRows rows={sortedTree} depth={0} path="root" collapsed={activeCollapsed} toggle={toggle} annotations={annotations} />
           ) : (
             <TypeRows items={byType} annotations={annotations} />
           )}

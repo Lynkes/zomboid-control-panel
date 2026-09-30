@@ -9,7 +9,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import type { CharacterHint, CharacterHintEvidence, CharacterHintThresholds } from '@/lib/characterApi'
 import { perkLabel } from '@/lib/characterLabels'
 import { cn } from '@/lib/utils'
-import { formatNumber, formatShortTime, formatWhen } from './characterFormat'
+import { formatNumber, formatShortTime, formatWhen, givenCopy } from './characterFormat'
 
 // "Worth a look": numbers that stand out for a character, each with how it's
 // decided, the usual innocent reasons, and any panel action that explains
@@ -56,6 +56,8 @@ function hintCopy(hint: CharacterHint, thresholds: CharacterHintThresholds, t: T
         minLevel: thresholds.jumpMinTargetLevel,
         passive: thresholds.jumpLevelsPassive,
         totalLevels: thresholds.jumpTotalLevels,
+        floor: thresholds.advancedLevelFloor,
+        rawXp: formatNumber(thresholds.jumpRawXpFloor, language),
         window: thresholds.jumpWindowMinutes,
         sinceTime: typeof p.since === 'string' ? formatShortTime(p.since, language) : '',
       }
@@ -90,9 +92,7 @@ function Evidence({ item }: { item: CharacterHintEvidence }) {
       typeof d.from === 'number' && typeof d.to === 'number'
         ? t('character.hints.evidence.jump', { from: d.from, to: d.to })
         : typeof d.level === 'number'
-          ? typeof d.start === 'number' && d.start > 0
-            ? t('character.hints.evidence.levelFromStart', { level: d.level, start: d.start })
-            : t('character.hints.evidence.level', { level: d.level })
+          ? t('character.hints.evidence.level', { level: d.level })
           : ''
     return (
       <li>
@@ -112,7 +112,10 @@ function Evidence({ item }: { item: CharacterHintEvidence }) {
         <span className="font-mono tabular-nums text-muted-foreground">{t('character.hints.evidence.qty', { qty: formatNumber(d.qty, language) })}</span>
       )}
       {d.givenAt && (
-        <span className="text-muted-foreground">· {t('character.inventory.givenViaPanel', { when: formatWhen(d.givenAt, language) })}</span>
+        <span className="text-muted-foreground">
+          ·{' '}
+          {givenCopy(t, { given: d.given, qty: d.qty, givenAt: d.givenAt }, language)}
+        </span>
       )}
     </li>
   )

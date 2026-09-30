@@ -4,7 +4,7 @@ import { Activity, MapPin, Moon, Skull, Thermometer } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { HelpTip } from '@/components/HelpTip'
 import { CHARACTER_STATS, type CharacterSheet, type CharacterStatName } from '@/lib/characterApi'
-import { formatNumber } from './characterFormat'
+import { formatNumber, formatWhen } from './characterFormat'
 
 // A severity bar for one stat, normalized by the stat's own range. The
 // bridge sends each stat's range from CharacterStat.getMinimumValue() /
@@ -51,7 +51,14 @@ const GOOD_WHEN_HIGH = new Set<CharacterStatName>(['endurance'])
 // thresholds like FATIGUE <= 0.3); nothing else is assumed.
 const KNOWN_UNIT_RANGE = new Set<CharacterStatName>(['hunger', 'thirst', 'fatigue'])
 
-export function CharacterCondition({ sheet }: { sheet: CharacterSheet }) {
+export function CharacterCondition({
+  sheet,
+  savedAt,
+}: {
+  sheet: CharacterSheet
+  /** A saved Condition read earlier than the rest of the saved sheet: when. */
+  savedAt?: string | null
+}) {
   const { t, i18n } = useTranslation('players')
   const language = i18n.language
   const stats = sheet.stats ?? {}
@@ -89,10 +96,15 @@ export function CharacterCondition({ sheet }: { sheet: CharacterSheet }) {
 
   return (
     <section className="space-y-3" aria-labelledby="character-condition-heading">
-      <h3 id="character-condition-heading" className="flex items-center gap-2 text-sm font-medium">
-        <Activity className="h-4 w-4 text-primary" aria-hidden="true" />
-        {t('character.condition.title')}
-      </h3>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 id="character-condition-heading" className="flex items-center gap-2 text-sm font-medium">
+          <Activity className="h-4 w-4 text-primary" aria-hidden="true" />
+          {t('character.condition.title')}
+        </h3>
+        {savedAt && (
+          <span className="text-[11px] text-muted-foreground">{t('character.state.savedAt', { when: formatWhen(savedAt, language) })}</span>
+        )}
+      </div>
       {sheet.sectionErrors?.stats && (
         <p className="text-xs text-muted-foreground">{t('character.state.sectionFailed', { reason: sheet.sectionErrors.stats })}</p>
       )}
