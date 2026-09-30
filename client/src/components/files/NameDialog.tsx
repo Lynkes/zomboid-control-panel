@@ -110,7 +110,10 @@ export function NameDialog({
         }}
       >
         <DialogHeader>
-          <DialogTitle className="break-words">{title}</DialogTitle>
+          {/* The title quotes the file name ("Rename {name}"); DialogTitle
+              wraps it anywhere, so a long unbroken name wraps instead of
+              widening the dialog. */}
+          <DialogTitle>{title}</DialogTitle>
           {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>
         <form
@@ -138,7 +141,7 @@ export function NameDialog({
             className="min-h-11 font-mono sm:min-h-9"
           />
           {errorText && (
-            <p id="files-name-error" role="alert" className="mt-1 text-xs text-destructive">{errorText}</p>
+            <p id="files-name-error" role="alert" className="mt-1 text-xs text-destructive [overflow-wrap:anywhere]">{errorText}</p>
           )}
           <DialogFooter className="gap-2 pt-2">
             <Button type="button" variant="outline" onClick={onCancel} disabled={busy}>

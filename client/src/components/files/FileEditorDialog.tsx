@@ -490,7 +490,14 @@ export function FileEditorDialog({
           </div>
         </div>
 
-        <div className="space-y-2 px-4 pt-3 empty:hidden">
+        {/* 2026-09 dialog sweep: the server's profile .ini can bring four
+            notes (masked secrets, restart to apply, keys the panel rewrites,
+            Workshop bridge entries), and a save conflict a fifth. This stack
+            couldn't shrink or scroll and the dialog clips, so on a short
+            window (1280x620 at 150% zoom) it squeezed the text itself down
+            to half a line. It now takes at most 40% of the height and
+            scrolls, the conflict first; the text keeps a floor below. */}
+        <div className="max-h-[40%] min-h-0 space-y-2 overflow-y-auto px-4 pt-3 empty:hidden">
           {conflict && (
             <Alert className="border-warning/40 bg-warning/10">
               <AlertTriangle className="h-4 w-4 !text-warning" aria-hidden="true" />
@@ -542,7 +549,7 @@ export function FileEditorDialog({
           )}
         </div>
 
-        <div className="min-h-0 flex-1 p-4">
+        <div className="min-h-[7.5rem] flex-1 p-4">
           {loading ? (
             <div className="flex h-full items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden="true" />
