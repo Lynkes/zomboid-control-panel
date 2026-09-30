@@ -9,7 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-_No unreleased changes._
+- **Server Files:** browse, edit, upload, download and delete files in each server's game and Zomboid folders (local, Docker or SFTP), with a 7-day Trash; admin-only by default.
+- **Character tab on the Players page:** skills and XP, traits, condition and a searchable inventory, live or last known, with "Worth a look" hints.
+
+### Changed
+
+- The old "Manage server files" permission is now called "Edit server config files"; the file manager has its own "Manage server files" permission.
+- The Vitals tab is now part of the Character tab, which needs only "View player info".
 
 ## [1.4.0] - 2026-09-28
 
