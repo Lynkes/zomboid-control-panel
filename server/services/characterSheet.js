@@ -283,22 +283,32 @@ function normalizeRow(raw, depth, budget) {
   });
 }
 
+// The bridge sends worn, attached and equipped items as short summaries,
+// { itemId, fullType, name, location }, not as inventory rows. Each becomes a
+// stack row carrying where it sits (worn, the attachment slot, or the hand),
+// which is what the "Worn & equipped" strip badges. A full row passes through.
+function normalizePlacedItem(raw, place, budget) {
+  if (!isPlainObject(raw)) return null;
+  if (raw.kind === "stack" || raw.kind === "container") return normalizeRow(raw, 2, budget);
+  const placement =
+    place === "worn" ? { worn: true } : place === "attached" ? { attached: raw.location } : { equipped: place };
+  return normalizeRow({ kind: "stack", fullType: raw.fullType, name: raw.name, ...placement }, 2, budget);
+}
+
 function normalizeInventory(raw) {
   const inv = asObject(raw);
   const budget = createRowBudget();
   const root = isPlainObject(inv.root) ? normalizeRow(inv.root, 1, budget) : null;
   const worn = asList(inv.worn)
-    .map((row) => normalizeRow(row, 2, budget))
+    .map((row) => normalizePlacedItem(row, "worn", budget))
     .filter(Boolean);
   const attached = asList(inv.attached)
-    .map((row) => normalizeRow(row, 2, budget))
+    .map((row) => normalizePlacedItem(row, "attached", budget))
     .filter(Boolean);
   const equippedRaw = asObject(inv.equipped);
   const equipped = compact({
-    primary: isPlainObject(equippedRaw.primary) ? normalizeRow(equippedRaw.primary, 2, budget) ?? undefined : undefined,
-    secondary: isPlainObject(equippedRaw.secondary)
-      ? normalizeRow(equippedRaw.secondary, 2, budget) ?? undefined
-      : undefined,
+    primary: normalizePlacedItem(equippedRaw.primary, "primary", budget) ?? undefined,
+    secondary: normalizePlacedItem(equippedRaw.secondary, "secondary", budget) ?? undefined,
   });
   const t = asObject(inv.totals);
   const totals = compact({
