@@ -27,7 +27,12 @@ export function isBrokenLink(entry: FileEntry): boolean {
   return entry.type === 'link' && entry.link?.targetType === 'missing'
 }
 
-/** Sealed entries, escaping or broken links and unsupported names open nothing. */
+/**
+ * Sealed entries, escaping or broken links and unsupported names open nothing.
+ * A text file the operator can't change (a read-only root, a read-only
+ * protected area) still opens in the editor: GET /text says it is read-only,
+ * and the editor shows it that way.
+ */
 export function openModeFor(entry: FileEntry): OpenMode {
   if (entry.flags.unsupportedName) return 'blocked'
   if (entry.protection?.level === 'sealed') return 'blocked'
@@ -38,6 +43,7 @@ export function openModeFor(entry: FileEntry): OpenMode {
   if (entry.flags.editable) return 'edit'
   if (entry.flags.binaryHint) return 'details'
   if ((entry.size ?? 0) > FM_LIMITS.TEXT_EDIT_MAX_BYTES) return 'tail'
+  if (entry.type === 'file') return 'edit'
   return 'details'
 }
 

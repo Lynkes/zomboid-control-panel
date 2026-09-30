@@ -283,10 +283,20 @@ export function LocationProbe() {
   )
 }
 
-export function renderFiles(initialEntry = '/files?server=p1&root=data') {
+/** A socket stand-in: `emit(event)` runs the page's handler for it. */
+export function makeFakeSocket() {
+  const handlers = new Map<string, (...args: unknown[]) => void>()
+  return {
+    on: (event: string, handler: (...args: unknown[]) => void) => { handlers.set(event, handler) },
+    off: (event: string) => { handlers.delete(event) },
+    emit: (event: string, ...args: unknown[]) => handlers.get(event)?.(...args),
+  }
+}
+
+export function renderFiles(initialEntry = '/files?server=p1&root=data', { socket = null }: { socket?: unknown } = {}) {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
-      <SocketContext.Provider value={null}>
+      <SocketContext.Provider value={socket as never}>
         <TooltipProvider>
           <ConfirmProvider>
             <Files />

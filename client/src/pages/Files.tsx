@@ -200,17 +200,28 @@ export default function Files() {
 
   const profileIdRef = useRef<string | null>(null)
   profileIdRef.current = profile?.id ?? null
+  const hasProfilesRef = useRef(false)
+  hasProfilesRef.current = profiles !== null
 
+  // A refresh of what is already shown (another admin switched the active
+  // server, "Check again", a change just made) that fails keeps it on screen
+  // and says so in a toast: replacing the page with an error would unmount an
+  // open editor and lose its unsaved text. Only a first load, or a switch to
+  // another server, turns into the error page.
   const loadProfiles = useCallback(async () => {
     setPageError(null)
     try {
       const result = await filesApi.listProfiles()
       setProfiles(result.profiles)
     } catch (error) {
+      if (hasProfilesRef.current) {
+        toast({ variant: 'destructive', title: describeFilesError(error) })
+        return
+      }
       setProfiles(null)
       setPageError(error)
     }
-  }, [])
+  }, [toast])
 
   const loadProfile = useCallback(async (id: string, fresh = false) => {
     const requestId = ++profileRequestRef.current
@@ -220,9 +231,14 @@ export default function Files() {
       // A later request (another server picked meanwhile) wins.
       if (requestId === profileRequestRef.current) setProfile(result.profile)
     } catch (error) {
-      if (requestId === profileRequestRef.current) setProfileError(error)
+      if (requestId !== profileRequestRef.current) return
+      if (profileIdRef.current === id) {
+        toast({ variant: 'destructive', title: describeFilesError(error) })
+        return
+      }
+      setProfileError(error)
     }
-  }, [])
+  }, [toast])
 
   useEffect(() => {
     if (canManage) void loadProfiles()
@@ -777,13 +793,16 @@ export default function Files() {
     resolve?.(choice)
   }, [])
 
-  const startUpload = useCallback(async (picked: PickedFile[], options?: { replaceWithoutAsking?: boolean }) => {
+  // `dir` defaults to the folder shown (toolbar and drop uploads); Replace
+  // by upload names the folder of the file it replaces, which a search
+  // result or a deep link can put somewhere else.
+  const startUpload = useCallback(async (picked: PickedFile[], options?: { replaceWithoutAsking?: boolean; dir?: string }) => {
     if (!profile || !root || !rootIsWritable(root) || picked.length === 0) return
     if (picked.length > FM_LIMITS.UPLOAD_FILES_PER_BATCH) {
       toast({ variant: 'destructive', title: t('upload.tooMany', { limit: FM_LIMITS.UPLOAD_FILES_PER_BATCH }) })
       return
     }
-    const dir = currentPath
+    const dir = options?.dir ?? currentPath
     let accepted: ConfirmToken[] = []
     let preflight
     try {
@@ -1481,9 +1500,9 @@ export default function Files() {
           event.target.value = ''
           replaceTargetRef.current = null
           if (!file || !target) return
-          // The replacement keeps the name it replaces.
+          // The replacement keeps the name and the folder of the file it replaces.
           const renamed = new File([file], target.name, { type: file.type, lastModified: file.lastModified })
-          void startUpload([{ file: renamed, relPath: target.name }], { replaceWithoutAsking: true })
+          void startUpload([{ file: renamed, relPath: target.name }], { replaceWithoutAsking: true, dir: parentPath(target.path) })
         }}
       />
 

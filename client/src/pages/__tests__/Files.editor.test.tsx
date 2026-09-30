@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import enFiles from '@/locales/en/files.json'
 import { forgetServerRunningAcks } from '@/lib/filesApi'
+import type { FileEntry } from '@/types/files'
 import {
   FakeFilesServer,
   currentParams,
   fmError,
   json,
   makeEntry,
+  makeFakeSocket,
   makeListing,
   makeText,
   renderFiles,
@@ -108,6 +110,31 @@ describe('Files editor', () => {
     expect(screen.queryByText(enFiles.editor.unsaved)).not.toBeInTheDocument()
   })
 
+  it('Ctrl+S with nothing changed saves nothing (no earlier version pushed into Trash)', async () => {
+    const textarea = await openEditor()
+    fireEvent.keyDown(textarea, { key: 's', ctrlKey: true })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(server.callsTo('PUT', '/text')).toHaveLength(0)
+  })
+
+  it('an open editor and its unsaved text survive a failed refresh of the profiles', async () => {
+    const socket = makeFakeSocket()
+    renderFiles('/files?server=p1&root=data&path=Server', { socket })
+    fireEvent.click(await screen.findByRole('button', { name: 'servertest.ini' }))
+    const textarea = (await screen.findByRole('textbox', { name: 'servertest.ini' })) as HTMLTextAreaElement
+    await waitFor(() => expect(textarea).toHaveValue(ORIGINAL))
+    fireEvent.change(textarea, { target: { value: 'PVP=false\n' } })
+    server.on(({ method, path }) => (method === 'GET' && (path === '/profiles' || path === '/profiles/p1')
+      ? fmError(400, 'FM_INVALID_REQUEST', { field: 'x' })
+      : undefined))
+    await act(async () => {
+      socket.emit('activeServerChanged')
+    })
+    await waitFor(() => expect(server.callsTo('GET', '/profiles/p1').length).toBeGreaterThan(1))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(screen.getByRole('textbox', { name: 'servertest.ini' })).toHaveValue('PVP=false\n')
+  })
+
   it('Tab inserts a tab character instead of leaving the field', async () => {
     const textarea = await openEditor()
     textarea.setSelectionRange(0, 0)
@@ -188,6 +215,29 @@ describe('Files editor', () => {
       expect(String(call[1])).not.toContain(SENTINEL)
       expect(String(call[1])).not.toContain('Password=')
     }
+  })
+})
+
+describe('Files editor: files the operator can only read', () => {
+  it('a read-only protected text file opens in the editor, read-only, instead of "not text"', async () => {
+    const status = makeEntry('Lua/panelbridge/servertest/status.json', 'file', {
+      protection: { level: 'readOnly', area: 'bridgeIo' },
+      flags: { editable: false } as FileEntry['flags'],
+    })
+    server.listings.set('data|Lua/panelbridge/servertest', makeListing([status]))
+    server.texts.set('data|Lua/panelbridge/servertest/status.json', makeText(status, '{"alive":true}\n', {
+      readOnly: true,
+      readOnlyReason: 'protected',
+    }))
+    renderFiles('/files?server=p1&root=data&path=Lua/panelbridge/servertest')
+    fireEvent.click(await screen.findByRole('button', { name: 'status.json' }))
+    const textarea = await screen.findByRole('textbox', { name: 'status.json' })
+    await waitFor(() => expect(textarea).toHaveValue('{"alive":true}\n'))
+    expect(textarea).toHaveAttribute('readonly')
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText(enFiles.editor.readOnly)).toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: enFiles.actions.save })).toBeNull()
+    expect(screen.queryByText(enFiles.dialogs.details.binary)).toBeNull()
   })
 })
 

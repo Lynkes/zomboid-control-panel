@@ -214,6 +214,10 @@ export function FileEditorDialog({
 
   const save = useCallback(async (overrideEtag?: string) => {
     if (!doc || readOnly || saving) return
+    // Ctrl+S with nothing changed does nothing: a save would still keep an
+    // "earlier version" in Trash and push a real one out of the 20 kept.
+    // "Save anyway" after a conflict passes the etag and always goes ahead.
+    if (!dirty && overrideEtag === undefined) return
     if (doc.eol === 'mixed') {
       const ok = await confirm({
         title: t('confirm.changeTitle'),
@@ -257,7 +261,7 @@ export function FileEditorDialog({
     } finally {
       setSaving(false)
     }
-  }, [confirm, doc, entry.name, entry.path, onSaved, profileId, readOnly, root.id, runConfirmed, saving, t, text, toast])
+  }, [confirm, dirty, doc, entry.name, entry.path, onSaved, profileId, readOnly, root.id, runConfirmed, saving, t, text, toast])
 
   const saveAnyway = async () => {
     const ok = await confirm({

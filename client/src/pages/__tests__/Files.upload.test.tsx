@@ -142,6 +142,32 @@ describe('Files: uploading a batch', () => {
   })
 })
 
+describe('Files: Replace by upload', () => {
+  it('from a search result, uploads into the folder of the file it replaces', async () => {
+    const bin = makeEntry('Server/map.bin', 'file')
+    server.listings.set('data|', makeListing([makeEntry('Server', 'dir')]))
+    server.on(({ method, path }) =>
+      method === 'GET' && path.endsWith('/search') ? json(200, { results: [bin], truncated: false, scanned: 3 }) : undefined)
+    preflightWith(() => ({ willReplace: true, currentEtag: 's:1234-7' }))
+    renderFiles('/files?server=p1&root=data&path=')
+    const filter = await screen.findByPlaceholderText(enFiles.list.filterPlaceholder)
+    fireEvent.change(filter, { target: { value: 'map' } })
+    fireEvent.submit(filter.closest('form')!)
+    // A search result names its folder too; open it with the row's name button.
+    const rows = await screen.findAllByRole('button', { name: /map\.bin/ })
+    fireEvent.click(rows.find((button) => button.hasAttribute('data-row-primary'))!)
+    fireEvent.click(await screen.findByRole('button', { name: enFiles.actions.replaceByUpload }))
+    pick(screen.getByTestId('files-replace-input'), [new File(['x'], 'whatever.bin')])
+
+    await waitFor(() => expect(server.callsTo('POST', '/upload/preflight')).toHaveLength(1))
+    expect(server.callsTo('POST', '/upload/preflight')[0].body).toMatchObject({ dir: 'Server', files: [{ relPath: 'map.bin', size: 1 }] })
+    await waitFor(() => expect(FakeXhr.requests).toHaveLength(1))
+    expect(FakeXhr.requests[0].headers['X-File-Dir']).toBe('Server')
+    expect(FakeXhr.requests[0].headers['X-File-Name']).toBe('map.bin')
+    expect(FakeXhr.requests[0].headers['X-File-Overwrite-Etag']).toBe('s:1234-7')
+  })
+})
+
 describe('Files: dropping a folder', () => {
   function fileEntry(name: string, content: string) {
     return { isFile: true, isDirectory: false, name, file: (ok: (file: File) => void) => ok(new File([content], name)) }
