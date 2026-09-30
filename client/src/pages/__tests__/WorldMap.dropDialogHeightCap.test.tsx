@@ -216,4 +216,28 @@ describe('WorldMap -- Custom Drop dialog fits a short mobile viewport', () => {
     expect(dialog).toBeInTheDocument()
     expect(within(dialog).getByText('Axe')).toBeInTheDocument()
   })
+
+  it("Escape in a row's item picker closes only the picker; the next Escape closes the dialog", async () => {
+    getCatalogItems.mockResolvedValue({
+      items: [{ id: 'Base.Axe', name: 'Axe', category: 'WeaponPrimitive', weight: 3 }],
+      count: 1,
+      scannedAt: null,
+    })
+    const dialog = await openDropDialog()
+    const trigger = await within(dialog).findByRole('combobox', { name: 'Select item' })
+    fireEvent.click(trigger)
+    const popover = await screen.findByRole('dialog', { name: 'Select item' })
+    const search = screen.getByRole('combobox', { name: 'Filter items' })
+    await waitFor(() => expect(document.activeElement).toBe(search))
+
+    fireEvent.keyDown(search, { key: 'Escape' })
+    await waitFor(() => expect(popover).not.toBeInTheDocument())
+    expect(dialog).toBeInTheDocument()
+    await waitFor(() => expect(document.activeElement).toBe(trigger))
+
+    // The dialog is a live, controlled one (this is what makes the check
+    // above mean something): Escape from the trigger does close it.
+    fireEvent.keyDown(trigger, { key: 'Escape' })
+    await waitFor(() => expect(dialog).not.toBeInTheDocument())
+  })
 })

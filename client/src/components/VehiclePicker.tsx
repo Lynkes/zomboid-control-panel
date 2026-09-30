@@ -173,8 +173,20 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
     const sorted = Array.from(groups.entries())
       .sort(([a], [b]) => (TYPE_ORDER[a] ?? 99) - (TYPE_ORDER[b] ?? 99))
 
-    return { visibleVehicles: visible, totalFiltered: total, capped: isCapped, groupedVehicles: sorted }
+    // The arrow keys walk the rows in the order they're shown (by type, then
+    // name), not in the flat name order, which jumped between groups.
+    return {
+      visibleVehicles: sorted.flatMap(([, vehs]) => vehs),
+      totalFiltered: total,
+      capped: isCapped,
+      groupedVehicles: sorted,
+    }
   }, [vehicles, search])
+
+  const rowIndex = useMemo(
+    () => new Map(visibleVehicles.map((v, i) => [v.id, i])),
+    [visibleVehicles]
+  )
 
   const selectedVehicle = useMemo(() => vehicles.find(v => v.id === value), [vehicles, value])
 
@@ -190,14 +202,30 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
     setSearch('')
   }
 
+  // Key events reach this wrapper from the portaled popover too (React
+  // bubbles them through portals), so e.target says where they started.
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!open) {
+      // Only the combobox itself opens the list: Enter or Space on its clear
+      // button has to press that button.
+      if (e.target !== triggerRef.current) return
       if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
         e.preventDefault()
         setOpen(true)
       }
       return
     }
+    if (e.key === 'Escape') {
+      // The popover's own layer closes on Escape too (and keeps a host
+      // Dialog open); this just clears the highlight with it.
+      e.preventDefault()
+      setOpen(false)
+      setHighlightIndex(-1)
+      return
+    }
+    // The list keys belong to the search box. Tab also reaches the Scan and
+    // clear-search buttons, and Enter must press those.
+    if (e.target !== inputRef.current) return
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault()
@@ -214,13 +242,6 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
         } else if (visibleVehicles.length > 0) {
           handleSelect(visibleVehicles[0].id)
         }
-        break
-      case 'Escape':
-        // The popover's own layer closes on Escape too (and keeps a host
-        // Dialog open); this just clears the highlight with it.
-        e.preventDefault()
-        setOpen(false)
-        setHighlightIndex(-1)
         break
     }
   }
@@ -345,7 +366,9 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
           onOpenAutoFocus={e => { e.preventDefault(); inputRef.current?.focus({ preventScroll: true }) }}
           onCloseAutoFocus={e => { e.preventDefault(); triggerRef.current?.focus({ preventScroll: true }) }}
         >
-          {/* Search */}
+          {/* Search. It is the combobox while the list is open: it has focus
+              (the trigger is hidden behind the modal popover), so it carries
+              the highlighted option for screen readers. */}
           <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 h-11">
             <Search className="w-4 h-4 text-muted-foreground shrink-0" />
             <input
@@ -354,6 +377,11 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
               onChange={e => setSearch(e.target.value)}
               placeholder={t('searchNVehiclesPlaceholder', { count: vehicles.length })}
               className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              role="combobox"
+              aria-expanded
+              aria-controls="vehpicker-listbox"
+              aria-autocomplete="list"
+              aria-activedescendant={highlightIndex >= 0 && visibleVehicles[highlightIndex] ? `vehpicker-opt-${highlightIndex}` : undefined}
               aria-label={t('filterVehiclesAria')}
             />
             {search && (
@@ -405,12 +433,13 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
                       )
                     })()}
                     {vehs.map((veh) => {
-                      const globalIdx = visibleVehicles.indexOf(veh)
+                      const globalIdx = rowIndex.get(veh.id) ?? -1
                       return (
                         <button
                           key={veh.id}
                           type="button"
                           role="option"
+                          id={`vehpicker-opt-${globalIdx}`}
                           aria-selected={veh.id === value}
                           data-veh-index={globalIdx}
                           onClick={() => handleSelect(veh.id)}

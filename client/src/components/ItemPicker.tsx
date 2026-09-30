@@ -221,14 +221,30 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
     setSearch('')
   }
 
+  // Key events reach this wrapper from the portaled popover too (React
+  // bubbles them through portals), so e.target says where they started.
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!open) {
+      // Only the combobox itself opens the list: Enter or Space on its clear
+      // button has to press that button.
+      if (e.target !== triggerRef.current) return
       if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
         e.preventDefault()
         setOpen(true)
       }
       return
     }
+    if (e.key === 'Escape') {
+      // The popover's own layer closes on Escape too (and keeps a host
+      // Dialog open); this just clears the highlight with it.
+      e.preventDefault()
+      setOpen(false)
+      setHighlightIndex(-1)
+      return
+    }
+    // The list keys belong to the search box. Tab also reaches the sidebar,
+    // Scan and clear-search buttons, and Enter must press those.
+    if (e.target !== inputRef.current) return
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault()
@@ -246,18 +262,15 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
           handleSelect(visibleItems[0].id)
         }
         break
-      case 'Escape':
-        // The popover's own layer closes on Escape too (and keeps a host
-        // Dialog open); this just clears the highlight with it.
-        e.preventDefault()
-        setOpen(false)
-        setHighlightIndex(-1)
-        break
+      // Home and End jump in the list once the arrows have picked a row;
+      // until then they move the cursor in the search text.
       case 'Home':
+        if (highlightIndex < 0) break
         e.preventDefault()
         setHighlightIndex(0)
         break
       case 'End':
+        if (highlightIndex < 0) break
         e.preventDefault()
         setHighlightIndex(visibleItems.length - 1)
         break
@@ -332,7 +345,6 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
             aria-expanded={open}
             aria-haspopup="listbox"
             aria-controls={open ? 'itempicker-listbox' : undefined}
-            aria-activedescendant={highlightIndex >= 0 && visibleItems[highlightIndex] ? `itempicker-opt-${highlightIndex}` : undefined}
             aria-label={t('selectItemAria')}
             tabIndex={disabled ? -1 : 0}
             className={cn(
@@ -390,7 +402,9 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
           onOpenAutoFocus={e => { e.preventDefault(); inputRef.current?.focus({ preventScroll: true }) }}
           onCloseAutoFocus={e => { e.preventDefault(); triggerRef.current?.focus({ preventScroll: true }) }}
         >
-          {/* Search bar */}
+          {/* Search bar. It is the combobox while the list is open: it has
+              focus (the trigger is hidden behind the modal popover), so it
+              carries the highlighted option for screen readers. */}
           <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
             <Search className="w-4 h-4 text-muted-foreground shrink-0" />
             <input
@@ -399,6 +413,11 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
               onChange={e => setSearch(e.target.value)}
               placeholder={t('searchNItemsPlaceholder', { count: nonVehicleItems.length.toLocaleString(i18n.language) })}
               className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+              role="combobox"
+              aria-expanded
+              aria-controls="itempicker-listbox"
+              aria-autocomplete="list"
+              aria-activedescendant={highlightIndex >= 0 && visibleItems[highlightIndex] ? `itempicker-opt-${highlightIndex}` : undefined}
               aria-label={t('filterItemsAria')}
             />
             {search && (

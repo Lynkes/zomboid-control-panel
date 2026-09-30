@@ -64,7 +64,7 @@ describe('ItemPicker', () => {
   it('finds an item by an accented, non-ASCII search term', async () => {
     await renderPicker()
     fireEvent.click(screen.getByRole('combobox', { name: 'Select item' }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Filter items' }), { target: { value: 'café' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter items' }), { target: { value: 'café' } })
 
     expect(await screen.findByText('Café Empañada')).toBeInTheDocument()
     expect(screen.queryByText('Axe')).not.toBeInTheDocument()
@@ -73,7 +73,7 @@ describe('ItemPicker', () => {
   it('finds the same accented item when searching its plain-ASCII id fragment', async () => {
     await renderPicker()
     fireEvent.click(screen.getByRole('combobox', { name: 'Select item' }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Filter items' }), { target: { value: 'empanadacafe' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter items' }), { target: { value: 'empanadacafe' } })
 
     expect(await screen.findByText('Café Empañada')).toBeInTheDocument()
   })
@@ -95,7 +95,7 @@ describe('ItemPicker', () => {
   it('shows a real "no results" state for a search with no matches, not an empty silent list', async () => {
     await renderPicker()
     fireEvent.click(screen.getByRole('combobox', { name: 'Select item' }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Filter items' }), { target: { value: 'zzzznonexistent' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter items' }), { target: { value: 'zzzznonexistent' } })
 
     expect(await screen.findByText(/No items match/)).toBeInTheDocument()
   })

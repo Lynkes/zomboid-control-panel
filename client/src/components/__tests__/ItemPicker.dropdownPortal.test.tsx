@@ -1,3 +1,4 @@
+import { useState, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import postcss from 'postcss'
@@ -43,7 +44,12 @@ vi.mock('@/lib/api', async () => {
 
 const getCatalogItems = vi.mocked(panelBridgeApi.getCatalogItems)
 
+// jsdom has no scrollIntoView; the highlighted-row effect calls it.
+Element.prototype.scrollIntoView = vi.fn()
+
+// Sorted by name in the list: Axe, Bandage, Crowbar.
 const ITEMS: CatalogItem[] = [
+  { id: 'Base.Crowbar', name: 'Crowbar', category: 'WeaponPrimitive', weight: 2 },
   { id: 'Base.Axe', name: 'Axe', category: 'WeaponPrimitive', weight: 3 },
   { id: 'Base.Bandage', name: 'Bandage', category: 'Bandage', weight: 0.1 },
 ]
@@ -53,12 +59,26 @@ beforeEach(() => {
   getCatalogItems.mockResolvedValue({ items: ITEMS, count: ITEMS.length, scannedAt: '2026-09-20T00:00:00.000Z' })
 })
 
+// A controlled host Dialog, like WorldMap's: it really closes when Radix asks
+// it to, and onOpenChange records every request. A bare `<Dialog open>`
+// can't close at all, so "the host Dialog is still there" proves nothing on
+// it.
+function HostDialog({ onOpenChange, children }: { onOpenChange: (open: boolean) => void; children: ReactNode }) {
+  const [open, setOpen] = useState(true)
+  return (
+    <Dialog open={open} onOpenChange={next => { onOpenChange(next); setOpen(next) }}>
+      {children}
+    </Dialog>
+  )
+}
+
 // The Custom item drop dialog's shape: the picker sits in a capped,
 // scrolling rows list inside a DialogBody inside DialogContent -- three
 // clipping boxes deep.
-function renderInDialog(onChange = vi.fn()) {
+function renderInDialog(onChange = vi.fn(), value = '') {
+  const onOpenChange = vi.fn()
   render(
-    <Dialog open>
+    <HostDialog onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Custom item drop</DialogTitle>
@@ -66,16 +86,16 @@ function renderInDialog(onChange = vi.fn()) {
         </DialogHeader>
         <DialogBody>
           <div data-testid="rows" className="max-h-72 overflow-y-auto">
-            <ItemPicker value="" onChange={onChange} />
+            <ItemPicker value={value} onChange={onChange} />
           </div>
         </DialogBody>
         <DialogFooter>
           <button type="button">Drop</button>
         </DialogFooter>
       </DialogContent>
-    </Dialog>,
+    </HostDialog>,
   )
-  return { onChange, hostDialog: screen.getByRole('dialog', { name: 'Custom item drop' }) }
+  return { onChange, onOpenChange, hostDialog: screen.getByRole('dialog', { name: 'Custom item drop' }) }
 }
 
 async function openPicker() {
@@ -122,7 +142,7 @@ describe('ItemPicker: the dropdown always fits the window', () => {
     expect(popover.querySelector('[style*="max-height"]')).toBeNull()
 
     // The search bar is a fixed row of the column, not inside any scroller.
-    const search = screen.getByRole('textbox', { name: 'Filter items' })
+    const search = screen.getByRole('combobox', { name: 'Filter items' })
     const searchRow = search.parentElement!
     expect(searchRow.parentElement).toBe(popover)
     expect(searchRow.className).toContain('shrink-0')
@@ -140,9 +160,9 @@ describe('ItemPicker: the dropdown always fits the window', () => {
   })
 
   it('works as a modal inside the Dialog: focus goes to the search box, Escape closes only the picker and returns focus', async () => {
-    const { hostDialog } = renderInDialog()
+    const { hostDialog, onOpenChange } = renderInDialog()
     const { popover } = await openPicker()
-    const search = screen.getByRole('textbox', { name: 'Filter items' })
+    const search = screen.getByRole('combobox', { name: 'Filter items' })
 
     // The Dialog's focus trap doesn't pull focus back out of the portaled
     // search box, and the Dialog's scroll lock is handed to the popover (a
@@ -152,19 +172,21 @@ describe('ItemPicker: the dropdown always fits the window', () => {
 
     fireEvent.keyDown(search, { key: 'Escape' })
     await waitFor(() => expect(popover).not.toBeInTheDocument())
+    expect(onOpenChange).not.toHaveBeenCalled()
     expect(hostDialog).toBeInTheDocument()
     expect(hostDialog).not.toHaveAttribute('aria-hidden')
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'Select item' })))
   })
 
   it('picking an item in the portaled list selects it and leaves the host Dialog open', async () => {
-    const { onChange, hostDialog } = renderInDialog()
+    const { onChange, onOpenChange, hostDialog } = renderInDialog()
     await openPicker()
 
     fireEvent.click(screen.getByRole('option', { name: /bandage/i }))
 
     expect(onChange).toHaveBeenCalledWith('Base.Bandage')
     await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())
+    expect(onOpenChange).not.toHaveBeenCalled()
     expect(hostDialog).toBeInTheDocument()
   })
 
@@ -174,7 +196,7 @@ describe('ItemPicker: the dropdown always fits the window', () => {
     // Radix starts listening for outside presses a tick after opening.
     await new Promise(resolve => setTimeout(resolve, 0))
 
-    const search = screen.getByRole('textbox', { name: 'Filter items' })
+    const search = screen.getByRole('combobox', { name: 'Filter items' })
     fireEvent.pointerDown(search)
     fireEvent.click(search)
     expect(popover).toBeInTheDocument()
@@ -182,6 +204,91 @@ describe('ItemPicker: the dropdown always fits the window', () => {
     fireEvent.pointerDown(document.body)
     fireEvent.click(document.body)
     await waitFor(() => expect(popover).not.toBeInTheDocument())
+  })
+
+  it('a press outside the picker, in the Dialog or past it, closes only the picker', async () => {
+    const { hostDialog, onOpenChange } = renderInDialog()
+
+    for (const outside of [() => screen.getByText('Custom item drop'), () => document.body]) {
+      const { popover } = await openPicker()
+      await new Promise(resolve => setTimeout(resolve, 0))
+      const target = outside()
+      fireEvent.pointerDown(target)
+      fireEvent.click(target)
+      await waitFor(() => expect(popover).not.toBeInTheDocument())
+      expect(onOpenChange).not.toHaveBeenCalled()
+      expect(hostDialog).toBeInTheDocument()
+    }
+  })
+
+  // The listbox and its search box live in a <body>-level portal, but the
+  // arrow and Enter keys are handled by the wrapper next to the trigger:
+  // React bubbles key events out of a portal to its React parent. This pins
+  // that path; Escape alone would not, since Radix handles it itself.
+  it('selects from the portaled search box with the keyboard, inside the Dialog', async () => {
+    const { onChange, onOpenChange, hostDialog } = renderInDialog()
+    await openPicker()
+    const search = screen.getByRole('combobox', { name: 'Filter items' })
+    await waitFor(() => expect(document.activeElement).toBe(search))
+
+    fireEvent.keyDown(search, { key: 'ArrowDown' })
+    fireEvent.keyDown(search, { key: 'ArrowDown' })
+    // The focused search box carries the highlighted option (the trigger is
+    // hidden behind the modal popover).
+    expect(search).toHaveAttribute('aria-activedescendant', 'itempicker-opt-1')
+    expect(document.getElementById('itempicker-opt-1')).toHaveTextContent('Bandage')
+
+    fireEvent.keyDown(search, { key: 'Enter' })
+
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(onChange).toHaveBeenCalledWith('Base.Bandage')
+    await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'Select item' })))
+    expect(onOpenChange).not.toHaveBeenCalled()
+    expect(hostDialog).toBeInTheDocument()
+  })
+
+  it('Home and End move the text cursor until the arrows pick a row, then jump in the list', async () => {
+    renderInDialog()
+    await openPicker()
+    const search = screen.getByRole('combobox', { name: 'Filter items' })
+
+    // fireEvent returns false when the handler called preventDefault.
+    expect(fireEvent.keyDown(search, { key: 'End' })).toBe(true)
+    expect(fireEvent.keyDown(search, { key: 'Home' })).toBe(true)
+    expect(search).not.toHaveAttribute('aria-activedescendant')
+
+    fireEvent.keyDown(search, { key: 'ArrowDown' })
+    expect(fireEvent.keyDown(search, { key: 'End' })).toBe(false)
+    expect(search).toHaveAttribute('aria-activedescendant', 'itempicker-opt-2')
+    expect(fireEvent.keyDown(search, { key: 'Home' })).toBe(false)
+    expect(search).toHaveAttribute('aria-activedescendant', 'itempicker-opt-0')
+  })
+
+  it("leaves Enter and the arrows alone on the popover's own buttons, so Enter presses them", async () => {
+    const { onChange } = renderInDialog()
+    const { listbox } = await openPicker()
+    const search = screen.getByRole('combobox', { name: 'Filter items' })
+
+    for (const name of [/^weapons/i, 'Re-scan server items']) {
+      const button = screen.getByRole('button', { name })
+      expect(fireEvent.keyDown(button, { key: 'ArrowDown' })).toBe(true)
+      expect(fireEvent.keyDown(button, { key: 'Enter' })).toBe(true)
+    }
+    expect(search).not.toHaveAttribute('aria-activedescendant')
+    expect(onChange).not.toHaveBeenCalled()
+    expect(listbox).toBeInTheDocument()
+  })
+
+  it('Enter on the closed trigger opens the picker, but Enter on its clear button does not', async () => {
+    renderInDialog(vi.fn(), 'Base.Axe')
+    const trigger = await screen.findByRole('combobox', { name: 'Select item' })
+
+    expect(fireEvent.keyDown(screen.getByRole('button', { name: 'Clear selection' }), { key: 'Enter' })).toBe(true)
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+
+    expect(fireEvent.keyDown(trigger, { key: 'Enter' })).toBe(false)
+    expect(await screen.findByRole('listbox')).toBeInTheDocument()
   })
 
   it('compiles its size, scroll and short-window classes to real CSS', async () => {
