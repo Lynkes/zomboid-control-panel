@@ -165,3 +165,20 @@ describe('Players.tsx: Kick dialog warns before the server would silently alter 
     expect(screen.queryByText(/will only send/i)).not.toBeInTheDocument()
   })
 })
+
+// 2026-09 dialog sweep: a pasted evidence URL survives the sanitiser as one
+// long unbreakable token ("httpsdiscord.comchannels..."), which widened the
+// Kick/Ban dialog past a 375px phone and pushed its buttons off the edge.
+describe('Players.tsx: the altered-reason note wraps a long unbroken reason', () => {
+  it('lets the note break anywhere', async () => {
+    await setUpFixtures()
+    renderPlayers()
+    await selectTestPlayerAndOpenKickDialog()
+
+    fireEvent.change(screen.getByLabelText(en.kickDialog.reasonLabel), {
+      target: { value: 'evidence: https://discord.com/channels/1111222233334444555/6666777788889999000/1234123412341234123' },
+    })
+    const note = await screen.findByText(/will only send/i)
+    expect(note.className).toContain('[overflow-wrap:anywhere]')
+  })
+})

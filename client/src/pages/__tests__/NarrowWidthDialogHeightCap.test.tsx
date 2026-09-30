@@ -122,8 +122,26 @@ function assertDialogFitsShortViewport(dialog: HTMLElement) {
   expect(dialog.className).toMatch(/overflow-y-auto/)
 }
 
+// 2026-09 dialog sweep (after the Templates preview community report): the
+// dialogs below scrolled as a whole under their own 85vh/80vh caps, which
+// took their primary buttons below the fold on 1280x620 and every smaller
+// window. They now take the primitives' own dvh bound and scroll only a
+// DialogBody/AlertDialogBody, with the buttons outside it.
+function assertPinnedBody(dialog: HTMLElement, buttons: RegExp[]) {
+  expect(dialog.className).toContain('max-h-[calc(100dvh-2rem)]')
+  expect(dialog.className).not.toMatch(/max-h-\[85vh\]/)
+  const body = dialog.querySelector<HTMLElement>(':scope > [data-dialog-body]')
+  expect(body).not.toBeNull()
+  for (const name of buttons) {
+    const button = within(dialog).getByRole('button', { name })
+    expect(dialog.contains(button)).toBe(true)
+    expect(body!.contains(button)).toBe(false)
+  }
+  return body!
+}
+
 describe('Dashboard -- Wipe Server dialog fits a short mobile viewport', () => {
-  it('caps height and keeps the destructive action inside the scrollable dialog', async () => {
+  it('scrolls only the targets and backup rows; Preview and Cancel stay on screen', async () => {
     vi.mocked(serversApi.getResolvedActive).mockResolvedValue({ server: makeServer() })
     vi.mocked(serverApi.getStatus).mockResolvedValue({
       running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
@@ -162,10 +180,8 @@ describe('Dashboard -- Wipe Server dialog fits a short mobile viewport', () => {
     fireEvent.click(wipeButton)
 
     const dialog = await screen.findByRole('alertdialog')
-    assertDialogFitsShortViewport(dialog)
-    const footerButtons = within(dialog).getAllByRole('button')
-    expect(footerButtons.length).toBeGreaterThan(0)
-    for (const btn of footerButtons) expect(dialog.contains(btn)).toBe(true)
+    const body = assertPinnedBody(dialog, [/^preview$/i, /^cancel$/i])
+    expect(body.querySelectorAll('[role="checkbox"]').length).toBe(4)
   })
 })
 

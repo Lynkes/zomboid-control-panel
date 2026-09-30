@@ -2352,7 +2352,7 @@ export default function Players() {
                             placeholder={t('kickDialog.reasonPlaceholder')}
                           />
                           {banReasonWillBeAltered(kickReason) && (
-                            <p className="mt-1 text-xs text-warning">
+                            <p className="mt-1 text-xs text-warning [overflow-wrap:anywhere]">
                               {previewBanReason(kickReason)
                                 ? t('kickDialog.reasonAlteredNote', { preview: previewBanReason(kickReason) })
                                 : t('kickDialog.reasonAlteredToEmpty')}
@@ -2398,7 +2398,7 @@ export default function Players() {
                             placeholder={t('banDialog.reasonPlaceholder')}
                           />
                           {banReasonWillBeAltered(banReason) && (
-                            <p className="mt-1 text-xs text-warning">
+                            <p className="mt-1 text-xs text-warning [overflow-wrap:anywhere]">
                               {previewBanReason(banReason)
                                 ? t('banDialog.reasonAlteredNote', { preview: previewBanReason(banReason) })
                                 : t('banDialog.reasonAlteredToEmpty')}
@@ -3619,7 +3619,12 @@ export default function Players() {
                 ) : (
                   <Download className="w-4 h-4 me-2" />
                 )}
-                {t('importExport.exportButton', { player: selectedPlayer || t('importExport.exportButtonFallback') })}
+                {/* A 32-char username (PZ's own limit) cut the label and
+                    pushed the Import column off a phone screen; it truncates
+                    inside the button now, full name in the title. */}
+                <span className="min-w-0 truncate" title={selectedPlayer || undefined}>
+                  {t('importExport.exportButton', { player: selectedPlayer || t('importExport.exportButtonFallback') })}
+                </span>
               </Button>
 
               {characterData && (
