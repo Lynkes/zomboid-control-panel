@@ -282,7 +282,14 @@ async function policyFor(ctx, rootId) {
   const sharing = sharingProfiles(ctx, root);
   const rules =
     root.kind === "sftp"
-      ? buildRemoteProtectionContext({ rootId, rootReal: root.real, profile: ctx.profile, settings: ctx.settings })
+      ? buildRemoteProtectionContext({
+          rootId,
+          rootReal: root.real,
+          rootPath: root.displayPath,
+          bridgeReal: root.bridgeReal,
+          profile: ctx.profile,
+          settings: ctx.settings,
+        })
       : buildProtectionContext({
           rootId,
           rootReal: root.real,
