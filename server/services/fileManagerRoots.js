@@ -12,7 +12,7 @@ import { hasPzInstallMarker } from "../routes/server.js";
 import { FM_LIMITS, FmError } from "./fileManagerContract.js";
 import { localBackend } from "./fileManagerLocalBackend.js";
 import { createSftpBackend } from "./fileManagerSftpBackend.js";
-import { resolveRemoteRoots } from "./fileManagerRemoteRoots.js";
+import { getRemoteRootsKey, resolveRemoteRoots } from "./fileManagerRemoteRoots.js";
 import { isInsideAbs, relFromRoot } from "./fileManagerProtectedAreas.js";
 import { lstatBig } from "./fileManagerLocalFs.js";
 
@@ -53,11 +53,11 @@ export function folderOf(p) {
   return /\.(bat|sh|exe)$/i.test(p) ? path.dirname(p) : p;
 }
 
+// The key remote folder overrides are stored under. The remote-roots module
+// reads them with the same function, so a host or user typed with stray
+// spaces can't save an override that is then never found.
 export function remoteKeyOf(settings) {
-  const host = settings?.panelBridgeSftpHost;
-  if (!host) return null;
-  const port = Number(settings?.panelBridgeSftpPort) || 22;
-  return `${host}:${port}:${settings?.panelBridgeSftpUsername || ""}`;
+  return getRemoteRootsKey(settings);
 }
 
 /** The descriptor the client sees: no real path, no internal fields. */

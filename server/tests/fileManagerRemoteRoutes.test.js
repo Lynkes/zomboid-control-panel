@@ -263,3 +263,14 @@ describe("Server Files over SFTP (active remote profile)", () => {
     expect(sftp.exists(`${DATA}/Logs/old`)).toBe(false);
   });
 });
+
+describe("remote folder overrides", () => {
+  it("are saved under the key the remote roots are read with, whatever the spacing of the login", async () => {
+    dbState.settings = { ...dbState.settings, panelBridgeSftpHost: " sftp.test ", panelBridgeSftpUsername: " pz " };
+    sftp.writeFile("/srv/pz/game/start-server.sh", "#!/bin/sh\n", { mode: 0o755 });
+    const set = await call("PUT", `${P}/remote-roots`, { body: { installPath: "/srv/pz/game", dataPath: null } });
+    expect(set.status).toBe(200);
+    expect(Object.keys(dbState.settings.fileManagerRemoteRoots)).toEqual(["sftp.test:2222:pz"]);
+    expect(set.body.profile.roots.find((r) => r.id === "install")).toMatchObject({ available: true });
+  });
+});
