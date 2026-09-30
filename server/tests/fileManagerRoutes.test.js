@@ -441,6 +441,50 @@ describe("uploads over HTTP", () => {
   });
 });
 
+describe("downloads over HTTP", () => {
+  // Live QA: a console log truncated while it downloaded sent a short body
+  // under the full Content-Length, left the client waiting for the rest
+  // until the keep-alive timer closed the socket, and was audited "ok" with
+  // the full size.
+  it("a file that shrinks while it is sent ends in an error, audited as failed", async () => {
+    const file = path.join(tree.data, "Logs", "shrink.bin");
+    fs.writeFileSync(file, Buffer.alloc(64 * 1024 * 1024, 7));
+    const response = await fetch(`${baseUrl}${P}/download?root=data&path=Logs/shrink.bin`, {
+      headers: { "x-test-role": "admin", "x-test-user": "u1" },
+    });
+    expect(response.headers.get("content-length")).toBe(String(64 * 1024 * 1024));
+    const reader = response.body.getReader();
+    let got = 0;
+    let truncatedAt = null;
+    let failure = null;
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        got += value.length;
+        if (truncatedAt === null && got > 1024 * 1024) {
+          fs.truncateSync(file, 2 * 1024 * 1024);
+          truncatedAt = Date.now();
+        }
+      }
+    } catch (err) {
+      failure = err;
+    }
+    expect(failure).not.toBeNull();
+    expect(got).toBeLessThan(64 * 1024 * 1024);
+    // Cut off at once, not when the keep-alive timer closes the socket (5 s).
+    expect(Date.now() - truncatedAt).toBeLessThan(3000);
+    let row = null;
+    for (const started = Date.now(); !row && Date.now() - started < 2000; ) {
+      const audit = await call("GET", "/api/files/audit?profileId=p1&limit=5");
+      row = audit.body.entries.find((entry) => entry.op === "files.download") || null;
+      if (!row) await new Promise((done) => setTimeout(done, 50));
+    }
+    expect(row).toMatchObject({ result: "failed", code: "FM_CONFLICT", paths: ["Logs/shrink.bin"] });
+    expect(row.bytes).toBeLessThan(64 * 1024 * 1024);
+  });
+});
+
 describe("flows", () => {
   it("move: per-item results, never into itself", async () => {
     write(path.join(tree.data, "a", "one.txt"), "1");

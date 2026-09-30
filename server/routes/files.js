@@ -569,12 +569,13 @@ router.get(
     await new Promise((resolve) => {
       let settled = false;
       let idle = null;
+      let sent = 0;
       const done = (ok) => {
         if (settled) return;
         settled = true;
         clearTimeout(idle);
         dl.release();
-        if (!ok) audit.result = "aborted";
+        if (!ok && !audit.result) audit.result = "aborted";
         resolve();
       };
       // A client that stops reading would keep its transfer slot (shared
@@ -601,8 +602,27 @@ router.get(
           done(false);
         }
       });
-      dl.stream.pipe(res);
-      dl.stream.on("data", arm);
+      // The response ends only once every byte its Content-Length promised
+      // went out. A file that got shorter while it was read (a log rotated
+      // or truncated) would otherwise end a short body the client keeps
+      // waiting on: the connection is cut instead, so the download fails
+      // where the client can see it, and the audit row says so.
+      dl.stream.on("end", () => {
+        if (sent === dl.size) {
+          res.end();
+          return;
+        }
+        audit.result = "failed";
+        audit.code = ErrorCode.FM_CONFLICT;
+        audit.bytes = sent;
+        res.destroy();
+        done(false);
+      });
+      dl.stream.pipe(res, { end: false });
+      dl.stream.on("data", (chunk) => {
+        sent += chunk.length;
+        arm();
+      });
       arm();
     });
   }),
