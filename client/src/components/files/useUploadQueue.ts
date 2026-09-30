@@ -46,6 +46,13 @@ interface UseUploadQueueOptions {
   describeError: (error: unknown) => string
   /** Called once each time the queue drains after doing some work. */
   onDrained: () => void
+  /**
+   * Before "Try again": check the file afresh (what the batch's preflight
+   * found may no longer hold: the file changed, appeared, or the server
+   * started) and return the etag and tokens to send now, or null to leave
+   * the item as it is. Throws with the reason it still can't go.
+   */
+  prepareRetry?: (item: UploadItem) => Promise<Pick<UploadJob, 'overwriteEtag' | 'confirm'> | null>
 }
 
 let nextId = 0
@@ -54,14 +61,16 @@ function newId(): string {
   return `upload-${nextId}`
 }
 
-export function useUploadQueue({ describeError, onDrained }: UseUploadQueueOptions) {
+export function useUploadQueue({ describeError, onDrained, prepareRetry }: UseUploadQueueOptions) {
   const itemsRef = useRef<UploadItem[]>([])
   const handlesRef = useRef(new Map<string, UploadHandle>())
   const pausedUntilRef = useRef<number | null>(null)
   const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const workedRef = useRef(false)
-  const optionsRef = useRef({ describeError, onDrained })
-  optionsRef.current = { describeError, onDrained }
+  // Set when the page goes away: nothing starts after that.
+  const disposedRef = useRef(false)
+  const optionsRef = useRef({ describeError, onDrained, prepareRetry })
+  optionsRef.current = { describeError, onDrained, prepareRetry }
 
   const [items, setItems] = useState<UploadItem[]>([])
   const [pausedUntil, setPausedUntil] = useState<number | null>(null)
@@ -78,6 +87,7 @@ export function useUploadQueue({ describeError, onDrained }: UseUploadQueueOptio
   const pumpRef = useRef<() => void>(() => {})
 
   const checkDrained = useCallback(() => {
+    if (disposedRef.current) return
     const busy = itemsRef.current.some((item) => item.status === 'waiting' || item.status === 'uploading')
     if (!busy && workedRef.current) {
       workedRef.current = false
@@ -87,6 +97,7 @@ export function useUploadQueue({ describeError, onDrained }: UseUploadQueueOptio
   }, [])
 
   const start = useCallback((item: UploadItem) => {
+    if (disposedRef.current) return
     workedRef.current = true
     update(item.id, { status: 'uploading', loaded: 0, error: null })
     const handle = uploadFile(
@@ -141,6 +152,7 @@ export function useUploadQueue({ describeError, onDrained }: UseUploadQueueOptio
   }, [publish, update])
 
   const pump = useCallback(() => {
+    if (disposedRef.current) return
     if (pausedUntilRef.current !== null) {
       publish()
       return
@@ -204,12 +216,27 @@ export function useUploadQueue({ describeError, onDrained }: UseUploadQueueOptio
     checkDrained()
   }, [checkDrained, publish, update])
 
-  const retry = useCallback((id: string) => {
+  const retry = useCallback(async (id: string) => {
+    const item = itemsRef.current.find((candidate) => candidate.id === id)
+    if (!item || (item.status !== 'failed' && item.status !== 'cancelled')) return
+    const prepare = optionsRef.current.prepareRetry
+    if (prepare) {
+      let patch: Pick<UploadJob, 'overwriteEtag' | 'confirm'> | null
+      try {
+        patch = await prepare(item)
+      } catch (error) {
+        update(id, { status: 'failed', error: optionsRef.current.describeError(error) })
+        publish()
+        return
+      }
+      if (!patch || disposedRef.current) return
+      update(id, patch)
+    }
     setAllDone(false)
     update(id, { status: 'waiting', loaded: 0, error: null })
     workedRef.current = true
     pump()
-  }, [pump, update])
+  }, [publish, pump, update])
 
   const clearFinished = useCallback(() => {
     itemsRef.current = itemsRef.current.filter((item) => item.status === 'waiting' || item.status === 'uploading')
@@ -217,8 +244,13 @@ export function useUploadQueue({ describeError, onDrained }: UseUploadQueueOptio
     publish()
   }, [publish])
 
+  // Leaving the page: whatever hasn't started is cancelled BEFORE the ones
+  // in flight are aborted -- each abort would otherwise start the next file
+  // with no page left to show it, while the aborted ones went unreported.
   useEffect(() => () => {
+    disposedRef.current = true
     if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
+    itemsRef.current = itemsRef.current.map((item) => (item.status === 'waiting' ? { ...item, status: 'cancelled' as const } : item))
     for (const handle of handlesRef.current.values()) handle.abort()
   }, [])
 

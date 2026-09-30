@@ -224,10 +224,12 @@
   },
   "confirm": {
     "title": "Ou totalman sèten?",
-    "delete_one": "Deplase {{name}} ({{size}}) soti nan {{folder}} pou mete l nan poubèl la? Sèvè a ka sispann mache si li bezwen l. Ou ka retabli l nan poubèl la pandan 7 jou. Poubèl la pa libere espas sou disk la toutotan yo pa vide l.",
+    "delete_one": "Deplase {{count}} eleman ({{files}} fichye, {{size}}) soti nan {{folder}} pou mete l nan poubèl la? Sèvè a ka sispann mache si li bezwen l. Ou ka retabli l nan poubèl la pandan 7 jou. Poubèl la pa libere espas sou disk la toutotan yo pa vide l.",
     "delete_other": "Deplase {{count}} eleman ({{files}} fichye, {{size}}) soti nan {{folder}} pou mete yo nan poubèl la? Sèvè a ka sispann mache si li bezwen yo. Ou ka retabli yo nan poubèl la pandan 7 jou. Poubèl la pa libere espas sou disk la toutotan yo pa vide l.",
-    "deletePermanent_one": "Efase {{name}} ({{size}}) pou tout tan? Aksyon sa a pa ka anile.",
+    "deleteOne": "Deplase {{name}} ({{size}}) soti nan {{folder}} pou mete l nan poubèl la? Sèvè a ka sispann mache si li bezwen l. Ou ka retabli l nan poubèl la pandan 7 jou. Poubèl la pa libere espas sou disk la toutotan yo pa vide l.",
+    "deletePermanent_one": "Efase {{count}} eleman ({{files}} fichye, {{size}}) pou tout tan? Aksyon sa a pa ka anile.",
     "deletePermanent_other": "Efase {{count}} eleman ({{files}} fichye, {{size}}) pou tout tan? Aksyon sa a pa ka anile.",
+    "deletePermanentOne": "Efase {{name}} ({{size}}) pou tout tan? Aksyon sa a pa ka anile.",
     "trashUnavailable": "Eleman sa yo pa ka ale nan poubèl la, kidonk efase yo se pou tout tan.",
     "typeName": "Tape {{value}} pou konfime",
     "emptyTrash_one": "Efase {{count}} eleman nan poubèl la pou tout tan? Aksyon sa a pa ka anile.",
@@ -299,7 +301,9 @@
     "large": "Gwo telechajman. Kite onglè sa a louvri jiskaske li fini.",
     "interrupted": "Telechajman an koupe. Eseye ankò.",
     "preparingZip": "Ap prepare .zip la…",
-    "masked": "Modpas ki nan fichye .ini yo kache nan telechajman yo."
+    "masked": "Modpas ki nan fichye .ini yo kache nan telechajman yo.",
+    "zipTooMany": "Chwazi {{limit}} eleman pou pi plis pou yon sèl .zip.",
+    "zipTooSlow": "Verifye sa pou mete nan .zip la pran twòp tan. Chwazi mwens dosye, oswa telechaje yo youn pa youn."
   },
   "trash": {
     "title": "Poubèl",
@@ -343,7 +347,25 @@
   "history": {
     "title": "Dènye chanjman nan fichye",
     "empty": "Poko gen chanjman nan fichye.",
-    "entry": "{{username}} · {{op}} · {{path}}"
+    "entry": "{{username}} · {{op}} · {{path}}",
+    "ops": {
+      "create": "Kreye",
+      "write": "Anrejistre",
+      "mkdir": "Nouvo dosye",
+      "rename": "Chanje non",
+      "move": "Deplase",
+      "copy": "Double",
+      "upload": "Voye",
+      "delete_trash": "Deplase nan poubèl la",
+      "delete_permanent": "Efase pou tout tan",
+      "trash_restore": "Retabli soti nan poubèl la",
+      "trash_purge": "Retire nan poubèl la",
+      "trash_expire": "Poubèl la netwaye",
+      "download": "Telechaje",
+      "zip": "Telechaje an .zip",
+      "remoteRoots_set": "Dosye aleka chanje",
+      "denied": "Refize"
+    }
   },
   "access": {
     "denied": "Wòl ou a pa gen kapasite “Jere fichye sèvè”. Mande yon administratè.",

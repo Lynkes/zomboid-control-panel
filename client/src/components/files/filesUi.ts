@@ -6,8 +6,9 @@ import { useEffect, useState } from 'react'
 import i18n from '@/i18n'
 import { ApiError } from '@/lib/api'
 import { getResultErrorMessage, getUserErrorMessage } from '@/lib/errorMessage'
-import { FM_LIMITS, type FileEntry, type RootDescriptor, type RootId } from '@/types/files'
+import { FM_LIMITS, type FileEntry, type RootDescriptor, type RootId, type RootUnavailableReason } from '@/types/files'
 import { joinPath } from '@/lib/filesApi'
+import { formatBytes } from '@/lib/formatBytes'
 
 // ---- What an entry is and what it allows ----
 
@@ -120,18 +121,83 @@ export function formatFileDate(iso: string | null | undefined, language: string)
 
 // ---- Errors ----
 
+// Codes whose `limit` param is a byte count, and the one whose `limit` is a
+// number of entries: shown formatted for the reader, never as raw digits.
+const BYTE_LIMIT_CODES = new Set(['FM_UPLOAD_TOO_LARGE', 'FM_DOWNLOAD_TOO_LARGE', 'FM_FILE_TOO_LARGE_FOR_EDITOR'])
+const COUNT_LIMIT_CODES = new Set(['FM_TOO_MANY_ENTRIES'])
+
+// The text for a code the file manager words better than errors.json can
+// from the code alone, or null. A zip pre-check that ran out of TIME isn't
+// "too large": over SFTP a few dozen folders take that long.
+function specialFilesMessage(code: string | undefined, params: Record<string, unknown>): string | null {
+  if (code === 'FM_ZIP_TOO_LARGE' && params.reason === 'time') return i18n.t('download.zipTooSlow', { ns: 'files' })
+  return null
+}
+
+function readableParams(code: string | undefined, params: Record<string, unknown>): Record<string, unknown> {
+  const limit = params.limit
+  if (typeof limit !== 'number' || !code) return params
+  if (BYTE_LIMIT_CODES.has(code)) return { ...params, limit: formatBytes(limit, i18n.language) }
+  if (COUNT_LIMIT_CODES.has(code)) return { ...params, limit: new Intl.NumberFormat(i18n.language).format(limit) }
+  return params
+}
+
 /**
  * The operator-facing text for a failed file action: the translated error
  * code when the server sent one (errors:FM_*), else its message, else the
- * file manager's generic "unexpected error" line.
+ * file manager's generic "unexpected error" line. Sizes and counts in its
+ * params are formatted for the reader's language.
  */
 export function describeFilesError(error: unknown): string {
+  if (error instanceof ApiError && typeof error.code === 'string') {
+    const params = errorParamsOf(error)
+    const special = specialFilesMessage(error.code, params)
+    if (special) return special
+    const readable = readableParams(error.code, params)
+    if (readable !== params) {
+      return getResultErrorMessage({ code: error.code, error: error.message, params: readable }, i18n.t('FM_INTERNAL', { ns: 'errors' }))
+    }
+  }
   return getUserErrorMessage(error, i18n.t('FM_INTERNAL', { ns: 'errors' }))
 }
 
 /** The same, for a `{ code, params }` the server put in a 2xx body (a failed item of a batch, a failed job). */
 export function describeResultError(result: { code?: unknown; params?: unknown } | null | undefined): string {
-  return getResultErrorMessage(result, i18n.t('FM_INTERNAL', { ns: 'errors' }))
+  const code = typeof result?.code === 'string' ? result.code : undefined
+  const params = result?.params && typeof result.params === 'object' ? (result.params as Record<string, unknown>) : {}
+  const special = specialFilesMessage(code, params)
+  if (special) return special
+  return getResultErrorMessage(result ? { ...result, params: readableParams(code, params) } : result, i18n.t('FM_INTERNAL', { ns: 'errors' }))
+}
+
+/**
+ * Why a folder can't be opened. For an SFTP login that fails, the server
+ * names the failure (unavailableDetail: SFTP_AUTH_FAILED, SFTP_UNREACHABLE,
+ * SFTP_CHROOTED_ACCOUNT...): its errors:SFTP_* guidance follows, so a wrong
+ * password doesn't read the same as a firewalled host.
+ */
+export function unavailableText(reason: RootUnavailableReason, detail?: string): string {
+  const base = i18n.t(`roots.unavailable.${reason}`, { ns: 'files', detail: detail ?? '' })
+  if (reason !== 'sftpUnreachable' || !detail) return base
+  const code = detail === 'SFTP_TIMEOUT' ? 'SFTP_UNREACHABLE' : detail
+  if (!/^SFTP_[A-Z_]+$/.test(code) || !i18n.exists(code, { ns: 'errors' })) return base
+  return i18n.t(code, { ns: 'errors', detail: base })
+}
+
+/** The deepest folder every path sits in ("" is the root). */
+export function commonFolder(paths: string[]): string {
+  if (paths.length === 0) return ''
+  const folders = paths.map((path) => {
+    const index = path.lastIndexOf('/')
+    return index === -1 ? [] : path.slice(0, index).split('/')
+  })
+  const common: string[] = []
+  for (let i = 0; i < folders[0].length; i++) {
+    const segment = folders[0][i]
+    if (!folders.every((parts) => parts[i] === segment)) break
+    common.push(segment)
+  }
+  return common.join('/')
 }
 
 export function errorCodeOf(error: unknown): string | undefined {

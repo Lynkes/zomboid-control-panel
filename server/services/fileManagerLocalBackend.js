@@ -37,7 +37,17 @@ const RUNNING_AS_ROOT = typeof process.getuid === "function" && process.getuid()
 const ORPHAN_TEMP_RE = /^\..*\.(\d+)\.[0-9a-f]{8}\.(zcpupload|zcptmp)$/i;
 const ORPHAN_MIN_AGE_MS = 60 * 60 * 1000;
 const ORPHAN_SWEEP_MAX_NAMES = 20000;
-const NO_HARDLINK_CODES = new Set(["EPERM", "ENOTSUP", "EXDEV", "ENOSYS", "EOPNOTSUPP"]);
+// When this process started: a temp file older than that can't be one of
+// ours, whatever pid it names (in a container the panel is PID 1 every time).
+const PROCESS_STARTED_AT = Date.now() - process.uptime() * 1000;
+// link(2) refusals that mean "no hard links here", not "the name is taken":
+// FAT32/exFAT on Windows answer ERROR_INVALID_FUNCTION, which libuv reports
+// as EISDIR (or EINVAL for ERROR_INVALID_PARAMETER).
+const NO_HARDLINK_CODES = new Set(["EPERM", "ENOTSUP", "EXDEV", "ENOSYS", "EOPNOTSUPP", "EISDIR", "EINVAL"]);
+// A case-only rename's temp name: hidden like the other temps (.zcptmp), but
+// with no pid in it, so the orphan sweep never takes a user's file that a
+// twice-failed case rename left under it.
+const CASE_TEMP_TAG = "case";
 
 // ============================================
 // Errors
@@ -47,22 +57,31 @@ const NO_HARDLINK_CODES = new Set(["EPERM", "ENOTSUP", "EXDEV", "ENOSYS", "EOPNO
  * Map an OS error to an FmError. Only err.code ever reaches the client (as
  * params.detail); err.message holds absolute paths and stays in the log.
  */
-export function mapFsError(err, { name } = {}) {
+export function mapFsError(err, { name, create = false, dirs = [], deleting = false } = {}) {
   if (err instanceof FmError) return err;
   const osCode = typeof err?.code === "string" ? err.code : null;
   switch (osCode) {
     case "ENOENT":
     case "ENOTDIR":
       return new FmError(ErrorCode.FM_NOT_FOUND);
-    case "EEXIST":
     case "ENOTEMPTY":
+      // A folder that kept filling up while it was being deleted: something
+      // (usually the running server) is writing into it.
+      if (deleting) return new FmError(ErrorCode.FM_FILE_IN_USE);
+      return new FmError(ErrorCode.FM_EXISTS, undefined, { name: name ?? "" });
+    case "EEXIST":
       return new FmError(ErrorCode.FM_EXISTS, undefined, { name: name ?? "" });
     case "EACCES":
       return new FmError(ErrorCode.FM_OS_PERMISSION_DENIED, undefined, { detail: osCode });
     case "EPERM":
-      return IS_WIN
-        ? new FmError(ErrorCode.FM_FILE_IN_USE)
-        : new FmError(ErrorCode.FM_OS_PERMISSION_DENIED, undefined, { detail: osCode });
+      // Windows reports both "access denied by the folder's permissions" and
+      // "another program holds this file" as EPERM. Creating something can
+      // only be the former; for a rename or move, a folder the panel can't
+      // even create a file in is the former too.
+      if (!IS_WIN || create || dirs.some((dir) => !canCreateIn(dir))) {
+        return new FmError(ErrorCode.FM_OS_PERMISSION_DENIED, undefined, { detail: osCode });
+      }
+      return new FmError(ErrorCode.FM_FILE_IN_USE);
     case "EBUSY":
     case "ETXTBSY":
       return new FmError(ErrorCode.FM_FILE_IN_USE);
@@ -79,9 +98,36 @@ export function mapFsError(err, { name } = {}) {
       return new FmError(ErrorCode.FM_INVALID_NAME, undefined, { reason: "tooLong" });
     case "EISDIR":
       return new FmError(ErrorCode.FM_NOT_A_FILE);
+    case "EFMCAP":
+      return new FmError(ErrorCode.FM_TOO_MANY_ENTRIES, undefined, { limit: FM_LIMITS.PERMANENT_DELETE_MAX_ENTRIES });
     default:
       log.warn(`Unexpected filesystem error: ${osCode || err?.name || "unknown"}`);
       return new FmError(ErrorCode.FM_INTERNAL);
+  }
+}
+
+// Whether the panel's account may create a file in `dirAbs` right now: a
+// panel temp file is created and removed at once. Only asked on Windows,
+// where the OS can't be asked about a folder's permissions without trying.
+function canCreateIn(dirAbs) {
+  let temp;
+  try {
+    temp = lfs.createTempFile(dirAbs, "zcp-probe", RENAME_TEMP_SUFFIX);
+  } catch (err) {
+    return !(err?.code === "EPERM" || err?.code === "EACCES" || err?.code === "EROFS");
+  }
+  lfs.closeFd(temp.fd);
+  lfs.unlinkQuiet(temp.path);
+  return true;
+}
+
+// A panel temp file, or the error mapped for a create (EPERM there is the
+// folder's permissions, never a file in use).
+function createTemp(dirAbs, name, suffix) {
+  try {
+    return lfs.createTempFile(dirAbs, name, suffix);
+  } catch (err) {
+    throw mapFsError(err, { name, create: true });
   }
 }
 
@@ -340,6 +386,13 @@ async function describeRoot(spec) {
     writable = false;
     readOnlyReason = err?.code === "EROFS" ? "mount" : "permissions";
   }
+  // Windows' access check only looks at the read-only attribute, which a
+  // folder never has: a game folder under Program Files the panel's account
+  // can't write would look writable. Try it instead.
+  if (writable && IS_WIN && !canCreateIn(real)) {
+    writable = false;
+    readOnlyReason = "permissions";
+  }
   const space = await getDiskFree(real);
   const warnings = [...(spec.warnings || [])];
   if (isContainerOnly(real)) warnings.push("containerOnly");
@@ -578,7 +631,9 @@ function ownerFor(existingStat, parentAbs) {
 }
 
 // Leftover upload/save temps (.<name>.<pid>.<hex8>.zcpupload|.zcptmp) older
-// than an hour whose process is gone, swept on the next write into a folder.
+// than an hour, swept on the next write into a folder: those of a process
+// that is gone, and any from before this process started (a container's
+// panel is PID 1 on every start, so the pid alone can't tell).
 export function sweepOrphanTemps(dirAbs, now = Date.now()) {
   let names;
   try {
@@ -593,11 +648,12 @@ export function sweepOrphanTemps(dirAbs, now = Date.now()) {
     const match = ORPHAN_TEMP_RE.exec(name);
     if (!match) continue;
     const pid = Number(match[1]);
-    if (pid === process.pid || isPidAlive(pid)) continue;
     const abs = path.join(dirAbs, name);
     try {
       const st = toStat(lfs.lstatBig(abs));
       if (st.type !== "file" || now - st.mtimeMs < ORPHAN_MIN_AGE_MS) continue;
+      const beforeThisProcess = st.mtimeMs < PROCESS_STARTED_AT;
+      if (!beforeThisProcess && (pid === process.pid || isPidAlive(pid))) continue;
       lfs.unlinkQuiet(abs);
       removed++;
     } catch {
@@ -607,12 +663,37 @@ export function sweepOrphanTemps(dirAbs, now = Date.now()) {
   return removed;
 }
 
-// Finish a temp file: final mode, owner, flushed, closed.
-function sealTemp(fd, mode, owner) {
-  lfs.fchmodFd(fd, mode);
-  if (owner) lfs.fchownFd(fd, owner.uid, owner.gid);
-  lfs.fsyncFd(fd);
-  lfs.closeFd(fd);
+// A temp file this module writes into: `fd` is owned here and closed exactly
+// once, by sealTemp() or discardTemp(), whichever runs first.
+function openTemp(dirAbs, name, suffix) {
+  const temp = createTemp(dirAbs, name, suffix);
+  return { ...temp, closed: false };
+}
+
+function closeTemp(temp) {
+  if (temp.closed) return;
+  temp.closed = true;
+  lfs.closeFd(temp.fd);
+}
+
+function discardTemp(temp) {
+  closeTemp(temp);
+  lfs.unlinkQuiet(temp.path);
+}
+
+// Finish a temp file: final mode, owner, flushed, closed. A flush or close
+// that says the bytes never reached the disk (EIO, ENOSPC, EDQUOT: a network
+// share or a quota reports them only here) removes the temp and throws.
+function sealTemp(temp, mode, owner, name) {
+  lfs.fchmodFd(temp.fd, mode);
+  if (owner) lfs.fchownFd(temp.fd, owner.uid, owner.gid);
+  temp.closed = true;
+  try {
+    lfs.syncAndCloseFd(temp.fd);
+  } catch (err) {
+    lfs.unlinkQuiet(temp.path);
+    throw mapFsError(err, { name });
+  }
 }
 
 // Land a finished temp file under a NEW name. link(2) refuses an existing
@@ -645,7 +726,7 @@ function landNew(tempPath, target, name) {
       lfs.renamePath(tempPath, target);
     } catch (renameErr) {
       lfs.unlinkQuiet(tempPath);
-      throw mapFsError(renameErr, { name });
+      throw mapFsError(renameErr, { name, dirs: [path.dirname(target)] });
     }
     return;
   }
@@ -657,7 +738,13 @@ function landNew(tempPath, target, name) {
 function landReplace(rootReal, tempPath, target, name, oldStat, metaInput) {
   let slot;
   try {
-    slot = trash.prepareTrashSlot(rootReal, path.basename(target));
+    slot = trash.prepareTrashSlot(rootReal, path.basename(target), {
+      ...metaInput,
+      type: "file",
+      bytes: oldStat.size,
+      files: 1,
+      reason: "replaced",
+    });
   } catch (err) {
     lfs.unlinkQuiet(tempPath);
     throw err;
@@ -668,7 +755,7 @@ function landReplace(rootReal, tempPath, target, name, oldStat, metaInput) {
     slot.discard();
     lfs.unlinkQuiet(tempPath);
     if (err?.code === "EXDEV") throw new FmError(ErrorCode.FM_TRASH_UNAVAILABLE, undefined, { reason: "crossDevice" });
-    throw mapFsError(err, { name });
+    throw mapFsError(err, { name, dirs: [path.dirname(target)] });
   }
   try {
     lfs.renamePath(tempPath, target);
@@ -679,12 +766,10 @@ function landReplace(rootReal, tempPath, target, name, oldStat, metaInput) {
     } catch (restoreErr) {
       // The old file stays in Trash, restorable; say so in the log.
       log.error(`Could not put a replaced file back after a failed upload (${restoreErr?.code || "error"}); it is in Trash as ${slot.trashId}`);
-      slot.commit({ ...metaInput, type: "file", bytes: oldStat.size, files: 1, reason: "replaced" });
     }
     lfs.unlinkQuiet(tempPath);
-    throw mapFsError(err, { name });
+    throw mapFsError(err, { name, dirs: [path.dirname(target)] });
   }
-  slot.commit({ ...metaInput, type: "file", bytes: oldStat.size, files: 1, reason: "replaced" });
   return slot.trashId;
 }
 
@@ -708,6 +793,14 @@ function parentRelOf(rel) {
   return idx === -1 ? "" : rel.slice(0, idx);
 }
 
+// The same directory entry: (dev, ino) when the filesystem reports a real
+// inode, else null (unknown).
+function sameEntry(a, b) {
+  if (!a || !b) return false;
+  if (a.ino === undefined || a.ino === null || BigInt(a.ino) === 0n || b.ino === undefined || b.ino === null) return null;
+  return String(a.dev) === String(b.dev) && String(a.ino) === String(b.ino);
+}
+
 // ============================================
 // Mutations
 // ============================================
@@ -719,13 +812,12 @@ async function writeBytesCas(r, bytes, { expectedHash, trashMeta }) {
     sweepOrphanTemps(parentAbs);
     if (expectedHash === null) {
       if (currentStatOf(r.abs)) throw new FmError(ErrorCode.FM_EXISTS, undefined, { name });
-      const temp = lfs.createTempFile(parentAbs, name, RENAME_TEMP_SUFFIX);
+      const temp = openTemp(parentAbs, name, RENAME_TEMP_SUFFIX);
       try {
         lfs.writeAllFd(temp.fd, bytes);
-        sealTemp(temp.fd, 0o644, ownerFor(null, parentAbs));
+        sealTemp(temp, 0o644, ownerFor(null, parentAbs), name);
       } catch (err) {
-        lfs.closeFd(temp.fd);
-        lfs.unlinkQuiet(temp.path);
+        discardTemp(temp);
         throw mapFsError(err, { name });
       }
       landNew(temp.path, r.abs, name);
@@ -737,11 +829,16 @@ async function writeBytesCas(r, bytes, { expectedHash, trashMeta }) {
     }
 
     // Compare-and-swap: re-read the current bytes through a checked fd and
-    // compare their hash with the one the editor loaded.
+    // compare their hash with the one the editor loaded. A file that grew
+    // past the editor limit since is refused before it is read.
     const { fd } = openChecked(r);
     let current;
     try {
-      current = readRange(fd, 0, Number(lfs.fstatBig(fd).size));
+      const size = Number(lfs.fstatBig(fd).size);
+      if (size > FM_LIMITS.TEXT_EDIT_MAX_BYTES) {
+        throw new FmError(ErrorCode.FM_FILE_TOO_LARGE_FOR_EDITOR, undefined, { limit: FM_LIMITS.TEXT_EDIT_MAX_BYTES });
+      }
+      current = readRange(fd, 0, size);
     } finally {
       lfs.closeFd(fd);
     }
@@ -751,8 +848,21 @@ async function writeBytesCas(r, bytes, { expectedHash, trashMeta }) {
     }
     if (readOnlyOnWindows(r.stat)) throw new FmError(ErrorCode.FM_TARGET_READ_ONLY);
 
+    const temp = openTemp(parentAbs, name, RENAME_TEMP_SUFFIX);
+    try {
+      lfs.writeAllFd(temp.fd, bytes);
+      // Exactly the old permission bits: keeps +x, drops setuid/setgid/sticky.
+      sealTemp(temp, r.stat.mode ?? 0o644, ownerFor(r.stat, parentAbs), name);
+    } catch (err) {
+      discardTemp(temp);
+      throw mapFsError(err, { name });
+    }
+
     // The previous version goes to Trash in the same step as the write
-    // (FM-I9): if it can't be kept, nothing is written.
+    // (FM-I9): if it can't be kept, nothing is written. It is taken only
+    // once the new bytes are safely in their temp file, and dropped again
+    // when the final rename fails, so a save that didn't happen leaves no
+    // version behind to push real ones out.
     let previousTrashId;
     try {
       previousTrashId = trash.copyVersionToTrash(r.rootReal, {
@@ -764,26 +874,17 @@ async function writeBytesCas(r, bytes, { expectedHash, trashMeta }) {
         reason: "edited",
       });
     } catch (err) {
+      lfs.unlinkQuiet(temp.path);
       log.warn(`Could not keep the previous version in Trash: ${err?.code || err?.name || "error"}`);
       if (err instanceof FmError) throw err;
-      throw mapFsError(err, { name });
-    }
-
-    const temp = lfs.createTempFile(parentAbs, name, RENAME_TEMP_SUFFIX);
-    try {
-      lfs.writeAllFd(temp.fd, bytes);
-      // Exactly the old permission bits: keeps +x, drops setuid/setgid/sticky.
-      sealTemp(temp.fd, r.stat.mode ?? 0o644, ownerFor(r.stat, parentAbs));
-    } catch (err) {
-      lfs.closeFd(temp.fd);
-      lfs.unlinkQuiet(temp.path);
       throw mapFsError(err, { name });
     }
     try {
       lfs.renamePath(temp.path, r.abs);
     } catch (err) {
       lfs.unlinkQuiet(temp.path);
-      throw mapFsError(err, { name });
+      trash.discardTrashItem(r.rootReal, previousTrashId);
+      throw mapFsError(err, { name, dirs: [parentAbs] });
     }
     return {
       entry: entryAt(r.rootReal, parentRelOf(r.rel), parentAbs, name),
@@ -803,6 +904,14 @@ async function writeBytesCas(r, bytes, { expectedHash, trashMeta }) {
 }
 
 // Stream the request body into a panel temp file, hashing on the way.
+//
+// The fd belongs to the caller, which closes it once this settles: the sink
+// is never destroy()ed (that closes the fd even with autoClose off, and a
+// write still in flight would then close it again later, hitting whatever
+// file got that number in between). On failure the source is unpiped and
+// this waits for the sink's pending write to finish before rejecting. A
+// write error at the very end (end()'s callback) fails the upload too, and
+// the bytes the sink wrote must be the bytes received.
 function receiveIntoTemp(source, fd, { declaredSize, maxBytes }) {
   return new Promise((resolvePromise, rejectPromise) => {
     const hash = crypto.createHash("sha256");
@@ -819,14 +928,30 @@ function receiveIntoTemp(source, fd, { declaredSize, maxBytes }) {
       source.removeListener("aborted", onAborted);
       source.removeListener("close", onClose);
     };
+    // Resolves once no write is in flight on the fd: the sink finished or
+    // errored (an error only arrives after the write that failed returned).
+    const sinkIdle = () =>
+      new Promise((done) => {
+        if (sink.writableFinished || sink.errored || sink.destroyed) {
+          done();
+          return;
+        }
+        const finish = () => {
+          sink.off("finish", finish);
+          sink.off("error", finish);
+          done();
+        };
+        sink.on("finish", finish);
+        sink.on("error", finish);
+        if (!sink.writableEnded) sink.end();
+      });
     const fail = (err) => {
       if (settled) return;
       settled = true;
       cleanup();
       source.unpipe?.(sink);
-      sink.destroy();
       source.resume?.();
-      rejectPromise(err);
+      sinkIdle().then(() => rejectPromise(err));
     };
     const armIdle = () => {
       if (idleTimer) clearTimeout(idleTimer);
@@ -852,8 +977,18 @@ function receiveIntoTemp(source, fd, { declaredSize, maxBytes }) {
         fail(new FmError(ErrorCode.FM_UPLOAD_SIZE_MISMATCH));
         return;
       }
-      sink.end(() => {
+      if (idleTimer) clearTimeout(idleTimer);
+      sink.end((err) => {
         if (settled) return;
+        if (err) {
+          fail(mapFsError(err));
+          return;
+        }
+        if (sink.bytesWritten !== received) {
+          log.warn(`An upload wrote ${sink.bytesWritten} of ${received} bytes`);
+          fail(new FmError(ErrorCode.FM_UPLOAD_SIZE_MISMATCH));
+          return;
+        }
         settled = true;
         cleanup();
         resolvePromise({ sha256: hash.digest("hex"), received });
@@ -864,7 +999,11 @@ function receiveIntoTemp(source, fd, { declaredSize, maxBytes }) {
     const onClose = () => {
       if (!settled && received !== declaredSize) fail(new FmError(ErrorCode.FM_UPLOAD_SIZE_MISMATCH));
     };
-    sink.on("error", (err) => fail(mapFsError(err)));
+    sink.on("error", (err) => {
+      // After a failure (or a finished upload) a late sink error has nothing
+      // left to report.
+      if (!settled) fail(mapFsError(err));
+    });
     source.on("data", onData);
     source.on("end", onEnd);
     source.on("error", onSourceError);
@@ -879,13 +1018,12 @@ async function receiveUpload(dir, name, source, { declaredSize, maxBytes, overwr
   if (!dir.stat || dir.stat.type !== "dir") throw new FmError(ErrorCode.FM_NOT_A_DIRECTORY);
   const target = path.join(dir.abs, name);
   sweepOrphanTemps(dir.abs);
-  const temp = lfs.createTempFile(dir.abs, name, UPLOAD_TEMP_SUFFIX);
+  const temp = openTemp(dir.abs, name, UPLOAD_TEMP_SUFFIX);
   let sha256;
   try {
     ({ sha256 } = await receiveIntoTemp(source, temp.fd, { declaredSize, maxBytes }));
   } catch (err) {
-    lfs.closeFd(temp.fd);
-    lfs.unlinkQuiet(temp.path);
+    discardTemp(temp);
     throw err instanceof FmError ? err : mapFsError(err, { name });
   }
   const lexicalTarget = dir.lexicalAbs ? path.join(dir.lexicalAbs, name) : target;
@@ -893,34 +1031,35 @@ async function receiveUpload(dir, name, source, { declaredSize, maxBytes, overwr
     let replacedTrashId = null;
     if (overwriteEtag === null || overwriteEtag === undefined) {
       try {
-        sealTemp(temp.fd, 0o644, ownerFor(null, dir.abs));
+        sealTemp(temp, 0o644, ownerFor(null, dir.abs), name);
       } catch (err) {
-        lfs.closeFd(temp.fd);
-        lfs.unlinkQuiet(temp.path);
+        discardTemp(temp);
         throw mapFsError(err, { name });
       }
       landNew(temp.path, target, name);
     } else {
+      const refuse = (err) => {
+        discardTemp(temp);
+        throw err;
+      };
       let oldStat;
       try {
         oldStat = currentStatOf(target);
       } catch (err) {
-        lfs.closeFd(temp.fd);
-        lfs.unlinkQuiet(temp.path);
-        throw err;
+        refuse(err);
       }
-      const refuse = (err) => {
-        lfs.closeFd(temp.fd);
-        lfs.unlinkQuiet(temp.path);
-        throw err;
-      };
       if (!oldStat) refuse(new FmError(ErrorCode.FM_CONFLICT));
       if (oldStat.type !== "file") refuse(new FmError(ErrorCode.FM_NOT_A_FILE));
       if (statEtag(oldStat) !== overwriteEtag) {
         refuse(new FmError(ErrorCode.FM_CONFLICT, undefined, { currentEtag: statEtag(oldStat) }));
       }
       if (readOnlyOnWindows(oldStat)) refuse(new FmError(ErrorCode.FM_TARGET_READ_ONLY));
-      sealTemp(temp.fd, oldStat.mode ?? 0o644, ownerFor(oldStat, dir.abs));
+      try {
+        sealTemp(temp, oldStat.mode ?? 0o644, ownerFor(oldStat, dir.abs), name);
+      } catch (err) {
+        discardTemp(temp);
+        throw err;
+      }
       replacedTrashId = landReplace(dir.rootReal, temp.path, target, name, oldStat, {
         originalPath: joinRel(dir.realRel, name),
         deletedBy: trashMeta?.deletedBy,
@@ -941,7 +1080,7 @@ async function mkdir(parent, name) {
     try {
       lfs.mkdirPath(target, 0o755);
     } catch (err) {
-      throw mapFsError(err, { name });
+      throw mapFsError(err, { name, create: true });
     }
     const owner = ownerFor(null, parent.abs);
     if (owner) lfs.chownPath(target, owner.uid, owner.gid);
@@ -954,37 +1093,59 @@ async function rename(r, newName) {
   const oldName = path.basename(r.abs);
   const target = path.join(parentAbs, newName);
   return withFileLocks([r.abs, target], () => {
-    const caseOnly = CASE_FOLD && newName !== oldName && newName.toLowerCase() === oldName.toLowerCase();
-    if (caseOnly) {
-      // Case-insensitive filesystems: go through a temp name so the
-      // rename is a real one.
-      const tempName = `.${oldName.slice(0, 80)}.${process.pid}.${crypto.randomBytes(4).toString("hex")}${RENAME_TEMP_SUFFIX}`;
+    // What the new name already names on disk decides the rename, not how
+    // JavaScript folds case: the same entry (a case-insensitive folder, a
+    // case-only change) goes through a temp name so the rename is a real
+    // one; any OTHER entry is refused, even in a case-sensitive folder on
+    // Windows or macOS, where the final rename would silently replace it.
+    const existing = currentStatOf(target);
+    let same = existing ? sameEntry(existing, r.stat) : false;
+    if (same === null) same = CASE_FOLD && newName.toLowerCase() === oldName.toLowerCase();
+    if (existing && !same) throw new FmError(ErrorCode.FM_EXISTS, undefined, { name: newName });
+    if (existing) {
+      const tempName = `.${oldName.slice(0, 80)}.${CASE_TEMP_TAG}.${crypto.randomBytes(4).toString("hex")}${RENAME_TEMP_SUFFIX}`;
       const tempPath = path.join(parentAbs, tempName);
       try {
         lfs.renamePath(r.abs, tempPath);
       } catch (err) {
-        throw mapFsError(err, { name: newName });
+        throw mapFsError(err, { name: newName, dirs: [parentAbs] });
       }
       try {
         lfs.renamePath(tempPath, target);
       } catch (err) {
-        try {
-          lfs.renamePath(tempPath, r.abs);
-        } catch {
-          log.error("A case-only rename failed halfway; the item keeps a temporary name");
-        }
-        throw mapFsError(err, { name: newName });
+        restoreFromCaseTemp(tempPath, r.abs, parentAbs, oldName);
+        throw mapFsError(err, { name: newName, dirs: [parentAbs] });
       }
     } else {
-      if (currentStatOf(target)) throw new FmError(ErrorCode.FM_EXISTS, undefined, { name: newName });
       try {
         lfs.renamePath(r.abs, target);
       } catch (err) {
-        throw mapFsError(err, { name: newName });
+        throw mapFsError(err, { name: newName, dirs: [parentAbs] });
       }
     }
     return entryAt(r.rootReal, parentRelOf(r.rel), parentAbs, newName);
   });
+}
+
+// A case-only rename failed halfway: put the item back under its old name,
+// or at least under a visible one, never leaving it hidden under the temp.
+function restoreFromCaseTemp(tempPath, originalAbs, parentAbs, oldName) {
+  try {
+    lfs.renamePath(tempPath, originalAbs);
+    return;
+  } catch {
+    /* try a visible name next */
+  }
+  const ext = path.extname(oldName);
+  const hasExt = Boolean(ext) && ext !== oldName;
+  const base = hasExt ? oldName.slice(0, -ext.length) : oldName;
+  const recovery = path.join(parentAbs, `${base} (rename interrupted ${crypto.randomBytes(2).toString("hex")})${hasExt ? ext : ""}`);
+  try {
+    lfs.renamePath(tempPath, recovery);
+    log.error("A case-only rename failed halfway; the item now has a new visible name in its folder");
+  } catch {
+    log.error(`A case-only rename failed halfway; the item keeps the hidden name ${path.basename(tempPath)}`);
+  }
 }
 
 async function move(r, destDir) {
@@ -996,7 +1157,7 @@ async function move(r, destDir) {
     try {
       lfs.renamePath(r.abs, target);
     } catch (err) {
-      throw mapFsError(err, { name });
+      throw mapFsError(err, { name, dirs: [destDir.abs, path.dirname(r.abs)] });
     }
     return entryAt(destDir.rootReal, destDir.rel, destDir.abs, name);
   });
@@ -1007,28 +1168,51 @@ async function copyFile(r, destDir, newName, { overwriteEtag = null, trashMeta }
   const target = path.join(destDir.abs, newName);
   sweepOrphanTemps(destDir.abs);
   const { fd: srcFd, st } = openChecked(r);
-  const temp = lfs.createTempFile(destDir.abs, newName, RENAME_TEMP_SUFFIX);
+  const size = Number(st.size);
+  let temp;
   try {
-    await lfs.copyFdToFd(srcFd, temp.fd, { start: 0, end: Math.max(0, Number(st.size) - 1) });
+    temp = openTemp(destDir.abs, newName, RENAME_TEMP_SUFFIX);
+    const copied = await lfs.copyFdToFd(srcFd, temp.fd, size);
+    // The source shrank while it was being copied.
+    if (copied !== size) throw new FmError(ErrorCode.FM_CONFLICT);
   } catch (err) {
-    lfs.closeFd(temp.fd);
-    lfs.unlinkQuiet(temp.path);
+    if (temp) discardTemp(temp);
     throw mapFsError(err, { name: newName });
   } finally {
     lfs.closeFd(srcFd);
   }
   return withFileLocks([target], () => {
     if (overwriteEtag === null) {
-      sealTemp(temp.fd, 0o644, ownerFor(null, destDir.abs));
+      try {
+        sealTemp(temp, 0o644, ownerFor(null, destDir.abs), newName);
+      } catch (err) {
+        discardTemp(temp);
+        throw err;
+      }
       landNew(temp.path, target, newName);
     } else {
-      const oldStat = currentStatOf(target);
+      let oldStat;
+      try {
+        oldStat = currentStatOf(target);
+      } catch (err) {
+        discardTemp(temp);
+        throw err;
+      }
       if (!oldStat || oldStat.type !== "file" || statEtag(oldStat) !== overwriteEtag) {
-        lfs.closeFd(temp.fd);
-        lfs.unlinkQuiet(temp.path);
+        discardTemp(temp);
         throw new FmError(ErrorCode.FM_CONFLICT, undefined, oldStat ? { currentEtag: statEtag(oldStat) } : {});
       }
-      sealTemp(temp.fd, oldStat.mode ?? 0o644, ownerFor(oldStat, destDir.abs));
+      // Like an upload over it: the Windows read-only attribute is honoured.
+      if (readOnlyOnWindows(oldStat)) {
+        discardTemp(temp);
+        throw new FmError(ErrorCode.FM_TARGET_READ_ONLY);
+      }
+      try {
+        sealTemp(temp, oldStat.mode ?? 0o644, ownerFor(oldStat, destDir.abs), newName);
+      } catch (err) {
+        discardTemp(temp);
+        throw err;
+      }
       landReplace(destDir.rootReal, temp.path, target, newName, oldStat, {
         originalPath: joinRel(destDir.realRel, newName),
         deletedBy: trashMeta?.deletedBy,
@@ -1047,30 +1231,53 @@ async function copyFile(r, destDir, newName, { overwriteEtag = null, trashMeta }
  * Yields { name, rel, realRel, type, size, mtimeMs, dev, ino, depth }. Stops
  * quietly at the caps; callers that must report truncation count entries
  * and depth themselves. `prune(entry)` returning true skips a folder's
- * contents.
+ * contents. `onUnreadable({ rel, realRel, name, folder })` hears about a
+ * folder that couldn't be listed and an entry that couldn't be looked at
+ * (both are otherwise skipped), and `onDepthLimit()` about a folder left
+ * unopened at maxDepth.
  */
-async function* walk(r, { maxEntries = Infinity, maxDepth = Infinity, maxMs = Infinity, signal, prune } = {}) {
+async function* walk(
+  r,
+  { maxEntries = Infinity, maxDepth = Infinity, maxMs = Infinity, signal, prune, onUnreadable, onDepthLimit } = {},
+) {
   if (!r.stat || r.stat.type !== "dir") return;
   const started = Date.now();
   const queue = [{ abs: r.abs, rel: r.rel, realRel: r.realRel, depth: 0 }];
   let yielded = 0;
+  let depthReported = false;
   while (queue.length) {
     const dir = queue.shift();
-    if (dir.depth >= maxDepth) continue;
-    let names;
-    try {
-      ({ names } = lfs.readDirNames(dir.abs, FM_LIMITS.LIST_DIR_MAX_ENTRIES));
-    } catch {
+    if (dir.depth >= maxDepth) {
+      // Only a folder with something in it was really cut short.
+      if (onDepthLimit && !depthReported) {
+        try {
+          if (lfs.readDirNames(dir.abs, 16).names.some((name) => !isHiddenName(name))) {
+            depthReported = true;
+            onDepthLimit({ rel: dir.rel, realRel: dir.realRel });
+          }
+        } catch {
+          /* unreadable: nothing to report as cut short */
+        }
+      }
       continue;
     }
-    for (const name of names) {
+    let listed;
+    try {
+      ({ entries: listed } = lfs.readDirEntries(dir.abs, FM_LIMITS.LIST_DIR_MAX_ENTRIES));
+    } catch {
+      onUnreadable?.({ rel: dir.rel, realRel: dir.realRel, folder: true });
+      continue;
+    }
+    for (const item of listed) {
       if (signal?.aborted || yielded >= maxEntries || Date.now() - started > maxMs) return;
+      const { name } = item;
       if (isHiddenName(name)) continue;
-      const abs = path.join(dir.abs, name);
+      const abs = lfs.childPathOf(dir.abs, item);
       let st;
       try {
         st = toStat(lfs.lstatBig(abs));
       } catch {
+        onUnreadable?.({ rel: joinRel(dir.rel, name), realRel: joinRel(dir.realRel, name), folder: false });
         continue;
       }
       const entry = {
@@ -1083,6 +1290,9 @@ async function* walk(r, { maxEntries = Infinity, maxDepth = Infinity, maxMs = In
         dev: st.dev,
         ino: st.ino,
         depth: dir.depth + 1,
+        // A name that isn't valid Unicode: `name` is lossy, so the entry
+        // can be counted and reported but never reached by its path.
+        ...(item.raw ? { unrepresentable: true } : {}),
       };
       yielded++;
       yield entry;
@@ -1118,23 +1328,28 @@ async function list(dir, { offset = 0, limit = FM_LIMITS.LIST_PAGE_DEFAULT, sort
   if (!dir.stat || dir.stat.type !== "dir") throw new FmError(ErrorCode.FM_NOT_A_DIRECTORY);
   let listed;
   try {
-    listed = lfs.readDirNames(dir.abs, FM_LIMITS.LIST_DIR_MAX_ENTRIES);
+    listed = lfs.readDirEntries(dir.abs, FM_LIMITS.LIST_DIR_MAX_ENTRIES);
   } catch (err) {
     throw mapFsError(err);
   }
-  const names = listed.names.filter((name) => !isHiddenName(name));
-  const total = names.length;
+  const items = listed.entries.filter((item) => !isHiddenName(item.name));
+  const total = items.length;
   const dirEtag = statEtag(dir.stat);
-  const describe = (name) => {
+  const describe = (item) => {
     try {
-      return entryFor(dir.rootReal, dir.rel, dir.realRel, name, path.join(dir.abs, name), lfs.lstatBig(path.join(dir.abs, name)));
+      const abs = lfs.childPathOf(dir.abs, item);
+      const entry = entryFor(dir.rootReal, dir.rel, dir.realRel, item.name, path.join(dir.abs, item.name), lfs.lstatBig(abs));
+      // Shown (so the folder doesn't look emptier than it is), but a name
+      // that isn't valid Unicode can't be reached through a path.
+      if (item.raw) entry.unrepresentable = true;
+      return entry;
     } catch {
       return null;
     }
   };
 
   if (total <= FM_LIMITS.LIST_FULL_STAT_MAX) {
-    const entries = names.map(describe).filter(Boolean);
+    const entries = items.map(describe).filter(Boolean);
     entries.sort(compareEntries(sort, order));
     return {
       entries: entries.slice(offset, offset + limit),
@@ -1145,7 +1360,7 @@ async function list(dir, { offset = 0, limit = FM_LIMITS.LIST_PAGE_DEFAULT, sort
     };
   }
   // Big folder: sort names only, stat just the requested page.
-  const sorted = [...names].sort((a, b) => collator.compare(a, b) * (order === "desc" ? -1 : 1));
+  const sorted = [...items].sort((a, b) => collator.compare(a.name, b.name) * (order === "desc" ? -1 : 1));
   const page = sorted.slice(offset, offset + limit).map(describe).filter(Boolean);
   return { entries: page, total, sortLimited: true, truncated: listed.truncated, dirEtag };
 }
@@ -1256,7 +1471,7 @@ async function deletePermanent(target, onProgress = () => {}) {
     });
   } catch (err) {
     if (err?.code === "EPERM" && IS_WIN) throw new FmError(ErrorCode.FM_FILE_IN_USE);
-    throw mapFsError(err);
+    throw mapFsError(err, { deleting: true });
   }
 }
 

@@ -560,6 +560,8 @@
   "FM_SFTP_ERROR": "Der Remote-Server hat das per SFTP abgelehnt ({{detail}}).",
   "FM_SFTP_TIMEOUT": "Der Remote-Server antwortet nicht mehr per SFTP. Versuche es erneut.",
   "FM_INTERNAL": "Im Dateimanager ist ein unerwarteter Fehler aufgetreten. Sieh im Protokoll des Panels nach.",
+  "FM_TOO_MANY_ENTRIES": "Es sind zu viele Elemente, um sie auf einmal zu löschen (mehr als {{limit}}). Bereits Gelöschtes bleibt gelöscht; starte den Vorgang erneut, um ihn abzuschließen.",
+  "FM_SECRET_NAME_REQUIRED": "Diese Datei enthält Passwörter, die der Dateimanager ausblendet. Behalte .ini im neuen Namen, damit sie ausgeblendet bleiben.",
   "CHARACTER_INVALID_SECTIONS": "Unbekannter Charakterabschnitt angefordert.",
   "CHARACTER_SHEET_FAILED": "Dieser Charakter konnte nicht gelesen werden."
 }

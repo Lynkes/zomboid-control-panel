@@ -63,7 +63,7 @@ describe('Files: delete to Trash', () => {
     server.on(({ method, path, body }) => {
       if (method === 'POST' && path.endsWith('/delete/preview')) return json(200, preview(body.paths))
       if (method === 'POST' && path.endsWith('/delete')) return json(200, { trashed: [{ path: 'old.log', trashId: TRASH_ID }], failed: [] })
-      if (method === 'POST' && path.endsWith('/trash/restore')) return json(200, { entry: makeEntry('old.log') })
+      if (method === 'POST' && path.endsWith('/trash/restore')) return json(200, { restored: [{ trashId: TRASH_ID, entry: makeEntry('old.log') }], failed: [] })
       return undefined
     })
     renderFiles()
@@ -88,7 +88,9 @@ describe('Files: delete to Trash', () => {
     fireEvent.click(screen.getByRole('button', { name: enFiles.trash.undo }))
 
     await waitFor(() => expect(server.callsTo('POST', '/trash/restore')).toHaveLength(1))
-    expect(server.callsTo('POST', '/trash/restore')[0].body).toEqual({ root: 'data', trashId: TRASH_ID, confirm: [] })
+    // One request for everything the delete trashed (one confirmation, one
+    // hit on the per-minute limit).
+    expect(server.callsTo('POST', '/trash/restore')[0].body).toEqual({ root: 'data', trashIds: [TRASH_ID], confirm: [] })
     expect(await screen.findByText('Restored to old.log')).toBeInTheDocument()
   })
 

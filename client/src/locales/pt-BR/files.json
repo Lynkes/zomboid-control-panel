@@ -228,12 +228,14 @@
   },
   "confirm": {
     "title": "Tem certeza absoluta?",
-    "delete_one": "Mover {{name}} ({{size}}) de {{folder}} para a lixeira? O servidor pode parar de funcionar se precisar disso. Dá para restaurar pela lixeira por 7 dias. A lixeira não libera espaço em disco até ser esvaziada.",
+    "delete_one": "Mover {{count}} item ({{files}} arquivos, {{size}}) de {{folder}} para a lixeira? O servidor pode parar de funcionar se precisar disso. Dá para restaurar pela lixeira por 7 dias. A lixeira não libera espaço em disco até ser esvaziada.",
     "delete_many": "Mover {{count}} itens ({{files}} arquivos, {{size}}) de {{folder}} para a lixeira? O servidor pode parar de funcionar se precisar deles. Dá para restaurá-los pela lixeira por 7 dias. A lixeira não libera espaço em disco até ser esvaziada.",
     "delete_other": "Mover {{count}} itens ({{files}} arquivos, {{size}}) de {{folder}} para a lixeira? O servidor pode parar de funcionar se precisar deles. Dá para restaurá-los pela lixeira por 7 dias. A lixeira não libera espaço em disco até ser esvaziada.",
-    "deletePermanent_one": "Excluir permanentemente {{name}} ({{size}})? Não é possível desfazer.",
+    "deleteOne": "Mover {{name}} ({{size}}) de {{folder}} para a lixeira? O servidor pode parar de funcionar se precisar disso. Dá para restaurar pela lixeira por 7 dias. A lixeira não libera espaço em disco até ser esvaziada.",
+    "deletePermanent_one": "Excluir permanentemente {{count}} item ({{files}} arquivos, {{size}})? Não é possível desfazer.",
     "deletePermanent_many": "Excluir permanentemente {{count}} itens ({{files}} arquivos, {{size}})? Não é possível desfazer.",
     "deletePermanent_other": "Excluir permanentemente {{count}} itens ({{files}} arquivos, {{size}})? Não é possível desfazer.",
+    "deletePermanentOne": "Excluir permanentemente {{name}} ({{size}})? Não é possível desfazer.",
     "trashUnavailable": "Estes itens não podem ir para a lixeira, então excluí-los é permanente.",
     "typeName": "Digite {{value}} para confirmar",
     "emptyTrash_one": "Excluir permanentemente {{count}} item da lixeira? Não é possível desfazer.",
@@ -308,7 +310,9 @@
     "large": "Download grande. Mantenha esta aba aberta até terminar.",
     "interrupted": "O download foi interrompido. Tente novamente.",
     "preparingZip": "Preparando o .zip…",
-    "masked": "As senhas em arquivos .ini ficam ocultas nos downloads."
+    "masked": "As senhas em arquivos .ini ficam ocultas nos downloads.",
+    "zipTooMany": "Escolha no máximo {{limit}} itens para um mesmo .zip.",
+    "zipTooSlow": "Verificar o que colocar no .zip demorou demais. Escolha menos pastas ou baixe-as uma de cada vez."
   },
   "trash": {
     "title": "Lixeira",
@@ -353,7 +357,25 @@
   "history": {
     "title": "Alterações recentes em arquivos",
     "empty": "Nenhuma alteração em arquivos ainda.",
-    "entry": "{{username}} · {{op}} · {{path}}"
+    "entry": "{{username}} · {{op}} · {{path}}",
+    "ops": {
+      "create": "Criado",
+      "write": "Salvo",
+      "mkdir": "Pasta criada",
+      "rename": "Renomeado",
+      "move": "Movido",
+      "copy": "Duplicado",
+      "upload": "Enviado",
+      "delete_trash": "Movido para a lixeira",
+      "delete_permanent": "Excluído permanentemente",
+      "trash_restore": "Restaurado da lixeira",
+      "trash_purge": "Removido da lixeira",
+      "trash_expire": "Lixeira limpa",
+      "download": "Baixado",
+      "zip": "Baixado como .zip",
+      "remoteRoots_set": "Pastas remotas alteradas",
+      "denied": "Recusado"
+    }
   },
   "access": {
     "denied": "Seu cargo não inclui a permissão: Gerenciar arquivos do servidor. Peça acesso a um administrador.",

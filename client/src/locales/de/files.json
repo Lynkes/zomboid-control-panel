@@ -224,10 +224,12 @@
   },
   "confirm": {
     "title": "Bist du dir absolut sicher?",
-    "delete_one": "{{name}} ({{size}}) aus {{folder}} in den Papierkorb verschieben? Der Server funktioniert möglicherweise nicht mehr, falls er darauf angewiesen ist. Wiederherstellen ist 7 Tage lang über den Papierkorb möglich. Der Papierkorb gibt erst Speicherplatz frei, wenn er geleert wird.",
+    "delete_one": "{{count}} Element ({{files}} Dateien, {{size}}) aus {{folder}} in den Papierkorb verschieben? Der Server funktioniert möglicherweise nicht mehr, falls er darauf angewiesen ist. Wiederherstellen ist 7 Tage lang über den Papierkorb möglich. Der Papierkorb gibt erst Speicherplatz frei, wenn er geleert wird.",
     "delete_other": "{{count}} Elemente ({{files}} Dateien, {{size}}) aus {{folder}} in den Papierkorb verschieben? Der Server funktioniert möglicherweise nicht mehr, falls er darauf angewiesen ist. Wiederherstellen ist 7 Tage lang über den Papierkorb möglich. Der Papierkorb gibt erst Speicherplatz frei, wenn er geleert wird.",
-    "deletePermanent_one": "{{name}} ({{size}}) endgültig löschen? Das kann nicht rückgängig gemacht werden.",
+    "deleteOne": "{{name}} ({{size}}) aus {{folder}} in den Papierkorb verschieben? Der Server funktioniert möglicherweise nicht mehr, falls er darauf angewiesen ist. Wiederherstellen ist 7 Tage lang über den Papierkorb möglich. Der Papierkorb gibt erst Speicherplatz frei, wenn er geleert wird.",
+    "deletePermanent_one": "{{count}} Element ({{files}} Dateien, {{size}}) endgültig löschen? Das kann nicht rückgängig gemacht werden.",
     "deletePermanent_other": "{{count}} Elemente ({{files}} Dateien, {{size}}) endgültig löschen? Das kann nicht rückgängig gemacht werden.",
+    "deletePermanentOne": "{{name}} ({{size}}) endgültig löschen? Das kann nicht rückgängig gemacht werden.",
     "trashUnavailable": "Diese Elemente können nicht in den Papierkorb, daher ist das Löschen endgültig.",
     "typeName": "Gib {{value}} zur Bestätigung ein",
     "emptyTrash_one": "{{count}} Element endgültig aus dem Papierkorb löschen? Das kann nicht rückgängig gemacht werden.",
@@ -299,7 +301,9 @@
     "large": "Großer Download. Lass diesen Tab geöffnet, bis er abgeschlossen ist.",
     "interrupted": "Der Download wurde unterbrochen. Versuche es erneut.",
     "preparingZip": "Die .zip wird vorbereitet …",
-    "masked": "Passwörter in .ini-Dateien sind in Downloads ausgeblendet."
+    "masked": "Passwörter in .ini-Dateien sind in Downloads ausgeblendet.",
+    "zipTooMany": "Wähle für eine .zip höchstens {{limit}} Elemente aus.",
+    "zipTooSlow": "Die Prüfung, was in die .zip soll, hat zu lange gedauert. Wähle weniger Ordner aus oder lade sie einzeln herunter."
   },
   "trash": {
     "title": "Papierkorb",
@@ -343,7 +347,25 @@
   "history": {
     "title": "Letzte Dateiänderungen",
     "empty": "Noch keine Dateiänderungen.",
-    "entry": "{{username}} · {{op}} · {{path}}"
+    "entry": "{{username}} · {{op}} · {{path}}",
+    "ops": {
+      "create": "Erstellt",
+      "write": "Gespeichert",
+      "mkdir": "Ordner erstellt",
+      "rename": "Umbenannt",
+      "move": "Verschoben",
+      "copy": "Dupliziert",
+      "upload": "Hochgeladen",
+      "delete_trash": "In den Papierkorb verschoben",
+      "delete_permanent": "Endgültig gelöscht",
+      "trash_restore": "Aus dem Papierkorb wiederhergestellt",
+      "trash_purge": "Aus dem Papierkorb entfernt",
+      "trash_expire": "Papierkorb bereinigt",
+      "download": "Heruntergeladen",
+      "zip": "Als .zip heruntergeladen",
+      "remoteRoots_set": "Remote-Ordner geändert",
+      "denied": "Abgelehnt"
+    }
   },
   "access": {
     "denied": "Deine Rolle enthält das Recht „Serverdateien verwalten“ nicht. Frag einen Administrator.",

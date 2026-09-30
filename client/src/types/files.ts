@@ -427,7 +427,8 @@ export const UPLOAD_HEADERS = {
 /** 201 */
 export interface UploadResponse {
   entry: FileEntry
-  sha256: string
+  /** null for a secret-bearing file (.ini): no plain hash of its bytes leaves the server. */
+  sha256: string | null
   replaced: { trashId: string } | null
 }
 
@@ -459,6 +460,21 @@ export interface TrashRestoreRequest {
   trashId: string
   restoreAs?: string
   confirm?: ConfirmToken[]
+}
+
+/**
+ * POST /profiles/:id/trash/restore with several items at once (Undo of a
+ * bulk delete): up to PATHS_PER_REQUEST ids, one confirmation, per-item
+ * results.
+ */
+export interface TrashRestoreManyRequest {
+  root: RootId
+  trashIds: string[]
+  confirm?: ConfirmToken[]
+}
+export interface TrashRestoreManyResponse {
+  restored: Array<{ trashId: string; entry: FileEntry }>
+  failed: Array<{ trashId: string; code: string; params?: Record<string, unknown> }>
 }
 
 /** POST /profiles/:id/trash/purge (202, JobStartedResponse). */

@@ -560,6 +560,8 @@
   "FM_SFTP_ERROR": "Sèvè aleka a refize sa atravè SFTP ({{detail}}).",
   "FM_SFTP_TIMEOUT": "Sèvè aleka a sispann reponn atravè SFTP. Eseye ankò.",
   "FM_INTERNAL": "Jesyonè fichye a jwenn yon erè ou pa t atann. Tcheke jounal panèl la.",
+  "FM_TOO_MANY_ENTRIES": "Gen twòp eleman pou efase an yon sèl kou (plis pase {{limit}}). Sa ki deja efase rete efase; relanse l pou fini.",
+  "FM_SECRET_NAME_REQUIRED": "Fichye sa a gen modpas jesyonè fichye a kache. Kenbe .ini nan nouvo non an pou yo rete kache.",
   "CHARACTER_INVALID_SECTIONS": "Yo mande yon seksyon pèsonaj ki enkoni.",
   "CHARACTER_SHEET_FAILED": "Pa t kapab li pèsonaj sa a."
 }

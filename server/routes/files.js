@@ -9,6 +9,47 @@ import * as files from "../services/fileManagerService.js";
 
 const log = createLogger("API:ServerFiles");
 
+// How long an upload request may take from its first byte to its last:
+// server/index.js puts this on the HTTP and HTTPS servers in place of Node's
+// 5-minute requestTimeout default, which cut off any upload slower than
+// that (a 1 GiB world save over a 25 Mbit/s line, any SFTP upload the remote
+// host takes its time with). Uploads still stop after UPLOAD_IDLE_MS with no
+// data, and headersTimeout still bounds the header phase.
+export const FILE_UPLOAD_REQUEST_TIMEOUT_MS = 6 * 60 * 60 * 1000;
+
+// A refused upload (too many transfers, not enough space, the name is
+// taken...) answers before reading the body. Closing the socket with that
+// body still arriving makes the OS answer with a reset, and the client's
+// network stack then throws away the refusal it had already received: the
+// browser sees a network error, never the code (and a 429 never pauses the
+// queue). So the rest of the body is read and dropped for a moment after
+// the answer, and the connection is cut only if it is still coming.
+const REFUSED_UPLOAD_LINGER_MS = 2000;
+const REFUSED_UPLOAD_LINGER_BYTES = 8 * 1024 * 1024;
+
+function lingerThenCut(req) {
+  const socket = req.socket;
+  if (!socket || socket.destroyed) return;
+  const started = Date.now();
+  const bytesAtStart = socket.bytesRead;
+  req.resume();
+  const timer = setInterval(() => {
+    if (req.complete || socket.destroyed) {
+      clearInterval(timer);
+      return;
+    }
+    if (Date.now() - started > REFUSED_UPLOAD_LINGER_MS || socket.bytesRead - bytesAtStart > REFUSED_UPLOAD_LINGER_BYTES) {
+      clearInterval(timer);
+      socket.destroy();
+    }
+  }, 50);
+  timer.unref?.();
+}
+
+function isUploadRequest(req) {
+  return req.method === "POST" && /\/upload$/.test(req.path);
+}
+
 // Server Files API (/api/files), spec §A10. The whole router needs
 // files.manage: it can change anything the game server runs, so it is gated
 // like the admin password (routeAuthorizationCoverage.test.js asserts the
@@ -88,6 +129,10 @@ const FM_MESSAGES = {
   [ErrorCode.FM_SFTP_ERROR]: "The remote server refused this over SFTP.",
   [ErrorCode.FM_SFTP_TIMEOUT]: "The remote server stopped answering over SFTP. Try again.",
   [ErrorCode.FM_INTERNAL]: "The file manager hit an unexpected error. Check the panel's log.",
+  [ErrorCode.FM_TOO_MANY_ENTRIES]:
+    "There are too many items to delete in one go. What was already deleted stays deleted; run it again to finish.",
+  [ErrorCode.FM_SECRET_NAME_REQUIRED]:
+    "This file holds passwords the file manager keeps masked. Keep .ini in the new name so they stay masked.",
   [ErrorCode.RAW_INI_SECRET_LINE_REMOVED]:
     "A line holding a live secret was removed. To clear it, keep the line and empty its value instead.",
   [ErrorCode.RAW_INI_SECRET_UNRESOLVABLE]:
@@ -276,7 +321,7 @@ router.use("/profiles/:profileId", async (req, res, next) => {
     req.fm = await files.loadProfileContext(req.params.profileId, req.app);
     return next();
   } catch (err) {
-    if (req.method === "POST" && /\/upload$/.test(req.path)) res.set("Connection", "close");
+    if (isUploadRequest(req) && !req.complete) res.once("finish", () => lingerThenCut(req));
     return sendError(res, err);
   }
 });
@@ -427,12 +472,19 @@ router.post(
 router.post(
   "/profiles/:profileId/upload/preflight",
   handle("files.upload.preflight", async (req, res) => {
-    res.json(await files.uploadPreflight(req.fm, req.body, req.user));
+    // A client that gave up waiting (a big batch over a slow SFTP link)
+    // stops the checks instead of leaving them running for nobody.
+    const gone = new AbortController();
+    res.on("close", () => {
+      if (!res.writableFinished) gone.abort();
+    });
+    res.json(await files.uploadPreflight(req.fm, req.body, req.user, { signal: gone.signal }));
   }),
 );
 
-// Raw body. Every check runs before a byte is read; on a refusal the
-// connection is closed rather than draining a body nobody wants.
+// Raw body. Every check runs before a byte is read; on a refusal the rest
+// of the body is dropped for a moment (so the client gets to see the
+// answer), then the connection is cut if it is still coming.
 router.post(
   "/profiles/:profileId/upload",
   audited(
@@ -443,8 +495,7 @@ router.post(
     {
       onError: (req, res) => {
         if (req.complete) return;
-        res.set("Connection", "close");
-        res.once("finish", () => req.destroy());
+        res.once("finish", () => lingerThenCut(req));
       },
     },
   ),

@@ -6,8 +6,13 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { filesApi } from '@/lib/filesApi'
 import { cn } from '@/lib/utils'
 import { isolateLtrForRtl } from '@/lib/paramTranslation'
-import type { AuditEntry } from '@/types/files'
-import { describeFilesError, formatFileDate } from './filesUi'
+import type { AuditEntry, AuditOp } from '@/types/files'
+import { describeFilesError, describeResultError, formatFileDate } from './filesUi'
+
+// history.ops keys: the audit op without "files.", dots as underscores.
+function opKey(op: AuditOp | string): string {
+  return `history.ops.${String(op).replace(/^files\./, '').replace(/\./g, '_')}`
+}
 
 interface RecentChangesProps {
   profileId: string
@@ -17,7 +22,9 @@ interface RecentChangesProps {
 
 // "Recent file changes" (spec §A14.3): the last 50 audit rows for this
 // server, loaded only when the card is opened. The audit never holds file
-// content; paths and the operation name are shown as the server logged them.
+// content. The operation and the folder are shown in the reader's language
+// (an op the page doesn't know yet falls back to its id), the path as the
+// server logged it, and a refused or failed row says why.
 export function RecentChanges({ profileId, refreshKey }: RecentChangesProps) {
   const { t, i18n } = useTranslation('files')
   const [open, setOpen] = useState(false)
@@ -72,8 +79,11 @@ export function RecentChanges({ profileId, refreshKey }: RecentChangesProps) {
               <ul className="max-h-80 space-y-1 overflow-y-auto">
                 {entries.map((entry) => {
                   const firstPath = entry.paths[0] ?? ''
-                  const shownPath = entry.rootId ? `${entry.rootId}:${firstPath}` : firstPath
+                  const rootLabel = entry.rootId ? t(`roots.labels.${entry.rootId}`) : ''
+                  const where = [rootLabel, firstPath ? isolateLtrForRtl(firstPath) : ''].filter(Boolean).join(' / ')
                   const more = entry.paths.length > 1 ? ` (+${entry.paths.length - 1})` : ''
+                  const op = i18n.exists(opKey(entry.op), { ns: 'files' }) ? t(opKey(entry.op)) : isolateLtrForRtl(entry.op)
+                  const reason = entry.result !== 'ok' && entry.code ? describeResultError({ code: entry.code }) : null
                   return (
                     <li key={entry.id} className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/25 p-3 text-sm">
                       {entry.result === 'ok' ? (
@@ -85,10 +95,11 @@ export function RecentChanges({ profileId, refreshKey }: RecentChangesProps) {
                         <p className="break-words">
                           {t('history.entry', {
                             username: entry.actor.username ?? '—',
-                            op: isolateLtrForRtl(entry.op),
-                            path: `${isolateLtrForRtl(shownPath)}${more}`,
+                            op,
+                            path: `${where}${more}`,
                           })}
                         </p>
+                        {reason && <p className="text-xs text-muted-foreground">{reason}</p>}
                         <p className="text-xs text-muted-foreground">{formatFileDate(entry.at, i18n.language)}</p>
                       </div>
                     </li>

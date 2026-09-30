@@ -560,6 +560,8 @@
   "FM_SFTP_ERROR": "El servidor remoto rechazó esto por SFTP ({{detail}}).",
   "FM_SFTP_TIMEOUT": "El servidor remoto dejó de responder por SFTP. Inténtalo de nuevo.",
   "FM_INTERNAL": "El gestor de archivos encontró un error inesperado. Revisa el registro del panel.",
+  "FM_TOO_MANY_ENTRIES": "Hay demasiados elementos para eliminarlos de una vez (más de {{limit}}). Lo que ya se eliminó sigue eliminado; vuelve a ejecutarlo para terminar.",
+  "FM_SECRET_NAME_REQUIRED": "Este archivo contiene contraseñas que el gestor de archivos oculta. Mantén .ini en el nuevo nombre para que sigan ocultas.",
   "CHARACTER_INVALID_SECTIONS": "Se solicitó una sección de personaje desconocida.",
   "CHARACTER_SHEET_FAILED": "No se pudo leer este personaje."
 }

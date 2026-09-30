@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, Loader2, RotateCcw, Trash2, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -21,6 +21,8 @@ interface TrashViewProps {
   onBack: () => void
   /** Something was restored or removed: refresh the listing and the count. */
   onChanged: () => void
+  /** Bumped by the page's Refresh button: the list is fetched again. */
+  refreshKey?: number
 }
 
 type JobLine = { state: 'running'; done: number; total: number | null } | { state: 'done' } | { state: 'failed'; error: string }
@@ -35,7 +37,7 @@ function withPermanent(tokens: ConfirmToken[]): ConfirmToken[] {
 // by whom and when, and when the panel will remove it. Restore puts an item
 // back where it was (or under another name if that's taken); deleting from
 // here is permanent and typed-confirmed like any other permanent delete.
-export function TrashView({ profileId, root, isDesktop, runConfirmed, onBack, onChanged }: TrashViewProps) {
+export function TrashView({ profileId, root, isDesktop, runConfirmed, onBack, onChanged, refreshKey = 0 }: TrashViewProps) {
   const { t, i18n } = useTranslation('files')
   const { toast } = useToast()
   const confirm = useConfirm()
@@ -67,6 +69,17 @@ export function TrashView({ profileId, root, isDesktop, runConfirmed, onBack, on
     void load(controller.signal)
     return () => controller.abort()
   }, [load])
+
+  // The page's Refresh: fetched again in place (someone else, or the hourly
+  // clean-up, may have changed Trash meanwhile).
+  const firstRefreshRef = useRef(refreshKey)
+  useEffect(() => {
+    if (refreshKey === firstRefreshRef.current) return
+    firstRefreshRef.current = refreshKey
+    const controller = new AbortController()
+    void load(controller.signal)
+    return () => controller.abort()
+  }, [load, refreshKey])
 
   const restore = async (item: TrashItem, name?: string) => {
     setBusyId(item.trashId)
@@ -113,7 +126,7 @@ export function TrashView({ profileId, root, isDesktop, runConfirmed, onBack, on
     const name = baseName(item.originalPath)
     const ok = await confirm({
       title: t('confirm.title'),
-      description: t('confirm.deletePermanent', { count: 1, name: isolateLtrForRtl(name), size: formatBytes(item.bytes, i18n.language) }),
+      description: t('confirm.deletePermanentOne', { name: isolateLtrForRtl(name), size: formatBytes(item.bytes, i18n.language) }),
       confirmLabel: t('actions.deletePermanently'),
       cancelLabel: t('actions.cancel'),
       destructive: true,

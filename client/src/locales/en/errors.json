@@ -560,6 +560,8 @@
   "FM_SFTP_ERROR": "The remote server refused this over SFTP ({{detail}}).",
   "FM_SFTP_TIMEOUT": "The remote server stopped answering over SFTP. Try again.",
   "FM_INTERNAL": "The file manager hit an unexpected error. Check the panel's log.",
+  "FM_TOO_MANY_ENTRIES": "There are too many items to delete in one go (more than {{limit}}). What was already deleted stays deleted; run it again to finish.",
+  "FM_SECRET_NAME_REQUIRED": "This file holds passwords the file manager keeps masked. Keep .ini in the new name so they stay masked.",
   "CHARACTER_INVALID_SECTIONS": "Unknown character section requested.",
   "CHARACTER_SHEET_FAILED": "Couldn't read this character."
 }

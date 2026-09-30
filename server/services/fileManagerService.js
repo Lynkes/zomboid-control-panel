@@ -58,12 +58,14 @@ import {
   maskIniBuffer,
   maskIniText,
   reconcileIniText,
+  secretEtag,
   sha256Hex,
 } from "./fileManagerTextCodec.js";
 import { isHeldByJob, startJob } from "./fileManagerJobs.js";
 import { acquireZipSlot, planZip, streamZip, zipFileName } from "./fileManagerZip.js";
 import { validateRemoteRootPath } from "./fileManagerRemoteRoots.js";
 import { realpathNative } from "./fileManagerLocalFs.js";
+import { SYSTEM_ACTOR, writeAudit } from "./fileManagerAudit.js";
 
 const PROFILE_ID_RE = /^[A-Za-z0-9._-]{1,64}$/;
 const PREVIEW_ID_RE = /^[0-9a-f]{32}$/;
@@ -87,6 +89,15 @@ function joinRel(parent, name) {
 function parentOf(rel) {
   const idx = rel.lastIndexOf("/");
   return idx === -1 ? "" : rel.slice(0, idx);
+}
+
+// A request's `paths`: 1 to PATHS_PER_REQUEST strings. Too many says so
+// ({field:"paths", limit}), so a client can split the selection.
+function checkPathsParam(paths) {
+  if (Array.isArray(paths) && paths.length > FM_LIMITS.PATHS_PER_REQUEST) {
+    throw new FmError(ErrorCode.FM_INVALID_REQUEST, undefined, { field: "paths", limit: FM_LIMITS.PATHS_PER_REQUEST });
+  }
+  if (!Array.isArray(paths) || paths.length === 0 || paths.some((p) => typeof p !== "string")) throw invalidRequest("paths");
 }
 
 function requireString(value, field, { allowEmpty = true, max = FM_LIMITS.REL_PATH_MAX_CHARS } = {}) {
@@ -137,6 +148,67 @@ function userIdOf(user) {
 
 function trashMetaFor(user, reason) {
   return { deletedBy: { userId: user?.userId ?? null, username: user?.username ?? null }, reason };
+}
+
+// A file whose secret-looking lines are masked on every way out (.ini and
+// copies of one), by its name as navigated or its real name.
+function isSecretBearing(r) {
+  return isSecretBearingName(r.name) || isSecretBearingName(r.realRel);
+}
+
+// Masking goes by name, so a rename, duplicate or restore-as that gives a
+// secret-bearing file a name the file manager doesn't mask (servertest.txt)
+// would show its passwords in plain text on the next view or download.
+function assertKeepsSecretsMasked(secretBearing, newName) {
+  if (secretBearing && !isSecretBearingName(newName)) throw new FmError(ErrorCode.FM_SECRET_NAME_REQUIRED);
+}
+
+/**
+ * Drop selected items that sit inside another selected folder (search
+ * results can hold a folder and a file inside it): the folder takes them
+ * along, so acting on them again would only fail, and count them twice.
+ * Also drops exact duplicates.
+ * @template {{ r: { realRel: string, stat: object|null, linkSelf?: boolean } }} T
+ * @param {T[]} items
+ * @returns {T[]}
+ */
+function collapseNested(items) {
+  const folders = items
+    .filter(({ r }) => r.stat?.type === "dir" && !r.linkSelf)
+    .map(({ r }) => foldRel(r.realRel));
+  const seen = new Set();
+  return items.filter(({ r }) => {
+    const key = foldRel(r.realRel);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return !folders.some((folder) => folder !== key && relWithin(folder, key));
+  });
+}
+
+// Remote Trash expires lazily, whenever that root's Trash is listed or
+// written (spec §A6.6): each pass that removed something gets the same
+// files.trash.expire row, actor "system", that the local janitor writes.
+async function auditRemoteExpiry(ctx, policy) {
+  const trashIds = policy.backend.drainExpiredTrash?.(policy.root.real) || [];
+  if (!trashIds.length) return;
+  await writeAudit({
+    actor: SYSTEM_ACTOR,
+    profileId: String(ctx.profile.id),
+    profileName: ctx.profile.name || ctx.profile.serverName || null,
+    backend: policy.root.backend,
+    rootId: policy.rootId,
+    op: "files.trash.expire",
+    paths: [],
+    trashIds,
+    result: "ok",
+  });
+}
+
+// The Trash items of a root, with any lazy remote expiry audited.
+async function trashItemsOf(ctx, policy) {
+  const items = await policy.backend.trashList(policy.root);
+  await auditRemoteExpiry(ctx, policy);
+  return items;
 }
 
 // ============================================
@@ -282,7 +354,7 @@ function entryProtection(policy, raw) {
 function toFileEntry(policy, raw) {
   const protection = entryProtection(policy, raw);
   const sealed = protection?.level === "sealed";
-  const unsupportedName = raw.name !== "" && !validateName(raw.name).ok;
+  const unsupportedName = raw.unrepresentable === true || (raw.name !== "" && !validateName(raw.name).ok);
   const binaryHint = isBinaryName(raw.name);
   const editable =
     raw.type === "file" &&
@@ -580,12 +652,18 @@ export async function search(ctx, query) {
   let scanned = 0;
   let truncated = false;
   const sealedAt = (entry) => policy.rules.classify(entry.realRel, entry)?.level === "sealed";
-  for await (const entry of policy.backend.walk(r, {
+  // Folders left unopened at the depth limit mean some names were never
+  // looked at: the answer is "stopped early", not "nothing matches".
+  const walker = policy.backend.walk(r, {
     maxEntries: FM_LIMITS.SEARCH_MAX_VISITED + 1,
     maxDepth: FM_LIMITS.SEARCH_MAX_DEPTH,
     maxMs: FM_LIMITS.SEARCH_MAX_MS,
     prune: (entry) => sealedAt(entry),
-  })) {
+    onDepthLimit: () => {
+      truncated = true;
+    },
+  });
+  for await (const entry of walker) {
     scanned++;
     if (scanned > FM_LIMITS.SEARCH_MAX_VISITED || Date.now() - started > FM_LIMITS.SEARCH_MAX_MS) {
       truncated = true;
@@ -607,6 +685,7 @@ export async function search(ctx, query) {
         dev: entry.dev,
         ino: entry.ino,
         etag: null,
+        ...(entry.unrepresentable ? { unrepresentable: true } : {}),
       }),
     );
     if (results.length >= FM_LIMITS.SEARCH_MAX_RESULTS) {
@@ -615,6 +694,8 @@ export async function search(ctx, query) {
     }
   }
   if (Date.now() - started > FM_LIMITS.SEARCH_MAX_MS) truncated = true;
+  // The SFTP walker says so itself when it stopped at a limit.
+  if (walker.truncated === true) truncated = true;
   return { results, truncated, scanned: Math.min(scanned, FM_LIMITS.SEARCH_MAX_VISITED) };
 }
 
@@ -688,7 +769,7 @@ export async function readText(ctx, query) {
   if (r.stat?.type !== "file") throw new FmError(ErrorCode.FM_NOT_A_FILE);
   assertReadable(r);
   if (isBinaryName(r.name) || isBinaryName(r.realRel)) throw new FmError(ErrorCode.FM_BINARY_FILE);
-  const ini = isSecretBearingName(r.name) || isSecretBearingName(r.realRel);
+  const ini = isSecretBearing(r);
 
   let content;
   let etag;
@@ -708,10 +789,10 @@ export async function readText(ctx, query) {
     content = decoded.text;
     bom = decoded.bom;
     eol = decoded.eol;
-    etag = hashEtag(read.buffer);
+    etag = ini ? secretEtag(read.buffer) : hashEtag(read.buffer);
   } else {
     const read = await policy.backend.readBytes(r, { maxBytes: tailBytes, tail: true });
-    const decoded = decodeTail(read.buffer, read.truncated);
+    const decoded = decodeTail(read.buffer, read.truncated, { wholeLinesOnly: ini });
     content = decoded.text;
     eol = decoded.eol;
     truncated = read.truncated;
@@ -770,6 +851,11 @@ export async function saveText(ctx, body, user, audit) {
     if (r.isNew) throw new FmError(ErrorCode.FM_NOT_FOUND);
     if (r.stat?.type !== "file") throw new FmError(ErrorCode.FM_NOT_A_FILE);
     assertUnprotected(r);
+    // The editor never opens a file this large; one that grew past the
+    // limit since is refused before anything reads it whole.
+    if (r.stat.size > FM_LIMITS.TEXT_EDIT_MAX_BYTES) {
+      throw new FmError(ErrorCode.FM_FILE_TOO_LARGE_FOR_EDITOR, undefined, { limit: FM_LIMITS.TEXT_EDIT_MAX_BYTES });
+    }
   }
   if (isBinaryName(r.name)) throw new FmError(ErrorCode.FM_BINARY_FILE);
 
@@ -778,9 +864,23 @@ export async function saveText(ctx, body, user, audit) {
   if (isExecutableName(r.name)) confirmations.requireExecutable(r.name);
   confirmations.assertConfirmed(confirm);
 
+  // A secret-bearing file's etag is an HMAC of its bytes (secretEtag), never
+  // a plain hash of them. Its live bytes are read here anyway (to put the
+  // masked secrets back), so the version check runs first: a file changed
+  // since it was opened is a conflict, not a secret line that can't be
+  // matched. The backend then checks the plain hash of those same bytes
+  // again, under its lock.
+  const secret = isSecretBearing(r);
+  let expectedHash = etag;
   let text = content.replace(/\r\n/g, "\n");
-  if ((isSecretBearingName(r.name) || isSecretBearingName(r.realRel)) && !r.isNew) {
+  if (secret && !r.isNew) {
     const live = await policy.backend.readBytes(r, { maxBytes: FM_LIMITS.TEXT_EDIT_MAX_BYTES });
+    if (live.truncated) {
+      throw new FmError(ErrorCode.FM_FILE_TOO_LARGE_FOR_EDITOR, undefined, { limit: FM_LIMITS.TEXT_EDIT_MAX_BYTES });
+    }
+    const liveEtag = secretEtag(live.buffer);
+    if (liveEtag !== etag) throw new FmError(ErrorCode.FM_CONFLICT, undefined, { currentEtag: liveEtag });
+    expectedHash = hashEtag(live.buffer);
     const liveText = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(live.buffer);
     text = reconcileIniText(text, liveText.replace(/^\uFEFF/, ""));
   }
@@ -792,21 +892,40 @@ export async function saveText(ctx, body, user, audit) {
     backupWarning = backupWarningFor(await createBackup(managed.dir, managed.file));
   }
 
-  const result = await policy.backend.writeBytesCas(r, bytes, {
-    expectedHash: etag,
-    trashMeta: trashMetaFor(user, "edited"),
-  });
+  let result;
+  try {
+    result = await policy.backend.writeBytesCas(r, bytes, {
+      expectedHash,
+      trashMeta: trashMetaFor(user, "edited"),
+    });
+  } catch (err) {
+    // The conflict carries the plain hash of what is on disk now: for a
+    // secret-bearing file, answer with its HMAC etag instead.
+    if (secret && err instanceof FmError && err.code === ErrorCode.FM_CONFLICT) {
+      err.params = {};
+      try {
+        const now = await policy.backend.readBytes(r, { maxBytes: FM_LIMITS.TEXT_EDIT_MAX_BYTES });
+        if (!now.truncated) err.params = { currentEtag: secretEtag(now.buffer) };
+      } catch {
+        /* gone or unreadable: the client reloads without a version to force */
+      }
+    }
+    throw err;
+  }
   invalidateRootCache();
   audit.bytes = bytes.length;
-  audit.sha256Before = result.sha256Before ?? null;
-  audit.sha256After = sha256Hex(bytes);
+  // No plain hashes of a secret-bearing file's bytes in the audit trail
+  // either (it keeps 1000 rows).
+  audit.sha256Before = secret ? null : result.sha256Before ?? null;
+  audit.sha256After = secret ? null : sha256Hex(bytes);
   if (result.previousTrashId) audit.trashIds = [result.previousTrashId];
+  await auditRemoteExpiry(ctx, policy);
   const state = await stateForPath(ctx, policy, r);
   return {
     status: etag === null ? 201 : 200,
     body: {
       entry: toFileEntry(policy, result.entry),
-      etag: hashEtag(bytes),
+      etag: secret ? secretEtag(bytes) : hashEtag(bytes),
       previousVersion: result.previousTrashId ? { trashId: result.previousTrashId } : null,
       restartRequired: state !== "stopped",
       hints: hintsFor(ctx, policy, r, state, false),
@@ -850,6 +969,7 @@ export async function renameEntry(ctx, body, user, audit) {
   assertHoldsNothingProtected(policy, r);
   const currentName = path.posix.basename(r.realRel);
   if (newName === currentName) throw new FmError(ErrorCode.FM_EXISTS, undefined, { name: newName });
+  assertKeepsSecretsMasked(r.stat?.type === "file" && !r.linkSelf && isSecretBearing(r), newName);
   assertNewPathAllowed(policy, parentOf(r.realRel), parentOf(r.rel), newName);
   const confirmations = new ConfirmationSet();
   await mutationGates(ctx, policy, [r.realRel, joinRel(parentOf(r.realRel), newName)], confirmations);
@@ -862,8 +982,7 @@ export async function renameEntry(ctx, body, user, audit) {
 
 export async function moveEntries(ctx, body, user, audit) {
   const paths = body?.paths;
-  if (!Array.isArray(paths) || paths.length === 0 || paths.length > FM_LIMITS.PATHS_PER_REQUEST) throw invalidRequest("paths");
-  if (paths.some((p) => typeof p !== "string")) throw invalidRequest("paths");
+  checkPathsParam(paths);
   const confirm = parseConfirmField(body?.confirm);
   audit.rootId = body?.root;
   audit.paths = paths;
@@ -902,8 +1021,10 @@ export async function moveEntries(ctx, body, user, audit) {
   await rootStateGate(ctx, policy, confirmations);
   if (planned.length) confirmations.assertConfirmed(confirm);
 
+  // A folder and something inside it both selected (search results): the
+  // folder takes it along, so it isn't moved (and reported failed) again.
   const moved = [];
-  for (const { r, name } of planned) {
+  for (const { r, name } of collapseNested(planned)) {
     try {
       await policy.backend.move(r, dest);
       moved.push({ from: r.rel, to: joinRel(dest.rel, name) });
@@ -943,6 +1064,7 @@ export async function copyEntry(ctx, body, user, audit) {
   requireString(newName, "newName");
   checkName(newName, { isNew: true });
   audit.dest = joinRel(dest.rel, newName);
+  assertKeepsSecretsMasked(isSecretBearing(src), newName);
   assertNewPathAllowed(policy, dest.realRel, dest.rel, newName);
   const { r: target } = await resolveIn(ctx, body.root, joinRel(dest.rel, newName), "create", "destDir");
   let overwriteEtag = null;
@@ -963,6 +1085,7 @@ export async function copyEntry(ctx, body, user, audit) {
   });
   invalidateRootCache();
   audit.bytes = src.stat.size;
+  await auditRemoteExpiry(ctx, policy);
   return { entry: toFileEntry(policy, raw) };
 }
 
@@ -993,14 +1116,14 @@ function snapshotOf(stat) {
 
 export async function deletePreview(ctx, body, user) {
   const paths = body?.paths;
-  if (!Array.isArray(paths) || paths.length === 0 || paths.length > FM_LIMITS.PATHS_PER_REQUEST) throw invalidRequest("paths");
-  if (paths.some((p) => typeof p !== "string")) throw invalidRequest("paths");
+  checkPathsParam(paths);
   const policy = await policyFor(ctx, body?.root);
   const started = Date.now();
   let budget = FM_LIMITS.PREVIEW_WALK_MAX_ENTRIES;
   const items = [];
   const resolvedItems = [];
   const confirmations = new ConfirmationSet();
+  const selected = [];
   for (const p of paths) {
     let r;
     try {
@@ -1012,6 +1135,11 @@ export async function deletePreview(ctx, body, user) {
       if (err instanceof FmError) err.auditPaths = [p];
       throw err;
     }
+    selected.push({ r });
+  }
+  // Something inside a selected folder goes with the folder: counted once,
+  // deleted once (a second delete of it would only fail).
+  for (const { r } of collapseNested(selected)) {
     const item = {
       path: r.rel,
       type: r.stat.type,
@@ -1028,6 +1156,10 @@ export async function deletePreview(ctx, body, user) {
       for await (const entry of policy.backend.walk(r, {
         maxEntries: budget + 1,
         maxMs: Math.max(0, FM_LIMITS.PREVIEW_WALK_MAX_MS - (Date.now() - started)),
+        // A folder that couldn't be looked into: the counts are a floor.
+        onUnreadable: () => {
+          item.truncated = true;
+        },
       })) {
         budget--;
         if (budget < 0 || Date.now() - started > FM_LIMITS.PREVIEW_WALK_MAX_MS) {
@@ -1165,6 +1297,7 @@ export async function deleteItems(ctx, body, user, audit) {
       }
     }
     invalidateRootCache();
+    await auditRemoteExpiry(ctx, policy);
     // Nothing could go to Trash (another device, or no Trash folder): answer
     // with that, so the client offers a permanent delete instead.
     // The preview stays valid for that permanent delete.
@@ -1220,27 +1353,70 @@ function decodeHeader(value, field) {
   }
 }
 
+// One segment below a folder that is already resolved: the backend's
+// resolveChild() where it has one (a single SFTP round trip instead of one
+// per level from the root), else a full resolve. The same checks as
+// resolveIn() either way.
+async function resolveChildIn(ctx, policy, parent, name, intent) {
+  const rel = joinRel(parent.rel, name);
+  if (typeof policy.backend.resolveChild !== "function") return (await resolveIn(ctx, policy.rootId, rel, intent)).r;
+  parseSegments(rel);
+  if (parent.protection?.level === "sealed") throw protectedError(parent.protection);
+  const r = await policy.backend.resolveChild(policy.root, parent, name, intent);
+  if (reservedRealRel(r.realRel)) {
+    throw new FmError(ErrorCode.FM_INVALID_PATH, undefined, { reason: "reservedPanelName" });
+  }
+  r.protection = classifyResolved(policy, r);
+  r.worldState = policy.rules.isWorldState(r.realRel);
+  return r;
+}
+
 // Walk the upload's destination folder: existing levels are resolved, the
 // first missing level and everything after it are returned as names to
-// create (only allowed with X-File-Mkdirs: 1).
-async function resolveUploadDir(ctx, policy, rootId, dirSegments) {
-  let current = await policy.backend.resolve(policy.root, [], "list");
-  current.protection = classifyResolved(policy, current);
+// create (only allowed with X-File-Mkdirs: 1). Each level is resolved from
+// the one above it; `cache` (one preflight's) keeps the folders a batch of
+// files shares, so a folder of a thousand files looks each level up once.
+async function resolveUploadDir(ctx, policy, rootId, dirSegments, cache = null) {
+  let current = cache?.dirs.get("");
+  if (!current) {
+    current = await policy.backend.resolve(policy.root, [], "list");
+    current.protection = classifyResolved(policy, current);
+    cache?.dirs.set("", current);
+  }
   for (let i = 0; i < dirSegments.length; i++) {
     const prefix = dirSegments.slice(0, i + 1).join("/");
-    const { r } = await resolveIn(ctx, rootId, prefix, "create");
-    if (r.isNew) return { dir: current, missing: dirSegments.slice(i) };
-    if (r.stat?.type !== "dir") throw new FmError(ErrorCode.FM_NOT_A_DIRECTORY);
+    if (cache?.missing.has(prefix)) return { dir: current, missing: dirSegments.slice(i) };
+    let r = cache?.dirs.get(prefix);
+    if (!r) {
+      r = await resolveChildIn(ctx, policy, current, dirSegments[i], "create");
+      if (r.isNew) {
+        cache?.missing.add(prefix);
+        return { dir: current, missing: dirSegments.slice(i) };
+      }
+      if (r.stat?.type !== "dir") throw new FmError(ErrorCode.FM_NOT_A_DIRECTORY);
+      cache?.dirs.set(prefix, r);
+    }
     current = r;
   }
   return { dir: current, missing: [] };
+}
+
+function newUploadDirCache() {
+  return { dirs: new Map(), missing: new Set() };
+}
+
+// The stat etag of a resolved file, from what resolve() already read when
+// the backend can compute it (no extra round trip over SFTP).
+async function statEtagOf(policy, r) {
+  if (typeof policy.backend.statEtag === "function" && r.stat) return policy.backend.statEtag(r.stat);
+  return (await policy.backend.stat(r)).etag;
 }
 
 /**
  * Every upload check except the byte stream: shared by the preflight and
  * the upload itself.
  */
-async function checkUploadTarget(ctx, policy, rootId, { dirSegments, subSegments = [], name, size, confirmations }) {
+async function checkUploadTarget(ctx, policy, rootId, { dirSegments, subSegments = [], name, size, confirmations, cache = null }) {
   const limit = FM_LIMITS.UPLOAD_MAX_BYTES[policy.root.kind === "sftp" ? "sftp" : "local"];
   if (!Number.isSafeInteger(size) || size < 0) throw invalidRequest("size");
   if (size > limit) throw new FmError(ErrorCode.FM_UPLOAD_TOO_LARGE, undefined, { limit });
@@ -1251,7 +1427,7 @@ async function checkUploadTarget(ctx, policy, rootId, { dirSegments, subSegments
   if (!reserved.ok && reserved.reason === "reservedPanelName") {
     throw new FmError(ErrorCode.FM_INVALID_NAME, undefined, { reason: reserved.reason });
   }
-  const { dir, missing } = await resolveUploadDir(ctx, policy, rootId, [...dirSegments, ...subSegments]);
+  const { dir, missing } = await resolveUploadDir(ctx, policy, rootId, [...dirSegments, ...subSegments], cache);
   assertUnprotected(dir);
   let parentRealRel = dir.realRel;
   let parentRel = dir.rel;
@@ -1265,7 +1441,7 @@ async function checkUploadTarget(ctx, policy, rootId, { dirSegments, subSegments
   let currentEtag;
   let target = null;
   if (!missing.length) {
-    const { r } = await resolveIn(ctx, rootId, joinRel(dir.rel, name), "create");
+    const r = await resolveChildIn(ctx, policy, dir, name, "create");
     target = r;
     if (!r.isNew) {
       // Only a regular file directly at that name can be replaced; a link
@@ -1274,7 +1450,7 @@ async function checkUploadTarget(ctx, policy, rootId, { dirSegments, subSegments
       if (r.stat?.type !== "file" || r.linkSelf || !direct) throw new FmError(ErrorCode.FM_EXISTS, undefined, { name });
       assertUnprotected(r);
       willReplace = true;
-      currentEtag = (await policy.backend.stat(r)).etag;
+      currentEtag = await statEtagOf(policy, r);
     }
   }
   checkName(name, { isNew: !willReplace });
@@ -1289,7 +1465,7 @@ async function checkUploadTarget(ctx, policy, rootId, { dirSegments, subSegments
   return { dir, missing, willReplace, currentEtag, target, targetRealRel };
 }
 
-export async function uploadPreflight(ctx, body) {
+export async function uploadPreflight(ctx, body, user, { signal } = {}) {
   const files = body?.files;
   if (!Array.isArray(files) || files.length > FM_LIMITS.UPLOAD_FILES_PER_BATCH) throw invalidRequest("files");
   const dirSegments = parseSegments(body?.dir ?? "", "dir");
@@ -1297,8 +1473,12 @@ export async function uploadPreflight(ctx, body) {
   assertRootWritable(policy);
   const batch = new ConfirmationSet();
   await rootStateGate(ctx, policy, batch);
+  const cache = newUploadDirCache();
   const out = [];
   for (const file of files) {
+    // The client gave up waiting: stop instead of checking the rest of a
+    // big batch for nobody.
+    if (signal?.aborted) break;
     const relPath = typeof file?.relPath === "string" ? file.relPath : "";
     try {
       if (typeof file?.relPath !== "string" || relPath === "") throw invalidRequest("relPath");
@@ -1312,6 +1492,7 @@ export async function uploadPreflight(ctx, body) {
         name: segs[segs.length - 1],
         size: file?.size,
         confirmations: perFile,
+        cache,
       });
       for (const token of perFile.required) batch.tokens.add(token);
       for (const name of perFile.executableNames) batch.requireExecutable(name);
@@ -1421,6 +1602,12 @@ export async function receiveUpload(ctx, req, user, audit) {
   if (check.missing.length && !mkdirs) throw new FmError(ErrorCode.FM_NOT_FOUND);
   if (check.willReplace && overwriteEtag === null) throw new FmError(ErrorCode.FM_EXISTS, undefined, { name });
   if (!check.willReplace && overwriteEtag !== null) throw new FmError(ErrorCode.FM_CONFLICT);
+  // The file changed since the preflight showed it: a conflict now, before
+  // the body is read (and before a masked .ini's secret lines are matched
+  // against a live file that isn't the one it was downloaded from).
+  if (check.willReplace && overwriteEtag !== check.currentEtag) {
+    throw new FmError(ErrorCode.FM_CONFLICT, undefined, { currentEtag: check.currentEtag });
+  }
   await rootStateGate(ctx, policy, confirmations);
   confirmations.assertConfirmed(confirm);
   await assertFreeSpace(policy, declared);
@@ -1473,11 +1660,15 @@ export async function receiveUpload(ctx, req, user, audit) {
     });
     invalidateRootCache();
     audit.bytes = size;
-    audit.sha256After = result.sha256;
+    // A secret-bearing file's bytes hold its live secrets (put back into a
+    // masked upload): no plain hash of them leaves the server.
+    const secret = isSecretBearingName(name) || isSecretBearingName(joinRel(dir.realRel, name));
+    audit.sha256After = secret ? null : result.sha256;
     if (result.replacedTrashId) audit.trashIds = [result.replacedTrashId];
+    await auditRemoteExpiry(ctx, policy);
     return {
       entry: toFileEntry(policy, result.entry),
-      sha256: result.sha256,
+      sha256: secret ? null : result.sha256,
       replaced: result.replacedTrashId ? { trashId: result.replacedTrashId } : null,
     };
   } finally {
@@ -1533,18 +1724,19 @@ export async function openDownload(ctx, query, user, audit) {
 /** Plan a zip (JSON 413 before the first byte), then hand back a streamer. */
 export async function prepareZip(ctx, body, user, audit) {
   const paths = body?.paths;
-  if (!Array.isArray(paths) || paths.length === 0 || paths.length > FM_LIMITS.PATHS_PER_REQUEST) throw invalidRequest("paths");
-  if (paths.some((p) => typeof p !== "string")) throw invalidRequest("paths");
+  checkPathsParam(paths);
   audit.rootId = body?.root;
   audit.paths = paths;
   const policy = await policyFor(ctx, body?.root);
   audit.backend = policy.root.backend;
-  const items = [];
+  const selected = [];
   for (const p of paths) {
     const { r } = await resolveIn(ctx, body.root, p, "read");
     assertReadable(r);
-    items.push(r);
+    selected.push({ r });
   }
+  // A file inside a selected folder is zipped with the folder, not twice.
+  const items = collapseNested(selected).map(({ r }) => r);
   const release = acquireZipSlot(userIdOf(user));
   try {
     const plan = await planZip({
@@ -1575,7 +1767,7 @@ export async function listTrashItems(ctx, query) {
     originalPath = requireString(query.originalPath, "originalPath");
     parseSegments(originalPath, "originalPath");
   }
-  let items = await policy.backend.trashList(policy.root);
+  let items = await trashItemsOf(ctx, policy);
   if (originalPath !== null) {
     const wanted = foldRel(originalPath);
     items = items.filter((item) => foldRel(item.originalPath) === wanted);
@@ -1596,43 +1788,134 @@ export async function listTrashItems(ctx, query) {
   };
 }
 
-export async function restoreTrashItem(ctx, body, user, audit) {
-  const trashId = body?.trashId;
-  if (typeof trashId !== "string" || !TRASH_ID_RE.test(trashId)) throw invalidRequest("trashId");
-  const confirm = parseConfirmField(body?.confirm);
-  audit.rootId = body?.root;
-  audit.trashIds = [trashId];
-  audit.confirm = confirm;
-  const policy = await policyFor(ctx, body?.root);
-  audit.backend = policy.root.backend;
-  const items = await policy.backend.trashList(policy.root);
-  const item = items.find((i) => i.trashId === trashId);
-  if (!item) throw new FmError(ErrorCode.FM_TRASH_ITEM_NOT_FOUND);
-  audit.paths = [item.originalPath];
-  // meta.json is untrusted: the target goes back through the name rules and
-  // resolution like any other path.
+// Everything a restore checks before it touches anything: the name rules on
+// meta.json's untrusted path, the folders it needs (missing ones are
+// recreated, each checked like a new folder), and the gates. Confirmation
+// tokens are gathered into `confirmations`.
+async function planRestore(ctx, policy, rootId, item, restoreAs, confirmations) {
   const segments = parseSegments(item.originalPath, "originalPath");
   const originalName = segments[segments.length - 1];
   let name = originalName;
-  if (body?.restoreAs !== undefined && body?.restoreAs !== null) {
-    name = checkName(requireString(body.restoreAs, "restoreAs"), { isNew: true });
+  if (restoreAs !== undefined && restoreAs !== null) {
+    name = checkName(requireString(restoreAs, "restoreAs"), { isNew: true });
   }
-  const parentRel = segments.slice(0, -1).join("/");
-  const { r: parent } = await resolveIn(ctx, body.root, parentRel, "list");
-  if (parent.stat?.type !== "dir") throw new FmError(ErrorCode.FM_NOT_FOUND);
-  assertUnprotected(parent);
-  const { r: target } = await resolveIn(ctx, body.root, joinRel(parent.rel, name), "create");
-  if (!target.isNew) throw new FmError(ErrorCode.FM_EXISTS, undefined, { name });
-  assertNewPathAllowed(policy, parent.realRel, parent.rel, name);
-  audit.dest = joinRel(parent.rel, name);
-  const confirmations = new ConfirmationSet();
-  await mutationGates(ctx, policy, [joinRel(parent.realRel, name)], confirmations);
+  // An .ini (or an earlier version of one) restored under a name the file
+  // manager doesn't mask would show its passwords.
+  assertKeepsSecretsMasked(item.type === "file" && isSecretBearingName(originalName), name);
+  const { dir, missing } = await resolveUploadDir(ctx, policy, rootId, segments.slice(0, -1));
+  assertUnprotected(dir);
+  let parentRealRel = dir.realRel;
+  let parentRel = dir.rel;
+  for (const level of missing) {
+    checkName(level, { isNew: true });
+    assertNewPathAllowed(policy, parentRealRel, parentRel, level);
+    parentRealRel = joinRel(parentRealRel, level);
+    parentRel = joinRel(parentRel, level);
+  }
+  if (!missing.length) {
+    const target = await resolveChildIn(ctx, policy, dir, name, "create");
+    if (!target.isNew) throw new FmError(ErrorCode.FM_EXISTS, undefined, { name });
+  }
+  assertNewPathAllowed(policy, parentRealRel, parentRel, name);
+  const targetRealRel = joinRel(parentRealRel, name);
+  assertNoOperationInProgress(policy, [targetRealRel]);
+  await worldStateGate(ctx, policy, [targetRealRel], confirmations);
   if (isExecutableName(name)) confirmations.requireExecutable(name);
-  confirmations.assertConfirmed(confirm);
-  const raw = await policy.backend.trashRestore(policy.root, trashId, name === originalName ? undefined : name);
-  invalidateRootCache();
-  audit.bytes = item.bytes;
-  return { entry: toFileEntry(policy, raw) };
+  return { item, dir, missing, name, originalName, dest: joinRel(parentRel, name) };
+}
+
+// Recreate the folders a restore needs (its original folder was deleted or
+// renamed since), then move the item back.
+async function runRestore(ctx, policy, rootId, plan, trashId) {
+  let dir = plan.dir;
+  for (const level of plan.missing) {
+    try {
+      await policy.backend.mkdir(dir, level);
+    } catch (err) {
+      if (!(err instanceof FmError) || err.code !== ErrorCode.FM_EXISTS) throw err;
+    }
+    dir = await resolveChildIn(ctx, policy, dir, level, "list");
+    if (dir.stat?.type !== "dir") throw new FmError(ErrorCode.FM_NOT_A_DIRECTORY);
+    assertUnprotected(dir);
+  }
+  return policy.backend.trashRestore(policy.root, trashId, plan.name === plan.originalName ? undefined : plan.name);
+}
+
+/**
+ * POST /trash/restore: one item ({trashId, restoreAs?}, answered with its
+ * entry) or several at once ({trashIds}, the Undo of a bulk delete: one
+ * request, one confirmation, per-item results like a move).
+ */
+export async function restoreTrashItem(ctx, body, user, audit) {
+  const many = body?.trashIds !== undefined;
+  const ids = many ? body.trashIds : [body?.trashId];
+  if (many) {
+    if (!Array.isArray(ids) || ids.length === 0 || ids.length > FM_LIMITS.PATHS_PER_REQUEST) throw invalidRequest("trashIds");
+    if (ids.some((id) => typeof id !== "string" || !TRASH_ID_RE.test(id))) throw invalidRequest("trashIds");
+    if (body?.restoreAs !== undefined && body?.restoreAs !== null) throw invalidRequest("restoreAs");
+  } else if (typeof ids[0] !== "string" || !TRASH_ID_RE.test(ids[0])) {
+    throw invalidRequest("trashId");
+  }
+  const confirm = parseConfirmField(body?.confirm);
+  audit.rootId = body?.root;
+  audit.trashIds = [...new Set(ids)];
+  audit.confirm = confirm;
+  const policy = await policyFor(ctx, body?.root);
+  audit.backend = policy.root.backend;
+  assertRootWritable(policy);
+  const listed = await trashItemsOf(ctx, policy);
+
+  if (!many) {
+    const item = listed.find((i) => i.trashId === ids[0]);
+    if (!item) throw new FmError(ErrorCode.FM_TRASH_ITEM_NOT_FOUND);
+    audit.paths = [item.originalPath];
+    const confirmations = new ConfirmationSet();
+    const plan = await planRestore(ctx, policy, body.root, item, body?.restoreAs, confirmations);
+    audit.dest = plan.dest;
+    await rootStateGate(ctx, policy, confirmations);
+    confirmations.assertConfirmed(confirm);
+    const raw = await runRestore(ctx, policy, body.root, plan, item.trashId);
+    invalidateRootCache();
+    audit.bytes = item.bytes;
+    return { entry: toFileEntry(policy, raw) };
+  }
+
+  const failed = [];
+  const plans = [];
+  const confirmations = new ConfirmationSet();
+  const failure = (trashId, err) => ({
+    trashId,
+    code: err.code,
+    ...(Object.keys(err.params || {}).length ? { params: err.params } : {}),
+  });
+  for (const trashId of new Set(ids)) {
+    const item = listed.find((i) => i.trashId === trashId);
+    try {
+      if (!item) throw new FmError(ErrorCode.FM_TRASH_ITEM_NOT_FOUND);
+      plans.push(await planRestore(ctx, policy, body.root, item, undefined, confirmations));
+    } catch (err) {
+      if (!(err instanceof FmError)) throw err;
+      failed.push(failure(trashId, err));
+    }
+  }
+  audit.paths = plans.map((plan) => plan.item.originalPath);
+  await rootStateGate(ctx, policy, confirmations);
+  if (plans.length) confirmations.assertConfirmed(confirm);
+  const restored = [];
+  for (const plan of plans) {
+    try {
+      const raw = await runRestore(ctx, policy, body.root, plan, plan.item.trashId);
+      restored.push({ trashId: plan.item.trashId, entry: toFileEntry(policy, raw) });
+    } catch (err) {
+      if (!(err instanceof FmError)) throw err;
+      failed.push(failure(plan.item.trashId, err));
+    }
+  }
+  if (restored.length) invalidateRootCache();
+  audit.bytes = plans.filter((plan) => restored.some((r) => r.trashId === plan.item.trashId)).reduce((sum, plan) => sum + (plan.item.bytes || 0), 0);
+  audit.result = failed.length && restored.length ? "partial" : failed.length ? "failed" : "ok";
+  if (failed.length && !restored.length) audit.code = failed[0].code;
+  return { restored, failed };
 }
 
 /**
@@ -1644,7 +1927,7 @@ export async function readTrashText(ctx, query) {
   const trashId = query.trashId;
   if (typeof trashId !== "string" || !TRASH_ID_RE.test(trashId)) throw invalidRequest("trashId");
   const policy = await policyFor(ctx, query.root);
-  const items = await policy.backend.trashList(policy.root);
+  const items = await trashItemsOf(ctx, policy);
   const item = items.find((i) => i.trashId === trashId);
   if (!item) throw new FmError(ErrorCode.FM_TRASH_ITEM_NOT_FOUND);
   if (item.type !== "file") throw new FmError(ErrorCode.FM_NOT_A_FILE);
@@ -1684,7 +1967,7 @@ export async function purgeTrash(ctx, body, user, audit) {
     }
     if (requested.some((id) => typeof id !== "string" || !TRASH_ID_RE.test(id))) throw invalidRequest("trashIds");
   }
-  const listed = await policy.backend.trashList(policy.root);
+  const listed = await trashItemsOf(ctx, policy);
   let targets;
   if (all) {
     targets = listed;

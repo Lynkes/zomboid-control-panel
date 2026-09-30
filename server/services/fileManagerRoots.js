@@ -205,20 +205,23 @@ async function describeRemote(profile, settings) {
     for (const id of ["data", "install"]) described.set(id, unavailableRemote(id, reason, resolved?.unavailable?.detail));
   } else {
     const factory = backendFactories.get("sftp");
-    for (const spec of resolved.roots || []) {
-      if (spec.unavailableReason) {
-        described.set(spec.id, unavailableRemote(spec.id, spec.unavailableReason));
-        continue;
-      }
-      try {
-        const backend = factory({ settings, root: spec });
-        const root = await backend.describeRoot(spec);
-        described.set(spec.id, { ...root, kind: "sftp", backendInstance: backend });
-      } catch (err) {
-        const reason = err instanceof FmError && err.params?.reason ? err.params.reason : "sftpUnreachable";
-        described.set(spec.id, unavailableRemote(spec.id, reason));
-      }
-    }
+    // All roots at once: they share the pool's one pending connect, so an
+    // unreachable host costs one connect timeout, not one per root.
+    const specs = resolved.roots || [];
+    const results = await Promise.all(
+      specs.map(async (spec) => {
+        if (spec.unavailableReason) return unavailableRemote(spec.id, spec.unavailableReason);
+        try {
+          const backend = factory({ settings, root: spec });
+          const root = await backend.describeRoot(spec);
+          return { ...root, kind: "sftp", backendInstance: backend };
+        } catch (err) {
+          const reason = err instanceof FmError && err.params?.reason ? err.params.reason : "sftpUnreachable";
+          return unavailableRemote(spec.id, reason);
+        }
+      }),
+    );
+    specs.forEach((spec, i) => described.set(spec.id, results[i]));
     if (!described.has("install")) described.set("install", unavailableRemote("install", "remoteInstallNotSet"));
   }
   const key = remoteKeyOf(settings);

@@ -18,8 +18,21 @@ import { ensurePanelTempDir } from "./fileManagerLocalFs.js";
 
 const log = createLogger("FileManager:Zip");
 
-const PRECHECK_MAX_MS = 5000;
+// The pre-check's time budget. Over SFTP every folder costs a few round
+// trips (open, read, read to the end, close), so 5 s covers only a few dozen
+// folders there; its own budget matches its smaller entry cap instead.
+const PRECHECK_MAX_MS = Object.freeze({ local: 5000, sftp: 30000 });
 const INI_MASK_MAX_BYTES = 16 * 1024 * 1024;
+
+// A zip whose client stops reading (a laptop gone to sleep, a half-open
+// connection) holds a zip slot (2 across the panel, 1 per user): cut it off
+// after this long with bytes waiting for the client and none delivered, the
+// idle time a single download gets.
+let zipIdleMs = FM_LIMITS.UPLOAD_IDLE_MS;
+
+export function _setZipIdleMsForTests(ms) {
+  zipIdleMs = Number.isFinite(ms) && ms > 0 ? ms : FM_LIMITS.UPLOAD_IDLE_MS;
+}
 
 let activeGlobal = 0;
 /** @type {Map<string, number>} */
@@ -91,6 +104,7 @@ export async function planZip({ backend, items, classify, now = () => Date.now()
   const maxEntries = FM_LIMITS.ZIP_MAX_ENTRIES[kind];
   const maxBytes = FM_LIMITS.ZIP_MAX_BYTES[kind];
   const maxDepth = FM_LIMITS.ZIP_MAX_DEPTH;
+  const maxMs = PRECHECK_MAX_MS[kind];
   const started = now();
   const plan = { dirs: [], files: [], skipped: [], entries: 0, bytes: 0 };
   const used = new Set();
@@ -103,7 +117,7 @@ export async function planZip({ backend, items, classify, now = () => Date.now()
     plan.bytes += size;
     if (plan.entries > maxEntries) throw tooLarge("entries", maxEntries);
     if (plan.bytes > maxBytes) throw tooLarge("bytes", maxBytes);
-    if (now() - started > PRECHECK_MAX_MS) throw tooLarge("time", PRECHECK_MAX_MS);
+    if (now() - started > maxMs) throw tooLarge("time", maxMs);
   };
 
   for (const item of items) {
@@ -121,16 +135,23 @@ export async function planZip({ backend, items, classify, now = () => Date.now()
     count(0);
     plan.dirs.push({ name: top, mtimeMs: item.stat.mtimeMs });
     const base = item.rel;
+    const nameOf = (rel) => `${top}/${base ? rel.slice(base.length + 1) : rel}`;
     const walker = backend.walk(item, {
       maxEntries: maxEntries + 1,
       maxDepth: maxDepth + 1,
-      maxMs: PRECHECK_MAX_MS + 1000,
+      maxMs: maxMs + 1000,
       prune: (entry) => excluded(entry.realRel, entry),
+      // A folder that couldn't be listed (or an entry that couldn't be looked
+      // at) is missing from the archive: _skipped.txt says so, so a zip taken
+      // as a backup doesn't look complete when it isn't.
+      onUnreadable: (entry) => {
+        if (entry.rel === base) plan.skipped.push({ name: `${top}/`, reason: "unreadable folder" });
+        else plan.skipped.push({ name: `${nameOf(entry.rel)}${entry.folder ? "/" : ""}`, reason: entry.folder ? "unreadable folder" : "unreadable" });
+      },
     });
     for await (const entry of walker) {
       if (entry.depth > maxDepth) throw tooLarge("depth", maxDepth);
-      const sub = base ? entry.rel.slice(base.length + 1) : entry.rel;
-      const name = `${top}/${sub}`;
+      const name = nameOf(entry.rel);
       if (excluded(entry.realRel, entry)) {
         plan.skipped.push({ name, reason: "protected" });
         continue;
@@ -143,6 +164,10 @@ export async function planZip({ backend, items, classify, now = () => Date.now()
         plan.skipped.push({ name, reason: "special file" });
         continue;
       }
+      if (entry.unrepresentable) {
+        plan.skipped.push({ name, reason: "name isn't valid Unicode" });
+        continue;
+      }
       if (entry.type === "dir") {
         count(0);
         plan.dirs.push({ name, mtimeMs: entry.mtimeMs });
@@ -151,7 +176,7 @@ export async function planZip({ backend, items, classify, now = () => Date.now()
         plan.files.push({ rel: entry.rel, realRel: entry.realRel, name, size: entry.size, mtimeMs: entry.mtimeMs, dev: entry.dev, ino: entry.ino });
       }
     }
-    if (now() - started > PRECHECK_MAX_MS) throw tooLarge("time", PRECHECK_MAX_MS);
+    if (now() - started > maxMs) throw tooLarge("time", maxMs);
   }
   return plan;
 }
@@ -181,6 +206,22 @@ export async function streamZip({ res, backend, root, plan }) {
   res.on("close", onClose);
   const timer = setTimeout(abort, FM_LIMITS.ZIP_TIME_LIMIT_MS);
   timer.unref?.();
+  // Idle watchdog: while bytes sit in the response waiting for the client
+  // (it isn't reading) and nothing more has gone out for zipIdleMs, stop. A
+  // slow source (a remote file, a big deflate) doesn't count: nothing waits
+  // in the response then, and an SFTP transfer has its own idle limit.
+  let lastOffset = -1;
+  let lastProgressAt = Date.now();
+  const watchdog = setInterval(() => {
+    const offset = writer.offset;
+    if (offset !== lastOffset || !(res.writableLength > 0)) {
+      lastOffset = offset;
+      lastProgressAt = Date.now();
+      return;
+    }
+    if (Date.now() - lastProgressAt >= zipIdleMs) abort();
+  }, Math.max(20, Math.min(1000, Math.floor(zipIdleMs / 4))));
+  watchdog.unref?.();
   const skipped = [...plan.skipped];
   let bytes = 0;
   try {
@@ -244,6 +285,7 @@ export async function streamZip({ res, backend, root, plan }) {
     return { bytes, entries: 0, skipped: skipped.length, aborted: true };
   } finally {
     clearTimeout(timer);
+    clearInterval(watchdog);
     res.off?.("close", onClose);
   }
 }

@@ -6,7 +6,9 @@
 // the pool's metadata and transfer connections see the same files.
 // FakeSftpClient mirrors the part of ssh2-sftp-client v12 the backend uses --
 // its method names, result shapes and error shapes -- plus the raw `sftp`
-// object for readlink, exclusive mkdir, rmdir and statvfs.
+// object for readlink, exclusive mkdir, rmdir, statvfs, setstat and the
+// opendir/readdir/close of a listing (logged as one "list" op, then one
+// "readdir" per batch of `readdirBatch` names, like OpenSSH's ~100).
 //
 // Semantics copied from OpenSSH's sftp-server where they matter:
 // - plain rename never replaces an existing target (FAILURE);
@@ -87,8 +89,9 @@ export class FakeSftpServer {
     password = null,
     umask = 0o022,
     statvfsResult = { f_bsize: 4096, f_frsize: 4096, f_blocks: 1000000, f_bfree: 400000, f_bavail: 250000 },
+    readdirBatch = 100,
   } = {}) {
-    this.options = { posixRename, statvfs, realPathResolvesLinks, password, umask, statvfsResult };
+    this.options = { posixRename, statvfs, realPathResolvesLinks, password, umask, statvfsResult, readdirBatch };
     this.nodes = new Map([["/", { type: "dir", mode: 0o755, mtime: this.#now() }]]);
     this.clock = null;
     this.connects = 0;
@@ -103,6 +106,10 @@ export class FakeSftpServer {
     this.stallWrites = false;
     this.recursiveRmdirCalls = 0;
     this.lastConnect = null;
+    this.dirHandles = new Map();
+    this.handleCounter = 0;
+    this.denyOpen = new Set();
+    this.denySetstat = false;
     this.clientFactory = (name, callbacks) => this.createClient(name, callbacks);
   }
 
@@ -293,8 +300,8 @@ export class FakeSftpServer {
     const size = node.type === "file" ? node.data.length : node.type === "link" ? node.target.length : 4096;
     return {
       mode: typeBits | node.mode,
-      uid: 1000,
-      gid: 1000,
+      uid: node.uid ?? 1000,
+      gid: node.gid ?? 1000,
       size,
       accessTime: node.mtime * 1000,
       modifyTime: node.mtime * 1000,
@@ -500,39 +507,45 @@ export class FakeSftpClient {
     const client = this;
     let offset = options.start ?? 0;
     let end = null;
-    let opened = false;
     let data = null;
-    return new Readable({
+    let waiting = false;
+    const stream = new Readable({
       highWaterMark: 16 * 1024,
       read() {
-        const push = () => {
-          if (server.stallReads) return;
-          if (offset > end || offset >= data.length) {
-            this.push(null);
-            return;
-          }
-          const stop = Math.min(end + 1, data.length, offset + 16 * 1024);
-          const chunk = Buffer.from(data.subarray(offset, stop));
-          offset = stop;
-          this.push(chunk);
-        };
-        if (opened) {
-          push();
+        if (data === null) {
+          waiting = true;
           return;
         }
-        opened = true;
-        server
-          .before(client, "createReadStream", p)
-          .then(() => {
-            const resolved = server.resolvePath(p);
-            if (resolved.missing || resolved.node.type !== "file") throw statusError("createReadStream", 2, p);
-            data = resolved.node.data;
-            end = options.end ?? data.length - 1;
-            push();
-          })
-          .catch((err) => this.destroy(err));
+        if (server.stallReads) return;
+        if (offset > end || offset >= data.length) {
+          this.push(null);
+          return;
+        }
+        const stop = Math.min(end + 1, data.length, offset + 16 * 1024);
+        const chunk = Buffer.from(data.subarray(offset, stop));
+        offset = stop;
+        this.push(chunk);
       },
     });
+    // Like ssh2: the remote OPEN goes out as soon as the stream exists, and
+    // its outcome is an 'open' + 'ready' or an 'error'.
+    server
+      .before(client, "createReadStream", p)
+      .then(() => {
+        const resolved = server.resolvePath(p);
+        if (resolved.missing || resolved.node.type !== "file") throw statusError("createReadStream", 2, p);
+        if (server.denyOpen?.has(resolved.path)) throw statusError("createReadStream", 3, p);
+        data = resolved.node.data;
+        end = options.end ?? data.length - 1;
+        stream.emit("open", Buffer.from("handle"));
+        stream.emit("ready");
+        if (waiting) {
+          waiting = false;
+          stream._read();
+        }
+      })
+      .catch((err) => stream.destroy(err));
+    return stream;
   }
 
   createWriteStream(p, options = {}) {
@@ -561,6 +574,7 @@ export class FakeSftpClient {
           if (server.stallWrites) return undefined;
           node.data = Buffer.concat([node.data, Buffer.from(chunk)]);
           server.touch(node);
+          stream.bytesWritten += chunk.length;
           return callback();
         });
       },
@@ -572,6 +586,8 @@ export class FakeSftpClient {
         opening.then(() => callback(err));
       },
     });
+    // Like ssh2's WriteStream: the bytes each WRITE reply acknowledged.
+    stream.bytesWritten = 0;
     // ssh2 opens the handle as soon as the stream exists and reports a
     // failed open straight away.
     opening.then(() => {
@@ -693,6 +709,56 @@ export class FakeSftpClient {
           if (entry.missing) throw statusError("readlink", 2, p);
           if (entry.node.type !== "link") throw statusError("readlink", 4, p);
           return entry.node.target;
+        });
+      },
+      opendir(p, cb) {
+        later(cb, async () => {
+          await server.before(client, "list", p);
+          const resolved = server.resolvePath(p);
+          if (resolved.missing) throw statusError("opendir", 2, p);
+          if (resolved.node.type !== "dir") throw statusError("opendir", 4, p);
+          const names = [".", "..", ...server.childNames(resolved.path)];
+          const handle = Buffer.from(`dir-${client.id}-${++server.handleCounter}`);
+          server.dirHandles.set(handle.toString(), { client: client.id, path: resolved.path, names, pos: 0 });
+          return handle;
+        });
+      },
+      readdir(handle, cb) {
+        later(cb, async () => {
+          const open = server.dirHandles.get(Buffer.from(handle).toString());
+          if (!open || open.client !== client.id) throw statusError("readdir", 4, "<handle>");
+          await server.before(client, "readdir", open.path);
+          if (open.pos >= open.names.length) throw Object.assign(new Error("EOF"), { code: 1 });
+          const batch = open.names.slice(open.pos, open.pos + server.options.readdirBatch);
+          open.pos += batch.length;
+          return batch.map((name) => {
+            const node = name === "." || name === ".." ? server.nodes.get(open.path) : server.nodes.get(posix.join(open.path, name));
+            const st = server.statsOf(node);
+            const typeChar = node.type === "dir" ? "d" : node.type === "link" ? "l" : "-";
+            return {
+              filename: name,
+              longname: `${typeChar}${permString(node.mode)}    1 ${st.uid}     ${st.gid}     ${String(st.size).padStart(8)} Jan  1 00:00 ${name}`,
+              attrs: { mode: st.mode, uid: st.uid, gid: st.gid, size: st.size, atime: st.accessTime / 1000, mtime: st.modifyTime / 1000 },
+            };
+          });
+        });
+      },
+      close(handle, cb) {
+        later(cb, async () => {
+          server.dirHandles.delete(Buffer.from(handle).toString());
+          return undefined;
+        });
+      },
+      setstat(p, attrs, cb) {
+        later(cb, async () => {
+          await server.before(client, "setstat", p);
+          if (server.denySetstat) throw statusError("setstat", 3, p);
+          const resolved = server.resolvePath(p);
+          if (resolved.missing) throw statusError("setstat", 2, p);
+          if (typeof attrs?.mode === "number") resolved.node.mode = attrs.mode & 0o7777;
+          if (Number.isInteger(attrs?.uid)) resolved.node.uid = attrs.uid;
+          if (Number.isInteger(attrs?.gid)) resolved.node.gid = attrs.gid;
+          return undefined;
         });
       },
       ext_openssh_statvfs(p, cb) {

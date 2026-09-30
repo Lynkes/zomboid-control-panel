@@ -184,6 +184,9 @@ export function moveToTrash(rootReal, abs, { originalPath, type, bytes, files, d
     removeItemShell(item.itemDir);
     throw unavailable("crossDevice");
   }
+  // meta.json first: an item without one can't be listed, restored or
+  // purged from the panel, so if it can't be written nothing moves.
+  writeMetaOrFail(item.itemDir, buildMeta({ originalPath, type, bytes, files, deletedBy, reason }));
   const target = path.join(item.payloadDir, path.basename(abs));
   try {
     renamePath(abs, target);
@@ -192,13 +195,18 @@ export function moveToTrash(rootReal, abs, { originalPath, type, bytes, files, d
     if (err?.code === "EXDEV") throw unavailable("crossDevice");
     throw err;
   }
-  try {
-    writeMeta(item.itemDir, buildMeta({ originalPath, type, bytes, files, deletedBy, reason }));
-  } catch {
-    // The item is safely in Trash either way; without meta it can't be
-    // listed or restored by name, but the janitor still expires it.
-  }
   return item.trashId;
+}
+
+// meta.json for an item that is about to receive its payload; on failure the
+// empty item is removed and Trash reports itself unavailable.
+function writeMetaOrFail(itemDir, meta) {
+  try {
+    writeMeta(itemDir, meta);
+  } catch {
+    removeItemShell(itemDir);
+    throw unavailable("notWritable");
+  }
 }
 
 /**
@@ -222,26 +230,38 @@ export function copyVersionToTrash(rootReal, { name, buffer, mode, originalPath,
 }
 
 /**
- * Prepare an empty Trash item for a "replaced" upload: the caller renames
- * the old file into `payloadPath`, then calls `commit()` (or `rollback()`).
+ * Prepare a Trash item for a "replaced" upload, its meta.json already
+ * written (FM_TRASH_UNAVAILABLE when it can't be): the caller renames the old
+ * file into `payloadPath`, or calls `discard()` when that doesn't happen.
  */
-export function prepareTrashSlot(rootReal, name) {
+export function prepareTrashSlot(rootReal, name, metaInput) {
   const item = createItem(rootReal);
+  writeMetaOrFail(item.itemDir, buildMeta(metaInput));
   return {
     trashId: item.trashId,
     dev: item.dev,
     payloadPath: path.join(item.payloadDir, name),
-    commit(metaInput) {
-      try {
-        writeMeta(item.itemDir, buildMeta(metaInput));
-      } catch {
-        /* see moveToTrash */
-      }
-    },
     discard() {
       removeItemShell(item.itemDir);
     },
   };
+}
+
+/**
+ * Remove an item this request just made whose write then failed (the
+ * "edited" version of a save that didn't land), so failed retries can't
+ * push real versions out of the 20 kept per file.
+ */
+export function discardTrashItem(rootReal, trashId) {
+  if (typeof trashId !== "string" || !TRASH_ID_RE.test(trashId)) return;
+  const itemDir = path.join(trashDirOf(rootReal), trashId);
+  const payloadDir = path.join(itemDir, PAYLOAD_DIR);
+  try {
+    for (const name of readDirNames(payloadDir, 4).names) unlinkQuiet(path.join(payloadDir, name));
+  } catch {
+    /* no payload */
+  }
+  removeItemShell(itemDir);
 }
 
 function sanitizeMeta(raw) {
@@ -322,8 +342,12 @@ export function findTrashItem(rootReal, trashId) {
   const payloadDir = path.join(itemDir, PAYLOAD_DIR);
   let names;
   try {
-    const st = lstatBig(itemDir);
-    if (!st.isDirectory()) throw new Error("not a folder");
+    // The Trash folder, the item and its payload folder must each be a real
+    // folder: a link (or junction) planted at any of them would make a read
+    // or a restore act on files outside the root.
+    for (const dir of [trashDirOf(rootReal), itemDir, payloadDir]) {
+      if (!lstatBig(dir).isDirectory()) throw new Error("not a folder");
+    }
     ({ names } = readDirNames(payloadDir, 2));
   } catch {
     throw new FmError(ErrorCode.FM_TRASH_ITEM_NOT_FOUND);
@@ -344,8 +368,12 @@ export function finishRestore(item) {
   removeItemShell(item.itemDir);
 }
 
-/** Permanently delete one Trash item (payload, meta and folders). */
-export async function purgeTrashItem(rootReal, trashId, { onProgress, maxEntries } = {}) {
+/**
+ * Permanently delete one Trash item: the payload first, meta.json and the
+ * item folder last, so a purge that stops partway (a file in use, the entry
+ * cap) leaves an item that is still listed and can be purged again.
+ */
+export async function purgeTrashItem(rootReal, trashId, { onProgress, maxEntries = Infinity } = {}) {
   if (typeof trashId !== "string" || !TRASH_ID_RE.test(trashId)) {
     throw new FmError(ErrorCode.FM_TRASH_ITEM_NOT_FOUND);
   }
@@ -356,7 +384,18 @@ export async function purgeTrashItem(rootReal, trashId, { onProgress, maxEntries
   } catch {
     throw new FmError(ErrorCode.FM_TRASH_ITEM_NOT_FOUND);
   }
-  return deleteTree(itemDir, { onProgress, maxEntries });
+  const payloadDir = path.join(itemDir, PAYLOAD_DIR);
+  let done = 0;
+  let hasPayload = true;
+  try {
+    lstatBig(payloadDir);
+  } catch (err) {
+    if (err?.code !== "ENOENT") throw err;
+    hasPayload = false;
+  }
+  if (hasPayload) done = await deleteTree(payloadDir, { onProgress, maxEntries });
+  const report = onProgress ? (n) => onProgress(done + n) : undefined;
+  return done + (await deleteTree(itemDir, { onProgress: report, maxEntries: Math.max(0, maxEntries - done) + 2 }));
 }
 
 /** Trash ids older than the retention period. */

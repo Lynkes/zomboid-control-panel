@@ -41,6 +41,8 @@ import {
   type TrashListResponse,
   type TrashPurgeRequest,
   type TrashQuery,
+  type TrashRestoreManyRequest,
+  type TrashRestoreManyResponse,
   type TrashRestoreRequest,
   type TrashTextQuery,
   type TrashTextResponse,
@@ -56,6 +58,15 @@ const FILES_BASE = '/files'
 // Headers (not body) arrive within this; a large body then streams for as
 // long as it takes (fetchWithRetry clears its timer once headers are in).
 const DOWNLOAD_HEADERS_TIMEOUT_MS = 60_000
+// Over SFTP the server itself may take a 10 s connect plus 20 s per step,
+// and probes a remote server's folders one connection at a time: a read
+// waits longer than api.ts's 15 s default, and isn't sent again on a
+// timeout (the server would only do the same slow work once more; the page
+// has its own Try again).
+const READ_TIMEOUT_MS = 45_000
+// Mutations the server may do over a slow SFTP link, reporting a timeout
+// for a change that then happens anyway.
+const WRITE_TIMEOUT_MS = 60_000
 
 // ---- Paths (POSIX segments joined by "/", "" is the root) ----
 
@@ -96,7 +107,7 @@ function withQuery(endpoint: string, params: Record<string, QueryValue>): string
 }
 
 async function getJson<T>(endpoint: string, signal?: AbortSignal): Promise<T> {
-  const response = await apiFetch(endpoint, { signal })
+  const response = await apiFetch(endpoint, { signal, timeout: READ_TIMEOUT_MS, retries: 0 })
   return handleResponse<T>(response)
 }
 
@@ -138,10 +149,10 @@ export const filesApi = {
     sendJson<TextSaveResponse>('PUT', profileEndpoint(profileId, '/text'), body, { timeout: 60_000 }),
 
   mkdir: (profileId: string, body: MkdirRequest) =>
-    sendJson<EntryResponse>('POST', profileEndpoint(profileId, '/mkdir'), body),
+    sendJson<EntryResponse>('POST', profileEndpoint(profileId, '/mkdir'), body, { timeout: WRITE_TIMEOUT_MS }),
 
   rename: (profileId: string, body: RenameRequest) =>
-    sendJson<EntryResponse>('POST', profileEndpoint(profileId, '/rename'), body),
+    sendJson<EntryResponse>('POST', profileEndpoint(profileId, '/rename'), body, { timeout: WRITE_TIMEOUT_MS }),
 
   move: (profileId: string, body: MoveRequest) =>
     sendJson<MoveResponse>('POST', profileEndpoint(profileId, '/move'), body, { timeout: 60_000 }),
@@ -156,22 +167,30 @@ export const filesApi = {
     sendJson<DeleteTrashResponse>('POST', profileEndpoint(profileId, '/delete'), body, { timeout: 60_000 }),
 
   deletePermanently: (profileId: string, body: DeleteRequest & { mode: 'permanent' }) =>
-    sendJson<JobStartedResponse>('POST', profileEndpoint(profileId, '/delete'), body),
+    sendJson<JobStartedResponse>('POST', profileEndpoint(profileId, '/delete'), body, { timeout: WRITE_TIMEOUT_MS }),
 
-  uploadPreflight: (profileId: string, body: UploadPreflightRequest) =>
-    sendJson<UploadPreflightResponse>('POST', profileEndpoint(profileId, '/upload/preflight'), body, { timeout: 30_000 }),
+  // `timeout`: a big batch into a remote (SFTP) root takes a round trip or
+  // two per file; the page scales the wait to the batch.
+  uploadPreflight: (profileId: string, body: UploadPreflightRequest, options?: { timeout?: number }) =>
+    sendJson<UploadPreflightResponse>('POST', profileEndpoint(profileId, '/upload/preflight'), body, { timeout: options?.timeout ?? 30_000 }),
 
   trashList: (profileId: string, query: TrashQuery, signal?: AbortSignal) =>
     getJson<TrashListResponse>(withQuery(profileEndpoint(profileId, '/trash'), { ...query }), signal),
 
   trashRestore: (profileId: string, body: TrashRestoreRequest) =>
-    sendJson<EntryResponse>('POST', profileEndpoint(profileId, '/trash/restore'), body),
+    sendJson<EntryResponse>('POST', profileEndpoint(profileId, '/trash/restore'), body, { timeout: WRITE_TIMEOUT_MS }),
+
+  // Several items in one request (Undo of a bulk delete): one confirmation
+  // and one rate-limit hit, per-item results.
+  trashRestoreMany: (profileId: string, body: TrashRestoreManyRequest) =>
+    sendJson<TrashRestoreManyResponse>('POST', profileEndpoint(profileId, '/trash/restore'), body, { timeout: 120_000 }),
 
   trashPurge: (profileId: string, body: TrashPurgeRequest) =>
-    sendJson<JobStartedResponse>('POST', profileEndpoint(profileId, '/trash/purge'), body),
+    sendJson<JobStartedResponse>('POST', profileEndpoint(profileId, '/trash/purge'), body, { timeout: WRITE_TIMEOUT_MS }),
 
+  // Saving re-probes the remote folders before answering.
   setRemoteRoots: (profileId: string, body: RemoteRootsRequest) =>
-    sendJson<ProfileResponse>('PUT', profileEndpoint(profileId, '/remote-roots'), body),
+    sendJson<ProfileResponse>('PUT', profileEndpoint(profileId, '/remote-roots'), body, { timeout: 90_000 }),
 
   getJob: (jobId: string) =>
     getJson<JobResponse>(`${FILES_BASE}/jobs/${encodeURIComponent(jobId)}`),

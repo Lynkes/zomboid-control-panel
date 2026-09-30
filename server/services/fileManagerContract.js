@@ -352,6 +352,8 @@ export const FM_ERROR_STATUS = Object.freeze({
   [ErrorCode.FM_SFTP_ERROR]: 502,
   [ErrorCode.FM_SFTP_TIMEOUT]: 504,
   [ErrorCode.FM_INTERNAL]: 500,
+  [ErrorCode.FM_TOO_MANY_ENTRIES]: 413,
+  [ErrorCode.FM_SECRET_NAME_REQUIRED]: 400,
 });
 
 /**

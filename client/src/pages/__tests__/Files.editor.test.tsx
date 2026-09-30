@@ -188,6 +188,25 @@ describe('Files editor', () => {
     fireEvent.click(screen.getByTestId('history-back'))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    // And stays closed: `open` is gone from the URL, so nothing reopens it.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    })
+    expect(currentParams(screen.getByTestId).get('open')).toBeNull()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('Back, then Discard, closes the editor and leaves `open` off the URL', async () => {
+    const textarea = await openEditor()
+    fireEvent.change(textarea, { target: { value: 'typed work' } })
+    fireEvent.click(screen.getByTestId('history-back'))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: enFiles.confirm.discardConfirm }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    })
+    expect(currentParams(screen.getByTestId).get('open')).toBeNull()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('registers beforeunload only while there are unsaved changes', async () => {
