@@ -242,17 +242,29 @@ class FileManagerSftpPool {
   }
 
   #open(kind) {
-    const entry = { kind, client: null, ready: null, active: 0, dead: false, ended: false, idleTimer: null };
-    const markDead = () => {
+    const entry = {
+      kind,
+      client: null,
+      ready: null,
+      active: 0,
+      dead: false,
+      ended: false,
+      idleTimer: null,
+      // Called once, with an Error, when the connection or its SFTP channel
+      // goes while transfers are on it.
+      lostListeners: new Set(),
+    };
+    const markDead = (err) => {
       entry.dead = true;
+      notifyLost(entry, err);
     };
     const client = clientFactory(`FileManager-${kind}`, {
       error: (err) => {
-        markDead();
+        markDead(err);
         log.debug(`SFTP ${kind} connection error: ${messageOf(err)}`);
       },
-      end: markDead,
-      close: markDead,
+      end: () => markDead(),
+      close: () => markDead(),
     });
     entry.client = client;
     const { host, port, username, password } = this.#transport;
@@ -268,7 +280,7 @@ class FileManagerSftpPool {
         // idle one is closed now; a busy one once its calls have failed).
         const channel = client.sftp;
         const retire = () => {
-          markDead();
+          markDead(channelClosedError());
           if (entry.active === 0) this.#discard(entry);
         };
         if (channel && typeof channel.once === "function") {
@@ -313,6 +325,9 @@ class FileManagerSftpPool {
 
   #discard(entry) {
     entry.dead = true;
+    // Ending it ourselves (a stalled transfer, a timeout, the pool closing)
+    // fails whatever else is still on it now, not after its own time limit.
+    notifyLost(entry);
     if (entry.idleTimer) {
       clearTimeout(entry.idleTimer);
       entry.idleTimer = null;
@@ -400,7 +415,10 @@ class FileManagerSftpPool {
    * Lease a transfer connection for a streamed read or write. The caller
    * enforces the transfer idle timeout itself and must call release() when
    * done, or discard() when the transfer stalled or the connection broke.
-   * @returns {Promise<{ client: object, release: () => void, discard: () => void }>}
+   * onLost(fn) calls fn(err) at once if the connection (or its SFTP channel)
+   * goes while the lease is held: ssh2 tells a paused read stream, or a
+   * write stream between two writes, nothing at all.
+   * @returns {Promise<{ client: object, release: () => void, discard: () => void, onLost: (fn: (err: Error) => void) => void }>}
    * @throws {FmError}
    */
   async lease() {
@@ -412,18 +430,32 @@ class FileManagerSftpPool {
       throw err;
     }
     let done = false;
+    const watchers = [];
+    const unwatch = () => {
+      for (const stop of watchers.splice(0)) stop();
+    };
     return {
       client: entry.client,
       release: () => {
         if (done) return;
         done = true;
+        unwatch();
         this.#release(entry);
       },
       discard: () => {
         if (done) return;
         done = true;
+        unwatch();
         entry.active -= 1;
         this.#discard(entry);
+      },
+      onLost: (fn) => {
+        if (done) return;
+        if (entry.dead) {
+          fn(connectionLostError());
+          return;
+        }
+        watchers.push(onLost(entry, fn));
       },
     };
   }
@@ -433,6 +465,42 @@ class FileManagerSftpPool {
     this.#closed = true;
     const entries = [this.#meta, ...this.#transfers].filter(Boolean);
     for (const entry of entries) this.#discard(entry);
+  }
+}
+
+// ============================================
+// Losing a connection
+// ============================================
+
+function connectionLostError(cause) {
+  const err = new Error("SFTP connection lost");
+  err.code = typeof cause?.code === "string" && CONNECTION_LOST_CODES.has(cause.code) ? cause.code : "ECONNRESET";
+  return err;
+}
+
+function channelClosedError() {
+  const err = new Error("SFTP channel closed: no response from server");
+  err.code = "ECONNRESET";
+  return err;
+}
+
+function onLost(entry, fn) {
+  entry.lostListeners.add(fn);
+  return () => entry.lostListeners.delete(fn);
+}
+
+// Tell everything still on the connection that it went (once each).
+function notifyLost(entry, cause) {
+  if (!entry.lostListeners.size) return;
+  const err = cause instanceof Error && isConnectionLost(cause) ? cause : connectionLostError(cause);
+  const listeners = [...entry.lostListeners];
+  entry.lostListeners.clear();
+  for (const fn of listeners) {
+    try {
+      fn(err);
+    } catch (listenerErr) {
+      log.debug(`SFTP connection-lost listener failed: ${messageOf(listenerErr)}`);
+    }
   }
 }
 

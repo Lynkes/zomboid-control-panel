@@ -471,6 +471,81 @@ suite("real OpenSSH: stalls, a killed sftp-server, a dropped connection", () => 
     expect(Date.now() - started).toBeLessThan(5000);
   });
 
+  // Live QA: a transfer whose connection went was only noticed by the 30 s
+  // idle limit (a paused read got no event at all from ssh2, a sink waiting
+  // for its next WRITE neither), and an upload then answered FM_SFTP_TIMEOUT.
+  // The pool hears of the loss at once, and so do the transfers on it.
+  describe("a lost connection fails its transfers at once, not after the idle limit", () => {
+    beforeEach(async () => {
+      await closeFileManagerSftpPool();
+      _setFileManagerSftpTestHooks({ timeouts: { transferIdleMs: 20000, opMs: 20000, readyMs: 10000 } });
+      backend = createSftpBackend({ settings: srv.settings });
+      root = await backend.describeRoot({ id: "data", path: ROOT, warnings: [] });
+    });
+
+    const failsWithin = async (promise, ms) => {
+      const started = Date.now();
+      const code = await codeOf(promise);
+      return { code, elapsed: Date.now() - started, ms };
+    };
+    // The handle the cut transfer had open was closed by the server when its
+    // connection went (a dropped one logs it as a FORCED-CLOSE); afterEach
+    // still checks every handle opened after that.
+    const forgetCutHandles = async () => {
+      await new Promise((done) => setTimeout(done, 300));
+      for (let i = srv.log.length - 1; i >= 0; i--) if (srv.log[i].op === "FORCED-CLOSE") srv.log.splice(i, 1);
+    };
+
+    for (const [what, cut] of [
+      ["dropped", () => srv.dropConnections()],
+      ["whose sftp-server was killed", () => srv.killSessions()],
+    ]) {
+      it(`a download its reader paused, on a connection ${what}`, async () => {
+        const handle = await backend.openReadStream(await resolve("big.bin"));
+        const failed = new Promise((resolveFailed, rejectFailed) => {
+          handle.stream.once("error", rejectFailed);
+          handle.stream.once("end", () => resolveFailed("ended"));
+        });
+        failed.catch(() => {});
+        await new Promise((done) => handle.stream.once("readable", done));
+        // The reader stops here (a browser that is slow to take the bytes),
+        // long enough for ssh2's read-ahead to fill and stop asking.
+        await new Promise((done) => setTimeout(done, 500));
+        cut();
+        const result = await failsWithin(failed, 5000);
+        expect(result.code).toBe("FM_SFTP_ERROR");
+        expect(result.elapsed).toBeLessThan(5000);
+        await handle.close();
+        await forgetCutHandles();
+        expect((await resolve("Logs/server.txt")).stat.type).toBe("file");
+      });
+
+      it(`an upload between two chunks, on a connection ${what}`, async () => {
+        const source = new Readable({ read() {} });
+        const total = 256 * 1024;
+        source.push(Buffer.alloc(128 * 1024, 1));
+        const uploading = backend.receiveUpload(await resolve("Logs", "list"), "cut.bin", source, { declaredSize: total });
+        uploading.catch(() => {});
+        // The first half is written; the sender has not sent the rest yet.
+        for (const started = Date.now(); !srv.log.some((e) => e.op === "WRITE") && Date.now() - started < 3000; ) {
+          await new Promise((done) => setTimeout(done, 20));
+        }
+        await new Promise((done) => setTimeout(done, 200));
+        cut();
+        await new Promise((done) => setTimeout(done, 100));
+        source.push(Buffer.alloc(128 * 1024, 2));
+        source.push(null);
+        const result = await failsWithin(uploading, 5000);
+        expect(result.code).toBe("FM_SFTP_ERROR");
+        expect(result.elapsed).toBeLessThan(5000);
+        expect(exists("Logs/cut.bin")).toBe(false);
+        // The half-written temp file is removed over a new connection.
+        expect(tempsIn("Logs")).toEqual([]);
+        await forgetCutHandles();
+      });
+    }
+  });
+
   it("a dropped connection is reopened for the next request", async () => {
     await resolve("Logs/server.txt");
     srv.dropConnections();

@@ -361,6 +361,8 @@ function sanitizeTrashMeta(raw) {
 // Wrap an SFTP read stream so a read that gets no bytes for the transfer
 // idle limit fails with FM_SFTP_TIMEOUT. The clock only runs while the
 // consumer is asking for data: a slow browser download is not an SFTP stall.
+// A connection that goes fails it at once, even while it is paused (ssh2
+// tells a paused read stream nothing).
 function guardIdleRead(source, lease) {
   const idleMs = getFileManagerSftpTimeouts().transferIdleMs;
   let timer = null;
@@ -402,6 +404,9 @@ function guardIdleRead(source, lease) {
     out.push(null);
   });
   source.on("error", (err) => out.destroy(toFmError(err)));
+  lease.onLost?.((err) => {
+    if (!ended && !out.destroyed) out.destroy(toFmError(err));
+  });
   // A handle closed under us (the connection went) without an error.
   source.on("close", () => {
     if (!ended && !out.destroyed) {
@@ -607,6 +612,9 @@ function streamIntoRemote(lease, source, tmpAbs, { declaredSize, maxBytes, remot
     sink.on("drain", onDrain);
     sink.on("error", onSinkError);
     sink.on("close", onSinkClose);
+    // The connection went: ssh2 says nothing to a write stream waiting for
+    // its next chunk, or for a WRITE sent on a closed channel.
+    lease.onLost?.((err) => fail(toFmError(err), { discard: true }));
     arm();
     if (typeof source.resume === "function") source.resume();
   });
