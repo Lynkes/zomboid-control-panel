@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import http from "http";
 import net from "net";
 import express from "express";
+import { Server as SocketIOServer } from "socket.io";
 import {
   HEADERS_TIMEOUT_MS,
   PANEL_SERVER_TIMEOUTS,
@@ -143,6 +144,24 @@ describe("the per-request body deadline", () => {
       agent.destroy();
     }
   });
+
+  it("still covers Socket.IO's requests after it takes the server's request listeners over", async () => {
+    const app = express();
+    app.use(express.json());
+    const port = await start(app, 500);
+    // What index.js does after installing the deadline.
+    const io = new SocketIOServer(server);
+    try {
+      const result = await trickle(port, "/socket.io/?EIO=4&transport=polling&sid=unknown", { everyMs: 50, bytes: 100 });
+      expect(result.closedAfterMs).toBeLessThan(3000);
+      expect(result.sent).toBeLessThan(100);
+      // And the app's own routes still get it too.
+      const own = await trickle(port, "/api/auth/login", { everyMs: 50, bytes: 100 });
+      expect(own.closedAfterMs).toBeLessThan(3000);
+    } finally {
+      io.close();
+    }
+  }, 20000);
 
   it("does nothing on a server it wasn't installed on", () => {
     expect(() => extendRequestBodyDeadline({ complete: false }, 1000)).not.toThrow();

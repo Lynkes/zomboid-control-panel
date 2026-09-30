@@ -56,20 +56,31 @@ function clear(state) {
   state.timer = null;
 }
 
+function arm(req, res, deadlineMs) {
+  if (req[kDeadline]) return;
+  const state = { timer: null, res };
+  req[kDeadline] = state;
+  schedule(req, state, deadlineMs);
+  req.once("end", () => clear(state));
+  res.once("close", () => {
+    if (req.complete) clear(state);
+  });
+}
+
 /**
  * Give every request on `server` `deadlineMs` from its first byte to its
- * last (runs before the app, so before any body parser).
+ * last. Armed as the server hands the request out, before any listener
+ * (so before any body parser): a 'request' listener alone would miss every
+ * /socket.io/ request, since Socket.IO's engine takes the server's
+ * 'request' listeners over when it attaches and calls the others only for
+ * requests that aren't its own.
  */
 export function installRequestBodyDeadline(server, { deadlineMs = REQUEST_BODY_DEADLINE_MS } = {}) {
-  server.prependListener("request", (req, res) => {
-    const state = { timer: null, res };
-    req[kDeadline] = state;
-    schedule(req, state, deadlineMs);
-    req.once("end", () => clear(state));
-    res.once("close", () => {
-      if (req.complete) clear(state);
-    });
-  });
+  const emit = server.emit;
+  server.emit = function emitWithBodyDeadline(event, ...args) {
+    if (event === "request") arm(args[0], args[1], deadlineMs);
+    return emit.call(this, event, ...args);
+  };
   return server;
 }
 
