@@ -186,6 +186,13 @@ export async function startOpensshSftpServer({ denyRequests = [], umask = "022",
     sessions: 0,
     /** stderr of every sftp-server, for a failing test's message. */
     stderr: [],
+    /**
+     * Called with each entry as it is logged (sftp-server logs a request
+     * when it reads it, before it answers), e.g. to kill the server in the
+     * middle of a client's sequence of requests.
+     * @type {((entry: { op: string, path: string }) => void) | null}
+     */
+    onRequest: null,
   };
   const children = new Set();
   const settleWaiters = [];
@@ -231,7 +238,10 @@ export async function startOpensshSftpServer({ denyRequests = [], umask = "022",
             pending = lines.pop();
             for (const line of lines) {
               const entry = parseLogLine(line.trim());
-              if (entry) handle.log.push(entry);
+              if (entry) {
+                handle.log.push(entry);
+                handle.onRequest?.(entry);
+              }
             }
           });
           child.on("error", (err) => {

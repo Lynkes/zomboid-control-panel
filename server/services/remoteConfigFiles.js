@@ -1,9 +1,9 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
-import SftpClient from "ssh2-sftp-client";
 import { createLogger } from "../utils/logger.js";
 import { getDataPaths } from "../utils/paths.js";
+import { withSftpSession } from "./panelBridgeSftp.js";
 
 const log = createLogger("RemoteConfig");
 
@@ -101,20 +101,18 @@ export function mirroredFileNames(serverName) {
   ].map(assertConfigFileName);
 }
 
-async function withClient(config, handler) {
-  const client = new SftpClient("RemoteConfigFiles");
-  try {
-    await client.connect({
-      host: config.host,
-      port: config.port,
-      username: config.username,
-      password: config.password,
-      readyTimeout: 10000,
-    });
-    return await handler(client);
-  } finally {
-    await client.end().catch(() => {});
-  }
+// A session whose SFTP channel closes (the host's sftp-server went) or
+// that stops answering fails instead of waiting forever: callers hold the
+// mirror lock, which Server Files' config writes wait on too.
+function withClient(config, handler) {
+  return withSftpSession("RemoteConfigFiles", config, handler);
+}
+
+// Only "no such file" means a config file is absent on the host. Any other
+// failure (a lost connection, a refused read) fails the pull: taken for
+// absent, it used to delete the mirror's copy and report the file missing.
+function isNoSuchFile(error) {
+  return error?.code === "ENOENT" || error?.code === 2 || /no such file|not found|enoent/i.test(error?.message || "");
 }
 
 function hashFile(filePath) {
@@ -179,8 +177,9 @@ export async function pullRemoteConfigFiles(rawConfig, serverName) {
       let stats = null;
       try {
         stats = await client.stat(remotePath);
-      } catch {
+      } catch (error) {
         // Absent remotely is normal — spawnpoints/spawnregions are optional.
+        if (!isNoSuchFile(error)) throw error;
       }
       if (!stats || stats.isDirectory) {
         if (fs.existsSync(localPath)) fs.unlinkSync(localPath);

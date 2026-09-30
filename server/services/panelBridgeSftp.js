@@ -153,6 +153,140 @@ export function getSftpCachePath(config) {
   return path.join(getDataPaths().dataDir, 'panelbridge-sftp-cache', key);
 }
 
+// ─── Connections that go quiet ──────────────────────────────────────────────
+// When a host's sftp-server exits or is killed while the SSH connection
+// stays up, the SFTP channel closes, and ssh2 never answers a request sent
+// on it afterwards: ssh2-sftp-client only hears of a connection that
+// closes, so the call waits forever. A host that stops answering altogether
+// (a wedged server, a connection the network dropped without a reset) does
+// the same. Every SFTP client here therefore watches its channel, bounds
+// each call (the bridge sync) or each session (the one-shot clients), and
+// never waits on end() for a connection that won't close.
+const DEFAULT_SFTP_TIMEOUTS = Object.freeze({
+  // One request of the bridge sync (a stat, a get of a file up to 16 MB).
+  callMs: 60000,
+  // A whole one-shot session (a config pull or push, a log listing or tail,
+  // a Test connection).
+  sessionMs: 120000,
+  // How long end() may take before the socket is destroyed.
+  endGraceMs: 2000,
+});
+let sftpTimeouts = DEFAULT_SFTP_TIMEOUTS;
+
+/** Test seam: shorten the limits above; no argument restores them. */
+export function _setBridgeSftpTimeoutsForTests(overrides) {
+  sftpTimeouts = Object.freeze({ ...DEFAULT_SFTP_TIMEOUTS, ...(overrides || {}) });
+}
+
+// "timeout" in the message: classifySftpErrorCode() reads it as SFTP_UNREACHABLE.
+function sftpTimeoutError(ms) {
+  const error = new Error(`SFTP timeout: the host did not answer within ${Math.max(1, Math.round(ms / 1000))} s`);
+  error.code = 'ETIMEDOUT';
+  return error;
+}
+
+// Cut the connection under a client: a call in flight fails ("Unexpected
+// close event") instead of waiting for an answer that won't come.
+function dropSftpConnection(client) {
+  try {
+    client?.client?.destroy?.();
+  } catch (_) { /* already gone */ }
+}
+
+/**
+ * Watch a connected client's SFTP channel. Once it closes, the client
+ * forgets it (a later call fails at once with "No SFTP connection
+ * available") and the connection is dropped (a call in flight fails too).
+ * @param {import('ssh2-sftp-client')} client
+ * @param {() => void} [onDead]
+ */
+export function watchSftpChannel(client, onDead = () => {}) {
+  const channel = client?.sftp;
+  if (!channel || typeof channel.once !== 'function') return;
+  let dead = false;
+  const retire = () => {
+    if (dead) return;
+    dead = true;
+    if (client.sftp === channel) client.sftp = undefined;
+    dropSftpConnection(client);
+    onDead();
+  };
+  channel.once('close', retire);
+  channel.once('end', retire);
+}
+
+/** end() the client, destroying the socket if it hasn't closed in time. */
+export async function endSftpClient(client) {
+  if (!client) return;
+  let timer;
+  const grace = new Promise((resolve) => {
+    timer = setTimeout(resolve, sftpTimeouts.endGraceMs);
+    timer.unref?.();
+  });
+  await Promise.race([Promise.resolve().then(() => client.end()).catch(() => {}), grace]);
+  clearTimeout(timer);
+  dropSftpConnection(client);
+}
+
+// `work` raced against `ms`; on time out the connection is dropped (so the
+// call that hung fails as well) and the race rejects with ETIMEDOUT.
+async function withSftpDeadline(client, work, ms) {
+  let timer;
+  const running = Promise.resolve().then(work);
+  running.catch(() => {});
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      dropSftpConnection(client);
+      reject(sftpTimeoutError(ms));
+    }, ms);
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([running, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * A one-shot SFTP session: connect, run `handler(client)` under the session
+ * limit with the channel watched, and always end the client.
+ * @template T
+ * @param {string} name  ssh2-sftp-client's client name
+ * @param {{ host: string, port: number, username: string, password: string }} config
+ * @param {(client: import('ssh2-sftp-client')) => Promise<T>} handler
+ * @returns {Promise<T>}
+ */
+export async function withSftpSession(name, config, handler) {
+  const client = new SftpClient(name, { error: () => {}, end: () => {}, close: () => {} });
+  try {
+    // The limit covers the connect too: readyTimeout only bounds the SSH
+    // handshake, not the SFTP subsystem's own start, which a host that
+    // stops answering never finishes.
+    return await withSftpDeadline(
+      client,
+      async () => {
+        await connectSftpClient(client, config);
+        watchSftpChannel(client);
+        return handler(client);
+      },
+      sftpTimeouts.sessionMs,
+    );
+  } finally {
+    await endSftpClient(client);
+  }
+}
+
+function connectSftpClient(client, config) {
+  return client.connect({
+    host: config.host,
+    port: config.port,
+    username: config.username,
+    password: config.password,
+    readyTimeout: 10000,
+  });
+}
+
 // ─── Read-only remote log access ────────────────────────────────────────────
 // Separate from the bridge sync loop on purpose: this never writes to the
 // remote host and never mirrors whole files to disk. Callers get a directory
@@ -183,20 +317,8 @@ export function validateSftpLogConfig(config) {
   };
 }
 
-async function withLogClient(config, handler) {
-  const client = new SftpClient('PanelBridgeSftpLogs');
-  try {
-    await client.connect({
-      host: config.host,
-      port: config.port,
-      username: config.username,
-      password: config.password,
-      readyTimeout: 10000,
-    });
-    return await handler(client);
-  } finally {
-    await client.end().catch(() => {});
-  }
+function withLogClient(config, handler) {
+  return withSftpSession('PanelBridgeSftpLogs', config, handler);
 }
 
 export async function listSftpLogs(rawConfig) {
@@ -304,34 +426,52 @@ export class PanelBridgeSftpTransport {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
     if (this.client) {
-      await this.client.end().catch(() => {});
+      const client = this.client;
       this.client = null;
       this.lastDisconnectedAt = new Date().toISOString();
+      await endSftpClient(client);
     }
   }
 
   async connect() {
     if (this.client) return this.client;
     this.connectionAttempts += 1;
-    const client = new SftpClient('PanelBridgeSftp');
-    await client.connect({
-      host: this.config.host,
-      port: this.config.port,
-      username: this.config.username,
-      password: this.config.password,
-      readyTimeout: 10000,
-    });
+    const client = new SftpClient('PanelBridgeSftp', { error: () => {}, end: () => {}, close: () => {} });
+    // Bounded like every call: readyTimeout doesn't cover the SFTP
+    // subsystem's start, which a host that stops answering never finishes.
+    await withSftpDeadline(client, () => connectSftpClient(client, this.config), sftpTimeouts.callMs);
+    // The host's sftp-server went (the SSH connection may still be up):
+    // the next sync connects again instead of asking a closed channel.
+    watchSftpChannel(client, () => this.forget(client));
     this.client = client;
     this.lastConnectedAt = new Date().toISOString();
     return client;
   }
 
+  forget(client) {
+    if (this.client !== client) return;
+    this.client = null;
+    this.lastDisconnectedAt = new Date().toISOString();
+  }
+
+  // One request of the sync, bounded by the per-call limit: a host that
+  // stops answering fails the sync (and the connection is dropped, so the
+  // next sync starts a fresh one) instead of leaving it waiting forever.
+  async call(client, fn) {
+    try {
+      return await withSftpDeadline(client, () => fn(client), sftpTimeouts.callMs);
+    } catch (error) {
+      if (error?.code === 'ETIMEDOUT') this.forget(client);
+      throw error;
+    }
+  }
+
   async ensureRemoteDirectories() {
     const client = await this.connect();
     try {
-      await client.mkdir(this.config.bridgePath, true);
-      await client.mkdir(this.remote('inbox'), true);
-      await client.mkdir(this.remote('outbox'), true);
+      await this.call(client, (c) => c.mkdir(this.config.bridgePath, true));
+      await this.call(client, (c) => c.mkdir(this.remote('inbox'), true));
+      await this.call(client, (c) => c.mkdir(this.remote('outbox'), true));
     } catch (error) {
       if (/permission denied|eacces/i.test(error?.message || '')
         && /^\/home(?:\/|$)/i.test(this.config.bridgePath)) {
@@ -360,12 +500,12 @@ export class PanelBridgeSftpTransport {
   async copyRemote(relativeName) {
     const client = await this.connect();
     const remotePath = this.remote(relativeName);
-    const entryType = await client.exists(remotePath);
+    const entryType = await this.call(client, (c) => c.exists(remotePath));
     if (!entryType) return false;
     if (!isRemoteFile(entryType)) {
       throw new Error(`Expected a regular file at remote bridge path ${remotePath}, but found a non-regular entry`);
     }
-    const metadata = await client.stat(remotePath);
+    const metadata = await this.call(client, (c) => c.stat(remotePath));
     const size = Number(metadata?.size);
     if (!Number.isFinite(size) || size < 0) {
       throw new Error(`Remote bridge file ${remotePath} has an invalid size`);
@@ -376,7 +516,7 @@ export class PanelBridgeSftpTransport {
     const localPath = this.local(relativeName);
     fs.mkdirSync(path.dirname(localPath), { recursive: true, mode: 0o700 });
     const temporaryPath = `${localPath}.${this.transferId}.download`;
-    await client.fastGet(remotePath, temporaryPath);
+    await this.call(client, (c) => c.fastGet(remotePath, temporaryPath));
     // The local copy's mtime is the heartbeat PanelBridge.checkModStatus()
     // judges (and what markServerExited() pins), so it may only move when
     // the remote file really changed. Replacing it on every sync stamped a
@@ -425,7 +565,7 @@ export class PanelBridgeSftpTransport {
     for (const name of names) {
       const remotePath = this.remote(`inbox/${name}`);
       const client = await this.connect();
-      const entryType = await client.exists(remotePath);
+      const entryType = await this.call(client, (c) => c.exists(remotePath));
       if (isRemoteFile(entryType)) continue;
       if (entryType) {
         throw new Error(`Remote command path ${remotePath} is occupied by a directory`);
@@ -433,10 +573,10 @@ export class PanelBridgeSftpTransport {
       const temporaryRemotePath = `${remotePath}.${this.transferId}.uploading`;
       const uploadAtomically = async () => {
         try {
-          await client.fastPut(path.join(inbox, name), temporaryRemotePath);
-          await client.rename(temporaryRemotePath, remotePath);
+          await this.call(client, (c) => c.fastPut(path.join(inbox, name), temporaryRemotePath));
+          await this.call(client, (c) => c.rename(temporaryRemotePath, remotePath));
         } catch (error) {
-          await client.delete(temporaryRemotePath).catch(() => {});
+          await this.call(client, (c) => c.delete(temporaryRemotePath)).catch(() => {});
           throw error;
         }
       };
@@ -496,7 +636,7 @@ export class PanelBridgeSftpTransport {
   async uploadQueueStateNode(stateSnapshot) {
     const remotePath = this.remote('.queue-state-node.json');
     const client = await this.connect();
-    const entryType = await client.exists(remotePath);
+    const entryType = await this.call(client, (c) => c.exists(remotePath));
     if (entryType && !isRemoteFile(entryType)) {
       throw new Error(`Remote queue state path ${remotePath} is occupied by a directory`);
     }
@@ -504,7 +644,7 @@ export class PanelBridgeSftpTransport {
     const temporaryRemotePath = `${remotePath}.${this.transferId}.uploading`;
     const uploadOnce = async () => {
       try {
-        await client.put(buffer, temporaryRemotePath);
+        await this.call(client, (c) => c.put(buffer, temporaryRemotePath));
         if (entryType) {
           // Unlike uploadInbox()'s once-per-command targets, this file is
           // re-uploaded to the SAME remote name every sync tick, so the
@@ -520,11 +660,11 @@ export class PanelBridgeSftpTransport {
           // overwrite into two operations every baseline SFTP server
           // supports, instead of depending on the remote behaving like a
           // local POSIX filesystem.
-          await client.delete(remotePath);
+          await this.call(client, (c) => c.delete(remotePath));
         }
-        await client.rename(temporaryRemotePath, remotePath);
+        await this.call(client, (c) => c.rename(temporaryRemotePath, remotePath));
       } catch (error) {
-        await client.delete(temporaryRemotePath).catch(() => {});
+        await this.call(client, (c) => c.delete(temporaryRemotePath)).catch(() => {});
         throw error;
       }
     };
@@ -565,9 +705,10 @@ export class PanelBridgeSftpTransport {
       this.lastError = null;
     } catch (error) {
       this.recordError('sync', error);
-      if (this.client) await this.client.end().catch(() => {});
+      const client = this.client;
       this.client = null;
       this.lastDisconnectedAt = new Date().toISOString();
+      await endSftpClient(client);
       if (throwOnError) throw error;
     } finally {
       this.syncing = false;
@@ -633,10 +774,8 @@ export class PanelBridgeSftpTransport {
 
 export async function testSftpBridge(config) {
   const validated = validateSftpBridgeConfig(config);
-  const client = new SftpClient('PanelBridgeSftpTest');
   const startedAt = Date.now();
-  try {
-    await client.connect({ host: validated.host, port: validated.port, username: validated.username, password: validated.password, readyTimeout: 10000 });
+  return withSftpSession('PanelBridgeSftpTest', validated, async (client) => {
     await client.mkdir(validated.bridgePath, true);
     await client.mkdir(`${validated.bridgePath}/inbox`, true);
     await client.mkdir(`${validated.bridgePath}/outbox`, true);
@@ -651,7 +790,5 @@ export async function testSftpBridge(config) {
         ? 'The remote bridge is ready. Start the SFTP bridge.'
         : 'Folders are ready. Start or restart the PZ server with PanelBridge installed (see Settings › PanelBridge) to create status.json.',
     };
-  } finally {
-    await client.end().catch(() => {});
-  }
+  });
 }
