@@ -346,11 +346,25 @@ export default function Files() {
     }
   }
 
+  const searchRef = useRef<{ q: string } | null>(null)
+  searchRef.current = search
+
   const refreshAfterChange = useCallback(async () => {
     setAuditKey((key) => key + 1)
     if (profile) void loadProfile(profile.id)
-    if (view === 'files') await loadListing()
-  }, [loadListing, loadProfile, profile, view])
+    if (view !== 'files') return
+    await loadListing({ keepSelection: false })
+    // Search results would still show what was just moved or deleted.
+    const active = searchRef.current
+    if (active && profile && root) {
+      try {
+        const result = await filesApi.search(profile.id, { root: root.id, path: currentPath, q: active.q })
+        setSearch((current) => (current && current.q === active.q ? { q: active.q, results: result.results, truncated: result.truncated } : current))
+      } catch {
+        setSearch(null)
+      }
+    }
+  }, [currentPath, loadListing, loadProfile, profile, root, view])
 
   const runSearch = async () => {
     const q = query.trim()
@@ -1066,7 +1080,8 @@ export default function Files() {
       case 'sftpUnreachable':
         return { label: t('protected.openBridgeSettings'), to: '/settings?tab=bridge' }
       case 'remoteInstallNotSet':
-        return { label: t('roots.setRemoteFolders'), onClick: () => { if (canSetRemote) setRemoteOpen(true) } }
+        // Opens for everyone: without bridge.setup the dialog says who can change them.
+        return { label: t('roots.setRemoteFolders'), onClick: () => setRemoteOpen(true) }
       case 'missing':
       case 'notConfigured':
       case 'notMounted':
@@ -1223,7 +1238,6 @@ export default function Files() {
     profile,
     selectedRoot: rootId,
     trashOpen: view === 'trash',
-    canSetRemoteFolders: canSetRemote,
     onSelectRoot: (id: RootId) => {
       setView('files')
       const remembered = validPath(readLastFolder(profile.id, id)) ?? ''
@@ -1234,7 +1248,7 @@ export default function Files() {
       goTo({ root: bookmark.rootId, path: validPath(bookmark.path) ?? '' })
     },
     onOpenTrash: () => setView((current) => (current === 'trash' ? 'files' : 'trash')),
-    onSetRemoteFolders: () => { if (canSetRemote) setRemoteOpen(true) },
+    onSetRemoteFolders: () => setRemoteOpen(true),
   }
 
   const nameDialogProps = (() => {

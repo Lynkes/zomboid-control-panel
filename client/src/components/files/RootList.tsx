@@ -103,7 +103,6 @@ interface RootListProps {
   profile: ProfileFiles
   selectedRoot: RootId | null
   trashOpen: boolean
-  canSetRemoteFolders: boolean
   onSelectRoot: (rootId: RootId) => void
   onOpenBookmark: (bookmark: Bookmark) => void
   onOpenTrash: () => void
@@ -116,7 +115,6 @@ export function RootList({
   profile,
   selectedRoot,
   trashOpen,
-  canSetRemoteFolders,
   onSelectRoot,
   onOpenBookmark,
   onOpenTrash,
@@ -205,7 +203,7 @@ export function RootList({
       )}
 
       {profile.remote && (
-        <Button variant="outline" size="sm" className="w-full" onClick={onSetRemoteFolders} disabled={!canSetRemoteFolders}>
+        <Button variant="outline" size="sm" className="w-full" onClick={onSetRemoteFolders}>
           <FolderCog aria-hidden="true" />
           {t('roots.setRemoteFolders')}
         </Button>

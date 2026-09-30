@@ -11,6 +11,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { formatBytes } from '@/lib/formatBytes'
 import type { FileEntry } from '@/types/files'
+import { cn } from '@/lib/utils'
+import { MOBILE_FULL_SCREEN } from './NameDialog'
 import { formatFileDate } from './filesUi'
 
 interface FileDetailsPopoverProps {
@@ -31,7 +33,7 @@ export function FileDetailsPopover({ open, entry, canDownload, canReplace, onDow
   const { t, i18n } = useTranslation('files')
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose() }}>
-      <DialogContent className="max-w-md">
+      <DialogContent className={cn('max-w-md', MOBILE_FULL_SCREEN)}>
         <DialogHeader>
           <DialogTitle className="break-all">
             <bdi dir="ltr">{t('dialogs.details.title', { name: entry.name })}</bdi>

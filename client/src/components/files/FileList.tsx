@@ -189,6 +189,9 @@ export function FileList({
     const target = event.target as HTMLElement
     // A menu or popup inside a row handles its own keys.
     if (target.closest('[role="menu"]')) return
+    // A menu button (the row's "..." or lock badge) opens on Enter, Space
+    // and the arrows itself.
+    if (target.closest('[aria-haspopup]') && (event.key.startsWith('Arrow') || event.key === 'Enter' || event.key === ' ')) return
     const active = entries[activeIndex] ?? null
     const mod = event.ctrlKey || event.metaKey
     if (event.key === 'ArrowDown') {
