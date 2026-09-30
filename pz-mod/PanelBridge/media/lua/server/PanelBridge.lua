@@ -2100,6 +2100,12 @@ local CACHEABLE_ACTIONS = {
 }
 local readOnlyCache = {}
 
+-- getCharacterSheet's answers, per player and section set, each
+-- { at, ttl, data }. Not CACHEABLE_ACTIONS: that cache is keyed by action
+-- alone, and this answer depends on the player and the sections asked for.
+-- It is live state all the same, so invalidateLiveStateCache() drops it.
+local characterSheetCache = {}
+
 -- Read-only actions outside CACHEABLE_ACTIONS (they keep their own cache,
 -- keyed by more than the action name). Dispatching one must not drop the
 -- live caches: it changes nothing, and the Character tab polls
@@ -2111,6 +2117,10 @@ local function invalidateLiveStateCache()
         if config.live then
             readOnlyCache[action] = nil
         end
+    end
+    -- A giveItem, addXp or heal changes what a cached sheet says.
+    for key in pairs(characterSheetCache) do
+        characterSheetCache[key] = nil
     end
 end
 
@@ -4861,10 +4871,9 @@ local CHARACTER_SHEET = {
     BUDGET_CHECK_EVERY = 25,
 }
 
--- Per-player answers, keyed lower(username) .. "|" .. sectionsKey, each
--- { at, ttl, data }. Not CACHEABLE_ACTIONS: that cache is keyed by action
--- alone, and this answer depends on the player and the sections asked for.
-local characterSheetCache = {}
+-- Answers are cached in characterSheetCache (declared by the dispatcher's
+-- invalidateLiveStateCache, which drops it after every state-changing
+-- command), keyed lower(username) .. "|" .. sectionsKey.
 
 -- CharacterStat field -> { min, max }. The ranges are static, so each is read
 -- once. A failed read isn't remembered: it's retried on the next sheet.
@@ -5137,19 +5146,30 @@ end
 
 -- The one pcall per inventory entry. Returns only the raw values the walk
 -- needs, so a throw anywhere skips this entry and nothing else.
+--
+-- The name is the item's own (getDisplayName reads the per-item name field):
+-- vanilla renames maps, bags, food and notebooks with item:setName, so two
+-- items of one type can carry different names.
+--
+-- getCount() is deliberately not read. On B42 every object in a container is
+-- one unit: Item.InstanceItem copies the script's instancing "count" onto
+-- each object it creates (5 for Nails, 6 for ShotgunShells), and the
+-- vanilla admin inventory view (ItemContainer.getItems4Admin) rewrites it on
+-- the real items. Crafting counts objects too (OpenBox100 gives 100 Nails).
 local function readSheetInventoryEntry(entries, index)
     local entryItem = entries:get(index)
     local fullType = entryItem:getFullType()
     local isContainer = entryItem:IsInventoryContainer() == true
     local innerContainer = nil
     if isContainer then innerContainer = entryItem:getItemContainer() end
-    return entryItem, entryItem:getID(), fullType, entryItem:getCount(), entryItem:getActualWeight(),
+    return entryItem, entryItem:getID(), fullType, entryItem:getDisplayName(), entryItem:getActualWeight(),
         entryItem:getCondition(), entryItem:getConditionMax(), isContainer, innerContainer
 end
 
 -- Walks the main inventory (depth 1) into a tree of rows. Stacks group by
--- fullType, name and worn/equipped/attached state, and containers are never
--- grouped. Stops at maxItems or when budgetMs runs out, and says which.
+-- fullType, the item's own name and worn/equipped/attached state, one unit
+-- per object, and containers are never grouped. Stops at maxItems or when
+-- budgetMs runs out, and says which.
 local function readSheetInventory(player, limits)
     local mainInventory = PanelBridge.tryGet(player, "getInventory")
     if mainInventory == nil then return nil, "getInventory unavailable" end
@@ -5157,7 +5177,7 @@ local function readSheetInventory(player, limits)
     local startedAt = getTimestampMs()
     local totals = {
         walked = 0,
-        itemCount = 0, -- units: each stack's qty plus one per container
+        itemCount = 0, -- units: one per item object read, containers included
         distinctTypes = 0,
         skipped = 0,
         truncated = false,
@@ -5223,14 +5243,12 @@ local function readSheetInventory(player, limits)
     end
 
     -- Per-fullType facts, read once per walk with one pcall per call. Never
-    -- isVanilla().
+    -- isVanilla(). The name isn't one of them: it's per item.
     local typeInfo = {}
     local function describeType(entryItem, fullType)
         local info = typeInfo[fullType]
         if info then return info end
         info = {}
-        local okName, name = pcall(function() return entryItem:getDisplayName() end)
-        if okName then info.name = name end
         local okCategory, category = pcall(function() return entryItem:getDisplayCategory() end)
         if okCategory then info.category = category end
         local okMod, modId = pcall(function() return entryItem:getModID() end)
@@ -5272,7 +5290,7 @@ local function readSheetInventory(player, limits)
             end
             totals.walked = totals.walked + 1
 
-            local ok, entryItem, itemId, fullType, count, weight, condition, conditionMax, isContainer, innerContainer =
+            local ok, entryItem, itemId, fullType, itemName, weight, condition, conditionMax, isContainer, innerContainer =
                 pcall(readSheetInventoryEntry, entries, i)
             if not ok or fullType == nil then
                 totals.skipped = totals.skipped + 1
@@ -5285,15 +5303,13 @@ local function readSheetInventory(player, limits)
                         kind = "container",
                         itemId = itemId,
                         fullType = fullType,
+                        -- The container's own name: bags can be renamed.
+                        name = itemName,
                         weight = weight,
                         worn = worn,
                         equipped = equipped,
                         attached = attached,
                     }
-                    -- The container's own name, not the type's: bags can be
-                    -- renamed.
-                    local okName, name = pcall(function() return entryItem:getDisplayName() end)
-                    if okName then row.name = name end
                     totals.itemCount = totals.itemCount + 1
                     if innerContainer ~= nil then
                         local okWeight, contentsWeight = pcall(function() return innerContainer:getContentsWeight() end)
@@ -5310,16 +5326,16 @@ local function readSheetInventory(player, limits)
                     table.insert(rows, row)
                 else
                     local info = describeType(entryItem, fullType)
-                    local key = fullType .. "|" .. tostring(info.name) .. "|" .. (worn and "worn" or "")
+                    local key = fullType .. "|" .. tostring(itemName) .. "|" .. (worn and "worn" or "")
                         .. "|" .. (equipped or "") .. "|" .. (attached or "")
+                    -- One unit per object (see readSheetInventoryEntry).
                     local qty = 1
-                    if type(count) == "number" and count > 0 then qty = count end
                     local stack = stacks[key]
                     if stack == nil then
                         stack = {
                             kind = "stack",
                             fullType = fullType,
-                            name = info.name,
+                            name = itemName,
                             category = info.category,
                             qty = 0,
                             conditionMax = conditionMax,

@@ -137,6 +137,19 @@ describe("getCharacterSheet output through computeCharacterHints", () => {
     expect(hints[0].evidence).toEqual([expect.objectContaining({ kind: "item", ref: "Base.TestMug" })]);
   });
 
+  it("one opened box of nails is 100 nails, not an unusual quantity", () => {
+    // B42 gives every Nails object getCount() 5 (the script's count).
+    const lua = loadCharacterSheetBridge(`
+local nails = {}
+for i = 1, 100 do nails[i] = Item("Base.Nails", { count = 5, name = "Nails" }) end
+Alice.inventory = Container(nails)
+`);
+    const sheet = normalizeSheet(rawSheet(lua, { username: "Alice", sections: ["summary", "inventory"] }));
+    expect(sheet.inventory.totals.itemCount).toBe(100);
+    const hints = computeCharacterHints(sheet, { now: NOW, source: "live", playerLogs: [] });
+    expect(hints.map((h) => h.id)).not.toContain("unusualQuantity");
+  });
+
   it("reads the book multiplier and the sandbox XP settings the handler sends", () => {
     // Axe at 10 with a skill book (multiplier 2) counts half: 3.5 levels
     // ahead, plus Carpentry's 7, against 3 x 1.27 h + 6 allowed.
