@@ -1542,8 +1542,10 @@ export function createSftpBackend({ settings } = {}) {
         if (existing) throw fmError(ErrorCode.FM_EXISTS, { name });
         const tmp = posix.join(parentAbs, tempName(name, RENAME_TEMP_SUFFIX));
         try {
-          await putNew(tmp, bytes, 0o644);
+          const written = await putNew(tmp, bytes, 0o644);
           await chmodQuietly(tmp, 0o644);
+          // A new file gets its folder's owner, like an upload.
+          await matchOwner(tmp, written, await lstatOrNull(parentAbs));
           await landNew(tmp, r.abs);
         } catch (err) {
           await removeQuietly(tmp);
@@ -1650,6 +1652,10 @@ export function createSftpBackend({ settings } = {}) {
         if (await lstatOrNull(abs)) throw fmError(ErrorCode.FM_EXISTS, { name: checkedName });
         throw err;
       }
+      // Its parent's owner, like a new file (and a folder a restore or a
+      // folder upload recreates): a root login would otherwise leave the
+      // game user a folder it can't write into.
+      await matchOwner(abs, null, parent.stat);
       return entryAt(rootReal, joinRel(parent.rel, checkedName), abs);
     });
   }

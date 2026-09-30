@@ -236,6 +236,44 @@ describe("what a save keeps", () => {
     expect(srv.fs.node(`${ROOT}/Server/up.lua`).mode).toBe(0o644);
   });
 
+  it("New file, New folder and a folder a restore recreates get their folder's owner (a root login)", async () => {
+    srv.fs.mkdirp(`${ROOT}/game`, { uid: 1001, gid: 1001 });
+    const owner = (p) => {
+      const n = srv.fs.node(`${ROOT}/${p}`);
+      return n ? `${n.uid}:${n.gid}` : null;
+    };
+    await backend.writeBytesCas(await resolve("game/created.txt", "create"), Buffer.from("y"), { expectedHash: null });
+    await backend.mkdir(await resolve("game", "list"), "made");
+    await backend.receiveUpload(await resolve("game", "list"), "uploaded.txt", Readable.from([Buffer.from("u")]), { declaredSize: 1 });
+    expect({ newFile: owner("game/created.txt"), newFolder: owner("game/made"), uploaded: owner("game/uploaded.txt") }).toEqual({
+      newFile: "1001:1001",
+      newFolder: "1001:1001",
+      uploaded: "1001:1001",
+    });
+
+    // A restore whose folder is gone recreates it through the same mkdir.
+    srv.fs.writeFile(`${ROOT}/game/sub/x.txt`, "x", { uid: 1001, gid: 1001 });
+    srv.state.nodes.get(`${ROOT}/game/sub`).uid = 1001;
+    srv.state.nodes.get(`${ROOT}/game/sub`).gid = 1001;
+    const preview = await call("POST", `${P}/delete/preview`, { body: { root: "data", paths: ["game/sub/x.txt"] } });
+    const deleted = await call("POST", `${P}/delete`, { body: { root: "data", previewId: preview.body.previewId, mode: "trash", confirm: preview.body.required } });
+    expect(deleted.body.trashed).toHaveLength(1);
+    srv.state.nodes.delete(`${ROOT}/game/sub`);
+    const restored = await call("POST", `${P}/trash/restore`, { body: { root: "data", trashId: deleted.body.trashed[0].trashId, confirm: [] } });
+    expect(restored.status).toBe(200);
+    expect(owner("game/sub")).toBe("1001:1001");
+    expect(srv.fs.readFile(`${ROOT}/game/sub/x.txt`)?.toString()).toBe("x");
+  });
+
+  it("New file and New folder still land on a host that refuses the chown", async () => {
+    srv.fs.mkdirp(`${ROOT}/game`, { uid: 1001, gid: 1001 });
+    srv.state.denySetstat = true;
+    await backend.writeBytesCas(await resolve("game/created.txt", "create"), Buffer.from("y"), { expectedHash: null });
+    await backend.mkdir(await resolve("game", "list"), "made");
+    expect(srv.fs.readFile(`${ROOT}/game/created.txt`)?.toString()).toBe("y");
+    expect(srv.fs.node(`${ROOT}/game/made`)?.type).toBe("dir");
+  });
+
   it("a readable previous version of a file edited through a link", async () => {
     srv.fs.writeFile(`${ROOT}/Server/real.ini`, ORIGINAL);
     srv.state.nodes.delete(INI);
