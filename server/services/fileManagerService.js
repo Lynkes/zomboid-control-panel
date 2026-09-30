@@ -1768,7 +1768,7 @@ export async function prepareZip(ctx, body, user, audit) {
       fileName: zipFileName(ctx.profile.serverName, policy.rootId, items),
       plan,
       release,
-      stream: (res) => streamZip({ res, backend: policy.backend, root: policy.root, plan }),
+      stream: (res) => streamZip({ res, backend: policy.backend, root: policy.root, plan, release }),
     };
   } catch (err) {
     release();

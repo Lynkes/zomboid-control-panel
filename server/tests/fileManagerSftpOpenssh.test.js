@@ -53,6 +53,7 @@ const { _resetRunStateCacheForTests } = await import("../services/fileManagerRun
 const { _resetJobsForTests, _waitForJobForTests } = await import("../services/fileManagerJobs.js");
 const { _resetZipSlotsForTests } = await import("../services/fileManagerZip.js");
 const { _resetDenialCoalescingForTests } = await import("../services/fileManagerAudit.js");
+const { getDataPaths } = await import("../utils/paths.js");
 const service = await import("../services/fileManagerService.js");
 const { FmError, FM_LIMITS } = await import("../services/fileManagerContract.js");
 
@@ -477,6 +478,60 @@ suite("real OpenSSH: stalls, a killed sftp-server, a dropped connection", () => 
     expect((await resolve("Logs/server.txt")).stat.type).toBe("file");
     await backend.mkdir(await resolve("", "list"), "made");
   });
+});
+
+suite("real OpenSSH: a zip the client abandons", () => {
+  const zipTemps = () => {
+    try {
+      return fs.readdirSync(path.join(getDataPaths().dataDir, "file-manager-tmp")).filter((n) => n.startsWith(".central-"));
+    } catch {
+      return [];
+    }
+  };
+
+  // Live QA: a client that read a little of a remote zip and went away
+  // left its zip slot taken until the panel restarted (every later zip by
+  // that user, local ones too, was a 429), with its SFTP read open and its
+  // central-directory temp file behind. The write that never settled is
+  // pinned in plain node by fileManagerZip.test.js; this checks the rest
+  // over a real sftp-server: the slot, the remote handle (afterEach), the
+  // temp file and one audit row per zip.
+  it("gives its slot, its remote read and its temp file back, every time", async () => {
+    srv.fs.writeFile("Zomboid/Logs/huge.bin", crypto.randomBytes(24 * 1024 * 1024));
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const gone = new AbortController();
+      const response = await fetch(`${baseUrl}${P}/zip`, {
+        method: "POST",
+        signal: gone.signal,
+        headers: { "content-type": "application/json", "x-test-role": "admin" },
+        body: JSON.stringify({ root: "data", paths: ["Logs"] }),
+      });
+      expect(response.status).toBe(200);
+      const reader = response.body.getReader();
+      let got = 0;
+      while (got < [0, 65536, 524288][attempt % 3]) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        got += value.length;
+      }
+      gone.abort();
+      let next = null;
+      for (const started = Date.now(); Date.now() - started < 5000; ) {
+        next = await call("POST", `${P}/zip`, { body: { root: "data", paths: ["Server"] } });
+        if (next.status === 200) break;
+        await new Promise((done) => setTimeout(done, 100));
+      }
+      expect(next?.status, `attempt ${attempt}: the next zip`).toBe(200);
+    }
+    for (const started = Date.now(); zipTemps().length && Date.now() - started < 3000; ) {
+      await new Promise((done) => setTimeout(done, 50));
+    }
+    expect(zipTemps()).toEqual([]);
+    const rows = dbState.audit.filter((row) => row.op === "files.zip");
+    expect(rows.filter((row) => row.result === "aborted")).toHaveLength(6);
+    expect(rows.filter((row) => row.result === "ok")).toHaveLength(6);
+    // afterEach: no remote handle left open.
+  }, 60000);
 });
 
 suite("real OpenSSH: big folders over a slow link", () => {

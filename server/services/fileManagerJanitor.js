@@ -3,13 +3,15 @@
 // per distinct folder (roots shared by several profiles are visited once,
 // by installDirKey). Remote roots expire lazily, when their Trash is listed
 // or written. Each root that lost items gets one files.trash.expire audit
-// row with actor "system".
+// row with actor "system". Each pass also removes the temp files of zips a
+// crash or a kill cut off (sweepStaleZipTemps).
 import { getServers, getAllSettings } from "../database/init.js";
 import { createLogger } from "../utils/logger.js";
 import { describeProfileRoots, isRemoteProfile } from "./fileManagerRoots.js";
 import { expiredTrashIds, purgeTrashItem } from "./fileManagerTrash.js";
 import { SYSTEM_ACTOR, writeAudit } from "./fileManagerAudit.js";
 import { FM_LIMITS } from "./fileManagerContract.js";
+import { sweepStaleZipTemps } from "./fileManagerZip.js";
 
 const log = createLogger("FileManager:Janitor");
 
@@ -31,6 +33,8 @@ export async function runFileManagerJanitor({ now = Date.now() } = {}) {
   let roots = 0;
   let expired = 0;
   try {
+    // A zip that was cut off by a crash or a kill leaves its temp file.
+    sweepStaleZipTemps(now);
     const [profiles, settings] = await Promise.all([getServers(), getAllSettings()]);
     const seen = new Set();
     for (const profile of profiles || []) {

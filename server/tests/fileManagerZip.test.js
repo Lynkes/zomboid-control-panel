@@ -2,7 +2,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import http from "http";
 import fs from "fs";
 import path from "path";
-import { PassThrough } from "stream";
+import { spawnSync } from "child_process";
+import { PassThrough, Readable } from "stream";
+import { fileURLToPath } from "url";
 import express from "express";
 import unzipper from "unzipper";
 import { linkDir, makeServerTree, makeTempDir, removeDir, write } from "./helpers/fileManagerFixtures.js";
@@ -12,6 +14,8 @@ import { linkDir, makeServerTree, makeTempDir, removeDir, write } from "./helper
 // skipped and listed in _skipped.txt, and the archive reads back. The
 // additive StreamingZipWriter options keep backups unchanged
 // (streamingZip.test.js covers that path).
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const dbState = vi.hoisted(() => ({ servers: [], settings: {} }));
 
@@ -27,7 +31,7 @@ vi.mock("../database/init.js", async (importOriginal) => {
 });
 
 const { default: filesRoutes } = await import("../routes/files.js");
-const { planZip, acquireZipSlot, zipFileName, _resetZipSlotsForTests } = await import("../services/fileManagerZip.js");
+const { planZip, acquireZipSlot, zipFileName, sweepStaleZipTemps, _resetZipSlotsForTests } = await import("../services/fileManagerZip.js");
 const { invalidateRootCache } = await import("../services/fileManagerRoots.js");
 const { StreamingZipWriter } = await import("../utils/streamingZip.js");
 const { getDataPaths } = await import("../utils/paths.js");
@@ -219,6 +223,77 @@ describe("contents", () => {
     const res = await zip(["backups"]);
     expect(res.status).toBe(403);
     expect(JSON.parse(res.buffer.toString("utf8")).code).toBe("FM_PATH_PROTECTED");
+  });
+});
+
+describe("a zip into a real HTTP response whose client goes away", () => {
+  // Live QA: a client that read a little of a zip and left could hold the
+  // zip slot until the panel restarted: http never calls back a write it
+  // parked once the client's FIN ended the socket, and a closing response
+  // emits no 'error', so the writer's write never settled. The race only
+  // shows in plain node (see the helper), so it runs there.
+  it("settles every time, with its source stopped and its temp file removed", () => {
+    const tempDir = makeTempDir("zcp-zip-tmp-");
+    try {
+      const child = spawnSync(process.execPath, [path.join(__dirname, "helpers", "zipClientGoneChild.mjs"), tempDir, "12"], {
+        encoding: "utf8",
+        timeout: 50000,
+      });
+      expect(child.status, child.stderr).toBe(0);
+      const result = JSON.parse(child.stdout.trim().split("\n").pop());
+      expect(result.outcomes).toEqual(Array(12).fill("ERR_STREAM_DESTROYED"));
+      expect(result.sourcesLeftOpen).toBe(0);
+      expect(result.tempFilesLeft).toEqual([]);
+    } finally {
+      removeDir(tempDir);
+    }
+  }, 60000);
+
+  it("an abort while an entry is being read stops it, and nothing is made again", async () => {
+    const tempDir = makeTempDir("zcp-zip-tmp-");
+    try {
+      const out = new PassThrough();
+      out.resume();
+      const writer = new StreamingZipWriter(null, { outputStream: out, tempDir });
+      const source = new Readable({ read() {} });
+      source.push(Buffer.alloc(1024, 1));
+      const adding = writer.addStream(source, "stuck.bin");
+      adding.catch(() => {});
+      await new Promise((done) => setTimeout(done, 50));
+      await writer.abort();
+      await expect(adding).rejects.toMatchObject({ code: "ERR_STREAM_DESTROYED" });
+      expect(source.destroyed).toBe(true);
+      // A caller that goes on after the abort gets an error, not a new temp file.
+      await expect(writer.addBuffer(Buffer.from("x"), "later.txt")).rejects.toMatchObject({ code: "ERR_STREAM_DESTROYED" });
+      await expect(writer.finalize()).rejects.toMatchObject({ code: "ERR_STREAM_DESTROYED" });
+      expect(fs.readdirSync(tempDir)).toEqual([]);
+    } finally {
+      removeDir(tempDir);
+    }
+  });
+});
+
+describe("zip temp files", () => {
+  it("those of an earlier run, or past the time cap, are swept; a running zip's and anything else stay", () => {
+    const dir = path.join(getDataPaths().dataDir, "file-manager-tmp");
+    fs.mkdirSync(dir, { recursive: true });
+    const make = (name, ageMs) => {
+      const abs = path.join(dir, name);
+      fs.writeFileSync(abs, "");
+      const at = new Date(Date.now() - ageMs);
+      fs.utimesSync(abs, at, at);
+      return abs;
+    };
+    const beforeStart = make(".central-42348-1759000000000-abc123.tmp", (process.uptime() + 60) * 1000);
+    const pastCap = make(`.central-${process.pid}-1759000000001-def456.tmp`, FM_LIMITS.ZIP_TIME_LIMIT_MS + 5 * 60 * 1000);
+    const fresh = make(`.central-${process.pid}-1759000000002-0a1b2c.tmp`, 0);
+    const other = make("notes.txt", (process.uptime() + 60) * 1000);
+    try {
+      expect(sweepStaleZipTemps()).toBe(2);
+      expect([beforeStart, pastCap, fresh, other].map((p) => fs.existsSync(p))).toEqual([false, false, true, true]);
+    } finally {
+      for (const p of [fresh, other]) fs.rmSync(p, { force: true });
+    }
   });
 });
 

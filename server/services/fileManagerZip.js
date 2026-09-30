@@ -14,7 +14,7 @@ import { StreamingZipWriter } from "../utils/streamingZip.js";
 import { createLogger } from "../utils/logger.js";
 import { FM_LIMITS, FmError } from "./fileManagerContract.js";
 import { isSecretBearingName, maskIniBuffer } from "./fileManagerTextCodec.js";
-import { ensurePanelTempDir } from "./fileManagerLocalFs.js";
+import { ensurePanelTempDir, lstatBig, readDirNames, unlinkPath } from "./fileManagerLocalFs.js";
 
 const log = createLogger("FileManager:Zip");
 
@@ -32,6 +32,46 @@ let zipIdleMs = FM_LIMITS.UPLOAD_IDLE_MS;
 
 export function _setZipIdleMsForTests(ms) {
   zipIdleMs = Number.isFinite(ms) && ms > 0 ? ms : FM_LIMITS.UPLOAD_IDLE_MS;
+}
+
+// StreamingZipWriter's central-directory temp files (in file-manager-tmp).
+const ZIP_TEMP_RE = /^\.central-\d+-\d+-[0-9a-z]+\.tmp$/;
+const PROCESS_STARTED_AT = Date.now() - process.uptime() * 1000;
+// Those of the zips running now.
+const activeZipTemps = new Set();
+
+/**
+ * Remove central-directory temp files no zip is writing: those left by an
+ * earlier run of the panel (a crash, a kill) and any older than the zip time
+ * cap. Called by the file-manager janitor.
+ * @returns {number} files removed
+ */
+export function sweepStaleZipTemps(now = Date.now()) {
+  let dir;
+  let names;
+  try {
+    dir = ensurePanelTempDir();
+    ({ names } = readDirNames(dir, 10000));
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const name of names) {
+    if (!ZIP_TEMP_RE.test(name)) continue;
+    const abs = path.join(dir, name);
+    if (activeZipTemps.has(abs)) continue;
+    try {
+      const st = lstatBig(abs);
+      if (!st.isFile()) continue;
+      const mtimeMs = Number(st.mtimeMs);
+      if (mtimeMs >= PROCESS_STARTED_AT && now - mtimeMs <= FM_LIMITS.ZIP_TIME_LIMIT_MS + 60 * 1000) continue;
+      unlinkPath(abs);
+      removed++;
+    } catch {
+      /* gone already, or still open elsewhere: the next pass */
+    }
+  }
+  return removed;
 }
 
 let activeGlobal = 0;
@@ -189,16 +229,20 @@ function sameInode(a, b) {
 /**
  * Stream a planned zip into `res`. Headers must already be set. Resolves
  * with { bytes, entries, skipped } when finished; on a client abort or the
- * time cap the writer is aborted and the socket destroyed.
+ * time cap the writer is aborted (which stops the entry being read) and the
+ * socket destroyed. `release` (the zip slot) is let go at that moment too,
+ * not only when the caller's finally runs: a stopped zip never keeps a slot.
  */
-export async function streamZip({ res, backend, root, plan }) {
+export async function streamZip({ res, backend, root, plan, release = () => {} }) {
   const writer = new StreamingZipWriter(null, { outputStream: res, tempDir: ensurePanelTempDir() });
+  activeZipTemps.add(writer.centralPath);
   let aborted = false;
   const abort = () => {
     if (aborted) return;
     aborted = true;
     writer.abort().catch(() => {});
     res.destroy?.();
+    release();
   };
   const onClose = () => {
     if (!res.writableFinished) abort();
@@ -287,5 +331,6 @@ export async function streamZip({ res, backend, root, plan }) {
     clearTimeout(timer);
     clearInterval(watchdog);
     res.off?.("close", onClose);
+    activeZipTemps.delete(writer.centralPath);
   }
 }
