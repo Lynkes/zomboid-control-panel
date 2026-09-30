@@ -176,9 +176,10 @@ function isPanelTempName(name) {
   return lower.endsWith(UPLOAD_TEMP_SUFFIX) || lower.endsWith(RENAME_TEMP_SUFFIX);
 }
 
-// Listings leave out the root's Trash folder and the panel's temp files.
-function isOmitted(name, atRoot) {
-  return (atRoot && name.toLowerCase() === TRASH_DIR_NAME) || isPanelTempName(name);
+// Listings leave out Trash folders (the root's own at the top; a deeper one
+// belongs to a nested root) and the panel's temp files.
+function isOmitted(name) {
+  return name.toLowerCase() === TRASH_DIR_NAME || isPanelTempName(name);
 }
 
 function pad(value, width = 2) {
@@ -1140,7 +1141,7 @@ export function createSftpBackend({ settings } = {}) {
     const segs = checked.segments;
     // The Trash and in-flight temp files are panel-owned: never reachable
     // through the ordinary routes.
-    if (segs.length > 0 && segs[0].toLowerCase() === TRASH_DIR_NAME) throw fmError(ErrorCode.FM_NOT_FOUND);
+    if (segs.some((s) => s.toLowerCase() === TRASH_DIR_NAME)) throw fmError(ErrorCode.FM_NOT_FOUND);
     if (segs.some(isPanelTempName)) throw fmError(ErrorCode.FM_NOT_FOUND);
 
     const rootReal = root.real;
@@ -1185,7 +1186,7 @@ export function createSftpBackend({ settings } = {}) {
       stat = st;
     }
     const realRel = relativeTo(rootReal, cur);
-    if (realRel.split("/")[0].toLowerCase() === TRASH_DIR_NAME) throw fmError(ErrorCode.FM_NOT_FOUND);
+    if (realRel.split("/").some((s) => s.toLowerCase() === TRASH_DIR_NAME)) throw fmError(ErrorCode.FM_NOT_FOUND);
     return {
       rootId: root.id,
       rel: segs.join("/"),
@@ -1204,11 +1205,10 @@ export function createSftpBackend({ settings } = {}) {
     assertResolved(dir);
     assertDirectory(dir);
     const rootReal = rootRealOf(dir);
-    const atRoot = dir.realRel === "";
     let raw = await listDir(dir.abs);
     const truncated = raw.length > FM_LIMITS.LIST_DIR_MAX_ENTRIES;
     if (truncated) raw = raw.slice(0, FM_LIMITS.LIST_DIR_MAX_ENTRIES);
-    const visible = raw.filter((e) => e.name !== "." && e.name !== ".." && !isOmitted(e.name, atRoot));
+    const visible = raw.filter((e) => e.name !== "." && e.name !== ".." && !isOmitted(e.name));
 
     // Folders change mtime only to the second over SFTP, so the names join
     // the mtime in the folder's etag.
@@ -1535,7 +1535,6 @@ export function createSftpBackend({ settings } = {}) {
       if (r.isNew || !r.stat) throw fmError(ErrorCode.FM_NOT_FOUND);
       const started = Date.now();
       let visited = 0;
-      const atRootOf = (realRel) => realRel === "";
       if (r.stat.type !== "dir") return;
       const stack = [{ abs: r.abs, rel: r.rel, realRel: r.realRel, depth: 1 }];
       while (stack.length > 0) {
@@ -1559,7 +1558,7 @@ export function createSftpBackend({ settings } = {}) {
           throw err;
         }
         children = children
-          .filter((e) => e.name !== "." && e.name !== ".." && !isOmitted(e.name, atRootOf(frame.realRel)))
+          .filter((e) => e.name !== "." && e.name !== ".." && !isOmitted(e.name))
           .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
         if (frame.depth > maxDepth) {
           if (children.length > 0) stop("depth");

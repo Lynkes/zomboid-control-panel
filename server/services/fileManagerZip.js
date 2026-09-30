@@ -7,13 +7,13 @@
 //      backend's checked fd path, then streamed through StreamingZipWriter
 //      straight into the response. Links, special files, protected areas and
 //      unreadable files are skipped and listed in _skipped.txt; .ini files
-//      are masked like every other way out.
+//      and the panel's backups of them are masked like every other way out.
 import path from "path";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { StreamingZipWriter } from "../utils/streamingZip.js";
 import { createLogger } from "../utils/logger.js";
 import { FM_LIMITS, FmError } from "./fileManagerContract.js";
-import { isIniName, maskIniBuffer } from "./fileManagerTextCodec.js";
+import { isSecretBearingName, maskIniBuffer } from "./fileManagerTextCodec.js";
 import { ensurePanelTempDir } from "./fileManagerLocalFs.js";
 
 const log = createLogger("FileManager:Zip");
@@ -203,7 +203,7 @@ export async function streamZip({ res, backend, root, plan }) {
         continue;
       }
       try {
-        if (isIniName(file.name)) {
+        if (isSecretBearingName(file.name) || isSecretBearingName(file.realRel)) {
           const { buffer, truncated } = await backend.readBytes(resolved, { maxBytes: INI_MASK_MAX_BYTES });
           if (truncated) {
             skipped.push({ name: file.name, reason: "too large to mask" });

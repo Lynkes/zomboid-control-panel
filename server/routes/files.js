@@ -179,15 +179,27 @@ function startAudit(req, op) {
   return scope;
 }
 
-// Denials on routes that aren't otherwise audited (listing and viewing).
+// What a request not otherwise audited reached for: the query of a GET, the
+// JSON body of a POST (a delete preview, an upload preflight).
+function requestedTarget(req) {
+  const source = req.method === "GET" ? req.query || {} : req.body && typeof req.body === "object" ? req.body : {};
+  let paths = [""];
+  if (Array.isArray(source.paths)) paths = source.paths.filter((p) => typeof p === "string");
+  else if (typeof source.path === "string") paths = [source.path];
+  else if (typeof source.dir === "string") paths = [source.dir];
+  return { rootId: source.root, paths: paths.length ? paths : [""] };
+}
+
+// Denials on routes that aren't otherwise audited (listing, viewing, the
+// delete preview and the upload preflight).
 async function auditDenialIfAny(req, err, op) {
   if (!(err instanceof FmError) || !DENIAL_CODES.has(err.code)) return;
-  const q = req.query || {};
+  const target = requestedTarget(req);
   await writeDenied({
     ...auditBase(req, {
       backend: null,
-      rootId: q.root,
-      paths: [typeof q.path === "string" ? q.path : ""],
+      rootId: target.rootId,
+      paths: Array.isArray(err.auditPaths) ? err.auditPaths : target.paths,
       dest: null,
       bytes: null,
       sha256Before: null,
@@ -473,12 +485,27 @@ router.get(
     }
     await new Promise((resolve) => {
       let settled = false;
+      let idle = null;
       const done = (ok) => {
         if (settled) return;
         settled = true;
+        clearTimeout(idle);
         dl.release();
         if (!ok) audit.result = "aborted";
         resolve();
+      };
+      // A client that stops reading would keep its transfer slot (shared
+      // with uploads, 2 per user and 4 across the panel) until its socket
+      // goes away: cut it off after the idle time an upload gets. Any chunk
+      // read from the file means the client took the one before it.
+      const arm = () => {
+        clearTimeout(idle);
+        idle = setTimeout(() => {
+          dl.stream.destroy();
+          res.destroy();
+          done(false);
+        }, dl.idleMs);
+        idle.unref?.();
       };
       dl.stream.on("error", () => {
         res.destroy();
@@ -492,6 +519,8 @@ router.get(
         }
       });
       dl.stream.pipe(res);
+      dl.stream.on("data", arm);
+      arm();
     });
   }),
 );

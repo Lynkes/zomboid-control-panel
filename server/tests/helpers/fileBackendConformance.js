@@ -108,6 +108,13 @@ export function runBackendConformance(name, makeBackend) {
       expect(typeof all.dirEtag).toBe("string");
       const desc = await backend.list(r, { offset: 0, limit: 100, sort: "size", order: "desc" });
       expect(desc.entries.map((e) => e.name)).toEqual(["dir", "B.txt", "a.txt"]);
+      // A Trash folder deeper down is a nested root's (a Zomboid folder
+      // inside the game folder): hidden there too, from listings and walks.
+      await seed.mkdir("dir/.zcp-trash");
+      const inner = await backend.list(await resolve("dir", "list"), { offset: 0, limit: 100, sort: "name", order: "asc" });
+      expect(inner.entries.map((e) => e.name)).toEqual(["sub", "c.txt"]);
+      const walked = await collect(backend.walk(await resolve("dir", "list"), { maxEntries: 100, maxDepth: 5, maxMs: 5000 }));
+      expect(walked.map((e) => e.name)).not.toContain(".zcp-trash");
       const page = await backend.list(r, { offset: 1, limit: 1, sort: "name", order: "asc" });
       expect(page.entries.map((e) => e.name)).toEqual(["a.txt"]);
       expect(page.total).toBe(3);

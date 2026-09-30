@@ -29,6 +29,20 @@ export function isIniName(name) {
   return extensionOf(name) === ".ini";
 }
 
+// The panel's own copies of an .ini: configBackup.js names them
+// `<name>.ini.<timestamp>.bak` (or `.<timestamp>-<n>.bak`), templateFiles.js
+// `<name>.ini.<timestamp>.bak` (or `.bak-<n>`). They hold the same secrets.
+const INI_BACKUP_RE = /\.ini\.[^/\\]+\.bak(?:-\d+)?$/i;
+
+/**
+ * An .ini file or one of the panel's backups of one: its secret-looking
+ * lines are masked on every way out and put back on every way in.
+ */
+export function isSecretBearingName(name) {
+  const text = String(name || "");
+  return isIniName(text) || INI_BACKUP_RE.test(text);
+}
+
 export function sha256Hex(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
 }

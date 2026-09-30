@@ -5,8 +5,8 @@ import { fakeApp, makeServerTree, makeTempDir, removeDir, write } from "./helper
 
 // Protected areas and world state (spec §A5): every area at its level, the
 // ancestor rule, names the bridge owns in any case, the list-only backups
-// folder, the world-save gate for each live state, and launch scripts only
-// for managed launches.
+// folder, the world-save gate for each live state, launch scripts only for
+// managed launches, and a Zomboid folder nested inside another root.
 
 const dbState = vi.hoisted(() => ({ servers: [], settings: {} }));
 
@@ -21,7 +21,7 @@ vi.mock("../database/init.js", async (importOriginal) => {
 });
 
 const service = await import("../services/fileManagerService.js");
-const { buildProtectionContext } = await import("../services/fileManagerProtectedAreas.js");
+const { buildProtectionContext, buildRemoteProtectionContext } = await import("../services/fileManagerProtectedAreas.js");
 const { invalidateRootCache } = await import("../services/fileManagerRoots.js");
 const { _resetRunStateCacheForTests, _setRunStateDepsForTests } = await import("../services/fileManagerRunState.js");
 const { _resetWorkshopReleaseCacheForTests } = await import("../services/bridgeWorkshopRelease.js");
@@ -164,16 +164,62 @@ describe("areas and levels", () => {
     expect(rules("install", tree.install).classify("mod.info")).toBeNull();
   });
 
-  it("launch scripts are read-only only when the panel manages the launch", () => {
+  it("launch scripts are list-only when the panel manages the launch: they carry -adminpassword", () => {
+    const listOnly = { level: "listOnly", area: "launchScripts" };
     const managed = rules("install", tree.install);
-    expect(managed.classify("StartServer_servertest.bat")).toEqual({ level: "readOnly", area: "launchScripts" });
-    expect(managed.classify("start-server_servertest.sh")).toEqual({ level: "readOnly", area: "launchScripts" });
-    expect(managed.classify(".pz-panel-scripts.json")).toEqual({ level: "readOnly", area: "launchScripts" });
+    expect(managed.classify("StartServer_servertest.bat")).toEqual(listOnly);
+    expect(managed.classify("start-server_servertest.sh")).toEqual(listOnly);
+    expect(managed.classify(".pz-panel-scripts.json")).toEqual(listOnly);
     expect(managed.classify("start-server.sh")).toBeNull();
+    // The copies the panel keeps of a hand-edited script hold the same password.
+    expect(managed.classify("StartServer_servertest.bat.bak-2026-09-29T00-00-00-000Z")).toEqual(listOnly);
+    expect(managed.classify("start-server_servertest.sh.bak-2026-09-29T00-00-00-000Z-2")).toEqual(listOnly);
+    expect(managed.classify("StartServer_servertest.bat.bak-x/inner")).toBeNull();
+    expect(managed.protectedWithin("")).not.toBeNull();
 
     const custom = { ...tree.profile, installPath: path.join(tree.install, "my-launcher.bat") };
     const r = buildProtectionContext({ rootId: "install", rootReal: tree.install, profiles: [custom], settings: {} });
     expect(r.classify("StartServer_servertest.bat")).toBeNull();
+    // Only the panel writes the copies, whatever the launch mode is now.
+    expect(r.classify("StartServer_servertest.bat.bak-2026-09-29T00-00-00-000Z")).toEqual(listOnly);
+  });
+
+  it("anchors match in any case on every OS (a case-insensitive mount under a Linux panel)", () => {
+    const data = rules("data", tree.data);
+    expect(data.classify("BACKUPS/world-1.zip")).toEqual({ level: "listOnly", area: "panelBackups" });
+    expect(data.isWorldState("saves/multiplayer/SERVERTEST/map_0_0.bin")).toBe(true);
+    expect(data.worldStateOwners("DB/servertest.DB")).toHaveLength(1);
+    expect(rules("install", tree.install).classify("START-SERVER_servertest.SH")).toEqual({ level: "listOnly", area: "launchScripts" });
+  });
+
+  it("a Zomboid folder inside the game folder keeps its areas through the install root", () => {
+    const install = path.join(base, "PZServer");
+    const data = path.join(install, "Zomboid");
+    write(path.join(install, "ProjectZomboid64.json"), "{}\n");
+    write(path.join(data, "backups", "world-1.zip"), "zip");
+    write(path.join(data, "Saves", "Multiplayer", "servertest", "map_0_0.bin"), "world");
+    write(path.join(data, "Lua", "panelbridge", "servertest", "status.json"), "{}");
+    const profile = { ...tree.profile, installPath: install, zomboidDataPath: data, serverConfigPath: path.join(data, "Server") };
+    const r = buildProtectionContext({ rootId: "install", rootReal: fs.realpathSync.native(install), profiles: [profile], settings: {} });
+    expect(r.classify("Zomboid/backups/world-1.zip")).toEqual({ level: "listOnly", area: "panelBackups" });
+    expect(r.isWorldState("Zomboid/Saves/Multiplayer/servertest/map_0_0.bin")).toBe(true);
+    expect(r.worldStateOwners("Zomboid")).toEqual([profile]);
+    expect(r.protectedWithin("Zomboid")).toMatchObject({ containsProtected: true });
+    // And the other way round: a game install folder inside a data root.
+    const nested = { ...tree.profile, installPath: path.join(tree.data, "server") };
+    fs.mkdirSync(path.join(tree.data, "server"), { recursive: true });
+    const d = buildProtectionContext({ rootId: "data", rootReal: tree.data, profiles: [nested], settings: {} });
+    expect(d.classify("server/media/lua/server/PanelBridge.lua")).toEqual({ level: "readOnly", area: "bridgeManaged" });
+  });
+
+  it("a remote install root protects the bridge's Workshop folder like a local one", () => {
+    vi.stubEnv("PANEL_BRIDGE_WORKSHOP_ID", "3809901056");
+    _resetWorkshopReleaseCacheForTests();
+    const rel = "steamapps/workshop/content/108600/3809901056/mods/PanelBridge/media/lua/server/PanelBridge.lua";
+    const remote = buildRemoteProtectionContext({ rootId: "install", rootReal: "/srv/pz", profile: tree.profile, settings: {} });
+    expect(remote.classify(rel)).toEqual({ level: "readOnly", area: "bridgeManaged" });
+    expect(rules("install", tree.install).classify(rel)).toEqual({ level: "readOnly", area: "bridgeManaged" });
+    expect(remote.classify("steamapps/workshop/content/108600/12345/x")).toBeNull();
   });
 
   it("the ancestor rule: a folder holding something protected reports it", () => {

@@ -192,9 +192,12 @@ function entryForResolved(r) {
   };
 }
 
-function isHiddenName(name, atRoot) {
+// Panel-owned names are left out of listings: the Trash folder (a root's own
+// at the top; one deeper is a nested root's, such as a Zomboid folder inside
+// the game folder) and the temp files of uploads and saves in flight.
+function isHiddenName(name) {
   const lower = name.toLowerCase();
-  if (atRoot && lower === TRASH_DIR_NAME) return true;
+  if (lower === TRASH_DIR_NAME) return true;
   return lower.endsWith(UPLOAD_TEMP_SUFFIX) || lower.endsWith(RENAME_TEMP_SUFFIX);
 }
 
@@ -748,7 +751,9 @@ async function writeBytesCas(r, bytes, { expectedHash, trashMeta }) {
     }
     if (readOnlyOnWindows(r.stat)) throw new FmError(ErrorCode.FM_TARGET_READ_ONLY);
 
-    let previousTrashId = null;
+    // The previous version goes to Trash in the same step as the write
+    // (FM-I9): if it can't be kept, nothing is written.
+    let previousTrashId;
     try {
       previousTrashId = trash.copyVersionToTrash(r.rootReal, {
         name,
@@ -760,6 +765,8 @@ async function writeBytesCas(r, bytes, { expectedHash, trashMeta }) {
       });
     } catch (err) {
       log.warn(`Could not keep the previous version in Trash: ${err?.code || err?.name || "error"}`);
+      if (err instanceof FmError) throw err;
+      throw mapFsError(err, { name });
     }
 
     const temp = lfs.createTempFile(parentAbs, name, RENAME_TEMP_SUFFIX);
@@ -1058,7 +1065,7 @@ async function* walk(r, { maxEntries = Infinity, maxDepth = Infinity, maxMs = In
     }
     for (const name of names) {
       if (signal?.aborted || yielded >= maxEntries || Date.now() - started > maxMs) return;
-      if (isHiddenName(name, dir.realRel === "")) continue;
+      if (isHiddenName(name)) continue;
       const abs = path.join(dir.abs, name);
       let st;
       try {
@@ -1115,8 +1122,7 @@ async function list(dir, { offset = 0, limit = FM_LIMITS.LIST_PAGE_DEFAULT, sort
   } catch (err) {
     throw mapFsError(err);
   }
-  const atRoot = dir.realRel === "";
-  const names = listed.names.filter((name) => !isHiddenName(name, atRoot));
+  const names = listed.names.filter((name) => !isHiddenName(name));
   const total = names.length;
   const dirEtag = statEtag(dir.stat);
   const describe = (name) => {

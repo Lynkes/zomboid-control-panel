@@ -234,7 +234,7 @@ export const PROTECTED_AREA_LEVEL = Object.freeze({
   panelBackups: "listOnly",
   bridgeIo: "readOnly",
   bridgeManaged: "readOnly",
-  launchScripts: "readOnly",
+  launchScripts: "listOnly",
 });
 
 // Panel-owned names inside a root: the per-root Trash folder, and the temp

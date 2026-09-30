@@ -54,6 +54,7 @@ import {
   hashEtag,
   isBinaryName,
   isIniName,
+  isSecretBearingName,
   maskIniBuffer,
   maskIniText,
   reconcileIniText,
@@ -97,12 +98,18 @@ function parseSegments(raw, field = "path") {
   if (typeof raw !== "string") throw invalidRequest(field);
   const result = validateSegments(raw);
   if (!result.ok) throw new FmError(ErrorCode.FM_INVALID_PATH, undefined, { reason: result.reason });
-  const lower = result.segments.map((s) => s.toLowerCase());
-  // Panel-owned names are reachable only through the Trash routes.
-  if (lower[0] === TRASH_DIR_NAME || lower.some((s) => s.endsWith(UPLOAD_TEMP_SUFFIX) || s.endsWith(RENAME_TEMP_SUFFIX))) {
+  // Panel-owned names are reachable only through the Trash routes. A Trash
+  // folder below the top is another root's (a Zomboid folder inside the game
+  // folder): just as out of reach from here.
+  if (result.segments.some(isPanelOwnedSegment)) {
     throw new FmError(ErrorCode.FM_INVALID_PATH, undefined, { reason: "reservedPanelName" });
   }
   return result.segments;
+}
+
+function isPanelOwnedSegment(segment) {
+  const lower = segment.toLowerCase();
+  return lower === TRASH_DIR_NAME || lower.endsWith(UPLOAD_TEMP_SUFFIX) || lower.endsWith(RENAME_TEMP_SUFFIX);
 }
 
 function checkName(name, { isNew = true } = {}) {
@@ -113,8 +120,7 @@ function checkName(name, { isNew = true } = {}) {
 
 function reservedRealRel(realRel) {
   if (!realRel) return false;
-  const lower = realRel.toLowerCase().split("/");
-  return lower[0] === TRASH_DIR_NAME || lower.some((s) => s.endsWith(UPLOAD_TEMP_SUFFIX) || s.endsWith(RENAME_TEMP_SUFFIX));
+  return realRel.split("/").some(isPanelOwnedSegment);
 }
 
 function iso(ms) {
@@ -213,6 +219,23 @@ function classifyResolved(policy, r) {
   return result;
 }
 
+// A path that doesn't exist: find its deepest folder that does, and refuse
+// with FM_PATH_PROTECTED when that folder (by its real path) is sealed.
+async function refuseInsideSealed(policy, segments) {
+  for (let k = segments.length - 1; k >= 1; k--) {
+    let ancestor;
+    try {
+      ancestor = await policy.backend.resolve(policy.root, segments.slice(0, k), "list");
+    } catch (err) {
+      if (err instanceof FmError && err.code === ErrorCode.FM_NOT_FOUND) continue;
+      return;
+    }
+    const protection = classifyResolved(policy, ancestor);
+    if (protection?.level === "sealed") throw protectedError(protection);
+    return;
+  }
+}
+
 /** validateSegments + backend.resolve + protection and world-state flags. */
 async function resolveIn(ctx, rootId, rawPath, intent, field = "path") {
   const segments = parseSegments(rawPath, field);
@@ -223,7 +246,18 @@ async function resolveIn(ctx, rootId, rawPath, intent, field = "path") {
     const parent = policy.rules.classify(segments.slice(0, -1).join("/"), null);
     if (parent?.level === "sealed") throw protectedError(parent);
   }
-  const r = await policy.backend.resolve(policy.root, segments, intent);
+  let r;
+  try {
+    r = await policy.backend.resolve(policy.root, segments, intent);
+  } catch (err) {
+    // The same, for a sealed folder reached through a name the lexical check
+    // can't see (a link to it, a Windows 8.3 short name): a missing entry
+    // answers like an existing one would.
+    if (err instanceof FmError && err.code === ErrorCode.FM_NOT_FOUND && segments.length > 1) {
+      await refuseInsideSealed(policy, segments);
+    }
+    throw err;
+  }
   if (reservedRealRel(r.realRel)) {
     throw new FmError(ErrorCode.FM_INVALID_PATH, undefined, { reason: "reservedPanelName" });
   }
@@ -270,7 +304,7 @@ function toFileEntry(policy, raw) {
     flags: {
       editable,
       binaryHint,
-      secretBearing: isIniName(raw.name),
+      secretBearing: isSecretBearingName(raw.name),
       executable: isExecutableName(raw.name),
       worldState: raw.realRel ? policy.rules.isWorldState(raw.realRel) : false,
       unsupportedName,
@@ -425,6 +459,14 @@ function acquireTransferSlot(userId) {
 export function _resetTransferSlotsForTests() {
   transfersGlobal = 0;
   transfersPerUser.clear();
+}
+
+// A download whose client stops reading holds its transfer slot; the route
+// cuts it off after this long without progress (an upload's idle limit).
+let downloadIdleMs = FM_LIMITS.UPLOAD_IDLE_MS;
+
+export function _setDownloadIdleMsForTests(ms) {
+  downloadIdleMs = Number.isFinite(ms) && ms > 0 ? ms : FM_LIMITS.UPLOAD_IDLE_MS;
 }
 
 async function assertFreeSpace(policy, bytes) {
@@ -646,7 +688,7 @@ export async function readText(ctx, query) {
   if (r.stat?.type !== "file") throw new FmError(ErrorCode.FM_NOT_A_FILE);
   assertReadable(r);
   if (isBinaryName(r.name) || isBinaryName(r.realRel)) throw new FmError(ErrorCode.FM_BINARY_FILE);
-  const ini = isIniName(r.name) || isIniName(r.realRel);
+  const ini = isSecretBearingName(r.name) || isSecretBearingName(r.realRel);
 
   let content;
   let etag;
@@ -737,7 +779,7 @@ export async function saveText(ctx, body, user, audit) {
   confirmations.assertConfirmed(confirm);
 
   let text = content.replace(/\r\n/g, "\n");
-  if (isIniName(r.name) && !r.isNew) {
+  if ((isSecretBearingName(r.name) || isSecretBearingName(r.realRel)) && !r.isNew) {
     const live = await policy.backend.readBytes(r, { maxBytes: FM_LIMITS.TEXT_EDIT_MAX_BYTES });
     const liveText = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(live.buffer);
     text = reconcileIniText(text, liveText.replace(/^\uFEFF/, ""));
@@ -960,9 +1002,16 @@ export async function deletePreview(ctx, body, user) {
   const resolvedItems = [];
   const confirmations = new ConfirmationSet();
   for (const p of paths) {
-    const { r } = await resolveIn(ctx, body.root, p, "delete");
-    assertNotRoot(r);
-    assertUnprotected(r);
+    let r;
+    try {
+      ({ r } = await resolveIn(ctx, body.root, p, "delete"));
+      assertNotRoot(r);
+      assertUnprotected(r);
+    } catch (err) {
+      // The denial's audit row names the path that was refused.
+      if (err instanceof FmError) err.auditPaths = [p];
+      throw err;
+    }
     const item = {
       path: r.rel,
       type: r.stat.type,
@@ -1377,17 +1426,29 @@ export async function receiveUpload(ctx, req, user, audit) {
   await assertFreeSpace(policy, declared);
   const release = acquireTransferSlot(userIdOf(user));
   try {
-    // Missing folders, one level at a time; each one was checked above.
+    // Missing folders, one level at a time; each one was checked above. A
+    // folder upload sends two files at a time, so another upload of the
+    // same batch may have just made the level: that's fine as long as it is
+    // now an unprotected folder.
     let dir = check.dir;
     for (const level of check.missing) {
-      await policy.backend.mkdir(dir, level);
+      try {
+        await policy.backend.mkdir(dir, level);
+      } catch (err) {
+        if (!(err instanceof FmError) || err.code !== ErrorCode.FM_EXISTS) throw err;
+        const { r: made } = await resolveIn(ctx, rootId, joinRel(dir.rel, level), "list");
+        const direct = foldRel(made.realRel) === foldRel(joinRel(dir.realRel, level));
+        if (made.stat?.type !== "dir" || !direct) throw err;
+        assertUnprotected(made);
+      }
       ({ r: dir } = await resolveIn(ctx, rootId, joinRel(dir.rel, level), "list"));
+      assertUnprotected(dir);
     }
     let source = req;
     let size = declared;
     // A masked .ini downloaded earlier and uploaded back over the live file
     // gets its secrets put back, like a save from the editor.
-    if (check.willReplace && isIniName(name) && declared <= FM_LIMITS.TEXT_EDIT_MAX_BYTES) {
+    if (check.willReplace && isSecretBearingName(name) && declared <= FM_LIMITS.TEXT_EDIT_MAX_BYTES) {
       const buffer = await readBodyLimited(req, declared);
       const text = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(buffer);
       if (hasMaskedSecretLines(text)) {
@@ -1442,7 +1503,7 @@ export async function openDownload(ctx, query, user, audit) {
   try {
     const etag = (await policy.backend.stat(r)).etag;
     const name = path.posix.basename(r.rel) || path.posix.basename(r.realRel);
-    if (isIniName(name) || isIniName(r.realRel)) {
+    if (isSecretBearingName(name) || isSecretBearingName(r.realRel)) {
       const read = await policy.backend.readBytes(r, { maxBytes: INI_DOWNLOAD_MAX_BYTES });
       if (read.truncated) {
         throw new FmError(ErrorCode.FM_DOWNLOAD_TOO_LARGE, undefined, { limit: INI_DOWNLOAD_MAX_BYTES });
@@ -1453,7 +1514,16 @@ export async function openDownload(ctx, query, user, audit) {
     }
     const handle = await policy.backend.openReadStream(r);
     audit.bytes = handle.size;
-    return { name, etag, size: handle.size, stream: handle.stream, close: handle.close, masked: false, release };
+    return {
+      name,
+      etag,
+      size: handle.size,
+      stream: handle.stream,
+      close: handle.close,
+      masked: false,
+      release,
+      idleMs: downloadIdleMs,
+    };
   } catch (err) {
     release();
     throw err;
@@ -1592,7 +1662,7 @@ export async function readTrashText(ctx, query) {
   const decoded = decodeForEdit(read.buffer);
   let content = decoded.text;
   let masked = false;
-  if (isIniName(name)) {
+  if (isSecretBearingName(name)) {
     const result = maskIniText(content);
     content = result.text;
     masked = result.masked;

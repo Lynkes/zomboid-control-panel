@@ -302,6 +302,33 @@ describe("root rules", () => {
     expect(found.results).toEqual([]);
   });
 
+  it("a sealed folder reached through another name (a link, an 8.3 alias) can't be probed either", async () => {
+    const { dataDir } = getDataPaths();
+    write(path.join(dataDir, "jwt.secret"), "SECRET");
+    const around = fs.realpathSync.native(path.dirname(dataDir));
+    dbState.servers = [{ ...tree.profile, zomboidDataPath: around, serverConfigPath: "" }];
+    invalidateRootCache();
+    const aliases = [];
+    // A folder link inside the root that points at the sealed folder.
+    linkDir(dataDir, path.join(around, "alias-to-panel-data"));
+    aliases.push("alias-to-panel-data");
+    // The Windows 8.3 short name, where the volume keeps them.
+    if (IS_WIN) {
+      const long = path.basename(dataDir);
+      const short = `${long.replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase()}~1`;
+      if (short !== long && fs.existsSync(path.join(around, short, "jwt.secret"))) aliases.push(short);
+    }
+    const c = await ctx();
+    for (const alias of aliases) {
+      for (const probe of [`${alias}/jwt.secret`, `${alias}/does-not-exist`, `${alias}/a/b/c`]) {
+        expect(await codeOf(service.statPath(c, { root: "data", path: probe })), probe).toBe("FM_PATH_PROTECTED");
+        expect(await codeOf(service.readText(c, { root: "data", path: probe })), probe).toBe("FM_PATH_PROTECTED");
+      }
+    }
+    // A missing path outside any sealed folder is still just missing.
+    expect(await codeOf(service.statPath(c, { root: "data", path: "nothing/here" }))).toBe("FM_NOT_FOUND");
+  });
+
   it("a root inside the panel's own folders is refused as overlapsPanel", async () => {
     const { dataDir } = getDataPaths();
     const inner = path.join(dataDir, "inner-root");
