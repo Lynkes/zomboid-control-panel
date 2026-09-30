@@ -103,7 +103,7 @@
     },
     "linkOutside": "Dieser Link zeigt auf einen Ort außerhalb dieses Ordners und kann hier nicht geöffnet werden.",
     "linkBroken": "Dieser Link zeigt ins Leere.",
-    "unsupportedName": "Dieser Name kann hier nicht sicher verarbeitet werden. Benenne ihn per SFTP oder SSH um.",
+    "unsupportedName": "Dieser Name kann hier nicht sicher verarbeitet werden. Ändere ihn per SFTP oder SSH.",
     "selected_one": "{{count}} ausgewählt",
     "selected_other": "{{count}} ausgewählt",
     "empty": {

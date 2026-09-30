@@ -325,7 +325,7 @@
       "edited": "Version antérieure",
       "replaced": "Remplacé par un import"
     },
-    "expires": "Supprimé définitivement le {{date}}",
+    "expires": "Suppression définitive le {{date}}",
     "empty": "La corbeille est vide.",
     "restored": "Restauré dans {{path}}",
     "undoToast_one": "{{count}} élément déplacé vers la corbeille.",

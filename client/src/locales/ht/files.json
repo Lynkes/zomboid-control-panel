@@ -316,7 +316,7 @@
       "edited": "Ansyen vèsyon",
       "replaced": "Yon lòt fichye ranplase l"
     },
-    "expires": "Ap retire {{date}}",
+    "expires": "Y ap retire l {{date}}",
     "empty": "Poubèl la vid.",
     "restored": "Retabli nan {{path}}",
     "undoToast_one": "{{count}} eleman deplase nan poubèl la.",

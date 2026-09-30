@@ -325,7 +325,7 @@
       "edited": "Versão anterior",
       "replaced": "Substituído por envio"
     },
-    "expires": "Removido em {{date}}",
+    "expires": "Será removido em {{date}}",
     "empty": "A lixeira está vazia.",
     "restored": "Restaurado em {{path}}",
     "undoToast_one": "{{count}} item movido para a lixeira.",
