@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The old "Manage server files" permission is now called "Edit server config files"; the file manager has its own "Manage server files" permission.
 - The Vitals tab is now part of the Character tab, which needs only "View player info".
 
+### Fixed
+
+- World Map's item and vehicle pickers always fit the window (Custom item drop's item list was cut off).
+
 ## [1.4.0] - 2026-09-28
 
 ### Added

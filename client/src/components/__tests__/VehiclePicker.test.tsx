@@ -50,7 +50,7 @@ describe('VehiclePicker', () => {
   it('finds a vehicle by an accented, non-ASCII search term', async () => {
     await renderPicker()
     fireEvent.click(screen.getByRole('combobox', { name: 'Select vehicle' }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Filter vehicles' }), { target: { value: 'générique' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter vehicles' }), { target: { value: 'générique' } })
 
     expect(await screen.findByText('Générique Berline')).toBeInTheDocument()
     expect(screen.queryByText('Ambulance')).not.toBeInTheDocument()
@@ -73,7 +73,7 @@ describe('VehiclePicker', () => {
   it('shows a real "no results" state for a search with no matches', async () => {
     await renderPicker()
     fireEvent.click(screen.getByRole('combobox', { name: 'Select vehicle' }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Filter vehicles' }), { target: { value: 'zzzznonexistent' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter vehicles' }), { target: { value: 'zzzznonexistent' } })
 
     expect(await screen.findByText(/No vehicles match/)).toBeInTheDocument()
   })

@@ -51,9 +51,10 @@ const DialogContent = React.forwardRef<
       // dvh (not vh) is the viewport a phone actually shows with its
       // toolbars; Vite's build target (baseline-widely-available) supports
       // it everywhere, and a call site's own max-h-* still replaces it via
-      // tailwind-merge. A dialog with a non-portaled popup that must spill
-      // past its box (WorldMap's Spawn Vehicle -> VehiclePicker) passes
-      // overflow-visible to opt out.
+      // tailwind-merge. A popup that must reach past the dialog's box
+      // belongs in ui/popover.tsx, which portals it out of this scroll box
+      // (ItemPicker and VehiclePicker do); overflow-visible still opts a
+      // dialog out, but no dialog needs it now.
       //
       // The has-[...] pair fires only when a <DialogBody> is a direct
       // child: the dialog becomes a flex column so that body alone shrinks

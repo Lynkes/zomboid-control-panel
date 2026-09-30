@@ -63,6 +63,7 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
+  DialogBody,
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
@@ -4156,14 +4157,7 @@ export default function WorldMap() {
 
       {/* Spawn Vehicle Dialog */}
       <Dialog open={!!spawnDialog} onOpenChange={(open) => { if (!open) setSpawnDialog(null) }}>
-        {/* overflow-visible opts out of DialogContent's default
-            overflow-y-auto: VehiclePicker's dropdown is a plain absolute
-            panel (~400px) in a ~200px dialog, so a scrolling DialogContent
-            would clip the vehicle list at the dialog's edge -- and when the
-            panel opens upward, the part above the dialog can't even be
-            scrolled to. This dialog is far shorter than any window the map
-            is usable in, so it never needs to scroll itself. */}
-        <DialogContent className="sm:max-w-md overflow-visible">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Car className="w-5 h-5" />
@@ -4222,7 +4216,10 @@ export default function WorldMap() {
 
       {/* Custom Drop Dialog — drops one or more items at the right-clicked coords */}
       <Dialog open={!!dropDialog} onOpenChange={(open) => { if (!open) setDropDialog(null) }}>
-        <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
+        {/* DialogContent's own viewport bound plus DialogBody: only the
+            middle scrolls, so the title and Cancel/Drop stay on screen at
+            any window height. */}
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Package className="w-5 h-5 text-warning" />
@@ -4238,7 +4235,7 @@ export default function WorldMap() {
               })()}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <DialogBody className="space-y-4">
             {/* Target info */}
             <div className="flex items-center justify-between gap-2 rounded-md border border-border/50 bg-muted/20 px-3 py-2 text-xs font-mono tabular-nums">
               <div className="flex items-center gap-2 text-muted-foreground">
@@ -4307,17 +4304,9 @@ export default function WorldMap() {
             </div>
 
             {/* Items list -- bounded so up to 50 rows (dropItems.length >= 50
-                below) can't push the dialog past a short viewport with no
-                way back to the footer buttons. ItemPicker's own dropdown is
-                NOT a portal (client/src/components/ItemPicker.tsx renders it
-                as a plain `position: absolute` sibling inside this same
-                container), so it IS still clipped by this scroll box for a
-                row near its edge -- a real, accepted trade-off: the
-                dialog-can't-scroll-to-its-own-footer bug this closes is
-                worse than an autocomplete popup occasionally needing a
-                scroll-into-view first, and fixing the clipping properly
-                means making ItemPicker itself portal/float-position its
-                dropdown, out of scope here. */}
+                below) don't push the options and the package controls far
+                below the fold. ItemPicker's dropdown is portaled to <body>
+                (ui/popover.tsx), so this scroll box doesn't clip it. */}
             <div className="max-h-72 overflow-y-auto rounded-md border border-border/50 bg-muted/10 divide-y divide-border/30">
               {dropItems.length === 0 && (
                 <div className="px-3 py-4 text-center text-xs text-muted-foreground/60 italic">
@@ -4508,7 +4497,7 @@ export default function WorldMap() {
                 </div>
               )}
             </div>
-          </div>
+          </DialogBody>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDropDialog(null)}>{t('dropDialog.cancel')}</Button>
             <DisabledReason reason={!canRunBridgeCommand ? t('permissions.noBridgeCommand') : null}>
