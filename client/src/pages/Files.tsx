@@ -78,6 +78,7 @@ import {
   splitExtension,
   unavailableText,
   useIsDesktop,
+  withoutNested,
   writeLastFolder,
 } from '@/components/files/filesUi'
 import {
@@ -699,10 +700,14 @@ export default function Files() {
     await refreshAfterChange()
   }, [profile, refreshAfterChange, root, runConfirmed, t, toast])
 
-  const deleteEntries = useCallback(async (entries: FileEntry[], permanentRequested: boolean) => {
-    if (!profile || !root || entries.length === 0) return
+  const deleteEntries = useCallback(async (selection: FileEntry[], permanentRequested: boolean) => {
+    if (!profile || !root || selection.length === 0) return
     // The server previews (and deletes) at most PATHS_PER_REQUEST paths at a
     // time: a bigger selection is previewed in parts and confirmed once.
+    // Whatever a selected folder takes along goes first (search results can
+    // hold both), or a part could name what an earlier one already deleted,
+    // and its totals would count it twice.
+    const entries = withoutNested(selection, (entry) => entry.path, (entry) => entry.type === 'dir')
     const parts: DeletePreviewResponse[] = []
     try {
       for (const part of inChunks(entries, PATHS_PER_REQUEST)) {
@@ -803,19 +808,28 @@ export default function Files() {
       } else {
         const trashed: Array<{ path: string; trashId: string }> = []
         const failed: Array<{ path: string; code: string; params?: Record<string, unknown> }> = []
+        // A part that fails as a whole (the per-minute delete limit, a
+        // change since the check) stops the rest, but what earlier parts
+        // already moved to Trash still gets its Undo.
+        let partError: unknown = null
         for (const part of parts) {
-          const result = await runConfirmed((tokens) => {
-            accepted = tokens
-            return filesApi.deleteToTrash(profile.id, {
-              root: root.id,
-              previewId: part.previewId,
-              mode: 'trash',
-              confirm: tokens,
-            })
-          }, { initial: accepted })
-          if (!result.ok) break
-          trashed.push(...result.value.trashed)
-          failed.push(...result.value.failed)
+          try {
+            const result = await runConfirmed((tokens) => {
+              accepted = tokens
+              return filesApi.deleteToTrash(profile.id, {
+                root: root.id,
+                previewId: part.previewId,
+                mode: 'trash',
+                confirm: tokens,
+              })
+            }, { initial: accepted })
+            if (!result.ok) break
+            trashed.push(...result.value.trashed)
+            failed.push(...result.value.failed)
+          } catch (error) {
+            partError = error
+            break
+          }
         }
         setSelected(new Set())
         if (trashed.length > 0) {
@@ -828,6 +842,7 @@ export default function Files() {
             ),
           })
         }
+        if (partError) toast({ variant: 'destructive', title: describeFilesError(partError) })
         if (failed.length > 0) {
           toast({ variant: 'destructive', title: describeResultError(failed[0]), description: failed.length > 1 ? `+${failed.length - 1}` : undefined })
         }
@@ -894,11 +909,14 @@ export default function Files() {
   const submitMove = useCallback(async (destDir: string) => {
     if (!profile || !root || !movePaths) return
     // At most PATHS_PER_REQUEST paths per request; one confirmation covers
-    // the parts after the first.
+    // the parts after the first. Split in parts, a path inside a selected
+    // folder would be moved along with it by one part and reported gone by
+    // a later one, so it isn't sent (only a folder can hold another path).
+    const selection = movePaths.length > PATHS_PER_REQUEST ? withoutNested(movePaths, (path) => path, () => true) : movePaths
     const failed: Array<{ path: string; code: string; params?: Record<string, unknown> }> = []
     let accepted: ConfirmToken[] = []
     let movedSome = false
-    for (const paths of inChunks(movePaths, PATHS_PER_REQUEST)) {
+    for (const paths of inChunks(selection, PATHS_PER_REQUEST)) {
       const result = await runConfirmed((tokens) => {
         accepted = tokens
         return filesApi.move(profile.id, { root: root.id, paths, destDir, confirm: tokens })

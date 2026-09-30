@@ -5,7 +5,7 @@ import { ApiError } from '@/lib/api'
 import { isolateLtrForRtl } from '@/lib/paramTranslation'
 import { DropOverlay } from '../DropOverlay'
 import { RecentChanges } from '../RecentChanges'
-import { commonFolder, describeFilesError, describeResultError, unavailableText } from '../filesUi'
+import { commonFolder, describeFilesError, describeResultError, unavailableText, withoutNested } from '../filesUi'
 
 // How the file manager words what the server sends: byte and count limits,
 // the drop overlay's folder in a right-to-left language, the rows of
@@ -99,5 +99,19 @@ describe('commonFolder', () => {
     expect(commonFolder(['Server/x/a.ini', 'Server/y/b.ini'])).toBe('Server')
     expect(commonFolder(['a.txt', 'Server/b.ini'])).toBe('')
     expect(commonFolder([])).toBe('')
+  })
+})
+
+describe('withoutNested', () => {
+  const dirs = new Set(['mods/A', 'Server'])
+  const pick = (paths: string[]) => withoutNested(paths, (path) => path, (path) => dirs.has(path))
+
+  it('drops repeats and what a selected folder takes along, keeping order', () => {
+    expect(pick(['mods/A', 'logs/a.txt', 'mods/A/x.lua', 'mods/A/deep/y.lua', 'logs/a.txt'])).toEqual(['mods/A', 'logs/a.txt'])
+  })
+
+  it('keeps a sibling whose name only starts the same, and what sits under a file of that name', () => {
+    expect(pick(['mods/A', 'mods/AB/x.lua', 'mods/A.txt'])).toEqual(['mods/A', 'mods/AB/x.lua', 'mods/A.txt'])
+    expect(withoutNested(['a', 'a/b'], (path) => path, () => false)).toEqual(['a', 'a/b'])
   })
 })

@@ -132,6 +132,98 @@ describe('Files: a selection bigger than one request', () => {
   })
 })
 
+describe('Files: search results over one request that hold a folder and something inside it', () => {
+  // Breadth first: the folder lands in the first part, a file inside it in
+  // the second. Deleting the first part takes the file along; the real
+  // server then refuses the whole second part (its file is gone), so the
+  // file must not be sent at all.
+  const INSIDE = 'mods/A/mod_inside.lua'
+  const results = [
+    makeEntry('mods/A', 'dir'),
+    ...Array.from({ length: 248 }, (_, i) => makeEntry(`logs/mod_${String(i).padStart(3, '0')}.txt`)),
+    makeEntry(INSIDE),
+  ]
+
+  async function selectAllResults() {
+    server.listings.set('data|', makeListing([makeEntry('mods', 'dir'), makeEntry('logs', 'dir')]))
+    server.on(({ method, path }) => (method === 'GET' && path.endsWith('/search') ? json(200, { results, truncated: false, scanned: 400 }) : undefined))
+    renderFiles('/files?server=p1&root=data&path=')
+    await screen.findByRole('button', { name: 'mods' })
+    const box = screen.getByRole('textbox', { name: enFiles.list.filterPlaceholder })
+    fireEvent.change(box, { target: { value: 'mod' } })
+    fireEvent.submit(box.closest('form')!)
+    await screen.findByRole('checkbox', { name: 'Select mod_000.txt' })
+    fireEvent.click(screen.getByRole('checkbox', { name: enFiles.list.selectAll }))
+    return screen.findByRole('region', { name: `${results.length} selected` })
+  }
+
+  // A fake that answers like the real one: a delete trashes what its preview named.
+  function trashByPreview(options?: { refusePart?: number }) {
+    const previews = new Map<string, string[]>()
+    server.on(({ method, path, body }) => {
+      if (method === 'POST' && path.endsWith('/delete/preview')) {
+        const previewId = String(previews.size + 1).repeat(32)
+        previews.set(previewId, body.paths)
+        return json(200, { ...previewOf(body.paths), previewId })
+      }
+      if (method === 'POST' && path.endsWith('/delete')) {
+        if (options?.refusePart && body.previewId === String(options.refusePart).repeat(32)) return fmError(429, 'FM_RATE_LIMITED')
+        const paths = previews.get(body.previewId) ?? []
+        return json(200, { trashed: paths.map((p, i) => ({ path: p, trashId: `20260930T120000Z-${String(i).padStart(8, '0')}` })), failed: [] })
+      }
+      return undefined
+    })
+  }
+
+  it('Delete leaves out what the folder takes along, counts it once, and trashes every part', async () => {
+    trashByPreview()
+    const bar = await selectAllResults()
+    fireEvent.click(within(bar).getByRole('button', { name: enFiles.actions.delete }))
+    const dialog = await screen.findByRole('alertdialog')
+    const previewed = server.callsTo('POST', '/delete/preview').flatMap((call) => call.body.paths as string[])
+    expect(previewed).toContain('mods/A')
+    expect(previewed).not.toContain(INSIDE)
+    expect(previewed).toHaveLength(results.length - 1)
+    expect(within(dialog).getByText(new RegExp(`Move ${results.length - 1} items`))).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: enFiles.actions.delete }))
+    await waitFor(() => expect(server.callsTo('POST', '/delete')).toHaveLength(2))
+    const undoToast = (await screen.findByText(`Moved ${results.length - 1} items to Trash.`)).closest('li')!
+    expect(within(undoToast).getByRole('button', { name: enFiles.trash.undo })).toBeInTheDocument()
+  })
+
+  it('a later part refused as a whole still leaves Undo for what earlier parts moved to Trash', async () => {
+    trashByPreview({ refusePart: 2 })
+    const bar = await selectAllResults()
+    fireEvent.click(within(bar).getByRole('button', { name: enFiles.actions.delete }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: enFiles.actions.delete }))
+    await waitFor(() => expect(server.callsTo('POST', '/delete')).toHaveLength(2))
+    const undoToast = (await screen.findByText(`Moved ${FM_LIMITS.PATHS_PER_REQUEST} items to Trash.`)).closest('li')!
+    expect(within(undoToast).getByRole('button', { name: enFiles.trash.undo })).toBeInTheDocument()
+    expect(await screen.findByText(/Too many file actions in a short time/)).toBeInTheDocument()
+  })
+
+  it('Move in parts leaves out what the folder takes along', async () => {
+    server.on(({ method, path, body }) => (method === 'POST' && path.endsWith('/move')
+      ? json(200, { moved: body.paths.map((p: string) => ({ from: p, to: p })), failed: [] })
+      : undefined))
+    server.listings.set('data|mods', makeListing([makeEntry('mods/A', 'dir')]))
+    server.listings.set('data|logs', makeListing([]))
+    const bar = await selectAllResults()
+    fireEvent.click(within(bar).getByRole('button', { name: enFiles.actions.move }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: /logs/ }))
+    const moveButton = () => within(dialog).getAllByRole('button', { name: enFiles.actions.move }).at(-1) as HTMLButtonElement
+    await waitFor(() => expect(moveButton().disabled).toBe(false))
+    fireEvent.click(moveButton())
+    await waitFor(() => expect(server.callsTo('POST', '/move')).toHaveLength(2))
+    const sent = server.callsTo('POST', '/move').flatMap((call) => call.body.paths as string[])
+    expect(sent).toContain('mods/A')
+    expect(sent).not.toContain(INSIDE)
+    expect(sent).toHaveLength(results.length - 1)
+  })
+})
+
 describe('Files: deleting a folder that holds a protected area', () => {
   it('says why instead of offering a Delete the server always refuses', async () => {
     server.listings.set('data|', makeListing([makeEntry('Lua', 'dir'), makeEntry('Server', 'dir')]))

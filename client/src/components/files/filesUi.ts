@@ -184,6 +184,28 @@ export function unavailableText(reason: RootUnavailableReason, detail?: string):
   return i18n.t(code, { ns: 'errors', detail: base })
 }
 
+/**
+ * `items` without repeats and without anything inside another item that
+ * `holds` things (a folder, which a delete or move takes along with what is
+ * in it). Search results can hold a folder and a file inside it. The server
+ * does the same within one request, but a selection sent in parts needs it
+ * first: otherwise a later part names something an earlier part already
+ * took along, and fails whole.
+ */
+export function withoutNested<T>(items: T[], pathOf: (item: T) => string, holds: (item: T) => boolean): T[] {
+  const holders = new Set(items.filter(holds).map(pathOf))
+  const seen = new Set<string>()
+  return items.filter((item) => {
+    const path = pathOf(item)
+    if (seen.has(path)) return false
+    seen.add(path)
+    for (let cut = path.lastIndexOf('/'); cut > 0; cut = path.lastIndexOf('/', cut - 1)) {
+      if (holders.has(path.slice(0, cut))) return false
+    }
+    return true
+  })
+}
+
 /** The deepest folder every path sits in ("" is the root). */
 export function commonFolder(paths: string[]): string {
   if (paths.length === 0) return ''
