@@ -1,0 +1,242 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import http from "http";
+import fs from "fs";
+import path from "path";
+import { PassThrough } from "stream";
+import express from "express";
+import unzipper from "unzipper";
+import { linkDir, makeServerTree, makeTempDir, removeDir, write } from "./helpers/fileManagerFixtures.js";
+
+// "Download as .zip" (spec §A6.4): every limit is checked before the first
+// byte, links, special files, protected areas and unreadable files are
+// skipped and listed in _skipped.txt, and the archive reads back. The
+// additive StreamingZipWriter options keep backups unchanged
+// (streamingZip.test.js covers that path).
+
+const dbState = vi.hoisted(() => ({ servers: [], settings: {} }));
+
+vi.mock("../database/init.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    getRoleByName: async (name) => (name === "admin" ? { name, capabilities: ["files.manage"] } : null),
+    getServer: async (id) => dbState.servers.find((s) => String(s.id) === String(id)) || null,
+    getServers: async () => dbState.servers,
+    getAllSettings: async () => dbState.settings,
+  };
+});
+
+const { default: filesRoutes } = await import("../routes/files.js");
+const { planZip, acquireZipSlot, zipFileName, _resetZipSlotsForTests } = await import("../services/fileManagerZip.js");
+const { invalidateRootCache } = await import("../services/fileManagerRoots.js");
+const { StreamingZipWriter } = await import("../utils/streamingZip.js");
+const { getDataPaths } = await import("../utils/paths.js");
+const { FM_LIMITS, FmError } = await import("../services/fileManagerContract.js");
+
+let server;
+let baseUrl;
+let base;
+let tree;
+
+async function zip(paths, root = "data") {
+  const response = await fetch(`${baseUrl}/api/files/profiles/p1/zip`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-test-role": "admin" },
+    body: JSON.stringify({ root, paths }),
+  });
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return { status: response.status, headers: response.headers, buffer };
+}
+
+function fakeBackend(entries, kind = "local") {
+  return {
+    kind,
+    async *walk() {
+      for (const entry of entries) yield entry;
+    },
+  };
+}
+
+const dirItem = { rel: "big", realRel: "big", name: "big", rootId: "data", stat: { type: "dir", mtimeMs: 0 } };
+
+beforeAll(async () => {
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    req.user = { userId: "u1", username: "kate", role: req.get("x-test-role") };
+    next();
+  });
+  app.set("serverManager", { getServerProcessDetails: async () => ({ running: false, scanFailed: false }) });
+  app.use("/api/files", filesRoutes);
+  server = http.createServer(app);
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  baseUrl = `http://127.0.0.1:${server.address().port}`;
+});
+
+afterAll(async () => {
+  await new Promise((resolve) => server.close(resolve));
+});
+
+beforeEach(() => {
+  base = makeTempDir();
+  tree = makeServerTree(base);
+  dbState.servers = [tree.profile];
+  dbState.settings = {};
+  invalidateRootCache();
+  _resetZipSlotsForTests();
+});
+
+afterEach(() => {
+  removeDir(base);
+});
+
+describe("limits, checked before the first byte", () => {
+  async function reasonOf(promise) {
+    try {
+      await promise;
+      return null;
+    } catch (err) {
+      if (!(err instanceof FmError)) throw err;
+      expect(err.code).toBe("FM_ZIP_TOO_LARGE");
+      return err.params;
+    }
+  }
+
+  it("entries", async () => {
+    const many = Array.from({ length: FM_LIMITS.ZIP_MAX_ENTRIES.local + 1 }, (_, i) => ({
+      rel: `big/f${i}`, realRel: `big/f${i}`, type: "file", size: 1, depth: 1,
+    }));
+    expect(await reasonOf(planZip({ backend: fakeBackend(many), items: [dirItem], classify: () => null }))).toEqual({
+      reason: "entries",
+      limit: FM_LIMITS.ZIP_MAX_ENTRIES.local,
+    });
+    const sftpLimit = FM_LIMITS.ZIP_MAX_ENTRIES.sftp;
+    expect(
+      await reasonOf(planZip({ backend: fakeBackend(many.slice(0, sftpLimit + 1), "sftp"), items: [dirItem], classify: () => null })),
+    ).toEqual({ reason: "entries", limit: sftpLimit });
+  });
+
+  it("bytes", async () => {
+    const huge = [{ rel: "big/a", realRel: "big/a", type: "file", size: FM_LIMITS.ZIP_MAX_BYTES.local + 1, depth: 1 }];
+    expect(await reasonOf(planZip({ backend: fakeBackend(huge), items: [dirItem], classify: () => null }))).toEqual({
+      reason: "bytes",
+      limit: FM_LIMITS.ZIP_MAX_BYTES.local,
+    });
+  });
+
+  it("depth", async () => {
+    const deep = [{ rel: "big/x", realRel: "big/x", type: "dir", size: 0, depth: FM_LIMITS.ZIP_MAX_DEPTH + 1 }];
+    expect(await reasonOf(planZip({ backend: fakeBackend(deep), items: [dirItem], classify: () => null }))).toEqual({
+      reason: "depth",
+      limit: FM_LIMITS.ZIP_MAX_DEPTH,
+    });
+  });
+
+  it("time", async () => {
+    let t = 0;
+    const slow = Array.from({ length: 3 }, (_, i) => ({ rel: `big/${i}`, realRel: `big/${i}`, type: "file", size: 1, depth: 1 }));
+    const params = await reasonOf(
+      planZip({ backend: fakeBackend(slow), items: [dirItem], classify: () => null, now: () => (t += 3000) }),
+    );
+    expect(params.reason).toBe("time");
+  });
+
+  it("an oversized selection is a JSON 413, not a cut-off download", async () => {
+    fs.writeFileSync(path.join(tree.data, "sparse.bin"), "");
+    fs.truncateSync(path.join(tree.data, "sparse.bin"), FM_LIMITS.ZIP_MAX_BYTES.local + 1);
+    const res = await zip(["sparse.bin"]);
+    expect(res.status).toBe(413);
+    expect(JSON.parse(res.buffer.toString("utf8"))).toMatchObject({ code: "FM_ZIP_TOO_LARGE", params: { reason: "bytes" } });
+  });
+
+  it("slots: one zip per user, two across the panel", () => {
+    const release = acquireZipSlot("u1");
+    expect(() => acquireZipSlot("u1")).toThrow(FmError);
+    const other = acquireZipSlot("u2");
+    expect(() => acquireZipSlot("u3")).toThrow(FmError);
+    release();
+    other();
+    acquireZipSlot("u3")();
+  });
+
+  it("names the file from the server, root and selection", () => {
+    const name = zipFileName("My Server!", "data", [{ rel: "Saves/Multiplayer" }], new Date(2026, 8, 29, 12, 5));
+    expect(name).toBe("My_Server_-data-Multiplayer-20260929-1205.zip");
+    expect(zipFileName("s", "install", [{ rel: "a" }, { rel: "b" }], new Date(2026, 0, 2, 3, 4))).toBe("s-install-install-20260102-0304.zip");
+  });
+});
+
+describe("contents", () => {
+  it("reads back, masks .ini, and lists what it skipped", async () => {
+    linkDir(tree.outside, path.join(tree.data, "Server", "escape"));
+    const { dataDir } = getDataPaths();
+    const secret = write(path.join(dataDir, "jwt.secret"), "JWT-SECRET-VALUE");
+    fs.linkSync(secret, path.join(tree.data, "Server", "alias.txt"));
+    write(path.join(tree.data, "Server", "nested", "deep.txt"), "deep");
+    fs.mkdirSync(path.join(tree.data, "Server", "empty"));
+
+    const res = await zip(["Server", "Logs/server.txt"]);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-disposition")).toMatch(/attachment; filename="servertest-data-data-\d{8}-\d{4}\.zip"/);
+    const archive = await unzipper.Open.buffer(res.buffer);
+    const names = archive.files.map((f) => f.path).sort();
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "Server/",
+        "Server/empty/",
+        "Server/nested/",
+        "Server/nested/deep.txt",
+        "Server/servertest.ini",
+        "Server/servertest_SandboxVars.lua",
+        "server.txt",
+        "_skipped.txt",
+      ]),
+    );
+    expect(names).not.toContain("Server/alias.txt");
+    expect(names.some((n) => n.startsWith("Server/escape"))).toBe(false);
+    const read = async (name) => (await archive.files.find((f) => f.path === name).buffer()).toString("utf8");
+    expect(await read("Server/nested/deep.txt")).toBe("deep");
+    expect(await read("server.txt")).toBe("log line\n");
+    expect(await read("Server/servertest.ini")).not.toContain("hunter2secret");
+    const skipped = await read("_skipped.txt");
+    expect(skipped).toContain("Server/escape: link");
+    expect(skipped).toContain("Server/alias.txt: protected");
+    expect(res.buffer.includes(Buffer.from("JWT-SECRET-VALUE"))).toBe(false);
+    expect(res.buffer.includes(Buffer.from("CANARY-OUTSIDE-ROOT"))).toBe(false);
+  });
+
+  it("skips the list-only backups folder inside a bigger selection", async () => {
+    const res = await zip([""]);
+    expect(res.status).toBe(200);
+    const archive = await unzipper.Open.buffer(res.buffer);
+    const names = archive.files.map((f) => f.path);
+    expect(names.some((n) => n.includes("world-1.zip"))).toBe(false);
+    const skipped = (await archive.files.find((f) => f.path === "_skipped.txt").buffer()).toString("utf8");
+    expect(skipped).toMatch(/backups: protected/);
+  });
+
+  it("a protected selection itself is refused before anything is sent", async () => {
+    const res = await zip(["backups"]);
+    expect(res.status).toBe(403);
+    expect(JSON.parse(res.buffer.toString("utf8")).code).toBe("FM_PATH_PROTECTED");
+  });
+});
+
+describe("StreamingZipWriter's additive options", () => {
+  it("writes into a caller's stream with its central directory in tempDir", async () => {
+    const tempDir = makeTempDir("zcp-zip-tmp-");
+    try {
+      const out = new PassThrough();
+      const chunks = [];
+      out.on("data", (c) => chunks.push(c));
+      const writer = new StreamingZipWriter(null, { outputStream: out, tempDir });
+      await writer.addBuffer(Buffer.from("hello"), "a/hello.txt");
+      await writer.finalize();
+      expect(fs.readdirSync(tempDir)).toEqual([]);
+      const archive = await unzipper.Open.buffer(Buffer.concat(chunks));
+      expect((await archive.files[0].buffer()).toString()).toBe("hello");
+    } finally {
+      removeDir(tempDir);
+    }
+  });
+});
