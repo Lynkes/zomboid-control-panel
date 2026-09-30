@@ -321,6 +321,20 @@ describe("big folders over a slow link", () => {
   }, 60000);
 });
 
+describe("a READDIR reply holding only '.' and '..'", () => {
+  it("doesn't end the listing (ssh2 drops those two, leaving the reply empty)", async () => {
+    for (let i = 0; i < 5; i++) srv.fs.writeFile(`${ROOT}/d/f${i}.txt`, "x");
+    srv.state.readdirBatch = 2;
+    const listed = await backend.list(await resolve("d", "list"), {});
+    expect(listed.entries.map((e) => e.name)).toEqual(["f0.txt", "f1.txt", "f2.txt", "f3.txt", "f4.txt"]);
+    const walked = [];
+    for await (const entry of backend.walk(await resolve("d", "list"), {})) walked.push(entry.name);
+    expect(walked).toHaveLength(5);
+    await backend.deletePermanent(await resolve("d", "delete"), () => {});
+    expect(srv.fs.node(`${ROOT}/d`)).toBeNull();
+  });
+});
+
 describe("search", () => {
   it("walks breadth first: shallow folders before one deep subtree", async () => {
     for (let i = 0; i < 20; i++) srv.fs.writeFile(`${ROOT}/Saves/Multiplayer/servertest/map/${i}/c.bin`, "");

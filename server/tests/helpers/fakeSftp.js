@@ -723,15 +723,19 @@ export class FakeSftpClient {
           return handle;
         });
       },
-      readdir(handle, cb) {
-        later(cb, async () => {
+      // Like ssh2's: "." and ".." are dropped from each reply unless
+      // opts.full, so a reply of just those two comes back empty.
+      readdir(handle, opts, cb) {
+        const callback = typeof opts === "function" ? opts : cb;
+        const full = typeof opts === "object" && opts !== null && opts.full === true;
+        later(callback, async () => {
           const open = server.dirHandles.get(Buffer.from(handle).toString());
           if (!open || open.client !== client.id) throw statusError("readdir", 4, "<handle>");
           await server.before(client, "readdir", open.path);
           if (open.pos >= open.names.length) throw Object.assign(new Error("EOF"), { code: 1 });
           const batch = open.names.slice(open.pos, open.pos + server.options.readdirBatch);
           open.pos += batch.length;
-          return batch.map((name) => {
+          return batch.filter((name) => full || (name !== "." && name !== "..")).map((name) => {
             const node = name === "." || name === ".." ? server.nodes.get(open.path) : server.nodes.get(posix.join(open.path, name));
             const st = server.statsOf(node);
             const typeChar = node.type === "dir" ? "d" : node.type === "link" ? "l" : "-";

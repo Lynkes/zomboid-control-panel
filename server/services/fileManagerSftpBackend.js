@@ -677,6 +677,9 @@ export function createSftpBackend({ settings } = {}) {
   // shared metadata connection for everyone). OpenSSH sends about 100 names
   // per reply. The OPENDIR is a read (retried once on a dropped pooled
   // connection); the READDIRs must stay on the connection that opened it.
+  // Only EOF ends a listing: ssh2 left to itself drops "." and ".." from
+  // each reply, so a reply holding just those two came back empty and read
+  // as the end of the folder (`full` keeps them, and they are dropped here).
   async function listDir(abs) {
     const handle = await read((c) => rawCall(c, "opendir", abs));
     const out = [];
@@ -684,13 +687,15 @@ export function createSftpBackend({ settings } = {}) {
       for (;;) {
         let batch;
         try {
-          batch = await write((c) => rawCall(c, "readdir", handle));
+          batch = await write((c) => rawCall(c, "readdir", handle, { full: true }));
         } catch (err) {
           if (sftpInfo(err)?.status === SFTP_STATUS.EOF) break;
           throw err;
         }
         if (!Array.isArray(batch) || batch.length === 0) break;
-        for (const item of batch) out.push(listEntryOf(item));
+        for (const item of batch) {
+          if (item?.filename !== "." && item?.filename !== "..") out.push(listEntryOf(item));
+        }
         if (out.length > FM_LIMITS.LIST_DIR_MAX_ENTRIES + 2) break;
       }
     } finally {

@@ -537,6 +537,19 @@ describe("list and stat", () => {
     expect(out.entries.map((e) => e.name)).toEqual(["f0", "f1", "f2"]);
   });
 
+  it("reads a folder to its end even when a READDIR reply holds only '.' and '..'", async () => {
+    // ssh2 drops those two from a reply; a reply of nothing else came back
+    // empty and ended the listing, so the folder looked empty, a search
+    // skipped it and a permanent delete failed on a folder it thought empty.
+    const f = await setup({ server: { readdirBatch: 2 } });
+    for (let i = 0; i < 5; i++) f.seed.file(`d/f${i}.txt`, "x");
+    const listed = await f.backend.list(await resolveRel(f, "d", "list"), {});
+    expect(listed.entries.map((e) => e.name)).toEqual(["f0.txt", "f1.txt", "f2.txt", "f3.txt", "f4.txt"]);
+    expect((await drain(f.backend.walk(await resolveRel(f, "", "list"), {}))).map((e) => e.rel)).toHaveLength(6);
+    await f.backend.deletePermanent(await resolveRel(f, "d", "delete"), () => {});
+    expect(f.exists("d")).toBe(false);
+  });
+
   it("refuses to list a file", async () => {
     const f = await setup();
     f.seed.file("a.txt", "a");
