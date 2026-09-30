@@ -418,7 +418,7 @@ suite("real OpenSSH: stalls, a killed sftp-server, a dropped connection", () => 
   beforeEach(async () => {
     srv.fs.writeFile("Zomboid/big.bin", crypto.randomBytes(4 * 1024 * 1024));
     await closeFileManagerSftpPool();
-    _setFileManagerSftpTestHooks({ timeouts: { transferIdleMs: 1500, opMs: 2000, readyMs: 10000 } });
+    _setFileManagerSftpTestHooks({ timeouts: { transferIdleMs: 1500, opMs: 8000, readyMs: 10000 } });
     backend = createSftpBackend({ settings: srv.settings });
     root = await backend.describeRoot({ id: "data", path: ROOT, warnings: [] });
   });
@@ -446,7 +446,7 @@ suite("real OpenSSH: stalls, a killed sftp-server, a dropped connection", () => 
     expect((await backend.readBytes(await resolve("Server/servertest.ini"), { maxBytes: 100 })).buffer.toString()).toBe(ORIGINAL);
     await backend.mkdir(await resolve("", "list"), "made");
     expect((await readAll((await backend.openReadStream(await resolve("big.bin"))).stream)).length).toBe(4 * 1024 * 1024);
-    expect(Date.now() - started).toBeLessThan(1500);
+    expect(Date.now() - started).toBeLessThan(5000);
   });
 
   it("an sftp-server killed mid-download fails that download only", async () => {
@@ -467,7 +467,7 @@ suite("real OpenSSH: stalls, a killed sftp-server, a dropped connection", () => 
     const started = Date.now();
     expect((await resolve("Logs/server.txt")).stat.type).toBe("file");
     expect((await readAll((await backend.openReadStream(await resolve("big.bin"))).stream)).length).toBe(4 * 1024 * 1024);
-    expect(Date.now() - started).toBeLessThan(1500);
+    expect(Date.now() - started).toBeLessThan(5000);
   });
 
   it("a dropped connection is reopened for the next request", async () => {

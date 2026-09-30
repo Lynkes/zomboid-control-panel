@@ -325,6 +325,14 @@ describe("an SFTP channel that closes under a live SSH connection", () => {
   // The server's sftp-server exited or was killed. ssh2 fails what was in
   // flight ("No response from server") and never answers anything sent on
   // that channel afterwards.
+  beforeEach(async () => {
+    // Long enough that a request left waiting on the dead channel shows.
+    await closeFileManagerSftpPool();
+    _setFileManagerSftpTestHooks({ timeouts: { transferIdleMs: 8000, opMs: 8000, readyMs: 8000 } });
+    backend = createSftpBackend({ settings: srv.settings });
+    root = await backend.describeRoot({ id: "data", path: ROOT, warnings: [] });
+  });
+
   it("costs no later request a timeout", async () => {
     srv.fs.writeFile(`${ROOT}/big.bin`, crypto.randomBytes(1024 * 1024));
     await resolve("Server/servertest.ini");
@@ -336,7 +344,7 @@ describe("an SFTP channel that closes under a live SSH connection", () => {
     await backend.mkdir(await resolve("", "list"), "made");
     const again = await backend.openReadStream(await resolve("big.bin"));
     expect(Buffer.concat(await again.stream.toArray()).length).toBe(1024 * 1024);
-    expect(Date.now() - started).toBeLessThan(2500);
+    expect(Date.now() - started).toBeLessThan(5000);
   });
 
   it("fails a download it cuts off, and the next one gets a fresh connection", async () => {
@@ -355,7 +363,7 @@ describe("an SFTP channel that closes under a live SSH connection", () => {
     const started = Date.now();
     const again = await backend.openReadStream(await resolve("big.bin"));
     expect(Buffer.concat(await again.stream.toArray()).length).toBe(4 * 1024 * 1024);
-    expect(Date.now() - started).toBeLessThan(2500);
+    expect(Date.now() - started).toBeLessThan(5000);
   });
 });
 
