@@ -28,7 +28,7 @@ describe("database/init.js schema v2 migration: roles collection + user.roleId",
   it("seeds admin/technician/moderator roles and assigns roleId to every existing user, without touching user.role", () => {
     const data = runMigrations(makeV1Data());
 
-    expect(data._schemaVersion).toBe(4);
+    expect(data._schemaVersion).toBe(5);
     expect(Array.isArray(data.roles)).toBe(true);
     expect(data.roles.map((r) => r.name).sort()).toEqual([
       "admin",
@@ -107,7 +107,7 @@ describe("database/init.js schema v2 migration: roles collection + user.roleId",
         { id: "role-admin", name: "admin", capabilities: ["users.manage"], isSeeded: true },
       ],
       settings: {},
-      _schemaVersion: 4,
+      _schemaVersion: 5,
     };
 
     const data = runMigrations(alreadyMigrated);
@@ -174,7 +174,7 @@ describe("database/init.js schema v3 migration: backups.download backfill", () =
       _schemaVersion: 2,
     });
 
-    expect(data._schemaVersion).toBe(4);
+    expect(data._schemaVersion).toBe(5);
     const technician = data.roles.find((r) => r.id === "role-technician");
     expect(technician.capabilities).toEqual(
       expect.arrayContaining(["backups.manage", "backups.download", "server.control"]),
@@ -252,7 +252,7 @@ describe("database/init.js schema v4 migration: admin endanger capability backfi
       _schemaVersion: 3,
     });
 
-    expect(data._schemaVersion).toBe(4);
+    expect(data._schemaVersion).toBe(5);
     expect(data.roles[0].capabilities).toEqual(
       expect.arrayContaining(["server.world_events", "players.gm_tools", "players.endanger_or_impersonate"]),
     );
@@ -294,5 +294,80 @@ describe("database/init.js schema v4 migration: admin endanger capability backfi
     const twice = runMigrations(once);
 
     expect(twice.roles[0].capabilities.filter((c) => c === "players.endanger_or_impersonate")).toHaveLength(1);
+  });
+});
+
+describe("schema v5 migration: files.manage goes to role-admin only", () => {
+  // files.manage (Server Files) is new in v1.4.1. It reaches every file in a
+  // server's game install and Zomboid folders, so an upgrade grants it to the
+  // seeded admin role and nothing else -- technician, moderator and every
+  // custom role have to be given it deliberately through Roles.
+  const makeV4Data = () => ({
+    users: [],
+    roles: [
+      {
+        id: "role-admin",
+        name: "admin",
+        capabilities: ["serverfiles.manage", "players.view"],
+        isSeeded: true,
+      },
+      {
+        id: "role-technician",
+        name: "technician",
+        capabilities: ["serverfiles.manage", "players.view"],
+        isSeeded: true,
+      },
+      {
+        id: "role-moderator",
+        name: "moderator",
+        capabilities: ["players.moderate", "players.view"],
+        isSeeded: true,
+      },
+      {
+        id: "role-custom-files",
+        name: "files-person",
+        capabilities: ["serverfiles.manage", "bridge.setup"],
+        isSeeded: false,
+      },
+    ],
+    settings: {},
+    _schemaVersion: 4,
+  });
+
+  it("grants files.manage to role-admin", () => {
+    const data = runMigrations(makeV4Data());
+
+    expect(data._schemaVersion).toBe(5);
+    const admin = data.roles.find((r) => r.id === "role-admin");
+    expect(admin.capabilities).toEqual(
+      expect.arrayContaining(["serverfiles.manage", "players.view", "files.manage"]),
+    );
+  });
+
+  it("does not grant it to technician, moderator or a custom role", () => {
+    const data = runMigrations(makeV4Data());
+
+    for (const id of ["role-technician", "role-moderator", "role-custom-files"]) {
+      const role = data.roles.find((r) => r.id === id);
+      expect(role.capabilities).not.toContain("files.manage");
+    }
+  });
+
+  it("is idempotent", () => {
+    const once = runMigrations(makeV4Data());
+    once._schemaVersion = 4; // as if the version bump never made it to disk
+    const twice = runMigrations(once);
+
+    const admin = twice.roles.find((r) => r.id === "role-admin");
+    expect(admin.capabilities.filter((c) => c === "files.manage")).toHaveLength(1);
+  });
+
+  it("does not add a second copy when role-admin already holds it", () => {
+    const v4 = makeV4Data();
+    v4.roles[0].capabilities.push("files.manage");
+    const data = runMigrations(v4);
+
+    const admin = data.roles.find((r) => r.id === "role-admin");
+    expect(admin.capabilities.filter((c) => c === "files.manage")).toHaveLength(1);
   });
 });

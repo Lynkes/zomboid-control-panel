@@ -88,6 +88,7 @@ const RETENTION = {
   performance_history: 1440,
   player_sessions: 50, // per player
   bridge_logs: 500,
+  file_audit: 1000,
 };
 
 const WRITE_DEBOUNCE_MS = 500; // Coalesce rapid writes
@@ -161,6 +162,7 @@ const defaultData = {
   steamid_bans: [],
   performance_history: [],
   bridge_logs: [],
+  file_audit: [],
   discord_webhooks: [],
   users: [],
   roles: [],
@@ -172,7 +174,7 @@ const defaultData = {
 // Schema Migrations
 // ============================================
 
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 5;
 
 // Migration 2 seed: a SNAPSHOT of what every requireRole(...) call site in
 // the app actually granted at the moment this migration was written --
@@ -240,6 +242,7 @@ const MIGRATION_V2_ADMIN_CAPABILITIES = [
   "docker.manage",
   "chunks.manage",
   "serverfiles.manage",
+  "files.manage",
   "diagnostics.manage",
   "panel.settings",
 ];
@@ -335,6 +338,15 @@ export function runMigrations(data) {
         !role.capabilities.includes("players.endanger_or_impersonate")
       ) {
         role.capabilities.push("players.endanger_or_impersonate");
+      }
+    }
+  }
+
+  // Migration 5: files.manage (Server Files) is new in v1.4.1 and goes to role-admin only.
+  if (version < 5) {
+    for (const role of data.roles || []) {
+      if (role.id === "role-admin" && Array.isArray(role.capabilities) && !role.capabilities.includes("files.manage")) {
+        role.capabilities.push("files.manage");
       }
     }
   }
@@ -976,6 +988,7 @@ function compactData(data) {
     RETENTION.schedule_history,
   );
   data.bridge_logs = trimArray(data.bridge_logs || [], RETENTION.bridge_logs);
+  data.file_audit = trimArray(data.file_audit || [], RETENTION.file_audit);
   data.performance_history = trimArrayEnd(
     data.performance_history,
     RETENTION.performance_history,
@@ -1249,6 +1262,7 @@ function getDatabaseStatsSync() {
       user_templates: data.user_templates?.length ?? 0,
       performance_history: data.performance_history?.length ?? 0,
       bridge_logs: data.bridge_logs?.length ?? 0,
+      file_audit: data.file_audit?.length ?? 0,
       discord_webhooks: data.discord_webhooks?.length ?? 0,
     },
     totalRecords: Object.values(data).reduce(
@@ -1439,6 +1453,45 @@ export async function getBridgeLogs(limit = 100, serverId = undefined) {
   }
   const safeLimit = parseClampedInteger(limit, 100, 1, RETENTION.bridge_logs);
   return logs.slice(0, safeLimit);
+}
+
+// ============================================
+// Server Files audit (file_audit)
+// ============================================
+
+// One row per file-manager mutation, download or denial (see
+// services/fileManagerAudit.js, which builds the entry and also writes the
+// same row to the sealed winston log). Newest first, capped at
+// RETENTION.file_audit. Never throws: the caller writes the row from a
+// `finally` block, and a failed audit append must not turn a completed file
+// operation into an error response.
+export async function appendFileAudit(entry) {
+  try {
+    if (!entry || typeof entry !== "object") return null;
+    const db = await getDb();
+    if (!Array.isArray(db.data.file_audit)) db.data.file_audit = [];
+    const row = {
+      ...entry,
+      id: entry.id || generateId(),
+      at: entry.at || new Date().toISOString(),
+    };
+    appendCapped(db.data.file_audit, row, RETENTION.file_audit);
+    scheduleWrite();
+    return row;
+  } catch (err) {
+    log.warn(`File audit append failed: ${err?.message || err}`);
+    return null;
+  }
+}
+
+export async function getFileAudit({ profileId, limit } = {}) {
+  const db = await getDb();
+  let rows = Array.isArray(db.data.file_audit) ? db.data.file_audit : [];
+  if (profileId !== undefined && profileId !== null) {
+    rows = rows.filter((e) => e.profileId === profileId);
+  }
+  const safeLimit = parseClampedInteger(limit, 100, 1, RETENTION.file_audit);
+  return rows.slice(0, safeLimit);
 }
 
 // ============================================

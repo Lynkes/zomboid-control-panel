@@ -454,7 +454,7 @@ async function fetchWithRetry(
   throw toApiError(lastError);
 }
 
-export function apiFetch(endpoint: string, options?: RequestInit) {
+export function apiFetch(endpoint: string, options?: RequestInit & { timeout?: number }) {
   return fetchWithRetry(`${API_BASE}${endpoint}`, options);
 }
 

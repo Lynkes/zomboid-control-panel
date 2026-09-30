@@ -246,6 +246,13 @@ async function gracefulShutdown(signal) {
       diskMonitor.stop();
     }
 
+    // Stop the Server Files janitor and the character snapshot sampler, and
+    // close the file manager's SFTP connections (not awaited: a remote host
+    // that stopped answering must not hold up shutdown)
+    stopFileManagerJanitor();
+    stopCharacterSnapshotSampler();
+    closeFileManagerSftpPool().catch(() => {});
+
     // Stop PanelBridge
     if (panelBridge?.isRunning) {
       panelBridge.stop();
@@ -318,7 +325,19 @@ import systemRoutes from "./routes/system.js";
 import templatesRoutes from "./routes/templates.js";
 import dockerRoutes from "./routes/docker.js";
 import permissionsRoutes from "./routes/permissions.js";
+import filesRoutes from "./routes/files.js";
+import playerCharacterRoutes from "./routes/playerCharacter.js";
 import panelBridge from "./services/panelBridge.js";
+import {
+  startFileManagerJanitor,
+  stopFileManagerJanitor,
+} from "./services/fileManagerJanitor.js";
+import { closeFileManagerSftpPool } from "./services/fileManagerSftpBackend.js";
+import {
+  startCharacterSnapshotSampler,
+  stopCharacterSnapshotSampler,
+} from "./services/characterSnapshotSampler.js";
+import { pruneCharacterStore } from "./services/characterStore.js";
 
 dotenv.config();
 
@@ -860,6 +879,12 @@ app.use(
 // path-scoped parser registered after the app-wide one would never run.
 app.use("/api/debug/client-errors", express.json({ limit: "16kb" }));
 
+// Server Files text saves carry a whole file (up to 2 MiB) as a JSON
+// string; 6mb covers the worst-case JSON escaping of that. Same ordering
+// rule as the client-errors parser above: it must run before the app-wide
+// 1mb parser below, or that one reads the body first and refuses it.
+app.put("/api/files/profiles/:profileId/text", express.json({ limit: "6mb" }));
+
 // Body parser with explicit size limit
 app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
@@ -939,6 +964,51 @@ app.use("/api/templates/:id/apply", strictLimiter);
 // Browser cookie extraction spawns PowerShell for DPAPI unwrap — expensive
 // and platform-sensitive, so keep it under the destructive limiter too.
 app.use("/api/mods/collection/extract-cookies", strictLimiter);
+
+// Server Files (/api/files). Per IP like every limiter here, on top of the
+// global apiLimiter. Permanent delete and Trash purge share strictLimiter;
+// the rest get their own buckets so a folder upload (one request per file)
+// can't starve edits, and a burst of edits can't starve searches.
+const fmRateLimited = {
+  error: "Too many file actions in a short time. Wait a moment and try again.",
+  code: ErrorCode.FM_RATE_LIMITED,
+};
+const fmSearchLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: fmRateLimited,
+});
+const fmMutationLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: fmRateLimited,
+});
+const fmTransferLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: fmRateLimited,
+});
+app.use("/api/files/profiles/:profileId/search", fmSearchLimiter);
+app.put("/api/files/profiles/:profileId/text", fmMutationLimiter);
+app.post("/api/files/profiles/:profileId/mkdir", fmMutationLimiter);
+app.post("/api/files/profiles/:profileId/rename", fmMutationLimiter);
+app.post("/api/files/profiles/:profileId/move", fmMutationLimiter);
+app.post("/api/files/profiles/:profileId/copy", fmMutationLimiter);
+app.post("/api/files/profiles/:profileId/delete/preview", fmMutationLimiter);
+app.post("/api/files/profiles/:profileId/trash/restore", fmMutationLimiter);
+app.put("/api/files/profiles/:profileId/remote-roots", fmMutationLimiter);
+app.post("/api/files/profiles/:profileId/delete", strictLimiter);
+app.post("/api/files/profiles/:profileId/trash/purge", strictLimiter);
+app.post("/api/files/profiles/:profileId/upload", fmTransferLimiter);
+app.post("/api/files/profiles/:profileId/upload/preflight", fmTransferLimiter);
+app.get("/api/files/profiles/:profileId/download", fmTransferLimiter);
+app.post("/api/files/profiles/:profileId/zip", fmTransferLimiter);
 
 // Per-item collection mutations are cheap to the panel, but each one writes
 // to Steam. Do not share their bucket with cookie extraction: a normal sync
@@ -1349,6 +1419,10 @@ panelBridge.on("playerDisconnect", (playerName) => {
     );
 });
 
+// Skill snapshots for the Players page's Character tab: one shortly after
+// each login, then a slow periodic pass over whoever is online.
+startCharacterSnapshotSampler(panelBridge);
+
 // Make services available to routes
 app.set("rconService", rconService);
 app.set("serverManager", serverManager);
@@ -1397,7 +1471,9 @@ app.use("/api/servers", discoveryRoutes);
 app.use("/api/servers", serversRoutes);
 app.use("/api/servers", serverStatusRoutes);
 app.use("/api/server-files", serverFilesRoutes);
+app.use("/api/files", filesRoutes);
 app.use("/api/players", playerRoutes);
+app.use("/api/player-character", playerCharacterRoutes);
 app.use("/api/rcon", rconRoutes);
 app.use("/api/config", configRoutes);
 app.use("/api/scheduler", schedulerRoutes);
@@ -3861,6 +3937,12 @@ async function start() {
 
     // Start disk-space monitor for the active server's save volume
     diskMonitor.start();
+
+    // Server Files: hourly Trash retention (7 days) for local roots
+    startFileManagerJanitor();
+
+    // Drop character sheet caches for players not seen in a long time
+    pruneCharacterStore().catch(() => {});
 
     // Read panel port from DB (saved via Settings UI), fallback to env or 3001
     const savedPort = await getSetting("panelPort");

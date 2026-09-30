@@ -221,6 +221,7 @@
     "sourceBridge": "Bridge",
     "sourcePlayer": "Player",
     "sourceServer": "Server",
+    "sourceFiles": "Files",
     "levelError": "Error",
     "levelWarn": "Warn",
     "levelInfo": "Info",
@@ -1347,7 +1348,7 @@
   },
   "activityTab": {
     "title": "Activity Log",
-    "description": "Unified view of RCON commands, Bridge actions, player events, and server events",
+    "description": "Unified view of RCON commands, Bridge actions, player events, server events and file changes",
     "filterBySourceAria": "Filter by source",
     "allSources": "All Sources",
     "searchPlaceholder": "Search action / detail…",
