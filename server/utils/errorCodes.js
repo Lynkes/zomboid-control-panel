@@ -2328,6 +2328,14 @@ export const ErrorCode = Object.freeze({
   FM_SFTP_TIMEOUT: "FM_SFTP_TIMEOUT",
   /** 500 -- anything unexpected; the raw error stays in the log. */
   FM_INTERNAL: "FM_INTERNAL",
+  /** 413, params {limit} -- a permanent delete or Trash purge reached
+   * PERMANENT_DELETE_MAX_ENTRIES; what it removed stays removed, and running
+   * it again continues. */
+  FM_TOO_MANY_ENTRIES: "FM_TOO_MANY_ENTRIES",
+  /** 400 -- rename, duplicate or restore-as would give an .ini file (or a
+   * copy of one) a name the file manager doesn't mask, which would show its
+   * passwords in plain text. */
+  FM_SECRET_NAME_REQUIRED: "FM_SECRET_NAME_REQUIRED",
 
   /* Player character */
   /** server/routes/playerCharacter.js -- GET /api/player-character/:username,

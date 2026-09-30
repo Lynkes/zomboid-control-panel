@@ -325,7 +325,7 @@ import systemRoutes from "./routes/system.js";
 import templatesRoutes from "./routes/templates.js";
 import dockerRoutes from "./routes/docker.js";
 import permissionsRoutes from "./routes/permissions.js";
-import filesRoutes from "./routes/files.js";
+import filesRoutes, { FILE_UPLOAD_REQUEST_TIMEOUT_MS } from "./routes/files.js";
 import playerCharacterRoutes from "./routes/playerCharacter.js";
 import panelBridge from "./services/panelBridge.js";
 import {
@@ -371,7 +371,10 @@ if (trustProxySetting) {
     `trust proxy enabled (${configuredProxy}) via TRUST_PROXY env var`,
   );
 }
-const httpServer = createServer(app);
+// Node's 5-minute requestTimeout default would cut off any Server Files
+// upload slower than that (see FILE_UPLOAD_REQUEST_TIMEOUT_MS in
+// routes/files.js); headersTimeout keeps its 60 s default.
+const httpServer = createServer({ requestTimeout: FILE_UPLOAD_REQUEST_TIMEOUT_MS }, app);
 let activePanelPort = null;
 
 // HTTPS server — created during startup if certs are available
@@ -689,7 +692,7 @@ export function setupHttpsServer({
   // the cert-path/EADDRINUSE cases above, just one call later, so it gets
   // the identical guard.
   try {
-    httpsServer = createHttpsServer(certs, app);
+    httpsServer = createHttpsServer({ ...certs, requestTimeout: FILE_UPLOAD_REQUEST_TIMEOUT_MS }, app);
   } catch (error) {
     log.error(
       `HTTPS certificate/key content is invalid: ${error.message} — running HTTP only`,
@@ -966,9 +969,10 @@ app.use("/api/templates/:id/apply", strictLimiter);
 app.use("/api/mods/collection/extract-cookies", strictLimiter);
 
 // Server Files (/api/files). Per IP like every limiter here, on top of the
-// global apiLimiter. Permanent delete and Trash purge share strictLimiter;
-// the rest get their own buckets so a folder upload (one request per file)
-// can't starve edits, and a burst of edits can't starve searches.
+// global apiLimiter. Each kind of action gets its own bucket, so a folder
+// upload (one request per file) can't starve edits, a burst of edits can't
+// starve searches, and cleaning up files one delete at a time can't use up
+// the strictLimiter budget of server Start/Stop/Restart.
 const fmRateLimited = {
   error: "Too many file actions in a short time. Wait a moment and try again.",
   code: ErrorCode.FM_RATE_LIMITED,
@@ -994,6 +998,13 @@ const fmTransferLimiter = rateLimit({
   legacyHeaders: false,
   message: fmRateLimited,
 });
+const fmDeleteLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: fmRateLimited,
+});
 app.use("/api/files/profiles/:profileId/search", fmSearchLimiter);
 app.put("/api/files/profiles/:profileId/text", fmMutationLimiter);
 app.post("/api/files/profiles/:profileId/mkdir", fmMutationLimiter);
@@ -1003,8 +1014,8 @@ app.post("/api/files/profiles/:profileId/copy", fmMutationLimiter);
 app.post("/api/files/profiles/:profileId/delete/preview", fmMutationLimiter);
 app.post("/api/files/profiles/:profileId/trash/restore", fmMutationLimiter);
 app.put("/api/files/profiles/:profileId/remote-roots", fmMutationLimiter);
-app.post("/api/files/profiles/:profileId/delete", strictLimiter);
-app.post("/api/files/profiles/:profileId/trash/purge", strictLimiter);
+app.post("/api/files/profiles/:profileId/delete", fmDeleteLimiter);
+app.post("/api/files/profiles/:profileId/trash/purge", fmDeleteLimiter);
 app.post("/api/files/profiles/:profileId/upload", fmTransferLimiter);
 app.post("/api/files/profiles/:profileId/upload/preflight", fmTransferLimiter);
 app.get("/api/files/profiles/:profileId/download", fmTransferLimiter);

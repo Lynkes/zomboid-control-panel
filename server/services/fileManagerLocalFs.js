@@ -12,10 +12,10 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
-import { pipeline } from "stream/promises";
 import { getDataPaths } from "../utils/paths.js";
 
 const IS_WIN = process.platform === "win32";
+const SEP_BYTES = Buffer.from(path.sep);
 
 // Open a file for reading without following a final symlink (POSIX) and
 // without blocking on a FIFO swapped in at that name. Windows has neither
@@ -94,6 +94,42 @@ export function readDirNames(abs, max = Infinity) {
   return { names, truncated };
 }
 
+/**
+ * Like readDirNames(), but a name that isn't valid Unicode on disk (Latin-1
+ * bytes from an old unzip on Linux, an unpaired surrogate on Windows) also
+ * carries its exact bytes as `raw`: the decoded `name` is lossy and can't be
+ * used to reach the entry, childPathOf() can.
+ * @returns {{ entries: Array<{ name: string, raw: Buffer|null }>, truncated: boolean }}
+ */
+export function readDirEntries(abs, max = Infinity) {
+  // codeql[js/path-injection] target is a Resolved from fileManagerLocalBackend.resolve(): the root is server-derived from the profile (never client input), segments passed validateSegments() (no .., separators, drive letters, ADS, device names), realpath.native containment was verified per component, and protected-area and inode checks ran -- see ARCHITECTURE.md "File Manager".
+  const dir = fs.opendirSync(abs, { bufferSize: 256, encoding: "buffer" });
+  const entries = [];
+  let truncated = false;
+  try {
+    for (;;) {
+      const entry = dir.readSync();
+      if (!entry) break;
+      if (entries.length >= max) {
+        truncated = true;
+        break;
+      }
+      const name = entry.name.toString("utf8");
+      entries.push({ name, raw: Buffer.from(name, "utf8").equals(entry.name) ? null : entry.name });
+    }
+  } finally {
+    dir.closeSync();
+  }
+  return { entries, truncated };
+}
+
+/** The path of a readDirEntries() entry inside `parentAbs` (a string or raw bytes). */
+export function childPathOf(parentAbs, entry) {
+  if (typeof parentAbs === "string" && !entry.raw) return path.join(parentAbs, entry.name);
+  const parent = typeof parentAbs === "string" ? Buffer.from(parentAbs) : parentAbs;
+  return Buffer.concat([parent, SEP_BYTES, entry.raw || Buffer.from(entry.name)]);
+}
+
 export function openForRead(abs) {
   // codeql[js/path-injection, js/file-system-race] target is a Resolved from fileManagerLocalBackend.resolve(): the root is server-derived from the profile (never client input), segments passed validateSegments() (no .., separators, drive letters, ADS, device names), realpath.native containment was verified per component, and protected-area and inode checks ran -- see ARCHITECTURE.md "File Manager". Opened O_NOFOLLOW|O_NONBLOCK and the caller compares fstat's (dev, ino) with the resolved one before reading a byte.
   return fs.openSync(abs, READ_FLAGS);
@@ -147,6 +183,33 @@ export function fsyncFd(fd) {
   } catch {
     /* best effort: some network filesystems refuse fsync */
   }
+}
+
+// fsync/close errors that mean the data never reached the disk: a network
+// share or a quota'd filesystem often reports them only here, after every
+// write() "succeeded". Anything else (EINVAL, ENOTSUP... from a filesystem
+// that just doesn't do fsync) stays best effort.
+const DATA_LOSS_CODES = new Set(["EIO", "ENOSPC", "EDQUOT", "EFBIG"]);
+
+/**
+ * Flush and close a panel temp file exactly once. Throws (after the close)
+ * when the flush or the close says the bytes didn't land; the fd is closed
+ * either way and must not be closed again.
+ */
+export function syncAndCloseFd(fd) {
+  let failure = null;
+  try {
+    fs.fsyncSync(fd);
+  } catch (err) {
+    if (DATA_LOSS_CODES.has(err?.code)) failure = err;
+  }
+  try {
+    fs.closeSync(fd);
+  } catch (err) {
+    // close(2) releases the descriptor even when it reports an error.
+    if (!failure && DATA_LOSS_CODES.has(err?.code)) failure = err;
+  }
+  if (failure) throw failure;
 }
 
 export function fchmodFd(fd, mode) {
@@ -229,14 +292,39 @@ export function chownPath(p, uid, gid) {
   }
 }
 
-// Copy a whole regular file into a new panel temp file, both through fds:
-// the source was opened O_NOFOLLOW and checked by the caller, so a source
-// swapped for a link after resolve() is never followed.
-export async function copyFdToFd(srcFd, dstFd, { start = 0, end } = {}) {
-  const source = fs.createReadStream(null, { fd: srcFd, start, end, autoClose: false });
-  // codeql[js/http-to-file-access] dstFd is a panel temp file from createTempFile(); the source is a regular file inside the same resolved root (a duplicate), size-capped and audited.
-  const sink = fs.createWriteStream(null, { fd: dstFd, autoClose: false });
-  await pipeline(source, sink);
+function readAsync(fd, buffer, offset, length, position) {
+  return new Promise((resolve, reject) => {
+    fs.read(fd, buffer, offset, length, position, (err, bytesRead) => (err ? reject(err) : resolve(bytesRead)));
+  });
+}
+
+function writeAsync(fd, buffer, offset, length, position) {
+  return new Promise((resolve, reject) => {
+    // codeql[js/http-to-file-access] fd is a panel temp file from createTempFile(); the source is a regular file inside the same resolved root (a duplicate), size-capped and audited.
+    fs.write(fd, buffer, offset, length, position, (err, written) => (err ? reject(err) : resolve(written)));
+  });
+}
+
+// Copy `length` bytes of a regular file into a new panel temp file, both
+// through fds: the source was opened O_NOFOLLOW and checked by the caller,
+// so a source swapped for a link after resolve() is never followed. Plain
+// reads and writes, one at a time: nothing here ever closes either fd (a
+// stream would close it on destroy() while the caller still owns it), and a
+// failure is thrown only once the I/O in flight is done. Returns the bytes
+// copied, which is less than `length` when the source shrank meanwhile.
+export async function copyFdToFd(srcFd, dstFd, length) {
+  const chunk = Buffer.allocUnsafe(Math.min(Math.max(length, 1), 1024 * 1024));
+  let copied = 0;
+  while (copied < length) {
+    const read = await readAsync(srcFd, chunk, 0, Math.min(chunk.length, length - copied), copied);
+    if (read === 0) break;
+    let written = 0;
+    while (written < read) {
+      written += await writeAsync(dstFd, chunk, written, read - written, copied + written);
+    }
+    copied += read;
+  }
+  return copied;
 }
 
 // A new file holding `buffer`, created exclusively (never over an existing
@@ -254,13 +342,41 @@ export function writeNewFileExcl(abs, buffer, mode = 0o600) {
   }
 }
 
+// Entry names of a folder as raw bytes, the way they are on disk. A name
+// that isn't valid Unicode (Latin-1 bytes from an old unzip on Linux, an
+// unpaired surrogate on Windows) can't round-trip through a string, so
+// deleteTree() builds child paths from these bytes instead.
+function readDirNamesRaw(absBuf) {
+  // codeql[js/path-injection] target is a Resolved from fileManagerLocalBackend.resolve() (or a Trash item under it) plus names read from that same folder -- see ARCHITECTURE.md "File Manager".
+  const dir = fs.opendirSync(absBuf, { bufferSize: 256, encoding: "buffer" });
+  const names = [];
+  try {
+    for (;;) {
+      const entry = dir.readSync();
+      if (!entry) break;
+      names.push(entry.name);
+    }
+  } finally {
+    dir.closeSync();
+  }
+  return names;
+}
+
+// A folder that keeps refilling while it is emptied (a server still writing
+// logs into it) is looked at again this many times before giving up.
+const RMDIR_REFILL_RETRIES = 3;
+
 // Remove a file, a link or a whole folder tree for good -- the file
 // manager's own walker (spec §A6.6), never fs.rm({ recursive }): every entry
 // is lstat'ed, files and links are unlinked (a link is never followed, so
 // nothing outside the tree is touched), and folders are removed once empty.
 // On Windows a folder junction can refuse unlink with EPERM; rmdir removes
-// the junction itself without entering it. It yields to the event loop every
-// few hundred entries, so a big tree doesn't stall the panel.
+// the junction itself without entering it. Child paths are built from the
+// names' raw bytes, so a name that isn't valid Unicode is deleted too. A
+// folder that gains an entry while it is emptied is emptied again a few
+// times before ENOTEMPTY is thrown. It yields to the event loop every few
+// hundred entries, so a big tree doesn't stall the panel. Past maxEntries it
+// throws code EFMCAP (what was removed stays removed).
 export async function deleteTree(abs, { onProgress = () => {}, maxEntries = Infinity } = {}) {
   let done = 0;
   const bump = async () => {
@@ -291,24 +407,41 @@ export async function deleteTree(abs, { onProgress = () => {}, maxEntries = Infi
     onProgress(done);
     return done;
   }
-  const stack = [{ path: abs, expanded: false }];
+  const stack = [{ path: Buffer.from(abs), expanded: false, refills: 0 }];
   while (stack.length) {
     const frame = stack[stack.length - 1];
     if (!frame.expanded) {
       frame.expanded = true;
-      const { names } = readDirNames(frame.path);
-      for (const name of names) {
-        const child = path.join(frame.path, name);
-        const st = lstatBig(child);
+      for (const name of readDirNamesRaw(frame.path)) {
+        const child = Buffer.concat([frame.path, SEP_BYTES, name]);
+        let st;
+        try {
+          st = lstatBig(child);
+        } catch (err) {
+          // Removed by someone else meanwhile: as good as deleted.
+          if (err?.code === "ENOENT") continue;
+          throw err;
+        }
         if (st.isDirectory()) {
-          stack.push({ path: child, expanded: false });
+          stack.push({ path: child, expanded: false, refills: 0 });
         } else {
           removeEntry(child, st);
           await bump();
         }
       }
     } else {
-      rmdirPath(frame.path);
+      try {
+        rmdirPath(frame.path);
+      } catch (err) {
+        if (err?.code === "ENOTEMPTY" && frame.refills < RMDIR_REFILL_RETRIES) {
+          frame.refills++;
+          frame.expanded = false;
+          // Windows keeps a deleted-but-still-open file listed for a moment.
+          await new Promise((resolve) => setTimeout(resolve, 25 * frame.refills));
+          continue;
+        }
+        throw err;
+      }
       stack.pop();
       await bump();
     }

@@ -316,12 +316,26 @@ describe("uploads", () => {
     const mine = write(path.join(tree.data, `.z.txt.${process.pid}.abcdef14.zcptmp`), "mine");
     const hoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
     fs.utimesSync(old, hoursAgo, hoursAgo);
-    fs.utimesSync(mine, hoursAgo, hoursAgo);
     await upload({ name: "trigger.txt", body: "t" });
     expect(fs.existsSync(old)).toBe(false);
     expect(fs.existsSync(fresh)).toBe(true);
     expect(fs.existsSync(mine)).toBe(true);
     expect(sweepOrphanTemps(tree.data)).toBe(0);
+    // Two hours on, the dead process's temp is old enough to go; this
+    // process's own (written since it started) stays.
+    expect(sweepOrphanTemps(tree.data, Date.now() + 2 * 60 * 60 * 1000)).toBe(1);
+    expect(fs.existsSync(fresh)).toBe(false);
+    expect(fs.existsSync(mine)).toBe(true);
+  });
+
+  it("a temp from before this process started is swept even when it names this pid (PID 1 in every container)", async () => {
+    // What a container recreated in the middle of an upload leaves behind:
+    // the previous panel was PID 1 too.
+    const previous = write(path.join(tree.data, `.world.zip.${process.pid}.deadbeef.zcpupload`), "partial");
+    const hoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    fs.utimesSync(previous, hoursAgo, hoursAgo);
+    expect(sweepOrphanTemps(tree.data)).toBe(1);
+    expect(fs.existsSync(previous)).toBe(false);
   });
 });
 

@@ -63,6 +63,14 @@ const ORPHAN_SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 const TEMP_NAME_STEM_MAX_BYTES = 180;
 // How long a failed transfer waits for its remote handle to close.
 const SINK_CLOSE_WAIT_MS = 2000;
+// Lazy Trash retention removes at most this many entries per pass, so the
+// request that notices a big expired item isn't held up by all of it; the
+// rest goes on the next pass.
+const EXPIRY_ENTRY_BUDGET = 1000;
+// A Windows 8.3 short name (PANELB~1, SSH~1, ZCP-TR~1): on an NTFS-backed
+// SFTP server it opens the long-named folder, so it would get past the
+// protected-area and reserved-name rules, which match the long names.
+const SHORT_NAME_RE = /^[^.~/\s]{1,6}~\d{1,6}(?:\.[^.\s/]{1,3})?$/i;
 
 // Resolution acts on the link itself, never its target, when the LAST
 // segment is a link and the intent changes the directory entry.
@@ -120,7 +128,36 @@ function toStat(st) {
     mode: typeof st.mode === "number" ? st.mode & 0o7777 : null,
     dev: null,
     ino: null,
+    uid: Number.isInteger(st.uid) ? st.uid : null,
+    gid: Number.isInteger(st.gid) ? st.gid : null,
   };
+}
+
+// A raw READDIR entry ({ filename, longname, attrs }) in the shape
+// ssh2-sftp-client's list() gives.
+function listEntryOf(item) {
+  const attrs = item?.attrs || {};
+  const longname = typeof item?.longname === "string" ? item.longname : "";
+  let type = longname.slice(0, 1);
+  if (!["d", "-", "l"].includes(type) && typeof attrs.mode === "number") {
+    const fmt = attrs.mode & 0o170000;
+    type = fmt === 0o040000 ? "d" : fmt === 0o100000 ? "-" : fmt === 0o120000 ? "l" : "?";
+  }
+  return {
+    type,
+    name: item?.filename,
+    size: attrs.size,
+    modifyTime: (Number(attrs.mtime) || 0) * 1000,
+    longname,
+    owner: attrs.uid,
+    group: attrs.gid,
+  };
+}
+
+// What a refused WRITE looks like (ssh2 swallows the server's status on its
+// already-destroyed stream, so only the byte count tells).
+function writeRefused() {
+  return toFmError(Object.assign(new Error("The server refused a write (Failure)"), { code: SFTP_STATUS.FAILURE }));
 }
 
 // Permission bits from an ls-style longname ("-rwxr-xr-x 1 ..."), which is
@@ -280,6 +317,10 @@ const ORPHAN_SWEEP_CACHE_MAX = 2000;
 const orphanSweeps = new Map();
 // realPath() of the remote config folder, per pool.
 const configRealCache = new Map();
+// Trash items lazy retention removed, per pool and root, until the service
+// drains them into a files.trash.expire audit row.
+const expiredByRoot = new Map();
+const EXPIRED_KEEP_MAX = 1000;
 
 function remember(map, key, value, max) {
   if (map.size >= max && !map.has(key)) map.delete(map.keys().next().value);
@@ -371,6 +412,48 @@ function guardIdleRead(source, lease) {
   return out;
 }
 
+// Resolve once an ssh2 read stream's remote OPEN succeeded; reject with its
+// error, or FM_SFTP_TIMEOUT after `ms`.
+function waitForOpen(stream, ms) {
+  return new Promise((resolve, reject) => {
+    let timer = null;
+    const cleanup = () => {
+      clearTimeout(timer);
+      stream.off("open", onOpen);
+      stream.off("ready", onOpen);
+      stream.off("error", onError);
+      stream.off("close", onClose);
+    };
+    const onOpen = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (err) => {
+      cleanup();
+      reject(err);
+    };
+    const onClose = () => {
+      cleanup();
+      const err = new Error("SFTP read closed before it opened");
+      err.code = "ECONNRESET";
+      reject(err);
+    };
+    if (stream.handle || stream.pending === false) {
+      resolve();
+      return;
+    }
+    timer = setTimeout(() => {
+      cleanup();
+      reject(new FmError(ErrorCode.FM_SFTP_TIMEOUT));
+    }, ms);
+    timer.unref?.();
+    stream.once("open", onOpen);
+    stream.once("ready", onOpen);
+    stream.once("error", onError);
+    stream.once("close", onClose);
+  });
+}
+
 // Copy `source` into a new remote file at tmpAbs on the leased connection,
 // counting and hashing on the way. Resolves once the remote handle is
 // closed. Fails with FM_UPLOAD_SIZE_MISMATCH when the bytes run over
@@ -381,18 +464,21 @@ function guardIdleRead(source, lease) {
 //
 // The source is never destroyed here unless it is our own (remoteSource):
 // an HTTP request must stay open until the route has sent its response.
-function streamIntoRemote(lease, source, tmpAbs, { declaredSize, maxBytes, remoteSource = false }) {
+function streamIntoRemote(lease, source, tmpAbs, { declaredSize, maxBytes, remoteSource = false, mode = 0o600 }) {
   return new Promise((resolve, reject) => {
     const idleMs = getFileManagerSftpTimeouts().transferIdleMs;
     const hash = crypto.createHash("sha256");
     let received = 0;
     let settled = false;
     let sourceEnded = false;
+    let endCalled = false;
     let waitingOnSink = false;
     let timer = null;
     let sink;
     try {
-      sink = lease.client.createWriteStream(tmpAbs, { flags: "wx", mode: 0o600 });
+      // Created with its final mode: a host that refuses SETSTAT leaves the
+      // mode the OPEN asked for, and 0600 would lock the game user out.
+      sink = lease.client.createWriteStream(tmpAbs, { flags: "wx", mode });
     } catch (err) {
       lease.release();
       if (remoteSource) source.destroy();
@@ -475,6 +561,7 @@ function streamIntoRemote(lease, source, tmpAbs, { declaredSize, maxBytes, remot
         return;
       }
       arm();
+      endCalled = true;
       sink.end();
     };
     const onSourceError = (err) => {
@@ -489,10 +576,20 @@ function streamIntoRemote(lease, source, tmpAbs, { declaredSize, maxBytes, remot
       const mapped = toFmError(err);
       fail(mapped, { discard: Boolean(sftpInfo(mapped)?.connectionLost) });
     };
+    // ssh2's WriteStream never emits 'finish' (its _final closes the handle
+    // first, so writableFinished stays false): the handle closing after
+    // end() is how a transfer completes. A WRITE the server refused (a full
+    // disk, a quota) ends the same way, its error dropped on the destroyed
+    // stream, so the bytes the server acknowledged decide.
     const onSinkClose = () => {
       if (settled) return;
-      if (!sourceEnded || !sink.writableFinished) {
-        fail(new FmError(ErrorCode.FM_UPLOAD_SIZE_MISMATCH));
+      if (!endCalled) {
+        fail(sourceEnded ? new FmError(ErrorCode.FM_UPLOAD_SIZE_MISMATCH) : writeRefused());
+        return;
+      }
+      const acknowledged = typeof sink.bytesWritten === "number" ? sink.bytesWritten : received;
+      if (acknowledged !== received) {
+        fail(writeRefused());
         return;
       }
       settled = true;
@@ -574,8 +671,32 @@ export function createSftpBackend({ settings } = {}) {
     return read((c) => rawCall(c, "readlink", abs));
   }
 
-  function listDir(abs) {
-    return read((c) => c.list(abs));
+  // One READDIR round trip at a time, each under the operation timeout: a
+  // folder of tens of thousands of entries over a slow link no longer has
+  // to fit in one 20 s budget (and a slow listing no longer times out the
+  // shared metadata connection for everyone). OpenSSH sends about 100 names
+  // per reply. The OPENDIR is a read (retried once on a dropped pooled
+  // connection); the READDIRs must stay on the connection that opened it.
+  async function listDir(abs) {
+    const handle = await read((c) => rawCall(c, "opendir", abs));
+    const out = [];
+    try {
+      for (;;) {
+        let batch;
+        try {
+          batch = await write((c) => rawCall(c, "readdir", handle));
+        } catch (err) {
+          if (sftpInfo(err)?.status === SFTP_STATUS.EOF) break;
+          throw err;
+        }
+        if (!Array.isArray(batch) || batch.length === 0) break;
+        for (const item of batch) out.push(listEntryOf(item));
+        if (out.length > FM_LIMITS.LIST_DIR_MAX_ENTRIES + 2) break;
+      }
+    } finally {
+      await write((c) => rawCall(c, "close", handle)).catch(() => {});
+    }
+    return out;
   }
 
   async function readRange(abs, start, length) {
@@ -586,8 +707,18 @@ export function createSftpBackend({ settings } = {}) {
     return Buffer.isBuffer(data) ? data : Buffer.from(data ?? "");
   }
 
-  function putNew(abs, buffer, mode) {
-    return write((c) => c.put(buffer, abs, { writeStreamOptions: { flags: "wx", mode } }));
+  // put() resolves once the remote handle closes, even when the server
+  // refused a WRITE (ssh2 drops that status on its destroyed stream): a
+  // full disk would leave an empty file behind a "successful" save. So the
+  // size that landed is checked, and a short file removed and refused.
+  async function putNew(abs, buffer, mode) {
+    await write((c) => c.put(buffer, abs, { writeStreamOptions: { flags: "wx", mode } }));
+    const st = await lstatOrNull(abs);
+    if (!st || st.type !== "file" || st.size !== buffer.length) {
+      await removeQuietly(abs);
+      throw writeRefused();
+    }
+    return st;
   }
 
   function renameEntry(from, to) {
@@ -612,6 +743,20 @@ export function createSftpBackend({ settings } = {}) {
     } catch (err) {
       // Some hosts refuse SETSTAT; the file keeps the server's default mode.
       log.debug(`SFTP chmod refused: ${err.code}`);
+    }
+  }
+
+  // Give a temp file the owner of what it replaces (or of its folder): a
+  // root (or shared-group) SFTP login would otherwise hand the game's own
+  // files to itself, and a 0600/0640 ini would lock the game user out.
+  // Refused (the login can't chown) is fine: nothing changes.
+  async function matchOwner(abs, current, wanted) {
+    if (!wanted || !Number.isInteger(wanted.uid) || !Number.isInteger(wanted.gid)) return;
+    if (current && current.uid === wanted.uid && current.gid === wanted.gid) return;
+    try {
+      await write((c) => rawCall(c, "setstat", abs, { uid: wanted.uid, gid: wanted.gid }));
+    } catch (err) {
+      log.debug(`SFTP chown refused: ${err.code}`);
     }
   }
 
@@ -884,16 +1029,22 @@ export function createSftpBackend({ settings } = {}) {
   // Remove a whole tree without ever following a link: files and links are
   // unlinked, folders emptied then rmdir'ed. Never the library's recursive
   // rmdir, which trusts list() types and deletes in parallel.
-  async function removeTree(abs, onProgress = () => {}) {
+  async function removeTree(abs, onProgress = () => {}, budget = null) {
     const top = await lstatOrNull(abs);
     if (!top) return 0;
-    const counter = { done: 0 };
+    const counter = { done: 0, budget };
     await removeNode(abs, top.type, counter, onProgress);
     return counter.done;
   }
 
   async function removeNode(abs, type, counter, onProgress) {
-    if (counter.done >= FM_LIMITS.PERMANENT_DELETE_MAX_ENTRIES) throw new FmError(ErrorCode.FM_INTERNAL);
+    if (counter.done >= FM_LIMITS.PERMANENT_DELETE_MAX_ENTRIES) {
+      throw new FmError(ErrorCode.FM_TOO_MANY_ENTRIES, undefined, { limit: FM_LIMITS.PERMANENT_DELETE_MAX_ENTRIES });
+    }
+    if (counter.budget) {
+      if (counter.budget.left <= 0) throw Object.assign(new Error("budget spent"), { budgetSpent: true });
+      counter.budget.left -= 1;
+    }
     try {
       if (type === "dir") {
         const children = await listDir(abs);
@@ -913,12 +1064,28 @@ export function createSftpBackend({ settings } = {}) {
     onProgress(counter.done, null);
   }
 
-  async function removeTreeQuietly(abs) {
+  // True when the whole tree is gone.
+  async function removeTreeQuietly(abs, budget = null) {
     try {
-      await removeTree(abs);
+      await removeTree(abs, () => {}, budget);
+      return true;
     } catch (err) {
-      log.debug(`SFTP Trash cleanup left something behind: ${err.code}`);
+      if (!err?.budgetSpent) log.debug(`SFTP Trash cleanup left something behind: ${err.code}`);
+      return false;
     }
+  }
+
+  // Remove an item past the retention period, and remember it for the
+  // service's files.trash.expire audit row once it is completely gone.
+  async function expireTrashItem(rootReal, trashAbs, trashId, budget) {
+    const itemAbs = posix.join(trashAbs, trashId);
+    const gone = await removeTreeQuietly(itemAbs, budget);
+    trashMetaCache.delete(trashMetaKey(itemAbs));
+    if (!gone) return;
+    const key = `${pool.id}|${rootReal}`;
+    const ids = expiredByRoot.get(key) || [];
+    ids.push(trashId);
+    remember(expiredByRoot, key, ids.slice(-EXPIRED_KEEP_MAX), 100);
   }
 
   // Make a Trash item with its meta.json and an empty payload/ folder.
@@ -962,12 +1129,12 @@ export function createSftpBackend({ settings } = {}) {
       const entries = await listDir(trashAbs);
       const now = Date.now();
       const versions = [];
+      const budget = { left: EXPIRY_ENTRY_BUDGET };
       for (const e of entries) {
         if (e.type !== "d" || !TRASH_ID_RE.test(e.name)) continue;
         const itemAbs = posix.join(trashAbs, e.name);
         if (now - trashIdTime(e.name) > TRASH_RETENTION_MS) {
-          await removeTreeQuietly(itemAbs);
-          trashMetaCache.delete(trashMetaKey(itemAbs));
+          if (budget.left > 0) await expireTrashItem(rootReal, trashAbs, e.name, budget);
           continue;
         }
         if (reason !== "edited") continue;
@@ -992,7 +1159,7 @@ export function createSftpBackend({ settings } = {}) {
   // Rename the entry at abs into a new Trash item. SFTP reports a
   // cross-device rename (and little else, for a fresh target name) as a
   // bare FAILURE, so that is what FAILURE means here.
-  async function moveIntoTrash(rootReal, abs, info) {
+  async function moveIntoTrash(rootReal, abs, info, { prune = true } = {}) {
     const item = await createTrashItem(rootReal, info);
     try {
       await renameEntry(abs, posix.join(item.payloadDir, posix.basename(abs)));
@@ -1004,7 +1171,7 @@ export function createSftpBackend({ settings } = {}) {
       }
       throw err;
     }
-    await pruneTrash(rootReal, info);
+    if (prune) await pruneTrash(rootReal, info);
     return item.trashId;
   }
 
@@ -1012,7 +1179,7 @@ export function createSftpBackend({ settings } = {}) {
   async function copyIntoTrash(rootReal, name, bytes, mode, info) {
     const item = await createTrashItem(rootReal, info);
     try {
-      await putNew(posix.join(item.payloadDir, name), bytes, 0o600);
+      await putNew(posix.join(item.payloadDir, name), bytes, mode ?? 0o600);
       if (mode !== null) await chmodQuietly(posix.join(item.payloadDir, name), mode);
     } catch (err) {
       await removeTreeQuietly(item.itemAbs);
@@ -1022,6 +1189,14 @@ export function createSftpBackend({ settings } = {}) {
     }
     await pruneTrash(rootReal, info);
     return item.trashId;
+  }
+
+  // Drop the "edited" version of a save that didn't happen, so retries of a
+  // failing save can't push real versions out of the 20 kept per file.
+  async function discardTrashItem(rootReal, trashId) {
+    const itemAbs = posix.join(rootReal, TRASH_DIR_NAME, trashId);
+    await removeTreeQuietly(itemAbs);
+    trashMetaCache.delete(trashMetaKey(itemAbs));
   }
 
   // Undo moveIntoTrash(): the payload goes back to `target` and the item is
@@ -1051,24 +1226,22 @@ export function createSftpBackend({ settings } = {}) {
 
   // Land a finished temp file at target: new, or replacing `existing`
   // (which goes to Trash first, and comes back if the final rename fails).
-  async function landTemp(rootReal, tmp, target, targetRel, existing, trashInfo) {
+  // Trash retention runs only once the new file is in place: pruning a big
+  // expired item first would leave the live file missing all that time.
+  async function landTemp(rootReal, tmp, target, originalPath, existing, trashInfo) {
     if (!existing) {
       await landNew(tmp, target);
       return null;
     }
-    const trashId = await moveIntoTrash(rootReal, target, {
-      ...trashInfo,
-      originalPath: targetRel,
-      type: "file",
-      bytes: existing.size,
-      files: 1,
-    });
+    const info = { ...trashInfo, originalPath, type: "file", bytes: existing.size, files: 1 };
+    const trashId = await moveIntoTrash(rootReal, target, info, { prune: false });
     try {
       await renameEntry(tmp, target);
     } catch (err) {
       await putBackFromTrash(rootReal, trashId, target);
       throw err;
     }
+    await pruneTrash(rootReal, info);
     return trashId;
   }
 
@@ -1143,6 +1316,10 @@ export function createSftpBackend({ settings } = {}) {
     // through the ordinary routes.
     if (segs.some((s) => s.toLowerCase() === TRASH_DIR_NAME)) throw fmError(ErrorCode.FM_NOT_FOUND);
     if (segs.some(isPanelTempName)) throw fmError(ErrorCode.FM_NOT_FOUND);
+    // Remote names are never canonicalised (no realpath per component), so
+    // a Windows short name would reach the Trash, the bridge folder or .ssh
+    // under a spelling no rule matches: refused like a missing entry.
+    if (segs.some((seg) => SHORT_NAME_RE.test(seg))) throw fmError(ErrorCode.FM_NOT_FOUND);
 
     const rootReal = root.real;
     const budget = { hops: MAX_LINK_HOPS };
@@ -1199,6 +1376,41 @@ export function createSftpBackend({ settings } = {}) {
       name,
       linkSelf,
     };
+  }
+
+  // One segment below a folder resolve() already checked: the same rules as
+  // resolve()'s last step, in one round trip instead of one per level from
+  // the root (a folder upload checks hundreds of files in one folder).
+  async function resolveChild(root, parent, name, intent) {
+    assertRoot(root);
+    assertResolved(parent);
+    assertDirectory(parent);
+    if (!RESOLVE_INTENTS.includes(intent)) throw fmError(ErrorCode.FM_INVALID_REQUEST, { field: "intent" });
+    const checked = validateSegments(name);
+    if (!checked.ok || checked.segments.length !== 1) throw fmError(ErrorCode.FM_INVALID_PATH, { reason: checked.ok ? "slash" : checked.reason });
+    if (name.toLowerCase() === TRASH_DIR_NAME || isPanelTempName(name) || SHORT_NAME_RE.test(name)) {
+      throw fmError(ErrorCode.FM_NOT_FOUND);
+    }
+    const rootReal = root.real;
+    const rel = joinRel(parent.rel, name);
+    const p = posix.join(parent.abs, name);
+    let st = await lstatOrNull(p);
+    if (!st) {
+      if (intent !== "create") throw fmError(ErrorCode.FM_NOT_FOUND);
+      return { rootId: root.id, rel, realRel: relativeTo(rootReal, p), abs: p, isNew: true, stat: null, protection: null, worldState: false, name, linkSelf: false };
+    }
+    let cur = p;
+    let linkSelf = false;
+    if (st.type === "link" && !LINK_SELF_INTENTS.has(intent)) {
+      const target = await followLink(rootReal, p, { hops: MAX_LINK_HOPS });
+      cur = target.abs;
+      st = target.stat;
+    } else if (st.type === "link") {
+      linkSelf = true;
+    }
+    const realRel = relativeTo(rootReal, cur);
+    if (realRel.split("/").some((seg) => seg.toLowerCase() === TRASH_DIR_NAME)) throw fmError(ErrorCode.FM_NOT_FOUND);
+    return { rootId: root.id, rel, realRel, abs: cur, isNew: false, stat: st, protection: null, worldState: false, name, linkSelf };
   }
 
   async function list(dir, { offset = 0, limit = FM_LIMITS.LIST_PAGE_DEFAULT, sort = "name", order = "asc" } = {}) {
@@ -1286,6 +1498,22 @@ export function createSftpBackend({ settings } = {}) {
       lease.release();
       throw toFmError(err);
     }
+    // ssh2 opens the file as soon as the stream exists and reports a refused
+    // OPEN (a file this login can stat but not read) only as a later
+    // 'error'. Wait for the open, so a refusal is still a proper error the
+    // route can answer instead of a download it already started and then
+    // cuts off.
+    if (st.size > 0) {
+      try {
+        await waitForOpen(source, getFileManagerSftpTimeouts().opMs);
+      } catch (err) {
+        const mapped = toFmError(err);
+        source.destroy?.();
+        if (isCode(mapped, ErrorCode.FM_SFTP_TIMEOUT) || sftpInfo(mapped)?.connectionLost) lease.discard();
+        else lease.release();
+        throw mapped;
+      }
+    }
     const stream = guardIdleRead(source, lease);
     return {
       stream,
@@ -1314,14 +1542,14 @@ export function createSftpBackend({ settings } = {}) {
         if (existing) throw fmError(ErrorCode.FM_EXISTS, { name });
         const tmp = posix.join(parentAbs, tempName(name, RENAME_TEMP_SUFFIX));
         try {
-          await putNew(tmp, bytes, 0o600);
+          await putNew(tmp, bytes, 0o644);
           await chmodQuietly(tmp, 0o644);
           await landNew(tmp, r.abs);
         } catch (err) {
           await removeQuietly(tmp);
           throw err;
         }
-        return { entry: await entryAt(rootReal, r.rel, r.abs), previousTrashId: null };
+        return { entry: await entryAt(rootReal, r.rel, r.abs), previousTrashId: null, sha256Before: null };
       }
 
       if (!existing) throw fmError(ErrorCode.FM_CONFLICT, { currentEtag: null });
@@ -1337,12 +1565,15 @@ export function createSftpBackend({ settings } = {}) {
       const tmp = posix.join(parentAbs, tempName(name, RENAME_TEMP_SUFFIX));
       let trashId = null;
       try {
-        await putNew(tmp, bytes, 0o600);
+        const written = await putNew(tmp, bytes, mode);
         await chmodQuietly(tmp, mode);
+        await matchOwner(tmp, written, existing);
+        // The version is stored under the name it has on disk, and its path
+        // to match: a file opened through a link keeps a readable version.
         trashId = await copyIntoTrash(rootReal, name, current, mode, {
           ...trashMeta,
           reason: trashMeta.reason || "edited",
-          originalPath: r.rel,
+          originalPath: r.realRel,
           type: "file",
           bytes: current.length,
           files: 1,
@@ -1350,9 +1581,12 @@ export function createSftpBackend({ settings } = {}) {
         await replaceWith(tmp, r.abs);
       } catch (err) {
         await removeQuietly(tmp);
+        // The file is still the old one: a version of it for a save that
+        // didn't happen would only push real versions out.
+        if (trashId && (await lstatOrNull(r.abs).catch(() => null))) await discardTrashItem(rootReal, trashId);
         throw err;
       }
-      return { entry: await entryAt(rootReal, r.rel, r.abs), previousTrashId: trashId };
+      return { entry: await entryAt(rootReal, r.rel, r.abs), previousTrashId: trashId, sha256Before: currentHash };
     });
   }
 
@@ -1368,7 +1602,8 @@ export function createSftpBackend({ settings } = {}) {
     const rootReal = rootRealOf(dir);
     const target = posix.join(dir.abs, checkedName);
     const targetRel = joinRel(dir.rel, checkedName);
-    checkReplaceable(await lstatOrNull(target), overwriteEtag, checkedName);
+    const before = await lstatOrNull(target);
+    checkReplaceable(before, overwriteEtag, checkedName);
     await sweepOrphans(dir.abs);
 
     const tmp = posix.join(dir.abs, tempName(checkedName, UPLOAD_TEMP_SUFFIX));
@@ -1376,7 +1611,11 @@ export function createSftpBackend({ settings } = {}) {
     try {
       const lease = await pool.lease();
       tmpMayExist = true;
-      const { sha256 } = await streamIntoRemote(lease, source, tmp, { declaredSize: size, maxBytes: limit });
+      const { sha256 } = await streamIntoRemote(lease, source, tmp, {
+        declaredSize: size,
+        maxBytes: limit,
+        mode: before && before.mode !== null ? before.mode & 0o777 : 0o644,
+      });
       const written = await lstat(tmp);
       if (written.type !== "file" || written.size !== size) throw fmError(ErrorCode.FM_UPLOAD_SIZE_MISMATCH);
       return await guardConfig([target], async () => {
@@ -1384,7 +1623,8 @@ export function createSftpBackend({ settings } = {}) {
         const existing = await lstatOrNull(target);
         checkReplaceable(existing, overwriteEtag, checkedName);
         await chmodQuietly(tmp, existing && existing.mode !== null ? existing.mode & 0o777 : 0o644);
-        const replacedTrashId = await landTemp(rootReal, tmp, target, targetRel, existing, {
+        await matchOwner(tmp, written, existing || dir.stat);
+        const replacedTrashId = await landTemp(rootReal, tmp, target, joinRel(dir.realRel, checkedName), existing, {
           ...trashMeta,
           reason: trashMeta.reason || "replaced",
         });
@@ -1493,13 +1733,22 @@ export function createSftpBackend({ settings } = {}) {
         lease.release();
         throw toFmError(err);
       }
-      await streamIntoRemote(lease, source, tmp, { declaredSize: st.size, maxBytes: COPY_MAX_BYTES, remoteSource: true });
+      await streamIntoRemote(lease, source, tmp, {
+        declaredSize: st.size,
+        maxBytes: COPY_MAX_BYTES,
+        remoteSource: true,
+        mode: 0o644,
+      });
+      // Like an upload: what landed must be every byte of the source.
+      const written = await lstat(tmp);
+      if (written.type !== "file" || written.size !== st.size) throw fmError(ErrorCode.FM_UPLOAD_SIZE_MISMATCH);
       return await guardConfig([target], async () => {
         const existing = await lstatOrNull(target);
         checkReplaceable(existing, overwriteEtag, checkedName);
         // A copy is a new file: 0644, never executable (spec §A6.3).
         await chmodQuietly(tmp, 0o644);
-        await landTemp(rootReal, tmp, target, targetRel, existing, {
+        await matchOwner(tmp, written, existing || destDir.stat);
+        await landTemp(rootReal, tmp, target, joinRel(destDir.realRel, checkedName), existing, {
           ...trashMeta,
           reason: trashMeta.reason || "replaced",
         });
@@ -1513,18 +1762,24 @@ export function createSftpBackend({ settings } = {}) {
     }
   }
 
-  // Depth-first over list(), never following a link. Yields everything
-  // below `r` (not `r` itself, and nothing for a file), as the service and
-  // the conformance suite expect: { name, rel, realRel, type, size, mtimeMs,
-  // dev, ino, depth }, with root-relative paths as navigated and depth 1 for
-  // `r`'s own children. dev/ino are always null over SFTP. Stops early at
-  // maxEntries, maxMs or an abort; folders deeper than maxDepth aren't
-  // entered, and `prune(entry)` returning true skips a folder's contents.
-  // After the loop, `.truncated` and `.truncatedReason`
-  // ('entries'|'depth'|'time'|'aborted') say whether and why it stopped
-  // short. A folder that vanishes or can't be read mid-walk is skipped
-  // (`.skipped` counts them).
-  function walk(r, { maxEntries = Infinity, maxDepth = Infinity, maxMs = Infinity, signal, prune } = {}) {
+  // Breadth-first over list() (like the local walk: a search that runs out
+  // of time has looked at every shallow folder, not one deep subtree),
+  // never following a link. Yields everything below `r` (not `r` itself,
+  // and nothing for a file), as the service and the conformance suite
+  // expect: { name, rel, realRel, type, size, mtimeMs, dev, ino, depth },
+  // with root-relative paths as navigated and depth 1 for `r`'s own
+  // children. dev/ino are always null over SFTP. Stops early at maxEntries,
+  // maxMs or an abort; folders deeper than maxDepth aren't entered, and
+  // `prune(entry)` returning true skips a folder's contents. After the loop,
+  // `.truncated` and `.truncatedReason` ('entries'|'depth'|'time'|'aborted')
+  // say whether and why it stopped short. A folder that vanishes or can't
+  // be read mid-walk is skipped (`.skipped` counts them, and
+  // `onUnreadable({ rel, realRel, folder: true })` hears about it);
+  // `onDepthLimit()` hears about the first folder left unopened.
+  function walk(
+    r,
+    { maxEntries = Infinity, maxDepth = Infinity, maxMs = Infinity, signal, prune, onUnreadable, onDepthLimit } = {},
+  ) {
     const state = { truncated: false, truncatedReason: null, skipped: 0 };
     const stop = (reason) => {
       state.truncated = true;
@@ -1536,8 +1791,9 @@ export function createSftpBackend({ settings } = {}) {
       const started = Date.now();
       let visited = 0;
       if (r.stat.type !== "dir") return;
-      const stack = [{ abs: r.abs, rel: r.rel, realRel: r.realRel, depth: 1 }];
-      while (stack.length > 0) {
+      const queue = [{ abs: r.abs, rel: r.rel, realRel: r.realRel, depth: 1 }];
+      let depthReported = false;
+      while (queue.length > 0) {
         if (signal?.aborted) {
           stop("aborted");
           return;
@@ -1546,13 +1802,14 @@ export function createSftpBackend({ settings } = {}) {
           stop("time");
           return;
         }
-        const frame = stack.pop();
+        const frame = queue.shift();
         let children;
         try {
           children = await listDir(frame.abs);
         } catch (err) {
           if (isCode(err, ErrorCode.FM_NOT_FOUND) || isCode(err, ErrorCode.FM_OS_PERMISSION_DENIED)) {
             state.skipped += 1;
+            onUnreadable?.({ rel: frame.rel, realRel: frame.realRel, folder: true });
             continue;
           }
           throw err;
@@ -1561,7 +1818,13 @@ export function createSftpBackend({ settings } = {}) {
           .filter((e) => e.name !== "." && e.name !== ".." && !isOmitted(e.name))
           .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
         if (frame.depth > maxDepth) {
-          if (children.length > 0) stop("depth");
+          if (children.length > 0) {
+            stop("depth");
+            if (!depthReported) {
+              depthReported = true;
+              onDepthLimit?.({ rel: frame.rel, realRel: frame.realRel });
+            }
+          }
           continue;
         }
         const subfolders = [];
@@ -1593,7 +1856,7 @@ export function createSftpBackend({ settings } = {}) {
             });
           }
         }
-        for (let i = subfolders.length - 1; i >= 0; i--) stack.push(subfolders[i]);
+        queue.push(...subfolders);
       }
     }
     return {
@@ -1640,7 +1903,7 @@ export function createSftpBackend({ settings } = {}) {
       trashId: await moveIntoTrash(rootReal, r.abs, {
         ...meta,
         reason: meta.reason || "deleted",
-        originalPath: r.rel,
+        originalPath: r.realRel,
         type,
         bytes,
         files,
@@ -1655,14 +1918,16 @@ export function createSftpBackend({ settings } = {}) {
     if (!st || st.type !== "dir") return [];
     const now = Date.now();
     const items = [];
+    const budget = { left: EXPIRY_ENTRY_BUDGET };
     for (const e of await listDir(trashAbs)) {
       if (e.type !== "d" || !TRASH_ID_RE.test(e.name)) continue;
       const itemAbs = posix.join(trashAbs, e.name);
       const created = trashIdTime(e.name);
       if (now - created > TRASH_RETENTION_MS) {
-        // Remote retention is lazy: expired items go when Trash is looked at.
-        await removeTreeQuietly(itemAbs);
-        trashMetaCache.delete(trashMetaKey(itemAbs));
+        // Remote retention is lazy: expired items go when Trash is looked at
+        // (a bounded amount per look; drainExpiredTrash() hands them to the
+        // audit trail).
+        if (budget.left > 0) await expireTrashItem(root.real, trashAbs, e.name, budget);
         continue;
       }
       const meta = await readTrashMeta(itemAbs);
@@ -1775,11 +2040,23 @@ export function createSftpBackend({ settings } = {}) {
     return { free: available * blockSize, total: blocks * blockSize };
   }
 
+  // The Trash items lazy retention removed from this root since the last
+  // call (the service writes their files.trash.expire audit row).
+  function drainExpiredTrash(rootReal) {
+    const key = `${pool.id}|${rootReal}`;
+    const ids = expiredByRoot.get(key) || [];
+    expiredByRoot.delete(key);
+    return ids;
+  }
+
   return {
     kind: "sftp",
     remote: pool.remote,
     describeRoot,
     resolve,
+    resolveChild,
+    statEtag: (st) => statEtag(st?.size, st?.mtimeMs),
+    drainExpiredTrash,
     list,
     stat,
     readBytes,

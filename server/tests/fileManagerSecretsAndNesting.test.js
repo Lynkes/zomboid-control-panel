@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import crypto from "crypto";
 import http from "http";
 import net from "net";
 import fs from "fs";
@@ -64,7 +65,7 @@ const { invalidateRootCache } = await import("../services/fileManagerRoots.js");
 const { _resetRunStateCacheForTests } = await import("../services/fileManagerRunState.js");
 const service = await import("../services/fileManagerService.js");
 const { _resetDenialCoalescingForTests } = await import("../services/fileManagerAudit.js");
-const { _resetZipSlotsForTests } = await import("../services/fileManagerZip.js");
+const { _resetZipSlotsForTests, _setZipIdleMsForTests } = await import("../services/fileManagerZip.js");
 const { managedStartupScriptName } = await import("../services/serverManager.js");
 
 const ADMIN_SENTINEL = "AdminSentinel-9f3c";
@@ -390,4 +391,248 @@ describe("folder upload", () => {
     expect(res.status).toBe(400);
     expect(res.body.code).toBe("FM_NOT_A_DIRECTORY");
   });
+});
+
+describe(".ini masking can't be sidestepped", () => {
+  const INI = "Server/servertest.ini";
+  const read = (rel) => call("GET", `${P}/text?root=data&path=${q(rel)}`);
+
+  it("a rename, duplicate or restore-as to a name the file manager doesn't mask is refused", async () => {
+    for (const newName of ["servertest.txt", "servertest", "notes.cfg"]) {
+      const res = await call("POST", `${P}/rename`, { body: { root: "data", path: INI, newName, confirm: [] } });
+      expect(res.status, newName).toBe(400);
+      expect(res.body.code, newName).toBe("FM_SECRET_NAME_REQUIRED");
+    }
+    const copy = await call("POST", `${P}/copy`, { body: { root: "data", path: INI, destDir: "Server", newName: "x.txt", confirm: [] } });
+    expect(copy.body.code).toBe("FM_SECRET_NAME_REQUIRED");
+    expect(fs.existsSync(path.join(tree.config, "x.txt"))).toBe(false);
+
+    // An earlier version of the .ini, kept in Trash by a save, can't come
+    // back as plain text either.
+    const opened = await read(INI);
+    const saved = await call("PUT", `${P}/text`, {
+      body: { root: "data", path: INI, content: opened.body.content.replace("PVP=true", "PVP=false"), etag: opened.body.etag, eol: "crlf", bom: false, confirm: [] },
+    });
+    expect(saved.status).toBe(200);
+    const restoreAs = await call("POST", `${P}/trash/restore`, {
+      body: { root: "data", trashId: saved.body.previousVersion.trashId, restoreAs: "old.txt", confirm: [] },
+    });
+    expect(restoreAs.body.code).toBe("FM_SECRET_NAME_REQUIRED");
+    expect(fs.existsSync(path.join(tree.config, "old.txt"))).toBe(false);
+  });
+
+  it("the usual hand-made backup names stay masked on every way out", async () => {
+    for (const newName of ["servertest.ini.bak", "servertest.ini.old", "servertest.ini.2026-09-30"]) {
+      const renamed = await call("POST", `${P}/rename`, { body: { root: "data", path: INI, newName, confirm: [] } });
+      expect(renamed.status, newName).toBe(200);
+      const rel = `Server/${newName}`;
+      expect((await read(rel)).body.content, newName).not.toContain(RCON_SENTINEL);
+      expect((await call("GET", `${P}/download?root=data&path=${q(rel)}`)).buffer.toString("utf8"), newName).not.toContain(RCON_SENTINEL);
+      const zip = await call("POST", `${P}/zip`, { body: { root: "data", paths: [rel] } });
+      expect(await zipEntriesHolding(zip.buffer, RCON_SENTINEL), newName).toEqual([]);
+      const back = await call("POST", `${P}/rename`, { body: { root: "data", path: rel, newName: "servertest.ini", confirm: [] } });
+      expect(back.status).toBe(200);
+    }
+  });
+
+  it("the tail view never starts inside a secret line", async () => {
+    // A save can put a secret line last (the editor's reconcile goes by key).
+    const ini = "PVP=true\r\nMaxPlayers=8\r\nRCONPassword=MyLongSecretValue9\r\n";
+    fs.writeFileSync(path.join(tree.config, "servertest.ini"), ini);
+    for (let tailBytes = 1; tailBytes <= ini.length; tailBytes++) {
+      const res = await call("GET", `${P}/text?root=data&path=${q(INI)}&mode=tail&tailBytes=${tailBytes}`);
+      expect(res.status).toBe(200);
+      expect(res.body.content, `tailBytes=${tailBytes}`).not.toMatch(/cretValue9|ValueNine|LongSecret/);
+    }
+  });
+
+  it("no plain hash of a secret-bearing file's bytes leaves the server (etag, conflict, audit, upload)", async () => {
+    const ini = "PVP=true\r\nRCONPassword=q7xpass\r\nMaxPlayers=8\r\n";
+    fs.writeFileSync(path.join(tree.config, "servertest.ini"), ini);
+    const sha = (text) => crypto.createHash("sha256").update(Buffer.from(text, "utf8")).digest("hex");
+    const opened = await read(INI);
+    expect(opened.body.content).not.toContain("q7xpass");
+    expect(opened.body.etag).toMatch(/^h:[0-9a-f]{64}$/);
+    expect(opened.body.etag).not.toBe(`h:${sha(ini)}`);
+
+    const stale = await call("PUT", `${P}/text`, {
+      body: { root: "data", path: INI, content: opened.body.content, etag: `h:${"0".repeat(64)}`, eol: "crlf", bom: false, confirm: [] },
+    });
+    expect(stale.body.code).toBe("FM_CONFLICT");
+    // The conflict's etag is the one the editor would get now: it saves.
+    expect(stale.body.params.currentEtag).toBe(opened.body.etag);
+
+    const edited = opened.body.content.replace("PVP=true", "PVP=false");
+    const saved = await call("PUT", `${P}/text`, {
+      body: { root: "data", path: INI, content: edited, etag: stale.body.params.currentEtag, eol: "crlf", bom: false, confirm: [] },
+    });
+    expect(saved.status).toBe(200);
+    const onDisk = fs.readFileSync(path.join(tree.config, "servertest.ini"), "utf8");
+    expect(onDisk).toContain("RCONPassword=q7xpass");
+    expect(saved.body.etag).not.toBe(`h:${sha(onDisk)}`);
+    // Its etag is the one a fresh read gives, so the editor can save again.
+    expect((await read(INI)).body.etag).toBe(saved.body.etag);
+    const row = dbState.audit.find((entry) => entry.op === "files.write");
+    expect(row).toMatchObject({ sha256Before: null, sha256After: null });
+
+    const download = await call("GET", `${P}/download?root=data&path=${q(INI)}`);
+    const current = await call("GET", `${P}/stat?root=data&path=${q(INI)}`);
+    const upload = await call("POST", `${P}/upload`, {
+      raw: download.buffer,
+      headers: {
+        "content-type": "application/octet-stream",
+        "x-file-root": "data",
+        "x-file-dir": "Server",
+        "x-file-name": "servertest.ini",
+        "x-file-overwrite-etag": current.body.entry.etag,
+        "x-file-confirm": "overwrite",
+      },
+    });
+    expect(upload.status).toBe(201);
+    expect(upload.body.sha256).toBeNull();
+    expect(dbState.audit.find((entry) => entry.op === "files.upload")).toMatchObject({ sha256After: null });
+  });
+
+  it("a stale save whose secret line changed is a conflict, not an unmatched-secret error", async () => {
+    const opened = await read(INI);
+    // Someone rewrote the file without its RCONPassword line meanwhile.
+    fs.writeFileSync(path.join(tree.config, "servertest.ini"), "PVP=false\r\nPassword=\r\n");
+    const res = await call("PUT", `${P}/text`, {
+      body: { root: "data", path: INI, content: opened.body.content, etag: opened.body.etag, eol: "crlf", bom: false, confirm: [] },
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("FM_CONFLICT");
+    expect(res.body.params.currentEtag).toMatch(/^h:[0-9a-f]{64}$/);
+
+    // The same for a masked download uploaded back over a changed file.
+    const download = await call("GET", `${P}/download?root=data&path=${q(INI)}`);
+    const before = await call("GET", `${P}/stat?root=data&path=${q(INI)}`);
+    fs.writeFileSync(path.join(tree.config, "servertest.ini"), "PVP=true\r\n");
+    const upload = await call("POST", `${P}/upload`, {
+      raw: download.buffer,
+      headers: {
+        "content-type": "application/octet-stream",
+        "x-file-root": "data",
+        "x-file-dir": "Server",
+        "x-file-name": "servertest.ini",
+        "x-file-overwrite-etag": before.body.entry.etag,
+        "x-file-confirm": "overwrite",
+      },
+    });
+    expect(upload.status).toBe(409);
+    expect(upload.body.code).toBe("FM_CONFLICT");
+  });
+
+  it("a save against a file that grew past the editor limit is refused before anything reads it", async () => {
+    fs.writeFileSync(path.join(tree.data, "Logs", "huge.txt"), Buffer.alloc(3 * 1024 * 1024, 0x61));
+    const res = await call("PUT", `${P}/text`, {
+      body: { root: "data", path: "Logs/huge.txt", content: "x", etag: `h:${"0".repeat(64)}`, eol: "lf", bom: false, confirm: [] },
+    });
+    expect(res.status).toBe(413);
+    expect(res.body.code).toBe("FM_FILE_TOO_LARGE_FOR_EDITOR");
+    expect(fs.statSync(path.join(tree.data, "Logs", "huge.txt")).size).toBe(3 * 1024 * 1024);
+  });
+});
+
+describe("a refused upload still gets its answer to the client", () => {
+  // A plain HTTP client streaming a body far bigger than any socket buffer:
+  // closing the connection on it right after the refusal made the OS reset
+  // it, and the client never saw the 409.
+  function uploadRaw(headers, size) {
+    return new Promise((resolve, reject) => {
+      const req = http.request(`${baseUrl}${P}/upload`, {
+        method: "POST",
+        headers: { "x-test-role": "admin", "x-test-user": "u1", "content-length": String(size), ...headers },
+      });
+      req.on("response", (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => resolve({ status: res.statusCode, body: JSON.parse(Buffer.concat(chunks).toString("utf8")) }));
+      });
+      req.on("error", reject);
+      const chunk = Buffer.alloc(256 * 1024, 0x61);
+      let sent = 0;
+      const pump = () => {
+        while (sent < size) {
+          const piece = chunk.subarray(0, Math.min(chunk.length, size - sent));
+          sent += piece.length;
+          if (!req.write(piece)) {
+            req.once("drain", pump);
+            return;
+          }
+        }
+        req.end();
+      };
+      pump();
+    });
+  }
+
+  it("the name is taken: the client reads 409 FM_EXISTS, not a reset", async () => {
+    const res = await uploadRaw(
+      { "content-type": "application/octet-stream", "x-file-root": "data", "x-file-dir": "Server", "x-file-name": "servertest.ini" },
+      4 * 1024 * 1024,
+    );
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("FM_EXISTS");
+  });
+
+  it("an unknown server: the client reads 404, not a reset", async () => {
+    const res = await new Promise((resolve, reject) => {
+      const req = http.request(`${baseUrl}/api/files/profiles/nope/upload`, {
+        method: "POST",
+        headers: {
+          "x-test-role": "admin",
+          "x-test-user": "u1",
+          "content-type": "application/octet-stream",
+          "content-length": String(4 * 1024 * 1024),
+          "x-file-root": "data",
+          "x-file-name": "a.bin",
+        },
+      });
+      req.on("response", (r) => {
+        r.resume();
+        r.on("end", () => resolve({ status: r.statusCode }));
+      });
+      req.on("error", reject);
+      req.end(Buffer.alloc(4 * 1024 * 1024, 1));
+    });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("zip slots", () => {
+  function stalledZip(userId, paths) {
+    const body = JSON.stringify({ root: "data", paths });
+    return new Promise((resolve, reject) => {
+      const socket = net.connect(port, "127.0.0.1", () => {
+        socket.write(
+          `POST ${P}/zip HTTP/1.1\r\nHost: x\r\nx-test-role: admin\r\nx-test-user: ${userId}\r\ncontent-type: application/json\r\ncontent-length: ${Buffer.byteLength(body)}\r\n\r\n${body}`,
+        );
+        socket.once("data", () => {
+          socket.pause();
+          resolve(socket);
+        });
+      });
+      socket.on("error", reject);
+    });
+  }
+
+  it("a zip whose client stops reading gives its slot back after the idle limit", async () => {
+    _setZipIdleMsForTests(500);
+    // Incompressible, so the socket buffers fill and the writer stalls.
+    fs.mkdirSync(path.join(tree.data, "big"));
+    for (let i = 0; i < 3; i++) fs.writeFileSync(path.join(tree.data, "big", `f${i}.bin`), crypto.randomBytes(24 * 1024 * 1024));
+    const sockets = [];
+    try {
+      sockets.push(await stalledZip("a", ["big"]), await stalledZip("b", ["big"]));
+      const busy = await call("POST", `${P}/zip`, { userId: "c", body: { root: "data", paths: ["Server"] } });
+      expect(busy.status).toBe(429);
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      const later = await call("POST", `${P}/zip`, { userId: "c", body: { root: "data", paths: ["Server"] } });
+      expect(later.status).toBe(200);
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      _setZipIdleMsForTests(undefined);
+    }
+  }, 60000);
 });

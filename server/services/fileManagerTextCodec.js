@@ -29,18 +29,20 @@ export function isIniName(name) {
   return extensionOf(name) === ".ini";
 }
 
-// The panel's own copies of an .ini: configBackup.js names them
-// `<name>.ini.<timestamp>.bak` (or `.<timestamp>-<n>.bak`), templateFiles.js
-// `<name>.ini.<timestamp>.bak` (or `.bak-<n>`). They hold the same secrets.
-const INI_BACKUP_RE = /\.ini\.[^/\\]+\.bak(?:-\d+)?$/i;
+// A copy of an .ini under any suffix keeps its secrets: the panel's own
+// backups (configBackup.js `<name>.ini.<timestamp>.bak`, templateFiles.js
+// `.bak-<n>`) and the ones people make by hand (`servertest.ini.bak`,
+// `.ini.old`, `.ini.2026-09-30`): ".ini" as a whole dot-separated part of
+// the last path segment.
+const INI_COPY_RE = /\.ini(?:\.[^/\\]*)?$/i;
 
 /**
- * An .ini file or one of the panel's backups of one: its secret-looking
- * lines are masked on every way out and put back on every way in.
+ * An .ini file or a copy of one: its secret-looking lines are masked on
+ * every way out and put back on every way in.
  */
 export function isSecretBearingName(name) {
   const text = String(name || "");
-  return isIniName(text) || INI_BACKUP_RE.test(text);
+  return isIniName(text) || INI_COPY_RE.test(text);
 }
 
 export function sha256Hex(buffer) {
@@ -50,6 +52,19 @@ export function sha256Hex(buffer) {
 // The editor's etag: a hash of the exact bytes on disk.
 export function hashEtag(buffer) {
   return `h:${sha256Hex(buffer)}`;
+}
+
+// A per-process key for the etag of a file whose secrets are masked. A plain
+// sha256 of the unmasked bytes next to the masked text would let a short
+// password be brute-forced offline (everything but the secret's prefix is
+// on screen); an HMAC under a key that never leaves this process can't be.
+// The price: an editor left open across a panel restart gets a conflict and
+// reloads.
+const SECRET_ETAG_KEY = crypto.randomBytes(32);
+
+/** The etag the editor sees for a secret-bearing file: the same "h:" + 64 hex shape. */
+export function secretEtag(buffer) {
+  return `h:${crypto.createHmac("sha256", SECRET_ETAG_KEY).update(buffer).digest("hex")}`;
 }
 
 export const HASH_ETAG_RE = /^h:[0-9a-f]{64}$/;
@@ -96,9 +111,12 @@ export function decodeForEdit(buffer) {
 /**
  * Decode the end of a file for the read-only tail view: replacement
  * characters instead of refusing, and a cut first line dropped so the view
- * starts on a whole line.
+ * starts on a whole line. `wholeLinesOnly` (a file whose secrets are masked)
+ * drops the cut line even when it is the only one: a window that starts in
+ * the middle of `RCONPassword=...` shows a fragment the mask can't
+ * recognise, so nothing short of a whole line is shown.
  */
-export function decodeTail(buffer, truncated) {
+export function decodeTail(buffer, truncated, { wholeLinesOnly = false } = {}) {
   let body = buffer;
   if (!truncated && body.length >= 3 && body[0] === 0xef && body[1] === 0xbb && body[2] === 0xbf) {
     body = body.subarray(3);
@@ -106,7 +124,8 @@ export function decodeTail(buffer, truncated) {
   let text = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(body);
   if (truncated) {
     const firstBreak = text.indexOf("\n");
-    if (firstBreak !== -1 && firstBreak < text.length - 1) text = text.slice(firstBreak + 1);
+    if (wholeLinesOnly) text = firstBreak === -1 ? "" : text.slice(firstBreak + 1);
+    else if (firstBreak !== -1 && firstBreak < text.length - 1) text = text.slice(firstBreak + 1);
   }
   const eol = detectEol(text);
   return { text: text.replace(/\r\n/g, "\n"), eol };

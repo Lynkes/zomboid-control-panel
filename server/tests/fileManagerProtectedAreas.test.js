@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 import path from "path";
-import { fakeApp, makeServerTree, makeTempDir, removeDir, write } from "./helpers/fileManagerFixtures.js";
+import { fakeApp, linkDir, makeServerTree, makeTempDir, removeDir, write } from "./helpers/fileManagerFixtures.js";
 
 // Protected areas and world state (spec §A5): every area at its level, the
 // ancestor rule, names the bridge owns in any case, the list-only backups
@@ -179,9 +179,92 @@ describe("areas and levels", () => {
 
     const custom = { ...tree.profile, installPath: path.join(tree.install, "my-launcher.bat") };
     const r = buildProtectionContext({ rootId: "install", rootReal: tree.install, profiles: [custom], settings: {} });
-    expect(r.classify("StartServer_servertest.bat")).toBeNull();
-    // Only the panel writes the copies, whatever the launch mode is now.
+    // The panel never deletes a script it generated: one from before the
+    // switch to a custom launcher still holds the admin password.
+    expect(r.classify("StartServer_servertest.bat")).toEqual(listOnly);
     expect(r.classify("StartServer_servertest.bat.bak-2026-09-29T00-00-00-000Z")).toEqual(listOnly);
+    expect(r.classify("my-launcher.bat")).toBeNull();
+    expect(r.classify(".pz-panel-scripts.json")).toBeNull();
+  });
+
+  it("scripts the panel generated under an earlier server name stay list-only too", () => {
+    const listOnly = { level: "listOnly", area: "launchScripts" };
+    const install = rules("install", tree.install);
+    for (const name of [
+      "StartServer_oldname.bat",
+      "start-server_oldname.sh",
+      "StartServer_oldname.bat.bak-2026-09-01T00-00-00-000Z",
+      "start-server_oldname.sh.bak-2026-09-01T00-00-00-000Z-2",
+    ]) {
+      expect(install.classify(name), name).toEqual(listOnly);
+    }
+    // The stock scripts have no underscore after the stem.
+    for (const name of ["StartServer64.bat", "StartServer64_nosteam.bat", "start-server.sh", "start-nosteam-server.sh"]) {
+      expect(install.classify(name), name).toBeNull();
+    }
+    // A build before #167 wrote them into installPath even with a separate
+    // launch folder: that folder is covered as well as the launch folder.
+    const launch = path.join(base, "launch");
+    write(path.join(launch, "ProjectZomboid64.json"), "{}\n");
+    const separate = { ...tree.profile, serverPath: launch };
+    const inInstall = buildProtectionContext({ rootId: "install", rootReal: tree.install, profiles: [separate], settings: {} });
+    expect(inInstall.classify("StartServer_servertest.bat")).toEqual(listOnly);
+    const inLaunch = buildProtectionContext({ rootId: "launch", rootReal: fs.realpathSync.native(launch), profiles: [separate], settings: {} });
+    expect(inLaunch.classify("StartServer_servertest.bat")).toEqual(listOnly);
+  });
+
+  it("the panel's feature secrets, per-server secrets and database backups are sealed by inode too", () => {
+    // A hard link stands in for a bind-mount alias of the data folder inside
+    // a root: the path anchors can't see it, only the inode can.
+    const { dataDir } = getDataPaths();
+    const secrets = [
+      write(path.join(dataDir, "discordBotToken.secret"), "DISCORD-TOKEN"),
+      write(path.join(dataDir, "oidcClientSecret.secret"), "OIDC-SECRET"),
+      write(path.join(dataDir, "server-secrets", "p1.secret"), "RCON-AND-ADMIN"),
+      write(path.join(dataDir, "backups", "db-20260930.json"), '{"users":[]}'),
+    ];
+    const r = rules("data", tree.data);
+    for (const [i, secret] of secrets.entries()) {
+      const alias = path.join(tree.data, "aliases", `alias-${i}`);
+      fs.mkdirSync(path.dirname(alias), { recursive: true });
+      fs.linkSync(secret, alias);
+      const st = fs.statSync(alias, { bigint: true });
+      expect(r.classify(`aliases/alias-${i}`, { type: "file", dev: st.dev, ino: st.ino }), path.basename(secret)).toEqual({
+        level: "sealed",
+        area: "panelSecret",
+      });
+    }
+  });
+
+  it("PanelBridge's own files are read-only in a separate launch folder too (the installer writes there)", () => {
+    const launch = path.join(base, "launch");
+    write(path.join(launch, "ProjectZomboid64.json"), "{}\n");
+    const separate = { ...tree.profile, serverPath: path.join(launch, "StartServer64.bat") };
+    const inLaunch = buildProtectionContext({ rootId: "launch", rootReal: fs.realpathSync.native(launch), profiles: [separate], settings: {} });
+    const bridgeManaged = { level: "readOnly", area: "bridgeManaged" };
+    expect(inLaunch.classify("media/lua/server/PanelBridge.lua")).toEqual(bridgeManaged);
+    expect(inLaunch.classify("media/lua/client/PanelBridgeClient.lua")).toEqual(bridgeManaged);
+    expect(inLaunch.protectedWithin("media")).toMatchObject({ area: "bridgeManaged", containsProtected: true });
+    // A launch subfolder of the install folder has no root of its own: the
+    // install root reaches it.
+    const nested = { ...tree.profile, serverPath: path.join(tree.install, "game", "StartServer64.bat") };
+    fs.mkdirSync(path.join(tree.install, "game"), { recursive: true });
+    const inInstall = buildProtectionContext({ rootId: "install", rootReal: tree.install, profiles: [nested], settings: {} });
+    expect(inInstall.classify("game/media/lua/server/PanelBridge.lua")).toEqual(bridgeManaged);
+  });
+
+  it("World Backups and a world save moved elsewhere behind a link stay protected where they really are", () => {
+    // backups moved into the game folder, a link left in its place
+    fs.renameSync(path.join(tree.data, "backups"), path.join(tree.install, "bk"));
+    linkDir(path.join(tree.install, "bk"), path.join(tree.data, "backups"));
+    // the world save moved there as well
+    fs.mkdirSync(path.join(tree.install, "worlds"), { recursive: true });
+    fs.renameSync(path.join(tree.data, "Saves", "Multiplayer", "servertest"), path.join(tree.install, "worlds", "servertest"));
+    linkDir(path.join(tree.install, "worlds", "servertest"), path.join(tree.data, "Saves", "Multiplayer", "servertest"));
+    const install = rules("install", tree.install);
+    expect(install.classify("bk/world-1.zip")).toEqual({ level: "listOnly", area: "panelBackups" });
+    expect(install.isWorldState("worlds/servertest/map_0_0.bin")).toBe(true);
+    expect(install.worldStateOwners("worlds/servertest")).toEqual([tree.profile]);
   });
 
   it("anchors match in any case on every OS (a case-insensitive mount under a Linux panel)", () => {
