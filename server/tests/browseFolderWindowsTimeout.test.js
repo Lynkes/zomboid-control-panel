@@ -5,8 +5,8 @@ import { EventEmitter } from "events";
 // platform-divergence-sweep): POST /browse-folder's Windows branch spawned
 // powershell for the FolderBrowserDialog with no timeout at all, while the
 // sibling Linux branch a few lines above bounds both zenity and kdialog with
-// { timeout: 120000 } each. There is also no global HTTP request timeout
-// anywhere in index.js (no requestTimeout/headersTimeout configured), so a
+// { timeout: 120000 } each. The only HTTP-level bound is index.js's 6-hour
+// requestTimeout (sized for slow Server Files uploads), so a
 // dialog left open -- lost focus behind another window (a known WinForms/STA
 // quirk) or the operator simply walking away -- hung the request forever.
 //
