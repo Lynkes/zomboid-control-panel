@@ -114,10 +114,14 @@ const CONNECTION_LOST_CODES = new Set([
   "ERR_NOT_CONNECTED",
 ]);
 
+// "No response from server" is what ssh2 fails every pending request with
+// when the SFTP channel closes under it.
 function isConnectionLost(err) {
   return (
     CONNECTION_LOST_CODES.has(err?.code) ||
-    /no sftp connection|not connected|unexpected (?:end|close) event|connection lost|socket hang up/i.test(messageOf(err))
+    /no sftp connection|not connected|unexpected (?:end|close) event|connection lost|socket hang up|no response from server/i.test(
+      messageOf(err),
+    )
   );
 }
 
@@ -256,7 +260,23 @@ class FileManagerSftpPool {
       client.connect({ host, port, username, password, readyTimeout: timeouts.readyMs }),
     );
     entry.ready = withTimeout(connecting, timeouts.readyMs + CONNECT_GRACE_MS).then(
-      () => entry,
+      () => {
+        // The SFTP channel can close under a live SSH connection (the
+        // server's sftp-server exited, or was killed), and ssh2 then never
+        // answers another request on it: each would hang until its timeout.
+        // A closed channel retires the connection, like a closed socket (an
+        // idle one is closed now; a busy one once its calls have failed).
+        const channel = client.sftp;
+        const retire = () => {
+          markDead();
+          if (entry.active === 0) this.#discard(entry);
+        };
+        if (channel && typeof channel.once === "function") {
+          channel.once("close", retire);
+          channel.once("end", retire);
+        }
+        return entry;
+      },
       (err) => {
         this.#discard(entry);
         if (err instanceof SftpTimeoutError) throw new FmError(ErrorCode.FM_SFTP_TIMEOUT);
@@ -279,7 +299,12 @@ class FileManagerSftpPool {
 
   #release(entry) {
     entry.active -= 1;
-    if (entry.active > 0 || entry.dead) return;
+    if (entry.active > 0) return;
+    // Its connection or its SFTP channel went while it was busy: close it.
+    if (entry.dead) {
+      this.#discard(entry);
+      return;
+    }
     entry.idleTimer = setTimeout(() => {
       if (entry.active === 0) this.#discard(entry);
     }, timeouts.idleCloseMs);

@@ -16,6 +16,8 @@
 //   shortNames     Map of alias path -> real path: Windows 8.3 names on an
 //                  NTFS-backed host (PANELB~1 opens panelbridge)
 //   log            every request as { op, path }
+// and closeChannels() on the returned handle ends every SFTP channel while
+// its SSH connection stays up (the server's sftp-server exited).
 import { createRequire } from "module";
 import { posix } from "path";
 
@@ -52,6 +54,7 @@ export async function startRealSshSftpServer(opts = {}) {
     shortNames: new Map(),
     log: [],
   };
+  const channels = new Set();
 
   const fs = {
     mkdirp(p, { mode = 0o755, uid = state.loginUid, gid = state.loginGid } = {}) {
@@ -140,6 +143,8 @@ export async function startRealSshSftpServer(opts = {}) {
         const session = acceptSession();
         session.on("sftp", (acceptSftp) => {
           const sftp = acceptSftp();
+          channels.add(sftp);
+          sftp.on("close", () => channels.delete(sftp));
           const handles = new Map();
           let nextHandle = 1;
           const newHandle = (value) => {
@@ -341,6 +346,9 @@ export async function startRealSshSftpServer(opts = {}) {
     state,
     fs,
     port,
+    closeChannels: () => {
+      for (const channel of channels) channel.end();
+    },
     settings: {
       panelBridgeSftpHost: "127.0.0.1",
       panelBridgeSftpPort: port,

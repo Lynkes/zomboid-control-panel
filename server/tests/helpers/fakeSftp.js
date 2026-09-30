@@ -24,6 +24,10 @@
 // Failure injection: server.inject(op, { error, hang, connectionLost, times,
 // path }) makes the next matching call fail, hang forever, or drop its
 // connection. stallReads/stallWrites freeze streamed transfers.
+// dropConnections() closes every connection; closeChannels() closes only
+// the SFTP channels (the server's sftp-server exited), after which, as with
+// ssh2, nothing on them is ever answered.
+import { EventEmitter } from "events";
 import { posix } from "path";
 import { Readable, Writable } from "stream";
 import { createSftpBackend } from "../../services/fileManagerSftpBackend.js";
@@ -234,7 +238,17 @@ export class FakeSftpServer {
     for (const client of this.clients) client._drop();
   }
 
+  /**
+   * Simulate the server's sftp-server exiting under live SSH connections:
+   * each SFTP channel closes and, like ssh2, never answers again (every
+   * later request hangs); the connections themselves stay up.
+   */
+  closeChannels() {
+    for (const client of this.clients) client._closeChannel();
+  }
+
   async before(client, op, p) {
+    if (client.channelClosed) await never();
     this.log.push({ client: client.id, kind: client.name, op, path: p });
     const index = this.injections.findIndex((inj) => inj.op === op && (inj.path === null || inj.path === p));
     if (index === -1) return;
@@ -348,6 +362,7 @@ export class FakeSftpClient {
     this.sftp = undefined;
     this.connected = false;
     this.ended = false;
+    this.channelClosed = false;
   }
 
   _drop() {
@@ -355,6 +370,15 @@ export class FakeSftpClient {
     this.connected = false;
     this.sftp = undefined;
     this.callbacks?.close?.();
+  }
+
+  // ssh2-sftp-client keeps its `sftp` and reports nothing: only the channel
+  // object says 'end' and 'close'.
+  _closeChannel() {
+    if (!this.connected || this.channelClosed) return;
+    this.channelClosed = true;
+    this.sftp?.emit("end");
+    this.sftp?.emit("close");
   }
 
   #requireConnection(op) {
@@ -685,7 +709,7 @@ export class FakeSftpClient {
   }
 
   // Minimal ssh2 SFTP object: the callback-style calls the backend makes
-  // directly.
+  // directly, and the channel's 'end' and 'close' events.
   #rawSftp() {
     const client = this;
     const server = this.server;
@@ -697,7 +721,7 @@ export class FakeSftpClient {
           (err) => cb(err),
         );
     };
-    return {
+    return Object.assign(new EventEmitter(), {
       mkdir(p, attrs, cb) {
         const callback = typeof attrs === "function" ? attrs : cb;
         const mode = typeof attrs === "object" && attrs && typeof attrs.mode === "number" ? attrs.mode : 0o777;
@@ -795,7 +819,7 @@ export class FakeSftpClient {
           return { ...server.options.statvfsResult };
         });
       },
-    };
+    });
   }
 }
 

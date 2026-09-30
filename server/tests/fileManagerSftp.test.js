@@ -17,7 +17,7 @@ const { acquireMirrorLock, resetRemoteConfigSession } = await import("../service
 const { ErrorCode } = await import("../utils/errorCodes.js");
 const { FM_LIMITS, FmError, TRASH_ID_RE } = await import("../services/fileManagerContract.js");
 const { createSftpBackend, closeFileManagerSftpPool } = await import("../services/fileManagerSftpBackend.js");
-const { getFileManagerSftpPool, _setFileManagerSftpTestHooks, toFmError } = await import(
+const { getFileManagerSftpPool, _setFileManagerSftpTestHooks, sftpInfo, toFmError } = await import(
   "../services/fileManagerSftpPool.js"
 );
 const { FakeSftpServer, createFakeSftpFixture } = await import("./helpers/fakeSftp.js");
@@ -164,6 +164,24 @@ describe("SFTP pool", () => {
     f.server.clearLog();
     await expectFm(f.backend.list(await resolveRel(f, ""), {}), ErrorCode.FM_SFTP_ERROR);
     expect(f.server.opCount("list")).toBe(2);
+  });
+
+  it("retires a connection whose SFTP channel closed under it instead of hanging on it", async () => {
+    // The server's sftp-server exited (or was killed) and the SSH connection
+    // stayed up: ssh2 never answers a request on that channel again, so each
+    // pooled connection used to cost one request a full operation timeout.
+    const f = await setup({ timeouts: { opMs: 3000, transferIdleMs: 3000 } });
+    f.seed.file("a.txt", "a");
+    await resolveRel(f, "a.txt");
+    await collect((await f.backend.openReadStream(await resolveRel(f, "a.txt"))).stream);
+    f.server.closeChannels();
+    const started = Date.now();
+    expect((await resolveRel(f, "a.txt")).stat.type).toBe("file");
+    await f.backend.mkdir(await resolveRel(f, "", "list"), "made");
+    expect((await collect((await f.backend.openReadStream(await resolveRel(f, "a.txt"))).stream)).toString()).toBe("a");
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(f.exists("made")).toBe(true);
+    expect(sftpInfo(toFmError(new Error("No response from server")))?.connectionLost).toBe(true);
   });
 
   it("closes connections after the idle limit", async () => {

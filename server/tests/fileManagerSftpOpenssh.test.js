@@ -412,6 +412,73 @@ suite("real OpenSSH: what a save keeps", () => {
   });
 });
 
+suite("real OpenSSH: stalls, a killed sftp-server, a dropped connection", () => {
+  const readAll = async (stream) => Buffer.concat(await stream.toArray());
+
+  beforeEach(async () => {
+    srv.fs.writeFile("Zomboid/big.bin", crypto.randomBytes(4 * 1024 * 1024));
+    await closeFileManagerSftpPool();
+    _setFileManagerSftpTestHooks({ timeouts: { transferIdleMs: 1500, opMs: 2000, readyMs: 10000 } });
+    backend = createSftpBackend({ settings: srv.settings });
+    root = await backend.describeRoot({ id: "data", path: ROOT, warnings: [] });
+  });
+  afterEach(() => srv.stall(false));
+
+  it("a download the server stops answering times out, and the next one works", async () => {
+    const handle = await backend.openReadStream(await resolve("big.bin"));
+    let got = 0;
+    const stalled = (async () => {
+      for await (const chunk of handle.stream) {
+        got += chunk.length;
+        if (got > 512 * 1024) srv.stall(true);
+      }
+    })();
+    expect(await codeOf(stalled)).toBe("FM_SFTP_TIMEOUT");
+    srv.stall(false);
+    expect((await readAll((await backend.openReadStream(await resolve("big.bin"))).stream)).length).toBe(4 * 1024 * 1024);
+  });
+
+  it("an sftp-server killed between requests costs no request a timeout", async () => {
+    await readAll((await backend.openReadStream(await resolve("Logs/server.txt"))).stream);
+    srv.killSessions();
+    await srv.settle();
+    const started = Date.now();
+    expect((await backend.readBytes(await resolve("Server/servertest.ini"), { maxBytes: 100 })).buffer.toString()).toBe(ORIGINAL);
+    await backend.mkdir(await resolve("", "list"), "made");
+    expect((await readAll((await backend.openReadStream(await resolve("big.bin"))).stream)).length).toBe(4 * 1024 * 1024);
+    expect(Date.now() - started).toBeLessThan(1500);
+  });
+
+  it("an sftp-server killed mid-download fails that download only", async () => {
+    const handle = await backend.openReadStream(await resolve("big.bin"));
+    let got = 0;
+    let killed = false;
+    const cut = (async () => {
+      for await (const chunk of handle.stream) {
+        got += chunk.length;
+        if (got > 512 * 1024 && !killed) {
+          killed = true;
+          srv.killSessions();
+        }
+      }
+    })();
+    expect(await codeOf(cut)).not.toBe("ok");
+    await srv.settle();
+    const started = Date.now();
+    expect((await resolve("Logs/server.txt")).stat.type).toBe("file");
+    expect((await readAll((await backend.openReadStream(await resolve("big.bin"))).stream)).length).toBe(4 * 1024 * 1024);
+    expect(Date.now() - started).toBeLessThan(1500);
+  });
+
+  it("a dropped connection is reopened for the next request", async () => {
+    await resolve("Logs/server.txt");
+    srv.dropConnections();
+    await srv.settle();
+    expect((await resolve("Logs/server.txt")).stat.type).toBe("file");
+    await backend.mkdir(await resolve("", "list"), "made");
+  });
+});
+
 suite("real OpenSSH: big folders over a slow link", () => {
   it("a folder that takes longer than one operation's timeout to list still lists", async () => {
     for (let i = 0; i < 1500; i++) seed(`map/map_${i}.bin`, "");

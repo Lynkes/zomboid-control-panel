@@ -173,6 +173,7 @@ export async function startOpensshSftpServer({ denyRequests = [], umask = "022",
     denyRequests: [...denyRequests],
     umask,
     latencyMs,
+    stalled: false,
     /** Parse sftp-server's DEBUG1 log into `log` (read at each session's spawn). */
     logRequests: log,
     /** Every request the sftp-servers logged, as { op, path }, in arrival order. */
@@ -185,8 +186,12 @@ export async function startOpensshSftpServer({ denyRequests = [], umask = "022",
   const children = new Set();
   const settleWaiters = [];
   const aliases = [];
+  const held = [];
+  const connections = new Set();
 
   const server = new Server({ hostKeys: [getHostKey()] }, (client) => {
+    connections.add(client);
+    client.on("close", () => connections.delete(client));
     client.on("error", () => {});
     client.on("authentication", (ctx) => (ctx.method === "password" ? ctx.accept() : ctx.reject(["password"])));
     client.on("ready", () => {
@@ -202,11 +207,13 @@ export async function startOpensshSftpServer({ denyRequests = [], umask = "022",
           handle.sessions += 1;
           children.add(child);
           const channel = accept();
-          // Each reply chunk waits latencyMs (in order), like a slow link.
+          // Each reply chunk waits latencyMs (in order), like a slow link;
+          // while `stalled`, none gets through at all.
           const slowLink = new Transform({
             transform(chunk, _encoding, callback) {
-              if (handle.latencyMs > 0) setTimeout(() => callback(null, chunk), handle.latencyMs);
-              else callback(null, chunk);
+              const pass = () => (handle.latencyMs > 0 ? setTimeout(() => callback(null, chunk), handle.latencyMs) : callback(null, chunk));
+              if (handle.stalled) held.push(pass);
+              else pass();
             },
           });
           child.stdout.pipe(slowLink).pipe(channel);
@@ -288,6 +295,19 @@ export async function startOpensshSftpServer({ denyRequests = [], umask = "022",
           return [];
         }
       },
+    },
+    /** Hold every reply back (true), or let the held ones through (false). */
+    stall: (on) => {
+      handle.stalled = Boolean(on);
+      if (!on) for (const pass of held.splice(0)) pass();
+    },
+    /** Kill every sftp-server: each SFTP channel closes, its SSH connection stays. */
+    killSessions: () => {
+      for (const child of children) child.kill("SIGKILL");
+    },
+    /** Cut every SSH connection off, like a network drop. */
+    dropConnections: () => {
+      for (const connection of connections) connection._sock?.destroy();
     },
     /**
      * Wait (up to `ms`) until every sftp-server has exited. Once the pool

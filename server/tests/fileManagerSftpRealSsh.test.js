@@ -321,6 +321,44 @@ describe("big folders over a slow link", () => {
   }, 60000);
 });
 
+describe("an SFTP channel that closes under a live SSH connection", () => {
+  // The server's sftp-server exited or was killed. ssh2 fails what was in
+  // flight ("No response from server") and never answers anything sent on
+  // that channel afterwards.
+  it("costs no later request a timeout", async () => {
+    srv.fs.writeFile(`${ROOT}/big.bin`, crypto.randomBytes(1024 * 1024));
+    await resolve("Server/servertest.ini");
+    await backend.openReadStream(await resolve("Server/servertest.ini")).then((h) => h.stream.toArray());
+    srv.closeChannels();
+    await new Promise((done) => setTimeout(done, 100));
+    const started = Date.now();
+    expect((await backend.readBytes(await resolve("Server/servertest.ini"), { maxBytes: 100 })).buffer.toString()).toBe(ORIGINAL);
+    await backend.mkdir(await resolve("", "list"), "made");
+    const again = await backend.openReadStream(await resolve("big.bin"));
+    expect(Buffer.concat(await again.stream.toArray()).length).toBe(1024 * 1024);
+    expect(Date.now() - started).toBeLessThan(2500);
+  });
+
+  it("fails a download it cuts off, and the next one gets a fresh connection", async () => {
+    srv.fs.writeFile(`${ROOT}/big.bin`, crypto.randomBytes(4 * 1024 * 1024));
+    srv.state.latencyMs = 5;
+    const handle = await backend.openReadStream(await resolve("big.bin"));
+    let got = 0;
+    const cut = (async () => {
+      for await (const chunk of handle.stream) {
+        got += chunk.length;
+        if (got > 256 * 1024) srv.closeChannels();
+      }
+    })();
+    expect(await codeOf(cut)).not.toBe("ok");
+    srv.state.latencyMs = 0;
+    const started = Date.now();
+    const again = await backend.openReadStream(await resolve("big.bin"));
+    expect(Buffer.concat(await again.stream.toArray()).length).toBe(4 * 1024 * 1024);
+    expect(Date.now() - started).toBeLessThan(2500);
+  });
+});
+
 describe("a READDIR reply holding only '.' and '..'", () => {
   it("doesn't end the listing (ssh2 drops those two, leaving the reply empty)", async () => {
     for (let i = 0; i < 5; i++) srv.fs.writeFile(`${ROOT}/d/f${i}.txt`, "x");
