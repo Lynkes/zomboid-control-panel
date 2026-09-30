@@ -1201,7 +1201,10 @@ async function checkUploadTarget(ctx, policy, rootId, { dirSegments, subSegments
     const { r } = await resolveIn(ctx, rootId, joinRel(dir.rel, name), "create");
     target = r;
     if (!r.isNew) {
-      if (r.stat?.type !== "file" || r.linkSelf) throw new FmError(ErrorCode.FM_EXISTS, undefined, { name });
+      // Only a regular file directly at that name can be replaced; a link
+      // (even to a file inside the root) is never written through.
+      const direct = foldRel(r.realRel) === foldRel(joinRel(dir.realRel, name));
+      if (r.stat?.type !== "file" || r.linkSelf || !direct) throw new FmError(ErrorCode.FM_EXISTS, undefined, { name });
       assertUnprotected(r);
       willReplace = true;
       currentEtag = (await policy.backend.stat(r)).etag;

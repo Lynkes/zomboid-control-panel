@@ -317,6 +317,7 @@ export function deleteTree(abs, { onProgress = () => {}, maxEntries = Infinity }
 // goes. Inside the panel's own (sealed) data folder, fixed name.
 export function ensurePanelTempDir() {
   const dir = path.join(getDataPaths().dataDir, "file-manager-tmp");
+  // panel-owned: the panel's own data folder plus a fixed name, no request input.
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
 }

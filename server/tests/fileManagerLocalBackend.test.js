@@ -44,6 +44,10 @@ const { invalidateRootCache } = await import("../services/fileManagerRoots.js");
 const { _setRunStateDepsForTests, _resetRunStateCacheForTests } = await import("../services/fileManagerRunState.js");
 const { _waitForJobForTests, _resetJobsForTests } = await import("../services/fileManagerJobs.js");
 const { runFileManagerJanitor } = await import("../services/fileManagerJanitor.js");
+const { describeProfileRoots } = await import("../services/fileManagerRoots.js");
+const { acquireLifecycleLock } = await import("../services/lifecycleCoordinator.js");
+const { startJob } = await import("../services/fileManagerJobs.js");
+const { foldRel } = await import("../services/fileManagerProtectedAreas.js");
 const trash = await import("../services/fileManagerTrash.js");
 const { FmError } = await import("../services/fileManagerContract.js");
 
@@ -318,6 +322,69 @@ describe("uploads", () => {
     expect(fs.existsSync(fresh)).toBe(true);
     expect(fs.existsSync(mine)).toBe(true);
     expect(sweepOrphanTemps(tree.data)).toBe(0);
+  });
+});
+
+describe("big folders", () => {
+  it("over 2000 entries: sorted by name only, and only the page is stat'ed", async () => {
+    const dir = path.join(tree.data, "many");
+    fs.mkdirSync(dir);
+    for (let i = 0; i < 2100; i++) fs.writeFileSync(path.join(dir, `f${i}.txt`), "");
+    const listing = await service.listDir(await ctx(), { root: "data", path: "many", limit: "500", sort: "size" });
+    expect(listing.sortLimited).toBe(true);
+    expect(listing.total).toBe(2100);
+    expect(listing.entries).toHaveLength(500);
+    expect(listing.entries.slice(0, 3).map((e) => e.name)).toEqual(["f0.txt", "f1.txt", "f2.txt"]);
+    expect(listing.entries[10].name).toBe("f10.txt");
+    const next = await service.listDir(await ctx(), { root: "data", path: "many", offset: "2000", limit: "1000" });
+    expect(next.entries).toHaveLength(100);
+    expect(next.dirEtag).toBe(listing.dirEtag);
+  });
+});
+
+describe("gates on mutations", () => {
+  it("a lifecycle operation or a running file job on the path refuses the change", async () => {
+    const lock = acquireLifecycleLock("start", tree.profile.id);
+    try {
+      const err = await failure(service.makeDirectory(await ctx(), { root: "data", path: "", name: "x", confirm: [] }, user, audit()));
+      expect(err.code).toBe("FM_OPERATION_IN_PROGRESS");
+      expect(err.params).toEqual({ operation: "lifecycle" });
+    } finally {
+      lock.release();
+    }
+    const c = await ctx();
+    const info = await describeProfileRoots(tree.profile, {});
+    const key = info.roots.get("data").key;
+    let finish;
+    const jobId = startJob({ ownerUserId: "u1", kind: "permanentDelete", holds: [{ rootKey: key, realRel: foldRel("Logs") }] }, () => new Promise((resolve) => (finish = resolve)));
+    try {
+      const err = await failure(service.makeDirectory(c, { root: "data", path: "Logs", name: "x", confirm: [] }, user, audit()));
+      expect(err.code).toBe("FM_OPERATION_IN_PROGRESS");
+      expect(err.params).toEqual({ operation: "fileJob" });
+    } finally {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      finish?.();
+      await _waitForJobForTests(jobId);
+    }
+  });
+
+  it("a read-only root refuses every change", async () => {
+    const info = await describeProfileRoots(tree.profile, {});
+    info.roots.get("data").writable = false;
+    info.roots.get("data").readOnlyReason = "mount";
+    const err = await failure(service.makeDirectory(await ctx(), { root: "data", path: "", name: "x", confirm: [] }, user, audit()));
+    expect(err.code).toBe("FM_ROOT_READ_ONLY");
+    expect(err.params).toEqual({ reason: "mount" });
+    const listing = await service.listDir(await ctx(), { root: "data", path: "Server" });
+    expect(listing.entries.every((e) => !e.flags.editable)).toBe(true);
+  });
+
+  it("an upload never writes through a link, even one to a file inside the root", async () => {
+    linkDir(path.join(tree.data, "Server"), path.join(tree.data, "cfg"));
+    const c = await ctx();
+    const err = await failure(upload({ name: "cfg", body: "x", headers: { "x-file-overwrite-etag": "s:1-1-1", "x-file-confirm": "overwrite" } }, c));
+    expect(err.code).toBe("FM_EXISTS");
+    expect(fs.lstatSync(path.join(tree.data, "cfg")).isSymbolicLink()).toBe(true);
   });
 });
 
