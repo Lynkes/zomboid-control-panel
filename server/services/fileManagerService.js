@@ -1227,6 +1227,7 @@ export async function deletePreview(ctx, body, user) {
       name: r.name,
       type: r.stat.type,
       files: item.files,
+      dirs: item.dirs,
       bytes: item.bytes,
       inner: inner ? { area: inner.area, level: inner.level } : null,
       ...snapshotOf(r.stat),
@@ -1334,7 +1335,11 @@ export async function deleteItems(ctx, body, user, audit) {
 
   previews.delete(previewId);
   const holds = resolved.map(({ r }) => ({ rootKey: policy.rootKey, realRel: foldRel(r.realRel) }));
-  const total = resolved.reduce((sum, { item }) => sum + item.files + 1, 0);
+  // The delete counts every entry it removes, folders included, so the
+  // total does too. A preview whose walk stopped early (or files added
+  // since) undercounts: the total then grows with the count, never shows
+  // less than what is done.
+  const total = resolved.reduce((sum, { item }) => sum + item.files + item.dirs, 0);
   audit.bytes = resolved.reduce((sum, { item }) => sum + item.bytes, 0);
   const deferred = audit.defer();
   const jobId = startJob({ ownerUserId: userIdOf(user), kind: "permanentDelete", holds, total }, async (onProgress) => {
@@ -1344,7 +1349,7 @@ export async function deleteItems(ctx, body, user, audit) {
         let last = 0;
         await policy.backend.deletePermanent(r, (done) => {
           last = done;
-          onProgress(base + done, total);
+          onProgress(base + done, Math.max(total, base + done));
         });
         base += last;
       }

@@ -251,6 +251,32 @@ describe("delete previews and jobs", () => {
     expect(mine.body).toMatchObject({ kind: "permanentDelete", state: "done" });
     expect(fs.existsSync(path.join(tree.data, "Logs", "b.txt"))).toBe(false);
   });
+
+  // Live QA: the total counted files (+1 per item) but the delete counts
+  // every entry it removes, folders included, so a folder showed
+  // "Deleting… 1,600 of 901" and a single file ended at "1 of 2".
+  it("a permanent delete's progress counts folders too, and ends at its total", async () => {
+    for (let d = 0; d < 30; d++) {
+      for (let f = 0; f < 3; f++) write(path.join(tree.data, "Logs", "nested", `d${d}`, `f${f}.txt`), "x");
+    }
+    write(path.join(tree.data, "Logs", "single.txt"), "s");
+    const progressOf = async (paths, typedConfirmation) => {
+      const p = await preview(paths);
+      const started = await call("POST", `${P}/delete`, {
+        body: { root: "data", previewId: p.previewId, mode: "permanent", confirm: [...p.required, "permanent"], typedConfirmation },
+      });
+      expect(started.status).toBe(202);
+      await _waitForJobForTests(started.body.jobId);
+      const job = await call("GET", `/api/files/jobs/${started.body.jobId}`);
+      expect(job.body.state).toBe("done");
+      return { preview: p.totals, progress: job.body.progress };
+    };
+    const folder = await progressOf(["Logs/nested"], "nested");
+    expect(folder.preview).toMatchObject({ files: 90, dirs: 31 });
+    expect(folder.progress).toEqual({ done: 121, total: 121 });
+    const single = await progressOf(["Logs/single.txt"], "single.txt");
+    expect(single.progress).toEqual({ done: 1, total: 1 });
+  });
 });
 
 describe("remote folders", () => {
