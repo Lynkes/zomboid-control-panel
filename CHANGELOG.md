@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Fixed
 
-_No unreleased changes._
+- World Map's item and vehicle pickers always fit the window (Custom item drop's item list was cut off).
 
 ## [1.4.0] - 2026-09-28
 

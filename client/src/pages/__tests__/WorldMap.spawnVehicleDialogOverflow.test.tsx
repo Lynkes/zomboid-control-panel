@@ -6,18 +6,16 @@ import { SocketContext } from '@/contexts/SocketContext'
 import WorldMap from '../WorldMap'
 import { panelBridgeApi, serversApi, updateApi, mapApi, type ServerInstance } from '@/lib/api'
 
-// 2026-09 dialog viewport sweep: DialogContent now defaults to
-// overflow-y-auto (so no dialog can run its buttons off a short window),
-// which makes every dialog a clipping box for its absolutely positioned
-// descendants. VehiclePicker's dropdown is exactly that -- a plain
-// `absolute top-full`/`bottom-full` panel (~400px: search, a 320px list, a
-// footer), not a portal -- and the Spawn Vehicle dialog around it is only
-// ~200px tall, so under the new default the vehicle list would be cut off at
-// the dialog's edge (measured in headless Chromium at 1366x650: the part of
-// the list outside the dialog stopped hit-testing in both drop directions).
-// The dialog opts back out with overflow-visible; this pins that opt-out and
-// that the panel really renders inside the dialog (jsdom can't measure the
-// clipping itself).
+// 2026-09 dialog viewport sweep: DialogContent defaults to overflow-y-auto
+// (so no dialog can run its buttons off a short window), which made it a
+// clipping box for VehiclePicker's dropdown -- then a plain absolute panel
+// (~400px) in this ~200px dialog. v1.4.0 opted the dialog out with
+// overflow-visible, which only traded clipping for a list that could open
+// past the top or bottom of a short window (shipped as a known limitation).
+// VehiclePicker now renders its list in a <body>-level popover bounded to
+// the window (ui/popover.tsx), so the dialog keeps the default scroll box
+// and the list is portaled out of it. jsdom can't measure either; this pins
+// the structure.
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -84,8 +82,8 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('WorldMap -- Spawn Vehicle dialog does not clip its vehicle dropdown', () => {
-  it('opts out of the DialogContent scroll container, and the open vehicle list renders inside the dialog', async () => {
+describe('WorldMap -- Spawn Vehicle dialog keeps its scroll box; the vehicle list is portaled out of it', () => {
+  it('keeps the default DialogContent scroll container, and the open vehicle list renders outside the dialog, bounded to the window', async () => {
     vi.stubGlobal('ResizeObserver', StubResizeObserver)
     vi.stubGlobal('matchMedia', (query: string) => ({
       matches: false, media: query, onchange: null,
@@ -127,12 +125,16 @@ describe('WorldMap -- Spawn Vehicle dialog does not clip its vehicle dropdown', 
     fireEvent.click(await screen.findByRole('menuitem', { name: /spawn vehicle here/i }))
 
     const dialog = await screen.findByRole('dialog')
-    expect(dialog.className).toContain('overflow-visible')
-    expect(dialog.className).not.toContain('overflow-y-auto')
+    expect(dialog.className).toContain('overflow-y-auto')
+    expect(dialog.className).not.toContain('overflow-visible')
 
     fireEvent.click(await within(dialog).findByRole('combobox'))
-    const listbox = await within(dialog).findByRole('listbox')
-    expect(dialog.contains(listbox)).toBe(true)
+    const listbox = await screen.findByRole('listbox')
+    const popover = screen.getByRole('dialog', { name: 'Select vehicle' })
+    expect(popover.contains(listbox)).toBe(true)
+    expect(dialog.contains(popover)).toBe(false)
+    expect(popover.parentElement?.parentElement).toBe(document.body)
+    expect(popover.className).toContain('max-h-[var(--radix-popover-content-available-height)]')
     expect(within(listbox).getByText('Sedan')).toBeInTheDocument()
   })
 })
