@@ -339,7 +339,7 @@
           "title": "Charge très au-dessus de la limite",
           "detail": "Porte {{carried}} pour une limite de {{max}}.",
           "rule": "Signale une charge de plus de {{factor}} fois la limite de poids du personnage.",
-          "innocent": "Un instant juste après avoir ramassé quelque chose, un changement de force, ou le pouvoir de charge illimitée activé par un admin."
+          "innocent": "Transporter un gros butin ou un générateur, un instant juste après avoir ramassé quelque chose, un changement de force, ou le pouvoir de charge illimitée activé par un admin."
         },
         "unusualQuantity": {
           "title": "Grande quantité d'un même objet",

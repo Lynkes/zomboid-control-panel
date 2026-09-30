@@ -20,7 +20,10 @@
 //   (Fitness/Strength), or jumpTotalLevels 6 across skills, all within
 //   jumpWindowMinutes 60 of live data: faster than training normally goes.
 // - unusualQuantity 500: units of one item type carried at once.
-// - overCapacityFactor 2: carrying more than twice the weight limit.
+// - overCapacityFactor 2: carrying more than twice the weight limit. Always
+//   mild: the main inventory holds 50 against a base limit of 8, so hauling
+//   loot or a generator gets there in ordinary play (Heavy Load tops out at
+//   1.75x on 42.21).
 //
 // Staff (role.adminPower) are expected to use powers and spawn things, so
 // powersOnRegularAccount is suppressed for them and every other hint drops to
@@ -381,7 +384,7 @@ function overCapacity(sheet, t) {
   if (!(s.carriedWeight > t.overCapacityFactor * s.maxWeight)) return null;
   return makeHint(
     "overCapacity",
-    "strong",
+    "mild",
     { carried: round1(s.carriedWeight), max: round1(s.maxWeight), factor: t.overCapacityFactor },
     [],
   );

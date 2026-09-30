@@ -186,6 +186,7 @@ export function CharacterTab({
             hintSource={base.hintSource}
             thresholds={base.hintThresholds}
             savedAt={base.cached?.at ?? view.savedAt}
+            inventoryAt={base.hintInventoryAt}
           />
         </div>
       )}

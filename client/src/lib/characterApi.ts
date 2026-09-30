@@ -271,6 +271,8 @@ export interface CharacterSheetResponse {
   skillDelta: CharacterSkillDelta | null
   hints: CharacterHint[]
   hintSource: 'live' | 'cached' | null
+  /** Set when live item hints come from an inventory read this long ago; those hints have source 'cached'. */
+  hintInventoryAt?: string | null
   hintThresholds: CharacterHintThresholds
   cost?: { ms: number; walked: number }
 }

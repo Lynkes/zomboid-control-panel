@@ -34,9 +34,13 @@ const FRESH_MIN_INTERVAL_MS = 5000;
 const LEADERBOARD_CACHE_MS = 10000;
 const MAX_TRACKED_KEYS = 500;
 const PLAYER_LOG_LIMIT = 200;
+// Live hints may use the inventory the panel last read (the base poll never
+// reads it) while it is this many inventory refresh intervals old; an older
+// one only yields item hints marked as from the saved character.
+const LIVE_INVENTORY_INTERVALS = 4;
 
 const inFlight = new Map(); // key -> { promise, settledAt }
-const lastFreshAt = new Map(); // serverId|lower(username) -> ms
+const lastFreshAt = new Map(); // serverId|lower(username)|sections -> ms
 let leaderboardCache = null; // { serverId, at, players }
 
 // Exposed for tests only.
@@ -161,12 +165,20 @@ async function buildCharacterView({ username, serverId, sections, fresh, maxItem
 
   // Live hints read the merged record (this read's sections plus the last
   // inventory the panel loaded), so the header badge counts item hints even
-  // before anyone opens the inventory.
+  // before anyone opens the inventory. An inventory read long ago still
+  // counts, but its item hints say they come from the saved character.
   let hintSheet = null;
   let hintSource = null;
+  let staleInventoryAt = null;
   if (availability === "live" && sheet) {
     hintSheet = stored?.lastSheet ?? sheet;
     hintSource = "live";
+    const inventoryAt = stored?.lastInventoryAt;
+    const freshFor = intervals.inventoryRefreshAfterMs * LIVE_INVENTORY_INTERVALS;
+    if (hintSheet.inventory && !sheet.inventory && !(typeof inventoryAt === "number" && now - inventoryAt <= freshFor)) {
+      staleInventoryAt = typeof inventoryAt === "number" ? inventoryAt : null;
+      if (staleInventoryAt === null) hintSheet = { ...hintSheet, inventory: undefined };
+    }
   } else if (cached) {
     hintSheet = cached.sheet;
     hintSource = "cached";
@@ -185,6 +197,11 @@ async function buildCharacterView({ username, serverId, sections, fresh, maxItem
       source: hintSource,
       lifeStartedAt: lifeStartedAtOf(stored),
     });
+    if (staleInventoryAt !== null) {
+      for (const hint of hints) {
+        if (hint.evidence?.some((item) => item.kind === "item")) hint.source = "cached";
+      }
+    }
   }
 
   const response = {
@@ -201,6 +218,7 @@ async function buildCharacterView({ username, serverId, sections, fresh, maxItem
     skillDelta,
     hints,
     hintSource,
+    hintInventoryAt: staleInventoryAt !== null ? new Date(staleInventoryAt).toISOString() : null,
     hintThresholds: CHARACTER_HINT_THRESHOLDS,
   };
   if (sheet?.cost && typeof sheet.cost.ms === "number") {
@@ -233,9 +251,12 @@ router.get("/:username", requirePermission("players.view"), async (req, res) => 
     const playerKey = `${serverId}|${username.toLowerCase()}`;
     let fresh = req.query.fresh === "1" || req.query.fresh === "true";
     if (fresh) {
-      const last = lastFreshAt.get(playerKey);
+      // Per section set: Refresh asks for the base sections and the
+      // inventory at the same moment, and both should come back fresh.
+      const freshKey = `${playerKey}|${sections.join(",")}`;
+      const last = lastFreshAt.get(freshKey);
       if (last !== undefined && now - last < FRESH_MIN_INTERVAL_MS) fresh = false;
-      else lastFreshAt.set(playerKey, now);
+      else lastFreshAt.set(freshKey, now);
     }
     const key = `${playerKey}|${sections.join(",")}|${maxItems ?? ""}|${fresh ? 1 : 0}`;
     let entry = inFlight.get(key);

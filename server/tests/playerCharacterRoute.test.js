@@ -310,6 +310,14 @@ describe("GET /api/player-character/:username -- coalescing and fresh", () => {
     expect(sheetCalls().map(([, args]) => args.fresh === true)).toEqual([true, false, true]);
   });
 
+  it("Refresh's base and inventory reads both come back fresh (the throttle is per section set)", async () => {
+    await Promise.all([request({ query: { fresh: "1" } }), request({ query: { sections: "inventory", fresh: "1" } })]);
+    expect(sheetCalls().map(([, args]) => ({ sections: args.sections.join(","), fresh: args.fresh === true }))).toEqual([
+      { sections: "summary,stats,skills,traits", fresh: true },
+      { sections: "inventory", fresh: true },
+    ]);
+  });
+
   it("passes a clamped maxItems", async () => {
     await request({ query: { sections: "inventory", maxItems: "5000" } });
     expect(sheetCalls()[0][1].maxItems).toBe(1000);
@@ -329,6 +337,35 @@ describe("GET /api/player-character/:username -- hints and history", () => {
     expect(getPlayerLogs).toHaveBeenCalledWith("Kate", 200, SERVER_ID);
     const mug = res.body.hints.find((h) => h.id === "debugItems");
     expect(mug.explainedBy).toEqual([expect.objectContaining({ action: "add_item", details: "Base.TestMug x1" })]);
+  });
+
+  it("live item hints from an inventory read long ago say they come from the saved character", async () => {
+    const withMug = structuredClone(fixture);
+    withMug.inventory.root.rows.push({ kind: "stack", fullType: "Base.TestMug", name: "Mug", qty: 1 });
+    const base = structuredClone(fixture);
+    delete base.inventory;
+    onAction("getCharacterSheet", async (args) => ({ success: true, data: args.sections.includes("inventory") ? withMug : base }));
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-09-01T10:00:00.000Z"));
+    await request({ query: { sections: "inventory" } });
+
+    // Within a few inventory refreshes: still live.
+    vi.setSystemTime(Date.parse("2026-09-01T10:01:00.000Z"));
+    resetPlayerCharacterRouteState();
+    const soon = await request();
+    expect(soon.body.hintSource).toBe("live");
+    expect(soon.body.hintInventoryAt).toBeNull();
+    expect(soon.body.hints.find((h) => h.id === "debugItems").source).toBe("live");
+
+    // Three days on, nobody opened the inventory again.
+    vi.setSystemTime(Date.parse("2026-09-04T10:00:00.000Z"));
+    resetPlayerCharacterRouteState();
+    const later = await request();
+    expect(later.body.availability).toBe("live");
+    expect(later.body.hintInventoryAt).toBe("2026-09-01T10:00:00.000Z");
+    expect(later.body.hints.find((h) => h.id === "debugItems").source).toBe("cached");
+    // Hints from the live read itself stay live.
+    expect(later.body.hints.filter((h) => !h.evidence.some((e) => e.kind === "item")).every((h) => h.source === "live")).toBe(true);
   });
 
   it("returns a skill delta against the saved history", async () => {

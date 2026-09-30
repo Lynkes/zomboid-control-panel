@@ -335,7 +335,7 @@
           "title": "Weit über der Traglast",
           "detail": "Trägt {{carried}} bei einer Grenze von {{max}}.",
           "rule": "Meldet eine Last von mehr als dem {{factor}}-Fachen der Gewichtsgrenze des Charakters.",
-          "innocent": "Ein Moment direkt nach dem Aufheben, eine Änderung der Stärke oder die Fähigkeit Unbegrenzte Traglast, von einem Admin eingeschaltet."
+          "innocent": "Schwere Beute oder ein Generator wird geschleppt, ein Moment direkt nach dem Aufheben, eine Änderung der Stärke oder die Fähigkeit Unbegrenzte Traglast, von einem Admin eingeschaltet."
         },
         "unusualQuantity": {
           "title": "Große Menge eines Gegenstands",

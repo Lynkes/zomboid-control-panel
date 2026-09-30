@@ -339,7 +339,7 @@
           "title": "Carga muy por encima del límite",
           "detail": "Lleva {{carried}} con un límite de {{max}}.",
           "rule": "Señala una carga de más de {{factor}} veces el límite de peso del personaje.",
-          "innocent": "Un momento justo después de recoger algo, un cambio de fuerza o el poder de carga ilimitada activado por un admin."
+          "innocent": "Cargar mucho botín o un generador, un momento justo después de recoger algo, un cambio de fuerza o el poder de carga ilimitada activado por un admin."
         },
         "unusualQuantity": {
           "title": "Gran cantidad de un mismo objeto",

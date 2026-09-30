@@ -278,8 +278,9 @@ describe("item hints", () => {
 describe("overCapacity and powers", () => {
   it("flags carrying more than twice the weight limit", () => {
     expect(hint(sheet({ summary: { carriedWeight: 30, maxWeight: 15 } }), "overCapacity")).toBeUndefined();
+    // Mild: ordinary hauling gets there too (the main inventory holds 50).
     expect(hint(sheet({ summary: { carriedWeight: 30.1, maxWeight: 15 } }), "overCapacity")).toMatchObject({
-      weight: "strong",
+      weight: "mild",
       params: { carried: 30.1, max: 15, factor: 2 },
     });
     expect(hint(sheet({ summary: { carriedWeight: 30, maxWeight: 0 } }), "overCapacity")).toBeUndefined();
@@ -331,7 +332,9 @@ describe("staff and spawn roles", () => {
     for (const id of ["debugItems", "unusualQuantity", "hiddenItems"]) {
       expect(list.find((h) => h.id === id)).toMatchObject({ weight: "mild", params: { canSpawnItems: true } });
     }
-    expect(list.find((h) => h.id === "overCapacity")).toMatchObject({ weight: "strong", staff: false });
+    const load = list.find((h) => h.id === "overCapacity");
+    expect(load).toMatchObject({ weight: "mild", staff: false });
+    expect(load.params.canSpawnItems).toBeUndefined();
   });
 });
 
@@ -344,7 +347,7 @@ describe("ordering and shape", () => {
     const list = hints(s, { playerLogs: [logAt(5, "add_item", "Base.Nails x200")], source: "cached" });
     expect(list.map((h) => [h.id, h.weight, Boolean(h.explainedBy)])).toEqual([
       ["debugItems", "strong", false],
-      ["overCapacity", "strong", false],
+      ["overCapacity", "mild", false],
       ["obsoleteItems", "mild", false],
       ["unusualQuantity", "mild", true],
     ]);

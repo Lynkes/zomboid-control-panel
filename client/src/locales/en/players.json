@@ -335,7 +335,7 @@
           "title": "Carrying far over the limit",
           "detail": "Carrying {{carried}} against a limit of {{max}}.",
           "rule": "Flags carrying more than {{factor}} times the character's weight limit.",
-          "innocent": "A moment right after picking something up, a change in strength, or the unlimited carry power switched on by an admin."
+          "innocent": "Hauling heavy loot or a generator, a moment right after picking something up, a change in strength, or the unlimited carry power switched on by an admin."
         },
         "unusualQuantity": {
           "title": "Large amount of one item",

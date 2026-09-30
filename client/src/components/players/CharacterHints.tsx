@@ -133,7 +133,15 @@ function Disclosure({ label, children }: { label: string; children: ReactNode })
   )
 }
 
-function HintCard({ hint, thresholds }: { hint: CharacterHint; thresholds: CharacterHintThresholds }) {
+function HintCard({
+  hint,
+  thresholds,
+  inventoryAt,
+}: {
+  hint: CharacterHint
+  thresholds: CharacterHintThresholds
+  inventoryAt?: string | null
+}) {
   const { t, i18n } = useTranslation('players')
   const language = i18n.language
   const copy = hintCopy(hint, thresholds, t, language)
@@ -161,6 +169,9 @@ function HintCard({ hint, thresholds }: { hint: CharacterHint; thresholds: Chara
       </AlertTitle>
       <AlertDescription className="space-y-1.5 text-foreground/85">
         <p>{copy.detail}</p>
+        {hint.source === 'cached' && inventoryAt && (
+          <p className="text-xs text-muted-foreground">{t('character.hints.fromCached', { when: formatWhen(inventoryAt, language) })}</p>
+        )}
         {hint.params.canSpawnItems === true && <p className="text-xs text-muted-foreground">{t('character.hints.canSpawnItems')}</p>}
         {hint.evidence.length > 0 && <ul className="space-y-0.5 text-xs">{hint.evidence.map((item, i) => <Evidence key={`${item.kind}.${item.ref}.${i}`} item={item} />)}</ul>}
         {explained && (
@@ -193,11 +204,14 @@ export function CharacterHints({
   hintSource,
   thresholds,
   savedAt,
+  inventoryAt,
 }: {
   hints: CharacterHint[]
   hintSource: 'live' | 'cached' | null
   thresholds: CharacterHintThresholds
   savedAt?: string | null
+  /** Live hints whose items come from an inventory read this long ago say so, each. */
+  inventoryAt?: string | null
 }) {
   const { t, i18n } = useTranslation('players')
   return (
@@ -217,7 +231,7 @@ export function CharacterHints({
       ) : (
         <div className="space-y-2">
           {hints.map((hint) => (
-            <HintCard key={hint.id} hint={hint} thresholds={thresholds} />
+            <HintCard key={hint.id} hint={hint} thresholds={thresholds} inventoryAt={hintSource === 'live' ? inventoryAt : null} />
           ))}
         </div>
       )}

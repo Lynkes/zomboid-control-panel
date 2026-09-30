@@ -335,7 +335,7 @@
           "title": "Chaj ki depase limit la anpil",
           "detail": "Li pote {{carried}} pou yon limit {{max}}.",
           "rule": "Li make yon chaj ki depase {{factor}} fwa limit pwa pèsonaj la.",
-          "innocent": "Yon moman touswit apre li ranmase yon bagay, yon chanjman nan fòs, oswa pouvwa chaj san limit yon admin te aktive."
+          "innocent": "Pote anpil bagay lou oswa yon jeneratè, yon moman touswit apre li ranmase yon bagay, yon chanjman nan fòs, oswa pouvwa chaj san limit yon admin te aktive."
         },
         "unusualQuantity": {
           "title": "Anpil nan yon sèl objè",

@@ -402,4 +402,20 @@ describe('CharacterTab: Worth a look', () => {
     )
     expect(screen.getByText(/^Based on the character saved /)).toBeInTheDocument()
   })
+
+  it('a live item hint from an inventory read long ago says when that was, on its own card', () => {
+    const debug: CharacterHint = {
+      id: 'debugItems',
+      weight: 'strong',
+      params: { units: 1 },
+      evidence: [{ kind: 'item', ref: 'Base.TestMug', detail: { qty: 1, name: 'Test Mug' } }],
+      staff: false,
+      source: 'cached',
+    }
+    const { container } = renderTab(state({ base: response({ hints: [hints[0], debug], hintInventoryAt: '2026-09-26T20:00:00.000Z' }) }))
+    const card = container.querySelector('[data-hint-id="debugItems"]')!
+    expect(within(card as HTMLElement).getByText(/^Based on the character saved /)).toBeInTheDocument()
+    const live = container.querySelector('[data-hint-id="skillsAheadOfTime"]')!
+    expect(within(live as HTMLElement).queryByText(/^Based on the character saved /)).toBeNull()
+  })
 })

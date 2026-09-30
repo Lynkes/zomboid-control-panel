@@ -339,7 +339,7 @@
           "title": "Carga muito acima do limite",
           "detail": "Carregando {{carried}} com limite de {{max}}.",
           "rule": "Aponta uma carga maior que {{factor}} vezes o limite de peso do personagem.",
-          "innocent": "Um instante logo depois de pegar algo, uma mudança de força ou o poder de carga ilimitada ligado por um admin."
+          "innocent": "Carregar muito saque ou um gerador, um instante logo depois de pegar algo, uma mudança de força ou o poder de carga ilimitada ligado por um admin."
         },
         "unusualQuantity": {
           "title": "Grande quantidade de um item",
