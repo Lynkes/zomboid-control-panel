@@ -80,14 +80,20 @@ export function runBackendConformance(name, makeBackend) {
     });
 
     it("resolves files, folders, the root and new names", async () => {
+      const file = await resolve("dir/c.txt");
+      expect(file.stat.type).toBe("file");
+      expect(file).toMatchObject({ name: "c.txt", rel: "dir/c.txt", realRel: "dir/c.txt", isNew: false });
+      expect(file.linkSelf).toBeFalsy();
       expect((await resolve("a.txt")).stat.type).toBe("file");
       expect((await resolve("dir", "list")).stat.type).toBe("dir");
       const top = await resolve("", "list");
       expect(top.rel).toBe("");
       expect(top.realRel).toBe("");
+      expect(top.name).toBe("");
       const fresh = await resolve("dir/new.txt", "create");
       expect(fresh.isNew).toBe(true);
       expect(fresh.rel).toBe("dir/new.txt");
+      expect(fresh.name).toBe("new.txt");
       expect(await codeOf(resolve("missing.txt"))).toBe("FM_NOT_FOUND");
       expect(await codeOf(resolve("missing/new.txt", "create"))).toBe("FM_NOT_FOUND");
     });

@@ -992,8 +992,13 @@ describe("mkdir, rename, move and copyFile", () => {
     expect(f.read("start-server (copy).sh").toString()).toBe("#!/bin/sh\n");
     await expectFm(f.backend.copyFile(src, root, "start-server (copy).sh"), ErrorCode.FM_EXISTS);
     f.seed.file("start-server.sh", "#!/bin/sh\necho v2\n", { mode: 0o755 });
+    await expectFm(
+      f.backend.copyFile(await resolveRel(f, "start-server.sh"), root, "start-server (copy).sh", { overwriteEtag: "s:1-1" }),
+      ErrorCode.FM_CONFLICT,
+    );
+    const { etag } = await f.backend.stat(await resolveRel(f, "start-server (copy).sh"));
     await f.backend.copyFile(await resolveRel(f, "start-server.sh"), await resolveRel(f, "", "list"), "start-server (copy).sh", {
-      overwrite: true,
+      overwriteEtag: etag,
       trashMeta: { deletedBy: { userId: "u1", username: "kate" } },
     });
     expect(f.read("start-server (copy).sh").toString()).toBe("#!/bin/sh\necho v2\n");
@@ -1008,7 +1013,7 @@ describe("mkdir, rename, move and copyFile", () => {
 // ============================================
 
 describe("walk", () => {
-  it("yields the item then everything below it, never following links or entering Trash", async () => {
+  it("yields everything below the item, never following links or entering Trash", async () => {
     const f = await setup();
     f.server.writeFile(`${OUTSIDE}/canary.txt`, CANARY);
     f.seed.file("a/one.txt", "1");
@@ -1017,17 +1022,21 @@ describe("walk", () => {
     f.seed.dir(".zcp-trash/20260101T000000Z-abcdef01/payload");
     f.seed.file("a/.x.cafebabe.zcptmp", "tmp");
     const all = await drain(f.backend.walk(await resolveRel(f, "", "list"), {}));
-    expect(all).toEqual([
-      { rel: "", type: "dir", size: 0 },
-      { rel: "a", type: "dir", size: 0 },
-      { rel: "a/b", type: "dir", size: 0 },
-      { rel: "a/one.txt", type: "file", size: 1 },
-      { rel: "a/out", type: "link", size: 0 },
-      { rel: "a/b/two.txt", type: "file", size: 2 },
+    expect(all.map(({ rel, type, size, depth }) => ({ rel, type, size, depth }))).toEqual([
+      { rel: "a", type: "dir", size: 0, depth: 1 },
+      { rel: "a/b", type: "dir", size: 0, depth: 2 },
+      { rel: "a/one.txt", type: "file", size: 1, depth: 2 },
+      { rel: "a/out", type: "link", size: 0, depth: 2 },
+      { rel: "a/b/two.txt", type: "file", size: 2, depth: 3 },
     ]);
+    expect(all[0]).toMatchObject({ name: "a", realRel: "a", dev: null, ino: null });
+    expect(typeof all[0].mtimeMs).toBe("number");
     expect(f.server.log.some((e) => e.op === "list" && e.path.startsWith(OUTSIDE))).toBe(false);
     const single = await drain(f.backend.walk(await resolveRel(f, "a/one.txt"), {}));
-    expect(single).toEqual([{ rel: "a/one.txt", type: "file", size: 1 }]);
+    expect(single).toEqual([]);
+    const pruned = await drain(f.backend.walk(await resolveRel(f, "", "list"), { prune: (e) => e.rel === "a/b" }));
+    expect(pruned.map((e) => e.rel)).not.toContain("a/b/two.txt");
+    expect(pruned.map((e) => e.rel)).toContain("a/b");
   });
 
   it("stops at maxEntries and doesn't enter folders past maxDepth, saying why", async () => {
@@ -1036,7 +1045,7 @@ describe("walk", () => {
     f.seed.file("d1/f.txt", "x");
     const byDepth = f.backend.walk(await resolveRel(f, "", "list"), { maxDepth: 2 });
     const shallow = await drain(byDepth);
-    expect(shallow.map((e) => e.rel)).toEqual(["", "d1", "d1/d2", "d1/f.txt"]);
+    expect(shallow.map((e) => e.rel)).toEqual(["d1", "d1/d2", "d1/f.txt"]);
     expect(byDepth.truncated).toBe(true);
     expect(byDepth.truncatedReason).toBe("depth");
 
@@ -1047,7 +1056,7 @@ describe("walk", () => {
     const controller = new AbortController();
     controller.abort();
     const aborted = f.backend.walk(await resolveRel(f, "", "list"), { signal: controller.signal });
-    expect(await drain(aborted)).toHaveLength(1);
+    expect(await drain(aborted)).toHaveLength(0);
     expect(aborted.truncatedReason).toBe("aborted");
 
     const full = f.backend.walk(await resolveRel(f, "", "list"), {});

@@ -1145,6 +1145,11 @@ export function createSftpBackend({ settings } = {}) {
 
     const rootReal = root.real;
     const budget = { hops: MAX_LINK_HOPS };
+    // The name as navigated, and whether the last segment is a link acted
+    // on as itself: the service reads both off every Resolved, as it does
+    // from the local backend's.
+    const name = segs.length ? segs[segs.length - 1] : "";
+    let linkSelf = false;
     let cur = rootReal;
     let stat = segs.length === 0 ? await statFollow(rootReal) : null;
     for (let i = 0; i < segs.length; i++) {
@@ -1162,6 +1167,8 @@ export function createSftpBackend({ settings } = {}) {
             stat: null,
             protection: null,
             worldState: false,
+            name,
+            linkSelf: false,
           };
         }
         throw fmError(ErrorCode.FM_NOT_FOUND);
@@ -1171,6 +1178,7 @@ export function createSftpBackend({ settings } = {}) {
         cur = target.abs;
         st = target.stat;
       } else {
+        if (st.type === "link") linkSelf = true;
         cur = p;
       }
       if (!last && st.type !== "dir") throw fmError(ErrorCode.FM_NOT_A_DIRECTORY);
@@ -1187,6 +1195,8 @@ export function createSftpBackend({ settings } = {}) {
       stat,
       protection: null,
       worldState: false,
+      name,
+      linkSelf,
     };
   }
 
@@ -1456,7 +1466,10 @@ export function createSftpBackend({ settings } = {}) {
     });
   }
 
-  async function copyFile(r, destDir, newName, { overwrite = false, trashMeta = {} } = {}) {
+  // An existing target is replaced only when `overwriteEtag` names its
+  // current version (the service passes what it showed the user), exactly
+  // like an upload's X-File-Overwrite-Etag.
+  async function copyFile(r, destDir, newName, { overwriteEtag = null, trashMeta = {} } = {}) {
     assertResolved(r);
     assertResolved(destDir);
     assertDirectory(destDir);
@@ -1466,9 +1479,7 @@ export function createSftpBackend({ settings } = {}) {
     const checkedName = checkNewName(newName);
     const target = posix.join(destDir.abs, checkedName);
     const targetRel = joinRel(destDir.rel, checkedName);
-    const before = await lstatOrNull(target);
-    if (before && !overwrite) throw fmError(ErrorCode.FM_EXISTS, { name: checkedName });
-    if (before && before.type !== "file") throw fmError(ErrorCode.FM_NOT_A_FILE);
+    checkReplaceable(await lstatOrNull(target), overwriteEtag, checkedName);
 
     const tmp = posix.join(destDir.abs, tempName(checkedName, RENAME_TEMP_SUFFIX));
     let tmpMayExist = false;
@@ -1485,8 +1496,7 @@ export function createSftpBackend({ settings } = {}) {
       await streamIntoRemote(lease, source, tmp, { declaredSize: st.size, maxBytes: COPY_MAX_BYTES, remoteSource: true });
       return await guardConfig([target], async () => {
         const existing = await lstatOrNull(target);
-        if (existing && !overwrite) throw fmError(ErrorCode.FM_EXISTS, { name: checkedName });
-        if (existing && existing.type !== "file") throw fmError(ErrorCode.FM_NOT_A_FILE);
+        checkReplaceable(existing, overwriteEtag, checkedName);
         // A copy is a new file: 0644, never executable (spec §A6.3).
         await chmodQuietly(tmp, 0o644);
         await landTemp(rootReal, tmp, target, targetRel, existing, {
@@ -1503,14 +1513,18 @@ export function createSftpBackend({ settings } = {}) {
     }
   }
 
-  // Depth-first over list(), never following a link. Yields `r` itself
-  // first (depth 0), then everything below it with root-relative paths as
-  // navigated. Stops early at maxEntries, maxMs or an abort; folders deeper
-  // than maxDepth aren't entered. After the loop, `.truncated` and
-  // `.truncatedReason` ('entries'|'depth'|'time'|'aborted') say whether and
-  // why it stopped short. A folder that vanishes or can't be read mid-walk
-  // is skipped (`.skipped` counts them).
-  function walk(r, { maxEntries = Infinity, maxDepth = Infinity, maxMs = Infinity, signal } = {}) {
+  // Depth-first over list(), never following a link. Yields everything
+  // below `r` (not `r` itself, and nothing for a file), as the service and
+  // the conformance suite expect: { name, rel, realRel, type, size, mtimeMs,
+  // dev, ino, depth }, with root-relative paths as navigated and depth 1 for
+  // `r`'s own children. dev/ino are always null over SFTP. Stops early at
+  // maxEntries, maxMs or an abort; folders deeper than maxDepth aren't
+  // entered, and `prune(entry)` returning true skips a folder's contents.
+  // After the loop, `.truncated` and `.truncatedReason`
+  // ('entries'|'depth'|'time'|'aborted') say whether and why it stopped
+  // short. A folder that vanishes or can't be read mid-walk is skipped
+  // (`.skipped` counts them).
+  function walk(r, { maxEntries = Infinity, maxDepth = Infinity, maxMs = Infinity, signal, prune } = {}) {
     const state = { truncated: false, truncatedReason: null, skipped: 0 };
     const stop = (reason) => {
       state.truncated = true;
@@ -1522,12 +1536,6 @@ export function createSftpBackend({ settings } = {}) {
       const started = Date.now();
       let visited = 0;
       const atRootOf = (realRel) => realRel === "";
-      if (visited >= maxEntries) {
-        stop("entries");
-        return;
-      }
-      visited += 1;
-      yield { rel: r.rel, type: r.stat.type, size: r.stat.type === "file" ? r.stat.size : 0 };
       if (r.stat.type !== "dir") return;
       const stack = [{ abs: r.abs, rel: r.rel, realRel: r.realRel, depth: 1 }];
       while (stack.length > 0) {
@@ -1564,14 +1572,24 @@ export function createSftpBackend({ settings } = {}) {
             return;
           }
           const type = typeFromListChar(e.type);
-          const rel = joinRel(frame.rel, e.name);
+          const entry = {
+            name: e.name,
+            rel: joinRel(frame.rel, e.name),
+            realRel: joinRel(frame.realRel, e.name),
+            type,
+            size: type === "file" ? Number(e.size) || 0 : 0,
+            mtimeMs: Number(e.modifyTime) || 0,
+            dev: null,
+            ino: null,
+            depth: frame.depth,
+          };
           visited += 1;
-          yield { rel, type, size: type === "file" ? Number(e.size) || 0 : 0 };
-          if (type === "dir") {
+          yield entry;
+          if (type === "dir" && !(prune && prune(entry))) {
             subfolders.push({
               abs: posix.join(frame.abs, e.name),
-              rel,
-              realRel: joinRel(frame.realRel, e.name),
+              rel: entry.rel,
+              realRel: entry.realRel,
               depth: frame.depth + 1,
             });
           }
