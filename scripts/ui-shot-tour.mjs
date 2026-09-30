@@ -552,6 +552,94 @@ async function installLanguageOverride(context, lang) {
   }, lang)
 }
 
+// ---------------------------------------------------------------------------
+// Server Files (v1.4.1): /api/files is answered here in full, so the page
+// shows a realistic folder whether or not this run's throwaway profile has
+// real folders behind it (its install and Zomboid paths live in a temp dir
+// that holds nothing). Mutations are refused like a protected path; the tour
+// never changes anything.
+// ---------------------------------------------------------------------------
+
+const FILES_TIME = '2026-09-28T18:42:00.000Z'
+
+function filesEntry(path, type, size, extra = {}) {
+  const name = path.split('/').pop()
+  const editable = type === 'file' && /\.(ini|lua|txt|json)$/i.test(name)
+  return {
+    name, path, type, size, modifiedAt: FILES_TIME, mode: type === 'dir' ? '0755' : '0644',
+    etag: `s:${size ?? 0}-1759084920000`, protection: null,
+    flags: { editable, binaryHint: type === 'file' && !editable, secretBearing: name.endsWith('.ini'), executable: false, worldState: false, unsupportedName: false },
+    ...extra,
+  }
+}
+
+const FILES_INI = [
+  'PVP=true', 'PauseEmpty=true', 'GlobalChat=true', 'Open=true',
+  'ServerWelcomeMessage=Welcome to Ashenwood. Be kind, stay alive.',
+  'Password=\u2022\u2022\u2022', 'RCONPassword=\u2022\u2022\u2022', 'RCONPort=27015',
+  'Mods=TchernoLib;Brita;RavenCreek', 'WorkshopItems=2392709985;2169435993;2004998206', 'MaxPlayers=16', '',
+].join('\n')
+
+const FILES_TREE = {
+  '': [
+    filesEntry('Logs', 'dir', null), filesEntry('Saves', 'dir', null), filesEntry('Server', 'dir', null),
+    filesEntry('backups', 'dir', null, { protection: { level: 'listOnly', area: 'panelBackups' } }),
+    filesEntry('db', 'dir', null), filesEntry('Lua', 'dir', null), filesEntry('mods', 'dir', null),
+    filesEntry('console.txt', 'file', 3_482_112),
+  ],
+  Server: [
+    filesEntry('Server/Ashenwood.ini', 'file', FILES_INI.length),
+    filesEntry('Server/Ashenwood_SandboxVars.lua', 'file', 18_944),
+    filesEntry('Server/Ashenwood_spawnpoints.lua', 'file', 412),
+    filesEntry('Server/Ashenwood_spawnregions.lua', 'file', 1_280),
+  ],
+}
+
+function filesRoot(id, displayPath) {
+  return { id, backend: 'local', displayPath, available: true, writable: true, freeBytes: 312_000_000_000, totalBytes: 512_000_000_000, warnings: [], trashItemCount: 3 }
+}
+
+const FILES_PROFILE = {
+  id: 'tour-files', name: 'Ashenwood', serverName: 'Ashenwood', isActive: true, provider: 'native', remote: null,
+  roots: [filesRoot('install', '/opt/pzserver'), filesRoot('data', '/home/pz/Zomboid')],
+  bookmarks: [
+    { rootId: 'data', path: 'Server', kind: 'serverSettings' },
+    { rootId: 'data', path: 'Saves', kind: 'worldSave' },
+    { rootId: 'data', path: 'Logs', kind: 'logs' },
+  ],
+}
+
+function filesFixture(url, method) {
+  const path = url.pathname.replace(/^.*\/api\/files/, '')
+  if (method !== 'GET') {
+    return { status: 403, contentType: 'application/json', body: JSON.stringify({ error: "This belongs to the panel or PanelBridge and can't be changed here.", code: 'FM_PATH_PROTECTED', params: { area: 'panelData', level: 'sealed' } }) }
+  }
+  if (path === '/profiles') return json({ profiles: [FILES_PROFILE] })
+  if (path === '/audit') return json({ entries: [] })
+  const sub = path.replace(/^\/profiles\/[^/]+/, '')
+  const rel = url.searchParams.get('path') || ''
+  const tree = url.searchParams.get('root') === 'data' ? FILES_TREE : { '': [filesEntry('java', 'dir', null), filesEntry('media', 'dir', null), filesEntry('ProjectZomboid64.json', 'file', 2_048)] }
+  const all = Object.values(tree).flat()
+  if (sub === '') return json({ profile: { ...FILES_PROFILE, serverState: 'running', serverStateCheckedAt: FILES_TIME } })
+  if (sub === '/list') {
+    const entries = tree[rel] ?? []
+    return json({ dir: filesEntry(rel || '.', 'dir', null), entries, total: entries.length, offset: 0, limit: 500, sortLimited: false, truncated: false, dirEtag: `tour:${rel}` })
+  }
+  if (sub === '/stat') {
+    const entry = all.find((item) => item.path === rel)
+    return entry ? json({ entry }) : errorJson(404, 'That file or folder is gone. Refresh the list.')
+  }
+  if (sub === '/text') {
+    const entry = all.find((item) => item.path === rel) ?? filesEntry(rel, 'file', 0)
+    return json({
+      entry, content: FILES_INI, etag: 'h:tour', bom: false, eol: 'lf', masked: true, truncated: false,
+      readOnly: false, readOnlyReason: null, hints: ['restartToApply', 'panelRewritesKeys', 'secretsMasked'], serverState: 'running',
+    })
+  }
+  if (sub === '/trash') return json({ items: [], totalBytes: 0 })
+  return errorJson(404, 'That file or folder is gone. Refresh the list.')
+}
+
 async function installFixtureRoutes(context) {
   await context.route('**/api/panel-bridge/status', (route) => route.fulfill(json(FIXTURES.bridgeStatus)))
   await context.route('**/api/panel-bridge/zombies/count', (route) => route.fulfill(json(FIXTURES.zombieCount)))
@@ -568,6 +656,10 @@ async function installFixtureRoutes(context) {
   await context.route('**/api/map/resolve', (route) => route.fulfill(json(FIXTURES.mapResolve)))
   await context.route('**/api/map/vehicles', (route) => route.fulfill(json(FIXTURES.mapVehicles)))
   await context.route('**/api/system/storage-health', (route) => route.fulfill(json(FIXTURES.storageHealth)))
+  await context.route('**/api/files/**', (route) => {
+    const request = route.request()
+    return route.fulfill(filesFixture(new URL(request.url()), request.method()))
+  })
   await context.route('**/api/panel-bridge/command', async (route) => {
     const req = route.request()
     let action = null
@@ -1062,6 +1154,18 @@ const VIEWS = [
       await clickTabByRole(page, 'About')
     },
   },
+  // Server Files (v1.4.1): all of /api/files is answered by filesFixture()
+  // above. Captured at the extra `tablet` width too (see VIEWPORTS), and once
+  // in Arabic (`lang`), since its right-to-left layout keeps every name,
+  // path and the editor left-to-right.
+  { name: 'files', path: '/files?server=tour-files&root=data&path=' },
+  { name: 'files:server-folder', path: '/files?server=tour-files&root=data&path=Server' },
+  {
+    name: 'files:editor',
+    path: '/files?server=tour-files&root=data&path=Server&open=Ashenwood.ini',
+    dialogExpected: true,
+  },
+  { name: 'files:ar', path: '/files?server=tour-files&root=data&path=Server', lang: 'ar' },
   { name: 'debug', path: '/debug' },
   ...DEBUG_TABS.map(({ value, label }) => ({
     name: `debug:${value}`,
@@ -1130,10 +1234,31 @@ function printViewList() {
   console.log(`\nUsage:\n  npm run ui:shot-tour                 # capture every view above\n  npm run ui:shot-tour -- <name>       # capture just one, e.g. players:vitals`)
 }
 
+// `onlyPages`: a width captured only for these pages (the part of a view
+// name before any `:`), so one page can get a third width without adding
+// a whole extra pass to every other view.
 const VIEWPORTS = [
   { key: 'desktop', width: 1440, height: 900 },
   { key: 'mobile', width: 390, height: 844 },
+  { key: 'tablet', width: 768, height: 1024, onlyPages: ['files'] },
 ]
+
+function viewportTakes(viewport, view) {
+  return !viewport.onlyPages || viewport.onlyPages.includes(view.name.split(':')[0])
+}
+
+// A view with `lang` is captured in that language (unless --lang forces
+// one for the whole run, which wins through installLanguageOverride),
+// then the next view goes back to the run's own language.
+async function applyViewLanguage(page, view) {
+  if (!view.lang || args.lang) return
+  await page.evaluate((code) => { try { localStorage.setItem('zcp-language', code) } catch { /* storage unavailable */ } }, view.lang)
+}
+
+async function restoreViewLanguage(page, view) {
+  if (!view.lang || args.lang) return
+  await page.evaluate(() => { try { localStorage.removeItem('zcp-language') } catch { /* storage unavailable */ } }).catch(() => {})
+}
 const THEMES = ['survival', 'light']
 
 // bug-hunt-2026-09-08 (--lang support): a bare chromium.launch() crashed the
@@ -1598,6 +1723,7 @@ async function capturePreAuthViews(browser, views, manifest) {
     for (const theme of THEMES) {
       await setTheme(page, theme)
       for (const view of views) {
+        if (!viewportTakes(viewport, view)) continue
         try {
           await page.goto(BASE_URL + view.path, { waitUntil: 'domcontentloaded' })
           await page.waitForTimeout(600)
@@ -1721,12 +1847,13 @@ async function main() {
           // top-level catch below for why the manifest write must survive
           // this either way.
           console.error(`[ui-shot-tour] setTheme failed for ${theme} (${viewport.key}) -- server may have died: ${err.message}`)
-          for (const view of targetViews) {
+          for (const view of targetViews.filter((v) => viewportTakes(viewport, v))) {
             manifest.push({ file: null, view: view.name, path: view.path, viewport: viewport.key, theme, error: `setTheme failed, likely server crash: ${err.message}` })
           }
           continue
         }
         for (const view of targetViews) {
+          if (!viewportTakes(viewport, view)) continue
           try {
             // Bug-hunt-2026-08-31: page-level route overrides a view sets up
             // via beforeGoto (see its own comment below) are scoped to ONE
@@ -1756,6 +1883,7 @@ async function main() {
             // comfortably; the loading-text wait below is an extra,
             // bounded safety net for any page that takes longer.
             await paceForRateLimit()
+            await applyViewLanguage(page, view)
             await page.goto(`${BASE_URL}${view.path}`, { waitUntil: 'domcontentloaded' })
             await page.waitForTimeout(1200)
             await page.waitForFunction(
@@ -1848,6 +1976,8 @@ async function main() {
           } catch (err) {
             console.error(`[ui-shot-tour] FAILED ${view.name} (${viewport.key}/${theme}): ${err.message}`)
             manifest.push({ file: null, view: view.name, path: view.path, viewport: viewport.key, theme, error: err.message })
+          } finally {
+            await restoreViewLanguage(page, view)
           }
         }
       }

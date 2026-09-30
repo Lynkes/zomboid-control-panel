@@ -699,7 +699,7 @@ function demoFilesProfile(withState: boolean) {
 
 const DEMO_NOT_FOUND = { error: 'That file or folder is gone. Refresh the list.', code: 'FM_NOT_FOUND' }
 
-function demoFilesResponse(url: URL, method: string): Response {
+export function getDemoFilesResponse(url: URL, method: string): Response {
   const path = url.pathname.slice(url.pathname.indexOf('/api/files') + '/api/files'.length)
   if (method !== 'GET') {
     return jsonResponse({
@@ -856,7 +856,7 @@ export function installDemoFetchShim(): void {
 
     if (path.startsWith('/api/files/')) {
       const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      return demoFilesResponse(new URL(rawUrl, window.location.origin), method)
+      return getDemoFilesResponse(new URL(rawUrl, window.location.origin), method)
     }
 
     if (path === '/api/server-files/paths') {
