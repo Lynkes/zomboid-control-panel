@@ -376,9 +376,13 @@ export const SEED_GLOBALS = {
  * (`GameTime.getInstance()`) rather than a bare Lua global -- same idea as SEED_GLOBALS (a
  * verified candidate, not a guess forced through), but the call syntax is `.` (Lua's plain
  * namespaced call) instead of `:` (self-call sugar), which resolveChainType special-cases for.
+ * The two definition classes are static lookups (`CharacterTraitDefinition.
+ * getCharacterTraitDefinition(trait)`), used by getCharacterSheet.
  */
 export const STATIC_CLASS_SEEDS = {
   GameTime: 'zombie.GameTime',
+  CharacterTraitDefinition: 'zombie.characters.traits.CharacterTraitDefinition',
+  CharacterProfessionDefinition: 'zombie.characters.professions.CharacterProfessionDefinition',
 };
 
 const LUA_KEYWORDS = new Set([

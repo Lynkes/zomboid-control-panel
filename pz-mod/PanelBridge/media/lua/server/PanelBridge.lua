@@ -6,6 +6,15 @@
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
 
+                vNEXT Changes:
+                - Add: getCharacterSheet, a read-only command for the panel's
+                    Character tab. It returns one online player's summary,
+                    condition, skills and XP, traits and a capped inventory
+                    tree, caches each answer for a few seconds, and doesn't
+                    clear the live read caches the way a command that
+                    changes the game does. Additive; the queue protocol is
+                    unchanged.
+
                 v1.7.71 Changes:
                 - Add: PanelBridge can also ship as the Steam Workshop mod
                     Zomboid Control Panel Bridge (mod id ZCPB). Every
@@ -2091,6 +2100,12 @@ local CACHEABLE_ACTIONS = {
 }
 local readOnlyCache = {}
 
+-- Read-only actions outside CACHEABLE_ACTIONS (they keep their own cache,
+-- keyed by more than the action name). Dispatching one must not drop the
+-- live caches: it changes nothing, and the Character tab polls
+-- getCharacterSheet every few seconds.
+local READ_ONLY_UNCACHED_ACTIONS = { getCharacterSheet = true }
+
 local function invalidateLiveStateCache()
     for action, config in pairs(CACHEABLE_ACTIONS) do
         if config.live then
@@ -2157,7 +2172,7 @@ local function processSingleCommand(cmd)
     -- Frequent polling commands log at DEBUG to avoid spam
     -- These commands are polled by the panel on a fixed schedule (every few seconds) so we
     -- log them at DEBUG only. INFO is reserved for one-shot admin actions.
-    local quietCommands = { getServerInfo=true, ping=true, getWeather=true, getGameTime=true, getWorldStats=true, getUtilitiesStatus=true, getClimateFloats=true, getAllPlayerDetails=true, getLeaderboard=true, getVehiclesDetailed=true, getSafehouses=true, getZombieCount=true, getSandboxOptions=true }
+    local quietCommands = { getServerInfo=true, ping=true, getWeather=true, getGameTime=true, getWorldStats=true, getUtilitiesStatus=true, getClimateFloats=true, getAllPlayerDetails=true, getLeaderboard=true, getVehiclesDetailed=true, getSafehouses=true, getZombieCount=true, getSandboxOptions=true, getCharacterSheet=true }
     if quietCommands[cmd.action] then
         PanelBridge.debug("Processing command: " .. tostring(cmd.action), { id = cmd.id })
     else
@@ -2209,8 +2224,9 @@ local function processSingleCommand(cmd)
         -- verification or persistence. Invalidate live read caches for every
         -- non-deferred non-cacheable dispatch, not only the success branch.
         -- Otherwise a partial failure serves the pre-mutation snapshot until
-        -- the TTL expires.
-        if not cacheTtl and (not pcallOk or success ~= "DEFERRED") then
+        -- the TTL expires. READ_ONLY_UNCACHED_ACTIONS are exempt: they change
+        -- nothing.
+        if not cacheTtl and not READ_ONLY_UNCACHED_ACTIONS[cmd.action] and (not pcallOk or success ~= "DEFERRED") then
             invalidateLiveStateCache()
         end
 
@@ -4792,6 +4808,674 @@ handlers.exportPlayerData = function(args)
 
     return true, exportData
 end
+
+-- ============================================
+-- CHARACTER SHEET (read-only)
+-- ============================================
+
+-- handlers.getCharacterSheet feeds the panel's Character tab: one online
+-- player's summary, condition, skills, traits and inventory. It changes no
+-- game state, so the dispatcher lists it in READ_ONLY_UNCACHED_ACTIONS and a
+-- poll doesn't drop the live read caches the way a mutation must.
+--
+-- Rules every section follows:
+--   * A value that can't be read is left out, never defaulted: a 0 for
+--     hunger reads as "not hungry".
+--   * Each section runs in its own pcall. A failed section is named in
+--     sectionErrors with a short reason, and the others still arrive.
+--   * Engine calls go through PanelBridge.tryGet or a pcall, except in the
+--     inventory walk. That does one pcall per item with direct calls
+--     (serializeInventory's precedent), because tryGet's capabilityKey probe
+--     would double the Java calls on a 500-item walk.
+--   * Empty tables encode as [] (json.encode's rule). The panel normalizes
+--     them, so no filler keys are added to force an object.
+--
+-- Every engine member used here was checked with javap on the 42.21 jar (and
+-- the 42.20 server jar). getItemContainer is on InventoryContainer only, so
+-- it's called after IsInventoryContainer(). XP.getMultiplier is the
+-- skill-book multiplier, 0 when no book is active.
+local CHARACTER_SHEET = {
+    SECTIONS = { "summary", "stats", "skills", "traits", "inventory" },
+    DEFAULT_SECTIONS = { summary = true, stats = true, skills = true, traits = true },
+    -- Response key and CharacterStat field for each stat in the Condition
+    -- section.
+    STATS = {
+        { "hunger", "HUNGER" },
+        { "thirst", "THIRST" },
+        { "fatigue", "FATIGUE" },
+        { "endurance", "ENDURANCE" },
+        { "stress", "STRESS" },
+        { "boredom", "BOREDOM" },
+        { "unhappiness", "UNHAPPINESS" },
+        { "panic", "PANIC" },
+        { "pain", "PAIN" },
+        { "sickness", "SICKNESS" },
+        { "zombieInfection", "ZOMBIE_INFECTION" },
+        { "wetness", "WETNESS" },
+        { "intoxication", "INTOXICATION" },
+    },
+    CACHE_TTL_MS = 3000,
+    INVENTORY_CACHE_TTL_MS = 10000,
+    CACHE_MAX_ENTRIES = 16,
+    -- The inventory walk reads the clock every this many items.
+    BUDGET_CHECK_EVERY = 25,
+}
+
+-- Per-player answers, keyed lower(username) .. "|" .. sectionsKey, each
+-- { at, ttl, data }. Not CACHEABLE_ACTIONS: that cache is keyed by action
+-- alone, and this answer depends on the player and the sections asked for.
+local characterSheetCache = {}
+
+-- CharacterStat field -> { min, max }. The ranges are static, so each is read
+-- once. A failed read isn't remembered: it's retried on the next sheet.
+local characterStatRanges = {}
+
+local function clampSheetInt(value, default, low, high)
+    local n = tonumber(value)
+    if not n or n ~= n then return default end
+    n = math.floor(n)
+    if n < low then return low end
+    if n > high then return high end
+    return n
+end
+
+-- Returns the requested sections as a set, plus a canonical key (known names
+-- in a fixed order) so {"skills","summary"} and {"summary","skills"} share a
+-- cache entry. Unknown names are ignored; a request naming none of the five
+-- gets the default set.
+local function parseSheetSections(requested)
+    local wanted = {}
+    if type(requested) == "table" then
+        for _, name in ipairs(requested) do
+            if type(name) == "string" then wanted[name] = true end
+        end
+    end
+    local set, names = {}, {}
+    for _, name in ipairs(CHARACTER_SHEET.SECTIONS) do
+        if wanted[name] then
+            set[name] = true
+            table.insert(names, name)
+        end
+    end
+    if #names == 0 then
+        for _, name in ipairs(CHARACTER_SHEET.SECTIONS) do
+            if CHARACTER_SHEET.DEFAULT_SECTIONS[name] then
+                set[name] = true
+                table.insert(names, name)
+            end
+        end
+    end
+    return set, table.concat(names, ",")
+end
+
+local function statRangeOf(enumName)
+    local known = characterStatRanges[enumName]
+    if known then return known end
+    local ok, enumValue = pcall(function() return CharacterStat[enumName] end)
+    if not ok or enumValue == nil then return nil end
+    local minValue = PanelBridge.tryGet(enumValue, "getMinimumValue")
+    local maxValue = PanelBridge.tryGet(enumValue, "getMaximumValue")
+    if type(minValue) ~= "number" or type(maxValue) ~= "number" then return nil end
+    local range = { min = minValue, max = maxValue }
+    characterStatRanges[enumName] = range
+    return range
+end
+
+-- Throws when the item can't be read; callers pcall it.
+local function sheetItemRef(sheetItem)
+    return {
+        itemId = sheetItem:getID(),
+        fullType = sheetItem:getFullType(),
+        name = sheetItem:getDisplayName(),
+    }
+end
+
+local function readSheetRole(player)
+    local role = PanelBridge.tryGet(player, "getRole")
+    if role == nil then return nil end
+    local out = {}
+    local okName, roleName = pcall(function() return role:getName() end)
+    if okName and roleName ~= nil then out.name = tostring(roleName) end
+    -- True when the role has any self-cheat capability (god mode, noclip,
+    -- invisible on itself...). Role names can be custom, so the name alone
+    -- can't say who is staff.
+    local okAdmin, adminPower = pcall(function() return role:hasAdminPower() end)
+    if okAdmin and type(adminPower) == "boolean" then out.adminPower = adminPower end
+    local okSpawn, canSpawnItems = pcall(function() return role:hasCapability(Capability.AddItem) end)
+    if okSpawn and type(canSpawnItems) == "boolean" then out.canSpawnItems = canSpawnItems end
+    return out
+end
+
+local function readSheetSummary(player, descriptor)
+    local summary = {
+        isAlive = PanelBridge.tryGet(player, "isAlive"),
+        isAsleep = PanelBridge.tryGet(player, "isAsleep"),
+        isSneaking = PanelBridge.tryGet(player, "isSneaking"),
+        isRunning = PanelBridge.tryGet(player, "isRunning"),
+        x = PanelBridge.tryGet(player, "getX"),
+        y = PanelBridge.tryGet(player, "getY"),
+        z = PanelBridge.tryGet(player, "getZ"),
+        hoursSurvived = PanelBridge.tryGet(player, "getHoursSurvived"),
+        zombieKills = PanelBridge.tryGet(player, "getZombieKills"),
+        survivorKills = PanelBridge.tryGet(player, "getSurvivorKills"),
+        carriedWeight = PanelBridge.tryGet(player, "getInventoryWeight"),
+        maxWeight = PanelBridge.tryGet(player, "getMaxWeight"),
+        flags = {
+            godMode = PanelBridge.tryGet(player, "isGodMod"),
+            invisible = PanelBridge.tryGet(player, "isInvisible"),
+            noClip = PanelBridge.tryGet(player, "isNoClip"),
+            ghostMode = PanelBridge.tryGet(player, "isGhostMode"),
+            unlimitedCarry = PanelBridge.tryGet(player, "isUnlimitedCarry"),
+            unlimitedEndurance = PanelBridge.tryGet(player, "isUnlimitedEndurance"),
+            knowAllRecipes = PanelBridge.tryGet(player, "isKnowAllRecipes"),
+            invincible = PanelBridge.tryGet(player, "isInvincible"),
+        },
+    }
+
+    local okDay, minutesPerDay = pcall(function() return getGameTime():getMinutesPerDay() end)
+    if okDay and type(minutesPerDay) == "number" then summary.minutesPerDay = minutesPerDay end
+
+    local okWeight, bodyWeight = pcall(function() return player:getNutrition():getWeight() end)
+    if okWeight and type(bodyWeight) == "number" then summary.bodyWeight = bodyWeight end
+
+    local characterProfession = descriptor and PanelBridge.tryGet(descriptor, "getCharacterProfession")
+    if characterProfession ~= nil then
+        local profession = {}
+        local okId, professionId = pcall(tostring, characterProfession)
+        if okId and professionId then profession.id = professionId end
+        -- `local ok, value = pcall(...)`: pcall's first result is its status.
+        local okLabel, label = pcall(function()
+            local professionDef = CharacterProfessionDefinition.getCharacterProfessionDefinition(characterProfession)
+            if professionDef == nil then return nil end
+            return professionDef:getUIName()
+        end)
+        if okLabel and label ~= nil then profession.label = tostring(label) end
+        summary.profession = profession
+    end
+
+    -- The game reads the same options (XP.AddXP): Global applies to every
+    -- skill while GlobalToggle is on, otherwise each skill has its own.
+    local okSandbox, xpSandbox = pcall(function()
+        local config = SandboxVars.MultiplierConfig
+        local out = {}
+        if type(config.Global) == "number" then out.global = config.Global end
+        if type(config.GlobalToggle) == "boolean" then out.globalToggle = config.GlobalToggle end
+        return out
+    end)
+    if okSandbox then summary.xpSandbox = xpSandbox end
+
+    return summary
+end
+
+-- stats:get(CharacterStat.X) through statGet (see its comment). A stat is sent
+-- only when both its value and its range can be read.
+local function readSheetStats(player)
+    local stats = PanelBridge.tryGet(player, "getStats")
+    if stats == nil then return nil, "getStats unavailable" end
+    local out = {}
+    for _, entry in ipairs(CHARACTER_SHEET.STATS) do
+        local value = statGet(stats, entry[2])
+        if type(value) == "number" then
+            local range = statRangeOf(entry[2])
+            if range then
+                out[entry[1]] = { value = value, min = range.min, max = range.max }
+            end
+        end
+    end
+    return out
+end
+
+-- Read the way getPlayerDetails reads it (see there for the jar findings).
+local function readSheetHealth(player)
+    local bodyDamage = PanelBridge.tryGet(player, "getBodyDamage")
+    if bodyDamage == nil then return nil, "getBodyDamage unavailable" end
+    local health = {
+        overall = PanelBridge.tryGet(bodyDamage, "getOverallBodyHealth"),
+        isInfected = PanelBridge.tryGet(bodyDamage, "IsInfected"),
+        numPartsBleeding = PanelBridge.tryGet(bodyDamage, "getNumPartsBleeding"),
+    }
+    local thermoregulator = PanelBridge.tryGet(bodyDamage, "getThermoregulator")
+    if thermoregulator then
+        health.temperature = PanelBridge.tryGet(thermoregulator, "getCoreTemperature")
+    end
+    return health
+end
+
+-- Every perk the game knows, mod perks included, the way the vanilla skills
+-- panel lists them (ISCharacterInfo.loadPerk). A perk whose parent is None is
+-- a category (Combat, Crafting...). A perk that throws adds 1 to `failed`.
+local function readSheetSkills(player)
+    local okList, perkList = pcall(function() return PerkFactory.PerkList end)
+    if not okList or perkList == nil then return nil, "PerkFactory unavailable" end
+    local okSize, perkCount = pcall(function() return perkList:size() end)
+    if not okSize or type(perkCount) ~= "number" then return nil, "PerkFactory unavailable" end
+
+    local xp = PanelBridge.tryGet(player, "getXp")
+    local okConfig, multiplierConfig = pcall(function() return SandboxVars.MultiplierConfig end)
+    if not okConfig or type(multiplierConfig) ~= "table" then multiplierConfig = nil end
+
+    local skills = { categories = {}, perks = {}, failed = 0 }
+    for i = 0, perkCount - 1 do
+        local ok, perkRow = pcall(function()
+            local perk = perkList:get(i)
+            local perkId = perk:getId()
+            local parent = perk:getParent()
+            local parentId = parent and parent:getId() or nil
+            if parentId == nil or parentId == "None" then
+                return { category = true, id = perkId, name = perk:getName() }
+            end
+            local level = player:getPerkLevel(perk)
+            local row = {
+                id = perkId,
+                parent = parentId,
+                name = perk:getName(),
+                passive = perk:isPassiv(),
+                level = level,
+                levelXp = perk:getTotalXpForLevel(level),
+            }
+            if level < 10 then row.nextLevelXp = perk:getTotalXpForLevel(level + 1) end
+            if xp then
+                row.xp = xp:getXP(perk)
+                row.boost = xp:getPerkBoost(perk)
+                row.multiplier = xp:getMultiplier(perk)
+            end
+            -- Option MultiplierConfig.<perk id>, which XP.AddXP reads while
+            -- GlobalToggle is off. A mod perk has none.
+            if multiplierConfig and type(multiplierConfig[perkId]) == "number" then
+                row.sandboxMultiplier = multiplierConfig[perkId]
+            end
+            return row
+        end)
+        if not ok or perkRow == nil then
+            skills.failed = skills.failed + 1
+        elseif perkRow.category then
+            table.insert(skills.categories, { id = perkRow.id, name = perkRow.name })
+        else
+            table.insert(skills.perks, perkRow)
+        end
+    end
+    return skills
+end
+
+-- The vanilla ISPlayerStatsUI path: getKnownTraits(), then each trait's
+-- definition. The id is the trait's registry name ("base:athletic").
+local function readSheetTraits(player)
+    local characterTraits = PanelBridge.tryGet(player, "getCharacterTraits")
+    local knownTraits = characterTraits and PanelBridge.tryGet(characterTraits, "getKnownTraits")
+    if knownTraits == nil then return nil, "getKnownTraits unavailable" end
+    local traitList = collectJavaCollection(knownTraits, "Known trait list")
+    if not traitList then return nil, "trait list unreadable" end
+
+    local traits = {}
+    for _, characterTrait in ipairs(traitList) do
+        local row = {}
+        local okId, traitId = pcall(tostring, characterTrait)
+        if okId and traitId then row.id = traitId end
+        local okDef, definition = pcall(function()
+            local traitDef = CharacterTraitDefinition.getCharacterTraitDefinition(characterTrait)
+            if traitDef == nil then return nil end
+            return { label = traitDef:getLabel(), cost = traitDef:getCost(), free = traitDef:isFree() }
+        end)
+        if okDef and definition then
+            if definition.label ~= nil then row.label = tostring(definition.label) end
+            row.cost = definition.cost
+            -- isFree() is true for a trait the occupation grants.
+            row.profession = definition.free
+        end
+        table.insert(traits, row)
+    end
+    return traits
+end
+
+local function sheetContainerCapacity(sheetContainer, player)
+    local okEffective, effective = pcall(function() return sheetContainer:getEffectiveCapacity(player) end)
+    if okEffective and type(effective) == "number" then return effective end
+    local okCapacity, capacity = pcall(function() return sheetContainer:getCapacity() end)
+    if okCapacity and type(capacity) == "number" then return capacity end
+    return nil
+end
+
+-- The one pcall per inventory entry. Returns only the raw values the walk
+-- needs, so a throw anywhere skips this entry and nothing else.
+local function readSheetInventoryEntry(entries, index)
+    local entryItem = entries:get(index)
+    local fullType = entryItem:getFullType()
+    local isContainer = entryItem:IsInventoryContainer() == true
+    local innerContainer = nil
+    if isContainer then innerContainer = entryItem:getItemContainer() end
+    return entryItem, entryItem:getID(), fullType, entryItem:getCount(), entryItem:getActualWeight(),
+        entryItem:getCondition(), entryItem:getConditionMax(), isContainer, innerContainer
+end
+
+-- Walks the main inventory (depth 1) into a tree of rows. Stacks group by
+-- fullType, name and worn/equipped/attached state, and containers are never
+-- grouped. Stops at maxItems or when budgetMs runs out, and says which.
+local function readSheetInventory(player, limits)
+    local mainInventory = PanelBridge.tryGet(player, "getInventory")
+    if mainInventory == nil then return nil, "getInventory unavailable" end
+
+    local startedAt = getTimestampMs()
+    local totals = {
+        walked = 0,
+        itemCount = 0, -- units: each stack's qty plus one per container
+        distinctTypes = 0,
+        skipped = 0,
+        truncated = false,
+        maxItems = limits.maxItems,
+        maxDepth = limits.maxDepth,
+        budgetMs = limits.budgetMs,
+    }
+    local inventory = { worn = {}, equipped = {}, attached = {}, totals = totals }
+
+    -- ID sets first, so the walk marks each row with table lookups.
+    local equippedById, wornById, attachedById = {}, {}, {}
+    local primaryItem = PanelBridge.tryGet(player, "getPrimaryHandItem")
+    local secondaryItem = PanelBridge.tryGet(player, "getSecondaryHandItem")
+    if primaryItem ~= nil then
+        local ok, ref = pcall(sheetItemRef, primaryItem)
+        if ok and ref.itemId ~= nil then
+            inventory.equipped.primary = ref
+            equippedById[ref.itemId] = "primary"
+        end
+    end
+    if secondaryItem ~= nil then
+        local ok, ref = pcall(sheetItemRef, secondaryItem)
+        if ok and ref.itemId ~= nil then
+            inventory.equipped.secondary = ref
+            -- A two-handed weapon is the same item in both hands: its row is
+            -- marked once, as primary.
+            if equippedById[ref.itemId] == nil then equippedById[ref.itemId] = "secondary" end
+        end
+    end
+
+    local sheetWorn = PanelBridge.tryGet(player, "getWornItems")
+    local wornCount = sheetWorn and PanelBridge.tryGet(sheetWorn, "size")
+    if type(wornCount) == "number" then
+        for i = 0, wornCount - 1 do
+            local ok, ref = pcall(function()
+                local wornEntry = sheetWorn:get(i)
+                local entryRef = sheetItemRef(wornEntry:getItem())
+                entryRef.location = tostring(wornEntry:getLocation())
+                return entryRef
+            end)
+            if ok and ref.itemId ~= nil then
+                wornById[ref.itemId] = true
+                table.insert(inventory.worn, ref)
+            end
+        end
+    end
+
+    local sheetAttached = PanelBridge.tryGet(player, "getAttachedItems")
+    local attachedCount = sheetAttached and PanelBridge.tryGet(sheetAttached, "size")
+    if type(attachedCount) == "number" then
+        for i = 0, attachedCount - 1 do
+            local ok, ref = pcall(function()
+                local attachedEntry = sheetAttached:get(i)
+                local entryRef = sheetItemRef(attachedEntry:getItem())
+                entryRef.location = tostring(attachedEntry:getLocation())
+                return entryRef
+            end)
+            if ok and ref.itemId ~= nil then
+                attachedById[ref.itemId] = ref.location
+                table.insert(inventory.attached, ref)
+            end
+        end
+    end
+
+    -- Per-fullType facts, read once per walk with one pcall per call. Never
+    -- isVanilla().
+    local typeInfo = {}
+    local function describeType(entryItem, fullType)
+        local info = typeInfo[fullType]
+        if info then return info end
+        info = {}
+        local okName, name = pcall(function() return entryItem:getDisplayName() end)
+        if okName then info.name = name end
+        local okCategory, category = pcall(function() return entryItem:getDisplayCategory() end)
+        if okCategory then info.category = category end
+        local okMod, modId = pcall(function() return entryItem:getModID() end)
+        if okMod then info.modId = modId end
+        local okScript, scriptItem = pcall(function() return entryItem:getScriptItem() end)
+        if okScript and scriptItem ~= nil then
+            local okHidden, hidden = pcall(function() return scriptItem:isHidden() end)
+            if okHidden and type(hidden) == "boolean" then info.hidden = hidden end
+            local okObsolete, obsolete = pcall(function() return scriptItem:getObsolete() end)
+            if okObsolete and type(obsolete) == "boolean" then info.obsolete = obsolete end
+        end
+        typeInfo[fullType] = info
+        totals.distinctTypes = totals.distinctTypes + 1
+        return info
+    end
+
+    local maxItems, maxDepth, budgetMs = limits.maxItems, limits.maxDepth, limits.budgetMs
+    local checkEvery = CHARACTER_SHEET.BUDGET_CHECK_EVERY
+    local stopReason = nil
+
+    local walkContainer
+    walkContainer = function(sheetContainer, depth, containerRow)
+        local okEntries, entries = pcall(function() return sheetContainer:getItems() end)
+        if not okEntries or entries == nil then return end
+        local okSize, size = pcall(function() return entries:size() end)
+        if not okSize or type(size) ~= "number" then return end
+        containerRow.itemCount = size
+
+        local rows, stacks = {}, {}
+        for i = 0, size - 1 do
+            if totals.walked >= maxItems then
+                stopReason = "maxItems"
+                break
+            end
+            if totals.walked > 0 and totals.walked % checkEvery == 0
+                    and getTimestampMs() - startedAt > budgetMs then
+                stopReason = "timeBudget"
+                break
+            end
+            totals.walked = totals.walked + 1
+
+            local ok, entryItem, itemId, fullType, count, weight, condition, conditionMax, isContainer, innerContainer =
+                pcall(readSheetInventoryEntry, entries, i)
+            if not ok or fullType == nil then
+                totals.skipped = totals.skipped + 1
+            else
+                local worn = itemId ~= nil and wornById[itemId] == true
+                local equipped = itemId ~= nil and equippedById[itemId] or nil
+                local attached = itemId ~= nil and attachedById[itemId] or nil
+                if isContainer then
+                    local row = {
+                        kind = "container",
+                        itemId = itemId,
+                        fullType = fullType,
+                        weight = weight,
+                        worn = worn,
+                        equipped = equipped,
+                        attached = attached,
+                    }
+                    -- The container's own name, not the type's: bags can be
+                    -- renamed.
+                    local okName, name = pcall(function() return entryItem:getDisplayName() end)
+                    if okName then row.name = name end
+                    totals.itemCount = totals.itemCount + 1
+                    if innerContainer ~= nil then
+                        local okWeight, contentsWeight = pcall(function() return innerContainer:getContentsWeight() end)
+                        if okWeight then row.contentsWeight = contentsWeight end
+                        row.capacity = sheetContainerCapacity(innerContainer, player)
+                        if depth < maxDepth then
+                            walkContainer(innerContainer, depth + 1, row)
+                        else
+                            row.truncatedDepth = true
+                            local okCount, innerCount = pcall(function() return innerContainer:getItems():size() end)
+                            if okCount then row.itemCount = innerCount end
+                        end
+                    end
+                    table.insert(rows, row)
+                else
+                    local info = describeType(entryItem, fullType)
+                    local key = fullType .. "|" .. tostring(info.name) .. "|" .. (worn and "worn" or "")
+                        .. "|" .. (equipped or "") .. "|" .. (attached or "")
+                    local qty = 1
+                    if type(count) == "number" and count > 0 then qty = count end
+                    local stack = stacks[key]
+                    if stack == nil then
+                        stack = {
+                            kind = "stack",
+                            fullType = fullType,
+                            name = info.name,
+                            category = info.category,
+                            qty = 0,
+                            conditionMax = conditionMax,
+                            worn = worn,
+                            equipped = equipped,
+                            attached = attached,
+                            modId = info.modId,
+                            hidden = info.hidden,
+                            obsolete = info.obsolete,
+                        }
+                        stacks[key] = stack
+                        table.insert(rows, stack)
+                    end
+                    stack.qty = stack.qty + qty
+                    if type(weight) == "number" then stack.weight = (stack.weight or 0) + weight end
+                    if type(condition) == "number" and (stack.condition == nil or condition < stack.condition) then
+                        stack.condition = condition
+                    end
+                    totals.itemCount = totals.itemCount + qty
+                end
+            end
+            if stopReason then break end
+        end
+        containerRow.rows = rows
+    end
+
+    local root = { kind = "container", itemId = "main" }
+    local okWeight, contentsWeight = pcall(function() return mainInventory:getContentsWeight() end)
+    if okWeight then root.contentsWeight = contentsWeight end
+    root.capacity = sheetContainerCapacity(mainInventory, player)
+    walkContainer(mainInventory, 1, root)
+    inventory.root = root
+
+    if stopReason then
+        totals.truncated = true
+        totals.truncatedReason = stopReason
+    end
+    return inventory
+end
+
+-- Keeps at most CACHE_MAX_ENTRIES answers; a new key evicts the oldest.
+local function storeCharacterSheet(key, entry)
+    if characterSheetCache[key] == nil then
+        local count, oldestKey, oldestAt = 0, nil, nil
+        for cachedKey, cached in pairs(characterSheetCache) do
+            count = count + 1
+            if oldestAt == nil or cached.at < oldestAt then
+                oldestKey, oldestAt = cachedKey, cached.at
+            end
+        end
+        if count >= CHARACTER_SHEET.CACHE_MAX_ENTRIES and oldestKey then
+            characterSheetCache[oldestKey] = nil
+        end
+    end
+    characterSheetCache[key] = entry
+end
+
+-- args: username (required, case-insensitive); sections (array of summary,
+-- stats, skills, traits, inventory; default all but inventory); maxItems
+-- 50..1000 (500); maxDepth 1..4 (3, the main inventory is depth 1); budgetMs
+-- 5..50 (20); fresh (true skips the cache). Answers are cached 3 s, or 10 s
+-- with the inventory.
+handlers.getCharacterSheet = function(args)
+    -- Read-only: nothing here changes the game, so there is no write outcome
+    -- to report as verified (PanelBridge.verifiedResult is for handlers that
+    -- act).
+    local username = args.username
+    if type(username) ~= "string" or username == "" then
+        return false, nil, "Username required"
+    end
+
+    local sections, sectionsKey = parseSheetSections(args.sections)
+    local limits = {
+        maxItems = clampSheetInt(args.maxItems, 500, 50, 1000),
+        maxDepth = clampSheetInt(args.maxDepth, 3, 1, 4),
+        budgetMs = clampSheetInt(args.budgetMs, 20, 5, 50),
+    }
+    -- The inventory's limits are part of its answer, so they key the cache.
+    if sections.inventory then
+        sectionsKey = sectionsKey .. "#" .. limits.maxItems .. "/" .. limits.maxDepth .. "/" .. limits.budgetMs
+    end
+
+    -- Looked up before the cache, so a player who left isn't served a cached
+    -- sheet.
+    local player = getPlayerByUsername(username)
+    if not player then
+        return false, nil, playerLookupError(username)
+    end
+
+    local startedAt = getTimestampMs()
+    local cacheKey = string.lower(username) .. "|" .. sectionsKey
+    if args.fresh ~= true then
+        local cached = characterSheetCache[cacheKey]
+        -- A negative age means the clock moved back: refetch (see the
+        -- dispatcher's cache).
+        local age = cached and (startedAt - cached.at)
+        if cached and age >= 0 and age < cached.ttl then
+            return true, cached.data
+        end
+    end
+
+    local data = {
+        schema = 1,
+        generatedAt = startedAt,
+        username = PanelBridge.tryGet(player, "getUsername") or username,
+        displayName = PanelBridge.tryGet(player, "getDisplayName"),
+        sectionErrors = {},
+    }
+
+    -- Runs one section reader. A reader returns its value, or nil and a short
+    -- reason. A crash is logged at DEBUG, and only "read failed" is sent: the
+    -- raw Lua error names file and line.
+    local function readSection(name, reader, ...)
+        local ok, value, reason = pcall(reader, ...)
+        if not ok then
+            data.sectionErrors[name] = "read failed"
+            PanelBridge.debug("Character sheet section failed", { section = name, error = tostring(value) })
+            return nil
+        end
+        -- Two readers share "stats": keep the first reason.
+        if reason and data.sectionErrors[name] == nil then data.sectionErrors[name] = reason end
+        return value
+    end
+
+    local descriptor = PanelBridge.tryGet(player, "getDescriptor")
+    if descriptor then
+        data.forename = PanelBridge.tryGet(descriptor, "getForename")
+        data.surname = PanelBridge.tryGet(descriptor, "getSurname")
+    end
+    local okRole, role = pcall(readSheetRole, player)
+    if okRole then data.role = role end
+
+    if sections.summary then data.summary = readSection("summary", readSheetSummary, player, descriptor) end
+    if sections.stats then
+        data.stats = readSection("stats", readSheetStats, player)
+        data.health = readSection("stats", readSheetHealth, player)
+    end
+    if sections.skills then data.skills = readSection("skills", readSheetSkills, player) end
+    if sections.traits then data.traits = readSection("traits", readSheetTraits, player) end
+    local walked = 0
+    if sections.inventory then
+        data.inventory = readSection("inventory", readSheetInventory, player, limits)
+        if data.inventory then walked = data.inventory.totals.walked end
+    end
+
+    data.cost = { ms = getTimestampMs() - startedAt, walked = walked }
+
+    local ttl = CHARACTER_SHEET.CACHE_TTL_MS
+    if sections.inventory then ttl = CHARACTER_SHEET.INVENTORY_CACHE_TTL_MS end
+    storeCharacterSheet(cacheKey, { at = startedAt, ttl = ttl, data = data })
+    return true, data
+end
+
+-- ============================================
+-- PLAYER IMPORT (restore)
+-- ============================================
 
 -- Import/restore player data (skills and inventory)
 handlers.importPlayerData = function(args)
