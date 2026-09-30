@@ -962,6 +962,50 @@ suite("real OpenSSH: a folder the login can't read", () => {
   });
 });
 
+suite("real OpenSSH: a login the server refuses things to (sftp-server -P)", () => {
+  const deny = async (...requests) => {
+    srv.denyRequests = requests;
+    await reconnect();
+  };
+
+  it("an upload it may not create: 403, the body answered, nothing left behind", async () => {
+    await deny("open");
+    const big = crypto.randomBytes(512 * 1024);
+    const up = await upload("Logs", "new.bin", big);
+    expect(up.status).toBe(403);
+    expect(up.body.code).toBe("FM_OS_PERMISSION_DENIED");
+    expect(srv.fs.children("Zomboid/Logs")).toEqual(["old", "server.txt"]);
+    const save = await call("PUT", `${P}/text`, {
+      body: { root: "data", path: "Logs/new.txt", content: "x", etag: null, eol: "lf", bom: false, confirm: [] },
+    });
+    expect(save.status).toBe(403);
+  });
+
+  it("New folder, rename, move and delete it may not do: 403, and nothing moved or lost", async () => {
+    await deny("mkdir", "rename", "posix-rename", "remove", "rmdir");
+    const made = await call("POST", `${P}/mkdir`, { body: { root: "data", path: "Logs", name: "archive", confirm: [] } });
+    expect(made.status).toBe(403);
+    const renamed = await call("POST", `${P}/rename`, { body: { root: "data", path: "Logs/server.txt", newName: "x.txt", confirm: [] } });
+    expect(renamed.status).toBe(403);
+    const moved = await call("POST", `${P}/move`, { body: { root: "data", paths: ["Logs/server.txt"], destDir: "Logs/old", confirm: [] } });
+    expect(moved.body.failed).toEqual([expect.objectContaining({ path: "Logs/server.txt", code: "FM_OS_PERMISSION_DENIED" })]);
+    const pv = await call("POST", `${P}/delete/preview`, { body: { root: "data", paths: ["Logs/old"] } });
+    const trashed = await call("POST", `${P}/delete`, { body: { root: "data", previewId: pv.body.previewId, mode: "trash", confirm: pv.body.required } });
+    expect(trashed.body.trashed ?? []).toEqual([]);
+    const pv2 = await call("POST", `${P}/delete/preview`, { body: { root: "data", paths: ["Logs/old"] } });
+    const gone = await call("POST", `${P}/delete`, {
+      body: { root: "data", previewId: pv2.body.previewId, mode: "permanent", confirm: [...pv2.body.required, "permanent"], typedConfirmation: "old" },
+    });
+    expect(gone.status).toBe(202);
+    await _waitForJobForTests(gone.body.jobId).catch(() => {});
+    const job = await call("GET", `/api/files/jobs/${gone.body.jobId}`);
+    expect(job.body.state).toBe("failed");
+    expect(file("Logs/server.txt")).toBe("log line\n");
+    expect(file("Logs/old/older.txt")).toBe("older\n");
+    expect(srv.fs.children("Zomboid/Logs")).toEqual(["old", "server.txt"]);
+  });
+});
+
 suite("real OpenSSH: the served folder", () => {
   it("is where the remote paths point", () => {
     expect(srv.toLocal(ROOT)).toBe(path.normalize(localOf("")));

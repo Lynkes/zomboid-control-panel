@@ -19,15 +19,19 @@ if (sftpServerSkipReason) {
     });
   });
 } else {
-  runBackendConformance("sftp over real OpenSSH", async () => {
+  // `throughLink`: the root is configured through a link to the folder (a
+  // junction on Windows), so its real path, which REALPATH gives, isn't the
+  // path it was configured as.
+  const makeBackend = (throughLink) => async () => {
     const srv = await startOpensshSftpServer();
     srv.fs.mkdir("Zomboid");
     const at = (rel) => (rel ? `Zomboid/${rel}` : "Zomboid");
     _setFileManagerSftpTestHooks({ timeouts: { transferIdleMs: 5000, opMs: 10000, readyMs: 10000 } });
     const backend = createSftpBackend({ settings: srv.settings });
+    const rootPath = throughLink ? `${srv.aliasRoot()}/Zomboid` : srv.remote("Zomboid");
     return {
       backend,
-      root: { id: "data", path: srv.remote("Zomboid"), warnings: [] },
+      root: { id: "data", path: rootPath, warnings: [] },
       seed: {
         mkdir: (rel) => srv.fs.mkdir(at(rel)),
         writeFile: (rel, content) => srv.fs.writeFile(at(rel), content),
@@ -40,5 +44,7 @@ if (sftpServerSkipReason) {
         await srv.close();
       },
     };
-  });
+  };
+  runBackendConformance("sftp over real OpenSSH", makeBackend(false));
+  runBackendConformance("sftp over real OpenSSH, the root reached through a link", makeBackend(true));
 }
