@@ -792,15 +792,23 @@ export function createSftpBackend({ settings } = {}) {
   // posix-rename@openssh.com; otherwise move the target aside, rename tmp
   // into place and delete the old copy, putting it back if the second step
   // fails (spec §A12 text save).
+  //
+  // An older OpenSSH whose admin denied the extension (`sftp-server -P
+  // posix-rename`) still offers it, and answers PERMISSION_DENIED; newer
+  // ones stop offering it. A refusal is tried the three-step way (a real
+  // permission problem fails there the same way), and remembered only once
+  // that worked.
   async function replaceWith(tmp, target) {
+    let refused = false;
     if (pool.capabilities.posixRename !== false) {
       try {
         await write((c) => c.posixRename(tmp, target));
         pool.capabilities.posixRename = true;
         return;
       } catch (err) {
-        if (!sftpInfo(err)?.unsupported) throw err;
-        pool.capabilities.posixRename = false;
+        if (sftpInfo(err)?.unsupported) pool.capabilities.posixRename = false;
+        else if (isCode(err, ErrorCode.FM_OS_PERMISSION_DENIED)) refused = true;
+        else throw err;
       }
     }
     const aside = posix.join(posix.dirname(target), tempName(posix.basename(target), RENAME_TEMP_SUFFIX));
@@ -813,6 +821,7 @@ export function createSftpBackend({ settings } = {}) {
       }
       throw err;
     }
+    if (refused) pool.capabilities.posixRename = false;
     await removeQuietly(aside);
   }
 

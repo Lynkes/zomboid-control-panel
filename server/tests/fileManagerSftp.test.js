@@ -698,6 +698,41 @@ describe("writeBytesCas", () => {
     expect(tempNames(f.server, ROOT)).toEqual([]);
   });
 
+  it("falls back when the server offers posix-rename but refuses it (an older OpenSSH's -P posix-rename)", async () => {
+    const f = await setup();
+    f.seed.file("a.ini", "1");
+    const denied = () => Object.assign(new Error("_posixRename: Permission denied"), { code: 3 });
+    f.server.inject("posixRename", { error: denied, times: 99 });
+    for (const next of ["2", "3"]) {
+      const current = f.read("a.ini");
+      await f.backend.writeBytesCas(await resolveRel(f, "a.ini", "write"), Buffer.from(next), {
+        expectedHash: sha256(current),
+        trashMeta,
+      });
+      expect(f.read("a.ini").toString()).toBe(next);
+    }
+    expect(f.server.opCount("posixRename")).toBe(1);
+    expect(tempNames(f.server, ROOT)).toEqual([]);
+  });
+
+  it("a refused posix-rename over a file the login really can't replace fails, and isn't learned", async () => {
+    const f = await setup();
+    f.seed.file("a.ini", "1");
+    const denied = () => Object.assign(new Error("Permission denied"), { code: 3 });
+    f.server.inject("posixRename", { error: denied, times: 99 });
+    f.server.inject("rename", { error: denied, path: `${ROOT}/a.ini`, times: 99 });
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      await expectFm(
+        f.backend.writeBytesCas(await resolveRel(f, "a.ini", "write"), Buffer.from("2"), { expectedHash: sha256(Buffer.from("1")), trashMeta }),
+        ErrorCode.FM_OS_PERMISSION_DENIED,
+      );
+      expect(f.server.opCount("posixRename")).toBe(attempt);
+    }
+    expect(f.read("a.ini").toString()).toBe("1");
+    expect(tempNames(f.server, ROOT)).toEqual([]);
+    expect(f.server.childNames(`${ROOT}/.zcp-trash`)).toEqual([]);
+  });
+
   it("rolls back the fallback when the new file can't be renamed into place", async () => {
     const f = await setup({ server: { posixRename: false } });
     f.seed.file("a.ini", "original");
