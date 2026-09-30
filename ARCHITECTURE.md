@@ -66,6 +66,32 @@ Server uptime is computed in the client from the host signal's `startedAt`, whic
 
 Configuration and bridge installation writes use atomic temp-file replacement. `withFileLock()` serializes concurrent writes to the same path. Multi-file operations must either complete or restore earlier files from their original content.
 
+## File Manager
+
+Server Files (`/files`, API `/api/files`) browses and changes the files of each server profile. `routes/files.js` is thin; `services/fileManagerService.js` holds the policy, and a backend (`fileManagerLocalBackend.js`, or the SFTP backend for the active remote profile) owns containment and the atomic filesystem steps. Backends throw only `FmError`, whose message is its code, so no path or OS message reaches a response.
+
+**Roots.** A profile offers up to four roots, `install`, `launch`, `data` and `config`, taken from the profile only (`fileManagerRoots.js`): no global fallback, and never a path from the request. A launcher file stands for its folder. `launch` is dropped when it is the install folder or inside it; `config` becomes a shortcut when it is inside `data`. Probing (cached 30 s, dropped after any change) resolves the real path and refuses drive roots, the home folder and its ancestors, system folders, exactly the broad shared folders (`C:\Program Files`, `/opt`, ...; inside them is fine), and anything inside the panel's data, logs or program folder. The active remote profile's roots come from its PanelBridge SFTP settings plus an operator override keyed by host, port and user.
+
+**Resolution.** A request path is POSIX segments checked by `validateSegments()`/`validateName()` (`fileManagerContract.js`, the same rules on every OS and mirrored by the client). The local backend then walks it one component at a time with `lstat`; a link is followed only when its `realpath` stays inside the root's `realpath`, and the final target is `realpath`'d again so protection sees the canonical spelling (Windows case and 8.3 aliases). Delete, rename and move of a link act on the link itself. Reads open the file `O_NOFOLLOW|O_NONBLOCK` and compare the descriptor's `(dev, ino)` with what resolution saw. Writes go to a random temp file (`O_EXCL|O_NOFOLLOW`, mode 0600) in the real parent, then rename; a new name lands with `link(2)`, which refuses a name taken meanwhile. An overwrite keeps exactly the old permission bits. Every filesystem call on a request-derived path is in `fileManagerLocalFs.js`.
+
+**Protected areas.** `fileManagerProtectedAreas.js` classifies a root-relative real path: the panel's data, logs, program folder and secret files (the last by inode) and credential folders are sealed; `backups` in a data root is list-only; the bridge's command folder, its loose install files and Workshop item, and the launch scripts the panel regenerates are read-only. A folder holding a protected area can't be renamed, moved or deleted as a whole. World saves (`Saves/Multiplayer/<name>`, `db/<name>.db`) can't change while their server runs; an unknown state asks for confirmation. Live state (`fileManagerRunState.js`) comes from the Docker container, the service unit or the process scan, per provider, and is "unknown" whenever it can't be verified.
+
+**Trash and jobs.** Deletes, replaced uploads and edited versions go to `<root>/.zcp-trash/<id>/` (payload plus `meta.json`, which is untrusted when read back). Items expire after 7 days (`fileManagerJanitor.js`, hourly); each file keeps 20 edited versions. Permanent delete and purge run as jobs with the file manager's own walker, which unlinks links without entering them.
+
+**Invariants.**
+- FM-I1: Every route needs `files.manage`, and the router refuses requests while panel logins are off and any request with a token in its URL.
+- FM-I2: Roots come from the server profile (and the active remote profile's SFTP settings), never from the request.
+- FM-I3: No path reaches a backend before the shared segment and name rules have accepted it; the Trash folder and panel temp names are reachable only through the Trash routes.
+- FM-I4: Containment compares `realpath` with `realpath`, per component; a link out of the root is refused, never followed.
+- FM-I5: Every filesystem call on a request-derived path lives in `fileManagerLocalFs.js` (`fileManagerFsConfinement.test.js`).
+- FM-I6: Nothing is written in place: temp file, then rename or `link(2)`; an overwrite keeps the old mode minus setuid/setgid/sticky.
+- FM-I7: Protection is decided on the real path, plus the inode for panel secrets. `fileManagerProtectedAreas.js` is the only file-manager module that names bridge files, and it writes nothing.
+- FM-I8: The server decides which confirmations a change needs and checks them on every request; world saves never change while their server runs.
+- FM-I9: A delete, replace or edit keeps the previous version in Trash unless the operator typed the permanent-delete confirmation; nothing uses a recursive `fs.rm`.
+- FM-I10: `.ini` secrets are masked on every way out (editor, tail, download, zip) and put back on every way in (save, upload over the live file).
+- FM-I11: Every change, download and denial writes exactly one audit row (lowdb `file_audit` and the sealed log); file content and passwords are never in it.
+- FM-I12: A delete preview is bound to its user, profile and root for 5 minutes, and a delete refuses when any item's `(dev, ino, mtime)` changed since.
+
 ## Authentication
 
 Authentication uses bcrypt password hashing, JWT access tokens, refresh cookies, timing-safe comparisons, recovery codes, and role middleware. Privileged routes use `requireRole("admin")`; the client should hide mutation controls from authenticated non-admin users while the server remains the enforcement boundary.
