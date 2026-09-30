@@ -306,8 +306,20 @@ export async function startRealSshSftpServer(opts = {}) {
             touchParent(dst);
             return status(id, STATUS_CODE.OK);
           });
+          // Like OpenSSH's: a missing LAST component (or a dangling link's
+          // missing target) is still answered, with the path it would have.
+          const realPathOf = (p, hops = 40) => {
+            const found = resolve(p);
+            if (found || hops <= 0) return found;
+            const ep = entryPath(p);
+            const n = ep && state.nodes.get(ep);
+            if (n?.type === "link") {
+              return realPathOf(n.target.startsWith("/") ? n.target : posix.join(posix.dirname(ep), n.target), hops - 1);
+            }
+            return ep && !n && state.nodes.get(posix.dirname(ep))?.type === "dir" ? ep : null;
+          };
           sftp.on("REALPATH", (id, path) => {
-            const r = resolve(path === "." || path === "" ? "/" : path);
+            const r = realPathOf(path === "." || path === "" ? "/" : posix.normalize(path));
             if (!r) return status(id, STATUS_CODE.NO_SUCH_FILE, "No such file");
             return reply(() => sftp.name(id, [{ filename: r, longname: r, attrs: {} }]));
           });

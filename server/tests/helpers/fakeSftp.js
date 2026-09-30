@@ -393,11 +393,32 @@ export class FakeSftpClient {
   async realPath(p) {
     this.#requireConnection("realPath");
     await this.server.before(this, "realPath", p);
+    if (!this.server.options.realPathResolvesLinks) {
+      const resolved = this.server.resolvePath(p);
+      if (!resolved.missing) return posix.normalize(p);
+      const parent = this.server.resolvePath(posix.dirname(posix.normalize(p)));
+      return parent.missing || parent.node.type !== "dir" ? "" : posix.normalize(p);
+    }
+    return this.#openSshRealPath(posix.normalize(p), 40);
+  }
+
+  // OpenSSH's sftp-server REALPATH: links resolved, and a missing LAST
+  // component still answered with the path it would have (under its
+  // resolved parent, or where a dangling link would lead); anything missing
+  // further up is NO_SUCH_FILE, which the library turns into "".
+  #openSshRealPath(abs, hops) {
     const server = this.server;
-    const resolved = server.resolvePath(p);
-    if (resolved.missing) return "";
-    if (server.options.realPathResolvesLinks) return resolved.path;
-    return posix.normalize(p);
+    const resolved = server.resolvePath(abs);
+    if (!resolved.missing) return resolved.path;
+    if (abs === "/" || hops <= 0) return "";
+    const entry = server.entryOf(abs);
+    if (!entry.missing && entry.node.type === "link") {
+      const target = entry.node.target.startsWith("/") ? entry.node.target : posix.join(entry.parentPath, entry.node.target);
+      return this.#openSshRealPath(posix.normalize(target), hops - 1);
+    }
+    const parent = server.resolvePath(posix.dirname(abs));
+    if (parent.missing || parent.node.type !== "dir") return "";
+    return posix.join(parent.path, posix.basename(abs));
   }
 
   async lstat(p) {

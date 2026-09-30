@@ -829,6 +829,26 @@ describe("writeBytesCas", () => {
     });
     expect(resetRemoteConfigSession).toHaveBeenCalledTimes(1);
   });
+
+  it("looks a config folder that didn't exist yet up again once it does", async () => {
+    // OpenSSH answers a missing folder's REALPATH with the path it would
+    // have; remembering that would miss the folder once it appears as a link.
+    const f = await setup({ settings: { panelBridgeSftpConfigPath: "/home/pz/config" } });
+    f.server.mkdirp("/home/pz");
+    f.seed.file("Server/main.ini", "a=1\n");
+    f.seed.file("Logs/x.txt", "x");
+    await f.backend.writeBytesCas(await resolveRel(f, "Logs/x.txt", "write"), Buffer.from("y"), {
+      expectedHash: sha256(Buffer.from("x")),
+      trashMeta,
+    });
+    f.server.symlink("/home/pz/config", `${ROOT}/Server`);
+    resetRemoteConfigSession.mockClear();
+    await f.backend.writeBytesCas(await resolveRel(f, "Server/main.ini", "write"), Buffer.from("a=2\n"), {
+      expectedHash: sha256(Buffer.from("a=1\n")),
+      trashMeta,
+    });
+    expect(resetRemoteConfigSession).toHaveBeenCalledTimes(1);
+  });
 });
 
 // ============================================
