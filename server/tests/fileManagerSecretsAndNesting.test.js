@@ -4,6 +4,7 @@ import http from "http";
 import net from "net";
 import fs from "fs";
 import path from "path";
+import zlib from "zlib";
 import express from "express";
 import unzipper from "unzipper";
 import { makeServerTree, makeTempDir, removeDir, write } from "./helpers/fileManagerFixtures.js";
@@ -398,7 +399,7 @@ describe(".ini masking can't be sidestepped", () => {
   const read = (rel) => call("GET", `${P}/text?root=data&path=${q(rel)}`);
 
   it("a rename, duplicate or restore-as to a name the file manager doesn't mask is refused", async () => {
-    for (const newName of ["servertest.txt", "servertest", "notes.cfg"]) {
+    for (const newName of ["servertest.txt", "servertest", "notes.cfg", "servertest.ini.gz", "servertest.ini.zip"]) {
       const res = await call("POST", `${P}/rename`, { body: { root: "data", path: INI, newName, confirm: [] } });
       expect(res.status, newName).toBe(400);
       expect(res.body.code, newName).toBe("FM_SECRET_NAME_REQUIRED");
@@ -433,6 +434,34 @@ describe(".ini masking can't be sidestepped", () => {
       const back = await call("POST", `${P}/rename`, { body: { root: "data", path: rel, newName: "servertest.ini", confirm: [] } });
       expect(back.status).toBe(200);
     }
+  });
+
+  it("an archived copy (servertest.ini.gz) downloads byte for byte, alone and in a zip", async () => {
+    // Masking rewrites a file as UTF-8 text: a compressed copy came out
+    // corrupted, with the "passwords are hidden" notice. Its passwords are
+    // inside compressed bytes, which masking couldn't reach anyway.
+    const original = zlib.gzipSync(fs.readFileSync(path.join(tree.config, "servertest.ini")));
+    expect(original.includes(0xff) || original.includes(0x00)).toBe(true);
+    for (const name of ["servertest.ini.gz", "servertest.ini.zip"]) {
+      fs.writeFileSync(path.join(tree.config, name), original);
+      const listed = await call("GET", `${P}/list?root=data&path=Server`);
+      expect(listed.body.entries.find((entry) => entry.name === name).flags.secretBearing, name).toBe(false);
+      const res = await call("GET", `${P}/download?root=data&path=${q(`Server/${name}`)}`);
+      expect(res.status, name).toBe(200);
+      expect(res.headers.get("x-file-masked"), name).toBeNull();
+      expect(res.buffer.equals(original), name).toBe(true);
+    }
+    expect(zlib.gunzipSync(original).toString("utf8")).toContain(RCON_SENTINEL);
+    const zip = await call("POST", `${P}/zip`, { body: { root: "data", paths: ["Server"] } });
+    expect(zip.status).toBe(200);
+    const archive = await unzipper.Open.buffer(zip.buffer);
+    for (const name of ["servertest.ini.gz", "servertest.ini.zip"]) {
+      const entry = archive.files.find((file) => file.path.endsWith(`/${name}`));
+      expect((await entry.buffer()).equals(original), name).toBe(true);
+    }
+    // The ini itself and its text copies are still masked in the same zip.
+    const ini = archive.files.find((file) => file.path.endsWith("/servertest.ini"));
+    expect((await ini.buffer()).toString("utf8")).not.toContain(RCON_SENTINEL);
   });
 
   it("the tail view never starts inside a secret line", async () => {

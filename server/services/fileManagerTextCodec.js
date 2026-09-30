@@ -12,7 +12,8 @@ import { FM_LIMITS, FmError } from "./fileManagerContract.js";
 // Refused before a byte is read: these are never text.
 export const BINARY_EXTENSIONS = new Set([
   ".jar", ".class", ".bin", ".db", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ogg", ".wav",
-  ".bank", ".zip", ".7z", ".gz", ".rar", ".dll", ".so", ".exe", ".pack", ".lotheader", ".lotpack", ".tiles",
+  ".bank", ".zip", ".7z", ".gz", ".tgz", ".tar", ".bz2", ".xz", ".zst", ".rar", ".dll", ".so", ".exe",
+  ".pack", ".lotheader", ".lotpack", ".tiles",
 ]);
 
 const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf]);
@@ -33,16 +34,20 @@ export function isIniName(name) {
 // backups (configBackup.js `<name>.ini.<timestamp>.bak`, templateFiles.js
 // `.bak-<n>`) and the ones people make by hand (`servertest.ini.bak`,
 // `.ini.old`, `.ini.2026-09-30`): ".ini" as a whole dot-separated part of
-// the last path segment.
+// the last path segment. Not an archive or other binary copy
+// (`servertest.ini.gz`, `.ini.zip`): masking rewrites a file as text, which
+// would corrupt it, and can't reach passwords inside compressed bytes
+// anyway. Such a name is plain (it downloads as it is), and a rename that
+// would give an .ini's text one is refused like any other unmasked name.
 const INI_COPY_RE = /\.ini(?:\.[^/\\]*)?$/i;
 
 /**
- * An .ini file or a copy of one: its secret-looking lines are masked on
- * every way out and put back on every way in.
+ * An .ini file or a text copy of one: its secret-looking lines are masked
+ * on every way out and put back on every way in.
  */
 export function isSecretBearingName(name) {
   const text = String(name || "");
-  return isIniName(text) || INI_COPY_RE.test(text);
+  return isIniName(text) || (INI_COPY_RE.test(text) && !isBinaryName(text));
 }
 
 export function sha256Hex(buffer) {
