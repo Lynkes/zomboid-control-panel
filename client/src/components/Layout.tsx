@@ -19,6 +19,7 @@ import {
   Layers,
   ChevronDown,
   FileCog,
+  FolderTree,
   LayoutTemplate,
   Menu,
   X,
@@ -118,6 +119,8 @@ const navSections: NavSection[] = [
       { to: '/servers', icon: Layers, label: 'My Servers', labelKey: 'nav.items.myServers' },
       { to: '/console', icon: Terminal, label: 'Server Console', labelKey: 'nav.items.serverConsole', requiresServer: true },
       { to: '/server-config', icon: FileCog, label: 'Server Configuration', labelKey: 'nav.items.serverConfiguration', requiresServer: true, requiresLocal: true, allowRemoteConfigMirror: true },
+      // Remote servers too: their folders are browsed over the PanelBridge SFTP login.
+      { to: '/files', icon: FolderTree, label: 'Server Files', labelKey: 'nav.items.serverFiles', requiresServer: true, capability: 'files.manage' },
       { to: '/mods', icon: Package, label: 'Mod Manager', labelKey: 'nav.items.modManager', requiresServer: true, requiresLocal: true },
       { to: '/scheduler', icon: Clock, label: 'Scheduled Tasks', labelKey: 'nav.items.scheduledTasks', requiresServer: true },
       { to: '/server-setup', icon: Download, label: 'Server Setup', labelKey: 'nav.items.serverSetup' },

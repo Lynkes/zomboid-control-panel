@@ -88,6 +88,13 @@ const ROUTE_LOADERS: Record<string, RouteLoaderMeta> = {
     variant: 'form',
     metrics: ['ini', 'validate', 'save'],
   },
+  '/files': {
+    title: 'Server Files',
+    description: 'Loading server folders, file listings, and Trash.',
+    eyebrow: '// CONFIG · FILES',
+    variant: 'list',
+    metrics: ['folders', 'files', 'trash'],
+  },
   '/mods': {
     title: 'Mod Manager',
     description: 'Loading Workshop status, active mod IDs, conflicts, and update state.',
@@ -188,6 +195,7 @@ const Settings = lazy(() => import('./pages/Settings'))
 const ServerSetup = lazy(() => import('./pages/ServerSetup'))
 const Servers = lazy(() => import('./pages/Servers'))
 const ServerConfig = lazy(() => import('./pages/ServerConfig'))
+const Files = lazy(() => import('./pages/Files'))
 const Templates = lazy(() => import('./pages/Templates'))
 const Debug = lazy(() => import('./pages/Debug'))
 const ServerFinder = lazy(() => import('./pages/ServerFinder'))
@@ -612,6 +620,7 @@ function AppContent() {
               <Route path="/servers" element={<FeatureErrorBoundary featureName={t('nav.items.myServers')}><Servers /></FeatureErrorBoundary>} />
               <Route path="/server-config" element={<FeatureErrorBoundary featureName={t('nav.items.serverConfiguration')}><ServerConfig /></FeatureErrorBoundary>} />
               <Route path="/serverconfig" element={<Navigate to="/server-config" replace />} />
+              <Route path="/files" element={<FeatureErrorBoundary featureName={t('nav.items.serverFiles')}><Files /></FeatureErrorBoundary>} />
               <Route path="/server-finder" element={<FeatureErrorBoundary featureName={t('nav.items.browsePublic')}><ServerFinder /></FeatureErrorBoundary>} />
               <Route path="/debug" element={<FeatureErrorBoundary featureName={t('nav.items.debugLogs')}><Debug /></FeatureErrorBoundary>} />
               <Route path="/events" element={<FeatureErrorBoundary featureName={t('nav.items.eventsWeather')}><Events /></FeatureErrorBoundary>} />

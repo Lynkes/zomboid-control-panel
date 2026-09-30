@@ -596,6 +596,171 @@ function demoComposedStatus() {
   }
 }
 
+// ---- Server Files (spec §A14.6): one local profile, its Zomboid folder's
+// top level, the Server folder and one .ini. Every change is refused with
+// FM_PATH_PROTECTED, so the demo shows the real refusal path.
+
+type DemoFileEntry = {
+  name: string
+  path: string
+  type: 'file' | 'dir'
+  size: number | null
+  modifiedAt: string
+  mode: string
+  etag: string
+  protection: { level: 'listOnly'; area: 'panelBackups' } | null
+  flags: { editable: boolean; binaryHint: boolean; secretBearing: boolean; executable: boolean; worldState: boolean; unsupportedName: boolean }
+}
+
+const DEMO_INI = [
+  'PVP=true',
+  'PauseEmpty=true',
+  'GlobalChat=true',
+  'Open=true',
+  'ServerWelcomeMessage=Welcome to the DoomerZ demo server.',
+  'Password=•••',
+  'RCONPassword=•••',
+  'Mods=TchernoLib;Brita;RavenCreek;AuthenticZLite',
+  'WorkshopItems=2392709985;2169435993;2004998206;2849247394',
+  'MaxPlayers=16',
+  '',
+].join('\n')
+
+function demoFileEntry(path: string, type: 'file' | 'dir', size: number | null, extra: Partial<DemoFileEntry> = {}): DemoFileEntry {
+  const name = path.split('/').pop() || path
+  const editable = type === 'file' && /\.(ini|lua|txt|json)$/i.test(name)
+  return {
+    name,
+    path,
+    type,
+    size,
+    modifiedAt: demoTimestamp,
+    mode: type === 'dir' ? '0755' : '0644',
+    etag: `s:${size ?? 0}-1750730400000`,
+    protection: null,
+    flags: { editable, binaryHint: type === 'file' && !editable, secretBearing: name.endsWith('.ini'), executable: false, worldState: false, unsupportedName: false },
+    ...extra,
+  }
+}
+
+const DEMO_DATA_TREE: Record<string, DemoFileEntry[]> = {
+  '': [
+    demoFileEntry('Logs', 'dir', null),
+    demoFileEntry('Saves', 'dir', null),
+    demoFileEntry('Server', 'dir', null),
+    demoFileEntry('backups', 'dir', null, { protection: { level: 'listOnly', area: 'panelBackups' } }),
+    demoFileEntry('db', 'dir', null),
+    demoFileEntry('mods', 'dir', null),
+    demoFileEntry('console.txt', 'file', 184_320),
+  ],
+  Server: [
+    demoFileEntry('Server/DoomerZDemo.ini', 'file', DEMO_INI.length),
+    demoFileEntry('Server/DoomerZDemo_SandboxVars.lua', 'file', 18_944),
+    demoFileEntry('Server/DoomerZDemo_spawnpoints.lua', 'file', 412),
+    demoFileEntry('Server/DoomerZDemo_spawnregions.lua', 'file', 1_280),
+  ],
+}
+
+const DEMO_INSTALL_TREE: Record<string, DemoFileEntry[]> = {
+  '': [
+    demoFileEntry('java', 'dir', null),
+    demoFileEntry('media', 'dir', null),
+    demoFileEntry('ProjectZomboid64.json', 'file', 2_048),
+  ],
+}
+
+function demoFilesProfile(withState: boolean) {
+  const root = (id: 'install' | 'data', displayPath: string) => ({
+    id,
+    backend: 'local',
+    displayPath,
+    available: true,
+    writable: true,
+    freeBytes: 320_000_000_000,
+    totalBytes: 500_000_000_000,
+    warnings: [],
+    trashItemCount: 0,
+  })
+  return {
+    id: 'demo-server',
+    name: 'Demo Server',
+    serverName: 'DoomerZDemo',
+    isActive: true,
+    provider: 'native',
+    remote: null,
+    roots: [root('install', '/opt/pz'), root('data', '/home/pz/Zomboid')],
+    bookmarks: [
+      { rootId: 'data', path: 'Server', kind: 'serverSettings' },
+      { rootId: 'data', path: 'Logs', kind: 'logs' },
+    ],
+    ...(withState ? { serverState: 'stopped', serverStateCheckedAt: demoTimestamp } : {}),
+  }
+}
+
+const DEMO_NOT_FOUND = { error: 'That file or folder is gone. Refresh the list.', code: 'FM_NOT_FOUND' }
+
+export function getDemoFilesResponse(url: URL, method: string): Response {
+  const path = url.pathname.slice(url.pathname.indexOf('/api/files') + '/api/files'.length)
+  if (method !== 'GET') {
+    return jsonResponse({
+      error: "This belongs to the panel or PanelBridge and can't be changed here.",
+      code: 'FM_PATH_PROTECTED',
+      params: { area: 'panelData', level: 'sealed' },
+    }, 403)
+  }
+  if (path === '/profiles') return jsonResponse({ profiles: [demoFilesProfile(false)] })
+  if (path === '/audit') return jsonResponse({ entries: [] })
+  const match = /^\/profiles\/[^/]+(\/[a-z/]+)?$/.exec(path)
+  if (!match) return jsonResponse(DEMO_NOT_FOUND, 404)
+  const sub = match[1] ?? ''
+  const tree = url.searchParams.get('root') === 'install' ? DEMO_INSTALL_TREE : DEMO_DATA_TREE
+  const rel = url.searchParams.get('path') || ''
+  const all = Object.values(tree).flat()
+  if (sub === '') return jsonResponse({ profile: demoFilesProfile(true) })
+  if (sub === '/list') {
+    const entries = tree[rel] ?? []
+    return jsonResponse({
+      dir: demoFileEntry(rel || '.', 'dir', null),
+      entries,
+      total: entries.length,
+      offset: 0,
+      limit: 500,
+      sortLimited: false,
+      truncated: false,
+      dirEtag: `demo:${rel}`,
+    })
+  }
+  if (sub === '/stat') {
+    const entry = all.find((item) => item.path === rel)
+    return entry ? jsonResponse({ entry }) : jsonResponse(DEMO_NOT_FOUND, 404)
+  }
+  if (sub === '/search') {
+    const q = (url.searchParams.get('q') || '').toLowerCase()
+    const results = all.filter((item) => item.path.startsWith(rel) && item.name.toLowerCase().includes(q))
+    return jsonResponse({ results, truncated: false, scanned: all.length })
+  }
+  if (sub === '/text') {
+    const entry = all.find((item) => item.path === rel)
+    if (!entry) return jsonResponse(DEMO_NOT_FOUND, 404)
+    const isIni = rel.endsWith('.ini')
+    return jsonResponse({
+      entry,
+      content: isIni ? DEMO_INI : `-- ${entry.name}\n-- Demo mode: no backend is connected.\n`,
+      etag: 'h:demo',
+      bom: false,
+      eol: 'lf',
+      masked: isIni,
+      truncated: false,
+      readOnly: false,
+      readOnlyReason: null,
+      hints: isIni ? ['restartToApply', 'panelRewritesKeys', 'secretsMasked'] : ['restartToApply'],
+      serverState: 'stopped',
+    })
+  }
+  if (sub === '/trash') return jsonResponse({ items: [], totalBytes: 0 })
+  return jsonResponse(DEMO_NOT_FOUND, 404)
+}
+
 export function installDemoFetchShim(): void {
   if (!isDemoMode() || demoFetchInstalled) return
 
@@ -687,6 +852,11 @@ export function installDemoFetchShim(): void {
         intervalMinutes: 30,
         isChecking: false,
       })
+    }
+
+    if (path.startsWith('/api/files/')) {
+      const rawUrl = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      return getDemoFilesResponse(new URL(rawUrl, window.location.origin), method)
     }
 
     if (path === '/api/server-files/paths') {

@@ -153,6 +153,7 @@ describe('Layout.tsx: nav restructured by object (SERVER/WORLD/USERS/PANEL)', ()
       'My Servers': '/servers',
       'Server Console': '/console',
       'Server Configuration': '/server-config',
+      'Server Files': '/files',
       'Mod Manager': '/mods',
       'Scheduled Tasks': '/scheduler',
       'Server Setup': '/server-setup',
@@ -270,5 +271,36 @@ describe('Layout.tsx: nav restructured by object (SERVER/WORLD/USERS/PANEL)', ()
 
     expect(panelUsersLink.className).toMatch(/font-medium/)
     expect(panelSettingsLink.className).not.toMatch(/font-medium/)
+  })
+
+  it('v1.4.1: Server Files sits right after Server Configuration and is hidden without files.manage', async () => {
+    getAll.mockResolvedValue({ servers: [NATIVE_ACTIVE_SERVER] } as never)
+    getStatus.mockResolvedValue({ running: true } as never)
+    mockCommonFetches()
+
+    // Every other capability granted: only files.manage decides it.
+    mockCan.mockImplementation((capability: string) => capability !== 'files.manage')
+    const { unmount } = renderLayout()
+    await screen.findByText('the-only-server')
+    expect(screen.queryByRole('link', { name: 'Server Files' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Server Files')).not.toBeInTheDocument()
+    unmount()
+
+    mockCan.mockImplementation((capability: string) => capability === 'files.manage')
+    renderLayout()
+    await screen.findByText('the-only-server')
+    expect(screen.getByRole('link', { name: 'Server Files' })).toHaveAttribute('href', '/files')
+    const linkNames = screen.getAllByRole('link').map((el) => el.textContent?.trim())
+    expect(linkNames[linkNames.indexOf('Server Configuration') + 1]).toBe('Server Files')
+  })
+
+  it('v1.4.1: Server Files needs a server but stays available for a remote one (no requiresLocal)', async () => {
+    getAll.mockResolvedValue({ servers: [{ ...(NATIVE_ACTIVE_SERVER as object), isRemote: true }] } as never)
+    getStatus.mockResolvedValue({ running: true } as never)
+    mockCommonFetches()
+
+    renderLayout()
+    await screen.findByText('the-only-server')
+    expect(screen.getByRole('link', { name: 'Server Files' })).toHaveAttribute('href', '/files')
   })
 })
