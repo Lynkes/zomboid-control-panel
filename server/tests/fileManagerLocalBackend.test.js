@@ -483,6 +483,28 @@ describe("Trash", () => {
     expect(versions.every((v) => v.reason === "edited")).toBe(true);
   });
 
+  // Live QA: 23 saves within half a second kept a random 20 (v2, v12 and
+  // v18 were evicted instead of the oldest) and listed them out of order:
+  // a Trash id carried only the second, then random hex.
+  it("saves made within the same second keep the newest 20, listed newest first", async () => {
+    const rel = "Server/servertest_SandboxVars.lua";
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-30T12:00:00.500Z"));
+    try {
+      for (let i = 0; i < 23; i++) {
+        const c = await ctx();
+        const read = await service.readText(c, { root: "data", path: rel });
+        await service.saveText(c, { root: "data", path: rel, content: `v${i}\n`, etag: read.etag, eol: "lf", bom: false, confirm: [] }, user, audit());
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+    const versions = (await service.listTrashItems(await ctx(), { root: "data", originalPath: rel })).items;
+    const contents = versions.map((v) => fs.readFileSync(trash.findTrashItem(tree.data, v.trashId).payloadAbs, "utf8").trim());
+    // Each save put the one before it in Trash: v21 is the newest version.
+    expect(contents).toEqual(Array.from({ length: 20 }, (_, n) => `v${21 - n}`));
+  });
+
   it("an edit whose previous version can't be kept in Trash writes nothing (FM-I9)", async () => {
     const rel = "Server/servertest_SandboxVars.lua";
     const file = path.join(tree.config, "servertest_SandboxVars.lua");

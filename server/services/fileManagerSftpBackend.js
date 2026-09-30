@@ -44,6 +44,7 @@ import {
   toFmError,
 } from "./fileManagerSftpPool.js";
 import { acquireMirrorLock, resetRemoteConfigSession, SFTP_CONFIG_PATH_KEY } from "./remoteConfigFiles.js";
+import { newTrashId, trashIdTime } from "./fileManagerTrash.js";
 
 const log = createLogger("FileManager:SFTP");
 
@@ -219,24 +220,6 @@ function isPanelTempName(name) {
 // belongs to a nested root) and the panel's temp files.
 function isOmitted(name) {
   return name.toLowerCase() === TRASH_DIR_NAME || isPanelTempName(name);
-}
-
-function pad(value, width = 2) {
-  return String(value).padStart(width, "0");
-}
-
-function newTrashId(date) {
-  const stamp =
-    `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}` +
-    `T${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`;
-  return `${stamp}-${crypto.randomBytes(4).toString("hex")}`;
-}
-
-// Milliseconds encoded in a trashId (UTC), or NaN.
-function trashIdTime(trashId) {
-  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z-/.exec(trashId);
-  if (!m) return Number.NaN;
-  return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6]));
 }
 
 function checkNewName(name) {

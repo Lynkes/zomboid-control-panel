@@ -52,8 +52,24 @@ function stamp(date) {
   return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
 }
 
+// The 8 hex digits after the second are ordered too: the millisecond in the
+// top 10 bits, then a random part, bumped past the previous id made in the
+// same second. So ids sort by the order they were made (listings, "Previous
+// versions", and which versions the 20-per-file cap keeps), even for several
+// saves within one second, while still matching TRASH_ID_RE.
+const TRASH_SUFFIX_MAX = 0xffffffff;
+let lastTrashStamp = "";
+let lastTrashSuffix = -1;
+
 export function newTrashId(date = new Date()) {
-  return `${stamp(date)}-${crypto.randomBytes(4).toString("hex")}`;
+  const second = stamp(date);
+  let suffix = date.getUTCMilliseconds() * 2 ** 22 + crypto.randomInt(2 ** 21);
+  if (second === lastTrashStamp && suffix <= lastTrashSuffix && lastTrashSuffix < TRASH_SUFFIX_MAX) {
+    suffix = lastTrashSuffix + 1;
+  }
+  lastTrashStamp = second;
+  lastTrashSuffix = suffix;
+  return `${second}-${suffix.toString(16).padStart(8, "0")}`;
 }
 
 /** Milliseconds encoded in a Trash id, or NaN. */

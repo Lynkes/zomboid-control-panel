@@ -688,6 +688,31 @@ suite("real OpenSSH: through the service", () => {
     expect(srv.log.length / N).toBeLessThan(3);
   });
 
+  it("saves made within the same millisecond keep the newest 20 versions, listed newest first", async () => {
+    // Trash ids used to carry only the second, then random hex, and
+    // deletedAt only the millisecond: saves closer than that were kept and
+    // listed in a random order.
+    const trashMeta = { deletedBy: { userId: "u1", username: "kate" }, reason: "edited" };
+    seed("Server/versions.txt", "start\n");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-30T12:00:00.500Z"));
+    try {
+      for (let i = 0; i < 23; i++) {
+        const current = srv.fs.readFile("Zomboid/Server/versions.txt");
+        await backend.writeBytesCas(await resolve("Server/versions.txt", "write"), Buffer.from(`v${i}\n`), {
+          expectedHash: `h:${sha(current)}`,
+          trashMeta,
+        });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+    const versions = (await backend.trashList(root)).filter((item) => item.originalPath === "Server/versions.txt");
+    const contents = [];
+    for (const item of versions) contents.push((await backend.trashReadBytes(root, item.trashId, { maxBytes: 100 })).buffer.toString().trim());
+    expect(contents).toEqual(Array.from({ length: 20 }, (_, n) => `v${21 - n}`));
+  });
+
   it("the preflight's etags are the ones an upload accepts", async () => {
     const res = await call("POST", `${P}/upload/preflight`, { body: { root: "data", dir: "Server", files: [{ relPath: "servertest.ini", size: 10 }] } });
     const up = await upload("Server", "servertest.ini", "PVP=false\n", {
