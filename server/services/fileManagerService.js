@@ -164,6 +164,17 @@ function assertKeepsSecretsMasked(secretBearing, newName) {
 }
 
 /**
+ * How two real paths of a root compare: a remote (SFTP) root's host decides
+ * its own case rules, usually Linux, where Readme.txt and README.txt are two
+ * files whatever the panel runs on. Only a local root folds case, where the
+ * panel's OS does.
+ * @returns {(rel: string) => string}
+ */
+function relKeyOf(policy) {
+  return policy.root.kind === "sftp" ? (rel) => String(rel) : foldRel;
+}
+
+/**
  * Drop selected items that sit inside another selected folder (search
  * results can hold a folder and a file inside it): the folder takes them
  * along, so acting on them again would only fail, and count them twice.
@@ -172,13 +183,14 @@ function assertKeepsSecretsMasked(secretBearing, newName) {
  * @param {T[]} items
  * @returns {T[]}
  */
-function collapseNested(items) {
+function collapseNested(policy, items) {
+  const keyOf = relKeyOf(policy);
   const folders = items
     .filter(({ r }) => r.stat?.type === "dir" && !r.linkSelf)
-    .map(({ r }) => foldRel(r.realRel));
+    .map(({ r }) => keyOf(r.realRel));
   const seen = new Set();
   return items.filter(({ r }) => {
-    const key = foldRel(r.realRel);
+    const key = keyOf(r.realRel);
     if (seen.has(key)) return false;
     seen.add(key);
     return !folders.some((folder) => folder !== key && relWithin(folder, key));
@@ -997,6 +1009,7 @@ export async function moveEntries(ctx, body, user, audit) {
   const planned = [];
   const failed = [];
   const confirmations = new ConfirmationSet();
+  const keyOf = relKeyOf(policy);
   assertRootWritable(policy);
   for (const p of paths) {
     try {
@@ -1004,7 +1017,7 @@ export async function moveEntries(ctx, body, user, audit) {
       assertNotRoot(r);
       assertUnprotected(r);
       assertHoldsNothingProtected(policy, r);
-      if (r.stat?.type === "dir" && !r.linkSelf && relWithin(foldRel(r.realRel), foldRel(dest.realRel))) {
+      if (r.stat?.type === "dir" && !r.linkSelf && relWithin(keyOf(r.realRel), keyOf(dest.realRel))) {
         throw new FmError(ErrorCode.FM_MOVE_INTO_SELF);
       }
       const name = path.posix.basename(r.realRel);
@@ -1024,7 +1037,7 @@ export async function moveEntries(ctx, body, user, audit) {
   // A folder and something inside it both selected (search results): the
   // folder takes it along, so it isn't moved (and reported failed) again.
   const moved = [];
-  for (const { r, name } of collapseNested(planned)) {
+  for (const { r, name } of collapseNested(policy, planned)) {
     try {
       await policy.backend.move(r, dest);
       moved.push({ from: r.rel, to: joinRel(dest.rel, name) });
@@ -1139,7 +1152,7 @@ export async function deletePreview(ctx, body, user) {
   }
   // Something inside a selected folder goes with the folder: counted once,
   // deleted once (a second delete of it would only fail).
-  for (const { r } of collapseNested(selected)) {
+  for (const { r } of collapseNested(policy, selected)) {
     const item = {
       path: r.rel,
       type: r.stat.type,
@@ -1736,7 +1749,7 @@ export async function prepareZip(ctx, body, user, audit) {
     selected.push({ r });
   }
   // A file inside a selected folder is zipped with the folder, not twice.
-  const items = collapseNested(selected).map(({ r }) => r);
+  const items = collapseNested(policy, selected).map(({ r }) => r);
   const release = acquireZipSlot(userIdOf(user));
   try {
     const plan = await planZip({
@@ -1769,8 +1782,9 @@ export async function listTrashItems(ctx, query) {
   }
   let items = await trashItemsOf(ctx, policy);
   if (originalPath !== null) {
-    const wanted = foldRel(originalPath);
-    items = items.filter((item) => foldRel(item.originalPath) === wanted);
+    const keyOf = relKeyOf(policy);
+    const wanted = keyOf(originalPath);
+    items = items.filter((item) => keyOf(item.originalPath) === wanted);
   }
   return {
     items: items.map((item) => ({
