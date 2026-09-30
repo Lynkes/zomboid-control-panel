@@ -12,7 +12,8 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 //    column but cut real meaning out on desktop's narrower 3/4-column grid
 //    ("Permanent · two-step" -> "Permanent · two-s..."). Swapped for
 //    line-clamp-2.
-// #4 The dossier's Vitals/Moderation/Spawn/Powers/Notes & Log tab strip
+// #4 The dossier's Character/Moderation/Spawn/Powers/Notes & Log tab strip
+//    (Vitals until v1.4.1, when the Character tab replaced it)
 //    used horizontal scroll with only a 12px edge mask as the cue -- easy to
 //    miss, and it starts scrolled to the clipped position by default
 //    ("Notes & Log" read as a bare "N"). Switched to flex-wrap, matching
@@ -64,6 +65,13 @@ vi.mock('@/lib/api', async () => {
       updateAppSettings: vi.fn(),
     },
   }
+})
+
+// The Character tab reads the selected player through its own client; a
+// stub keeps these layout tests off the network.
+vi.mock('@/lib/characterApi', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/characterApi')>('@/lib/characterApi')
+  return { ...actual, getCharacterSheet: vi.fn(() => new Promise(() => {})) }
 })
 
 const getPlayers = vi.mocked(playersApi.getPlayers)
@@ -123,7 +131,7 @@ describe('Players.tsx dossier: mobile-affordance fixes', () => {
     renderPlayers(['/players?player=TestPlayer'])
 
     await waitFor(() => expect(screen.getAllByText('TestPlayer').length).toBeGreaterThan(1), { timeout: 3000 })
-    expect(screen.getByRole('tab', { name: 'Vitals' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Character' })).toBeInTheDocument()
   })
 
   it('#4 tab strip wraps instead of clipping into a horizontal scroller', async () => {
@@ -131,9 +139,17 @@ describe('Players.tsx dossier: mobile-affordance fixes', () => {
     renderPlayers()
     await selectTestPlayer()
 
-    const tabs = ['Vitals', 'Moderation', 'Spawn', 'Powers', 'Notes & Log'].map(
+    const tabs = ['Character', 'Moderation', 'Spawn', 'Powers', 'Notes & Log'].map(
       (name) => screen.getByRole('tab', { name }),
     )
+    // In this order.
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+      'Character',
+      'Moderation',
+      'Spawn',
+      'Powers',
+      'Notes & Log',
+    ])
     // All five simultaneously present and un-nested from any scroll
     // container -- the old markup wrapped TabsList in an overflow-x-auto
     // div; the fix removes that wrapper entirely.
