@@ -88,7 +88,7 @@ describe('Files: delete to Trash', () => {
     fireEvent.click(screen.getByRole('button', { name: enFiles.trash.undo }))
 
     await waitFor(() => expect(server.callsTo('POST', '/trash/restore')).toHaveLength(1))
-    expect(server.callsTo('POST', '/trash/restore')[0].body).toEqual({ root: 'data', trashId: TRASH_ID })
+    expect(server.callsTo('POST', '/trash/restore')[0].body).toEqual({ root: 'data', trashId: TRASH_ID, confirm: [] })
     expect(await screen.findByText('Restored to old.log')).toBeInTheDocument()
   })
 

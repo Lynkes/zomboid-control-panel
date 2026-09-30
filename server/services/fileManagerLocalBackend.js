@@ -1219,6 +1219,22 @@ async function trashRestore(root, trashId, restoreAs) {
   });
 }
 
+/**
+ * The first maxBytes of a Trash item that is a file, read through the same
+ * checked descriptor as readBytes (the editor's "Previous versions").
+ */
+async function trashReadBytes(root, trashId, { maxBytes }) {
+  const item = trash.findTrashItem(root.real, trashId);
+  let stat;
+  try {
+    stat = toStat(lfs.lstatBig(item.payloadAbs));
+  } catch {
+    throw new FmError(ErrorCode.FM_TRASH_ITEM_NOT_FOUND);
+  }
+  if (stat.type !== "file") throw new FmError(ErrorCode.FM_NOT_A_FILE);
+  return readBytes({ abs: item.payloadAbs, stat }, { maxBytes });
+}
+
 async function deletePermanent(target, onProgress = () => {}) {
   try {
     if (target && typeof target.trashId === "string") {
@@ -1277,6 +1293,7 @@ export const localBackend = Object.freeze({
   trashMove,
   trashList,
   trashRestore,
+  trashReadBytes,
   deletePermanent,
   freeSpace,
   trashAvailability,

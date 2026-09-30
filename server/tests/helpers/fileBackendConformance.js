@@ -240,6 +240,11 @@ export function runBackendConformance(name, makeBackend) {
       expect(await seed.exists("dir/c.txt")).toBe(false);
       const items = await backend.trashList(root);
       expect(items.find((i) => i.trashId === trashId)).toMatchObject({ originalPath: "dir/c.txt", type: "file", reason: "deleted" });
+      const text = await backend.trashReadBytes(root, trashId, { maxBytes: 1024 });
+      expect(text).toMatchObject({ size: 7, truncated: false });
+      expect(text.buffer.toString()).toBe("charlie");
+      expect((await backend.trashReadBytes(root, trashId, { maxBytes: 3 })).truncated).toBe(true);
+      expect(await codeOf(backend.trashReadBytes(root, "20200101T000000Z-abcdef01", { maxBytes: 10 }))).toBe("FM_TRASH_ITEM_NOT_FOUND");
       await seed.writeFile("dir/c.txt", "taken");
       expect(await codeOf(backend.trashRestore(root, trashId))).toBe("FM_EXISTS");
       const restored = await backend.trashRestore(root, trashId, "c (restored).txt");

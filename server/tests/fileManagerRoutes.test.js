@@ -327,6 +327,83 @@ describe(".ini secrets", () => {
   });
 });
 
+describe("earlier versions and Trash restores", () => {
+  const ini = "Server/servertest.ini";
+
+  it("reads an edited version back from Trash as text, secrets masked", async () => {
+    const read = await call("GET", `${P}/text?root=data&path=${encodeURIComponent(ini)}`);
+    const saved = await call("PUT", `${P}/text`, {
+      body: {
+        root: "data",
+        path: ini,
+        content: read.body.content.replace("PVP=true", "PVP=false"),
+        etag: read.body.etag,
+        eol: read.body.eol,
+        bom: read.body.bom,
+        confirm: [],
+      },
+    });
+    const trashId = saved.body.previousVersion.trashId;
+    const versions = await call("GET", `${P}/trash?root=data&originalPath=${encodeURIComponent(ini)}`);
+    expect(versions.body.items.map((i) => i.trashId)).toContain(trashId);
+
+    const text = await call("GET", `${P}/trash/text?root=data&trashId=${trashId}`);
+    expect(text.status).toBe(200);
+    expect(text.headers.get("cache-control")).toBe("no-store");
+    expect(text.body).toEqual({ content: expect.stringMatching(/^PVP=true$/m), bom: false, eol: "crlf", masked: true });
+    expect(text.body.content).not.toContain("hunter2secret");
+
+    expect((await call("GET", `${P}/trash/text?root=data&trashId=not-an-id`)).body.code).toBe("FM_INVALID_REQUEST");
+    const gone = await call("GET", `${P}/trash/text?root=data&trashId=20200101T000000Z-abcdef01`);
+    expect(gone.status).toBe(404);
+    expect(gone.body.code).toBe("FM_TRASH_ITEM_NOT_FOUND");
+  });
+
+  it("refuses a binary or folder version", async () => {
+    const preview = await call("POST", `${P}/delete/preview`, { body: { root: "data", paths: ["Logs"] } });
+    const del = await call("POST", `${P}/delete`, {
+      body: { root: "data", previewId: preview.body.previewId, mode: "trash", confirm: preview.body.required },
+    });
+    const folder = await call("GET", `${P}/trash/text?root=data&trashId=${del.body.trashed[0].trashId}`);
+    expect(folder.body.code).toBe("FM_NOT_A_FILE");
+  });
+
+  it("asks before restoring into the install folder while the server runs", async () => {
+    processState.running = true;
+    const preview = await call("POST", `${P}/delete/preview`, { body: { root: "install", paths: ["start-server.sh"] } });
+    const del = await call("POST", `${P}/delete`, {
+      body: { root: "install", previewId: preview.body.previewId, mode: "trash", confirm: preview.body.required },
+    });
+    expect(del.status).toBe(200);
+    const trashId = del.body.trashed[0].trashId;
+    const first = await call("POST", `${P}/trash/restore`, { body: { root: "install", trashId } });
+    expect(first.status).toBe(409);
+    expect(first.body.params.required).toEqual(expect.arrayContaining(["serverRunning", "executable"]));
+    const again = await call("POST", `${P}/trash/restore`, { body: { root: "install", trashId, confirm: first.body.params.required } });
+    expect(again.status).toBe(200);
+    expect(fs.existsSync(path.join(tree.install, "start-server.sh"))).toBe(true);
+  });
+
+  it("upload preflight names the files behind each token", async () => {
+    const res = await call("POST", `${P}/upload/preflight`, {
+      body: {
+        root: "install",
+        dir: "",
+        files: [
+          { relPath: "start-server.sh", size: 10 },
+          { relPath: "extra.jar", size: 10 },
+          { relPath: "notes.txt", size: 10 },
+        ],
+        confirm: [],
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.required).toEqual(expect.arrayContaining(["overwrite", "executable"]));
+    expect(res.body.details.executable.names.sort()).toEqual(["extra.jar", "start-server.sh"]);
+    expect(res.body.details.overwrite.names).toEqual(["start-server.sh"]);
+  });
+});
+
 describe("uploads over HTTP", () => {
   it("needs Content-Length and stays under the limit", async () => {
     const res = await new Promise((resolve, reject) => {

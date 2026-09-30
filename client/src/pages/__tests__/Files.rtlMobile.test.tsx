@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import i18n from '@/i18n'
+import arFiles from '@/locales/ar/files.json'
 import enFiles from '@/locales/en/files.json'
 import { FakeFilesServer, makeEntry, makeListing, makeText, renderFiles, stubLayout } from './filesTestHarness'
 
@@ -71,7 +72,7 @@ describe('Files in Arabic (right-to-left)', () => {
     for (const bdi of within(screen.getByRole('table')).getAllByText(/servertest/, { selector: 'bdi' })) {
       expect(bdi).toHaveAttribute('dir', 'ltr')
     }
-    const crumb = within(screen.getByRole('navigation', { name: enFiles.list.breadcrumbLabel })).getByText('Server')
+    const crumb = within(screen.getByRole('navigation', { name: arFiles.list.breadcrumbLabel })).getByText('Server')
     expect(crumb.closest('bdi')).toHaveAttribute('dir', 'ltr')
 
     fireEvent.click(nameButton)
@@ -82,7 +83,7 @@ describe('Files in Arabic (right-to-left)', () => {
 
   it('mirrors direction-bearing icons', async () => {
     renderFiles('/files?server=p1&root=data&path=Server')
-    const nav = await screen.findByRole('navigation', { name: enFiles.list.breadcrumbLabel })
+    const nav = await screen.findByRole('navigation', { name: arFiles.list.breadcrumbLabel })
     expect(nav.querySelector('svg')?.getAttribute('class')).toContain('rtl:-scale-x-100')
   })
 })

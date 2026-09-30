@@ -174,6 +174,17 @@ import { ErrorCode } from "../utils/errorCodes.js";
  * @property {(root: RootDescriptor & { real: string }, trashId: string, restoreAs?: string) => Promise<RawEntry>} trashRestore
  * @property {(target: Resolved | { root: RootDescriptor & { real: string }, trashId: string }, onProgress: (done: number, total: number|null) => void) => Promise<void>} deletePermanent
  * @property {(root: RootDescriptor & { real: string }) => Promise<{ free: number|null, total: number|null }>} freeSpace
+ * @property {(root: RootDescriptor & { real: string }, trashId: string, opts: { maxBytes: number }) => Promise<{ buffer: Buffer, size: number, truncated: boolean }>} trashReadBytes
+ *   The first maxBytes of a Trash item that is a file (GET /trash/text).
+ *
+ * As both backends implement it (the conformance suite pins these):
+ * - every Resolved also carries `name` (the last segment as navigated, "" for
+ *   the root) and `linkSelf` (the last segment is a link acted on as itself);
+ * - walk() yields only what is below `r`, never `r` itself (nothing for a
+ *   file), each item { name, rel, realRel, type, size, mtimeMs, dev, ino,
+ *   depth } with depth 1 for r's children, and honours opts.prune(entry);
+ * - copyFile() takes a 4th { overwriteEtag, trashMeta }: an existing target
+ *   is replaced only when overwriteEtag names its current version.
  */
 
 // ============================================

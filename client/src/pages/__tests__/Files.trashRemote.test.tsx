@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import enFiles from '@/locales/en/files.json'
+import { forgetServerRunningAcks } from '@/lib/filesApi'
 import type { TrashItem } from '@/types/files'
 import {
   FakeFilesServer,
@@ -63,6 +64,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  forgetServerRunningAcks()
   restoreLayout()
   vi.unstubAllGlobals()
   mockCan.mockImplementation(() => true)
@@ -103,8 +105,28 @@ describe('Files: Trash', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: enFiles.actions.restore }))
 
     await waitFor(() => expect(server.callsTo('POST', '/trash/restore')).toHaveLength(2))
-    expect(server.callsTo('POST', '/trash/restore')[1].body).toEqual({ root: 'data', trashId: '20260928T100000Z-aaaaaaaa', restoreAs: 'old (restored).ini' })
+    expect(server.callsTo('POST', '/trash/restore')[1].body).toEqual({ root: 'data', trashId: '20260928T100000Z-aaaaaaaa', restoreAs: 'old (restored).ini', confirm: [] })
     expect(await screen.findByText('Restored to Server/old (restored).ini')).toBeInTheDocument()
+  })
+
+  it('restores after the confirmation the server asks for (a write like any other)', async () => {
+    server.on(({ method, path, body }) => {
+      if (method !== 'POST' || !path.endsWith('/trash/restore')) return undefined
+      if (!body.confirm?.includes('serverRunning')) return fmError(409, 'FM_CONFIRMATION_REQUIRED', { required: ['serverRunning'] })
+      return json(200, { entry: makeEntry('Server/old.ini') })
+    })
+    renderFiles()
+    fireEvent.click(await screen.findByRole('button', { name: 'Trash (2 items)' }))
+    const table = await screen.findByRole('table')
+    fireEvent.click(within(table).getAllByRole('button', { name: enFiles.actions.restore })[0])
+
+    const prompt = await screen.findByRole('alertdialog')
+    expect(within(prompt).getByText(enFiles.confirm.tokens.serverRunning)).toBeInTheDocument()
+    fireEvent.click(within(prompt).getByRole('button', { name: enFiles.confirm.continue }))
+
+    await waitFor(() => expect(server.callsTo('POST', '/trash/restore')).toHaveLength(2))
+    expect(server.callsTo('POST', '/trash/restore').map((call) => call.body.confirm)).toEqual([[], ['serverRunning']])
+    expect(await screen.findByText('Restored to Server/old.ini')).toBeInTheDocument()
   })
 
   it('Empty trash needs the item count typed, then runs a purge job', async () => {

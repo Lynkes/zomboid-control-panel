@@ -578,7 +578,10 @@ export default function Files() {
     let restored = 0
     for (const item of trashed) {
       try {
-        await filesApi.trashRestore(profile.id, { root: root.id, trashId: item.trashId })
+        const result = await runConfirmed((tokens) =>
+          filesApi.trashRestore(profile.id, { root: root.id, trashId: item.trashId, confirm: tokens }),
+        )
+        if (!result.ok) break
         restored += 1
       } catch (error) {
         toast({ variant: 'destructive', title: describeFilesError(error) })
@@ -590,7 +593,7 @@ export default function Files() {
       toast({ title: t('trash.restored', { path: restored > 1 ? `${first} (+${restored - 1})` : first }) })
     }
     await refreshAfterChange()
-  }, [profile, refreshAfterChange, root, t, toast])
+  }, [profile, refreshAfterChange, root, runConfirmed, t, toast])
 
   const deleteEntries = useCallback(async (entries: FileEntry[], permanentRequested: boolean) => {
     if (!profile || !root || entries.length === 0) return
@@ -830,9 +833,14 @@ export default function Files() {
         code: 'FM_CONFIRMATION_REQUIRED',
         params: { required: missing },
         details: {
-          serverState: profile.remote ? 'unknown' : profile.serverState,
+          serverState: preflight.details?.serverState ?? (profile.remote ? 'unknown' : profile.serverState),
           overwrite: { names: replacing.map((item) => baseName(item.picked.relPath)) },
-          executable: { names: uploads.map((item) => baseName(item.picked.relPath)).filter(looksExecutable) },
+          // The server's list when it sent one; otherwise the §A8 names, for display.
+          executable: {
+            names:
+              preflight.details?.executable?.names ??
+              uploads.map((item) => baseName(item.picked.relPath)).filter(looksExecutable),
+          },
         },
       }, uploads.map((item) => baseName(item.picked.relPath)))
       if (!ok) return

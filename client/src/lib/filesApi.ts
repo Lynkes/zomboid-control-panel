@@ -42,6 +42,8 @@ import {
   type TrashPurgeRequest,
   type TrashQuery,
   type TrashRestoreRequest,
+  type TrashTextQuery,
+  type TrashTextResponse,
   type UploadPreflightRequest,
   type UploadPreflightResponse,
   type UploadResponse,
@@ -177,13 +179,10 @@ export const filesApi = {
   getAudit: (profileId: string, limit = 50, signal?: AbortSignal) =>
     getJson<AuditResponse>(withQuery(`${FILES_BASE}/audit`, { profileId, limit }), signal),
 
-  // Not in the v1.4.1 route table (§A10.2): reading an earlier version's text
-  // out of Trash for the editor's "Previous versions" menu. Requested from the
-  // integrator as GET /profiles/:id/trash/text?root&trashId, answering like
-  // GET /text (content, etag, bom, eol, masked). Until it lands, the editor
-  // shows the server's refusal as an ordinary error.
-  getTrashText: (profileId: string, query: { root: RootId; trashId: string }) =>
-    getJson<Pick<TextResponse, 'content' | 'bom' | 'eol' | 'masked'>>(withQuery(profileEndpoint(profileId, '/trash/text'), { ...query })),
+  // An earlier version's text out of Trash, for the editor's "Previous
+  // versions" menu (decoded like GET /text mode=edit).
+  getTrashText: (profileId: string, query: TrashTextQuery) =>
+    getJson<TrashTextResponse>(withQuery(profileEndpoint(profileId, '/trash/text'), { ...query })),
 }
 
 // ---- Jobs (permanent delete, Trash purge) ----

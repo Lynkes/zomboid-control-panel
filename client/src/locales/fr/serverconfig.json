@@ -1,7 +1,7 @@
 {
   "noAccess": {
     "title": "Vous n'avez pas accès à la configuration du serveur",
-    "description": "Cette page nécessite la permission « Gérer les fichiers du serveur ». Demandez à un administrateur de l'accorder à votre rôle si vous devez modifier la configuration du serveur ici."
+    "description": "Cette page nécessite la permission « Modifier les fichiers de configuration du serveur ». Demandez à un administrateur de l'accorder à votre rôle si vous devez modifier la configuration du serveur ici."
   },
   "duplicateKeysWarning": {
     "title_one": "« {{keys}} » apparaît plus d'une fois dans ce fichier de configuration",

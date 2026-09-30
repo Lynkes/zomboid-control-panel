@@ -4,7 +4,7 @@
   "retry": "Tentar novamente",
   "noAccess": {
     "title": "Você não tem acesso à Configuração do servidor",
-    "description": "Esta página requer a permissão \"Gerenciar arquivos do servidor\". Se você precisa editar as opções do servidor aqui, peça a um administrador que conceda essa permissão ao seu cargo."
+    "description": "Esta página requer a permissão \"Editar arquivos de configuração do servidor\". Se você precisa editar as opções do servidor aqui, peça a um administrador que conceda essa permissão ao seu cargo."
   },
   "duplicateKeysWarning": {
     "title_one": "\"{{keys}}\" aparece mais de uma vez neste arquivo de configuração",

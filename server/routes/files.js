@@ -385,6 +385,15 @@ router.get(
   }),
 );
 
+// An earlier version as text, for the editor's "Previous versions". A read,
+// so not audited.
+router.get(
+  "/profiles/:profileId/trash/text",
+  handle("files.trash.text", async (req, res) => {
+    res.json(await files.readTrashText(req.fm, req.query));
+  }),
+);
+
 router.post(
   "/profiles/:profileId/trash/restore",
   audited("files.trash.restore", async (req, res, audit) => {

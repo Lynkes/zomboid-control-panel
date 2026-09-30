@@ -1,7 +1,7 @@
 {
   "noAccess": {
     "title": "Du hast keinen Zugriff auf die Serverkonfiguration",
-    "description": "Diese Seite erfordert die Berechtigung „Serverdateien verwalten“. Bitte einen Administrator, sie deiner Rolle zuzuweisen, wenn du hier Servereinstellungen bearbeiten musst."
+    "description": "Diese Seite erfordert die Berechtigung „Server-Konfigurationsdateien bearbeiten“. Bitte einen Administrator, sie deiner Rolle zuzuweisen, wenn du hier Servereinstellungen bearbeiten musst."
   },
   "duplicateKeysWarning": {
     "title_one": "\"{{keys}}\" kommt in dieser Konfigurationsdatei mehr als einmal vor",

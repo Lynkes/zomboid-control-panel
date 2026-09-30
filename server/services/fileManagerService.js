@@ -1265,6 +1265,8 @@ export async function uploadPreflight(ctx, body) {
         confirmations: perFile,
       });
       for (const token of perFile.required) batch.tokens.add(token);
+      for (const name of perFile.executableNames) batch.requireExecutable(name);
+      for (const name of perFile.overwriteNames) batch.requireOverwrite(name);
       if (perFile.serverState) batch.serverState = batch.serverState === "running" ? "running" : perFile.serverState;
       out.push({
         relPath,
@@ -1283,7 +1285,10 @@ export async function uploadPreflight(ctx, body) {
       });
     }
   }
-  return { files: out, required: batch.required };
+  // The same details an FM_CONFIRMATION_REQUIRED carries, so the one
+  // pre-upload prompt can name the files each token is about.
+  const required = batch.required;
+  return { files: out, required, ...(required.length ? { details: batch.details() } : {}) };
 }
 
 // Read a (small) request body into memory with the upload's own limits.
@@ -1558,6 +1563,41 @@ export async function restoreTrashItem(ctx, body, user, audit) {
   invalidateRootCache();
   audit.bytes = item.bytes;
   return { entry: toFileEntry(policy, raw) };
+}
+
+/**
+ * An earlier version of a file, straight from Trash, decoded like GET /text
+ * mode=edit (same size limit and refusals, .ini secrets masked). The editor's
+ * "Previous versions" loads it as unsaved text. A read: not audited.
+ */
+export async function readTrashText(ctx, query) {
+  const trashId = query.trashId;
+  if (typeof trashId !== "string" || !TRASH_ID_RE.test(trashId)) throw invalidRequest("trashId");
+  const policy = await policyFor(ctx, query.root);
+  const items = await policy.backend.trashList(policy.root);
+  const item = items.find((i) => i.trashId === trashId);
+  if (!item) throw new FmError(ErrorCode.FM_TRASH_ITEM_NOT_FOUND);
+  if (item.type !== "file") throw new FmError(ErrorCode.FM_NOT_A_FILE);
+  // meta.json is untrusted: the original path goes through the name rules,
+  // and a version of something now sealed stays unreadable.
+  const segments = parseSegments(item.originalPath, "originalPath");
+  const protection = policy.rules.classify(segments.join("/"), null);
+  if (protection?.level === "sealed") throw protectedError(protection);
+  const name = segments[segments.length - 1];
+  if (isBinaryName(name)) throw new FmError(ErrorCode.FM_BINARY_FILE);
+  const read = await policy.backend.trashReadBytes(policy.root, trashId, { maxBytes: FM_LIMITS.TEXT_EDIT_MAX_BYTES });
+  if (read.truncated) {
+    throw new FmError(ErrorCode.FM_FILE_TOO_LARGE_FOR_EDITOR, undefined, { limit: FM_LIMITS.TEXT_EDIT_MAX_BYTES });
+  }
+  const decoded = decodeForEdit(read.buffer);
+  let content = decoded.text;
+  let masked = false;
+  if (isIniName(name)) {
+    const result = maskIniText(content);
+    content = result.text;
+    masked = result.masked;
+  }
+  return { content, bom: decoded.bom, eol: decoded.eol, masked };
 }
 
 export async function purgeTrash(ctx, body, user, audit) {

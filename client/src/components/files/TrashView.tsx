@@ -25,10 +25,10 @@ interface TrashViewProps {
 
 type JobLine = { state: 'running'; done: number; total: number | null } | { state: 'done' } | { state: 'failed'; error: string }
 
-function withPermanent(tokens: ConfirmToken[]): ['permanent'] {
-  // The route's contract type names only 'permanent'; any extra token the
-  // server asked for (serverRunning) rides along.
-  return ['permanent', ...tokens.filter((token) => token !== 'permanent')] as unknown as ['permanent']
+function withPermanent(tokens: ConfirmToken[]): ConfirmToken[] {
+  // 'permanent' always; any extra token the server asked for (serverRunning)
+  // rides along.
+  return ['permanent', ...tokens.filter((token) => token !== 'permanent')]
 }
 
 // The per-root Trash (spec §A14.3): what was deleted, replaced or saved over,
@@ -71,7 +71,13 @@ export function TrashView({ profileId, root, isDesktop, runConfirmed, onBack, on
   const restore = async (item: TrashItem, name?: string) => {
     setBusyId(item.trashId)
     try {
-      const result = await filesApi.trashRestore(profileId, { root: root.id, trashId: item.trashId, restoreAs: name })
+      // Restoring is a write like any other: into the install folder, or a
+      // file that runs as code, the server asks for a confirmation first.
+      const confirmed = await runConfirmed((tokens) =>
+        filesApi.trashRestore(profileId, { root: root.id, trashId: item.trashId, restoreAs: name, confirm: tokens }),
+      )
+      if (!confirmed.ok) return
+      const result = confirmed.value
       toast({ title: t('trash.restored', { path: isolateLtrForRtl(result.entry.path) }) })
       setRestoreAs(null)
       await load()

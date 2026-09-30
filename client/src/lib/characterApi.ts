@@ -288,9 +288,11 @@ export async function getCharacterSheet(
   if (options.fresh) params.set('fresh', '1')
   if (options.maxItems !== undefined) params.set('maxItems', String(options.maxItems))
   const query = params.toString()
+  // No transport retries: the tab polls on its own, a failed read shows a
+  // Retry button, and three retries of a 75 s bridge read would take minutes.
   const response = await apiFetch(
     `/player-character/${encodeURIComponent(username)}${query ? `?${query}` : ''}`,
-    { signal: options.signal, timeout: CHARACTER_FETCH_TIMEOUT_MS },
+    { signal: options.signal, timeout: CHARACTER_FETCH_TIMEOUT_MS, retries: 0 },
   )
   return handleResponse<CharacterSheetResponse>(response)
 }

@@ -1714,6 +1714,26 @@ export function createSftpBackend({ settings } = {}) {
     });
   }
 
+  // The first maxBytes of a Trash item that is a file (the editor's
+  // "Previous versions"). The payload is found the way trashRestore finds it.
+  async function trashReadBytes(root, trashId, { maxBytes } = {}) {
+    assertRoot(root);
+    if (typeof trashId !== "string" || !TRASH_ID_RE.test(trashId)) throw fmError(ErrorCode.FM_TRASH_ITEM_NOT_FOUND);
+    const itemAbs = posix.join(root.real, TRASH_DIR_NAME, trashId);
+    const itemSt = await lstatOrNull(itemAbs);
+    if (!itemSt || itemSt.type !== "dir") throw fmError(ErrorCode.FM_TRASH_ITEM_NOT_FOUND);
+    const meta = await readTrashMeta(itemAbs);
+    if (!meta) throw fmError(ErrorCode.FM_TRASH_ITEM_NOT_FOUND);
+    const segments = meta.originalPath.split("/");
+    const payloadAbs = posix.join(itemAbs, "payload", segments[segments.length - 1]);
+    const st = await lstatOrNull(payloadAbs);
+    if (!st) throw fmError(ErrorCode.FM_TRASH_ITEM_NOT_FOUND);
+    if (st.type !== "file") throw fmError(ErrorCode.FM_NOT_A_FILE);
+    const cap = Math.max(0, Math.floor(Number(maxBytes)) || 0);
+    const buffer = await readRange(payloadAbs, 0, Math.min(cap, st.size));
+    return { buffer, size: st.size, truncated: st.size > cap };
+  }
+
   async function deletePermanent(target, onProgress = () => {}) {
     const progress = typeof onProgress === "function" ? onProgress : () => {};
     if (target && typeof target === "object" && "trashId" in target && target.root) {
@@ -1775,6 +1795,7 @@ export function createSftpBackend({ settings } = {}) {
     trashMove,
     trashList,
     trashRestore,
+    trashReadBytes,
     deletePermanent,
     freeSpace,
   };

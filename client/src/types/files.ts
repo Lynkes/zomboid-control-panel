@@ -407,6 +407,8 @@ export interface UploadPreflightFile {
 export interface UploadPreflightResponse {
   files: UploadPreflightFile[]
   required: ConfirmToken[]
+  /** Which files need `executable` or `overwrite`, and the server state, when `required` isn't empty. */
+  details?: ConfirmationRequiredBody['details']
 }
 
 /**
@@ -456,6 +458,7 @@ export interface TrashRestoreRequest {
   root: RootId
   trashId: string
   restoreAs?: string
+  confirm?: ConfirmToken[]
 }
 
 /** POST /profiles/:id/trash/purge (202, JobStartedResponse). */
@@ -464,7 +467,8 @@ export interface TrashPurgeRequest {
   trashIds?: string[]
   all?: true
   typedConfirmation: string
-  confirm: ['permanent']
+  /** Must include 'permanent', plus anything else the server asks for. */
+  confirm: ConfirmToken[]
 }
 
 /** PUT /profiles/:id/remote-roots (ProfileResponse). */
@@ -523,6 +527,18 @@ export interface ConfirmationRequiredBody {
     executable?: { names: string[] }
     overwrite?: { names: string[] }
   }
+}
+
+/** GET /profiles/:id/trash/text: an earlier version, decoded like GET /text mode=edit. */
+export interface TrashTextQuery {
+  root: RootId
+  trashId: string
+}
+export interface TrashTextResponse {
+  content: string
+  bom: boolean
+  eol: TextEol
+  masked: boolean
 }
 
 export type ZipLimitReason = 'entries' | 'bytes' | 'depth' | 'time'

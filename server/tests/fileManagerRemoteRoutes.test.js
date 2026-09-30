@@ -175,6 +175,12 @@ describe("Server Files over SFTP (active remote profile)", () => {
     expect(saved.status).toBe(200);
     expect(read("Server/servertest.ini")).toBe("PVP=false\nPassword=hunter2\n");
     expect(saved.body.previousVersion?.trashId).toMatch(/^\d{8}T\d{6}Z-[0-9a-f]{8}$/);
+    // The earlier version reads back from Trash, masked too.
+    const earlier = await call("GET", `${P}/trash/text?root=data&trashId=${saved.body.previousVersion.trashId}`);
+    expect(earlier.status).toBe(200);
+    expect(earlier.body).toMatchObject({ eol: "lf", bom: false, masked: true });
+    expect(earlier.body.content).toMatch(/^PVP=true$/m);
+    expect(earlier.body.content).not.toContain("hunter2");
   });
 
   it("duplicates over an existing file only after the overwrite confirmation", async () => {
