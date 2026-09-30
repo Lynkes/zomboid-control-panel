@@ -1,3 +1,5 @@
+import type { TFunction } from 'i18next'
+
 // Locale-aware number and time formatting shared by the Character tab's
 // sections. Every function returns '' for a missing or unparseable value so a
 // caller can leave the field out rather than print "NaN".
@@ -59,3 +61,23 @@ export function estimatePlayedHours(hoursSurvived: number | undefined, minutesPe
 
 // The game's default day length (sandbox DayLength "1 hour").
 export const DEFAULT_MINUTES_PER_DAY = 60
+
+/**
+ * "Given through the panel {when}", or "{given} of {qty} given through the
+ * panel {when}" when the panel gave only part of what's carried.
+ */
+export function givenCopy(
+  t: TFunction,
+  { given, qty, givenAt }: { given?: number; qty?: number; givenAt: string },
+  language: string,
+): string {
+  const when = formatWhen(givenAt, language)
+  if (typeof given === 'number' && typeof qty === 'number' && given < qty) {
+    return t('character.inventory.givenViaPanelPartial', {
+      given: formatNumber(given, language),
+      qty: formatNumber(qty, language),
+      when,
+    })
+  }
+  return t('character.inventory.givenViaPanel', { when })
+}

@@ -154,6 +154,7 @@
       "partialBody": "Auf diesem Server läuft eine ältere PanelBridge-Version, daher werden nur Zustand und Position angezeigt. Fertigkeiten, Merkmale und Inventar brauchen die aktuelle PanelBridge: siehe Einstellungen › PanelBridge.",
       "bridgeOffline": "PanelBridge ist nicht verbunden.",
       "timeout": "PanelBridge hat nicht rechtzeitig geantwortet.",
+      "timeoutBody": "Versuch es gleich noch einmal. Für diesen Charakter wurde noch nichts gespeichert.",
       "showingSaved": "Angezeigt wird, was das Panel {{when}} gespeichert hat.",
       "offlineNoCacheTitle": "Noch kein gespeicherter Charakter",
       "offlineNoCacheBody": "Das Panel speichert einen Charakter, wenn ihn jemand ansieht, und kurz nachdem sich der Spieler anmeldet. Schau nach seiner nächsten Spielrunde wieder vorbei.",
@@ -227,7 +228,7 @@
       "xpAria": "XP bis zur nächsten Stufe",
       "xpProgress": "{{xp}} / {{next}} XP",
       "xpMaxed": "{{xp}} XP",
-      "startsAt": "Beginnt bei {{level}}",
+      "xpBoost": "XP-Bonus +{{percent}} %",
       "bookMultiplier": "×{{multiplier}} durch Fertigkeitsbücher",
       "since": "+{{levels}} seit {{time}}",
       "passive": "Passiv",
@@ -239,6 +240,7 @@
     "inventory": {
       "title": "Inventar",
       "intro": "Wird auf Anfrage geladen: Ein großes Inventar zu lesen dauert auf dem Server einen Moment.",
+      "noneSaved": "Für diesen Charakter ist noch kein Inventar gespeichert. Es wird gespeichert, wenn jemand es lädt, während der Spieler online ist.",
       "load": "Inventar laden",
       "loading": "Inventar wird geladen…",
       "loadedAt": "Geladen um {{time}}",
@@ -247,7 +249,7 @@
       "primary": "Haupthand",
       "secondary": "Zweithand",
       "worn": "Getragen",
-      "attachedTo": "An {{slot}}",
+      "attached": "Angebracht",
       "viewLabel": "Ansicht",
       "viewTree": "Behälter",
       "viewByType": "Nach Typ",
@@ -264,6 +266,7 @@
       "expand": "Inhalt von {{name}} anzeigen",
       "collapse": "Inhalt von {{name}} ausblenden",
       "givenViaPanel": "Über das Panel gegeben {{when}}",
+      "givenViaPanelPartial": "{{given}} von {{qty}} über das Panel gegeben {{when}}",
       "hiddenItem": "Versteckter Gegenstand",
       "debugItem": "Debug-Gegenstand",
       "obsoleteItem": "Veralteter Gegenstand",
@@ -286,7 +289,8 @@
       "explainedEntry": "{{action}}: {{details}}, {{when}}",
       "actions": {
         "add_xp": "XP gegeben",
-        "add_item": "Gegenstand gegeben"
+        "add_item": "Gegenstand gegeben",
+        "import": "Charakter importiert"
       },
       "staff": "Team-Konto",
       "canSpawnItems": "Die Rolle dieses Kontos kann Gegenstände spawnen.",
@@ -296,7 +300,6 @@
       },
       "evidence": {
         "level": "Stufe {{level}}",
-        "levelFromStart": "Stufe {{level}}, beginnt bei {{start}}",
         "jump": "{{from}} → {{to}}",
         "qty": "×{{qty}}"
       },
@@ -316,13 +319,13 @@
         "skillJump": {
           "title": "Schneller Fertigkeitszuwachs",
           "detail": "{{total}} Stufen in den letzten {{minutes}} Minuten gewonnen.",
-          "rule": "Meldet eine Fertigkeit, die {{onePerk}} oder mehr Stufen gewinnt und Stufe {{minLevel}} erreicht, eine passive Fertigkeit (Fitness, Stärke) mit {{passive}} oder mehr Stufen oder insgesamt {{totalLevels}} oder mehr Stufen innerhalb von {{window}} Minuten. Verglichen mit dem Stand von {{sinceTime}}.",
-          "innocent": "Mehrere Fertigkeitsbücher hintereinander gelesen, eine lange Phase mit Handwerk oder Kämpfen oder XP, die ein Admin im Spiel gegeben hat."
+          "rule": "Meldet eine Fertigkeit, die {{onePerk}} oder mehr Stufen gewinnt und Stufe {{minLevel}} erreicht, eine passive Fertigkeit (Fitness, Stärke) mit {{passive}} oder mehr Stufen oder insgesamt {{totalLevels}} oder mehr Stufen über Stufe {{floor}} innerhalb von {{window}} Minuten. Mit einem XP-Multiplikator oder einem Fertigkeitsbuch wird der Gewinn zuerst dadurch geteilt: Eine Fertigkeit fällt nur auf, wenn ihre so geteilten XP noch mindestens {{rawXp}} betragen. Verglichen mit dem Stand von {{sinceTime}}.",
+          "innocent": "Mehrere Fertigkeitsbücher hintereinander gelesen, eine lange Phase mit Handwerk oder Kämpfen, ein hoher XP-Multiplikator oder XP, die ein Admin im Spiel gegeben hat."
         },
         "skillsAheadOfTime": {
           "title": "Fertigkeiten der Spielzeit voraus",
           "detail": "{{advanced}} Fertigkeitsstufen über Stufe {{floor}} nach etwa {{hours}} Std. Spielzeit in diesem Leben, üblich wären etwa {{allowed}}.",
-          "rule": "Zählt jede Stufe über {{floor}} (oder über der Startstufe, falls höher) in nicht passiven Fertigkeiten; Stufen mit Fertigkeitsbuch zählen halb. Üblich sind {{perHour}} Stufen pro echter Stunde dieses Lebens, mal dem XP-Multiplikator des Servers ({{xpScale}}), plus {{grace}}. Fällt deutlich auf ab dem Doppelten.",
+          "rule": "Zählt jede Stufe über {{floor}} in nicht passiven Fertigkeiten; Stufen mit Fertigkeitsbuch zählen halb. Üblich sind {{perHour}} Stufen pro echter Stunde dieses Lebens, mal dem XP-Multiplikator des Servers ({{xpScale}}), plus {{grace}}. Fällt deutlich auf ab dem Doppelten.",
           "innocent": "Lange Sitzungen mit einer einzigen Fertigkeit, Fertigkeitsbücher und Zeitschriften, ein hoher XP-Multiplikator oder Spielzeit, die die Schätzung nicht sieht."
         },
         "manyMaxedSkills": {

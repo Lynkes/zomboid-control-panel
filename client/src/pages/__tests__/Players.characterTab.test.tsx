@@ -118,6 +118,7 @@ function sheetResponse(sections: CharacterSection[] | undefined, overrides: Part
       jumpLevelsPassive: 2,
       jumpTotalLevels: 6,
       jumpWindowMinutes: 60,
+      jumpRawXpFloor: 3000,
       unusualQuantity: 500,
       overCapacityFactor: 2,
     },
@@ -321,5 +322,62 @@ describe('Players.tsx Character tab', () => {
     fireEvent.click(badge)
     await waitFor(() => expect(screen.getByRole('tab', { name: 'Character' })).toHaveAttribute('aria-selected', 'true'))
     expect(await screen.findByText('Carrying far over the limit')).toBeInTheDocument()
+  })
+})
+
+describe('Players.tsx Notes & Log tab', () => {
+  const LOG = { id: 1, player_name: 'TestPlayer', action: 'KICKED_FOR_TEST', details: 'detail', logged_at: '2026-09-29T10:00:00Z' }
+
+  it('opening /players?tab=notes (a reload, or Back) reads the activity log', async () => {
+    setUpFixtures()
+    vi.mocked(playersApi.getActivityLogs).mockResolvedValue({ logs: [LOG] } as never)
+    renderPlayers(['/players?tab=notes'])
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Notes & Log' })).toHaveAttribute('aria-selected', 'true'))
+    expect(await screen.findByText('KICKED_FOR_TEST')).toBeInTheDocument()
+    expect(screen.queryByText(/No activity logs yet/)).toBeNull()
+  })
+
+  it('switching to the tab reads it too, however the tab is chosen', async () => {
+    setUpFixtures()
+    vi.mocked(playersApi.getActivityLogs).mockResolvedValue({ logs: [LOG] } as never)
+    renderPlayers()
+    await selectTestPlayer()
+    expect(playersApi.getActivityLogs).not.toHaveBeenCalled()
+    openTab('Notes & Log')
+    expect(await screen.findByText('KICKED_FOR_TEST')).toBeInTheDocument()
+  })
+})
+
+describe('Players.tsx manual target', () => {
+  it('typing a name reads the character once the typing pauses, not per keystroke', async () => {
+    setUpFixtures()
+    renderPlayers()
+    await waitFor(() => expect(screen.getByText('TestPlayer')).toBeInTheDocument(), { timeout: 3000 })
+    const input = screen.getByPlaceholderText(/username/i)
+    for (const value of ['B', 'Ba', 'Bar', 'Bart', 'Barth', 'Bartho']) {
+      fireEvent.change(input, { target: { value } })
+      await advance(60)
+    }
+    expect(baseCalls()).toHaveLength(0)
+    await advance(2000)
+    expect(baseCalls().map(([username]) => username)).toEqual(['Bartho'])
+  })
+
+  it('a roster click still reads at once', async () => {
+    setUpFixtures()
+    renderPlayers()
+    await selectTestPlayer()
+    await waitFor(() => expect(baseCalls().map(([username]) => username)).toEqual(['TestPlayer']))
+  })
+
+  it('a name typed in another case is the online player: the Character tab polls it live', async () => {
+    setUpFixtures()
+    renderPlayers(['/players?tab=character'])
+    await waitFor(() => expect(screen.getByText('TestPlayer')).toBeInTheDocument(), { timeout: 3000 })
+    fireEvent.change(screen.getByPlaceholderText(/username/i), { target: { value: 'testplayer' } })
+    await advance(1000)
+    expect(await screen.findByRole('button', { name: 'Load inventory' })).toBeInTheDocument()
+    await advance(REFRESH_MS + 100)
+    expect(baseCalls().length).toBeGreaterThanOrEqual(2)
   })
 })

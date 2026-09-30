@@ -5,6 +5,8 @@ import {
   DEBUG_ITEM_TYPES,
   computeCharacterHints,
   estimateRealHours,
+  latestDeathAt,
+  playerLogsFor,
   xpScaleOf,
 } from "../services/characterHints.js";
 
@@ -78,7 +80,7 @@ describe("skillsAheadOfTime", () => {
     expect(hint(sheet({ perks: [perk("A", 10), perk("B", 5)] }), "skillsAheadOfTime")).toBeUndefined(); // 7 + 2 = 9
     const h = hint(sheet({ perks: [perk("A", 10), perk("B", 5), perk("C", 4)] }), "skillsAheadOfTime"); // 10
     expect(h).toMatchObject({ weight: "mild", params: { advanced: 10, allowed: 9, hours: 1, xpScale: 1 } });
-    expect(h.evidence[0]).toEqual({ kind: "perk", ref: "A", detail: { level: 10, start: 0 } });
+    expect(h.evidence[0]).toEqual({ kind: "perk", ref: "A", detail: { level: 10 } });
   });
 
   it("is strong only past twice the allowance", () => {
@@ -87,9 +89,12 @@ describe("skillsAheadOfTime", () => {
     expect(hint(sheet({ perks: [...eighteen, perk("D", 4)] }), "skillsAheadOfTime").weight).toBe("strong");
   });
 
-  it("counts from the starting level when a profession or trait starts it higher", () => {
-    // boost 5: only the 5 levels above it count.
-    expect(hint(sheet({ perks: [perk("A", 10, { boost: 5 }), perk("B", 7)] }), "skillsAheadOfTime")).toBeUndefined(); // 5 + 4
+  it("doesn't read the XP boost tier as a starting level", () => {
+    // boost is XPBoostMap's 0-3 rate tier (min(3, starting level)): the floor
+    // of 3 already covers it, and it never goes in the evidence as a start.
+    const h = hint(sheet({ perks: [perk("A", 10, { boost: 3 }), perk("B", 7)] }), "skillsAheadOfTime"); // 7 + 4
+    expect(h.params.advanced).toBe(11);
+    expect(h.evidence.map((e) => e.detail)).toEqual([{ level: 10 }, { level: 7 }]);
   });
 
   it("counts skill-book levels at half weight", () => {
@@ -158,8 +163,9 @@ describe("manyMaxedSkills", () => {
     expect(hint(sheet({ perks: [...maxed(7), ...fillers(3)], realHours: 5000 }), "manyMaxedSkills")).toBeUndefined();
   });
 
-  it("doesn't count skills the character started at 10", () => {
-    expect(hint(sheet({ perks: [...maxed(3, { boost: 10 }), ...fillers(20)] }), "manyMaxedSkills")).toBeUndefined();
+  it("says only the level in its evidence, never a start taken from the XP boost tier", () => {
+    const h = hint(sheet({ perks: [...maxed(3, { boost: 3 }), ...fillers(20)] }), "manyMaxedSkills");
+    expect(h.evidence.map((e) => e.detail)).toEqual([{ level: 10 }, { level: 10 }, { level: 10 }]);
   });
 });
 
@@ -190,12 +196,61 @@ describe("skillJump", () => {
 
   it("flags 6 levels in total across skills as mild", () => {
     const six = [
-      { id: "Filler0", fromLevel: 0, toLevel: 2 },
-      { id: "Filler1", fromLevel: 0, toLevel: 2 },
-      { id: "Filler2", fromLevel: 0, toLevel: 2 },
+      { id: "Filler0", fromLevel: 3, toLevel: 5 },
+      { id: "Filler1", fromLevel: 3, toLevel: 5 },
+      { id: "Filler2", fromLevel: 3, toLevel: 5 },
     ];
     expect(hint(s, "skillJump", { skillDelta: delta(six) })).toMatchObject({ weight: "mild", params: { total: 6 } });
-    expect(hint(s, "skillJump", { skillDelta: delta(six.slice(0, 2).concat([{ id: "Filler2", fromLevel: 0, toLevel: 1 }])) })).toBeUndefined();
+    expect(hint(s, "skillJump", { skillDelta: delta(six.slice(0, 2).concat([{ id: "Filler2", fromLevel: 3, toLevel: 4 }])) })).toBeUndefined();
+  });
+
+  it("leaves the first levels of a skill out of the total: a new character's first hour", () => {
+    const firstLevels = [
+      { id: "Filler0", fromLevel: 0, toLevel: 2 },
+      { id: "Filler1", fromLevel: 0, toLevel: 3 },
+      { id: "Filler2", fromLevel: 1, toLevel: 3 },
+      { id: "Filler3", fromLevel: 2, toLevel: 4 },
+    ];
+    // 2 + 3 + 2 + 2 levels, but only Filler3's 4th is above the floor of 3.
+    expect(hint(s, "skillJump", { skillDelta: delta(firstLevels) })).toBeUndefined();
+  });
+
+  describe("on a boosted server or under a skill book", () => {
+    // B42 costs per level: 50, 100, 200, 500, 1000, 2000, 3000, ...; Woodwork
+    // 4 -> 7 is 6000 XP, gained in 45 minutes.
+    const woodwork = (extra = {}) =>
+      sheet({ realHours: 100, perks: [perk("Woodwork", 7, extra), ...fillers(5)], xpSandbox: extra.xpSandbox });
+    const jump = delta([{ id: "Woodwork", fromLevel: 4, toLevel: 7, fromXp: 850, toXp: 6850 }], 45);
+
+    it("control: at 1x it stands out", () => {
+      expect(hint(woodwork(), "skillJump", { skillDelta: jump })?.weight).toBe("strong");
+    });
+
+    it("a 5x server hands those levels out for 1200 XP: not flagged", () => {
+      const boosted = woodwork({ xpSandbox: { global: 5, globalToggle: true } });
+      expect(hint(boosted, "skillJump", { skillDelta: jump })).toBeUndefined();
+      // The skill's own multiplier counts the same while the global one is off.
+      const perSkill = woodwork({ sandboxMultiplier: 5, xpSandbox: { global: 1, globalToggle: false } });
+      expect(hint(perSkill, "skillJump", { skillDelta: jump })).toBeUndefined();
+    });
+
+    it("a skill book being read (x8) is taken into account too", () => {
+      expect(hint(woodwork({ multiplier: 8 }), "skillJump", { skillDelta: jump })).toBeUndefined();
+      expect(hint(woodwork({ multiplier: 8, xpSandbox: { global: 5, globalToggle: true } }), "skillJump", { skillDelta: jump })).toBeUndefined();
+    });
+
+    it("still flags a jump whose XP stands out even after the multiplier", () => {
+      const boosted = woodwork({ xpSandbox: { global: 5, globalToggle: true } });
+      boosted.skills.perks[0].level = 10;
+      const huge = delta([{ id: "Woodwork", fromLevel: 0, toLevel: 10, fromXp: 0, toXp: 21850 }], 30);
+      expect(hint(boosted, "skillJump", { skillDelta: huge })?.weight).toBe("strong"); // 4370 at 1x
+    });
+
+    it("without the XP it can't tell a jump from the boost: never strong", () => {
+      const boosted = woodwork({ xpSandbox: { global: 5, globalToggle: true } });
+      const noXp = delta([{ id: "Woodwork", fromLevel: 4, toLevel: 7 }], 45);
+      expect(hint(boosted, "skillJump", { skillDelta: noXp })).toBeUndefined();
+    });
   });
 
   it("only looks back 60 minutes, and only at live data", () => {
@@ -244,15 +299,18 @@ describe("item hints", () => {
   });
 
   it("a Give item from before this life doesn't explain anything", () => {
-    // 1 real hour lived; the log is 2 hours old.
-    const h = hint(sheet({ rows: [item("Base.TestMug")] }), "debugItems", { playerLogs: [logAt(120, "add_item", "Base.TestMug x1")] });
+    const logs = [logAt(120, "add_item", "Base.TestMug x1")];
+    const h = hint(sheet({ rows: [item("Base.TestMug")] }), "debugItems", { playerLogs: logs, lifeStartedAfter: NOW - 60 * MIN });
     expect(h.explainedBy).toBeUndefined();
-    // Unless the store knows the life started earlier.
-    const widened = hint(sheet({ rows: [item("Base.TestMug")] }), "debugItems", {
-      playerLogs: [logAt(120, "add_item", "Base.TestMug x1")],
-      lifeStartedAt: NOW - 180 * MIN,
-    });
-    expect(widened.explainedBy).toHaveLength(1);
+  });
+
+  it("a Give item from long ago still explains an item when the life's start isn't known", () => {
+    // 30 hours of play over a month: play time says nothing about when the
+    // life began, and the gift was 7 days ago.
+    const logs = [logAt(7 * 24 * 60, "add_item", "Base.TestMug x1")];
+    const h = hint(sheet({ rows: [item("Base.TestMug")], realHours: 30 }), "debugItems", { playerLogs: logs });
+    expect(h.explainedBy).toHaveLength(1);
+    expect(h.evidence[0].detail).toMatchObject({ qty: 1, given: 1 });
   });
 
   it("flags hidden items that aren't worn, and obsolete items, as mild", () => {
@@ -272,6 +330,66 @@ describe("item hints", () => {
     const logs = [logAt(20, "add_item", "Base.Nails x100"), logAt(10, "add_item", "Base.Nails x100")];
     expect(hint(sheet({ rows: [item("Base.Nails", 600)] }), "unusualQuantity", { playerLogs: logs }).explainedBy).toHaveLength(2);
     expect(hint(sheet({ rows: [item("Base.Nails", 700)] }), "unusualQuantity", { playerLogs: logs }).explainedBy).toBeUndefined();
+  });
+});
+
+describe("a restore (Import character)", () => {
+  const imported = (minutesAgo) => logAt(minutesAgo, "import", "perks=8 items=40");
+  const veteranSkills = () => [...Array.from({ length: 8 }, (_, i) => perk(`Skill${i}`, 8)), ...fillers(4)];
+
+  it("explains the skill hints of this life", () => {
+    const restored = sheet({ realHours: 0.3, perks: veteranSkills() });
+    const ahead = hint(restored, "skillsAheadOfTime", { playerLogs: [imported(5)] });
+    expect(ahead.explainedBy).toEqual([
+      { action: "import", at: new Date(NOW - 5 * MIN).toISOString(), details: "perks=8 items=40" },
+    ]);
+    const jump = hint(restored, "skillJump", {
+      playerLogs: [imported(5)],
+      skillDelta: {
+        since: new Date(NOW - 6 * MIN).toISOString(),
+        source: "login",
+        perks: Array.from({ length: 8 }, (_, i) => ({ id: `Skill${i}`, fromLevel: 0, toLevel: 8 })),
+      },
+    });
+    expect(jump.explainedBy).toEqual([expect.objectContaining({ action: "import" })]);
+    // Without it, both stand out.
+    expect(hint(restored, "skillsAheadOfTime").explainedBy).toBeUndefined();
+  });
+
+  it("explains the item hints, and nothing from an earlier life", () => {
+    const rows = [item("Base.TestMug"), item("Base.Nails", 600)];
+    const h = hints(sheet({ rows }), { playerLogs: [imported(5)] });
+    expect(h.find((x) => x.id === "debugItems").explainedBy).toHaveLength(1);
+    expect(h.find((x) => x.id === "unusualQuantity").explainedBy).toHaveLength(1);
+    const before = hints(sheet({ rows }), { playerLogs: [imported(120)], lifeStartedAfter: NOW - 60 * MIN });
+    expect(before.find((x) => x.id === "debugItems").explainedBy).toBeUndefined();
+  });
+
+  it("explains a skill jump only inside the jump's window", () => {
+    const s = sheet({ realHours: 500, perks: [perk("Axe", 6), ...fillers(5)] });
+    const skillDelta = { since: new Date(NOW - 30 * MIN).toISOString(), source: "view", perks: [{ id: "Axe", fromLevel: 3, toLevel: 6 }] };
+    expect(hint(s, "skillJump", { skillDelta, playerLogs: [imported(45)] }).explainedBy).toBeUndefined();
+  });
+});
+
+describe("player log helpers", () => {
+  it("playerLogsFor matches the name without case, newest first, up to the limit", () => {
+    const logs = [
+      { player_name: "bob", action: "add_item" },
+      { player_name: "Alice", action: "kick" },
+      { player_name: "Bob", action: "add_xp" },
+      { player_name: "BOB", action: "death" },
+    ];
+    expect(playerLogsFor(logs, "Bob", 2).map((l) => l.action)).toEqual(["add_item", "add_xp"]);
+    expect(playerLogsFor(logs, "bob", 200)).toHaveLength(3);
+    expect(playerLogsFor(null, "Bob", 10)).toEqual([]);
+  });
+
+  it("latestDeathAt picks the newest death row that isn't in the future", () => {
+    const logs = [logAt(10, "death", "non-pvp death at (1,2,0)"), logAt(90, "death", "pvp death at (1,2,0)"), logAt(5, "kick", "x")];
+    expect(latestDeathAt(logs, NOW)).toBe(NOW - 10 * MIN);
+    expect(latestDeathAt([logAt(-5, "death", "x")], NOW)).toBeUndefined();
+    expect(latestDeathAt([], NOW)).toBeUndefined();
   });
 });
 

@@ -405,6 +405,33 @@ const UNKNOWN_COMMAND_RE = /^Unknown command: getCharacterSheet/;
 const PLAYER_NOT_FOUND_RE = /^Player not found:/;
 const COMMAND_TIMEOUT_RE = /^Command timeout/;
 
+// Bridges that answered "Unknown command: getCharacterSheet", with the mod
+// version and start time they answered under. Asking again on every poll
+// fails the same way and logs a warning on both sides; a restarted or updated
+// mod (another startedAt or version) is asked again.
+let unsupportedSessions = new WeakMap();
+
+// status.json's version and startedAt (the mod's start time).
+function bridgeSession(bridge) {
+  const status = bridge?.modStatus;
+  return `${status?.version ?? ""}|${status?.startedAt ?? ""}`;
+}
+
+/** True while this bridge's mod is known to lack getCharacterSheet. */
+export function isCharacterSheetUnsupported(bridge) {
+  if (!bridge || typeof bridge !== "object") return false;
+  return unsupportedSessions.get(bridge) === bridgeSession(bridge);
+}
+
+function rememberUnsupported(bridge) {
+  if (bridge && typeof bridge === "object") unsupportedSessions.set(bridge, bridgeSession(bridge));
+}
+
+// Exposed for tests only.
+export function resetCharacterSheetSupport() {
+  unsupportedSessions = new WeakMap();
+}
+
 function availabilityForError(message) {
   if (PLAYER_NOT_FOUND_RE.test(message)) return "playerOffline";
   if (COMMAND_TIMEOUT_RE.test(message)) return "timeout";
@@ -427,12 +454,19 @@ async function fetchPartialSheet(bridge, username) {
 /**
  * @param {object} bridge the PanelBridge service (or a test double)
  * @param {string} username
- * @param {{ sections?: string[], fresh?: boolean, maxItems?: number }} [opts]
- * @returns {Promise<{ availability: 'live'|'partial'|'playerOffline'|'bridgeOffline'|'timeout', sheet: object|null }>}
+ * @param {{ sections?: string[], fresh?: boolean, maxItems?: number, fallback?: boolean }} [opts]
+ *   fallback (default true): on a mod without getCharacterSheet, read
+ *   getPlayerDetails instead ('partial'). false answers 'unsupported' and
+ *   sends nothing more (the snapshot sampler, which can't use a partial sheet).
+ * @returns {Promise<{ availability: 'live'|'partial'|'playerOffline'|'bridgeOffline'|'timeout'|'unsupported', sheet: object|null }>}
  */
 export async function fetchCharacterSheet(bridge, username, opts = {}) {
   if (!bridge || !bridge.isRunning || !bridge.isModConnected()) {
     return { availability: "bridgeOffline", sheet: null };
+  }
+  const fallback = opts.fallback !== false;
+  if (isCharacterSheetUnsupported(bridge)) {
+    return fallback ? fetchPartialSheet(bridge, username) : { availability: "unsupported", sheet: null };
   }
   const sections = Array.isArray(opts.sections) && opts.sections.length > 0 ? opts.sections : DEFAULT_CHARACTER_SECTIONS;
   const args = { username, sections: [...sections] };
@@ -443,7 +477,10 @@ export async function fetchCharacterSheet(bridge, username, opts = {}) {
     return { availability: "live", sheet: normalizeSheet(result?.data) };
   } catch (error) {
     const message = String(error?.message ?? "");
-    if (UNKNOWN_COMMAND_RE.test(message)) return fetchPartialSheet(bridge, username);
+    if (UNKNOWN_COMMAND_RE.test(message)) {
+      rememberUnsupported(bridge);
+      return fallback ? fetchPartialSheet(bridge, username) : { availability: "unsupported", sheet: null };
+    }
     const availability = availabilityForError(message);
     if (availability === "bridgeOffline") {
       log.debug(`getCharacterSheet failed: ${message.slice(0, 200)}`);

@@ -22,6 +22,11 @@ export const CHARACTER_STORE_LIMITS = Object.freeze({
   maxBytes: 512 * 1024,
   deltaMinAgeMs: 2 * 60 * 1000,
   deltaMaxAgeMs: 60 * 60 * 1000,
+  // The bridge serves a cached answer for up to 10 s, so a sheet it computed
+  // before the newest one stored can still arrive. Within this much of the
+  // newest generatedAt an older sheet is that; further back it's a clock that
+  // moved (a restarted game server), and the sheet is taken as it is.
+  staleSheetToleranceMs: 60 * 1000,
 });
 
 const SERVER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -88,25 +93,50 @@ function levelsAndXp(sheet) {
   return { levels, xp };
 }
 
-function isNewLife(previous, summary) {
-  if (!previous || !summary) return false;
-  const lower = (key) =>
-    typeof previous[key] === "number" && typeof summary[key] === "number" && summary[key] < previous[key];
-  return lower("hoursSurvived") || lower("zombieKills");
+function differs(before, after) {
+  return typeof before === "string" && typeof after === "string" && before !== after;
+}
+
+// A new life: hours survived or kills went down, the character behind the
+// account changed (another name or occupation: a re-roll after a short life
+// overtakes the old hours within minutes), or a dead character is alive again.
+function isNewLife(previous, lastSheet, sheet) {
+  const summary = sheet.summary;
+  if (previous && summary) {
+    const lower = (key) =>
+      typeof previous[key] === "number" && typeof summary[key] === "number" && summary[key] < previous[key];
+    if (lower("hoursSurvived") || lower("zombieKills")) return true;
+  }
+  if (!lastSheet) return false;
+  if (differs(lastSheet.forename, sheet.forename) || differs(lastSheet.surname, sheet.surname)) return true;
+  if (differs(lastSheet.summary?.profession?.id, summary?.profession?.id)) return true;
+  return lastSheet.summary?.isAlive === false && summary?.isAlive === true;
+}
+
+// A sheet the bridge computed shortly before the newest one already stored:
+// served from its short cache after a newer read landed. Its older numbers
+// would read as a drop (a false new life) and it adds nothing new.
+function isStaleSheet(record, sheet) {
+  const newest = record.lastGeneratedAt;
+  const generatedAt = sheet.generatedAt;
+  if (typeof newest !== "number" || typeof generatedAt !== "number") return false;
+  return generatedAt < newest && newest - generatedAt <= CHARACTER_STORE_LIMITS.staleSheetToleranceMs;
 }
 
 /**
- * Skill changes since a baseline snapshot: the newest one 2 to 60 minutes
- * old, else the login snapshot of this life, else none. Pure.
+ * Skill changes since a baseline snapshot: the oldest one 2 to 60 minutes
+ * old (so gains add up over the whole window, and the snapshot taken right
+ * after a jump doesn't hide it two minutes later), else the login snapshot
+ * of this life, else none. Pure.
  */
 export function computeSkillDelta(snapshots, sheet, now) {
   if (!sheet?.skills || !Array.isArray(snapshots) || snapshots.length === 0) return null;
   const { levels, xp } = levelsAndXp(sheet);
   let baseline = null;
-  for (let i = snapshots.length - 1; i >= 0; i--) {
-    const age = now - snapshots[i].at;
+  for (const snapshot of snapshots) {
+    const age = now - snapshot.at;
     if (age >= CHARACTER_STORE_LIMITS.deltaMinAgeMs && age <= CHARACTER_STORE_LIMITS.deltaMaxAgeMs) {
-      baseline = snapshots[i];
+      baseline = snapshot;
       break;
     }
   }
@@ -139,6 +169,14 @@ function emptyRecord(serverId, username) {
     lastSheet: null,
     lastSheetAt: null,
     lastInventoryAt: null,
+    // When the Condition section (stats and health) was last read: the
+    // sampler never reads it, so it can be older than lastSheetAt.
+    statsAt: null,
+    // Newest bridge generatedAt stored (see isStaleSheet).
+    lastGeneratedAt: null,
+    // This life began after this time (the panel's last sight of the one
+    // before), or null when the record doesn't know: it was created mid-life.
+    lifeStartedAfter: null,
     snapshots: [],
   };
 }
@@ -148,38 +186,50 @@ function mergeSections(lastSheet, sheet, sections) {
   for (const key of IDENTITY_KEYS) {
     if (sheet[key] !== undefined) merged[key] = sheet[key];
   }
-  let inventoryMerged = false;
+  const mergedSections = new Set();
   for (const section of sections) {
     if (sheet.sectionErrors?.[section]) continue;
     for (const key of SECTION_KEYS[section] ?? []) {
       if (sheet[key] === undefined) continue;
       merged[key] = sheet[key];
-      if (key === "inventory") inventoryMerged = true;
+      mergedSections.add(section);
     }
   }
   delete merged.sectionErrors;
   delete merged.cost;
-  return { merged, inventoryMerged };
+  return { merged, mergedSections };
 }
 
-function applySheet(record, sheet, { source, sections, now }) {
+function applySheet(record, sheet, { source, sections, now, deathAt }) {
+  if (isStaleSheet(record, sheet)) {
+    return { serialized: null, skillDelta: computeSkillDelta(record.snapshots, sheet, now), newLife: false };
+  }
   const summary = sheet.summary;
   const newestSnapshot = record.snapshots.at(-1);
   const previousSummary = newestSnapshot ?? record.lastSheet?.summary;
+  const lastSeen = Math.max(record.lastSheetAt ?? 0, newestSnapshot?.at ?? 0);
+  // A death the game logged after the panel last saw the character ended
+  // that life, whatever the next one's numbers and name are.
+  const diedSinceSeen = typeof deathAt === "number" && lastSeen > 0 && deathAt > lastSeen && deathAt <= now;
   let newLife = false;
-  if (isNewLife(previousSummary, summary)) {
+  if (diedSinceSeen || isNewLife(previousSummary, record.lastSheet, sheet)) {
     newLife = true;
+    const startedAfter = diedSinceSeen ? deathAt : lastSeen;
+    record.lifeStartedAfter = startedAfter > 0 ? startedAfter : null;
     record.snapshots = [];
     record.lastSheet = null;
     record.lastInventoryAt = null;
+    record.statsAt = null;
   }
+  if (typeof sheet.generatedAt === "number") record.lastGeneratedAt = sheet.generatedAt;
 
   const skillDelta = computeSkillDelta(record.snapshots, sheet, now);
 
-  const { merged, inventoryMerged } = mergeSections(record.lastSheet, sheet, sections);
+  const { merged, mergedSections } = mergeSections(record.lastSheet, sheet, sections);
   record.lastSheet = merged;
   record.lastSheetAt = now;
-  if (inventoryMerged) record.lastInventoryAt = now;
+  if (mergedSections.has("inventory")) record.lastInventoryAt = now;
+  if (mergedSections.has("stats")) record.statsAt = now;
 
   if (sheet.skills && sections.includes("skills") && !sheet.sectionErrors?.skills) {
     const { levels, xp } = levelsAndXp(sheet);
@@ -214,19 +264,27 @@ function applySheet(record, sheet, { source, sections, now }) {
 /**
  * Merge a freshly read sheet into the player's record and write it back.
  * `sections` are the sections that fetch asked for: an inventory-only fetch
- * updates only the inventory.
+ * updates only the inventory. A sheet older than the newest one stored (see
+ * isStaleSheet) changes nothing. `deathAt` is when the game last logged this
+ * player's death (player_logs), if known.
  *
  * @returns {Promise<{ record: object, skillDelta: object|null, newLife: boolean } | null>}
  *   null when the server id or username can't be stored.
  */
-export async function recordCharacterSheet(serverId, username, sheet, { source = "view", sections = [], now = Date.now() } = {}) {
+export async function recordCharacterSheet(
+  serverId,
+  username,
+  sheet,
+  { source = "view", sections = [], now = Date.now(), deathAt } = {},
+) {
   const file = characterRecordPath(serverId, username);
   if (!file || !sheet || typeof sheet !== "object") return null;
   return withFileLock(file, async () => {
     const record = readRecordFile(file) ?? emptyRecord(serverId, username);
     record.username = sheet.username ?? record.username ?? username;
     record.serverId = serverId;
-    const { serialized, skillDelta, newLife } = applySheet(record, sheet, { source, sections, now });
+    const { serialized, skillDelta, newLife } = applySheet(record, sheet, { source, sections, now, deathAt });
+    if (serialized === null) return { record, skillDelta, newLife };
     // codeql[js/path-injection] file comes from characterRecordPath(): <dataDir>/character-sheets/<serverId>/<hex>.json, where serverId passed ^[A-Za-z0-9_-]{1,64}$ and the name is a sha256 hex digest.
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     writeFileAtomic(file, serialized, { encoding: "utf8", mode: 0o600 });

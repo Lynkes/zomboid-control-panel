@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -34,7 +35,7 @@ function resolveView(base: CharacterSheetResponse): ResolvedView {
   return { sheet: null, lastKnown: false, savedAt: null }
 }
 
-function resolveInventory(state: CharacterSheetState, base: CharacterSheetResponse, view: ResolvedView) {
+function resolveInventory(state: CharacterSheetState, base: CharacterSheetResponse, view: ResolvedView, t: TFunction) {
   const response = state.inventory
   if (response?.availability === 'live' && response.sheet?.inventory) {
     return {
@@ -42,13 +43,28 @@ function resolveInventory(state: CharacterSheetState, base: CharacterSheetRespon
       loadedAt: response.fetchedAt,
       savedAt: null,
       sectionError: response.sheet.sectionErrors?.inventory,
+      failure: null,
     }
   }
   const saved = response?.cached ?? (view.lastKnown ? base.cached : null)
   if (saved?.sheet.inventory) {
-    return { inventory: saved.sheet.inventory, loadedAt: null, savedAt: saved.inventoryAt ?? saved.at, sectionError: undefined }
+    return {
+      inventory: saved.sheet.inventory,
+      loadedAt: null,
+      savedAt: saved.inventoryAt ?? saved.at,
+      sectionError: undefined,
+      failure: null,
+    }
   }
-  return { inventory: null, loadedAt: null, savedAt: null, sectionError: response?.sheet?.sectionErrors?.inventory }
+  // The read came back, but not live and with nothing saved: say why, with
+  // Retry, rather than offering "Load inventory" again as if nothing happened.
+  const failure =
+    response?.availability === 'timeout'
+      ? t('character.state.timeout')
+      : response?.availability === 'bridgeOffline'
+        ? t('character.state.bridgeOffline')
+        : null
+  return { inventory: null, loadedAt: null, savedAt: null, sectionError: response?.sheet?.sectionErrors?.inventory, failure }
 }
 
 export function CharacterTab({
@@ -92,30 +108,41 @@ export function CharacterTab({
   const bridgeProblem = availability === 'bridgeOffline' || availability === 'timeout'
 
   if (!view.sheet) {
+    // Eyebrows that match: "No Players Online" would contradict the roster,
+    // and a timeout comes from a connected PanelBridge on a running server.
     if (availability === 'playerOffline') {
       return (
         <EmptyState
-          type="noPlayers"
+          type="noData"
           compact
           title={t('character.state.offlineNoCacheTitle')}
           description={t('character.state.offlineNoCacheBody')}
         />
       )
     }
+    const timedOut = availability === 'timeout'
     return (
       <EmptyState
-        type="serverOffline"
+        type={timedOut ? 'noData' : 'serverOffline'}
         compact
         title={t('character.state.unavailableTitle')}
-        description={`${availability === 'timeout' ? t('character.state.timeout') : t('character.state.bridgeOffline')} ${t('character.state.unavailableBody')}`}
+        description={
+          timedOut
+            ? `${t('character.state.timeout')} ${t('character.state.timeoutBody')}`
+            : `${t('character.state.bridgeOffline')} ${t('character.state.unavailableBody')}`
+        }
         action={{ label: t('character.state.retry'), onClick: state.retry }}
       />
     )
   }
 
   const sheet = view.sheet
-  const inventoryView = resolveInventory(state, base, view)
+  const inventoryView = resolveInventory(state, base, view, t)
   const canLoadInventory = availability === 'live' && online
+  // The sampler never reads the Condition, so a saved one can be older than
+  // the rest of the saved sheet.
+  const conditionSavedAt =
+    view.lastKnown && base.cached?.statsAt && base.cached.statsAt !== view.savedAt ? base.cached.statsAt : null
 
   return (
     <div className="space-y-5">
@@ -192,7 +219,7 @@ export function CharacterTab({
       )}
 
       <div className="border-t border-border/40 pt-4">
-        <CharacterCondition sheet={sheet} />
+        <CharacterCondition sheet={sheet} savedAt={conditionSavedAt} />
       </div>
 
       {availability !== 'partial' && sheet.skills && (
@@ -213,7 +240,7 @@ export function CharacterTab({
             savedAt={inventoryView.savedAt}
             requested={state.inventoryRequested}
             loading={state.inventoryLoading}
-            error={state.inventoryError}
+            error={state.inventoryError ?? inventoryView.failure}
             canLoad={canLoadInventory}
             onLoad={state.loadInventory}
             onVisibleChange={state.setInventoryVisible}

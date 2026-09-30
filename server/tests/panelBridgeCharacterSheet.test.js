@@ -316,7 +316,8 @@ describe('getCharacterSheet: inventory', () => {
 
     const nails = root.rows.filter((row) => row.fullType === 'Base.Nails');
     expect(nails).toHaveLength(1);
-    expect(nails[0].qty).toBe(3);
+    // Two objects, one unit each: the first one's getCount() of 2 is ignored.
+    expect(nails[0].qty).toBe(2);
     expect(nails[0].weight).toBeCloseTo(0.03, 6);
 
     const apples = rowByType(root.rows, 'Base.Apple');
@@ -331,6 +332,60 @@ describe('getCharacterSheet: inventory', () => {
       modId: 'pz-vanilla',
       worn: false,
     });
+  });
+
+  it('keeps renamed items of one type apart, each under its own name', () => {
+    // Vanilla renames maps, food and notebooks with item:setName, and
+    // getDisplayName() reads the per-item name.
+    const bridge = load(`
+Alice.inventory = Container({
+  Item("Base.Notebook", { name = "Base codes", condition = 10 }),
+  Item("Base.Notebook", { name = "Loot list", condition = 3 }),
+  Item("Base.Map", { name = "Secret stash map" }),
+  Item("Base.Map", { name = "Map" }),
+  Item("Base.Notebook", { name = "Loot list", condition = 6 }),
+})
+`);
+    const { inventory } = sheet(bridge, { username: 'Alice', sections: ['inventory'] });
+    expect(inventory.root.rows.map((row) => [row.fullType, row.name, row.qty])).toEqual([
+      ['Base.Notebook', 'Base codes', 1],
+      ['Base.Notebook', 'Loot list', 2],
+      ['Base.Map', 'Secret stash map', 1],
+      ['Base.Map', 'Map', 1],
+    ]);
+    // Conditions don't mix across names.
+    expect(inventory.root.rows[0].condition).toBe(10);
+    expect(inventory.root.rows[1].condition).toBe(3);
+    // Type facts are still read once per type.
+    expect(inventory.totals.distinctTypes).toBe(2);
+    expect(bridge.getGlobal('HiddenReads')['Base.Notebook']).toBe(1);
+  });
+
+  it('counts one unit per object, whatever getCount() says (B42 script count, admin view)', () => {
+    // Item.InstanceItem copies the script's count onto every object (Nails 5,
+    // ShotgunShells 6), and getItems4Admin leaves the first of a type at N.
+    const bridge = load(`
+local items = {}
+for i = 1, 100 do items[i] = Item("Base.Nails", { count = 5, name = "Nails" }) end
+items[101] = Item("Base.Apple", { count = 10, name = "Apple" })
+for i = 102, 110 do items[i] = Item("Base.Apple", { count = 1, name = "Apple" }) end
+Alice.inventory = Container(items)
+`);
+    const { inventory } = sheet(bridge, { username: 'Alice', sections: ['inventory'] });
+    expect(inventory.root.rows.map((row) => [row.fullType, row.qty])).toEqual([
+      ['Base.Nails', 100],
+      ['Base.Apple', 10],
+    ]);
+    expect(inventory.totals).toMatchObject({ walked: 110, itemCount: 110 });
+
+    // Never more units than objects read, even when the walk stops early.
+    const capped = load(`
+local items = {}
+for i = 1, 600 do items[i] = Item("Base.Bullets9mm", { count = 5 }) end
+Alice.inventory = Container(items)
+`);
+    const { totals } = sheet(capped, { username: 'Alice', sections: ['inventory'] }).inventory;
+    expect(totals).toMatchObject({ walked: 500, itemCount: 500, truncated: true, truncatedReason: 'maxItems' });
   });
 
   it('never groups containers, and uses the container\'s own name and capacity', () => {
@@ -385,9 +440,9 @@ Alice.inventory = Container({ Item("Base.Bag_Schoolbag", { contents = {}, capaci
     expect(totals.skipped).toBe(1);
     expect(totals.truncated).toBe(false);
     expect(totals.truncatedReason ?? null).toBeNull();
-    // Units: Axe 1, Nails 3, Apple 2, TestMug 1, Hammer 1, T-shirt 1, backpack 1,
+    // Units: Axe 1, Nails 2, Apple 2, TestMug 1, Hammer 1, T-shirt 1, backpack 1,
     // then Nails 1, Bandage 1, pouch 1, then Pen 1, box 1.
-    expect(totals.itemCount).toBe(15);
+    expect(totals.itemCount).toBe(14);
     // Stack types only: Axe, Nails, Apple, TestMug, Hammer, T-shirt, Bandage, Pen.
     expect(totals.distinctTypes).toBe(8);
   });
@@ -623,6 +678,57 @@ describe('getCharacterSheet: dispatcher', () => {
     expect(messages).toContainEqual(['DEBUG', 'Processing command: getCharacterSheet']);
     expect(messages).not.toContainEqual(['INFO', 'Processing command: getCharacterSheet']);
     expect(messages).toContainEqual(['DEBUG', 'Command served from cache: getAllPlayerDetails']);
+  });
+
+  it('a state-changing command drops the cached sheets, so the next read shows it', () => {
+    // giveItem calls inventory:AddItem(type); the sheet stubs' Container has none.
+    const bridge = load(`${FILE_STUBS}${INVENTORY}
+function Alice.inventory:AddItem(fullType)
+  local item = Item(fullType, { name = fullType })
+  table.insert(self.list.items, item)
+  return item
+end
+`);
+    const crowbars = (data) =>
+      data.inventory.root.rows.filter((row) => row.fullType === 'Base.Crowbar').reduce((sum, row) => sum + row.qty, 0);
+
+    enqueue(bridge, [{ id: 'inv1', action: 'getCharacterSheet', args: { username: 'Alice', sections: ['inventory'] } }], 1);
+    bridge.run('PanelBridgeModule.processCommands()');
+    bridge.run('Now = Now + 4000');
+    enqueue(bridge, [{ id: 'give', action: 'giveItem', args: { username: 'Alice', itemType: 'Base.Crowbar', count: 3 } }], 2);
+    bridge.run('PanelBridgeModule.processCommands()');
+    // Still inside the 10 s an inventory sheet is cached for.
+    bridge.run('Now = Now + 1000');
+    enqueue(bridge, [{ id: 'inv2', action: 'getCharacterSheet', args: { username: 'Alice', sections: ['inventory'] } }], 3);
+    bridge.run('PanelBridgeModule.processCommands()');
+
+    const state = bridge.getGlobal('PanelBridgeModule');
+    const byId = Object.fromEntries(state.pendingResults.map((r) => [r.id, r]));
+    expect(byId.give.success, byId.give.error).toBe(true);
+    expect(crowbars(byId.inv1.data)).toBe(0);
+    expect(crowbars(byId.inv2.data)).toBe(3);
+    expect(byId.inv2.data.generatedAt).toBeGreaterThan(byId.inv1.data.generatedAt);
+  });
+
+  it('a sheet cached just before a state-changing command is read again after it', () => {
+    const bridge = load(`${FILE_STUBS}
+function Alice.inventory:AddItem(fullType) return Item(fullType) end
+`);
+    enqueue(bridge, [{ id: 'base1', action: 'getCharacterSheet', args: { username: 'Alice', sections: ['summary'] } }], 1);
+    bridge.run('PanelBridgeModule.processCommands()');
+    bridge.run('Alice.getX = function() return 999 end');
+    enqueue(bridge, [{ id: 'give', action: 'giveItem', args: { username: 'Alice', itemType: 'Base.Crowbar', count: 1 } }], 2);
+    bridge.run('PanelBridgeModule.processCommands()');
+    // Inside the summary's 3 s cache.
+    bridge.run('Now = Now + 1000');
+    enqueue(bridge, [{ id: 'base2', action: 'getCharacterSheet', args: { username: 'Alice', sections: ['summary'] } }], 3);
+    bridge.run('PanelBridgeModule.processCommands()');
+
+    const state = bridge.getGlobal('PanelBridgeModule');
+    const byId = Object.fromEntries(state.pendingResults.map((r) => [r.id, r]));
+    expect(byId.give.success, byId.give.error).toBe(true);
+    expect(byId.base1.data.summary.x).toBe(100.5);
+    expect(byId.base2.data.summary.x).toBe(999);
   });
 
   it('control: an action outside READ_ONLY_UNCACHED_ACTIONS still clears that cache', () => {

@@ -2,8 +2,10 @@ import { EventEmitter } from "events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getActiveServer = vi.fn();
+const getPlayerLogs = vi.fn();
 vi.mock("../database/init.js", () => ({
   getActiveServer: (...args) => getActiveServer(...args),
+  getPlayerLogs: (...args) => getPlayerLogs(...args),
 }));
 
 const { CHARACTER_SAMPLER_TIMING, startCharacterSnapshotSampler, stopCharacterSnapshotSampler } = await import(
@@ -44,6 +46,8 @@ beforeEach(() => {
   serverId = `sampler-${serverCounter}`;
   getActiveServer.mockReset();
   getActiveServer.mockImplementation(async () => ({ id: serverId }));
+  getPlayerLogs.mockReset();
+  getPlayerLogs.mockResolvedValue([]);
   bridge = makeBridge();
   startCharacterSnapshotSampler(bridge);
 });
@@ -141,6 +145,39 @@ describe("characterSnapshotSampler: periodic pass", () => {
     expect(bridge.sendCommand).toHaveBeenCalledTimes(2);
     expect(await readCharacterRecord(serverId, "Ann")).toBeNull();
     expect((await readCharacterRecord(serverId, "Bob")).snapshots).toHaveLength(1);
+  });
+
+  it("does nothing on a mod without getCharacterSheet: no fallback read, and no more sweeps", async () => {
+    bridge.modStatus = { alive: true, players: ["Kate", "Bob", "Ann"], version: "1.7.71", startedAt: 1000 };
+    bridge.sendCommand.mockImplementation(async (action) => {
+      throw new Error(`Unknown command: ${action}`);
+    });
+    await vi.advanceTimersByTimeAsync(CHARACTER_SAMPLER_TIMING.sweepIntervalMs + 10 * CHARACTER_SAMPLER_TIMING.processIntervalMs);
+    await vi.advanceTimersByTimeAsync(CHARACTER_SAMPLER_TIMING.sweepIntervalMs + 10 * CHARACTER_SAMPLER_TIMING.processIntervalMs);
+    expect(bridge.sendCommand).toHaveBeenCalledTimes(1);
+    expect(bridge.getPlayerDetails).not.toHaveBeenCalled();
+
+    // An updated mod (another start) is sampled again.
+    bridge.modStatus = { ...bridge.modStatus, version: "1.7.72", startedAt: 2000 };
+    bridge.sendCommand.mockImplementation(async (action, args) => sheetFor(args.username));
+    await vi.advanceTimersByTimeAsync(CHARACTER_SAMPLER_TIMING.sweepIntervalMs + 10 * CHARACTER_SAMPLER_TIMING.processIntervalMs);
+    expect(bridge.sendCommand).toHaveBeenCalledTimes(4);
+  });
+
+  it("passes the game's last logged death, so a re-roll under the same name is a new life", async () => {
+    await recordCharacterSheet(serverId, "Kate", sheetFor("Kate").data, {
+      source: "sampler",
+      sections: ["summary", "skills", "traits"],
+      now: Date.now() - 60 * 60 * 1000,
+    });
+    getPlayerLogs.mockResolvedValue([
+      { player_name: "kate", action: "death", details: "non-pvp death at (1,2,0)", logged_at: new Date(Date.now() - 10 * 60 * 1000).toISOString() },
+    ]);
+    bridge.emit("playerConnect", "Kate");
+    await vi.advanceTimersByTimeAsync(CHARACTER_SAMPLER_TIMING.loginDelayMs + CHARACTER_SAMPLER_TIMING.processIntervalMs);
+    const record = await readCharacterRecord(serverId, "Kate");
+    expect(record.snapshots).toEqual([expect.objectContaining({ source: "login" })]);
+    expect(typeof record.lifeStartedAfter).toBe("number");
   });
 
   it("drops the queue when the bridge disconnects", async () => {

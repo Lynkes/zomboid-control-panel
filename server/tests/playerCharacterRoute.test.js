@@ -20,6 +20,8 @@ vi.mock("../database/init.js", () => ({
 const { default: bridge } = await import("../services/panelBridge.js");
 const { default: router, resetPlayerCharacterRouteState } = await import("../routes/playerCharacter.js");
 const { getDataPaths } = await import("../utils/paths.js");
+const { recordCharacterSheet, readCharacterRecord } = await import("../services/characterStore.js");
+const { normalizeSheet } = await import("../services/characterSheet.js");
 
 // A fresh server id per test keeps each test's saved records apart (the data
 // dir is shared across this file).
@@ -265,6 +267,84 @@ describe("GET /api/player-character/:username -- response", () => {
   });
 });
 
+describe("GET /api/player-character/:username -- an older bridge", () => {
+  beforeEach(() => {
+    bridge.modStatus = { alive: true, players: ["Kate"], version: "1.7.71", startedAt: 1000 };
+    onAction("getCharacterSheet", async () => {
+      throw new Error("Unknown command: getCharacterSheet");
+    });
+    onAction("getPlayerDetails", async () => ({ success: true, data: { username: "Kate", stats: { hunger: 0.5 } } }));
+  });
+
+  function sent(action) {
+    return sendCommand.mock.calls.filter(([name]) => name === action).length;
+  }
+
+  it("asks for getCharacterSheet once per mod session, then goes straight to getPlayerDetails", async () => {
+    for (let i = 0; i < 6; i++) {
+      // Past the coalescing window each time, as a 10 s poll is.
+      pastCoalescing();
+      const res = await request();
+      expect(res.body.availability).toBe("partial");
+    }
+    expect(sent("getCharacterSheet")).toBe(1);
+    expect(sent("getPlayerDetails")).toBe(6);
+  });
+
+  it("asks again once the mod restarts or is updated", async () => {
+    await request();
+    pastCoalescing();
+    bridge.modStatus = { ...bridge.modStatus, startedAt: 2000 };
+    await request();
+    expect(sent("getCharacterSheet")).toBe(2);
+    // The updated mod has the handler.
+    onAction("getCharacterSheet", async () => ({ success: true, data: fixture }));
+    pastCoalescing();
+    bridge.modStatus = { ...bridge.modStatus, version: "1.7.72", startedAt: 3000 };
+    expect((await request()).body.availability).toBe("live");
+  });
+});
+
+// Moves past the route's 2 s coalescing (resetPlayerCharacterRouteState
+// would also forget what the bridge supports).
+function pastCoalescing() {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(Date.now() + 10_000);
+}
+
+describe("GET /api/player-character/:username -- offline", () => {
+  it("dates the saved Condition by its own read, not the sampler's later writes", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const monday = Date.parse("2026-09-21T10:00:00.000Z");
+    const friday = Date.parse("2026-09-25T18:00:00.000Z");
+    vi.setSystemTime(monday);
+    expect((await request()).body.availability).toBe("live");
+    // The sampler reads summary, skills and traits through the week.
+    for (let t = monday + 6 * 60 * 60 * 1000, hours = 313; t <= friday; t += 6 * 60 * 60 * 1000, hours += 1) {
+      const sampled = structuredClone(fixture);
+      sampled.summary.hoursSurvived = hours;
+      delete sampled.stats;
+      delete sampled.health;
+      delete sampled.inventory;
+      await recordCharacterSheet(SERVER_ID, "Kate", normalizeSheet(sampled), {
+        source: "sampler",
+        sections: ["summary", "skills", "traits"],
+        now: t,
+      });
+    }
+    vi.setSystemTime(friday + 5 * 60 * 1000);
+    resetPlayerCharacterRouteState();
+    onAction("getCharacterSheet", async () => {
+      throw new Error("Player not found: Kate");
+    });
+    const { body } = await request();
+    expect(body.availability).toBe("playerOffline");
+    expect(body.cached.statsAt).toBe(new Date(monday).toISOString());
+    expect(Date.parse(body.cached.at)).toBeGreaterThan(Date.parse(body.cached.statsAt));
+    expect(body.cached.sheet.stats).toBeDefined();
+  });
+});
+
 describe("GET /api/player-character/:username -- coalescing and fresh", () => {
   it("identical concurrent requests share one bridge read", async () => {
     let release;
@@ -334,7 +414,8 @@ describe("GET /api/player-character/:username -- hints and history", () => {
     withMug.inventory.root.rows.push({ kind: "stack", fullType: "Base.TestMug", name: "Mug", qty: 1 });
     onAction("getCharacterSheet", async () => ({ success: true, data: withMug }));
     const res = await request({ query: { sections: "summary,stats,skills,traits,inventory" } });
-    expect(getPlayerLogs).toHaveBeenCalledWith("Kate", 200, SERVER_ID);
+    // Every row, filtered here by name without case (see the next test).
+    expect(getPlayerLogs).toHaveBeenCalledWith(null, 1000, SERVER_ID);
     const mug = res.body.hints.find((h) => h.id === "debugItems");
     expect(mug.explainedBy).toEqual([expect.objectContaining({ action: "add_item", details: "Base.TestMug x1" })]);
   });
@@ -366,6 +447,79 @@ describe("GET /api/player-character/:username -- hints and history", () => {
     expect(later.body.hints.find((h) => h.id === "debugItems").source).toBe("cached");
     // Hints from the live read itself stay live.
     expect(later.body.hints.filter((h) => !h.evidence.some((e) => e.kind === "item")).every((h) => h.source === "live")).toBe(true);
+  });
+
+  it("a Give item sent to the name typed in another case still explains the hint", async () => {
+    const now = Date.now();
+    const rows = [
+      { action: "kick", details: "x", logged_at: new Date(now - 30 * 1000).toISOString(), player_name: "Other" },
+      { action: "add_item", details: "Base.TestMug x1", logged_at: new Date(now - 60 * 1000).toISOString(), player_name: "kate" },
+    ];
+    // As database/init.js does: an exact name match when a name is given.
+    getPlayerLogs.mockImplementation(async (name, limit) => rows.filter((r) => !name || r.player_name === name).slice(0, limit));
+    const withMug = structuredClone(fixture);
+    withMug.inventory.root.rows.push({ kind: "stack", fullType: "Base.TestMug", name: "Mug", qty: 1 });
+    onAction("getCharacterSheet", async () => ({ success: true, data: withMug }));
+    const res = await request({ query: { sections: "summary,stats,skills,traits,inventory" } });
+    const mug = res.body.hints.find((h) => h.id === "debugItems");
+    expect(mug.explainedBy).toEqual([expect.objectContaining({ action: "add_item", details: "Base.TestMug x1" })]);
+  });
+
+  it("a Give item from long before the panel first saw this character still explains it", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const now = Date.parse("2026-09-30T12:00:00.000Z");
+    const DAY = 24 * 60 * 60 * 1000;
+    // A month-old character played 30 hours; the panel first read it 2 days
+    // ago (an upgrade), and the gift was 7 days ago.
+    const older = structuredClone(fixture);
+    older.summary.hoursSurvived = 600;
+    delete older.inventory;
+    await recordCharacterSheet(SERVER_ID, "Kate", normalizeSheet(older), {
+      source: "login",
+      sections: ["summary", "skills", "traits"],
+      now: now - 2 * DAY,
+    });
+    getPlayerLogs.mockResolvedValue([
+      { action: "add_item", details: "Base.TestMug x1", logged_at: new Date(now - 7 * DAY).toISOString(), player_name: "Kate" },
+    ]);
+    const withMug = structuredClone(fixture);
+    withMug.summary.hoursSurvived = 720;
+    withMug.inventory.root.rows.push({ kind: "stack", fullType: "Base.TestMug", name: "Mug", qty: 1 });
+    onAction("getCharacterSheet", async () => ({ success: true, data: withMug }));
+    vi.setSystemTime(now);
+    const res = await request({ query: { sections: "summary,stats,skills,traits,inventory" } });
+    const mug = res.body.hints.find((h) => h.id === "debugItems");
+    expect(mug.explainedBy).toEqual([expect.objectContaining({ action: "add_item" })]);
+  });
+
+  it("a death the game logged since the last read starts a new life, even under the same name", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const t0 = Date.parse("2026-09-30T10:00:00.000Z");
+    vi.setSystemTime(t0);
+    await request();
+    // Died at +10 min, same name and occupation; read at +25 min with more
+    // hours than the last read had.
+    const reborn = structuredClone(fixture);
+    reborn.summary.hoursSurvived = 400;
+    reborn.skills.perks.find((p) => p.id === "Axe").level = 7;
+    onAction("getCharacterSheet", async () => ({ success: true, data: reborn }));
+    getPlayerLogs.mockResolvedValue([
+      { action: "death", details: "non-pvp death at (1,2,0)", logged_at: new Date(t0 + 10 * 60 * 1000).toISOString(), player_name: "Kate" },
+      { action: "add_item", details: "Base.TestMug x1", logged_at: new Date(t0 + 5 * 60 * 1000).toISOString(), player_name: "Kate" },
+    ]);
+    resetPlayerCharacterRouteState();
+    vi.setSystemTime(t0 + 25 * 60 * 1000);
+    const withMug = structuredClone(reborn);
+    withMug.inventory.root.rows.push({ kind: "stack", fullType: "Base.TestMug", name: "Mug", qty: 1 });
+    onAction("getCharacterSheet", async () => ({ success: true, data: withMug }));
+    const res = await request({ query: { sections: "summary,stats,skills,traits,inventory" } });
+    // The old life's snapshot is no baseline for the new one...
+    expect(res.body.skillDelta).toBeNull();
+    expect(res.body.hints.map((h) => h.id)).not.toContain("skillJump");
+    // ...and a gift to the old life doesn't explain the new one's items.
+    expect(res.body.hints.find((h) => h.id === "debugItems").explainedBy).toBeUndefined();
+    const record = await readCharacterRecord(SERVER_ID, "Kate");
+    expect(record.lifeStartedAfter).toBe(t0 + 10 * 60 * 1000);
   });
 
   it("returns a skill delta against the saved history", async () => {

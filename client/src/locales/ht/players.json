@@ -154,6 +154,7 @@
       "partialBody": "Sèvè sa a gen yon vye vèsyon PanelBridge, kidonk se sèlman eta ak pozisyon ki parèt. Konpetans, karakteristik ak envantè bezwen vèsyon PanelBridge ki la kounye a: gade Paramèt › PanelBridge.",
       "bridgeOffline": "PanelBridge pa konekte.",
       "timeout": "PanelBridge pa t reponn a tan.",
+      "timeoutBody": "Eseye ankò nan yon ti moman. Poko gen anyen ki sove pou pèsonaj sa a.",
       "showingSaved": "N ap montre sa panèl la te sove {{when}}.",
       "offlineNoCacheTitle": "Poko gen pèsonaj ki sove",
       "offlineNoCacheBody": "Panèl la sove yon pèsonaj lè yon moun gade l, epi yon ti tan apre jwè a konekte. Tounen apre pwochen fwa li jwe.",
@@ -227,7 +228,7 @@
       "xpAria": "XP pou rive nan pwochen nivo a",
       "xpProgress": "{{xp}} / {{next}} XP",
       "xpMaxed": "{{xp}} XP",
-      "startsAt": "Kòmanse nan {{level}}",
+      "xpBoost": "Bonis XP +{{percent}}%",
       "bookMultiplier": "×{{multiplier}} gras a liv konpetans",
       "since": "+{{levels}} depi {{time}}",
       "passive": "Pasif",
@@ -239,6 +240,7 @@
     "inventory": {
       "title": "Envantè",
       "intro": "Li chaje lè w mande l: li yon gwo envantè pran sèvè a yon ti moman.",
+      "noneSaved": "Poko gen envantè ki sove pou pèsonaj sa a. Li sove lè yon moun chaje l pandan jwè a konekte.",
       "load": "Chaje envantè a",
       "loading": "Ap chaje envantè a…",
       "loadedAt": "Chaje a {{time}}",
@@ -247,7 +249,7 @@
       "primary": "Men prensipal",
       "secondary": "Dezyèm men",
       "worn": "Sou li",
-      "attachedTo": "Sou {{slot}}",
+      "attached": "Tache",
       "viewLabel": "Vi",
       "viewTree": "Kontenè",
       "viewByType": "Pa kalite",
@@ -264,6 +266,7 @@
       "expand": "Montre sa ki nan {{name}}",
       "collapse": "Kache sa ki nan {{name}}",
       "givenViaPanel": "Bay atravè panèl la {{when}}",
+      "givenViaPanelPartial": "{{given}} sou {{qty}} bay atravè panèl la {{when}}",
       "hiddenItem": "Objè kache",
       "debugItem": "Objè debogaj",
       "obsoleteItem": "Objè ki demode",
@@ -286,7 +289,8 @@
       "explainedEntry": "{{action}}: {{details}}, {{when}}",
       "actions": {
         "add_xp": "Bay XP",
-        "add_item": "Bay objè"
+        "add_item": "Bay objè",
+        "import": "Enpòte pèsonaj"
       },
       "staff": "Kont ekip la",
       "canSpawnItems": "Wòl kont sa a ka fè objè parèt.",
@@ -296,7 +300,6 @@
       },
       "evidence": {
         "level": "nivo {{level}}",
-        "levelFromStart": "nivo {{level}}, kòmanse nan {{start}}",
         "jump": "{{from}} → {{to}}",
         "qty": "×{{qty}}"
       },
@@ -316,13 +319,13 @@
         "skillJump": {
           "title": "Konpetans monte vit",
           "detail": "Nivo li genyen nan dènye {{minutes}} minit yo: {{total}}.",
-          "rule": "Li make yon konpetans ki genyen {{onePerk}} nivo oswa plis pou rive nan nivo {{minLevel}}, yon konpetans pasif (Fòm fizik, Fòs) ki genyen {{passive}} oswa plis, oswa {{totalLevels}} nivo oswa plis antou, nan {{window}} minit. Konpare ak foto ki te pran a {{sinceTime}}.",
-          "innocent": "Plizyè liv konpetans li youn apre lòt, yon bon ti tan ap fabrike oswa ap goumen, oswa XP yon admin te bay nan jwèt la."
+          "rule": "Li make yon konpetans ki genyen {{onePerk}} nivo oswa plis pou rive nan nivo {{minLevel}}, yon konpetans pasif (Fòm fizik, Fòs) ki genyen {{passive}} oswa plis, oswa {{totalLevels}} nivo oswa plis antou anwo nivo {{floor}}, nan {{window}} minit. Avèk yon miltiplikatè XP oswa yon liv konpetans, yo divize pwogrè a pa li anvan: yon konpetans parèt sèlman si XP li, divize konsa, toujou rive {{rawXp}} oswa plis. Konpare ak foto ki te pran a {{sinceTime}}.",
+          "innocent": "Plizyè liv konpetans li youn apre lòt, yon bon ti tan ap fabrike oswa ap goumen, yon miltiplikatè XP ki wo, oswa XP yon admin te bay nan jwèt la."
         },
         "skillsAheadOfTime": {
           "title": "Konpetans devan tan jwe a",
           "detail": "Nivo konpetans ki depase nivo {{floor}}: {{advanced}}, apre anviwon {{hours}} è jwe nan lavi sa a; nòmalman se anviwon {{allowed}}.",
-          "rule": "Li konte chak nivo ki depase {{floor}} (oswa nivo kòmansman an, si li pi wo) nan konpetans ki pa pasif; nivo ki soti nan liv konte pou mwatye. Nòmalman se {{perHour}} nivo pou chak èdtan reyèl nan lavi sa a, fwa miltiplikatè XP sèvè a ({{xpScale}}), plis {{grace}}. Li parèt klè lè li depase de fwa sa.",
+          "rule": "Li konte chak nivo ki depase {{floor}} nan konpetans ki pa pasif; nivo ki soti nan liv konte pou mwatye. Nòmalman se {{perHour}} nivo pou chak èdtan reyèl nan lavi sa a, fwa miltiplikatè XP sèvè a ({{xpScale}}), plis {{grace}}. Li parèt klè lè li depase de fwa sa.",
           "innocent": "Lontan ap travay yon sèl konpetans, liv ak magazin konpetans, yon miltiplikatè XP ki wo, oswa tan jwe estimasyon an pa wè."
         },
         "manyMaxedSkills": {

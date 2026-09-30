@@ -7,6 +7,8 @@ import { CHARACTER_FLAGS, type CharacterRecord, type CharacterSheet } from '@/li
 import { makeCollator, professionLabel, sortByLabel, traitLabel } from '@/lib/characterLabels'
 import { DEFAULT_MINUTES_PER_DAY, estimatePlayedHours, formatNumber } from './characterFormat'
 
+const ORDINARY_ROLES = new Set(['none', 'user'])
+
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="min-w-0 space-y-0.5">
@@ -37,7 +39,9 @@ export function CharacterSummary({ sheet, record }: { sheet: CharacterSheet; rec
   )
   const hasRecord =
     record !== null && [record.allTimeKills, record.deaths, record.bestDays].some((value) => typeof value === 'number')
-  const showRole = typeof role?.name === 'string' && role.name !== '' && role.name.toLowerCase() !== 'none'
+  // B42's default role for every ordinary account is "user" (Roles:
+  // defaultForUser), B41's access level "none": neither is a special role.
+  const showRole = typeof role?.name === 'string' && role.name !== '' && !ORDINARY_ROLES.has(role.name.toLowerCase())
 
   return (
     <section className="space-y-3" aria-labelledby="character-summary-heading">

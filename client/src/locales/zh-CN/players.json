@@ -154,6 +154,7 @@
       "partialBody": "此服务器运行的是旧版 PanelBridge，因此只显示状态和位置。技能、特质和物品栏需要当前版本的 PanelBridge：请参阅「设置 › PanelBridge」。",
       "bridgeOffline": "PanelBridge 未连接。",
       "timeout": "PanelBridge 未能及时响应。",
+      "timeoutBody": "请稍后重试。目前还没有为此角色保存任何内容。",
       "showingSaved": "显示的是面板于 {{when}} 保存的内容。",
       "offlineNoCacheTitle": "尚无已保存的角色档案",
       "offlineNoCacheBody": "有人查看角色时，以及玩家登录后不久，面板会保存一份角色档案。请在该玩家下次游戏后再来查看。",
@@ -227,7 +228,7 @@
       "xpAria": "距离下一级的经验值",
       "xpProgress": "{{xp}} / {{next}} XP",
       "xpMaxed": "{{xp}} XP",
-      "startsAt": "初始等级 {{level}}",
+      "xpBoost": "经验加成 +{{percent}}%",
       "bookMultiplier": "技能书加成 ×{{multiplier}}",
       "since": "自 {{time}} 起 +{{levels}}",
       "passive": "被动",
@@ -239,6 +240,7 @@
     "inventory": {
       "title": "物品栏",
       "intro": "按需加载：读取大量物品需要服务器花一点时间。",
+      "noneSaved": "尚未为此角色保存物品栏。玩家在线时有人加载物品栏，就会保存一份。",
       "load": "加载物品栏",
       "loading": "正在加载物品栏…",
       "loadedAt": "加载于 {{time}}",
@@ -247,7 +249,7 @@
       "primary": "主手",
       "secondary": "副手",
       "worn": "穿戴中",
-      "attachedTo": "挂在 {{slot}}",
+      "attached": "已挂上",
       "viewLabel": "视图",
       "viewTree": "按容器",
       "viewByType": "按类型",
@@ -264,6 +266,7 @@
       "expand": "显示 {{name}} 中的物品",
       "collapse": "隐藏 {{name}} 中的物品",
       "givenViaPanel": "{{when}} 通过面板给予",
+      "givenViaPanelPartial": "{{when}} 通过面板给予了 {{qty}} 个中的 {{given}} 个",
       "hiddenItem": "隐藏物品",
       "debugItem": "调试物品",
       "obsoleteItem": "已废弃物品",
@@ -286,7 +289,8 @@
       "explainedEntry": "{{action}}：{{details}}，{{when}}",
       "actions": {
         "add_xp": "给予经验",
-        "add_item": "给予物品"
+        "add_item": "给予物品",
+        "import": "导入角色"
       },
       "staff": "管理团队账号",
       "canSpawnItems": "此账号的角色可以生成物品。",
@@ -296,7 +300,6 @@
       },
       "evidence": {
         "level": "等级 {{level}}",
-        "levelFromStart": "等级 {{level}}，初始 {{start}}",
         "jump": "{{from}} → {{to}}",
         "qty": "×{{qty}}"
       },
@@ -316,13 +319,13 @@
         "skillJump": {
           "title": "技能提升很快",
           "detail": "过去 {{minutes}} 分钟内共提升了 {{total}} 级。",
-          "rule": "在 {{window}} 分钟内，某项技能提升 {{onePerk}} 级或以上并达到 {{minLevel}} 级，或某项被动技能（体格、力量）提升 {{passive}} 级或以上，或所有技能合计提升 {{totalLevels}} 级或以上，就会标出。对比的是 {{sinceTime}} 的快照。",
-          "innocent": "连续阅读了几本技能书，长时间集中制作或战斗，或管理员在游戏内给予了经验。"
+          "rule": "在 {{window}} 分钟内，某项技能提升 {{onePerk}} 级或以上并达到 {{minLevel}} 级，或某项被动技能（体格、力量）提升 {{passive}} 级或以上，或所有技能在 {{floor}} 级以上合计提升 {{totalLevels}} 级或以上，就会标出。若有经验倍率或正在阅读技能书，提升会先除以该倍率：单项技能只有在这样除过之后的经验仍不少于 {{rawXp}} 时才会标出。对比的是 {{sinceTime}} 的快照。",
+          "innocent": "连续阅读了几本技能书，长时间集中制作或战斗，经验倍率较高，或管理员在游戏内给予了经验。"
         },
         "skillsAheadOfTime": {
           "title": "技能超前于游玩时间",
           "detail": "本条命游玩约 {{hours}} 小时后，技能等级在 {{floor}} 级以上的部分共 {{advanced}} 级，通常约为 {{allowed}} 级。",
-          "rule": "统计非被动技能中高于 {{floor}} 级（若初始等级更高则以初始等级为准）的每一级，借助技能书获得的等级按一半计算。通常为本条命每现实小时 {{perHour}} 级，乘以服务器的经验倍率（{{xpScale}}），再加 {{grace}}。超过两倍时较突出。",
+          "rule": "统计非被动技能中高于 {{floor}} 级的每一级，借助技能书获得的等级按一半计算。通常为本条命每现实小时 {{perHour}} 级，乘以服务器的经验倍率（{{xpScale}}），再加 {{grace}}。超过两倍时较突出。",
           "innocent": "长时间专注练一项技能，阅读技能书和杂志，经验倍率较高，或存在估算无法看到的游玩时间。"
         },
         "manyMaxedSkills": {

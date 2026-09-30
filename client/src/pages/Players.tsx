@@ -319,6 +319,11 @@ function ActionTile({
   )
 }
 
+// A name typed in the manual target box reaches the Character tab once the
+// typing pauses this long: each keystroke would otherwise be a bridge read
+// (B, Ba, Bar...). Moderation actions still use the name as typed, at once.
+const MANUAL_TARGET_SETTLE_MS = 500
+
 const DOSSIER_TABS = ['character', 'moderation', 'spawn', 'powers', 'notes'] as const
 type DossierTab = (typeof DOSSIER_TABS)[number]
 function isDossierTab(value: string | null): value is DossierTab {
@@ -375,6 +380,8 @@ export default function Players() {
   const [players, setPlayers] = useState<Player[]>([])
   const [perks, setPerks] = useState<PerkChoice[]>([])
   const [selectedPlayer, setSelectedPlayer] = useState<string>('')
+  const [typingManualTarget, setTypingManualTarget] = useState(false)
+  const [settledManualTarget, setSettledManualTarget] = useState('')
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const { toast } = useToast()
@@ -676,10 +683,9 @@ export default function Players() {
   // 2026-09-08 (retry-stacking sweep): `manual` covers the Retry button,
   // the Enter-key filter search, and the filter button's own RefreshCw icon
   // -- all three are a human explicitly asking for a fresh/filtered fetch
-  // right now. The Notes/Log tab's own first-open call (TabsTrigger's
-  // onClick) is left on the default: opening a tab for the first time is
-  // navigation loading its content, not a human retrying or refreshing
-  // something already on screen.
+  // right now. The Notes/Log tab's own load when it opens (the effect below)
+  // is left on the default: opening a tab is navigation loading its content,
+  // not a human retrying or refreshing something already on screen.
   const fetchActivityLogs = useCallback(async (playerFilter?: string, opts?: { manual?: boolean }) => {
     setLogsLoading(true)
     try {
@@ -699,6 +705,13 @@ export default function Players() {
       setLogsLoading(false)
     }
   }, [t])
+
+  // The Notes & Log tab reads the activity log whenever it opens, however it
+  // opens: a click, the keyboard, or ?tab=notes on a reload or Back (the tab
+  // follows the URL, so a trigger's onClick alone left it empty there).
+  useEffect(() => {
+    if (activeTab === 'notes') void fetchActivityLogs()
+  }, [activeTab, fetchActivityLogs])
 
   // 2026-09-08 (retry-stacking sweep): `manual` gates only the notes tab's
   // own Retry button -- mount and the server-change handler keep the
@@ -1428,17 +1441,36 @@ export default function Players() {
     [selectedPlayer, playerPowers]
   )
 
-  const isSelectedPlayerOnline = useMemo(
-    () => !!selectedPlayer && players.some(p => p.name === selectedPlayer),
-    [selectedPlayer, players]
-  )
+  // The Character tab's player: the selection, except while a name is being
+  // typed in the manual box, when it keeps the one before until the typing
+  // settles (MANUAL_TARGET_SETTLE_MS).
+  useEffect(() => {
+    if (!typingManualTarget) return
+    const timer = setTimeout(() => {
+      setSettledManualTarget(selectedPlayer)
+      setTypingManualTarget(false)
+    }, MANUAL_TARGET_SETTLE_MS)
+    return () => clearTimeout(timer)
+  }, [typingManualTarget, selectedPlayer])
+  const characterTarget = typingManualTarget ? settledManualTarget : selectedPlayer
+  // A roster click selects at once, even mid-typing.
+  const pickRosterPlayer = (name: string) => {
+    setTypingManualTarget(false)
+    setSelectedPlayer(name)
+  }
+  // The bridge finds a player whatever the case of the name, so a typed
+  // "bob" is the online Bob.
+  const isCharacterTargetOnline = useMemo(() => {
+    const lower = characterTarget.toLowerCase()
+    return !!characterTarget && players.some(p => p.name.toLowerCase() === lower)
+  }, [characterTarget, players])
 
   // Character tab data. Lifted here so the dossier's "Worth a look" badge
   // counts on every tab; it polls only while the Character tab is open (the
   // old Vitals poll ran on every tab).
   const characterSheet = useCharacterSheet({
-    username: canViewCharacter ? selectedPlayer : '',
-    online: isSelectedPlayerOnline,
+    username: canViewCharacter ? characterTarget : '',
+    online: isCharacterTargetOnline,
     active: activeTab === 'character',
   })
 
@@ -1688,7 +1720,7 @@ export default function Players() {
                               ? 'bg-primary/10 border-primary shadow-sm'
                               : 'hover:bg-muted/50 border-transparent hover:border-border'
                           }`}
-                          onClick={() => setSelectedPlayer(player.name)}
+                          onClick={() => pickRosterPlayer(player.name)}
                         >
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2 min-w-0">
@@ -1790,7 +1822,7 @@ export default function Players() {
                               ? 'bg-primary/10 border-primary shadow-sm'
                               : 'hover:bg-muted/50 border-transparent hover:border-border'
                           }`}
-                          onClick={() => setSelectedPlayer(name)}
+                          onClick={() => pickRosterPlayer(name)}
                           title={t('roster.lastSeenTitle', { when: lastSeen ? lastSeen.toLocaleString(i18n.language) : t('roster.lastSeenUnknown') })}
                         >
                           <div className="flex items-center justify-between gap-2">
@@ -2002,7 +2034,11 @@ export default function Players() {
               <Input
                 placeholder={t('roster.manualTargetPlaceholder')}
                 value={selectedPlayer}
-                onChange={(e) => setSelectedPlayer(e.target.value)}
+                onChange={(e) => {
+                  if (!typingManualTarget) setSettledManualTarget(selectedPlayer)
+                  setTypingManualTarget(true)
+                  setSelectedPlayer(e.target.value)
+                }}
                 className="h-9 font-mono text-sm"
               />
             </div>
@@ -2272,7 +2308,7 @@ export default function Players() {
                 <TabsTrigger value="moderation" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.moderation')}</TabsTrigger>
                 <TabsTrigger value="spawn" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.spawn')}</TabsTrigger>
                 <TabsTrigger value="powers" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.powers')}</TabsTrigger>
-                <TabsTrigger value="notes" className="min-h-8 shrink-0 px-3 text-xs font-medium" onClick={() => fetchActivityLogs()}>{t('tabs.notesLog')}</TabsTrigger>
+                <TabsTrigger value="notes" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.notesLog')}</TabsTrigger>
               </TabsList>
 
               {/* Character Tab -- skills, XP, traits, condition and inventory
@@ -2280,7 +2316,7 @@ export default function Players() {
                   the Vitals tab, whose content is its Condition section. */}
               <TabsContent value="character" className="mt-4">
                 {canViewCharacter ? (
-                  <CharacterTab username={selectedPlayer} online={isSelectedPlayerOnline} state={characterSheet} />
+                  <CharacterTab username={characterTarget} online={isCharacterTargetOnline} state={characterSheet} />
                 ) : (
                   <p className="text-sm text-muted-foreground">{t('character.state.noPermission')}</p>
                 )}

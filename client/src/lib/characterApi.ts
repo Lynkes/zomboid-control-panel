@@ -219,7 +219,6 @@ export interface CharacterHintEvidence {
   ref: string
   detail?: {
     level?: number
-    start?: number
     from?: number
     to?: number
     qty?: number
@@ -253,6 +252,7 @@ export interface CharacterHintThresholds {
   jumpLevelsPassive: number
   jumpTotalLevels: number
   jumpWindowMinutes: number
+  jumpRawXpFloor: number
   unusualQuantity: number
   overCapacityFactor: number
 }
@@ -266,7 +266,8 @@ export interface CharacterSheetResponse {
   inventoryRefreshAfterMs: number
   fetchedAt: string
   sheet: CharacterSheet | null
-  cached: { at: string; inventoryAt: string | null; sheet: CharacterSheet } | null
+  /** statsAt: when the saved Condition (stats and health) was read, which can be older than `at`. */
+  cached: { at: string; inventoryAt: string | null; statsAt?: string | null; sheet: CharacterSheet } | null
   record: CharacterRecord | null
   skillDelta: CharacterSkillDelta | null
   hints: CharacterHint[]

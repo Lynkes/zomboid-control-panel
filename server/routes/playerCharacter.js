@@ -7,8 +7,14 @@ import {
   DEFAULT_CHARACTER_SECTIONS,
   fetchCharacterSheet,
   refreshIntervalsFor,
+  resetCharacterSheetSupport,
 } from "../services/characterSheet.js";
-import { CHARACTER_HINT_THRESHOLDS, computeCharacterHints, estimateRealHours } from "../services/characterHints.js";
+import {
+  CHARACTER_HINT_THRESHOLDS,
+  computeCharacterHints,
+  latestDeathAt,
+  playerLogsFor,
+} from "../services/characterHints.js";
 import { readCharacterRecord, recordCharacterSheet } from "../services/characterStore.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { createLogger } from "../utils/logger.js";
@@ -34,6 +40,9 @@ const FRESH_MIN_INTERVAL_MS = 5000;
 const LEADERBOARD_CACHE_MS = 10000;
 const MAX_TRACKED_KEYS = 500;
 const PLAYER_LOG_LIMIT = 200;
+// player_logs keeps 1000 rows across every player (database/init.js); this
+// player's are picked out of all of them, without case.
+const PLAYER_LOG_SCAN_LIMIT = 1000;
 // Live hints may use the inventory the panel last read (the base poll never
 // reads it) while it is this many inventory refresh intervals old; an older
 // one only yields item hints marked as from the saved character.
@@ -48,6 +57,7 @@ export function resetPlayerCharacterRouteState() {
   inFlight.clear();
   lastFreshAt.clear();
   leaderboardCache = null;
+  resetCharacterSheetSupport();
 }
 
 function sweepMaps(now) {
@@ -105,19 +115,23 @@ async function leaderboardRecord(serverId, username, now) {
   }
 }
 
-// Earliest known start of this life: the oldest snapshot of it, minus the
-// play time it had already recorded then. Widens the window panel "Give
-// item" logs are matched in when the server spent time stopped.
-function lifeStartedAtOf(record) {
-  const first = record?.snapshots?.[0];
-  if (!first || typeof first.at !== "number") return undefined;
-  const hours = estimateRealHours({ hoursSurvived: first.hoursSurvived, minutesPerDay: record.lastSheet?.summary?.minutesPerDay });
-  return hours === undefined ? first.at : first.at - hours * 60 * 60 * 1000;
+// When this life began, as far as the panel knows: after the store saw the
+// last one end, or after the game last logged this player's death (for a
+// character that isn't dead now). Unknown is undefined: play time can't say
+// (30 hours played over a month started a month ago).
+function lifeStartedAfterOf(record, sheet, deathAt) {
+  const known = [];
+  if (typeof record?.lifeStartedAfter === "number") known.push(record.lifeStartedAfter);
+  if (typeof deathAt === "number" && sheet?.summary?.isAlive !== false) known.push(deathAt);
+  return known.length > 0 ? Math.max(...known) : undefined;
 }
 
+// This player's rows, matched without case: the game finds "bob" for Bob,
+// and routes/players.js logs the name as the request carried it.
 async function safePlayerLogs(username, serverId) {
   try {
-    return await getPlayerLogs(username, PLAYER_LOG_LIMIT, serverId ?? undefined);
+    const all = await getPlayerLogs(null, PLAYER_LOG_SCAN_LIMIT, serverId ?? undefined);
+    return playerLogsFor(all, username, PLAYER_LOG_LIMIT);
   } catch {
     return [];
   }
@@ -126,19 +140,20 @@ async function safePlayerLogs(username, serverId) {
 async function buildCharacterView({ username, serverId, sections, fresh, maxItems }) {
   const now = Date.now();
   const intervals = refreshIntervalsFor(bridge);
-  const [result, record] = await Promise.all([
+  const [result, record, playerLogs] = await Promise.all([
     fetchCharacterSheet(bridge, username, { sections, fresh, maxItems }),
     leaderboardRecord(serverId, username, now),
+    safePlayerLogs(username, serverId),
   ]);
   const { availability } = result;
   const sheet = result.sheet ?? null;
-  const canonicalName = sheet?.username ?? username;
+  const deathAt = latestDeathAt(playerLogs, now);
 
   let stored = null;
   let skillDelta = null;
   if (availability === "live" && sheet && serverId) {
     try {
-      const saved = await recordCharacterSheet(serverId, username, sheet, { source: "view", sections, now });
+      const saved = await recordCharacterSheet(serverId, username, sheet, { source: "view", sections, now, deathAt });
       if (saved) {
         stored = saved.record;
         skillDelta = saved.skillDelta;
@@ -154,11 +169,15 @@ async function buildCharacterView({ username, serverId, sections, fresh, maxItem
     }
   }
 
+  const isoOrNull = (ms) => (typeof ms === "number" ? new Date(ms).toISOString() : null);
   const cached =
     availability !== "live" && stored?.lastSheet
       ? {
           at: new Date(stored.lastSheetAt).toISOString(),
-          inventoryAt: stored.lastInventoryAt ? new Date(stored.lastInventoryAt).toISOString() : null,
+          inventoryAt: isoOrNull(stored.lastInventoryAt),
+          // The Condition section's own time: the sampler's later writes
+          // don't read it.
+          statsAt: isoOrNull(stored.statsAt),
           sheet: stored.lastSheet,
         }
       : null;
@@ -188,14 +207,13 @@ async function buildCharacterView({ username, serverId, sections, fresh, maxItem
   }
   let hints = [];
   if (hintSheet) {
-    const playerLogs = await safePlayerLogs(hintSheet.username ?? canonicalName, serverId);
     hints = computeCharacterHints(hintSheet, {
       thresholds: CHARACTER_HINT_THRESHOLDS,
       skillDelta,
       playerLogs,
       now,
       source: hintSource,
-      lifeStartedAt: lifeStartedAtOf(stored),
+      lifeStartedAfter: lifeStartedAfterOf(stored, hintSheet, deathAt),
     });
     if (staleInventoryAt !== null) {
       for (const hint of hints) {

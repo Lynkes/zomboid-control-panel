@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import type { CharacterContainerRow, CharacterHint, CharacterRow, CharacterStackRow } from '@/lib/characterApi'
 import {
   aggregateByType,
+  aggregateRows,
   countUnits,
   filterTree,
   inventoryAnnotations,
+  matchingRows,
   rowMatches,
   sortRows,
   totals,
@@ -98,6 +100,22 @@ describe('aggregateByType', () => {
   })
 })
 
+describe('matchingRows (the By type search)', () => {
+  const bags: CharacterRow[] = [
+    bag('Alpha Bag', [stack('Base.Nails', { qty: 3 })]),
+    bag('Beta Bag', [stack('Base.Axe')]),
+  ]
+
+  it('keeps only matching rows: no ancestor bag, no contents of a matching bag', () => {
+    expect(aggregateRows(matchingRows(bags, 'axe')).map((entry) => entry.fullType)).toEqual(['Base.Axe'])
+    expect(aggregateRows(matchingRows(bags, 'Alpha')).map((entry) => [entry.fullType, entry.qty])).toEqual([['Base.Alpha Bag', 1]])
+  })
+
+  it('an empty query is every row, as aggregateByType counts them', () => {
+    expect(aggregateRows(matchingRows(tree, ''))).toEqual(aggregateByType(tree))
+  })
+})
+
 describe('sortRows', () => {
   const collator = new Intl.Collator('en', { sensitivity: 'base', numeric: true })
 
@@ -134,8 +152,25 @@ describe('inventoryAnnotations', () => {
       { id: 'overCapacity', weight: 'strong', params: {}, staff: false, source: 'live', evidence: [] },
     ]
     const map = inventoryAnnotations(hints)
-    expect(map.get('Base.TestMug')).toEqual({ debug: true, givenAt: '2026-09-29T10:00:00.000Z' })
+    expect(map.get('Base.TestMug')).toEqual({ debug: true, givenAt: '2026-09-29T10:00:00.000Z', given: 1, qty: 1 })
     expect(map.size).toBe(1)
     expect(inventoryAnnotations(undefined).size).toBe(0)
+  })
+
+  it('says how many of how many when the panel gave only part of the stack', () => {
+    const partial: CharacterHint = {
+      id: 'debugItems',
+      weight: 'strong',
+      params: {},
+      staff: false,
+      source: 'live',
+      evidence: [{ kind: 'item', ref: 'Base.TestMug', detail: { qty: 5, given: 1, givenAt: '2026-09-29T10:00:00.000Z' } }],
+    }
+    expect(inventoryAnnotations([partial]).get('Base.TestMug')).toEqual({
+      debug: true,
+      givenAt: '2026-09-29T10:00:00.000Z',
+      given: 1,
+      qty: 5,
+    })
   })
 })

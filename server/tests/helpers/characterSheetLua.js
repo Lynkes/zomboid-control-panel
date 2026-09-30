@@ -156,6 +156,8 @@ function Item(fullType, opts)
   function item:getDisplayName() return self.opts.name or self.fullType end
   function item:getDisplayCategory() return self.opts.category or "Item" end
   function item:getModID() return self.opts.modId or "pz-vanilla" end
+  -- The script's instancing count (Nails 5 on B42), not a stack size: the
+  -- handler must not read it (each object is one unit).
   function item:getCount() return self.opts.count or 1 end
   function item:getActualWeight() return self.opts.weight or 0.5 end
   function item:getCondition() return self.opts.condition or 10 end
@@ -294,7 +296,8 @@ getOnlinePlayers = function() return OnlinePlayers end
 
 // Alice's inventory for the tests below:
 //   main (depth 1)
-//     Axe (two-handed: primary and secondary), 2 Nails objects (count 2 + 1),
+//     Axe (two-handed: primary and secondary), 2 Nails objects (one reporting
+//     getCount() 2, which the walk ignores),
 //     2 Apples (conditions 5 and 8), a hidden TestMug, a broken entry,
 //     a Hammer attached to the belt, a worn T-shirt,
 //     Backpack (worn) -> depth 2: Nails, Bandage,
