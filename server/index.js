@@ -1001,6 +1001,17 @@ const fmTransferLimiter = rateLimit({
   legacyHeaders: false,
   message: fmRateLimited,
 });
+// A folder upload sends one request per file, so its files get a bucket of
+// their own: 250 a minute before it pauses on a 429 (spec §A7), where the
+// shared transfer bucket stopped it at its 120th file. The global
+// apiLimiter (300/min) still caps everything together.
+const fmUploadLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 250,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: fmRateLimited,
+});
 const fmDeleteLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
   max: 20,
@@ -1019,7 +1030,7 @@ app.post("/api/files/profiles/:profileId/trash/restore", fmMutationLimiter);
 app.put("/api/files/profiles/:profileId/remote-roots", fmMutationLimiter);
 app.post("/api/files/profiles/:profileId/delete", fmDeleteLimiter);
 app.post("/api/files/profiles/:profileId/trash/purge", fmDeleteLimiter);
-app.post("/api/files/profiles/:profileId/upload", fmTransferLimiter);
+app.post("/api/files/profiles/:profileId/upload", fmUploadLimiter);
 app.post("/api/files/profiles/:profileId/upload/preflight", fmTransferLimiter);
 app.get("/api/files/profiles/:profileId/download", fmTransferLimiter);
 app.post("/api/files/profiles/:profileId/zip", fmTransferLimiter);

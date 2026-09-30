@@ -123,6 +123,48 @@ describe("Server Files deletes have their own rate limit", () => {
   });
 });
 
+describe("a folder upload", () => {
+  // Live QA: the per-file uploads shared the 120/min transfer bucket with
+  // the preflight, downloads and zips, so a folder upload paused at its
+  // 120th file (a 1000-file upload waited about 8 minutes), though spec §A7
+  // has pauses start above about 250 files (the global apiLimiter).
+  async function uploadOne(name) {
+    const res = await fetch(`${baseUrl}${P}/upload`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/octet-stream",
+        "x-test-role": "admin",
+        "x-test-user": "u1",
+        "x-file-root": "data",
+        "x-file-dir": "Logs",
+        "x-file-name": name,
+      },
+      body: "x",
+    });
+    const text = await res.text();
+    return { status: res.status, retryAfter: res.headers.get("retry-after"), body: text ? JSON.parse(text) : null };
+  }
+
+  it("sends 250 files in a minute without a pause, and leaves downloads their own bucket", async () => {
+    const files = Array.from({ length: 250 }, (_, i) => ({ relPath: `f${i}.txt`, size: 1 }));
+    expect((await call("POST", `${P}/upload/preflight`, { root: "data", dir: "Logs", files })).status).toBe(200);
+    const statuses = [];
+    // Two at a time, like the client.
+    for (let i = 0; i < 250; i += 2) {
+      const pair = await Promise.all([uploadOne(`f${i}.txt`), uploadOne(`f${i + 1}.txt`)]);
+      statuses.push(...pair.map((r) => r.status));
+    }
+    expect(statuses.filter((s) => s !== 201)).toEqual([]);
+    const over = await uploadOne("f250.txt");
+    expect(over.status).toBe(429);
+    expect(over.body.code).toBe(ErrorCode.FM_RATE_LIMITED);
+    expect(Number(over.retryAfter)).toBeGreaterThan(0);
+    const download = await fetch(`${baseUrl}${P}/download?root=data&path=Logs/f0.txt`, { headers: { "x-test-role": "admin", "x-test-user": "u1" } });
+    expect(download.status).toBe(200);
+    expect(await download.text()).toBe("x");
+  }, 60000);
+});
+
 describe("Undo of a bulk delete", () => {
   it("restores 100 items in one request, within the mutation limit", async () => {
     const paths = [];
