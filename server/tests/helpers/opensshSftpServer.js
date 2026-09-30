@@ -79,7 +79,11 @@ export const sftpServerSkipReason = SFTP_SERVER_BIN
 /** CI sets ZCP_REQUIRE_SFTP_SERVER=1: without a binary the suites then fail instead of skipping. */
 export const SFTP_SERVER_REQUIRED = process.env.ZCP_REQUIRE_SFTP_SERVER === "1";
 
-/** An MSYS2/Cygwin build (Git for Windows): paths are /c/..., semantics are NTFS's. */
+/**
+ * An MSYS2/Cygwin build (Git for Windows): paths are /c/..., semantics are
+ * NTFS's. On Windows the binary is taken to be one (Win32-OpenSSH's own
+ * sftp-server spells paths /C:/... and isn't supported here).
+ */
 export const SFTP_SERVER_IS_MSYS = Boolean(SFTP_SERVER_BIN) && process.platform === "win32";
 
 let hostKey = null;
@@ -101,8 +105,8 @@ function msysDrivePath(local) {
 }
 
 // The MSYS mount table (`mount` output: "C:/Users/x/AppData/Local/Temp on /tmp type ..."),
-// longest Windows prefix first, so a path under a mount is spelled the way
-// the server's REALPATH spells it.
+// longest Windows prefix first, so a path under a mount gets the mount's
+// spelling (/tmp/...), the one MSYS's own tools print.
 let msysMounts = null;
 function getMsysMounts() {
   if (msysMounts) return msysMounts;
