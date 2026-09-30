@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - World Map's item and vehicle pickers always fit the window (Custom item drop's item list was cut off).
+- Dialogs keep long values and their buttons on screen (Templates preview and others).
 - Uploads to the panel, including world backups, are no longer cut off after 5 minutes on a slow connection.
 - Players: Import character now shows in the player's activity log.
 - PanelBridge over SFTP keeps syncing after the host's SFTP service restarts or stops answering, instead of stalling until the panel restarts.
