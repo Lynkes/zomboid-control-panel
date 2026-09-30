@@ -75,7 +75,7 @@ function drainRefusedUpload(req) {
 // here to avoid: the answer keeps the connection, and the drain decides
 // when it goes.
 function refuseUploadBody(req, res) {
-  if (req.complete) return;
+  if (req.complete || res.headersSent) return;
   res.setHeader("Connection", "keep-alive");
   res.once("finish", () => drainRefusedUpload(req));
 }

@@ -68,8 +68,9 @@ function arm(req, res, deadlineMs) {
 }
 
 /**
- * Give every request on `server` `deadlineMs` from its first byte to its
- * last. Armed as the server hands the request out, before any listener
+ * Give every request on `server` `deadlineMs` from the moment its headers
+ * are in (headersTimeout bounds those) to its last byte. Armed as the
+ * server hands the request out, before any listener
  * (so before any body parser): a 'request' listener alone would miss every
  * /socket.io/ request, since Socket.IO's engine takes the server's
  * 'request' listeners over when it attaches and calls the others only for
