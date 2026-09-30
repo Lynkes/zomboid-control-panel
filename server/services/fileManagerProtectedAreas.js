@@ -425,28 +425,39 @@ function worldAreasFor(profile) {
  * POSIX; they are compared lower-cased like local ones, since an SFTP server
  * can sit on a case-insensitive filesystem too.
  *
+ * The bridge folder is matched wherever it is found: by its real path on
+ * the server (`bridgeReal`, when the backend could learn it) and by the
+ * settings' spelling, against the root's real path and against the path
+ * the root was configured as. A root reached through a link has a real
+ * path the settings don't spell.
+ *
  * @param {object} opts
  * @param {"install"|"launch"|"data"|"config"} opts.rootId
  * @param {string} opts.rootReal  the root's remote real path
+ * @param {string|null} [opts.rootPath]  the root's path as configured
+ * @param {string|null} [opts.bridgeReal]  the bridge folder's remote real path
  * @param {object} opts.profile
  * @param {object} opts.settings
  */
-export function buildRemoteProtectionContext({ rootId, rootReal, profile, settings = {} }) {
+export function buildRemoteProtectionContext({ rootId, rootReal, rootPath = null, bridgeReal = null, profile, settings = {} }) {
   const anchors = [];
   const pushAnchor = (rel, area) => {
     anchors.push({ rel: String(rel).toLowerCase(), area });
   };
-  const posixRel = (abs) => {
-    if (typeof abs !== "string" || !abs.startsWith("/") || typeof rootReal !== "string") return null;
-    const rel = path.posix.relative(rootReal, path.posix.normalize(abs));
+  const posixRel = (abs, base = rootReal) => {
+    if (typeof abs !== "string" || !abs.startsWith("/") || typeof base !== "string" || !base.startsWith("/")) return null;
+    const rel = path.posix.relative(path.posix.normalize(base), path.posix.normalize(abs));
     if (rel === "" || rel.startsWith("..") || path.posix.isAbsolute(rel)) return rel === "" ? "" : null;
     return rel;
   };
   let rootSealed = null;
   pushAnchor("Lua/panelbridge", "bridgeIo");
-  const bridgeRel = posixRel(settings.panelBridgeSftpBridgePath);
-  if (bridgeRel === "") rootSealed = protection("bridgeIo");
-  else if (bridgeRel) pushAnchor(bridgeRel, "bridgeIo");
+  const bridgeSetting = settings.panelBridgeSftpBridgePath;
+  const bridgeRels = new Set([posixRel(bridgeReal), posixRel(bridgeSetting), posixRel(bridgeSetting, rootPath)]);
+  for (const bridgeRel of bridgeRels) {
+    if (bridgeRel === "") rootSealed = protection("bridgeIo");
+    else if (bridgeRel) pushAnchor(bridgeRel, "bridgeIo");
+  }
   if (rootId === "install") {
     pushAnchor("media/lua/server/PanelBridge.lua", "bridgeManaged");
     pushAnchor("media/lua/client/PanelBridgeClient.lua", "bridgeManaged");

@@ -16,6 +16,8 @@
 //   shortNames     Map of alias path -> real path: Windows 8.3 names on an
 //                  NTFS-backed host (PANELB~1 opens panelbridge)
 //   log            every request as { op, path }
+// and closeChannels() on the returned handle ends every SFTP channel while
+// its SSH connection stays up (the server's sftp-server exited).
 import { createRequire } from "module";
 import { posix } from "path";
 
@@ -52,6 +54,7 @@ export async function startRealSshSftpServer(opts = {}) {
     shortNames: new Map(),
     log: [],
   };
+  const channels = new Set();
 
   const fs = {
     mkdirp(p, { mode = 0o755, uid = state.loginUid, gid = state.loginGid } = {}) {
@@ -140,6 +143,8 @@ export async function startRealSshSftpServer(opts = {}) {
         const session = acceptSession();
         session.on("sftp", (acceptSftp) => {
           const sftp = acceptSftp();
+          channels.add(sftp);
+          sftp.on("close", () => channels.delete(sftp));
           const handles = new Map();
           let nextHandle = 1;
           const newHandle = (value) => {
@@ -306,8 +311,20 @@ export async function startRealSshSftpServer(opts = {}) {
             touchParent(dst);
             return status(id, STATUS_CODE.OK);
           });
+          // Like OpenSSH's: a missing LAST component (or a dangling link's
+          // missing target) is still answered, with the path it would have.
+          const realPathOf = (p, hops = 40) => {
+            const found = resolve(p);
+            if (found || hops <= 0) return found;
+            const ep = entryPath(p);
+            const n = ep && state.nodes.get(ep);
+            if (n?.type === "link") {
+              return realPathOf(n.target.startsWith("/") ? n.target : posix.join(posix.dirname(ep), n.target), hops - 1);
+            }
+            return ep && !n && state.nodes.get(posix.dirname(ep))?.type === "dir" ? ep : null;
+          };
           sftp.on("REALPATH", (id, path) => {
-            const r = resolve(path === "." || path === "" ? "/" : path);
+            const r = realPathOf(path === "." || path === "" ? "/" : posix.normalize(path));
             if (!r) return status(id, STATUS_CODE.NO_SUCH_FILE, "No such file");
             return reply(() => sftp.name(id, [{ filename: r, longname: r, attrs: {} }]));
           });
@@ -329,6 +346,9 @@ export async function startRealSshSftpServer(opts = {}) {
     state,
     fs,
     port,
+    closeChannels: () => {
+      for (const channel of channels) channel.end();
+    },
     settings: {
       panelBridgeSftpHost: "127.0.0.1",
       panelBridgeSftpPort: port,

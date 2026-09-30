@@ -47,6 +47,8 @@ import { acquireMirrorLock, resetRemoteConfigSession, SFTP_CONFIG_PATH_KEY } fro
 
 const log = createLogger("FileManager:SFTP");
 
+// The PanelBridge folder on the remote host (panelBridgeSftp.js).
+const BRIDGE_PATH_KEY = "panelBridgeSftpBridgePath";
 // realPath/readlink hops before a chain of links counts as a loop.
 const MAX_LINK_HOPS = 32;
 // meta.json is a few hundred bytes; anything bigger isn't ours.
@@ -315,7 +317,7 @@ const trashMetaCache = new Map();
 // When a folder was last swept for orphaned temp files.
 const ORPHAN_SWEEP_CACHE_MAX = 2000;
 const orphanSweeps = new Map();
-// realPath() of the remote config folder, per pool.
+// realPath() of the remote config and bridge folders, per pool.
 const configRealCache = new Map();
 // Trash items lazy retention removed, per pool and root, until the service
 // drains them into a files.trash.expire audit row.
@@ -619,9 +621,10 @@ function streamIntoRemote(lease, source, tmpAbs, { declaredSize, maxBytes, remot
  * Cheap: connections come from the shared pool, opened on first use.
  *
  * Beyond the interface it exposes `remote` ({host, port, username}, never
- * the password), and copyFile() takes an optional 4th argument
+ * the password), copyFile() takes an optional 4th argument
  * `{ overwrite, trashMeta }` for a duplicate that replaces an existing file
- * (spec §A8's `overwrite` token).
+ * (spec §A8's `overwrite` token), and describeRoot() adds `bridgeReal`: the
+ * server's real path of the PanelBridge folder, or null.
  *
  * @param {{ settings: Record<string, unknown>, root?: unknown }} args
  *   `root` is accepted for the service's convenience and unused: every
@@ -631,12 +634,15 @@ function streamIntoRemote(lease, source, tmpAbs, { declaredSize, maxBytes, remot
  */
 export function createSftpBackend({ settings } = {}) {
   const pool = getFileManagerSftpPool(settings);
-  let configPath = null;
-  try {
-    configPath = validateRemoteRootPath(settings?.[SFTP_CONFIG_PATH_KEY], { allowSlash: true });
-  } catch {
-    configPath = null;
-  }
+  const settingPath = (key) => {
+    try {
+      return validateRemoteRootPath(settings?.[key], { allowSlash: true });
+    } catch {
+      return null;
+    }
+  };
+  const configPath = settingPath(SFTP_CONFIG_PATH_KEY);
+  const bridgePath = settingPath(BRIDGE_PATH_KEY);
 
   // ---- SFTP primitives: each one is a pool call under the 20 s limit;
   // reads may be retried once on a dropped connection, writes never.
@@ -677,6 +683,9 @@ export function createSftpBackend({ settings } = {}) {
   // shared metadata connection for everyone). OpenSSH sends about 100 names
   // per reply. The OPENDIR is a read (retried once on a dropped pooled
   // connection); the READDIRs must stay on the connection that opened it.
+  // Only EOF ends a listing: ssh2 left to itself drops "." and ".." from
+  // each reply, so a reply holding just those two came back empty and read
+  // as the end of the folder (`full` keeps them, and they are dropped here).
   async function listDir(abs) {
     const handle = await read((c) => rawCall(c, "opendir", abs));
     const out = [];
@@ -684,13 +693,15 @@ export function createSftpBackend({ settings } = {}) {
       for (;;) {
         let batch;
         try {
-          batch = await write((c) => rawCall(c, "readdir", handle));
+          batch = await write((c) => rawCall(c, "readdir", handle, { full: true }));
         } catch (err) {
           if (sftpInfo(err)?.status === SFTP_STATUS.EOF) break;
           throw err;
         }
         if (!Array.isArray(batch) || batch.length === 0) break;
-        for (const item of batch) out.push(listEntryOf(item));
+        for (const item of batch) {
+          if (item?.filename !== "." && item?.filename !== "..") out.push(listEntryOf(item));
+        }
         if (out.length > FM_LIMITS.LIST_DIR_MAX_ENTRIES + 2) break;
       }
     } finally {
@@ -781,15 +792,23 @@ export function createSftpBackend({ settings } = {}) {
   // posix-rename@openssh.com; otherwise move the target aside, rename tmp
   // into place and delete the old copy, putting it back if the second step
   // fails (spec §A12 text save).
+  //
+  // An older OpenSSH whose admin denied the extension (`sftp-server -P
+  // posix-rename`) still offers it, and answers PERMISSION_DENIED; newer
+  // ones stop offering it. A refusal is tried the three-step way (a real
+  // permission problem fails there the same way), and remembered only once
+  // that worked.
   async function replaceWith(tmp, target) {
+    let refused = false;
     if (pool.capabilities.posixRename !== false) {
       try {
         await write((c) => c.posixRename(tmp, target));
         pool.capabilities.posixRename = true;
         return;
       } catch (err) {
-        if (!sftpInfo(err)?.unsupported) throw err;
-        pool.capabilities.posixRename = false;
+        if (sftpInfo(err)?.unsupported) pool.capabilities.posixRename = false;
+        else if (isCode(err, ErrorCode.FM_OS_PERMISSION_DENIED)) refused = true;
+        else throw err;
       }
     }
     const aside = posix.join(posix.dirname(target), tempName(posix.basename(target), RENAME_TEMP_SUFFIX));
@@ -802,6 +821,7 @@ export function createSftpBackend({ settings } = {}) {
       }
       throw err;
     }
+    if (refused) pool.capabilities.posixRename = false;
     await removeQuietly(aside);
   }
 
@@ -820,13 +840,17 @@ export function createSftpBackend({ settings } = {}) {
   // Server/ folder; a write under it serializes with the mirror and drops
   // its session so the config editor re-pulls.
 
-  async function configRealPath() {
-    const key = `${pool.id}|${configPath}`;
+  // The real path of a folder named in the settings, or null. OpenSSH's
+  // REALPATH answers a missing last component with the path it would have,
+  // so only a folder that exists is remembered: one that doesn't yet is
+  // looked up again next time.
+  async function settingRealPath(abs) {
+    if (!abs) return null;
+    const key = `${pool.id}|${abs}`;
     if (configRealCache.has(key)) return configRealCache.get(key);
     try {
-      const real = await realPathOrNull(configPath);
-      // A folder that doesn't exist yet is looked up again next time.
-      if (real) remember(configRealCache, key, real, 100);
+      const real = await realPathOrNull(abs);
+      if (real && (await lstatOrNull(real))?.type === "dir") remember(configRealCache, key, real, 100);
       return real;
     } catch {
       return null;
@@ -836,7 +860,7 @@ export function createSftpBackend({ settings } = {}) {
   async function touchesConfig(absPaths) {
     if (!configPath) return false;
     if (absPaths.some((abs) => isInside(configPath, abs))) return true;
-    const real = await configRealPath();
+    const real = await settingRealPath(configPath);
     return Boolean(real) && absPaths.some((abs) => isInside(real, abs));
   }
 
@@ -1285,7 +1309,11 @@ export function createSftpBackend({ settings } = {}) {
     }
     if (st.type !== "dir") return unavailable("missing");
 
-    const descriptor = { ...base, available: true, real };
+    // Where the bridge folder really is: the settings may reach it through
+    // a link the root's real path went past, and the service matches the
+    // protected folder against this as well as the settings' spelling.
+    const bridgeReal = await settingRealPath(bridgePath);
+    const descriptor = { ...base, available: true, real, bridgeReal };
     try {
       const space = await freeSpace({ available: true, real });
       descriptor.freeBytes = space.free;

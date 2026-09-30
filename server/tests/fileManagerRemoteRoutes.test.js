@@ -264,6 +264,45 @@ describe("Server Files over SFTP (active remote profile)", () => {
   });
 });
 
+describe("the bridge folder through a link", () => {
+  it("stays protected when the settings reach the Zomboid folder through a link", async () => {
+    // /home/pz/Zomboid -> /srv/pz/Zomboid: the data root's real path is the
+    // link's target, which the settings never spell.
+    sftp.symlink("/home/pz/Zomboid", DATA);
+    sftp.writeFile(`${DATA}/bridge-io/servertest/status.json`, "{}");
+    dbState.settings = {
+      ...dbState.settings,
+      panelBridgeSftpConfigPath: "/home/pz/Zomboid/Server",
+      panelBridgeSftpBridgePath: "/home/pz/Zomboid/bridge-io/servertest",
+    };
+    invalidateRootCache();
+    const list = await call("GET", `${P}/list?root=data&path=bridge-io/servertest`);
+    expect(list.status).toBe(200);
+    expect(list.body.dir.protection).toMatchObject({ area: "bridgeIo" });
+    const forged = await call("PUT", `${P}/text`, {
+      body: { root: "data", path: "bridge-io/servertest/commands.json", content: "{}", etag: null, eol: "lf", bom: false, confirm: [] },
+    });
+    expect(forged.status).toBe(403);
+    expect(forged.body.code).toBe("FM_PATH_PROTECTED");
+    expect(sftp.exists(`${DATA}/bridge-io/servertest/commands.json`)).toBe(false);
+  });
+
+  it("stays protected when only the bridge folder's own path goes through a link", async () => {
+    // The data root is typed as the real folder, the bridge folder through
+    // a link: only the server's REALPATH of the bridge folder matches.
+    sftp.symlink("/home/pz/Zomboid", DATA);
+    sftp.writeFile(`${DATA}/bridge-io/servertest/status.json`, "{}");
+    dbState.settings = {
+      ...dbState.settings,
+      panelBridgeSftpConfigPath: `${DATA}/Server`,
+      panelBridgeSftpBridgePath: "/home/pz/Zomboid/bridge-io/servertest",
+    };
+    invalidateRootCache();
+    const list = await call("GET", `${P}/list?root=data&path=bridge-io/servertest`);
+    expect(list.body.dir.protection).toMatchObject({ area: "bridgeIo" });
+  });
+});
+
 describe("remote folder overrides", () => {
   it("are saved under the key the remote roots are read with, whatever the spacing of the login", async () => {
     dbState.settings = { ...dbState.settings, panelBridgeSftpHost: " sftp.test ", panelBridgeSftpUsername: " pz " };

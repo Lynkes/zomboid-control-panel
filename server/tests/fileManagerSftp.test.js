@@ -17,7 +17,7 @@ const { acquireMirrorLock, resetRemoteConfigSession } = await import("../service
 const { ErrorCode } = await import("../utils/errorCodes.js");
 const { FM_LIMITS, FmError, TRASH_ID_RE } = await import("../services/fileManagerContract.js");
 const { createSftpBackend, closeFileManagerSftpPool } = await import("../services/fileManagerSftpBackend.js");
-const { getFileManagerSftpPool, _setFileManagerSftpTestHooks, toFmError } = await import(
+const { getFileManagerSftpPool, _setFileManagerSftpTestHooks, sftpInfo, toFmError } = await import(
   "../services/fileManagerSftpPool.js"
 );
 const { FakeSftpServer, createFakeSftpFixture } = await import("./helpers/fakeSftp.js");
@@ -164,6 +164,24 @@ describe("SFTP pool", () => {
     f.server.clearLog();
     await expectFm(f.backend.list(await resolveRel(f, ""), {}), ErrorCode.FM_SFTP_ERROR);
     expect(f.server.opCount("list")).toBe(2);
+  });
+
+  it("retires a connection whose SFTP channel closed under it instead of hanging on it", async () => {
+    // The server's sftp-server exited (or was killed) and the SSH connection
+    // stayed up: ssh2 never answers a request on that channel again, so each
+    // pooled connection used to cost one request a full operation timeout.
+    const f = await setup({ timeouts: { opMs: 3000, transferIdleMs: 3000 } });
+    f.seed.file("a.txt", "a");
+    await resolveRel(f, "a.txt");
+    await collect((await f.backend.openReadStream(await resolveRel(f, "a.txt"))).stream);
+    f.server.closeChannels();
+    const started = Date.now();
+    expect((await resolveRel(f, "a.txt")).stat.type).toBe("file");
+    await f.backend.mkdir(await resolveRel(f, "", "list"), "made");
+    expect((await collect((await f.backend.openReadStream(await resolveRel(f, "a.txt"))).stream)).toString()).toBe("a");
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(f.exists("made")).toBe(true);
+    expect(sftpInfo(toFmError(new Error("No response from server")))?.connectionLost).toBe(true);
   });
 
   it("closes connections after the idle limit", async () => {
@@ -537,6 +555,19 @@ describe("list and stat", () => {
     expect(out.entries.map((e) => e.name)).toEqual(["f0", "f1", "f2"]);
   });
 
+  it("reads a folder to its end even when a READDIR reply holds only '.' and '..'", async () => {
+    // ssh2 drops those two from a reply; a reply of nothing else came back
+    // empty and ended the listing, so the folder looked empty, a search
+    // skipped it and a permanent delete failed on a folder it thought empty.
+    const f = await setup({ server: { readdirBatch: 2 } });
+    for (let i = 0; i < 5; i++) f.seed.file(`d/f${i}.txt`, "x");
+    const listed = await f.backend.list(await resolveRel(f, "d", "list"), {});
+    expect(listed.entries.map((e) => e.name)).toEqual(["f0.txt", "f1.txt", "f2.txt", "f3.txt", "f4.txt"]);
+    expect((await drain(f.backend.walk(await resolveRel(f, "", "list"), {}))).map((e) => e.rel)).toHaveLength(6);
+    await f.backend.deletePermanent(await resolveRel(f, "d", "delete"), () => {});
+    expect(f.exists("d")).toBe(false);
+  });
+
   it("refuses to list a file", async () => {
     const f = await setup();
     f.seed.file("a.txt", "a");
@@ -685,6 +716,41 @@ describe("writeBytesCas", () => {
     expect(tempNames(f.server, ROOT)).toEqual([]);
   });
 
+  it("falls back when the server offers posix-rename but refuses it (an older OpenSSH's -P posix-rename)", async () => {
+    const f = await setup();
+    f.seed.file("a.ini", "1");
+    const denied = () => Object.assign(new Error("_posixRename: Permission denied"), { code: 3 });
+    f.server.inject("posixRename", { error: denied, times: 99 });
+    for (const next of ["2", "3"]) {
+      const current = f.read("a.ini");
+      await f.backend.writeBytesCas(await resolveRel(f, "a.ini", "write"), Buffer.from(next), {
+        expectedHash: sha256(current),
+        trashMeta,
+      });
+      expect(f.read("a.ini").toString()).toBe(next);
+    }
+    expect(f.server.opCount("posixRename")).toBe(1);
+    expect(tempNames(f.server, ROOT)).toEqual([]);
+  });
+
+  it("a refused posix-rename over a file the login really can't replace fails, and isn't learned", async () => {
+    const f = await setup();
+    f.seed.file("a.ini", "1");
+    const denied = () => Object.assign(new Error("Permission denied"), { code: 3 });
+    f.server.inject("posixRename", { error: denied, times: 99 });
+    f.server.inject("rename", { error: denied, path: `${ROOT}/a.ini`, times: 99 });
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      await expectFm(
+        f.backend.writeBytesCas(await resolveRel(f, "a.ini", "write"), Buffer.from("2"), { expectedHash: sha256(Buffer.from("1")), trashMeta }),
+        ErrorCode.FM_OS_PERMISSION_DENIED,
+      );
+      expect(f.server.opCount("posixRename")).toBe(attempt);
+    }
+    expect(f.read("a.ini").toString()).toBe("1");
+    expect(tempNames(f.server, ROOT)).toEqual([]);
+    expect(f.server.childNames(`${ROOT}/.zcp-trash`)).toEqual([]);
+  });
+
   it("rolls back the fallback when the new file can't be renamed into place", async () => {
     const f = await setup({ server: { posixRename: false } });
     f.seed.file("a.ini", "original");
@@ -774,6 +840,26 @@ describe("writeBytesCas", () => {
     const f = await setup({ settings: { panelBridgeSftpConfigPath: "/home/pz/Zomboid/Server" } });
     f.seed.file("Server/main.ini", "a=1\n");
     f.server.symlink("/home/pz/Zomboid", ROOT);
+    resetRemoteConfigSession.mockClear();
+    await f.backend.writeBytesCas(await resolveRel(f, "Server/main.ini", "write"), Buffer.from("a=2\n"), {
+      expectedHash: sha256(Buffer.from("a=1\n")),
+      trashMeta,
+    });
+    expect(resetRemoteConfigSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("looks a config folder that didn't exist yet up again once it does", async () => {
+    // OpenSSH answers a missing folder's REALPATH with the path it would
+    // have; remembering that would miss the folder once it appears as a link.
+    const f = await setup({ settings: { panelBridgeSftpConfigPath: "/home/pz/config" } });
+    f.server.mkdirp("/home/pz");
+    f.seed.file("Server/main.ini", "a=1\n");
+    f.seed.file("Logs/x.txt", "x");
+    await f.backend.writeBytesCas(await resolveRel(f, "Logs/x.txt", "write"), Buffer.from("y"), {
+      expectedHash: sha256(Buffer.from("x")),
+      trashMeta,
+    });
+    f.server.symlink("/home/pz/config", `${ROOT}/Server`);
     resetRemoteConfigSession.mockClear();
     await f.backend.writeBytesCas(await resolveRel(f, "Server/main.ini", "write"), Buffer.from("a=2\n"), {
       expectedHash: sha256(Buffer.from("a=1\n")),
