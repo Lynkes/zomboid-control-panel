@@ -208,7 +208,7 @@
       },
       "view": {
         "label": "Ver informações dos jogadores",
-        "description": "Ler detalhes, status e histórico dos jogadores."
+        "description": "Ler detalhes, status e histórico dos jogadores, incluindo as habilidades, o XP, os traços e o inventário de cada personagem."
       },
       "endanger_or_impersonate": {
         "label": "Pôr um jogador em perigo ou se passar por ele",
@@ -247,8 +247,14 @@
     },
     "serverfiles": {
       "manage": {
-        "label": "Gerenciar arquivos do servidor",
+        "label": "Editar arquivos de configuração do servidor",
         "description": "Editar opções do sandbox, pontos de spawn e outros arquivos de configuração do servidor."
+      }
+    },
+    "files": {
+      "manage": {
+        "label": "Gerenciar arquivos do servidor",
+        "description": "Navegar, baixar, enviar, editar, renomear e excluir qualquer arquivo nas pastas de instalação do jogo e Zomboid de cada servidor — neste computador, por montagens do Docker e no servidor remoto ativo pelo login SFTP do PanelBridge. Isso inclui os saves do mundo, o banco de dados dos jogadores e os próprios arquivos Java e Lua do jogo, que rodam com a conta do servidor no próximo início, então trate esta permissão como a senha de administrador. Os dados, logs e segredos do próprio painel e a pasta Backups do mundo ficam fora de alcance, e ela é recusada enquanto os logins do painel estiverem desativados."
       }
     },
     "diagnostics": {

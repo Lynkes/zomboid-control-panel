@@ -327,6 +327,7 @@
     "sourceBridge": "Bridge",
     "sourcePlayer": "اللاعب",
     "sourceServer": "الخادم",
+    "sourceFiles": "الملفات",
     "levelError": "خطأ",
     "levelWarn": "تحذير",
     "levelInfo": "معلومات",
@@ -1493,7 +1494,7 @@
   },
   "activityTab": {
     "title": "سجل النشاط",
-    "description": "عرض موحّد لأوامر RCON وإجراءات الجسر وأحداث اللاعبين وأحداث الخادم",
+    "description": "عرض موحّد لأوامر RCON وإجراءات الجسر وأحداث اللاعبين وأحداث الخادم وتغييرات الملفات",
     "filterBySourceAria": "تصفية حسب المصدر",
     "allSources": "كل المصادر",
     "searchPlaceholder": "بحث في الإجراء / التفاصيل…",

@@ -205,7 +205,7 @@
       },
       "view": {
         "label": "Gade enfòmasyon jwè",
-        "description": "Li detay, estati ak istorik jwè."
+        "description": "Li detay, estati ak istorik jwè, sa gen ladan konpetans, XP, karakteristik ak envantè chak pèsonaj."
       },
       "endanger_or_impersonate": {
         "label": "Mete yon jwè an danje oswa fè tankou ou se li",
@@ -244,8 +244,14 @@
     },
     "serverfiles": {
       "manage": {
-        "label": "Jere fichye sèvè",
+        "label": "Modifye fichye konfigirasyon sèvè",
         "description": "Modifye opsyon sandbox, pwen kòmansman ak lòt fichye konfigirasyon sèvè."
+      }
+    },
+    "files": {
+      "manage": {
+        "label": "Jere fichye sèvè",
+        "description": "Gade, telechaje, voye, modifye, chanje non ak efase nenpòt fichye nan dosye enstalasyon jwèt la ak dosye Zomboid chak sèvè — sou òdinatè sa a, atravè mount Docker, ak sou sèvè aleka aktif la atravè koneksyon SFTP PanelBridge li. Sa gen ladan sovgad mond yo, baz done jwè yo ak pwòp fichye Java ak Lua jwèt la, ki kouri anba kont sèvè a nan pwochen demaraj li, kidonk trete kapasite sa a tankou modpas administratè a. Done, jounal ak sekrè pwòp panèl la ansanm ak dosye Kopi Sovgad Mond lan rete andeyò rive, epi yo refize kapasite sa a toutotan koneksyon nan panèl la dezaktive."
       }
     },
     "diagnostics": {

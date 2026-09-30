@@ -205,7 +205,7 @@
       },
       "view": {
         "label": "Spielerinfos einsehen",
-        "description": "Spielerdetails, -status und -verlauf einsehen."
+        "description": "Spielerdetails, -status und -verlauf einsehen, einschließlich Fähigkeiten, XP, Eigenschaften und Inventar jedes Charakters."
       },
       "endanger_or_impersonate": {
         "label": "Spieler gefährden oder sich als Spieler ausgeben",
@@ -244,8 +244,14 @@
     },
     "serverfiles": {
       "manage": {
-        "label": "Serverdateien verwalten",
+        "label": "Server-Konfigurationsdateien bearbeiten",
         "description": "Sandbox-Optionen, Spawnpunkte und andere Server-Konfigurationsdateien bearbeiten."
+      }
+    },
+    "files": {
+      "manage": {
+        "label": "Serverdateien verwalten",
+        "description": "Jede Datei im Spielinstallationsordner und im Zomboid-Ordner jedes Servers durchsuchen, herunterladen, hochladen, bearbeiten, umbenennen und löschen – auf diesem Computer, über Docker-Mounts und auf dem aktiven Remote-Server über seinen PanelBridge-SFTP-Zugang. Dazu gehören Spielstände, die Spielerdatenbank und die eigenen Java- und Lua-Dateien des Spiels, die beim nächsten Start unter dem Konto des Servers laufen – behandle dieses Recht also wie das Admin-Passwort. Die eigenen Daten, Protokolle und Geheimnisse des Panels sowie der Ordner der Welt-Backups bleiben unerreichbar, und das Recht wird verweigert, solange Panel-Anmeldungen deaktiviert sind."
       }
     },
     "diagnostics": {

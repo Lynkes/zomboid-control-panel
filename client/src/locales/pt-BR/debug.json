@@ -226,6 +226,7 @@
     "sourceBridge": "Ponte",
     "sourcePlayer": "Jogador",
     "sourceServer": "Servidor",
+    "sourceFiles": "Arquivos",
     "levelError": "Erro",
     "levelWarn": "Aviso",
     "levelInfo": "Info",
@@ -1362,7 +1363,7 @@
   },
   "activityTab": {
     "title": "Log de atividades",
-    "description": "Visão unificada de comandos RCON, ações da ponte, eventos de jogadores e eventos do servidor",
+    "description": "Visão unificada de comandos RCON, ações da ponte, eventos de jogadores, eventos do servidor e alterações em arquivos",
     "filterBySourceAria": "Filtrar por origem",
     "allSources": "Todas as origens",
     "searchPlaceholder": "Pesquisar ação / detalhe…",

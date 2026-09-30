@@ -208,7 +208,7 @@
       },
       "view": {
         "label": "Voir les informations des joueurs",
-        "description": "Consulter les détails, le statut et l'historique des joueurs."
+        "description": "Consulter les détails, le statut et l'historique des joueurs, y compris les compétences, l'XP, les traits et l'inventaire de chaque personnage."
       },
       "endanger_or_impersonate": {
         "label": "Mettre en danger ou usurper l'identité d'un joueur",
@@ -247,8 +247,14 @@
     },
     "serverfiles": {
       "manage": {
-        "label": "Gérer les fichiers du serveur",
+        "label": "Modifier les fichiers de configuration du serveur",
         "description": "Modifier les options sandbox, les points d'apparition et autres fichiers de configuration du serveur."
+      }
+    },
+    "files": {
+      "manage": {
+        "label": "Gérer les fichiers du serveur",
+        "description": "Parcourir, télécharger, importer, modifier, renommer et supprimer n'importe quel fichier des dossiers d'installation du jeu et Zomboid de chaque serveur — sur cet ordinateur, via les montages Docker, et sur le serveur distant actif via son identifiant SFTP PanelBridge. Cela inclut les sauvegardes de partie, la base de données des joueurs et les propres fichiers Java et Lua du jeu, qui s'exécutent sous le compte du serveur à son prochain démarrage : traitez donc cette permission comme le mot de passe administrateur. Les données, journaux et secrets du panneau ainsi que le dossier Sauvegardes du monde restent hors de portée, et elle est refusée tant que les connexions au panneau sont désactivées."
       }
     },
     "diagnostics": {
