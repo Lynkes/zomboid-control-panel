@@ -495,8 +495,22 @@ describe("Trash", () => {
     const preview = await service.deletePreview(c, { root: "data", paths: ["Logs/server.txt"] }, user);
     expect(preview.trashAvailable).toBe(false);
     expect(preview.trashUnavailableReason).toBe("notWritable");
-    const result = await service.deleteItems(c, { root: "data", previewId: preview.previewId, mode: "trash", confirm: [] }, user, audit());
-    expect(result.body.failed[0].code).toBe("FM_TRASH_UNAVAILABLE");
+    const err = await failure(service.deleteItems(c, { root: "data", previewId: preview.previewId, mode: "trash", confirm: [] }, user, audit()));
+    expect(err.code).toBe("FM_TRASH_UNAVAILABLE");
+    expect(err.status).toBe(503);
+    expect(err.params).toEqual({ reason: "notWritable" });
+    expect(fs.existsSync(path.join(tree.data, "Logs", "server.txt"))).toBe(true);
+    // The same preview still serves the permanent delete the client offers next.
+    const permanent = await service.deleteItems(
+      c,
+      { root: "data", previewId: preview.previewId, mode: "permanent", confirm: ["permanent"], typedConfirmation: "server.txt" },
+      user,
+      audit(),
+    );
+    expect(permanent.status).toBe(202);
+    await _waitForJobForTests(permanent.body.jobId);
+    expect(fs.existsSync(path.join(tree.data, "Logs", "server.txt"))).toBe(false);
+    expect(fs.readdirSync(tree.outside)).toEqual(["canary.txt"]);
     expect(fs.readdirSync(tree.outside)).toEqual(["canary.txt"]);
   });
 

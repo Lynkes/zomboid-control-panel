@@ -1099,8 +1099,6 @@ export async function deleteItems(ctx, body, user, audit) {
   } else {
     confirmations.assertConfirmed(confirm);
   }
-  previews.delete(previewId);
-
   if (mode === "trash") {
     const trashed = [];
     const failed = [];
@@ -1118,6 +1116,13 @@ export async function deleteItems(ctx, body, user, audit) {
       }
     }
     invalidateRootCache();
+    // Nothing could go to Trash (another device, or no Trash folder): answer
+    // with that, so the client offers a permanent delete instead.
+    // The preview stays valid for that permanent delete.
+    if (!trashed.length && failed.length && failed.every((f) => f.code === ErrorCode.FM_TRASH_UNAVAILABLE)) {
+      throw new FmError(ErrorCode.FM_TRASH_UNAVAILABLE, undefined, failed[0].params || { reason: "notWritable" });
+    }
+    previews.delete(previewId);
     audit.trashIds = trashed.map((t) => t.trashId);
     audit.bytes = resolved.reduce((sum, { item }) => sum + item.bytes, 0);
     audit.result = failed.length && trashed.length ? "partial" : failed.length ? "failed" : "ok";
@@ -1125,6 +1130,7 @@ export async function deleteItems(ctx, body, user, audit) {
     return { status: 200, body: { trashed, failed } };
   }
 
+  previews.delete(previewId);
   const holds = resolved.map(({ r }) => ({ rootKey: policy.rootKey, realRel: foldRel(r.realRel) }));
   const total = resolved.reduce((sum, { item }) => sum + item.files + 1, 0);
   audit.bytes = resolved.reduce((sum, { item }) => sum + item.bytes, 0);

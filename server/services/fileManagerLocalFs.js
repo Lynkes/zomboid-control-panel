@@ -259,17 +259,21 @@ export function writeNewFileExcl(abs, buffer, mode = 0o600) {
 // is lstat'ed, files and links are unlinked (a link is never followed, so
 // nothing outside the tree is touched), and folders are removed once empty.
 // On Windows a folder junction can refuse unlink with EPERM; rmdir removes
-// the junction itself without entering it.
-export function deleteTree(abs, { onProgress = () => {}, maxEntries = Infinity } = {}) {
+// the junction itself without entering it. It yields to the event loop every
+// few hundred entries, so a big tree doesn't stall the panel.
+export async function deleteTree(abs, { onProgress = () => {}, maxEntries = Infinity } = {}) {
   let done = 0;
-  const bump = () => {
+  const bump = async () => {
     done++;
     if (done > maxEntries) {
       const err = new Error("entry cap reached");
       err.code = "EFMCAP";
       throw err;
     }
-    if (done % 200 === 0) onProgress(done);
+    if (done % 200 === 0) {
+      onProgress(done);
+      await new Promise((resolve) => setImmediate(resolve));
+    }
   };
   const removeEntry = (p, st) => {
     try {
@@ -283,7 +287,7 @@ export function deleteTree(abs, { onProgress = () => {}, maxEntries = Infinity }
   const top = lstatBig(abs);
   if (!top.isDirectory()) {
     removeEntry(abs, top);
-    bump();
+    await bump();
     onProgress(done);
     return done;
   }
@@ -300,13 +304,13 @@ export function deleteTree(abs, { onProgress = () => {}, maxEntries = Infinity }
           stack.push({ path: child, expanded: false });
         } else {
           removeEntry(child, st);
-          bump();
+          await bump();
         }
       }
     } else {
       rmdirPath(frame.path);
       stack.pop();
-      bump();
+      await bump();
     }
   }
   onProgress(done);

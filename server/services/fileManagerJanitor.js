@@ -51,7 +51,7 @@ export async function runFileManagerJanitor({ now = Date.now() } = {}) {
         const removed = [];
         for (const trashId of ids) {
           try {
-            purgeTrashItem(root.real, trashId, { maxEntries: FM_LIMITS.PERMANENT_DELETE_MAX_ENTRIES });
+            await purgeTrashItem(root.real, trashId, { maxEntries: FM_LIMITS.PERMANENT_DELETE_MAX_ENTRIES });
             removed.push(trashId);
           } catch (err) {
             log.warn(`Could not expire a Trash item in a ${root.id} folder: ${err?.code || err?.name || "error"}`);

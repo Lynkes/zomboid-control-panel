@@ -778,18 +778,20 @@ async function writeBytesCas(r, bytes, { expectedHash, trashMeta }) {
       lfs.unlinkQuiet(temp.path);
       throw mapFsError(err, { name });
     }
-    if (previousTrashId) {
-      try {
-        trash.pruneEditedVersions(r.rootReal, r.realRel);
-      } catch {
-        /* the janitor still expires old versions */
-      }
-    }
     return {
       entry: entryAt(r.rootReal, parentRelOf(r.rel), parentAbs, name),
       previousTrashId,
       sha256Before: sha256Hex(current),
     };
+  }).then(async (result) => {
+    // Outside the locked block: only the check, the version copy and the
+    // write itself need to be one synchronous step.
+    if (result.previousTrashId) {
+      await trash.pruneEditedVersions(r.rootReal, r.realRel).catch(() => {
+        /* the janitor still expires old versions */
+      });
+    }
+    return result;
   });
 }
 
@@ -1220,13 +1222,13 @@ async function trashRestore(root, trashId, restoreAs) {
 async function deletePermanent(target, onProgress = () => {}) {
   try {
     if (target && typeof target.trashId === "string") {
-      trash.purgeTrashItem(target.root.real, target.trashId, {
+      await trash.purgeTrashItem(target.root.real, target.trashId, {
         onProgress: (done) => onProgress(done, null),
         maxEntries: FM_LIMITS.PERMANENT_DELETE_MAX_ENTRIES,
       });
       return;
     }
-    lfs.deleteTree(target.abs, {
+    await lfs.deleteTree(target.abs, {
       onProgress: (done) => onProgress(done, null),
       maxEntries: FM_LIMITS.PERMANENT_DELETE_MAX_ENTRIES,
     });

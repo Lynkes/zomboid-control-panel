@@ -138,12 +138,14 @@ function writeMeta(itemDir, meta) {
   const body = JSON.stringify(meta, null, 2);
   // Panel-owned file with a generated name inside a panel-generated folder;
   // "wx" never overwrites and never follows a link at that name.
+  // codeql[js/path-injection, js/http-to-file-access] metaPath is <root>/.zcp-trash/<generated trash id>/meta.json: the root is server-derived from the profile, the id is panel-generated (newTrashId), and the JSON holds only the item's root-relative path, sizes, the acting user and a reason -- never file content.
   fs.writeFileSync(metaPath, body, { flag: "wx", mode: 0o600 });
 }
 
 // Remove an item's (now empty) folders and its meta.json.
 function removeItemShell(itemDir) {
   try {
+    // codeql[js/path-injection] itemDir is <root>/.zcp-trash/<trash id>: a server-derived root and an id that is panel-generated or matched TRASH_ID_RE (digits, T, Z, hex) before use.
     fs.unlinkSync(path.join(itemDir, META_NAME));
   } catch {
     /* no meta yet */
@@ -212,11 +214,8 @@ export function copyVersionToTrash(rootReal, { name, buffer, mode, originalPath,
       buildMeta({ originalPath, type: "file", bytes: buffer.length, files: 1, deletedBy, reason }),
     );
   } catch (err) {
-    try {
-      deleteTree(item.itemDir);
-    } catch {
-      /* best effort */
-    }
+    unlinkQuiet(path.join(item.payloadDir, name));
+    removeItemShell(item.itemDir);
     throw err;
   }
   return item.trashId;
@@ -346,7 +345,7 @@ export function finishRestore(item) {
 }
 
 /** Permanently delete one Trash item (payload, meta and folders). */
-export function purgeTrashItem(rootReal, trashId, { onProgress, maxEntries } = {}) {
+export async function purgeTrashItem(rootReal, trashId, { onProgress, maxEntries } = {}) {
   if (typeof trashId !== "string" || !TRASH_ID_RE.test(trashId)) {
     throw new FmError(ErrorCode.FM_TRASH_ITEM_NOT_FOUND);
   }
@@ -373,7 +372,7 @@ export function expiredTrashIds(rootReal, now = Date.now()) {
  * Keep at most TRASH_VERSIONS_PER_FILE "edited" versions of one file; the
  * oldest go first. Returns the ids removed.
  */
-export function pruneEditedVersions(rootReal, originalPath) {
+export async function pruneEditedVersions(rootReal, originalPath) {
   const versions = listTrash(rootReal).filter(
     (item) => item.reason === "edited" && item.originalPath === originalPath,
   );
@@ -382,16 +381,11 @@ export function pruneEditedVersions(rootReal, originalPath) {
   const removed = [];
   for (const item of excess) {
     try {
-      purgeTrashItem(rootReal, item.trashId);
+      await purgeTrashItem(rootReal, item.trashId);
       removed.push(item.trashId);
     } catch {
       /* the janitor gets it later */
     }
   }
   return removed;
-}
-
-// Remove a half-written temp inside a Trash item (used by rollback paths).
-export function discardQuiet(p) {
-  unlinkQuiet(p);
 }
