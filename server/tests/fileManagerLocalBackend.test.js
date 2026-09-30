@@ -469,6 +469,21 @@ describe("Trash", () => {
     expect(versions.every((v) => v.reason === "edited")).toBe(true);
   });
 
+  it("an edit whose previous version can't be kept in Trash writes nothing (FM-I9)", async () => {
+    const rel = "Server/servertest_SandboxVars.lua";
+    const file = path.join(tree.config, "servertest_SandboxVars.lua");
+    const before = fs.readFileSync(file);
+    const c = await ctx();
+    const read = await service.readText(c, { root: "data", path: rel });
+    // A file squatting on the Trash folder's name: no version can go there.
+    write(path.join(tree.data, ".zcp-trash"), "not a folder");
+    const err = await failure(
+      service.saveText(c, { root: "data", path: rel, content: "SandboxVars = { lost = true }\n", etag: read.etag, eol: "lf", bom: false, confirm: [] }, user, audit()),
+    );
+    expect(err.code).toBe("FM_TRASH_UNAVAILABLE");
+    expect(fs.readFileSync(file).equals(before)).toBe(true);
+  });
+
   it("an item on another device than the Trash folder can't go to Trash", async () => {
     const root = await localBackend.describeRoot({ id: "data", path: tree.data });
     const r = await localBackend.resolve(root, ["Logs", "server.txt"], "delete");
