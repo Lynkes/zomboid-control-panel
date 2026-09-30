@@ -221,6 +221,7 @@
     "sourceBridge": "桥接",
     "sourcePlayer": "玩家",
     "sourceServer": "服务器",
+    "sourceFiles": "文件",
     "levelError": "错误",
     "levelWarn": "警告",
     "levelInfo": "信息",
@@ -1347,7 +1348,7 @@
   },
   "activityTab": {
     "title": "活动日志",
-    "description": "统一查看 RCON 命令、桥接操作、玩家事件和服务器事件",
+    "description": "统一查看 RCON 命令、桥接操作、玩家事件、服务器事件和文件更改",
     "filterBySourceAria": "按来源筛选",
     "allSources": "全部来源",
     "searchPlaceholder": "搜索操作/详情……",

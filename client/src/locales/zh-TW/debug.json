@@ -221,6 +221,7 @@
     "sourceBridge": "PanelBridge",
     "sourcePlayer": "玩家",
     "sourceServer": "伺服器",
+    "sourceFiles": "檔案",
     "levelError": "錯誤",
     "levelWarn": "警告",
     "levelInfo": "資訊",
@@ -1347,7 +1348,7 @@
   },
   "activityTab": {
     "title": "活動日誌",
-    "description": "統一檢視 RCON 命令、PanelBridge 操作、玩家事件和伺服器事件",
+    "description": "統一檢視 RCON 命令、PanelBridge 操作、玩家事件、伺服器事件和檔案變更",
     "filterBySourceAria": "按來源篩選",
     "allSources": "全部來源",
     "searchPlaceholder": "搜尋操作/詳情……",

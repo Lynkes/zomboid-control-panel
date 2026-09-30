@@ -226,6 +226,7 @@
     "sourceBridge": "Bridge",
     "sourcePlayer": "Joueur",
     "sourceServer": "Serveur",
+    "sourceFiles": "Fichiers",
     "levelError": "Erreur",
     "levelWarn": "Avertissement",
     "levelInfo": "Info",
@@ -1362,7 +1363,7 @@
   },
   "activityTab": {
     "title": "Journal d'activité",
-    "description": "Vue unifiée des commandes RCON, actions Bridge, événements joueurs et événements serveur",
+    "description": "Vue unifiée des commandes RCON, actions Bridge, événements joueurs, événements serveur et modifications de fichiers",
     "filterBySourceAria": "Filtrer par source",
     "allSources": "Toutes les sources",
     "searchPlaceholder": "Rechercher une action / un détail…",

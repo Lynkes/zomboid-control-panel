@@ -221,6 +221,7 @@
     "sourceBridge": "Brücke",
     "sourcePlayer": "Spieler",
     "sourceServer": "Server",
+    "sourceFiles": "Dateien",
     "levelError": "Fehler",
     "levelWarn": "Warnung",
     "levelInfo": "Info",
@@ -1347,7 +1348,7 @@
   },
   "activityTab": {
     "title": "Aktivitätsprotokoll",
-    "description": "Einheitliche Ansicht von RCON-Befehlen, Brückenaktionen, Spielerereignissen und Serverereignissen",
+    "description": "Einheitliche Ansicht von RCON-Befehlen, Brückenaktionen, Spielerereignissen, Serverereignissen und Dateiänderungen",
     "filterBySourceAria": "Nach Quelle filtern",
     "allSources": "Alle Quellen",
     "searchPlaceholder": "Aktion / Detail suchen…",
