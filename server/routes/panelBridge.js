@@ -20,6 +20,7 @@ import {
   commitNow,
   logBridgeCommand,
   getRoleByName,
+  logPlayerAction,
 } from "../database/init.js";
 import { sanitizeError, sanitizeErrorParams, isMaskedSecret } from "../utils/sanitize.js";
 import { getDataPaths } from "../utils/paths.js";
@@ -3692,6 +3693,16 @@ router.post("/character/import", requirePermission("players.gm_tools"), async (r
       data,
       options,
     });
+    // In the player's history, and what the Character tab's "Worth a look"
+    // reads as the explanation for the restored skills and items. The
+    // import already happened: a failed log line doesn't fail it.
+    const restored = result?.data?.restored ?? {};
+    const count = (value) => (Number.isInteger(value) && value >= 0 ? value : 0);
+    try {
+      await logPlayerAction(username, "import", `perks=${count(restored.perks)} items=${count(restored.items)}`);
+    } catch (error) {
+      log.debug(`Failed to log a character import: ${error.message}`);
+    }
     res.json({ ...result, snapshotFile: path.basename(snapshotPath) });
   } catch (error) {
     res.status(500).json({ error: sanitizeError(error.message) });

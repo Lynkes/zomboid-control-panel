@@ -103,19 +103,179 @@ describe("snapshots", () => {
     const fewerKills = await recordCharacterSheet(id, "Kate", sheet({ hours: 3, kills: 1 }), { sections: BASE, now: T0 + 20 * MIN });
     expect(fewerKills.newLife).toBe(true);
   });
+
+  it("remembers when the new life can have started: after the panel last saw the old one", async () => {
+    const id = freshServerId();
+    const first = await recordCharacterSheet(id, "Kate", sheet({ hours: 100 }), { sections: BASE, now: T0 });
+    // Created mid-life: when it began isn't known.
+    expect(first.record.lifeStartedAfter).toBeNull();
+    await recordCharacterSheet(id, "Kate", sheet({ hours: 101 }), { sections: BASE, now: T0 + 30 * MIN });
+    const reborn = await recordCharacterSheet(id, "Kate", sheet({ hours: 1 }), { sections: BASE, now: T0 + 90 * MIN });
+    expect(reborn.newLife).toBe(true);
+    expect(reborn.record.lifeStartedAfter).toBe(T0 + 30 * MIN);
+  });
+
+  describe("a re-roll after a short life (hours and kills already past the old ones)", () => {
+    const perks = (levels) =>
+      Object.entries(levels).map(([id, level]) => ({ id, level, xp: 0, passive: id === "Fitness" || id === "Strength" }));
+    const character = ({ forename, profession, hours, kills, levels, isAlive = true, inventory }) => ({
+      username: "Newbie",
+      forename,
+      surname: "X",
+      summary: { hoursSurvived: hours, zombieKills: kills, minutesPerDay: 60, isAlive, profession: { id: profession } },
+      skills: { categories: [], perks: perks(levels) },
+      ...(inventory ? { inventory } : {}),
+    });
+    const LIFE1 = { forename: "Alice", profession: "base:unemployed", levels: { Fitness: 5, Strength: 5, Doctor: 0 } };
+    const LIFE2 = { forename: "Bob", profession: "base:doctor", levels: { Fitness: 9, Strength: 9, Doctor: 3 } };
+
+    it("starts a new life when the name or occupation changed, and drops the old life's data", async () => {
+      const id = freshServerId();
+      // The sampler's login read 20 s into life 1, and an inventory read.
+      await recordCharacterSheet(id, "Newbie", character({ ...LIFE1, hours: 0.13, kills: 0 }), {
+        source: "login",
+        sections: ["summary", "skills", "traits"],
+        now: T0,
+      });
+      await recordCharacterSheet(id, "Newbie", character({ ...LIFE1, hours: 2, kills: 0, inventory: { worn: [] } }), {
+        sections: ["inventory"],
+        now: T0 + 5 * MIN,
+      });
+      // Died at minute 10, re-rolled; viewed at minute 25.
+      const viewed = await recordCharacterSheet(id, "Newbie", character({ ...LIFE2, hours: 5.6, kills: 2 }), {
+        sections: BASE,
+        now: T0 + 25 * MIN,
+      });
+      expect(viewed.newLife).toBe(true);
+      // No baseline from the dead character: its levels aren't a jump.
+      expect(viewed.skillDelta).toBeNull();
+      expect(viewed.record.snapshots.map((snap) => snap.levels.Fitness)).toEqual([9]);
+      expect(viewed.record.lastSheet.inventory).toBeUndefined();
+      expect(viewed.record.lastSheet.forename).toBe("Bob");
+
+      // Same name, another occupation.
+      const other = await recordCharacterSheet(
+        id,
+        "Newbie",
+        character({ ...LIFE2, profession: "base:carpenter", hours: 6, kills: 2 }),
+        { sections: BASE, now: T0 + 26 * MIN },
+      );
+      expect(other.newLife).toBe(true);
+    });
+
+    it("starts a new life when a character seen dead is alive again", async () => {
+      const id = freshServerId();
+      await recordCharacterSheet(id, "Newbie", character({ ...LIFE1, hours: 0.5, kills: 1, isAlive: false }), {
+        sections: BASE,
+        now: T0,
+      });
+      const alive = await recordCharacterSheet(id, "Newbie", character({ ...LIFE1, hours: 0.6, kills: 1 }), {
+        sections: BASE,
+        now: T0 + 5 * MIN,
+      });
+      expect(alive.newLife).toBe(true);
+    });
+
+    it("the same character, read again, is the same life", async () => {
+      const id = freshServerId();
+      await recordCharacterSheet(id, "Newbie", character({ ...LIFE1, hours: 0.5, kills: 1 }), { sections: BASE, now: T0 });
+      // An inventory-only read carries the name but no summary.
+      const inventory = await recordCharacterSheet(
+        id,
+        "Newbie",
+        { username: "Newbie", forename: "Alice", surname: "X", inventory: { worn: [] } },
+        { sections: ["inventory"], now: T0 + MIN },
+      );
+      expect(inventory.newLife).toBe(false);
+      const later = await recordCharacterSheet(id, "Newbie", character({ ...LIFE1, hours: 3, kills: 4 }), {
+        sections: BASE,
+        now: T0 + 60 * MIN,
+      });
+      expect(later.newLife).toBe(false);
+      expect(later.record.snapshots).toHaveLength(2);
+    });
+  });
+
+  describe("a sheet the bridge computed before the newest one stored", () => {
+    const at = (generatedAt, hours, extra = {}) => sheet({ hours, extra: { generatedAt, ...extra } });
+
+    it("is not a new life, and changes nothing", async () => {
+      const id = freshServerId();
+      await recordCharacterSheet(id, "Kate", at(100, 29.9), { sections: BASE, now: T0 - 10 * MIN });
+      await recordCharacterSheet(id, "Kate", { ...at(200, 29.95), inventory: { worn: [] } }, {
+        sections: ["inventory"],
+        now: T0 - 6 * MIN,
+      });
+      await recordCharacterSheet(id, "Kate", at(300, 29.99), { sections: BASE, now: T0 - (5 * MIN - 500) });
+      // Viewer A's poll (the bridge caches it; under 5 minutes since the last
+      // snapshot, so none), then the sampler's newer read, which adds one.
+      await recordCharacterSheet(id, "Kate", at(10_000, 30.0), { sections: BASE, now: T0 });
+      await recordCharacterSheet(id, "Kate", at(11_000, 30.0067), { source: "sampler", sections: ["summary", "skills", "traits"], now: T0 + 1000 });
+      const before = await readCharacterRecord(id, "Kate");
+
+      // Viewer B's poll, served from the bridge's cache: A's answer, older than the sampler's.
+      const stale = await recordCharacterSheet(id, "Kate", at(10_000, 30.0), { sections: BASE, now: T0 + 2500 });
+      expect(stale.newLife).toBe(false);
+      const after = await readCharacterRecord(id, "Kate");
+      expect(after).toEqual(before);
+      expect(after.lastSheet.inventory).toBeTruthy();
+      expect(after.snapshots).toHaveLength(3);
+    });
+
+    it("is taken as it is when it's far older: the game server's clock restarted", async () => {
+      const id = freshServerId();
+      await recordCharacterSheet(id, "Kate", at(5_000_000, 50), { sections: BASE, now: T0 });
+      const restarted = await recordCharacterSheet(id, "Kate", at(2_000, 50.5, { summary: { hoursSurvived: 50.5, zombieKills: 5 } }), {
+        sections: BASE,
+        now: T0 + 10 * MIN,
+      });
+      expect(restarted.record.lastSheet.generatedAt).toBe(2_000);
+      expect(restarted.record.lastSheetAt).toBe(T0 + 10 * MIN);
+    });
+  });
 });
 
 describe("skill delta", () => {
   const snap = (minutesAgo, levels, source = "view") => ({ at: T0 - minutesAgo * MIN, source, levels, xp: {} });
 
-  it("compares against the newest snapshot 2 to 60 minutes old", () => {
+  it("compares against the oldest snapshot 2 to 60 minutes old", () => {
     const snaps = [snap(90, { Axe: 1 }), snap(50, { Axe: 2 }), snap(20, { Axe: 3 }), snap(1, { Axe: 4 })];
     const delta = computeSkillDelta(snaps, sheet({ levels: { Axe: 6 } }), T0);
     expect(delta).toEqual({
-      since: new Date(T0 - 20 * MIN).toISOString(),
+      since: new Date(T0 - 50 * MIN).toISOString(),
       source: "view",
-      perks: [{ id: "Axe", fromLevel: 3, toLevel: 6, toXp: 600 }],
+      perks: [{ id: "Axe", fromLevel: 2, toLevel: 6, toXp: 600 }],
     });
+  });
+
+  it("keeps showing a jump while the Character tab polls, for the whole window", async () => {
+    const id = freshServerId();
+    const sampled = ["summary", "skills", "traits"];
+    // Sampler snapshot at Woodwork 3; the jump to 7 lands before minute 21.
+    await recordCharacterSheet(id, "Kate", sheet({ levels: { Woodwork: 3 }, hours: 200 }), { source: "sampler", sections: sampled, now: T0 });
+    let delta;
+    for (let t = 21 * MIN; t <= 59 * MIN; t += MIN) {
+      ({ skillDelta: delta } = await recordCharacterSheet(id, "Kate", sheet({ levels: { Woodwork: 7 }, hours: 200.2 }), {
+        sections: BASE,
+        now: T0 + t,
+      }));
+    }
+    expect(delta).toMatchObject({ since: new Date(T0).toISOString(), perks: [{ id: "Woodwork", fromLevel: 3, toLevel: 7 }] });
+    // Past 60 minutes the pre-jump snapshot is too old to compare with.
+    const later = await recordCharacterSheet(id, "Kate", sheet({ levels: { Woodwork: 7 }, hours: 200.3 }), { sections: BASE, now: T0 + 61 * MIN });
+    expect(later.skillDelta.perks).toEqual([]);
+  });
+
+  it("sees a jump the sampler read first", async () => {
+    const id = freshServerId();
+    const sampled = ["summary", "skills", "traits"];
+    await recordCharacterSheet(id, "Kate", sheet({ levels: { Woodwork: 3 }, hours: 200 }), { source: "sampler", sections: sampled, now: T0 });
+    await recordCharacterSheet(id, "Kate", sheet({ levels: { Woodwork: 7 }, hours: 200.5 }), { source: "sampler", sections: sampled, now: T0 + 30 * MIN });
+    const { skillDelta } = await recordCharacterSheet(id, "Kate", sheet({ levels: { Woodwork: 7 }, hours: 200.6 }), {
+      sections: BASE,
+      now: T0 + 35 * MIN,
+    });
+    expect(skillDelta.perks).toEqual([expect.objectContaining({ id: "Woodwork", fromLevel: 3, toLevel: 7 })]);
   });
 
   it("falls back to the login snapshot, then to nothing", () => {
@@ -152,6 +312,20 @@ describe("section merge and size guard", () => {
     expect(record.lastSheet.inventory.worn[0].fullType).toBe("Base.Hat");
     expect(record.lastInventoryAt).toBe(T0 + MIN);
     expect(record.lastSheetAt).toBe(T0 + MIN);
+  });
+
+  it("remembers when the Condition section was read, apart from later reads without it", async () => {
+    const id = freshServerId();
+    const withStats = { ...sheet(), stats: { hunger: { value: 0.9, min: 0, max: 1 } }, health: { overall: 20 } };
+    await recordCharacterSheet(id, "Kate", withStats, { sections: BASE, now: T0 });
+    await recordCharacterSheet(id, "Kate", sheet({ hours: 11 }), { source: "sampler", sections: ["summary", "skills", "traits"], now: T0 + 4 * 24 * 60 * MIN });
+    const record = await readCharacterRecord(id, "Kate");
+    expect(record.statsAt).toBe(T0);
+    expect(record.lastSheetAt).toBe(T0 + 4 * 24 * 60 * MIN);
+    expect(record.lastSheet.stats.hunger.value).toBe(0.9);
+    // A read whose stats failed doesn't count as one.
+    await recordCharacterSheet(id, "Kate", { ...sheet({ hours: 12 }), sectionErrors: { stats: "getStats unavailable" } }, { sections: BASE, now: T0 + 5 * 24 * 60 * MIN });
+    expect((await readCharacterRecord(id, "Kate")).statsAt).toBe(T0);
   });
 
   it("a section that failed doesn't overwrite what was saved", async () => {

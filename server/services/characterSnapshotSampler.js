@@ -1,6 +1,7 @@
-import { getActiveServer } from "../database/init.js";
+import { getActiveServer, getPlayerLogs } from "../database/init.js";
 import { createLogger } from "../utils/logger.js";
-import { fetchCharacterSheet } from "./characterSheet.js";
+import { latestDeathAt, playerLogsFor } from "./characterHints.js";
+import { fetchCharacterSheet, isCharacterSheetUnsupported } from "./characterSheet.js";
 import { readCharacterRecord, recordCharacterSheet } from "./characterStore.js";
 
 const log = createLogger("CharacterSampler");
@@ -10,7 +11,9 @@ const log = createLogger("CharacterSampler");
 // something: one read 20 s after each login, then every 30 minutes a slow
 // pass over whoever is online and hasn't been read for 25 minutes. One
 // player every 2 s, one read in flight at most, never the inventory, never
-// while the bridge is down. Nothing here throws; failures log at debug.
+// while the bridge is down, and nothing at all while the mod is one without
+// getCharacterSheet (a partial sheet has no skills to snapshot). Nothing here
+// throws; failures log at debug.
 
 export const CHARACTER_SAMPLER_TIMING = Object.freeze({
   loginDelayMs: 20 * 1000,
@@ -20,14 +23,25 @@ export const CHARACTER_SAMPLER_TIMING = Object.freeze({
 });
 
 const SAMPLED_SECTIONS = Object.freeze(["summary", "skills", "traits"]);
+// player_logs keeps 1000 rows across every player (database/init.js).
+const PLAYER_LOG_SCAN_LIMIT = 1000;
 
 let state = null;
 
 function bridgeConnected(bridge) {
   try {
-    return Boolean(bridge?.isRunning && bridge.isModConnected());
+    return Boolean(bridge?.isRunning && bridge.isModConnected()) && !isCharacterSheetUnsupported(bridge);
   } catch {
     return false;
+  }
+}
+
+async function deathAtFor(serverId, username, now) {
+  try {
+    const logs = await getPlayerLogs(null, PLAYER_LOG_SCAN_LIMIT, serverId);
+    return latestDeathAt(playerLogsFor(logs, username, PLAYER_LOG_SCAN_LIMIT), now);
+  } catch {
+    return undefined;
   }
 }
 
@@ -83,17 +97,24 @@ async function processNext(current) {
   try {
     const serverBefore = await activeServerId();
     if (!serverBefore) return;
-    const result = await fetchCharacterSheet(current.bridge, item.username, { sections: SAMPLED_SECTIONS });
+    const result = await fetchCharacterSheet(current.bridge, item.username, {
+      sections: SAMPLED_SECTIONS,
+      fallback: false,
+    });
     if (result.availability !== "live" || !result.sheet) {
+      if (result.availability === "unsupported") current.queue.length = 0;
       log.debug(`Character snapshot for ${item.username} skipped: ${result.availability}`);
       return;
     }
     // The operator switched servers while this read was in flight: the
     // answer belongs to a server that is no longer active.
     if ((await activeServerId()) !== serverBefore || state !== current) return;
+    const now = Date.now();
     await recordCharacterSheet(serverBefore, item.username, result.sheet, {
       source: item.source,
       sections: SAMPLED_SECTIONS,
+      now,
+      deathAt: await deathAtFor(serverBefore, item.username, now),
     });
   } catch (error) {
     log.debug(`Character snapshot for ${item.username} failed: ${error.message}`);
