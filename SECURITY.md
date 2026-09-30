@@ -68,7 +68,9 @@ remote server over its PanelBridge SFTP login.
 - **Secrets in `.ini` files** (and in the panel's backups of them) are
   masked in the editor, in downloads and in zips, the same way the raw
   config editor masks them, and put back when a masked copy is saved or
-  uploaded over the live file.
+  uploaded over the live file. An archived copy (`servertest.ini.gz`,
+  `.ini.zip`) downloads as it is: masking can't reach compressed bytes, so
+  the file manager won't rename an `.ini` to such a name.
 - **Links.** A symlink or junction that leads outside a server folder is
   never followed. Reads are made through a descriptor opened without
   following links and checked against the file that was resolved.
