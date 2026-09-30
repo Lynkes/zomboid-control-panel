@@ -3,7 +3,7 @@
 // the /api/files routes (spec §A10) behind a stubbed fetch, entry and
 // profile builders, and a render() with the providers the page needs.
 import { render } from '@testing-library/react'
-import { MemoryRouter, useLocation } from 'react-router-dom'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { vi } from 'vitest'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/toaster'
@@ -197,6 +197,62 @@ export class FakeFilesServer {
   }
 }
 
+// ---- Uploads go through XMLHttpRequest ----
+
+export interface XhrRequest {
+  url: string
+  headers: Record<string, string>
+  body: unknown
+  xhr: FakeXhr
+}
+
+export class FakeXhr {
+  static requests: XhrRequest[] = []
+  /** Decides each request's fate; leave a request unanswered to keep it in flight. */
+  static respond: (request: XhrRequest) => void = (request) => request.xhr.finish(201, { entry: makeEntry('x'), sha256: 'abc', replaced: null })
+
+  status = 0
+  responseText = ''
+  upload: { onprogress: ((event: { lengthComputable: boolean; loaded: number; total: number }) => void) | null } = { onprogress: null }
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
+  onabort: (() => void) | null = null
+  private url = ''
+  private headers: Record<string, string> = {}
+  private responseHeaders: Record<string, string> = {}
+
+  open(_method: string, url: string) {
+    this.url = url
+  }
+  setRequestHeader(name: string, value: string) {
+    this.headers[name] = value
+  }
+  getResponseHeader(name: string) {
+    return this.responseHeaders[name.toLowerCase()] ?? null
+  }
+  send(body: unknown) {
+    const request = { url: this.url, headers: { ...this.headers }, body, xhr: this }
+    FakeXhr.requests.push(request)
+    setTimeout(() => FakeXhr.respond(request), 0)
+  }
+  abort() {
+    setTimeout(() => this.onabort?.(), 0)
+  }
+  finish(status: number, body: unknown, headers: Record<string, string> = {}) {
+    this.status = status
+    this.responseText = JSON.stringify(body)
+    this.responseHeaders = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]))
+    this.upload.onprogress?.({ lengthComputable: true, loaded: 1, total: 1 })
+    this.onload?.()
+  }
+
+  static install() {
+    FakeXhr.requests = []
+    FakeXhr.respond = (request) => request.xhr.finish(201, { entry: makeEntry('x'), sha256: 'abc', replaced: null })
+    vi.stubGlobal('XMLHttpRequest', FakeXhr)
+  }
+}
+
 /**
  * jsdom lays nothing out, so every element is 0x0 and the virtualized file
  * table (which measures its scroll box through offsetWidth/offsetHeight)
@@ -215,9 +271,16 @@ export function stubLayout(width = 800, height = 600): () => void {
   }
 }
 
+/** Shows the current location, and stands in for the browser's Back button. */
 export function LocationProbe() {
   const location = useLocation()
-  return <div data-testid="location">{`${location.pathname}${location.search}`}</div>
+  const navigate = useNavigate()
+  return (
+    <>
+      <div data-testid="location">{`${location.pathname}${location.search}`}</div>
+      <button type="button" data-testid="history-back" onClick={() => navigate(-1)} />
+    </>
+  )
 }
 
 export function renderFiles(initialEntry = '/files?server=p1&root=data') {

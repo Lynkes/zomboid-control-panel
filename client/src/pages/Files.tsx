@@ -120,7 +120,9 @@ function buildSearch(location: Location): string {
   const params = new URLSearchParams()
   if (location.server) params.set('server', location.server)
   if (location.root) params.set('root', location.root)
-  if (location.path) params.set('path', location.path)
+  // Kept even when empty: "path=" is the root itself, while no `path` at
+  // all means "the last folder visited here".
+  if (location.path !== null) params.set('path', location.path)
   if (location.open) params.set('open', location.open)
   const search = params.toString()
   return search ? `?${search}` : ''
@@ -790,13 +792,18 @@ export default function Files() {
       else ready.push({ picked: item, etag: null })
     }
 
+    // One "replace these?" prompt for the whole batch. Answering "Replace all"
+    // is the overwrite confirmation; "Skip existing" leaves nothing to
+    // overwrite. Replace by upload (one file, chosen on purpose) skips the
+    // batch prompt and confirms the overwrite with the token sentence.
     let choice: ReplaceChoice = 'replace'
     if (replacing.length > 0 && !options?.replaceWithoutAsking) {
       choice = await askReplace(folderLabel, replacing.map((item) => item.picked.relPath))
       if (choice === 'cancel') return
+      if (choice === 'replace') accepted = [...accepted, 'overwrite']
     }
     const uploads = choice === 'skip' ? ready : [...ready, ...replacing]
-    const required = preflight.required.filter((token) => !(choice === 'skip' && token === 'overwrite' && replacing.length > 0 && !ready.length))
+    const required = preflight.required.filter((token) => !(choice === 'skip' && token === 'overwrite'))
     const missing = required.filter((token) => !accepted.includes(token))
     if (uploads.length > 0 && missing.length > 0) {
       const ok = await askConfirmation({
