@@ -64,6 +64,15 @@ const DOWNLOAD_HEADERS_TIMEOUT_MS = 60_000
 // timeout (the server would only do the same slow work once more; the page
 // has its own Try again).
 const READ_TIMEOUT_MS = 45_000
+// A read that failed on the way there or back is sent again after a short
+// wait (1, 2, 4 s, or what a 429's Retry-After asks up to 8 s): the network
+// dropped, a proxy in front of the panel answered 5xx, or the panel's
+// per-minute limit answered 429. Never after a timeout, or an answer the
+// file manager gave itself (FM_SFTP_TIMEOUT, FM_RATE_LIMITED...): that
+// would only repeat the same slow or refused work.
+const READ_RETRIES = 3
+const READ_RETRY_BASE_MS = 1000
+const READ_RETRY_MAX_MS = 8000
 // Mutations the server may do over a slow SFTP link, reporting a timeout
 // for a change that then happens anyway.
 const WRITE_TIMEOUT_MS = 60_000
@@ -106,9 +115,37 @@ function withQuery(endpoint: string, params: Record<string, QueryValue>): string
   return query ? `${endpoint}?${query}` : endpoint
 }
 
+/** A failure on the way (network, proxy, the panel-wide limit), not an answer or a timeout. */
+function isTransientReadFailure(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.isTimeout) return false
+  if (error.code?.startsWith('FM_')) return false
+  if (error.status === undefined) return error.isNetworkError
+  return error.status === 429 || error.status >= 500
+}
+
+function wait(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer)
+      resolve()
+    }, { once: true })
+  })
+}
+
 async function getJson<T>(endpoint: string, signal?: AbortSignal): Promise<T> {
-  const response = await apiFetch(endpoint, { signal, timeout: READ_TIMEOUT_MS, retries: 0 })
-  return handleResponse<T>(response)
+  for (let attempt = 0; ; attempt++) {
+    try {
+      // api.ts's own transport retries would resend a timed-out read too.
+      const response = await apiFetch(endpoint, { signal, timeout: READ_TIMEOUT_MS, retries: 0 })
+      return await handleResponse<T>(response)
+    } catch (error) {
+      if (attempt >= READ_RETRIES || signal?.aborted || !isTransientReadFailure(error)) throw error
+      const asked = error instanceof ApiError && error.retryAfterSeconds !== undefined ? error.retryAfterSeconds * 1000 : 0
+      await wait(Math.min(Math.max(asked, READ_RETRY_BASE_MS * 2 ** attempt), READ_RETRY_MAX_MS), signal)
+      if (signal?.aborted) throw error
+    }
+  }
 }
 
 // Mutating routes require Content-Type: application/json (spec §A2, 415
@@ -206,14 +243,30 @@ export const filesApi = {
 
 // ---- Jobs (permanent delete, Trash purge) ----
 
+// The job keeps running on the server whatever happens to one poll: a
+// poll that fails on the way (after its own retries), or times out, is
+// followed by the next one, and only this many of them in a row end the
+// wait. An answer (FM_JOB_NOT_FOUND...) ends it at once.
+const JOB_POLL_FAILURES_TOLERATED = 5
+
 export async function waitForJob(
   jobId: string,
   onProgress: (job: JobResponse) => void,
   options?: { intervalMs?: number; signal?: AbortSignal },
 ): Promise<JobResponse> {
   const intervalMs = options?.intervalMs ?? 1000
+  let failures = 0
   for (;;) {
-    const job = await filesApi.getJob(jobId)
+    let job: JobResponse
+    try {
+      job = await filesApi.getJob(jobId)
+      failures = 0
+    } catch (error) {
+      const onTheWay = isTransientReadFailure(error) || (error instanceof ApiError && error.isTimeout)
+      if (!onTheWay || options?.signal?.aborted || ++failures > JOB_POLL_FAILURES_TOLERATED) throw error
+      await wait(intervalMs, options?.signal)
+      continue
+    }
     onProgress(job)
     if (job.state !== 'running') return job
     if (options?.signal?.aborted) return job

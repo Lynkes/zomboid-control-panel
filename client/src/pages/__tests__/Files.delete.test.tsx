@@ -158,6 +158,32 @@ describe('Files: permanent delete', () => {
     expect(server.callsTo('GET', `/jobs/${JOB_ID}`).length).toBeGreaterThan(0)
   })
 
+  it('a job poll that meets a proxy 502 is sent again: the delete still ends "done", not failed', async () => {
+    let polls = 0
+    server.on(({ method, path, body }) => {
+      if (method === 'POST' && path.endsWith('/delete/preview')) return json(200, preview(body.paths))
+      if (method === 'POST' && path.endsWith('/delete')) return json(202, { jobId: JOB_ID })
+      if (method === 'GET' && path === `/jobs/${JOB_ID}`) {
+        polls += 1
+        if (polls === 2) return json(502, { error: 'Bad gateway' })
+        return json(200, { id: JOB_ID, kind: 'permanentDelete', state: polls >= 3 ? 'done' : 'running', progress: { done: 0, total: 1 } })
+      }
+      return undefined
+    })
+    renderFiles()
+    await screen.findByRole('checkbox', { name: 'Select old.log' })
+    // Toasts outlive a test: count this test's own.
+    const doneBefore = screen.queryAllByText(enFiles.jobs.done).length
+    openRowMenu('old.log')
+    fireEvent.click(await screen.findByRole('menuitem', { name: enFiles.actions.deletePermanently }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.change(within(dialog).getByLabelText('Type old.log to confirm'), { target: { value: 'old.log' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: enFiles.actions.deletePermanently }))
+    await waitFor(() => expect(screen.queryAllByText(enFiles.jobs.done).length).toBeGreaterThan(doneBefore), { timeout: 8000 })
+    expect(polls).toBe(3)
+    expect(screen.queryByText(/Deleting stopped|Bad gateway/)).toBeNull()
+  }, 15000)
+
   it('when Trash is unavailable, a plain Delete is permanent and says so, typed by count for several items', async () => {
     server.on(({ method, path, body }) => {
       if (method === 'POST' && path.endsWith('/delete/preview')) return json(200, preview(body.paths, { trashAvailable: false, trashUnavailableReason: 'crossDevice' }))
