@@ -64,6 +64,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import {
   AlertDialog,
+  AlertDialogBody,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -464,6 +465,14 @@ export default function Servers() {
   // Steam update/verify state
   const [steamOperation, setSteamOperation] = useState<{ server: ServerInstance; type: 'update' | 'verify'; branch: string } | null>(null)
   const [steamLogs, setSteamLogs] = useState<string[]>([])
+  // The Steam dialog's progress log renders at the end of its scrolling
+  // body; bring it into view when output starts, so Start visibly does
+  // something on a short window.
+  const steamProgressRef = useRef<HTMLDivElement>(null)
+  const steamHasLogs = steamLogs.length > 0
+  useEffect(() => {
+    if (steamHasLogs) steamProgressRef.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [steamHasLogs])
   const [steamRunning, setSteamRunning] = useState(false)
   const [steamCompleted, setSteamCompleted] = useState<'success' | 'error' | null>(null)
   // bug-hunt-2026-09-06: steamRunning is only ever cleared by the
@@ -2752,17 +2761,20 @@ export default function Servers() {
                               onClick={() => handleSelectScannedConfig(config, autoScanResult.installPaths[0])}
                               aria-label={t('localForm.selectScannedConfigAria', { name: config.publicName || config.serverName })}
                             >
-                              <div className="flex items-center justify-between">
-                                <span className="font-medium">{config.publicName || config.serverName}</span>
-                                <Badge variant="secondary" className="text-xs font-mono">
+                              {/* Wraps on a phone (2026-09 dialog sweep): a
+                                  nowrap badge beside the name squeezed it to a
+                                  word per line and scrolled the list sideways. */}
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{config.publicName || config.serverName}</span>
+                                <Badge variant="secondary" className="block max-w-full truncate text-xs font-mono" title={`${config.serverName}.ini`}>
                                   {config.serverName}.ini
                                 </Badge>
                               </div>
-                              <div className="text-xs text-muted-foreground mt-1 font-mono truncate">
+                              <div className="text-xs text-muted-foreground mt-1 font-mono truncate" title={config.dataPath}>
                                 {t('localForm.dataPrefix', { path: config.dataPath })}
                               </div>
                               {config.matchedBatFile ? (
-                                <div className="mt-1 text-xs font-mono text-primary truncate">
+                                <div className="mt-1 text-xs font-mono text-primary truncate" title={config.matchedBatFile}>
                                   {t('localForm.matchedPrefix', { path: config.matchedBatFile })}
                                 </div>
                               ) : autoScanResult.installPaths.length > 0 ? (
@@ -3423,9 +3435,17 @@ export default function Servers() {
 
       {/* Delete Confirmation */}
       <AlertDialog open={!!deleteServer} onOpenChange={(open) => { if (!open && !deleting) { setDeleteServer(null); setDeleteFiles(false); } }}>
+        {/* 2026-09 dialog sweep: an install or data path with no break
+            point (Windows paths, Docker volumes) widened this confirm past
+            the screen, and with "Also delete server files" and the nested
+            data-path warning it outgrew a landscape phone. Paths break
+            anywhere now, and the description scrolls in an
+            AlertDialogBody under the pinned title and buttons. */}
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('deleteDialog.title')}</AlertDialogTitle>
+          </AlertDialogHeader>
+          <AlertDialogBody className="text-center sm:text-start">
             <AlertDialogDescription asChild>
               <div className="space-y-4">
                 <p>{t('deleteDialog.description', { name: deleteServer?.name })}</p>
@@ -3451,7 +3471,7 @@ export default function Servers() {
                       <span className="font-medium text-destructive">{t('deleteDialog.alsoDeleteFilesLabel')}</span>
                       <p className="text-muted-foreground mt-1">
                         {t('deleteDialog.alsoDeleteFilesDesc')}<br />
-                        <code className="text-xs bg-background px-1 rounded">{deleteServer?.installPath}</code>
+                        <code className="text-xs bg-background px-1 rounded break-all">{deleteServer?.installPath}</code>
                       </p>
                     </label>
                   </div>
@@ -3473,7 +3493,7 @@ export default function Servers() {
                     <p className="text-muted-foreground">
                       {t('deleteDialog.dataPathNestedWarningDesc')}
                     </p>
-                    <code className="text-xs bg-background px-1 rounded">{deleteServer?.zomboidDataPath}</code>
+                    <code className="text-xs bg-background px-1 rounded break-all">{deleteServer?.zomboidDataPath}</code>
                   </div>
                 )}
 
@@ -3494,7 +3514,7 @@ export default function Servers() {
                 )}
               </div>
             </AlertDialogDescription>
-          </AlertDialogHeader>
+          </AlertDialogBody>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleting}>{t('deleteDialog.cancel')}</AlertDialogCancel>
             <DisabledReason reason={!canServersManage ? t('deleteDialog.noPermission') : null}>
@@ -3514,7 +3534,11 @@ export default function Servers() {
 
       {/* Steam Update/Verify Dialog */}
       <Dialog open={!!steamOperation} onOpenChange={(open) => !open && (!steamRunning || steamStalled) && setSteamOperation(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
+        {/* 2026-09 dialog sweep: this scrolled as a whole under its own
+            85vh/80vh cap, so Start Update / Retry / Done were below the fold
+            at open on 1280x620 and smaller. It now takes DialogContent's own
+            bound and only the DialogBody scrolls. */}
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {steamOperation?.type === 'verify' ? (
@@ -3531,7 +3555,7 @@ export default function Servers() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          <DialogBody className="space-y-4">
             <div className="space-y-2">
               <Label>{t('steamDialog.steamcmdPathLabel')}</Label>
               <Input
@@ -3623,7 +3647,7 @@ export default function Servers() {
             </div>
 
             {steamLogs.length > 0 && (
-              <div className="space-y-2">
+              <div ref={steamProgressRef} className="space-y-2">
                 <Label>{t('steamDialog.progressLabel')}</Label>
                 <div className="h-48 overflow-y-auto rounded-lg border bg-muted/40 p-3 font-mono text-xs text-foreground">
                   {steamLogs.map((log, i) => (
@@ -3638,7 +3662,7 @@ export default function Servers() {
                 {t('steamDialog.stalledMessage')}
               </div>
             )}
-          </div>
+          </DialogBody>
 
           <DialogFooter>
             <Button
@@ -3693,7 +3717,7 @@ export default function Servers() {
             <AlertDialogTitle>{t('clearInstallDialog.title')}</AlertDialogTitle>
             <AlertDialogDescription>
               {t('clearInstallDialog.descriptionBefore')}{' '}
-              <code className="text-xs bg-background px-1 rounded">
+              <code className="text-xs bg-background px-1 rounded break-all">
                 {getInstallFolder(steamOperation?.server.installPath)}
               </code>
               {' '}{t('clearInstallDialog.descriptionAfter')}

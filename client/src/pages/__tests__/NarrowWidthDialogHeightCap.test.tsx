@@ -117,11 +117,6 @@ function makeServer(overrides: Partial<ServerInstance> = {}): ServerInstance {
   } as ServerInstance
 }
 
-function assertDialogFitsShortViewport(dialog: HTMLElement) {
-  expect(dialog.className).toMatch(/max-h-\[85vh\]/)
-  expect(dialog.className).toMatch(/overflow-y-auto/)
-}
-
 // 2026-09 dialog sweep (after the Templates preview community report): the
 // dialogs below scrolled as a whole under their own 85vh/80vh caps, which
 // took their primary buttons below the fold on 1280x620 and every smaller
@@ -186,7 +181,7 @@ describe('Dashboard -- Wipe Server dialog fits a short mobile viewport', () => {
 })
 
 describe('Scheduler -- New Task dialog fits a short mobile viewport', () => {
-  it('caps height and keeps the schedule form inside the scrollable dialog', async () => {
+  it('scrolls only the schedule form; Create Task stays on screen', async () => {
     vi.mocked(schedulerApi.getTasks).mockResolvedValue({ tasks: [] })
     vi.mocked(schedulerApi.getCronPresets).mockResolvedValue({ presets: [] })
     vi.mocked(schedulerApi.getStatus).mockResolvedValue({ activeTasks: 0, autoRestartEnabled: false, modUpdateRestartPending: false })
@@ -206,22 +201,66 @@ describe('Scheduler -- New Task dialog fits a short mobile viewport', () => {
     fireEvent.click(newTaskButton)
 
     const dialog = await screen.findByRole('dialog')
-    assertDialogFitsShortViewport(dialog)
-    const nameLabel = within(dialog).getByText(/task name/i)
-    expect(dialog.contains(nameLabel)).toBe(true)
+    const body = assertPinnedBody(dialog, [/create task/i])
+    expect(body.contains(within(dialog).getByText(/task name/i))).toBe(true)
   })
 })
 
 describe('Servers -- Steam Update dialog fits a short mobile viewport', () => {
-  async function openUpdateDialogFor(serverName: string) {
+  async function openCardMenuItem(serverName: string, item: string) {
     const trigger = await screen.findByRole('button', { name: `Options for ${serverName}` })
     fireEvent.pointerDown(trigger, { button: 0, pointerId: 1 })
     fireEvent.click(trigger)
     const menu = await screen.findByRole('menu')
-    fireEvent.click(within(menu).getByText(en.card.updateServer))
+    fireEvent.click(within(menu).getByText(item))
+  }
+  const openUpdateDialogFor = (serverName: string) => openCardMenuItem(serverName, en.card.updateServer)
+
+  function renderServers(server = makeServer()) {
+    vi.mocked(serversApi.getAll).mockResolvedValue({ servers: [server] })
+    vi.mocked(serversApi.getStatus).mockResolvedValue({ servers: [] })
+    vi.mocked(serversApi.getRconStatuses).mockResolvedValue({ servers: [] })
+    vi.mocked(serversApi.discoverMounts).mockResolvedValue({ mounts: [] })
+    vi.mocked(dockerApi.getStatus).mockResolvedValue({ enabled: false, available: false, containers: [] })
+    vi.mocked(configApi.getAppSettings).mockResolvedValue({ settings: {} })
+    vi.mocked(updateApi.getStatus).mockResolvedValue({})
+    render(
+      <MemoryRouter>
+        <TooltipProvider>
+          <Servers />
+        </TooltipProvider>
+      </MemoryRouter>,
+    )
   }
 
-  it('caps height and keeps the branch/log content inside the scrollable dialog', async () => {
+  // 2026-09 dialog sweep: an install or data path with no break point
+  // widened the Remove from Panel confirm past a phone screen (the grid half
+  // is AlertDialogContent's own column template) and, with "Also delete
+  // server files" and the nested data-path warning, it outgrew a landscape
+  // phone. The paths break anywhere and the description scrolls in a body.
+  it('Remove from Panel: paths break anywhere, and the description scrolls under the pinned title and buttons', async () => {
+    const installPath = 'D:\\Games\\ProjectZomboid\\DedicatedServers\\KnoxCountrySurvivors_B42'
+    renderServers(makeServer({ installPath, zomboidDataPath: `${installPath}\\Zomboid` }))
+    await openCardMenuItem('Ashenwood', en.card.removeFromPanel)
+    const dialog = await screen.findByRole('alertdialog')
+    const body = assertPinnedBody(dialog, [/remove from panel/i, /^cancel$/i])
+    expect(body.contains(within(dialog).getByText(installPath))).toBe(true)
+    expect(within(dialog).getByText(installPath).className).toContain('break-all')
+    expect(body.contains(within(dialog).getByRole('heading', { name: en.deleteDialog.title }))).toBe(false)
+  })
+
+  it('Clear Installation Folder: the install path breaks anywhere', async () => {
+    const installPath = 'C:\\Users\\Administrator\\Desktop\\ProjectZomboidServer'
+    renderServers(makeServer({ installPath }))
+    await openUpdateDialogFor('Ashenwood')
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: en.steamDialog.clearFolderButton }))
+    const confirm = await screen.findByRole('alertdialog')
+    const code = confirm.querySelector('code')!
+    expect(code.className).toContain('break-all')
+  })
+
+  it('scrolls only the path/branch/log content; Start Update and Cancel stay on screen', async () => {
     vi.mocked(serversApi.getAll).mockResolvedValue({ servers: [makeServer()] })
     vi.mocked(serversApi.getStatus).mockResolvedValue({ servers: [] })
     vi.mocked(serversApi.getRconStatuses).mockResolvedValue({ servers: [] })
@@ -241,9 +280,8 @@ describe('Servers -- Steam Update dialog fits a short mobile viewport', () => {
     await openUpdateDialogFor('Ashenwood')
 
     const dialog = await screen.findByRole('dialog')
-    assertDialogFitsShortViewport(dialog)
-    const pathLabel = within(dialog).getByText(/steamcmd path/i)
-    expect(dialog.contains(pathLabel)).toBe(true)
+    const body = assertPinnedBody(dialog, [/start update/i, /^cancel$/i])
+    expect(body.contains(within(dialog).getByText(/steamcmd path/i))).toBe(true)
   })
 })
 
