@@ -58,6 +58,20 @@ jobs:
       - name: Lint
         run: npm run lint:server
 
+      # The Server Files SFTP suites run against a real OpenSSH sftp-server
+      # (server/tests/helpers/opensshSftpServer.js), not only against
+      # in-memory models of one: the models once hid a broken upload. With
+      # ZCP_REQUIRE_SFTP_SERVER=1 (the Tests step) a missing binary fails
+      # those suites instead of quietly skipping them.
+      - name: Install OpenSSH sftp-server
+        shell: bash
+        run: |
+          if [ ! -x /usr/lib/openssh/sftp-server ]; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends openssh-sftp-server
+          fi
+          test -x /usr/lib/openssh/sftp-server
+
       # vitest-worker-teardown-flake-exits-1: vitest 4.1.11 has a known,
       # currently-open upstream race in its birpc worker-teardown path
       # (vitest-dev/vitest#8649 fixed the "fetch"-pending variant in the
@@ -75,6 +89,8 @@ jobs:
       # Tests" would be present and this condition is false.
       - name: Tests
         shell: bash
+        env:
+          ZCP_REQUIRE_SFTP_SERVER: "1"
         run: |
           if npm run test:server 2>&1 | tee /tmp/server-test-output.log; then
             exit 0
