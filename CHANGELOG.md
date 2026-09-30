@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - World Map's item and vehicle pickers always fit the window (Custom item drop's item list was cut off).
+- Uploads to the panel, including world backups, are no longer cut off after 5 minutes on a slow connection.
+- Players: Import character now shows in the player's activity log.
 
 ## [1.4.0] - 2026-09-28
 
