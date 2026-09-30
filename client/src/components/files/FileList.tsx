@@ -176,7 +176,6 @@ export function FileList({
   const selectableCount = entries.filter(canSelectEntry).length
   const selectedCount = entries.filter((entry) => selected.has(entry.path)).length
   const allSelected = selectableCount > 0 && selectedCount === selectableCount
-  const someSelected = selectedCount > 0 && !allSelected
 
   const moveActive = useCallback((next: number) => {
     const clamped = Math.max(0, Math.min(entries.length - 1, next))
@@ -249,7 +248,9 @@ export function FileList({
           <div role="columnheader" className="flex justify-center">
             <label className={CHECKBOX_HIT_AREA}>
               <Checkbox
-                checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                // Checked only when everything is: the shared Checkbox draws its
+                // tick for 'indeterminate' too, which would read as "all selected".
+                checked={allSelected}
                 onCheckedChange={(value) => onSelectAll(value === true)}
                 disabled={selectableCount === 0}
                 aria-label={t('list.selectAll')}

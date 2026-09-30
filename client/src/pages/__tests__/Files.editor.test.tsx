@@ -115,6 +115,19 @@ describe('Files editor', () => {
     expect(textarea.value.startsWith('\t')).toBe(true)
   })
 
+  it('Esc inside the text arms "Tab leaves the field"; a second Esc closes', async () => {
+    const textarea = await openEditor()
+    textarea.focus()
+    textarea.setSelectionRange(0, 0)
+    fireEvent.keyDown(textarea, { key: 'Escape' })
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    fireEvent.keyDown(textarea, { key: 'Tab' })
+    expect(textarea.value).toBe(ORIGINAL)
+    fireEvent.keyDown(textarea, { key: 'Escape' })
+    fireEvent.keyDown(textarea, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
   it('closing with unsaved changes asks first; Cancel keeps the text', async () => {
     const textarea = await openEditor()
     fireEvent.change(textarea, { target: { value: 'typed work' } })

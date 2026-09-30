@@ -281,14 +281,19 @@ export default function Files() {
   const [auditKey, setAuditKey] = useState(0)
   const listRequestRef = useRef(0)
 
+  // Keyed on ids, not the profile object: a profile refresh (after every
+  // change, "Check again", another server going active) must not list the
+  // folder a second time.
+  const listProfileId = profile?.id ?? null
+  const listRootAvailable = !!root?.available
   const loadListing = useCallback(async (options?: { keepSelection?: boolean }) => {
-    if (!profile || !root || !root.available) return
+    if (!listProfileId || !rootId || !listRootAvailable) return
     const requestId = ++listRequestRef.current
     setListLoading(true)
     setListError(null)
     try {
-      const result = await filesApi.list(profile.id, {
-        root: root.id,
+      const result = await filesApi.list(listProfileId, {
+        root: rootId,
         path: currentPath,
         offset: 0,
         limit: FM_LIMITS.LIST_PAGE_DEFAULT,
@@ -298,7 +303,7 @@ export default function Files() {
       if (requestId !== listRequestRef.current) return
       setListing(result)
       if (!options?.keepSelection) setSelected(new Set())
-      writeLastFolder(profile.id, root.id, currentPath)
+      writeLastFolder(listProfileId, rootId, currentPath)
       if (result.sortLimited && sort !== 'name') setSort('name')
     } catch (error) {
       if (requestId !== listRequestRef.current) return
@@ -307,7 +312,7 @@ export default function Files() {
     } finally {
       if (requestId === listRequestRef.current) setListLoading(false)
     }
-  }, [currentPath, order, profile, root, sort])
+  }, [currentPath, listProfileId, listRootAvailable, order, rootId, sort])
 
   useEffect(() => {
     setSearch(null)
