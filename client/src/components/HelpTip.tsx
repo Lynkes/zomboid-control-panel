@@ -12,6 +12,30 @@ interface HelpTipProps {
   className?: string
 }
 
+// Radix Dialog / AlertDialog / Popover move focus to the first tabbable element
+// when they open (and back to the trigger when they close), announcing it with
+// these non-bubbling events on their container just before -- the names are
+// Radix FocusScope's AUTOFOCUS_ON_MOUNT / AUTOFOCUS_ON_UNMOUNT. A capture
+// listener on the document still sees them, and the focus they announce
+// happens synchronously right after, so a flag cleared on the next microtask
+// marks exactly that focus as programmatic.
+//
+// 2026-09 dialog sweep: when a HelpTip was a dialog's first tabbable element
+// (Saved Configs' title, Delete role's "Move members to", the mount-discovery
+// Connect dialog), that auto-focus opened its tooltip on every open, by mouse,
+// touch or keyboard, right over the dialog's own title and description. Such a
+// focus no longer opens it; a user's Tab onto it still does.
+const FOCUS_SCOPE_AUTOFOCUS_EVENTS = ['focusScope.autoFocusOnMount', 'focusScope.autoFocusOnUnmount']
+let focusScopeAutoFocusing = false
+if (typeof document !== 'undefined') {
+  for (const type of FOCUS_SCOPE_AUTOFOCUS_EVENTS) {
+    document.addEventListener(type, () => {
+      focusScopeAutoFocusing = true
+      queueMicrotask(() => { focusScopeAutoFocusing = false })
+    }, true)
+  }
+}
+
 // Usage: place immediately after the label text it explains, in the same
 // flex row — `<Label>...</Label><HelpTip label={...}>...</HelpTip>` — so the
 // icon's position relative to its label stays identical on every screen.
@@ -34,6 +58,11 @@ export function HelpTip({ label, children, side = 'top', className }: HelpTipPro
         onClick={(event) => {
           event.preventDefault()
           setOpen(true)
+        }}
+        onFocus={(event) => {
+          // Skips Radix's own open-on-focus (composeEventHandlers checks
+          // defaultPrevented) for a dialog's auto-focus; see above.
+          if (focusScopeAutoFocusing) event.preventDefault()
         }}
         aria-label={t('ariaLabel', { label })}
         className={cn(
