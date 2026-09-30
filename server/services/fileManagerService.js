@@ -1177,6 +1177,13 @@ async function checkUploadTarget(ctx, policy, rootId, { dirSegments, subSegments
   const limit = FM_LIMITS.UPLOAD_MAX_BYTES[policy.root.kind === "sftp" ? "sftp" : "local"];
   if (!Number.isSafeInteger(size) || size < 0) throw invalidRequest("size");
   if (size > limit) throw new FmError(ErrorCode.FM_UPLOAD_TOO_LARGE, undefined, { limit });
+  // The name's own rules first, so a bad name is reported as a name. The
+  // panel's reserved names are refused even over an existing entry.
+  checkName(name, { isNew: false });
+  const reserved = validateName(name, { isNew: true });
+  if (!reserved.ok && reserved.reason === "reservedPanelName") {
+    throw new FmError(ErrorCode.FM_INVALID_NAME, undefined, { reason: reserved.reason });
+  }
   const { dir, missing } = await resolveUploadDir(ctx, policy, rootId, [...dirSegments, ...subSegments]);
   assertUnprotected(dir);
   let parentRealRel = dir.realRel;
