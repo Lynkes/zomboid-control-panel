@@ -233,10 +233,16 @@ function zip64End(entryCount, centralSize, centralOffset) {
 }
 
 export class StreamingZipWriter {
-  constructor(outputPath, { level = 6 } = {}) {
+  // outputStream (optional): a writable stream that is already open, such as
+  // an HTTP response, used instead of creating outputPath. tempDir
+  // (optional): where the central-directory temp file goes; defaults to
+  // outputPath's folder, which is required when there's no outputPath.
+  // Both are additive: a backup passes neither and behaves as before.
+  constructor(outputPath, { level = 6, outputStream = null, tempDir = null } = {}) {
     this.outputPath = outputPath;
+    this.outputStream = outputStream;
     this.centralPath = path.join(
-      path.dirname(outputPath),
+      tempDir || path.dirname(outputPath),
       `.central-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
     );
     this.level = level;
@@ -251,12 +257,17 @@ export class StreamingZipWriter {
   async open() {
     if (this.output) return;
     await fs.promises.rm(this.centralPath, { force: true });
-    this.output = fs.createWriteStream(this.outputPath);
+    // A caller-supplied output stream is already open (an HTTP response
+    // never emits "open"), so only the streams created here are awaited.
+    this.output = this.outputStream || fs.createWriteStream(this.outputPath);
     this.central = fs.createWriteStream(this.centralPath);
     this.output.on("error", () => {});
     this.central.on("error", () => {});
     try {
-      await Promise.all([openStream(this.output), openStream(this.central)]);
+      await Promise.all([
+        this.outputStream ? Promise.resolve() : openStream(this.output),
+        openStream(this.central),
+      ]);
     } catch (error) {
       await this.abort();
       throw error;

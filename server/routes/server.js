@@ -93,7 +93,7 @@ export async function logServerEventBestEffort(...args) {
 // install rather than just exiting 0 (POST /install). Shared so the two
 // checks can't drift apart into two different ideas of "this looks like a
 // PZ server."
-const PZ_INSTALL_MARKERS = [
+export const PZ_INSTALL_MARKERS = [
   "ProjectZomboid64.json",
   "ProjectZomboid32.json",
   "StartServer64.bat",
@@ -101,7 +101,7 @@ const PZ_INSTALL_MARKERS = [
   "start-server.sh",
 ];
 
-function hasPzInstallMarker(dirPath) {
+export function hasPzInstallMarker(dirPath) {
   return PZ_INSTALL_MARKERS.some((marker) => fs.existsSync(path.join(dirPath, marker)));
 }
 

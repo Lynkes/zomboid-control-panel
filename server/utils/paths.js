@@ -33,6 +33,16 @@ const configPath = process.env.PANEL_PATHS_CONFIG_PATH
 let currentPaths = null;
 
 /**
+ * The panel's own program folder: the directory holding the executable in a
+ * packaged build, the project root otherwise. The Server Files file manager
+ * seals it (changing it would run code as the panel) and refuses to open a
+ * server root inside it.
+ */
+export function getPanelProgramDir() {
+  return baseDir;
+}
+
+/**
  * Load paths from config file or use defaults
  */
 export function getDataPaths() {
