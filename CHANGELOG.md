@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Players: Import character now shows in the player's activity log.
 - PanelBridge over SFTP keeps syncing after the host's SFTP service restarts or stops answering, instead of stalling until the panel restarts.
 
+### Security
+
+- Dependency updates for Socket.IO's engine.io and brace-expansion denial-of-service advisories.
+
 ## [1.4.0] - 2026-09-28
 
 ### Added
