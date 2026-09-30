@@ -39,6 +39,7 @@ import {
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
+  AlertDialogBody,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -1908,22 +1909,31 @@ export default function Backups() {
             <AlertDialogTitle>{t('snapshotDialog.title')}</AlertDialogTitle>
             <AlertDialogDescription>{snapshotDialog?.name}</AlertDialogDescription>
           </AlertDialogHeader>
+          {/* 2026-09 dialog sweep: a long SERVER.INI line (PublicName, Map)
+              set the <pre>'s width, which widened the whole confirm past the
+              screen at every size (fixed by AlertDialogContent's one-column
+              template: each <pre> now scrolls sideways inside itself); and on
+              a landscape phone its only button, Close -- the only way out of
+              an AlertDialog on touch -- was below the fold, with the two
+              <pre>s scrollers nested inside. The snapshot scrolls in one
+              AlertDialogBody now (the <pre>s only scroll sideways), and the
+              server values wrap. */}
           {snapshotDialog && (
-            <div className="space-y-3 text-sm">
+            <AlertDialogBody className="space-y-3 text-sm">
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
-                <span>{t('snapshotDialog.serverLabel')}</span><span className="text-foreground">{snapshotDialog.snapshot.server.name}</span>
-                <span>{t('snapshotDialog.providerLabel')}</span><span className="text-foreground">{snapshotDialog.snapshot.server.provider}</span>
+                <span>{t('snapshotDialog.serverLabel')}</span><span className="text-foreground [overflow-wrap:anywhere]">{snapshotDialog.snapshot.server.name}</span>
+                <span>{t('snapshotDialog.providerLabel')}</span><span className="text-foreground [overflow-wrap:anywhere]">{snapshotDialog.snapshot.server.provider}</span>
                 <span>{t('snapshotDialog.capturedLabel')}</span><span className="text-foreground">{new Date(snapshotDialog.snapshot.createdAt).toLocaleString(i18n.language)}</span>
               </div>
               <div>
                 <p className="mb-1 text-xs font-medium text-muted-foreground">{t('snapshotDialog.serverIniLabel')}</p>
-                <pre className="max-h-36 overflow-auto rounded border border-border/60 bg-muted/20 p-2 text-xs">{Object.entries(snapshotDialog.snapshot.serverIni).map(([key, value]) => `${key}=${value}`).join('\n') || t('snapshotDialog.noSettings')}</pre>
+                <pre className="overflow-x-auto rounded border border-border/60 bg-muted/20 p-2 text-xs">{Object.entries(snapshotDialog.snapshot.serverIni).map(([key, value]) => `${key}=${value}`).join('\n') || t('snapshotDialog.noSettings')}</pre>
               </div>
               <div>
                 <p className="mb-1 text-xs font-medium text-muted-foreground">{t('snapshotDialog.sandboxLabel')}</p>
-                <pre className="max-h-36 overflow-auto rounded border border-border/60 bg-muted/20 p-2 text-xs">{Object.entries(snapshotDialog.snapshot.sandboxVars).map(([key, value]) => `${key}=${value}`).join('\n') || t('snapshotDialog.noSettings')}</pre>
+                <pre className="overflow-x-auto rounded border border-border/60 bg-muted/20 p-2 text-xs">{Object.entries(snapshotDialog.snapshot.sandboxVars).map(([key, value]) => `${key}=${value}`).join('\n') || t('snapshotDialog.noSettings')}</pre>
               </div>
-            </div>
+            </AlertDialogBody>
           )}
           <AlertDialogFooter>
             <AlertDialogAction onClick={() => setSnapshotDialog(null)}>{t('snapshotDialog.close')}</AlertDialogAction>
@@ -2048,8 +2058,11 @@ export default function Backups() {
             <AlertDialogDescription asChild>
               <div className="space-y-4">
                 <p>{t('deleteOlderDialog.description')}</p>
-                <div className="flex items-center gap-3">
-                  <Label htmlFor="delete-days" className="text-foreground whitespace-nowrap">{t('deleteOlderDialog.olderThanLabel')}</Label>
+                {/* Wraps (2026-09 dialog sweep): the es/fr/ht labels are
+                    wider than a 375px dialog beside the number input, and
+                    a nowrap row pushed the input and the buttons off it. */}
+                <div className="flex flex-wrap items-center gap-3">
+                  <Label htmlFor="delete-days" className="text-foreground">{t('deleteOlderDialog.olderThanLabel')}</Label>
                   <NumberInput
                     id="delete-days"
                     min={1}

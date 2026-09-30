@@ -14,6 +14,7 @@ import { HelpTip } from '@/components/HelpTip'
 import { DisabledReason } from '@/components/DisabledReason'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -781,12 +782,17 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
       )}
 
       <Dialog open={createOpen} onOpenChange={(open) => !open && setCreateOpen(false)}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+        {/* 2026-09 dialog sweep: all 30 capabilities scrolled as a whole
+            under this dialog's own 85vh cap, so Create role and Cancel (and
+            the title) were off-screen at every size. Only the DialogBody
+            scrolls now, under DialogContent's own bound; a failed create's
+            error sits right above the buttons. */}
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{t('roleFormDialog.createTitle')}</DialogTitle>
             <DialogDescription>{t('roleFormDialog.createDescription')}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          <DialogBody className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="new-role-name">{t('roleFormDialog.nameLabel')}</Label>
               <Input
@@ -824,8 +830,8 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
                 </div>
               ))}
             </div>
-            {formError && <p className="text-sm text-destructive">{formError}</p>}
-          </div>
+          </DialogBody>
+          {formError && <p className="text-sm text-destructive [overflow-wrap:anywhere]">{formError}</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={formBusy}>
               {t('roleFormDialog.cancel')}
