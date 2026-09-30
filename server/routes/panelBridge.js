@@ -114,6 +114,10 @@ export const VALID_ACTIONS = new Set([
   "getPlayerDetails",
   "getAllPlayerDetails",
   "getLeaderboard",
+  // Read-only character sheet for the Players page's Character tab
+  // (routes/playerCharacter.js, gated players.view). Through POST /command it
+  // is plain bridge.command like the other reads: it changes nothing.
+  "getCharacterSheet",
   "healPlayer",
   "killPlayer",
   "teleportPlayer",
@@ -385,7 +389,8 @@ function requireBridgeCommandUnlessGmToolsOnly(req, res, next) {
 
 // Username validation for PanelBridge player endpoints.
 // Allow normal in-game names (spaces/symbols) while blocking control chars and quote/backslash.
-const BRIDGE_USERNAME_REGEX = /^(?=.*\S)[^\x00-\x1F\x7F"\\]{1,64}$/;
+// Exported for routes/playerCharacter.js, which validates the same names.
+export const BRIDGE_USERNAME_REGEX = /^(?=.*\S)[^\x00-\x1F\x7F"\\]{1,64}$/;
 
 // Shared path safety check for /configure, /configure-direct and
 // /auto-detect: bridge.configure()/autoDetect() (services/panelBridge.js)
@@ -2674,6 +2679,18 @@ router.get("/commands", (req, res) => {
         action: "getPlayerDetails",
         description: "Get detailed info for a player",
         args: { username: "string (required)" },
+      },
+      {
+        action: "getCharacterSheet",
+        description: "Get a player's character sheet (read-only): skills, XP, traits, condition and inventory",
+        args: {
+          username: "string (required)",
+          sections: "array of summary|stats|skills|traits|inventory (default: all but inventory)",
+          maxItems: "number 50-1000 (default: 500)",
+          maxDepth: "number 1-4 (default: 3)",
+          budgetMs: "number 5-50 (default: 20)",
+          fresh: "boolean (default: false, bypasses the 3-10 s cache)",
+        },
       },
       {
         action: "teleportPlayer",

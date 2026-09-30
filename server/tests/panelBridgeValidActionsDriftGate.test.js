@@ -47,6 +47,11 @@ const PINNED_VALID_ACTIONS = [
   "getPlayerDetails",
   "getAllPlayerDetails",
   "getLeaderboard",
+  // Added v1.4.1 (Character tab). Reviewed against BRIDGE_ACTION_CAPABILITY:
+  // a read-only sheet (skills, traits, condition, inventory) with no side
+  // effect, the same tier as getPlayerDetails, so plain bridge.command through
+  // POST /command is enough. Its dedicated route is players.view.
+  "getCharacterSheet",
   "healPlayer",
   "killPlayer",
   "teleportPlayer",
