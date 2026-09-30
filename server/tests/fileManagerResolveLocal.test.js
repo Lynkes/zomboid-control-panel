@@ -280,6 +280,28 @@ describe("root rules", () => {
     expect(rules.protectedWithin("")).not.toBeNull();
   });
 
+  it("a sealed folder inside a root can't be probed: existing or not, the answer is the same", async () => {
+    const { dataDir } = getDataPaths();
+    write(path.join(dataDir, "jwt.secret"), "SECRET");
+    const around = fs.realpathSync.native(path.dirname(dataDir));
+    const dataName = path.basename(dataDir);
+    dbState.servers = [{ ...tree.profile, zomboidDataPath: around, serverConfigPath: "" }];
+    invalidateRootCache();
+    const c = await ctx();
+    const listing = await service.listDir(c, { root: "data", path: "" });
+    const row = listing.entries.find((e) => e.name === dataName);
+    expect(row.protection).toEqual({ level: "sealed", area: "panelData" });
+    expect(row.size).toBeNull();
+    expect(row.modifiedAt).toBeNull();
+    for (const probe of [`${dataName}/jwt.secret`, `${dataName}/does-not-exist`, `${dataName}/a/b/c`]) {
+      expect(await codeOf(service.statPath(c, { root: "data", path: probe })), probe).toBe("FM_PATH_PROTECTED");
+      expect(await codeOf(service.readText(c, { root: "data", path: probe })), probe).toBe("FM_PATH_PROTECTED");
+    }
+    expect(await codeOf(service.listDir(c, { root: "data", path: dataName }))).toBe("FM_PATH_PROTECTED");
+    const found = await service.search(c, { root: "data", path: "", q: "jwt" });
+    expect(found.results).toEqual([]);
+  });
+
   it("a root inside the panel's own folders is refused as overlapsPanel", async () => {
     const { dataDir } = getDataPaths();
     const inner = path.join(dataDir, "inner-root");

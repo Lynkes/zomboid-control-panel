@@ -217,6 +217,12 @@ function classifyResolved(policy, r) {
 async function resolveIn(ctx, rootId, rawPath, intent, field = "path") {
   const segments = parseSegments(rawPath, field);
   const policy = await policyFor(ctx, rootId);
+  // Inside a sealed folder every path is refused the same way, whether it
+  // exists or not, so the folder can't be probed.
+  if (segments.length > 1) {
+    const parent = policy.rules.classify(segments.slice(0, -1).join("/"), null);
+    if (parent?.level === "sealed") throw protectedError(parent);
+  }
   const r = await policy.backend.resolve(policy.root, segments, intent);
   if (reservedRealRel(r.realRel)) {
     throw new FmError(ErrorCode.FM_INVALID_PATH, undefined, { reason: "reservedPanelName" });
@@ -511,6 +517,12 @@ export async function listDir(ctx, query) {
 
 export async function statPath(ctx, query) {
   const { r, policy } = await resolveIn(ctx, query.root, query.path ?? "", "list");
+  // A sealed entry is visible only as the locked row its (unsealed) folder
+  // lists; anything deeper can't be probed for existence.
+  if (r.protection?.level === "sealed" && r.realRel) {
+    const parent = policy.rules.classify(parentOf(r.realRel), null);
+    if (parent?.level === "sealed") throw protectedError(r.protection);
+  }
   return { entry: await entryOf(policy, r) };
 }
 
@@ -1574,7 +1586,9 @@ export async function purgeTrash(ctx, body, user, audit) {
   const confirmations = new ConfirmationSet();
   confirmations.requirePermanent();
   confirmations.assertConfirmed(confirm);
-  const expected = targets.length === 1 ? path.posix.basename(targets[0].originalPath) : String(targets.length);
+  // Emptying the whole Trash is confirmed with the count (whatever it is);
+  // deleting one chosen item with its name.
+  const expected = !all && targets.length === 1 ? path.posix.basename(targets[0].originalPath) : String(targets.length);
   if (body?.typedConfirmation !== expected) throw new FmError(ErrorCode.FM_TYPED_CONFIRMATION_MISMATCH);
   audit.bytes = targets.reduce((sum, t) => sum + (t.bytes || 0), 0);
   const deferred = audit.defer();

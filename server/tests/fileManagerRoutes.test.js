@@ -363,3 +363,104 @@ describe("uploads over HTTP", () => {
     expect(fs.readFileSync(path.join(tree.data, "Logs", "é new.txt"), "utf8")).toBe("hello");
   });
 });
+
+describe("flows", () => {
+  it("move: per-item results, never into itself", async () => {
+    write(path.join(tree.data, "a", "one.txt"), "1");
+    write(path.join(tree.data, "a", "inner", "x.txt"), "x");
+    write(path.join(tree.data, "b", "two.txt"), "2");
+    const res = await call("POST", `${P}/move`, { body: { root: "data", paths: ["a/one.txt", "a", "missing.txt"], destDir: "a/inner", confirm: [] } });
+    expect(res.status).toBe(200);
+    expect(res.body.moved).toEqual([{ from: "a/one.txt", to: "a/inner/one.txt" }]);
+    expect(res.body.failed.map((f) => [f.path, f.code])).toEqual([
+      ["a", "FM_MOVE_INTO_SELF"],
+      ["missing.txt", "FM_NOT_FOUND"],
+    ]);
+    expect(fs.existsSync(path.join(tree.data, "a", "inner", "one.txt"))).toBe(true);
+  });
+
+  it("copy: default name, and replacing needs the overwrite token", async () => {
+    const first = await call("POST", `${P}/copy`, { body: { root: "data", path: "Logs/server.txt", destDir: "Logs", confirm: [] } });
+    expect(first.status).toBe(201);
+    expect(first.body.entry.name).toBe("server (copy).txt");
+    const again = await call("POST", `${P}/copy`, { body: { root: "data", path: "Logs/server.txt", destDir: "Logs", newName: "server (copy).txt", confirm: [] } });
+    expect(again.body).toMatchObject({ code: "FM_CONFIRMATION_REQUIRED", params: { required: ["overwrite"] } });
+    const replaced = await call("POST", `${P}/copy`, {
+      body: { root: "data", path: "Logs/server.txt", destDir: "Logs", newName: "server (copy).txt", confirm: ["overwrite"] },
+    });
+    expect(replaced.status).toBe(201);
+  });
+
+  it("search: substring on names, never inside sealed or link folders", async () => {
+    write(path.join(tree.data, "mods", "MyMod", "readme-servertest.txt"), "x");
+    const res = await call("GET", `${P}/search?root=data&path=&q=servertest`);
+    expect(res.status).toBe(200);
+    const paths = res.body.results.map((r) => r.path);
+    expect(paths).toEqual(expect.arrayContaining(["Server/servertest.ini", "mods/MyMod/readme-servertest.txt", "db/servertest.db"]));
+    expect(res.body.truncated).toBe(false);
+    expect((await call("GET", `${P}/search?root=data&path=&q=a`)).body.code).toBe("FM_INVALID_REQUEST");
+    const regexy = await call("GET", `${P}/search?root=data&path=&q=${encodeURIComponent(".*(a+)+$")}`);
+    expect(regexy.status).toBe(200);
+    expect(regexy.body.results).toEqual([]);
+  });
+
+  it("upload preflight: one answer per file and the batch's tokens", async () => {
+    processState.scanFailed = true;
+    const res = await call("POST", `${P}/upload/preflight`, {
+      body: {
+        root: "install",
+        dir: "",
+        files: [
+          { relPath: "start-server.sh", size: 10 },
+          { relPath: "new/folder/readme.txt", size: 5 },
+          { relPath: "media/lua/server/PanelBridge.lua", size: 5 },
+          { relPath: "bad:name.txt", size: 1 },
+        ],
+        confirm: [],
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.required).toEqual(["serverRunning", "overwrite", "executable"]);
+    const [script, nested, bridge, bad] = res.body.files;
+    expect(script).toMatchObject({ ok: true, willReplace: true });
+    expect(script.currentEtag).toMatch(/^s:/);
+    expect(nested).toMatchObject({ ok: true, willReplace: false });
+    expect(bridge).toMatchObject({ ok: false, code: "FM_PATH_PROTECTED" });
+    expect(bad).toMatchObject({ ok: false, code: "FM_INVALID_NAME", params: { reason: "colon" } });
+  });
+
+  it("Trash over HTTP: list, restore, purge with a typed count", async () => {
+    write(path.join(tree.data, "Logs", "t1.txt"), "1");
+    write(path.join(tree.data, "Logs", "t2.txt"), "2");
+    const p = await call("POST", `${P}/delete/preview`, { body: { root: "data", paths: ["Logs/t1.txt", "Logs/t2.txt"] } });
+    const del = await call("POST", `${P}/delete`, { body: { root: "data", previewId: p.body.previewId, mode: "trash", confirm: [] } });
+    expect(del.body.trashed).toHaveLength(2);
+    const list = await call("GET", `${P}/trash?root=data`);
+    expect(list.body.items).toHaveLength(2);
+    expect(list.body.totalBytes).toBe(2);
+    const restored = await call("POST", `${P}/trash/restore`, { body: { root: "data", trashId: del.body.trashed[0].trashId } });
+    expect(restored.status).toBe(200);
+    expect(fs.existsSync(path.join(tree.data, "Logs", "t1.txt"))).toBe(true);
+    const purge = await call("POST", `${P}/trash/purge`, { body: { root: "data", all: true, typedConfirmation: "1", confirm: ["permanent"] } });
+    expect(purge.status).toBe(202);
+    await _waitForJobForTests(purge.body.jobId);
+    expect((await call("GET", `${P}/trash?root=data`)).body.items).toEqual([]);
+  });
+
+  it.skipIf(process.platform !== "win32")("a case-only rename works on Windows", async () => {
+    const res = await call("POST", `${P}/rename`, { body: { root: "data", path: "Logs/server.txt", newName: "Server.txt", confirm: [] } });
+    expect(res.status).toBe(200);
+    expect(fs.readdirSync(path.join(tree.data, "Logs"))).toContain("Server.txt");
+  });
+
+  it("profile with live state, and the audit listing", async () => {
+    processState.running = true;
+    const profile = await call("GET", `${P}?fresh=1`);
+    expect(profile.body.profile).toMatchObject({ id: "p1", serverState: "running", provider: "native", remote: null });
+    await call("POST", `${P}/mkdir`, { body: { root: "data", path: "", name: "audited", confirm: [] } });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const audit = await call("GET", "/api/files/audit?profileId=p1&limit=5");
+    expect(audit.body.entries[0]).toMatchObject({ op: "files.mkdir", profileId: "p1", paths: ["audited"] });
+    expect((await call("GET", "/api/files/audit?limit=501")).body.code).toBe("FM_INVALID_REQUEST");
+  });
+});
