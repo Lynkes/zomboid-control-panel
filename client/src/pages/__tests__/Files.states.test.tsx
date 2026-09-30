@@ -134,11 +134,15 @@ describe('Files: access', () => {
     expect(await screen.findByText(enFiles.access.denied)).toBeInTheDocument()
   })
 
-  it('logins off: explains, and links to Panel Settings', async () => {
+  // Live QA: the old "Open Panel Settings" link led to a Security tab with
+  // no way to turn logins on (only db.json's authEnabled: false turns them
+  // off, and nothing in the panel turns them back on).
+  it('logins off: explains how to turn them back on, with no dead-end link', async () => {
     server.on(({ path }) => (path === '/profiles' ? fmError(403, 'FM_AUTH_DISABLED') : undefined))
     renderFiles()
     expect(await screen.findByText(enFiles.access.authDisabled)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: enFiles.access.openSettings })).toHaveAttribute('href', '/settings?tab=security')
+    expect(screen.getByText(enFiles.access.authDisabledHow)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /settings/i })).toBeNull()
   })
 })
 

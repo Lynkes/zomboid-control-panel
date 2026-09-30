@@ -370,7 +370,7 @@
   "access": {
     "denied": "Wòl ou a pa gen kapasite “Jere fichye sèvè”. Mande yon administratè.",
     "authDisabled": "Jesyonè fichye a mache sèlman lè koneksyon nan panèl la aktive.",
-    "openSettings": "Louvri Paramèt Panèl"
+    "authDisabledHow": "Koneksyon yo dezaktive paske db.json panèl la (nan dosye done li) gen paramèt authEnabled: false. Retire paramèt sa a, rekòmanse panèl la, epi konekte."
   },
   "shortcuts": {
     "title": "Rakousi klavye",

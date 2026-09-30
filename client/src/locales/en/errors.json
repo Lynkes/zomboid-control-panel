@@ -514,7 +514,7 @@
   "SERVER_NOSTEAM_SIBLING_CONFLICTS_WITH_WORKSHOP_BRIDGE": "This server gets PanelBridge from the Steam Workshop, which needs Steam, and every server sharing a game folder gets it the same way. These servers in that folder launch without Steam: {{names}}. First switch this server's PanelBridge to panel-installed in Settings › PanelBridge, or have them launch with Steam.",
   "PANELBRIDGE_INSTALL_FAILED": "Couldn't copy PanelBridge.lua into the game folder. Check the panel log for the reason.",
   "PANELBRIDGE_INSTALL_STILL_RUNNING": "Installing PanelBridge is taking longer than usual and continues in the background. Check again in a moment.",
-  "FM_AUTH_DISABLED": "The file manager only works while panel logins are on. Turn them on in Panel Settings, then sign in.",
+  "FM_AUTH_DISABLED": "The file manager only works while panel logins are on. To turn them on, remove the authEnabled: false setting from the panel's db.json (in its data folder), restart the panel, then sign in.",
   "FM_TOKEN_IN_URL": "This request carried a sign-in token in its address, which the file manager refuses. Reload the page and try again.",
   "FM_INVALID_REQUEST": "Part of this request was missing or invalid ({{field}}). Reload the page and try again.",
   "FM_INVALID_PATH": "That path can't be used here.",

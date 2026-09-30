@@ -370,7 +370,7 @@
   "access": {
     "denied": "Deine Rolle enthält das Recht „Serverdateien verwalten“ nicht. Frag einen Administrator.",
     "authDisabled": "Der Dateimanager funktioniert nur, solange Panel-Anmeldungen aktiviert sind.",
-    "openSettings": "Paneleinstellungen öffnen"
+    "authDisabledHow": "Anmeldungen sind deaktiviert, weil die db.json des Panels (in seinem Datenordner) die Einstellung authEnabled: false enthält. Entferne diese Einstellung, starte das Panel neu und melde dich dann an."
   },
   "shortcuts": {
     "title": "Tastenkürzel",

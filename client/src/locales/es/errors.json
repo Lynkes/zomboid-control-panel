@@ -514,7 +514,7 @@
   "SERVER_NOSTEAM_SIBLING_CONFLICTS_WITH_WORKSHOP_BRIDGE": "Este servidor obtiene PanelBridge de Steam Workshop, que necesita Steam, y todos los servidores que comparten una carpeta del juego lo obtienen de la misma forma. Estos servidores de esa carpeta se inician sin Steam: {{names}}. Primero cambia el PanelBridge de este servidor a instalado por el panel en Ajustes › PanelBridge, o haz que se inicien con Steam.",
   "PANELBRIDGE_INSTALL_FAILED": "No se pudo copiar PanelBridge.lua en la carpeta del juego. Revisa el registro del panel para ver el motivo.",
   "PANELBRIDGE_INSTALL_STILL_RUNNING": "La instalación de PanelBridge está tardando más de lo habitual y continúa en segundo plano. Vuelve a comprobarlo en un momento.",
-  "FM_AUTH_DISABLED": "El gestor de archivos solo funciona mientras los inicios de sesión del panel están activados. Actívalos en Ajustes del panel y luego inicia sesión.",
+  "FM_AUTH_DISABLED": "El gestor de archivos solo funciona mientras los inicios de sesión del panel están activados. Para activarlos, quita el ajuste authEnabled: false del db.json del panel (en su carpeta de datos), reinicia el panel y luego inicia sesión.",
   "FM_TOKEN_IN_URL": "Esta solicitud llevaba un token de inicio de sesión en su dirección, y el gestor de archivos lo rechaza. Recarga la página e inténtalo de nuevo.",
   "FM_INVALID_REQUEST": "Faltaba una parte de esta solicitud o no era válida ({{field}}). Recarga la página e inténtalo de nuevo.",
   "FM_INVALID_PATH": "Esa ruta no se puede usar aquí.",

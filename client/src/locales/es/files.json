@@ -380,7 +380,7 @@
   "access": {
     "denied": "Tu rol no incluye «Administrar archivos del servidor». Pídeselo a un administrador.",
     "authDisabled": "El gestor de archivos solo funciona mientras los inicios de sesión del panel están activados.",
-    "openSettings": "Abrir Ajustes del panel"
+    "authDisabledHow": "Los inicios de sesión están desactivados porque el db.json del panel (en su carpeta de datos) tiene el ajuste authEnabled: false. Quita ese ajuste, reinicia el panel y luego inicia sesión."
   },
   "shortcuts": {
     "title": "Atajos de teclado",

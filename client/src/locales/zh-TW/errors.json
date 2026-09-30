@@ -514,7 +514,7 @@
   "SERVER_NOSTEAM_SIBLING_CONFLICTS_WITH_WORKSHOP_BRIDGE": "此伺服器從 Steam 創意工坊取得 PanelBridge，這需要 Steam，而共用同一遊戲資料夾的所有伺服器都會以相同方式取得它。該資料夾中的以下伺服器不通過 Steam 啟動：{{names}}。請先在「設定 › PanelBridge」中將此伺服器的 PanelBridge 切換為由面板安裝，或讓它們通過 Steam 啟動。",
   "PANELBRIDGE_INSTALL_FAILED": "無法將 PanelBridge.lua 複製到遊戲資料夾。請檢視面板日誌以瞭解原因。",
   "PANELBRIDGE_INSTALL_STILL_RUNNING": "安裝 PanelBridge 的時間比平常長，正在後臺繼續進行。請稍後再查看。",
-  "FM_AUTH_DISABLED": "檔案管理員僅在面板登入啟用時可用。請在「面板設定」中啟用登入，然後登入。",
+  "FM_AUTH_DISABLED": "檔案管理員僅在面板登入啟用時可用。若要啟用登入，請從面板的 db.json（位於其資料資料夾中）刪除 authEnabled: false 設定，重新啟動面板，然後登入。",
   "FM_TOKEN_IN_URL": "此要求的網址中帶有登入權杖，檔案管理員會拒絕此類要求。請重新載入頁面後重試。",
   "FM_INVALID_REQUEST": "此要求的部分內容缺少或無效（{{field}}）。請重新載入頁面後重試。",
   "FM_INVALID_PATH": "此處不能使用該路徑。",

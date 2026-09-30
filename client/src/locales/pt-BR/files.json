@@ -380,7 +380,7 @@
   "access": {
     "denied": "Seu cargo não inclui a permissão: Gerenciar arquivos do servidor. Peça acesso a um administrador.",
     "authDisabled": "O gerenciador de arquivos só funciona com os logins do painel ativados.",
-    "openSettings": "Abrir Configurações do painel"
+    "authDisabledHow": "Os logins estão desativados porque o db.json do painel (na pasta de dados dele) tem a configuração authEnabled: false. Remova essa configuração, reinicie o painel e depois faça login."
   },
   "shortcuts": {
     "title": "Atalhos de teclado",

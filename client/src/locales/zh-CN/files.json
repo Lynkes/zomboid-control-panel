@@ -370,7 +370,7 @@
   "access": {
     "denied": "你的角色不包含「管理服务器文件」权限。请联系管理员。",
     "authDisabled": "文件管理器仅在面板登录启用时可用。",
-    "openSettings": "打开面板设置"
+    "authDisabledHow": "登录已关闭，因为面板的 db.json（位于其数据文件夹中）含有 authEnabled: false 设置。请删除该设置，重启面板，然后登录。"
   },
   "shortcuts": {
     "title": "键盘快捷键",

@@ -514,7 +514,7 @@
   "SERVER_NOSTEAM_SIBLING_CONFLICTS_WITH_WORKSHOP_BRIDGE": "Dieser Server bezieht PanelBridge aus dem Steam Workshop, und dafür wird Steam benötigt; alle Server, die sich einen Spielordner teilen, beziehen es auf dieselbe Weise. Diese Server in diesem Ordner starten ohne Steam: {{names}}. Stelle zuerst PanelBridge dieses Servers unter Einstellungen › PanelBridge auf „vom Panel installiert“ um, oder lass sie mit Steam starten.",
   "PANELBRIDGE_INSTALL_FAILED": "PanelBridge.lua konnte nicht in den Spielordner kopiert werden. Den Grund findest du im Panel-Protokoll.",
   "PANELBRIDGE_INSTALL_STILL_RUNNING": "Die Installation von PanelBridge dauert länger als üblich und läuft im Hintergrund weiter. Sieh gleich noch einmal nach.",
-  "FM_AUTH_DISABLED": "Der Dateimanager funktioniert nur, solange Panel-Anmeldungen aktiviert sind. Aktiviere sie in den Paneleinstellungen und melde dich dann an.",
+  "FM_AUTH_DISABLED": "Der Dateimanager funktioniert nur, solange Panel-Anmeldungen aktiviert sind. Um sie zu aktivieren, entferne die Einstellung authEnabled: false aus der db.json des Panels (in seinem Datenordner), starte das Panel neu und melde dich dann an.",
   "FM_TOKEN_IN_URL": "Diese Anfrage enthielt ein Anmelde-Token in ihrer Adresse, was der Dateimanager ablehnt. Lade die Seite neu und versuche es erneut.",
   "FM_INVALID_REQUEST": "Ein Teil dieser Anfrage fehlte oder war ungültig ({{field}}). Lade die Seite neu und versuche es erneut.",
   "FM_INVALID_PATH": "Dieser Pfad kann hier nicht verwendet werden.",

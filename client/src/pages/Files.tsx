@@ -1261,14 +1261,13 @@ export default function Files() {
     </Card>
   )
 
+  // Logins can only be off when db.json says authEnabled: false (no page
+  // turns them on or off), so this says how to undo that instead of linking
+  // to Panel Settings, which has no such switch.
   const authDisabled = (
     <Card>
       <CardContent className="pt-6">
-        <EmptyState
-          type="accessDenied"
-          title={t('access.authDisabled')}
-          action={{ label: t('access.openSettings'), to: '/settings?tab=security' }}
-        />
+        <EmptyState type="accessDenied" title={t('access.authDisabled')} description={t('access.authDisabledHow')} />
       </CardContent>
     </Card>
   )
@@ -1393,7 +1392,7 @@ export default function Files() {
     if (listError) {
       const code = errorCodeOf(listError)
       if (code === 'FM_AUTH_DISABLED') {
-        return <EmptyState type="accessDenied" compact title={t('access.authDisabled')} action={{ label: t('access.openSettings'), to: '/settings?tab=security' }} />
+        return <EmptyState type="accessDenied" compact title={t('access.authDisabled')} description={t('access.authDisabledHow')} />
       }
       if (isAccessError(listError)) return <EmptyState type="accessDenied" compact title={t('access.denied')} />
       if (code === 'FM_ROOT_UNAVAILABLE') {

@@ -380,7 +380,7 @@
   "access": {
     "denied": "Votre rôle n'inclut pas « Gérer les fichiers du serveur ». Demandez à un administrateur.",
     "authDisabled": "Le gestionnaire de fichiers ne fonctionne que si les connexions au panneau sont activées.",
-    "openSettings": "Ouvrir Paramètres du panneau"
+    "authDisabledHow": "Les connexions sont désactivées parce que le fichier db.json du panneau (dans son dossier de données) contient le réglage authEnabled: false. Supprimez ce réglage, redémarrez le panneau, puis connectez-vous."
   },
   "shortcuts": {
     "title": "Raccourcis clavier",

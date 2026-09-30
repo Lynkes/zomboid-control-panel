@@ -370,7 +370,7 @@
   "access": {
     "denied": "你的角色不包含「管理伺服器檔案」權限。請聯絡管理員。",
     "authDisabled": "檔案管理員僅在面板登入啟用時可用。",
-    "openSettings": "開啟面板設定"
+    "authDisabledHow": "登入已關閉，因為面板的 db.json（位於其資料資料夾中）含有 authEnabled: false 設定。請刪除該設定，重新啟動面板，然後登入。"
   },
   "shortcuts": {
     "title": "鍵盤快速鍵",

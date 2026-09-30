@@ -514,7 +514,7 @@
   "SERVER_NOSTEAM_SIBLING_CONFLICTS_WITH_WORKSHOP_BRIDGE": "Sèvè sa a resevwa PanelBridge nan Steam Workshop, e sa bezwen Steam; tout sèvè ki pataje yon dosye jwèt resevwa l menm jan an. Sèvè sa yo nan dosye sa a lanse san Steam: {{names}}. Anvan sa, mete PanelBridge sèvè sa a sou enstalasyon pa panèl la nan Paramèt › PanelBridge, oswa fè yo lanse ak Steam.",
   "PANELBRIDGE_INSTALL_FAILED": "Pa t kapab kopye PanelBridge.lua nan dosye jwèt la. Tcheke jounal panèl la pou wè rezon an.",
   "PANELBRIDGE_INSTALL_STILL_RUNNING": "Enstalasyon PanelBridge la ap pran plis tan pase dabitid, epi l ap kontinye an background. Tcheke ankò nan yon ti moman.",
-  "FM_AUTH_DISABLED": "Jesyonè fichye a mache sèlman lè koneksyon nan panèl la aktive. Aktive yo nan Paramèt Panèl, epi konekte.",
+  "FM_AUTH_DISABLED": "Jesyonè fichye a mache sèlman lè koneksyon nan panèl la aktive. Pou aktive yo, retire paramèt authEnabled: false la nan db.json panèl la (nan dosye done li), rekòmanse panèl la, epi konekte.",
   "FM_TOKEN_IN_URL": "Demann sa a te gen yon jeton koneksyon nan adrès li, e jesyonè fichye a refize sa. Rechaje paj la epi eseye ankò.",
   "FM_INVALID_REQUEST": "Yon pati nan demann sa a te manke oswa li pa t valab ({{field}}). Rechaje paj la epi eseye ankò.",
   "FM_INVALID_PATH": "Ou pa ka itilize chemen sa a isit la.",

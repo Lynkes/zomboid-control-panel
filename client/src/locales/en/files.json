@@ -370,7 +370,7 @@
   "access": {
     "denied": "Your role doesn't include Manage server files. Ask an admin.",
     "authDisabled": "The file manager only works while panel logins are on.",
-    "openSettings": "Open Panel Settings"
+    "authDisabledHow": "Logins are off because the panel's db.json (in its data folder) has the setting authEnabled: false. Remove that setting, restart the panel, then sign in."
   },
   "shortcuts": {
     "title": "Keyboard shortcuts",

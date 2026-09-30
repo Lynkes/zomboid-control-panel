@@ -105,7 +105,7 @@ router.use(requirePermission("files.manage"));
 // strings; the client shows its own translation by code).
 const FM_MESSAGES = {
   [ErrorCode.FM_AUTH_DISABLED]:
-    "The file manager only works while panel logins are on. Turn them on in Panel Settings, then sign in.",
+    "The file manager only works while panel logins are on. To turn them on, remove the authEnabled: false setting from the panel's db.json (in its data folder), restart the panel, then sign in.",
   [ErrorCode.FM_TOKEN_IN_URL]:
     "This request carried a sign-in token in its address, which the file manager refuses. Reload the page and try again.",
   [ErrorCode.FM_INVALID_REQUEST]: "Part of this request was missing or invalid. Reload the page and try again.",
