@@ -5907,8 +5907,8 @@ if ($result -eq 'OK') { Write-Output $dialog.SelectedPath } else { Write-Output 
     let settled = false;
     // platform-divergence-sweep (2026-09-10): the Linux branch above bounds
     // both zenity and kdialog with { timeout: 120000 } -- this branch had no
-    // ceiling at all, and the HTTP server's own requestTimeout in index.js
-    // is 6 hours (sized for slow Server Files uploads), so a
+    // ceiling at all, and index.js only bounds how long a request takes to
+    // arrive, never how long its answer takes, so a
     // FolderBrowserDialog left open (lost focus behind
     // another window, a known WinForms/STA quirk, or the operator just
     // walked away) hung the request indefinitely. 120000 matches the Linux

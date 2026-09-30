@@ -2,48 +2,82 @@ import express from "express";
 import { requirePermission } from "../services/permissions.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { createLogger } from "../utils/logger.js";
-import { BACKENDS, FmError, ROOT_IDS } from "../services/fileManagerContract.js";
+import { UPLOAD_REQUEST_DEADLINE_MS, allowSlowBody, extendRequestBodyDeadline } from "../utils/requestBodyDeadline.js";
+import { BACKENDS, FM_LIMITS, FmError, ROOT_IDS } from "../services/fileManagerContract.js";
 import { DENIAL_CODES, actorFromRequest, writeAudit, writeDenied } from "../services/fileManagerAudit.js";
 import { getJob } from "../services/fileManagerJobs.js";
 import * as files from "../services/fileManagerService.js";
 
 const log = createLogger("API:ServerFiles");
 
-// How long an upload request may take from its first byte to its last:
-// server/index.js puts this on the HTTP and HTTPS servers in place of Node's
-// 5-minute requestTimeout default, which cut off any upload slower than
-// that (a 1 GiB world save over a 25 Mbit/s line, any SFTP upload the remote
-// host takes its time with). Uploads still stop after UPLOAD_IDLE_MS with no
-// data, and headersTimeout still bounds the header phase.
-export const FILE_UPLOAD_REQUEST_TIMEOUT_MS = 6 * 60 * 60 * 1000;
+// How long an upload request may take from its first byte to its last.
+// Every other request keeps Node's 5 minutes (utils/requestBodyDeadline.js,
+// which index.js installs on its HTTP and HTTPS servers); an upload gets
+// this once files.manage has let it through, since 5 minutes cut off any
+// upload slower than that (a 1 GiB world save over a 25 Mbit/s line, any
+// SFTP upload the remote host takes its time with). Uploads still stop
+// after UPLOAD_IDLE_MS with no data, and headersTimeout still bounds the
+// header phase.
+export const FILE_UPLOAD_REQUEST_TIMEOUT_MS = UPLOAD_REQUEST_DEADLINE_MS;
 
 // A refused upload (too many transfers, not enough space, the name is
-// taken...) answers before reading the body. Closing the socket with that
-// body still arriving makes the OS answer with a reset, and the client's
-// network stack then throws away the refusal it had already received: the
-// browser sees a network error, never the code (and a 429 never pauses the
-// queue). So the rest of the body is read and dropped for a moment after
-// the answer, and the connection is cut only if it is still coming.
-const REFUSED_UPLOAD_LINGER_MS = 2000;
-const REFUSED_UPLOAD_LINGER_BYTES = 8 * 1024 * 1024;
+// taken...) answers before reading the body. A browser sends the whole body
+// before it reads any answer, and closing the socket while the body is
+// still arriving makes the OS answer with a reset that throws the refusal
+// away: the page sees a network error, never the code (and a 429 never
+// pauses the queue). So the rest of the body is read and dropped, however
+// long it is, for as long as it keeps coming; the connection is cut only
+// when it stalls for UPLOAD_IDLE_MS, or when the size it declares is more
+// than any root accepts (no upload the page sends is).
+const REFUSED_UPLOAD_DRAIN_MAX_BYTES = Math.max(...Object.values(FM_LIMITS.UPLOAD_MAX_BYTES));
+let refusedUploadIdleMs = FM_LIMITS.UPLOAD_IDLE_MS;
 
-function lingerThenCut(req) {
+/** Tests shorten the stall that cuts a refused upload's connection; undefined restores it. */
+export function _setRefusedUploadIdleMsForTests(ms) {
+  refusedUploadIdleMs = Number.isFinite(ms) && ms > 0 ? ms : FM_LIMITS.UPLOAD_IDLE_MS;
+}
+
+function drainRefusedUpload(req) {
   const socket = req.socket;
-  if (!socket || socket.destroyed) return;
-  const started = Date.now();
-  const bytesAtStart = socket.bytesRead;
+  if (!socket || socket.destroyed || req.complete) return;
+  const declared = Number(req.headers["content-length"]);
+  if (!Number.isSafeInteger(declared) || declared > REFUSED_UPLOAD_DRAIN_MAX_BYTES) {
+    socket.destroy();
+    return;
+  }
+  extendRequestBodyDeadline(req, FILE_UPLOAD_REQUEST_TIMEOUT_MS);
+  const idleMs = refusedUploadIdleMs;
+  let lastData = Date.now();
+  req.on("data", () => {
+    lastData = Date.now();
+  });
   req.resume();
-  const timer = setInterval(() => {
-    if (req.complete || socket.destroyed) {
-      clearInterval(timer);
-      return;
-    }
-    if (Date.now() - started > REFUSED_UPLOAD_LINGER_MS || socket.bytesRead - bytesAtStart > REFUSED_UPLOAD_LINGER_BYTES) {
-      clearInterval(timer);
-      socket.destroy();
-    }
-  }, 50);
+  const timer = setInterval(
+    () => {
+      if (req.complete || socket.destroyed) {
+        clearInterval(timer);
+        return;
+      }
+      if (Date.now() - lastData > idleMs) {
+        clearInterval(timer);
+        socket.destroy();
+      }
+    },
+    Math.min(1000, Math.max(10, Math.floor(idleMs / 4))),
+  );
   timer.unref?.();
+}
+
+// Called just before a refused upload's answer goes out. Node itself closes
+// the connection after an answer when the request asked for that
+// (Connection: close, which an HTTP/1.0 proxy in front of the panel sends),
+// and closing it with the body still coming is the very reset the drain is
+// here to avoid: the answer keeps the connection, and the drain decides
+// when it goes.
+function refuseUploadBody(req, res) {
+  if (req.complete) return;
+  res.setHeader("Connection", "keep-alive");
+  res.once("finish", () => drainRefusedUpload(req));
 }
 
 function isUploadRequest(req) {
@@ -321,7 +355,7 @@ router.use("/profiles/:profileId", async (req, res, next) => {
     req.fm = await files.loadProfileContext(req.params.profileId, req.app);
     return next();
   } catch (err) {
-    if (isUploadRequest(req) && !req.complete) res.once("finish", () => lingerThenCut(req));
+    if (isUploadRequest(req)) refuseUploadBody(req, res);
     return sendError(res, err);
   }
 });
@@ -483,20 +517,18 @@ router.post(
 );
 
 // Raw body. Every check runs before a byte is read; on a refusal the rest
-// of the body is dropped for a moment (so the client gets to see the
-// answer), then the connection is cut if it is still coming.
+// of the body is read and dropped (so the client gets to see the answer),
+// and the connection is cut only if it stalls.
 router.post(
   "/profiles/:profileId/upload",
+  allowSlowBody(FILE_UPLOAD_REQUEST_TIMEOUT_MS),
   audited(
     "files.upload",
     async (req, res, audit) => {
       res.status(201).json(await files.receiveUpload(req.fm, req, req.user, audit));
     },
     {
-      onError: (req, res) => {
-        if (req.complete) return;
-        res.once("finish", () => lingerThenCut(req));
-      },
+      onError: refuseUploadBody,
     },
   ),
 );

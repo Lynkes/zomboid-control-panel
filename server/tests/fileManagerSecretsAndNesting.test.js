@@ -61,7 +61,7 @@ vi.mock("../database/init.js", async (importOriginal) => {
   };
 });
 
-const { default: filesRoutes } = await import("../routes/files.js");
+const { default: filesRoutes, _setRefusedUploadIdleMsForTests } = await import("../routes/files.js");
 const { invalidateRootCache } = await import("../services/fileManagerRoots.js");
 const { _resetRunStateCacheForTests } = await import("../services/fileManagerRunState.js");
 const service = await import("../services/fileManagerService.js");
@@ -152,6 +152,7 @@ beforeEach(() => {
   service._resetPreviewsForTests();
   service._resetTransferSlotsForTests();
   service._setDownloadIdleMsForTests(undefined);
+  _setRefusedUploadIdleMsForTests(undefined);
 });
 
 afterEach(() => {
@@ -603,6 +604,67 @@ describe("a refused upload still gets its answer to the client", () => {
     );
     expect(res.status).toBe(409);
     expect(res.body.code).toBe("FM_EXISTS");
+  });
+
+  // Like a browser: the whole body goes out before the answer is read.
+  function sendAllThenRead(size, name = "servertest.ini") {
+    return new Promise((resolve) => {
+      const socket = net.connect(port, "127.0.0.1");
+      socket.pause();
+      let answer = "";
+      let writeError = null;
+      socket.on("data", (d) => (answer += d.toString("latin1")));
+      socket.on("error", (e) => (writeError = e.code || e.message));
+      socket.on("close", () => resolve({ status: answer.split("\r\n")[0] || null, answer, writeError }));
+      socket.on("connect", async () => {
+        socket.write(
+          `POST ${P}/upload HTTP/1.1\r\nHost: x\r\nX-Test-Role: admin\r\nX-Test-User: u1\r\nContent-Type: application/octet-stream\r\n` +
+            `Content-Length: ${size}\r\nX-File-Root: data\r\nX-File-Dir: Server\r\nX-File-Name: ${name}\r\nConnection: close\r\n\r\n`,
+        );
+        const chunk = Buffer.alloc(256 * 1024, 0x61);
+        let sent = 0;
+        while (sent < size && !socket.destroyed) {
+          const piece = chunk.subarray(0, Math.min(chunk.length, size - sent));
+          sent += piece.length;
+          if (!socket.write(piece)) {
+            await new Promise((r) => {
+              socket.once("drain", r);
+              socket.once("close", r);
+            });
+          }
+        }
+        if (socket.destroyed) return;
+        socket.resume();
+      });
+    });
+  }
+
+  it("a body far past any socket buffer (64 MiB) still gets its 409 once it has all gone out", async () => {
+    const res = await sendAllThenRead(64 * 1024 * 1024);
+    expect(res.writeError).toBeNull();
+    expect(res.status).toBe("HTTP/1.1 409 Conflict");
+    expect(res.answer).toContain("FM_EXISTS");
+  }, 60000);
+
+  it("a refused body that stops arriving is cut after the upload's idle limit", async () => {
+    _setRefusedUploadIdleMsForTests(300);
+    const result = await new Promise((resolve) => {
+      const socket = net.connect(port, "127.0.0.1");
+      let answer = "";
+      const started = Date.now();
+      socket.on("data", (d) => (answer += d.toString("latin1")));
+      socket.on("error", () => {});
+      socket.on("close", () => resolve({ status: answer.split("\r\n")[0] || null, closedAfterMs: Date.now() - started }));
+      socket.on("connect", () => {
+        socket.write(
+          `POST ${P}/upload HTTP/1.1\r\nHost: x\r\nX-Test-Role: admin\r\nX-Test-User: u1\r\nContent-Type: application/octet-stream\r\n` +
+            `Content-Length: 1000000\r\nX-File-Root: data\r\nX-File-Dir: Server\r\nX-File-Name: servertest.ini\r\n\r\n`,
+        );
+        socket.write(Buffer.alloc(1000, 0x61));
+      });
+    });
+    expect(result.status).toBe("HTTP/1.1 409 Conflict");
+    expect(result.closedAfterMs).toBeLessThan(5000);
   });
 
   it("an unknown server: the client reads 404, not a reset", async () => {

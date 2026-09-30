@@ -24,6 +24,7 @@ import {
 } from "../utils/cronValidation.js";
 import { nodeCronNextRun, restrictsBothDayFields } from "../utils/cronNextRun.js";
 import { parseClampedInteger } from "../utils/queryNumbers.js";
+import { allowSlowBody } from "../utils/requestBodyDeadline.js";
 import {
   streamUploadToFile,
   UPLOAD_TOO_LARGE_CODE,
@@ -665,6 +666,9 @@ const MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024; // 4 GB ceiling
 router.post(
   "/upload",
   requirePermission("backups.manage"),
+  // A multi-GB world backup over a slow line takes far longer than the
+  // 5 minutes every other request gets to arrive (utils/requestBodyDeadline.js).
+  allowSlowBody(),
   async (req, res) => {
     // bug hunt 2026-09-05 (backup-restore-round-trip sweep, item #5): this
     // used to be express.raw({ limit: MAX_UPLOAD_BYTES }), which buffers

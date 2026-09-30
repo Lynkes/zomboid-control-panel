@@ -325,7 +325,8 @@ import systemRoutes from "./routes/system.js";
 import templatesRoutes from "./routes/templates.js";
 import dockerRoutes from "./routes/docker.js";
 import permissionsRoutes from "./routes/permissions.js";
-import filesRoutes, { FILE_UPLOAD_REQUEST_TIMEOUT_MS } from "./routes/files.js";
+import filesRoutes from "./routes/files.js";
+import { PANEL_SERVER_TIMEOUTS, installRequestBodyDeadline } from "./utils/requestBodyDeadline.js";
 import playerCharacterRoutes from "./routes/playerCharacter.js";
 import panelBridge from "./services/panelBridge.js";
 import {
@@ -371,10 +372,12 @@ if (trustProxySetting) {
     `trust proxy enabled (${configuredProxy}) via TRUST_PROXY env var`,
   );
 }
-// Node's 5-minute requestTimeout default would cut off any Server Files
-// upload slower than that (see FILE_UPLOAD_REQUEST_TIMEOUT_MS in
-// routes/files.js); headersTimeout keeps its 60 s default.
-const httpServer = createServer({ requestTimeout: FILE_UPLOAD_REQUEST_TIMEOUT_MS }, app);
+// Every request gets Node's 5 minutes to arrive, per request rather than
+// Node's one server-wide requestTimeout, so that a Server Files upload
+// alone can be given hours once it is authorised (utils/requestBodyDeadline.js,
+// FILE_UPLOAD_REQUEST_TIMEOUT_MS in routes/files.js); headersTimeout keeps
+// its 60 s.
+const httpServer = installRequestBodyDeadline(createServer(PANEL_SERVER_TIMEOUTS, app));
 let activePanelPort = null;
 
 // HTTPS server — created during startup if certs are available
@@ -692,7 +695,7 @@ export function setupHttpsServer({
   // the cert-path/EADDRINUSE cases above, just one call later, so it gets
   // the identical guard.
   try {
-    httpsServer = createHttpsServer({ ...certs, requestTimeout: FILE_UPLOAD_REQUEST_TIMEOUT_MS }, app);
+    httpsServer = installRequestBodyDeadline(createHttpsServer({ ...certs, ...PANEL_SERVER_TIMEOUTS }, app));
   } catch (error) {
     log.error(
       `HTTPS certificate/key content is invalid: ${error.message} — running HTTP only`,

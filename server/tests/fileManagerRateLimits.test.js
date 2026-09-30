@@ -12,7 +12,8 @@ import { makeServerTree, makeTempDir, removeDir, write } from "./helpers/fileMan
 // app, so an edit there changes this test), and index.js's HTTP servers:
 // deleting files one at a time must not use up the budget of server
 // Start/Stop/Restart, Undo of a bulk delete is one request, and an upload
-// that takes longer than Node's 5-minute default isn't cut off.
+// that takes longer than Node's 5-minute default isn't cut off (while every
+// other request still is).
 
 const dbState = vi.hoisted(() => ({ servers: [], settings: {} }));
 
@@ -31,6 +32,7 @@ vi.mock("../database/init.js", async (importOriginal) => {
 
 const { ErrorCode } = await import("../utils/errorCodes.js");
 const { default: filesRoutes, FILE_UPLOAD_REQUEST_TIMEOUT_MS } = await import("../routes/files.js");
+const { PANEL_SERVER_TIMEOUTS, installRequestBodyDeadline } = await import("../utils/requestBodyDeadline.js");
 const { invalidateRootCache } = await import("../services/fileManagerRoots.js");
 const { _resetRunStateCacheForTests } = await import("../services/fileManagerRunState.js");
 const service = await import("../services/fileManagerService.js");
@@ -143,63 +145,67 @@ describe("Undo of a bulk delete", () => {
 });
 
 describe("index.js's HTTP servers", () => {
-  it("allow an upload hours, not Node's default five minutes, from first byte to last", () => {
+  it("time each request's arrival themselves: Node's one server-wide requestTimeout is off, headersTimeout kept", () => {
     expect(FILE_UPLOAD_REQUEST_TIMEOUT_MS).toBeGreaterThanOrEqual(60 * 60 * 1000);
     const code = indexSource.replace(/\/\/[^\n]*/g, "");
     // Given where each server is created, so none escapes it.
-    expect(code).toMatch(/const httpServer = createServer\(\{ requestTimeout: FILE_UPLOAD_REQUEST_TIMEOUT_MS \}, app\);/);
-    expect(code).toMatch(/httpsServer = createHttpsServer\(\{ \.\.\.certs, requestTimeout: FILE_UPLOAD_REQUEST_TIMEOUT_MS \}, app\);/);
-    expect(code).not.toMatch(/createServer\(app\)|createHttpsServer\(certs, app\)/);
+    expect(code).toMatch(/const httpServer = installRequestBodyDeadline\(createServer\(PANEL_SERVER_TIMEOUTS, app\)\);/);
+    expect(code).toMatch(/httpsServer = installRequestBodyDeadline\(createHttpsServer\(\{ \.\.\.certs, \.\.\.PANEL_SERVER_TIMEOUTS \}, app\)\);/);
+    expect(code).not.toMatch(/createServer\(app\)|createHttpsServer\(certs, app\)|requestTimeout: FILE_UPLOAD_REQUEST_TIMEOUT_MS/);
+    // With requestTimeout 0, Node's own headersTimeout default drops to 0
+    // (off) as well: it has to be named.
+    const s = http.createServer(PANEL_SERVER_TIMEOUTS);
+    expect(s.requestTimeout).toBe(0);
+    expect(s.headersTimeout).toBe(60_000);
   });
 
-  it("an upload still streaming past a server's requestTimeout is cut off (why the default can't stay)", async () => {
-    // The same createServer(app) index.js makes, with requestTimeout shrunk
-    // to stand in for the default: the body trickles for longer than that.
+  it("an upload may stream past the deadline every other request keeps, and only an upload", async () => {
+    // index.js's app shape (express.json() for everything, the limiters,
+    // /api/files) with the 5-minute deadline shrunk to 1 s: each body
+    // trickles for about 2 s.
     const app = express();
+    app.use(express.json({ limit: "1mb" }));
     app.use((req, _res, next) => {
-      req.user = { userId: "u1", username: "kate", role: "admin" };
+      if (req.get("x-test-role")) req.user = { userId: "u1", username: "kate", role: req.get("x-test-role") };
       next();
     });
+    app.post("/api/auth/login", (_req, res) => res.json({ ok: true }));
     app.set("serverManager", { getServerProcessDetails: async () => ({ running: false, scanFailed: false, matched: [], owned: [] }) });
     app.use("/api/files", filesRoutes);
-    const trickle = async (requestTimeout) => {
-      // Created the way index.js creates its servers; Node checks the
-      // timeout every connectionsCheckingInterval (30 s by default).
-      const s = http.createServer({ requestTimeout, connectionsCheckingInterval: 100 }, app);
-      await new Promise((resolve) => s.listen(0, "127.0.0.1", resolve));
-      try {
-        return await new Promise((resolve) => {
-          const req = http.request(`http://127.0.0.1:${s.address().port}${P}/upload`, {
-            method: "POST",
-            headers: {
-              "content-type": "application/octet-stream",
-              "content-length": "30",
-              "x-file-root": "data",
-              "x-file-dir": "",
-              "x-file-name": `slow-${requestTimeout}.txt`,
-            },
-          });
-          req.on("response", (res) => {
-            res.resume();
-            resolve(res.statusCode);
-          });
-          req.on("error", () => resolve("reset"));
-          let sent = 0;
-          const timer = setInterval(() => {
-            req.write("0123456789");
-            sent += 10;
-            if (sent >= 30) {
-              clearInterval(timer);
-              req.end();
-            }
-          }, 700);
+    const s = installRequestBodyDeadline(http.createServer(PANEL_SERVER_TIMEOUTS, app), { deadlineMs: 1000 });
+    await new Promise((resolve) => s.listen(0, "127.0.0.1", resolve));
+    const trickle = (url, headers) =>
+      new Promise((resolve) => {
+        const req = http.request(`http://127.0.0.1:${s.address().port}${url}`, { method: "POST", headers: { "content-length": "30", ...headers } });
+        req.on("response", (res) => {
+          res.resume();
+          resolve(res.statusCode);
         });
-      } finally {
-        s.closeAllConnections?.();
-        await new Promise((resolve) => s.close(resolve));
-      }
-    };
-    expect(await trickle(1000)).not.toBe(201);
-    expect(await trickle(FILE_UPLOAD_REQUEST_TIMEOUT_MS)).toBe(201);
+        req.on("error", () => resolve("reset"));
+        const parts = ['{"u":"0123', "4567890123", '45678901"}'];
+        const timer = setInterval(() => {
+          const part = parts.shift();
+          if (parts.length === 0) {
+            clearInterval(timer);
+            req.end(part);
+          } else req.write(part);
+        }, 700);
+      });
+    try {
+      const upload = trickle(`${P}/upload`, {
+        "content-type": "application/octet-stream",
+        "x-test-role": "admin",
+        "x-file-root": "data",
+        "x-file-dir": "",
+        "x-file-name": "slow.txt",
+      });
+      const login = trickle("/api/auth/login", { "content-type": "application/json" });
+      expect(await upload).toBe(201);
+      expect(await login).not.toBe(200);
+      expect(fs.readFileSync(path.join(tree.data, "slow.txt"), "utf8")).toHaveLength(30);
+    } finally {
+      s.closeAllConnections?.();
+      await new Promise((resolve) => s.close(resolve));
+    }
   }, 30000);
 });
