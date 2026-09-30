@@ -245,7 +245,11 @@ describe("a Zomboid folder inside the game folder (-cachedir)", () => {
 
   it("World Backups stay list-only through the install root", async () => {
     nest();
-    for (const [root, rel] of [["data", "backups/world-1.zip"], ["install", "Zomboid/backups/world-1.zip"], ["install", "zomboid/BACKUPS/world-1.zip"]]) {
+    const targets = [["data", "backups/world-1.zip"], ["install", "Zomboid/backups/world-1.zip"]];
+    // A different spelling only names the same folder where the filesystem folds case;
+    // on Linux "zomboid/BACKUPS" doesn't exist, so it is an ordinary 404 there.
+    if (process.platform === "win32" || process.platform === "darwin") targets.push(["install", "zomboid/BACKUPS/world-1.zip"]);
+    for (const [root, rel] of targets) {
       const res = await call("GET", `${P}/download?root=${root}&path=${q(rel)}`);
       expect(res.status, `${root}:${rel}`).toBe(403);
       expect(res.body.code).toBe("FM_PATH_PROTECTED");

@@ -230,7 +230,7 @@ describe('CharacterTab: availability states', () => {
         }),
       }),
     )
-    expect(screen.getByText(new RegExp(`${text.replace(/[.?]/g, '\\$&')} Showing what the panel saved`))).toBeInTheDocument()
+    expect(screen.getByText(new RegExp(`${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} Showing what the panel saved`))).toBeInTheDocument()
     expect(screen.getByText('Carpentry')).toBeInTheDocument()
   })
 

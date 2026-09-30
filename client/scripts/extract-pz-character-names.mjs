@@ -222,7 +222,12 @@ function main() {
     }
     const out = JSON.stringify(nest(flat), null, 2) + '\n'
     const file = path.join(LOCALES_DIR, lang, 'pzCharacter.json')
-    const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n') : null
+    let before = null
+    try {
+      before = fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n')
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err
+    }
     if (before !== out) {
       changed += 1
       if (CHECK) problems.push(`${lang}/pzCharacter.json is out of date`)
