@@ -713,8 +713,34 @@ export function createSftpBackend({ settings } = {}) {
   // refused a WRITE (ssh2 drops that status on its destroyed stream): a
   // full disk would leave an empty file behind a "successful" save. So the
   // size that landed is checked, and a short file removed and refused.
-  async function putNew(abs, buffer, mode) {
+  // fsync@openssh.com on a file just written, before it is renamed into
+  // place, as the local backend fsyncs its temp files: without it a power
+  // loss on the host soon after the rename can leave the file empty.
+  // ssh2's write stream closes its handle itself, so the file is opened
+  // again for the flush. Best effort, like the local fsync of a filesystem
+  // that doesn't do it: a server without the extension is remembered and
+  // skipped.
+  async function syncFile(abs) {
+    if (pool.capabilities.fsync === false) return;
+    try {
+      await write(async (c) => {
+        const handle = await rawCall(c, "open", abs, "r+");
+        try {
+          await rawCall(c, "ext_openssh_fsync", handle);
+        } finally {
+          await rawCall(c, "close", handle).catch(() => {});
+        }
+      });
+      pool.capabilities.fsync = true;
+    } catch (err) {
+      if (sftpInfo(err)?.unsupported) pool.capabilities.fsync = false;
+      log.debug(`SFTP fsync skipped: ${err.code}`);
+    }
+  }
+
+  async function putNew(abs, buffer, mode, { sync = false } = {}) {
     await write((c) => c.put(buffer, abs, { writeStreamOptions: { flags: "wx", mode } }));
+    if (sync) await syncFile(abs);
     const st = await lstatOrNull(abs);
     if (!st || st.type !== "file" || st.size !== buffer.length) {
       await removeQuietly(abs);
@@ -1194,7 +1220,7 @@ export function createSftpBackend({ settings } = {}) {
   async function copyIntoTrash(rootReal, name, bytes, mode, info) {
     const item = await createTrashItem(rootReal, info);
     try {
-      await putNew(posix.join(item.payloadDir, name), bytes, mode ?? 0o600);
+      await putNew(posix.join(item.payloadDir, name), bytes, mode ?? 0o600, { sync: true });
       if (mode !== null) await chmodQuietly(posix.join(item.payloadDir, name), mode);
     } catch (err) {
       await removeTreeQuietly(item.itemAbs);
@@ -1561,7 +1587,7 @@ export function createSftpBackend({ settings } = {}) {
         if (existing) throw fmError(ErrorCode.FM_EXISTS, { name });
         const tmp = posix.join(parentAbs, tempName(name, RENAME_TEMP_SUFFIX));
         try {
-          const written = await putNew(tmp, bytes, 0o644);
+          const written = await putNew(tmp, bytes, 0o644, { sync: true });
           await chmodQuietly(tmp, 0o644);
           // A new file gets its folder's owner, like an upload.
           await matchOwner(tmp, written, await lstatOrNull(parentAbs));
@@ -1586,7 +1612,7 @@ export function createSftpBackend({ settings } = {}) {
       const tmp = posix.join(parentAbs, tempName(name, RENAME_TEMP_SUFFIX));
       let trashId = null;
       try {
-        const written = await putNew(tmp, bytes, mode);
+        const written = await putNew(tmp, bytes, mode, { sync: true });
         await chmodQuietly(tmp, mode);
         await matchOwner(tmp, written, existing);
         // The version is stored under the name it has on disk, and its path
@@ -1637,6 +1663,7 @@ export function createSftpBackend({ settings } = {}) {
         maxBytes: limit,
         mode: before && before.mode !== null ? before.mode & 0o777 : 0o644,
       });
+      await syncFile(tmp);
       const written = await lstat(tmp);
       if (written.type !== "file" || written.size !== size) throw fmError(ErrorCode.FM_UPLOAD_SIZE_MISMATCH);
       return await guardConfig([target], async () => {
@@ -1764,6 +1791,7 @@ export function createSftpBackend({ settings } = {}) {
         remoteSource: true,
         mode: 0o644,
       });
+      await syncFile(tmp);
       // Like an upload: what landed must be every byte of the source.
       const written = await lstat(tmp);
       if (written.type !== "file" || written.size !== st.size) throw fmError(ErrorCode.FM_UPLOAD_SIZE_MISMATCH);

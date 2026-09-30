@@ -227,7 +227,7 @@ class FileManagerSftpPool {
     this.id = crypto.randomBytes(8).toString("hex");
     this.remote = Object.freeze({ host: transport.host, port: transport.port, username: transport.username });
     /** Learned per server: null until tried. */
-    this.capabilities = { posixRename: null, statvfs: null };
+    this.capabilities = { posixRename: null, statvfs: null, fsync: null };
   }
 
   /** Open connections, for tests and diagnostics. */

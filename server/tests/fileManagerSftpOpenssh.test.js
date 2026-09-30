@@ -246,6 +246,35 @@ suite("real OpenSSH: uploads and duplicates land", () => {
   });
 });
 
+suite("real OpenSSH: what lands is on disk first", () => {
+  // The local backend fsyncs a temp file before it renames it into place;
+  // over SFTP nothing did, though OpenSSH offers fsync@openssh.com: a
+  // power loss on the host right after a save could leave the file empty.
+  const flushedBeforeLanding = (targetAbs) => {
+    const landed = srv.log.findIndex((e) => (e.op === "RENAME" || e.op === "POSIX-RENAME") && e.path.endsWith(` -> ${targetAbs}`));
+    expect(landed, `no rename onto ${targetAbs}`).toBeGreaterThan(-1);
+    const tmp = srv.log[landed].path.split(" -> ")[0];
+    const flushed = srv.log.findIndex((e) => e.op === "FSYNC" && e.path === tmp);
+    expect(flushed, `no fsync of ${tmp}`).toBeGreaterThan(-1);
+    expect(flushed).toBeLessThan(landed);
+  };
+
+  it("a save, a new file, an upload and a duplicate", async () => {
+    await backend.writeBytesCas(await resolve("Server/servertest.ini", "write"), Buffer.from("PVP=false\n"), {
+      expectedHash: `h:${sha(ORIGINAL)}`,
+    });
+    flushedBeforeLanding(INI);
+    await backend.writeBytesCas(await resolve("Server/new.txt", "create"), Buffer.from("x\n"), { expectedHash: null });
+    flushedBeforeLanding(`${ROOT}/Server/new.txt`);
+    const body = crypto.randomBytes(300 * 1024);
+    await backend.receiveUpload(await resolve("Logs", "list"), "up.bin", Readable.from([body]), { declaredSize: body.length });
+    flushedBeforeLanding(`${ROOT}/Logs/up.bin`);
+    await backend.copyFile(await resolve("Logs/up.bin"), await resolve("Logs", "list"), "up (copy).bin");
+    flushedBeforeLanding(`${ROOT}/Logs/up (copy).bin`);
+    expect(srv.fs.readFile("Zomboid/Logs/up (copy).bin").equals(body)).toBe(true);
+  });
+});
+
 suite("real OpenSSH: a remote disk that refuses writes (sftp-server -P write)", () => {
   beforeEach(async () => {
     srv.denyRequests = ["write"];

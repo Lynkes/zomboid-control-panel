@@ -18,8 +18,9 @@
 // runs sftp-server at DEBUG1 and parses what it says it did into `log`, as
 // { op, path } with the ops the in-memory server logs (LSTAT, STAT,
 // REALPATH, OPENDIR, READDIR, CLOSE, OPEN, SETSTAT, WRITE, RENAME,
-// POSIX-RENAME, REMOVE, MKDIR, RMDIR, READLINK; a rename's path is
-// "from -> to"): the server's own account of every request. When a session
+// POSIX-RENAME, REMOVE, MKDIR, RMDIR, READLINK, and FSYNC for
+// fsync@openssh.com; a rename's path is "from -> to"): the server's own
+// account of every request. When a session
 // ends, sftp-server closes and logs (FORCED-CLOSE) every handle still open:
 // after the pool closes its connections, `settle()` then `leakedHandles()`
 // name every file or folder handle the panel never closed.
@@ -157,7 +158,7 @@ function parseLogLine(raw) {
   if (m) return { op: m[1].toUpperCase(), path: `${m[2]} -> ${m[3]}` };
   m = /^(lstat|stat|remove|mkdir|rmdir|readlink) name "(.*?)"/.exec(line);
   if (m) return { op: m[1].toUpperCase(), path: m[2] };
-  m = /^(realpath|opendir|readdir|closedir|open|close|set|write|fsetstat) "(.*?)"/.exec(line);
+  m = /^(realpath|opendir|readdir|closedir|open|close|set|write|fsetstat|fsync) "(.*?)"/.exec(line);
   if (!m) return null;
   const op = { closedir: "CLOSE", set: "SETSTAT", fsetstat: "SETSTAT" }[m[1]] || m[1].toUpperCase();
   return { op, path: m[2] };
