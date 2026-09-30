@@ -228,12 +228,14 @@
   },
   "confirm": {
     "title": "¿Estás completamente seguro?",
-    "delete_one": "¿Mover {{name}} ({{size}}) de {{folder}} a la papelera? Puede que el servidor deje de funcionar si depende de ello. Se puede restaurar desde la papelera durante 7 días. La papelera no libera espacio en disco hasta que se vacía.",
+    "delete_one": "¿Mover {{count}} elemento ({{files}} archivos, {{size}}) de {{folder}} a la papelera? Puede que el servidor deje de funcionar si depende de ello. Se puede restaurar desde la papelera durante 7 días. La papelera no libera espacio en disco hasta que se vacía.",
     "delete_many": "¿Mover {{count}} elementos ({{files}} archivos, {{size}}) de {{folder}} a la papelera? Puede que el servidor deje de funcionar si los necesita. Puedes restaurarlos desde la papelera durante 7 días. La papelera no libera espacio en disco hasta que se vacía.",
     "delete_other": "¿Mover {{count}} elementos ({{files}} archivos, {{size}}) de {{folder}} a la papelera? Puede que el servidor deje de funcionar si los necesita. Puedes restaurarlos desde la papelera durante 7 días. La papelera no libera espacio en disco hasta que se vacía.",
-    "deletePermanent_one": "¿Eliminar definitivamente {{name}} ({{size}})? No se puede deshacer.",
+    "deleteOne": "¿Mover {{name}} ({{size}}) de {{folder}} a la papelera? Puede que el servidor deje de funcionar si depende de ello. Se puede restaurar desde la papelera durante 7 días. La papelera no libera espacio en disco hasta que se vacía.",
+    "deletePermanent_one": "¿Eliminar definitivamente {{count}} elemento ({{files}} archivos, {{size}})? No se puede deshacer.",
     "deletePermanent_many": "¿Eliminar definitivamente {{count}} elementos ({{files}} archivos, {{size}})? No se puede deshacer.",
     "deletePermanent_other": "¿Eliminar definitivamente {{count}} elementos ({{files}} archivos, {{size}})? No se puede deshacer.",
+    "deletePermanentOne": "¿Eliminar definitivamente {{name}} ({{size}})? No se puede deshacer.",
     "trashUnavailable": "Estos elementos no pueden ir a la papelera, así que eliminarlos es definitivo.",
     "typeName": "Escribe {{value}} para confirmar",
     "emptyTrash_one": "¿Eliminar definitivamente {{count}} elemento de la papelera? No se puede deshacer.",
@@ -308,7 +310,9 @@
     "large": "Descarga grande. Mantén esta pestaña abierta hasta que termine.",
     "interrupted": "La descarga se interrumpió. Inténtalo de nuevo.",
     "preparingZip": "Preparando el .zip…",
-    "masked": "Las contraseñas de los archivos .ini se ocultan en las descargas."
+    "masked": "Las contraseñas de los archivos .ini se ocultan en las descargas.",
+    "zipTooMany": "Elige como máximo {{limit}} elementos para un mismo .zip.",
+    "zipTooSlow": "Comprobar qué meter en el .zip tardó demasiado. Elige menos carpetas o descárgalas de una en una."
   },
   "trash": {
     "title": "Papelera",
@@ -353,7 +357,25 @@
   "history": {
     "title": "Cambios recientes en archivos",
     "empty": "Aún no hay cambios en archivos.",
-    "entry": "{{username}} · {{op}} · {{path}}"
+    "entry": "{{username}} · {{op}} · {{path}}",
+    "ops": {
+      "create": "Creado",
+      "write": "Guardado",
+      "mkdir": "Carpeta creada",
+      "rename": "Renombrado",
+      "move": "Movido",
+      "copy": "Duplicado",
+      "upload": "Subido",
+      "delete_trash": "Movido a la papelera",
+      "delete_permanent": "Eliminado definitivamente",
+      "trash_restore": "Restaurado desde la papelera",
+      "trash_purge": "Quitado de la papelera",
+      "trash_expire": "Papelera limpiada",
+      "download": "Descargado",
+      "zip": "Descargado como .zip",
+      "remoteRoots_set": "Carpetas remotas cambiadas",
+      "denied": "Rechazado"
+    }
   },
   "access": {
     "denied": "Tu rol no incluye «Administrar archivos del servidor». Pídeselo a un administrador.",

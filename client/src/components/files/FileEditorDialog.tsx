@@ -67,6 +67,12 @@ interface FileEditorDialogProps {
   onClose: () => void
   /** A close request was declined because of unsaved changes. */
   onCloseCancelled: () => void
+  /**
+   * A close is waiting on the operator (the "Discard?" question, or a save
+   * that is still asking its own): the page puts the file back in the URL,
+   * so another Back only takes that entry off again instead of leaving.
+   */
+  onCloseAsking?: () => void
   onSaved: (entry: FileEntry) => void
   /** The file is over the editor's limit: show its end instead. */
   onTooLarge: () => void
@@ -100,6 +106,7 @@ export function FileEditorDialog({
   runConfirmed,
   onClose,
   onCloseCancelled,
+  onCloseAsking,
   onSaved,
   onTooLarge,
 }: FileEditorDialogProps) {
@@ -125,6 +132,11 @@ export function FileEditorDialog({
   const gutterRef = useRef<HTMLPreElement>(null)
   const escArmedRef = useRef(false)
   const closingRef = useRef(false)
+  // A save runs from its first prompt to its answer; a close asked for
+  // meanwhile (the Back button) waits for it, instead of replacing the save's
+  // own confirmation with "Discard?" and leaving the save waiting forever.
+  const savingRef = useRef(false)
+  const closeDeferredRef = useRef(false)
 
   const dirty = doc !== null && text !== baseline
   const readOnly = doc?.readOnly ?? true
@@ -197,69 +209,95 @@ export function FileEditorDialog({
       return
     }
     closingRef.current = true
+    onCloseAsking?.()
     try {
       if (await confirmDiscard()) onClose()
       else onCloseCancelled()
     } finally {
       closingRef.current = false
     }
-  }, [confirmDiscard, dirty, onClose, onCloseCancelled])
+  }, [confirmDiscard, dirty, onClose, onCloseAsking, onCloseCancelled])
 
+  const attemptCloseRef = useRef(attemptClose)
+  attemptCloseRef.current = attemptClose
+
+  const onCloseAskingRef = useRef(onCloseAsking)
+  onCloseAskingRef.current = onCloseAsking
   const lastCloseSignal = useRef(closeSignal)
   useEffect(() => {
     if (closeSignal === lastCloseSignal.current) return
     lastCloseSignal.current = closeSignal
+    // Already asking (a save's question, or "Discard?"): the question stays
+    // up and the file goes back in the URL, however many times Back is pressed.
+    if (savingRef.current) {
+      closeDeferredRef.current = true
+      onCloseAskingRef.current?.()
+      return
+    }
+    if (closingRef.current) {
+      onCloseAskingRef.current?.()
+      return
+    }
     void attemptClose()
   }, [attemptClose, closeSignal])
 
   const save = useCallback(async (overrideEtag?: string) => {
-    if (!doc || readOnly || saving) return
+    if (!doc || readOnly || saving || savingRef.current) return
     // Ctrl+S with nothing changed does nothing: a save would still keep an
     // "earlier version" in Trash and push a real one out of the 20 kept.
     // "Save anyway" after a conflict passes the etag and always goes ahead.
     if (!dirty && overrideEtag === undefined) return
-    if (doc.eol === 'mixed') {
-      const ok = await confirm({
-        title: t('confirm.changeTitle'),
-        description: t('confirm.mixedEol'),
-        confirmLabel: t('confirm.continue'),
-        cancelLabel: t('actions.cancel'),
-        variant: 'warning',
-      })
-      if (!ok) return
-    }
-    const eol: 'lf' | 'crlf' = doc.eol === 'crlf' ? 'crlf' : 'lf'
-    const content = text
-    setSaving(true)
+    savingRef.current = true
     try {
-      const result = await runConfirmed((tokens) => filesApi.saveText(profileId, {
-        root: root.id,
-        path: entry.path,
-        content,
-        etag: overrideEtag ?? doc.etag,
-        eol,
-        bom: doc.bom,
-        confirm: tokens,
-      }), { names: [entry.name] })
-      if (!result.ok) return
-      const saved = result.value
-      setBaseline(content)
-      setDoc((current) => current && { ...current, etag: saved.etag, eol: current.eol === 'mixed' ? 'lf' : current.eol, hints: saved.hints.length > 0 ? saved.hints : current.hints })
-      setConflict(null)
-      setLoadedVersion(null)
-      setVersions(null)
-      setSavedInfo({ previousVersion: saved.previousVersion !== null })
-      toast({ title: t('editor.saved') })
-      onSaved(saved.entry)
-    } catch (error) {
-      if (errorCodeOf(error) === 'FM_CONFLICT') {
-        const currentEtag = errorParamsOf(error).currentEtag
-        setConflict({ currentEtag: typeof currentEtag === 'string' ? currentEtag : null })
-      } else {
-        toast({ variant: 'destructive', title: describeFilesError(error) })
+      if (doc.eol === 'mixed') {
+        const ok = await confirm({
+          title: t('confirm.changeTitle'),
+          description: t('confirm.mixedEol'),
+          confirmLabel: t('confirm.continue'),
+          cancelLabel: t('actions.cancel'),
+          variant: 'warning',
+        })
+        if (!ok) return
+      }
+      const eol: 'lf' | 'crlf' = doc.eol === 'crlf' ? 'crlf' : 'lf'
+      const content = text
+      setSaving(true)
+      try {
+        const result = await runConfirmed((tokens) => filesApi.saveText(profileId, {
+          root: root.id,
+          path: entry.path,
+          content,
+          etag: overrideEtag ?? doc.etag,
+          eol,
+          bom: doc.bom,
+          confirm: tokens,
+        }), { names: [entry.name] })
+        if (!result.ok) return
+        const saved = result.value
+        setBaseline(content)
+        setDoc((current) => current && { ...current, etag: saved.etag, eol: current.eol === 'mixed' ? 'lf' : current.eol, hints: saved.hints.length > 0 ? saved.hints : current.hints })
+        setConflict(null)
+        setLoadedVersion(null)
+        setVersions(null)
+        setSavedInfo({ previousVersion: saved.previousVersion !== null })
+        toast({ title: t('editor.saved') })
+        onSaved(saved.entry)
+      } catch (error) {
+        if (errorCodeOf(error) === 'FM_CONFLICT') {
+          const currentEtag = errorParamsOf(error).currentEtag
+          setConflict({ currentEtag: typeof currentEtag === 'string' ? currentEtag : null })
+        } else {
+          toast({ variant: 'destructive', title: describeFilesError(error) })
+        }
+      } finally {
+        setSaving(false)
       }
     } finally {
-      setSaving(false)
+      savingRef.current = false
+      if (closeDeferredRef.current) {
+        closeDeferredRef.current = false
+        void attemptCloseRef.current()
+      }
     }
   }, [confirm, dirty, doc, entry.name, entry.path, onSaved, profileId, readOnly, root.id, runConfirmed, saving, t, text, toast])
 

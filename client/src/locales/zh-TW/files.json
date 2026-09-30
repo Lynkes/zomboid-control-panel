@@ -224,10 +224,12 @@
   },
   "confirm": {
     "title": "確定要這樣做嗎？",
-    "delete_one": "將 {{name}}（{{size}}）從 {{folder}} 移至資源回收筒？如果伺服器需要它，伺服器可能無法正常運作。7 天內可以從資源回收筒還原。清空資源回收筒前不會釋放磁碟空間。",
+    "delete_one": "將 {{count}} 個項目（{{files}} 個檔案，{{size}}）從 {{folder}} 移至資源回收筒？如果伺服器需要它，伺服器可能無法正常運作。7 天內可以從資源回收筒還原。清空資源回收筒前不會釋放磁碟空間。",
     "delete_other": "將 {{count}} 個項目（{{files}} 個檔案，{{size}}）從 {{folder}} 移至資源回收筒？如果伺服器需要它們，伺服器可能無法正常運作。7 天內可以從資源回收筒還原。清空資源回收筒前不會釋放磁碟空間。",
-    "deletePermanent_one": "永久刪除 {{name}}（{{size}}）？此操作無法復原。",
+    "deleteOne": "將 {{name}}（{{size}}）從 {{folder}} 移至資源回收筒？如果伺服器需要它，伺服器可能無法正常運作。7 天內可以從資源回收筒還原。清空資源回收筒前不會釋放磁碟空間。",
+    "deletePermanent_one": "永久刪除 {{count}} 個項目（{{files}} 個檔案，{{size}}）？此操作無法復原。",
     "deletePermanent_other": "永久刪除 {{count}} 個項目（{{files}} 個檔案，{{size}}）？此操作無法復原。",
+    "deletePermanentOne": "永久刪除 {{name}}（{{size}}）？此操作無法復原。",
     "trashUnavailable": "這些項目無法移至資源回收筒，因此刪除將是永久性的。",
     "typeName": "輸入 {{value}} 以確認",
     "emptyTrash_one": "從資源回收筒永久刪除 {{count}} 個項目？此操作無法復原。",
@@ -299,7 +301,9 @@
     "large": "下載檔案較大。請在下載完成前保持此分頁開啟。",
     "interrupted": "下載已中斷。請重試。",
     "preparingZip": "正在準備 .zip…",
-    "masked": "下載時會隱藏 .ini 檔案中的密碼。"
+    "masked": "下載時會隱藏 .ini 檔案中的密碼。",
+    "zipTooMany": "一個 .zip 最多只能選擇 {{limit}} 個項目。",
+    "zipTooSlow": "檢查要打包的內容耗時過長。請少選一些資料夾，或逐一下載。"
   },
   "trash": {
     "title": "資源回收筒",
@@ -343,7 +347,25 @@
   "history": {
     "title": "最近的檔案變更",
     "empty": "目前沒有檔案變更。",
-    "entry": "{{username}} · {{op}} · {{path}}"
+    "entry": "{{username}} · {{op}} · {{path}}",
+    "ops": {
+      "create": "已建立",
+      "write": "已儲存",
+      "mkdir": "已新增資料夾",
+      "rename": "已重新命名",
+      "move": "已移動",
+      "copy": "已建立複本",
+      "upload": "已上傳",
+      "delete_trash": "已移至資源回收筒",
+      "delete_permanent": "已永久刪除",
+      "trash_restore": "已從資源回收筒還原",
+      "trash_purge": "已從資源回收筒移除",
+      "trash_expire": "已清理資源回收筒",
+      "download": "已下載",
+      "zip": "已下載為 .zip",
+      "remoteRoots_set": "已變更遠端資料夾",
+      "denied": "已拒絕"
+    }
   },
   "access": {
     "denied": "你的角色不包含「管理伺服器檔案」權限。請聯絡管理員。",

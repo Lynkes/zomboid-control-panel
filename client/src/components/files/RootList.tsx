@@ -9,6 +9,7 @@ import { formatBytes } from '@/lib/formatBytes'
 import { cn } from '@/lib/utils'
 import { isolateLtrForRtl } from '@/lib/paramTranslation'
 import type { Bookmark, ProfileFiles, RootDescriptor, RootId } from '@/types/files'
+import { unavailableText } from './filesUi'
 
 // The left column of Server Files (spec §A14.2): which server, which of its
 // folders, shortcuts into them, and that folder's Trash. On a phone the
@@ -180,7 +181,7 @@ export function RootList({
                     ) : (
                       root.unavailableReason && (
                         <span className="mt-1.5 block text-xs text-muted-foreground">
-                          {t(`roots.unavailable.${root.unavailableReason}`, { detail: root.unavailableDetail ?? '' })}
+                          {unavailableText(root.unavailableReason, root.unavailableDetail)}
                         </span>
                       )
                     )}

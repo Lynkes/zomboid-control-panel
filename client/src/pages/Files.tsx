@@ -32,6 +32,7 @@ import {
   FM_LIMITS,
   type ConfirmToken,
   type ConfirmationRequiredBody,
+  type DeletePreviewResponse,
   type FileEntry,
   type ListResponse,
   type ListSort,
@@ -63,6 +64,7 @@ import {
   canMutateEntry,
   canReadEntry,
   canSelectEntry,
+  commonFolder,
   describeFilesError,
   describeResultError,
   errorCodeOf,
@@ -74,6 +76,7 @@ import {
   readLastFolder,
   rootIsWritable,
   splitExtension,
+  unavailableText,
   useIsDesktop,
   writeLastFolder,
 } from '@/components/files/filesUi'
@@ -82,6 +85,7 @@ import {
   pickedFromInput,
   useUploadQueue,
   type PickedFile,
+  type UploadItem,
   type UploadJob,
 } from '@/components/files/useUploadQueue'
 
@@ -102,12 +106,33 @@ const SFTP_ERROR_CODES = new Set(['FM_SFTP_ERROR', 'FM_SFTP_TIMEOUT'])
 const ACCESS_ERROR_CODES = new Set(['PERMISSION_DENIED', 'AUTH_REQUIRED', 'HTTP_403'])
 
 type FileView = { kind: 'edit' | 'tail' | 'details'; entry: FileEntry }
+// A new file or folder goes into the folder shown when the dialog OPENED:
+// Back while it is open changes the folder behind it (on a phone the dialog
+// covers the page), not where the name lands.
 type NameDialogState =
-  | { kind: 'newFile' }
-  | { kind: 'newFolder' }
+  | { kind: 'newFile'; dir: string }
+  | { kind: 'newFolder'; dir: string }
   | { kind: 'rename'; entry: FileEntry }
   | { kind: 'duplicate'; entry: FileEntry }
 type JobLine = { done: number; total: number | null } | null
+type ReplacePrompt = { folder: string; names: string[]; resolve: (choice: ReplaceChoice) => void }
+
+// The server takes at most this many paths per delete, move or zip request.
+const PATHS_PER_REQUEST = FM_LIMITS.PATHS_PER_REQUEST
+
+function inChunks<T>(list: T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size))
+  return out
+}
+
+// An upload pre-check stats every file it names. Over SFTP that is a round
+// trip or more per file, so a big batch gets longer than the 30 s default
+// before the page gives up on it.
+function preflightTimeout(root: RootDescriptor, files: number): number | undefined {
+  if (root.backend !== 'sftp') return undefined
+  return Math.min(300_000, 30_000 + 150 * files)
+}
 
 interface Location {
   server: string | null
@@ -200,8 +225,16 @@ export default function Files() {
 
   const profileIdRef = useRef<string | null>(null)
   profileIdRef.current = profile?.id ?? null
+  const selectedProfileIdRef = useRef<string | null>(null)
+  selectedProfileIdRef.current = selectedProfileId
   const hasProfilesRef = useRef(false)
   hasProfilesRef.current = profiles !== null
+  // Where the page is now. A result that arrives for somewhere else (a job
+  // or an Undo that finishes after the operator moved on, a slow search, a
+  // "Load more") is dropped instead of replacing what is shown.
+  const locationKey = `${profile?.id ?? ''}|${rootId ?? ''}|${currentPath}`
+  const locationKeyRef = useRef(locationKey)
+  locationKeyRef.current = locationKey
 
   // A refresh of what is already shown (another admin switched the active
   // server, "Check again", a change just made) that fails keeps it on screen
@@ -224,12 +257,15 @@ export default function Files() {
   }, [toast])
 
   const loadProfile = useCallback(async (id: string, fresh = false) => {
+    // A late refresh of a server the operator has switched away from must
+    // not bring it back.
+    if (selectedProfileIdRef.current && id !== selectedProfileIdRef.current) return
     const requestId = ++profileRequestRef.current
     setProfileError(null)
     try {
       const result = await filesApi.getProfile(id, { fresh })
       // A later request (another server picked meanwhile) wins.
-      if (requestId === profileRequestRef.current) setProfile(result.profile)
+      if (requestId === profileRequestRef.current && id === selectedProfileIdRef.current) setProfile(result.profile)
     } catch (error) {
       if (requestId !== profileRequestRef.current) return
       if (profileIdRef.current === id) {
@@ -267,23 +303,26 @@ export default function Files() {
   // ---- Location (URL) ----
   const goTo = useCallback((next: Partial<Location>, options?: { replace?: boolean }) => {
     const target: Location = {
-      server: next.server !== undefined ? next.server : profile?.id ?? paramServer,
+      server: next.server !== undefined ? next.server : selectedProfileId ?? profile?.id ?? paramServer,
       root: next.root !== undefined ? next.root : rootId,
       path: next.path !== undefined ? next.path : currentPath,
       open: next.open !== undefined ? next.open : null,
     }
     navigate({ search: buildSearch(target) }, { replace: options?.replace })
-  }, [currentPath, navigate, paramServer, profile?.id, rootId])
+  }, [currentPath, navigate, paramServer, profile?.id, rootId, selectedProfileId])
 
-  // Make the URL say where we are once it's known (replace, not push).
+  // Make the URL say where we are once it's known (replace, not push). Not
+  // while another server is being loaded: the profile shown is still the
+  // previous one, and writing its id back would undo the switch.
   useEffect(() => {
-    if (!profile || !rootId) return
+    if (!profile || !rootId || profile.id !== selectedProfileId) return
     if (paramServer === profile.id && paramRoot === rootId && (paramPath ?? '') === currentPath) return
     navigate({ search: buildSearch({ server: profile.id, root: rootId, path: currentPath, open: paramOpen }) }, { replace: true })
-  }, [currentPath, navigate, paramOpen, paramPath, paramRoot, paramServer, profile, rootId])
+  }, [currentPath, navigate, paramOpen, paramPath, paramRoot, paramServer, profile, rootId, selectedProfileId])
 
   // ---- Listing ----
   const [view, setView] = useState<'files' | 'trash'>('files')
+  const [trashRefreshKey, setTrashRefreshKey] = useState(0)
   const [listing, setListing] = useState<ListResponse | null>(null)
   const [listError, setListError] = useState<unknown>(null)
   const [listLoading, setListLoading] = useState(false)
@@ -304,6 +343,9 @@ export default function Files() {
   const listRootAvailable = !!root?.available
   const loadListing = useCallback(async (options?: { keepSelection?: boolean }) => {
     if (!listProfileId || !rootId || !listRootAvailable) return
+    // Called from a closure made for another folder (a refresh after a job
+    // that outlived the folder it was started in): nothing to do here.
+    if (`${listProfileId}|${rootId}|${currentPath}` !== locationKeyRef.current) return
     const requestId = ++listRequestRef.current
     setListLoading(true)
     setListError(null)
@@ -335,6 +377,7 @@ export default function Files() {
     setQuery('')
     setSelected(new Set())
     setListing(null)
+    setSearching(false)
   }, [profile?.id, rootId, currentPath])
 
   useEffect(() => {
@@ -344,6 +387,8 @@ export default function Files() {
 
   const loadMore = async () => {
     if (!profile || !root || !listing || loadingMore) return
+    const key = locationKeyRef.current
+    const requestId = listRequestRef.current
     setLoadingMore(true)
     try {
       const result = await filesApi.list(profile.id, {
@@ -354,6 +399,8 @@ export default function Files() {
         sort,
         order,
       })
+      // Another folder (or a fresh listing of this one) since: not ours.
+      if (key !== locationKeyRef.current || requestId !== listRequestRef.current) return
       if (result.dirEtag !== listing.dirEtag) {
         // The folder changed underneath the pages already shown: start over.
         await loadListing({ keepSelection: true })
@@ -361,7 +408,7 @@ export default function Files() {
       }
       setListing({ ...result, entries: [...listing.entries, ...result.entries], offset: 0 })
     } catch (error) {
-      toast({ variant: 'destructive', title: describeFilesError(error) })
+      if (key === locationKeyRef.current) toast({ variant: 'destructive', title: describeFilesError(error) })
     } finally {
       setLoadingMore(false)
     }
@@ -370,35 +417,48 @@ export default function Files() {
   const searchRef = useRef<{ q: string } | null>(null)
   searchRef.current = search
 
+  const searchRequestRef = useRef(0)
+
+  // Also runs long after the change that asked for it (a permanent delete's
+  // job, an Undo): loadListing and loadProfile ignore a place the page has
+  // left, and so does the search refresh.
   const refreshAfterChange = useCallback(async () => {
     setAuditKey((key) => key + 1)
     if (profile) void loadProfile(profile.id)
     if (view !== 'files') return
+    const key = `${profile?.id ?? ''}|${rootId ?? ''}|${currentPath}`
     await loadListing({ keepSelection: false })
     // Search results would still show what was just moved or deleted.
     const active = searchRef.current
-    if (active && profile && root) {
+    if (active && profile && root && key === locationKeyRef.current) {
+      const requestId = ++searchRequestRef.current
       try {
         const result = await filesApi.search(profile.id, { root: root.id, path: currentPath, q: active.q })
+        if (key !== locationKeyRef.current || requestId !== searchRequestRef.current) return
         setSearch((current) => (current && current.q === active.q ? { q: active.q, results: result.results, truncated: result.truncated } : current))
       } catch {
-        setSearch(null)
+        if (key === locationKeyRef.current && requestId === searchRequestRef.current) setSearch(null)
       }
     }
-  }, [currentPath, loadListing, loadProfile, profile, root, view])
+  }, [currentPath, loadListing, loadProfile, profile, root, rootId, view])
 
   const runSearch = async () => {
     const q = query.trim()
     if (!profile || !root || q.length < 2) return
+    const key = locationKeyRef.current
+    const requestId = ++searchRequestRef.current
     setSearching(true)
     try {
       const result = await filesApi.search(profile.id, { root: root.id, path: currentPath, q: q.slice(0, 100) })
+      // The operator moved to another folder (or searched again) meanwhile.
+      if (key !== locationKeyRef.current || requestId !== searchRequestRef.current) return
       setSearch({ q, results: result.results, truncated: result.truncated })
       setSelected(new Set())
     } catch (error) {
+      if (key !== locationKeyRef.current || requestId !== searchRequestRef.current) return
       toast({ variant: 'destructive', title: describeFilesError(error) })
     } finally {
-      setSearching(false)
+      if (requestId === searchRequestRef.current) setSearching(false)
     }
   }
 
@@ -471,6 +531,10 @@ export default function Files() {
   const pushedOpenRef = useRef(false)
   const fileViewRef = useRef<FileView | null>(null)
   fileViewRef.current = fileView
+  // Read when the editor answers a question it asked a while ago: its
+  // callbacks can come from a render before `open` went back in the URL.
+  const paramOpenRef = useRef(paramOpen)
+  paramOpenRef.current = paramOpen
 
   const showFile = useCallback((entry: FileEntry, kind: FileView['kind']) => {
     setFileView({ kind, entry })
@@ -480,14 +544,14 @@ export default function Files() {
 
   const closeFileView = useCallback(() => {
     setFileView(null)
-    if (!paramOpen) return
+    if (!paramOpenRef.current) return
     if (pushedOpenRef.current) {
       pushedOpenRef.current = false
       navigate(-1)
     } else {
       goTo({ open: null }, { replace: true })
     }
-  }, [goTo, navigate, paramOpen])
+  }, [goTo, navigate])
 
   // Back pressed while a file is open: the URL lost `open`. The editor asks
   // before discarding; the others just close.
@@ -502,12 +566,19 @@ export default function Files() {
     }
   }, [paramOpen])
 
-  const handleEditorCloseCancelled = useCallback(() => {
+  // The editor is asking before it closes (or a save is): `open` goes back
+  // in the URL now, so a second Back while it asks (a double click on the
+  // mouse's back button, Android's back gesture on the prompt) only takes
+  // that entry off again, instead of leaving the page and the text with it.
+  // Cancel then keeps it; Discard goes back to the folder.
+  const putOpenBack = useCallback(() => {
     const current = fileViewRef.current
-    if (!current || paramOpen) return
+    if (!current || paramOpenRef.current) return
     pushedOpenRef.current = true
     goTo({ open: relativeTo(currentPath, current.entry.path) })
-  }, [currentPath, goTo, paramOpen])
+  }, [currentPath, goTo])
+
+  const handleEditorCloseCancelled = putOpenBack
 
   const handleEditorClosed = useCallback(() => {
     closeFileView()
@@ -570,6 +641,11 @@ export default function Files() {
         const result = await downloadFile(profile.id, { root: root.id, path: single.path })
         if (result.masked) toast({ title: t('download.masked') })
       } else {
+        // One archive per request, and a request names at most this many.
+        if (entries.length > PATHS_PER_REQUEST) {
+          toast({ variant: 'destructive', title: t('download.zipTooMany', { limit: PATHS_PER_REQUEST }) })
+          return
+        }
         toast({ title: t('download.preparingZip') })
         await downloadZip(profile.id, { root: root.id, paths: entries.map((entry) => entry.path) })
         if (entries.some((entry) => entry.flags.secretBearing)) toast({ title: t('download.masked') })
@@ -589,16 +665,25 @@ export default function Files() {
     return currentPath ? `${rootLabel} / ${isolateLtrForRtl(currentPath)}` : rootLabel
   }, [currentPath, rootId, t])
 
+  // Undo puts everything back in one request per PATHS_PER_REQUEST items:
+  // one confirmation, and a bulk delete's worth of restores doesn't run into
+  // the per-minute limit on file changes halfway.
   const undoTrash = useCallback(async (trashed: Array<{ path: string; trashId: string }>) => {
     if (!profile || !root) return
     let restored = 0
-    for (const item of trashed) {
+    let firstFailure: { code: string; params?: Record<string, unknown> } | null = null
+    let failedCount = 0
+    let accepted: ConfirmToken[] = []
+    for (const part of inChunks(trashed, PATHS_PER_REQUEST)) {
       try {
-        const result = await runConfirmed((tokens) =>
-          filesApi.trashRestore(profile.id, { root: root.id, trashId: item.trashId, confirm: tokens }),
-        )
+        const result = await runConfirmed((tokens) => {
+          accepted = tokens
+          return filesApi.trashRestoreMany(profile.id, { root: root.id, trashIds: part.map((item) => item.trashId), confirm: tokens })
+        }, { initial: accepted })
         if (!result.ok) break
-        restored += 1
+        restored += result.value.restored.length
+        failedCount += result.value.failed.length
+        firstFailure ??= result.value.failed[0] ?? null
       } catch (error) {
         toast({ variant: 'destructive', title: describeFilesError(error) })
         break
@@ -608,73 +693,131 @@ export default function Files() {
       const first = isolateLtrForRtl(trashed[0].path)
       toast({ title: t('trash.restored', { path: restored > 1 ? `${first} (+${restored - 1})` : first }) })
     }
+    if (firstFailure) {
+      toast({ variant: 'destructive', title: describeResultError(firstFailure), description: failedCount > 1 ? `+${failedCount - 1}` : undefined })
+    }
     await refreshAfterChange()
   }, [profile, refreshAfterChange, root, runConfirmed, t, toast])
 
   const deleteEntries = useCallback(async (entries: FileEntry[], permanentRequested: boolean) => {
     if (!profile || !root || entries.length === 0) return
-    let preview
+    // The server previews (and deletes) at most PATHS_PER_REQUEST paths at a
+    // time: a bigger selection is previewed in parts and confirmed once.
+    const parts: DeletePreviewResponse[] = []
     try {
-      preview = await filesApi.deletePreview(profile.id, { root: root.id, paths: entries.map((entry) => entry.path) })
+      for (const part of inChunks(entries, PATHS_PER_REQUEST)) {
+        parts.push(await filesApi.deletePreview(profile.id, { root: root.id, paths: part.map((entry) => entry.path) }))
+      }
     } catch (error) {
       toast({ variant: 'destructive', title: describeFilesError(error) })
       return
     }
-    const permanent = permanentRequested || !preview.trashAvailable
-    const count = preview.items.length
-    const name = count === 1 ? baseName(preview.items[0].path) : ''
-    const size = formatBytes(preview.totals.bytes, i18n.language)
-    const sentence = permanent
-      ? t('confirm.deletePermanent', { count, name: isolateLtrForRtl(name), size, files: preview.totals.files })
-      : t('confirm.delete', { count, name: isolateLtrForRtl(name), size, files: preview.totals.files, folder: folderLabel })
+    const items = parts.flatMap((part) => part.items)
+    // A folder holding something the panel protects can't be deleted as a
+    // whole, whatever is confirmed: say so instead of asking.
+    const holding = items.filter((item) => item.containsProtected)
+    if (holding.length > 0) {
+      toast({
+        variant: 'destructive',
+        title: t('protected.containsProtected'),
+        description: holding.slice(0, 3).map((item) => isolateLtrForRtl(item.path)).join(', ') + (holding.length > 3 ? ` (+${holding.length - 3})` : ''),
+      })
+      return
+    }
+    const trashAvailable = parts.every((part) => part.trashAvailable)
+    const required = [...new Set(parts.flatMap((part) => part.required))]
+    const totals = parts.reduce(
+      (sum, part) => ({ files: sum.files + part.totals.files, bytes: sum.bytes + part.totals.bytes }),
+      { files: 0, bytes: 0 },
+    )
+    const permanent = permanentRequested || !trashAvailable
+    const count = items.length
+    const name = count === 1 ? baseName(items[0].path) : ''
+    const size = formatBytes(totals.bytes, i18n.language)
+    // Search results can sit in folders below the one shown: name the
+    // folder they all share.
+    const fromFolder = commonFolder(items.map((item) => item.path))
+    const rootLabelText = rootId ? t(`roots.labels.${rootId}`) : ''
+    const folder = fromFolder ? `${rootLabelText} / ${isolateLtrForRtl(fromFolder)}` : rootLabelText
+    // One item has its own sentence: in some languages "one" also covers
+    // 21, 31... (Ukrainian), where the single-item wording would be wrong.
+    const sentence = count === 1
+      ? t(permanent ? 'confirm.deletePermanentOne' : 'confirm.deleteOne', { name: isolateLtrForRtl(name), size, folder })
+      : permanent
+        ? t('confirm.deletePermanent', { count, size, files: totals.files })
+        : t('confirm.delete', { count, size, files: totals.files, folder })
     const extra: string[] = []
-    if (!preview.trashAvailable) extra.push(t('confirm.trashUnavailable'))
-    if (preview.items.some((item) => item.containsProtected)) extra.push(t('protected.containsProtected'))
-    for (const token of preview.required) {
+    if (!trashAvailable) extra.push(t('confirm.trashUnavailable'))
+    for (const token of required) {
       if (token === 'serverRunning') extra.push(profile.serverState === 'unknown' || profile.remote ? t('confirm.tokens.serverStateUnknown') : t('confirm.tokens.serverRunning'))
     }
     const typedValue = count === 1 ? name : String(count)
     const ok = await confirm({
       title: t('confirm.title'),
       description: [sentence, ...extra].join('\n\n'),
-      items: preview.items.slice(0, 10).map((item) => item.path),
+      items: items.slice(0, 10).map((item) => item.path),
       confirmLabel: permanent ? t('actions.deletePermanently') : t('actions.delete'),
       cancelLabel: t('actions.cancel'),
       destructive: true,
       requireTypedConfirmation: permanent ? { value: typedValue, label: t('confirm.typeName', { value: typedValue }) } : undefined,
     })
     if (!ok) return
-    if (preview.required.includes('serverRunning')) rememberServerRunningAck(profile.id)
-    const baseTokens = preview.required.filter((token) => token !== 'permanent')
-    const previewId = preview.previewId
+    if (required.includes('serverRunning')) rememberServerRunningAck(profile.id)
+    let accepted: ConfirmToken[] = required.filter((token) => token !== 'permanent')
     try {
       if (permanent) {
-        const result = await runConfirmed((tokens) => filesApi.deletePermanently(profile.id, {
-          root: root.id,
-          previewId,
-          mode: 'permanent',
-          confirm: tokens,
-          typedConfirmation: typedValue,
-        }), { initial: [...baseTokens, 'permanent'] })
-        if (!result.ok) return
         setSelected(new Set())
-        setJobLine({ done: 0, total: null })
-        const job = await waitForJob(result.value.jobId, (progress) => {
-          if (progress.state === 'running') setJobLine({ done: progress.progress.done, total: progress.progress.total })
-        })
+        // One job per part, run one after the other. The count shown adds up
+        // across parts; a total only makes sense for a single part.
+        let done = 0
+        for (const part of parts) {
+          // The server checks each part against its own count (or its one name).
+          const partTyped = part.items.length === 1 ? baseName(part.items[0].path) : String(part.items.length)
+          const result = await runConfirmed((tokens) => {
+            accepted = tokens.filter((token) => token !== 'permanent')
+            return filesApi.deletePermanently(profile.id, {
+              root: root.id,
+              previewId: part.previewId,
+              mode: 'permanent',
+              confirm: tokens,
+              typedConfirmation: partTyped,
+            })
+          }, { initial: [...accepted, 'permanent'] })
+          if (!result.ok) return
+          const before = done
+          setJobLine({ done: before, total: null })
+          const job = await waitForJob(result.value.jobId, (progress) => {
+            if (progress.state === 'running') {
+              setJobLine({ done: before + progress.progress.done, total: parts.length === 1 ? progress.progress.total : null })
+            }
+          })
+          if (job.state !== 'done') {
+            setJobLine(null)
+            toast({ variant: 'destructive', title: t('jobs.failed', { error: describeResultError(job.error) }) })
+            return
+          }
+          done += job.progress.done
+        }
         setJobLine(null)
-        if (job.state === 'done') toast({ title: t('jobs.done') })
-        else toast({ variant: 'destructive', title: t('jobs.failed', { error: describeResultError(job.error) }) })
+        toast({ title: t('jobs.done') })
       } else {
-        const result = await runConfirmed((tokens) => filesApi.deleteToTrash(profile.id, {
-          root: root.id,
-          previewId,
-          mode: 'trash',
-          confirm: tokens,
-        }), { initial: baseTokens })
-        if (!result.ok) return
+        const trashed: Array<{ path: string; trashId: string }> = []
+        const failed: Array<{ path: string; code: string; params?: Record<string, unknown> }> = []
+        for (const part of parts) {
+          const result = await runConfirmed((tokens) => {
+            accepted = tokens
+            return filesApi.deleteToTrash(profile.id, {
+              root: root.id,
+              previewId: part.previewId,
+              mode: 'trash',
+              confirm: tokens,
+            })
+          }, { initial: accepted })
+          if (!result.ok) break
+          trashed.push(...result.value.trashed)
+          failed.push(...result.value.failed)
+        }
         setSelected(new Set())
-        const { trashed, failed } = result.value
         if (trashed.length > 0) {
           toast({
             title: t('trash.undoToast', { count: trashed.length }),
@@ -695,7 +838,7 @@ export default function Files() {
     } finally {
       await refreshAfterChange()
     }
-  }, [confirm, folderLabel, i18n.language, profile, refreshAfterChange, root, runConfirmed, t, toast, undoTrash])
+  }, [confirm, i18n.language, profile, refreshAfterChange, root, rootId, runConfirmed, t, toast, undoTrash])
 
   // ---- Names: new file, new folder, rename, duplicate ----
   const [nameDialog, setNameDialog] = useState<NameDialogState | null>(null)
@@ -704,14 +847,16 @@ export default function Files() {
     if (!profile || !root || !nameDialog) return
     const names = [name]
     if (nameDialog.kind === 'newFolder') {
-      const result = await runConfirmed((tokens) => filesApi.mkdir(profile.id, { root: root.id, path: currentPath, name, confirm: tokens }), { names })
+      const dir = nameDialog.dir
+      const result = await runConfirmed((tokens) => filesApi.mkdir(profile.id, { root: root.id, path: dir, name, confirm: tokens }), { names })
       if (!result.ok) return
       setNameDialog(null)
       await refreshAfterChange()
     } else if (nameDialog.kind === 'newFile') {
+      const dir = nameDialog.dir
       const result = await runConfirmed((tokens) => filesApi.saveText(profile.id, {
         root: root.id,
-        path: joinPath(currentPath, name),
+        path: joinPath(dir, name),
         content: '',
         etag: null,
         eol: 'lf',
@@ -741,21 +886,33 @@ export default function Files() {
       setNameDialog(null)
       await refreshAfterChange()
     }
-  }, [currentPath, nameDialog, profile, refreshAfterChange, root, runConfirmed, showFile])
+  }, [nameDialog, profile, refreshAfterChange, root, runConfirmed, showFile])
 
   // ---- Move ----
   const [movePaths, setMovePaths] = useState<string[] | null>(null)
 
   const submitMove = useCallback(async (destDir: string) => {
     if (!profile || !root || !movePaths) return
-    const paths = movePaths
-    const result = await runConfirmed((tokens) => filesApi.move(profile.id, { root: root.id, paths, destDir, confirm: tokens }), {
-      names: paths.map(baseName),
-    })
-    if (!result.ok) return
+    // At most PATHS_PER_REQUEST paths per request; one confirmation covers
+    // the parts after the first.
+    const failed: Array<{ path: string; code: string; params?: Record<string, unknown> }> = []
+    let accepted: ConfirmToken[] = []
+    let movedSome = false
+    for (const paths of inChunks(movePaths, PATHS_PER_REQUEST)) {
+      const result = await runConfirmed((tokens) => {
+        accepted = tokens
+        return filesApi.move(profile.id, { root: root.id, paths, destDir, confirm: tokens })
+      }, { initial: accepted, names: paths.map(baseName) })
+      if (!result.ok) {
+        // Declined after an earlier part moved: show where things are now.
+        if (movedSome) await refreshAfterChange()
+        return
+      }
+      movedSome = true
+      failed.push(...result.value.failed)
+    }
     setMovePaths(null)
     setSelected(new Set())
-    const { failed } = result.value
     if (failed.length > 0) {
       toast({ variant: 'destructive', title: describeResultError(failed[0]), description: failed.length > 1 ? `+${failed.length - 1}` : undefined })
     }
@@ -763,14 +920,18 @@ export default function Files() {
   }, [movePaths, profile, refreshAfterChange, root, runConfirmed, toast])
 
   // ---- Uploads ----
+  const prepareRetryRef = useRef<(item: UploadItem) => Promise<Pick<UploadJob, 'overwriteEtag' | 'confirm'> | null>>(async () => null)
   const uploadQueue = useUploadQueue({
     describeError: describeFilesError,
     onDrained: () => {
       void refreshAfterChange()
     },
+    prepareRetry: (item) => prepareRetryRef.current(item),
   })
-  const [replacePrompt, setReplacePrompt] = useState<{ folder: string; names: string[] } | null>(null)
-  const replaceResolveRef = useRef<((choice: ReplaceChoice) => void) | null>(null)
+  // "Replace these?" prompts, one at a time: a second batch picked while a
+  // first one's prompt is up waits its turn instead of taking its place.
+  const [replacePrompts, setReplacePrompts] = useState<ReplacePrompt[]>([])
+  const replacePrompt = replacePrompts[0] ?? null
   const fileInputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
   const replaceInputRef = useRef<HTMLInputElement>(null)
@@ -782,15 +943,14 @@ export default function Files() {
   })
 
   const askReplace = useCallback((folder: string, names: string[]) => new Promise<ReplaceChoice>((resolve) => {
-    replaceResolveRef.current = resolve
-    setReplacePrompt({ folder, names })
+    setReplacePrompts((current) => [...current, { folder, names, resolve }])
   }), [])
 
   const chooseReplace = useCallback((choice: ReplaceChoice) => {
-    const resolve = replaceResolveRef.current
-    replaceResolveRef.current = null
-    setReplacePrompt(null)
-    resolve?.(choice)
+    setReplacePrompts((current) => {
+      current[0]?.resolve(choice)
+      return current.slice(1)
+    })
   }, [])
 
   // `dir` defaults to the folder shown (toolbar and drop uploads); Replace
@@ -813,7 +973,7 @@ export default function Files() {
           dir,
           files: picked.map((item) => ({ relPath: item.relPath, size: item.file.size })),
           confirm: tokens,
-        })
+        }, { timeout: preflightTimeout(root, picked.length) })
       }, { names: picked.map((item) => baseName(item.relPath)) })
       if (!result.ok) return
       preflight = result.value
@@ -889,6 +1049,45 @@ export default function Files() {
     )
   }, [askConfirmation, askReplace, currentPath, folderLabel, profile, root, runConfirmed, t, toast, uploadQueue])
 
+  // "Try again" on a failed upload checks the file afresh first: the batch's
+  // preflight may be out of date (the file changed or appeared, the server
+  // started), and resending what it said would fail the same way again.
+  prepareRetryRef.current = async (item) => {
+    // Checked as the batch was: from the folder it was dropped into, with
+    // its sub-folders in relPath (they may not exist yet).
+    const sub = parentPath(item.relPath)
+    const base = !sub ? item.dir : item.dir === sub ? '' : item.dir.slice(0, item.dir.length - sub.length - 1)
+    const preflight = await filesApi.uploadPreflight(item.profileId, {
+      root: item.root,
+      dir: base,
+      files: [{ relPath: item.relPath, size: item.file.size }],
+      confirm: item.confirm,
+    }, { timeout: root ? preflightTimeout(root, 1) : undefined })
+    const check = preflight.files[0]
+    if (!check) return null
+    if (!check.ok) throw new ApiError(describeResultError(check), { code: check.code, data: { params: check.params } })
+    const missing = preflight.required.filter((token) => !item.confirm.includes(token))
+    if (missing.length > 0) {
+      const ok = await askConfirmation({
+        error: '',
+        code: 'FM_CONFIRMATION_REQUIRED',
+        params: { required: missing },
+        details: {
+          ...preflight.details,
+          serverState: preflight.details?.serverState ?? (profile?.remote ? 'unknown' : profile?.serverState),
+          overwrite: { names: [item.name] },
+          executable: { names: preflight.details?.executable?.names ?? (looksExecutable(item.name) ? [item.name] : []) },
+        },
+      }, [item.name])
+      if (!ok) return null
+      if (missing.includes('serverRunning')) rememberServerRunningAck(item.profileId)
+    }
+    return {
+      overwriteEtag: check.willReplace ? check.currentEtag ?? null : null,
+      confirm: [...new Set<ConfirmToken>([...item.confirm, ...preflight.required])],
+    }
+  }
+
   // Leaving mid-upload would cut the uploads off.
   useEffect(() => {
     if (!uploadQueue.active) return
@@ -902,8 +1101,28 @@ export default function Files() {
 
   // ---- Drag and drop (desktop only) ----
   const [dragActive, setDragActive] = useState(false)
-  const dropEnabled = isDesktop && view === 'files' && rootIsWritable(root)
+  // A protected folder (World Backups, the bridge's folder) takes no new
+  // files, whatever the root allows.
+  const folderProtection = listing?.dir.protection ?? null
+  const folderWritable = rootIsWritable(root) && folderProtection === null
+  const dropEnabled = isDesktop && view === 'files' && folderWritable
   const hasFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes('Files')
+
+  // A file dropped anywhere else on the page (or on the list where it can't
+  // go) would make the browser open or download it in place of the panel.
+  useEffect(() => {
+    const guard = (event: globalThis.DragEvent) => {
+      if (!Array.from(event.dataTransfer?.types ?? []).includes('Files') || event.defaultPrevented) return
+      event.preventDefault()
+      if (event.type === 'dragover' && event.dataTransfer) event.dataTransfer.dropEffect = 'none'
+    }
+    window.addEventListener('dragover', guard)
+    window.addEventListener('drop', guard)
+    return () => {
+      window.removeEventListener('dragover', guard)
+      window.removeEventListener('drop', guard)
+    }
+  }, [])
 
   const onDragOver = (event: DragEvent<HTMLDivElement>) => {
     if (!dropEnabled || !hasFiles(event)) return
@@ -1004,6 +1223,7 @@ export default function Files() {
             onClick={() => {
               void loadProfile(profile.id)
               if (view === 'files') void loadListing({ keepSelection: true })
+              else setTrashRefreshKey((key) => key + 1)
             }}
             disabled={listLoading}
           >
@@ -1104,7 +1324,7 @@ export default function Files() {
   }
 
   const rootLabel = rootId ? t(`roots.labels.${rootId}`) : ''
-  const writable = rootIsWritable(root)
+  const writable = folderWritable
 
   const unavailableAction = (reason: RootUnavailableReason | undefined): EmptyStateAction | undefined => {
     switch (reason) {
@@ -1127,15 +1347,27 @@ export default function Files() {
     }
   }
 
-  const renderUnavailable = (reason: RootUnavailableReason | undefined, detail?: string) => (
-    <EmptyState
-      type="noFile"
-      compact
-      title={rootLabel}
-      description={reason ? t(`roots.unavailable.${reason}`, { detail: detail ?? '' }) : undefined}
-      action={unavailableAction(reason)}
-    />
-  )
+  // A remote server that can't be reached says why (a wrong password, a
+  // firewalled host, a chrooted login) and offers to try again.
+  const renderUnavailable = (reason: RootUnavailableReason | undefined, detail?: string) =>
+    reason === 'sftpUnreachable' ? (
+      <EmptyState
+        type="disconnected"
+        compact
+        title={rootLabel}
+        description={unavailableText(reason, detail)}
+        action={{ label: t('actions.retry'), onClick: () => void loadProfile(profile.id, true) }}
+        secondaryAction={unavailableAction(reason)}
+      />
+    ) : (
+      <EmptyState
+        type="noFile"
+        compact
+        title={rootLabel}
+        description={reason ? unavailableText(reason, detail) : undefined}
+        action={unavailableAction(reason)}
+      />
+    )
 
   const renderListBody = () => {
     if (!root) return null
@@ -1189,7 +1421,16 @@ export default function Files() {
       )
     }
     if (search && search.results.length === 0) {
-      return <EmptyState type="noResults" compact title={t('search.none')} action={{ label: t('list.clearFilter'), onClick: clearQuery }} />
+      // "Nothing matches" isn't the whole truth when the search stopped early.
+      return (
+        <EmptyState
+          type="noResults"
+          compact
+          title={t('search.none')}
+          description={search.truncated ? t('search.truncated') : undefined}
+          action={{ label: t('list.clearFilter'), onClick: clearQuery }}
+        />
+      )
     }
     if (!search && listing.entries.length === 0) {
       return (
@@ -1199,7 +1440,7 @@ export default function Files() {
           title={t('list.empty.title')}
           description={writable ? t('list.empty.description') : undefined}
           action={writable ? { label: t('actions.upload'), onClick: () => fileInputRef.current?.click() } : undefined}
-          secondaryAction={writable ? { label: t('actions.newFile'), onClick: () => setNameDialog({ kind: 'newFile' }) } : undefined}
+          secondaryAction={writable ? { label: t('actions.newFile'), onClick: () => setNameDialog({ kind: 'newFile', dir: currentPath }) } : undefined}
         />
       )
     }
@@ -1246,8 +1487,18 @@ export default function Files() {
     </HelpTip>
   )
 
-  const rootNotices = root?.available && (root.writable === false || root.warnings.length > 0) ? (
+  const rootNotices = root?.available && (root.writable === false || root.warnings.length > 0 || (view === 'files' && folderProtection)) ? (
     <div className="space-y-2">
+      {view === 'files' && folderProtection && root.writable !== false && (
+        <p className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
+          <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span>
+            <span className="font-medium text-foreground">{t('protected.badge')}</span>
+            <span aria-hidden="true">{' · '}</span>
+            <span>{t(`protected.areas.${folderProtection.area}`)}</span>
+          </span>
+        </p>
+      )}
       {root.writable === false && (
         <p className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
           <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -1347,6 +1598,7 @@ export default function Files() {
                   root={root}
                   isDesktop={isDesktop}
                   runConfirmed={runConfirmed}
+                  refreshKey={trashRefreshKey}
                   onBack={() => setView('files')}
                   onChanged={() => {
                     setAuditKey((key) => key + 1)
@@ -1376,8 +1628,8 @@ export default function Files() {
                         setOrder(nextOrder)
                       }}
                       canWrite={writable}
-                      onNewFile={() => setNameDialog({ kind: 'newFile' })}
-                      onNewFolder={() => setNameDialog({ kind: 'newFolder' })}
+                      onNewFile={() => setNameDialog({ kind: 'newFile', dir: currentPath })}
+                      onNewFolder={() => setNameDialog({ kind: 'newFolder', dir: currentPath })}
                       onUploadFiles={() => fileInputRef.current?.click()}
                       onUploadFolder={() => folderInputRef.current?.click()}
                       selectionCount={selectedEntries.length}
@@ -1520,6 +1772,7 @@ export default function Files() {
           runConfirmed={runConfirmed}
           onClose={handleEditorClosed}
           onCloseCancelled={handleEditorCloseCancelled}
+          onCloseAsking={putOpenBack}
           onSaved={() => {
             setAuditKey((key) => key + 1)
             void loadListing({ keepSelection: true })

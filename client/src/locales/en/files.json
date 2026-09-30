@@ -224,10 +224,12 @@
   },
   "confirm": {
     "title": "Are you absolutely sure?",
-    "delete_one": "Move {{name}} ({{size}}) from {{folder}} to Trash? The server may stop working if it needs it. You can restore it from Trash for 7 days. Trash doesn't free disk space until it's emptied.",
+    "delete_one": "Move {{count}} item ({{files}} files, {{size}}) from {{folder}} to Trash? The server may stop working if it needs it. You can restore it from Trash for 7 days. Trash doesn't free disk space until it's emptied.",
     "delete_other": "Move {{count}} items ({{files}} files, {{size}}) from {{folder}} to Trash? The server may stop working if it needs them. You can restore them from Trash for 7 days. Trash doesn't free disk space until it's emptied.",
-    "deletePermanent_one": "Permanently delete {{name}} ({{size}})? This can't be undone.",
+    "deleteOne": "Move {{name}} ({{size}}) from {{folder}} to Trash? The server may stop working if it needs it. You can restore it from Trash for 7 days. Trash doesn't free disk space until it's emptied.",
+    "deletePermanent_one": "Permanently delete {{count}} item ({{files}} files, {{size}})? This can't be undone.",
     "deletePermanent_other": "Permanently delete {{count}} items ({{files}} files, {{size}})? This can't be undone.",
+    "deletePermanentOne": "Permanently delete {{name}} ({{size}})? This can't be undone.",
     "trashUnavailable": "These can't go to Trash, so deleting them is permanent.",
     "typeName": "Type {{value}} to confirm",
     "emptyTrash_one": "Permanently delete {{count}} item from Trash? This can't be undone.",
@@ -299,7 +301,9 @@
     "large": "Large download. Keep this tab open until it finishes.",
     "interrupted": "The download was interrupted. Try again.",
     "preparingZip": "Preparing the .zip…",
-    "masked": "Passwords in .ini files are hidden in downloads."
+    "masked": "Passwords in .ini files are hidden in downloads.",
+    "zipTooMany": "Pick at most {{limit}} items for one .zip.",
+    "zipTooSlow": "Checking what to zip took too long. Pick fewer folders, or download them one at a time."
   },
   "trash": {
     "title": "Trash",
@@ -343,7 +347,25 @@
   "history": {
     "title": "Recent file changes",
     "empty": "No file changes yet.",
-    "entry": "{{username}} · {{op}} · {{path}}"
+    "entry": "{{username}} · {{op}} · {{path}}",
+    "ops": {
+      "create": "Created",
+      "write": "Saved",
+      "mkdir": "New folder",
+      "rename": "Renamed",
+      "move": "Moved",
+      "copy": "Duplicated",
+      "upload": "Uploaded",
+      "delete_trash": "Moved to Trash",
+      "delete_permanent": "Deleted permanently",
+      "trash_restore": "Restored from Trash",
+      "trash_purge": "Removed from Trash",
+      "trash_expire": "Trash cleaned up",
+      "download": "Downloaded",
+      "zip": "Downloaded as .zip",
+      "remoteRoots_set": "Remote folders changed",
+      "denied": "Refused"
+    }
   },
   "access": {
     "denied": "Your role doesn't include Manage server files. Ask an admin.",

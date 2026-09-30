@@ -23,6 +23,7 @@ interface MoveDialogProps {
   rootLabel: string
   /** Root-relative paths of the items being moved. */
   paths: string[]
+  /** Where the picker opens. */
   startDir: string
   onCancel: () => void
   /** Throws to keep the dialog open with the error shown. */
@@ -35,7 +36,10 @@ function isInsideAny(dir: string, paths: string[]): boolean {
 
 // "Move…" (spec §A14.3): a small folder picker over the same /list route,
 // folders only and within the same root (moves never cross roots). Folders
-// being moved, and anything inside them, aren't offered as destinations.
+// being moved, and anything inside them, aren't offered as destinations,
+// and neither is the folder the items already sit in (search results can
+// sit anywhere below the folder the picker opens on, so that is judged by
+// the items' own folders, not by where the picker started).
 export function MoveDialog({ open, profileId, root, rootLabel, paths, startDir, onCancel, onMove }: MoveDialogProps) {
   const { t } = useTranslation('files')
   const [dir, setDir] = useState(startDir)
@@ -80,7 +84,8 @@ export function MoveDialog({ open, profileId, root, rootLabel, paths, startDir, 
     return () => controller.abort()
   }, [dir, load, open])
 
-  const canMoveHere = dir !== startDir && !isInsideAny(dir, paths) && !busy
+  const alreadyThere = paths.length > 0 && paths.every((path) => parentPath(path) === dir)
+  const canMoveHere = !alreadyThere && !isInsideAny(dir, paths) && !busy
 
   const submit = async () => {
     if (!canMoveHere) return

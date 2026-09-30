@@ -224,10 +224,12 @@
   },
   "confirm": {
     "title": "确定要这样做吗？",
-    "delete_one": "将 {{name}}（{{size}}）从 {{folder}} 移到回收站？如果服务器需要它，服务器可能无法正常运行。7 天内可以从回收站还原。回收站清空前不会释放磁盘空间。",
+    "delete_one": "将 {{count}} 项（{{files}} 个文件，{{size}}）从 {{folder}} 移到回收站？如果服务器需要它，服务器可能无法正常运行。7 天内可以从回收站还原。回收站清空前不会释放磁盘空间。",
     "delete_other": "将 {{count}} 项（{{files}} 个文件，{{size}}）从 {{folder}} 移到回收站？如果服务器需要它们，服务器可能无法正常运行。7 天内可以从回收站还原。回收站清空前不会释放磁盘空间。",
-    "deletePermanent_one": "永久删除 {{name}}（{{size}}）？此操作无法撤销。",
+    "deleteOne": "将 {{name}}（{{size}}）从 {{folder}} 移到回收站？如果服务器需要它，服务器可能无法正常运行。7 天内可以从回收站还原。回收站清空前不会释放磁盘空间。",
+    "deletePermanent_one": "永久删除 {{count}} 项（{{files}} 个文件，{{size}}）？此操作无法撤销。",
     "deletePermanent_other": "永久删除 {{count}} 项（{{files}} 个文件，{{size}}）？此操作无法撤销。",
+    "deletePermanentOne": "永久删除 {{name}}（{{size}}）？此操作无法撤销。",
     "trashUnavailable": "这些项目无法移到回收站，因此删除将是永久性的。",
     "typeName": "输入 {{value}} 以确认",
     "emptyTrash_one": "从回收站永久删除 {{count}} 项？此操作无法撤销。",
@@ -299,7 +301,9 @@
     "large": "下载文件较大。请在下载完成前保持此标签页打开。",
     "interrupted": "下载已中断。请重试。",
     "preparingZip": "正在准备 .zip…",
-    "masked": "下载时会隐藏 .ini 文件中的密码。"
+    "masked": "下载时会隐藏 .ini 文件中的密码。",
+    "zipTooMany": "一个 .zip 最多只能选择 {{limit}} 个项目。",
+    "zipTooSlow": "检查要打包的内容耗时过长。请少选一些文件夹，或逐个下载。"
   },
   "trash": {
     "title": "回收站",
@@ -343,7 +347,25 @@
   "history": {
     "title": "最近的文件更改",
     "empty": "暂无文件更改。",
-    "entry": "{{username}} · {{op}} · {{path}}"
+    "entry": "{{username}} · {{op}} · {{path}}",
+    "ops": {
+      "create": "已创建",
+      "write": "已保存",
+      "mkdir": "已新建文件夹",
+      "rename": "已重命名",
+      "move": "已移动",
+      "copy": "已创建副本",
+      "upload": "已上传",
+      "delete_trash": "已移到回收站",
+      "delete_permanent": "已永久删除",
+      "trash_restore": "已从回收站还原",
+      "trash_purge": "已从回收站移除",
+      "trash_expire": "已清理回收站",
+      "download": "已下载",
+      "zip": "已下载为 .zip",
+      "remoteRoots_set": "已更改远程文件夹",
+      "denied": "已拒绝"
+    }
   },
   "access": {
     "denied": "你的角色不包含「管理服务器文件」权限。请联系管理员。",

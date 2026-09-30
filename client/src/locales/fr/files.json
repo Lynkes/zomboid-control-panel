@@ -228,12 +228,14 @@
   },
   "confirm": {
     "title": "Êtes-vous absolument sûr ?",
-    "delete_one": "Déplacer {{name}} ({{size}}) de {{folder}} vers la corbeille ? Le serveur risque de ne plus fonctionner s'il en a besoin. Il reste restaurable depuis la corbeille pendant 7 jours. La corbeille ne libère pas d'espace disque tant qu'elle n'est pas vidée.",
+    "delete_one": "Déplacer {{count}} élément ({{files}} fichiers, {{size}}) de {{folder}} vers la corbeille ? Le serveur risque de ne plus fonctionner s'il en a besoin. Il reste restaurable depuis la corbeille pendant 7 jours. La corbeille ne libère pas d'espace disque tant qu'elle n'est pas vidée.",
     "delete_many": "Déplacer {{count}} éléments ({{files}} fichiers, {{size}}) de {{folder}} vers la corbeille ? Le serveur risque de ne plus fonctionner s'il en a besoin. Ils restent restaurables depuis la corbeille pendant 7 jours. La corbeille ne libère pas d'espace disque tant qu'elle n'est pas vidée.",
     "delete_other": "Déplacer {{count}} éléments ({{files}} fichiers, {{size}}) de {{folder}} vers la corbeille ? Le serveur risque de ne plus fonctionner s'il en a besoin. Ils restent restaurables depuis la corbeille pendant 7 jours. La corbeille ne libère pas d'espace disque tant qu'elle n'est pas vidée.",
-    "deletePermanent_one": "Supprimer définitivement {{name}} ({{size}}) ? Cette action est irréversible.",
+    "deleteOne": "Déplacer {{name}} ({{size}}) de {{folder}} vers la corbeille ? Le serveur risque de ne plus fonctionner s'il en a besoin. Il reste restaurable depuis la corbeille pendant 7 jours. La corbeille ne libère pas d'espace disque tant qu'elle n'est pas vidée.",
+    "deletePermanent_one": "Supprimer définitivement {{count}} élément ({{files}} fichiers, {{size}}) ? Cette action est irréversible.",
     "deletePermanent_many": "Supprimer définitivement {{count}} éléments ({{files}} fichiers, {{size}}) ? Cette action est irréversible.",
     "deletePermanent_other": "Supprimer définitivement {{count}} éléments ({{files}} fichiers, {{size}}) ? Cette action est irréversible.",
+    "deletePermanentOne": "Supprimer définitivement {{name}} ({{size}}) ? Cette action est irréversible.",
     "trashUnavailable": "Ces éléments ne peuvent pas aller dans la corbeille : leur suppression est définitive.",
     "typeName": "Saisissez {{value}} pour confirmer",
     "emptyTrash_one": "Supprimer définitivement {{count}} élément de la corbeille ? Cette action est irréversible.",
@@ -308,7 +310,9 @@
     "large": "Téléchargement volumineux. Gardez cet onglet ouvert jusqu'à la fin.",
     "interrupted": "Le téléchargement a été interrompu. Réessayez.",
     "preparingZip": "Préparation du .zip…",
-    "masked": "Les mots de passe des fichiers .ini sont masqués dans les téléchargements."
+    "masked": "Les mots de passe des fichiers .ini sont masqués dans les téléchargements.",
+    "zipTooMany": "Choisissez au plus {{limit}} éléments pour un même .zip.",
+    "zipTooSlow": "Vérifier quoi mettre dans le .zip a pris trop de temps. Choisissez moins de dossiers, ou téléchargez-les un par un."
   },
   "trash": {
     "title": "Corbeille",
@@ -353,7 +357,25 @@
   "history": {
     "title": "Modifications récentes de fichiers",
     "empty": "Aucune modification de fichier pour l'instant.",
-    "entry": "{{username}} · {{op}} · {{path}}"
+    "entry": "{{username}} · {{op}} · {{path}}",
+    "ops": {
+      "create": "Créé",
+      "write": "Enregistré",
+      "mkdir": "Dossier créé",
+      "rename": "Renommé",
+      "move": "Déplacé",
+      "copy": "Dupliqué",
+      "upload": "Importé",
+      "delete_trash": "Déplacé vers la corbeille",
+      "delete_permanent": "Supprimé définitivement",
+      "trash_restore": "Restauré depuis la corbeille",
+      "trash_purge": "Retiré de la corbeille",
+      "trash_expire": "Corbeille nettoyée",
+      "download": "Téléchargé",
+      "zip": "Téléchargé en .zip",
+      "remoteRoots_set": "Dossiers distants modifiés",
+      "denied": "Refusé"
+    }
   },
   "access": {
     "denied": "Votre rôle n'inclut pas « Gérer les fichiers du serveur ». Demandez à un administrateur.",
