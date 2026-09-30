@@ -163,6 +163,47 @@ function writeRefused() {
   return toFmError(Object.assign(new Error("The server refused a write (Failure)"), { code: SFTP_STATUS.FAILURE }));
 }
 
+// Why an ssh2 write stream closed short. A WRITE the server refused makes
+// ssh2 destroy the stream before it hands the error on, so the 'error'
+// event is dropped; Node keeps the error as `errored` all the same, with
+// the server's own status (PERMISSION_DENIED for a login that may not
+// write, FAILURE for a full disk). A stream closed short without one gets
+// FAILURE.
+function writeFailureOf(sink) {
+  return sink?.errored ? toFmError(sink.errored) : writeRefused();
+}
+
+// Write all of `buffer` to a new remote file through ssh2's own write
+// stream (ssh2-sftp-client's put() loses a refused WRITE's status the same
+// way, and resolves as if it had worked). Resolves once the handle closed
+// with every byte acknowledged.
+function putBuffer(client, abs, buffer, mode) {
+  return new Promise((resolve, reject) => {
+    let sink;
+    try {
+      sink = client.createWriteStream(abs, { flags: "wx", mode });
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    let settled = false;
+    const settle = (err) => {
+      if (settled) return;
+      settled = true;
+      if (err) reject(err);
+      else resolve();
+    };
+    sink.on("error", settle);
+    sink.on("close", () => {
+      const acknowledged = typeof sink.bytesWritten === "number" ? sink.bytesWritten : buffer.length;
+      if (sink.errored || acknowledged !== buffer.length) settle(writeFailureOf(sink));
+      else settle();
+    });
+    if (buffer.length) sink.end(buffer);
+    else sink.end();
+  });
+}
+
 // Permission bits from an ls-style longname ("-rwxr-xr-x 1 ..."), which is
 // all ssh2-sftp-client's list() keeps of the mode.
 function modeFromLongname(longname) {
@@ -569,17 +610,18 @@ function streamIntoRemote(lease, source, tmpAbs, { declaredSize, maxBytes, remot
     // ssh2's WriteStream never emits 'finish' (its _final closes the handle
     // first, so writableFinished stays false): the handle closing after
     // end() is how a transfer completes. A WRITE the server refused (a full
-    // disk, a quota) ends the same way, its error dropped on the destroyed
-    // stream, so the bytes the server acknowledged decide.
+    // disk, a quota, a login that may not write) ends the same way, its
+    // error dropped on the destroyed stream: the bytes the server
+    // acknowledged decide, and writeFailureOf() recovers the status.
     const onSinkClose = () => {
       if (settled) return;
       if (!endCalled) {
-        fail(sourceEnded ? new FmError(ErrorCode.FM_UPLOAD_SIZE_MISMATCH) : writeRefused());
+        fail(sourceEnded && !sink.errored ? new FmError(ErrorCode.FM_UPLOAD_SIZE_MISMATCH) : writeFailureOf(sink));
         return;
       }
       const acknowledged = typeof sink.bytesWritten === "number" ? sink.bytesWritten : received;
-      if (acknowledged !== received) {
-        fail(writeRefused());
+      if (sink.errored || acknowledged !== received) {
+        fail(writeFailureOf(sink));
         return;
       }
       settled = true;
@@ -739,7 +781,7 @@ export function createSftpBackend({ settings } = {}) {
   }
 
   async function putNew(abs, buffer, mode, { sync = false } = {}) {
-    await write((c) => c.put(buffer, abs, { writeStreamOptions: { flags: "wx", mode } }));
+    await write((c) => putBuffer(c, abs, buffer, mode));
     if (sync) await syncFile(abs);
     const st = await lstatOrNull(abs);
     if (!st || st.type !== "file" || st.size !== buffer.length) {

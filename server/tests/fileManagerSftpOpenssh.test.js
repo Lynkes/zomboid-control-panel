@@ -276,6 +276,9 @@ suite("real OpenSSH: what lands is on disk first", () => {
 });
 
 suite("real OpenSSH: a remote disk that refuses writes (sftp-server -P write)", () => {
+  // Each fails with the server's own status (PERMISSION_DENIED): ssh2
+  // drops a refused WRITE's error on the stream it destroys, and it used to
+  // be reported as a bare FM_SFTP_ERROR FAILURE.
   beforeEach(async () => {
     srv.denyRequests = ["write"];
     await reconnect();
@@ -283,7 +286,7 @@ suite("real OpenSSH: a remote disk that refuses writes (sftp-server -P write)", 
 
   it("a save fails and leaves the live file and its Trash intact", async () => {
     const r = await resolve("Server/servertest.ini", "write");
-    expect(await codeOf(backend.writeBytesCas(r, Buffer.from("PVP=false\n"), { expectedHash: `h:${sha(ORIGINAL)}` }))).not.toBe("ok");
+    expect(await codeOf(backend.writeBytesCas(r, Buffer.from("PVP=false\n"), { expectedHash: `h:${sha(ORIGINAL)}` }))).toBe("FM_OS_PERMISSION_DENIED");
     expect(file("Server/servertest.ini")).toBe(ORIGINAL);
     expect(tempsIn("Server")).toEqual([]);
     expect(trashIds()).toEqual([]);
@@ -291,7 +294,7 @@ suite("real OpenSSH: a remote disk that refuses writes (sftp-server -P write)", 
 
   it("a new file isn't created empty", async () => {
     const r = await resolve("Server/new.txt", "create");
-    expect(await codeOf(backend.writeBytesCas(r, Buffer.from("x=1\n"), { expectedHash: null }))).not.toBe("ok");
+    expect(await codeOf(backend.writeBytesCas(r, Buffer.from("x=1\n"), { expectedHash: null }))).toBe("FM_OS_PERMISSION_DENIED");
     expect(exists("Server/new.txt")).toBe(false);
     expect(tempsIn("Server")).toEqual([]);
   });
@@ -300,15 +303,20 @@ suite("real OpenSSH: a remote disk that refuses writes (sftp-server -P write)", 
     const body = Buffer.from("hello\n");
     expect(
       await codeOf(backend.receiveUpload(await resolve("Server", "list"), "up.txt", Readable.from([body]), { declaredSize: body.length })),
-    ).not.toBe("ok");
+    ).toBe("FM_OS_PERMISSION_DENIED");
     expect(exists("Server/up.txt")).toBe(false);
     expect(tempsIn("Server")).toEqual([]);
+    // And the browser is told so.
+    const up = await upload("Server", "up2.txt", "hello\n");
+    expect(up.status).toBe(403);
+    expect(up.body.code).toBe("FM_OS_PERMISSION_DENIED");
+    expect(exists("Server/up2.txt")).toBe(false);
   });
 
   it("a duplicate fails instead of landing short", async () => {
     expect(
       await codeOf(backend.copyFile(await resolve("Server/servertest.ini"), await resolve("Server", "list"), "servertest (copy).ini")),
-    ).not.toBe("ok");
+    ).toBe("FM_OS_PERMISSION_DENIED");
     expect(exists("Server/servertest (copy).ini")).toBe(false);
     expect(tempsIn("Server")).toEqual([]);
   });
