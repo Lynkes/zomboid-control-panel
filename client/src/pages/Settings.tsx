@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { useSearchParams, Link as RouterLink } from "react-router-dom";
+import { useNavigate, useSearchParams, Link as RouterLink } from "react-router-dom";
 import { usePageShortcut } from "../hooks/useKeyboardShortcuts";
 import {
   Save,
@@ -109,6 +109,7 @@ import {
   ServerInstance,
 } from "@/lib/api";
 import { getUserErrorMessage } from "@/lib/errorMessage";
+import { classifyPanelUpdateFailure } from "@/lib/panelUpdateFailure";
 import {
   RestoreNotStartedError,
   RestoreOutcomeUnknownError,
@@ -789,6 +790,7 @@ export default function Settings() {
     return validTabs.includes(resolved) ? resolved : null;
   };
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState(
     () => resolveTabId(searchParams.get("tab")) ?? "general",
   );
@@ -1435,11 +1437,23 @@ export default function Settings() {
       // pre-flight check above.
       const data = error instanceof ApiError ? (error.data as { preflight?: PanelUpdatePreflight } | undefined) : undefined;
       if (data?.preflight) setPanelUpdatePreflight(data.preflight);
+      // A Docker update that couldn't save and stop the game server first
+      // downloaded nothing -- titled as what it is, and, when a stuck
+      // server is the likely cause, with a way to the Dashboard's Force
+      // stop (the message says what that costs). Never force-stopped here.
+      const failure = classifyPanelUpdateFailure(error);
       toast({
-        title: t("toasts.downloadFailed.title"),
+        title: failure === "downloadFailed"
+          ? t("toasts.downloadFailed.title")
+          : t("toasts.updateNotApplied.title"),
         description:
           getUserErrorMessage(error, t("toasts.downloadFailed.fallback")),
         variant: "destructive",
+        action: failure === "serverNotStopped" ? (
+          <ToastAction altText={t("toasts.updateNotApplied.openDashboardAlt")} onClick={() => navigate("/")}>
+            {t("toasts.updateNotApplied.openDashboard")}
+          </ToastAction>
+        ) : undefined,
       });
     } finally {
       setDownloadingPanelUpdate(false);

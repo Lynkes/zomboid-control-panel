@@ -701,7 +701,7 @@ export class UpdateChecker {
           log.warn(`Could not announce imminent automatic update: ${error.message}`);
         }
         const saved = await this.rconService.save({ skipLog: true });
-        if (!saved?.success) fail("SAVE_FAILED", `The world could not be saved (${saved?.error || "unknown error"}), so the update was abandoned rather than lose progress`, { reason: sanitizeError(saved?.error || "unknown error") });
+        if (!saved?.success) fail("SAVE_FAILED", `The world could not be saved (${saved?.error || "unknown error"}), so the update was abandoned rather than lose progress. If the server is stuck, use Force stop on the Dashboard (anything since the last successful save can be lost), then run the update again`, { reason: sanitizeError(saved?.error || "unknown error") });
         const quit = await this.rconService.quit();
         if (!quit?.success) log.warn(`Quit command failed (${quit?.error || "unknown error"}); waiting to see whether the server stops anyway`);
         const deadline = Date.now() + 5 * 60 * 1000;

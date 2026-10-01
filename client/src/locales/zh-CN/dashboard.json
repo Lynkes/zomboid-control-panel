@@ -21,7 +21,7 @@
       "NOT_CONFIGURED": "未配置 SteamCMD 路径或服务器安装路径。",
       "INITIAL_SCAN_FAILED": "无法确认服务器是否正在运行，出于安全考虑已放弃本次更新。",
       "RCON_NOT_CONNECTED": "RCON 未连接，因此无法安全停止服务器。",
-      "SAVE_FAILED": "无法保存世界（{{reason}}），因此已放弃更新以避免丢失进度。",
+      "SAVE_FAILED": "无法保存世界（{{reason}}），因此已放弃更新以避免丢失进度。如果服务器已卡死，请在仪表盘上使用“强制停止”（自上次成功保存以来的内容可能会丢失），然后重新运行更新。",
       "STOP_SCAN_FAILED": "无法再确认服务器是否已停止，出于安全考虑已放弃本次更新。",
       "STOP_TIMEOUT": "服务器未在 5 分钟内停止。",
       "STEAMCMD_NOT_FOUND": "在 {{path}} 未找到 SteamCMD。",

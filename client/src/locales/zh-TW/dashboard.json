@@ -21,7 +21,7 @@
       "NOT_CONFIGURED": "尚未設定 SteamCMD 路徑或伺服器安裝路徑。",
       "INITIAL_SCAN_FAILED": "無法確認伺服器是否正在執行，出於安全考慮已放棄本次更新。",
       "RCON_NOT_CONNECTED": "RCON 未連線，因此無法安全停止伺服器。",
-      "SAVE_FAILED": "無法儲存世界（{{reason}}），因此已放棄更新以避免遺失進度。",
+      "SAVE_FAILED": "無法儲存世界（{{reason}}），因此已放棄更新以避免遺失進度。如果伺服器已卡住，請在儀表板上使用「強制停止」（自上次成功儲存以來的內容可能會遺失），然後重新執行更新。",
       "STOP_SCAN_FAILED": "無法再確認伺服器是否已停止，出於安全考慮已放棄本次更新。",
       "STOP_TIMEOUT": "伺服器未在 5 分鐘內停止。",
       "STEAMCMD_NOT_FOUND": "在 {{path}} 未找到 SteamCMD。",

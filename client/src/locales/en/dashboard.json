@@ -21,7 +21,7 @@
       "NOT_CONFIGURED": "The SteamCMD path or server install path is not configured.",
       "INITIAL_SCAN_FAILED": "Could not verify whether the server was running, so the update was abandoned for safety.",
       "RCON_NOT_CONNECTED": "RCON was not connected, so the server could not be stopped safely.",
-      "SAVE_FAILED": "The world could not be saved ({{reason}}), so the update was abandoned rather than lose progress.",
+      "SAVE_FAILED": "The world could not be saved ({{reason}}), so the update was abandoned rather than lose progress. If the server is stuck, use Force stop on the Dashboard (anything since the last successful save can be lost), then run the update again.",
       "STOP_SCAN_FAILED": "Lost the ability to verify the server had stopped, so the update was abandoned for safety.",
       "STOP_TIMEOUT": "The server did not stop within 5 minutes.",
       "STEAMCMD_NOT_FOUND": "SteamCMD was not found at {{path}}.",

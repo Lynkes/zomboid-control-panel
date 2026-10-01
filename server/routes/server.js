@@ -2269,12 +2269,18 @@ router.post("/stop", requirePermission("server.control"), async (req, res) => {
     const serverManager = req.app.get("serverManager");
     log.info("POST /stop — graceful shutdown requested");
 
-    // Check if RCON is connected first
+    // Check if RCON is connected first. Both refusals below name Force stop:
+    // a server whose game thread died (42.21's UnsatisfiedLinkError during a
+    // save, 2026-10-01) keeps its process up while RCON keeps dropping, and
+    // Force stop is then the only way down -- at the cost of anything since
+    // the last successful save, which is why the panel never does it on
+    // its own.
     if (!rconService.connected) {
       return res
         .status(400)
         .json({
-          error: "RCON not connected. Cannot gracefully stop server.",
+          error:
+            "RCON is not connected, so the panel can't save the world and stop the server gracefully. If the server is stuck, use Force stop: it tries one quick save, then stops the server either way, so anything since the last successful save can be lost.",
           code: ErrorCode.SERVER_STOP_RCON_NOT_CONNECTED,
         });
     }
@@ -2283,9 +2289,11 @@ router.post("/stop", requirePermission("server.control"), async (req, res) => {
     // the last one.
     const saved = await rconService.save({ retryOnConnectionError: false });
     if (!saved?.success) {
+      const reason = saved?.error || "unknown error";
       return res.status(502).json({
-        error: `Save failed, so the server was left running: ${sanitizeError(saved?.error)}`,
+        error: `The world could not be saved (${sanitizeError(reason)}), so the server was left running. If the server is stuck, use Force stop: it tries one quick save, then stops the server either way, so anything since the last successful save can be lost.`,
         code: ErrorCode.SERVER_STOP_SAVE_FAILED,
+        params: sanitizeErrorParams({ reason }),
       });
     }
 
@@ -2736,6 +2744,7 @@ router.post("/restart", requirePermission("server.control"), async (req, res) =>
           kind: "restart",
           success: !!result?.success,
           message: result?.message || (result?.success ? "Restart completed" : "Restart failed"),
+          ...(result?.success ? {} : codedActionResultFields(result)),
         });
       })
       .catch((err) => {

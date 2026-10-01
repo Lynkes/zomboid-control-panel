@@ -50,10 +50,14 @@ export function emitActionResult(io, payload) {
 // SERVER_START_SCRIPT_MISSING (GH #167) and its restart-time counterpart
 // SERVER_RESTART_SCRIPT_MISSING (performRestart()'s check before it stops
 // anything): both messages name the install folder and are English-only.
+// SERVER_RESTART_SAVE_FAILED is performRestart()'s RETURNED failure when the
+// pre-restart save fails, and its copy names the way out of a stuck server
+// (Force stop) -- so it's taken from a failed result as well as a throw.
 // Any other error adds nothing and keeps the bare message it always had.
 const CODED_ACTION_RESULT_CODES = new Set([
   ErrorCode.SERVER_START_SCRIPT_MISSING,
   ErrorCode.SERVER_RESTART_SCRIPT_MISSING,
+  ErrorCode.SERVER_RESTART_SAVE_FAILED,
 ]);
 
 export function codedActionResultFields(err) {
@@ -712,6 +716,7 @@ router.post('/restart-now', async (req, res) => {
           kind: 'restart',
           success: !!result?.success,
           message: result?.message || (result?.success ? 'Restart completed' : 'Restart failed'),
+          ...(result?.success ? {} : codedActionResultFields(result)),
         });
       })
       .catch(err => {

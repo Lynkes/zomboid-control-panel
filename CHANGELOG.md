@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Linux: the panel's start script loads the game's current `linux64/` libraries instead of a leftover `natives/` folder, which crashed 42.21 servers during world saves (`UnsatisfiedLinkError`).
+- A world save that fails before an update, stop or restart now points to Force stop and what it costs; Settings › Updates no longer calls it "Download Failed".
 
 ## [1.4.1] - 2026-09-30
 

@@ -2132,11 +2132,18 @@ export async function handlePanelUpdateDownload(req, res) {
         }
         const isRunning = Boolean(processDetails.running);
         if (isRunning) {
+          // The three refusals below each end with the next step. A game
+          // server whose main thread died (42.21's UnsatisfiedLinkError
+          // during a save, 2026-10-01) keeps its process up while RCON keeps
+          // dropping, so the save or the quit fails every time and the
+          // update can't go ahead until the operator uses Force stop -- the
+          // panel never does that for them, since it can lose everything
+          // since the last successful save.
           const rconService = req.app.get("rconService");
           if (!rconService?.connected) {
             return res.status(409).json({
               error:
-                "Stop the Project Zomboid server before applying a Docker update. RCON is not connected, so the panel cannot safely stop it for you.",
+                "Stop the Project Zomboid server before applying a Docker update. RCON is not connected, so the panel can't save the world and stop it for you. If the server is stuck, use Force stop on the Dashboard: it tries one quick save, then stops the server either way, so anything since the last successful save can be lost.",
               code: ErrorCode.SERVER_RUNNING_RCON_UNAVAILABLE,
             });
           }
@@ -2145,7 +2152,7 @@ export async function handlePanelUpdateDownload(req, res) {
           if (!saved?.success) {
             const reason = saved?.error || "unknown error";
             return res.status(409).json({
-              error: `The world could not be saved (${reason}), so the server was left running. Applying the update now would lose everything since the last save.`,
+              error: `The world could not be saved (${reason}), so the server was left running and the update was not applied. If the server is stuck, use Force stop on the Dashboard, then apply the update again. Force stop tries one quick save, then stops the server either way, so anything since the last successful save can be lost.`,
               code: "save_failed",
               params: sanitizeErrorParams({ reason }),
             });
@@ -2154,7 +2161,7 @@ export async function handlePanelUpdateDownload(req, res) {
           if (!quit?.success) {
             const reason = quit?.error || "unknown error";
             return res.status(502).json({
-              error: `The world was saved, but the server could not be shut down (${reason}). It is still running, so the update was not applied.`,
+              error: `The world was saved, but the server could not be shut down (${reason}). It is still running, so the update was not applied. Use Force stop on the Dashboard to stop it, then apply the update again.`,
               code: "stop_failed",
               params: sanitizeErrorParams({ reason }),
             });
