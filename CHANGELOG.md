@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+_No unreleased changes._
+
+## [1.4.2] - 2026-10-01
+
+### Added
+
 - **More than one server in the all-in-one container:** extra servers get their own `pz-servers` volume, and Docker publishes UDP ports 16261-16270 (five servers; change it with `PZ_GAME_PORTS` in `.env`). Existing installs run `bootstrap.sh` again to get both.
 - Server Setup, when other servers already exist, starts on free game and RCON ports and a free name, lists the ports each server uses, and warns when a port is taken or outside what Docker publishes. In the all-in-one image it also fills in a folder on the extra-servers volume.
 
