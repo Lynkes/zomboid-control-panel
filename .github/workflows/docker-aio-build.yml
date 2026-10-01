@@ -47,6 +47,13 @@ on:
       - '.github/workflows/docker-aio-build.yml'
   workflow_dispatch:
 
+# A pull request's newer push cancels its older build. Publishing runs on
+# main and tags queue instead of overlapping, so an older commit can't
+# finish last and leave the moving `aio`/`updater` tags behind.
+concurrency:
+  group: docker-aio-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
   packages: write

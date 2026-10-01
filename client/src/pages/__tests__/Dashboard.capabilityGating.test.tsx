@@ -68,6 +68,7 @@ vi.mock('@/lib/api', async () => {
       ...actual.serversApi,
       getComposedStatus: vi.fn(),
       getResolvedActive: vi.fn(),
+      getStatus: vi.fn(),
     },
     playersApi: {
       ...actual.playersApi,
@@ -100,6 +101,7 @@ const wipePreview = vi.mocked(serverApi.wipePreview)
 const wipe = vi.mocked(serverApi.wipe)
 const getComposedStatus = vi.mocked(serversApi.getComposedStatus)
 const getResolvedActive = vi.mocked(serversApi.getResolvedActive)
+const getServersStatus = vi.mocked(serversApi.getStatus)
 const getPlayers = vi.mocked(playersApi.getPlayers)
 const getActivityLogs = vi.mocked(playersApi.getActivityLogs)
 const getBridgeStatus = vi.mocked(panelBridgeApi.getStatus)
@@ -393,6 +395,11 @@ describe('Dashboard.tsx: Stop/Force Stop/Restart/Save share server.control, gate
     mockCanControl = true
     await setUpCommon()
     await setUpOnlineServer()
+    // The dialog closes once Dashboard's stop confirmation
+    // (waitForServerState, polling serversApi.getStatus every 1s for up to
+    // 30s) sees the server stopped. Unmocked, that poll ran out its whole
+    // 30s on every run of this test.
+    getServersStatus.mockResolvedValue({ servers: [{ id: 1, running: false, stateUnknown: false }] } as Awaited<ReturnType<typeof serversApi.getStatus>>)
 
     renderDashboard()
 
