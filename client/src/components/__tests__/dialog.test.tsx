@@ -68,6 +68,11 @@ describe('DialogContent', () => {
     expect(screen.getByText('Change things').className).toContain(WRAP_ANYWHERE)
   })
 
+  it('keeps the header clear of the close button, so a wrapping title never runs under the X', () => {
+    renderDialog()
+    expect(screen.getByText('Edit').parentElement?.className).toContain('pe-8')
+  })
+
   it("lets a call site's own height cap replace the default instead of stacking with it", () => {
     const capped = renderDialog('max-h-[85vh] sm:max-h-[80vh]')
     expect(capped.className).not.toContain(BOUND)

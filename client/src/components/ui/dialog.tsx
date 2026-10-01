@@ -97,8 +97,10 @@ const DialogHeader = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
+    // pe-8 keeps a long, wrapping title out from under the absolute close
+    // button (end-4 top-4, plus its focus ring) that every DialogContent draws.
     className={cn(
-      "flex flex-col space-y-1.5 text-center sm:text-start",
+      "flex flex-col space-y-1.5 pe-8 text-center sm:text-start",
       className
     )}
     {...props}

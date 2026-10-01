@@ -103,7 +103,7 @@ describe('TemplatePreviewDialog fits the window', () => {
     const title = within(dialog).getByRole('heading', { name: template.meta.name })
     expect(body.contains(title)).toBe(false)
     // A user-named template can fill the first line: keep it clear of the X.
-    expect(title.parentElement!.className).toContain('pe-6')
+    expect(title.parentElement!.className).toContain('pe-8')
 
     const apply = within(dialog).getByRole('button', { name: 'Apply Template' })
     const cancel = within(dialog).getByRole('button', { name: 'Cancel' })

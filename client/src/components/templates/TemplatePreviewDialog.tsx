@@ -185,7 +185,7 @@ export function TemplatePreviewDialog({ template, canManage, onClose, onApplied 
           TemplateApplyPanel for why the pieces sit where they do). pe-6
           keeps a long template name clear of the close X. */}
       <DialogContent className="max-w-2xl">
-        <DialogHeader className="pe-6">
+        <DialogHeader>
           <DialogTitle>{template?.meta.name}</DialogTitle>
           <DialogDescription>{template?.meta.description}</DialogDescription>
         </DialogHeader>
