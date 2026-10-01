@@ -12,11 +12,28 @@
 Project Zomboid is a zombie survival game; playing it with friends means running a **dedicated server** somewhere. Zomboid Control Panel is the web app that sets up and manages that server for you — no command line required — with a live world map, Workshop mod management, scheduled restarts, backups, and Discord integration built in.
 
 [**🚀 Download**](https://github.com/Lynkes/zomboid-control-panel/releases/latest) ·
-[**👁️ Live demo**](https://lynkes.github.io/zomboid-control-panel/) ·
+[**👁️ Live demo**](https://fpsacha.github.io/zomboid-control-panel/) ·
 [**💬 Discord**](https://discord.gg/jHsWJDNmSg) ·
 [**📖 Setup**](#quick-start)
 
 </div>
+
+> [!NOTE]
+> **This is a personal fork** of [fpsacha/zomboid-control-panel](https://github.com/fpsacha/zomboid-control-panel), kept for my own setup, mainly the all-in-one Docker image. Nearly all of the panel is upstream's work. Report bugs in the panel itself [upstream](https://github.com/fpsacha/zomboid-control-panel/issues); this fork has no issue tracker.
+>
+> What this fork changes:
+>
+> - **Several Project Zomboid servers in one all-in-one container.** Extra servers get their own `pz-servers` volume, Docker publishes a UDP range (`PZ_GAME_PORTS`, default `16261-16270`, five servers), and Server Setup suggests free ports, a free name and a folder on that volume. See [More than one server](docker/all-in-one/README.md#more-than-one-server).
+> - **Its own releases and images.** The installer, the panel's update check and the all-in-one updater follow this repository (`PANEL_GITHUB_REPOSITORY`), and images come from `ghcr.io/lynkes/zomboid-panel`.
+> - **Faster CI**, from about 11.5 to 2.5 minutes per run.
+>
+> Install the all-in-one container from this fork:
+>
+> ```sh
+> curl -fsSL https://raw.githubusercontent.com/Lynkes/zomboid-control-panel/main/docker/all-in-one/bootstrap.sh | sh
+> ```
+>
+> Changes useful to everyone go back upstream as pull requests ([#183](https://github.com/fpsacha/zomboid-control-panel/pull/183), [#185](https://github.com/fpsacha/zomboid-control-panel/pull/185)).
 
 <br />
 
@@ -399,7 +416,7 @@ Maintainers publishing the PanelBridge Steam Workshop item: see [docs/maintainer
 ## Community
 
 - **Discord** — [discord.gg/jHsWJDNmSg](https://discord.gg/jHsWJDNmSg) for questions, support, and feature ideas.
-- **Issues** — [Report bugs or request features](https://github.com/Lynkes/zomboid-control-panel/issues) on GitHub.
+- **Issues** — [Report bugs or request features](https://github.com/fpsacha/zomboid-control-panel/issues) on GitHub.
 - **Changelog** — See the [latest release notes](https://github.com/Lynkes/zomboid-control-panel/releases/latest) for what's new.
 
 ---

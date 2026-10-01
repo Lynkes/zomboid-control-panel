@@ -6762,7 +6762,7 @@ export default function Settings() {
                     {t("about.releasesChangelog")}
                   </a>
                   <a
-                    href="https://github.com/Lynkes/zomboid-control-panel/issues"
+                    href="https://github.com/fpsacha/zomboid-control-panel/issues"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 rounded-lg border border-border/60 bg-background/50 px-3 py-2 text-sm hover:bg-muted/50 transition-colors"
