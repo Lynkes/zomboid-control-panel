@@ -1183,7 +1183,7 @@ export default function Layout({ children }: LayoutProps) {
                     <Coffee className="h-3.5 w-3.5" />
                   </a>
                   <a
-                    href="https://github.com/fpsacha/zomboid-control-panel"
+                    href="https://github.com/Lynkes/zomboid-control-panel"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-muted-foreground/70 hover:text-foreground transition-colors"

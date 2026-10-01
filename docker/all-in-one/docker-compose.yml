@@ -28,6 +28,9 @@ services:
       TRUST_PROXY: ${TRUST_PROXY:-1}
       PANEL_LAN_IP: ${PANEL_LAN_IP:-}
       PANEL_WAN_IP: ${PANEL_WAN_IP:-}
+      # The repository whose releases the panel offers as updates; the
+      # updater below rebuilds from the same one.
+      PANEL_GITHUB_REPOSITORY: ${PANEL_GITHUB_REPOSITORY:-Lynkes/zomboid-control-panel}
       PANEL_DOCKER_UPDATER_URL: http://zomboid-panel-updater:3100
       PANEL_DOCKER_UPDATER_TOKEN: ${PANEL_DOCKER_UPDATER_TOKEN:?Set PANEL_DOCKER_UPDATER_TOKEN in .env}
     volumes:
@@ -53,7 +56,7 @@ services:
       COMPOSE_FILE: /build/ctx/docker-compose.yml
       PANEL_CONTAINER: zomboid-panel
       PANEL_IMAGE: zomboid-panel-allinone:latest
-      GITHUB_REPOSITORY: fpsacha/zomboid-control-panel
+      GITHUB_REPOSITORY: ${PANEL_GITHUB_REPOSITORY:-Lynkes/zomboid-control-panel}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PANEL_BUILD_DIR:?Set PANEL_BUILD_DIR in .env}:/build

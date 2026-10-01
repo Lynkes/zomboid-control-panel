@@ -2304,7 +2304,7 @@ function buildLegacyClientRecoveryPage() {
 <p>Executable: ${escapeHtml(`${_buildMetadata.panelVersion} / ${_buildMetadata.buildSha.slice(0, 12)}`)}</p>
 <p>Frontend: ${escapeHtml(typeof frontendMetadata === "string" ? frontendMetadata : `${frontendMetadata.panelVersion} / ${frontendMetadata.buildSha.slice(0, 12)}`)}</p>
 <p>Download the latest full package, extract it over this installation without replacing the <code>data</code> folder, then start the panel again.</p>
-<p><a href="https://github.com/fpsacha/zomboid-control-panel/releases/latest">Download the latest release</a></p>
+<p><a href="https://github.com/Lynkes/zomboid-control-panel/releases/latest">Download the latest release</a></p>
 </main></body>
 </html>`;
 }

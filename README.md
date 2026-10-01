@@ -4,19 +4,36 @@
 
 ### The complete admin cockpit for Project Zomboid dedicated servers
 
-[![Latest Release](https://img.shields.io/github/v/release/fpsacha/zomboid-control-panel?style=for-the-badge&logo=github&color=8a9a5b)](https://github.com/fpsacha/zomboid-control-panel/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/fpsacha/zomboid-control-panel/total?style=for-the-badge&logo=github&color=8a9a5b)](https://github.com/fpsacha/zomboid-control-panel/releases)
+[![Latest Release](https://img.shields.io/github/v/release/Lynkes/zomboid-control-panel?style=for-the-badge&logo=github&color=8a9a5b)](https://github.com/Lynkes/zomboid-control-panel/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/Lynkes/zomboid-control-panel/total?style=for-the-badge&logo=github&color=8a9a5b)](https://github.com/Lynkes/zomboid-control-panel/releases)
 [![Discord](https://img.shields.io/badge/discord-join-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/jHsWJDNmSg)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)](LICENSE)
 
 Project Zomboid is a zombie survival game; playing it with friends means running a **dedicated server** somewhere. Zomboid Control Panel is the web app that sets up and manages that server for you — no command line required — with a live world map, Workshop mod management, scheduled restarts, backups, and Discord integration built in.
 
-[**🚀 Download**](https://github.com/fpsacha/zomboid-control-panel/releases/latest) ·
+[**🚀 Download**](https://github.com/Lynkes/zomboid-control-panel/releases/latest) ·
 [**👁️ Live demo**](https://fpsacha.github.io/zomboid-control-panel/) ·
 [**💬 Discord**](https://discord.gg/jHsWJDNmSg) ·
 [**📖 Setup**](#quick-start)
 
 </div>
+
+> [!NOTE]
+> **This is a personal fork** of [fpsacha/zomboid-control-panel](https://github.com/fpsacha/zomboid-control-panel), kept for my own setup, mainly the all-in-one Docker image. Nearly all of the panel is upstream's work. Report bugs in the panel itself [upstream](https://github.com/fpsacha/zomboid-control-panel/issues); this fork has no issue tracker.
+>
+> What this fork changes:
+>
+> - **Several Project Zomboid servers in one all-in-one container.** Extra servers get their own `pz-servers` volume, Docker publishes a UDP range (`PZ_GAME_PORTS`, default `16261-16270`, five servers), and Server Setup suggests free ports, a free name and a folder on that volume. See [More than one server](docker/all-in-one/README.md#more-than-one-server).
+> - **Its own releases and images.** The installer, the panel's update check and the all-in-one updater follow this repository (`PANEL_GITHUB_REPOSITORY`), and images come from `ghcr.io/lynkes/zomboid-panel`.
+> - **Faster CI**, from about 11.5 to 2.5 minutes per run.
+>
+> Install the all-in-one container from this fork:
+>
+> ```sh
+> curl -fsSL https://raw.githubusercontent.com/Lynkes/zomboid-control-panel/main/docker/all-in-one/bootstrap.sh | sh
+> ```
+>
+> Changes useful to everyone go back upstream as pull requests ([#183](https://github.com/fpsacha/zomboid-control-panel/pull/183), [#185](https://github.com/fpsacha/zomboid-control-panel/pull/185)).
 
 <br />
 
@@ -212,7 +229,7 @@ PanelBridge features additionally need its server files or SFTP access.
 
 **Not sure which?** If you already rent a Project Zomboid server from a host, pick Hosted — you're not installing anything server-side. Otherwise pick the row that matches the computer the *panel* will run on; Docker needs the fewest manual steps if that machine has it.
 
-Every path above ends the same way: a browser tab open to the panel's setup screen, where you create your admin account. Download the current package from [Releases](https://github.com/fpsacha/zomboid-control-panel/releases/latest). Something not working? [docs/install/troubleshooting.md](docs/install/troubleshooting.md) is organized by what's actually on your screen, not by which guide you followed.
+Every path above ends the same way: a browser tab open to the panel's setup screen, where you create your admin account. Download the current package from [Releases](https://github.com/Lynkes/zomboid-control-panel/releases/latest). Something not working? [docs/install/troubleshooting.md](docs/install/troubleshooting.md) is organized by what's actually on your screen, not by which guide you followed.
 
 ### macOS
 
@@ -224,7 +241,7 @@ The fastest path to a fully working setup — panel **and** a new Project
 Zomboid server — is the all-in-one installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/docker/all-in-one/bootstrap.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Lynkes/zomboid-control-panel/main/docker/all-in-one/bootstrap.sh | sh
 ```
 
 It checks Docker, generates the secret and persistent configuration, pulls the
@@ -237,7 +254,7 @@ If PZ already runs on the host, in another container, or on another machine,
 use the panel-only image instead:
 
 ```bash
-curl -O https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/docker-compose.install.yml
+curl -O https://raw.githubusercontent.com/Lynkes/zomboid-control-panel/main/docker-compose.install.yml
 docker compose -f docker-compose.install.yml up -d
 ```
 
@@ -400,7 +417,7 @@ Maintainers publishing the PanelBridge Steam Workshop item: see [docs/maintainer
 
 - **Discord** — [discord.gg/jHsWJDNmSg](https://discord.gg/jHsWJDNmSg) for questions, support, and feature ideas.
 - **Issues** — [Report bugs or request features](https://github.com/fpsacha/zomboid-control-panel/issues) on GitHub.
-- **Changelog** — See the [latest release notes](https://github.com/fpsacha/zomboid-control-panel/releases/latest) for what's new.
+- **Changelog** — See the [latest release notes](https://github.com/Lynkes/zomboid-control-panel/releases/latest) for what's new.
 
 ---
 
