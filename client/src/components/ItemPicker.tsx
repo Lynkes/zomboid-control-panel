@@ -1,7 +1,5 @@
-import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
-import type { CSSProperties } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import { Portal } from '@radix-ui/react-portal'
 import {
   Search, RefreshCw, Loader2, X, ChevronDown, AlertCircle, SearchX,
   Sword, Crosshair, UtensilsCrossed, Heart, Shirt, HardHat, Wrench,
@@ -10,6 +8,7 @@ import {
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { panelBridgeApi } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
@@ -107,51 +106,11 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const [highlightIndex, setHighlightIndex] = useState(-1)
   const [scannedAt, setScannedAt] = useState<string | null>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  // Not a Radix primitive, so closing the dropdown doesn't automatically
-  // restore focus to the trigger the way a Radix Popover/Select would.
+  // Not a Radix Trigger (the combobox keeps its own role and ARIA), so the
+  // popover's close handler returns focus here itself.
   const triggerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
-  // Bug-hunt-2026-09-18 (WorldMap Custom Drop dialog, round 4b): this
-  // dropdown used to render as a plain `position: absolute` sibling inside
-  // whatever container held the trigger. That's fine on its own, but the
-  // moment a caller wraps ItemPicker in ANYTHING with `overflow` set (e.g.
-  // WorldMap.tsx's item-rows list, capped to stop 50 rows pushing its
-  // dialog's footer off-screen -- see that file's own comment), the
-  // ancestor's overflow clips this dropdown too, at every viewport width,
-  // not just narrow ones -- confirmed empirically with an 80-item catalog:
-  // the ~400px-tall panel was clipped in every row position tried against a
-  // 288px-tall capped ancestor. panelRef/panelStyle/portalTarget below
-  // portal the panel out of that ancestor via Radix's own Portal primitive
-  // (already a transitive dependency of react-dialog/react-select, so this
-  // adds no new package) and position it with `position: fixed` computed
-  // from the trigger's real viewport rect, which -- critically -- is
-  // reactive to scroll/resize (see the effect below), not a one-shot
-  // snapshot.
-  //
-  // Where it portals to matters as much as the mechanism: portaling all the
-  // way to document.body would escape a host Dialog's own FocusScope
-  // containment (confirmed by reading @radix-ui/react-focus-scope's source:
-  // `trapped` mode calls `container.contains(target)` on every focusin and
-  // snaps focus straight back into the dialog the instant it sees `false` --
-  // which is every keystroke into a document.body-portaled search input).
-  // Portaling instead into the NEAREST ancestor matching
-  // `[role="dialog"]`/`[role="alertdialog"]` (falling back to document.body
-  // when there isn't one, e.g. a future non-dialog consumer) keeps the
-  // panel a genuine DOM descendant of that container, so FocusScope's own
-  // `contains()` check passes and Radix Dialog's own outside-click
-  // dismissal (which does the same containment check) never fires for a
-  // click inside the panel either -- no `onInteractOutside` override needed
-  // on any consumer's Dialog. `position: fixed`'s containing block becomes
-  // that dialog element too (Radix's `translate-x/y` on DialogContent
-  // establishes one per the CSS transform spec), so the panel is bounded by
-  // the DIALOG's own (generous, ~85vh) scroll area rather than a
-  // caller-chosen narrow one -- a real improvement, not just a workaround.
-  const panelRef = useRef<HTMLDivElement>(null)
-  const [panelStyle, setPanelStyle] = useState<CSSProperties | null>(null)
-  const [portalTarget, setPortalTarget] = useState<Element | null>(null)
-  const [dropUp, setDropUp] = useState(false)
   const { toast } = useToast()
 
   // Load cached catalog on mount
@@ -172,95 +131,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
     return () => ctrl.abort()
   }, [])
 
-  // Close on outside click. The portaled panel (panelRef) lives outside
-  // containerRef's own DOM subtree now, so it needs its own contains()
-  // check -- without it, the very mousedown that opens an item's button
-  // would also read as "outside" and close the dropdown before the click
-  // could register.
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node
-      if (containerRef.current?.contains(target)) return
-      if (panelRef.current?.contains(target)) return
-      setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
   useEffect(() => { setHighlightIndex(-1) }, [search, activeCategory])
-
-  // Positions the portaled panel from the trigger's live viewport rect and
-  // picks which Dialog/AlertDialog (if any) to portal it into -- see this
-  // component's own field comments above for why both matter. Recomputes on
-  // scroll (capture: true, since a scroll on ANY ancestor -- the rows list,
-  // the dialog's own overflow, the page -- moves the trigger without firing
-  // a bubbling event window would otherwise see) and on resize, for as long
-  // as the dropdown stays open; a one-shot snapshot would leave the panel
-  // visually detached from its trigger the moment either scrolls.
-  useLayoutEffect(() => {
-    if (!open || !containerRef.current) return
-    const container = containerRef.current
-    // Read synchronously into a local rather than relying on the
-    // `portalTarget` state var below -- setPortalTarget's own update isn't
-    // visible in THIS closure until next render, but reposition() runs
-    // immediately, in this same effect pass, and needs the real target now.
-    const target = container.closest('[role="dialog"], [role="alertdialog"]')
-    setPortalTarget(target)
-
-    const reposition = () => {
-      const rect = container.getBoundingClientRect()
-      // A Dialog/AlertDialogContent is centered with a CSS `translate`,
-      // which the spec makes the containing block for any `position: fixed`
-      // descendant -- so once portalTarget is that element (not
-      // document.body), our "fixed" coordinates are resolved against ITS
-      // box, not the viewport, even though getBoundingClientRect() always
-      // reports viewport-relative numbers. `origin` converts between the
-      // two: subtracting it turns a viewport-relative target position into
-      // the container-relative one `top`/`left`/`bottom` actually need.
-      // Confirmed empirically -- without this, the panel rendered offset by
-      // exactly the dialog's own screen position (e.g. requesting a
-      // viewport x of 241px landed at x=241px INSIDE the dialog instead).
-      const origin = target
-        ? (target as HTMLElement).getBoundingClientRect()
-        : { top: 0, left: 0, right: window.innerWidth, bottom: window.innerHeight }
-      // Available space is bounded by BOTH the viewport and (when portaled
-      // inside a Dialog) that dialog's own clipped box -- whichever is
-      // smaller is what actually limits how tall the panel can render
-      // without being clipped, so pick a side and a height budget using the
-      // tighter of the two, not the viewport alone.
-      const viewportBottom = Math.min(window.innerHeight, origin.bottom)
-      const viewportTop = Math.max(0, origin.top)
-      const spaceBelow = viewportBottom - rect.bottom
-      const spaceAbove = rect.top - viewportTop
-      const up = spaceBelow < 280 && spaceAbove > spaceBelow
-      setDropUp(up)
-      const maxHeight = Math.max(200, (up ? spaceAbove : spaceBelow) - 8)
-      const width = Math.max(rect.width, Math.min(window.innerWidth * 0.9, 760))
-      const left = Math.min(Math.max(rect.left, 8), window.innerWidth - width - 8) - origin.left
-      // minHeight: 0 -- portaled straight into DialogContent (a CSS grid
-      // container), this panel is a grid item, and grid items get an
-      // implicit content-based automatic minimum size unless overridden,
-      // the same class of "max-height fights an auto minimum" issue this
-      // repo's own ui-shot-tour.mjs already documents one layer up (its
-      // #main-content/flex case). Included defensively alongside the
-      // measured, screenshot-verified fix (see this file's own header
-      // comment) rather than assumed sufficient on its own.
-      setPanelStyle(
-        up
-          ? { position: 'fixed', left, width, maxHeight, minHeight: 0, overflow: 'auto', bottom: origin.bottom - rect.top + 4 }
-          : { position: 'fixed', left, width, maxHeight, minHeight: 0, overflow: 'auto', top: rect.bottom - origin.top + 4 },
-      )
-    }
-    reposition()
-    window.addEventListener('scroll', reposition, true)
-    window.addEventListener('resize', reposition)
-    return () => {
-      window.removeEventListener('scroll', reposition, true)
-      window.removeEventListener('resize', reposition)
-    }
-  }, [open])
 
   const handleScan = useCallback(async () => {
     if (scanning) return
@@ -343,7 +214,6 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
     setSearch('')
     setActiveCategory(null)
     setHighlightIndex(-1)
-    triggerRef.current?.focus()
   }
 
   const handleClear = () => {
@@ -351,14 +221,30 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
     setSearch('')
   }
 
+  // Key events reach this wrapper from the portaled popover too (React
+  // bubbles them through portals), so e.target says where they started.
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!open) {
+      // Only the combobox itself opens the list: Enter or Space on its clear
+      // button has to press that button.
+      if (e.target !== triggerRef.current) return
       if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
         e.preventDefault()
         setOpen(true)
       }
       return
     }
+    if (e.key === 'Escape') {
+      // The popover's own layer closes on Escape too (and keeps a host
+      // Dialog open); this just clears the highlight with it.
+      e.preventDefault()
+      setOpen(false)
+      setHighlightIndex(-1)
+      return
+    }
+    // The list keys belong to the search box. Tab also reaches the sidebar,
+    // Scan and clear-search buttons, and Enter must press those.
+    if (e.target !== inputRef.current) return
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault()
@@ -376,17 +262,15 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
           handleSelect(visibleItems[0].id)
         }
         break
-      case 'Escape':
-        e.preventDefault()
-        setOpen(false)
-        setHighlightIndex(-1)
-        triggerRef.current?.focus()
-        break
+      // Home and End jump in the list once the arrows have picked a row;
+      // until then they move the cursor in the search text.
       case 'Home':
+        if (highlightIndex < 0) break
         e.preventDefault()
         setHighlightIndex(0)
         break
       case 'End':
+        if (highlightIndex < 0) break
         e.preventDefault()
         setHighlightIndex(visibleItems.length - 1)
         break
@@ -451,72 +335,77 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
   const ActiveIcon = activeCategory ? (GROUP_META[activeCategory]?.icon || HelpCircle) : LayoutGrid
 
   return (
-    <div ref={containerRef} className="relative" onKeyDown={handleKeyDown}>
-      {/* Trigger */}
-      <div
-        ref={triggerRef}
-        role="combobox"
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        aria-controls={open ? 'itempicker-listbox' : undefined}
-        aria-activedescendant={highlightIndex >= 0 && visibleItems[highlightIndex] ? `itempicker-opt-${highlightIndex}` : undefined}
-        aria-label={t('selectItemAria')}
-        tabIndex={disabled ? -1 : 0}
-        className={cn(
-          'flex items-center gap-2 h-11 sm:h-9 rounded-md border border-input bg-background px-3 text-sm cursor-pointer',
-          'motion-safe:transition-colors duration-150',
-          'hover:border-primary/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-          open && 'border-primary/60 ring-1 ring-primary/20',
-          disabled && 'opacity-50 cursor-not-allowed pointer-events-none'
-        )}
-        onClick={() => !disabled && setOpen(!open)}
-      >
-        <Package className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
-        {selectedItem ? (
-          <span className="flex-1 min-w-0 truncate">
-            <span className="font-medium">{selectedItem.name || selectedItem.id}</span>
-            {typeof selectedItem.weight === 'number' && selectedItem.weight > 0 && (
-              <span className="text-muted-foreground ms-1.5 text-xs">{fmtWeight(selectedItem.weight)}</span>
+    <Popover open={open} onOpenChange={setOpen} modal>
+      <div className="relative" onKeyDown={handleKeyDown}>
+        {/* Trigger */}
+        <PopoverAnchor asChild>
+          <div
+            ref={triggerRef}
+            role="combobox"
+            aria-expanded={open}
+            aria-haspopup="listbox"
+            aria-controls={open ? 'itempicker-listbox' : undefined}
+            aria-label={t('selectItemAria')}
+            tabIndex={disabled ? -1 : 0}
+            className={cn(
+              'flex items-center gap-2 h-11 sm:h-9 rounded-md border border-input bg-background px-3 text-sm cursor-pointer',
+              'motion-safe:transition-colors duration-150',
+              'hover:border-primary/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+              open && 'border-primary/60 ring-1 ring-primary/20',
+              disabled && 'opacity-50 cursor-not-allowed pointer-events-none'
             )}
-          </span>
-        ) : value ? (
-          <span className="flex-1 min-w-0 truncate text-foreground">{value}</span>
-        ) : (
-          <span className="flex-1 min-w-0 truncate text-muted-foreground">{resolvedPlaceholder}</span>
-        )}
-        {value && !disabled && (
-          <button
-            type="button"
-            onClick={e => { e.stopPropagation(); handleClear() }}
-            className="-me-1 flex items-center justify-center w-6 h-6 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0 motion-safe:transition-colors"
-            aria-label={t('clearSelectionAria')}
+            onClick={() => !disabled && setOpen(o => !o)}
           >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        )}
-        <ChevronDown
-          className={cn(
-            'w-3.5 h-3.5 text-muted-foreground shrink-0 motion-safe:transition-transform duration-200',
-            open && 'rotate-180'
-          )}
-        />
-      </div>
+            <Package className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
+            {selectedItem ? (
+              <span className="flex-1 min-w-0 truncate">
+                <span className="font-medium">{selectedItem.name || selectedItem.id}</span>
+                {typeof selectedItem.weight === 'number' && selectedItem.weight > 0 && (
+                  <span className="text-muted-foreground ms-1.5 text-xs">{fmtWeight(selectedItem.weight)}</span>
+                )}
+              </span>
+            ) : value ? (
+              <span className="flex-1 min-w-0 truncate text-foreground">{value}</span>
+            ) : (
+              <span className="flex-1 min-w-0 truncate text-muted-foreground">{resolvedPlaceholder}</span>
+            )}
+            {value && !disabled && (
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); handleClear() }}
+                className="-me-1 flex items-center justify-center w-6 h-6 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0 motion-safe:transition-colors"
+                aria-label={t('clearSelectionAria')}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <ChevronDown
+              className={cn(
+                'w-3.5 h-3.5 text-muted-foreground shrink-0 motion-safe:transition-transform duration-200',
+                open && 'rotate-180'
+              )}
+            />
+          </div>
+        </PopoverAnchor>
 
-      {/* Dropdown with category sidebar -- portaled (see panelStyle/portalTarget's
-          own comments above) so an ancestor's overflow can never clip it. */}
-      {open && panelStyle && (
-        <Portal container={portalTarget ?? undefined}>
-        <div
-          ref={panelRef}
-          className={cn(
-            'z-50 rounded-lg border border-border bg-popover shadow-xl shadow-black/30',
-            'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-[0.98] motion-safe:duration-150',
-            dropUp ? 'motion-safe:slide-in-from-bottom-1' : 'motion-safe:slide-in-from-top-1'
-          )}
-          style={panelStyle}
+        {/* Dropdown with category sidebar. PopoverContent portals it to
+            <body>, opens it below the trigger or above when that side has
+            more room, and bounds it to the room left in the window (see
+            ui/popover.tsx), so no dialog or scroll box can clip it. It keeps
+            one height (34rem, less when the window is shorter) whatever the
+            search matches, so it doesn't jump sides while you type; the
+            search bar stays put and the sidebar and the list each scroll
+            inside it. */}
+        <PopoverContent
+          aria-label={t('selectItemAria')}
+          className="flex h-[34rem] w-[min(47.5rem,calc(100vw-1rem))] min-w-[var(--radix-popover-trigger-width)] flex-col overflow-hidden"
+          onOpenAutoFocus={e => { e.preventDefault(); inputRef.current?.focus({ preventScroll: true }) }}
+          onCloseAutoFocus={e => { e.preventDefault(); triggerRef.current?.focus({ preventScroll: true }) }}
         >
-          {/* Search bar */}
-          <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+          {/* Search bar. It is the combobox while the list is open: it has
+              focus (the trigger is hidden behind the modal popover), so it
+              carries the highlighted option for screen readers. */}
+          <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
             <Search className="w-4 h-4 text-muted-foreground shrink-0" />
             <input
               ref={inputRef}
@@ -524,8 +413,12 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
               onChange={e => setSearch(e.target.value)}
               placeholder={t('searchNItemsPlaceholder', { count: nonVehicleItems.length.toLocaleString(i18n.language) })}
               className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
+              role="combobox"
+              aria-expanded
+              aria-controls="itempicker-listbox"
+              aria-autocomplete="list"
+              aria-activedescendant={highlightIndex >= 0 && visibleItems[highlightIndex] ? `itempicker-opt-${highlightIndex}` : undefined}
               aria-label={t('filterItemsAria')}
-              autoFocus
             />
             {search && (
               <button
@@ -551,10 +444,10 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
             </Button>
           </div>
 
-          {/* Category sidebar + item list */}
-          <div className="flex" style={{ maxHeight: 'min(520px, 60vh)' }}>
+          {/* Category sidebar + item list: takes whatever height is left */}
+          <div className="flex min-h-0 flex-1">
             {/* Sidebar */}
-            <div className="w-[210px] shrink-0 border-e border-border/50 overflow-y-auto overscroll-contain py-1.5">
+            <div className="w-[min(210px,40%)] shrink-0 border-e border-border/50 overflow-y-auto overscroll-contain py-1.5">
               <button
                 type="button"
                 onClick={() => setActiveCategory(null)}
@@ -668,8 +561,9 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
             </div>
           </div>
 
-          {/* Footer */}
-          <div className="border-t border-border/40 px-4 py-2 flex items-center justify-between gap-4 text-[11px] text-muted-foreground">
+          {/* Footer -- dropped on a very short window, where the list needs
+              the room more than the count and key hints do */}
+          <div className="shrink-0 border-t border-border/40 px-4 py-2 flex items-center justify-between gap-4 text-[11px] text-muted-foreground [@media(max-height:30rem)]:hidden">
             <span className="shrink-0 tabular-nums">
               {capped
                 ? (
@@ -685,7 +579,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
                     category: activeCategory ? activeCategoryLabel.toLowerCase() : t('genericItemsWord'),
                   })}
             </span>
-            <div className="flex items-center gap-4 text-[10px] opacity-50">
+            <div className="hidden sm:flex items-center gap-4 text-[10px] opacity-50">
               <span>{t('navigateHint')}</span>
               <span>{t('selectHint')}</span>
               <span>{t('closeHint')}</span>
@@ -696,9 +590,8 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
               </span>
             )}
           </div>
-        </div>
-        </Portal>
-      )}
-    </div>
+        </PopoverContent>
+      </div>
+    </Popover>
   )
 }

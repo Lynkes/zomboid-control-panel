@@ -38,6 +38,7 @@ import {
   getBridgeLogs,
   getPlayerLogs,
   getServerEvents,
+  getFileAudit,
   getDb,
   getActiveServer,
   getServers,
@@ -6749,7 +6750,7 @@ router.post("/client-errors", (req, res) => {
 router.get("/activity", requirePermission("diagnostics.manage"), async (req, res) => {
   try {
     const limit = parseClampedInteger(req.query.limit, 200, 1, 500);
-    const source = req.query.source || "all"; // 'all' | 'rcon' | 'bridge' | 'player' | 'server'
+    const source = req.query.source || "all"; // 'all' | 'rcon' | 'bridge' | 'player' | 'server' | 'files'
 
     // Player action logs are players.view's own territory (its description:
     // "Read player details, status and history") -- merging them into this
@@ -6849,6 +6850,24 @@ router.get("/activity", requirePermission("diagnostics.manage"), async (req, res
           detail: evt.message || "",
           success: !/(crash|error|fail)/i.test(evt.event_type),
           timestamp: evt.created_at,
+        });
+      }
+    }
+
+    // Server Files: file-manager changes, downloads and denials (the audit
+    // trail's own rows; file content is never part of them).
+    if (source === "all" || source === "files") {
+      const fileRows = await getFileAudit({ profileId: feedServerId ?? undefined, limit });
+      for (const row of fileRows) {
+        const paths = Array.isArray(row.paths) ? row.paths : [];
+        const more = paths.length > 1 ? ` (+${paths.length - 1})` : "";
+        entries.push({
+          id: row.id,
+          source: "files",
+          action: row.op,
+          detail: `${row.actor?.username ?? "unknown"}: ${row.rootId ?? "-"}:${paths[0] ?? ""}${more}`,
+          success: row.result === "ok",
+          timestamp: row.at,
         });
       }
     }

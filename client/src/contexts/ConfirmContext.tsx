@@ -3,6 +3,7 @@ import {
   AlertDialog,
   AlertDialogContent,
   AlertDialogHeader,
+  AlertDialogBody,
   AlertDialogFooter,
   AlertDialogTitle,
   AlertDialogDescription,
@@ -83,6 +84,40 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => confirm, [confirm])
 
+  // 2026-09 dialog sweep: the Files page fills this dialog with long data
+  // (root-relative paths, file names) and a permanent delete adds several
+  // paragraphs plus the typed confirmation. The items used to `truncate`,
+  // which in the dialog's old auto-width grid never truncated (it widened
+  // the dialog and pushed the confirm button off to the side), and which
+  // hides exactly the part that tells two paths in one folder apart; they
+  // now wrap. A confirm that lists items is also tall enough to outgrow a
+  // landscape phone, and autofocus on a typed confirmation under the list
+  // used to scroll the title and the "can't be undone" sentence away: its
+  // description and items now scroll in an AlertDialogBody (one scroller,
+  // not the list nested in the dialog) while the title, the typed field and
+  // the buttons stay put. A confirm without items keeps its old layout.
+  const hasItems = (options?.items?.length ?? 0) > 0
+  const description = (
+    <AlertDialogDescription className="whitespace-pre-line">
+      {options?.description}
+    </AlertDialogDescription>
+  )
+  const typedField = options?.requireTypedConfirmation && (
+    <div className={cn('space-y-1.5 text-start', !hasItems && 'pt-1')}>
+      <Label htmlFor="confirm-dialog-typed-input" className="text-xs font-medium text-muted-foreground [overflow-wrap:anywhere]">
+        {options.requireTypedConfirmation.label}
+      </Label>
+      <Input
+        id="confirm-dialog-typed-input"
+        autoComplete="off"
+        autoFocus
+        value={typedValue}
+        onChange={(e) => setTypedValue(e.target.value)}
+        placeholder={options.requireTypedConfirmation.placeholder ?? options.requireTypedConfirmation.value}
+      />
+    </div>
+  )
+
   return (
     <ConfirmContext.Provider value={value}>
       {children}
@@ -90,32 +125,22 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{options?.title ?? 'Are you sure?'}</AlertDialogTitle>
-            <AlertDialogDescription className="whitespace-pre-line">
-              {options?.description}
-            </AlertDialogDescription>
-            {options?.items && options.items.length > 0 && (
-              <ul className="mt-1 max-h-48 list-disc space-y-0.5 overflow-y-auto rounded-md border border-border/50 bg-muted/30 p-3 ps-7 text-sm text-muted-foreground">
-                {options.items.map((item) => (
-                  <li key={item} className="truncate">{item}</li>
-                ))}
-              </ul>
-            )}
-            {options?.requireTypedConfirmation && (
-              <div className="space-y-1.5 pt-1 text-start">
-                <Label htmlFor="confirm-dialog-typed-input" className="text-xs font-medium text-muted-foreground">
-                  {options.requireTypedConfirmation.label}
-                </Label>
-                <Input
-                  id="confirm-dialog-typed-input"
-                  autoComplete="off"
-                  autoFocus
-                  value={typedValue}
-                  onChange={(e) => setTypedValue(e.target.value)}
-                  placeholder={options.requireTypedConfirmation.placeholder ?? options.requireTypedConfirmation.value}
-                />
-              </div>
-            )}
+            {!hasItems && description}
+            {!hasItems && typedField}
           </AlertDialogHeader>
+          {hasItems && (
+            <>
+              <AlertDialogBody className="space-y-3 text-center sm:text-start">
+                {description}
+                <ul className="list-disc space-y-0.5 rounded-md border border-border/50 bg-muted/30 p-3 ps-7 text-start text-sm text-muted-foreground">
+                  {options?.items?.map((item) => (
+                    <li key={item} className="[overflow-wrap:anywhere]">{item}</li>
+                  ))}
+                </ul>
+              </AlertDialogBody>
+              {typedField}
+            </>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => settle(false)}>
               {options?.cancelLabel ?? 'Cancel'}

@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { FileDiffViewer } from '@/components/FileDiffViewer'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { DisabledReason } from '@/components/DisabledReason'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
@@ -1563,8 +1563,13 @@ export function ConflictsPanel({
     </Card>
 
     {/* ─── Per-mod conflict details drawer ─── */}
+    {/* 2026-09 dialog sweep: with many pairs this scrolled as a whole under
+        its own 85vh cap, taking the mod name, the win/lose summary and Close
+        with it. DialogContent's own bound applies now and only the pair list
+        scrolls, in a DialogBody. Long Workshop titles truncate (with a
+        title) instead of widening the dialog past a phone screen. */}
     <Dialog open={modDetailsId != null} onOpenChange={(open) => { if (!open) setModDetailsId(null) }}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
+      <DialogContent className="max-w-2xl">
         {(() => {
           if (!modDetailsId || !conflicts) return null
           const allPairs = conflicts.pairs ?? []
@@ -1624,7 +1629,7 @@ export function ConflictsPanel({
               <DialogHeader>
                 <DialogTitle className="text-base flex items-center gap-2 min-w-0">
                   <Info className="w-4 h-4 shrink-0 text-accent" />
-                  <span className="truncate">{modName}</span>
+                  <span className="truncate" title={modName}>{modName}</span>
                   {pos != null && (
                     <span className="text-[11px] font-normal text-muted-foreground shrink-0">{t('loadHash', { pos })}</span>
                   )}
@@ -1637,76 +1642,78 @@ export function ConflictsPanel({
                 </DialogDescription>
               </DialogHeader>
 
-              {topExts.length > 0 && (
-                <div className="flex items-center gap-1.5 flex-wrap pb-1 border-b border-border/30">
-                  <span className="text-[11px] text-muted-foreground">{t('topFileTypes')}</span>
-                  {topExts.map(([ext, count]) => (
-                    <Badge key={ext} variant="secondary" className="text-[10px] h-5 px-1.5 tabular-nums">
-                      .{ext} <span className="text-muted-foreground/80 ms-1">{count}</span>
-                    </Badge>
-                  ))}
-                </div>
-              )}
+              <DialogBody className="space-y-4">
+                {topExts.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap pb-1 border-b border-border/30">
+                    <span className="text-[11px] text-muted-foreground">{t('topFileTypes')}</span>
+                    {topExts.map(([ext, count]) => (
+                      <Badge key={ext} variant="secondary" className="text-[10px] h-5 px-1.5 tabular-nums">
+                        .{ext} <span className="text-muted-foreground/80 ms-1">{count}</span>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
 
-              <ul className="space-y-1.5">
-                {sortedPairs.map((p) => {
-                  const isA = p.modA.modId === modDetailsId
-                  const other = isA ? p.modB : p.modA
-                  const otherPos = loadOrderMap.get(other.modId)
-                  const myPos = loadOrderMap.get(modDetailsId)
-                  const winning = myPos != null && otherPos != null ? (myPos > otherPos ? 'win' : myPos < otherPos ? 'lose' : 'tie') : 'unknown'
-                  const maxSev = p.highCount > 0 ? 'high' : p.mediumCount > 0 ? 'medium' : 'low'
-                  return (
-                    <li key={`${p.modA.modId}--${p.modB.modId}`}
-                        className={`flex items-center gap-2 rounded-md border px-2.5 py-2 ${
-                          maxSev === 'high' ? 'border-destructive/40 bg-destructive/[0.03]' :
-                          maxSev === 'medium' ? 'border-warning/40 bg-warning/[0.03]' :
-                          'border-border/40'
-                        }`}>
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${
-                        maxSev === 'high' ? 'bg-destructive' : maxSev === 'medium' ? 'bg-warning' : 'bg-primary/60'
-                      }`} aria-hidden="true" />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">{other.modName}</div>
-                        <div className="text-[11px] text-muted-foreground flex items-center gap-2 flex-wrap">
-                          <span className="tabular-nums">{t('filesCount', { count: p.files.length })}</span>
-                          {p.highCount > 0 && <span className="text-destructive/80 tabular-nums">{t('highCountShort', { count: p.highCount })}</span>}
-                          {p.mediumCount > 0 && <span className="text-warning/80 tabular-nums">{t('medCountShort', { count: p.mediumCount })}</span>}
-                          {p.lowCount > 0 && <span className="text-primary/70 tabular-nums">{t('lowCountShort', { count: p.lowCount })}</span>}
-                          {otherPos != null && <span>{t('loadHash', { pos: otherPos })}</span>}
+                <ul className="space-y-1.5">
+                  {sortedPairs.map((p) => {
+                    const isA = p.modA.modId === modDetailsId
+                    const other = isA ? p.modB : p.modA
+                    const otherPos = loadOrderMap.get(other.modId)
+                    const myPos = loadOrderMap.get(modDetailsId)
+                    const winning = myPos != null && otherPos != null ? (myPos > otherPos ? 'win' : myPos < otherPos ? 'lose' : 'tie') : 'unknown'
+                    const maxSev = p.highCount > 0 ? 'high' : p.mediumCount > 0 ? 'medium' : 'low'
+                    return (
+                      <li key={`${p.modA.modId}--${p.modB.modId}`}
+                          className={`flex items-center gap-2 rounded-md border px-2.5 py-2 ${
+                            maxSev === 'high' ? 'border-destructive/40 bg-destructive/[0.03]' :
+                            maxSev === 'medium' ? 'border-warning/40 bg-warning/[0.03]' :
+                            'border-border/40'
+                          }`}>
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${
+                          maxSev === 'high' ? 'bg-destructive' : maxSev === 'medium' ? 'bg-warning' : 'bg-primary/60'
+                        }`} aria-hidden="true" />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate" title={other.modName}>{other.modName}</div>
+                          <div className="text-[11px] text-muted-foreground flex items-center gap-2 flex-wrap">
+                            <span className="tabular-nums">{t('filesCount', { count: p.files.length })}</span>
+                            {p.highCount > 0 && <span className="text-destructive/80 tabular-nums">{t('highCountShort', { count: p.highCount })}</span>}
+                            {p.mediumCount > 0 && <span className="text-warning/80 tabular-nums">{t('medCountShort', { count: p.mediumCount })}</span>}
+                            {p.lowCount > 0 && <span className="text-primary/70 tabular-nums">{t('lowCountShort', { count: p.lowCount })}</span>}
+                            {otherPos != null && <span>{t('loadHash', { pos: otherPos })}</span>}
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {winning === 'win' && (
-                          <Badge variant="secondary" className="text-[10px] h-5 px-1.5 border-success/30 bg-success/10 text-success">{t('wins')}</Badge>
-                        )}
-                        {winning === 'lose' && (
-                          <Badge variant="secondary" className="text-[10px] h-5 px-1.5 border-warning/30 bg-warning/10 text-warning">{t('loses')}</Badge>
-                        )}
-                        {winning === 'lose' && (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {winning === 'win' && (
+                            <Badge variant="secondary" className="text-[10px] h-5 px-1.5 border-success/30 bg-success/10 text-success">{t('wins')}</Badge>
+                          )}
+                          {winning === 'lose' && (
+                            <Badge variant="secondary" className="text-[10px] h-5 px-1.5 border-warning/30 bg-warning/10 text-warning">{t('loses')}</Badge>
+                          )}
+                          {winning === 'lose' && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-2 text-[10px] gap-1"
+                              disabled={savingModOrder}
+                              onClick={() => promoteModOverOpponent(modDetailsId, modName, other.modId, other.modName)}
+                            >
+                              <Wrench className="w-3 h-3" /> {t('winIt')}
+                            </Button>
+                          )}
                           <Button
                             size="sm"
-                            variant="outline"
-                            className="h-6 px-2 text-[10px] gap-1"
-                            disabled={savingModOrder}
-                            onClick={() => promoteModOverOpponent(modDetailsId, modName, other.modId, other.modName)}
+                            variant="ghost"
+                            className="h-6 px-2 text-[10px]"
+                            onClick={() => jumpToPair(p)}
                           >
-                            <Wrench className="w-3 h-3" /> {t('winIt')}
+                            {t('view')}
                           </Button>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 px-2 text-[10px]"
-                          onClick={() => jumpToPair(p)}
-                        >
-                          {t('view')}
-                        </Button>
-                      </div>
-                    </li>
-                  )
-                })}
-              </ul>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </DialogBody>
 
               <DialogFooter className="pt-2">
                 <Button variant="outline" size="sm" onClick={() => setModDetailsId(null)}>{t('close')}</Button>

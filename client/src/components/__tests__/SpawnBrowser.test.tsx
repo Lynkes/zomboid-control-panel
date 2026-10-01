@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import postcss from 'postcss'
+import tailwindcss from 'tailwindcss'
 import { SpawnBrowser } from '../SpawnBrowser'
 import { panelBridgeApi } from '@/lib/api'
 
@@ -163,5 +165,55 @@ describe('SpawnBrowser -- vehicles (Spawn)', () => {
 
     expect(screen.queryByRole('group', { name: 'Recent' })).not.toBeInTheDocument()
     expect(localStorage.getItem('pz-spawn-recent-vehicles')).toBeNull()
+  })
+})
+
+// 2026-09 dialog sweep: the body was always `grid-cols-[220px_1fr]`, so a
+// 375px phone left about 134px for results and names rendered as one or two
+// letters ("M…"); the selection summary beside the stepper and CTA was cut
+// the same way; and a long player name widened the dialog's implicit grid
+// column past the screen (fixed in DialogContent's own column template).
+// Below sm: the categories become a scrolling chip row above full-width
+// results and the summary gets its own line. jsdom does no layout, so this
+// pins the classes (measured in Chromium) and checks they compile.
+describe('SpawnBrowser -- fits a phone', () => {
+  it('stacks the categories above the results below sm:, keeping the 220px sidebar from sm: up', async () => {
+    await renderItems({ playerName: 'KNOXCOUNTYWASTELANDMEGAWARLORD42' })
+    const nav = document.querySelector<HTMLElement>('[data-slot="category-nav"]')!
+    const body = nav.parentElement!
+    expect(body.className).toContain('grid-cols-1')
+    expect(body.className).toContain('sm:grid-cols-[220px_1fr]')
+    expect(nav.className).toContain('overflow-x-auto')
+    expect(nav.className).toContain('sm:block')
+    expect(nav.className).toContain('sm:overflow-y-auto')
+
+    const dialog = screen.getByRole('dialog')
+    // The shared one-column template survives this dialog's own grid-rows.
+    expect(dialog.className).toContain('grid-cols-[minmax(0,1fr)]')
+    expect(dialog.className).toContain('grid-rows-[auto_auto_1fr_auto]')
+  })
+
+  it("gives the selection summary its own line on a phone, with the full name on hover", async () => {
+    await renderItems({ playerName: 'Rick' })
+    fireEvent.click(screen.getByText('Café Empañada'))
+    const selected = await screen.findByTitle('Café Empañada')
+    const summary = selected.closest('.min-w-0.flex-1') as HTMLElement
+    expect(summary.className).toContain('max-sm:basis-full')
+    expect(summary.parentElement!.className).toContain('max-sm:flex-wrap')
+  })
+
+  it('compiles the responsive classes', async () => {
+    await renderItems()
+    const nav = document.querySelector<HTMLElement>('[data-slot="category-nav"]')!
+    const { css } = await postcss([
+      tailwindcss({
+        content: [{ raw: `${nav.parentElement!.className} ${nav.className} max-sm:basis-full max-sm:flex-wrap` }],
+        corePlugins: { preflight: false },
+      }),
+    ]).process('@tailwind utilities;', { from: undefined })
+    const compact = css.replace(/\s+/g, ' ')
+    expect(compact).toContain('grid-template-columns: 220px 1fr')
+    expect(compact).toContain('grid-template-rows: auto minmax(0,1fr)')
+    expect(compact).toMatch(/@media not all and \(min-width: 640px\) \{[^}]*\{ flex-basis: 100%/)
   })
 })

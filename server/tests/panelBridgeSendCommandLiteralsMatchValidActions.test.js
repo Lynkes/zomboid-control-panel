@@ -40,6 +40,10 @@ const SCAN_FILES = [
   "server/services/panelBridge.js",
   "server/services/scheduler.js",
   "server/services/modChecker.js",
+  // characterSnapshotSampler.js reads sheets through characterSheet.js and
+  // has no literal sendCommand() of its own, so the non-vacuous check below
+  // would fail on it; characterSheet.js is where the action string lives.
+  "server/services/characterSheet.js",
 ];
 
 // Matches `sendCommand("action", ...)` / `sendCommand('action', ...)` on

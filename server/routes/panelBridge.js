@@ -20,6 +20,7 @@ import {
   commitNow,
   logBridgeCommand,
   getRoleByName,
+  logPlayerAction,
 } from "../database/init.js";
 import { sanitizeError, sanitizeErrorParams, isMaskedSecret } from "../utils/sanitize.js";
 import { getDataPaths } from "../utils/paths.js";
@@ -114,6 +115,10 @@ export const VALID_ACTIONS = new Set([
   "getPlayerDetails",
   "getAllPlayerDetails",
   "getLeaderboard",
+  // Read-only character sheet for the Players page's Character tab
+  // (routes/playerCharacter.js, gated players.view). Through POST /command it
+  // is plain bridge.command like the other reads: it changes nothing.
+  "getCharacterSheet",
   "healPlayer",
   "killPlayer",
   "teleportPlayer",
@@ -385,7 +390,8 @@ function requireBridgeCommandUnlessGmToolsOnly(req, res, next) {
 
 // Username validation for PanelBridge player endpoints.
 // Allow normal in-game names (spaces/symbols) while blocking control chars and quote/backslash.
-const BRIDGE_USERNAME_REGEX = /^(?=.*\S)[^\x00-\x1F\x7F"\\]{1,64}$/;
+// Exported for routes/playerCharacter.js, which validates the same names.
+export const BRIDGE_USERNAME_REGEX = /^(?=.*\S)[^\x00-\x1F\x7F"\\]{1,64}$/;
 
 // Shared path safety check for /configure, /configure-direct and
 // /auto-detect: bridge.configure()/autoDetect() (services/panelBridge.js)
@@ -2676,6 +2682,18 @@ router.get("/commands", (req, res) => {
         args: { username: "string (required)" },
       },
       {
+        action: "getCharacterSheet",
+        description: "Get a player's character sheet (read-only): skills, XP, traits, condition and inventory",
+        args: {
+          username: "string (required)",
+          sections: "array of summary|stats|skills|traits|inventory (default: all but inventory)",
+          maxItems: "number 50-1000 (default: 500)",
+          maxDepth: "number 1-4 (default: 3)",
+          budgetMs: "number 5-50 (default: 20)",
+          fresh: "boolean (default: false, bypasses the 3-10 s cache)",
+        },
+      },
+      {
         action: "teleportPlayer",
         description: "Teleport a player",
         args: {
@@ -3675,6 +3693,16 @@ router.post("/character/import", requirePermission("players.gm_tools"), async (r
       data,
       options,
     });
+    // In the player's history, and what the Character tab's "Worth a look"
+    // reads as the explanation for the restored skills and items. The
+    // import already happened: a failed log line doesn't fail it.
+    const restored = result?.data?.restored ?? {};
+    const count = (value) => (Number.isInteger(value) && value >= 0 ? value : 0);
+    try {
+      await logPlayerAction(username, "import", `perks=${count(restored.perks)} items=${count(restored.items)}`);
+    } catch (error) {
+      log.debug(`Failed to log a character import: ${error.message}`);
+    }
     res.json({ ...result, snapshotFile: path.basename(snapshotPath) });
   } catch (error) {
     res.status(500).json({ error: sanitizeError(error.message) });

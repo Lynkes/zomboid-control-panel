@@ -275,6 +275,7 @@
     "sourceBridge": "Bridge",
     "sourcePlayer": "Гравець",
     "sourceServer": "Сервер",
+    "sourceFiles": "Файли",
     "levelError": "Помилка",
     "levelWarn": "Попередження",
     "levelInfo": "Інфо",
@@ -1421,7 +1422,7 @@
   },
   "activityTab": {
     "title": "Журнал активності",
-    "description": "Єдиний огляд команд RCON, дій Bridge, подій гравців і подій сервера",
+    "description": "Єдиний огляд команд RCON, дій Bridge, подій гравців, подій сервера та змін файлів",
     "filterBySourceAria": "Фільтрувати за джерелом",
     "allSources": "Усі джерела",
     "searchPlaceholder": "Пошук за дією / деталями…",

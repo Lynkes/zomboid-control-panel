@@ -4,6 +4,7 @@ import { getUserErrorMessage } from '@/lib/errorMessage'
 import { Loader2, AlertCircle } from 'lucide-react'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -105,7 +106,10 @@ export function DiscoverySetup({ open, onOpenChange, mount, onCreated }: Discove
           <DialogTitle>{t('title')}</DialogTitle>
           <DialogDescription className="sr-only">{t('description')}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 py-2">
+        {/* DialogBody (2026-09 dialog sweep): with the configuration Select
+            shown, a landscape phone scrolled "Add server" below the fold.
+            The error sits outside the body, right above the buttons. */}
+        <DialogBody className="space-y-4">
           <dl className="grid gap-2 text-xs">
             <div className="grid grid-cols-[4rem_minmax(0,1fr)] gap-2">
               <dt className="text-muted-foreground">{t('install')}</dt>
@@ -143,14 +147,14 @@ export function DiscoverySetup({ open, onOpenChange, mount, onCreated }: Discove
             </div>
             <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={100} />
           </div>
+        </DialogBody>
 
-          {createError && (
-            <div role="alert" className="flex items-center gap-2 text-sm text-destructive">
-              <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
-              <span>{createError}</span>
-            </div>
-          )}
-        </div>
+        {createError && (
+          <div role="alert" className="flex items-center gap-2 text-sm text-destructive">
+            <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span className="min-w-0 [overflow-wrap:anywhere]">{createError}</span>
+          </div>
+        )}
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('cancel')}</Button>

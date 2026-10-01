@@ -84,6 +84,7 @@ import {
 } from "@/components/ui/select"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -4896,7 +4897,10 @@ export default function ServerConfig() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          {/* DialogBody (2026-09 dialog sweep): at 1280x620 and smaller,
+              Save Config sat below the fold of a dialog that scrolled as a
+              whole. */}
+          <DialogBody className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="template-name">{t('saveTemplateDialog.nameLabel')}</Label>
               <Input
@@ -4947,7 +4951,7 @@ export default function ServerConfig() {
                 />
               </div>
             </div>
-          </div>
+          </DialogBody>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSaveTemplate(false)}>

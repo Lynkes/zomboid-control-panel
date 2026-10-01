@@ -203,6 +203,9 @@ function luaToJs(L, index) {
       return lua.lua_tojsstring(L, index);
     case lua.LUA_TTABLE: {
       const entries = [];
+      // Each nesting level holds a key and a value on the stack, and the C
+      // API only guarantees 20 free slots: grow as deep tables need it.
+      lua.lua_checkstack(L, 4);
       lua.lua_pushnil(L);
       while (lua.lua_next(L, index) !== 0) {
         const key = luaToJs(L, -2);

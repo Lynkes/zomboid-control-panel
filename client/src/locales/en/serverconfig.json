@@ -4,7 +4,7 @@
   "retry": "Retry",
   "noAccess": {
     "title": "You don't have access to Server Configuration",
-    "description": "This page requires the \"Manage server files\" permission. Ask an administrator to grant it to your role if you need to edit server settings here."
+    "description": "This page requires the \"Edit server config files\" permission. Ask an administrator to grant it to your role if you need to edit server settings here."
   },
   "duplicateKeysWarning": {
     "title_one": "\"{{keys}}\" appears more than once in this configuration file",

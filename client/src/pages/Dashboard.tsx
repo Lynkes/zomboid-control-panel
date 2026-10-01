@@ -13,7 +13,7 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { useToast } from '@/components/ui/use-toast'
 import { ToastAction } from '@/components/ui/toast'
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialog, AlertDialogAction, AlertDialogBody, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
@@ -383,6 +383,12 @@ export default function Dashboard() {
   const [wipeBackupProgress, setWipeBackupProgress] = useState<{
     phase: string; percent: number; message: string
   } | null>(null)
+  // The preview renders at the end of the wipe dialog's scrolling body; bring
+  // it into view when it arrives, so clicking Preview visibly does something.
+  const wipePreviewRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (wipePreview) wipePreviewRef.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [wipePreview])
 
   const { toast } = useToast()
   const socket = useSocket()
@@ -2332,7 +2338,13 @@ export default function Dashboard() {
 
       {/* ─── Wipe dialog ─────────────────────────────────────────────────── */}
       <AlertDialog open={wipeDialog} onOpenChange={(open) => { if (!open && !wipeLoading) { setWipeDialog(false); setWipePreview(null); setWipeServerChangedSinceOpen(false) } }}>
-        <AlertDialogContent className="glass border-border/50 max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
+        {/* 2026-09 dialog sweep: this scrolled as a whole under its own
+            85vh cap, so Preview and "Wipe now" were below the fold at every
+            common size and the preview itself appeared off-screen. It now
+            takes AlertDialogContent's own bound, and only the targets,
+            backup and preview scroll, in an AlertDialogBody; the backup
+            progress and the buttons stay put. */}
+        <AlertDialogContent className="glass border-border/50">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-3 text-xl">
               <Trash2 className="h-5 w-5 text-destructive" /> {t('wipeDialog.title')}
@@ -2354,7 +2366,7 @@ export default function Dashboard() {
             </div>
           )}
 
-          <div className="space-y-3 py-2">
+          <AlertDialogBody className="space-y-3">
             {(['map', 'players', 'world', 'accounts'] as const).map((key) => (
               <label key={key} className="flex cursor-pointer items-start gap-3 rounded-md border border-border/50 p-3 hover:bg-muted/30">
                 <Checkbox
@@ -2384,41 +2396,41 @@ export default function Dashboard() {
                 <p className="text-muted-foreground">{t('wipeDialog.noBackupDesc')}</p>
               </div>
             )}
-          </div>
+
+            {wipePreview && (
+              <div ref={wipePreviewRef} className="space-y-1 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm">
+                {wipePreview.totalFiles === 0 ? (
+                  <div className="text-muted-foreground">{t('wipeDialog.noFilesFound')}</div>
+                ) : (
+                  <>
+                    <div className="font-medium text-destructive">{t('wipeDialog.willDelete')}</div>
+                    {(['map', 'players', 'world', 'leftovers', 'accounts'] as const).map(key => {
+                      const data = wipePreview.preview?.[key]
+                      if (!data) return null
+                      const category = t(`wipeDialog.categoryLabels.${key}`)
+                      if (key === 'leftovers') {
+                        return data.files > 0
+                          ? <div key={key}>{t('wipeDialog.filesCount', { count: data.files.toLocaleString(i18n.language), category, mb: (data.size / 1024 / 1024).toFixed(1) })}</div>
+                          : null
+                      }
+                      return data.files > 0
+                        ? <div key={key}>{t('wipeDialog.filesCount', { count: data.files.toLocaleString(i18n.language), category, mb: (data.size / 1024 / 1024).toFixed(1) })}</div>
+                        : <div key={key} className="text-muted-foreground">{t('wipeDialog.noCategoryFilesFound', { category })}</div>
+                    })}
+                    <div className="pt-1 font-medium">{t('wipeDialog.total', { count: wipePreview.totalFiles.toLocaleString(i18n.language), mb: (wipePreview.totalSize / 1024 / 1024).toFixed(1) })}</div>
+                    {wipePreview.truncated && (
+                      <div className="pt-1 text-warning">{t('wipeDialog.truncatedWarning')}</div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </AlertDialogBody>
 
           {wipeLoading && wipeBackupProgress && wipeBackupProgress.phase !== 'complete' && (
             <div className="space-y-1.5 rounded-md border border-border/50 bg-muted/30 p-3 text-sm">
               <div className="text-muted-foreground">{wipeBackupProgress.message}</div>
               <Progress value={wipeBackupProgress.percent} className="h-1.5" />
-            </div>
-          )}
-
-          {wipePreview && (
-            <div className="space-y-1 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm">
-              {wipePreview.totalFiles === 0 ? (
-                <div className="text-muted-foreground">{t('wipeDialog.noFilesFound')}</div>
-              ) : (
-                <>
-                  <div className="font-medium text-destructive">{t('wipeDialog.willDelete')}</div>
-                  {(['map', 'players', 'world', 'leftovers', 'accounts'] as const).map(key => {
-                    const data = wipePreview.preview?.[key]
-                    if (!data) return null
-                    const category = t(`wipeDialog.categoryLabels.${key}`)
-                    if (key === 'leftovers') {
-                      return data.files > 0
-                        ? <div key={key}>{t('wipeDialog.filesCount', { count: data.files.toLocaleString(i18n.language), category, mb: (data.size / 1024 / 1024).toFixed(1) })}</div>
-                        : null
-                    }
-                    return data.files > 0
-                      ? <div key={key}>{t('wipeDialog.filesCount', { count: data.files.toLocaleString(i18n.language), category, mb: (data.size / 1024 / 1024).toFixed(1) })}</div>
-                      : <div key={key} className="text-muted-foreground">{t('wipeDialog.noCategoryFilesFound', { category })}</div>
-                  })}
-                  <div className="pt-1 font-medium">{t('wipeDialog.total', { count: wipePreview.totalFiles.toLocaleString(i18n.language), mb: (wipePreview.totalSize / 1024 / 1024).toFixed(1) })}</div>
-                  {wipePreview.truncated && (
-                    <div className="pt-1 text-warning">{t('wipeDialog.truncatedWarning')}</div>
-                  )}
-                </>
-              )}
             </div>
           )}
 

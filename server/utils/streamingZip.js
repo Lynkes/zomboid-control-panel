@@ -63,10 +63,28 @@ function normalizeName(name, directory = false) {
   return `${segments.join("/")}${directory ? "/" : ""}`;
 }
 
+function streamGone() {
+  const error = new Error("The ZIP output was closed");
+  error.code = "ERR_STREAM_DESTROYED";
+  return error;
+}
+
+// Resolves once `stream` took the chunk. An HTTP response whose client went
+// away never calls back a write it had to hold (http's OutgoingMessage drops
+// the callback when its socket is already destroyed, and never flushes what
+// it buffered), so a stream that is destroyed, or closes while the write
+// waits, fails the write instead of leaving it pending forever.
 function writeChunk(stream, chunk) {
   return new Promise((resolve, reject) => {
+    if (!stream || stream.destroyed) {
+      reject(streamGone());
+      return;
+    }
     let settled = false;
-    const cleanup = () => stream.off("error", onError);
+    const cleanup = () => {
+      stream.off("error", onError);
+      stream.off("close", onClose);
+    };
     const finish = (error) => {
       if (settled) return;
       settled = true;
@@ -75,8 +93,10 @@ function writeChunk(stream, chunk) {
       else resolve();
     };
     const onError = (error) => finish(error);
+    const onClose = () => finish(streamGone());
 
     stream.once("error", onError);
+    stream.once("close", onClose);
     try {
       stream.write(chunk, (error) => finish(error));
     } catch (error) {
@@ -95,13 +115,31 @@ function openStream(stream) {
       cleanup();
       reject(error);
     };
+    // Destroyed before it opened (an abort while open() waits).
+    const onClose = () => {
+      cleanup();
+      reject(streamGone());
+    };
     const cleanup = () => {
       stream.off("open", onOpen);
       stream.off("error", onError);
+      stream.off("close", onClose);
     };
 
     stream.once("open", onOpen);
     stream.once("error", onError);
+    stream.once("close", onClose);
+  });
+}
+
+// Resolves once `stream` has closed (at once when there is none, or it has).
+function streamClosed(stream) {
+  return new Promise((resolve) => {
+    if (!stream || stream.closed) {
+      resolve();
+      return;
+    }
+    stream.once("close", resolve);
   });
 }
 
@@ -233,10 +271,16 @@ function zip64End(entryCount, centralSize, centralOffset) {
 }
 
 export class StreamingZipWriter {
-  constructor(outputPath, { level = 6 } = {}) {
+  // outputStream (optional): a writable stream that is already open, such as
+  // an HTTP response, used instead of creating outputPath. tempDir
+  // (optional): where the central-directory temp file goes; defaults to
+  // outputPath's folder, which is required when there's no outputPath.
+  // Both are additive: a backup passes neither and behaves as before.
+  constructor(outputPath, { level = 6, outputStream = null, tempDir = null } = {}) {
     this.outputPath = outputPath;
+    this.outputStream = outputStream;
     this.centralPath = path.join(
-      path.dirname(outputPath),
+      tempDir || path.dirname(outputPath),
       `.central-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
     );
     this.level = level;
@@ -246,17 +290,34 @@ export class StreamingZipWriter {
     this.offset = 0;
     this.entryCount = 0;
     this.finalized = false;
+    this.aborted = false;
+    // The streams of the entry being written, so abort() can stop it.
+    this.activeEntry = null;
+  }
+
+  assertUsable() {
+    if (this.aborted) throw streamGone();
+    if (this.finalized) throw new Error("ZIP writer is already finalized");
   }
 
   async open() {
+    if (this.aborted) throw streamGone();
     if (this.output) return;
     await fs.promises.rm(this.centralPath, { force: true });
-    this.output = fs.createWriteStream(this.outputPath);
+    // Aborted while the old temp file was being removed: an abort is final,
+    // so nothing is created again (nothing would ever remove it).
+    if (this.aborted) throw streamGone();
+    // A caller-supplied output stream is already open (an HTTP response
+    // never emits "open"), so only the streams created here are awaited.
+    this.output = this.outputStream || fs.createWriteStream(this.outputPath);
     this.central = fs.createWriteStream(this.centralPath);
     this.output.on("error", () => {});
     this.central.on("error", () => {});
     try {
-      await Promise.all([openStream(this.output), openStream(this.central)]);
+      await Promise.all([
+        this.outputStream ? Promise.resolve() : openStream(this.output),
+        openStream(this.central),
+      ]);
     } catch (error) {
       await this.abort();
       throw error;
@@ -265,7 +326,7 @@ export class StreamingZipWriter {
 
   async addDirectory(name, date = new Date()) {
     await this.open();
-    if (this.finalized) throw new Error("ZIP writer is already finalized");
+    this.assertUsable();
     const normalizedName = normalizeName(name, true);
     const entryDate = dosDateTime(date);
     const offset = this.offset;
@@ -300,12 +361,19 @@ export class StreamingZipWriter {
   }
 
   async addStream(source, name, date = new Date()) {
-    await this.open();
-    if (this.finalized) throw new Error("ZIP writer is already finalized");
-    const normalizedName = normalizeName(name);
+    let normalizedName;
     const entryDate = dosDateTime(date);
     const offset = this.offset;
-    await this.writeOutput(localFileHeader(normalizedName, entryDate));
+    try {
+      await this.open();
+      this.assertUsable();
+      normalizedName = normalizeName(name);
+      await this.writeOutput(localFileHeader(normalizedName, entryDate));
+    } catch (error) {
+      // Never read: its file handle (addFile's read stream) is let go here.
+      source.destroy?.();
+      throw error;
+    }
 
     let checksum = 0;
     let size = 0;
@@ -323,6 +391,10 @@ export class StreamingZipWriter {
     });
     const deflate = createDeflateRaw({ level: this.level });
     const pump = pipeline(source, checksumTransform, deflate);
+    // Awaited below; an abort can make it fail before that.
+    pump.catch(() => {});
+    const entry = { source, checksumTransform, deflate };
+    this.activeEntry = entry;
 
     try {
       for await (const chunk of deflate) {
@@ -330,11 +402,16 @@ export class StreamingZipWriter {
         await this.writeOutput(chunk);
       }
       await pump;
+      if (this.aborted) throw streamGone();
     } catch (error) {
       source.destroy();
+      checksumTransform.destroy();
       deflate.destroy();
       await pump.catch(() => {});
-      throw error;
+      // Whatever the stopped streams said, the reason is the abort.
+      throw this.aborted ? streamGone() : error;
+    } finally {
+      if (this.activeEntry === entry) this.activeEntry = null;
     }
 
     await this.writeOutput(dataDescriptor(checksum, compressedSize, size));
@@ -363,7 +440,7 @@ export class StreamingZipWriter {
   }
 
   async finalize() {
-    if (this.finalized) throw new Error("ZIP writer is already finalized");
+    this.assertUsable();
     await this.open();
     await closeStream(this.central);
     this.central = null;
@@ -389,12 +466,26 @@ export class StreamingZipWriter {
     return { size: this.offset, entries: this.entryCount };
   }
 
+  // Final: stops the entry being written (its source is destroyed, so its
+  // file handle or SFTP read is let go), destroys the output, and removes the
+  // central-directory temp file once its stream has closed (Windows won't
+  // remove a file that is still open). Every later call fails.
   async abort() {
+    this.aborted = true;
+    const entry = this.activeEntry;
+    this.activeEntry = null;
+    if (entry) {
+      entry.source.destroy?.();
+      entry.checksumTransform.destroy();
+      entry.deflate.destroy();
+    }
     this.centralReader?.destroy();
+    const central = this.central;
     this.output?.destroy();
-    this.central?.destroy();
+    central?.destroy();
     this.output = null;
     this.central = null;
+    await streamClosed(central);
     await fs.promises.rm(this.centralPath, { force: true });
   }
 }

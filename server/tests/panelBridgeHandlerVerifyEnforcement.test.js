@@ -61,7 +61,7 @@ const LUA_PATH = path.join(
 // question this audit was never about, and one these already handle
 // honestly (pcall-wrapped, missing data reported as missing).
 const GETTERS = new Set([
-  'checkAPI', 'debugItemScript', 'exportPlayerData', 'getAllPlayerDetails',
+  'checkAPI', 'debugItemScript', 'exportPlayerData', 'getAllPlayerDetails', 'getCharacterSheet',
   'getLeaderboard', 'getAllSandboxOptions', 'getAvailableHandlers', 'getChatInfo',
   'getClimateFloats', 'getDebugLog', 'getFactions', 'getGameTime',
   'getInfrastructureSnapshot', 'getItemCatalog', 'getPlayerDetails',

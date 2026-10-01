@@ -49,6 +49,7 @@ const ADMIN_CAPABILITIES = [
   "docker.manage",
   "chunks.manage",
   "serverfiles.manage",
+  "files.manage",
   "diagnostics.manage",
   "panel.settings",
 ];

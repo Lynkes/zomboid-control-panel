@@ -88,6 +88,10 @@ const PINNED_UNTEMPLATED_ACTIONS = [
   "getLeaderboard",
   "getAllSandboxOptions",
   "getAvailableHandlers",
+  // Added v1.4.1: the Players page's Character tab reads it through its own
+  // route (GET /api/player-character/:username, players.view); a read-only
+  // sheet is not an operator-facing world-event template.
+  "getCharacterSheet",
   "getChatInfo",
   "getClimateFloats",
   "getDebugLog",

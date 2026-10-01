@@ -10,6 +10,7 @@ const routeLoaders: Record<string, () => Promise<unknown>> = {
   '/server-setup': () => import('../pages/ServerSetup'),
   '/servers': () => import('../pages/Servers'),
   '/server-config': () => import('../pages/ServerConfig'),
+  '/files': () => import('../pages/Files'),
   '/server-finder': () => import('../pages/ServerFinder'),
   '/debug': () => import('../pages/Debug'),
   '/events': () => import('../pages/Events'),

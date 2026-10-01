@@ -57,7 +57,8 @@ describe('ServerConfig.tsx: gates the whole page on serverfiles.manage, same can
     renderServerConfig()
 
     expect(await screen.findByText("You don't have access to Server Configuration")).toBeInTheDocument()
-    expect(screen.getByText(/Manage server files/)).toBeInTheDocument()
+    // serverfiles.manage's label since v1.4.1 ("Manage server files" is now the file manager's).
+    expect(screen.getByText(/Edit server config files/)).toBeInTheDocument()
     expect(getPaths).not.toHaveBeenCalled()
   })
 

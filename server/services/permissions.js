@@ -193,7 +193,8 @@ export const CAPABILITIES = [
     key: "players.view",
     group: "Player Authority",
     label: "View player info",
-    description: "Read player details, status and history.",
+    description:
+      "Read player details, status and history, including each character's skills, XP, traits and inventory.",
   },
   {
     key: "players.endanger_or_impersonate",
@@ -246,8 +247,15 @@ export const CAPABILITIES = [
   {
     key: "serverfiles.manage",
     group: "Infrastructure",
-    label: "Manage server files",
+    label: "Edit server config files",
     description: "Edit sandbox options, spawn points and other server config files.",
+  },
+  {
+    key: "files.manage",
+    group: "Infrastructure",
+    label: "Manage server files",
+    description:
+      "Browse, download, upload, edit, rename and delete any file in each server's game install and Zomboid folders -- on this computer, through Docker mounts, and on the active remote server over its PanelBridge SFTP login. That includes world saves, the player database and the game's own Java and Lua files, which run under the server's account at its next start, so treat it like the admin password. The panel's own data, logs and secrets and the World Backups folder stay out of reach, and it is refused while panel logins are turned off.",
   },
 
   // --- Panel Diagnostics & Settings ---

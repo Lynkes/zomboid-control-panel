@@ -454,8 +454,11 @@ async function fetchWithRetry(
   throw toApiError(lastError);
 }
 
-export function apiFetch(endpoint: string, options?: RequestInit) {
-  return fetchWithRetry(`${API_BASE}${endpoint}`, options);
+// `retries` caps the transport retries of a GET (fetchWithRetry's default
+// otherwise); 0 for a caller that polls or offers its own Retry.
+export function apiFetch(endpoint: string, options?: RequestInit & { timeout?: number; retries?: number }) {
+  const { retries, ...init } = options ?? {};
+  return fetchWithRetry(`${API_BASE}${endpoint}`, init, retries);
 }
 
 // Exported so AuthContext.tsx/Login.tsx's pre-auth calls (login, setup,

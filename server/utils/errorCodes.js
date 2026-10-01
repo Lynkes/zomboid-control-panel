@@ -2204,6 +2204,147 @@ export const ErrorCode = Object.freeze({
    * behind the Install button wasn't done after 10 s
    * (MANUAL_INSTALL_WAIT_MS); it keeps running in the background. */
   PANELBRIDGE_INSTALL_STILL_RUNNING: "PANELBRIDGE_INSTALL_STILL_RUNNING",
+
+  /* Server Files */
+  // The file manager (server/routes/files.js and
+  // server/services/fileManager*.js). Constant name === wire value. Each
+  // entry's HTTP status is in FM_ERROR_STATUS
+  // (server/services/fileManagerContract.js), which FmError uses by default.
+  // FM code references ErrorCode.X, never a bare string, and
+  // params.detail only ever carries an OS error code, never a path.
+  /** 403 -- panel logins are off, so every request would run as admin with no
+   * actor to audit (refuseAuthDisabled). */
+  FM_AUTH_DISABLED: "FM_AUTH_DISABLED",
+  /** 400 -- a ?token= query value on any /api/files request
+   * (refuseQueryToken). */
+  FM_TOKEN_IN_URL: "FM_TOKEN_IN_URL",
+  /** 400, params {field} -- a missing or malformed parameter, a bad
+   * :profileId, or an array where one query value belongs. */
+  FM_INVALID_REQUEST: "FM_INVALID_REQUEST",
+  /** 400, params {reason} -- validateSegments() refused `path` (reason is a
+   * nameRules key), or a remote root path failed validateRemoteRootPath(). */
+  FM_INVALID_PATH: "FM_INVALID_PATH",
+  /** 400, params {reason} -- validateName() refused `name`/`newName` (reason
+   * is a nameRules key). */
+  FM_INVALID_NAME: "FM_INVALID_NAME",
+  /** 415 -- a mutating JSON route without application/json, or an upload
+   * without application/octet-stream. */
+  FM_UNSUPPORTED_MEDIA_TYPE: "FM_UNSUPPORTED_MEDIA_TYPE",
+  /** 411 -- POST /upload without Content-Length. */
+  FM_LENGTH_REQUIRED: "FM_LENGTH_REQUIRED",
+  /** 404 -- an unknown :profileId. */
+  FM_PROFILE_NOT_FOUND: "FM_PROFILE_NOT_FOUND",
+  /** 404, params {root} -- a `root` that isn't one of this profile's RootIds. */
+  FM_ROOT_UNKNOWN: "FM_ROOT_UNKNOWN",
+  /** 503, params {reason, detail?} -- the root can't be opened (reason is a
+   * RootUnavailableReason). */
+  FM_ROOT_UNAVAILABLE: "FM_ROOT_UNAVAILABLE",
+  /** 409, params {reason} -- a write into a read-only root, or EROFS (reason:
+   * mount | permissions). */
+  FM_ROOT_READ_ONLY: "FM_ROOT_READ_ONLY",
+  /** 400 -- rename, move or delete aimed at a root itself. */
+  FM_ROOT_IMMUTABLE: "FM_ROOT_IMMUTABLE",
+  /** 404 -- the target vanished, or a link could not be resolved. */
+  FM_NOT_FOUND: "FM_NOT_FOUND",
+  /** 400 -- a folder operation on a file. */
+  FM_NOT_A_DIRECTORY: "FM_NOT_A_DIRECTORY",
+  /** 400 -- a file operation on a folder, link or special file. */
+  FM_NOT_A_FILE: "FM_NOT_A_FILE",
+  /** 403, params {area, level, containsProtected?} -- a protected area
+   * (PROTECTED_AREAS in services/fileManagerContract.js), or an ancestor of
+   * one. */
+  FM_PATH_PROTECTED: "FM_PATH_PROTECTED",
+  /** 403 -- a symlink or junction whose real target is outside the root. */
+  FM_LINK_ESCAPES_ROOT: "FM_LINK_ESCAPES_ROOT",
+  /** 403, params {detail} -- EACCES from the OS, or SFTP "Permission denied"
+   * (detail is the OS code, never a path). */
+  FM_OS_PERMISSION_DENIED: "FM_OS_PERMISSION_DENIED",
+  /** 409, params {name} -- create, rename, move, restore or upload onto a
+   * name that is taken. */
+  FM_EXISTS: "FM_EXISTS",
+  /** 409, params {currentEtag?} -- an etag or (dev, ino) check failed between
+   * read and write. */
+  FM_CONFLICT: "FM_CONFLICT",
+  /** 409, params {required} -- a mutation missing confirmation tokens
+   * (params.required lists them). */
+  FM_CONFIRMATION_REQUIRED: "FM_CONFIRMATION_REQUIRED",
+  /** 409 -- POST /delete with a previewId that expired or belongs to another
+   * user, profile or root. */
+  FM_PREVIEW_EXPIRED: "FM_PREVIEW_EXPIRED",
+  /** 409 -- POST /delete where an item's dev, ino or mtime changed since the
+   * preview. */
+  FM_PREVIEW_STALE: "FM_PREVIEW_STALE",
+  /** 409 -- a world-state mutation while the owning server is running. */
+  FM_SERVER_RUNNING_BLOCKED: "FM_SERVER_RUNNING_BLOCKED",
+  /** 409, params {operation} -- a lifecycle lock, Steam operation or running
+   * file job holds the path (operation: lifecycle | steam | fileJob). */
+  FM_OPERATION_IN_PROGRESS: "FM_OPERATION_IN_PROGRESS",
+  /** 409 -- EBUSY/EPERM on Windows after retries. */
+  FM_FILE_IN_USE: "FM_FILE_IN_USE",
+  /** 409 -- the Windows read-only attribute is set on the target. */
+  FM_TARGET_READ_ONLY: "FM_TARGET_READ_ONLY",
+  /** 409 -- EXDEV on move. */
+  FM_CROSS_DEVICE: "FM_CROSS_DEVICE",
+  /** 400 -- POST /move into one of the moved folders. */
+  FM_MOVE_INTO_SELF: "FM_MOVE_INTO_SELF",
+  /** 400 -- permanent delete or Trash purge whose typedConfirmation doesn't
+   * match. */
+  FM_TYPED_CONFIRMATION_MISMATCH: "FM_TYPED_CONFIRMATION_MISMATCH",
+  /** 415 -- GET /text on a known binary extension or a file with a NUL byte. */
+  FM_BINARY_FILE: "FM_BINARY_FILE",
+  /** 415 -- GET /text on a UTF-16 BOM or invalid UTF-8. */
+  FM_ENCODING_UNSUPPORTED: "FM_ENCODING_UNSUPPORTED",
+  /** 413, params {limit} -- edit mode over TEXT_EDIT_MAX_BYTES, or a save
+   * that rebuilds past it. */
+  FM_FILE_TOO_LARGE_FOR_EDITOR: "FM_FILE_TOO_LARGE_FOR_EDITOR",
+  /** 413, params {limit} -- an upload over UPLOAD_MAX_BYTES. */
+  FM_UPLOAD_TOO_LARGE: "FM_UPLOAD_TOO_LARGE",
+  /** 413, params {limit} -- a download over DOWNLOAD_MAX_BYTES. */
+  FM_DOWNLOAD_TOO_LARGE: "FM_DOWNLOAD_TOO_LARGE",
+  /** 413, params {reason, limit} -- the POST /zip pre-check went over a limit
+   * (reason: entries | bytes | depth | time). */
+  FM_ZIP_TOO_LARGE: "FM_ZIP_TOO_LARGE",
+  /** 400 -- the received byte count differs from Content-Length. */
+  FM_UPLOAD_SIZE_MISMATCH: "FM_UPLOAD_SIZE_MISMATCH",
+  /** 507, params {free, required} -- free space below the write plus
+   * DISK_FREE_FLOOR_BYTES, or ENOSPC. */
+  FM_INSUFFICIENT_SPACE: "FM_INSUFFICIENT_SPACE",
+  /** 503, params {reason} -- Trash is on another device or can't be created
+   * (reason: crossDevice | notWritable). */
+  FM_TRASH_UNAVAILABLE: "FM_TRASH_UNAVAILABLE",
+  /** 404 -- restore or purge of a trashId that doesn't exist. */
+  FM_TRASH_ITEM_NOT_FOUND: "FM_TRASH_ITEM_NOT_FOUND",
+  /** 404 -- GET /jobs/:jobId for an unknown, expired or foreign job. */
+  FM_JOB_NOT_FOUND: "FM_JOB_NOT_FOUND",
+  /** 429 -- the fmSearch/fmMutation/fmTransfer limiters in server/index.js. */
+  FM_RATE_LIMITED: "FM_RATE_LIMITED",
+  /** 429 -- no free upload or zip slot for this user or the panel. */
+  FM_TOO_MANY_TRANSFERS: "FM_TOO_MANY_TRANSFERS",
+  /** 502, params {sftpCode, detail} -- an SFTP failure, classified by
+   * classifySftpErrorCode() into params.sftpCode. */
+  FM_SFTP_ERROR: "FM_SFTP_ERROR",
+  /** 504 -- an SFTP operation past SFTP_OP_TIMEOUT_MS, or a transfer idle
+   * past SFTP_TRANSFER_IDLE_MS. */
+  FM_SFTP_TIMEOUT: "FM_SFTP_TIMEOUT",
+  /** 500 -- anything unexpected; the raw error stays in the log. */
+  FM_INTERNAL: "FM_INTERNAL",
+  /** 413, params {limit} -- a permanent delete or Trash purge reached
+   * PERMANENT_DELETE_MAX_ENTRIES; what it removed stays removed, and running
+   * it again continues. */
+  FM_TOO_MANY_ENTRIES: "FM_TOO_MANY_ENTRIES",
+  /** 400 -- rename, duplicate or restore-as would give an .ini file (or a
+   * copy of one) a name the file manager doesn't mask, which would show its
+   * passwords in plain text. */
+  FM_SECRET_NAME_REQUIRED: "FM_SECRET_NAME_REQUIRED",
+
+  /* Player character */
+  /** server/routes/playerCharacter.js -- GET /api/player-character/:username,
+   * `sections` names something other than summary, stats, skills, traits or
+   * inventory. */
+  CHARACTER_INVALID_SECTIONS: "CHARACTER_INVALID_SECTIONS",
+  /** server/routes/playerCharacter.js -- GET /api/player-character/:username,
+   * the character sheet couldn't be read (generic 500; no raw error text). */
+  CHARACTER_SHEET_FAILED: "CHARACTER_SHEET_FAILED",
 });
 
 /**

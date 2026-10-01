@@ -154,7 +154,8 @@ interface HealthStatus {
 
 interface ActivityEntry {
   id: string;
-  source: "rcon" | "bridge" | "player" | "server";
+  // "files": Server Files audit rows (routes/debug.js source=files).
+  source: "rcon" | "bridge" | "player" | "server" | "files";
   action: string;
   args?: Record<string, unknown>;
   detail: string;
@@ -2849,6 +2850,7 @@ export default function Debug() {
       bridge: 0,
       player: 0,
       server: 0,
+      files: 0,
     };
     for (const e of activityEntries) {
       if (e.success) stats.success++;
@@ -2857,6 +2859,7 @@ export default function Debug() {
       else if (e.source === "bridge") stats.bridge++;
       else if (e.source === "player") stats.player++;
       else if (e.source === "server") stats.server++;
+      else if (e.source === "files") stats.files++;
     }
     return stats;
   }, [activityEntries]);
@@ -3018,6 +3021,8 @@ export default function Debug() {
         return t("common.sourcePlayer");
       case "server":
         return t("common.sourceServer");
+      case "files":
+        return t("common.sourceFiles");
       default:
         return source;
     }
@@ -4983,6 +4988,12 @@ export default function Debug() {
                           ? ` (${activityStats.server})`
                           : ""}
                       </SelectItem>
+                      <SelectItem value="files">
+                        {t("common.sourceFiles")}
+                        {activityStats.files > 0
+                          ? ` (${activityStats.files})`
+                          : ""}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                   <div className="relative w-full sm:w-auto">
@@ -5245,6 +5256,8 @@ export default function Debug() {
                                   "border-green-500/50 text-green-400",
                                 entry.source === "server" &&
                                   "border-orange-500/50 text-orange-400",
+                                entry.source === "files" &&
+                                  "border-violet-500/50 text-violet-400",
                               )}
                             >
                               {getSourceLabel(entry.source)}

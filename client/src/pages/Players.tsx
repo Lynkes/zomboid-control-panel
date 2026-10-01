@@ -41,8 +41,6 @@ import {
   Trash2,
   Heart,
   Skull,
-  Moon,
-  Thermometer,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -62,6 +60,7 @@ import {
 } from '@/components/ui/select'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -102,6 +101,9 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { useSocket } from '@/contexts/SocketContext'
 import { cn, copyText } from '@/lib/utils'
+import { CharacterTab } from '@/components/players/CharacterTab'
+import { CharacterHintsBadge } from '@/components/players/CharacterHintsBadge'
+import { useCharacterSheet } from '@/components/players/useCharacterSheet'
 
 interface PerkChoice {
   id: string
@@ -318,28 +320,15 @@ function ActionTile({
   )
 }
 
-// A 0-1 severity bar for a PZ stat (health, hunger/thirst/fatigue).
-// goodWhenLow=true means higher is worse (hunger/thirst/fatigue -- PZ's own
-// scale, confirmed against vanilla Lua thresholds like FATIGUE <= 0.3/0.85
-// gating sleep); goodWhenLow=false means higher is better (health).
-function VitalBar({ label, value, goodWhenLow }: { label: string; value: number; goodWhenLow: boolean }) {
-  const pct = Math.max(0, Math.min(100, value * 100))
-  const severity = goodWhenLow ? value : 1 - value
-  const color =
-    severity < 0.5 ? 'hsl(var(--success))'
-    : severity < 0.75 ? 'hsl(var(--warning))'
-    : 'hsl(var(--destructive))'
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="w-16 shrink-0 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{label}</span>
-      <div className="flex flex-1 items-center gap-1.5">
-        <div className="h-1.5 flex-1 overflow-hidden rounded-sm bg-muted/60 ring-1 ring-black/20">
-          <div className="h-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
-        </div>
-        <span className="w-8 shrink-0 text-end font-mono text-xs tabular-nums text-foreground/85">{Math.round(pct)}%</span>
-      </div>
-    </div>
-  )
+// A name typed in the manual target box reaches the Character tab once the
+// typing pauses this long: each keystroke would otherwise be a bridge read
+// (B, Ba, Bar...). Moderation actions still use the name as typed, at once.
+const MANUAL_TARGET_SETTLE_MS = 500
+
+const DOSSIER_TABS = ['character', 'moderation', 'spawn', 'powers', 'notes'] as const
+type DossierTab = (typeof DOSSIER_TABS)[number]
+function isDossierTab(value: string | null): value is DossierTab {
+  return value !== null && (DOSSIER_TABS as readonly string[]).includes(value)
 }
 
 export default function Players() {
@@ -360,13 +349,40 @@ export default function Players() {
   // it's meant to have. See server/routes/panelBridge.js's
   // BRIDGE_ACTION_CAPABILITY / GM_TOOLS_ONLY_ACTIONS.
   const { can } = useAuth()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const requestedPlayer = searchParams.get('player')?.trim() || ''
   const canModerate = can('players.moderate')
+  const canViewCharacter = can('players.view')
+  // The dossier's tabs follow ?tab= (a deep link can open one directly);
+  // without it, moderators land on Moderation and everyone else on
+  // Character, the one tab every players.view role can use. A role without
+  // players.view can't read a character (403), so it keeps Moderation.
+  const requestedTab = searchParams.get('tab')
+  const activeTab: DossierTab = isDossierTab(requestedTab)
+    ? requestedTab
+    : canModerate || !canViewCharacter
+      ? 'moderation'
+      : 'character'
+  const setActiveTab = useCallback(
+    (value: string) => {
+      if (!isDossierTab(value)) return
+      setSearchParams(
+        (previous) => {
+          const next = new URLSearchParams(previous)
+          next.set('tab', value)
+          return next
+        },
+        { replace: true },
+      )
+    },
+    [setSearchParams],
+  )
   const canGmTools = can('players.gm_tools')
   const [players, setPlayers] = useState<Player[]>([])
   const [perks, setPerks] = useState<PerkChoice[]>([])
   const [selectedPlayer, setSelectedPlayer] = useState<string>('')
+  const [typingManualTarget, setTypingManualTarget] = useState(false)
+  const [settledManualTarget, setSettledManualTarget] = useState('')
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const { toast } = useToast()
@@ -517,43 +533,9 @@ export default function Players() {
   const [notesError, setNotesError] = useState<string | null>(null)
   const [logsError, setLogsError] = useState<string | null>(null)
 
-  // Live vitals (Vitals tab) -- PanelBridge.getPlayerDetails for the
-  // selected online player: position, health, and the eight
-  // stats:get(CharacterStat.X) fields.
-  interface PlayerVitals {
-    x?: number
-    y?: number
-    z?: number
-    accessLevel?: string
-    isAsleep?: boolean
-    isSneaking?: boolean
-    isRunning?: boolean
-    stats?: {
-      hunger?: number
-      thirst?: number
-      fatigue?: number
-      stress?: number
-      boredom?: number
-      unhappiness?: number
-      pain?: number
-      endurance?: number
-    }
-    health?: {
-      overallBodyHealth?: number
-      isInfected?: boolean
-      isBleeding?: boolean
-      temperature?: number
-      wetness?: number
-    }
-  }
-  const [playerVitals, setPlayerVitals] = useState<PlayerVitals | null>(null)
-  const [playerVitalsLoading, setPlayerVitalsLoading] = useState(false)
-  const [playerVitalsError, setPlayerVitalsError] = useState<string | null>(null)
-
   // At-a-glance roster health -- PanelBridge.getAllPlayerDetails (the
-  // PLURAL bulk endpoint, distinct from getPlayerDetails above, which is
-  // one player at a time and only fetched for whoever is currently
-  // selected). Nothing else on this page or elsewhere reads it: the roster
+  // PLURAL bulk endpoint; the Character tab reads one player at a time,
+  // and only whoever is currently selected). Nothing else on this page or elsewhere reads it: the roster
   // list itself comes from RCON's `players` command, which reports only
   // {name, online} -- no health, hunger, or infection status at all, so
   // this is genuinely new data, not a second view of something already
@@ -702,10 +684,9 @@ export default function Players() {
   // 2026-09-08 (retry-stacking sweep): `manual` covers the Retry button,
   // the Enter-key filter search, and the filter button's own RefreshCw icon
   // -- all three are a human explicitly asking for a fresh/filtered fetch
-  // right now. The Notes/Log tab's own first-open call (TabsTrigger's
-  // onClick) is left on the default: opening a tab for the first time is
-  // navigation loading its content, not a human retrying or refreshing
-  // something already on screen.
+  // right now. The Notes/Log tab's own load when it opens (the effect below)
+  // is left on the default: opening a tab is navigation loading its content,
+  // not a human retrying or refreshing something already on screen.
   const fetchActivityLogs = useCallback(async (playerFilter?: string, opts?: { manual?: boolean }) => {
     setLogsLoading(true)
     try {
@@ -725,6 +706,13 @@ export default function Players() {
       setLogsLoading(false)
     }
   }, [t])
+
+  // The Notes & Log tab reads the activity log whenever it opens, however it
+  // opens: a click, the keyboard, or ?tab=notes on a reload or Back (the tab
+  // follows the URL, so a trigger's onClick alone left it empty there).
+  useEffect(() => {
+    if (activeTab === 'notes') void fetchActivityLogs()
+  }, [activeTab, fetchActivityLogs])
 
   // 2026-09-08 (retry-stacking sweep): `manual` gates only the notes tab's
   // own Retry button -- mount and the server-change handler keep the
@@ -1454,49 +1442,38 @@ export default function Players() {
     [selectedPlayer, playerPowers]
   )
 
-  const isSelectedPlayerOnline = useMemo(
-    () => !!selectedPlayer && players.some(p => p.name === selectedPlayer),
-    [selectedPlayer, players]
-  )
-
-  // Poll getPlayerDetails while an online player is selected and the bridge
-  // is up. Keyed on the boolean (not the `players` array itself) so a
-  // reference-only change from the 15s roster poll doesn't restart this.
+  // The Character tab's player: the selection, except while a name is being
+  // typed in the manual box, when it keeps the one before until the typing
+  // settles (MANUAL_TARGET_SETTLE_MS).
   useEffect(() => {
-    if (!selectedPlayer || !isSelectedPlayerOnline || !bridgeConnected) {
-      setPlayerVitals(null)
-      setPlayerVitalsError(null)
-      setPlayerVitalsLoading(false)
-      return
-    }
-    let cancelled = false
-    const load = async () => {
-      setPlayerVitalsLoading(true)
-      try {
-        const response = await panelBridgeApi.getPlayerDetails(selectedPlayer)
-        if (cancelled) return
-        if (response.success) {
-          setPlayerVitals(response.data)
-          setPlayerVitalsError(null)
-        } else {
-          setPlayerVitalsError(response.error || t('vitals.loadError'))
-        }
-      } catch (err) {
-        if (!cancelled) setPlayerVitalsError(getErrorMessage(err, t('vitals.loadError')))
-      } finally {
-        if (!cancelled) setPlayerVitalsLoading(false)
-      }
-    }
-    load()
-    const interval = setInterval(() => {
-      if (document.visibilityState === 'hidden') return
-      load()
-    }, 5000)
-    return () => {
-      cancelled = true
-      clearInterval(interval)
-    }
-  }, [selectedPlayer, isSelectedPlayerOnline, bridgeConnected, t])
+    if (!typingManualTarget) return
+    const timer = setTimeout(() => {
+      setSettledManualTarget(selectedPlayer)
+      setTypingManualTarget(false)
+    }, MANUAL_TARGET_SETTLE_MS)
+    return () => clearTimeout(timer)
+  }, [typingManualTarget, selectedPlayer])
+  const characterTarget = typingManualTarget ? settledManualTarget : selectedPlayer
+  // A roster click selects at once, even mid-typing.
+  const pickRosterPlayer = (name: string) => {
+    setTypingManualTarget(false)
+    setSelectedPlayer(name)
+  }
+  // The bridge finds a player whatever the case of the name, so a typed
+  // "bob" is the online Bob.
+  const isCharacterTargetOnline = useMemo(() => {
+    const lower = characterTarget.toLowerCase()
+    return !!characterTarget && players.some(p => p.name.toLowerCase() === lower)
+  }, [characterTarget, players])
+
+  // Character tab data. Lifted here so the dossier's "Worth a look" badge
+  // counts on every tab; it polls only while the Character tab is open (the
+  // old Vitals poll ran on every tab).
+  const characterSheet = useCharacterSheet({
+    username: canViewCharacter ? characterTarget : '',
+    online: isCharacterTargetOnline,
+    active: activeTab === 'character',
+  })
 
   const selectedPlayerConfirmedNotWhitelisted = useMemo(() =>
     isPlayerConfirmedNotWhitelisted(selectedPlayer, whitelistAccounts, whitelistLoading, whitelistError),
@@ -1744,7 +1721,7 @@ export default function Players() {
                               ? 'bg-primary/10 border-primary shadow-sm'
                               : 'hover:bg-muted/50 border-transparent hover:border-border'
                           }`}
-                          onClick={() => setSelectedPlayer(player.name)}
+                          onClick={() => pickRosterPlayer(player.name)}
                         >
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2 min-w-0">
@@ -1780,7 +1757,7 @@ export default function Players() {
                                 </span>
                               )}
                               {vitals?.isInfected && (
-                                <Skull className="w-3 h-3 text-destructive me-1" aria-label={t('vitals.infected')} />
+                                <Skull className="w-3 h-3 text-destructive me-1" aria-label={t('character.condition.infected')} />
                               )}
                               {stat && (
                                 <span className="text-xs text-muted-foreground me-1">
@@ -1846,7 +1823,7 @@ export default function Players() {
                               ? 'bg-primary/10 border-primary shadow-sm'
                               : 'hover:bg-muted/50 border-transparent hover:border-border'
                           }`}
-                          onClick={() => setSelectedPlayer(name)}
+                          onClick={() => pickRosterPlayer(name)}
                           title={t('roster.lastSeenTitle', { when: lastSeen ? lastSeen.toLocaleString(i18n.language) : t('roster.lastSeenUnknown') })}
                         >
                           <div className="flex items-center justify-between gap-2">
@@ -2058,7 +2035,11 @@ export default function Players() {
               <Input
                 placeholder={t('roster.manualTargetPlaceholder')}
                 value={selectedPlayer}
-                onChange={(e) => setSelectedPlayer(e.target.value)}
+                onChange={(e) => {
+                  if (!typingManualTarget) setSettledManualTarget(selectedPlayer)
+                  setTypingManualTarget(true)
+                  setSelectedPlayer(e.target.value)
+                }}
                 className="h-9 font-mono text-sm"
               />
             </div>
@@ -2115,6 +2096,7 @@ export default function Players() {
                             <span className="text-xs font-medium text-muted-foreground/80">
                               {isOnline ? t('dossier.connected') : t('dossier.lastSeen')}
                             </span>
+                            <CharacterHintsBadge hints={characterSheet.base?.hints} onOpen={() => setActiveTab('character')} />
                           </div>
                           {/* Inline stats */}
                           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground/85">
@@ -2311,7 +2293,7 @@ export default function Players() {
             )}
           </CardHeader>
           <CardContent>
-            <Tabs defaultValue="moderation">
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
               {/* flex-wrap, not horizontal scroll: the previous overflow-x-auto
                   strip clipped "Notes & Log" down to a bare "N" on mobile,
                   with only a 12px edge mask as the sole cue that there was
@@ -2323,143 +2305,21 @@ export default function Players() {
                   existing, already-proven convention here instead of tuning
                   the mask/adding scroll arrows. */}
               <TabsList className="flex h-auto flex-wrap items-center gap-1 rounded-md border border-border/55 bg-muted/30 p-1">
-                <TabsTrigger value="vitals" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.vitals')}</TabsTrigger>
+                <TabsTrigger value="character" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.character')}</TabsTrigger>
                 <TabsTrigger value="moderation" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.moderation')}</TabsTrigger>
                 <TabsTrigger value="spawn" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.spawn')}</TabsTrigger>
                 <TabsTrigger value="powers" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.powers')}</TabsTrigger>
-                <TabsTrigger value="notes" className="min-h-8 shrink-0 px-3 text-xs font-medium" onClick={() => fetchActivityLogs()}>{t('tabs.notesLog')}</TabsTrigger>
+                <TabsTrigger value="notes" className="min-h-8 shrink-0 px-3 text-xs font-medium">{t('tabs.notesLog')}</TabsTrigger>
               </TabsList>
 
-              {/* Vitals Tab -- live PanelBridge.getPlayerDetails read-back:
-                  position, health, and the eight stats:get(CharacterStat.X)
-                  fields. 2026-08-30: this data has been correctly served by
-                  the server since the same-day stats-repair fix, but had no
-                  UI consumer at all until now. */}
-              <TabsContent value="vitals" className="space-y-4 mt-4">
-                {!selectedPlayer ? (
-                  <p className="text-sm text-muted-foreground">{t('vitals.noTarget')}</p>
-                ) : !isSelectedPlayerOnline ? (
-                  <p className="text-sm text-muted-foreground">{t('vitals.offline')}</p>
-                ) : bridgeStatusLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" /> {t('vitals.loading')}
-                  </div>
-                ) : !bridgeConnected ? (
-                  <p className="text-sm text-muted-foreground">{t('vitals.bridgeRequired')}</p>
-                ) : playerVitalsLoading && !playerVitals ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" /> {t('vitals.loading')}
-                  </div>
-                ) : playerVitalsError && !playerVitals ? (
-                  <p className="text-sm text-destructive">{playerVitalsError}</p>
-                ) : !playerVitals ? (
-                  <p className="text-sm text-muted-foreground">{t('vitals.unavailable')}</p>
+              {/* Character Tab -- skills, XP, traits, condition and inventory
+                  (GET /api/player-character), live or last known. Replaces
+                  the Vitals tab, whose content is its Condition section. */}
+              <TabsContent value="character" className="mt-4">
+                {canViewCharacter ? (
+                  <CharacterTab username={characterTarget} online={isCharacterTargetOnline} state={characterSheet} />
                 ) : (
-                  <div className="space-y-4">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {playerVitals.accessLevel && playerVitals.accessLevel !== 'none' && playerVitals.accessLevel !== 'user' && (
-                        <Badge variant="outline" className="text-[10px] font-mono uppercase tracking-wider text-amber-400">
-                          {playerVitals.accessLevel}
-                        </Badge>
-                      )}
-                      {playerVitals.health?.isInfected && (
-                        <Badge variant="outline" className="gap-1 border-destructive/40 text-[10px] font-mono uppercase tracking-wider text-destructive">
-                          <Skull className="h-3 w-3" /> {t('vitals.infected')}
-                        </Badge>
-                      )}
-                      {playerVitals.health?.isBleeding && (
-                        <Badge variant="outline" className="border-destructive/40 text-[10px] font-mono uppercase tracking-wider text-destructive">
-                          {t('vitals.bleeding')}
-                        </Badge>
-                      )}
-                      {playerVitals.isAsleep && (
-                        <Badge variant="outline" className="gap-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                          <Moon className="h-3 w-3" /> {t('vitals.asleep')}
-                        </Badge>
-                      )}
-                      {playerVitals.isSneaking && (
-                        <Badge variant="outline" className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                          {t('vitals.sneaking')}
-                        </Badge>
-                      )}
-                      {playerVitals.isRunning && (
-                        <Badge variant="outline" className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                          {t('vitals.running')}
-                        </Badge>
-                      )}
-                    </div>
-
-                    {typeof playerVitals.x === 'number' && typeof playerVitals.y === 'number' && (
-                      <div className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground/85">
-                        <MapPin className="h-3.5 w-3.5 text-primary/70" />
-                        <span className="tabular-nums">{Math.round(playerVitals.x)}, {Math.round(playerVitals.y)}{typeof playerVitals.z === 'number' ? `, ${playerVitals.z}` : ''}</span>
-                      </div>
-                    )}
-
-                    <div className="space-y-2">
-                      {playerVitals.health?.overallBodyHealth !== undefined && (
-                        <VitalBar
-                          label={t('vitals.health')}
-                          value={playerVitals.health.overallBodyHealth / 100}
-                          goodWhenLow={false}
-                        />
-                      )}
-                      {([
-                        { key: 'hunger', value: playerVitals.stats?.hunger, label: t('vitals.hunger') },
-                        { key: 'thirst', value: playerVitals.stats?.thirst, label: t('vitals.thirst') },
-                        { key: 'fatigue', value: playerVitals.stats?.fatigue, label: t('vitals.fatigue') },
-                      ] as const).map(({ key, value, label }) => value === undefined ? null : (
-                        <VitalBar key={key} label={label} value={value} goodWhenLow />
-                      ))}
-                    </div>
-
-                    {/* Endurance/stress/boredom/unhappiness/pain: real values
-                        the bridge sends, but PZ's 0-1 vs 0-100 scale per stat
-                        isn't confirmed against the jar the way hunger/thirst/
-                        fatigue is (see statGet's comment in PanelBridge.lua)
-                        -- shown as raw numbers rather than a bar that could
-                        misrepresent the scale. That reasoning was invisible on
-                        screen (2026-08-31 impeccable pass) -- the HelpTip below
-                        surfaces it instead of just the comment here. */}
-                    {playerVitals.stats && (
-                      <div className="border-t border-border/40 pt-2">
-                        <div className="mb-1 flex items-center gap-1">
-                          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                            {t('vitals.otherStatsLabel')}
-                          </span>
-                          <HelpTip label={t('vitals.otherStatsLabel')}>{t('vitals.otherStatsTip')}</HelpTip>
-                        </div>
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground/85 sm:grid-cols-3">
-                        {([
-                          ['endurance', playerVitals.stats.endurance, t('vitals.endurance')],
-                          ['stress', playerVitals.stats.stress, t('vitals.stress')],
-                          ['boredom', playerVitals.stats.boredom, t('vitals.boredom')],
-                          ['unhappiness', playerVitals.stats.unhappiness, t('vitals.unhappiness')],
-                          ['pain', playerVitals.stats.pain, t('vitals.pain')],
-                        ] as const).map(([key, value, label]) => value === undefined ? null : (
-                          <div key={key} className="flex items-center justify-between gap-2">
-                            <span className="uppercase tracking-wide text-[10px] text-muted-foreground/70">{label}</span>
-                            <span className="tabular-nums text-foreground/85">{Math.round(value * 100) / 100}</span>
-                          </div>
-                        ))}
-                      </div>
-                      </div>
-                    )}
-
-                    {(playerVitals.health?.temperature !== undefined || playerVitals.health?.wetness !== undefined) && (
-                      <div className="flex items-center gap-4 border-t border-border/40 pt-2 font-mono text-xs text-muted-foreground/85">
-                        {playerVitals.health?.temperature !== undefined && (
-                          <span className="flex items-center gap-1.5">
-                            <Thermometer className="h-3.5 w-3.5 text-primary/70" />
-                            <span className="tabular-nums">{Math.round(playerVitals.health.temperature * 10) / 10}°</span>
-                          </span>
-                        )}
-                        {playerVitals.health?.wetness !== undefined && (
-                          <span className="tabular-nums">{t('vitals.wetness')}: {Math.round(playerVitals.health.wetness * 100)}%</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                  <p className="text-sm text-muted-foreground">{t('character.state.noPermission')}</p>
                 )}
               </TabsContent>
 
@@ -2493,7 +2353,7 @@ export default function Players() {
                             placeholder={t('kickDialog.reasonPlaceholder')}
                           />
                           {banReasonWillBeAltered(kickReason) && (
-                            <p className="mt-1 text-xs text-warning">
+                            <p className="mt-1 text-xs text-warning [overflow-wrap:anywhere]">
                               {previewBanReason(kickReason)
                                 ? t('kickDialog.reasonAlteredNote', { preview: previewBanReason(kickReason) })
                                 : t('kickDialog.reasonAlteredToEmpty')}
@@ -2539,7 +2399,7 @@ export default function Players() {
                             placeholder={t('banDialog.reasonPlaceholder')}
                           />
                           {banReasonWillBeAltered(banReason) && (
-                            <p className="mt-1 text-xs text-warning">
+                            <p className="mt-1 text-xs text-warning [overflow-wrap:anywhere]">
                               {previewBanReason(banReason)
                                 ? t('banDialog.reasonAlteredNote', { preview: previewBanReason(banReason) })
                                 : t('banDialog.reasonAlteredToEmpty')}
@@ -2654,7 +2514,11 @@ export default function Players() {
                           {t('teleportDialog.description', { player: selectedPlayer })}
                         </DialogDescription>
                       </DialogHeader>
-                      <div className="space-y-4">
+                      {/* DialogBody: on a landscape phone (853x413) the target,
+                          presets and X/Y/Z fields are taller than the window, and
+                          the whole dialog scrolled with Teleport below the fold.
+                          Only the fields scroll now; the button stays on screen. */}
+                      <DialogBody className="space-y-4">
                         <div>
                           <Label htmlFor="teleport-target">{t('teleportDialog.targetLabel')}</Label>
                           <Input
@@ -2728,7 +2592,7 @@ export default function Players() {
                             />
                           </div>
                         </div>
-                      </div>
+                      </DialogBody>
                       <DialogFooter>
                         <Button
                           onClick={() => handleTeleport(teleportTarget || selectedPlayer)}
@@ -3760,7 +3624,12 @@ export default function Players() {
                 ) : (
                   <Download className="w-4 h-4 me-2" />
                 )}
-                {t('importExport.exportButton', { player: selectedPlayer || t('importExport.exportButtonFallback') })}
+                {/* A 32-char username (PZ's own limit) cut the label and
+                    pushed the Import column off a phone screen; it truncates
+                    inside the button now, full name in the title. */}
+                <span className="min-w-0 truncate" title={selectedPlayer || undefined}>
+                  {t('importExport.exportButton', { player: selectedPlayer || t('importExport.exportButtonFallback') })}
+                </span>
               </Button>
 
               {characterData && (

@@ -455,10 +455,18 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
         </div>
 
         {/* ========== BODY ========== */}
-        <div className="grid grid-cols-[220px_1fr] min-h-0 min-w-0">
-          {/* ----- Category sidebar ----- */}
-          <aside className="border-e border-border/70 bg-card/40 overflow-y-auto overscroll-contain">
-            <div className="sticky top-0 z-10 bg-card/80 backdrop-blur-sm px-3 pt-3 pb-1.5 text-[10px] uppercase tracking-[0.2em] font-semibold text-muted-foreground/60">
+        {/* 2026-09 dialog sweep: a fixed 220px category sidebar left a phone
+            about 134px for results, so names showed as one or two letters
+            ("M…"). Below sm: the categories are a horizontally scrolling
+            row of chips above the results, which get the full width; from
+            sm: up it is the sidebar it always was. */}
+        <div className="grid min-h-0 min-w-0 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] sm:grid-cols-[220px_1fr] sm:grid-rows-1">
+          {/* ----- Category sidebar (a chip row on a phone) ----- */}
+          <aside
+            data-slot="category-nav"
+            className="flex min-w-0 overflow-x-auto overscroll-contain border-b border-border/70 bg-card/40 sm:block sm:overflow-x-hidden sm:overflow-y-auto sm:border-b-0 sm:border-e"
+          >
+            <div className="sticky top-0 z-10 hidden bg-card/80 backdrop-blur-sm px-3 pt-3 pb-1.5 text-[10px] uppercase tracking-[0.2em] font-semibold text-muted-foreground/60 sm:block">
               {t('categories')}
             </div>
 
@@ -466,7 +474,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
               type="button"
               onClick={() => setActiveCategory(null)}
               className={cn(
-                'w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-start border-s-[3px]',
+                'flex shrink-0 items-center gap-2.5 whitespace-nowrap px-3 py-2 text-[13px] text-start border-b-2 sm:w-full sm:whitespace-normal sm:border-b-0 sm:border-s-[3px]',
                 'motion-safe:transition-colors duration-100',
                 !activeCategory
                   ? 'bg-primary/12 text-primary border-primary'
@@ -482,7 +490,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
               </span>
             </button>
 
-            <div className="h-px bg-border/40 mx-3 my-1.5" />
+            <div className="hidden h-px bg-border/40 mx-3 my-1.5 sm:block" />
 
             {categories.map(cat => {
               const Icon = cat.Icon
@@ -493,7 +501,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
                   type="button"
                   onClick={() => setActiveCategory(cat.raw)}
                   className={cn(
-                    'w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-start border-s-[3px]',
+                    'flex shrink-0 items-center gap-2.5 whitespace-nowrap px-3 py-2 text-[13px] text-start border-b-2 sm:w-full sm:whitespace-normal sm:border-b-0 sm:border-s-[3px]',
                     'motion-safe:transition-colors duration-100',
                     isActive
                       ? 'bg-primary/12 text-primary border-primary'
@@ -511,15 +519,15 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
           {/* ----- Results ----- */}
           <section className="flex flex-col min-h-0 min-w-0">
             {/* Active category ribbon */}
-            <div className="flex items-center gap-2 border-b border-border/50 px-4 h-9 bg-muted/30 shrink-0">
-              <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-muted-foreground/60">
+            <div className="flex min-w-0 items-center gap-2 border-b border-border/50 px-4 h-9 bg-muted/30 shrink-0">
+              <span className="min-w-0 truncate text-[10px] uppercase tracking-[0.18em] font-semibold text-muted-foreground/60" title={activeLabel}>
                 {activeLabel}
               </span>
-              <span className="text-[11px] text-muted-foreground/40 tabular-nums">
+              <span className="shrink-0 text-[11px] text-muted-foreground/40 tabular-nums">
                 {t('resultsCount', { count: totalFiltered })}
               </span>
               {capped && (
-                <span className="text-[10px] uppercase tracking-wider text-warning/80 font-semibold ms-auto">
+                <span className="min-w-0 truncate text-[10px] uppercase tracking-wider text-warning/80 font-semibold ms-auto" title={t('showingFirstN', { max: MAX_VISIBLE })}>
                   {t('showingFirstN', { max: MAX_VISIBLE })}
                 </span>
               )}
@@ -650,17 +658,21 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
             </div>
           )}
 
-          {/* Action row */}
-          <div className="flex min-w-0 items-center gap-3 px-4 py-3">
+          {/* Action row: on a phone the selection summary gets its own line
+              (beside the stepper and CTA it was cut to "M…"). */}
+          <div className="flex min-w-0 items-center gap-3 px-4 py-3 max-sm:flex-wrap">
             {/* Selection summary */}
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 max-sm:basis-full">
               {selectedRow ? (
                 <div className="flex flex-col gap-0.5 min-w-0">
                   <span className="text-[10px] uppercase tracking-[0.18em] font-semibold text-muted-foreground/60 leading-none">
                     {t('selected')}
                   </span>
                   <div className="flex items-baseline gap-2 min-w-0">
-                    <span className="text-sm font-medium truncate text-foreground">
+                    <span
+                      className="text-sm font-medium truncate text-foreground"
+                      title={selectedRow.kind === 'item' ? (selectedRow.it.name || selectedRow.it.id) : formatVehicleName(selectedRow.v)}
+                    >
                       {selectedRow.kind === 'item'
                         ? (selectedRow.it.name || selectedRow.it.id)
                         : formatVehicleName(selectedRow.v)}
@@ -718,7 +730,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
               onClick={() => void handleSpawn()}
               disabled={!canSpawn}
               size="default"
-              className="shrink-0 min-w-[140px] h-9"
+              className="shrink-0 min-w-[140px] h-9 max-sm:flex-1"
             >
               {spawning ? (
                 <>

@@ -221,6 +221,7 @@
     "sourceBridge": "Bridge",
     "sourcePlayer": "Jwè",
     "sourceServer": "Sèvè",
+    "sourceFiles": "Fichye",
     "levelError": "Erè",
     "levelWarn": "Avètisman",
     "levelInfo": "Enfo",
@@ -1347,7 +1348,7 @@
   },
   "activityTab": {
     "title": "Jounal Aktivite",
-    "description": "Vi inifye kòmand RCON, aksyon Bridge, evènman jwè, ak evènman sèvè",
+    "description": "Vi inifye kòmand RCON, aksyon Bridge, evènman jwè, evènman sèvè, ak chanjman nan fichye",
     "filterBySourceAria": "Filtre pa sous",
     "allSources": "Tout Sous",
     "searchPlaceholder": "Chèche aksyon / detay…",

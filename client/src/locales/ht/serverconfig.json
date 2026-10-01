@@ -1,7 +1,7 @@
 {
   "noAccess": {
     "title": "Ou pa gen aksè nan Konfigirasyon Sèvè",
-    "description": "Paj sa a mande pèmisyon \"Jere fichye sèvè\". Mande yon administratè bay wòl ou pèmisyon sa a si ou bezwen modifye paramèt sèvè a isit la."
+    "description": "Paj sa a mande pèmisyon \"Modifye fichye konfigirasyon sèvè\". Mande yon administratè bay wòl ou pèmisyon sa a si ou bezwen modifye paramèt sèvè a isit la."
   },
   "duplicateKeysWarning": {
     "title_one": "\"{{keys}}\" parèt plis pase yon fwa nan fichye konfigirasyon sa a",

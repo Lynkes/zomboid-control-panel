@@ -5,6 +5,7 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
+  DialogBody,
   DialogTitle,
   DialogDescription,
   DialogFooter,
@@ -101,7 +102,11 @@ export function CreateTemplateDialog({ open, onClose, onCreated }: CreateTemplat
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
         ) : (
-          <div className="space-y-3">
+          // DialogBody (2026-09 dialog sweep): on a short window (landscape
+          // phone, a zoomed laptop) the form used to scroll as a whole and
+          // take Save Template with it. The error stays outside the body,
+          // right above the buttons, so the click that failed shows why.
+          <DialogBody className="space-y-3">
             <div className="space-y-1.5">
               <Label htmlFor="template-name">{t('nameLabel')}</Label>
               <Input id="template-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('namePlaceholder')} />
@@ -122,13 +127,13 @@ export function CreateTemplateDialog({ open, onClose, onCreated }: CreateTemplat
                 })}
               </p>
             )}
-            {error && (
-              <Alert variant="destructive">
-                <AlertTitle>{t('errorTitle')}</AlertTitle>
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-          </div>
+          </DialogBody>
+        )}
+        {error && (
+          <Alert variant="destructive">
+            <AlertTitle>{t('errorTitle')}</AlertTitle>
+            <AlertDescription className="[overflow-wrap:anywhere]">{error}</AlertDescription>
+          </Alert>
         )}
 
         <DialogFooter>

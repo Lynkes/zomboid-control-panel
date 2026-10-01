@@ -3,6 +3,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import { Search, RefreshCw, Loader2, X, ChevronDown, AlertCircle, SearchX, Car, Users, Truck, Bus, Shield, Zap, Mountain, Package, type LucideIcon } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { panelBridgeApi } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
@@ -95,13 +96,11 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
   const [open, setOpen] = useState(false)
   const [highlightIndex, setHighlightIndex] = useState(-1)
   const [scannedAt, setScannedAt] = useState<string | null>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  // Not a Radix primitive, so closing the dropdown doesn't automatically
-  // restore focus to the trigger the way a Radix Popover/Select would.
+  // Not a Radix Trigger (the combobox keeps its own role and ARIA), so the
+  // popover's close handler returns focus here itself.
   const triggerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
-  const [dropUp, setDropUp] = useState(false)
   const { toast } = useToast()
 
   // Load cached catalog
@@ -122,22 +121,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
     return () => ctrl.abort()
   }, [])
 
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
   useEffect(() => { setHighlightIndex(-1) }, [search])
-
-  useEffect(() => {
-    if (!open || !containerRef.current) return
-    const rect = containerRef.current.getBoundingClientRect()
-    setDropUp(window.innerHeight - rect.bottom < 340)
-  }, [open])
 
   const handleScan = useCallback(async () => {
     if (scanning) return
@@ -189,8 +173,20 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
     const sorted = Array.from(groups.entries())
       .sort(([a], [b]) => (TYPE_ORDER[a] ?? 99) - (TYPE_ORDER[b] ?? 99))
 
-    return { visibleVehicles: visible, totalFiltered: total, capped: isCapped, groupedVehicles: sorted }
+    // The arrow keys walk the rows in the order they're shown (by type, then
+    // name), not in the flat name order, which jumped between groups.
+    return {
+      visibleVehicles: sorted.flatMap(([, vehs]) => vehs),
+      totalFiltered: total,
+      capped: isCapped,
+      groupedVehicles: sorted,
+    }
   }, [vehicles, search])
+
+  const rowIndex = useMemo(
+    () => new Map(visibleVehicles.map((v, i) => [v.id, i])),
+    [visibleVehicles]
+  )
 
   const selectedVehicle = useMemo(() => vehicles.find(v => v.id === value), [vehicles, value])
 
@@ -199,7 +195,6 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
     setOpen(false)
     setSearch('')
     setHighlightIndex(-1)
-    triggerRef.current?.focus()
   }
 
   const handleClear = () => {
@@ -207,14 +202,30 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
     setSearch('')
   }
 
+  // Key events reach this wrapper from the portaled popover too (React
+  // bubbles them through portals), so e.target says where they started.
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!open) {
+      // Only the combobox itself opens the list: Enter or Space on its clear
+      // button has to press that button.
+      if (e.target !== triggerRef.current) return
       if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
         e.preventDefault()
         setOpen(true)
       }
       return
     }
+    if (e.key === 'Escape') {
+      // The popover's own layer closes on Escape too (and keeps a host
+      // Dialog open); this just clears the highlight with it.
+      e.preventDefault()
+      setOpen(false)
+      setHighlightIndex(-1)
+      return
+    }
+    // The list keys belong to the search box. Tab also reaches the Scan and
+    // clear-search buttons, and Enter must press those.
+    if (e.target !== inputRef.current) return
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault()
@@ -231,12 +242,6 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
         } else if (visibleVehicles.length > 0) {
           handleSelect(visibleVehicles[0].id)
         }
-        break
-      case 'Escape':
-        e.preventDefault()
-        setOpen(false)
-        setHighlightIndex(-1)
-        triggerRef.current?.focus()
         break
     }
   }
@@ -295,71 +300,76 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
   }
 
   return (
-    <div ref={containerRef} className="relative" onKeyDown={handleKeyDown}>
-      {/* Trigger */}
-      <div
-        ref={triggerRef}
-        role="combobox"
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        aria-controls={open ? 'vehpicker-listbox' : undefined}
-        aria-label={t('selectVehicleAria')}
-        tabIndex={disabled ? -1 : 0}
-        className={cn(
-          'flex items-center gap-2 h-11 sm:h-9 rounded-md border border-input bg-background px-3 text-sm cursor-pointer',
-          'motion-safe:transition-colors duration-150',
-          'hover:border-primary/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-          open && 'border-primary/60 ring-1 ring-primary/20',
-          disabled && 'opacity-50 cursor-not-allowed pointer-events-none'
-        )}
-        onClick={() => !disabled && setOpen(!open)}
-      >
-        <Car className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
-        {selectedVehicle ? (
-          <span className="flex-1 min-w-0 truncate">
-            <span className="font-medium">{selectedVehicle.name || selectedVehicle.id}</span>
-            {typeof selectedVehicle.seats === 'number' && selectedVehicle.seats > 0 && (
-              <span className="inline-flex items-center gap-0.5 text-muted-foreground ms-2 text-xs">
-                <Users className="w-3 h-3" />
-                {selectedVehicle.seats}
-              </span>
+    <Popover open={open} onOpenChange={setOpen} modal>
+      <div className="relative" onKeyDown={handleKeyDown}>
+        {/* Trigger */}
+        <PopoverAnchor asChild>
+          <div
+            ref={triggerRef}
+            role="combobox"
+            aria-expanded={open}
+            aria-haspopup="listbox"
+            aria-controls={open ? 'vehpicker-listbox' : undefined}
+            aria-label={t('selectVehicleAria')}
+            tabIndex={disabled ? -1 : 0}
+            className={cn(
+              'flex items-center gap-2 h-11 sm:h-9 rounded-md border border-input bg-background px-3 text-sm cursor-pointer',
+              'motion-safe:transition-colors duration-150',
+              'hover:border-primary/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+              open && 'border-primary/60 ring-1 ring-primary/20',
+              disabled && 'opacity-50 cursor-not-allowed pointer-events-none'
             )}
-          </span>
-        ) : value ? (
-          <span className="flex-1 min-w-0 truncate text-foreground">{value.replace('Base.', '')}</span>
-        ) : (
-          <span className="flex-1 min-w-0 truncate text-muted-foreground">{resolvedPlaceholder}</span>
-        )}
-        {value && !disabled && (
-          <button
-            type="button"
-            onClick={e => { e.stopPropagation(); handleClear() }}
-            className="-me-1 flex items-center justify-center w-6 h-6 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0 motion-safe:transition-colors"
-            aria-label={t('clearSelectionAria')}
+            onClick={() => !disabled && setOpen(o => !o)}
           >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        )}
-        <ChevronDown
-          className={cn(
-            'w-3.5 h-3.5 text-muted-foreground shrink-0 motion-safe:transition-transform duration-200',
-            open && 'rotate-180'
-          )}
-        />
-      </div>
+            <Car className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
+            {selectedVehicle ? (
+              <span className="flex-1 min-w-0 truncate">
+                <span className="font-medium">{selectedVehicle.name || selectedVehicle.id}</span>
+                {typeof selectedVehicle.seats === 'number' && selectedVehicle.seats > 0 && (
+                  <span className="inline-flex items-center gap-0.5 text-muted-foreground ms-2 text-xs">
+                    <Users className="w-3 h-3" />
+                    {selectedVehicle.seats}
+                  </span>
+                )}
+              </span>
+            ) : value ? (
+              <span className="flex-1 min-w-0 truncate text-foreground">{value.replace('Base.', '')}</span>
+            ) : (
+              <span className="flex-1 min-w-0 truncate text-muted-foreground">{resolvedPlaceholder}</span>
+            )}
+            {value && !disabled && (
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); handleClear() }}
+                className="-me-1 flex items-center justify-center w-6 h-6 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0 motion-safe:transition-colors"
+                aria-label={t('clearSelectionAria')}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <ChevronDown
+              className={cn(
+                'w-3.5 h-3.5 text-muted-foreground shrink-0 motion-safe:transition-transform duration-200',
+                open && 'rotate-180'
+              )}
+            />
+          </div>
+        </PopoverAnchor>
 
-      {/* Dropdown */}
-      {open && (
-        <div
-          className={cn(
-            'absolute z-50 rounded-lg border border-border bg-popover shadow-lg',
-            'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-[0.98] motion-safe:duration-150',
-            dropUp ? 'bottom-full mb-1 motion-safe:slide-in-from-bottom-1' : 'top-full mt-1 motion-safe:slide-in-from-top-1'
-          )}
-          style={{ width: 'max(100%, 400px)' }}
+        {/* Dropdown: portaled and bounded to the window like ItemPicker's (see
+            ui/popover.tsx). One height (25rem, less when the window is
+            shorter) whatever the search matches, so it doesn't jump sides
+            while you type; only the list scrolls. */}
+        <PopoverContent
+          aria-label={t('selectVehicleAria')}
+          className="flex h-[25rem] w-[max(var(--radix-popover-trigger-width),25rem)] flex-col overflow-hidden"
+          onOpenAutoFocus={e => { e.preventDefault(); inputRef.current?.focus({ preventScroll: true }) }}
+          onCloseAutoFocus={e => { e.preventDefault(); triggerRef.current?.focus({ preventScroll: true }) }}
         >
-          {/* Search */}
-          <div className="flex items-center gap-2 border-b border-border px-3 h-11">
+          {/* Search. It is the combobox while the list is open: it has focus
+              (the trigger is hidden behind the modal popover), so it carries
+              the highlighted option for screen readers. */}
+          <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 h-11">
             <Search className="w-4 h-4 text-muted-foreground shrink-0" />
             <input
               ref={inputRef}
@@ -367,8 +377,12 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
               onChange={e => setSearch(e.target.value)}
               placeholder={t('searchNVehiclesPlaceholder', { count: vehicles.length })}
               className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              role="combobox"
+              aria-expanded
+              aria-controls="vehpicker-listbox"
+              aria-autocomplete="list"
+              aria-activedescendant={highlightIndex >= 0 && visibleVehicles[highlightIndex] ? `vehpicker-opt-${highlightIndex}` : undefined}
               aria-label={t('filterVehiclesAria')}
-              autoFocus
             />
             {search && (
               <button
@@ -395,7 +409,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
           </div>
 
           {/* Vehicle list — grouped by type */}
-          <div className="max-h-[320px] overflow-y-auto overscroll-contain" role="listbox" id="vehpicker-listbox" aria-label={t('vehicleListAria')}>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" role="listbox" id="vehpicker-listbox" aria-label={t('vehicleListAria')}>
             {totalFiltered === 0 ? (
               <div className="py-10 text-center text-muted-foreground">
                 <SearchX className="w-6 h-6 mx-auto mb-2 opacity-30" />
@@ -419,12 +433,13 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
                       )
                     })()}
                     {vehs.map((veh) => {
-                      const globalIdx = visibleVehicles.indexOf(veh)
+                      const globalIdx = rowIndex.get(veh.id) ?? -1
                       return (
                         <button
                           key={veh.id}
                           type="button"
                           role="option"
+                          id={`vehpicker-opt-${globalIdx}`}
                           aria-selected={veh.id === value}
                           data-veh-index={globalIdx}
                           onClick={() => handleSelect(veh.id)}
@@ -459,7 +474,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
           </div>
 
           {/* Footer */}
-          <div className="border-t border-border/40 px-3 h-8 flex items-center justify-between gap-3 text-[11px] text-muted-foreground bg-card/30">
+          <div className="shrink-0 border-t border-border/40 px-3 h-8 flex items-center justify-between gap-3 text-[11px] text-muted-foreground bg-card/30 [@media(max-height:30rem)]:hidden">
             <span className="shrink-0 tabular-nums">
               {capped
                 ? (
@@ -472,7 +487,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
                 )
                 : t('vehiclesCount', { count: totalFiltered })}
             </span>
-            <div className="flex items-center gap-3 text-[10px] opacity-60">
+            <div className="hidden sm:flex items-center gap-3 text-[10px] opacity-60">
               <span>{t('navigateHint')}</span>
               <span>{t('selectHint')}</span>
               <span>{t('closeHint')}</span>
@@ -483,8 +498,8 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
               </span>
             )}
           </div>
-        </div>
-      )}
-    </div>
+        </PopoverContent>
+      </div>
+    </Popover>
   )
 }

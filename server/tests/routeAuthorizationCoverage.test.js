@@ -118,6 +118,7 @@ const BLANKET_GATED_FILES = {
   "scheduler.js": { mustContain: "router.use(requirePermission('automation.manage'));" },
   "serverFinder.js": { mustContain: "router.use(requirePermission('server.install'));" },
   "serverFiles.js": { mustContain: 'router.use(requirePermission("serverfiles.manage"));' },
+  "files.js": { mustContain: 'router.use(requirePermission("files.manage"));' },
   "permissions.js": { mustContain: 'router.use(requirePermission("roles.manage"));' },
   // Wrapped, not a direct call: gates every route EXCEPT /thumbnail/* (see
   // that route's own entry in UNGATED_BY_DESIGN below) via a

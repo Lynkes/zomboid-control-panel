@@ -1,7 +1,7 @@
 {
   "noAccess": {
     "title": "No tienes acceso a la configuración del servidor",
-    "description": "Esta página requiere el permiso «Administrar archivos del servidor». Pide a un administrador que se lo conceda a tu rol si necesitas editar la configuración del servidor aquí."
+    "description": "Esta página requiere el permiso «Editar archivos de configuración del servidor». Pide a un administrador que se lo conceda a tu rol si necesitas editar la configuración del servidor aquí."
   },
   "duplicateKeysWarning": {
     "title_one": "«{{keys}}» aparece más de una vez en este archivo de configuración",
