@@ -79,6 +79,7 @@ import { getUserErrorMessage, getResultErrorMessage } from '@/lib/errorMessage'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -3329,14 +3330,23 @@ export default function Mods() {
                 }
               }}
             >
-                <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
+                {/* 2026-09 dialog sweep: this scrolled as a whole under its own
+                    85vh cap, with a fixed-height mod list scrolling inside it,
+                    so on a 1280x620 laptop "Add N Mods to Server" started
+                    below the fold and the wheel over the list never reached
+                    it. Now DialogContent's own bound applies and only the
+                    DialogBody scrolls; it is a flex column whose mod list
+                    keeps its old height cap on a tall window but shrinks
+                    (never below 6rem) to the room left on a short one, so
+                    the list is the one scroller. */}
+                <DialogContent className="max-w-2xl">
                   <DialogHeader>
                     <DialogTitle>{t('collectionDialog.title')}</DialogTitle>
                     <DialogDescription>
                       {t('collectionDialog.description')}
                     </DialogDescription>
                   </DialogHeader>
-                  <div className="space-y-4">
+                  <DialogBody className="flex flex-col gap-4">
                     <div>
                       <div className="flex items-center gap-1.5">
                         <Label htmlFor="collection-url-input">{t('collectionDialog.urlLabel')}</Label>
@@ -3371,7 +3381,7 @@ export default function Mods() {
                     )}
 
                     {collectionMods.length > 0 && (
-                      <div className="space-y-2">
+                      <div className="flex min-h-0 flex-col gap-2">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                           <Label>{t('collectionDialog.foundMods', { count: collectionMods.length })}</Label>
                           <div className="flex gap-2 flex-wrap justify-end">
@@ -3398,7 +3408,7 @@ export default function Mods() {
                             </Button>
                           </div>
                         </div>
-                        <ScrollArea className="h-[min(48vh,22rem)] border rounded-lg p-2 sm:h-[min(52vh,24rem)]">
+                        <div className="min-h-24 max-h-[min(48vh,22rem)] overflow-y-auto rounded-lg border p-2 sm:max-h-[min(52vh,24rem)]">
                           <div className="space-y-2">
                             {collectionMods.map((mod) => {
                               const alreadyInstalled = iniConfig?.workshopIds?.includes(mod.workshopId)
@@ -3414,7 +3424,7 @@ export default function Mods() {
                                 />
                                 <div className="flex-1 space-y-1 min-w-0">
                                   <div className="flex items-center gap-2 min-w-0">
-                                    <span className="font-medium text-sm truncate">{mod.name}</span>
+                                    <span className="font-medium text-sm truncate" title={mod.name}>{mod.name}</span>
                                     {alreadyInstalled && (
                                       <Badge variant="outline" className="text-xs text-muted-foreground">
                                         {t('collectionDialog.installedBadge')}
@@ -3471,10 +3481,10 @@ export default function Mods() {
                               </div>
                             )})}
                           </div>
-                        </ScrollArea>
+                        </div>
                       </div>
                     )}
-                  </div>
+                  </DialogBody>
                   <DialogFooter>
                     <Button variant="outline" onClick={() => setCollectionDialogOpen(false)}>
                       {t('collectionDialog.cancel')}
@@ -3506,7 +3516,13 @@ export default function Mods() {
                   }
                 }
               }}>
-                <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
+                {/* 2026-09 dialog sweep: after Discover, the mod panel (and
+                    the mod-ID list with Review IDs open, its own 50vh scroller
+                    inside a dialog that scrolled as a whole) pushed the Add
+                    button below the fold at 1280x620. Only the DialogBody
+                    scrolls now, under DialogContent's own bound, and the ID
+                    list flows in it. */}
+                <DialogContent className="max-w-lg">
                   <DialogHeader>
                     <DialogTitle>{t('addModDialog.title')}</DialogTitle>
                     <DialogDescription>
@@ -3520,7 +3536,7 @@ export default function Mods() {
                       </button>.
                     </DialogDescription>
                   </DialogHeader>
-                  <div className="space-y-4">
+                  <DialogBody className="space-y-4">
                     {/* Input section */}
                     <div className="space-y-2">
                       <Label htmlFor="advanced-mod-input" className="sr-only">{t('addModDialog.inputLabel')}</Label>
@@ -3693,7 +3709,7 @@ export default function Mods() {
                                     </Button>
                                   </div>
                                 )}
-                                <div className="space-y-1 max-h-[50vh] overflow-y-auto rounded-lg border border-border/50 bg-background/50 p-1.5">
+                                <div className="space-y-1 rounded-lg border border-border/50 bg-background/50 p-1.5">
                                   {discoveredMod.modIds.map((modId) => {
                                     const isConfigured = discoveredMod.alreadyConfigured?.includes(modId)
                                     return (
@@ -3761,7 +3777,7 @@ export default function Mods() {
                             <MapIcon className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
                             <div>
                               <span className="font-medium">{t('addModDialog.mapFoldersWillBeAdded')}</span>
-                              <div className="text-muted-foreground mt-0.5">
+                              <div className="text-muted-foreground mt-0.5 [overflow-wrap:anywhere]">
                                 {discoveredMod.mapFolders.join(', ')}
                               </div>
                             </div>
@@ -3769,7 +3785,7 @@ export default function Mods() {
                         )}
                       </div>
                     )}
-                  </div>
+                  </DialogBody>
                   <DialogFooter className="flex-col sm:flex-row gap-2">
                     <Button
                       variant="outline"
@@ -3811,7 +3827,10 @@ export default function Mods() {
                       {t('restartSettingsDialog.description')}
                     </DialogDescription>
                   </DialogHeader>
-                  <div className="space-y-4">
+                  {/* DialogBody (2026-09 dialog sweep): with "Delay if players
+                      online" on, a landscape phone scrolled Save Settings
+                      below the fold. */}
+                  <DialogBody className="space-y-4">
                     <div>
                       <Label htmlFor="restart-warning-minutes">{t('restartSettingsDialog.warningTimeLabel')}</Label>
                       <NumberInput
@@ -3863,7 +3882,7 @@ export default function Mods() {
                         {delayIfPlayersOnline && <p>{t('restartSettingsDialog.currentMaxDelay', { minutes: maxDelayMinutes })}</p>}
                       </div>
                     </div>
-                  </div>
+                  </DialogBody>
                   <DialogFooter className="flex-col sm:flex-row gap-2">
                     <Button variant="outline" onClick={() => setRestartSettingsOpen(false)} className="w-full sm:w-auto">
                       {t('restartSettingsDialog.cancel')}

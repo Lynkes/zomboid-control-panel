@@ -158,7 +158,7 @@ export function BridgeChecksumDialog({ open, onOpenChange, status, playerCount, 
           in a DialogBody so the buttons stay on screen on a phone or a
           zoomed-in window; the short restart prompt needs no body. */}
       <DialogContent className="sm:max-w-xl">
-        <DialogHeader className="pe-6">
+        <DialogHeader>
           <DialogTitle className="flex items-center gap-2 leading-snug">
             <ShieldCheck className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
             {t('checksumOffer.title')}

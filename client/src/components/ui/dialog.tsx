@@ -63,9 +63,21 @@ const DialogContent = React.forwardRef<
       // -- a grid row never shrinks to honor max-height (checked in
       // Chromium), so those scroll as a whole instead, which is also what a
       // DialogBody dialog degrades to in a browser without :has().
+      //
+      // grid-cols-[minmax(0,1fr)] (2026-09 community report, Templates
+      // preview: "doesn't appear in full"): without a column template the
+      // grid has one implicit `auto` column, and an auto track can never be
+      // narrower than the widest min-content inside it -- a truncate/nowrap
+      // line, a <pre>, a long path or mod list with no break point. That
+      // content widened the column past w-full/max-w-*, overflow-y-auto
+      // turned overflow-x to auto too, and the whole dialog scrolled
+      // sideways with its title and buttons (truncate never truncated). A
+      // 0 minimum keeps the one column at the dialog's width, so such
+      // content truncates, wraps or scrolls inside itself instead. The flex
+      // mode above ignores it, and a call site's own grid-cols-* replaces it.
       className={cn(
         "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
-        "max-h-[calc(100dvh-2rem)] overflow-y-auto has-[>[data-dialog-body]]:flex has-[>[data-dialog-body]]:flex-col",
+        "grid-cols-[minmax(0,1fr)] max-h-[calc(100dvh-2rem)] overflow-y-auto has-[>[data-dialog-body]]:flex has-[>[data-dialog-body]]:flex-col",
         className
       )}
       {...props}
@@ -85,8 +97,10 @@ const DialogHeader = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
+    // pe-8 keeps a long, wrapping title out from under the absolute close
+    // button (end-4 top-4, plus its focus ring) that every DialogContent draws.
     className={cn(
-      "flex flex-col space-y-1.5 text-center sm:text-start",
+      "flex flex-col space-y-1.5 pe-8 text-center sm:text-start",
       className
     )}
     {...props}
@@ -134,6 +148,13 @@ const DialogFooter = ({
 )
 DialogFooter.displayName = "DialogFooter"
 
+// [overflow-wrap:anywhere] on the title and description: both routinely
+// interpolate user data (a server, file, preset, template or player name, a
+// ban reason with a URL in it) that can be one long unbroken token. Tailwind's
+// break-words (overflow-wrap: break-word) would wrap it too, but doesn't
+// lower the text's min-content width, so in a flex row (an icon + title) it
+// still pushes the row past the dialog; `anywhere` does both. Text that fits
+// renders exactly as before.
 const DialogTitle = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Title>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
@@ -141,7 +162,7 @@ const DialogTitle = React.forwardRef<
   <DialogPrimitive.Title
     ref={ref}
     className={cn(
-      "text-lg font-semibold leading-none tracking-tight",
+      "text-lg font-semibold leading-none tracking-tight [overflow-wrap:anywhere]",
       className
     )}
     {...props}
@@ -155,7 +176,7 @@ const DialogDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Description
     ref={ref}
-    className={cn("text-sm text-muted-foreground", className)}
+    className={cn("text-sm text-muted-foreground [overflow-wrap:anywhere]", className)}
     {...props}
   />
 ))

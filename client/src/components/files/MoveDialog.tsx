@@ -107,7 +107,15 @@ export function MoveDialog({ open, profileId, root, rootLabel, paths, startDir, 
           <DialogTitle>{t('dialogs.move.title', { count: paths.length })}</DialogTitle>
           <DialogDescription>{t('dialogs.move.hint')}</DialogDescription>
         </DialogHeader>
-        <DialogBody className="space-y-3">
+        {/* One scroller (2026-09 dialog sweep): the folder list kept its own
+            max-h-72 scroll box inside the scrolling body, so a landscape
+            phone got two nested scrollers with the list's end below the
+            body's fold. The body is now a flex column whose list box shrinks
+            to the room left (never below 6rem) and scrolls by itself, with
+            the destination row fixed above it; on a tall window it keeps
+            its 18rem cap and looks as before. A failed move's error sits
+            outside the body, right above the buttons. */}
+        <DialogBody className="flex flex-col gap-3">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('dialogs.move.destLabel')}</p>
           <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/25 p-2 text-sm">
             <Button
@@ -119,7 +127,7 @@ export function MoveDialog({ open, profileId, root, rootLabel, paths, startDir, 
             >
               <ArrowUp aria-hidden="true" />
             </Button>
-            <span className="min-w-0 truncate">
+            <span className="min-w-0 truncate" title={dir ? `${rootLabel} / ${dir}` : rootLabel}>
               {rootLabel}
               {dir && (
                 <>
@@ -129,7 +137,7 @@ export function MoveDialog({ open, profileId, root, rootLabel, paths, startDir, 
               )}
             </span>
           </div>
-          <div className="min-h-[8rem] rounded-lg border border-border/60">
+          <div className="flex min-h-24 flex-col rounded-lg border border-border/60">
             {loading ? (
               <div className="flex h-32 items-center justify-center">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
@@ -137,7 +145,7 @@ export function MoveDialog({ open, profileId, root, rootLabel, paths, startDir, 
             ) : folders.length === 0 ? (
               folderEmpty && <p className="p-4 text-center text-sm text-muted-foreground">{t('list.empty.title')}</p>
             ) : (
-              <ul className="max-h-72 overflow-y-auto py-1">
+              <ul className="max-h-72 min-h-0 overflow-y-auto py-1">
                 {folders.map((folder) => (
                   <li key={folder.path}>
                     <button
@@ -146,7 +154,7 @@ export function MoveDialog({ open, profileId, root, rootLabel, paths, startDir, 
                       className="flex min-h-11 w-full items-center gap-2 px-3 text-start text-sm hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none sm:min-h-9"
                     >
                       <Folder className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-                      <bdi dir="ltr" className="min-w-0 flex-1 truncate">{folder.name}</bdi>
+                      <bdi dir="ltr" className="min-w-0 flex-1 truncate" title={folder.name}>{folder.name}</bdi>
                       <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground rtl:-scale-x-100" aria-hidden="true" />
                     </button>
                   </li>
@@ -154,8 +162,8 @@ export function MoveDialog({ open, profileId, root, rootLabel, paths, startDir, 
               </ul>
             )}
           </div>
-          {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
         </DialogBody>
+        {error && <p role="alert" className="text-xs text-destructive [overflow-wrap:anywhere]">{error}</p>}
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onCancel} disabled={busy}>{t('actions.cancel')}</Button>
           <Button onClick={() => void submit()} disabled={!canMoveHere}>

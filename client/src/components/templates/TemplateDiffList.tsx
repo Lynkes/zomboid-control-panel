@@ -11,6 +11,15 @@ interface DiffRow {
   to: unknown
 }
 
+// 2026-09 community report (Templates preview "doesn't appear in full"): the
+// value column used to be `shrink-0` with no width limit, so one long value
+// -- a captured Mods= / WorkshopItems= list, a welcome message, an item list
+// -- made its row wider than the dialog and the whole dialog scrolled
+// sideways, showing either the labels or the values, never both. Values now
+// get at most 60% of the row beside the label from sm: up and wrap anywhere
+// inside it (mod lists and item IDs have no spaces to break at); below sm:
+// the value goes under its label, so neither is squeezed to a sliver on a
+// phone. A value that fits looks exactly as before.
 function DiffRows({ rows, emptyText }: { rows: DiffRow[]; emptyText: string }) {
   if (rows.length === 0) {
     return <p className="text-xs text-muted-foreground">{emptyText}</p>
@@ -18,15 +27,18 @@ function DiffRows({ rows, emptyText }: { rows: DiffRow[]; emptyText: string }) {
   return (
     <ul className="divide-y divide-border/50 rounded-md border border-border/50">
       {rows.map((row) => (
-        <li key={`${row.sub || ''}${row.label}`} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-          <div className="min-w-0">
-            <p className="truncate font-medium text-foreground">{row.label}</p>
+        <li
+          key={`${row.sub || ''}${row.label}`}
+          className="flex flex-col gap-1 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+        >
+          <div className="min-w-0 sm:flex-1">
+            <p className="truncate font-medium text-foreground" title={row.label}>{row.label}</p>
             {row.sub && <p className="text-[11px] uppercase tracking-wide text-muted-foreground/70">{row.sub}</p>}
           </div>
-          <div className="flex shrink-0 items-center gap-1.5 font-mono text-xs">
-            <span className="text-muted-foreground line-through">{formatDiffValue(row.from)}</span>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 font-mono text-xs [overflow-wrap:anywhere] sm:max-w-[60%] sm:justify-end">
+            <span className="min-w-0 text-muted-foreground line-through">{formatDiffValue(row.from)}</span>
             <span className="text-muted-foreground">&rarr;</span>
-            <span className="font-semibold text-primary">{formatDiffValue(row.to)}</span>
+            <span className="min-w-0 font-semibold text-primary">{formatDiffValue(row.to)}</span>
           </div>
         </li>
       ))}
@@ -80,7 +92,7 @@ export function TemplateDiffList({ diff, mods }: TemplateDiffListProps) {
           <>
             <ul className="rounded-md border border-border/50 divide-y divide-border/50">
               {mods.map((m) => (
-                <li key={m.workshopId} className="px-3 py-2 text-sm">
+                <li key={m.workshopId} className="px-3 py-2 text-sm [overflow-wrap:anywhere]">
                   {m.name || m.modId || m.workshopId}
                 </li>
               ))}

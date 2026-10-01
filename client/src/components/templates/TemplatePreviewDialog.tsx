@@ -5,6 +5,7 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
+  DialogBody,
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
@@ -24,7 +25,7 @@ import {
 import { resolveServerRunning } from '@/lib/serverStatus'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { TemplateDiffList } from './TemplateDiffList'
-import { TemplateApplyPanel } from './TemplateApplyPanel'
+import { TemplateApplyWarning, TemplateApplyScope, TemplateApplyOutcome, TemplateApplyFooter } from './TemplateApplyPanel'
 
 interface TemplatePreviewDialogProps {
   template: SimTemplate | null
@@ -174,7 +175,16 @@ export function TemplatePreviewDialog({ template, canManage, onClose, onApplied 
 
   return (
     <Dialog open={!!template} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+      {/* 2026-09 community report ("doesn't appear in full"): this used to
+          cap itself at 85vh and scroll as a whole, so Cancel/Apply Template
+          sat below the fold on every tested window, and a long value in the
+          diff widened it sideways (see TemplateDiffList). Now it takes
+          DialogContent's own viewport bound and only the DialogBody scrolls
+          -- why Apply is disabled, the diff, then what Apply writes -- while
+          the last Apply's outcome and the buttons stay pinned under it (see
+          TemplateApplyPanel for why the pieces sit where they do). pe-6
+          keeps a long template name clear of the close X. */}
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{template?.meta.name}</DialogTitle>
           <DialogDescription>{template?.meta.description}</DialogDescription>
@@ -200,20 +210,33 @@ export function TemplatePreviewDialog({ template, canManage, onClose, onApplied 
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>{t('previewFailedTitle')}</AlertTitle>
-            <AlertDescription>{diffError}</AlertDescription>
+            {/* The server's error often quotes a path or file name as one
+                unbroken token (EACCES on /srv/docker/.../servertest.ini); it
+                wraps anywhere instead of widening the dialog sideways past a
+                phone screen, as the Apply error below the diff already does. */}
+            <AlertDescription className="[overflow-wrap:anywhere]">{diffError}</AlertDescription>
           </Alert>
         ) : diff && template ? (
           <>
-            <TemplateDiffList diff={diff} mods={template.mods} />
-            <TemplateApplyPanel
+            <DialogBody className="space-y-4">
+              <TemplateApplyWarning running={running} canManage={canManage} applied={!!applyResult} />
+              <TemplateDiffList diff={diff} mods={template.mods} />
+              <TemplateApplyScope
+                scopeIni={scopeIni}
+                scopeSandbox={scopeSandbox}
+                onScopeIniChange={setScopeIni}
+                onScopeSandboxChange={setScopeSandbox}
+                canManage={canManage}
+                applied={!!applyResult}
+              />
+            </DialogBody>
+            <TemplateApplyOutcome applyError={applyError} applyResult={applyResult} canManage={canManage} />
+            <TemplateApplyFooter
               running={running}
               scopeIni={scopeIni}
               scopeSandbox={scopeSandbox}
-              onScopeIniChange={setScopeIni}
-              onScopeSandboxChange={setScopeSandbox}
               applying={applying}
-              applyError={applyError}
-              applyResult={applyResult}
+              applied={!!applyResult}
               canManage={canManage}
               canApply={diff.summary.totalChanges > 0}
               onApply={handleApply}

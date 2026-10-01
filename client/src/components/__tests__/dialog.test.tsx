@@ -6,7 +6,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogBody, DialogFooter, DialogTitle, DialogDescription,
 } from '../ui/dialog'
 import {
-  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogFooter, AlertDialogTitle,
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogBody, AlertDialogFooter, AlertDialogTitle,
   AlertDialogDescription, AlertDialogCancel, AlertDialogAction,
 } from '../ui/alert-dialog'
 
@@ -19,6 +19,11 @@ import {
 // rendered result was measured separately in headless Chromium.
 
 const BOUND = 'max-h-[calc(100dvh-2rem)]'
+// 2026-09 community report (Templates preview "doesn't appear in full"): one
+// shrinkable column, so no nowrap line, <pre> or unbroken value can widen
+// the grid past the dialog and scroll the whole thing sideways.
+const ONE_COLUMN = 'grid-cols-[minmax(0,1fr)]'
+const WRAP_ANYWHERE = '[overflow-wrap:anywhere]'
 const HAS_BODY_FLEX = 'has-[>[data-dialog-body]]:flex'
 const HAS_BODY_COL = 'has-[>[data-dialog-body]]:flex-col'
 
@@ -48,6 +53,24 @@ describe('DialogContent', () => {
     // No DialogBody: the :has() switch below matches nothing, so the grid
     // every existing dialog was built against is still what lays it out.
     expect(dialog.className).toMatch(/(^|\s)grid(\s|$)/)
+    expect(dialog.className).toContain(ONE_COLUMN)
+  })
+
+  it("lets a call site's own column template replace the one-column bound", () => {
+    const dialog = renderDialog('grid-cols-[220px_1fr]', false)
+    expect(dialog.className).toContain('grid-cols-[220px_1fr]')
+    expect(dialog.className).not.toContain(ONE_COLUMN)
+  })
+
+  it('wraps a long unbroken title or description instead of letting it set the width', () => {
+    renderDialog()
+    expect(screen.getByText('Edit').className).toContain(WRAP_ANYWHERE)
+    expect(screen.getByText('Change things').className).toContain(WRAP_ANYWHERE)
+  })
+
+  it('keeps the header clear of the close button, so a wrapping title never runs under the X', () => {
+    renderDialog()
+    expect(screen.getByText('Edit').parentElement?.className).toContain('pe-8')
   })
 
   it("lets a call site's own height cap replace the default instead of stacking with it", () => {
@@ -112,6 +135,37 @@ describe('AlertDialogContent', () => {
     const dialog = screen.getByRole('alertdialog')
     expect(dialog.className).toContain(BOUND)
     expect(dialog.className).toContain('overflow-y-auto')
+    expect(dialog.className).toContain(ONE_COLUMN)
+    expect(screen.getByText('Are you absolutely sure?').className).toContain(WRAP_ANYWHERE)
+    expect(screen.getByText('Deletes it.').className).toContain(WRAP_ANYWHERE)
+  })
+
+  it('takes an AlertDialogBody as its one scrolling middle, keeping the title and buttons outside it', () => {
+    render(
+      <AlertDialog open>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Wipe server</AlertDialogTitle>
+            <AlertDialogDescription>Removes things.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogBody>targets</AlertDialogBody>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction>Wipe now</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>,
+    )
+    const dialog = screen.getByRole('alertdialog')
+    expect(dialog.className).toContain(HAS_BODY_FLEX)
+    expect(dialog.className).toContain(HAS_BODY_COL)
+    const body = dialog.querySelector<HTMLElement>('[data-dialog-body]')!
+    expect(body.parentElement).toBe(dialog)
+    expect(body.className).toContain('min-h-0')
+    expect(body.className).toContain('overflow-y-auto')
+    expect(body.contains(screen.getByRole('button', { name: 'Wipe now' }))).toBe(false)
+    expect(body.contains(screen.getByRole('button', { name: 'Cancel' }))).toBe(false)
+    expect(body.contains(screen.getByText('Wipe server'))).toBe(false)
   })
 })
 
@@ -123,9 +177,10 @@ describe('Tailwind output for the new class strings', () => {
   it('emits the dvh bound, the :has() flex switch and the DialogBody scroll and rule classes', async () => {
     const dialog = renderDialog()
     const body = dialog.querySelector<HTMLElement>('[data-dialog-body]')!
+    const title = screen.getByText('Edit')
     const { css } = await postcss([
       tailwindcss({
-        content: [{ raw: `${dialog.className} ${body.className}` }],
+        content: [{ raw: `${dialog.className} ${body.className} ${title.className}` }],
         corePlugins: { preflight: false },
       }),
     ]).process('@tailwind utilities;', { from: undefined })
@@ -137,5 +192,7 @@ describe('Tailwind output for the new class strings', () => {
     expect(compact).toMatch(/\.min-h-0 \{ min-height: 0px/)
     expect(compact).toMatch(/\.overflow-y-auto \{ overflow-y: auto/)
     expect(compact).toMatch(/\.border-y \{ border-top-width: 1px; border-bottom-width: 1px/)
+    expect(compact).toMatch(/\{ grid-template-columns: minmax\(0,1fr\)/)
+    expect(compact).toMatch(/\{ overflow-wrap: anywhere/)
   })
 })

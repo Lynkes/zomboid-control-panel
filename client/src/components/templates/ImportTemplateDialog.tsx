@@ -5,6 +5,7 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
+  DialogBody,
   DialogTitle,
   DialogDescription,
   DialogFooter,
@@ -72,7 +73,12 @@ export function ImportTemplateDialog({ open, onClose, onImported }: ImportTempla
           <DialogDescription>{t('description')}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
+        {/* DialogBody (2026-09 dialog sweep): the 10-row paste box used to
+            push Cancel/Import below a short window, and a failed import's
+            error then pushed them out of view entirely. Only the body
+            scrolls now; the error sits outside it, right above the buttons,
+            so the click that failed shows why. */}
+        <DialogBody className="space-y-3">
           <input
             ref={fileInputRef}
             type="file"
@@ -91,13 +97,13 @@ export function ImportTemplateDialog({ open, onClose, onImported }: ImportTempla
             rows={10}
             className="font-mono text-xs"
           />
-          {error && (
-            <Alert variant="destructive">
-              <AlertTitle>{t('importFailedTitle')}</AlertTitle>
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-        </div>
+        </DialogBody>
+        {error && (
+          <Alert variant="destructive">
+            <AlertTitle>{t('importFailedTitle')}</AlertTitle>
+            <AlertDescription className="[overflow-wrap:anywhere]">{error}</AlertDescription>
+          </Alert>
+        )}
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={importing}>{t('cancel')}</Button>

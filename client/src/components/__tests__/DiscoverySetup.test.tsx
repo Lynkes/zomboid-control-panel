@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { DiscoverySetup } from '../DiscoverySetup'
 import { serversApi, type DiscoveredMount } from '@/lib/api'
@@ -136,5 +136,36 @@ describe('DiscoverySetup', () => {
       fireEvent.click(addButton)
       expect(createFromDiscovery).not.toHaveBeenCalled()
     })
+  })
+})
+
+// 2026-09 dialog sweep: with the configuration Select shown the dialog
+// scrolled as a whole and "Add server" went below the fold on a landscape
+// phone; and its first tabbable element is a HelpTip, whose tooltip used to
+// open over the dialog on every open (see HelpTip.test.tsx).
+describe('DiscoverySetup fits a short window', () => {
+  const multi: DiscoveredMount = { ...mount, serverNames: ['servertest', 'DoomerZ_PvP_Arena_B42_weekly_wipe_test_config'] }
+
+  it('scrolls only the fields; a failed create shows above the buttons, outside the body', async () => {
+    createFromDiscovery.mockRejectedValue(new Error('install path is not readable'))
+    renderDiscoverySetup({ open: true, onOpenChange: vi.fn(), mount: multi, onCreated: vi.fn() })
+    const dialog = screen.getByRole('dialog')
+    const body = dialog.querySelector<HTMLElement>(':scope > [data-dialog-body]')
+    expect(body).not.toBeNull()
+    expect(body!.contains(within(dialog).getByRole('combobox'))).toBe(true)
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add server' }))
+    const error = await within(dialog).findByRole('alert')
+    expect(body!.contains(error)).toBe(false)
+    for (const name of ['Add server', 'Cancel']) {
+      expect(body!.contains(within(dialog).getByRole('button', { name }))).toBe(false)
+    }
+  })
+
+  it('opens without a tooltip over it', async () => {
+    renderDiscoverySetup({ open: true, onOpenChange: vi.fn(), mount: multi, onCreated: vi.fn() })
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /^Help: / })[0]).toHaveFocus())
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 })

@@ -17,6 +17,13 @@ import { configApi, panelUpdateApi } from '@/lib/api'
 // Capped with the exact same `max-h-48 overflow-y-auto` pattern
 // ConfirmContext.tsx already uses for its own optional items list, rather
 // than inventing a new bound.
+//
+// 2026-09 dialog sweep: that nested cap is gone -- on a landscape phone the
+// capped list still sat inside a dialog that scrolled as a whole, so it was a
+// second scroller and Restart/Cancel were below the fold anyway. The whole
+// description (warnings included) now scrolls in one AlertDialogBody with
+// the buttons pinned outside it, which is the same guarantee: the list can
+// grow without pushing the buttons off-screen.
 
 vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
@@ -70,7 +77,7 @@ afterEach(() => {
 })
 
 describe('Settings.tsx: Confirm Apply Update warnings list stays capped', () => {
-  it('caps the preflight warnings list so a long, real-world warning set cannot push the dialog open', async () => {
+  it('keeps a long, real-world warning set in the scrolling body, away from the pinned buttons', async () => {
     getAppSettings.mockResolvedValue({ settings: {} })
     getStatus.mockResolvedValue({
       currentVersion: '1.3.1', updateAvailable: true, latestVersion: '1.3.6',
@@ -100,10 +107,14 @@ describe('Settings.tsx: Confirm Apply Update warnings list stays capped', () => 
     const dialog = await screen.findByRole('alertdialog')
     const warningsList = dialog.querySelector('ul')
     expect(warningsList).toBeTruthy()
-    expect(warningsList!.className).toMatch(/max-h-48/)
-    expect(warningsList!.className).toMatch(/overflow-y-auto/)
-    // All six warnings still render (nothing was truncated/dropped) -- the
-    // cap is a scroll bound, not a content limit.
+    const body = dialog.querySelector<HTMLElement>(':scope > [data-dialog-body]')
+    expect(body).not.toBeNull()
+    expect(body!.contains(warningsList)).toBe(true)
+    expect(body!.className).toContain('overflow-y-auto')
+    expect(body!.contains(screen.getByRole('button', { name: /^restart and apply$/i }))).toBe(false)
+    // One scroller: the list itself has no nested cap.
+    expect(warningsList!.className).not.toMatch(/max-h-|overflow-y-auto/)
+    // All six warnings still render (nothing was truncated/dropped).
     expect(warningsList!.querySelectorAll('li').length).toBe(6)
   })
 })

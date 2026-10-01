@@ -44,6 +44,7 @@ import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
+  AlertDialogBody,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -3281,7 +3282,11 @@ export default function ChunkCleaner() {
               </AlertDialogDescription>
             </AlertDialogHeader>
 
-            <div className="space-y-4">
+            {/* AlertDialogBody (2026-09 dialog sweep): the backup, vehicles
+                and safehouse rows scrolled the whole confirm on a landscape
+                phone, taking "Delete selected chunks" below the fold; now
+                only they scroll. */}
+            <AlertDialogBody className="space-y-4">
               <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
                 <div>
                   <Label>{t("deleteDialog.backupLabel")}</Label>
@@ -3356,7 +3361,11 @@ export default function ChunkCleaner() {
                         count: overlapping.length,
                       })}
                     </p>
-                    <p className="text-muted-foreground text-xs mt-1 truncate">
+                    {/* Wraps rather than truncates: `truncate` in the old
+                        auto-width grid never truncated (it widened the
+                        confirm past the screen), and once bounded it would
+                        cut the "structures will be lost" warning off. */}
+                    <p className="text-muted-foreground text-xs mt-1 [overflow-wrap:anywhere]">
                       {overlapping
                         .slice(0, 5)
                         .map((sh) => sh.owner || sh.title || t("deleteDialog.safehouseUnknown"))
@@ -3371,7 +3380,7 @@ export default function ChunkCleaner() {
                   </div>
                 ) : null;
               })()}
-            </div>
+            </AlertDialogBody>
 
             <AlertDialogFooter>
               <AlertDialogCancel disabled={deleting}>
@@ -3424,7 +3433,11 @@ export default function ChunkCleaner() {
               </AlertDialogDescription>
             </AlertDialogHeader>
 
-            <div className="space-y-3 py-2">
+            {/* AlertDialogBody (2026-09 dialog sweep): up to three matched
+                command lines of up to 240 chars each pushed Cancel and
+                "Server is stopped -- force delete" -- the whole point of this
+                dialog -- below the fold; now only the list scrolls. */}
+            <AlertDialogBody className="space-y-3">
               {serverRunningDialog.matched.length > 0 ? (
                 <div className="rounded-lg border bg-muted/40 p-3">
                   <p className="text-xs font-medium text-muted-foreground mb-2">
@@ -3458,7 +3471,7 @@ export default function ChunkCleaner() {
                   {t("serverRunningDialog.overrideWarningDesc")}
                 </p>
               </div>
-            </div>
+            </AlertDialogBody>
 
             <AlertDialogFooter>
               <AlertDialogCancel

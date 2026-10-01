@@ -35,7 +35,14 @@ const ScrollArea = React.forwardRef<
     )}
     {...props}
   >
-    <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]">
+    {/* max-h-[inherit] (2026-09 dialog sweep, Players > Import/Export's
+        saved-exports list): the Viewport is h-full, which can't resolve
+        against a Root that only has a max-height -- so the Viewport grew
+        to its full content, the Root's overflow-hidden clipped it, and
+        nothing scrolled: rows past the cap were unreachable. Inheriting
+        the Root's max-height makes a max-h-* ScrollArea scroll the way an
+        h-* one does; a Root without one inherits "none" and is unchanged. */}
+    <ScrollAreaPrimitive.Viewport className="h-full max-h-[inherit] w-full rounded-[inherit]">
       {children}
     </ScrollAreaPrimitive.Viewport>
     <ScrollBar />

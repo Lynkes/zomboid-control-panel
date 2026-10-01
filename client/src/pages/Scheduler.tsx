@@ -32,6 +32,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -1115,7 +1116,13 @@ export default function Scheduler() {
             </DialogTrigger>
           }
         />
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-h-[80vh]">
+        {/* 2026-09 dialog sweep: the task form is taller than its own old
+            85vh/80vh cap at every size but 1920x1080, and scrolled as a
+            whole, so Create Task / Save Changes started off-screen and the
+            title scrolled away on the way to it. It now takes
+            DialogContent's own bound and only the DialogBody scrolls (the
+            Selects already portal out of it). */}
+        <DialogContent>
             <DialogHeader>
               <DialogTitle>{editingTask ? t('dialog.editTitle') : t('dialog.createTitle')}</DialogTitle>
               <DialogDescription>
@@ -1124,7 +1131,7 @@ export default function Scheduler() {
                   : t('dialog.createDescription')}
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-4">
+            <DialogBody className="space-y-4">
               <div>
                 <Label>{t('dialog.taskNameLabel')}</Label>
                 <Input
@@ -1362,7 +1369,7 @@ export default function Scheduler() {
                   {t('dialog.targetServerHelp')}
                 </p>
               </div>
-            </div>
+            </DialogBody>
             <DialogFooter>
               <Button onClick={handleCreateTask} disabled={loading} className="gap-2">
                 {loading && <Loader2 className="w-4 h-4 animate-spin" />}

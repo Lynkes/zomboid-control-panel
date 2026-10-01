@@ -81,6 +81,7 @@ import {
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
+  AlertDialogBody,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -3971,11 +3972,21 @@ export default function Settings() {
                           {t("updates.restartAndApplyButton")}
                         </Button>
                       </AlertDialogTrigger>
+                      {/* 2026-09 dialog sweep: the preflight warnings plus the
+                          helper-log path pushed Restart/Cancel below the fold
+                          on a landscape phone, with the warnings list a second
+                          scroller inside; and the log path (a Desktop install
+                          has a long unbroken run) widened the confirm past a
+                          phone screen, cutting the risk checkbox's label. The
+                          description scrolls in one AlertDialogBody now, under
+                          the pinned title and buttons, and the path breaks. */}
                       <AlertDialogContent>
                         <AlertDialogHeader>
                           <AlertDialogTitle>
                             {t("updates.confirmApplyTitle")}
                           </AlertDialogTitle>
+                        </AlertDialogHeader>
+                        <AlertDialogBody className="text-center sm:text-start">
                           <AlertDialogDescription asChild>
                             <div className="space-y-3 text-sm">
                               <p>
@@ -3992,7 +4003,7 @@ export default function Settings() {
                                   <p className="font-medium text-foreground">
                                     {t("updates.confirmBeforeContinuing")}
                                   </p>
-                                  <ul className="mt-1 max-h-48 list-disc space-y-1 overflow-y-auto ps-5">
+                                  <ul className="mt-1 list-disc space-y-1 ps-5 text-start">
                                     {translatePanelUpdateMessages(
                                       panelUpdatePreflight.warnings,
                                       panelUpdatePreflight.warningDetails,
@@ -4018,11 +4029,11 @@ export default function Settings() {
                                       || runtimeInfo?.temporaryDirectory
                                       || t("updates.logPathUnavailable"),
                                   }}
-                                  components={{ code: <code /> }}
+                                  components={{ code: <code className="break-all" /> }}
                                 />
                               </p>
                               {updateRestartIsRisky && (
-                                <label className="flex items-start gap-2 text-sm text-foreground">
+                                <label className="flex items-start gap-2 text-sm text-foreground text-start">
                                   <Checkbox
                                     checked={applyRiskConfirmed}
                                     onCheckedChange={(checked) => setApplyRiskConfirmed(checked === true)}
@@ -4032,7 +4043,7 @@ export default function Settings() {
                               )}
                             </div>
                           </AlertDialogDescription>
-                        </AlertDialogHeader>
+                        </AlertDialogBody>
                         <AlertDialogFooter>
                           <AlertDialogCancel>{t("updates.cancel")}</AlertDialogCancel>
                           <AlertDialogAction

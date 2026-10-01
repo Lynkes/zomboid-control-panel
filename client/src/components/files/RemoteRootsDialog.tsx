@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -72,60 +73,68 @@ export function RemoteRootsDialog({ open, profile, canEdit, onClose, onSaved }: 
           <DialogTitle>{t('remote.title')}</DialogTitle>
           <DialogDescription>{t('remote.description')}</DialogDescription>
         </DialogHeader>
-        <form
-          className="space-y-4"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void save()
-          }}
-        >
-          {!canEdit && (
-            <p className="rounded-lg border border-border/60 bg-muted/40 p-3 text-sm text-muted-foreground">{t('remote.needsBridgeSetup')}</p>
-          )}
-          <div>
-            <Label htmlFor="files-remote-install">{t('remote.installLabel')}</Label>
-            <Input
-              id="files-remote-install"
-              dir="ltr"
-              value={installPath}
-              onChange={(event) => setInstallPath(event.target.value)}
-              disabled={!canEdit || busy}
-              spellCheck={false}
-              autoComplete="off"
-              className="mt-1.5 min-h-11 font-mono sm:min-h-9"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">{t('remote.installHelp')}</p>
-          </div>
-          <div>
-            <Label htmlFor="files-remote-data">{t('remote.dataLabel')}</Label>
-            <Input
-              id="files-remote-data"
-              dir="ltr"
-              value={dataPath}
-              placeholder={derived}
-              onChange={(event) => setDataPath(event.target.value)}
-              disabled={!canEdit || busy}
-              spellCheck={false}
-              autoComplete="off"
-              className="mt-1.5 min-h-11 font-mono sm:min-h-9"
-            />
-            {derived && <p className="mt-1 text-xs text-muted-foreground">{t('remote.dataHelp', { derived })}</p>}
-          </div>
-          {reachesEverything && (
-            <p className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-              {t('remote.rootWarning')}
-            </p>
-          )}
-          {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
-          <DialogFooter className="gap-2">
-            <Button type="button" variant="outline" onClick={onClose} disabled={busy}>{t('actions.cancel')}</Button>
-            <Button type="submit" disabled={!canEdit || busy}>
-              {busy && <Loader2 className="animate-spin" aria-hidden="true" />}
-              {t('remote.save')}
-            </Button>
-          </DialogFooter>
-        </form>
+        {/* DialogBody (2026-09 dialog sweep): the form and its footer used to
+            be one grid row, so the root warning or an error scrolled the
+            whole dialog and took Save below the fold on a landscape phone.
+            The fields scroll now; the error and the buttons stay put, the
+            submit button reaching the form by id. */}
+        <DialogBody>
+          <form
+            id="files-remote-roots-form"
+            className="space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void save()
+            }}
+          >
+            {!canEdit && (
+              <p className="rounded-lg border border-border/60 bg-muted/40 p-3 text-sm text-muted-foreground">{t('remote.needsBridgeSetup')}</p>
+            )}
+            <div>
+              <Label htmlFor="files-remote-install">{t('remote.installLabel')}</Label>
+              <Input
+                id="files-remote-install"
+                dir="ltr"
+                value={installPath}
+                onChange={(event) => setInstallPath(event.target.value)}
+                disabled={!canEdit || busy}
+                spellCheck={false}
+                autoComplete="off"
+                className="mt-1.5 min-h-11 font-mono sm:min-h-9"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">{t('remote.installHelp')}</p>
+            </div>
+            <div>
+              <Label htmlFor="files-remote-data">{t('remote.dataLabel')}</Label>
+              <Input
+                id="files-remote-data"
+                dir="ltr"
+                value={dataPath}
+                placeholder={derived}
+                onChange={(event) => setDataPath(event.target.value)}
+                disabled={!canEdit || busy}
+                spellCheck={false}
+                autoComplete="off"
+                className="mt-1.5 min-h-11 font-mono sm:min-h-9"
+              />
+              {derived && <p className="mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">{t('remote.dataHelp', { derived })}</p>}
+            </div>
+            {reachesEverything && (
+              <p className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                {t('remote.rootWarning')}
+              </p>
+            )}
+          </form>
+        </DialogBody>
+        {error && <p role="alert" className="text-xs text-destructive [overflow-wrap:anywhere]">{error}</p>}
+        <DialogFooter className="gap-2">
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>{t('actions.cancel')}</Button>
+          <Button type="submit" form="files-remote-roots-form" disabled={!canEdit || busy}>
+            {busy && <Loader2 className="animate-spin" aria-hidden="true" />}
+            {t('remote.save')}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

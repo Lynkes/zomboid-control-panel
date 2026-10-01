@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label'
 import { HelpTip } from '@/components/HelpTip'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogHeader,
   DialogTitle,
@@ -528,7 +529,10 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
             <DialogTitle>{t('createDialog.title')}</DialogTitle>
             <DialogDescription>{t('createDialog.description')}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
+          {/* DialogBody (2026-09 dialog sweep): on a landscape phone the
+              form scrolled as a whole and Create account started below the
+              fold; a failed create's error sits right above the buttons. */}
+          <DialogBody className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="new-user-username">{t('createDialog.usernameLabel')}</Label>
               <Input
@@ -579,8 +583,8 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
                 </SelectContent>
               </Select>
             </div>
-            {formError && <p className="text-sm text-destructive">{formError}</p>}
-          </div>
+          </DialogBody>
+          {formError && <p className="text-sm text-destructive [overflow-wrap:anywhere]">{formError}</p>}
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={formBusy}>
               {t('createDialog.cancel')}

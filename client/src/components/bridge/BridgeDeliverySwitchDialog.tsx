@@ -250,7 +250,7 @@ export function BridgeDeliverySwitchDialog({
         // none; with no description the link is dropped explicitly.
         {...(description ? {} : { 'aria-describedby': undefined })}
       >
-        <DialogHeader className="pe-6">
+        <DialogHeader>
           <DialogTitle className="leading-snug">{title}</DialogTitle>
           {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>

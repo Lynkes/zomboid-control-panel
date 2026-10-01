@@ -143,9 +143,15 @@ export function UploadReplaceDialog({ open, folder, names, onChoose }: UploadRep
         <AlertDialogHeader>
           <AlertDialogTitle>{t('upload.existsTitle', { count: names.length, folder })}</AlertDialogTitle>
           <AlertDialogDescription>{t('upload.existsBody')}</AlertDialogDescription>
+          {/* Names wrap rather than truncate (2026-09 dialog sweep): a folder
+              upload keeps sub-paths, and truncated ones sharing a long prefix
+              (mod sub-folders, backups) would look identical in a "replace
+              these?" prompt -- while in the old auto-width grid a truncate
+              line never truncated at all, it pushed Skip existing / Replace
+              all off the side of the dialog. */}
           <ul className="mt-1 max-h-48 list-disc space-y-0.5 overflow-y-auto rounded-md border border-border/50 bg-muted/30 p-3 ps-7 text-sm text-muted-foreground">
             {names.slice(0, 10).map((name) => (
-              <li key={name} className="truncate"><bdi dir="ltr">{name}</bdi></li>
+              <li key={name} className="[overflow-wrap:anywhere]"><bdi dir="ltr">{name}</bdi></li>
             ))}
             {names.length > 10 && <li className="list-none">…</li>}
           </ul>

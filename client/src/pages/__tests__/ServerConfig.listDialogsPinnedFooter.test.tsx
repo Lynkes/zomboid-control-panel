@@ -149,4 +149,27 @@ describe('ServerConfig -- list dialogs keep their footer out of the shrinking li
       ...within(dialog).getAllByRole('button', { name: en.templatesDialog.close }),
     ])
   })
+
+  // 2026-09 dialog sweep: Saved Configs' title HelpTip was the dialog's first
+  // tabbable element, so its tooltip opened over the description on every
+  // open (see HelpTip.test.tsx for the fix); and Save Current Config's form
+  // scrolled as a whole, taking Save Config below the fold at 1280x620.
+  it('Saved Configs opens without its title tooltip over the description', async () => {
+    const dialog = await renderAndOpen(/saved configs/i)
+    await within(dialog).findByText('Template 0')
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+  })
+
+  it('Save Current Config: the fields scroll in a body; Save Config and Cancel stay out of it', async () => {
+    const templates = await renderAndOpen(/saved configs/i)
+    fireEvent.click(within(templates).getByRole('button', { name: en.templatesDialog.saveCurrentAsTemplate }))
+    const dialog = (await screen.findAllByRole('dialog')).find((d) => within(d).queryByText(en.saveTemplateDialog.title))!
+    const body = dialog.querySelector<HTMLElement>(':scope > [data-dialog-body]')
+    expect(body).not.toBeNull()
+    expect(body!.contains(within(dialog).getByLabelText(en.saveTemplateDialog.nameLabel))).toBe(true)
+    for (const name of [en.saveTemplateDialog.save, en.saveTemplateDialog.cancel]) {
+      expect(body!.contains(within(dialog).getByRole('button', { name }))).toBe(false)
+    }
+  })
 })
