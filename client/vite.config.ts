@@ -107,6 +107,19 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       globals: true,
       setupFiles: './src/test-setup.ts',
+      // Tests read the locale JSON straight from disk instead of through
+      // Vite: same object, about 2s less setup per test file. See
+      // src/i18n/__tests__/localeModules.fromDisk.ts. Only src/i18n/index.ts
+      // imports './localeModules'.
+      alias: [
+        {
+          find: /^\.\/localeModules$/,
+          replacement: path.resolve(__dirname, './src/i18n/__tests__/localeModules.fromDisk.ts'),
+        },
+      ],
+      env: {
+        ZCP_LOCALES_DIR: path.resolve(__dirname, './src/locales'),
+      },
       // Stock vitest per-test timeout is 5000ms. This floor commonly runs several concurrent
       // Claude agents plus normal dev tooling, and a cold-clone client-suite run has been
       // observed failing a single test under that contention while passing comfortably once
