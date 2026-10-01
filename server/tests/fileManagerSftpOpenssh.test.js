@@ -612,13 +612,23 @@ suite("real OpenSSH: a zip the client abandons", () => {
     srv.fs.writeFile("Zomboid/Logs/huge.bin", crypto.randomBytes(24 * 1024 * 1024));
     for (let attempt = 0; attempt < 6; attempt++) {
       const gone = new AbortController();
-      const response = await fetch(`${baseUrl}${P}/zip`, {
-        method: "POST",
-        signal: gone.signal,
-        headers: { "content-type": "application/json", "x-test-role": "admin" },
-        body: JSON.stringify({ root: "data", paths: ["Logs"] }),
-      });
-      expect(response.status).toBe(200);
+      // The zip that ended the previous attempt gives its slot back in the
+      // route's finally, which can run a moment after the client read its
+      // last byte: wait for it, as the "next zip" loop below does. A slot
+      // that never comes back still fails here after 5 seconds.
+      let response;
+      for (const started = Date.now(); ; ) {
+        response = await fetch(`${baseUrl}${P}/zip`, {
+          method: "POST",
+          signal: gone.signal,
+          headers: { "content-type": "application/json", "x-test-role": "admin" },
+          body: JSON.stringify({ root: "data", paths: ["Logs"] }),
+        });
+        if (response.status !== 429 || Date.now() - started >= 5000) break;
+        await response.body?.cancel();
+        await new Promise((done) => setTimeout(done, 100));
+      }
+      expect(response.status, `attempt ${attempt}: the abandoned zip`).toBe(200);
       const reader = response.body.getReader();
       let got = 0;
       while (got < [0, 65536, 524288][attempt % 3]) {
