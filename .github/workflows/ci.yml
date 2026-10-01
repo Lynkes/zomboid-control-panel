@@ -13,21 +13,14 @@ permissions:
   contents: read
 
 jobs:
-  server:
-    name: Server (lint + tests)
+  # The server suite runs in two parallel shards next to lint, and the
+  # `server` job at the end keeps the name branch protection requires,
+  # "Server (lint + tests)" -- same pattern as the client jobs below.
+  server-lint:
+    name: Server lint
     runs-on: ubuntu-latest
     steps:
-      # fetch-depth: 0 (full history) -- roleDescriptionStalenessGate.test.js
-      # needs real git blame/log history to detect a stale capability-
-      # description translation. actions/checkout defaults to depth 1: on a
-      # shallow clone, git blame attributes every line to the single shallow-
-      # boundary commit, which silently collapses that gate to "0 findings"
-      # regardless of actual drift (verified by cloning this repo at depth 1
-      # and confirming the collapse before this fix). The client job doesn't
-      # need this and stays shallow for its usual faster checkout.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          fetch-depth: 0
 
       - name: Reject obsolete standalone release notes
         shell: bash
@@ -58,6 +51,34 @@ jobs:
       - name: Lint
         run: npm run lint:server
 
+  server-tests:
+    name: Server tests (shard ${{ matrix.shard }}/2)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      # fetch-depth: 0 (full history) -- roleDescriptionStalenessGate.test.js
+      # needs real git blame/log history to detect a stale capability-
+      # description translation. actions/checkout defaults to depth 1: on a
+      # shallow clone, git blame attributes every line to the single shallow-
+      # boundary commit, which silently collapses that gate to "0 findings"
+      # regardless of actual drift (verified by cloning this repo at depth 1
+      # and confirming the collapse before this fix). Every shard fetches it,
+      # since which shard gets that file depends on the file list.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm install --no-audit --prefer-offline --include=optional
+
       # The Server Files SFTP suites run against a real OpenSSH sftp-server
       # (server/tests/helpers/opensshSftpServer.js), not only against
       # in-memory models of one: the models once hid a broken upload. With
@@ -86,22 +107,42 @@ jobs:
       # shape (no "Failed Tests" heading, i.e. zero real test failures,
       # AND the known error signature present) -- a real test failure
       # still fails the job immediately with no retry, since "Failed
-      # Tests" would be present and this condition is false.
+      # Tests" would be present and this condition is false. The retry
+      # reruns this shard only.
       - name: Tests
         shell: bash
         env:
           ZCP_REQUIRE_SFTP_SERVER: "1"
+          SHARD: ${{ matrix.shard }}/2
         run: |
-          if npm run test:server 2>&1 | tee /tmp/server-test-output.log; then
+          if npm run test:server -- --shard="$SHARD" 2>&1 | tee /tmp/server-test-output.log; then
             exit 0
           fi
           if grep -q 'EnvironmentTeardownError' /tmp/server-test-output.log && \
              ! grep -q 'Failed Tests' /tmp/server-test-output.log; then
             echo "::warning::vitest-worker-teardown-flake-exits-1 (known upstream race, 0 real test failures) -- retrying once"
-            npm run test:server
+            npm run test:server -- --shard="$SHARD"
           else
             exit 1
           fi
+
+  server:
+    name: Server (lint + tests)
+    if: always()
+    needs: [server-lint, server-tests]
+    runs-on: ubuntu-latest
+    steps:
+      # always(), so a failed or cancelled shard turns this check red instead
+      # of leaving it skipped, which branch protection would count as passed.
+      - name: Require lint and every test shard
+        shell: bash
+        env:
+          RESULTS: ${{ needs.server-lint.result }} ${{ needs.server-tests.result }}
+        run: |
+          echo "lint, test shards: $RESULTS"
+          for result in $RESULTS; do
+            [ "$result" = "success" ] || exit 1
+          done
 
   # Deliberately a SEPARATE job from `server`, not a step tacked onto it: this check must never be
   # able to red-gate lint/tests/tsc, and a job boundary is the only thing GitHub Actions actually
@@ -287,8 +328,13 @@ jobs:
             [ "$result" = "success" ] || exit 1
           done
 
-  windows-packaged-updater:
-    name: Windows packaged updater
+  # The Windows tests (~100s, nearly all supervisor-restart.test.js driving
+  # the real Start.bat) and the packaged build (~55s) don't depend on each
+  # other -- the tests always ran before the build existed -- so they run
+  # in parallel. `windows-packaged-updater` at the end keeps the name branch
+  # protection requires.
+  windows-tests:
+    name: Windows tests
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -313,10 +359,6 @@ jobs:
           key: root-node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
 
       - name: Install server dependencies
-        run: npm install --no-audit --prefer-offline --include=optional
-
-      - name: Install client dependencies
-        working-directory: client
         run: npm install --no-audit --prefer-offline --include=optional
 
       # serverManagerSpacedPathCmdQuoting.test.js and
@@ -375,6 +417,33 @@ jobs:
       - name: Exercise bundle transaction and generated supervisor
         run: npx vitest run server/tests/panelUpdateBundle.test.js server/tests/supervisor-restart.test.js server/tests/serverManagerSpacedPathCmdQuoting.test.js server/tests/serverManagerWindowsSpawnFixes.test.js server/tests/serverManagerCustomStartCommandQuoting.test.js server/tests/serverManagerCommandLineRoundTrip.test.js server/tests/serverManagerEmptyScanWindows.test.js server/tests/serverManager-stopTimeout.test.js server/tests/setDataPaths.test.js server/tests/serverManagerWindowsProcessRow.test.js server/tests/serverManagerScanGenerationGuard.test.js server/tests/bridgeDisk.test.js server/tests/bridgeDeliveryPlan.test.js server/tests/releaseScriptGitHubNotes.test.js
 
+  windows-build:
+    name: Windows packaged build
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Same cache as the Windows tests job above.
+      - name: Restore root node_modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: node_modules
+          key: root-node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+
+      - name: Install server dependencies
+        run: npm install --no-audit --prefer-offline --include=optional
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm install --no-audit --prefer-offline --include=optional
+
       - name: Build packaged Windows executable
         run: node build.js --windows
 
@@ -388,3 +457,21 @@ jobs:
           if ($buildInfo.panelVersion -ne $manifest.version) { throw "Frontend/backend version mismatch" }
           if ($buildInfo.buildSha -ne $manifest.buildSha) { throw "Frontend/backend build SHA mismatch" }
           if ($buildInfo.apiContractVersion -ne $manifest.apiContractVersion) { throw "Frontend/backend API contract mismatch" }
+
+  windows-packaged-updater:
+    name: Windows packaged updater
+    if: always()
+    needs: [windows-tests, windows-build]
+    runs-on: ubuntu-latest
+    steps:
+      # always(), so a failed or cancelled job turns this check red instead
+      # of leaving it skipped, which branch protection would count as passed.
+      - name: Require the Windows tests and the packaged build
+        shell: bash
+        env:
+          RESULTS: ${{ needs.windows-tests.result }} ${{ needs.windows-build.result }}
+        run: |
+          echo "tests, build: $RESULTS"
+          for result in $RESULTS; do
+            [ "$result" = "success" ] || exit 1
+          done
