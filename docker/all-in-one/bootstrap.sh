@@ -1,8 +1,17 @@
 #!/bin/sh
 set -eu
 
-REPOSITORY="fpsacha/zomboid-control-panel"
-REGISTRY="ghcr.io/fpsacha"
+# The GitHub repository whose releases (source, images and in-panel
+# updates) this install follows; set PANEL_GITHUB_REPOSITORY=owner/name to
+# follow another. Images come from that owner's GHCR namespace unless
+# PANEL_IMAGE_REGISTRY says otherwise.
+REPOSITORY="${PANEL_GITHUB_REPOSITORY:-Lynkes/zomboid-control-panel}"
+case "$REPOSITORY" in
+  */*/*|/*|*/|*[!A-Za-z0-9._/-]*) echo "PANEL_GITHUB_REPOSITORY must look like owner/name (got '$REPOSITORY')." >&2; exit 1 ;;
+  */*) ;;
+  *) echo "PANEL_GITHUB_REPOSITORY must look like owner/name (got '$REPOSITORY')." >&2; exit 1 ;;
+esac
+REGISTRY="${PANEL_IMAGE_REGISTRY:-ghcr.io/$(printf '%s' "${REPOSITORY%%/*}" | tr '[:upper:]' '[:lower:]')}"
 VERSION="${1:-}"
 
 for required_command in docker curl tar; do
@@ -76,6 +85,14 @@ else
   if ! grep -q '^PZ_GAME_PORTS=' "$CONTEXT_DIR/.env"; then
     printf 'PZ_GAME_PORTS=%s\n' "${PZ_GAME_PORTS:-16261-16270}" >> "$CONTEXT_DIR/.env"
   fi
+fi
+
+# Compose passes this to the panel (its update checks) and the updater (the
+# source it rebuilds from), so both follow the repository this run installs.
+if grep -q '^PANEL_GITHUB_REPOSITORY=' "$CONTEXT_DIR/.env"; then
+  sed -i "s|^PANEL_GITHUB_REPOSITORY=.*|PANEL_GITHUB_REPOSITORY=$REPOSITORY|" "$CONTEXT_DIR/.env"
+else
+  printf 'PANEL_GITHUB_REPOSITORY=%s\n' "$REPOSITORY" >> "$CONTEXT_DIR/.env"
 fi
 
 game_ports="$(sed -n 's/^PZ_GAME_PORTS=//p' "$CONTEXT_DIR/.env" | tail -n 1)"

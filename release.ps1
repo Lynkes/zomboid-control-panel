@@ -77,7 +77,7 @@ param(
 # CONFIGURATION - Edit these paths as needed
 # ============================================
 $RepoDir          = $PSScriptRoot
-$GitHubRepo       = "fpsacha/zomboid-control-panel"
+$GitHubRepo       = "Lynkes/zomboid-control-panel"
 
 $ReleaseDir       = "release"
 $WinExePath       = "release\ZomboidControlPanel.exe"
@@ -389,6 +389,14 @@ try {
     $originMainCommit = $null
     $existingRemoteTag = @()
     if (-not $DryRun -and -not $SkipGitHub) {
+        # Every git step below pushes to origin and every gh step targets
+        # $GitHubRepo: refuse a clone whose origin is another repository (a
+        # fork's clone still pointing at upstream, or the reverse) before
+        # anything is committed, tagged or published.
+        $originUrl = "$(git remote get-url origin 2>$null)".Trim()
+        if ($originUrl -notmatch "github\.com[:/]$([regex]::Escape($GitHubRepo))(\.git)?/?$") {
+            throw "origin is '$originUrl', but this script releases to $GitHubRepo. Point origin at https://github.com/$GitHubRepo.git first (git remote set-url origin ...)."
+        }
         git fetch origin main --quiet
         if ($LASTEXITCODE -ne 0) { throw "Could not refresh origin/main before release" }
         $originMainCommit = (git rev-parse origin/main 2>$null).Trim()

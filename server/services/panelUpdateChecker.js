@@ -2,7 +2,7 @@
  * Panel Update Checker
  *
  * Checks for new panel releases on GitHub and provides a self-update mechanism.
- * - Periodically checks github.com/fpsacha/zomboid-control-panel/releases
+ * - Periodically checks github.com/Lynkes/zomboid-control-panel/releases
  * - Compares installed version vs latest GitHub release
  * - Downloads and replaces the binary for one-click updates (exe mode only)
  */
@@ -22,8 +22,14 @@ import { stageUpdateBundle } from "./updateBundle.js";
 
 const log = createLogger("PanelUpdater");
 
-const GITHUB_OWNER = "fpsacha";
-const GITHUB_REPO = "zomboid-control-panel";
+// Where this build's releases come from: this fork by default, or another
+// owner/name in PANEL_GITHUB_REPOSITORY (the AIO updater reads the same
+// variable name, GITHUB_REPOSITORY, from its own compose entry).
+const DEFAULT_GITHUB_REPOSITORY = "Lynkes/zomboid-control-panel";
+const configuredGithubRepository = /^[\w.-]+\/[\w.-]+$/.test(process.env.PANEL_GITHUB_REPOSITORY || "")
+  ? process.env.PANEL_GITHUB_REPOSITORY
+  : DEFAULT_GITHUB_REPOSITORY;
+const [GITHUB_OWNER, GITHUB_REPO] = configuredGithubRepository.split("/");
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000; // Check every 6 hours
 const GITHUB_API_TIMEOUT_MS = 15000;
 const DOWNLOAD_TIMEOUT_MS = 60000;
