@@ -173,6 +173,24 @@ describe('TemplatePreviewDialog fits the window', () => {
     expect(label).toHaveAttribute('title', 'Mods')
   })
 
+  it("wraps a failed preview's error, which often quotes a path as one token", async () => {
+    // Visual verify (2026-09-30): at 375px this error ran 221px past the
+    // dialog and scrolled it sideways; the Apply error already wrapped.
+    const error = "EACCES: permission denied, scandir '/srv/docker/volumes/pz-doomerz-main-b42-data/_data/Zomboid/Saves/Multiplayer/DoomerZ_PvE_Main_B42/map_backup_2026-09-28T18-00-00Z'"
+    vi.mocked(serversApi.getResolvedActive).mockResolvedValue({ server })
+    vi.mocked(serverApi.getStatus).mockResolvedValue({ running: false } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+    vi.mocked(serversApi.getComposedStatus).mockRejectedValue(new Error('not composed'))
+    vi.mocked(templatesApi.preview).mockResolvedValue({ success: false, error })
+    render(
+      <ConfirmProvider>
+        <TemplatePreviewDialog template={template} canManage onClose={vi.fn()} onApplied={vi.fn()} />
+      </ConfirmProvider>,
+    )
+    const message = await screen.findByText(error)
+    expect(within(screen.getByRole('dialog')).getByText('Preview Failed')).toBeInTheDocument()
+    expect(message.className).toContain('[overflow-wrap:anywhere]')
+  })
+
   it('wraps an unspaced mod id in the mods list', async () => {
     await openPreview()
     expect(screen.getByText(LONG_MOD_ID).className).toContain('[overflow-wrap:anywhere]')

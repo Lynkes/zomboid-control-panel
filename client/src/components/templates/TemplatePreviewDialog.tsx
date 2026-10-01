@@ -210,7 +210,11 @@ export function TemplatePreviewDialog({ template, canManage, onClose, onApplied 
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>{t('previewFailedTitle')}</AlertTitle>
-            <AlertDescription>{diffError}</AlertDescription>
+            {/* The server's error often quotes a path or file name as one
+                unbroken token (EACCES on /srv/docker/.../servertest.ini); it
+                wraps anywhere instead of widening the dialog sideways past a
+                phone screen, as the Apply error below the diff already does. */}
+            <AlertDescription className="[overflow-wrap:anywhere]">{diffError}</AlertDescription>
           </Alert>
         ) : diff && template ? (
           <>

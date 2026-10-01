@@ -2914,14 +2914,20 @@ export default function Servers() {
                             <span className="font-medium">{t('localForm.detectedTitle')}</span>
                           </div>
 
+                          {/* The server and ini file names get the full row: an ini
+                              name is one long token (DoomerZ_PvE_Main_B42_weekly_wipe_server.ini)
+                              that ran out of a half-width cell and scrolled the dialog body
+                              sideways. A full row fits a 50-character name on one line on a
+                              desktop, and one longer than the row (or on a phone) wraps
+                              anywhere instead. The short ports still share a row. */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                            <div>
+                            <div className="min-w-0 sm:col-span-2">
                               <span className="text-muted-foreground">{t('localForm.serverNameLabel')}</span>
-                              <p className="font-medium">{newServer.name}</p>
+                              <p className="font-medium [overflow-wrap:anywhere]">{newServer.name}</p>
                             </div>
-                            <div>
+                            <div className="min-w-0 sm:col-span-2">
                               <span className="text-muted-foreground">{t('localForm.configFileLabel')}</span>
-                              <p className="font-mono">{newServer.serverName}.ini</p>
+                              <p className="font-mono [overflow-wrap:anywhere]">{newServer.serverName}.ini</p>
                             </div>
                             <div>
                               <span className="text-muted-foreground">{t('localForm.gamePortLabel')}</span>
@@ -2962,12 +2968,13 @@ export default function Servers() {
                               }}
                               label={t('localForm.rconPasswordAria')}
                             />
+                            {/* Both hints name the ini file too; they wrap it like the summary above. */}
                             {!newServer.rconPassword && importIniFrom ? (
-                              <p className="flex items-center gap-1 text-xs text-primary">
-                                <CheckCircle className="w-3 h-3" /> {t('localForm.passwordWillImport', { iniName: newServer.serverName })}
+                              <p className="flex items-center gap-1 text-xs text-primary [overflow-wrap:anywhere]">
+                                <CheckCircle className="w-3 h-3 shrink-0" /> {t('localForm.passwordWillImport', { iniName: newServer.serverName })}
                               </p>
                             ) : !newServer.rconPassword ? (
-                              <p className="text-xs text-warning">
+                              <p className="text-xs text-warning [overflow-wrap:anywhere]">
                                 <Trans
                                   i18nKey="localForm.rconPasswordRequired"
                                   t={t}

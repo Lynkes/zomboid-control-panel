@@ -260,6 +260,35 @@ describe('Servers -- Steam Update dialog fits a short mobile viewport', () => {
     expect(code.className).toContain('break-all')
   })
 
+  // Visual verify (2026-09-30): Add Existing Server's "Server detected
+  // successfully" summary put the ini name in a half-width cell, so a 39-char
+  // name scrolled the body sideways even at 1280x620. The name and ini file
+  // now take the full row (a 50-char name stays on one line on a desktop)
+  // and wrap anywhere past that; so do the password hints that quote it.
+  it('Add Existing Server: the detected server and ini names get the full row and wrap anywhere', async () => {
+    const serverName = 'KnoxCountrySurvivors_B42_PvE_Weekly_Wipe_Instance02_EU_West_Frankfurt'
+    vi.mocked(serversDetectApi.detect).mockResolvedValue({
+      valid: true, dataPath: '/srv/pz/data', serverConfigPath: `/srv/pz/data/Server/${serverName}.ini`,
+      installPath: '', validInstallPath: false, hasNoSteam: false,
+      detectedServers: [{ serverName, iniFile: `${serverName}.ini`, rconPort: 27015, serverPort: 16261, publicName: '[EU]KnoxCountrySurvivors|B42Unstable|PvE|150+Mods', hasRcon: true }],
+    } as never)
+    renderServers()
+    fireEvent.click(await screen.findByRole('button', { name: en.pageHeader.addExisting }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByPlaceholderText(en.localForm.dataPathPlaceholder), { target: { value: '/srv/pz/data' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: en.localForm.detect }))
+
+    const ini = await within(dialog).findByText(`${serverName}.ini`)
+    const name = within(dialog).getByText('[EU]KnoxCountrySurvivors|B42Unstable|PvE|150+Mods')
+    for (const value of [ini, name]) {
+      expect(value.className).toContain('[overflow-wrap:anywhere]')
+      expect(value.parentElement!.className).toContain('min-w-0')
+      expect(value.parentElement!.className).toContain('sm:col-span-2')
+    }
+    const hint = within(dialog).getByText(en.localForm.passwordWillImport.split('{{')[0], { exact: false })
+    expect(hint.className).toContain('[overflow-wrap:anywhere]')
+  })
+
   it('scrolls only the path/branch/log content; Start Update and Cancel stay on screen', async () => {
     vi.mocked(serversApi.getAll).mockResolvedValue({ servers: [makeServer()] })
     vi.mocked(serversApi.getStatus).mockResolvedValue({ servers: [] })

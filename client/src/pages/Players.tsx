@@ -60,6 +60,7 @@ import {
 } from '@/components/ui/select'
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -2513,7 +2514,11 @@ export default function Players() {
                           {t('teleportDialog.description', { player: selectedPlayer })}
                         </DialogDescription>
                       </DialogHeader>
-                      <div className="space-y-4">
+                      {/* DialogBody: on a landscape phone (853x413) the target,
+                          presets and X/Y/Z fields are taller than the window, and
+                          the whole dialog scrolled with Teleport below the fold.
+                          Only the fields scroll now; the button stays on screen. */}
+                      <DialogBody className="space-y-4">
                         <div>
                           <Label htmlFor="teleport-target">{t('teleportDialog.targetLabel')}</Label>
                           <Input
@@ -2587,7 +2592,7 @@ export default function Players() {
                             />
                           </div>
                         </div>
-                      </div>
+                      </DialogBody>
                       <DialogFooter>
                         <Button
                           onClick={() => handleTeleport(teleportTarget || selectedPlayer)}
