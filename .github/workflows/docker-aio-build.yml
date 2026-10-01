@@ -61,6 +61,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -114,6 +115,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # A repository with no release yet (a fresh fork) has nothing to
+          # compare against. Any other API failure leaves the count empty
+          # and still fails at gh release view below.
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=1" --jq 'length')" = "0" ]; then
+            echo "::notice::$GITHUB_REPOSITORY has no releases yet; skipping the latest-release version check."
+            exit 0
+          fi
           latest="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName' | sed 's/^v//')"
           node scripts/verify-package-version.mjs --minimum "$latest"
 

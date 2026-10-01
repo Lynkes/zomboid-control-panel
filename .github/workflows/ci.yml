@@ -13,12 +13,17 @@ permissions:
   contents: read
 
 jobs:
+  # Every job's timeout-minutes is several times its usual run. Without one,
+  # GitHub's default is 6 hours: a hung test held its runner, and every
+  # pull request's required checks, that long.
+  #
   # The server suite runs in two parallel shards next to lint, and the
   # `server` job at the end keeps the name branch protection requires,
   # "Server (lint + tests)" -- same pattern as the client jobs below.
   server-lint:
     name: Server lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -54,6 +59,7 @@ jobs:
   server-tests:
     name: Server tests (shard ${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -131,6 +137,7 @@ jobs:
     if: always()
     needs: [server-lint, server-tests]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       # always(), so a failed or cancelled shard turns this check red instead
       # of leaving it skipped, which branch protection would count as passed.
@@ -162,6 +169,7 @@ jobs:
   engine-signatures:
     name: Engine signature check
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -211,6 +219,7 @@ jobs:
   scripts-checkers:
     name: Scripts checkers (bridge actions/routes, RCON commands, i18n duplicates)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -249,6 +258,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # A repository with no release yet (a fresh fork) has nothing to
+          # compare against. Any other API failure leaves the count empty
+          # and still fails at gh release view below.
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=1" --jq 'length')" = "0" ]; then
+            echo "::notice::$GITHUB_REPOSITORY has no releases yet; skipping the latest-release version check."
+            exit 0
+          fi
           latest="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName' | sed 's/^v//')"
           node scripts/verify-package-version.mjs --minimum "$latest"
 
@@ -260,6 +276,7 @@ jobs:
   client-static:
     name: Client lint + types
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -288,6 +305,7 @@ jobs:
   client-tests:
     name: Client tests (shard ${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       # Every shard reports, so one red run shows all the failing files.
       fail-fast: false
@@ -315,6 +333,7 @@ jobs:
     if: always()
     needs: [client-static, client-tests]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       # always(), so a failed or cancelled shard turns this check red instead
       # of leaving it skipped, which branch protection would count as passed.
@@ -336,6 +355,7 @@ jobs:
   windows-tests:
     name: Windows tests
     runs-on: windows-2022
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -420,6 +440,7 @@ jobs:
   windows-build:
     name: Windows packaged build
     runs-on: windows-2022
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -463,6 +484,7 @@ jobs:
     if: always()
     needs: [windows-tests, windows-build]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       # always(), so a failed or cancelled job turns this check red instead
       # of leaving it skipped, which branch protection would count as passed.
