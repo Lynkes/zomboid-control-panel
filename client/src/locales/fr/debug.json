@@ -430,6 +430,19 @@
             }
           }
         },
+        "nativeLibs": {
+          "ok": {
+            "label": "Bibliothèques natives du jeu",
+            "message": "Le jeu charge ses bibliothèques natives depuis {{folders}}."
+          },
+          "warn": {
+            "leftoverNatives": {
+              "label": "Anciennes bibliothèques du jeu dans natives/",
+              "message": "Le dossier natives/ contient des copies des bibliothèques natives du jeu qui diffèrent de celles de linux64/ ({{libraries}}). Le script de démarrage du panneau charge linux64/, mais un script ou une commande de démarrage personnalisés qui chargent natives/ en premier utilisent les anciennes, et le serveur plante alors pendant les sauvegardes du monde.",
+              "hint": "Vous pouvez supprimer ou renommer le dossier natives/ sans risque (par exemple en natives.old) pendant que le serveur est arrêté. Le panneau ne le supprime jamais."
+            }
+          }
+        },
         "ini": {
           "ok": {
             "label": "server.ini trouvé",

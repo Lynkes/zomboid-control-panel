@@ -425,6 +425,19 @@
             }
           }
         },
+        "nativeLibs": {
+          "ok": {
+            "label": "Bibliyotèk natif jwèt la",
+            "message": "Jwèt la chaje bibliyotèk natif li yo nan {{folders}}."
+          },
+          "warn": {
+            "leftoverNatives": {
+              "label": "Ansyen bibliyotèk jwèt nan natives/",
+              "message": "Dosye natives/ la gen kopi bibliyotèk natif jwèt la ki diferan de sa ki nan linux64/ ({{libraries}}). Script demaraj panèl la chaje linux64/, men yon script oswa yon kòmand demaraj pèsonalize ki chaje natives/ an premye ap itilize ansyen yo, epi lè sa a sèvè a ap kraze pandan sovgad mond lan.",
+              "hint": "Ou ka efase oswa chanje non dosye natives/ la san danje (pa egzanp an natives.old) pandan sèvè a sispann. Panèl la pa janm efase l."
+            }
+          }
+        },
         "ini": {
           "ok": {
             "label": "server.ini jwenn",

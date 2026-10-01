@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Debug › Diagnostics warns about a leftover `natives/` folder from an older game build whose libraries differ from `linux64/`.
+
 ### Fixed
 
 - Linux: the panel's start script loads the game's current `linux64/` libraries instead of a leftover `natives/` folder, which crashed 42.21 servers during world saves (`UnsatisfiedLinkError`).

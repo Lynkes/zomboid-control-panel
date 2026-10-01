@@ -70,6 +70,11 @@ import {
   getCandidateZomboidPaths,
   inspectZomboidPath,
 } from "../utils/zomboidPaths.js";
+import {
+  detectLeftoverNativeLibraries,
+  resolveGameDirForNativeCheck,
+  resolveNativeLibraryDirs,
+} from "../utils/nativeLibraryPaths.js";
 import { requirePermission, listRolesWithMemberCounts } from "../services/permissions.js";
 import { getDockerClient } from "../services/managedContainer.js";
 import { resolveProvider } from "../utils/serverStatusModel.js";
@@ -3589,6 +3594,13 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
           const isWin = process.platform === "win32";
           checks.push(await buildStartScriptCheck(activeServer));
 
+          const nativeLibrariesCheck = await raceWithFallback(
+            buildNativeLibrariesCheck(activeServer),
+            FS_TIMEOUT_MS,
+            null,
+          );
+          if (nativeLibrariesCheck) checks.push(nativeLibrariesCheck);
+
           // Java/JRE check — PZ ships its own JRE under jre64/.
           const isLinux = process.platform === "linux";
           const jreCandidates = isWin
@@ -5658,6 +5670,58 @@ export async function buildStartScriptCheck(
     "Start script not found",
     `No ${scriptPattern} in install path. Server can't be started from the panel.`,
     { category: "server", params: { pattern: scriptPattern }, variant: "notFound" },
+  );
+}
+
+// server.nativeLibs (Linux only): which folders the game's native libraries
+// load from, and -- the 2026-10-01 42.21 incident -- a leftover natives/
+// folder from an older build whose libraries differ from linux64/'s (see
+// utils/nativeLibraryPaths.js). The panel's own script no longer loads it,
+// but a custom launcher or start command still can, and then the game dies
+// during world saves with an UnsatisfiedLinkError. A warning, not a
+// failure: the panel's own launches are fine, and the fix (removing or
+// renaming the folder) is the operator's call -- the panel never deletes
+// it. Returns null when there's nothing to report (Windows, or no game
+// libraries found where the panel looks).
+export async function buildNativeLibrariesCheck(
+  activeServer,
+  { platform = process.platform } = {},
+) {
+  if (platform === "win32") return null;
+  const gameDir = resolveGameDirForNativeCheck(activeServer);
+  if (!gameDir) return null;
+
+  const leftover = await detectLeftoverNativeLibraries(gameDir, { platform });
+  if (leftover) {
+    const libraries = leftover.libraries.join(", ");
+    return diagWarn(
+      "server.nativeLibs",
+      "Old game libraries in natives/",
+      `The natives/ folder holds copies of the game's native libraries that differ from linux64/ (${libraries}). The panel's start script loads linux64/, but a custom start script or command that loads natives/ first runs the old ones, and the server then crashes during world saves.`,
+      {
+        category: "server",
+        hint: "It's safe to remove or rename the natives/ folder (for example to natives.old) while the server is stopped. The panel never deletes it.",
+        params: { libraries },
+        variant: "leftoverNatives",
+      },
+    );
+  }
+
+  const { dirs, source } = resolveNativeLibraryDirs(gameDir, { platform });
+  // "fallback": linux64/ holds no game library -- an older layout or an
+  // incomplete install; server.jre/server.startScript already speak to the
+  // latter, so there is nothing true and useful to add here.
+  if (source === "fallback") return null;
+  const folders =
+    dirs
+      .filter((dir) => dir !== ".")
+      .map((dir) => `${dir}/`)
+      .join(", ") || "./";
+  return diagOk(
+    "server.nativeLibs",
+    "Game native libraries",
+    `The game loads its native libraries from ${folders}.`,
+    { category: "server", params: { folders } },
   );
 }
 

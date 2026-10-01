@@ -430,6 +430,19 @@
             }
           }
         },
+        "nativeLibs": {
+          "ok": {
+            "label": "Bibliotecas nativas del juego",
+            "message": "El juego carga sus bibliotecas nativas desde {{folders}}."
+          },
+          "warn": {
+            "leftoverNatives": {
+              "label": "Bibliotecas antiguas del juego en natives/",
+              "message": "La carpeta natives/ contiene copias de las bibliotecas nativas del juego que difieren de las de linux64/ ({{libraries}}). El script de inicio del panel carga linux64/, pero un script o comando de inicio personalizado que cargue natives/ primero usa las antiguas, y entonces el servidor se cae durante los guardados del mundo.",
+              "hint": "Puedes eliminar o renombrar la carpeta natives/ sin riesgo (por ejemplo, a natives.old) mientras el servidor está detenido. El panel nunca la elimina."
+            }
+          }
+        },
         "ini": {
           "ok": {
             "label": "server.ini encontrado",

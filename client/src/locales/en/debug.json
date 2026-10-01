@@ -425,6 +425,19 @@
             }
           }
         },
+        "nativeLibs": {
+          "ok": {
+            "label": "Game native libraries",
+            "message": "The game loads its native libraries from {{folders}}."
+          },
+          "warn": {
+            "leftoverNatives": {
+              "label": "Old game libraries in natives/",
+              "message": "The natives/ folder holds copies of the game's native libraries that differ from linux64/ ({{libraries}}). The panel's start script loads linux64/, but a custom start script or command that loads natives/ first runs the old ones, and the server then crashes during world saves.",
+              "hint": "It's safe to remove or rename the natives/ folder (for example to natives.old) while the server is stopped. The panel never deletes it."
+            }
+          }
+        },
         "ini": {
           "ok": {
             "label": "server.ini found",

@@ -425,6 +425,19 @@
             }
           }
         },
+        "nativeLibs": {
+          "ok": {
+            "label": "游戏原生库",
+            "message": "游戏从 {{folders}} 加载其原生库。"
+          },
+          "warn": {
+            "leftoverNatives": {
+              "label": "natives/ 中有旧版游戏库",
+              "message": "natives/ 文件夹中的游戏原生库副本与 linux64/ 中的不同（{{libraries}}）。面板的启动脚本加载 linux64/，但如果自定义启动脚本或命令优先加载 natives/，就会使用旧版库，服务器随后会在保存世界时崩溃。",
+              "hint": "服务器停止时，可以放心删除或重命名 natives/ 文件夹（例如改为 natives.old）。面板绝不会删除它。"
+            }
+          }
+        },
         "ini": {
           "ok": {
             "label": "已找到 server.ini",

@@ -425,6 +425,19 @@
             }
           }
         },
+        "nativeLibs": {
+          "ok": {
+            "label": "Native Bibliotheken des Spiels",
+            "message": "Das Spiel lädt seine nativen Bibliotheken aus {{folders}}."
+          },
+          "warn": {
+            "leftoverNatives": {
+              "label": "Alte Spielbibliotheken in natives/",
+              "message": "Der Ordner natives/ enthält Kopien der nativen Bibliotheken des Spiels, die sich von denen in linux64/ unterscheiden ({{libraries}}). Das Startskript des Panels lädt linux64/, aber ein eigenes Startskript oder ein eigener Startbefehl, der natives/ zuerst lädt, verwendet die alten, und der Server stürzt dann beim Speichern der Welt ab.",
+              "hint": "Du kannst den Ordner natives/ gefahrlos löschen oder umbenennen (zum Beispiel in natives.old), solange der Server gestoppt ist. Das Panel löscht ihn nie."
+            }
+          }
+        },
         "ini": {
           "ok": {
             "label": "server.ini gefunden",
