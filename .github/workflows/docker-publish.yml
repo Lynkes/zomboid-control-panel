@@ -8,6 +8,15 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# Two quick pushes to main (a merge, then its release commit) could build
+# side by side, and whichever finished last would set `latest` and `main`,
+# even the older commit. Runs for the same ref queue instead (a newer
+# pending run replaces an older pending one); a release tag has its own
+# group.
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   packages: write

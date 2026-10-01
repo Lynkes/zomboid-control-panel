@@ -211,8 +211,13 @@ jobs:
           latest="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName' | sed 's/^v//')"
           node scripts/verify-package-version.mjs --minimum "$latest"
 
-  client:
-    name: Client (lint + types + tests)
+  # The client suite took ~11 minutes in one job, the longest in CI, so its
+  # tests run in parallel shards next to lint + typecheck. Branch protection
+  # requires the check "Client (lint + types + tests)" by name: that is the
+  # `client` job at the end, which passes only when lint, types and every
+  # shard passed.
+  client-static:
+    name: Client lint + types
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -239,9 +244,48 @@ jobs:
         working-directory: client
         run: npx tsc -b
 
+  client-tests:
+    name: Client tests (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    strategy:
+      # Every shard reports, so one red run shows all the failing files.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install
+        working-directory: client
+        run: npm install --no-audit --prefer-offline --include=optional
+
       - name: Tests
         working-directory: client
-        run: npx vitest run
+        run: npx vitest run --shard=${{ matrix.shard }}/4
+
+  client:
+    name: Client (lint + types + tests)
+    if: always()
+    needs: [client-static, client-tests]
+    runs-on: ubuntu-latest
+    steps:
+      # always(), so a failed or cancelled shard turns this check red instead
+      # of leaving it skipped, which branch protection would count as passed.
+      - name: Require lint, types and every test shard
+        shell: bash
+        env:
+          RESULTS: ${{ needs.client-static.result }} ${{ needs.client-tests.result }}
+        run: |
+          echo "lint + types, test shards: $RESULTS"
+          for result in $RESULTS; do
+            [ "$result" = "success" ] || exit 1
+          done
 
   windows-packaged-updater:
     name: Windows packaged updater
@@ -255,6 +299,18 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      # On Windows the root install took ~3 minutes even with the npm cache
+      # warm (Linux: ~20s): it unpacks 500+ packages and runs ssh2's install
+      # script, which compiles its optional crypto binding with node-gyp, on
+      # every run. Restoring node_modules itself leaves npm install only a
+      # check. Keyed on the lockfile and Node's major (native addons follow
+      # its ABI); the client tree installs in seconds and isn't cached.
+      - name: Restore root node_modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: node_modules
+          key: root-node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
 
       - name: Install server dependencies
         run: npm install --no-audit --prefer-offline --include=optional
