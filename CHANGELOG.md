@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Fixed
 
-_No unreleased changes._
+- Linux: the panel's start script loads the game's current `linux64/` libraries instead of a leftover `natives/` folder, which crashed 42.21 servers during world saves (`UnsatisfiedLinkError`).
 
 ## [1.4.1] - 2026-09-30
 

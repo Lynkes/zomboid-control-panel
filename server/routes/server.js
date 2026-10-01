@@ -58,6 +58,14 @@ import { codedActionResultFields, emitActionResult } from "./scheduler.js";
 import panelBridge from "../services/panelBridge.js";
 import { candidateIniPaths } from "../utils/zomboidPaths.js";
 import {
+  describeLeftoverNativeLibraries,
+  detectLeftoverNativeLibraries,
+  formatJavaLibraryPath,
+  formatShellLibraryDirs,
+  resolveGameDirForNativeCheck,
+  resolveNativeLibraryDirs,
+} from "../utils/nativeLibraryPaths.js";
+import {
   newProfileConflictsWithWorkshop,
   noSteamWorkshopConflictResponse,
   reconcileBridge,
@@ -1386,6 +1394,35 @@ export function generateStartupScripts(options) {
 
   const classpathEntries = buildClasspathEntries(installPath);
 
+  // Native library folders, in search order, from the install's own
+  // ProjectZomboid64.json when it is sane, else linux64/ first (Linux) or
+  // the long-standing natives/;natives/win64/;. (Windows) -- see
+  // utils/nativeLibraryPaths.js. Until 2026-10-01 the .sh hardcoded natives/
+  // FIRST, so a leftover natives/ folder from an older build shadowed the
+  // current linux64/ libraries and 42.21 crashed during every world save.
+  const windowsLibraryDirs = resolveNativeLibraryDirs(installPath, {
+    platform: "win32",
+  });
+  const linuxLibraryDirs = resolveNativeLibraryDirs(installPath, {
+    platform: "linux",
+  });
+  const ownPlatformDirs =
+    process.platform === "win32" ? windowsLibraryDirs : linuxLibraryDirs;
+  if (ownPlatformDirs.rejectedReason) {
+    log.warn(
+      `Not using the game's own native library path: ${ownPlatformDirs.rejectedReason}. The start script uses ${formatJavaLibraryPath(ownPlatformDirs.dirs, process.platform)} instead.`,
+    );
+  }
+  // Shell text, expanded by bash when the script runs (escaped \${...}).
+  const linuxLdLibraryPath = [
+    ...formatShellLibraryDirs(linuxLibraryDirs.dirs),
+    `\${INSTDIR}`,
+    `\${INSTDIR}/jre64/lib/amd64`,
+    `\${INSTDIR}/jre64/lib/x86_64`,
+    "/usr/lib64",
+    `\${LD_LIBRARY_PATH}`,
+  ].join(":");
+
   // Windows batch file
   const batchContent = `@echo off
 @setlocal enableextensions
@@ -1400,7 +1437,7 @@ REM =====================================================
 
 SET PZ_CLASSPATH=${classpathEntries.join(";")}
 
-".\\jre64\\bin\\java.exe" ${jvmArgs.join(" ")} -Djava.library.path=natives/;natives/win64/;. -cp %PZ_CLASSPATH% zombie.network.GameServer ${gameArgs.join(" ")}
+".\\jre64\\bin\\java.exe" ${jvmArgs.join(" ")} -Djava.library.path=${formatJavaLibraryPath(windowsLibraryDirs.dirs, "win32")} -cp %PZ_CLASSPATH% zombie.network.GameServer ${gameArgs.join(" ")}
 
 PAUSE
 `;
@@ -1439,9 +1476,9 @@ if ! command -v "$JAVA_CMD" >/dev/null 2>&1; then
 fi
 
 INSTDIR="$(dirname "$0")"
-export LD_LIBRARY_PATH="\${INSTDIR}/natives/:\${INSTDIR}/natives/linux64/:\${INSTDIR}/linux64/:\${INSTDIR}:\${INSTDIR}/jre64/lib/amd64:\${INSTDIR}/jre64/lib/x86_64:/usr/lib64:\${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${linuxLdLibraryPath}"
 
-"$JAVA_CMD" ${linuxJvmArgs.join(" ")} -Djava.library.path=natives/:natives/linux64/:linux64/:. -cp "$PZ_CLASSPATH" zombie.network.GameServer ${gameArgs.join(" ")}
+"$JAVA_CMD" ${linuxJvmArgs.join(" ")} -Djava.library.path=${formatJavaLibraryPath(linuxLibraryDirs.dirs, "linux")} -cp "$PZ_CLASSPATH" zombie.network.GameServer ${gameArgs.join(" ")}
 `;
 
   return { bat: batchContent, sh: shellContent };
@@ -1660,7 +1697,7 @@ router.get("/network-interfaces", async (req, res) => {
 // without either growing its own notion of it.
 export async function refreshLaunchTargetBeforeStart(
   activeServer,
-  { managedHandled = false } = {},
+  { managedHandled = false, platform = process.platform } = {},
 ) {
   try {
     const rconReady = await ensureRconConfigured(activeServer);
@@ -1767,7 +1804,27 @@ export async function refreshLaunchTargetBeforeStart(
       log.warn(`Could not regenerate startup scripts: ${scriptErr.message}`);
     }
   }
+  if (!managedHandled && activeServer && !activeServer.isRemote) {
+    await warnAboutLeftoverNativeLibraries(activeServer, platform);
+  }
   return { scriptBackupWarnings };
+}
+
+// Logs, before every launch the panel performs, the leftover natives/ folder
+// that crashed 42.21 during world saves (utils/nativeLibraryPaths.js). The
+// panel's own script no longer loads it, but a custom launcher, a custom
+// start command or a hand-edited script still can -- and nothing else would
+// tell the operator why. Never deletes or renames anything, never blocks the
+// launch.
+async function warnAboutLeftoverNativeLibraries(server, platform) {
+  const gameDir = resolveGameDirForNativeCheck(server);
+  if (!gameDir) return;
+  try {
+    const leftover = await detectLeftoverNativeLibraries(gameDir, { platform });
+    if (leftover) log.warn(describeLeftoverNativeLibraries(gameDir, leftover));
+  } catch (error) {
+    log.debug(`Native library check skipped: ${error.message}`);
+  }
 }
 
 // What lifecycleCoordinator.prepareForLaunch() runs (wired in server/index.js
