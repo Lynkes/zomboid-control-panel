@@ -65,8 +65,16 @@ export function collectUsedPorts(servers) {
     });
 }
 
+// A loop, not /[\\/]+$/: that regex backtracks quadratically on a long run
+// of separators that isn't at the end (CodeQL js/polynomial-redos).
+function stripTrailingSeparators(value) {
+  let end = value.length;
+  while (end > 1 && (value[end - 1] === "/" || value[end - 1] === "\\")) end--;
+  return value.slice(0, end);
+}
+
 function normalizeForCompare(value) {
-  const normalized = path.normalize(String(value || "")).replace(/[\\/]+$/, "");
+  const normalized = stripTrailingSeparators(path.normalize(String(value || "")));
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 

@@ -15,8 +15,18 @@ export interface PortConflict {
   serverName: string;
 }
 
+// Loops rather than /x+$/ regexes, which backtrack quadratically on a long
+// run of x that isn't at the end (CodeQL js/polynomial-redos).
+function trimTrailing(value: string, isTrimmed: (char: string) => boolean, keep = 0): string {
+  let end = value.length;
+  while (end > keep && isTrimmed(value[end - 1])) end--;
+  return value.slice(0, end);
+}
+
+const isSeparator = (char: string) => char === "/" || char === "\\";
+
 function normalizePath(value: string): string {
-  return value.trim().replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase();
+  return trimTrailing(value.trim(), isSeparator).replace(/\\/g, "/").toLowerCase();
 }
 
 function isSameServer(entry: UsedServerPorts, serverName: string, installPath: string): boolean {
@@ -66,7 +76,7 @@ export function isGamePortPublished(gamePort: number, range: PortRange | null | 
 export function uniqueServerName(name: string, used: UsedServerPorts[]): string {
   const taken = new Set(used.map((entry) => entry.serverName.toLowerCase()));
   if (!taken.has(name.toLowerCase())) return name;
-  const base = name.replace(/\d+$/, "") || "server";
+  const base = trimTrailing(name, (char) => char >= "0" && char <= "9") || "server";
   for (let n = 2; n < 1000; n++) {
     const candidate = `${base}${n}`;
     if (!taken.has(candidate.toLowerCase())) return candidate;
@@ -75,5 +85,5 @@ export function uniqueServerName(name: string, used: UsedServerPorts[]): string 
 }
 
 export function joinContainerPath(root: string, name: string): string {
-  return `${root.replace(/\/+$/, "")}/${name}`;
+  return `${trimTrailing(root, (char) => char === "/")}/${name}`;
 }

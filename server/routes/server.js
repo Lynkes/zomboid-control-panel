@@ -1052,9 +1052,10 @@ export function resolveZomboidPaths(installPath, zomboidDataPath) {
   };
 }
 
+// path.resolve() already drops trailing separators (keeping a bare root).
 function isSameDirectory(a, b) {
   const normalize = (value) => {
-    const resolved = path.resolve(String(value)).replace(/[\\/]+$/, "");
+    const resolved = path.resolve(String(value));
     return isWindows ? resolved.toLowerCase() : resolved;
   };
   return normalize(a) === normalize(b);
