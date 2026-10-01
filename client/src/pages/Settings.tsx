@@ -1454,6 +1454,9 @@ export default function Settings() {
             {t("toasts.updateNotApplied.openDashboard")}
           </ToastAction>
         ) : undefined,
+        // The message runs 300-460 characters; a button beside it leaves
+        // the text a column too narrow to read in the toast's 15 s.
+        layout: failure === "serverNotStopped" ? "stacked" : undefined,
       });
     } finally {
       setDownloadingPanelUpdate(false);

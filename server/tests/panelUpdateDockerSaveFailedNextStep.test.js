@@ -75,6 +75,10 @@ describe("Docker panel update: a server that can't be saved and stopped", () => 
     const body = response.json.mock.calls[0][0];
     expect(body.code).toBe("SERVER_RUNNING_RCON_UNAVAILABLE");
     expect(body.error).toContain("Force stop on the Dashboard");
+    // Force stop skips its save while RCON is disconnected -- review
+    // finding (2026-10-01): this used to promise "one quick save".
+    expect(body.error).not.toMatch(/tries one quick save/);
+    expect(body.error).toMatch(/can't save first/);
     expect(rconService.save).not.toHaveBeenCalled();
     expect(downloadUpdate).not.toHaveBeenCalled();
   });
@@ -98,6 +102,53 @@ describe("Docker panel update: a server that can't be saved and stopped", () => 
     const body = response.json.mock.calls[0][0];
     expect(body.code).toBe("stop_failed");
     expect(body.error).toContain("Force stop on the Dashboard");
+    expect(downloadUpdate).not.toHaveBeenCalled();
+  });
+
+  // Review finding (2026-10-01): a server hanging in its shutdown got
+  // SERVER_STATE_UNKNOWN, whose translated copy blames the process scan
+  // ("antivirus, a full disk...") and offers no next step.
+  it("a server still running 30 s after a good save and quit gets SERVER_STOP_NOT_CONFIRMED, pointing at Force stop", async () => {
+    vi.spyOn(ServerManager.prototype, "getServerProcessDetails").mockResolvedValue({
+      running: true,
+      scanFailed: false,
+    });
+    vi.spyOn(ServerManager.prototype, "sleep").mockResolvedValue();
+    const rconService = {
+      connected: true,
+      save: vi.fn().mockResolvedValue({ success: true }),
+      quit: vi.fn().mockResolvedValue({ success: true }),
+    };
+    const downloadUpdate = vi.fn();
+    const response = createResponse();
+
+    await handlePanelUpdateDownload(dockerUpdateRequest(rconService, downloadUpdate), response);
+
+    expect(response.status).toHaveBeenCalledWith(503);
+    const body = response.json.mock.calls[0][0];
+    expect(body.code).toBe("SERVER_STOP_NOT_CONFIRMED");
+    expect(body.error).toContain("still hasn't exited");
+    expect(body.error).toContain("Force stop on the Dashboard");
+    expect(downloadUpdate).not.toHaveBeenCalled();
+  });
+
+  it("a process scan that fails while waiting stays SERVER_STATE_UNKNOWN", async () => {
+    vi.spyOn(ServerManager.prototype, "getServerProcessDetails")
+      .mockResolvedValueOnce({ running: true, scanFailed: false })
+      .mockResolvedValue({ running: false, scanFailed: true });
+    vi.spyOn(ServerManager.prototype, "sleep").mockResolvedValue();
+    const rconService = {
+      connected: true,
+      save: vi.fn().mockResolvedValue({ success: true }),
+      quit: vi.fn().mockResolvedValue({ success: true }),
+    };
+    const downloadUpdate = vi.fn();
+    const response = createResponse();
+
+    await handlePanelUpdateDownload(dockerUpdateRequest(rconService, downloadUpdate), response);
+
+    expect(response.status).toHaveBeenCalledWith(503);
+    expect(response.json.mock.calls[0][0].code).toBe("SERVER_STATE_UNKNOWN");
     expect(downloadUpdate).not.toHaveBeenCalled();
   });
 });

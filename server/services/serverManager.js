@@ -31,6 +31,7 @@ import {
   readProcessStartTime,
   WIN32_PROCESS_START_MS,
 } from "../utils/processStartTime.js";
+import { resolveProvider } from "../utils/serverStatusModel.js";
 
 const isWindows = process.platform === "win32";
 // getProcessStartTime()'s memory of FAILED lookups: how soon one for the
@@ -318,6 +319,31 @@ export function resolveManagedStartupScript(
   if (envBat && envBat !== stock) return envBat;
   if (serverName) return managedStartupScriptName(serverName, windows);
   return envBat || stock;
+}
+
+// Whether a start of `server` runs the script the panel writes for it
+// (managedStartupScriptName()): a MANAGED server with a name, no custom
+// start command, not a Docker-mapped container (its image owns the launch
+// command) and no PZ_SERVER_BAT naming another script. Anything else starts
+// with a launcher the panel doesn't write -- a custom launcher path or start
+// command, a container image's command, the stock script -- so the panel
+// can't vouch for what it loads. Asked by Debug › Diagnostics' start-script
+// and native-library checks, and by the pre-launch native-library warning
+// (routes/server.js). `windows` and `env` are parameters only for tests.
+export function launchesPanelStartScript(
+  server,
+  { windows = isWindows, env = process.env } = {},
+) {
+  const serverName = server?.serverName || "";
+  if (!serverName || server?.startCommand) return false;
+  if (["docker-local", "docker-managed"].includes(resolveProvider(server))) {
+    return false;
+  }
+  if (resolveLaunchMode(server).mode !== "managed") return false;
+  return (
+    resolveManagedStartupScript(serverName, { windows, env }) ===
+    managedStartupScriptName(serverName, windows)
+  );
 }
 
 // GH #167: a managed server with a name launches its own generated script or

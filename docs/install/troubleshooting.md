@@ -442,24 +442,29 @@ SteamCMD doesn't remove a folder a newer build stopped shipping, so an
 install updated across builds can keep a `natives/` folder next to the
 current `linux64/` one. Older panel versions wrote start scripts that put
 `natives/` first. The panel's script now loads the folders the game's own
-`ProjectZomboid64.json` names (`linux64/` for Build 42.21), and it is
-rewritten before every start. A custom launcher or start command that puts
-`natives/` first still loads the old libraries.
+`ProjectZomboid64.json` names (`linux64/` for Build 42.21), or `linux64/`
+before `natives/` when it can't use that file, and it is rewritten before
+every start. A custom launcher, a Docker image's start command, or a
+`ProjectZomboid64.json` that puts `natives/` first still loads the old
+libraries.
 
 **What to do:**
 
 1. If the server is stuck, use **Force stop** on the Dashboard. It tries one
-   quick save, then stops the server either way, so anything since the last
+   quick save while RCON is connected (a stuck server usually can't answer
+   it), then stops the server either way, so anything since the last
    successful save can be lost. The panel never does this for you.
 2. With the server stopped, rename the leftover folder in the install
-   folder, for example `mv natives natives.old`. It's safe: the current
-   build doesn't use it. The panel never deletes it.
+   folder, for example `mv natives natives.old`. Renaming can be undone. If
+   Diagnostics says `natives/` also holds libraries `linux64/` doesn't have,
+   verify the game files with SteamCMD first.
 3. Start the server again.
 
 **Debug › Diagnostics** shows "Old game libraries in natives/" while that
-folder is there and its libraries differ from `linux64/`, and the panel log
-warns `Leftover native libraries from an older game build` before every
-start.
+folder is there and its libraries differ from `linux64/`, or "Older game
+libraries load first" when `ProjectZomboid64.json` puts `natives/` first.
+The panel log warns `Leftover native libraries from an older game build`
+before every start.
 
 ---
 

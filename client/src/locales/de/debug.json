@@ -435,6 +435,21 @@
               "label": "Alte Spielbibliotheken in natives/",
               "message": "Der Ordner natives/ enthält Kopien der nativen Bibliotheken des Spiels, die sich von denen in linux64/ unterscheiden ({{libraries}}). Das Startskript des Panels lädt linux64/, aber ein eigenes Startskript oder ein eigener Startbefehl, der natives/ zuerst lädt, verwendet die alten, und der Server stürzt dann beim Speichern der Welt ab.",
               "hint": "Du kannst den Ordner natives/ gefahrlos löschen oder umbenennen (zum Beispiel in natives.old), solange der Server gestoppt ist. Das Panel löscht ihn nie."
+            },
+            "leftoverNativesOwnLauncher": {
+              "label": "Alte Spielbibliotheken in natives/",
+              "message": "Der Ordner natives/ enthält Kopien der nativen Bibliotheken des Spiels, die sich von denen in linux64/ unterscheiden ({{libraries}}). Dieser Server startet nicht mit dem Startskript des Panels, sondern auf eigene Weise (mit dem Befehl eines Docker-Images oder einem eigenen Startskript oder Startbefehl). Wenn das natives/ zuerst lädt, verwendet der Server die alten und stürzt beim Speichern der Welt ab.",
+              "hint": "Du kannst den Ordner natives/ gefahrlos löschen oder umbenennen (zum Beispiel in natives.old), solange der Server gestoppt ist. Das Panel löscht ihn nie."
+            },
+            "leftoverNativesPartial": {
+              "label": "Alte Spielbibliotheken in natives/",
+              "message": "Der Ordner natives/ enthält Kopien der nativen Bibliotheken des Spiels, die sich von denen in linux64/ unterscheiden ({{libraries}}), und außerdem {{onlyInLeftover}}, die es in linux64/ nicht gibt. Ein Startskript oder Startbefehl, der natives/ vor linux64/ lädt, verwendet die alten Kopien, und der Server stürzt dann beim Speichern der Welt ab.",
+              "hint": "Überprüfe die Spieldateien mit SteamCMD, bevor du natives/ löschst: Der Server braucht womöglich noch die Bibliotheken, die nur dort liegen. Das Umbenennen (zum Beispiel in natives.old), solange der Server gestoppt ist, lässt sich rückgängig machen. Das Panel löscht den Ordner nie."
+            },
+            "nativesFirst": {
+              "label": "Ältere Spielbibliotheken werden zuerst geladen",
+              "message": "ProjectZomboid64.json setzt natives/ vor linux64/, daher lädt der Server ältere Kopien der nativen Bibliotheken des Spiels aus natives/ ({{libraries}}) statt der aktuellen in linux64/ und kann beim Speichern der Welt abstürzen.",
+              "hint": "Benenne den Ordner natives/ um (zum Beispiel in natives.old), solange der Server gestoppt ist, oder überprüfe die Spieldateien mit SteamCMD, damit ProjectZomboid64.json zur installierten Version passt. Das Panel löscht den Ordner nie."
             }
           }
         },

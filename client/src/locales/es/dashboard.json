@@ -20,7 +20,7 @@
       "MANAGED_CONTAINER": "Este servidor se ejecuta en un contenedor Docker gestionado por el panel. Actualiza la imagen del contenedor en su lugar — el panel no ejecuta SteamCMD contra un contenedor gestionado.",
       "NOT_CONFIGURED": "La ruta de SteamCMD o la ruta de instalación del servidor no está configurada.",
       "INITIAL_SCAN_FAILED": "No se pudo comprobar si el servidor estaba en ejecución, así que la actualización se abandonó por seguridad.",
-      "RCON_NOT_CONNECTED": "RCON no estaba conectado, así que el servidor no se pudo detener de forma segura.",
+      "RCON_NOT_CONNECTED": "RCON no estaba conectado, así que el servidor no se pudo detener de forma segura. Si el servidor está bloqueado, usa «Forzar detención» en el Tablero (mientras RCON esté desconectado no puede guardar antes, así que se perderá todo lo ocurrido desde el último guardado correcto) y vuelve a ejecutar la actualización.",
       "SAVE_FAILED": "No se pudo guardar el mundo ({{reason}}), así que la actualización se abandonó para no perder progreso. Si el servidor está bloqueado, usa «Forzar detención» en el Tablero (puede perderse todo lo ocurrido desde el último guardado correcto) y vuelve a ejecutar la actualización.",
       "STOP_SCAN_FAILED": "Se perdió la capacidad de comprobar si el servidor se había detenido, así que la actualización se abandonó por seguridad.",
       "STOP_TIMEOUT": "El servidor no se detuvo en 5 minutos.",

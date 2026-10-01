@@ -414,6 +414,13 @@ export const ErrorCode = Object.freeze({
    * `code: "server_running"` -> `code: ErrorCode.SERVER_RUNNING_RCON_
    * UNAVAILABLE` swap at that one site is pending sequencing. */
   SERVER_RUNNING_RCON_UNAVAILABLE: "SERVER_RUNNING_RCON_UNAVAILABLE",
+  /** server/index.js -- POST /api/panel/update-download (Docker): the world
+   * was saved and the quit sent, but the game process is still there after
+   * 30 s -- a server hanging in its shutdown, the other way one gets stuck.
+   * Its copy names the next step (wait, or Force stop on the Dashboard);
+   * SERVER_STATE_UNKNOWN's is about a failed process scan, which this is
+   * not (2026-10-01). */
+  SERVER_STOP_NOT_CONFIRMED: "SERVER_STOP_NOT_CONFIRMED",
 
   /** server/routes/docker.js -- POST /api/docker/containers/:id/:action,
    * dockerClient exists but isn't enabled/available. */
@@ -580,6 +587,13 @@ export const ErrorCode = Object.freeze({
    * UnsatisfiedLinkError left the game's main thread dead and RCON
    * dropping). */
   SERVER_RESTART_SAVE_FAILED: "SERVER_RESTART_SAVE_FAILED",
+  /** server/services/scheduler.js -- performRestart()'s returned failure
+   * when RCON doesn't answer the test command it sends before the countdown:
+   * nothing was stopped. Forwarded like SERVER_RESTART_SAVE_FAILED above;
+   * {{reason}} is the RCON error. A server whose game thread died fails here
+   * rather than at the save, since the game runs every RCON command on that
+   * thread (2026-10-01), so its copy names Force stop too. */
+  SERVER_RESTART_RCON_UNAVAILABLE: "SERVER_RESTART_RCON_UNAVAILABLE",
   /** server/routes/server.js -- POST /api/server/force-stop, active server is
    * remote. Own wording/code, not reused across start/force-stop/restart --
    * same reasoning as SERVER_RUNNING_RCON_UNAVAILABLE above: which action was
@@ -593,6 +607,15 @@ export const ErrorCode = Object.freeze({
   /** server/routes/server.js -- POST /api/server/stop, the pre-quit world
    * save itself failed; server was left running. */
   SERVER_STOP_SAVE_FAILED: "SERVER_STOP_SAVE_FAILED",
+  /** server/routes/server.js -- POST /api/server/stop on a REMOTE server,
+   * RCON isn't connected. Its own code because the local one's next step,
+   * Force stop, doesn't exist for a remote server (POST /force-stop refuses
+   * it): this one sends the operator to the host it runs on. */
+  SERVER_STOP_RCON_NOT_CONNECTED_REMOTE: "SERVER_STOP_RCON_NOT_CONNECTED_REMOTE",
+  /** server/routes/server.js -- POST /api/server/stop on a REMOTE server,
+   * the pre-quit save failed; same reasoning as the code above, same
+   * {{reason}} param as SERVER_STOP_SAVE_FAILED. */
+  SERVER_STOP_SAVE_FAILED_REMOTE: "SERVER_STOP_SAVE_FAILED_REMOTE",
   /** server/routes/server.js -- POST /api/server/stop, world saved but the
    * managed container failed to stop. */
   SERVER_STOP_CONTAINER_STOP_FAILED: "SERVER_STOP_CONTAINER_STOP_FAILED",

@@ -20,7 +20,7 @@
       "MANAGED_CONTAINER": "Ce serveur s'exécute dans un conteneur Docker géré par le panneau. Mettez plutôt à jour l'image du conteneur — le panneau n'exécute pas SteamCMD sur un conteneur géré.",
       "NOT_CONFIGURED": "Le chemin SteamCMD ou le chemin d'installation du serveur n'est pas configuré.",
       "INITIAL_SCAN_FAILED": "Impossible de vérifier si le serveur était en cours d'exécution ; la mise à jour a donc été abandonnée par sécurité.",
-      "RCON_NOT_CONNECTED": "RCON n'était pas connecté, le serveur n'a donc pas pu être arrêté en toute sécurité.",
+      "RCON_NOT_CONNECTED": "RCON n'était pas connecté, le serveur n'a donc pas pu être arrêté en toute sécurité. Si le serveur est bloqué, utilisez « Arrêt forcé » sur le tableau de bord (tant que RCON est déconnecté, il ne peut pas sauvegarder d'abord : tout ce qui a été fait depuis la dernière sauvegarde réussie sera perdu), puis relancez la mise à jour.",
       "SAVE_FAILED": "Le monde n'a pas pu être sauvegardé ({{reason}}), la mise à jour a donc été abandonnée pour éviter de perdre la progression. Si le serveur est bloqué, utilisez « Arrêt forcé » sur le tableau de bord (tout ce qui a été fait depuis la dernière sauvegarde réussie peut être perdu), puis relancez la mise à jour.",
       "STOP_SCAN_FAILED": "Impossible de continuer à vérifier que le serveur s'était arrêté ; la mise à jour a donc été abandonnée par sécurité.",
       "STOP_TIMEOUT": "Le serveur ne s'est pas arrêté dans les 5 minutes.",

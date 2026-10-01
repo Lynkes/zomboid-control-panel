@@ -15,6 +15,11 @@ type ToasterToast = ToastProps & {
   description?: React.ReactNode
   action?: ToastActionElement
   duration?: number
+  // "stacked" puts the action under the message instead of beside it --
+  // for a long message, which a button beside it squeezes into a column a
+  // dozen characters wide (2026-10-01: Settings › Updates' "Update Not
+  // Applied" toast was 694 px tall in Ukrainian at 1280x800).
+  layout?: "inline" | "stacked"
 }
 
 const actionTypes = {

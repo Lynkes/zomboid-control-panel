@@ -20,7 +20,7 @@
       "MANAGED_CONTAINER": "Dieser Server läuft in einem vom Panel verwalteten Docker-Container. Aktualisiere stattdessen das Container-Image – das Panel führt SteamCMD nicht gegen einen verwalteten Container aus.",
       "NOT_CONFIGURED": "Der SteamCMD-Pfad oder der Installationspfad des Servers ist nicht konfiguriert.",
       "INITIAL_SCAN_FAILED": "Es konnte nicht überprüft werden, ob der Server lief, daher wurde das Update sicherheitshalber abgebrochen.",
-      "RCON_NOT_CONNECTED": "RCON war nicht verbunden, daher konnte der Server nicht sicher gestoppt werden.",
+      "RCON_NOT_CONNECTED": "RCON war nicht verbunden, daher konnte der Server nicht sicher gestoppt werden. Wenn der Server hängt, nutze „Sofort stoppen“ im Dashboard (solange RCON getrennt ist, kann es vorher nicht speichern, daher geht alles seit dem letzten erfolgreichen Speichern verloren) und führe das Update danach erneut aus.",
       "SAVE_FAILED": "Die Welt konnte nicht gespeichert werden ({{reason}}), daher wurde das Update abgebrochen, um keinen Fortschritt zu verlieren. Wenn der Server hängt, nutze „Sofort stoppen“ im Dashboard (alles seit dem letzten erfolgreichen Speichern kann verloren gehen) und führe das Update danach erneut aus.",
       "STOP_SCAN_FAILED": "Es konnte nicht mehr überprüft werden, ob der Server gestoppt hatte, daher wurde das Update sicherheitshalber abgebrochen.",
       "STOP_TIMEOUT": "Der Server hat innerhalb von 5 Minuten nicht gestoppt.",

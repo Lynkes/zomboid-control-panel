@@ -2143,7 +2143,7 @@ export async function handlePanelUpdateDownload(req, res) {
           if (!rconService?.connected) {
             return res.status(409).json({
               error:
-                "Stop the Project Zomboid server before applying a Docker update. RCON is not connected, so the panel can't save the world and stop it for you. If the server is stuck, use Force stop on the Dashboard: it tries one quick save, then stops the server either way, so anything since the last successful save can be lost.",
+                "Stop the Project Zomboid server before applying a Docker update. RCON is not connected, so the panel can't save the world and stop it for you. If the server is stuck, use Force stop on the Dashboard: while RCON is disconnected it can't save first and stops the server straight away, so anything since the last successful save will be lost.",
               code: ErrorCode.SERVER_RUNNING_RCON_UNAVAILABLE,
             });
           }
@@ -2181,21 +2181,39 @@ export async function handlePanelUpdateDownload(req, res) {
           // before letting the destructive step proceed, same bound as
           // restartServer()'s own wait-for-death loop.
           let stopConfirmed = false;
+          let recheckScanFailed = false;
           for (let attempt = 0; attempt < 30; attempt++) {
             const recheck = await serverManager.getServerProcessDetails();
-            if (!recheck || recheck.scanFailed) break;
+            if (!recheck || recheck.scanFailed) {
+              recheckScanFailed = true;
+              break;
+            }
             if (!recheck.running) {
               stopConfirmed = true;
               break;
             }
             await serverManager.sleep(1000);
           }
+          // Two different outcomes, two codes: the scan itself failing is
+          // SERVER_STATE_UNKNOWN (whose copy is about process detection),
+          // while a process still there after 30 s is a server hanging in
+          // its shutdown -- the other way a server gets stuck, with Force
+          // stop as the next step (SERVER_STOP_NOT_CONFIRMED, which Settings
+          // › Updates offers the Dashboard for).
+          if (!stopConfirmed && recheckScanFailed) {
+            return res.status(503).json({
+              success: false,
+              error:
+                "The world was saved and a shutdown was sent, but process detection failed while waiting for the server to exit, so the panel can't confirm it stopped. The Docker update was not applied.",
+              code: ErrorCode.SERVER_STATE_UNKNOWN,
+            });
+          }
           if (!stopConfirmed) {
             return res.status(503).json({
               success: false,
               error:
-                "The world was saved and a shutdown was sent, but the server process has not confirmed stopped yet. The Docker update was not applied -- wait for it to fully exit and try again.",
-              code: ErrorCode.SERVER_STATE_UNKNOWN,
+                "The world was saved and a shutdown was sent, but the server process still hasn't exited, so the Docker update was not applied. Wait a little and try again. If it doesn't exit, use Force stop on the Dashboard, then apply the update again; anything since that save can be lost.",
+              code: ErrorCode.SERVER_STOP_NOT_CONFIRMED,
             });
           }
 

@@ -50,13 +50,16 @@ export function emitActionResult(io, payload) {
 // SERVER_START_SCRIPT_MISSING (GH #167) and its restart-time counterpart
 // SERVER_RESTART_SCRIPT_MISSING (performRestart()'s check before it stops
 // anything): both messages name the install folder and are English-only.
-// SERVER_RESTART_SAVE_FAILED is performRestart()'s RETURNED failure when the
-// pre-restart save fails, and its copy names the way out of a stuck server
-// (Force stop) -- so it's taken from a failed result as well as a throw.
-// Any other error adds nothing and keeps the bare message it always had.
+// SERVER_RESTART_RCON_UNAVAILABLE and SERVER_RESTART_SAVE_FAILED are
+// performRestart()'s RETURNED failures when RCON doesn't answer its test
+// command or the pre-restart save fails -- a stuck server hits the first
+// (2026-10-01) -- and their copy names the way out (Force stop), so they're
+// taken from a failed result as well as a throw. Any other error adds
+// nothing and keeps the bare message it always had.
 const CODED_ACTION_RESULT_CODES = new Set([
   ErrorCode.SERVER_START_SCRIPT_MISSING,
   ErrorCode.SERVER_RESTART_SCRIPT_MISSING,
+  ErrorCode.SERVER_RESTART_RCON_UNAVAILABLE,
   ErrorCode.SERVER_RESTART_SAVE_FAILED,
 ]);
 

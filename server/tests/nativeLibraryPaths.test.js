@@ -36,8 +36,10 @@ const LINUX_42_21_CONFIG = {
   ],
 };
 
-// The shape of the Windows ProjectZomboid64.json as shipped (top-level
-// vmArgs plus per-OS-version blocks nested under "windows").
+// The Windows ProjectZomboid64.json as shipped with 42.21 -- the CLIENT's
+// launch config (mainClass MainScreenState), not the dedicated server's: the
+// game's own ProjectZomboidServer.bat in the same folder uses
+// -Djava.library.path=./natives/;./natives/win64/;./ instead.
 const WINDOWS_CONFIG = {
   mainClass: "zombie/gameStates/MainScreenState",
   classpath: [".", "projectzomboid.jar"],
@@ -54,6 +56,16 @@ const WINDOWS_CONFIG = {
 };
 
 let roots = [];
+
+// Where System.loadLibrary() / ld.so would find `name` with this search
+// order: the first folder that holds it.
+function firstFolderHolding(root, dirs, name) {
+  return (
+    dirs.find((dir) =>
+      fs.existsSync(dir === "." ? path.join(root, name) : path.join(root, ...dir.split("/"), name)),
+    ) ?? null
+  );
+}
 
 function makeInstall() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-native-libs-"));
@@ -87,6 +99,14 @@ function makeIncidentInstall({ withConfig = true } = {}) {
   writeFile(root, "natives/libPZPathFind64.so", Buffer.alloc(700, 3));
   if (withConfig) writeConfig(root, LINUX_42_21_CONFIG);
   return root;
+}
+
+// Backdates a file by `days`, the way SteamCMD's download date tells an
+// older build's copy from the current one.
+function ageFile(root, relativePath, days) {
+  const filePath = path.join(root, ...relativePath.split("/"));
+  const when = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  fs.utimesSync(filePath, when, when);
 }
 
 afterEach(() => {
@@ -150,11 +170,33 @@ describe("parseLibraryPathFromLaunchConfig()", () => {
     });
   });
 
-  it("reads the Windows file's top-level vmArgs and ignores the nested per-OS blocks", () => {
-    expect(parseLibraryPathFromLaunchConfig(JSON.stringify(WINDOWS_CONFIG))).toEqual({
+  it("reads only the top-level vmArgs, not the nested per-OS blocks", () => {
+    const config = {
+      mainClass: "zombie/network/GameServer",
+      vmArgs: ["-Djava.library.path=linux64/:."],
+      windows: { "10.0.17134": { vmArgs: ["-Djava.library.path=natives/"] } },
+    };
+    expect(parseLibraryPathFromLaunchConfig(JSON.stringify(config))).toEqual({
       ok: true,
-      dirs: ["win64", "."],
+      dirs: ["linux64", "."],
     });
+  });
+
+  it("accepts the server's main class in either spelling, or none", () => {
+    for (const mainClass of ["zombie/network/GameServer", "zombie.network.GameServer", undefined]) {
+      const config = { mainClass, vmArgs: ["-Djava.library.path=linux64/"] };
+      expect(parseLibraryPathFromLaunchConfig(JSON.stringify(config)).ok, String(mainClass)).toBe(true);
+    }
+  });
+
+  it("refuses another program's file -- the client's -- as not the server's to follow", () => {
+    const result = parseLibraryPathFromLaunchConfig(JSON.stringify(WINDOWS_CONFIG));
+    expect(result.ok).toBe(false);
+    expect(result.notServerConfig).toBe(true);
+    const odd = parseLibraryPathFromLaunchConfig(
+      JSON.stringify({ mainClass: 42, vmArgs: ["-Djava.library.path=linux64/"] }),
+    );
+    expect(odd.ok).toBe(false);
   });
 
   it("takes the last -Djava.library.path, as java does", () => {
@@ -207,24 +249,46 @@ describe("resolveNativeLibraryDirs()", () => {
     });
   });
 
-  it("without the file, puts linux64/ first and leaves a stale natives/ off entirely", () => {
+  it("without the file, puts linux64/ first and natives/ only behind it", () => {
     const root = makeIncidentInstall({ withConfig: false });
-    expect(resolveNativeLibraryDirs(root, { platform: "linux" })).toEqual({
-      dirs: ["linux64", "."],
-      source: "linux64",
+    const result = resolveNativeLibraryDirs(root, { platform: "linux" });
+    expect(result).toEqual({
+      dirs: ["linux64", "natives", "natives/linux64", "."],
+      source: "default",
       rejectedReason: null,
     });
+    // A library loads from the first folder that has it: linux64/'s copy.
+    expect(firstFolderHolding(root, result.dirs, "libPZPopMan64.so")).toBe("linux64");
   });
 
-  it("falls back to natives/ (after linux64/) only when linux64/ holds no game library", () => {
+  it("uses the same order for an older layout whose linux64/ holds no game library", () => {
     const root = makeInstall();
     writeFile(root, "linux64/libsteam_api.so", "steam");
     writeFile(root, "natives/libPZPopMan64.so", "old layout");
-    expect(resolveNativeLibraryDirs(root, { platform: "linux" })).toEqual({
-      dirs: ["linux64", "natives", "natives/linux64", "."],
-      source: "fallback",
-      rejectedReason: null,
-    });
+    const { dirs } = resolveNativeLibraryDirs(root, { platform: "linux" });
+    expect(dirs).toEqual(["linux64", "natives", "natives/linux64", "."]);
+    expect(firstFolderHolding(root, dirs, "libPZPopMan64.so")).toBe("natives");
+  });
+
+  // Review finding (2026-10-01): with no usable ProjectZomboid64.json the
+  // default used to drop natives/ entirely as soon as linux64/ held ONE game
+  // library, so a split layout lost libraries v1.4.1 still found.
+  it("a split layout (some libraries only in natives/) still finds every library, linux64/ first", () => {
+    const root = makeInstall();
+    writeFile(root, "linux64/libRakNet64.so", "current");
+    writeFile(root, "natives/libPZPopMan64.so", "only here");
+    writeFile(root, "natives/libPZPathFind64.so", "only here");
+    writeFile(root, "natives/libRakNet64.so", "older");
+    for (const config of [
+      null, // no file
+      { vmArgs: ["-Djava.library.path=linux64/:natives/:/usr/local/lib/pz"] }, // rejected
+    ]) {
+      if (config) writeConfig(root, config);
+      const { dirs } = resolveNativeLibraryDirs(root, { platform: "linux" });
+      expect(firstFolderHolding(root, dirs, "libPZPopMan64.so")).toBe("natives");
+      expect(firstFolderHolding(root, dirs, "libPZPathFind64.so")).toBe("natives");
+      expect(firstFolderHolding(root, dirs, "libRakNet64.so")).toBe("linux64");
+    }
   });
 
   it("falls back the same way for a missing install folder", () => {
@@ -241,8 +305,8 @@ describe("resolveNativeLibraryDirs()", () => {
     const root = makeIncidentInstall({ withConfig: false });
     writeConfig(root, { vmArgs: ["-Djava.library.path=/tmp/evil:../../etc:linux64/"] });
     const result = resolveNativeLibraryDirs(root, { platform: "linux" });
-    expect(result.dirs).toEqual(["linux64", "."]);
-    expect(result.source).toBe("linux64");
+    expect(result.dirs).toEqual(["linux64", "natives", "natives/linux64", "."]);
+    expect(result.source).toBe("default");
     expect(result.rejectedReason).toMatch(/outside the install/);
   });
 
@@ -250,7 +314,7 @@ describe("resolveNativeLibraryDirs()", () => {
     const root = makeIncidentInstall({ withConfig: false });
     writeConfig(root, "{ truncated");
     const result = resolveNativeLibraryDirs(root, { platform: "linux" });
-    expect(result.source).toBe("linux64");
+    expect(result.source).toBe("default");
     expect(result.rejectedReason).toMatch(/not valid JSON/);
   });
 
@@ -259,8 +323,21 @@ describe("resolveNativeLibraryDirs()", () => {
     fs.mkdirSync(path.join(root, "win64"));
     writeConfig(root, { vmArgs: ["-Djava.library.path=win64/"] });
     const result = resolveNativeLibraryDirs(root, { platform: "linux" });
-    expect(result.dirs).toEqual(["linux64", "."]);
+    expect(result.dirs).toEqual(["linux64", "natives", "natives/linux64", "."]);
     expect(result.rejectedReason).toMatch(/no game library/);
+  });
+
+  it("silently ignores a client install's file on Linux (another program's settings)", () => {
+    const root = makeIncidentInstall({ withConfig: false });
+    writeConfig(root, {
+      mainClass: "zombie/gameStates/MainScreenState",
+      vmArgs: ["-Djava.library.path=natives/"],
+    });
+    expect(resolveNativeLibraryDirs(root, { platform: "linux" })).toEqual({
+      dirs: ["linux64", "natives", "natives/linux64", "."],
+      source: "default",
+      rejectedReason: null,
+    });
   });
 
   it("follows the game's own file even when it lists natives/ (an older build that really uses it)", () => {
@@ -283,13 +360,35 @@ describe("resolveNativeLibraryDirs()", () => {
     });
   });
 
-  it("Windows: follows the shipped ProjectZomboid64.json shape, DLLs in the install root", () => {
+  // Review finding (2026-10-01): the .bat used to take its library path from
+  // ProjectZomboid64.json -- the CLIENT's file on Windows -- whenever one PZ
+  // DLL sat in any folder it listed, dropping natives/ and natives/win64/.
+  it("Windows: never follows the shipped (client) ProjectZomboid64.json, so DLLs in natives/win64/ still load", () => {
+    const root = makeInstall();
+    writeFile(root, "RakNet64.dll", "dll");
+    writeFile(root, "natives/win64/PZPopMan64.dll", "dll");
+    writeFile(root, "natives/win64/PZPathFind64.dll", "dll");
+    writeFile(root, "natives/win64/ZNetJNI64.dll", "dll");
+    writeConfig(root, WINDOWS_CONFIG);
+    const result = resolveNativeLibraryDirs(root, { platform: "win32" });
+    expect(result).toEqual({
+      dirs: ["natives", "natives/win64", "."],
+      source: "windows",
+      rejectedReason: null,
+    });
+    expect(formatJavaLibraryPath(result.dirs, "win32")).toBe("natives/;natives/win64/;.");
+    for (const name of ["PZPopMan64.dll", "PZPathFind64.dll", "ZNetJNI64.dll"]) {
+      expect(firstFolderHolding(root, result.dirs, name), name).toBe("natives/win64");
+    }
+    expect(firstFolderHolding(root, result.dirs, "RakNet64.dll")).toBe(".");
+  });
+
+  it("Windows: the 42.21 layout (every DLL in the install root) still loads from the root", () => {
     const root = makeInstall();
     writeFile(root, "PZPopMan64.dll", "dll");
     writeConfig(root, WINDOWS_CONFIG);
-    const result = resolveNativeLibraryDirs(root, { platform: "win32" });
-    expect(result).toEqual({ dirs: ["win64", "."], source: "launchConfig", rejectedReason: null });
-    expect(formatJavaLibraryPath(result.dirs, "win32")).toBe("win64/;.");
+    const { dirs } = resolveNativeLibraryDirs(root, { platform: "win32" });
+    expect(firstFolderHolding(root, dirs, "PZPopMan64.dll")).toBe(".");
   });
 });
 
@@ -319,7 +418,7 @@ describe("buildLinuxLdLibraryCandidates() (serverManager.buildLdLibraryPath)", (
     expect(candidates.indexOf(path.join(root, "linux64"))).toBeLessThan(candidates.indexOf(root));
   });
 
-  it("keeps linux64/ ahead of natives/ in the fallback", () => {
+  it("keeps linux64/ ahead of natives/ without a usable ProjectZomboid64.json", () => {
     const root = makeInstall();
     writeFile(root, "natives/libPZPopMan64.so", "old layout");
     const candidates = buildLinuxLdLibraryCandidates(root);
@@ -358,18 +457,37 @@ describe("detectLeftoverNativeLibraries()", () => {
     );
   });
 
-  it("reports a library the current build no longer ships, and natives/linux64/ too", async () => {
+  it("checks natives/linux64/ too", async () => {
     const root = makeIncidentInstall();
-    writeFile(root, "natives/linux64/libZNetJNI64.so", "old");
+    writeFile(root, "natives/linux64/libPZPathFind64.so", "older");
     const leftover = await detectLeftoverNativeLibraries(root, { platform: "linux" });
     expect(leftover.differing).toContainEqual(
-      expect.objectContaining({
-        name: "libZNetJNI64.so",
-        folder: "natives/linux64/",
-        reason: "missingFromCurrent",
-        currentSize: null,
-      }),
+      expect.objectContaining({ name: "libPZPathFind64.so", folder: "natives/linux64/", reason: "size" }),
     );
+  });
+
+  // Review finding (2026-10-01): a library with NO copy in linux64/ used to
+  // be reported as a copy that "differs", with removal called safe -- for
+  // the one library the server may still need from natives/.
+  it("keeps a library linux64/ has no copy of apart: never a differing copy, never 'safe to remove'", async () => {
+    const root = makeIncidentInstall();
+    writeFile(root, "natives/linux64/libZNetJNI64.so", "only here");
+    const leftover = await detectLeftoverNativeLibraries(root, { platform: "linux" });
+    expect(leftover.libraries).toEqual(["libPZPopMan64.so"]);
+    expect(leftover.onlyInLeftover).toEqual(["libZNetJNI64.so"]);
+    expect(leftover.differing.map((entry) => entry.name)).not.toContain("libZNetJNI64.so");
+    const message = describeLeftoverNativeLibraries(root, leftover, { panelScript: true });
+    expect(message).toContain("libPZPopMan64.so differ from the copies in linux64/");
+    expect(message).toContain("It also holds libZNetJNI64.so, which linux64/ doesn't have");
+    expect(message).not.toMatch(/safe to remove/);
+    expect(message).toMatch(/Verify the game files with SteamCMD before you remove natives\//);
+  });
+
+  it("says nothing when natives/ only holds libraries linux64/ lacks (they're the only copies)", async () => {
+    const root = makeInstall();
+    writeFile(root, "linux64/libRakNet64.so", "current");
+    writeFile(root, "natives/libPZPopMan64.so", "only here");
+    expect(await detectLeftoverNativeLibraries(root, { platform: "linux" })).toBeNull();
   });
 
   it("says nothing when natives/ is a byte-identical copy", async () => {
@@ -385,9 +503,36 @@ describe("detectLeftoverNativeLibraries()", () => {
     expect(await detectLeftoverNativeLibraries(root, { platform: "linux" })).toBeNull();
   });
 
-  it("says nothing when the game's own ProjectZomboid64.json lists natives/", async () => {
+  it("still reports it when the game's file lists natives/ behind linux64/ (a launcher can put it first)", async () => {
     const root = makeIncidentInstall({ withConfig: false });
     writeConfig(root, { vmArgs: ["-Djava.library.path=linux64/:natives/"] });
+    const leftover = await detectLeftoverNativeLibraries(root, { platform: "linux" });
+    expect(leftover).toMatchObject({ loadsLeftoverFirst: false, libraries: ["libPZPopMan64.so"] });
+  });
+
+  // Review finding (2026-10-01): a ProjectZomboid64.json that lists natives/
+  // FIRST reproduces the incident through the panel's own script, and the
+  // check used to return null as soon as natives/ appeared in the order.
+  it("reports older natives/ copies that the order itself loads first", async () => {
+    for (const libraryPath of ["natives/:linux64/", "natives/"]) {
+      const root = makeIncidentInstall({ withConfig: false });
+      writeConfig(root, { vmArgs: [`-Djava.library.path=${libraryPath}`] });
+      ageFile(root, "natives/libPZPopMan64.so", 70);
+      const leftover = await detectLeftoverNativeLibraries(root, { platform: "linux" });
+      expect(leftover, libraryPath).toMatchObject({
+        loadsLeftoverFirst: true,
+        libraries: ["libPZPopMan64.so"],
+      });
+      const message = describeLeftoverNativeLibraries(root, leftover, { panelScript: true });
+      expect(message).toContain("ProjectZomboid64.json puts natives/ before linux64/");
+      expect(message).toContain("UnsatisfiedLinkError");
+    }
+  });
+
+  it("says nothing when the copies the order loads first are the NEWER ones", async () => {
+    const root = makeIncidentInstall({ withConfig: false });
+    writeConfig(root, { vmArgs: ["-Djava.library.path=natives/:linux64/"] });
+    ageFile(root, "linux64/libPZPopMan64.so", 70);
     expect(await detectLeftoverNativeLibraries(root, { platform: "linux" })).toBeNull();
   });
 
@@ -400,12 +545,22 @@ describe("detectLeftoverNativeLibraries()", () => {
   it("describes the finding for the panel log: what, why it matters, and that removing it is safe", async () => {
     const root = makeIncidentInstall();
     const leftover = await detectLeftoverNativeLibraries(root, { platform: "linux" });
-    const message = describeLeftoverNativeLibraries(root, leftover);
+    expect(leftover.loadsLeftoverFirst).toBe(false);
+    const message = describeLeftoverNativeLibraries(root, leftover, { panelScript: true });
     expect(message).toContain(path.join(root, "natives"));
     expect(message).toContain("libPZPopMan64.so");
     expect(message).toContain("UnsatisfiedLinkError");
+    expect(message).toContain("The panel's start script loads linux64/ first");
     expect(message).toMatch(/safe to remove or rename the natives\/ folder/);
     expect(message).toMatch(/never deletes it/);
+  });
+
+  it("doesn't vouch for a launcher the panel didn't write", async () => {
+    const root = makeIncidentInstall();
+    const leftover = await detectLeftoverNativeLibraries(root, { platform: "linux" });
+    const message = describeLeftoverNativeLibraries(root, leftover);
+    expect(message).not.toContain("The panel's start script loads linux64/");
+    expect(message).toContain("This server starts with its own launcher");
   });
 });
 

@@ -121,6 +121,7 @@ async function applyDockerUpdate() {
     title: string
     description: string
     variant: string
+    layout?: 'inline' | 'stacked'
     action?: ReactElement<{ onClick: () => void; children: string; altText: string }>
   }
 }
@@ -154,6 +155,9 @@ describe('Settings > Updates: a Docker update refused because the world could no
     expect(toast.description).toContain('Force stop on the Dashboard')
     expect(toast.action).toBeDefined()
     expect(toast.action!.props.children).toBe('Open Dashboard')
+    // Review finding (2026-10-01): beside a 300-460 character message the
+    // button squeezed the text into a column ~13 characters wide (uk).
+    expect(toast.layout).toBe('stacked')
 
     // The action only navigates -- it never force-stops anything itself.
     act(() => {
@@ -162,6 +166,29 @@ describe('Settings > Updates: a Docker update refused because the world could no
     expect(await screen.findByText('Dashboard page')).toBeInTheDocument()
     const { serverApi } = await import('@/lib/api')
     expect(vi.mocked(serverApi.forceStop)).not.toHaveBeenCalled()
+  })
+
+  it('a server that hasn\'t exited after its shutdown offers the Dashboard too', async () => {
+    getAppSettings.mockResolvedValue({ settings: {} })
+    getStatus.mockResolvedValue(dockerStatus)
+    preflight.mockResolvedValue(preflightOk)
+    download.mockRejectedValue(
+      new ApiError('raw English', {
+        status: 503,
+        code: 'SERVER_STOP_NOT_CONFIRMED',
+        data: { code: 'SERVER_STOP_NOT_CONFIRMED' },
+      }),
+    )
+
+    renderSettings()
+    const toast = await applyDockerUpdate()
+
+    expect(toast.title).toBe('Update Not Applied')
+    expect(toast.description).toContain("still hasn't exited")
+    expect(toast.description).toContain('Force stop on the Dashboard')
+    expect(toast.description).not.toContain('process-detection scan')
+    expect(toast.action!.props.children).toBe('Open Dashboard')
+    expect(toast.layout).toBe('stacked')
   })
 
   it('keeps "Download Failed" (and no Dashboard action) for a real download failure', async () => {
@@ -175,5 +202,6 @@ describe('Settings > Updates: a Docker update refused because the world could no
 
     expect(toast.title).toBe('Download Failed')
     expect(toast.action).toBeUndefined()
+    expect(toast.layout).toBeUndefined()
   })
 })

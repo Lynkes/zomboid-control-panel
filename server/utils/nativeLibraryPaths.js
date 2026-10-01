@@ -17,19 +17,28 @@
 // old enough to have one has the same trap.
 //
 // Rule, in order:
-//   1. The install's own ProjectZomboid64.json (its top-level vmArgs'
-//      -Djava.library.path), when it is present and sane: every entry a
-//      relative folder inside the install (absolute or ".."-escaping entries
-//      reject the whole value -- a hostile or corrupt file must not steer
-//      what the JVM loads), at least one of them existing, and at least one
-//      holding a PZ native library. That is what the build on disk says
-//      about itself, so it wins even if it lists natives/.
-//   2. Otherwise (Linux) linux64/ first; natives/ and natives/linux64/ only
-//      when linux64/ holds no PZ library at all, as a fallback for an older
-//      layout.
-//   3. Otherwise (Windows) the order the generated .bat has always used,
-//      natives/;natives/win64/;. -- the Windows layout keeps its DLLs in the
-//      install root, which "." covers.
+//   1. Windows: natives/;natives/win64/;. -- the order the generated .bat
+//      has always used, and the one the game's own ProjectZomboidServer.bat
+//      uses (./natives/;./natives/win64/;./). The Windows
+//      ProjectZomboid64.json is the CLIENT's launch config (mainClass
+//      zombie/gameStates/MainScreenState, -Djava.library.path=win64/;.), so
+//      it never decides the server's path. Windows was not part of the
+//      incident.
+//   2. Linux: the install's own ProjectZomboid64.json (its top-level vmArgs'
+//      -Djava.library.path), when it is the dedicated server's (mainClass
+//      zombie/network/GameServer, or none) and sane: every entry a relative
+//      folder inside the install (absolute or ".."-escaping entries reject
+//      the whole value -- a hostile or corrupt file must not steer what the
+//      JVM loads), at least one of them existing, and at least one holding a
+//      PZ native library. That is what the build on disk says about itself,
+//      so it wins even if it lists natives/ -- detectLeftoverNativeLibraries()
+//      below warns when that loads older copies.
+//   3. Otherwise (Linux) linux64/ first, then natives/ and natives/linux64/
+//      behind it -- the order the vanilla start-server.sh used when it named
+//      both (linux64:natives). The JVM and ld.so load a library from the
+//      first folder that has it, so a leftover natives/ copy never shadows
+//      linux64/'s, while a library only an older layout keeps in natives/ is
+//      still found, as it was before.
 // The install root "." always ends the list, as it always has.
 
 import crypto from "crypto";
@@ -37,6 +46,11 @@ import fs from "fs";
 import path from "path";
 
 export const PZ_LAUNCH_CONFIG_FILE = "ProjectZomboid64.json";
+
+// The dedicated server's main class. A ProjectZomboid64.json naming another
+// one (the client's zombie/gameStates/MainScreenState) describes a different
+// program, not the server the panel launches.
+const SERVER_MAIN_CLASS = "zombie/network/GameServer";
 
 // A launch config bigger than this is not the game's ~1 KB file.
 const MAX_LAUNCH_CONFIG_BYTES = 256 * 1024;
@@ -50,8 +64,7 @@ const SAFE_DIR_SEGMENT_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
 const PZ_LINUX_LIBRARY_RE = /^lib(?:PZ[A-Za-z0-9]+|RakNet|ZNet[A-Za-z0-9]+|Lighting)64\.so$/;
 const PZ_WINDOWS_LIBRARY_RE = /^(?:PZ[A-Za-z0-9]+|RakNet|ZNet[A-Za-z0-9]+|Lighting)64\.dll$/i;
 
-const LINUX_DEFAULT_DIRS = ["linux64", "."];
-const LINUX_FALLBACK_DIRS = ["linux64", "natives", "natives/linux64", "."];
+const LINUX_DEFAULT_DIRS = ["linux64", "natives", "natives/linux64", "."];
 const WINDOWS_DEFAULT_DIRS = ["natives", "natives/win64", "."];
 
 // Folders an older build kept its Linux libraries in.
@@ -90,12 +103,13 @@ export function normalizeLibraryDirEntry(entry) {
   return segments.join("/");
 }
 
-// ProjectZomboid64.json text -> { ok: true, dirs } or { ok: false, reason }.
-// Only the top-level vmArgs count (the per-OS-version blocks the Windows
-// file nests under "windows" only pick a GC); the last
-// -Djava.library.path wins, as it does on a java command line. Entries are
-// split on ":" and ";" alike -- an absolute entry like "C:\x" splits into
-// pieces that are rejected anyway.
+// ProjectZomboid64.json text -> { ok: true, dirs } or { ok: false, reason }
+// (plus notServerConfig: true when the file is another program's -- the
+// client's -- which is nothing to report). Only the top-level vmArgs count
+// (the per-OS-version blocks the Windows file nests under "windows" only
+// pick a GC); the last -Djava.library.path wins, as it does on a java
+// command line. Entries are split on ":" and ";" alike -- an absolute entry
+// like "C:\x" splits into pieces that are rejected anyway.
 export function parseLibraryPathFromLaunchConfig(text) {
   let config;
   try {
@@ -103,7 +117,21 @@ export function parseLibraryPathFromLaunchConfig(text) {
   } catch {
     return { ok: false, reason: "not valid JSON" };
   }
-  const vmArgs = config && typeof config === "object" ? config.vmArgs : null;
+  if (!config || typeof config !== "object") {
+    return { ok: false, reason: "no vmArgs list" };
+  }
+  if (config.mainClass !== undefined) {
+    const mainClass =
+      typeof config.mainClass === "string" ? config.mainClass.trim().replace(/\./g, "/") : "";
+    if (mainClass !== SERVER_MAIN_CLASS) {
+      return {
+        ok: false,
+        reason: "another program's launch settings (not the dedicated server's)",
+        notServerConfig: true,
+      };
+    }
+  }
+  const vmArgs = config.vmArgs;
   if (!Array.isArray(vmArgs)) return { ok: false, reason: "no vmArgs list" };
   const prefix = "-Djava.library.path=";
   const arg = vmArgs
@@ -176,6 +204,9 @@ function readLaunchConfigLibraryDirs(installPath, platform) {
   }
   const parsed = parseLibraryPathFromLaunchConfig(text);
   if (!parsed.ok) {
+    // Another program's file (a client install's) isn't the server's to
+    // follow, nor a problem worth a warning on every start.
+    if (parsed.notServerConfig) return { ok: false, reason: null };
     return { ok: false, reason: `${PZ_LAUNCH_CONFIG_FILE} has ${parsed.reason}` };
   }
   const existing = parsed.dirs.filter((dir) => isDirectory(dirPathIn(installPath, dir)));
@@ -193,12 +224,12 @@ function readLaunchConfigLibraryDirs(installPath, platform) {
  * it and in search order, always ending with "." (the install root).
  *
  * Returns { dirs, source, rejectedReason }:
- *   source "launchConfig" -- taken from the install's ProjectZomboid64.json
- *   source "linux64"      -- Linux default, linux64/ holds the game's libs
- *   source "fallback"     -- Linux, linux64/ holds none, natives/ allowed
+ *   source "launchConfig" -- Linux, taken from the install's own
+ *                            ProjectZomboid64.json (the server's)
+ *   source "default"      -- Linux, linux64/ first, natives/ behind it
  *   source "windows"      -- the Windows .bat's long-standing order
- * rejectedReason is set when a ProjectZomboid64.json was present but not
- * used, for the caller's log line.
+ * rejectedReason is set when a server ProjectZomboid64.json was present but
+ * not used, for the caller's log line.
  *
  * Synchronous on purpose: generateStartupScripts() is synchronous and runs
  * this once per script write (a stat, a ~1 KB read and one or two readdirs).
@@ -207,6 +238,9 @@ export function resolveNativeLibraryDirs(
   installPath,
   { platform = process.platform } = {},
 ) {
+  if (isWindowsPlatform(platform)) {
+    return { dirs: [...WINDOWS_DEFAULT_DIRS], source: "windows", rejectedReason: null };
+  }
   let rejectedReason = null;
   if (installPath) {
     const fromConfig = readLaunchConfigLibraryDirs(installPath, platform);
@@ -218,16 +252,7 @@ export function resolveNativeLibraryDirs(
     }
     rejectedReason = fromConfig.reason;
   }
-
-  if (isWindowsPlatform(platform)) {
-    return { dirs: [...WINDOWS_DEFAULT_DIRS], source: "windows", rejectedReason };
-  }
-  const linux64HasLibraries =
-    Boolean(installPath) &&
-    listPzLibrariesSync(path.join(installPath, "linux64"), platform).length > 0;
-  return linux64HasLibraries
-    ? { dirs: [...LINUX_DEFAULT_DIRS], source: "linux64", rejectedReason }
-    : { dirs: [...LINUX_FALLBACK_DIRS], source: "fallback", rejectedReason };
+  return { dirs: [...LINUX_DEFAULT_DIRS], source: "default", rejectedReason };
 }
 
 // -Djava.library.path value for a generated script, relative to the folder
@@ -290,20 +315,54 @@ async function hashFile(filePath) {
   });
 }
 
+// The folders, in search order, that hold at least one of the game's native
+// libraries -- what a launch with resolveNativeLibraryDirs()'s order
+// actually loads from ("linux64/", "natives/", "./" for the install root).
+export async function listLoadedNativeLibraryFolders(
+  installPath,
+  { platform = process.platform } = {},
+) {
+  if (!installPath) return [];
+  const { dirs } = resolveNativeLibraryDirs(installPath, { platform });
+  const folders = [];
+  for (const dir of dirs) {
+    if ((await listPzLibraries(dirPathIn(installPath, dir), platform)).length > 0) {
+      folders.push(dir === "." ? "./" : `${dir}/`);
+    }
+  }
+  return folders;
+}
+
 /**
  * A leftover natives/ folder whose game libraries differ from the current
  * linux64/ ones, or null when there's nothing to report: Windows, no game
- * libraries in linux64/ (natives/ is then the legitimate fallback), the
- * game's own ProjectZomboid64.json lists natives/, or every library in it
- * matches linux64/'s copy byte for byte.
+ * libraries in linux64/ (natives/ is then the real one), every copy in it
+ * matches linux64/'s byte for byte, or the search order puts natives/ first
+ * and its copies are the NEWER ones (linux64/ is then the leftover, and it
+ * never loads).
+ *
+ * Two findings, told apart by `loadsLeftoverFirst`:
+ *   false -- the search order (the panel's own script) loads linux64/ first,
+ *            so only a launcher that puts natives/ first loads the old
+ *            copies. `libraries` are the copies that differ from
+ *            linux64/'s; `onlyInLeftover` the libraries natives/ holds that
+ *            linux64/ has no copy of at all -- not "copies that differ", and
+ *            the reason removing natives/ isn't called safe when there are
+ *            any (the server may still need them).
+ *   true  -- the search order itself (a ProjectZomboid64.json listing
+ *            natives/ before linux64/, or without it) loads natives/'s
+ *            copies, and they are older than linux64/'s: the incident,
+ *            reproduced by the game's own file. `libraries` are those.
  *
  * Differences are judged by size first and only hashed when the sizes
- * match, so a typical check reads no library content at all. Never touches
- * the files beyond reading them.
+ * match, so a typical check reads no library content at all; "older" is the
+ * file's modification time (SteamCMD writes each file when it downloads
+ * it). Never touches the files beyond reading them.
  *
- * Returns { folder: "natives/", currentFolder: "linux64/", libraries,
- * differing: [{ name, folder, reason: "missingFromCurrent" | "size" |
- * "content", leftoverSize, currentSize, leftoverMtimeMs, currentMtimeMs }] }.
+ * Returns { folder: "natives/", currentFolder: "linux64/",
+ * loadsLeftoverFirst, libraries, onlyInLeftover, differing: [{ name,
+ * folder, reason: "size" | "content", leftoverSize, currentSize,
+ * leftoverMtimeMs, currentMtimeMs }] }.
  */
 export async function detectLeftoverNativeLibraries(
   installPath,
@@ -315,21 +374,29 @@ export async function detectLeftoverNativeLibraries(
   if (currentLibraries.length === 0) return null;
 
   const { dirs } = resolveNativeLibraryDirs(installPath, { platform });
-  if (LEGACY_LINUX_DIRS.some((dir) => dirs.includes(dir))) return null;
+  const searchOrder = (dir) => {
+    const index = dirs.indexOf(dir);
+    return index < 0 ? Infinity : index;
+  };
+  const currentOrder = searchOrder("linux64");
 
-  const differing = [];
+  // Every leftover copy of a library linux64/ also has, identical or not.
+  const copies = [];
+  const onlyInLeftover = new Set();
   for (const legacyDir of LEGACY_LINUX_DIRS) {
     const leftoverDir = path.join(installPath, ...legacyDir.split("/"));
     for (const name of await listPzLibraries(leftoverDir, platform)) {
-      const leftoverStat = await statFile(path.join(leftoverDir, name));
-      if (!leftoverStat) continue;
-      const currentStat = currentLibraries.includes(name)
-        ? await statFile(path.join(currentDir, name))
-        : null;
+      if (!currentLibraries.includes(name)) {
+        onlyInLeftover.add(name);
+        continue;
+      }
+      const [leftoverStat, currentStat] = await Promise.all([
+        statFile(path.join(leftoverDir, name)),
+        statFile(path.join(currentDir, name)),
+      ]);
+      if (!leftoverStat || !currentStat) continue;
       let reason = null;
-      if (!currentStat) {
-        reason = "missingFromCurrent";
-      } else if (currentStat.size !== leftoverStat.size) {
+      if (currentStat.size !== leftoverStat.size) {
         reason = "size";
       } else {
         const [leftoverHash, currentHash] = await Promise.all([
@@ -340,25 +407,46 @@ export async function detectLeftoverNativeLibraries(
           reason = "content";
         }
       }
-      if (reason) {
-        differing.push({
-          name,
-          folder: `${legacyDir}/`,
-          reason,
-          leftoverSize: leftoverStat.size,
-          currentSize: currentStat ? currentStat.size : null,
-          leftoverMtimeMs: leftoverStat.mtimeMs,
-          currentMtimeMs: currentStat ? currentStat.mtimeMs : null,
-        });
-      }
+      copies.push({
+        name,
+        dir: legacyDir,
+        reason,
+        leftoverSize: leftoverStat.size,
+        currentSize: currentStat.size,
+        leftoverMtimeMs: leftoverStat.mtimeMs,
+        currentMtimeMs: currentStat.mtimeMs,
+      });
     }
   }
+  const differing = copies.filter((copy) => copy.reason);
   if (differing.length === 0) return null;
+  const uniqueNames = (list) => [...new Set(list.map((copy) => copy.name))].sort();
+  const aheadOfCurrent = (dir) => searchOrder(dir) < currentOrder;
+
+  // Which copy of each library a launch with this order loads: the first
+  // leftover folder ahead of linux64/ that holds it, if any.
+  const loadedOlder = [];
+  for (const name of uniqueNames(differing)) {
+    const loaded = copies
+      .filter((copy) => copy.name === name && aheadOfCurrent(copy.dir))
+      .sort((a, b) => searchOrder(a.dir) - searchOrder(b.dir))[0];
+    if (loaded?.reason && loaded.leftoverMtimeMs < loaded.currentMtimeMs) {
+      loadedOlder.push(name);
+    }
+  }
+  // Otherwise only the differing copies this order never reaches first are
+  // a trap (for a launcher that puts natives/ first). A newer copy ahead of
+  // linux64/ is the current one, and nothing to warn about.
+  const behind = differing.filter((copy) => !aheadOfCurrent(copy.dir));
+  if (loadedOlder.length === 0 && behind.length === 0) return null;
+
   return {
     folder: "natives/",
     currentFolder: "linux64/",
-    libraries: [...new Set(differing.map((entry) => entry.name))].sort(),
-    differing,
+    loadsLeftoverFirst: loadedOlder.length > 0,
+    libraries: loadedOlder.length > 0 ? loadedOlder : uniqueNames(behind),
+    onlyInLeftover: [...onlyInLeftover].sort(),
+    differing: differing.map(({ dir, ...copy }) => ({ ...copy, folder: `${dir}/` })),
   };
 }
 
@@ -376,14 +464,40 @@ export function resolveGameDirForNativeCheck(server) {
 }
 
 // The panel-log line for a launch from an install with a leftover natives/
-// folder (see detectLeftoverNativeLibraries()).
-export function describeLeftoverNativeLibraries(installPath, leftover) {
+// folder (see detectLeftoverNativeLibraries()). `panelScript`: this launch
+// runs the start script the panel just wrote (linux64/ first), rather than
+// a launcher of the operator's or a Docker image's own, whose order the
+// panel can't see.
+export function describeLeftoverNativeLibraries(
+  installPath,
+  leftover,
+  { panelScript = false } = {},
+) {
+  const nativesDir = path.join(installPath, "natives");
+  const libraries = leftover.libraries.join(", ");
+  if (leftover.loadsLeftoverFirst) {
+    return (
+      `Leftover native libraries from an older game build in ${nativesDir} load before the current ones: ` +
+      `${PZ_LAUNCH_CONFIG_FILE} puts natives/ before linux64/, so the game loads older copies of ${libraries} ` +
+      "and can crash during world saves (UnsatisfiedLinkError). Rename the natives/ folder (for example to natives.old) " +
+      "while the server is stopped, or verify the game files with SteamCMD; the panel never deletes it."
+    );
+  }
+  const onlyInLeftover = leftover.onlyInLeftover || [];
   return (
-    `Leftover native libraries from an older game build in ${path.join(installPath, "natives")}: ` +
-    `${leftover.libraries.join(", ")} differ from the copies in linux64/. ` +
-    "The panel's start script loads linux64/, but a custom start script or command that puts natives/ " +
-    "first loads the old ones, and the game then crashes during world saves (UnsatisfiedLinkError). " +
-    "It is safe to remove or rename the natives/ folder (for example to natives.old) while the server is stopped; " +
-    "the panel never deletes it."
+    `Leftover native libraries from an older game build in ${nativesDir}: ` +
+    `${libraries} differ from the copies in linux64/.` +
+    (onlyInLeftover.length > 0
+      ? ` It also holds ${onlyInLeftover.join(", ")}, which linux64/ doesn't have.`
+      : "") +
+    (panelScript
+      ? " The panel's start script loads linux64/ first, but a custom start script or command that puts natives/ first loads the old ones"
+      : " This server starts with its own launcher, not the panel's start script; if that puts natives/ first, it loads the old ones") +
+    ", and the game then crashes during world saves (UnsatisfiedLinkError). " +
+    (onlyInLeftover.length > 0
+      ? "Verify the game files with SteamCMD before you remove natives/: the server may still need the libraries only it holds. " +
+        "Renaming it (for example to natives.old) while the server is stopped can be undone; the panel never deletes it."
+      : "It is safe to remove or rename the natives/ folder (for example to natives.old) while the server is stopped; " +
+        "the panel never deletes it.")
   );
 }

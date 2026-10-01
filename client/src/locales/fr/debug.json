@@ -440,6 +440,21 @@
               "label": "Anciennes bibliothèques du jeu dans natives/",
               "message": "Le dossier natives/ contient des copies des bibliothèques natives du jeu qui diffèrent de celles de linux64/ ({{libraries}}). Le script de démarrage du panneau charge linux64/, mais un script ou une commande de démarrage personnalisés qui chargent natives/ en premier utilisent les anciennes, et le serveur plante alors pendant les sauvegardes du monde.",
               "hint": "Vous pouvez supprimer ou renommer le dossier natives/ sans risque (par exemple en natives.old) pendant que le serveur est arrêté. Le panneau ne le supprime jamais."
+            },
+            "leftoverNativesOwnLauncher": {
+              "label": "Anciennes bibliothèques du jeu dans natives/",
+              "message": "Le dossier natives/ contient des copies des bibliothèques natives du jeu qui diffèrent de celles de linux64/ ({{libraries}}). Ce serveur démarre avec son propre lanceur (la commande d'une image Docker, ou un script ou une commande de démarrage personnalisés), pas avec le script de démarrage du panneau. Si ce lanceur charge natives/ en premier, le serveur utilise les anciennes et plante pendant les sauvegardes du monde.",
+              "hint": "Vous pouvez supprimer ou renommer le dossier natives/ sans risque (par exemple en natives.old) pendant que le serveur est arrêté. Le panneau ne le supprime jamais."
+            },
+            "leftoverNativesPartial": {
+              "label": "Anciennes bibliothèques du jeu dans natives/",
+              "message": "Le dossier natives/ contient des copies des bibliothèques natives du jeu qui diffèrent de celles de linux64/ ({{libraries}}), ainsi que {{onlyInLeftover}}, que linux64/ n'a pas. Un script ou une commande de démarrage qui charge natives/ avant linux64/ utilise les anciennes copies, et le serveur plante alors pendant les sauvegardes du monde.",
+              "hint": "Vérifiez les fichiers du jeu avec SteamCMD avant de supprimer natives/ : le serveur peut encore avoir besoin des bibliothèques qu'il est seul à contenir. Le renommer (par exemple en natives.old) pendant que le serveur est arrêté peut être annulé. Le panneau ne le supprime jamais."
+            },
+            "nativesFirst": {
+              "label": "Des bibliothèques plus anciennes du jeu sont chargées en premier",
+              "message": "ProjectZomboid64.json place natives/ avant linux64/ : le serveur charge donc depuis natives/ des copies plus anciennes des bibliothèques natives du jeu ({{libraries}}) au lieu des actuelles dans linux64/, et peut planter pendant les sauvegardes du monde.",
+              "hint": "Pendant que le serveur est arrêté, renommez le dossier natives/ (par exemple en natives.old), ou vérifiez les fichiers du jeu avec SteamCMD pour que ProjectZomboid64.json corresponde à la version installée. Le panneau ne le supprime jamais."
             }
           }
         },

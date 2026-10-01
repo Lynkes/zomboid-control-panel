@@ -12,11 +12,12 @@ import { ApiError } from './api'
 // The panel never force-stops on its own: that can lose everything since the
 // last successful save, which only the operator can decide to accept.
 export type PanelUpdateFailureKind =
-  // The save or the stop failed, or RCON is down: the next step is the
-  // Dashboard's Force stop if the server is stuck.
+  // The save or the stop failed, RCON is down, or the server hasn't exited
+  // after its shutdown: the next step is the Dashboard's Force stop if the
+  // server is stuck.
   | 'serverNotStopped'
-  // The panel couldn't confirm the server's state: update not applied, but
-  // there is no single next step to point at.
+  // The panel's process scan failed: update not applied, but there is no
+  // single next step to point at.
   | 'serverStateUnknown'
   | 'downloadFailed'
 
@@ -27,6 +28,7 @@ const SERVER_NOT_STOPPED_CODES: ReadonlySet<string> = new Set([
   'save_failed',
   'stop_failed',
   'SERVER_RUNNING_RCON_UNAVAILABLE',
+  'SERVER_STOP_NOT_CONFIRMED',
 ])
 const SERVER_STATE_UNKNOWN_CODES: ReadonlySet<string> = new Set(['SERVER_STATE_UNKNOWN'])
 

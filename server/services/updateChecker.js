@@ -674,7 +674,7 @@ export class UpdateChecker {
       if (initialDetails.running) {
         shouldRestart = true;
         phase = "before-stop";
-        if (!this.rconService.connected) fail("RCON_NOT_CONNECTED", "RCON is not connected, so the server cannot be stopped safely");
+        if (!this.rconService.connected) fail("RCON_NOT_CONNECTED", "RCON is not connected, so the server cannot be stopped safely. If the server is stuck, use Force stop on the Dashboard (while RCON is disconnected it can't save first, so anything since the last successful save will be lost), then run the update again");
         // scheduleAutoUpdate()'s own warning announcement only fires ONCE,
         // at the moment the update was first detected -- if RCON happened
         // to be disconnected at that exact instant (a transient blip, not a

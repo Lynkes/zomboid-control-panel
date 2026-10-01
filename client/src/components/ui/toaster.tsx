@@ -1,4 +1,5 @@
 import { useToast } from "@/components/ui/use-toast"
+import { cn } from "@/lib/utils"
 import { BellRing, CheckCircle2, AlertTriangle, AlertCircle } from 'lucide-react'
 import {
   Toast,
@@ -27,7 +28,7 @@ export function Toaster() {
 
   return (
     <ToastProvider>
-      {toasts.map(function ({ id, title, description, action, variant, ...props }) {
+      {toasts.map(function ({ id, title, description, action, variant, layout, className, ...props }) {
         const iconBg = variant === 'success'
           ? 'border-primary/25 bg-primary/15 text-primary'
           : variant === 'destructive'
@@ -35,8 +36,15 @@ export function Toaster() {
             : variant === 'warning'
               ? 'border-warning/25 bg-warning/15 text-warning'
               : 'border-border/40 bg-muted text-muted-foreground'
+        const stacked = layout === 'stacked' && Boolean(action)
         return (
-          <Toast key={id} variant={variant} {...props}>
+          <Toast
+            key={id}
+            variant={variant}
+            className={cn(stacked && 'flex-col items-stretch gap-3 space-x-0', className)}
+            data-layout={stacked ? 'stacked' : undefined}
+            {...props}
+          >
             <div className="flex items-start gap-3">
               <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border ${iconBg}`}>
                 {getToastIcon(variant)}
@@ -48,7 +56,7 @@ export function Toaster() {
                 )}
               </div>
             </div>
-            {action}
+            {stacked ? <div className="flex justify-end">{action}</div> : action}
             <ToastClose />
           </Toast>
         )

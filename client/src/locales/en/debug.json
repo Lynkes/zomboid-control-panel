@@ -435,6 +435,21 @@
               "label": "Old game libraries in natives/",
               "message": "The natives/ folder holds copies of the game's native libraries that differ from linux64/ ({{libraries}}). The panel's start script loads linux64/, but a custom start script or command that loads natives/ first runs the old ones, and the server then crashes during world saves.",
               "hint": "It's safe to remove or rename the natives/ folder (for example to natives.old) while the server is stopped. The panel never deletes it."
+            },
+            "leftoverNativesOwnLauncher": {
+              "label": "Old game libraries in natives/",
+              "message": "The natives/ folder holds copies of the game's native libraries that differ from linux64/ ({{libraries}}). This server starts with its own launcher (a Docker image's command, or a custom start script or command), not the panel's start script. If that launcher loads natives/ first, the server runs the old ones and crashes during world saves.",
+              "hint": "It's safe to remove or rename the natives/ folder (for example to natives.old) while the server is stopped. The panel never deletes it."
+            },
+            "leftoverNativesPartial": {
+              "label": "Old game libraries in natives/",
+              "message": "The natives/ folder holds copies of the game's native libraries that differ from linux64/ ({{libraries}}), and also {{onlyInLeftover}}, which linux64/ doesn't have. A start script or command that loads natives/ before linux64/ runs the old copies, and the server then crashes during world saves.",
+              "hint": "Verify the game files with SteamCMD before you remove natives/: the server may still need the libraries only it holds. Renaming it (for example to natives.old) while the server is stopped can be undone. The panel never deletes it."
+            },
+            "nativesFirst": {
+              "label": "Older game libraries load first",
+              "message": "ProjectZomboid64.json puts natives/ before linux64/, so the server loads older copies of the game's native libraries from natives/ ({{libraries}}) instead of the current ones in linux64/, and can crash during world saves.",
+              "hint": "While the server is stopped, rename the natives/ folder (for example to natives.old), or verify the game files with SteamCMD so ProjectZomboid64.json matches the installed build. The panel never deletes it."
             }
           }
         },

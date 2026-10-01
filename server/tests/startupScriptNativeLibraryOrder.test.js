@@ -60,11 +60,21 @@ function makeIncidentInstall({ withConfig = true } = {}) {
     writeFile(
       root,
       "ProjectZomboid64.json",
-      JSON.stringify({ vmArgs: ["-Xmx8g", "-Djava.library.path=linux64/"] }),
+      JSON.stringify({
+        mainClass: "zombie/network/GameServer",
+        vmArgs: ["-Xmx8g", "-Djava.library.path=linux64/"],
+      }),
     );
   }
   return root;
 }
+
+// The Windows ProjectZomboid64.json as shipped with 42.21: the client's.
+const WINDOWS_CLIENT_CONFIG = {
+  mainClass: "zombie/gameStates/MainScreenState",
+  vmArgs: ["-Djava.library.path=win64/;."],
+  windows: { "10.0.17134": { vmArgs: ["-XX:+UseZGC"] } },
+};
 
 function scriptOptions(installPath) {
   return { installPath, serverName: "Tower", minMemory: 4, maxMemory: 8 };
@@ -95,15 +105,16 @@ describe("generateStartupScripts(): native library order", () => {
     expect(sh).not.toContain("natives");
   });
 
-  it("without ProjectZomboid64.json, linux64/ still wins and the stale natives/ stays off the path", () => {
+  it("without ProjectZomboid64.json, linux64/ comes first and the stale natives/ only behind it", () => {
     const { sh } = generateStartupScripts(scriptOptions(makeIncidentInstall({ withConfig: false })));
-    expect(javaLibraryPath(sh)).toBe("linux64/:.");
-    expect(ldLine(sh)).toMatch(/^export LD_LIBRARY_PATH="\$\{INSTDIR\}\/linux64\/:\$\{INSTDIR\}:/);
-    expect(sh).not.toContain("natives");
+    expect(javaLibraryPath(sh)).toBe("linux64/:natives/:natives/linux64/:.");
+    expect(ldLine(sh)).toBe(
+      'export LD_LIBRARY_PATH="${INSTDIR}/linux64/:${INSTDIR}/natives/:${INSTDIR}/natives/linux64/:${INSTDIR}:${INSTDIR}/jre64/lib/amd64:${INSTDIR}/jre64/lib/x86_64:/usr/lib64:${LD_LIBRARY_PATH}"',
+    );
   });
 
   it("linux64/ precedes natives/ on both paths whenever natives/ is on them at all", () => {
-    // linux64/ without game libraries: natives/ is the fallback, behind it.
+    // linux64/ without game libraries: natives/ is still found, behind it.
     const root = makeInstall();
     writeFile(root, "natives/libPZPopMan64.so", "older layout");
     const { sh } = generateStartupScripts(scriptOptions(root));
@@ -130,7 +141,7 @@ describe("generateStartupScripts(): native library order", () => {
     const { sh, bat } = generateStartupScripts(scriptOptions(root));
     expect(sh).not.toContain("pwned");
     expect(bat).not.toContain("pwned");
-    expect(javaLibraryPath(sh)).toBe("linux64/:.");
+    expect(javaLibraryPath(sh)).toBe("linux64/:natives/:natives/linux64/:.");
   });
 
   it("Windows .bat keeps natives/;natives/win64/;. when the install has no usable ProjectZomboid64.json", () => {
@@ -138,19 +149,28 @@ describe("generateStartupScripts(): native library order", () => {
     expect(javaLibraryPath(bat)).toBe("natives/;natives/win64/;.");
   });
 
-  it("Windows .bat follows the shipped ProjectZomboid64.json when its folders hold the DLLs", () => {
+  // Review finding (2026-10-01): the .bat followed the Windows
+  // ProjectZomboid64.json -- the client's -- to -Djava.library.path=win64/;.,
+  // so DLLs in natives/win64/ stopped loading; the game's own
+  // ProjectZomboidServer.bat uses ./natives/;./natives/win64/;./.
+  it("Windows .bat never follows the client's ProjectZomboid64.json", () => {
+    const root = makeInstall();
+    writeFile(root, "RakNet64.dll", "dll");
+    writeFile(root, "natives/win64/PZPopMan64.dll", "dll");
+    writeFile(root, "ProjectZomboid64.json", JSON.stringify(WINDOWS_CLIENT_CONFIG));
+    const { bat } = generateStartupScripts(scriptOptions(root));
+    expect(javaLibraryPath(bat)).toBe("natives/;natives/win64/;.");
+  });
+
+  it("never warns about the client's ProjectZomboid64.json on any start", () => {
     const root = makeInstall();
     writeFile(root, "PZPopMan64.dll", "dll");
-    writeFile(
-      root,
-      "ProjectZomboid64.json",
-      JSON.stringify({
-        vmArgs: ["-Djava.library.path=win64/;."],
-        windows: { "10.0.17134": { vmArgs: ["-XX:+UseZGC"] } },
-      }),
-    );
-    const { bat } = generateStartupScripts(scriptOptions(root));
-    expect(javaLibraryPath(bat)).toBe("win64/;.");
+    writeFile(root, "natives/win64/PZPopMan64.dll", "dll");
+    writeFile(root, "ProjectZomboid64.json", JSON.stringify(WINDOWS_CLIENT_CONFIG));
+    generateStartupScripts(scriptOptions(root));
+    expect(
+      logSpy.warn.mock.calls.some(([message]) => String(message).includes("Not using the game's own native library path")),
+    ).toBe(false);
   });
 });
 
@@ -200,6 +220,7 @@ describe("refreshLaunchTargetBeforeStart(): existing installs get the fix on the
     const leftoverWarning = warnings.find((message) => message.includes("Leftover native libraries"));
     expect(leftoverWarning).toBeDefined();
     expect(leftoverWarning).toContain("libPZPopMan64.so");
+    expect(leftoverWarning).toContain("The panel's start script loads linux64/ first");
     expect(leftoverWarning).toMatch(/safe to remove or rename the natives\/ folder/);
     expect(fs.existsSync(path.join(root, "natives", "libPZPopMan64.so"))).toBe(true);
   });
@@ -212,9 +233,36 @@ describe("refreshLaunchTargetBeforeStart(): existing installs get the fix on the
 
     await refreshLaunchTargetBeforeStart(server, { platform: "linux" });
 
-    expect(
-      logSpy.warn.mock.calls.some(([message]) => String(message).includes("Leftover native libraries")),
-    ).toBe(true);
+    const leftoverWarning = logSpy.warn.mock.calls
+      .map(([message]) => String(message))
+      .find((message) => message.includes("Leftover native libraries"));
+    expect(leftoverWarning).toBeDefined();
+    // The panel didn't write this launcher, so it can't say what it loads.
+    expect(leftoverWarning).not.toContain("The panel's start script loads linux64/");
+    expect(leftoverWarning).toContain("This server starts with its own launcher");
+  });
+
+  it("names the game's own file when it is what loads the older natives/ copies first", async () => {
+    const root = makeIncidentInstall({ withConfig: false });
+    writeFile(
+      root,
+      "ProjectZomboid64.json",
+      JSON.stringify({ vmArgs: ["-Djava.library.path=natives/:linux64/"] }),
+    );
+    const old = new Date(Date.now() - 70 * 24 * 60 * 60 * 1000);
+    fs.utimesSync(path.join(root, "natives", "libPZPopMan64.so"), old, old);
+    const server = serverFor(root);
+    getActiveServer.mockResolvedValue(server);
+
+    await refreshLaunchTargetBeforeStart(server, { platform: "linux" });
+
+    const leftoverWarning = logSpy.warn.mock.calls
+      .map(([message]) => String(message))
+      .find((message) => message.includes("Leftover native libraries"));
+    expect(leftoverWarning).toContain("ProjectZomboid64.json puts natives/ before linux64/");
+    expect(javaLibraryPath(fs.readFileSync(path.join(root, "start-server_Tower.sh"), "utf8"))).toBe(
+      "natives/:linux64/:.",
+    );
   });
 
   it("stays quiet for a clean install, a container-managed server and Windows", async () => {
