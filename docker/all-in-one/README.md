@@ -69,8 +69,36 @@ independent of a particular NAS or host filesystem layout, and means you
 never need to configure `PUID`/`PGID` for this path — the container always
 runs Project Zomboid internally as UID/GID `1000` and owns its own volumes.
 
-The Compose stack publishes the PZ game ports `16261/udp` and `16262/udp`
-automatically. They do not need to be added to Compose by hand.
+The Compose stack publishes the PZ game ports automatically: UDP
+`16261-16270` by default. They do not need to be added to Compose by hand.
+
+## More than one server
+
+The container can run several Project Zomboid servers at once. Create each
+extra one from **Server Setup** in the panel:
+
+- **Folder.** A full install goes in `/pz-servers/<name>` and its data in
+  `/pz-servers/<name>_Data`, on the `pz-servers` volume, so it survives
+  panel updates. Quick Setup reuses the game files in `/pz-server` and
+  keeps only the data in `/pz-servers/<name>_Data`. The wizard fills these
+  in; a folder outside a volume (such as `/pz-server2`) is refused, because
+  recreating the container would erase it.
+- **Ports.** Each server needs its own game port, the port after it (UDP),
+  and its own RCON port. The wizard starts on free ones: 16263-16264 and
+  RCON 27016 for the second server, and so on. Players join the second
+  server at `<host>:16263`.
+- **Published range.** Docker publishes `PZ_GAME_PORTS` from `.env`
+  (default `16261-16270`, five servers). To run more, widen it, for example
+  `PZ_GAME_PORTS=16261-16280`, and run `bootstrap.sh` again.
+
+Installs from before this release have neither the `pz-servers` volume nor
+the wider range. Stop your servers and run `bootstrap.sh` again to add both:
+it keeps your `.env` and volumes, and recreates the containers. Updating
+from the Settings page alone doesn't change the Compose file.
+
+A Docker update from the Settings page saves and stops only the active
+server, so it refuses to start while another server is running. Stop the
+others first.
 
 The update controller has Docker socket access, but it is not exposed on a
 host port. The panel can reach it only over the Compose network using the

@@ -27,7 +27,13 @@ import {
   ArrowRight,
   AlertTriangle,
 } from "lucide-react";
-import { configApi, serverApi, serversApi, debugApi } from "@/lib/api";
+import { configApi, serverApi, serversApi, debugApi, type ServerSetupPlan } from "@/lib/api";
+import {
+  findPortConflicts,
+  isGamePortPublished,
+  joinContainerPath,
+  uniqueServerName,
+} from "@/lib/serverPortPlan";
 import { platformTranslationKey, useRuntimeInfo } from "@/hooks/useRuntimeInfo";
 import { HelpTip } from "@/components/HelpTip";
 import { NumberInput } from "@/components/NumberInput";
@@ -215,8 +221,15 @@ export function installationErrorGuidance(
   displayMessage: string,
   t: (key: string, opts?: Record<string, unknown>) => string,
   platform: string | null,
+  serviceManager?: string | null,
 ) {
   if (!rawMessage.startsWith("Installation path is not writable:")) {
+    return displayMessage;
+  }
+  // Inside a container there is no zomboid-panel.service to edit, and the
+  // suggested systemd path isn't on a volume: the container message on its
+  // own (PUID/PGID for a bind mount) is the whole fix.
+  if (serviceManager === "container") {
     return displayMessage;
   }
   // The suffix tells the user to edit zomboid-panel.service and restart it
@@ -285,6 +298,31 @@ export default function ServerSetup() {
   // Drives installationErrorGuidance's Linux-only remediation suffix --
   // null until resolved, so we never show wrong-platform advice on a guess.
   const serverPlatform = runtimeInfo?.platform ?? null;
+  const inContainer = runtimeInfo?.serviceManager === "container";
+
+  // Other servers on this host (GET /server/setup-plan). With any, this
+  // wizard is creating ANOTHER server: it starts on free ports and a free
+  // name instead of the active server's, and in the all-in-one image on a
+  // folder of the extra-servers volume.
+  const [setupPlan, setSetupPlan] = useState<ServerSetupPlan | null>(null);
+  const isAdditionalServer = (setupPlan?.usedPorts.length ?? 0) > 0;
+  const extraServersRoot = setupPlan?.allInOne?.serversRoot ?? null;
+  const publishedGamePorts = setupPlan?.allInOne?.publishedGamePorts ?? null;
+  // The active server's install folder, which Quick Setup reuses.
+  const settingsInstallPathRef = useRef("");
+  // The folder values this wizard filled in itself; a field the operator
+  // changed stops following the server name. `undefined` until the first
+  // fill, `locked` once an earlier install is resumed, whose folder must
+  // stay as it was.
+  const autoPathsRef = useRef<{
+    install: string | null;
+    data: string | null | undefined;
+    locked: boolean;
+  }>({
+    install: null,
+    data: undefined,
+    locked: false,
+  });
 
   // Installation state
   const [installing, setInstalling] = useState(false);
@@ -491,7 +529,10 @@ export default function ServerSetup() {
           setSteamCmdPath(settings.steamcmdPath);
           setHasSteamCmd(true);
         }
-        if (settings.serverPath) setInstallPath(settings.serverPath);
+        if (settings.serverPath) {
+          setInstallPath(settings.serverPath);
+          settingsInstallPathRef.current = settings.serverPath;
+        }
         if (settings.serverName) setServerName(settings.serverName);
         if (settings.zomboidDataPath) {
           setZomboidDataPath(settings.zomboidDataPath);
@@ -517,9 +558,74 @@ export default function ServerSetup() {
       } catch (error) {
         reportClientError("Failed to load settings.", error);
       }
+
+      // After the settings above, so another server's free ports and name
+      // replace the active server's ones prefilled there, never the reverse.
+      try {
+        const plan = await serverApi.getSetupPlan();
+        setSetupPlan(plan);
+        if (plan.usedPorts.length > 0) {
+          if (plan.suggestedPorts.gamePort) setServerPort(plan.suggestedPorts.gamePort);
+          if (plan.suggestedPorts.rconPort) setRconPort(plan.suggestedPorts.rconPort);
+          setServerName((name) => uniqueServerName(name, plan.usedPorts));
+        }
+      } catch (error) {
+        reportClientError("Failed to load the setup plan.", error);
+      }
     };
     loadSettings();
   }, []);
+
+  // All-in-one image, another server: a full install goes in its own folder
+  // on the extra-servers volume (the data folder lands beside it), and
+  // Quick Setup reuses the active server's game files but gets its own data
+  // folder there, so the two servers don't write the same console log.
+  // Follows the server name until the operator edits the field.
+  useEffect(() => {
+    const auto = autoPathsRef.current;
+    if (auto.locked || !isAdditionalServer || !extraServersRoot || !serverName) return;
+    if (setupMode !== "full" && setupMode !== "quick") return;
+
+    const wantedInstall =
+      setupMode === "full"
+        ? joinContainerPath(extraServersRoot, serverName)
+        : settingsInstallPathRef.current;
+    if (wantedInstall && (auto.install === null || installPath === auto.install)) {
+      auto.install = wantedInstall;
+      if (installPath !== wantedInstall) setInstallPath(wantedInstall);
+    }
+
+    // null = no custom data folder (the server puts it beside the install).
+    // Kept apart from "", so switching the custom folder on before typing
+    // one counts as the operator's choice.
+    const wantedData =
+      setupMode === "full" ? null : joinContainerPath(extraServersRoot, `${serverName}_Data`);
+    const currentData = useCustomDataPath ? zomboidDataPath : null;
+    if (auto.data === undefined || currentData === auto.data) {
+      auto.data = wantedData;
+      if (currentData !== wantedData) {
+        setUseCustomDataPath(wantedData !== null);
+        setZomboidDataPath(wantedData ?? "");
+      }
+    }
+  }, [
+    isAdditionalServer,
+    extraServersRoot,
+    serverName,
+    setupMode,
+    installPath,
+    zomboidDataPath,
+    useCustomDataPath,
+  ]);
+
+  const portConflicts = useMemo(
+    () =>
+      setupPlan
+        ? findPortConflicts({ serverPort, rconPort, serverName, installPath }, setupPlan.usedPorts)
+        : [],
+    [setupPlan, serverPort, rconPort, serverName, installPath],
+  );
+  const gamePortPublished = isGamePortPublished(serverPort, publishedGamePorts);
 
   // Fetch available Steam branches
   useEffect(() => {
@@ -1063,7 +1169,13 @@ export default function ServerSetup() {
       installOperationPathRef.current = null;
       const rawMessage = rawErrorMessageIntentional(error, t("common.unknownError"));
       const displayMessage = getUserErrorMessage(error, t("common.unknownError"));
-      const msg = installationErrorGuidance(rawMessage, displayMessage, t, serverPlatform);
+      const msg = installationErrorGuidance(
+        rawMessage,
+        displayMessage,
+        t,
+        serverPlatform,
+        runtimeInfo?.serviceManager,
+      );
       addLog("error", msg);
       setInstalling(false);
       setInstallStalled(false);
@@ -1248,9 +1360,118 @@ export default function ServerSetup() {
     }
   };
 
+  // Warnings under a port field: another server configured for the same
+  // port, or (all-in-one image) a game port Docker doesn't publish.
+  const PORT_CONFLICT_KEYS = {
+    game: "multiServer.conflictGame",
+    udp: "multiServer.conflictUdp",
+    rcon: "multiServer.conflictRcon",
+  } as const;
+  const renderPortWarnings = (field: "game" | "rcon") => {
+    const lines = portConflicts
+      .filter((conflict) => (field === "rcon") === (conflict.kind === "rcon"))
+      .map((conflict) =>
+        t(PORT_CONFLICT_KEYS[conflict.kind], { port: conflict.port, name: conflict.serverName }),
+      );
+    if (field === "game" && gamePortPublished === false && publishedGamePorts) {
+      lines.push(
+        t("multiServer.outsidePublished", {
+          game: serverPort,
+          udp: serverPort + 1,
+          start: publishedGamePorts.start,
+          end: publishedGamePorts.end,
+        }),
+      );
+    }
+    if (lines.length === 0) return null;
+    return (
+      <div className="space-y-1" role="status">
+        {lines.map((line) => (
+          <p key={line} className="text-xs text-warning flex items-start gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+            <span>{line}</span>
+          </p>
+        ))}
+      </div>
+    );
+  };
+
+  // Another server on this host: the ports each one already uses and, in
+  // the all-in-one image, the game ports Docker publishes.
+  const renderPortPlanNotice = () => {
+    if (!setupPlan || !isAdditionalServer) return null;
+    return (
+      <div className="border border-border/60 bg-muted/40 rounded-lg p-4 text-sm space-y-2">
+        <p className="font-medium flex items-center gap-2">
+          <Info className="w-4 h-4 text-primary" />
+          {t("multiServer.portsTitle")}
+        </p>
+        <p className="text-muted-foreground">{t("multiServer.portsBody")}</p>
+        <ul className="space-y-1 text-muted-foreground text-xs">
+          {setupPlan.usedPorts.map((entry) => (
+            <li key={entry.id} className="break-words">
+              {t("multiServer.usedPortsItem", {
+                name: entry.name || entry.serverName,
+                game: formatPort(entry.gamePort ?? NaN),
+                udp: formatPort(entry.udpPort ?? NaN),
+                rcon: formatPort(entry.rconPort ?? NaN),
+              })}
+            </li>
+          ))}
+        </ul>
+        {publishedGamePorts && (
+          <p className="text-muted-foreground">
+            {t("multiServer.publishedRange", {
+              start: publishedGamePorts.start,
+              end: publishedGamePorts.end,
+            })}
+          </p>
+        )}
+      </div>
+    );
+  };
+
+  // All-in-one image, another server: where its files and data go (see the
+  // auto-fill effect above), or why a full install can't go anywhere safe yet.
+  const renderFolderPlanNotice = () => {
+    if (!isAdditionalServer || !setupPlan?.allInOne) return null;
+    if (!extraServersRoot) {
+      if (setupMode !== "full") return null;
+      return (
+        <div className="border border-border/60 bg-muted/40 rounded-lg p-4 text-sm">
+          <p className="text-warning flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+            <span>{t("multiServer.noVolume")}</span>
+          </p>
+        </div>
+      );
+    }
+    const dataPath =
+      useCustomDataPath && zomboidDataPath.trim()
+        ? zomboidDataPath.trim()
+        : `${installPath.trim()}_Data`;
+    return (
+      <div className="border border-border/60 bg-muted/40 rounded-lg p-4 text-sm space-y-2">
+        <p className="font-medium flex items-center gap-2">
+          <Info className="w-4 h-4 text-primary" />
+          {t("multiServer.folderTitle")}
+        </p>
+        <p className="text-muted-foreground">
+          <Trans
+            i18nKey={setupMode === "full" ? "multiServer.folderBodyFull" : "multiServer.folderBodyQuick"}
+            t={t}
+            values={{ path: installPath.trim(), dataPath }}
+            components={{ 1: <code className="bg-muted px-1 rounded break-all" /> }}
+          />
+        </p>
+      </div>
+    );
+  };
+
   // Resume-banner actions -- see resumeMarker/readInstallInFlightMarker above.
   const handleResumeContinue = () => {
     if (!resumeMarker) return;
+    autoPathsRef.current.locked = true;
     setInstallPath(resumeMarker.installPath);
     setServerName(resumeMarker.serverName);
     setSetupMode("full");
@@ -1734,15 +1955,19 @@ export default function ServerSetup() {
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <Label className="text-base">{t("full.step2.installFolderLabel")}</Label>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-auto px-0 text-xs"
-              onClick={() => setInstallPath(LINUX_SERVICE_INSTALL_PATH)}
-            >
-              {t("full.step2.useLinuxPath")}
-            </Button>
+            {/* The systemd service path means nothing inside a container,
+                where it isn't on a volume either. */}
+            {!inContainer && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-auto px-0 text-xs"
+                onClick={() => setInstallPath(LINUX_SERVICE_INSTALL_PATH)}
+              >
+                {t("full.step2.useLinuxPath")}
+              </Button>
+            )}
           </div>
           <div className="flex gap-2">
             <Input
@@ -1785,28 +2010,32 @@ export default function ServerSetup() {
           </p>
         </div>
 
-        <div className="border border-border/60 bg-muted/40 rounded-lg p-4 text-sm space-y-2">
-          <p className="font-medium flex items-center gap-2">
-            <Info className="w-4 h-4 text-primary" />
-            {t("full.step2.linuxNoteTitle")}
-          </p>
-          <p className="text-muted-foreground">
-            <Trans
-              i18nKey="full.step2.linuxNoteBody1"
-              t={t}
-              values={{ path: LINUX_SERVICE_INSTALL_PATH }}
-              components={{ 1: <code className="bg-muted px-1 rounded" /> }}
-            />
-          </p>
-          <p className="text-muted-foreground">
-            <Trans
-              i18nKey="full.step2.linuxNoteBody2"
-              t={t}
-              values={{ path: installPath.trim() ? `${installPath.trim()}_Data` : t("full.step2.dataFolderPlaceholder") }}
-              components={{ 1: <code className="bg-muted px-1 rounded break-all" /> }}
-            />
-          </p>
-        </div>
+        {renderFolderPlanNotice()}
+
+        {!inContainer && (
+          <div className="border border-border/60 bg-muted/40 rounded-lg p-4 text-sm space-y-2">
+            <p className="font-medium flex items-center gap-2">
+              <Info className="w-4 h-4 text-primary" />
+              {t("full.step2.linuxNoteTitle")}
+            </p>
+            <p className="text-muted-foreground">
+              <Trans
+                i18nKey="full.step2.linuxNoteBody1"
+                t={t}
+                values={{ path: LINUX_SERVICE_INSTALL_PATH }}
+                components={{ 1: <code className="bg-muted px-1 rounded" /> }}
+              />
+            </p>
+            <p className="text-muted-foreground">
+              <Trans
+                i18nKey="full.step2.linuxNoteBody2"
+                t={t}
+                values={{ path: installPath.trim() ? `${installPath.trim()}_Data` : t("full.step2.dataFolderPlaceholder") }}
+                components={{ 1: <code className="bg-muted px-1 rounded break-all" /> }}
+              />
+            </p>
+          </div>
+        )}
 
         {/* Server Name */}
         <div className="space-y-2">
@@ -1943,6 +2172,8 @@ export default function ServerSetup() {
         </p>
       </div>
 
+      {renderPortPlanNotice()}
+
       {/* RCON Section - Critical */}
       <Card className="border-primary/35 bg-card shadow-sm">
         <CardHeader className="pb-4">
@@ -2044,6 +2275,7 @@ export default function ServerSetup() {
               <p className="text-xs text-muted-foreground">
                 {t("common.rconPortDefaultHint")}
               </p>
+              {renderPortWarnings("rcon")}
             </div>
           </div>
         </CardContent>
@@ -2178,8 +2410,14 @@ export default function ServerSetup() {
         </CardContent>
       </Card>
 
-      {/* Advanced Options - Collapsed */}
-      <Accordion type="single" collapsible className="border rounded-lg">
+      {/* Advanced Options - Collapsed, except for another server on this
+          host, whose game port has to differ from the others' */}
+      <Accordion
+        type="single"
+        collapsible
+        defaultValue={isAdditionalServer ? "advanced" : undefined}
+        className="border rounded-lg"
+      >
         <AccordionItem value="advanced" className="border-0">
           <AccordionTrigger className="px-4 hover:no-underline">
             <div className="flex items-center gap-2">
@@ -2204,6 +2442,7 @@ export default function ServerSetup() {
                 <p className="text-xs text-muted-foreground">
                   {t("common.gamePortDefaultHint")}
                 </p>
+                {renderPortWarnings("game")}
               </div>
             </div>
 
@@ -2544,6 +2783,9 @@ export default function ServerSetup() {
         </p>
       </div>
 
+      {renderPortPlanNotice()}
+      {renderFolderPlanNotice()}
+
       <div className="grid gap-6">
         {/* Server Name */}
         <div className="space-y-2">
@@ -2663,6 +2905,7 @@ export default function ServerSetup() {
                 <p className="text-xs text-muted-foreground">
                   {t("quick.step2.rconPortDefaultHint")}
                 </p>
+                {renderPortWarnings("rcon")}
               </div>
             </div>
           </CardContent>
@@ -2797,8 +3040,14 @@ export default function ServerSetup() {
           </CardContent>
         </Card>
 
-        {/* Advanced Options */}
-        <Accordion type="single" collapsible className="border rounded-lg">
+        {/* Advanced Options -- open for another server on this host: its
+            game port and data folder have to differ from the others' */}
+        <Accordion
+          type="single"
+          collapsible
+          defaultValue={isAdditionalServer ? "advanced" : undefined}
+          className="border rounded-lg"
+        >
           <AccordionItem value="advanced" className="border-0">
             <AccordionTrigger className="px-4 hover:no-underline">
               <div className="flex items-center gap-2">
@@ -2867,6 +3116,7 @@ export default function ServerSetup() {
                   <p className="text-xs text-muted-foreground">
                     {t("common.gamePortDefaultHint")}
                   </p>
+                  {renderPortWarnings("game")}
                 </div>
               </div>
 

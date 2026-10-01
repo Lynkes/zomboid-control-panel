@@ -8,14 +8,19 @@ services:
     restart: unless-stopped
     ports:
       - "3001:3001"
-      # PZ DefaultPort and UDPPort. The all-in-one installer owns the game
-      # server, so these must be published here rather than added by hand.
-      - "16261:16261/udp"
-      - "16262:16262/udp"
+      # PZ DefaultPort and UDPPort (UDP). Every server in this container
+      # uses two ports in a row, so the default range fits five servers:
+      # 16261-16262 for the first, 16263-16264 for the second, and so on.
+      # Set PZ_GAME_PORTS in .env to change it, then rerun bootstrap.sh.
+      - "${PZ_GAME_PORTS:-16261-16270}:${PZ_GAME_PORTS:-16261-16270}/udp"
     environment:
       NODE_ENV: production
       PZ_SERVER_PATH: /pz-server
       PZ_SAVE_PATH: /zomboid
+      # Extra servers created from the panel live here, on their own volume.
+      PZ_EXTRA_SERVERS_PATH: /pz-servers
+      # Tells the panel which game ports players can reach.
+      PZ_PUBLISHED_GAME_PORTS: ${PZ_GAME_PORTS:-16261-16270}
       PZ_SERVER_BAT: start-server.sh
       RCON_HOST: 127.0.0.1
       RCON_PORT: 27015
@@ -30,6 +35,7 @@ services:
       - panel-logs:/app/logs
       - pz-server:/pz-server
       - zomboid-data:/zomboid
+      - pz-servers:/pz-servers
     depends_on:
       updater:
         condition: service_healthy
@@ -62,3 +68,4 @@ volumes:
   panel-logs:
   pz-server:
   zomboid-data:
+  pz-servers:

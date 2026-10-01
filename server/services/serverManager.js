@@ -25,6 +25,11 @@ import { prepareForLaunch } from "./lifecycleCoordinator.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { listNonInternalIPv4Interfaces } from "../utils/networkInterfaces.js";
 import {
+  collectUsedPorts,
+  DEFAULT_GAME_PORT,
+  findPortConflicts,
+} from "./serverPortPlan.js";
+import {
   isPlausibleStartMs,
   parseEpochMilliseconds,
   readProcessStartTime,
@@ -668,6 +673,74 @@ export function scoreServerProcessOwnership(commandLine, descriptor = {}) {
   }
 
   return score;
+}
+
+function ownershipDescriptorFor(server) {
+  return {
+    serverName: server?.serverName,
+    savePath: server?.zomboidDataPath,
+    serverPath: server?.serverPath || server?.installPath,
+  };
+}
+
+/**
+ * Splits one host-wide scan (scanHostForServerProcesses()'s `matched`) into
+ * the processes of local profiles OTHER than `excludeServer`, with the same
+ * ownership rules /api/servers/status uses. A process that names no server
+ * at all is the excluded server's when it has no positively matched process
+ * of its own (getServerProcessDetails() claims those the same way), and
+ * `unattributed` otherwise. Profiles run by systemd/OpenRC aren't in a
+ * scan's attribution and are skipped.
+ */
+export function attributeOtherRunningServers(matched, servers, excludeServer) {
+  const excludeDescriptor = ownershipDescriptorFor(excludeServer);
+  const others = (Array.isArray(servers) ? servers : []).filter(
+    (server) =>
+      server &&
+      !server.isRemote &&
+      server.id !== excludeServer?.id &&
+      !isManagedLifecycleProvider(server.lifecycleProvider),
+  );
+  const processes = Array.isArray(matched) ? matched : [];
+  const excludeOwnsOne = Boolean(excludeServer) && processes.some(
+    (candidate) => scoreServerProcessOwnership(candidate.cmd, excludeDescriptor) > 0,
+  );
+
+  const running = new Map();
+  const unattributed = [];
+  for (const candidate of processes) {
+    const excludeScore = excludeServer
+      ? scoreServerProcessOwnership(candidate.cmd, excludeDescriptor)
+      : -1;
+    if (excludeScore > 0) continue;
+    const owner = others.find(
+      (server) => scoreServerProcessOwnership(candidate.cmd, ownershipDescriptorFor(server)) > 0,
+    );
+    if (owner) {
+      running.set(owner.id, owner);
+      continue;
+    }
+    if (excludeScore === 0 && !excludeOwnsOne) continue;
+    unattributed.push(candidate);
+  }
+  return { servers: [...running.values()], unattributed };
+}
+
+/**
+ * Local servers other than `excludeServer` that are running right now. Uses
+ * a throwaway instance because a host-wide scan writes `isRunning` on the
+ * instance that runs it.
+ */
+export async function findOtherRunningServers(excludeServer, { servers, scanner } = {}) {
+  const list = servers ?? (await getServers());
+  const scan = await (scanner ?? new ServerManager()).scanHostForServerProcesses();
+  if (!scan || scan.scanFailed) {
+    return { scanFailed: true, servers: [], unattributed: [] };
+  }
+  return {
+    scanFailed: false,
+    ...attributeOtherRunningServers(scan.matched, list, excludeServer),
+  };
 }
 
 export class ServerManager {
@@ -1883,6 +1956,17 @@ export class ServerManager {
             `RCON port ${rconHost}:${rconPort} is already in use — a server may be running that process detection missed. Aborting start to prevent port conflict.`,
           );
         }
+
+        // The game ports are UDP, so the connect probe above can't see them
+        // taken. Another server on this host configured with the same game
+        // or UDP port, and running, makes this one fail to bind partway
+        // through its start; say which one instead.
+        const gamePortClash = await this._findRunningGamePortClash();
+        if (gamePortClash) {
+          throw new Error(
+            `Game port ${gamePortClash.port} is already used by "${gamePortClash.serverName}", which is running. Stop it, or give this server a different game port, before starting.`,
+          );
+        }
       }
 
       // isJvmExecutableBusy() answers a DIFFERENT question than
@@ -2535,6 +2619,48 @@ export class ServerManager {
   _recordLaunchTime() {
     this._forgetStartTime();
     this.startTime = new Date();
+  }
+
+  // The first running local server whose game or UDP port is one this
+  // server is configured for, or null. Costs a process scan only when some
+  // other profile shares a port at all, which a single-server host never
+  // does. A failed scan is no answer: the start goes on, as it did before.
+  async _findRunningGamePortClash() {
+    const self = this._serverRecord;
+    if (!self || self.isRemote) return null;
+    let servers;
+    try {
+      servers = await getServers();
+    } catch (error) {
+      log.debug(`Could not list servers for the game port check: ${error.message}`);
+      return null;
+    }
+    const others = (servers || []).filter((server) => server?.id !== self.id);
+    const conflicts = findPortConflicts(
+      {
+        serverPort: self.serverPort ?? DEFAULT_GAME_PORT,
+        rconPort: null,
+        serverName: self.serverName,
+        installPath: self.installPath || self.serverPath,
+      },
+      collectUsedPorts(others),
+    );
+    if (conflicts.length === 0) return null;
+
+    const sharing = others.filter((server) =>
+      conflicts.some((conflict) => conflict.serverId === server.id),
+    );
+    let result;
+    try {
+      result = await findOtherRunningServers(self, { servers: sharing });
+    } catch (error) {
+      log.debug(`Game port check scan failed: ${error.message}`);
+      return null;
+    }
+    if (result.scanFailed) return null;
+    const runningIds = new Set(result.servers.map((server) => server.id));
+    const clash = conflicts.find((conflict) => runningIds.has(conflict.serverId));
+    return clash ? { port: clash.port, serverName: clash.serverName } : null;
   }
 
   async _isOnlyLocalServer() {

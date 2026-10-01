@@ -58,6 +58,7 @@ PANEL_DOCKER_UPDATER_TOKEN=$TOKEN
 PANEL_BUILD_DIR=$BUILD_ROOT
 PANEL_LAN_IP=$detected_lan_ip
 PANEL_WAN_IP=${PANEL_WAN_IP:-}
+PZ_GAME_PORTS=${PZ_GAME_PORTS:-16261-16270}
 EOF
   chmod 600 "$CONTEXT_DIR/.env"
   echo "Created $CONTEXT_DIR/.env."
@@ -71,7 +72,19 @@ else
   if ! grep -q '^PANEL_LAN_IP=' "$CONTEXT_DIR/.env"; then
     printf 'PANEL_LAN_IP=%s\n' "$detected_lan_ip" >> "$CONTEXT_DIR/.env"
   fi
+  # Installs from before multi-server support published only 16261-16262.
+  if ! grep -q '^PZ_GAME_PORTS=' "$CONTEXT_DIR/.env"; then
+    printf 'PZ_GAME_PORTS=%s\n' "${PZ_GAME_PORTS:-16261-16270}" >> "$CONTEXT_DIR/.env"
+  fi
 fi
+
+game_ports="$(sed -n 's/^PZ_GAME_PORTS=//p' "$CONTEXT_DIR/.env" | tail -n 1)"
+case "$game_ports" in
+  ''|*[!0-9-]*|-*|*-|*-*-*)
+    echo "PZ_GAME_PORTS in $CONTEXT_DIR/.env must be a port or a range like 16261-16270 (got '$game_ports')." >&2
+    exit 1
+    ;;
+esac
 
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
@@ -145,4 +158,4 @@ fi
 
 echo "All-in-one installation is ready."
 echo "Panel: http://${detected_lan_ip:-localhost}:3001"
-echo "PZ ports: 16261/udp and 16262/udp (published automatically)"
+echo "PZ ports: $game_ports/udp (published automatically; each server uses two in a row)"

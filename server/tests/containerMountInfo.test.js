@@ -5,6 +5,7 @@ import {
   describeContainerMountPoints,
   getSelfContainerId,
   inspectSelfContainerMounts,
+  isOnContainerRootLayer,
   translateHostPath,
 } from "../utils/containerMountInfo.js";
 
@@ -213,5 +214,34 @@ describe("translateHostPath", () => {
     expect(translateHostPath("/mnt/user/appdata/pzserver/Server", nestedMounts)).toBe(
       "/pz-server/Server",
     );
+  });
+});
+
+describe("isOnContainerRootLayer", () => {
+  const mounts = parseMountInfo(REAL_MOUNTINFO);
+
+  it("is true for a folder that only the image's root filesystem holds", () => {
+    expect(isOnContainerRootLayer("/pz-server1", mounts)).toBe(true);
+    expect(isOnContainerRootLayer("/opt/zomboid-panel/data/pzserver", mounts)).toBe(true);
+  });
+
+  it("is false for a mount point and anything below it", () => {
+    expect(isOnContainerRootLayer("/pz-server", mounts)).toBe(false);
+    expect(isOnContainerRootLayer("/pz-server/Server/", mounts)).toBe(false);
+  });
+
+  it("does not take a sibling that merely shares a string prefix for the mount", () => {
+    expect(isOnContainerRootLayer("/pz-server2", mounts)).toBe(true);
+  });
+
+  it("decodes the octal escapes mountinfo writes for spaces", () => {
+    const spaced = parseMountInfo(
+      `${REAL_MOUNTINFO}\n620 525 8:48 /x /pz\\040servers rw,relatime - ext4 /dev/sdd rw`,
+    );
+    expect(isOnContainerRootLayer("/pz servers/second", spaced)).toBe(false);
+  });
+
+  it("is null when mountinfo could not be read", () => {
+    expect(isOnContainerRootLayer("/pz-server1", null)).toBeNull();
   });
 });
