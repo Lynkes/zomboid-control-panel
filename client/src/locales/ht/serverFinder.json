@@ -55,6 +55,7 @@
     "loadedTitle": "Sèvè chaje",
     "loadedDesc_one": "Jwenn {{count}} sèvè ak {{players}} jwè anliy",
     "loadedDesc_other": "Jwenn {{count}} sèvè ak {{players}} jwè anliy",
+    "loadedDesc_many": "Jwenn {{count}} sèvè ak {{players}} jwè anliy",
     "fetchFailedFallback": "Pa t kapab jwenn sèvè yo",
     "unknownError": "Erè enkoni",
     "apiKeyMissing": "Kle API Steam manke"

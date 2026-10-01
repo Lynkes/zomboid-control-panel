@@ -8,6 +8,7 @@
     "streamLabel": "flux chat",
     "msgCount_one": "{{count}} mesaj",
     "msgCount_other": "{{count}} mesaj",
+    "msgCount_many": "{{count}} mesaj",
     "live": "AN DIRÈK",
     "offline": "ÒFLIY",
     "messagesAria": "Mesaj chat"
@@ -39,7 +40,8 @@
     "adminOnly": "sèlman pou admin yo — kache pou jwè òdinè yo",
     "noPlayersOnline": "pa gen jwè anliy — sèlman jounal sèvè a",
     "broadcastingTo_one": "ap voye bay {{count}} jwè",
-    "broadcastingTo_other": "ap voye bay {{count}} jwè"
+    "broadcastingTo_other": "ap voye bay {{count}} jwè",
+    "broadcastingTo_many": "ap voye bay {{count}} jwè"
   },
   "playersPanel": {
     "label": "jwè",
