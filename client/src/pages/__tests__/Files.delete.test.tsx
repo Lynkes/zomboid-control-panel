@@ -196,7 +196,7 @@ describe('Files: permanent delete', () => {
     fireEvent.click(screen.getAllByRole('button', { name: enFiles.actions.delete })[0])
 
     const dialog = await screen.findByRole('alertdialog')
-    expect(within(dialog).getByText(new RegExp(enFiles.confirm.trashUnavailable.replace(/\./g, '\\.')))).toBeInTheDocument()
+    expect(within(dialog).getByText(new RegExp(enFiles.confirm.trashUnavailable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))).toBeInTheDocument()
     fireEvent.change(within(dialog).getByLabelText('Type 2 to confirm'), { target: { value: '2' } })
     fireEvent.click(within(dialog).getByRole('button', { name: enFiles.actions.deletePermanently }))
 

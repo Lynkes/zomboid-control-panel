@@ -11,6 +11,7 @@ const { localBackend } = await import("../../services/fileManagerLocalBackend.js
 const realRename = fs.renameSync;
 fs.renameSync = function renameSync(oldPath, newPath) {
   if (String(oldPath).endsWith(".zcptmp")) throw Object.assign(new Error("EBUSY: resource busy or locked, rename"), { code: "EBUSY" });
+  // codeql[js/path-injection] test-only child process: its argv comes from fileManagerLocalFailures.test.js (a mkdtemp root and two fixed names), and this spy forwards the backend's own renames unchanged.
   return realRename.call(fs, oldPath, newPath);
 };
 

@@ -118,6 +118,7 @@ function traceCloses(re) {
   const watched = new Set();
   const closes = [];
   fs.openSync = function (p, ...rest) {
+    // codeql[js/path-injection] test-only fs.openSync spy: it forwards whatever path the code under test opens inside this test's own mkdtemp root, unchanged.
     const fd = origOpenSync.call(fs, p, ...rest);
     if (re.test(String(p))) watched.add(fd);
     return fd;
@@ -393,6 +394,7 @@ describe("Trash", () => {
     const realWrite = fs.writeFileSync;
     fs.writeFileSync = function (p, ...rest) {
       if (String(p).endsWith("meta.json")) throw osError("ENOSPC");
+      // codeql[js/path-injection, js/insecure-temporary-file] test-only fs.writeFileSync spy: it forwards the backend's own writes inside this test's mkdtemp root, unchanged.
       return realWrite.call(fs, p, ...rest);
     };
     let deleteCode;

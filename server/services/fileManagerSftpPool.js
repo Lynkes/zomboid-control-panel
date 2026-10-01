@@ -221,6 +221,18 @@ class FileManagerSftpPool {
   #metaSlots = createSemaphore(META_MAX_IN_FLIGHT);
   #closed = false;
 
+  /**
+   * Whether this pool was opened for exactly this login. Compared in memory:
+   * a changed password needs a new connection, and the password is never
+   * hashed or copied anywhere the settings don't already hold it.
+   * @param {{ host: string, port: number, username: string, password: string }} transport
+   */
+  usesLogin(transport) {
+    const own = this.#transport;
+    return own.host === transport.host && own.port === transport.port
+      && own.username === transport.username && own.password === transport.password;
+  }
+
   constructor(transport) {
     this.#transport = transport;
     /** Random per pool; safe to key caches on (unlike the credentials hash). */
@@ -535,11 +547,9 @@ function transportFromSettings(settings) {
  */
 export function getFileManagerSftpPool(settings) {
   const transport = transportFromSettings(settings);
-  const key = crypto
-    .createHash("sha256")
-    .update(`${transport.host}|${transport.port}|${transport.username}|${transport.password}`)
-    .digest("hex");
+  const key = `${transport.host}|${transport.port}|${transport.username}`;
   let pool = pools.get(key);
+  if (pool && !pool.usesLogin(transport)) pool = null;
   if (!pool) {
     for (const [otherKey, other] of pools) {
       pools.delete(otherKey);
