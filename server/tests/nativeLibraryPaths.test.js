@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { spawnSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -325,6 +326,38 @@ describe("resolveNativeLibraryDirs()", () => {
     const result = resolveNativeLibraryDirs(root, { platform: "linux" });
     expect(result.dirs).toEqual(["linux64", "natives", "natives/linux64", "."]);
     expect(result.rejectedReason).toMatch(/no game library/);
+  });
+
+  it("ignores a file whose folders don't exist", () => {
+    const root = makeIncidentInstall({ withConfig: false });
+    writeFile(root, "linux32", "a file, not a folder");
+    writeConfig(root, { vmArgs: ["-Djava.library.path=linux128/:linux32/"] });
+    const result = resolveNativeLibraryDirs(root, { platform: "linux" });
+    expect(result.source).toBe("default");
+    expect(result.rejectedReason).toMatch(/none of the folders/);
+  });
+
+  // The file is checked and read through one descriptor (CodeQL
+  // js/file-system-race on PR #184), never past the size cap.
+  it("ignores something that isn't a small regular file", () => {
+    const tooBig = makeIncidentInstall({ withConfig: false });
+    writeConfig(tooBig, JSON.stringify({ ...LINUX_42_21_CONFIG, pad: "x".repeat(300 * 1024) }));
+    const folder = makeIncidentInstall({ withConfig: false });
+    fs.mkdirSync(path.join(folder, "ProjectZomboid64.json"));
+    for (const root of [tooBig, folder]) {
+      const result = resolveNativeLibraryDirs(root, { platform: "linux" });
+      expect(result.source).toBe("default");
+      expect(result.rejectedReason).toMatch(/not a small regular file/);
+    }
+  });
+
+  it.skipIf(process.platform === "win32")("refuses a FIFO in the file's place without waiting for a writer", () => {
+    const root = makeIncidentInstall({ withConfig: false });
+    const made = spawnSync("mkfifo", [path.join(root, "ProjectZomboid64.json")]);
+    if (made.status !== 0) return; // no mkfifo here
+    const result = resolveNativeLibraryDirs(root, { platform: "linux" });
+    expect(result.source).toBe("default");
+    expect(result.rejectedReason).toMatch(/not a small regular file/);
   });
 
   it("silently ignores a client install's file on Linux (another program's settings)", () => {

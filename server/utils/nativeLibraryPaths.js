@@ -162,22 +162,17 @@ export function parseLibraryPathFromLaunchConfig(text) {
   return { ok: true, dirs };
 }
 
-function isDirectory(dirPath) {
-  try {
-    return fs.statSync(dirPath).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
+// The game's native libraries in `dirPath`, or null when there is no folder
+// there (missing, or a file). One readdir answers both "does it exist" and
+// "what does it hold", so nothing is stat'ed first and listed later; a
+// folder that exists but can't be listed counts as holding none.
 function listPzLibrariesSync(dirPath, platform) {
   try {
-    return fs
-      .readdirSync(dirPath)
-      .filter((name) => isPzNativeLibraryName(name, platform))
-      .sort();
-  } catch {
-    return [];
+    // codeql[js/path-injection] dirPath is the server profile's install folder (installPath from routes/server.js POST /install and POST /quick-setup, both requirePermission("server.install") and isValidPath(): absolute, no "..") or a folder inside it named by that install's own ProjectZomboid64.json after normalizeLibraryDirEntry() (plain [A-Za-z0-9._-] segments only: no "..", ".", absolute or drive-letter entries). It is only listed, and only names matching the game's library pattern are kept.
+    const names = fs.readdirSync(dirPath);
+    return names.filter((name) => isPzNativeLibraryName(name, platform)).sort();
+  } catch (error) {
+    return error?.code === "ENOENT" || error?.code === "ENOTDIR" ? null : [];
   }
 }
 
@@ -185,23 +180,51 @@ function dirPathIn(installPath, dir) {
   return dir === "." ? installPath : path.join(installPath, ...dir.split("/"));
 }
 
-function readLaunchConfigLibraryDirs(installPath, platform) {
+// O_NONBLOCK: a FIFO (or another special file) named ProjectZomboid64.json
+// must not hang this synchronous open until something writes to it; fstat
+// then refuses it. Windows has no such flag, and no such files.
+const LAUNCH_CONFIG_OPEN_FLAGS = fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0);
+
+// The install's ProjectZomboid64.json text -> { text } or { text: null,
+// reason } (reason null when there is no file: nothing to report). Checked
+// and read through one descriptor, so the file that passes the "small
+// regular file" check is the one read, and never more than the cap of it.
+function readLaunchConfigText(installPath) {
+  const notSmallFile = `${PZ_LAUNCH_CONFIG_FILE} is not a small regular file`;
   const configPath = path.join(installPath, PZ_LAUNCH_CONFIG_FILE);
-  let stat;
+  let fd;
   try {
-    stat = fs.statSync(configPath);
-  } catch {
-    return { ok: false, reason: null }; // absent: nothing to report
-  }
-  if (!stat.isFile() || stat.size > MAX_LAUNCH_CONFIG_BYTES) {
-    return { ok: false, reason: `${PZ_LAUNCH_CONFIG_FILE} is not a small regular file` };
-  }
-  let text;
-  try {
-    text = fs.readFileSync(configPath, "utf8");
+    // codeql[js/path-injection] configPath is the server profile's install folder (installPath from routes/server.js POST /install and POST /quick-setup, both requirePermission("server.install") and isValidPath(): absolute, no "..") joined with the constant name ProjectZomboid64.json -- the game's own launch settings, opened read-only and non-blocking, fstat'ed through this descriptor and read up to MAX_LAUNCH_CONFIG_BYTES only to parse its -Djava.library.path.
+    fd = fs.openSync(configPath, LAUNCH_CONFIG_OPEN_FLAGS);
   } catch (error) {
-    return { ok: false, reason: `${PZ_LAUNCH_CONFIG_FILE} is unreadable (${error.code || error.message})` };
+    if (error.code === "ENOENT" || error.code === "ENOTDIR") return { text: null, reason: null };
+    if (error.code === "EISDIR") return { text: null, reason: notSmallFile };
+    return { text: null, reason: `${PZ_LAUNCH_CONFIG_FILE} is unreadable (${error.code || error.message})` };
   }
+  try {
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.size > MAX_LAUNCH_CONFIG_BYTES) return { text: null, reason: notSmallFile };
+    // One byte past the cap tells a file that grew since fstat from one
+    // that fits.
+    const buffer = Buffer.alloc(MAX_LAUNCH_CONFIG_BYTES + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const read = fs.readSync(fd, buffer, length, buffer.length - length, null);
+      if (read === 0) break;
+      length += read;
+    }
+    if (length > MAX_LAUNCH_CONFIG_BYTES) return { text: null, reason: notSmallFile };
+    return { text: buffer.toString("utf8", 0, length), reason: null };
+  } catch (error) {
+    return { text: null, reason: `${PZ_LAUNCH_CONFIG_FILE} is unreadable (${error.code || error.message})` };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function readLaunchConfigLibraryDirs(installPath, platform) {
+  const { text, reason } = readLaunchConfigText(installPath);
+  if (text === null) return { ok: false, reason };
   const parsed = parseLibraryPathFromLaunchConfig(text);
   if (!parsed.ok) {
     // Another program's file (a client install's) isn't the server's to
@@ -209,11 +232,13 @@ function readLaunchConfigLibraryDirs(installPath, platform) {
     if (parsed.notServerConfig) return { ok: false, reason: null };
     return { ok: false, reason: `${PZ_LAUNCH_CONFIG_FILE} has ${parsed.reason}` };
   }
-  const existing = parsed.dirs.filter((dir) => isDirectory(dirPathIn(installPath, dir)));
-  if (existing.length === 0) {
+  const listings = parsed.dirs
+    .map((dir) => listPzLibrariesSync(dirPathIn(installPath, dir), platform))
+    .filter((libraries) => libraries !== null);
+  if (listings.length === 0) {
     return { ok: false, reason: `none of the folders ${PZ_LAUNCH_CONFIG_FILE} lists exist` };
   }
-  if (!existing.some((dir) => listPzLibrariesSync(dirPathIn(installPath, dir), platform).length > 0)) {
+  if (!listings.some((libraries) => libraries.length > 0)) {
     return { ok: false, reason: `no game library is in the folders ${PZ_LAUNCH_CONFIG_FILE} lists` };
   }
   return { ok: true, dirs: parsed.dirs };
@@ -232,7 +257,7 @@ function readLaunchConfigLibraryDirs(installPath, platform) {
  * not used, for the caller's log line.
  *
  * Synchronous on purpose: generateStartupScripts() is synchronous and runs
- * this once per script write (a stat, a ~1 KB read and one or two readdirs).
+ * this once per script write (an open, a ~1 KB read and one or two readdirs).
  */
 export function resolveNativeLibraryDirs(
   installPath,
