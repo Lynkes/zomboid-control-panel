@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+_No unreleased changes._
+
+## [1.4.1] - 2026-09-30
+
+### Added
+
 - **Server Files:** browse, edit, upload, download and delete files in each server's game and Zomboid folders (local, Docker or SFTP), with a 7-day Trash; admin-only by default.
 - **Character tab on the Players page:** skills and XP, traits, condition and a searchable inventory, live or last known, with "Worth a look" hints.
 
@@ -19,8 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- World Map's item and vehicle pickers always fit the window (Custom item drop's item list was cut off).
-- Dialogs keep long values and their buttons on screen (Templates preview and others).
+- Dialogs and World Map's item and vehicle pickers keep long values and their buttons on screen (Templates preview, Custom item drop; thanks Sr. Renegade).
 - Uploads to the panel, including world backups, are no longer cut off after 5 minutes on a slow connection.
 - Players: Import character now shows in the player's activity log.
 - PanelBridge over SFTP keeps syncing after the host's SFTP service restarts or stops answering, instead of stalling until the panel restarts.
