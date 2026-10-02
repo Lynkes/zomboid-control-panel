@@ -603,6 +603,13 @@ export const ErrorCode = Object.freeze({
    * rather than at the save, since the game runs every RCON command on that
    * thread (2026-10-01), so its copy names Force stop too. */
   SERVER_RESTART_RCON_UNAVAILABLE: "SERVER_RESTART_RCON_UNAVAILABLE",
+  /** server/services/scheduler.js -- performRestart()'s returned failure
+   * when, after the save and `quit`, process detection still can't tell
+   * whether the old server exited after asking again several times (GH
+   * #190): the new server is not started, so two copies never run at once,
+   * and the copy asks the operator to check before starting it. Forwarded
+   * like SERVER_RESTART_SAVE_FAILED above. */
+  SERVER_RESTART_STOP_UNCONFIRMED: "SERVER_RESTART_STOP_UNCONFIRMED",
   /** server/routes/server.js -- POST /api/server/force-stop, active server is
    * remote. Own wording/code, not reused across start/force-stop/restart --
    * same reasoning as SERVER_RUNNING_RCON_UNAVAILABLE above: which action was

@@ -157,4 +157,27 @@ describe("Docker panel update: a server that can't be saved and stopped", () => 
     expect(response.json.mock.calls[0][0].code).toBe("SERVER_STATE_UNKNOWN");
     expect(downloadUpdate).not.toHaveBeenCalled();
   });
+
+  // GH #190: one scan that can't tell while the JVM exits is not the answer.
+  it("a single failed scan while the server exits doesn't call the update off", async () => {
+    const getServerProcessDetails = vi
+      .spyOn(ServerManager.prototype, "getServerProcessDetails")
+      .mockResolvedValueOnce({ running: true, scanFailed: false })
+      .mockResolvedValueOnce({ running: false, scanFailed: true })
+      .mockResolvedValue({ running: false, scanFailed: false });
+    vi.spyOn(ServerManager.prototype, "sleep").mockResolvedValue();
+    const rconService = {
+      connected: true,
+      save: vi.fn().mockResolvedValue({ success: true }),
+      quit: vi.fn().mockResolvedValue({ success: true }),
+    };
+    const downloadUpdate = vi.fn().mockResolvedValue({ success: true });
+    const response = createResponse();
+
+    await handlePanelUpdateDownload(dockerUpdateRequest(rconService, downloadUpdate), response);
+
+    expect(getServerProcessDetails).toHaveBeenCalledTimes(3);
+    expect(downloadUpdate).toHaveBeenCalledOnce();
+    expect(response.json).toHaveBeenCalledWith({ success: true });
+  });
 });

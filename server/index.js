@@ -339,6 +339,7 @@ import {
   stopCharacterSnapshotSampler,
 } from "./services/characterSnapshotSampler.js";
 import { pruneCharacterStore } from "./services/characterStore.js";
+import { readProcessStateWithRetry } from "./utils/processScanRetry.js";
 
 dotenv.config();
 
@@ -2203,12 +2204,20 @@ export async function handlePanelUpdateDownload(req, res) {
           // just triggered by a container recreation instead of a second
           // process. Poll the same process-state check those routes rely on
           // before letting the destructive step proceed, same bound as
-          // restartServer()'s own wait-for-death loop.
+          // restartServer()'s own wait-for-death loop. A sample that can't
+          // tell -- likeliest right as the JVM exits -- asks again a few
+          // times before the update gives up (GH #190).
           let stopConfirmed = false;
           let recheckScanFailed = false;
           for (let attempt = 0; attempt < 30; attempt++) {
-            const recheck = await serverManager.getServerProcessDetails();
-            if (!recheck || recheck.scanFailed) {
+            const recheck = await readProcessStateWithRetry(
+              () => serverManager.getServerProcessDetails(),
+              {
+                sleep: (ms) => serverManager.sleep(ms),
+                context: "Docker update",
+              },
+            );
+            if (recheck.scanFailed) {
               recheckScanFailed = true;
               break;
             }

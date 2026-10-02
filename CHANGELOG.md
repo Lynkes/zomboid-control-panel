@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Fixed
 
-_No unreleased changes._
+- Windows: a restart no longer gives up and leaves the server down when a process scan catches the old server mid-exit (#190, thanks @djcyphers).
 
 ## [1.4.2] - 2026-10-02
 

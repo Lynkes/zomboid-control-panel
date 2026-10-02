@@ -62,26 +62,45 @@ describe("UpdateChecker.runAutoUpdate fails closed when process detection can't 
     expect(serverManager.startServer).not.toHaveBeenCalled();
   });
 
-  it("aborts if detection breaks again mid-wait for the server to stop", async () => {
+  it("aborts if detection stays broken mid-wait for the server to stop", async () => {
     let call = 0;
-    const { checker, io } = buildChecker({
-      getServerProcessDetails: vi.fn(async () => {
-        call += 1;
-        // First call: confirmed running (enters the stop sequence).
-        if (call === 1) return { running: true, scanFailed: false };
-        // Second call (inside the "wait for stop" loop): detection breaks.
-        return { running: false, scanFailed: true };
-      }),
+    const getServerProcessDetails = vi.fn(async () => {
+      call += 1;
+      // First call: confirmed running (enters the stop sequence).
+      if (call === 1) return { running: true, scanFailed: false };
+      // Every call inside the "wait for stop" loop: detection is broken.
+      return { running: false, scanFailed: true };
     });
+    const { checker, io } = buildChecker({ getServerProcessDetails });
+    checker.sleep = vi.fn(async () => {});
 
     await expect(
       checker.runAutoUpdate({ installed: { branch: "stable" } }),
     ).rejects.toThrow(/lost the ability to verify/i);
 
+    // GH #190: it asked again before giving up (1 initial + 5 in the wait).
+    expect(getServerProcessDetails).toHaveBeenCalledTimes(6);
     expect(io.emit).toHaveBeenCalledWith(
       "server:autoUpdateComplete",
       expect.objectContaining({ success: false }),
     );
+  });
+
+  it("does not abort on one failed scan while the server exits (GH #190)", async () => {
+    const answers = [
+      { running: true, scanFailed: false },
+      { running: false, matched: [], scanFailed: true },
+      { running: false, scanFailed: false },
+    ];
+    const getServerProcessDetails = vi.fn(async () => answers.shift());
+    const { checker } = buildChecker({ getServerProcessDetails });
+    checker.sleep = vi.fn(async () => {});
+
+    // Past the stop wait, the run reaches SteamCMD -- absent on this host.
+    await expect(
+      checker.runAutoUpdate({ installed: { branch: "stable" } }),
+    ).rejects.toThrow(/steamcmd not found/i);
+    expect(getServerProcessDetails).toHaveBeenCalledTimes(3);
   });
 });
 

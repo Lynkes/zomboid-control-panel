@@ -15,6 +15,7 @@ import { createBackupIfChanged } from "../utils/configBackup.js";
 import { resolveServerPhase } from "../utils/serverStatus.js";
 import { candidateIniPaths } from "../routes/server.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { readProcessStateWithRetry } from "../utils/processScanRetry.js";
 import {
   getScheduledTasks,
   updateTaskLastRun,
@@ -2134,13 +2135,22 @@ export class Scheduler {
         }
         await this.sleep(10000);
 
-        // Wait for server to stop. A failed scan is unknown, not stopped.
-        let attempts = 0;
-        let processDetails = await readProcessDetails();
-        if (!processDetails || processDetails.scanFailed) {
+        // Wait for server to stop. A failed scan is unknown, not stopped --
+        // but one failed sample is not the answer either: the old JVM is
+        // exiting right now, the moment a Windows scan is most likely to
+        // catch it half-gone (GH #190). Each sample asks again a few times
+        // before the restart gives up, and when it does give up it still
+        // never starts a second server over one that may be running.
+        const readSettledProcessDetails = () =>
+          readProcessStateWithRetry(readProcessDetails, {
+            sleep: (ms) => this.sleep(ms),
+            context: "Auto-restart",
+          });
+        const stopUnconfirmed = async () => {
           const restartDuration = Date.now() - restartStartTime;
           const errorMsg =
-            "Could not confirm the old server stopped because process detection failed";
+            "Could not confirm the old server stopped because process detection kept failing, so the new server was not started. Check whether the old one is still running before starting it.";
+          log.error(`Auto-restart failed: ${errorMsg}`);
           await logScheduleExecution(
             null,
             label,
@@ -2150,27 +2160,22 @@ export class Scheduler {
             restartDuration,
           );
           logServerEvent("auto_restart_error", errorMsg);
-          return { success: false, wasRunning: true, message: errorMsg, logged: true };
-        }
+          return {
+            success: false,
+            wasRunning: true,
+            message: errorMsg,
+            logged: true,
+            code: ErrorCode.SERVER_RESTART_STOP_UNCONFIRMED,
+          };
+        };
+        let attempts = 0;
+        let processDetails = await readSettledProcessDetails();
+        if (processDetails.scanFailed) return stopUnconfirmed();
         while (processDetails.running && attempts < 60) {
           await this.sleep(1000);
           attempts++;
-          processDetails = await readProcessDetails();
-          if (!processDetails || processDetails.scanFailed) {
-            const restartDuration = Date.now() - restartStartTime;
-            const errorMsg =
-              "Could not confirm the old server stopped because process detection failed";
-            await logScheduleExecution(
-              null,
-              label,
-              "restart",
-              false,
-              errorMsg,
-              restartDuration,
-            );
-            logServerEvent("auto_restart_error", errorMsg);
-            return { success: false, wasRunning: true, message: errorMsg, logged: true };
-          }
+          processDetails = await readSettledProcessDetails();
+          if (processDetails.scanFailed) return stopUnconfirmed();
         }
 
         // Force stop if needed

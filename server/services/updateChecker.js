@@ -15,6 +15,7 @@ import {
   STEAM_OPERATION_IDLE_TIMEOUT_MS,
 } from "./activeSteamOperations.js";
 import { acquireLifecycleLock } from "./lifecycleCoordinator.js";
+import { readProcessStateWithRetry } from "../utils/processScanRetry.js";
 
 export function parseAutoUpdateWarningMinutes(value) {
   if (value === null || value === undefined) return 15;
@@ -61,6 +62,10 @@ export class UpdateChecker {
 
     // Default check interval: 30 minutes
     this.intervalMs = 30 * 60 * 1000;
+  }
+
+  sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
@@ -706,11 +711,16 @@ export class UpdateChecker {
         if (!quit?.success) log.warn(`Quit command failed (${quit?.error || "unknown error"}); waiting to see whether the server stops anyway`);
         const deadline = Date.now() + 5 * 60 * 1000;
         while (true) {
-          const details = await this.serverManager.getServerProcessDetails();
+          // One sample that can't tell -- likeliest right as the JVM exits --
+          // asks again a few times before the update gives up (GH #190).
+          const details = await readProcessStateWithRetry(
+            () => this.serverManager.getServerProcessDetails(),
+            { sleep: (ms) => this.sleep(ms), context: "Automatic update" },
+          );
           if (details.scanFailed) fail("STOP_SCAN_FAILED", "Lost the ability to verify the server had stopped, so the automatic update was abandoned for safety");
           if (!details.running) break;
           if (Date.now() >= deadline) fail("STOP_TIMEOUT", "Server did not stop within 5 minutes");
-          await new Promise((resolve) => setTimeout(resolve, 5000));
+          await this.sleep(5000);
         }
       }
 
