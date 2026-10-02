@@ -1540,11 +1540,12 @@ export default function ServerSetup() {
   // Summary row: the data folder the server will get, which the earlier
   // steps show only in a notice or a collapsed section, with the shared
   // folder warning as a last check before Install or Create. Only once the
-  // setup plan has said whether PZ_SAVE_PATH applies.
+  // setup plan has said whether PZ_SAVE_PATH applies. min-w-0 lets the grid
+  // row shrink so a long path truncates instead of widening the card.
   const renderDataFolderSummaryRow = () => {
     if (!setupPlan || !dataFolder) return null;
     return (
-      <div className="py-2 border-b space-y-2">
+      <div className="min-w-0 py-2 border-b space-y-2">
         <div className="flex justify-between gap-3">
           <span className="text-muted-foreground shrink-0">{t("common.summaryDataFolder")}</span>
           <span className="font-mono text-end min-w-0 flex-1 truncate" title={dataFolder}>
@@ -2600,7 +2601,7 @@ export default function ServerSetup() {
       <Card>
         <CardContent className="pt-6">
           <div className="grid gap-3 text-sm">
-            <div className="flex justify-between gap-3 py-2 border-b">
+            <div className="flex justify-between gap-3 py-2 border-b min-w-0">
               <span className="text-muted-foreground shrink-0">{t("full.step4.summaryInstallPath")}</span>
               <span className="font-mono text-end min-w-0 flex-1 truncate" title={installPath}>
                 {installPath}
@@ -3278,7 +3279,7 @@ export default function ServerSetup() {
       <Card>
         <CardContent className="pt-6">
           <div className="grid gap-3 text-sm">
-            <div className="flex justify-between gap-3 py-2 border-b">
+            <div className="flex justify-between gap-3 py-2 border-b min-w-0">
               <span className="text-muted-foreground shrink-0">{t("quick.step3.summaryServerFiles")}</span>
               <span className="font-mono text-end min-w-0 flex-1 truncate" title={installPath}>
                 {installPath}
