@@ -114,12 +114,17 @@ function decodeMountPath(value) {
   );
 }
 
+// Filesystems that live in memory: a tmpfs such as /dev/shm or /run is gone
+// on every container restart, let alone a recreate.
+const MEMORY_FS_TYPES = new Set(["tmpfs", "ramfs"]);
+
 // Whether targetPath sits on the container's own root filesystem (the image
-// layer) rather than on a volume or bind mount. Anything written there is
-// lost when the container is recreated, and every all-in-one update
-// recreates it. The deepest mount point that contains the path decides,
-// the same way the kernel resolves it. Returns null when mountinfo could
-// not be read, so a caller can tell "unknown" apart from "persistent".
+// layer) or in memory rather than on a volume or bind mount. Anything
+// written there is lost when the container is recreated, and every
+// all-in-one update recreates it. The deepest mount point that contains the
+// path decides, the same way the kernel resolves it. Returns null when
+// mountinfo could not be read, so a caller can tell "unknown" apart from
+// "persistent". The path is matched as given, without following symlinks.
 // POSIX container paths only; never called on Windows.
 export function isOnContainerRootLayer(targetPath, mounts = getOwnMountInfo()) {
   if (mounts === null || !targetPath) return null;
@@ -131,12 +136,12 @@ export function isOnContainerRootLayer(targetPath, mounts = getOwnMountInfo()) {
       mountPoint === "/" ||
       resolved === mountPoint ||
       resolved.startsWith(`${mountPoint}/`);
-    if (contains && (!deepest || mountPoint.length > deepest.length)) {
-      deepest = mountPoint;
+    if (contains && (!deepest || mountPoint.length > deepest.mountPoint.length)) {
+      deepest = { mountPoint, fsType: mount.fsType };
     }
   }
   if (deepest === null) return null;
-  return deepest === "/";
+  return deepest.mountPoint === "/" || MEMORY_FS_TYPES.has(deepest.fsType);
 }
 
 // This container's own short ID, the way Docker's API expects it for a

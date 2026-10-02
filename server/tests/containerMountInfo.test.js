@@ -241,6 +241,15 @@ describe("isOnContainerRootLayer", () => {
     expect(isOnContainerRootLayer("/pz servers/second", spaced)).toBe(false);
   });
 
+  it("counts a tmpfs or ramfs mount as erased like the root layer", () => {
+    const withMemory = parseMountInfo(
+      `${REAL_MOUNTINFO}\n601 525 0:120 / /dev/shm rw,nosuid,nodev,noexec,relatime - tmpfs shm rw,size=65536k\n602 525 0:121 / /scratch rw,relatime - ramfs ramfs rw`,
+    );
+    expect(isOnContainerRootLayer("/dev/shm/pz", withMemory)).toBe(true);
+    expect(isOnContainerRootLayer("/scratch/pz", withMemory)).toBe(true);
+    expect(isOnContainerRootLayer("/pz-server/second", withMemory)).toBe(false);
+  });
+
   it("is null when mountinfo could not be read", () => {
     expect(isOnContainerRootLayer("/pz-server1", null)).toBeNull();
   });
