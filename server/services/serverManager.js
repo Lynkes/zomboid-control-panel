@@ -21,7 +21,7 @@ import {
   isManagedLifecycleProvider,
 } from "./linuxServiceLifecycle.js";
 import { hasActiveSteamOperation } from "./activeSteamOperations.js";
-import { prepareForLaunch } from "./lifecycleCoordinator.js";
+import { notifyServerLaunched, prepareForLaunch } from "./lifecycleCoordinator.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { listNonInternalIPv4Interfaces } from "../utils/networkInterfaces.js";
 import { buildLinuxLdLibraryCandidates } from "../utils/nativeLibraryPaths.js";
@@ -1915,7 +1915,9 @@ export class ServerManager {
       // auto-start skipped the refresh the dashboard's Start did, launched
       // the stock script on a fresh install, and kept old RCON/admin
       // passwords after an edit until a manual restart.
-      const { scriptWarnings } = await prepareForLaunch(this._serverRecord);
+      const { scriptWarnings, launchSeq } = await prepareForLaunch(
+        this._serverRecord,
+      );
 
       if (this.usesManagedServiceLifecycle()) {
         // Before systemctl/rc-service, not after: a unit whose script is
@@ -1936,6 +1938,10 @@ export class ServerManager {
           "server_start",
           `Server started through ${this.lifecycleProvider}`,
         ).catch((error) => log.warn(`Failed to log event: ${error.message}`));
+        // A unit that was already active launched nothing (GH #189).
+        if (!result.alreadyRunning) {
+          notifyServerLaunched(this._serverRecord, launchSeq);
+        }
         return withScriptWarnings(result, scriptWarnings);
       }
 
@@ -2200,6 +2206,7 @@ export class ServerManager {
         await logServerEvent("server_start", "Server started via manager");
         log.info("Server start command executed");
         this._writePidFile(this.serverProcess.pid);
+        notifyServerLaunched(this._serverRecord, launchSeq);
 
         return withScriptWarnings(
           { success: true, message: "Server start command executed" },
@@ -2324,6 +2331,7 @@ export class ServerManager {
       await logServerEvent("server_start", "Server started via manager");
       log.info("Server start command executed");
       this._writePidFile(this.serverProcess.pid);
+      notifyServerLaunched(this._serverRecord, launchSeq);
 
       return withScriptWarnings(
         { success: true, message: "Server start command executed" },
@@ -2919,7 +2927,7 @@ export class ServerManager {
         // `systemctl restart` / `rc-service restart` launch the game again
         // without passing through startServer(), so they get the same
         // before-launch step and script check here (GH #167).
-        await prepareForLaunch(this._serverRecord);
+        const { launchSeq } = await prepareForLaunch(this._serverRecord);
         this._assertNamedStartupScriptPresent();
         const restarted = await this._getManagedLifecycle().run("restart");
         if (!restarted.success || restarted.confirmed === false) {
@@ -2932,6 +2940,7 @@ export class ServerManager {
         this.isRunning = true;
         this._recordLaunchTime();
         this._deletePidFile();
+        notifyServerLaunched(this._serverRecord, launchSeq);
         await logServerEvent(
           "server_restart",
           `Server restarted through ${this.lifecycleProvider}`,

@@ -130,3 +130,41 @@ export async function resolveObservedServerRunning(serverManager, rconService, d
       isHostSignalAuthoritative("native", activeServer?.lifecycleProvider, processDetails.provider),
   });
 }
+
+// When the active server's game process -- for a docker-local/docker-managed
+// provider, its container -- started, as { serverId, startedAtMs }, or null
+// whenever that can't be stated with confidence: no active server, a remote
+// one, a stopped server, a failed scan, or an OS that won't say. Whoever
+// started it: this panel, the service manager after a crash
+// (Restart=on-failure), Docker's restart policy, or the operator by hand.
+// The mod checker reads it while a mod-update restart waits for players to
+// leave (GH #189): a server started again since the update was detected has
+// already loaded the updated mods. Same provider split as
+// resolveObservedServerRunning() above; the native start time is
+// serverManager.resolveStartTime()'s, the one the dashboard's uptime shows.
+export async function resolveActiveServerStartedAt(serverManager, dockerClient) {
+  const activeServer = await getActiveServer();
+  if (!activeServer?.id || activeServer.isRemote) return null;
+
+  let startedAtMs = null;
+  const provider = resolveProvider(activeServer);
+  if (provider === "docker-local" || provider === "docker-managed") {
+    const dockerSignal = await resolveDockerHostSignal(activeServer, dockerClient);
+    if (dockerSignal.running && !dockerSignal.scanFailed) {
+      startedAtMs = Date.parse(dockerSignal.startedAt ?? "");
+    }
+  } else if (
+    typeof serverManager?.getServerProcessDetails === "function" &&
+    typeof serverManager.resolveStartTime === "function"
+  ) {
+    const processDetails = await serverManager.getServerProcessDetails();
+    if (processDetails?.running && !processDetails.scanFailed) {
+      const startTime = await serverManager.resolveStartTime(processDetails);
+      startedAtMs = startTime instanceof Date ? startTime.getTime() : null;
+    }
+  }
+
+  return Number.isFinite(startedAtMs) && startedAtMs > 0
+    ? { serverId: String(activeServer.id), startedAtMs }
+    : null;
+}

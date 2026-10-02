@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Fixed
 
-_No unreleased changes._
+- A mod-update restart waiting for players is cancelled once the server is restarted any other way after the update was found, instead of restarting it a second time (#189, thanks @JeesusKrisostoomus).
 
 ## [1.4.2] - 2026-10-02
 
