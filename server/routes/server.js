@@ -19,6 +19,7 @@ import {
 } from "../database/init.js";
 import {
   sanitizeError,
+  sanitizeErrorParams,
   sanitizeIniValue,
 } from "../utils/sanitize.js";
 import {
