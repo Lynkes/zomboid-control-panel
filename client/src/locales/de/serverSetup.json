@@ -101,6 +101,7 @@
     "useCustomLocation": "Eigenen Pfad verwenden",
     "serverNameLabel": "Servername",
     "serverNamePlaceholder": "myserver",
+    "summaryDataFolder": "Datenordner",
     "summaryServerName": "Servername",
     "summaryMemory": "Arbeitsspeicher",
     "summaryGamePort": "Spielport",
@@ -134,7 +135,11 @@
     "folderTitle": "Ein weiterer Server in diesem Container",
     "folderBodyFull": "Seine Spieldateien kommen nach <1>{{path}}</1>, Welten und Einstellungen nach <1>{{dataPath}}</1> – auf das Volume für weitere Server, damit sie Panel-Updates überstehen.",
     "folderBodyQuick": "Er nutzt die Spieldateien aus <1>{{path}}</1> mit und legt Welten, Einstellungen und Logs in <1>{{dataPath}}</1> ab – auf dem Volume für weitere Server, ohne sie mit den anderen Servern zu teilen.",
-    "noVolume": "Dieser Container hat noch kein Volume für weitere Server, daher würde eine zweite Installation hier beim nächsten Panel-Update gelöscht. Führe den Installer (bootstrap.sh) erneut aus, um es hinzuzufügen, und komm dann zurück."
+    "hostFolderTitle": "Eigene Ordner für diesen Server",
+    "hostFolderBodyFull": "Seine Spieldateien kommen nach <1>{{path}}</1>, Welten, Einstellungen und Protokolle nach <1>{{dataPath}}</1>. Für einen anderen Datenordner setze unten „Eigener Konfigurationspfad“.",
+    "hostFolderBodyQuick": "Er nutzt die Spieldateien aus <1>{{path}}</1> mit und legt Welten, Einstellungen und Protokolle in <1>{{dataPath}}</1> ab. Für einen anderen Ordner ändere „Eigener Konfigurationspfad“ unter „Erweiterte Optionen“.",
+    "noVolume": "Dieser Container hat noch kein Volume für weitere Server, daher würde eine zweite Installation hier beim nächsten Panel-Update gelöscht. Führe den Installer (bootstrap.sh) erneut aus, um es hinzuzufügen, und komm dann zurück.",
+    "dataFolderShared": "{{name}} speichert seine Daten bereits in <1>{{path}}</1>. Server mit gemeinsamem Datenordner schreiben im Betrieb in dieselbe server-console.txt und denselben Ordner Logs. Wähle daher einen anderen Ordner, außer die beiden laufen nie gleichzeitig."
   },
   "full": {
     "pageTitle": "Neuinstallation",

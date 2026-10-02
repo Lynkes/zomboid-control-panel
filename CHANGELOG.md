@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Several PZ servers in the all-in-one container:** Server Setup puts extra servers on a new `pz-servers` volume with their own ports (UDP 16261-16270, `PZ_GAME_PORTS`) and data folder; rerun `bootstrap.sh` to add both (#183, thanks @Lynkes).
 - Debug › Diagnostics warns about a leftover `natives/` folder from an older game build, or a `ProjectZomboid64.json` that loads it first.
+- **Another server on a Windows or Linux host:** Server Setup proposes its own folders beside the active server's (`<name>` and `<name>_Data`) and warns when its data folder is another server's.
 
 ### Fixed
 

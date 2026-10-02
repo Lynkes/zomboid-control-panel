@@ -29,9 +29,11 @@ import {
 } from "lucide-react";
 import { configApi, serverApi, serversApi, debugApi, type ServerSetupPlan } from "@/lib/api";
 import {
+  effectiveDataFolder,
+  findDataFolderConflicts,
   findPortConflicts,
   isGamePortPublished,
-  joinContainerPath,
+  joinHostPath,
   uniqueServerName,
 } from "@/lib/serverPortPlan";
 import { platformTranslationKey, useRuntimeInfo } from "@/hooks/useRuntimeInfo";
@@ -301,13 +303,17 @@ export default function ServerSetup() {
   const inContainer = runtimeInfo?.serviceManager === "container";
 
   // Other servers on this host (GET /server/setup-plan). With any, this
-  // wizard is creating ANOTHER server: it starts on free ports and a free
-  // name instead of the active server's, and in the all-in-one image on a
-  // folder of the extra-servers volume.
+  // wizard is creating ANOTHER server: it starts on free ports, a free name
+  // and its own folders instead of the active server's (on the
+  // extra-servers volume in the all-in-one image, beside the active
+  // server's install folder elsewhere).
   const [setupPlan, setSetupPlan] = useState<ServerSetupPlan | null>(null);
   const isAdditionalServer = (setupPlan?.usedPorts.length ?? 0) > 0;
   const extraServersRoot = setupPlan?.allInOne?.serversRoot ?? null;
   const publishedGamePorts = setupPlan?.allInOne?.publishedGamePorts ?? null;
+  const hostServersRoot = setupPlan?.hostLayout?.serversRoot ?? null;
+  const serversRoot = setupPlan?.allInOne ? extraServersRoot : hostServersRoot;
+  const hostSeparator = setupPlan?.hostLayout?.separator ?? "/";
   // The active server's install folder, which Quick Setup reuses.
   const settingsInstallPathRef = useRef("");
   // The folder values this wizard filled in itself; a field the operator
@@ -576,20 +582,30 @@ export default function ServerSetup() {
     loadSettings();
   }, []);
 
-  // All-in-one image, another server: a full install goes in its own folder
-  // on the extra-servers volume (the data folder lands beside it), and
-  // Quick Setup reuses the active server's game files but gets its own data
-  // folder there, so the two servers don't write the same console log.
-  // Follows the server name until the operator edits the field.
+  // Another server: a full install goes in its own folder, <root>/<name>
+  // (the data folder lands beside it), and Quick Setup reuses the active
+  // server's game files but gets its own data folder, <root>/<name>_Data, so
+  // the two servers don't write the same console log. The root is the
+  // extra-servers volume in the all-in-one image and the active install's
+  // parent folder elsewhere. Without a root nothing is proposed, but the
+  // active server's data folder, which the settings prefilled above, is
+  // still dropped: the data folder warning then says if the default lands
+  // on another server's. Follows the server name until the operator edits
+  // the field.
   useEffect(() => {
     const auto = autoPathsRef.current;
-    if (auto.locked || !isAdditionalServer || !extraServersRoot || !serverName) return;
+    if (auto.locked || !setupPlan || !isAdditionalServer || !serverName) return;
     if (setupMode !== "full" && setupMode !== "quick") return;
+    // All-in-one image without the extra-servers volume: renderFolderPlanNotice()
+    // explains why a full install has nowhere safe to go yet.
+    if (setupPlan.allInOne && !extraServersRoot) return;
 
     const wantedInstall =
-      setupMode === "full"
-        ? joinContainerPath(extraServersRoot, serverName)
-        : settingsInstallPathRef.current;
+      setupMode === "quick"
+        ? settingsInstallPathRef.current
+        : serversRoot
+          ? joinHostPath(serversRoot, serverName, hostSeparator)
+          : "";
     if (wantedInstall && (auto.install === null || installPath === auto.install)) {
       auto.install = wantedInstall;
       if (installPath !== wantedInstall) setInstallPath(wantedInstall);
@@ -599,7 +615,9 @@ export default function ServerSetup() {
     // Kept apart from "", so switching the custom folder on before typing
     // one counts as the operator's choice.
     const wantedData =
-      setupMode === "full" ? null : joinContainerPath(extraServersRoot, `${serverName}_Data`);
+      setupMode === "quick" && serversRoot
+        ? joinHostPath(serversRoot, `${serverName}_Data`, hostSeparator)
+        : null;
     const currentData = useCustomDataPath ? zomboidDataPath : null;
     if (auto.data === undefined || currentData === auto.data) {
       auto.data = wantedData;
@@ -609,8 +627,11 @@ export default function ServerSetup() {
       }
     }
   }, [
+    setupPlan,
     isAdditionalServer,
     extraServersRoot,
+    serversRoot,
+    hostSeparator,
     serverName,
     setupMode,
     installPath,
@@ -626,6 +647,21 @@ export default function ServerSetup() {
     [setupPlan, serverPort, rconPort, serverName, installPath],
   );
   const gamePortPublished = isGamePortPublished(serverPort, publishedGamePorts);
+
+  // The data folder this server will get, and the other profiles already
+  // using it.
+  const dataFolder = effectiveDataFolder(
+    installPath,
+    useCustomDataPath ? zomboidDataPath : null,
+    setupPlan?.environmentDataPath,
+  );
+  const dataFolderConflicts = useMemo(
+    () =>
+      setupPlan
+        ? findDataFolderConflicts({ dataPath: dataFolder, serverName, installPath }, setupPlan.usedPorts)
+        : [],
+    [setupPlan, dataFolder, serverName, installPath],
+  );
 
   // Fetch available Steam branches
   useEffect(() => {
@@ -1431,11 +1467,12 @@ export default function ServerSetup() {
     );
   };
 
-  // All-in-one image, another server: where its files and data go (see the
-  // auto-fill effect above), or why a full install can't go anywhere safe yet.
+  // Another server: where its files and data go (see the auto-fill effect
+  // above), or, in the all-in-one image, why a full install can't go
+  // anywhere safe yet. Nothing when no root was found to propose folders in.
   const renderFolderPlanNotice = () => {
-    if (!isAdditionalServer || !setupPlan?.allInOne) return null;
-    if (!extraServersRoot) {
+    if (!isAdditionalServer || !setupPlan) return null;
+    if (setupPlan.allInOne && !extraServersRoot) {
       if (setupMode !== "full") return null;
       return (
         <div className="border border-border/60 bg-muted/40 rounded-lg p-4 text-sm">
@@ -1446,24 +1483,75 @@ export default function ServerSetup() {
         </div>
       );
     }
-    const dataPath =
-      useCustomDataPath && zomboidDataPath.trim()
-        ? zomboidDataPath.trim()
-        : `${installPath.trim()}_Data`;
+    if (!serversRoot) return null;
+    const keys = setupPlan.allInOne
+      ? ({
+          title: "multiServer.folderTitle",
+          full: "multiServer.folderBodyFull",
+          quick: "multiServer.folderBodyQuick",
+        } as const)
+      : ({
+          title: "multiServer.hostFolderTitle",
+          full: "multiServer.hostFolderBodyFull",
+          quick: "multiServer.hostFolderBodyQuick",
+        } as const);
     return (
       <div className="border border-border/60 bg-muted/40 rounded-lg p-4 text-sm space-y-2">
         <p className="font-medium flex items-center gap-2">
           <Info className="w-4 h-4 text-primary" />
-          {t("multiServer.folderTitle")}
+          {t(keys.title)}
         </p>
         <p className="text-muted-foreground">
           <Trans
-            i18nKey={setupMode === "full" ? "multiServer.folderBodyFull" : "multiServer.folderBodyQuick"}
+            i18nKey={setupMode === "full" ? keys.full : keys.quick}
             t={t}
-            values={{ path: installPath.trim(), dataPath }}
+            values={{ path: installPath.trim(), dataPath: dataFolder }}
             components={{ 1: <code className="bg-muted px-1 rounded break-all" /> }}
           />
         </p>
+      </div>
+    );
+  };
+
+  // Another profile already uses the data folder this server would get.
+  // A warning, not a refusal, like the port warnings: servers that never
+  // run together may share one on purpose.
+  const renderDataFolderWarnings = () => {
+    if (dataFolderConflicts.length === 0) return null;
+    return (
+      <div className="space-y-1" role="status">
+        {dataFolderConflicts.map((conflict) => (
+          <p key={conflict.serverId} className="text-xs text-warning flex items-start gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+            <span>
+              <Trans
+                i18nKey="multiServer.dataFolderShared"
+                t={t}
+                values={{ name: conflict.serverName, path: conflict.path }}
+                components={{ 1: <code className="bg-muted px-1 rounded break-all" /> }}
+              />
+            </span>
+          </p>
+        ))}
+      </div>
+    );
+  };
+
+  // Summary row: the data folder the server will get, which the earlier
+  // steps show only in a notice or a collapsed section, with the shared
+  // folder warning as a last check before Install or Create. Only once the
+  // setup plan has said whether PZ_SAVE_PATH applies.
+  const renderDataFolderSummaryRow = () => {
+    if (!setupPlan || !dataFolder) return null;
+    return (
+      <div className="py-2 border-b space-y-2">
+        <div className="flex justify-between gap-3">
+          <span className="text-muted-foreground shrink-0">{t("common.summaryDataFolder")}</span>
+          <span className="font-mono text-end min-w-0 flex-1 truncate" title={dataFolder}>
+            {dataFolder}
+          </span>
+        </div>
+        {renderDataFolderWarnings()}
       </div>
     );
   };
@@ -2011,6 +2099,8 @@ export default function ServerSetup() {
         </div>
 
         {renderFolderPlanNotice()}
+        {/* A custom data folder gets its warning under its own field below. */}
+        {!useCustomDataPath && renderDataFolderWarnings()}
 
         {!inContainer && (
           <div className="border border-border/60 bg-muted/40 rounded-lg p-4 text-sm space-y-2">
@@ -2152,6 +2242,7 @@ export default function ServerSetup() {
                     <p className="text-xs text-muted-foreground">
                       {t("common.customConfigLocationHelp")}
                     </p>
+                    {renderDataFolderWarnings()}
                   </>
                 )}
               </div>
@@ -2515,6 +2606,7 @@ export default function ServerSetup() {
                 {installPath}
               </span>
             </div>
+            {renderDataFolderSummaryRow()}
             <div className="flex justify-between py-2 border-b">
               <span className="text-muted-foreground">{t("common.summaryServerName")}</span>
               <span className="font-mono">{serverName}</span>
@@ -2785,6 +2877,9 @@ export default function ServerSetup() {
 
       {renderPortPlanNotice()}
       {renderFolderPlanNotice()}
+      {/* A custom data folder gets its warning under its own field in
+          Advanced options. */}
+      {!useCustomDataPath && renderDataFolderWarnings()}
 
       <div className="grid gap-6">
         {/* Server Name */}
@@ -3097,6 +3192,7 @@ export default function ServerSetup() {
                   <p className="text-xs text-muted-foreground">
                     {t("common.customConfigLocationHelp")}
                   </p>
+                  {renderDataFolderWarnings()}
                 </>
               )}
 
@@ -3188,6 +3284,7 @@ export default function ServerSetup() {
                 {installPath}
               </span>
             </div>
+            {renderDataFolderSummaryRow()}
             <div className="flex justify-between py-2 border-b">
               <span className="text-muted-foreground">{t("common.summaryServerName")}</span>
               <span className="font-mono">{serverName}</span>

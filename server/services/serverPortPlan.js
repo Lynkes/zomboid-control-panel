@@ -14,7 +14,13 @@
 // where extra servers can live on a volume (PZ_EXTRA_SERVERS_PATH) and which
 // UDP ports Docker publishes (PZ_PUBLISHED_GAME_PORTS, the same range its
 // compose file maps). A game port outside that range runs, but players
-// can't reach it.
+// can't reach it. Elsewhere, extra servers go beside the active server's
+// install folder (suggestHostServersRoot()).
+//
+// Folders, like ports, must differ between servers that run together: two
+// servers on one data folder write the same server-console.txt and Logs/,
+// and the panel shows one's console as the other's. Each profile's data
+// folder is listed so the wizard can warn when a new server would share one.
 import path from "path";
 
 export const DEFAULT_GAME_PORT = 16261;
@@ -46,9 +52,22 @@ export function getAllInOneLayout(env = process.env) {
   };
 }
 
-// The ports each local profile is configured for. Remote profiles run on
-// another machine and can't collide with this one.
-export function collectUsedPorts(servers) {
+// PZ_SAVE_PATH is the data folder of an install that names none of its
+// own: only the PZ_SERVER_PATH install when that is set too (the all-in-one
+// image sets both), otherwise every install (installPath null).
+// resolveZomboidPaths() applies it, and the setup plan hands it to the
+// wizard so the folder it shows and checks is the one the server will use.
+export function getEnvironmentDataPath(env = process.env) {
+  const dataPath = String(env.PZ_SAVE_PATH || "");
+  if (!dataPath) return null;
+  return { installPath: env.PZ_SERVER_PATH || null, dataPath };
+}
+
+// The ports and folders each local profile is configured for. Remote
+// profiles run on another machine and can't collide with this one. A
+// profile with no data folder launches without -cachedir, so the game uses
+// its own default, `defaultDataPath` (Zomboid in the home folder).
+export function collectUsedPorts(servers, { defaultDataPath = null } = {}) {
   return (Array.isArray(servers) ? servers : [])
     .filter((server) => server && !server.isRemote)
     .map((server) => {
@@ -58,11 +77,30 @@ export function collectUsedPorts(servers) {
         name: server.name || server.serverName || "",
         serverName: server.serverName || "",
         installPath: server.installPath || server.serverPath || "",
+        dataPath: server.zomboidDataPath || defaultDataPath || null,
         gamePort,
         udpPort: gamePort === null ? null : gamePort + 1,
         rconPort: toPort(server.rconPort ?? DEFAULT_RCON_PORT),
       };
     });
+}
+
+// Outside the all-in-one image, another server's folders go beside the
+// active server's install folder: <parent>/<name> for its game files and
+// <parent>/<name>_Data for its data, the pair the wizard made for the first
+// server (<install> and <install>_Data). The operator already chose that
+// parent once, the first server's default data folder was created in it,
+// and the bundled systemd unit allows it when the first install used the
+// service path. null when no local profile has an absolute install folder.
+// `pathApi` is for tests.
+export function suggestHostServersRoot(servers, pathApi = path) {
+  const local = (Array.isArray(servers) ? servers : []).filter(
+    (server) => server && !server.isRemote,
+  );
+  const reference = local.find((server) => server.isActive) || local[0];
+  const installPath = String(reference?.installPath || reference?.serverPath || "").trim();
+  if (!installPath || !pathApi.isAbsolute(installPath)) return null;
+  return pathApi.dirname(pathApi.normalize(installPath));
 }
 
 // A loop, not /[\\/]+$/: that regex backtracks quadratically on a long run

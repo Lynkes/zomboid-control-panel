@@ -53,6 +53,7 @@ length rule).
 | conflict | der Konflikt | |
 | dependency | die Abhängigkeit | |
 | folder | der Ordner | |
+| data folder (a server's Zomboid folder: worlds, settings, logs) | der Datenordner | closed compound; a folder's own name (*Logs*, *Saves*) stays as it is on disk |
 | path | der Pfad | |
 | file | die Datei | |
 

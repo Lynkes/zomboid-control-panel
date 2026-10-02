@@ -101,6 +101,7 @@
     "useCustomLocation": "Utiliser un emplacement personnalisé",
     "serverNameLabel": "Nom du serveur",
     "serverNamePlaceholder": "monserveur",
+    "summaryDataFolder": "Dossier de données",
     "summaryServerName": "Nom du serveur",
     "summaryMemory": "Mémoire",
     "summaryGamePort": "Port du jeu",
@@ -134,7 +135,11 @@
     "folderTitle": "Un autre serveur dans ce conteneur",
     "folderBodyFull": "Ses fichiers de jeu vont dans <1>{{path}}</1> et ses mondes et réglages dans <1>{{dataPath}}</1>, sur le volume des serveurs supplémentaires : ils survivent donc aux mises à jour du panneau.",
     "folderBodyQuick": "Il réutilise les fichiers de jeu de <1>{{path}}</1> et garde ses mondes, réglages et journaux dans <1>{{dataPath}}</1>, sur le volume des serveurs supplémentaires, sans les partager avec les autres serveurs.",
-    "noVolume": "Ce conteneur n'a pas encore de volume pour les serveurs supplémentaires : une deuxième installation ici serait effacée à la prochaine mise à jour du panneau. Relancez l'installateur (bootstrap.sh) pour l'ajouter, puis revenez ici."
+    "hostFolderTitle": "Des dossiers à part pour ce serveur",
+    "hostFolderBodyFull": "Ses fichiers de jeu vont dans <1>{{path}}</1> et ses mondes, réglages et journaux dans <1>{{dataPath}}</1>. Pour garder ses données ailleurs, renseignez « Emplacement de configuration personnalisé » ci-dessous.",
+    "hostFolderBodyQuick": "Il réutilise les fichiers de jeu de <1>{{path}}</1> et garde ses mondes, réglages et journaux dans <1>{{dataPath}}</1>. Pour les garder ailleurs, modifiez « Emplacement de configuration personnalisé » dans « Options avancées ».",
+    "noVolume": "Ce conteneur n'a pas encore de volume pour les serveurs supplémentaires : une deuxième installation ici serait effacée à la prochaine mise à jour du panneau. Relancez l'installateur (bootstrap.sh) pour l'ajouter, puis revenez ici.",
+    "dataFolderShared": "{{name}} garde déjà ses données dans <1>{{path}}</1>. Des serveurs qui partagent un dossier de données écrivent dans le même server-console.txt et le même dossier Logs pendant qu'ils tournent : choisissez un autre dossier, sauf si les deux ne tournent jamais en même temps."
   },
   "full": {
     "pageTitle": "Nouvelle installation",

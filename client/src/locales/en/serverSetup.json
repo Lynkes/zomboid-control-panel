@@ -103,6 +103,7 @@
     "useCustomLocation": "Use custom location",
     "serverNameLabel": "Server Name",
     "serverNamePlaceholder": "myserver",
+    "summaryDataFolder": "Data Folder",
     "summaryServerName": "Server Name",
     "summaryMemory": "Memory",
     "summaryGamePort": "Game Port",
@@ -134,7 +135,11 @@
     "folderTitle": "Another server in this container",
     "folderBodyFull": "Its game files go in <1>{{path}}</1> and its worlds and settings in <1>{{dataPath}}</1>, on the volume for extra servers, so they survive panel updates.",
     "folderBodyQuick": "It reuses the game files in <1>{{path}}</1> and keeps its worlds, settings and logs in <1>{{dataPath}}</1>, on the volume for extra servers, so it doesn't share them with the other servers.",
-    "noVolume": "This container has no volume for extra servers yet, so a second install here would be erased on the next panel update. Run the installer (bootstrap.sh) again to add it, then come back."
+    "hostFolderTitle": "Separate folders for this server",
+    "hostFolderBodyFull": "Its game files go in <1>{{path}}</1> and its worlds, settings and logs in <1>{{dataPath}}</1>. To keep its data somewhere else, set Custom config location below.",
+    "hostFolderBodyQuick": "It reuses the game files in <1>{{path}}</1> and keeps its worlds, settings and logs in <1>{{dataPath}}</1>. To keep them somewhere else, change Custom config location under Advanced options.",
+    "noVolume": "This container has no volume for extra servers yet, so a second install here would be erased on the next panel update. Run the installer (bootstrap.sh) again to add it, then come back.",
+    "dataFolderShared": "{{name}} already keeps its data in <1>{{path}}</1>. Servers that share a data folder write the same server-console.txt and Logs folder while they run, so choose another folder unless the two never run at the same time."
   },
   "full": {
     "pageTitle": "Fresh Install",

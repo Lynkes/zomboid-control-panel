@@ -101,6 +101,7 @@
     "useCustomLocation": "Itilize kote pèsonalize",
     "serverNameLabel": "Non Sèvè",
     "serverNamePlaceholder": "myserver",
+    "summaryDataFolder": "Dosye Done",
     "summaryServerName": "Non Sèvè",
     "summaryMemory": "Memwa",
     "summaryGamePort": "Pò Jwèt",
@@ -134,7 +135,11 @@
     "folderTitle": "Yon lòt sèvè nan kontenè sa a",
     "folderBodyFull": "Fichye jwèt li yo ale nan <1>{{path}}</1>, epi mond ak paramèt li yo nan <1>{{dataPath}}</1>, sou volim pou sèvè anplis yo, kidonk yo siviv mizajou panèl la.",
     "folderBodyQuick": "Li reitilize fichye jwèt ki nan <1>{{path}}</1>, epi li kenbe mond, paramèt ak jounal li yo nan <1>{{dataPath}}</1>, sou volim pou sèvè anplis yo, san l pa pataje yo ak lòt sèvè yo.",
-    "noVolume": "Kontenè sa a poko gen volim pou sèvè anplis, kidonk yon dezyèm enstalasyon isit la ta efase nan pwochen mizajou panèl la. Relanse enstalatè a (bootstrap.sh) pou ajoute l, epi tounen isit la."
+    "hostFolderTitle": "Dosye apa pou sèvè sa a",
+    "hostFolderBodyFull": "Fichye jwèt li yo ale nan <1>{{path}}</1>, epi mond, paramèt ak jounal li yo nan <1>{{dataPath}}</1>. Pou kenbe done li yo yon lòt kote, mete “Kote konfigirasyon pèsonalize” anba a.",
+    "hostFolderBodyQuick": "Li reitilize fichye jwèt ki nan <1>{{path}}</1>, epi li kenbe mond, paramèt ak jounal li yo nan <1>{{dataPath}}</1>. Pou kenbe yo yon lòt kote, chanje “Kote konfigirasyon pèsonalize” nan “Opsyon Avanse”.",
+    "noVolume": "Kontenè sa a poko gen volim pou sèvè anplis, kidonk yon dezyèm enstalasyon isit la ta efase nan pwochen mizajou panèl la. Relanse enstalatè a (bootstrap.sh) pou ajoute l, epi tounen isit la.",
+    "dataFolderShared": "{{name}} deja kenbe done li nan <1>{{path}}</1>. Sèvè ki pataje yon dosye done ekri nan menm server-console.txt la ak nan menm dosye Logs la pandan y ap mache, kidonk chwazi yon lòt dosye sof si de sèvè yo pa janm mache an menm tan."
   },
   "full": {
     "pageTitle": "Nouvèl Enstalasyon",

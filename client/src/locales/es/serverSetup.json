@@ -101,6 +101,7 @@
     "useCustomLocation": "Usar ubicación personalizada",
     "serverNameLabel": "Nombre del servidor",
     "serverNamePlaceholder": "miservidor",
+    "summaryDataFolder": "Carpeta de datos",
     "summaryServerName": "Nombre del servidor",
     "summaryMemory": "Memoria",
     "summaryGamePort": "Puerto del juego",
@@ -134,7 +135,11 @@
     "folderTitle": "Otro servidor en este contenedor",
     "folderBodyFull": "Sus archivos de juego van en <1>{{path}}</1> y sus mundos y ajustes en <1>{{dataPath}}</1>, en el volumen de servidores adicionales, así que sobreviven a las actualizaciones del panel.",
     "folderBodyQuick": "Reutiliza los archivos de juego de <1>{{path}}</1> y guarda sus mundos, ajustes y registros en <1>{{dataPath}}</1>, en el volumen de servidores adicionales, sin compartirlos con los demás servidores.",
-    "noVolume": "Este contenedor aún no tiene el volumen para servidores adicionales, así que una segunda instalación aquí se borraría en la próxima actualización del panel. Vuelve a ejecutar el instalador (bootstrap.sh) para añadirlo y luego regresa."
+    "hostFolderTitle": "Carpetas propias para este servidor",
+    "hostFolderBodyFull": "Sus archivos de juego van en <1>{{path}}</1> y sus mundos, ajustes y registros en <1>{{dataPath}}</1>. Para guardar sus datos en otro sitio, usa «Ubicación de configuración personalizada» más abajo.",
+    "hostFolderBodyQuick": "Reutiliza los archivos de juego de <1>{{path}}</1> y guarda sus mundos, ajustes y registros en <1>{{dataPath}}</1>. Para guardarlos en otro sitio, cambia «Ubicación de configuración personalizada» en «Opciones avanzadas».",
+    "noVolume": "Este contenedor aún no tiene el volumen para servidores adicionales, así que una segunda instalación aquí se borraría en la próxima actualización del panel. Vuelve a ejecutar el instalador (bootstrap.sh) para añadirlo y luego regresa.",
+    "dataFolderShared": "{{name}} ya guarda sus datos en <1>{{path}}</1>. Los servidores que comparten carpeta de datos escriben en el mismo server-console.txt y la misma carpeta Logs mientras funcionan, así que elige otra carpeta salvo que los dos nunca funcionen a la vez."
   },
   "full": {
     "pageTitle": "Instalación nueva",

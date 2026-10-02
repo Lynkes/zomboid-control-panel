@@ -86,7 +86,9 @@ import {
 import {
   collectUsedPorts,
   getAllInOneLayout,
+  getEnvironmentDataPath,
   suggestFreePorts,
+  suggestHostServersRoot,
 } from "../services/serverPortPlan.js";
 
 const router = express.Router();
@@ -1044,13 +1046,15 @@ export function resolveZomboidPaths(installPath, zomboidDataPath) {
   // set (the all-in-one image sets /pz-server and /zomboid). A second server
   // installed somewhere else gets its own sibling _Data folder, as the
   // wizard says it will: sharing the first server's data folder would make
-  // both write the same server-console.txt and Logs/ while they run.
-  const envInstallPath = process.env.PZ_SERVER_PATH;
+  // both write the same server-console.txt and Logs/ while they run. The
+  // wizard mirrors this rule (getEnvironmentDataPath() in the setup plan).
+  const environmentDataPath = getEnvironmentDataPath();
   const envSavePathApplies =
-    Boolean(process.env.PZ_SAVE_PATH) &&
-    (!envInstallPath || isSameDirectory(envInstallPath, installPath));
+    environmentDataPath !== null &&
+    (!environmentDataPath.installPath ||
+      isSameDirectory(environmentDataPath.installPath, installPath));
   const defaultZomboidDataPath = envSavePathApplies
-    ? process.env.PZ_SAVE_PATH
+    ? environmentDataPath.dataPath
     : path.join(path.dirname(installPath), `${path.basename(installPath)}_Data`);
   const zomboidPath = zomboidDataPath || defaultZomboidDataPath;
 
@@ -3087,14 +3091,34 @@ router.get("/steamcmd/detect", requirePermission("server.world_events"), async (
   }
 });
 
+// Where another server's folders go outside the all-in-one image: beside
+// the active server's install folder. In a container only when that parent
+// is on a volume (an unknown answer counts as no), for the same reason as
+// the all-in-one serversRoot below.
+function hostServersRootFor(servers) {
+  const root = suggestHostServersRoot(servers);
+  if (!root) return null;
+  if (!isWindows && isContainerized() && isOnContainerRootLayer(root) !== false) {
+    return null;
+  }
+  return root;
+}
+
 // What the setup wizard needs to create ANOTHER server on this host: the
-// ports every local profile is configured for, the first free ones, and in
-// the all-in-one image where extra servers go and which UDP ports Docker
-// publishes. serversRoot is returned only when it really is a volume, so
-// the wizard never suggests a folder the next update would erase.
+// ports and data folder every local profile is configured for, the first
+// free ports, and where the new server's folders go. In the all-in-one
+// image that is the extra-servers volume (allInOne, with the UDP ports
+// Docker publishes); elsewhere it is the active install's parent folder
+// (hostLayout). Either root is returned only when it really is a volume
+// inside a container, so the wizard never suggests a folder the next
+// update would erase. environmentDataPath is the PZ_SAVE_PATH rule
+// resolveZomboidPaths() applies to an install with no data folder.
 router.get("/setup-plan", requirePermission("server.install"), async (req, res) => {
   try {
-    const usedPorts = collectUsedPorts(await getServers());
+    const servers = await getServers();
+    const usedPorts = collectUsedPorts(servers, {
+      defaultDataPath: path.join(os.homedir(), "Zomboid"),
+    });
     const layout = getAllInOneLayout();
     const allInOne = layout
       ? {
@@ -3111,6 +3135,10 @@ router.get("/setup-plan", requirePermission("server.install"), async (req, res) 
         publishedGamePorts: allInOne?.publishedGamePorts ?? null,
       }),
       allInOne,
+      hostLayout: allInOne
+        ? null
+        : { serversRoot: hostServersRootFor(servers), separator: path.sep },
+      environmentDataPath: getEnvironmentDataPath(),
     });
   } catch (error) {
     log.warn(`Failed to build setup plan: ${error.message}`);

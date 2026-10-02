@@ -1,8 +1,8 @@
-import type { PortRange, UsedServerPorts } from "@/lib/api";
+import type { EnvironmentDataPath, PortRange, UsedServerPorts } from "@/lib/api";
 
 // Client half of server/services/serverPortPlan.js: the setup wizard checks
-// the ports being typed against every other local server as they change,
-// without a request per keystroke. Same rules as the server's
+// the ports and data folder being typed against every other local server as
+// they change, without a request per keystroke. Same rules as the server's
 // findPortConflicts(): same-protocol collisions only (game and UDP ports are
 // UDP, RCON is TCP), and a profile with the same server name in the same
 // install folder is this server, not another one.
@@ -84,6 +84,60 @@ export function uniqueServerName(name: string, used: UsedServerPorts[]): string 
   return name;
 }
 
-export function joinContainerPath(root: string, name: string): string {
-  return `${trimTrailing(root, (char) => char === "/")}/${name}`;
+// A folder inside a root the server named, with the host's separator
+// ("\\" on Windows). A drive or filesystem root keeps one separator.
+export function joinHostPath(root: string, name: string, separator: "/" | "\\" = "/"): string {
+  return `${trimTrailing(root, isSeparator)}${separator}${name}`;
+}
+
+// The data folder POST /install and /quick-setup will use, decided like the
+// server's resolveZomboidPaths(): the custom folder, else PZ_SAVE_PATH when
+// it applies to this install, else <install>_Data beside it.
+export function effectiveDataFolder(
+  installPath: string,
+  customDataPath: string | null,
+  environmentDataPath: EnvironmentDataPath | null | undefined,
+): string {
+  const custom = customDataPath?.trim();
+  if (custom) return custom;
+  const install = installPath.trim();
+  if (
+    environmentDataPath &&
+    (environmentDataPath.installPath === null ||
+      normalizePath(environmentDataPath.installPath) === normalizePath(install))
+  ) {
+    return environmentDataPath.dataPath;
+  }
+  const base = trimTrailing(install, isSeparator);
+  return base ? `${base}_Data` : "";
+}
+
+export interface DataFolderConflict {
+  serverId: string;
+  serverName: string;
+  path: string;
+}
+
+// Other profiles whose data folder is the one this server would use. Two
+// servers on one data folder write the same server-console.txt and Logs/,
+// so the wizard warns; profiles that never run together may share one on
+// purpose, so it doesn't refuse.
+export function findDataFolderConflicts(
+  candidate: { dataPath: string; serverName: string; installPath: string },
+  used: UsedServerPorts[],
+): DataFolderConflict[] {
+  const wanted = normalizePath(candidate.dataPath);
+  if (!wanted) return [];
+  return used
+    .filter(
+      (entry) =>
+        entry.dataPath !== null &&
+        normalizePath(entry.dataPath) === wanted &&
+        !isSameServer(entry, candidate.serverName, candidate.installPath),
+    )
+    .map((entry) => ({
+      serverId: entry.id,
+      serverName: entry.name || entry.serverName,
+      path: entry.dataPath ?? "",
+    }));
 }

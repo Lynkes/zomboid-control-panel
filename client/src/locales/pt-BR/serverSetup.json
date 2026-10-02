@@ -103,6 +103,7 @@
     "useCustomLocation": "Usar local personalizado",
     "serverNameLabel": "Nome do servidor",
     "serverNamePlaceholder": "meuservidor",
+    "summaryDataFolder": "Pasta de dados",
     "summaryServerName": "Nome do servidor",
     "summaryMemory": "Memória",
     "summaryGamePort": "Porta do jogo",
@@ -134,7 +135,11 @@
     "folderTitle": "Mais um servidor neste contêiner",
     "folderBodyFull": "Os arquivos do jogo vão para <1>{{path}}</1> e os mundos e configurações para <1>{{dataPath}}</1>, no volume de servidores extras, então sobrevivem às atualizações do painel.",
     "folderBodyQuick": "Ele reaproveita os arquivos do jogo de <1>{{path}}</1> e guarda mundos, configurações e logs em <1>{{dataPath}}</1>, no volume de servidores extras, sem dividi-los com os outros servidores.",
-    "noVolume": "Este contêiner ainda não tem o volume para servidores extras, então uma segunda instalação aqui seria apagada na próxima atualização do painel. Rode o instalador (bootstrap.sh) de novo para adicioná-lo e depois volte aqui."
+    "hostFolderTitle": "Pastas próprias para este servidor",
+    "hostFolderBodyFull": "Os arquivos do jogo vão para <1>{{path}}</1> e os mundos, configurações e logs para <1>{{dataPath}}</1>. Para guardar os dados em outro lugar, defina \"Local de configuração personalizado\" abaixo.",
+    "hostFolderBodyQuick": "Ele reaproveita os arquivos do jogo de <1>{{path}}</1> e guarda mundos, configurações e logs em <1>{{dataPath}}</1>. Para guardá-los em outro lugar, altere \"Local de configuração personalizado\" em \"Opções avançadas\".",
+    "noVolume": "Este contêiner ainda não tem o volume para servidores extras, então uma segunda instalação aqui seria apagada na próxima atualização do painel. Rode o instalador (bootstrap.sh) de novo para adicioná-lo e depois volte aqui.",
+    "dataFolderShared": "{{name}} já guarda os dados dele em <1>{{path}}</1>. Servidores que dividem uma pasta de dados gravam no mesmo server-console.txt e na mesma pasta Logs enquanto rodam, então escolha outra pasta, a menos que os dois nunca rodem ao mesmo tempo."
   },
   "full": {
     "pageTitle": "Instalação nova",
