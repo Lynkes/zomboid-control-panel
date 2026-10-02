@@ -33,6 +33,7 @@ const {
   lifecycleInProgressResponse,
   setBeforeLaunchHook,
   setServerDisplayNameResolver,
+  setServerLaunchedHook,
 } = await import("../services/lifecycleCoordinator.js");
 
 beforeEach(() => {
@@ -434,6 +435,47 @@ describe("POST /api/docker/containers/:id/:action", () => {
 
       expect(response.status).toHaveBeenCalledWith(403);
       expect(order).toEqual([]);
+    });
+  });
+
+  // GH #189: a container (re)started here loaded the updated Workshop mods,
+  // so it reports itself to the mod checker -- only when Docker actually
+  // started it.
+  describe("server-launched hook", () => {
+    afterEach(() => setServerLaunchedHook(null));
+
+    async function runAction(action, answer = { success: true }) {
+      const launches = [];
+      setServerLaunchedHook((launch) => {
+        launches.push(launch);
+      });
+      getServer.mockResolvedValue({ id: "server-1", dockerContainerName: "managed" });
+      const client = {
+        enabled: true,
+        available: true,
+        inspectManagedContainer: vi.fn(async () => ({ State: { Running: false } })),
+        runManagedAction: vi.fn(async () => answer),
+      };
+      await runRoute("/containers/:id/:action", "post", {
+        user: { role: "admin" },
+        params: { id: "managed", action },
+        body: { serverId: "server-1" },
+        app: { get: () => client },
+      }, createResponse());
+      return launches;
+    }
+
+    it.each(["start", "restart"])("reports docker %s", async (action) => {
+      const launches = await runAction(action);
+      expect(launches).toHaveLength(1);
+      expect(launches[0].serverId).toBe("server-1");
+      expect(Number.isInteger(launches[0].launchSeq)).toBe(true);
+    });
+
+    it("not Docker's 'already in the requested state', a failed start, or a stop", async () => {
+      expect(await runAction("start", { success: true, unchanged: true })).toEqual([]);
+      expect(await runAction("start", { success: false, error: "nope" })).toEqual([]);
+      expect(await runAction("stop")).toEqual([]);
     });
   });
 });

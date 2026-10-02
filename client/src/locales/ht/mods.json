@@ -47,7 +47,9 @@
     "title": "Redemaraj An Atant",
     "waiting": "N ap tann jwè yo kite anvan redemaraj (maksimòm {{minutes}} min)",
     "cancel": "Anile",
-    "cancelAria": "Anile redemaraj an atant lan"
+    "cancelAria": "Anile redemaraj an atant lan",
+    "cancelledByRestartTitle": "Redemaraj pou mizajou mod yo anile",
+    "cancelledByRestartDesc": "Sèvè a te redemare apre yo te jwenn mizajou mod yo epi li deja ap itilize yo, kidonk pa bezwen yon dezyèm redemaraj."
   },
   "folderBrowser": {
     "title": "Chwazi dosye sèvè Project Zomboid la"

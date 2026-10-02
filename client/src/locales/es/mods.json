@@ -47,7 +47,9 @@
     "title": "Reinicio pendiente",
     "waiting": "Esperando a que los jugadores se desconecten antes de reiniciar (máx. {{minutes}} min)",
     "cancel": "Cancelar",
-    "cancelAria": "Cancelar reinicio pendiente"
+    "cancelAria": "Cancelar reinicio pendiente",
+    "cancelledByRestartTitle": "Reinicio por actualización de mods cancelado",
+    "cancelledByRestartDesc": "El servidor se reinició después de detectar las actualizaciones de mods y ya las usa, así que no hace falta un segundo reinicio."
   },
   "folderBrowser": {
     "title": "Elegir carpeta del servidor de Project Zomboid"

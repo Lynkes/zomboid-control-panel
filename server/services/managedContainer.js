@@ -13,7 +13,10 @@
  * owns the lifecycle action and performs the Docker half.
  */
 import { getActiveServer, getServer } from "../database/init.js";
-import { prepareForLaunch } from "./lifecycleCoordinator.js";
+import {
+  notifyServerLaunched,
+  prepareForLaunch,
+} from "./lifecycleCoordinator.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("ManagedContainer");
@@ -225,17 +228,24 @@ export async function runManagedLifecycle(
     // already booted the game against the old ini. The image owns the launch
     // command, so no script is written. The record lookup is inside the same
     // never-blocks guarantee as the step itself.
+    let target = null;
+    let launchSeq = null;
     if (action === "start" || action === "restart") {
-      const target = await Promise.resolve()
+      target = await Promise.resolve()
         .then(() => (serverId ? getServer(serverId) : getActiveServer()))
         .catch(() => null);
-      await prepareForLaunch(target, { container: true });
+      ({ launchSeq } = await prepareForLaunch(target, { container: true }));
     }
 
     const result = await dockerClient.runManagedAction(current.ref, action);
     log.info(
       `Managed container ${current.ref}: ${action} -> ${result?.success ? "ok" : result?.error || "failed"}`,
     );
+    // The container (re)start launched the game -- unless Docker answered
+    // that it was already in that state (GH #189).
+    if (launchSeq !== null && result?.success && !result.unchanged) {
+      notifyServerLaunched(target, launchSeq);
+    }
     return { handled: true, ...result };
   } finally {
     release();

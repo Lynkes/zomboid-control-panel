@@ -46,6 +46,7 @@ import { GAME_PORT_MAX, applyUpnpToIni } from "./server.js";
 import {
   resolveLaunchMode,
   ServerManager,
+  scanLeavesServerUnknown,
   scoreServerProcessOwnership,
 } from "../services/serverManager.js";
 import {
@@ -605,7 +606,8 @@ router.get("/", async (req, res) => {
 // and attributes each match to a configured server via the same
 // scoreServerProcessOwnership() rules serverManager.js uses for its own
 // server (-servername/-cachedir first, install path only as a fallback).
-// Servers with no matching process are reported as not running.
+// Servers with no matching process are reported as not running -- or as
+// unknown when Windows also lists processes the panel can't read.
 router.get("/status", async (req, res) => {
   try {
     const serverManager = req.app.get("serverManager");
@@ -621,10 +623,12 @@ router.get("/status", async (req, res) => {
     // ("MY configured server is running"), which server.js's start/stop
     // polling and the fallback below both still read.
     let matched = [];
+    let hostScan = null;
     let detectionError = null;
     try {
       const scanner = new ServerManager();
       const scan = await scanner.scanHostForServerProcesses();
+      hostScan = scan;
       matched = Array.isArray(scan?.matched) ? scan.matched : [];
       if (scan?.scanFailed) {
         detectionError = scan.error || "Process detection failed";
@@ -745,7 +749,12 @@ router.get("/status", async (req, res) => {
           log.debug(`Active-server fallback detection failed: ${err.message}`);
         }
       }
-      const stateUnknown = Boolean(detectionError) || activeFallbackUnknown;
+      // Windows may also list processes the panel can't read; for a row
+      // none of the readable ones belongs to, one of those may be it.
+      const stateUnknown =
+        Boolean(detectionError) ||
+        activeFallbackUnknown ||
+        scanLeavesServerUnknown(hostScan, running);
       return {
         id: server.id,
         name: server.name,

@@ -177,7 +177,15 @@ export class DockerClient {
         `/containers/${encodeURIComponent(containerId)}/${action}`,
         lifecycleTimeoutMs(action, container),
       );
-      if (statusCode === 304) return { success: true, message: "Container is already in the requested state" };
+      // unchanged: nothing was started, so a Start isn't reported as a
+      // fresh launch (lifecycleCoordinator.notifyServerLaunched(), GH #189).
+      if (statusCode === 304) {
+        return {
+          success: true,
+          unchanged: true,
+          message: "Container is already in the requested state",
+        };
+      }
       if (statusCode >= 200 && statusCode < 300) return { success: true };
       return { success: false, error: `Docker API returned ${statusCode}` };
     } catch (error) {

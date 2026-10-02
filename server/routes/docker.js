@@ -7,6 +7,7 @@ import { ErrorCode } from "../utils/errorCodes.js";
 import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
+  notifyServerLaunched,
   prepareForLaunch,
 } from "../services/lifecycleCoordinator.js";
 import { resolveDockerHostSignal } from "../services/managedContainer.js";
@@ -172,10 +173,16 @@ router.post("/containers/:id/:action", requirePermission("docker.manage"), async
     // managedContainer.runManagedLifecycle(), so it runs the same step
     // itself -- the container start IS the launch. Never throws, so it
     // can't block the action.
+    let launchSeq = null;
     if (req.params.action === "start" || req.params.action === "restart") {
-      await prepareForLaunch(server, { container: true });
+      ({ launchSeq } = await prepareForLaunch(server, { container: true }));
     }
     const result = await dockerClient.runManagedAction(req.params.id, req.params.action);
+    // A real (re)start launched the game; Docker's "already in that state"
+    // didn't (GH #189).
+    if (launchSeq !== null && result.success && !result.unchanged) {
+      notifyServerLaunched(server, launchSeq);
+    }
     if (!result.success) {
       // Same redaction the /status route above already applies to this
       // client's errors -- runManagedAction now returns the real Docker

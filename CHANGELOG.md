@@ -7,8 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Fixed
 
+- Windows: a restart no longer leaves the server down when the process scan can't read the exiting server or an unrelated java.exe (#190, thanks @djcyphers).
+- A mod-update restart waiting for players is cancelled once the server is restarted any other way after the update was found, instead of restarting it a second time (#189, thanks @JeesusKrisostoomus).
 - **Another server on a Windows or Linux host:** Server Setup proposes its own folders beside the active server's (`<name>` and `<name>_Data`) and warns when its data folder is another server's.
 
 ## [1.4.2] - 2026-10-02
