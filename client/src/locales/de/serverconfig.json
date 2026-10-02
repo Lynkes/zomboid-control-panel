@@ -162,7 +162,7 @@
     "liveRangesUnavailableTitle": "Showing built-in ranges",
     "liveRangesUnavailableBody": "Couldn't reach a running server to confirm the real minimum/maximum for these settings, so the ranges shown are this panel's own built-in table and may be out of date. Start the server and retry for the exact bounds.",
     "outOfRangeAllowedTitle": "Values outside the known range will still be saved",
-    "outOfRangeAllowedBody": "{{settings}} are outside the range this panel knows, but the sandbox range override in Settings is on, so Save will not block them."
+    "outOfRangeAllowedBody": "{{settings}} are outside the range this panel knows, but the range override in Settings is on, so Save will not block them."
   },
   "spawnPointsTab": {
     "sectionLabel": "Spawnpunkte",
@@ -341,6 +341,7 @@
     "resetToLoadedValue": "Auf geladenen Wert zurücksetzen",
     "resetAria": "{{label}} auf geladenen Wert zurücksetzen",
     "modifiedBadge": "geändert",
+    "legacyBadge": "nur Build 41",
     "on": "An",
     "off": "Aus",
     "defaultValue": "Standard: {{value}}",
@@ -424,7 +425,7 @@
       },
       "Public": {
         "label": "Public Server",
-        "description": "Can your server be seen on Steam server browser."
+        "description": "Zeigt den Server im Serverbrowser des Spiels an. Steam-fähige Server sind im Steam-Server-Browser immer sichtbar, unabhängig von dieser Einstellung."
       },
       "Open": {
         "label": "Open (No Whitelist)",
@@ -482,7 +483,7 @@
       },
       "PingLimit": {
         "label": "Ping Limit",
-        "description": "Ping limit before being kicked (milliseconds). 100 to disable."
+        "description": "Ping limit before being kicked (milliseconds). 0 to disable."
       },
       "DenyLoginOnOverloadedServer": {
         "label": "Deny Login When Overloaded",
@@ -658,6 +659,10 @@
         "label": "Respawn with Partner",
         "description": "Enable spawning at splitscreen partner location."
       },
+      "ShowCoordinates": {
+        "label": "Koordinaten anzeigen",
+        "description": "Zeigt die Koordinaten der Spielfigur in der unteren rechten Ecke an."
+      },
       "PlayerSaveOnDamage": {
         "label": "Save on Damage",
         "description": "Save player state when they take damage."
@@ -822,18 +827,7 @@
       },
       "SteamScoreboard": {
         "label": "Steam Scoreboard",
-        "description": "Show Steam usernames and avatars. true/false/admin.",
-        "options": {
-          "true": {
-            "label": "Everyone"
-          },
-          "false": {
-            "label": "No One"
-          },
-          "admin": {
-            "label": "Admins Only"
-          }
-        }
+        "description": "Show Steam usernames and avatars in the Players list. Build 42 has no admin-only value; in-game roles with the GetSteamScoreboard capability always see them."
       },
       "SteamVAC": {
         "label": "VAC Ban Check",
@@ -1041,9 +1035,6 @@
           },
           "3": {
             "label": "Record Violation"
-          },
-          "4": {
-            "label": "Mute"
           }
         }
       },
@@ -4064,5 +4055,9 @@
       "label": "Advanced"
     }
   },
-  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here."
+  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here.",
+  "unrecognizedIniBooleanWarning": {
+    "defaultOff": "Dieser Server steht aktuell auf {{value}}. Das Spiel akzeptiert diesen Wert nicht und verwendet daher „Aus“ (Standardwert), bis du die Einstellung änderst.",
+    "defaultOn": "Dieser Server steht aktuell auf {{value}}. Das Spiel akzeptiert diesen Wert nicht und verwendet daher „An“ (Standardwert), bis du die Einstellung änderst."
+  }
 }

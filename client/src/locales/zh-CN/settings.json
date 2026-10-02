@@ -27,7 +27,7 @@
     "confirmNewPasswordLocalReset": "确认本地重置的新密码",
     "buyMeCoffeeKofi": "在 Ko-fi 请我喝杯咖啡",
     "recoveryTokenLocalReset": "用于本地重置的恢复令牌",
-    "sandboxRangeOverride": "Allow sandbox values outside known range"
+    "sandboxRangeOverride": "Allow values outside the known range"
   },
   "tabs": {
     "groups": {
@@ -152,10 +152,10 @@
     "restartGameServerRisk": "此安装未使用受保护的 Linux 启动器。重启面板可能会停止正在运行的 Project Zomboid 服务器进程。",
     "restartGameServerUnknown": "面板无法确定正在运行的 Project Zomboid 服务器是否能在此次重启后存活。",
     "confirmRestartRisk": "我了解正在运行的游戏服务器可能会被停止。",
-    "sandboxRangeOverrideTitle": "Sandbox Value Ranges",
-    "sandboxRangeOverrideDesc": "Controls whether the Sandbox tab's Save button blocks a value outside its known minimum/maximum.",
+    "sandboxRangeOverrideTitle": "Setting Value Ranges",
+    "sandboxRangeOverrideDesc": "Controls whether the Server Settings and Sandbox tabs' Save buttons block a value outside its known minimum/maximum.",
     "sandboxRangeOverrideLabel": "Allow values outside the known range",
-    "sandboxRangeOverrideHint": "Off by default. The Sandbox tab still shows when a value is outside its known range, but with this on, Save no longer blocks it -- useful when this panel's range table is out of date for your game version."
+    "sandboxRangeOverrideHint": "Off by default. The Server Settings and Sandbox tabs still show when a value is outside its known range, but with this on, Save no longer blocks it -- useful when this panel's range table is out of date for your game version."
   },
   "access": {
     "cardTitle": "远程访问（CORS）",
