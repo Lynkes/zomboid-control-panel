@@ -244,7 +244,7 @@
     "liveRangesUnavailableTitle": "Showing built-in ranges",
     "liveRangesUnavailableBody": "Couldn't reach a running server to confirm the real minimum/maximum for these settings, so the ranges shown are this panel's own built-in table and may be out of date. Start the server and retry for the exact bounds.",
     "outOfRangeAllowedTitle": "Values outside the known range will still be saved",
-    "outOfRangeAllowedBody": "{{settings}} are outside the range this panel knows, but the sandbox range override in Settings is on, so Save will not block them."
+    "outOfRangeAllowedBody": "{{settings}} are outside the range this panel knows, but the range override in Settings is on, so Save will not block them."
   },
   "spawnPointsTab": {
     "sectionLabel": "نقاط الظهور",
@@ -452,6 +452,7 @@
     "resetToLoadedValue": "إعادة التعيين إلى القيمة المحمَّلة",
     "resetAria": "إعادة تعيين {{label}} إلى القيمة المحمَّلة",
     "modifiedBadge": "معدَّل",
+    "legacyBadge": "Build 41 فقط",
     "on": "مُفعَّل",
     "off": "مُعطَّل",
     "defaultValue": "الافتراضي: {{value}}",
@@ -530,7 +531,7 @@
       },
       "Public": {
         "label": "خادم عام",
-        "description": "ما إذا كان خادمك يظهر في متصفح خوادم Steam."
+        "description": "يعرض الخادم في متصفح الخوادم داخل اللعبة. تظهر الخوادم المفعَّل فيها Steam دائمًا في متصفح خوادم Steam مهما كانت قيمة هذا الخيار."
       },
       "Open": {
         "label": "مفتوح (بدون قائمة بيضاء)",
@@ -588,7 +589,7 @@
       },
       "PingLimit": {
         "label": "حد الاستجابة",
-        "description": "حد زمن الاستجابة قبل الطرد (بالمللي ثانية). القيمة 100 تعني التعطيل."
+        "description": "حد زمن الاستجابة قبل الطرد (بالمللي ثانية). القيمة 0 تعني التعطيل."
       },
       "DenyLoginOnOverloadedServer": {
         "label": "رفض الدخول عند الحِمل الزائد",
@@ -764,6 +765,10 @@
         "label": "الظهور مع الشريك",
         "description": "تفعيل الظهور في موقع شريك الشاشة المقسومة."
       },
+      "ShowCoordinates": {
+        "label": "إظهار الإحداثيات",
+        "description": "إظهار إحداثيات شخصية اللاعب في الزاوية السفلية اليمنى."
+      },
       "PlayerSaveOnDamage": {
         "label": "الحفظ عند التعرض للضرر",
         "description": "حفظ حالة اللاعب عند تعرّضه لضرر."
@@ -928,18 +933,7 @@
       },
       "SteamScoreboard": {
         "label": "لوحة نتائج Steam",
-        "description": "إظهار أسماء مستخدمي Steam وصورهم الرمزية. القيم: true/false/admin.",
-        "options": {
-          "true": {
-            "label": "الجميع"
-          },
-          "false": {
-            "label": "لا أحد"
-          },
-          "admin": {
-            "label": "المسؤولون فقط"
-          }
-        }
+        "description": "إظهار أسماء مستخدمي Steam وصورهم الرمزية في قائمة اللاعبين. لا توجد في Build 42 قيمة للمسؤولين فقط؛ الأدوار داخل اللعبة التي تملك صلاحية GetSteamScoreboard تراها دائمًا."
       },
       "SteamVAC": {
         "label": "فحص حظر VAC",
@@ -1147,9 +1141,6 @@
           },
           "3": {
             "label": "تسجيل مخالفة"
-          },
-          "4": {
-            "label": "كتم"
           }
         }
       },
@@ -4170,5 +4161,9 @@
       "label": "متقدّم"
     }
   },
-  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here."
+  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here.",
+  "unrecognizedIniBooleanWarning": {
+    "defaultOff": "هذا الخادم مضبوط حاليًا على {{value}}، وهي قيمة لا تقبلها اللعبة، لذا يستخدم «مُعطَّل» (القيمة الافتراضية) إلى أن تغيّر هذا الخيار.",
+    "defaultOn": "هذا الخادم مضبوط حاليًا على {{value}}، وهي قيمة لا تقبلها اللعبة، لذا يستخدم «مُفعَّل» (القيمة الافتراضية) إلى أن تغيّر هذا الخيار."
+  }
 }

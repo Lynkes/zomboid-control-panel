@@ -162,7 +162,7 @@
     "liveRangesUnavailableTitle": "Showing built-in ranges",
     "liveRangesUnavailableBody": "Couldn't reach a running server to confirm the real minimum/maximum for these settings, so the ranges shown are this panel's own built-in table and may be out of date. Start the server and retry for the exact bounds.",
     "outOfRangeAllowedTitle": "Values outside the known range will still be saved",
-    "outOfRangeAllowedBody": "{{settings}} are outside the range this panel knows, but the sandbox range override in Settings is on, so Save will not block them."
+    "outOfRangeAllowedBody": "{{settings}} are outside the range this panel knows, but the range override in Settings is on, so Save will not block them."
   },
   "spawnPointsTab": {
     "sectionLabel": "出生點",
@@ -346,6 +346,7 @@
     "resetToLoadedValue": "重設為已載入的值",
     "resetAria": "將 {{label}} 重設為已載入的值",
     "modifiedBadge": "已修改",
+    "legacyBadge": "僅限 Build 41",
     "on": "開",
     "off": "關",
     "defaultValue": "預設值：{{value}}",
@@ -424,7 +425,7 @@
       },
       "Public": {
         "label": "Public Server",
-        "description": "Can your server be seen on Steam server browser."
+        "description": "於遊戲內伺服器瀏覽器顯示伺服器。無論此項如何設定，啟用 Steam 的伺服器一律會顯示於 Steam 伺服器瀏覽器中。"
       },
       "Open": {
         "label": "Open (No Whitelist)",
@@ -482,7 +483,7 @@
       },
       "PingLimit": {
         "label": "Ping Limit",
-        "description": "Ping limit before being kicked (milliseconds). 100 to disable."
+        "description": "Ping limit before being kicked (milliseconds). 0 to disable."
       },
       "DenyLoginOnOverloadedServer": {
         "label": "Deny Login When Overloaded",
@@ -658,6 +659,10 @@
         "label": "Respawn with Partner",
         "description": "Enable spawning at splitscreen partner location."
       },
+      "ShowCoordinates": {
+        "label": "顯示座標",
+        "description": "在畫面右下顯示玩家角色座標。"
+      },
       "PlayerSaveOnDamage": {
         "label": "Save on Damage",
         "description": "Save player state when they take damage."
@@ -822,18 +827,7 @@
       },
       "SteamScoreboard": {
         "label": "Steam Scoreboard",
-        "description": "Show Steam usernames and avatars. true/false/admin.",
-        "options": {
-          "true": {
-            "label": "Everyone"
-          },
-          "false": {
-            "label": "No One"
-          },
-          "admin": {
-            "label": "Admins Only"
-          }
-        }
+        "description": "Show Steam usernames and avatars in the Players list. Build 42 has no admin-only value; in-game roles with the GetSteamScoreboard capability always see them."
       },
       "SteamVAC": {
         "label": "VAC Ban Check",
@@ -1041,9 +1035,6 @@
           },
           "3": {
             "label": "Record Violation"
-          },
-          "4": {
-            "label": "Mute"
           }
         }
       },
@@ -4064,5 +4055,9 @@
       "label": "Advanced"
     }
   },
-  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here."
+  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here.",
+  "unrecognizedIniBooleanWarning": {
+    "defaultOff": "此伺服器目前設定為 {{value}}，遊戲不接受此值，因此在你變更此項之前會使用「關」（預設值）。",
+    "defaultOn": "此伺服器目前設定為 {{value}}，遊戲不接受此值，因此在你變更此項之前會使用「開」（預設值）。"
+  }
 }

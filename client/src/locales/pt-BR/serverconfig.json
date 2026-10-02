@@ -169,7 +169,7 @@
     "liveRangesUnavailableTitle": "Mostrando intervalos predefinidos",
     "liveRangesUnavailableBody": "Não foi possível acessar um servidor em execução para confirmar o mínimo/máximo reais destas opções, então os intervalos mostrados vêm da tabela interna deste painel e podem estar desatualizados. Inicie o servidor e tente novamente para ver os limites exatos.",
     "outOfRangeAllowedTitle": "Valores fora do intervalo conhecido ainda serão salvos",
-    "outOfRangeAllowedBody": "{{settings}}: fora do intervalo que este painel conhece, mas a opção de permitir valores fora do intervalo do sandbox está ativada em Configurações, então Salvar não vai bloquear esses valores."
+    "outOfRangeAllowedBody": "{{settings}}: fora do intervalo que este painel conhece, mas a opção de permitir valores fora do intervalo está ativada em Configurações, então Salvar não vai bloquear esses valores."
   },
   "spawnPointsTab": {
     "sectionLabel": "Pontos de spawn",
@@ -359,6 +359,7 @@
     "resetToLoadedValue": "Redefinir para o valor carregado",
     "resetAria": "Redefinir {{label}} para o valor carregado",
     "modifiedBadge": "modificada",
+    "legacyBadge": "somente Build 41",
     "on": "Ativado",
     "off": "Desativado",
     "defaultValue": "Padrão: {{value}}",
@@ -437,7 +438,7 @@
       },
       "Public": {
         "label": "Servidor público",
-        "description": "Define se o seu servidor aparece no navegador de servidores da Steam."
+        "description": "Mostra o servidor no navegador de servidores do jogo. Servidores com Steam ativado sempre aparecem no navegador de servidores Steam, independentemente desta opção."
       },
       "Open": {
         "label": "Aberto (sem lista de permissões)",
@@ -495,7 +496,7 @@
       },
       "PingLimit": {
         "label": "Limite de ping",
-        "description": "Limite de ping antes da expulsão (milissegundos). 100 para desativar."
+        "description": "Limite de ping antes da expulsão (milissegundos). 0 para desativar."
       },
       "DenyLoginOnOverloadedServer": {
         "label": "Negar login com sobrecarga",
@@ -671,6 +672,10 @@
         "label": "Renascer com parceiro",
         "description": "Permite renascer no local do parceiro de tela dividida."
       },
+      "ShowCoordinates": {
+        "label": "Mostrar coordenadas",
+        "description": "Exibe as coordenadas do personagem no canto inferior direito."
+      },
       "PlayerSaveOnDamage": {
         "label": "Salvar ao sofrer dano",
         "description": "Salva o estado do jogador quando ele sofre dano."
@@ -835,18 +840,7 @@
       },
       "SteamScoreboard": {
         "label": "Placar da Steam",
-        "description": "Mostra nomes de usuário e avatares da Steam. true/false/admin.",
-        "options": {
-          "true": {
-            "label": "Todos"
-          },
-          "false": {
-            "label": "Ninguém"
-          },
-          "admin": {
-            "label": "Somente admins"
-          }
-        }
+        "description": "Mostra nomes de usuário e avatares da Steam na lista de jogadores. A Build 42 não tem mais um valor só para admins; cargos do jogo com a permissão GetSteamScoreboard sempre os veem."
       },
       "SteamVAC": {
         "label": "Verificação de banimento VAC",
@@ -1054,9 +1048,6 @@
           },
           "3": {
             "label": "Registrar violação"
-          },
-          "4": {
-            "label": "Silenciar"
           }
         }
       },
@@ -4077,5 +4068,9 @@
       "label": "Avançado"
     }
   },
-  "unrecognizedSandboxOptionWarning": "Este servidor está definido atualmente como {{value}}, que este painel não reconhece. O valor é preservado e não será alterado, a menos que você escolha outra opção aqui."
+  "unrecognizedSandboxOptionWarning": "Este servidor está definido atualmente como {{value}}, que este painel não reconhece. O valor é preservado e não será alterado, a menos que você escolha outra opção aqui.",
+  "unrecognizedIniBooleanWarning": {
+    "defaultOff": "Este servidor está definido atualmente como {{value}}, um valor que o jogo não aceita, então ele usa Desativado (o padrão) até você alterar esta opção.",
+    "defaultOn": "Este servidor está definido atualmente como {{value}}, um valor que o jogo não aceita, então ele usa Ativado (o padrão) até você alterar esta opção."
+  }
 }

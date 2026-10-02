@@ -27,7 +27,7 @@
     "newPasswordLocalReset": "Nouvo modpas pou reyinisyalizasyon lokal",
     "confirmNewPasswordLocalReset": "Konfime nouvo modpas pou reyinisyalizasyon lokal",
     "buyMeCoffeeKofi": "Ofri m yon kafe sou Ko-fi",
-    "sandboxRangeOverride": "Allow sandbox values outside known range"
+    "sandboxRangeOverride": "Allow values outside the known range"
   },
   "tabs": {
     "groups": {
@@ -98,10 +98,10 @@
     "restartGameServerRisk": "Enstalasyon sa a pa itilize lansè Linux ki pwoteje a. Redemare panèl la ka sispann pwosesis sèvè Project Zomboid k ap kouri yo.",
     "restartGameServerUnknown": "Panèl la pa t kapab detèmine si sèvè Project Zomboid k ap kouri yo ap siviv redemaraj sa a.",
     "confirmRestartRisk": "Mwen konprann sèvè jwèt k ap kouri yo ka sispann.",
-    "sandboxRangeOverrideTitle": "Sandbox Value Ranges",
-    "sandboxRangeOverrideDesc": "Controls whether the Sandbox tab's Save button blocks a value outside its known minimum/maximum.",
+    "sandboxRangeOverrideTitle": "Setting Value Ranges",
+    "sandboxRangeOverrideDesc": "Controls whether the Server Settings and Sandbox tabs' Save buttons block a value outside its known minimum/maximum.",
     "sandboxRangeOverrideLabel": "Allow values outside the known range",
-    "sandboxRangeOverrideHint": "Off by default. The Sandbox tab still shows when a value is outside its known range, but with this on, Save no longer blocks it -- useful when this panel's range table is out of date for your game version."
+    "sandboxRangeOverrideHint": "Off by default. The Server Settings and Sandbox tabs still show when a value is outside its known range, but with this on, Save no longer blocks it -- useful when this panel's range table is out of date for your game version."
   },
 
   "access": {

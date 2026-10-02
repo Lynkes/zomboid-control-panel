@@ -27,7 +27,7 @@
     "newPasswordLocalReset": "Nova senha para redefinição local",
     "confirmNewPasswordLocalReset": "Confirmar nova senha para redefinição local",
     "buyMeCoffeeKofi": "Me pague um café no Ko-fi",
-    "sandboxRangeOverride": "Permitir valores do sandbox fora do intervalo conhecido"
+    "sandboxRangeOverride": "Permitir valores fora do intervalo conhecido"
   },
   "tabs": {
     "groups": {
@@ -152,10 +152,10 @@
     "appearanceDesc": "Tema e estilo visual do painel.",
     "themeLabel": "Tema",
     "themeDesc": "Escolha entre o visual rústico de sobrevivência ou um tema claro e limpo.",
-    "sandboxRangeOverrideTitle": "Intervalos de valores do sandbox",
-    "sandboxRangeOverrideDesc": "Controla se o botão Salvar da aba Sandbox bloqueia um valor fora do mínimo/máximo conhecido.",
+    "sandboxRangeOverrideTitle": "Intervalos de valores das opções",
+    "sandboxRangeOverrideDesc": "Controla se o botão Salvar das abas Opções do servidor e Sandbox bloqueia um valor fora do mínimo/máximo conhecido.",
     "sandboxRangeOverrideLabel": "Permitir valores fora do intervalo conhecido",
-    "sandboxRangeOverrideHint": "Desativado por padrão. A aba Sandbox continua indicando quando um valor está fora do intervalo conhecido, mas com esta opção ativada, Salvar deixa de bloqueá-lo -- útil quando a tabela de intervalos deste painel está desatualizada para a sua versão do jogo."
+    "sandboxRangeOverrideHint": "Desativado por padrão. As abas Opções do servidor e Sandbox continuam indicando quando um valor está fora do intervalo conhecido, mas com esta opção ativada, Salvar deixa de bloqueá-lo -- útil quando a tabela de intervalos deste painel está desatualizada para a sua versão do jogo."
   },
   "access": {
     "cardTitle": "Acesso remoto (CORS)",

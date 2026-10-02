@@ -75,6 +75,24 @@ inspection to be a plausible false positive (the loop is list housekeeping,
 not reply-building), and that one counter-example is reason enough not to
 trust this signal at scale without hand-checking each hit.
 
+### `extract-server-options.mjs` / `extract-sandbox-options.mjs`
+
+```
+node scripts/jar-audit/extract-server-options.mjs <path-to-projectzomboid.jar>
+node scripts/jar-audit/extract-sandbox-options.mjs <path-to-projectzomboid.jar>
+```
+
+Read every server.ini option (`zombie.network.ServerOptions`) or sandbox
+option (`zombie.SandboxOptions` + its option groups) straight off the
+constructor bytecode, with its real type, min, max and default, and write
+`server/__fixtures__/pzServerOptions.json` / `pzSandboxOptions.json`.
+`client/src/lib/__tests__/iniSchemaBoundsGroundTruth.test.ts` and
+`sandboxSchemaBoundsGroundTruth.test.ts` diff the panel's own tables against
+those fixtures on every test run (ranges; for server.ini also which keys
+exist, their types and boolean defaults), so re-run both after a game
+update and fix whatever the tests then flag. Both share the class-file and
+Code-attribute reader in `constructor-bytecode.mjs`.
+
 ### `scan-lua-calls.mjs` -- not included as a generic tool, see below
 
 The PanelBridge Lua checker used for the Lua audit is NOT a clean, reusable

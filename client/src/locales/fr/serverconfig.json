@@ -169,7 +169,7 @@
     "liveRangesUnavailableTitle": "Showing built-in ranges",
     "liveRangesUnavailableBody": "Couldn't reach a running server to confirm the real minimum/maximum for these settings, so the ranges shown are this panel's own built-in table and may be out of date. Start the server and retry for the exact bounds.",
     "outOfRangeAllowedTitle": "Values outside the known range will still be saved",
-    "outOfRangeAllowedBody": "{{settings}} are outside the range this panel knows, but the sandbox range override in Settings is on, so Save will not block them."
+    "outOfRangeAllowedBody": "{{settings}} are outside the range this panel knows, but the range override in Settings is on, so Save will not block them."
   },
   "spawnPointsTab": {
     "sectionLabel": "Points de spawn",
@@ -354,6 +354,7 @@
     "resetToLoadedValue": "Réinitialiser à la valeur chargée",
     "resetAria": "Réinitialiser {{label}} à la valeur chargée",
     "modifiedBadge": "modifié",
+    "legacyBadge": "Build 41 uniquement",
     "on": "Activé",
     "off": "Désactivé",
     "defaultValue": "Par défaut : {{value}}",
@@ -437,7 +438,7 @@
       },
       "Public": {
         "label": "Public Server",
-        "description": "Can your server be seen on Steam server browser."
+        "description": "Affiche le serveur dans le navigateur de serveurs en jeu. Les serveurs avec Steam activé apparaissent toujours dans le navigateur de serveurs Steam, quelle que soit la valeur de cette option."
       },
       "Open": {
         "label": "Open (No Whitelist)",
@@ -495,7 +496,7 @@
       },
       "PingLimit": {
         "label": "Ping Limit",
-        "description": "Ping limit before being kicked (milliseconds). 100 to disable."
+        "description": "Ping limit before being kicked (milliseconds). 0 to disable."
       },
       "DenyLoginOnOverloadedServer": {
         "label": "Deny Login When Overloaded",
@@ -671,6 +672,10 @@
         "label": "Respawn with Partner",
         "description": "Enable spawning at splitscreen partner location."
       },
+      "ShowCoordinates": {
+        "label": "Afficher les coordonnées",
+        "description": "Affiche les coordonnées du personnage du joueur dans le coin en bas à droite de l'écran."
+      },
       "PlayerSaveOnDamage": {
         "label": "Save on Damage",
         "description": "Save player state when they take damage."
@@ -835,18 +840,7 @@
       },
       "SteamScoreboard": {
         "label": "Steam Scoreboard",
-        "description": "Show Steam usernames and avatars. true/false/admin.",
-        "options": {
-          "true": {
-            "label": "Everyone"
-          },
-          "false": {
-            "label": "No One"
-          },
-          "admin": {
-            "label": "Admins Only"
-          }
-        }
+        "description": "Show Steam usernames and avatars in the Players list. Build 42 has no admin-only value; in-game roles with the GetSteamScoreboard capability always see them."
       },
       "SteamVAC": {
         "label": "VAC Ban Check",
@@ -1054,9 +1048,6 @@
           },
           "3": {
             "label": "Record Violation"
-          },
-          "4": {
-            "label": "Mute"
           }
         }
       },
@@ -4077,5 +4068,9 @@
       "label": "Advanced"
     }
   },
-  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here."
+  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here.",
+  "unrecognizedIniBooleanWarning": {
+    "defaultOff": "Ce serveur est actuellement réglé sur {{value}}, une valeur que le jeu n'accepte pas : il utilise donc « Désactivé » (sa valeur par défaut) jusqu'à ce que vous modifiiez cette option.",
+    "defaultOn": "Ce serveur est actuellement réglé sur {{value}}, une valeur que le jeu n'accepte pas : il utilise donc « Activé » (sa valeur par défaut) jusqu'à ce que vous modifiiez cette option."
+  }
 }

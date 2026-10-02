@@ -17,6 +17,13 @@ export interface IniSetting {
   category: string
   /** File extension filter for 'filepath' type, e.g. ['.png', '.jpg'] */
   fileExtensions?: string[]
+  /**
+   * A Build 41 option that Build 42's ServerOptions no longer declares
+   * (checked against the jar by iniSchemaBoundsGroundTruth.test.ts). The form
+   * shows it only when the loaded file already has the key, and never adds
+   * it to a file that doesn't.
+   */
+  legacy?: boolean
 }
 
 /**
@@ -39,14 +46,13 @@ export function normalizeNumericInput(value: string): string {
   return value.replace(/,/g, '.')
 }
 
-// `enforceBounds: false` is the Sandbox tab's "allow values outside known
-// range" escape hatch (client/src/pages/Settings.tsx's sandboxRangeOverride
-// toggle): it still rejects anything that isn't a real finite number, but
-// stops treating an in-range check as part of "is this value even valid" --
-// letting a genuinely out-of-range-but-numeric value through unchanged
-// instead of nulling it out. Every existing caller keeps today's behavior
-// unchanged (default true) since only the Sandbox tab's own validation/save
-// paths pass false, and only when that toggle is on.
+// `enforceBounds: false` is the Server Settings / Sandbox tabs' "allow values
+// outside known range" escape hatch (client/src/pages/Settings.tsx's
+// sandboxRangeOverride toggle): it still rejects anything that isn't a real
+// finite number, but stops treating an in-range check as part of "is this
+// value even valid" -- letting a genuinely out-of-range-but-numeric value
+// through unchanged instead of nulling it out. Defaults to true; only those
+// two tabs' validation/save paths pass false, and only when that toggle is on.
 export function parseNumericSettingValue(
   value: unknown,
   bounds: NumericSettingBounds = {},
@@ -123,6 +129,13 @@ export const INI_CATEGORIES: Array<{ id: string; label: string; icon: string; gr
   { id: 'advanced', label: 'Advanced', icon: 'Wrench', group: 'ops' },
 ]
 
+// Numeric min/max/default (and enum-backed select options) here mirror the
+// real game's zombie.network.ServerOptions, gated on every test run by
+// client/src/lib/__tests__/iniSchemaBoundsGroundTruth.test.ts against a
+// fixture extracted from the B42 jar (scripts/jar-audit/extract-server-options.mjs).
+// PZ ignores an out-of-range server.ini value (logs it and keeps the old
+// one), so a range here that is wider than the game's loses the operator's
+// edit silently, and a narrower one blocks a value the game accepts (GH#182).
 export const INI_SCHEMA: IniSetting[] = [
   // General
   {
@@ -144,9 +157,9 @@ export const INI_SCHEMA: IniSetting[] = [
   {
     key: 'Public',
     label: 'Public Server',
-    description: 'Can your server be seen on Steam server browser.',
+    description: 'Shows the server in the in-game server browser. Steam-enabled servers always show in the Steam server browser, whatever this is set to.',
     type: 'boolean',
-    default: true,
+    default: false,
     category: 'general'
   },
   {
@@ -171,8 +184,8 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Maximum allowed number of players.',
     type: 'number',
     min: 1,
-    max: 100,
-    default: 16,
+    max: 254,
+    default: 32,
     category: 'general'
   },
   {
@@ -205,7 +218,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Auto-save world every X minutes. 0 = never.',
     type: 'number',
     min: 0,
-    max: 60,
+    max: 2147483647,
     default: 0,
     category: 'general'
   },
@@ -245,16 +258,17 @@ export const INI_SCHEMA: IniSetting[] = [
     min: 1,
     max: 60,
     default: 10,
+    legacy: true,
     category: 'network'
   },
   {
     key: 'PingLimit',
     label: 'Ping Limit',
-    description: 'Ping limit before being kicked (milliseconds). 100 to disable.',
+    description: 'Ping limit before being kicked (milliseconds). 0 to disable.',
     type: 'number',
-    min: 100,
-    max: 1000,
-    default: 250,
+    min: 0,
+    max: 2147483647,
+    default: 0,
     category: 'network'
   },
   {
@@ -271,7 +285,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Maximum movement speed allowed.',
     type: 'number',
     min: 10,
-    max: 200,
+    max: 150,
     default: 70,
     category: 'network'
   },
@@ -281,6 +295,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Use TCP instead of UDP for map downloads.',
     type: 'boolean',
     default: false,
+    legacy: true,
     category: 'network'
   },
   {
@@ -288,8 +303,8 @@ export const INI_SCHEMA: IniSetting[] = [
     label: 'Max Packets Per Second',
     description: 'Cap on packets per second sent to a connected client. Higher values increase bandwidth use; lower values may cause stutter under load.',
     type: 'number',
-    min: 50,
-    max: 2000,
+    min: 100,
+    max: 1000,
     default: 300,
     category: 'network'
   },
@@ -325,7 +340,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Time in seconds to switch between PvP on and off.',
     type: 'number',
     min: 0,
-    max: 60,
+    max: 1000,
     default: 2,
     category: 'pvp'
   },
@@ -335,7 +350,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Time in seconds before you can toggle safety again.',
     type: 'number',
     min: 0,
-    max: 60,
+    max: 1000,
     default: 3,
     category: 'pvp'
   },
@@ -449,7 +464,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Limit accounts per Steam user. 0 = unlimited.',
     type: 'number',
     min: 0,
-    max: 10,
+    max: 2147483647,
     default: 0,
     category: 'players'
   },
@@ -467,6 +482,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Kick players moving faster than possible. May be buggy.',
     type: 'boolean',
     default: false,
+    legacy: true,
     category: 'players'
   },
   {
@@ -518,11 +534,20 @@ export const INI_SCHEMA: IniSetting[] = [
     category: 'players'
   },
   {
+    key: 'ShowCoordinates',
+    label: 'Show Coordinates',
+    description: 'Shows player character coordinates in the lower right corner.',
+    type: 'boolean',
+    default: false,
+    category: 'players'
+  },
+  {
     key: 'PlayerSaveOnDamage',
     label: 'Save on Damage',
     description: 'Save player state when they take damage.',
     type: 'boolean',
     default: true,
+    legacy: true,
     category: 'players'
   },
   // Safehouses
@@ -531,7 +556,7 @@ export const INI_SCHEMA: IniSetting[] = [
     label: 'Enable Safehouses',
     description: 'Allow players to claim safehouses.',
     type: 'boolean',
-    default: true,
+    default: false,
     category: 'safehouse'
   },
   {
@@ -580,7 +605,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Days a player must survive before claiming a safehouse.',
     type: 'number',
     min: 0,
-    max: 365,
+    max: 2147483647,
     default: 0,
     category: 'safehouse'
   },
@@ -590,7 +615,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Real-time hours of inactivity before removal from safehouse.',
     type: 'number',
     min: 0,
-    max: 720,
+    max: 2147483647,
     default: 144,
     category: 'safehouse'
   },
@@ -610,7 +635,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Max items per container. 0 = unlimited.',
     type: 'number',
     min: 0,
-    max: 1000,
+    max: 9000,
     default: 0,
     category: 'loot'
   },
@@ -662,7 +687,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Days a player must survive to create a faction.',
     type: 'number',
     min: 0,
-    max: 365,
+    max: 2147483647,
     default: 0,
     category: 'players'
   },
@@ -672,7 +697,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Players required in faction to show tag.',
     type: 'number',
     min: 1,
-    max: 50,
+    max: 2147483647,
     default: 1,
     category: 'players'
   },
@@ -682,6 +707,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Allow players to directly trade with one another.',
     type: 'boolean',
     default: true,
+    legacy: true,
     category: 'players'
   },
 
@@ -720,6 +746,7 @@ export const INI_SCHEMA: IniSetting[] = [
     min: 1024,
     max: 65535,
     default: 8766,
+    legacy: true,
     category: 'steam'
   },
   {
@@ -730,19 +757,15 @@ export const INI_SCHEMA: IniSetting[] = [
     min: 1024,
     max: 65535,
     default: 8767,
+    legacy: true,
     category: 'steam'
   },
   {
     key: 'SteamScoreboard',
     label: 'Steam Scoreboard',
-    description: 'Show Steam usernames and avatars. true/false/admin.',
-    type: 'select',
-    options: [
-      { value: 'true', label: 'Everyone' },
-      { value: 'false', label: 'No One' },
-      { value: 'admin', label: 'Admins Only' }
-    ],
-    default: 'true',
+    description: 'Show Steam usernames and avatars in the Players list. Build 42 has no admin-only value; in-game roles with the GetSteamScoreboard capability always see them.',
+    type: 'boolean',
+    default: false,
     category: 'steam'
   },
   {
@@ -776,8 +799,8 @@ export const INI_SCHEMA: IniSetting[] = [
     label: 'Voice Min Distance',
     description: 'Minimum voice distance.',
     type: 'number',
-    min: 1,
-    max: 100,
+    min: 0,
+    max: 100000,
     default: 10,
     category: 'voice'
   },
@@ -786,9 +809,9 @@ export const INI_SCHEMA: IniSetting[] = [
     label: 'Voice Max Distance',
     description: 'Maximum voice distance.',
     type: 'number',
-    min: 10,
-    max: 1000,
-    default: 300,
+    min: 0,
+    max: 100000,
+    default: 100,
     category: 'voice'
   },
 
@@ -815,6 +838,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Discord channel name.',
     type: 'string',
     default: '',
+    legacy: true,
     category: 'discord'
   },
   {
@@ -823,6 +847,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Discord channel ID.',
     type: 'string',
     default: '',
+    legacy: true,
     category: 'discord'
   },
 
@@ -871,6 +896,7 @@ export const INI_SCHEMA: IniSetting[] = [
     min: 100,
     max: 2000,
     default: 500,
+    legacy: true,
     category: 'advanced'
   },
   {
@@ -901,6 +927,7 @@ export const INI_SCHEMA: IniSetting[] = [
     min: 10,
     max: 200,
     default: 50,
+    legacy: true,
     category: 'advanced'
   },
   {
@@ -911,6 +938,7 @@ export const INI_SCHEMA: IniSetting[] = [
     min: 0.1,
     max: 2,
     default: 0.5,
+    legacy: true,
     category: 'advanced'
   },
 
@@ -1364,8 +1392,7 @@ export const INI_SCHEMA: IniSetting[] = [
     options: [
       { value: '1', label: 'Ban' },
       { value: '2', label: 'Kick' },
-      { value: '3', label: 'Record Violation' },
-      { value: '4', label: 'Mute' }
+      { value: '3', label: 'Record Violation' }
     ],
     default: '3',
     category: 'moderation'
@@ -5011,6 +5038,26 @@ export function getUnrecognizedSandboxOptionWarning(value: number | string): str
   )
 }
 
+// The Server Settings (INI) boolean case. PZ's BooleanConfigOption takes only
+// true/false/1/0 (iniFormState.ts's parsePzBoolean); it logs any other value
+// and keeps the option's default, so the warning says what the game does
+// rather than that this panel doesn't recognize the value. Two keys rather
+// than an On/Off placeholder: a substituted word inside a sentence does not
+// translate safely (see GLOSSARY.de.md).
+export function getUnrecognizedIniBooleanWarning(value: string, defaultOn: boolean): string {
+  return defaultOn
+    ? translatedOrFallback(
+      'unrecognizedIniBooleanWarning.defaultOn',
+      `This server is currently set to ${value}, which the game does not accept, so it uses On (its default) until you change it.`,
+      { value },
+    )
+    : translatedOrFallback(
+      'unrecognizedIniBooleanWarning.defaultOff',
+      `This server is currently set to ${value}, which the game does not accept, so it uses Off (its default) until you change it.`,
+      { value },
+    )
+}
+
 // Sandbox tab live-range fix (2026-09-09 dispatch): SANDBOX_SCHEMA's min/max
 // above is a build-time snapshot of Project Zomboid's engine-side bounds --
 // it can never track a PZ patch, only a panel release can. ServerConfig.tsx
@@ -5040,11 +5087,15 @@ export function getSandboxOutOfRangeAllowedTitle(): string {
 
 export function getSandboxOutOfRangeAllowedBody(settingsList: string): string {
   return resolveRegisteredTranslation('serverconfig', 'sandboxTab.outOfRangeAllowedBody', { settings: settingsList }) ??
-    `${settingsList} are outside the range this panel knows, but the sandbox range override in Settings is on, so Save will not block them.`
+    `${settingsList} are outside the range this panel knows, but the range override in Settings is on, so Save will not block them.`
 }
 
-// Panel-wide escape hatch for the Sandbox tab's numeric range check (see the
-// three functions above). Lives in Settings.tsx as its own toggle rather
+// Panel-wide escape hatch for the numeric range check on both the Server
+// Settings (INI) and Sandbox tabs (see the three functions above; the two
+// out-of-range strings are shared by both tabs). Covered only the Sandbox
+// tab until GH#182, where an operator turned it on and the INI tab still
+// refused to save -- the storage key keeps its original name so anyone who
+// already opted in stays opted in. Lives in Settings.tsx as its own toggle rather
 // than the Sandbox tab itself, per the 2026-09-09 dispatch, and as plain
 // localStorage rather than the server-persisted app-settings blob: that
 // endpoint validates against a fixed key whitelist (server/routes/config.js)

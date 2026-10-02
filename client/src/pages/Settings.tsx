@@ -387,8 +387,9 @@ export default function Settings() {
   );
   const [loading, setLoading] = useState(false);
   const [settingsLoadError, setSettingsLoadError] = useState<string | null>(null);
-  // Escape hatch for the Sandbox tab's range validation (ServerConfig.tsx),
-  // per bernanas' request via the 2026-09-09 dispatch. Plain localStorage,
+  // Escape hatch for the Server Settings and Sandbox tabs' range validation
+  // (ServerConfig.tsx), per bernanas' request via the 2026-09-09 dispatch;
+  // widened from Sandbox-only to the INI tab too for GH#182. Plain localStorage,
   // not the AppSettings blob above: PUT /app-settings validates against a
   // fixed key whitelist (server/routes/config.js) this change doesn't touch,
   // and this is a client-only UI preference like ThemeContext's, not
@@ -3129,12 +3130,12 @@ export default function Settings() {
                   <div className="space-y-1">
                     <p className="text-sm font-medium flex items-center gap-2">
                       <AlertTriangle className="w-4 h-4 text-warning" />
-                      {settingsFallback("general.sandboxRangeOverrideTitle", "Sandbox Value Ranges")}
+                      {settingsFallback("general.sandboxRangeOverrideTitle", "Setting Value Ranges")}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {settingsFallback(
                         "general.sandboxRangeOverrideDesc",
-                        "Controls whether the Sandbox tab's Save button blocks a value outside its known minimum/maximum.",
+                        "Controls whether the Server Settings and Sandbox tabs' Save buttons block a value outside its known minimum/maximum.",
                       )}
                     </p>
                   </div>
@@ -3147,14 +3148,14 @@ export default function Settings() {
                       <p className="text-xs text-muted-foreground">
                         {settingsFallback(
                           "general.sandboxRangeOverrideHint",
-                          "Off by default. The Sandbox tab still shows when a value is outside its known range, but with this on, Save no longer blocks it -- useful when this panel's range table is out of date for your game version.",
+                          "Off by default. The Server Settings and Sandbox tabs still show when a value is outside its known range, but with this on, Save no longer blocks it -- useful when this panel's range table is out of date for your game version.",
                         )}
                       </p>
                     </div>
                     <Switch
                       checked={allowOutOfRangeSandbox}
                       onCheckedChange={handleAllowOutOfRangeSandboxChange}
-                      aria-label={settingsFallback("ariaLabels.sandboxRangeOverride", "Allow sandbox values outside known range")}
+                      aria-label={settingsFallback("ariaLabels.sandboxRangeOverride", "Allow values outside the known range")}
                     />
                   </div>
                 </div>

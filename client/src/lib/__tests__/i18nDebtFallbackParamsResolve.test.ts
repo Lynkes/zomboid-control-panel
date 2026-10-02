@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import i18n from '@/i18n'
-import { getUnrecognizedSandboxOptionWarning, getSandboxOutOfRangeAllowedBody } from '../serverConfigSchema'
+import {
+  getUnrecognizedIniBooleanWarning,
+  getUnrecognizedSandboxOptionWarning,
+  getSandboxOutOfRangeAllowedBody,
+} from '../serverConfigSchema'
 import { getBridgeStalenessBody } from '../bridgeVersionStaleness'
 
 // i18n-debt follow-up, 2026-09-10 (god's HOLD on the 31-key mirror commit):
@@ -69,6 +73,33 @@ describe('translatedOrFallback/resolveRegisteredTranslation-backed {{placeholder
     )
     await i18n.changeLanguage('de')
     expect(getUnrecognizedSandboxOptionWarning(42)).toBe('DE-PROOF unrecognizedSandboxOptionWarning: Wert=42')
+  })
+
+  it('getUnrecognizedIniBooleanWarning: en output names the value and the default the game falls back to', async () => {
+    await i18n.changeLanguage('en')
+    const off = getUnrecognizedIniBooleanWarning('admin', false)
+    expect(off).not.toContain('{{')
+    expect(off).toContain('admin')
+    expect(off).toContain('uses Off (its default)')
+    expect(getUnrecognizedIniBooleanWarning('yes', true)).toContain('uses On (its default)')
+  })
+
+  it('getUnrecognizedIniBooleanWarning: a real non-English translation actually takes effect for both defaults', async () => {
+    i18n.addResourceBundle(
+      'de',
+      'serverconfig',
+      {
+        unrecognizedIniBooleanWarning: {
+          defaultOff: 'DE-PROOF aus: Wert={{value}}',
+          defaultOn: 'DE-PROOF an: Wert={{value}}',
+        },
+      },
+      true,
+      true,
+    )
+    await i18n.changeLanguage('de')
+    expect(getUnrecognizedIniBooleanWarning('admin', false)).toBe('DE-PROOF aus: Wert=admin')
+    expect(getUnrecognizedIniBooleanWarning('admin', true)).toBe('DE-PROOF an: Wert=admin')
   })
 
   it('getSandboxOutOfRangeAllowedBody: en output has no literal {{settings}} and contains the real list', async () => {

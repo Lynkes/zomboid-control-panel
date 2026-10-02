@@ -204,7 +204,7 @@
     "liveRangesUnavailableTitle": "Showing built-in ranges",
     "liveRangesUnavailableBody": "Couldn't reach a running server to confirm the real minimum/maximum for these settings, so the ranges shown are this panel's own built-in table and may be out of date. Start the server and retry for the exact bounds.",
     "outOfRangeAllowedTitle": "Values outside the known range will still be saved",
-    "outOfRangeAllowedBody": "{{settings}} are outside the range this panel knows, but the sandbox range override in Settings is on, so Save will not block them."
+    "outOfRangeAllowedBody": "{{settings}} are outside the range this panel knows, but the range override in Settings is on, so Save will not block them."
   },
   "spawnPointsTab": {
     "sectionLabel": "Точки спавну",
@@ -400,6 +400,7 @@
     "resetToLoadedValue": "Скинути до завантаженого значення",
     "resetAria": "Скинути {{label}} до завантаженого значення",
     "modifiedBadge": "змінено",
+    "legacyBadge": "лише Build 41",
     "on": "Увімкнено",
     "off": "Вимкнено",
     "defaultValue": "Типове: {{value}}",
@@ -478,7 +479,7 @@
       },
       "Public": {
         "label": "Публічний сервер",
-        "description": "Чи буде ваш сервер видно у браузері серверів Steam."
+        "description": "Показує сервер у внутрішньоігровому браузері серверів. Сервери з увімкненим Steam завжди видно в браузері серверів Steam, незалежно від цього параметра."
       },
       "Open": {
         "label": "Відкритий (без білого списку)",
@@ -536,7 +537,7 @@
       },
       "PingLimit": {
         "label": "Ліміт пінгу",
-        "description": "Ліміт пінгу, після якого гравця виганяють (у мілісекундах). 100 — вимкнути."
+        "description": "Ліміт пінгу, після якого гравця виганяють (у мілісекундах). 0 — вимкнути."
       },
       "DenyLoginOnOverloadedServer": {
         "label": "Забороняти вхід при перевантаженні",
@@ -712,6 +713,10 @@
         "label": "Відродження біля напарника",
         "description": "Увімкнути появу біля напарника на розділеному екрані."
       },
+      "ShowCoordinates": {
+        "label": "Показувати координати",
+        "description": "Показувати координати персонажа гравця в правому нижньому куті."
+      },
       "PlayerSaveOnDamage": {
         "label": "Зберігати при отриманні шкоди",
         "description": "Зберігати стан гравця, коли він отримує шкоду."
@@ -876,18 +881,7 @@
       },
       "SteamScoreboard": {
         "label": "Таблиця гравців Steam",
-        "description": "Показувати імена та аватари Steam. true/false/admin.",
-        "options": {
-          "true": {
-            "label": "Усім"
-          },
-          "false": {
-            "label": "Нікому"
-          },
-          "admin": {
-            "label": "Лише адміністраторам"
-          }
-        }
+        "description": "Показувати імена та аватари Steam у списку гравців. У Build 42 немає значення «лише адміністраторам»; ігрові ролі з дозволом GetSteamScoreboard бачать їх завжди."
       },
       "SteamVAC": {
         "label": "Перевірка банів VAC",
@@ -1095,9 +1089,6 @@
           },
           "3": {
             "label": "Зафіксувати порушення"
-          },
-          "4": {
-            "label": "Заглушити"
           }
         }
       },
@@ -4118,5 +4109,9 @@
       "label": "Додаткові"
     }
   },
-  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here."
+  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here.",
+  "unrecognizedIniBooleanWarning": {
+    "defaultOff": "Зараз на цьому сервері встановлено {{value}}. Гра не приймає це значення, тому використовує «Вимкнено» (типове значення), доки ви не зміните цей параметр.",
+    "defaultOn": "Зараз на цьому сервері встановлено {{value}}. Гра не приймає це значення, тому використовує «Увімкнено» (типове значення), доки ви не зміните цей параметр."
+  }
 }
