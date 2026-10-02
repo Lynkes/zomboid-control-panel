@@ -29,6 +29,10 @@ describe('classifyPanelUpdateFailure()', () => {
     expect(classifyPanelUpdateFailure(new ApiError('unknown', { code: 'SERVER_STATE_UNKNOWN' }))).toBe('serverStateUnknown')
   })
 
+  it('another server still running in the container is "not applied", not a download failure (#183)', () => {
+    expect(classifyPanelUpdateFailure(new ApiError('others', { code: 'OTHER_SERVERS_RUNNING' }))).toBe('otherServersRunning')
+  })
+
   it('everything else is still a download failure', () => {
     expect(classifyPanelUpdateFailure(new ApiError('nope', { code: 'already_downloading' }))).toBe('downloadFailed')
     expect(classifyPanelUpdateFailure(new ApiError('nope', { code: 'HTTP_500' }))).toBe('downloadFailed')
