@@ -1932,13 +1932,15 @@ export class ServerManager {
         // Not `this.startTime || new Date()`: a record left from before an
         // out-of-panel stop would carry the old run's start time over to
         // this one wherever the OS can't be asked about the new process.
-        this._recordLaunchTime();
+        // A unit that was already active launched nothing (GH #189): "now"
+        // would be a start time for the process already running, which the
+        // first status check claims wherever the OS can't answer for it.
+        if (!result.alreadyRunning) this._recordLaunchTime();
         this._deletePidFile();
         await logServerEvent(
           "server_start",
           `Server started through ${this.lifecycleProvider}`,
         ).catch((error) => log.warn(`Failed to log event: ${error.message}`));
-        // A unit that was already active launched nothing (GH #189).
         if (!result.alreadyRunning) {
           notifyServerLaunched(this._serverRecord, launchSeq);
         }

@@ -46,8 +46,9 @@ function deferred() {
 }
 
 // The reporter's settings, with every collaborator faked: RCON answers with
-// `players` online, the server process started an hour before the update
-// was found (a start the panel didn't see), and the restart itself succeeds.
+// `players` online, the server process (PID 4242) started an hour before
+// the update was found (a start the panel didn't see), and the restart
+// itself succeeds.
 function makeChecker({ players = 3 } = {}) {
   const checker = new ModChecker();
   checker.delayIfPlayersOnline = true;
@@ -68,9 +69,14 @@ function makeChecker({ players = 3 } = {}) {
     performRestart: vi.fn(async () => ({ success: true })),
     cancelRestart: vi.fn(),
   };
+  checker.processPid = "4242";
   checker.processStartedAtMs = Date.now() - 60 * 60 * 1000;
   checker.serverManager = {
-    getServerProcessDetails: vi.fn(async () => ({ running: true, scanFailed: false })),
+    getServerProcessDetails: vi.fn(async () => ({
+      running: true,
+      scanFailed: false,
+      matched: [{ pid: checker.processPid }],
+    })),
     resolveStartTime: vi.fn(async () => new Date(checker.processStartedAtMs)),
   };
   checker.io = { emit: vi.fn() };
@@ -273,6 +279,7 @@ describe("GH #189: a start the panel didn't make (crash restart, restart on the 
 
     // systemd's Restart=on-failure (or Docker's restart policy) brought the
     // server back after a crash; players reconnected.
+    checker.processPid = "5151";
     checker.processStartedAtMs = Date.now() + 5 * 60 * 1000;
     rconService.playerCount = 0;
     await ticks[0]();
@@ -287,6 +294,7 @@ describe("GH #189: a start the panel didn't make (crash restart, restart on the 
     const { checker, rconService } = makeChecker();
     await checker.handleModUpdate([MOD]);
 
+    checker.processPid = "5151";
     checker.processStartedAtMs = Date.now() - 10 * 60 * 1000;
     rconService.playerCount = 0;
     await ticks[0]();
@@ -299,11 +307,169 @@ describe("GH #189: a start the panel didn't make (crash restart, restart on the 
     const { checker, rconService } = makeChecker();
     await checker.handleModUpdate([MOD]);
 
+    checker.processPid = "5151";
     checker.serverManager.resolveStartTime = vi.fn(async () => null);
     rconService.playerCount = 0;
     await ticks[0]();
 
     expect(restartsTriggered(checker)).toBe(1);
+  });
+
+  // Round 3 review (ADV-2): on Linux, /proc start times are derived from
+  // the boot time, which moves 1:1 with a wall-clock step -- a Linux VM or
+  // WSL2/Docker Desktop resumed from sleep, a restored snapshot. The same,
+  // never-restarted process then read as started hours later, and the
+  // waiting loop cancelled a restart the server still needed.
+  it("a wall-clock step that moves the same process's start time keeps the restart", async () => {
+    const { checker, rconService } = makeChecker();
+    await checker.handleModUpdate([MOD]);
+
+    checker.processStartedAtMs += 2 * 60 * 60 * 1000;
+    rconService.playerCount = 0;
+    await ticks[0]();
+
+    expect(cancelledEvents()).toHaveLength(0);
+    expect(broadcasts(rconService)).not.toContain(CANCELLED_NOTICE);
+    expect(restartsTriggered(checker)).toBe(1);
+  });
+
+  it("no reading of the server at detection keeps the restart", async () => {
+    const { checker, rconService } = makeChecker();
+    const scan = checker.serverManager.getServerProcessDetails;
+    checker.serverManager.getServerProcessDetails = vi.fn(async () => ({
+      running: false,
+      scanFailed: true,
+    }));
+    await checker.handleModUpdate([MOD]);
+
+    checker.serverManager.getServerProcessDetails = scan;
+    checker.processPid = "5151";
+    checker.processStartedAtMs = Date.now() + 5 * 60 * 1000;
+    rconService.playerCount = 0;
+    await ticks[0]();
+
+    expect(cancelledEvents()).toHaveLength(0);
+    expect(restartsTriggered(checker)).toBe(1);
+  });
+
+  it("another server made active since doesn't count as a start of this one", async () => {
+    const { checker, rconService } = makeChecker();
+    await checker.handleModUpdate([MOD]);
+
+    db.active = { id: "s2", name: "Two" };
+    checker.processPid = "5151";
+    checker.processStartedAtMs = Date.now() + 5 * 60 * 1000;
+    rconService.playerCount = 0;
+    await ticks[0]();
+
+    expect(cancelledEvents()).toHaveLength(0);
+  });
+});
+
+// Round 3 review (ADV-1): triggerModRestart() announces the restart over
+// RCON and PanelBridge before calling performRestart() -- seconds of
+// awaits. A launch of the server in that window was reported as a cancel
+// (activity row, toast, in-game "Restart CANCELLED."), and the mod restart
+// then restarted the server anyway: the #189 symptom.
+describe("GH #189: a start while the mod-update restart is being announced", () => {
+  function holdRestartWarning(rconService) {
+    const warningSent = deferred();
+    const send = rconService.serverMessage;
+    rconService.serverMessage = vi.fn((text) =>
+      /Server will restart in/.test(text) ? warningSent.promise : send(text),
+    );
+    return warningSent;
+  }
+  const restartWarned = (rconService) =>
+    broadcasts(rconService).some((text) => /Server will restart in/.test(text));
+
+  it("from the waiting loop: the start cancels it and no restart follows", async () => {
+    const { checker, rconService } = makeChecker();
+    await checker.handleModUpdate([MOD]);
+    const warningSent = holdRestartWarning(rconService);
+
+    rconService.playerCount = 0;
+    const tick = ticks[0]();
+    await vi.waitFor(() => expect(restartWarned(rconService)).toBe(true));
+    expect(await checker.noteServerLaunched(await launch())).toBe(true);
+    warningSent.resolve({ success: true });
+    await tick;
+
+    expect(restartsTriggered(checker)).toBe(0);
+    expect(checker.pendingRestart).toBe(false);
+    expect(cancelledEvents()).toHaveLength(1);
+    expect(checker.io.emit).not.toHaveBeenCalledWith("mods:restart_failed", expect.anything());
+  });
+
+  it("an immediate restart (nobody on): the start cancels it, players hear it's off, the update stays handled", async () => {
+    const { checker, rconService } = makeChecker({ players: 0 });
+    const warningSent = holdRestartWarning(rconService);
+
+    const handling = checker.handleModUpdate([MOD]);
+    await vi.waitFor(() => expect(restartWarned(rconService)).toBe(true));
+    // The old process's RCON is still up when the launch is reported.
+    expect(await checker.noteServerLaunched(await launch())).toBe(true);
+    warningSent.resolve({ success: true });
+
+    expect(await handling).toMatchObject({
+      success: true,
+      markProcessed: true,
+      reason: "server_restarted",
+    });
+    expect(restartsTriggered(checker)).toBe(0);
+    expect(broadcasts(rconService)).toContain(CANCELLED_NOTICE);
+  });
+
+  it("the operator's own Cancel while it is being announced also stops it", async () => {
+    const { checker, rconService } = makeChecker({ players: 0 });
+    const warningSent = holdRestartWarning(rconService);
+
+    const handling = checker.handleModUpdate([MOD]);
+    await vi.waitFor(() => expect(restartWarned(rconService)).toBe(true));
+    checker.cancelPendingRestart();
+    warningSent.resolve({ success: true });
+
+    expect(await handling).toMatchObject({ success: false, reason: "cancelled" });
+    expect(restartsTriggered(checker)).toBe(0);
+  });
+
+  it("a newer update armed after that cancel stays armed when the old announcement ends", async () => {
+    const { checker, rconService } = makeChecker();
+    await checker.handleModUpdate([MOD]);
+    const warningSent = holdRestartWarning(rconService);
+
+    rconService.playerCount = 0;
+    const tick = ticks[0]();
+    await vi.waitFor(() => expect(restartWarned(rconService)).toBe(true));
+    expect(await checker.noteServerLaunched(await launch())).toBe(true);
+
+    rconService.playerCount = 2;
+    expect(
+      await checker.handleModUpdate([{ workshopId: "2002", name: "Newer" }]),
+    ).toMatchObject({ pending: true });
+    warningSent.resolve({ success: true });
+    await tick;
+
+    expect(checker.pendingRestart).toBe(true);
+    expect(ticks).toHaveLength(2);
+    expect(restartsTriggered(checker)).toBe(0);
+  });
+});
+
+// Round 3 review (ADV-3): every launch was compared with whichever server
+// was active at that moment, not the one the update was found for.
+describe("GH #189: the server the update was found for", () => {
+  it("making another server active and starting it doesn't cancel this one's restart", async () => {
+    const { checker } = makeChecker();
+    await checker.handleModUpdate([MOD]);
+
+    db.active = { id: "s2", name: "Two" };
+    expect(await checker.noteServerLaunched(await launch("s2"))).toBe(false);
+    expect(checker.pendingRestart).toBe(true);
+
+    // A start of the server it was found for still does.
+    expect(await checker.noteServerLaunched(await launch("s1"))).toBe(true);
+    expect(checker.pendingRestart).toBe(false);
   });
 });
 
@@ -393,23 +559,31 @@ describe("resolveActiveServerStartedAt: the start time the waiting loop compares
     };
   }
 
-  it("a native server: the process start time serverManager resolves", async () => {
-    const serverManager = {
-      getServerProcessDetails: vi.fn(async () => ({ running: true, scanFailed: false })),
+  it("a native server: the process start time serverManager resolves, and its PID", async () => {
+    const scan = (details) => ({
+      getServerProcessDetails: vi.fn(async () => ({ running: true, scanFailed: false, ...details })),
       resolveStartTime: vi.fn(async () => new Date(STARTED)),
-    };
-    expect(await resolveActiveServerStartedAt(serverManager)).toEqual({
+    });
+    expect(await resolveActiveServerStartedAt(scan({ matched: [{ pid: "4242" }] }))).toEqual({
       serverId: "s1",
       startedAtMs: Date.parse(STARTED),
+      processKey: "pid:4242",
     });
+    // A systemd/OpenRC unit: the service manager's own record of it.
+    expect(await resolveActiveServerStartedAt(scan({ mainPid: "777" }))).toMatchObject({
+      processKey: "pid:777",
+    });
+    // No PID to name the run by.
+    expect(await resolveActiveServerStartedAt(scan({}))).toMatchObject({ processKey: null });
   });
 
-  it("a Docker server: the container's own StartedAt", async () => {
+  it("a Docker server: the container's own StartedAt, which also names the run", async () => {
     db.active = { id: "s1", dockerContainerName: "pz" };
     const client = dockerClient({ State: { Running: true, StartedAt: STARTED } });
     expect(await resolveActiveServerStartedAt(null, client)).toEqual({
       serverId: "s1",
       startedAtMs: Date.parse(STARTED),
+      processKey: `container:${STARTED}`,
     });
   });
 

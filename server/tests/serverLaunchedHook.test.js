@@ -118,6 +118,20 @@ describe("serverManager.startServer reports a launch only once it happened", () 
     expect(launches).toEqual([]);
   });
 
+  // Round 3 review (ADV-4): the launch record ("started now") was written
+  // for an already-active unit too, and the first status check that can't
+  // get the OS's answer for MainPID (/proc hidden) claims it for the
+  // process that was already running.
+  it("a unit that was already active keeps its start time; a real start records one", async () => {
+    const idle = managedServer({ running: true });
+    await idle.startServer();
+    expect(idle.startTime).toBeNull();
+
+    const started = managedServer();
+    await started.startServer();
+    expect(started.startTime).toBeInstanceOf(Date);
+  });
+
   it("a start refused because the server is already running launched nothing", async () => {
     const manager = new ServerManager();
     manager.getServerProcessDetails = vi.fn(async () => ({ running: true, scanFailed: false }));
