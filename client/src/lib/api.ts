@@ -566,9 +566,18 @@ export interface UsedServerPorts {
   name: string;
   serverName: string;
   installPath: string;
+  // The profile's data folder, or the game's default when it names none.
+  dataPath: string | null;
   gamePort: number | null;
   udpPort: number | null;
   rconPort: number | null;
+}
+
+// PZ_SAVE_PATH: the data folder of an install that names none, for the
+// PZ_SERVER_PATH install only, or for every install when installPath is null.
+export interface EnvironmentDataPath {
+  installPath: string | null;
+  dataPath: string;
 }
 
 export interface ServerSetupPlan {
@@ -582,6 +591,16 @@ export interface ServerSetupPlan {
     serversRoot: string | null;
     publishedGamePorts: PortRange | null;
   } | null;
+  // Outside the all-in-one image: the active install's parent folder, where
+  // another server's folders go, in the host's own path shape.
+  hostLayout: {
+    serversRoot: string | null;
+    separator: "/" | "\\";
+  } | null;
+  // The names already in whichever of the two roots applies, empty without
+  // one.
+  serversRootEntries: string[];
+  environmentDataPath: EnvironmentDataPath | null;
 }
 
 // Character export/import types

@@ -1,11 +1,14 @@
+import path from "path";
 import { describe, expect, it } from "vitest";
 import {
   collectUsedPorts,
   findPortConflicts,
   getAllInOneLayout,
+  getEnvironmentDataPath,
   isGamePortPublished,
   parsePortRange,
   suggestFreePorts,
+  suggestHostServersRoot,
 } from "../services/serverPortPlan.js";
 
 const first = {
@@ -64,11 +67,76 @@ describe("collectUsedPorts", () => {
         name: "Old",
         serverName: "old",
         installPath: "/srv/pz",
+        dataPath: null,
         gamePort: 16261,
         udpPort: 16262,
         rconPort: 27015,
       },
     ]);
+  });
+
+  it("lists each profile's data folder, and the game's default for a profile that names none", () => {
+    const used = collectUsedPorts(
+      [
+        { id: "a", serverName: "a", installPath: "/srv/a", zomboidDataPath: "/srv/a_Data" },
+        { id: "b", serverName: "b", installPath: "/srv/b" },
+      ],
+      { defaultDataPath: "/home/pz/Zomboid" },
+    );
+    expect(used.map((entry) => entry.dataPath)).toEqual(["/srv/a_Data", "/home/pz/Zomboid"]);
+  });
+});
+
+describe("getEnvironmentDataPath", () => {
+  it("is null without PZ_SAVE_PATH", () => {
+    expect(getEnvironmentDataPath({ PZ_SERVER_PATH: "/pz-server" })).toBeNull();
+  });
+
+  it("ties PZ_SAVE_PATH to the PZ_SERVER_PATH install, or to every install without one", () => {
+    expect(getEnvironmentDataPath({ PZ_SERVER_PATH: "/pz-server", PZ_SAVE_PATH: "/zomboid" })).toEqual({
+      installPath: "/pz-server",
+      dataPath: "/zomboid",
+    });
+    expect(getEnvironmentDataPath({ PZ_SAVE_PATH: "/zomboid" })).toEqual({ installPath: null, dataPath: "/zomboid" });
+  });
+});
+
+describe("suggestHostServersRoot", () => {
+  it("is the active local install's parent folder", () => {
+    const servers = [
+      { id: "r", isRemote: true, isActive: true, installPath: "/elsewhere/pz" },
+      { id: "a", installPath: "/opt/zomboid-panel/data/pzserver" },
+      { id: "b", installPath: "/srv/games/second/" },
+    ];
+    expect(suggestHostServersRoot(servers, path.posix)).toBe("/opt/zomboid-panel/data");
+    servers[2].isActive = true;
+    expect(suggestHostServersRoot(servers, path.posix)).toBe("/srv/games");
+  });
+
+  it("reads a Windows install with either separator and keeps a drive root", () => {
+    expect(suggestHostServersRoot([{ installPath: "D:\\Servers\\PZ\\" }], path.win32)).toBe("D:\\Servers");
+    expect(suggestHostServersRoot([{ installPath: "D:/Servers/PZ" }], path.win32)).toBe("D:\\Servers");
+    expect(suggestHostServersRoot([{ installPath: "C:\\PZServer" }], path.win32)).toBe("C:\\");
+  });
+
+  // Custom launcher mode stores the launcher file as installPath: its folder
+  // is the install folder, and proposing folders inside it would put the
+  // new server in the active server's game files.
+  it("takes a custom launcher's folder as the install folder", () => {
+    expect(
+      suggestHostServersRoot([{ isActive: true, installPath: "D:\\Servers\\PZ\\StartServer_Charon.bat" }], path.win32),
+    ).toBe("D:\\Servers");
+    expect(suggestHostServersRoot([{ installPath: "D:/Servers/PZ/ProjectZomboid64.EXE" }], path.win32)).toBe("D:\\Servers");
+    expect(suggestHostServersRoot([{ isActive: true, installPath: "/opt/pz/start-server.sh" }], path.posix)).toBe("/opt");
+    // A folder whose name only contains the extension is still a folder.
+    expect(suggestHostServersRoot([{ installPath: "/opt/pz.sh.d/server" }], path.posix)).toBe("/opt/pz.sh.d");
+  });
+
+  it("is null without a local profile that has an absolute install folder", () => {
+    expect(suggestHostServersRoot([], path.posix)).toBeNull();
+    expect(suggestHostServersRoot([{ isRemote: true, installPath: "/srv/pz" }], path.posix)).toBeNull();
+    expect(suggestHostServersRoot([{ installPath: "relative/pz" }], path.posix)).toBeNull();
+    expect(suggestHostServersRoot([{ installPath: "" }], path.posix)).toBeNull();
   });
 });
 

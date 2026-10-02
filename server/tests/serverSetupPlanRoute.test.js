@@ -1,16 +1,25 @@
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
 
 // GET /api/server/setup-plan: what Server Setup reads before creating
 // another server on this host. Gated like the rest of setup
-// (server.install), and in the all-in-one image it offers the extra-servers
-// folder only when that folder really is a volume.
+// (server.install). In the all-in-one image it offers the extra-servers
+// folder only when that folder really is a volume; elsewhere it offers the
+// active install's parent folder, in a container only on a volume.
 
-const state = vi.hoisted(() => ({ servers: [], mountinfo: null }));
+const state = vi.hoisted(() => ({ servers: [], mountinfo: null, containerized: false }));
 
 vi.mock("../database/init.js", () => ({
   getRoleByName: mockGetRoleByName,
   getServers: vi.fn(async () => state.servers.map((server) => ({ ...server }))),
+}));
+
+vi.mock("../utils/dockerDetect.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  isContainerized: () => state.containerized,
 }));
 
 // The route asks about this container's own /proc/self/mountinfo; the test
@@ -63,20 +72,33 @@ const AIO_ENV = {
   PZ_EXTRA_SERVERS_PATH: "/pz-servers",
   PZ_PUBLISHED_GAME_PORTS: "16261-16270",
 };
+const ENV_KEYS = [...Object.keys(AIO_ENV), "PZ_SERVER_PATH", "PZ_SAVE_PATH"];
 const savedEnv = {};
 
 function setEnv(values) {
-  for (const key of Object.keys(AIO_ENV)) {
+  for (const key of ENV_KEYS) {
     if (values[key] === undefined) delete process.env[key];
     else process.env[key] = values[key];
   }
 }
 
+// A native install in this OS's own path shape.
+const NATIVE_INSTALL = path.resolve("/srv/games/pz-main");
+const NATIVE = {
+  id: "native",
+  name: "Native",
+  serverName: "servertest",
+  installPath: NATIVE_INSTALL,
+  zomboidDataPath: `${NATIVE_INSTALL}_Data`,
+  isActive: true,
+};
+
 beforeEach(() => {
-  for (const key of Object.keys(AIO_ENV)) savedEnv[key] = process.env[key];
+  for (const key of ENV_KEYS) savedEnv[key] = process.env[key];
   setEnv({});
   state.servers = [MAIN, REMOTE];
   state.mountinfo = null;
+  state.containerized = false;
 });
 
 afterEach(() => {
@@ -146,6 +168,8 @@ describe("GET /api/server/setup-plan response", () => {
           name: "Main",
           serverName: "servertest",
           installPath: "/pz-server",
+          // MAIN names no data folder: the game's default.
+          dataPath: path.join(os.homedir(), "Zomboid"),
           gamePort: 16261,
           udpPort: 16262,
           rconPort: 27015,
@@ -153,8 +177,67 @@ describe("GET /api/server/setup-plan response", () => {
       ],
       suggestedPorts: { gamePort: 16263, rconPort: 27016, withinPublishedRange: null },
       allInOne: null,
+      hostLayout: { serversRoot: path.dirname(path.normalize("/pz-server")), separator: path.sep },
+      // Whatever this machine's filesystem root holds.
+      serversRootEntries: expect.any(Array),
+      environmentDataPath: null,
     });
   });
+
+  it("offers the active install's parent folder outside the all-in-one image", async () => {
+    state.servers = [MAIN, NATIVE, REMOTE];
+
+    const res = await getSetupPlan({ role: "admin" });
+
+    expect(res.body.hostLayout).toEqual({ serversRoot: path.dirname(NATIVE_INSTALL), separator: path.sep });
+    expect(res.body.usedPorts.find((entry) => entry.id === "native").dataPath).toBe(`${NATIVE_INSTALL}_Data`);
+  });
+
+  // A leftover folder from a deleted profile would hand a new server with
+  // that name the old one's settings and world, so the wizard avoids the
+  // names the root already holds.
+  it("lists the names the parent folder already holds, and none when it can't be read", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-setup-plan-"));
+    try {
+      for (const name of ["pz-main", "servertest2_Data"]) fs.mkdirSync(path.join(root, name));
+      fs.writeFileSync(path.join(root, "notes.txt"), "");
+      state.servers = [{ ...NATIVE, installPath: path.join(root, "pz-main") }];
+
+      const res = await getSetupPlan({ role: "admin" });
+
+      expect(res.body.hostLayout.serversRoot).toBe(root);
+      expect([...res.body.serversRootEntries].sort()).toEqual(["notes.txt", "pz-main", "servertest2_Data"]);
+
+      state.servers = [{ ...NATIVE, installPath: path.join(root, "missing", "pz-main") }];
+      expect((await getSetupPlan({ role: "admin" })).body.serversRootEntries).toEqual([]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("passes on the PZ_SAVE_PATH rule resolveZomboidPaths() applies", async () => {
+    setEnv({ PZ_SERVER_PATH: "/pz-server", PZ_SAVE_PATH: "/zomboid" });
+
+    const res = await getSetupPlan({ role: "admin" });
+
+    expect(res.body.environmentDataPath).toEqual({ installPath: "/pz-server", dataPath: "/zomboid" });
+  });
+
+  // The container check reads POSIX mountinfo and never runs on Windows.
+  it.skipIf(process.platform === "win32")(
+    "in a container, offers the parent folder only when it is on a volume",
+    async () => {
+      state.containerized = true;
+      state.servers = [{ ...MAIN, installPath: "/pz-servers/main", isActive: true }];
+
+      state.mountinfo = WITH_SERVERS_VOLUME;
+      expect((await getSetupPlan({ role: "admin" })).body.hostLayout.serversRoot).toBe("/pz-servers");
+      state.mountinfo = ROOT_ONLY;
+      expect((await getSetupPlan({ role: "admin" })).body.hostLayout.serversRoot).toBeNull();
+      state.mountinfo = null;
+      expect((await getSetupPlan({ role: "admin" })).body.hostLayout.serversRoot).toBeNull();
+    },
+  );
 
   it("offers the extra-servers folder and the published range when /pz-servers is a volume", async () => {
     setEnv(AIO_ENV);
@@ -172,6 +255,15 @@ describe("GET /api/server/setup-plan response", () => {
       rconPort: 27016,
       withinPublishedRange: true,
     });
+    // The extra-servers volume replaces the native layout.
+    expect(res.body.hostLayout).toBeNull();
+  });
+
+  it("lists nothing in the all-in-one image without the extra-servers volume", async () => {
+    setEnv(AIO_ENV);
+    state.mountinfo = ROOT_ONLY;
+
+    expect((await getSetupPlan({ role: "admin" })).body.serversRootEntries).toEqual([]);
   });
 
   it("gives serversRoot null when /pz-servers isn't mounted (an older compose file)", async () => {

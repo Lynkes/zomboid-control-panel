@@ -48,6 +48,7 @@ command names, and anything inside `{{double braces}}`.
 | conflict | conflicto | |
 | dependency | dependencia | |
 | folder | carpeta | |
+| data folder (a server's Zomboid folder: worlds, settings, logs) | carpeta de datos | *la carpeta de datos del servidor* |
 | path | ruta | |
 
 ## Access control
