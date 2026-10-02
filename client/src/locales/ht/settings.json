@@ -817,6 +817,7 @@
     "updateDownloadedDescDocker": "Kontenè panèl la ap rebati epi ap rekonekte lè verifikasyon sante a pase.",
     "updateDownloadedDescBinary": "Fichye mizajou yo pare. Redemare panèl la pou aplike vèsyon sa a.",
     "downloadFailed": { "title": "Telechajman Echwe", "fallback": "Panèl la pa t kapab telechaje mizajou a. Tcheke aksè rezo, espas disk, ak otorizasyon." },
+    "updateNotApplied": { "title": "Mizajou Pa Aplike", "openDashboard": "Louvri Tablo a", "openDashboardAlt": "Louvri Tablo a, kote “Fòse sispann” ye" },
     "updateReady": { "title": "Mizajou Pare", "withVersion": "Panèl v{{version}} telechaje. Redemare panèl la pou pase nan nouvo vèsyon an.", "noVersion": "Mizajou a telechaje. Redemare panèl la pou pase nan nouvo vèsyon an." },
     "updateApplied": { "title": "Mizajou Aplike", "withVersion": "Panèl la mete ajou avèk siksè nan v{{version}}.", "noVersion": "Mizajou panèl la aplike avèk siksè." },
     "updateApplyFailed": { "title": "Mizajou Pa Rive Aplike", "withVersion": "Panèl la toujou ap fonksyone ak vèsyon anvan an. Mizajou v{{version}} la pa t enstale.", "noVersion": "Mizajou telechaje a pa t enstale. Gade jounal asistans lan pou detay." },

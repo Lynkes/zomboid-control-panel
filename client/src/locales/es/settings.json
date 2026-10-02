@@ -967,6 +967,11 @@
       "title": "Descarga fallida",
       "fallback": "El panel no pudo descargar la actualización. Comprueba el acceso a la red, el espacio en disco y los permisos."
     },
+    "updateNotApplied": {
+      "title": "Actualización no aplicada",
+      "openDashboard": "Abrir el Tablero",
+      "openDashboardAlt": "Abrir el Tablero, donde está «Forzar detención»"
+    },
     "updateReady": {
       "title": "Actualización lista",
       "withVersion": "Se descargó el panel v{{version}}. Reinicia el panel para cambiar a la nueva versión.",

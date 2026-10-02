@@ -965,6 +965,11 @@
       "title": "Download fehlgeschlagen",
       "fallback": "Das Panel konnte die Aktualisierung nicht herunterladen. Überprüfe Netzwerkzugriff, Speicherplatz und Berechtigungen."
     },
+    "updateNotApplied": {
+      "title": "Aktualisierung nicht angewendet",
+      "openDashboard": "Dashboard öffnen",
+      "openDashboardAlt": "Dashboard öffnen, dort findest du „Sofort stoppen“"
+    },
     "updateReady": {
       "title": "Aktualisierung bereit",
       "withVersion": "Panel v{{version}} wurde heruntergeladen. Starte das Panel neu, um zur neuen Version zu wechseln.",

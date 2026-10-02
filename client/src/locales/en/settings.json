@@ -817,6 +817,7 @@
     "updateDownloadedDescDocker": "The panel container is rebuilding and will reconnect when the health check passes.",
     "updateDownloadedDescBinary": "The update files are ready. Restart the panel to apply this version.",
     "downloadFailed": { "title": "Download Failed", "fallback": "The panel could not download the update. Check network access, disk space, and permissions." },
+    "updateNotApplied": { "title": "Update Not Applied", "openDashboard": "Open Dashboard", "openDashboardAlt": "Open the Dashboard, where Force stop is" },
     "updateReady": { "title": "Update Ready", "withVersion": "Panel v{{version}} is downloaded. Restart the panel to switch to the new version.", "noVersion": "The update is downloaded. Restart the panel to switch to the new version." },
     "updateApplied": { "title": "Update Applied", "withVersion": "Panel successfully updated to v{{version}}.", "noVersion": "Panel update applied successfully." },
     "updateApplyFailed": { "title": "Update Failed to Apply", "withVersion": "Panel is still running the previous version. The v{{version}} update did not install.", "noVersion": "The downloaded update did not install. Review the helper log for details." },

@@ -425,6 +425,34 @@
             }
           }
         },
+        "nativeLibs": {
+          "ok": {
+            "label": "遊戲原生程式庫",
+            "message": "遊戲從 {{folders}} 載入其原生程式庫。"
+          },
+          "warn": {
+            "leftoverNatives": {
+              "label": "natives/ 中有舊版遊戲程式庫",
+              "message": "natives/ 資料夾中的遊戲原生程式庫副本與 linux64/ 中的不同（{{libraries}}）。面板的啟動指令碼會載入 linux64/，但如果自訂啟動指令碼或命令優先載入 natives/，就會使用舊版程式庫，伺服器隨後會在儲存世界時當機。",
+              "hint": "伺服器停止時，可以放心刪除或重新命名 natives/ 資料夾（例如改為 natives.old）。面板絕不會刪除它。"
+            },
+            "leftoverNativesOwnLauncher": {
+              "label": "natives/ 中有舊版遊戲程式庫",
+              "message": "natives/ 資料夾中的遊戲原生程式庫副本與 linux64/ 中的不同（{{libraries}}）。此伺服器由自己的啟動器啟動（Docker 映像檔的命令，或自訂啟動指令碼或命令），而不是面板的啟動指令碼。如果該啟動器優先載入 natives/，伺服器就會使用舊版程式庫，並在儲存世界時當機。",
+              "hint": "伺服器停止時，可以放心刪除或重新命名 natives/ 資料夾（例如改為 natives.old）。面板絕不會刪除它。"
+            },
+            "leftoverNativesPartial": {
+              "label": "natives/ 中有舊版遊戲程式庫",
+              "message": "natives/ 資料夾中的遊戲原生程式庫副本與 linux64/ 中的不同（{{libraries}}），此外還有 linux64/ 中沒有的 {{onlyInLeftover}}。優先載入 natives/ 而非 linux64/ 的啟動指令碼或命令會使用舊版副本，伺服器隨後會在儲存世界時當機。",
+              "hint": "刪除 natives/ 之前，請先用 SteamCMD 校驗遊戲檔案：伺服器可能仍需要只有它才有的程式庫。在伺服器停止時將其重新命名（例如改為 natives.old）可以復原。面板絕不會刪除它。"
+            },
+            "nativesFirst": {
+              "label": "較舊的遊戲程式庫被優先載入",
+              "message": "ProjectZomboid64.json 將 natives/ 排在 linux64/ 之前，因此伺服器會從 natives/ 載入較舊的遊戲原生程式庫副本（{{libraries}}），而不是 linux64/ 中的目前版本，並可能在儲存世界時當機。",
+              "hint": "在伺服器停止時，重新命名 natives/ 資料夾（例如改為 natives.old），或用 SteamCMD 校驗遊戲檔案，使 ProjectZomboid64.json 與已安裝的版本一致。面板絕不會刪除它。"
+            }
+          }
+        },
         "ini": {
           "ok": {
             "label": "已找到 server.ini",
