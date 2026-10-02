@@ -33,6 +33,7 @@ import {
   managedStartupScriptName,
   resolveLaunchMode,
   ServerManager,
+  scanLeavesServerUnknown,
   scoreServerProcessOwnership,
 } from "../services/serverManager.js";
 import {
@@ -5697,6 +5698,18 @@ export async function checkSpecificServerStopped(targetServer, actionLabel) {
       status: 503,
       body: {
         error: "Can't verify whether the server is actually stopped — a dedicated PZ server process exists on this host that can't be confirmed to belong to a different server. Check the panel's log for the process, or stop it and try again.",
+        code: ErrorCode.SERVER_STATE_UNKNOWN,
+      },
+    };
+  }
+  // Windows only: processes listed without a command line the panel may
+  // read. None of the readable ones is this target, but one of those may
+  // be -- see scanLeavesServerUnknown().
+  if (scanLeavesServerUnknown(scan, false)) {
+    return {
+      status: 503,
+      body: {
+        error: "Can't verify whether the server is actually stopped — Windows lists a Java or Project Zomboid process the panel isn't allowed to read (usually one started as administrator or by another Windows user), and it could be this server. Check the panel's log for its PID, or stop it and try again.",
         code: ErrorCode.SERVER_STATE_UNKNOWN,
       },
     };

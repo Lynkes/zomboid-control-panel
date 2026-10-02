@@ -15,6 +15,7 @@ import {
   STEAM_OPERATION_IDLE_TIMEOUT_MS,
 } from "./activeSteamOperations.js";
 import { acquireLifecycleLock } from "./lifecycleCoordinator.js";
+import { waitForProcessExit } from "../utils/processScanRetry.js";
 
 export function parseAutoUpdateWarningMinutes(value) {
   if (value === null || value === undefined) return 15;
@@ -61,6 +62,10 @@ export class UpdateChecker {
 
     // Default check interval: 30 minutes
     this.intervalMs = 30 * 60 * 1000;
+  }
+
+  sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
@@ -704,14 +709,25 @@ export class UpdateChecker {
         if (!saved?.success) fail("SAVE_FAILED", `The world could not be saved (${saved?.error || "unknown error"}), so the update was abandoned rather than lose progress. If the server is stuck, use Force stop on the Dashboard (anything since the last successful save can be lost), then run the update again`, { reason: sanitizeError(saved?.error || "unknown error") });
         const quit = await this.rconService.quit();
         if (!quit?.success) log.warn(`Quit command failed (${quit?.error || "unknown error"}); waiting to see whether the server stops anyway`);
-        const deadline = Date.now() + 5 * 60 * 1000;
-        while (true) {
-          const details = await this.serverManager.getServerProcessDetails();
-          if (details.scanFailed) fail("STOP_SCAN_FAILED", "Lost the ability to verify the server had stopped, so the automatic update was abandoned for safety");
-          if (!details.running) break;
-          if (Date.now() >= deadline) fail("STOP_TIMEOUT", "Server did not stop within 5 minutes");
-          await new Promise((resolve) => setTimeout(resolve, 5000));
-        }
+        // Up to 5 minutes, a look every 5 s. A look that can't tell --
+        // likeliest right as the JVM exits -- doesn't end the wait (GH
+        // #190); only the answer it ends on counts, and the server's PIDs
+        // from the check above confirm the stop once they're gone from a
+        // scan whose only doubt is a process it can't read -- see
+        // waitForProcessExit().
+        const details = await waitForProcessExit(
+          () => this.serverManager.getServerProcessDetails(),
+          {
+            polls: 60,
+            intervalMs: 5000,
+            maxElapsedMs: 5 * 60 * 1000,
+            sleep: (ms) => this.sleep(ms),
+            context: "Automatic update",
+            ownProcesses: initialDetails.owned,
+          },
+        );
+        if (details.scanFailed) fail("STOP_SCAN_FAILED", "Lost the ability to verify the server had stopped, so the automatic update was abandoned for safety");
+        if (details.running) fail("STOP_TIMEOUT", "Server did not stop within 5 minutes");
       }
 
       phase = "updating";

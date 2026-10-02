@@ -73,6 +73,12 @@ describe("per provider", () => {
     expect(await getRunState(profile, app(), { fresh: true })).toBe("running");
     scan.mockResolvedValueOnce({ matched: [], scanFailed: true });
     expect(await getRunState(profile, app(), { fresh: true })).toBe("unknown");
+    // Windows also listed a process the panel can't read: it may be this one.
+    const unreadable = [{ pid: "7000", startedMs: 1790964741863 }];
+    scan.mockResolvedValueOnce({ matched: [{ cmd: "java -cp x zombie.network.GameServer -servername first" }], unreadable, scanFailed: false });
+    expect(await getRunState(profile, app(), { fresh: true })).toBe("unknown");
+    scan.mockResolvedValueOnce({ matched: [{ cmd: "java -cp x zombie.network.GameServer -servername second" }], unreadable, scanFailed: false });
+    expect(await getRunState(profile, app(), { fresh: true })).toBe("running");
   });
 });
 
