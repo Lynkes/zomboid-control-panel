@@ -63,6 +63,11 @@ EOF
   chmod 600 "$CONTEXT_DIR/.env"
   echo "Created $CONTEXT_DIR/.env."
 else
+  # A hand-edited .env may not end with a newline, and each append below
+  # would then join its line onto the last one.
+  if [ -s "$CONTEXT_DIR/.env" ] && [ -n "$(tail -c 1 "$CONTEXT_DIR/.env")" ]; then
+    printf '\n' >> "$CONTEXT_DIR/.env"
+  fi
   if ! grep -q '^PANEL_BUILD_DIR=' "$CONTEXT_DIR/.env"; then
     printf '\nPANEL_BUILD_DIR=%s\n' "$BUILD_ROOT" >> "$CONTEXT_DIR/.env"
   fi
@@ -78,13 +83,30 @@ else
   fi
 fi
 
+# Each server uses two UDP ports in a row, so this has to be a range: A-B
+# with 1024 <= A < B <= 65535.
 game_ports="$(sed -n 's/^PZ_GAME_PORTS=//p' "$CONTEXT_DIR/.env" | tail -n 1)"
+game_ports_valid=false
 case "$game_ports" in
-  ''|*[!0-9-]*|-*|*-|*-*-*)
-    echo "PZ_GAME_PORTS in $CONTEXT_DIR/.env must be a port or a range like 16261-16270 (got '$game_ports')." >&2
-    exit 1
+  *[!0-9-]*|*-*-*) ;;
+  [0-9]*-[0-9]*)
+    game_ports_start="${game_ports%-*}"
+    game_ports_end="${game_ports#*-}"
+    if [ "${#game_ports_start}" -le 5 ] && [ "${#game_ports_end}" -le 5 ] \
+      && [ "$game_ports_start" -ge 1024 ] \
+      && [ "$game_ports_start" -lt "$game_ports_end" ] \
+      && [ "$game_ports_end" -le 65535 ]; then
+      game_ports_valid=true
+    fi
     ;;
 esac
+if [ "$game_ports_valid" != true ]; then
+  echo "PZ_GAME_PORTS in $CONTEXT_DIR/.env must be a range like 16261-16270, from 1024 to 65535 with the lower port first: each server uses two ports in a row (got '$game_ports')." >&2
+  exit 1
+fi
+if [ "$game_ports_start" -gt 16261 ] || [ "$game_ports_end" -lt 16262 ]; then
+  echo "Warning: PZ_GAME_PORTS ($game_ports) leaves out 16261-16262, the first server's default game ports. Players can't reach a server whose game port is outside the range." >&2
+fi
 
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
