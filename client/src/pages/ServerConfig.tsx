@@ -360,7 +360,8 @@ const IniSettingRow = memo(({
   originalValue,
   onChange,
   onReset,
-  onBrowse
+  onBrowse,
+  allowOutOfRange
 }: {
   setting: IniSetting;
   value: string;
@@ -368,11 +369,26 @@ const IniSettingRow = memo(({
   onChange: (key: string, value: string) => void;
   onReset?: (key: string) => void;
   onBrowse?: (key: string, extensions?: string[]) => void;
+  /** Settings.tsx's range override toggle; same split as SandboxSettingRow. */
+  allowOutOfRange?: boolean;
 }) => {
   const { t } = useTranslation('serverconfig')
   const isModified = originalValue !== undefined && value !== originalValue
   const isDifferentFromDefault = setting.default !== undefined && String(value) !== String(setting.default)
-  const numberIsInvalid = setting.type === 'number' && String(value ?? '').trim() !== '' && parseNumericSettingValue(value, setting) === null
+  const numberHasContent = setting.type === 'number' && String(value ?? '').trim() !== ''
+  const numberIsMalformed = numberHasContent && parseNumericSettingValue(value, setting, { enforceBounds: false }) === null
+  const numberOutOfRange = numberHasContent && !numberIsMalformed && parseNumericSettingValue(value, setting) === null
+  const numberIsInvalid = numberIsMalformed || (numberOutOfRange && !allowOutOfRange)
+  const numberIsRangeWarning = numberOutOfRange && !!allowOutOfRange
+  // A value the file holds but this select doesn't offer (e.g.
+  // BadWordPolicy=4 from before GH#182 dropped the option B42 rejects):
+  // show it instead of a blank trigger, same as SandboxSettingRow. Saving
+  // never rewrites it unless the operator picks another option.
+  const selectHasUnrecognizedValue =
+    setting.type === 'select' &&
+    !!setting.options &&
+    String(value ?? '') !== '' &&
+    !setting.options.some((o) => o.value === String(value))
 
   // Multiline settings
   if (setting.type === 'multiline') {
@@ -445,16 +461,29 @@ const IniSettingRow = memo(({
                 />
               </div>
             ) : setting.type === 'select' && setting.options ? (
-              <Select value={String(value)} onValueChange={(val) => onChange(setting.key, val)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {setting.options.map(opt => (
-                    <SelectItem key={opt.value} value={opt.value}>{getIniSettingOptionLabel(setting, opt.value)}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div>
+                <Select value={String(value)} onValueChange={(val) => onChange(setting.key, val)}>
+                  <SelectTrigger className={selectHasUnrecognizedValue ? 'border-warning/60' : ''}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {selectHasUnrecognizedValue && (
+                      <SelectItem value={String(value)} disabled>
+                        {String(value)} (?)
+                      </SelectItem>
+                    )}
+                    {setting.options.map(opt => (
+                      <SelectItem key={opt.value} value={opt.value}>{getIniSettingOptionLabel(setting, opt.value)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectHasUnrecognizedValue && (
+                  <div className="flex items-start gap-1.5 mt-1.5 text-xs text-warning">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span>{getUnrecognizedSandboxOptionWarning(String(value))}</span>
+                  </div>
+                )}
+              </div>
             ) : setting.type === 'number' ? (
               <div>
                 <Input
@@ -467,10 +496,11 @@ const IniSettingRow = memo(({
                   min={setting.min}
                   max={setting.max}
                   aria-invalid={numberIsInvalid}
-                  className={`text-end ${isModified ? 'border-warning/40' : ''} ${numberIsInvalid ? 'border-destructive/70' : ''}`}
+                  className={`text-end ${isModified ? 'border-warning/40' : ''} ${numberIsInvalid ? 'border-destructive/70' : numberIsRangeWarning ? 'border-warning' : ''}`}
                 />
                 {(setting.min !== undefined || setting.max !== undefined) && (
-                  <div className="text-xs text-muted-foreground/60 text-end mt-0.5">
+                  <div className={`text-xs mt-0.5 flex items-center justify-end gap-1 ${numberIsRangeWarning ? 'text-warning' : 'text-muted-foreground/60'}`}>
+                    {numberIsRangeWarning && <AlertTriangle className="h-3 w-3 shrink-0" />}
                     {/* bug-hunt-2026-09-08 (Arabic render pass): rangeMinMax's
                         "{{min}} – {{max}}" is a bare-punctuation number pair,
                         the exact bidi-vulnerable shape -- confirmed reversed
@@ -548,7 +578,7 @@ const IniSettingRow = memo(({
     </div>
   )
 }, (prev, next) => {
-  return prev.value === next.value && prev.setting === next.setting && prev.originalValue === next.originalValue && prev.onBrowse === next.onBrowse
+  return prev.value === next.value && prev.setting === next.setting && prev.originalValue === next.originalValue && prev.onBrowse === next.onBrowse && prev.allowOutOfRange === next.allowOutOfRange
 })
 IniSettingRow.displayName = 'IniSettingRow'
 
@@ -709,7 +739,7 @@ export const SandboxSettingRow = memo(({
     </div>
   )
 }, (prev, next) => {
-  return prev.value === next.value && prev.setting === next.setting && prev.originalValue === next.originalValue
+  return prev.value === next.value && prev.setting === next.setting && prev.originalValue === next.originalValue && prev.allowOutOfRange === next.allowOutOfRange
 })
 SandboxSettingRow.displayName = 'SandboxSettingRow'
 
@@ -1029,15 +1059,6 @@ export default function ServerConfig() {
   const [originalSandboxData, setOriginalSandboxData] = useState<SandboxData | null>(null)
   const [originalRawContent, setOriginalRawContent] = useState('')
 
-  const invalidIniSettings = useMemo(
-    () => INI_SCHEMA.filter(setting => {
-      if (setting.type !== 'number') return false
-      const value = iniSettings[setting.key]
-      return String(value ?? '').trim() !== '' && parseNumericSettingValue(value, setting) === null
-    }),
-    [iniSettings],
-  )
-
   // Root cause (2026-09-09 dispatch): SANDBOX_SCHEMA's min/max is a
   // build-time snapshot of Project Zomboid's engine-side bounds -- it can
   // never track a PZ patch, only a panel release can, and the game ships no
@@ -1059,7 +1080,8 @@ export default function ServerConfig() {
   // Objective 2 escape hatch (client/src/pages/Settings.tsx's sandboxRangeOverride
   // toggle, plain localStorage -- see getAllowOutOfRangeSandboxValues's own
   // comment for why). Read once at mount; a 'storage' listener picks up a
-  // change made in another tab without requiring a remount here.
+  // change made in another tab without requiring a remount here. Despite the
+  // name it covers the INI tab too since GH#182.
   const [allowOutOfRangeSandbox, setAllowOutOfRangeSandboxState] = useState(() => getAllowOutOfRangeSandboxValues())
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
@@ -1070,6 +1092,34 @@ export default function ServerConfig() {
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
   }, [])
+
+  // INI counterpart of invalidSandboxSettings / outOfRangeSandboxSettings
+  // below, same blocking-vs-warning split. GH#182: this used to ignore the
+  // range override entirely, so an out-of-range VoiceMaxDistance (the panel's
+  // table said 1000, the game allows 100000) kept the red banner up and Save
+  // disabled with the toggle on. Like the Sandbox list, it describes the
+  // structured `iniSettings` state only -- raw-mode edits never touch it, so
+  // every consumer scopes it to editorMode === 'structured'.
+  const invalidIniSettings = useMemo(
+    () => INI_SCHEMA.filter(setting => {
+      if (setting.type !== 'number') return false
+      const value = iniSettings[setting.key]
+      return String(value ?? '').trim() !== '' &&
+        parseNumericSettingValue(value, setting, { enforceBounds: !allowOutOfRangeSandbox }) === null
+    }),
+    [iniSettings, allowOutOfRangeSandbox],
+  )
+
+  const outOfRangeIniSettings = useMemo(() => {
+    if (!allowOutOfRangeSandbox) return []
+    return INI_SCHEMA.filter(setting => {
+      if (setting.type !== 'number') return false
+      const value = iniSettings[setting.key]
+      if (String(value ?? '').trim() === '') return false
+      return parseNumericSettingValue(value, setting, { enforceBounds: false }) !== null &&
+        parseNumericSettingValue(value, setting) === null
+    })
+  }, [iniSettings, allowOutOfRangeSandbox])
 
   // effectiveSandboxSchema overrides SANDBOX_SCHEMA's min/max with the live
   // bridge value wherever one is known, leaving every other field (label,
@@ -1857,7 +1907,7 @@ export default function ServerConfig() {
     }
     setSaving(true)
     try {
-      if (invalidIniSettings.length > 0) {
+      if (editorMode === 'structured' && invalidIniSettings.length > 0) {
         toast({
           title: t('toasts.invalidIniTitle'),
           description: t('toasts.fixSettings', { settings: invalidIniSettings.map(getIniSettingLabel).join(listSep) }),
@@ -2866,12 +2916,21 @@ export default function ServerConfig() {
             </AlertDescription>
           </Alert>
         )}
-        {activeTab === 'ini' && invalidIniSettings.length > 0 && (
+        {activeTab === 'ini' && editorMode === 'structured' && invalidIniSettings.length > 0 && (
           <Alert className="mt-3 border-destructive/40 bg-destructive/10">
             <AlertCircle className="h-4 w-4 text-destructive" />
             <AlertTitle>{t('invalidValuesAlert.title')}</AlertTitle>
             <AlertDescription>
               {t('invalidValuesAlert.description', { settings: invalidIniSettings.map(getIniSettingLabel).join(listSep) })}
+            </AlertDescription>
+          </Alert>
+        )}
+        {activeTab === 'ini' && editorMode === 'structured' && outOfRangeIniSettings.length > 0 && (
+          <Alert className="mt-3 border-warning/40 bg-warning/10">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertTitle>{getSandboxOutOfRangeAllowedTitle()}</AlertTitle>
+            <AlertDescription>
+              {getSandboxOutOfRangeAllowedBody(outOfRangeIniSettings.map(getIniSettingLabel).join(listSep))}
             </AlertDescription>
           </Alert>
         )}
@@ -2970,7 +3029,7 @@ export default function ServerConfig() {
                   >
                     <ExternalLink className="h-3 w-3" /> {t('editorToolbar.wiki')}
                   </a>
-                  <Button onClick={handleSaveIni} disabled={saving || !hasIniChanges || invalidIniSettings.length > 0 || serverChangedSinceLoad} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
+                  <Button onClick={handleSaveIni} disabled={saving || !hasIniChanges || (editorMode === 'structured' && invalidIniSettings.length > 0) || serverChangedSinceLoad} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
                     {saving ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
@@ -3133,6 +3192,7 @@ export default function ServerConfig() {
                                   onChange={updateIniValue}
                                   onReset={resetIniValue}
                                   onBrowse={openFileBrowser}
+                                  allowOutOfRange={allowOutOfRangeSandbox}
                                 />
                               ))}
                             </div>
@@ -3344,6 +3404,7 @@ export default function ServerConfig() {
                                     onChange={updateIniValue}
                                     onReset={resetIniValue}
                                     onBrowse={openFileBrowser}
+                                    allowOutOfRange={allowOutOfRangeSandbox}
                                   />
                                 ))}
                               </div>
@@ -4610,7 +4671,7 @@ export default function ServerConfig() {
               variant="command"
               size="sm"
               onClick={activeTab === 'ini' ? handleSaveIni : handleSaveSandbox}
-              disabled={saving || serverChangedSinceLoad || (activeTab === 'ini' ? invalidIniSettings.length > 0 : (editorMode === 'structured' && invalidSandboxSettings.length > 0))}
+              disabled={saving || serverChangedSinceLoad || (editorMode === 'structured' && (activeTab === 'ini' ? invalidIniSettings.length > 0 : invalidSandboxSettings.length > 0))}
               className="h-8 gap-1.5 text-xs font-medium"
             >
               {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}

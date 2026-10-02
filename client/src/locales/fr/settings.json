@@ -27,7 +27,7 @@
     "confirmNewPasswordLocalReset": "Confirmer le nouveau mot de passe pour la réinitialisation locale",
     "buyMeCoffeeKofi": "M'offrir un café sur Ko-fi",
     "recoveryTokenLocalReset": "Jeton de récupération pour la réinitialisation locale",
-    "sandboxRangeOverride": "Allow sandbox values outside known range"
+    "sandboxRangeOverride": "Allow values outside the known range"
   },
   "tabs": {
     "groups": {
@@ -152,10 +152,10 @@
     "restartGameServerRisk": "Cette installation n'utilise pas le launcher Linux protégé. Redémarrer le panneau peut arrêter les processus de serveur Project Zomboid en cours d'exécution.",
     "restartGameServerUnknown": "Le panneau n'a pas pu déterminer si les serveurs Project Zomboid en cours d'exécution survivront à ce redémarrage.",
     "confirmRestartRisk": "Je comprends que les serveurs de jeu en cours d'exécution peuvent être arrêtés.",
-    "sandboxRangeOverrideTitle": "Sandbox Value Ranges",
-    "sandboxRangeOverrideDesc": "Controls whether the Sandbox tab's Save button blocks a value outside its known minimum/maximum.",
+    "sandboxRangeOverrideTitle": "Setting Value Ranges",
+    "sandboxRangeOverrideDesc": "Controls whether the Server Settings and Sandbox tabs' Save buttons block a value outside its known minimum/maximum.",
     "sandboxRangeOverrideLabel": "Allow values outside the known range",
-    "sandboxRangeOverrideHint": "Off by default. The Sandbox tab still shows when a value is outside its known range, but with this on, Save no longer blocks it -- useful when this panel's range table is out of date for your game version."
+    "sandboxRangeOverrideHint": "Off by default. The Server Settings and Sandbox tabs still show when a value is outside its known range, but with this on, Save no longer blocks it -- useful when this panel's range table is out of date for your game version."
   },
   "access": {
     "cardTitle": "Accès distant (CORS)",

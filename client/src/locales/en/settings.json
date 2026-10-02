@@ -27,7 +27,7 @@
     "newPasswordLocalReset": "New password for local reset",
     "confirmNewPasswordLocalReset": "Confirm new password for local reset",
     "buyMeCoffeeKofi": "Buy me a coffee on Ko-fi",
-    "sandboxRangeOverride": "Allow sandbox values outside known range"
+    "sandboxRangeOverride": "Allow values outside the known range"
   },
   "tabs": {
     "groups": {
@@ -98,10 +98,10 @@
     "appearanceDesc": "Panel theme and visual style.",
     "themeLabel": "Theme",
     "themeDesc": "Choose between the gritty survival look or a clean light theme.",
-    "sandboxRangeOverrideTitle": "Sandbox Value Ranges",
-    "sandboxRangeOverrideDesc": "Controls whether the Sandbox tab's Save button blocks a value outside its known minimum/maximum.",
+    "sandboxRangeOverrideTitle": "Setting Value Ranges",
+    "sandboxRangeOverrideDesc": "Controls whether the Server Settings and Sandbox tabs' Save buttons block a value outside its known minimum/maximum.",
     "sandboxRangeOverrideLabel": "Allow values outside the known range",
-    "sandboxRangeOverrideHint": "Off by default. The Sandbox tab still shows when a value is outside its known range, but with this on, Save no longer blocks it -- useful when this panel's range table is out of date for your game version."
+    "sandboxRangeOverrideHint": "Off by default. The Server Settings and Sandbox tabs still show when a value is outside its known range, but with this on, Save no longer blocks it -- useful when this panel's range table is out of date for your game version."
   },
 
   "access": {

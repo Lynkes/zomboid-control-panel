@@ -169,7 +169,7 @@
     "liveRangesUnavailableTitle": "Showing built-in ranges",
     "liveRangesUnavailableBody": "Couldn't reach a running server to confirm the real minimum/maximum for these settings, so the ranges shown are this panel's own built-in table and may be out of date. Start the server and retry for the exact bounds.",
     "outOfRangeAllowedTitle": "Values outside the known range will still be saved",
-    "outOfRangeAllowedBody": "{{settings}} are outside the range this panel knows, but the sandbox range override in Settings is on, so Save will not block them."
+    "outOfRangeAllowedBody": "{{settings}} are outside the range this panel knows, but the range override in Settings is on, so Save will not block them."
   },
   "spawnPointsTab": {
     "sectionLabel": "Puntos de aparición",
@@ -495,7 +495,7 @@
       },
       "PingLimit": {
         "label": "Ping Limit",
-        "description": "Ping limit before being kicked (milliseconds). 100 to disable."
+        "description": "Ping limit before being kicked (milliseconds). 0 to disable."
       },
       "DenyLoginOnOverloadedServer": {
         "label": "Deny Login When Overloaded",
@@ -1054,9 +1054,6 @@
           },
           "3": {
             "label": "Record Violation"
-          },
-          "4": {
-            "label": "Mute"
           }
         }
       },

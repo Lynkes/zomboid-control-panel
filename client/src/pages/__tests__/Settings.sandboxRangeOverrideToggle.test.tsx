@@ -51,7 +51,7 @@ describe('Settings.tsx: sandboxRangeOverride toggle', () => {
     getAppSettings.mockResolvedValue({ settings: {} } as never)
     renderSettings()
 
-    const toggle = await screen.findByRole('switch', { name: /allow sandbox values outside known range/i })
+    const toggle = await screen.findByRole('switch', { name: /allow values outside the known range/i })
     expect(toggle).not.toBeChecked()
     expect(getAllowOutOfRangeSandboxValues()).toBe(false)
   })
@@ -60,7 +60,7 @@ describe('Settings.tsx: sandboxRangeOverride toggle', () => {
     getAppSettings.mockResolvedValue({ settings: {} } as never)
     renderSettings()
 
-    const toggle = await screen.findByRole('switch', { name: /allow sandbox values outside known range/i })
+    const toggle = await screen.findByRole('switch', { name: /allow values outside the known range/i })
     fireEvent.click(toggle)
 
     await waitFor(() => expect(toggle).toBeChecked())
@@ -73,7 +73,7 @@ describe('Settings.tsx: sandboxRangeOverride toggle', () => {
     getAppSettings.mockResolvedValue({ settings: {} } as never)
     renderSettings()
 
-    const toggle = await screen.findByRole('switch', { name: /allow sandbox values outside known range/i })
+    const toggle = await screen.findByRole('switch', { name: /allow values outside the known range/i })
     expect(toggle).toBeChecked()
   })
 })

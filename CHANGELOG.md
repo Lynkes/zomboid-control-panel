@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Fixed
 
-_No unreleased changes._
+- Server Settings number ranges now match Build 42.21 (Voice Max Distance up to 100000, Max Players up to 254, Ping Limit 0 = off); the range override in Settings now covers this tab, and an out-of-range value no longer locks the Raw editor (#182).
 
 ## [1.4.1] - 2026-09-30
 
