@@ -364,6 +364,20 @@ export function namedStartupScriptRestartRefusedError({ script, folder, fallback
   return error;
 }
 
+// startServer()'s refusal when another local server that is running right
+// now is configured for one of this server's two UDP game ports (see
+// ServerManager._findRunningGamePortClash()). Coded like the refusals above,
+// so the Dashboard and a failed Restart show it in the operator's language.
+// `port` is the shared port, the game port or the one after it.
+export function gamePortInUseError({ port, serverName }) {
+  const error = new Error(
+    `UDP port ${port} is already used by ${serverName}, which is running. Stop that server, or give this one a different game port, then start again.`,
+  );
+  error.code = ErrorCode.SERVER_START_GAME_PORT_IN_USE;
+  error.params = { port, name: serverName };
+  return error;
+}
+
 // Whether a new file can be created in `dir`: what writeFileAtomic() needs
 // to write a launch script there (a temp file beside it, then a rename).
 // Tried for real rather than asked with fs.accessSync(W_OK), which on
@@ -1963,9 +1977,7 @@ export class ServerManager {
         // through its start; say which one instead.
         const gamePortClash = await this._findRunningGamePortClash();
         if (gamePortClash) {
-          throw new Error(
-            `Game port ${gamePortClash.port} is already used by "${gamePortClash.serverName}", which is running. Stop it, or give this server a different game port, before starting.`,
-          );
+          throw gamePortInUseError(gamePortClash);
         }
       }
 

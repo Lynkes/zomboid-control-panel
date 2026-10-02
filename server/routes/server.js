@@ -19,7 +19,6 @@ import {
 } from "../database/init.js";
 import {
   sanitizeError,
-  sanitizeErrorParams,
   sanitizeIniValue,
 } from "../utils/sanitize.js";
 import {
@@ -2230,14 +2229,16 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
     res.json(result);
   } catch (error) {
     log.error(`Failed to start server: ${error.message}`);
-    const body = { error: sanitizeError(error.message) };
-    // startServer()'s one coded refusal (GH #167) -- a registered code, so
-    // the dashboard shows it in the operator's language. Any other error
+    // startServer()'s coded refusals (SERVER_START_SCRIPT_MISSING, GH #167;
+    // SERVER_START_GAME_PORT_IN_USE) -- registered codes, so the dashboard
+    // shows them in the operator's language. The same list a failed
+    // Restart's action result forwards (routes/scheduler.js's
+    // codedActionResultFields()), so the two can't drift. Any other error
     // (e.g. a raw fs "ENOENT") keeps the plain-message shape.
-    if (error.code === ErrorCode.SERVER_START_SCRIPT_MISSING) {
-      body.code = error.code;
-      if (error.params) body.params = sanitizeErrorParams(error.params);
-    }
+    const body = {
+      error: sanitizeError(error.message),
+      ...codedActionResultFields(error),
+    };
     res.status(500).json(body);
   } finally {
     if (!lifecycleLockTransferred) releaseLifecycleLock();

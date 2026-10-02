@@ -571,6 +571,15 @@ export const ErrorCode = Object.freeze({
    * would be refused -- the restart is called off and the server is left
    * running. Same {{script}} and {{fallback}} params. */
   SERVER_RESTART_SCRIPT_MISSING: "SERVER_RESTART_SCRIPT_MISSING",
+  /** server/services/serverManager.js -- startServer() via
+   * gamePortInUseError() (thrown, forwarded by POST /api/server/start and by
+   * a failed Restart's scheduler:action_result like
+   * SERVER_START_SCRIPT_MISSING above): another local server that is running
+   * is configured for this server's game port or the one after it (both
+   * UDP), so this one would fail to bind partway through its start. Carries
+   * {{port}} (the shared port) and {{name}} (the running server's profile
+   * name). */
+  SERVER_START_GAME_PORT_IN_USE: "SERVER_START_GAME_PORT_IN_USE",
   /** server/routes/server.js -- POST /api/server/force-stop, active server is
    * remote. Own wording/code, not reused across start/force-stop/restart --
    * same reasoning as SERVER_RUNNING_RCON_UNAVAILABLE above: which action was

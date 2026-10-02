@@ -46,14 +46,17 @@ export function emitActionResult(io, payload) {
 // The code and path-free params of a coded refusal thrown on the way
 // through performRestart(), spread into a failed action result so Layout
 // shows it in the operator's language, the way POST /api/server/start's
-// response does. Today that is serverManager.startServer()'s
-// SERVER_START_SCRIPT_MISSING (GH #167) and its restart-time counterpart
-// SERVER_RESTART_SCRIPT_MISSING (performRestart()'s check before it stops
-// anything): both messages name the install folder and are English-only.
-// Any other error adds nothing and keeps the bare message it always had.
+// response does (that route forwards this same list). Today that is
+// serverManager.startServer()'s SERVER_START_SCRIPT_MISSING (GH #167), its
+// restart-time counterpart SERVER_RESTART_SCRIPT_MISSING (performRestart()'s
+// check before it stops anything), and SERVER_START_GAME_PORT_IN_USE (another
+// running server holds this one's game port): their messages are
+// English-only. Any other error adds nothing and keeps the bare message it
+// always had.
 const CODED_ACTION_RESULT_CODES = new Set([
   ErrorCode.SERVER_START_SCRIPT_MISSING,
   ErrorCode.SERVER_RESTART_SCRIPT_MISSING,
+  ErrorCode.SERVER_START_GAME_PORT_IN_USE,
 ]);
 
 export function codedActionResultFields(err) {
