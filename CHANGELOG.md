@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - The panel refuses a start on a game port another running server uses, a Docker folder that isn't on a volume, and a Docker update while other servers run, and says why (#183).
+- Haitian Creole counts no longer fall back to English when the system's default language has a "many" plural form (#183).
 
 ## [1.4.1] - 2026-09-30
 
