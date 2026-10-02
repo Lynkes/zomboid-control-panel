@@ -5058,6 +5058,57 @@ export function getUnrecognizedIniBooleanWarning(value: string, defaultOn: boole
     )
 }
 
+// The other ways PZ 42.21 reads a server.ini line differently from how it
+// looks (iniFormState.ts, server/utils/iniGameView.js). `name` and `value`
+// come through showIniWhitespace where a space matters, so "PVP " shows as
+// "PVP␣".
+
+// "PVP = true": the game reads the option name "PVP " and skips the line.
+export function getIniMisnamedKeyWarning(name: string): string {
+  return translatedOrFallback(
+    'iniMisnamedKeyWarning',
+    `The game ignores this line in the file: it reads the setting name as ${name}, so it uses the default shown here. Changing this setting rewrites the line so the game reads it.`,
+    { name },
+  )
+}
+
+// "PingLimit=\u00A0400": Double.parseDouble trims only ASCII whitespace.
+export function getIniNumberStraySpaceError(value: string): string {
+  return translatedOrFallback(
+    'iniNumberStraySpaceError',
+    `The game can't read ${value} as a number, so it uses its default. Retype the number without the space.`,
+    { value },
+  )
+}
+
+// "PublicDescription=Rules: PvP = off": the game reads up to the next "=".
+export function getIniTextCutAtEqualsWarning(value: string): string {
+  return translatedOrFallback(
+    'iniTextCutAtEqualsWarning',
+    `The game reads this value only up to the first "=", so it uses: ${value}`,
+    { value },
+  )
+}
+
+// The same for a masked secret ("RCONPassword=ab=cd" is "ab" to the game):
+// the form only has the mask, so this never shows the value.
+export function getIniSecretCutAtEqualsWarning(): string {
+  return translatedOrFallback(
+    'iniSecretCutAtEqualsWarning',
+    'The game reads this value only up to the first "=" and ignores the rest. Use a value without "=".',
+  )
+}
+
+// Under getIniMisnamedKeyWarning on a text setting: the form shows the
+// default, so this keeps the text the skipped line holds in sight.
+export function getIniMisnamedKeyFileValue(value: string): string {
+  return translatedOrFallback(
+    'iniMisnamedKeyFileValue',
+    `The line in the file says: ${value}`,
+    { value },
+  )
+}
+
 // Sandbox tab live-range fix (2026-09-09 dispatch): SANDBOX_SCHEMA's min/max
 // above is a build-time snapshot of Project Zomboid's engine-side bounds --
 // it can never track a PZ patch, only a panel release can. ServerConfig.tsx

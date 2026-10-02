@@ -73,6 +73,16 @@ async function runRoute(routePath, method, req) {
   return res;
 }
 
+// What ServerConfig.tsx's form sends back for a GET /ini body it didn't edit:
+// every value as the game reads it (rawSettings), minus the keys whose line
+// the game skips -- the form shows the game's default for those and sends
+// them only once changed (client/src/lib/iniFormState.ts).
+function formSettings({ rawSettings, misnamedKeys }) {
+  return Object.fromEntries(
+    Object.entries(rawSettings).filter(([key]) => !(key in misnamedKeys)),
+  );
+}
+
 const SERVER_NAME = "RoundTripTest";
 let configDir;
 let iniPath;
@@ -264,6 +274,13 @@ describe("GET /ini -> PUT /ini round trip: per-line formatting the panel never a
   // (extremely common -- copy-pasted from a wiki example, or just a human's
   // habit) gets that spacing silently stripped the first time anyone saves
   // any field from the structured editor.
+  //
+  // 2026-10-02 (GH#182 follow-up): the spacing before "=" is not cosmetic.
+  // PZ 42.21 reads "PVP = true" as an option named "PVP " and skips the line,
+  // so GET /ini lists such keys in misnamedKeys and the form shows the
+  // default the game uses and sends the key only once the operator changes
+  // it (formSettings below). An unrelated save still leaves those lines
+  // alone; changing one writes "PVP=false", a line the game reads.
   const spacedFixture = [
     "# ZomboidINI",
     "version=1",
@@ -274,15 +291,25 @@ describe("GET /ini -> PUT /ini round trip: per-line formatting the panel never a
     "",
   ].join("\n");
 
+  it("lists the lines the game skips because of a space before '='", async () => {
+    fs.writeFileSync(iniPath, spacedFixture, "utf-8");
+
+    const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
+    const { settings, misnamedKeys } = getRes.getBody();
+
+    expect(misnamedKeys).toEqual({ PVP: "PVP ", DefaultPort: "DefaultPort " });
+    // parseIni()'s trimmed reading is unchanged for its other readers.
+    expect(settings).toMatchObject({ PVP: "true", MaxPlayers: "32", DefaultPort: "16261" });
+  });
+
   it("preserves spacing around '=' and leading indentation on an unrelated field change", async () => {
     fs.writeFileSync(iniPath, spacedFixture, "utf-8");
 
     const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
-    const { settings } = getRes.getBody();
 
     await runRoute("/ini", "put", {
       user: { role: "admin" },
-      body: { settings: { ...settings, PublicName: "Renamed Server" } },
+      body: { settings: { ...formSettings(getRes.getBody()), PublicName: "Renamed Server" } },
     });
 
     const after = fs.readFileSync(iniPath, "utf-8");
@@ -295,11 +322,40 @@ describe("GET /ini -> PUT /ini round trip: per-line formatting the panel never a
     fs.writeFileSync(iniPath, spacedFixture, "utf-8");
 
     const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
-    const { settings } = getRes.getBody();
-    await runRoute("/ini", "put", { user: { role: "admin" }, body: { settings } });
+    await runRoute("/ini", "put", {
+      user: { role: "admin" },
+      body: { settings: formSettings(getRes.getBody()) },
+    });
 
     const after = fs.readFileSync(iniPath, "utf-8");
     expect(after).toBe(spacedFixture);
+  });
+
+  it("changing a setting whose line the game skips rewrites that line as Key=value", async () => {
+    fs.writeFileSync(iniPath, spacedFixture, "utf-8");
+
+    const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
+    const putRes = await runRoute("/ini", "put", {
+      user: { role: "admin" },
+      body: { settings: { ...formSettings(getRes.getBody()), PVP: "false" } },
+    });
+
+    expect(putRes.getStatusCode()).toBe(200);
+    const after = fs.readFileSync(iniPath, "utf-8");
+    expect(after).toContain("\nPVP=false\n");
+    expect(after).toContain("  MaxPlayers=32");
+    expect(after).toContain("DefaultPort =16261");
+  });
+
+  it("a caller that resends the line's own value still gets a line the game reads", async () => {
+    // PUT /ini's other callers (the bridge dialogs) send just the keys they
+    // set. Sending PVP=true for "PVP = true" means "the game should use
+    // true", which it doesn't until the line is rewritten.
+    fs.writeFileSync(iniPath, spacedFixture, "utf-8");
+
+    await runRoute("/ini", "put", { user: { role: "admin" }, body: { settings: { PVP: "true" } } });
+
+    expect(fs.readFileSync(iniPath, "utf-8")).toContain("\nPVP=true\n");
   });
 });
 
@@ -326,9 +382,182 @@ describe("GET /ini -> PUT /ini round trip: byte-order mark (suspect 8)", () => {
     fs.writeFileSync(iniPath, bomFixture, "utf-8");
 
     const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
-    const { settings } = getRes.getBody();
+    const { settings, misnamedKeys } = getRes.getBody();
 
     expect(settings.version).toBe("1");
     expect(Object.keys(settings).some((k) => k.includes("﻿"))).toBe(false);
+    // The game, unlike JavaScript's trim(), keeps the BOM: it reads the
+    // first line as an option named "\uFEFFversion" and skips it.
+    expect(misnamedKeys).toEqual({ version: "\uFEFFversion" });
+  });
+});
+
+describe("GET /ini -> PUT /ini round trip: whitespace the game does not trim (GH#182 follow-up)", () => {
+  // PZ 42.21's ConfigFile.read trims each line with Java's String.trim()
+  // (chars up to U+0020 only) and does not trim the value after "=" again.
+  // Expectations below were checked by running ConfigFile.read and the
+  // option classes from projectzomboid.jar on the game's Java 25 runtime:
+  // "Public= true" is rejected (the default is kept), "MaxPlayers= 16" reads
+  // as 16 (Double.parseDouble trims ASCII itself), "PingLimit=\u00A0400"
+  // is rejected, and "PublicDescription=Hello = world" reads as "Hello ".
+  const wsFixture = [
+    "# ZomboidINI",
+    "Public= true",
+    "MaxPlayers= 16",
+    "PingLimit=\u00A0400",
+    "PauseEmpty=true\u00A0",
+    "PublicName= My Server",
+    "PublicDescription=Hello = world",
+    "Open=true   ",
+    "RCONPassword= old-pass",
+    "DoLuaChecksum= true",
+    "",
+  ].join("\r\n");
+
+  beforeEach(() => {
+    fs.writeFileSync(iniPath, wsFixture, "utf-8");
+  });
+
+  it("GET returns each value as the game reads it, next to the unchanged trimmed settings", async () => {
+    const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
+    const { settings, rawSettings, misnamedKeys } = getRes.getBody();
+
+    expect(rawSettings).toEqual({
+      Public: " true",
+      MaxPlayers: " 16",
+      PingLimit: "\u00A0400",
+      PauseEmpty: "true\u00A0",
+      PublicName: " My Server",
+      PublicDescription: "Hello = world",
+      Open: "true",
+      RCONPassword: "••••••••pass",
+      DoLuaChecksum: " true",
+    });
+    expect(misnamedKeys).toEqual({});
+    expect(settings).toMatchObject({
+      Public: "true",
+      MaxPlayers: "16",
+      PingLimit: "400",
+      PauseEmpty: "true",
+      PublicName: "My Server",
+      Open: "true",
+    });
+  });
+
+  it("an unchanged form save is byte-for-byte, values the game rejects included", async () => {
+    const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
+    const putRes = await runRoute("/ini", "put", {
+      user: { role: "admin" },
+      body: { settings: formSettings(getRes.getBody()) },
+    });
+
+    expect(putRes.getStatusCode()).toBe(200);
+    expect(fs.readFileSync(iniPath, "utf-8")).toBe(wsFixture);
+  });
+
+  it("switching Public on writes Public=true, not the rejected 'Public= true' again", async () => {
+    const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
+    await runRoute("/ini", "put", {
+      user: { role: "admin" },
+      body: { settings: { ...formSettings(getRes.getBody()), Public: "true", PingLimit: "400" } },
+    });
+
+    const after = fs.readFileSync(iniPath, "utf-8");
+    expect(after).toContain("\r\nPublic=true\r\n");
+    expect(after).toContain("\r\nPingLimit=400\r\n");
+    // Untouched lines keep their own spacing.
+    expect(after).toContain("\r\nMaxPlayers= 16\r\n");
+    expect(after).toContain("\r\nPublicName= My Server\r\n");
+    expect(after).toContain("\r\nRCONPassword= old-pass\r\n");
+  });
+
+  it("a space the operator types at the start of a text value is saved and verified as written", async () => {
+    const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
+    const putRes = await runRoute("/ini", "put", {
+      user: { role: "admin" },
+      body: { settings: { ...formSettings(getRes.getBody()), PublicName: " Spaced Name " } },
+    });
+
+    expect(putRes.getStatusCode()).toBe(200);
+    expect(fs.readFileSync(iniPath, "utf-8")).toContain("\r\nPublicName= Spaced Name \r\n");
+  });
+
+  it("a partial PUT like the bridge dialogs' {DoLuaChecksum: 'false'} writes a value the game reads", async () => {
+    const putRes = await runRoute("/ini", "put", {
+      user: { role: "admin" },
+      body: { settings: { DoLuaChecksum: "false" } },
+    });
+
+    expect(putRes.getStatusCode()).toBe(200);
+    expect(fs.readFileSync(iniPath, "utf-8")).toContain("\r\nDoLuaChecksum=false\r\n");
+  });
+});
+
+describe("GET /ini -> PUT /ini round trip: lines as the game splits them (GH#182 follow-up)", () => {
+  // The game reads lines with BufferedReader.readLine, which also ends one
+  // at a lone "\r": 42.21 reads "A=1\rB=2" as two options. This file mixes
+  // all three line ends.
+  const mixedEndsFixture = "PVP=true\rMaxPlayers=16\nPublicName=Mine\r\nUDPPort=16262\n";
+
+  beforeEach(() => {
+    fs.writeFileSync(iniPath, mixedEndsFixture, "utf-8");
+  });
+
+  it("GET reads each line the game reads, and an unchanged form save is byte-for-byte", async () => {
+    const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
+    expect(getRes.getBody().rawSettings).toEqual({
+      PVP: "true",
+      MaxPlayers: "16",
+      PublicName: "Mine",
+      UDPPort: "16262",
+    });
+
+    const putRes = await runRoute("/ini", "put", {
+      user: { role: "admin" },
+      body: { settings: formSettings(getRes.getBody()) },
+    });
+
+    expect(putRes.getStatusCode()).toBe(200);
+    expect(fs.readFileSync(iniPath, "utf-8")).toBe(mixedEndsFixture);
+  });
+
+  it("changing one setting rewrites only its line, and every line keeps its own end", async () => {
+    const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
+    const putRes = await runRoute("/ini", "put", {
+      user: { role: "admin" },
+      body: { settings: { ...formSettings(getRes.getBody()), MaxPlayers: "20" } },
+    });
+
+    expect(putRes.getStatusCode()).toBe(200);
+    expect(fs.readFileSync(iniPath, "utf-8")).toBe("PVP=true\rMaxPlayers=20\nPublicName=Mine\r\nUDPPort=16262\n");
+  });
+});
+
+describe("GET /ini: what the form can't show from the values alone (GH#182 follow-up)", () => {
+  it("lists the lines that make the game ignore the whole file", async () => {
+    // 42.21's ConfigFile.read fails on "= stray" and "Version=", and the
+    // server then runs on the default of every setting.
+    fs.writeFileSync(iniPath, "PVP=false\n= stray\r\nVersion=\rMaxPlayers=16\n", "utf-8");
+
+    const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
+
+    expect(getRes.getBody().fatalLines).toEqual([2, 3]);
+  });
+
+  it("names a masked secret the game cuts at '=' without sending its value", async () => {
+    fs.writeFileSync(iniPath, "RCONPassword=abcd=efgh\nPassword=plain\nPublicName=a=b\n", "utf-8");
+
+    const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
+    const body = getRes.getBody();
+
+    expect(body.maskedCutAtEqualsKeys).toEqual(["RCONPassword"]);
+    expect(body.rawSettings.RCONPassword).toBe("••••••••efgh");
+    expect(JSON.stringify(body)).not.toContain("abcd");
+  });
+
+  it("is empty for a file the game reads whole", async () => {
+    const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
+
+    expect(getRes.getBody()).toMatchObject({ fatalLines: [], maskedCutAtEqualsKeys: [] });
   });
 });

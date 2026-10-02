@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import i18n from '@/i18n'
 import {
+  getIniMisnamedKeyFileValue,
+  getIniMisnamedKeyWarning,
+  getIniNumberStraySpaceError,
+  getIniTextCutAtEqualsWarning,
   getUnrecognizedIniBooleanWarning,
   getUnrecognizedSandboxOptionWarning,
   getSandboxOutOfRangeAllowedBody,
@@ -100,6 +104,38 @@ describe('translatedOrFallback/resolveRegisteredTranslation-backed {{placeholder
     await i18n.changeLanguage('de')
     expect(getUnrecognizedIniBooleanWarning('admin', false)).toBe('DE-PROOF aus: Wert=admin')
     expect(getUnrecognizedIniBooleanWarning('admin', true)).toBe('DE-PROOF an: Wert=admin')
+  })
+
+  it.each([
+    ['getIniMisnamedKeyWarning', () => getIniMisnamedKeyWarning('PVP␣'), 'PVP␣'],
+    ['getIniNumberStraySpaceError', () => getIniNumberStraySpaceError('[U+00A0]400'), '[U+00A0]400'],
+    ['getIniTextCutAtEqualsWarning', () => getIniTextCutAtEqualsWarning('Rules: PvP '), 'Rules: PvP '],
+    ['getIniMisnamedKeyFileValue', () => getIniMisnamedKeyFileValue('Mod1;Mod2'), 'Mod1;Mod2'],
+  ])('%s: en output has no literal {{...}} and contains the real value', async (_name, render, value) => {
+    await i18n.changeLanguage('en')
+    const result = render()
+    expect(result).not.toContain('{{')
+    expect(result).toContain(value)
+  })
+
+  it('the server.ini read warnings: a real non-English translation actually takes effect', async () => {
+    i18n.addResourceBundle(
+      'de',
+      'serverconfig',
+      {
+        iniMisnamedKeyWarning: 'DE-PROOF name={{name}}',
+        iniNumberStraySpaceError: 'DE-PROOF zahl={{value}}',
+        iniTextCutAtEqualsWarning: 'DE-PROOF text={{value}}',
+        iniMisnamedKeyFileValue: 'DE-PROOF zeile={{value}}',
+      },
+      true,
+      true,
+    )
+    await i18n.changeLanguage('de')
+    expect(getIniMisnamedKeyWarning('PVP␣')).toBe('DE-PROOF name=PVP␣')
+    expect(getIniNumberStraySpaceError('[U+00A0]400')).toBe('DE-PROOF zahl=[U+00A0]400')
+    expect(getIniTextCutAtEqualsWarning('Rules: PvP ')).toBe('DE-PROOF text=Rules: PvP ')
+    expect(getIniMisnamedKeyFileValue('My Server')).toBe('DE-PROOF zeile=My Server')
   })
 
   it('getSandboxOutOfRangeAllowedBody: en output has no literal {{settings}} and contains the real list', async () => {

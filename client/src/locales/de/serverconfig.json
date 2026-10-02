@@ -4059,5 +4059,15 @@
   "unrecognizedIniBooleanWarning": {
     "defaultOff": "Dieser Server steht aktuell auf {{value}}. Das Spiel akzeptiert diesen Wert nicht und verwendet daher „Aus“ (Standardwert), bis du die Einstellung änderst.",
     "defaultOn": "Dieser Server steht aktuell auf {{value}}. Das Spiel akzeptiert diesen Wert nicht und verwendet daher „An“ (Standardwert), bis du die Einstellung änderst."
-  }
+  },
+  "iniMisnamedKeyWarning": "Das Spiel ignoriert diese Zeile in der Datei: Es liest den Namen der Einstellung als {{name}} und verwendet daher den hier angezeigten Standardwert. Wenn du die Einstellung änderst, wird die Zeile so neu geschrieben, dass das Spiel sie liest.",
+  "iniNumberStraySpaceError": "Das Spiel kann {{value}} nicht als Zahl lesen und verwendet daher seinen Standardwert. Gib die Zahl ohne das Leerzeichen neu ein.",
+  "iniTextCutAtEqualsWarning": "Das Spiel liest diesen Wert nur bis zum ersten „=“ und verwendet daher: {{value}}",
+  "iniFatalLinesBanner": {
+    "title": "Das Spiel ignoriert diese ganze Datei und verwendet für jede Einstellung den Standardwert",
+    "desc_one": "Zeile {{lines}} beginnt mit „=“ (oder ist „Version=“ ohne Zahl), und deshalb lehnt das Spiel die Datei ab. Lösche oder korrigiere diese Zeile im Raw-Modus.",
+    "desc_other": "Die Zeilen {{lines}} beginnen mit „=“ (oder sind „Version=“ ohne Zahl), und deshalb lehnt das Spiel die Datei ab. Lösche oder korrigiere diese Zeilen im Raw-Modus."
+  },
+  "iniSecretCutAtEqualsWarning": "Das Spiel liest diesen Wert nur bis zum ersten „=“ und ignoriert den Rest. Verwende einen Wert ohne „=“.",
+  "iniMisnamedKeyFileValue": "In der Zeile in der Datei steht: {{value}}"
 }

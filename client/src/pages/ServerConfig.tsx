@@ -107,7 +107,19 @@ import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { isDeliveryStatus, resolveLuaChecksumCallout, type LuaChecksumDelivery } from '@/lib/bridgeDeliveryView'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { formatModSettingDescription, formatModSettingLabel } from '@/lib/modSettingsLabels'
-import { buildIniSavePayload, mergeIniSchemaDefaults, parsePzBoolean } from '@/lib/iniFormState'
+import {
+  buildIniSavePayload,
+  findIniFatalLines,
+  iniValueIsDefault,
+  javaTrim,
+  mergeIniSchemaDefaults,
+  parseIniNumber,
+  parsePzBoolean,
+  pzNumberHasStraySpace,
+  pzNumberText,
+  pzOptionText,
+  showIniWhitespace,
+} from '@/lib/iniFormState'
 import { EmptyState } from '@/components/EmptyState'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSocket } from '@/contexts/SocketContext'
@@ -139,6 +151,11 @@ import {
   getSandboxCategoryGroupLabel,
   getUnrecognizedSandboxOptionWarning,
   getUnrecognizedIniBooleanWarning,
+  getIniMisnamedKeyWarning,
+  getIniMisnamedKeyFileValue,
+  getIniNumberStraySpaceError,
+  getIniSecretCutAtEqualsWarning,
+  getIniTextCutAtEqualsWarning,
   getSandboxLiveRangesUnavailableTitle,
   getSandboxLiveRangesUnavailableBody,
   getSandboxOutOfRangeAllowedTitle,
@@ -347,7 +364,10 @@ const IniSettingRow = memo(({
   onChange,
   onReset,
   onBrowse,
-  allowOutOfRange
+  allowOutOfRange,
+  misnamedAs,
+  misnamedFileValue,
+  secretCutAtEquals
 }: {
   setting: IniSetting;
   value: string;
@@ -357,24 +377,87 @@ const IniSettingRow = memo(({
   onBrowse?: (key: string, extensions?: string[]) => void;
   /** Settings.tsx's range override toggle; same split as SandboxSettingRow. */
   allowOutOfRange?: boolean;
+  /**
+   * The option name the game reads on this key's line when that isn't the
+   * key ("PVP " for "PVP = true"): the game skips the line, so the row shows
+   * the default it uses instead (mergeIniSchemaDefaults) and says why.
+   */
+  misnamedAs?: string;
+  /**
+   * The value on that skipped line. A text row shows it under the warning:
+   * the field holds the default, and the first edit replaces the line.
+   */
+  misnamedFileValue?: string;
+  /**
+   * GET /ini's maskedCutAtEqualsKeys has this key: its value, which the form
+   * only has masked, holds an "=" the game stops reading at.
+   */
+  secretCutAtEquals?: boolean;
 }) => {
   const { t } = useTranslation('serverconfig')
   const isModified = originalValue !== undefined && value !== originalValue
-  const isDifferentFromDefault = setting.default !== undefined && String(value) !== String(setting.default)
+  // Against the value the game ends up with (iniValueIsDefault): "MaxPlayers= 32"
+  // or a boolean it rejects is still its default.
+  const isDifferentFromDefault = setting.default !== undefined && !iniValueIsDefault(setting, String(value ?? ''))
   const numberHasContent = setting.type === 'number' && String(value ?? '').trim() !== ''
-  const numberIsMalformed = numberHasContent && parseNumericSettingValue(value, setting, { enforceBounds: false }) === null
-  const numberOutOfRange = numberHasContent && !numberIsMalformed && parseNumericSettingValue(value, setting) === null
+  // Read as the game reads it (iniFormState.ts): " 16" is 16, but a
+  // no-break space or BOM next to the digits makes the game keep its default.
+  const numberIsMalformed = numberHasContent && parseIniNumber(value, setting, { enforceBounds: false }) === null
+  const numberOutOfRange = numberHasContent && !numberIsMalformed && parseIniNumber(value, setting) === null
   const numberIsInvalid = numberIsMalformed || (numberOutOfRange && !allowOutOfRange)
   const numberIsRangeWarning = numberOutOfRange && !!allowOutOfRange
+  const numberHasStraySpace = numberIsMalformed && pzNumberHasStraySpace(String(value ?? ''))
   // A value the file holds but this select doesn't offer (e.g.
   // BadWordPolicy=4 from before GH#182 dropped the option B42 rejects):
   // show it instead of a blank trigger, same as SandboxSettingRow. Saving
-  // never rewrites it unless the operator picks another option.
+  // never rewrites it unless the operator picks another option. The game
+  // reads these selects as numbers, so "BadWordPolicy= 2" is option 2.
+  const selectOption = setting.type === 'select'
+    ? setting.options?.find((o) => o.value === pzNumberText(String(value ?? '')))
+    : undefined
   const selectHasUnrecognizedValue =
     setting.type === 'select' &&
     !!setting.options &&
     String(value ?? '') !== '' &&
-    !setting.options.some((o) => o.value === String(value))
+    !selectOption
+  // Text settings: the game reads a value only up to its next "=", so
+  // "PublicDescription=Rules: PvP = off" shows in game as "Rules: PvP ". A
+  // masked secret ("••••••••" and its last 4 chars) is checked by GET /ini
+  // instead (secretCutAtEquals), and its warning names no part of it: an
+  // RCONPassword with an "=" is cut by the game, and RCON login then fails.
+  const isTextSetting = setting.type === 'string' || setting.type === 'multiline' || setting.type === 'filepath'
+  const textValue = String(value ?? '')
+  const textIsMaskedSecret = textValue.startsWith('••••••••')
+  let textCutMessage: string | null = null
+  if (isTextSetting && textIsMaskedSecret) {
+    if (secretCutAtEquals) textCutMessage = getIniSecretCutAtEqualsWarning()
+  } else if (isTextSetting && textValue.includes('=')) {
+    textCutMessage = getIniTextCutAtEqualsWarning(pzOptionText(textValue))
+  }
+  const textCutWarning = textCutMessage ? (
+    <div className="flex items-start gap-1.5 mt-1.5 text-xs text-warning">
+      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+      <span>{textCutMessage}</span>
+    </div>
+  ) : null
+  // What a skipped line holds, on a text row (never a masked secret's mask).
+  const misnamedFileText = isTextSetting && misnamedFileValue && !misnamedFileValue.startsWith('••••••••')
+    ? javaTrim(misnamedFileValue)
+    : ''
+  // A legacy (Build 41-only) row keeps the file's value under its Legacy
+  // badge (mergeIniSchemaDefaults fills no default for it), and B42 has no
+  // such option to skip, so it gets no warning.
+  const misnamedWarning = misnamedAs !== undefined && !setting.legacy ? (
+    <div className="flex items-start gap-1.5 text-xs text-warning">
+      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+      <div className="min-w-0">
+        <p>{getIniMisnamedKeyWarning(showIniWhitespace(misnamedAs))}</p>
+        {misnamedFileText && (
+          <p className="mt-1 break-words" dir="auto">{getIniMisnamedKeyFileValue(misnamedFileText)}</p>
+        )}
+      </div>
+    </div>
+  ) : null
   // The boolean twin: a value PZ's boolean parser rejects (B41's
   // SteamScoreboard=admin) leaves the game on the option's default, so the
   // switch shows that default and the row says the game does not accept the
@@ -403,17 +486,21 @@ const IniSettingRow = memo(({
             </Button>
           )}
         </div>
-        <Textarea
-          value={value}
-          onChange={(e) => onChange(setting.key, e.target.value)}
-          className={`min-h-[80px] resize-y ${isModified ? 'border-warning/40' : ''}`}
-        />
+        <div>
+          <Textarea
+            value={value}
+            onChange={(e) => onChange(setting.key, e.target.value)}
+            className={`min-h-[80px] resize-y ${isModified ? 'border-warning/40' : ''}`}
+          />
+          {textCutWarning}
+        </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <code className="bg-muted px-1 rounded">{setting.key}</code>
           {setting.default !== undefined && (
             <span className={isDifferentFromDefault ? 'text-warning' : ''}>{t('row.defaultValue', { value: formatRawConfigValue(setting.default) })}</span>
           )}
         </div>
+        {misnamedWarning}
       </div>
     )
   }
@@ -463,13 +550,13 @@ const IniSettingRow = memo(({
                 {booleanHasUnrecognizedValue && (
                   <div className="flex items-start gap-1.5 mt-1.5 text-xs text-warning">
                     <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                    <span>{getUnrecognizedIniBooleanWarning(booleanText, booleanDefaultOn)}</span>
+                    <span>{getUnrecognizedIniBooleanWarning(showIniWhitespace(booleanText), booleanDefaultOn)}</span>
                   </div>
                 )}
               </div>
             ) : setting.type === 'select' && setting.options ? (
               <div>
-                <Select value={String(value)} onValueChange={(val) => onChange(setting.key, val)}>
+                <Select value={selectOption?.value ?? String(value)} onValueChange={(val) => onChange(setting.key, val)}>
                   <SelectTrigger className={selectHasUnrecognizedValue ? 'border-warning/60' : ''}>
                     <SelectValue />
                   </SelectTrigger>
@@ -521,6 +608,12 @@ const IniSettingRow = memo(({
                       : t('row.rangeMax', { max: setting.max })}
                   </div>
                 )}
+                {numberHasStraySpace && (
+                  <div className="flex items-start gap-1.5 mt-1.5 text-xs text-destructive">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span>{getIniNumberStraySpaceError(showIniWhitespace(pzOptionText(String(value))))}</span>
+                  </div>
+                )}
               </div>
             ) : setting.type === 'filepath' ? (
               <div className="flex flex-col gap-1.5">
@@ -564,14 +657,18 @@ const IniSettingRow = memo(({
                     />
                   </div>
                 )}
+                {textCutWarning}
               </div>
             ) : (
-              <Input
-                value={String(value)}
-                onChange={(e) => onChange(setting.key, e.target.value)}
-                className={isModified ? 'border-warning/40' : ''}
-                maxLength={512}
-              />
+              <div>
+                <Input
+                  value={String(value)}
+                  onChange={(e) => onChange(setting.key, e.target.value)}
+                  className={isModified ? 'border-warning/40' : ''}
+                  maxLength={512}
+                />
+                {textCutWarning}
+              </div>
             )}
           </div>
         </div>
@@ -582,10 +679,11 @@ const IniSettingRow = memo(({
           <span className={isDifferentFromDefault ? 'text-warning' : ''}>{t('row.defaultValue', { value: formatRawConfigValue(setting.default) })}</span>
         )}
       </div>
+      {misnamedWarning}
     </div>
   )
 }, (prev, next) => {
-  return prev.value === next.value && prev.setting === next.setting && prev.originalValue === next.originalValue && prev.onBrowse === next.onBrowse && prev.allowOutOfRange === next.allowOutOfRange
+  return prev.value === next.value && prev.setting === next.setting && prev.originalValue === next.originalValue && prev.onBrowse === next.onBrowse && prev.allowOutOfRange === next.allowOutOfRange && prev.misnamedAs === next.misnamedAs && prev.misnamedFileValue === next.misnamedFileValue && prev.secretCutAtEquals === next.secretCutAtEquals
 })
 IniSettingRow.displayName = 'IniSettingRow'
 
@@ -1067,6 +1165,16 @@ export default function ServerConfig() {
   // value from the file (mergeIniSchemaDefaults); buildIniSavePayload leaves
   // them out of a save unless the operator changed them.
   const [iniDefaultedKeys, setIniDefaultedKeys] = useState<ReadonlySet<string>>(() => new Set())
+  // GET /ini's misnamedKeys: keys whose line the game skips ("PVP = true"),
+  // each mapped to the option name the game reads there. Their rows say so.
+  const [iniMisnamedKeys, setIniMisnamedKeys] = useState<Readonly<Record<string, string>>>({})
+  // The value on each of those skipped lines (rawSettings); text rows show it.
+  const [iniMisnamedValues, setIniMisnamedValues] = useState<Readonly<Record<string, string>>>({})
+  // GET /ini's fatalLines: lines that make the game ignore the whole file
+  // ("= x"), so the server runs on every default. A banner names them.
+  const [iniFatalLines, setIniFatalLines] = useState<readonly number[]>([])
+  // GET /ini's maskedCutAtEqualsKeys: masked secrets the game cuts at an "=".
+  const [iniMaskedCutAtEqualsKeys, setIniMaskedCutAtEqualsKeys] = useState<readonly string[]>([])
   const [originalSandboxData, setOriginalSandboxData] = useState<SandboxData | null>(null)
   const [originalRawContent, setOriginalRawContent] = useState('')
 
@@ -1116,7 +1224,7 @@ export default function ServerConfig() {
       if (setting.type !== 'number') return false
       const value = iniSettings[setting.key]
       return String(value ?? '').trim() !== '' &&
-        parseNumericSettingValue(value, setting, { enforceBounds: !allowOutOfRangeSandbox }) === null
+        parseIniNumber(value, setting, { enforceBounds: !allowOutOfRangeSandbox }) === null
     }),
     [iniSettings, allowOutOfRangeSandbox],
   )
@@ -1127,8 +1235,8 @@ export default function ServerConfig() {
       if (setting.type !== 'number') return false
       const value = iniSettings[setting.key]
       if (String(value ?? '').trim() === '') return false
-      return parseNumericSettingValue(value, setting, { enforceBounds: false }) !== null &&
-        parseNumericSettingValue(value, setting) === null
+      return parseIniNumber(value, setting, { enforceBounds: false }) !== null &&
+        parseIniNumber(value, setting) === null
     })
   }, [iniSettings, allowOutOfRangeSandbox])
 
@@ -1360,6 +1468,23 @@ export default function ServerConfig() {
     }
   }
 
+  // A GET /server-files/ini answer into the INI form's state: on load, and
+  // again after a structured save.
+  const applyIniData = (iniData: Awaited<ReturnType<typeof serverFilesApi.getIni>>) => {
+    // rawSettings: each value as the game reads it (see iniFormState.ts).
+    const fileSettings = iniData.rawSettings ?? iniData.settings
+    const misnamedKeys = iniData.misnamedKeys ?? {}
+    const loaded = mergeIniSchemaDefaults(fileSettings, misnamedKeys)
+    setIniSettings(loaded.settings)
+    setOriginalIniSettings(loaded.settings)
+    setIniDefaultedKeys(loaded.defaultedKeys)
+    setIniMisnamedKeys(misnamedKeys)
+    setIniMisnamedValues(Object.fromEntries(Object.keys(misnamedKeys).map((key) => [key, fileSettings[key] ?? ''])))
+    setIniFatalLines(iniData.fatalLines ?? [])
+    setIniMaskedCutAtEqualsKeys(iniData.maskedCutAtEqualsKeys ?? [])
+    setDuplicateKeys(iniData.duplicateKeys || [])
+  }
+
   // 2026-09-08 (retry-stacking sweep, page 5 of 5): `manual` distinguishes
   // this page's THREE human-initiated triggers (two Retry buttons on the
   // error/server-changed banners, plus the page header's own Refresh
@@ -1383,12 +1508,7 @@ export default function ServerConfig() {
 
       // Load files that exist
       if (paths.exists.ini) {
-        const iniData = await serverFilesApi.getIni(retries)
-        const loaded = mergeIniSchemaDefaults(iniData.settings)
-        setIniSettings(loaded.settings)
-        setOriginalIniSettings(loaded.settings)
-        setIniDefaultedKeys(loaded.defaultedKeys)
-        setDuplicateKeys(iniData.duplicateKeys || [])
+        applyIniData(await serverFilesApi.getIni(retries))
       }
 
       const sandboxRes = paths.exists.sandbox
@@ -1500,6 +1620,14 @@ export default function ServerConfig() {
   }
 
   const luaChecksumCallout = resolveLuaChecksumCallout(bridgeDelivery, iniSettings['DoLuaChecksum'])
+
+  // The server.ini lines that make the game ignore the whole file: GET
+  // /ini's fatalLines, or, while the INI tab's raw editor is open, the text
+  // being edited, read the same way as the operator types.
+  const shownIniFatalLines = useMemo(
+    () => (activeTab === 'ini' && editorMode === 'raw' ? findIniFatalLines(rawContent) : iniFatalLines),
+    [activeTab, editorMode, rawContent, iniFatalLines],
+  )
 
   // Check for unsaved changes
   const hasIniChanges = useMemo(() => {
@@ -1935,6 +2063,8 @@ export default function ServerConfig() {
         await serverFilesApi.saveIni(payload)
         setOriginalIniSettings({ ...iniSettings })
         setIniDefaultedKeys(new Set([...iniDefaultedKeys].filter(key => !(key in payload))))
+        // PUT /ini rewrote every sent key's line as Key=value.
+        setIniMisnamedKeys(Object.fromEntries(Object.entries(iniMisnamedKeys).filter(([key]) => !(key in payload))))
       }
 
       // Try to reload via RCON, but don't fail if RCON is not connected
@@ -1951,11 +2081,7 @@ export default function ServerConfig() {
         if (editorMode === 'raw') {
           loadData()
         } else {
-          const iniData = await serverFilesApi.getIni()
-          const loaded = mergeIniSchemaDefaults(iniData.settings)
-          setIniSettings(loaded.settings)
-          setOriginalIniSettings(loaded.settings)
-          setIniDefaultedKeys(loaded.defaultedKeys)
+          applyIniData(await serverFilesApi.getIni())
         }
       } catch { /* silent refresh — local state is still valid */ }
     } catch (error) {
@@ -2140,11 +2266,12 @@ export default function ServerConfig() {
     return curr !== orig && orig !== undefined
   }, [iniSettings, originalIniSettings])
 
+  // Against the value the game ends up with, as the row's default highlight.
   const isIniNonDefault = useCallback((s: IniSetting) => {
     if (s.defaultComparable === false) return false
     const curr = iniSettings[s.key]
     if (curr === undefined) return false
-    return String(curr) !== String(s.default ?? '')
+    return !iniValueIsDefault(s, String(curr))
   }, [iniSettings])
 
   const isSandboxModified = useCallback((s: SandboxSetting) => {
@@ -2708,6 +2835,22 @@ export default function ServerConfig() {
         </div>
       )}
 
+      {/* A server.ini line the game can't make an option of ("= x",
+          "Version=") makes it ignore the WHOLE file: ServerOptions applies
+          nothing from it, so the server runs on the default of every setting
+          and every value this page shows is moot. The form can't show such a
+          line, so the banner names it for the raw editor
+          (server/utils/iniGameView.js findIniFatalLines). */}
+      {shownIniFatalLines.length > 0 && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>{t('iniFatalLinesBanner.title')}</AlertTitle>
+          <AlertDescription>
+            {t('iniFatalLinesBanner.desc', { count: shownIniFatalLines.length, lines: shownIniFatalLines.join(listSep) })}
+          </AlertDescription>
+        </Alert>
+      )}
+
       {serverChangedSinceLoad && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
@@ -3211,6 +3354,9 @@ export default function ServerConfig() {
                                   onReset={resetIniValue}
                                   onBrowse={openFileBrowser}
                                   allowOutOfRange={allowOutOfRangeSandbox}
+                                  misnamedAs={iniMisnamedKeys[setting.key]}
+                                  misnamedFileValue={iniMisnamedValues[setting.key]}
+                                  secretCutAtEquals={iniMaskedCutAtEqualsKeys.includes(setting.key)}
                                 />
                               ))}
                             </div>
@@ -3423,6 +3569,9 @@ export default function ServerConfig() {
                                     onReset={resetIniValue}
                                     onBrowse={openFileBrowser}
                                     allowOutOfRange={allowOutOfRangeSandbox}
+                                    misnamedAs={iniMisnamedKeys[setting.key]}
+                                    misnamedFileValue={iniMisnamedValues[setting.key]}
+                                    secretCutAtEquals={iniMaskedCutAtEqualsKeys.includes(setting.key)}
                                   />
                                 ))}
                               </div>

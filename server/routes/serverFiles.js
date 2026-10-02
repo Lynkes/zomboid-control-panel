@@ -24,6 +24,14 @@ import {
 } from "../utils/configBackup.js";
 import { escapeRegExp } from "../utils/regex.js";
 import { findDuplicateIniKeys } from "../utils/iniDuplicateKeys.js";
+import {
+  findIniFatalLines,
+  iniValueChanges,
+  javaTrimEnd,
+  javaTrimStart,
+  parseIniAsGame,
+  readIniLineAsGame,
+} from "../utils/iniGameView.js";
 import { confineToRoots } from "../utils/browseRoots.js";
 import {
   SFTP_CONFIG_PATH_KEY,
@@ -707,8 +715,16 @@ export function toIni(obj, originalContent = "") {
     // difference from the file's own prior state on every save, and the
     // asymmetry with mods.js's sibling writer on the SAME file is exactly
     // the shape worth closing rather than leaving to chance.
+    //
+    // Lines are split where the game splits them (BufferedReader.readLine:
+    // "\r\n", "\n" or a lone "\r", see iniGameView.js), and each keeps its
+    // own end. Splitting on "\n" alone took "A=1\rB=2", two options to the
+    // game, for one line and rewrote it on an unrelated save as "A=1B=2".
+    // A line this appends ends with the file's own style.
     const lineEnding = originalContent.includes("\r\n") ? "\r\n" : "\n";
-    const lines = originalContent.split(/\r?\n/);
+    const pieces = originalContent.split(/(\r\n|\r|\n)/);
+    const lines = pieces.filter((_, index) => index % 2 === 0);
+    const lineEnds = pieces.filter((_, index) => index % 2 === 1);
     const result = [];
     const written = new Set();
 
@@ -725,22 +741,26 @@ export function toIni(obj, originalContent = "") {
         if (key in obj) {
           // Strip newlines from values to prevent INI injection
           const safeValue = String(obj[key]).replace(/[\r\n]/g, "");
-          // Rewrite only the value token, keeping the line's own leading
-          // indentation, key spelling, and whitespace around "=" exactly as
-          // written -- the submitted settings object always contains every
-          // key GET returned (the client resends the whole thing on every
-          // save), so this branch runs for every unchanged line too. A
-          // hardcoded "key=value" rebuild here silently strips any spacing
-          // an operator's hand-edited file had (e.g. "PVP = true") the first
-          // time ANY field is saved from the structured editor -- same shape
-          // as the CRLF bug (573f63fd), one level down.
+          // A submitted value is the exact text that goes after "=" -- GET
+          // /ini's rawSettings, not parseIni()'s trimmed one. The form sends
+          // every key the file has on every save, so a line whose value and
+          // key the game already reads as submitted stays byte-for-byte
+          // (its indentation, and a value like " true" that the game rejects
+          // but the operator didn't touch). Any other line is
+          // rewritten as `Key=value`, keeping only its indentation: the game
+          // reads no whitespace around "=" as part of the key or the value,
+          // so re-adding the old line's " " here (as this used to) wrote
+          // "Public= true" again when the operator switched Public on, and
+          // "PVP = false" for a line the game skips. iniGameView.js has the
+          // details; iniValueChanges() is the same test per key.
           const lineEqIndex = line.indexOf("=");
-          const afterEq = line.slice(lineEqIndex + 1);
-          const valueMatch = afterEq.match(/^(\s*)([\s\S]*?)(\s*)$/);
-          const [, leadingWs, , trailingWs] = valueMatch;
-          result.push(
-            `${line.slice(0, lineEqIndex + 1)}${leadingWs}${safeValue}${trailingWs}`,
-          );
+          const current = readIniLineAsGame(line, lineEqIndex);
+          if (current.gameName === key && current.value === safeValue) {
+            result.push(line);
+          } else {
+            const indent = line.slice(0, line.length - javaTrimStart(line).length);
+            result.push(`${indent}${key}=${safeValue}`);
+          }
           written.add(key);
         } else {
           result.push(line);
@@ -765,7 +785,12 @@ export function toIni(obj, originalContent = "") {
       }
     }
 
-    return result.join(lineEnding);
+    // result holds one entry per original line, in order, then the appended
+    // ones: original line i keeps lineEnds[i]; the last original line (which
+    // had no end) and the appended lines are joined with lineEnding.
+    return result
+      .map((line, index) => (index === 0 ? line : `${lineEnds[index - 1] ?? lineEnding}${line}`))
+      .join("");
   }
 
   // Generate from scratch
@@ -1446,8 +1471,30 @@ router.get("/ini", async (req, res) => {
     // when the key is ABSENT from the submitted settings, not when it's
     // present-but-blank. Omitting here would make every unrelated field
     // edit look like "delete the RCON password" once it reached PUT.
+    //
+    // `settings` stays parseIni()'s trimmed reading for its other reader
+    // (CreateTemplateDialog's capture). The Server Settings
+    // form edits `rawSettings` instead: the same keys with each value as the
+    // game reads it (" true" stays " true"), plus `misnamedKeys` for the
+    // lines the game skips ("Public = true"). It sends those raw values back,
+    // which is what lets toIni() keep an untouched line byte-for-byte.
+    //
+    // `fatalLines`: the lines that make the game ignore the whole file and
+    // run on every default ("= x", see findIniFatalLines); the form can't
+    // show them, so it says so and points at the raw editor.
+    // `maskedCutAtEqualsKeys`: the masked secrets whose value has an "=",
+    // which the game cuts there (an RCONPassword "ab=cd" is "ab" to it). The
+    // form warns from the value itself for every other key; for these it
+    // only has the mask, so it gets the key and never the value.
+    const gameView = parseIniAsGame(content);
     res.json({
       settings: maskSensitiveObject(parsed),
+      rawSettings: maskSensitiveObject(gameView.values),
+      misnamedKeys: gameView.misnamed,
+      fatalLines: findIniFatalLines(content),
+      maskedCutAtEqualsKeys: Object.keys(gameView.values).filter(
+        (key) => SENSITIVE_FIELD_RE.test(key) && gameView.values[key].includes("="),
+      ),
       path: filePath,
       serverName,
       duplicateKeys,
@@ -1537,18 +1584,22 @@ router.put("/ini", async (req, res) => {
     // Angela hit in this same editor for the RCON-masking fix above), so
     // gating on mere presence would refuse every non-admin save that
     // touches this tab at all. Compared against the file's own CURRENT
-    // value, never GET's masked response.
+    // value, never GET's masked response -- and as the game reads it, the
+    // same test toIni() uses to decide whether it rewrites the line, so a
+    // line it would rewrite (even "RCONPort =27015" to "RCONPort=27015",
+    // which the game then reads for the first time) always needs the
+    // capability.
     const touchesGovernedIniKey = Object.keys(submittedSettings).some(
       (key) => key in INI_KEY_CAPABILITY,
     );
     if (touchesGovernedIniKey) {
-      const currentIni = parseIni(currentIniContent);
+      const currentIni = parseIniAsGame(currentIniContent);
       const missingCapabilities = [];
       let callerCapabilities = null;
       for (const [key, value] of Object.entries(submittedSettings)) {
         const requiredCapability = INI_KEY_CAPABILITY[key];
         if (!requiredCapability) continue;
-        if (String(currentIni[key] ?? "") === String(value ?? "")) continue;
+        if (!iniValueChanges(currentIni, key, value)) continue;
         if (callerCapabilities === null) {
           const role = req.user ? await getRoleByName(req.user.role) : null;
           callerCapabilities = Array.isArray(role?.capabilities) ? role.capabilities : [];
@@ -1580,16 +1631,25 @@ router.put("/ini", async (req, res) => {
 
       const content = toIni(submittedSettings, originalContent);
       writeFileAtomic(filePath, content, "utf-8");
-      const persisted = parseIni(fs.readFileSync(filePath, "utf-8"));
-      const original = parseIni(originalContent);
+      const persistedContent = fs.readFileSync(filePath, "utf-8");
+      // Verified as the game will read it: the key's line is one the game
+      // reads under that name, holding the submitted text (less what the
+      // game's line trim drops from its end).
+      const persisted = parseIniAsGame(persistedContent);
+      const original = parseIniAsGame(originalContent).values;
       for (const [key, value] of Object.entries(submittedSettings)) {
         const isExistingKey = Object.prototype.hasOwnProperty.call(original, key);
         const isNewNonEmptyKey = value !== "" && value !== null && value !== undefined;
-        if ((isExistingKey || isNewNonEmptyKey) && persisted[key] !== String(value).replace(/[\r\n]/g, "")) {
+        const expected = javaTrimEnd(String(value).replace(/[\r\n]/g, ""));
+        if (
+          (isExistingKey || isNewNonEmptyKey) &&
+          (persisted.values[key] !== expected ||
+            Object.prototype.hasOwnProperty.call(persisted.misnamed, key))
+        ) {
           throw new Error(`INI write verification failed for ${key}`);
         }
       }
-      return persisted;
+      return parseIni(persistedContent);
     });
 
     log.info("Saved INI file");

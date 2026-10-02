@@ -4059,5 +4059,14 @@
   "unrecognizedIniBooleanWarning": {
     "defaultOff": "此伺服器目前設定為 {{value}}，遊戲不接受此值，因此在你變更此項之前會使用「關」（預設值）。",
     "defaultOn": "此伺服器目前設定為 {{value}}，遊戲不接受此值，因此在你變更此項之前會使用「開」（預設值）。"
-  }
+  },
+  "iniMisnamedKeyWarning": "遊戲會忽略檔案中的這一行：它把此項的名稱讀作 {{name}}，因此使用此處顯示的預設值。變更此項會重寫該行，讓遊戲能夠讀取。",
+  "iniNumberStraySpaceError": "遊戲無法將 {{value}} 讀取為數字，因此使用其預設值。請重新輸入該數字，不要帶空格。",
+  "iniTextCutAtEqualsWarning": "遊戲只讀取此值第一個「=」之前的內容，因此使用：{{value}}",
+  "iniFatalLinesBanner": {
+    "title": "遊戲會忽略整個檔案，所有設定都使用預設值",
+    "desc_other": "第 {{lines}} 行以「=」開頭（或是沒有數字的「Version=」），遊戲因此拒絕讀取該檔案。請在「原始」模式下刪除或修正對應的行。"
+  },
+  "iniSecretCutAtEqualsWarning": "遊戲只讀取此值第一個「=」之前的內容，其餘部分會被忽略。請使用不含「=」的值。",
+  "iniMisnamedKeyFileValue": "檔案中該行的內容為：{{value}}"
 }

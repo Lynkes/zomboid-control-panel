@@ -12,6 +12,7 @@ import {
   type DeliveryStep,
   type DeliveryWarning,
 } from './bridgeDeliveryTypes'
+import { parsePzBoolean } from './pzIniRead'
 
 // Maps the server-computed PanelBridge delivery status (GET
 // /panel-bridge/delivery) to copy keys and actions. Nothing here re-derives
@@ -528,12 +529,14 @@ export interface LuaChecksumDelivery {
 // server does (server/utils/bridgeIni.js getEffectiveChecksum, after 42.20's
 // BooleanConfigOption): "false"/"0" (any case) turn it off; "true"/"1" turn
 // it on, and anything else is ignored and leaves the game's default, which
-// is on. `undefined` (the key isn't in the editor) claims nothing here, so
-// no callout appears for a file that hasn't loaded.
+// is on. The editor holds the value as the game reads it, untrimmed (GET
+// /server-files/ini rawSettings), so "DoLuaChecksum= false" is on here as in
+// the game, and the INI tab's switch reads it with the same parsePzBoolean.
+// `undefined` (the key isn't in the editor) claims nothing here, so no
+// callout appears for a file that hasn't loaded.
 function editorChecksumOn(editorValue: string | undefined): boolean {
   if (editorValue === undefined) return false
-  const value = editorValue.trim().toLowerCase()
-  return value !== 'false' && value !== '0'
+  return parsePzBoolean(editorValue) ?? true
 }
 
 export function resolveLuaChecksumCallout(
