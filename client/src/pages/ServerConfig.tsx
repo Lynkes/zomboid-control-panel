@@ -107,7 +107,16 @@ import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { isDeliveryStatus, resolveLuaChecksumCallout, type LuaChecksumDelivery } from '@/lib/bridgeDeliveryView'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { formatModSettingDescription, formatModSettingLabel } from '@/lib/modSettingsLabels'
-import { buildIniSavePayload, mergeIniSchemaDefaults, parsePzBoolean } from '@/lib/iniFormState'
+import {
+  buildIniSavePayload,
+  mergeIniSchemaDefaults,
+  parseIniNumber,
+  parsePzBoolean,
+  pzNumberHasStraySpace,
+  pzNumberText,
+  pzOptionText,
+  showIniWhitespace,
+} from '@/lib/iniFormState'
 import { EmptyState } from '@/components/EmptyState'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSocket } from '@/contexts/SocketContext'
@@ -139,6 +148,9 @@ import {
   getSandboxCategoryGroupLabel,
   getUnrecognizedSandboxOptionWarning,
   getUnrecognizedIniBooleanWarning,
+  getIniMisnamedKeyWarning,
+  getIniNumberStraySpaceError,
+  getIniTextCutAtEqualsWarning,
   getSandboxLiveRangesUnavailableTitle,
   getSandboxLiveRangesUnavailableBody,
   getSandboxOutOfRangeAllowedTitle,
@@ -347,7 +359,8 @@ const IniSettingRow = memo(({
   onChange,
   onReset,
   onBrowse,
-  allowOutOfRange
+  allowOutOfRange,
+  misnamedAs
 }: {
   setting: IniSetting;
   value: string;
@@ -357,24 +370,54 @@ const IniSettingRow = memo(({
   onBrowse?: (key: string, extensions?: string[]) => void;
   /** Settings.tsx's range override toggle; same split as SandboxSettingRow. */
   allowOutOfRange?: boolean;
+  /**
+   * The option name the game reads on this key's line when that isn't the
+   * key ("PVP " for "PVP = true"): the game skips the line, so the row shows
+   * the default it uses instead (mergeIniSchemaDefaults) and says why.
+   */
+  misnamedAs?: string;
 }) => {
   const { t } = useTranslation('serverconfig')
   const isModified = originalValue !== undefined && value !== originalValue
   const isDifferentFromDefault = setting.default !== undefined && String(value) !== String(setting.default)
   const numberHasContent = setting.type === 'number' && String(value ?? '').trim() !== ''
-  const numberIsMalformed = numberHasContent && parseNumericSettingValue(value, setting, { enforceBounds: false }) === null
-  const numberOutOfRange = numberHasContent && !numberIsMalformed && parseNumericSettingValue(value, setting) === null
+  // Read as the game reads it (iniFormState.ts): " 16" is 16, but a
+  // no-break space or BOM next to the digits makes the game keep its default.
+  const numberIsMalformed = numberHasContent && parseIniNumber(value, setting, { enforceBounds: false }) === null
+  const numberOutOfRange = numberHasContent && !numberIsMalformed && parseIniNumber(value, setting) === null
   const numberIsInvalid = numberIsMalformed || (numberOutOfRange && !allowOutOfRange)
   const numberIsRangeWarning = numberOutOfRange && !!allowOutOfRange
+  const numberHasStraySpace = numberIsMalformed && pzNumberHasStraySpace(String(value ?? ''))
   // A value the file holds but this select doesn't offer (e.g.
   // BadWordPolicy=4 from before GH#182 dropped the option B42 rejects):
   // show it instead of a blank trigger, same as SandboxSettingRow. Saving
-  // never rewrites it unless the operator picks another option.
+  // never rewrites it unless the operator picks another option. The game
+  // reads these selects as numbers, so "BadWordPolicy= 2" is option 2.
+  const selectOption = setting.type === 'select'
+    ? setting.options?.find((o) => o.value === pzNumberText(String(value ?? '')))
+    : undefined
   const selectHasUnrecognizedValue =
     setting.type === 'select' &&
     !!setting.options &&
     String(value ?? '') !== '' &&
-    !setting.options.some((o) => o.value === String(value))
+    !selectOption
+  // Text settings: the game reads a value only up to its next "=", so
+  // "PublicDescription=Rules: PvP = off" shows in game as "Rules: PvP ".
+  // Skipped for a masked secret: the mask hides most of the value.
+  const isTextSetting = setting.type === 'string' || setting.type === 'multiline' || setting.type === 'filepath'
+  const textIsCutAtEquals = isTextSetting && String(value ?? '').includes('=') && !String(value).startsWith('••••••••')
+  const textCutWarning = textIsCutAtEquals ? (
+    <div className="flex items-start gap-1.5 mt-1.5 text-xs text-warning">
+      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+      <span>{getIniTextCutAtEqualsWarning(pzOptionText(String(value)))}</span>
+    </div>
+  ) : null
+  const misnamedWarning = misnamedAs !== undefined ? (
+    <div className="flex items-start gap-1.5 text-xs text-warning">
+      <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+      <span>{getIniMisnamedKeyWarning(showIniWhitespace(misnamedAs))}</span>
+    </div>
+  ) : null
   // The boolean twin: a value PZ's boolean parser rejects (B41's
   // SteamScoreboard=admin) leaves the game on the option's default, so the
   // switch shows that default and the row says the game does not accept the
@@ -403,17 +446,21 @@ const IniSettingRow = memo(({
             </Button>
           )}
         </div>
-        <Textarea
-          value={value}
-          onChange={(e) => onChange(setting.key, e.target.value)}
-          className={`min-h-[80px] resize-y ${isModified ? 'border-warning/40' : ''}`}
-        />
+        <div>
+          <Textarea
+            value={value}
+            onChange={(e) => onChange(setting.key, e.target.value)}
+            className={`min-h-[80px] resize-y ${isModified ? 'border-warning/40' : ''}`}
+          />
+          {textCutWarning}
+        </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <code className="bg-muted px-1 rounded">{setting.key}</code>
           {setting.default !== undefined && (
             <span className={isDifferentFromDefault ? 'text-warning' : ''}>{t('row.defaultValue', { value: formatRawConfigValue(setting.default) })}</span>
           )}
         </div>
+        {misnamedWarning}
       </div>
     )
   }
@@ -463,13 +510,13 @@ const IniSettingRow = memo(({
                 {booleanHasUnrecognizedValue && (
                   <div className="flex items-start gap-1.5 mt-1.5 text-xs text-warning">
                     <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                    <span>{getUnrecognizedIniBooleanWarning(booleanText, booleanDefaultOn)}</span>
+                    <span>{getUnrecognizedIniBooleanWarning(showIniWhitespace(booleanText), booleanDefaultOn)}</span>
                   </div>
                 )}
               </div>
             ) : setting.type === 'select' && setting.options ? (
               <div>
-                <Select value={String(value)} onValueChange={(val) => onChange(setting.key, val)}>
+                <Select value={selectOption?.value ?? String(value)} onValueChange={(val) => onChange(setting.key, val)}>
                   <SelectTrigger className={selectHasUnrecognizedValue ? 'border-warning/60' : ''}>
                     <SelectValue />
                   </SelectTrigger>
@@ -521,6 +568,12 @@ const IniSettingRow = memo(({
                       : t('row.rangeMax', { max: setting.max })}
                   </div>
                 )}
+                {numberHasStraySpace && (
+                  <div className="flex items-start gap-1.5 mt-1.5 text-xs text-destructive">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span>{getIniNumberStraySpaceError(showIniWhitespace(pzOptionText(String(value))))}</span>
+                  </div>
+                )}
               </div>
             ) : setting.type === 'filepath' ? (
               <div className="flex flex-col gap-1.5">
@@ -564,14 +617,18 @@ const IniSettingRow = memo(({
                     />
                   </div>
                 )}
+                {textCutWarning}
               </div>
             ) : (
-              <Input
-                value={String(value)}
-                onChange={(e) => onChange(setting.key, e.target.value)}
-                className={isModified ? 'border-warning/40' : ''}
-                maxLength={512}
-              />
+              <div>
+                <Input
+                  value={String(value)}
+                  onChange={(e) => onChange(setting.key, e.target.value)}
+                  className={isModified ? 'border-warning/40' : ''}
+                  maxLength={512}
+                />
+                {textCutWarning}
+              </div>
             )}
           </div>
         </div>
@@ -582,10 +639,11 @@ const IniSettingRow = memo(({
           <span className={isDifferentFromDefault ? 'text-warning' : ''}>{t('row.defaultValue', { value: formatRawConfigValue(setting.default) })}</span>
         )}
       </div>
+      {misnamedWarning}
     </div>
   )
 }, (prev, next) => {
-  return prev.value === next.value && prev.setting === next.setting && prev.originalValue === next.originalValue && prev.onBrowse === next.onBrowse && prev.allowOutOfRange === next.allowOutOfRange
+  return prev.value === next.value && prev.setting === next.setting && prev.originalValue === next.originalValue && prev.onBrowse === next.onBrowse && prev.allowOutOfRange === next.allowOutOfRange && prev.misnamedAs === next.misnamedAs
 })
 IniSettingRow.displayName = 'IniSettingRow'
 
@@ -1067,6 +1125,9 @@ export default function ServerConfig() {
   // value from the file (mergeIniSchemaDefaults); buildIniSavePayload leaves
   // them out of a save unless the operator changed them.
   const [iniDefaultedKeys, setIniDefaultedKeys] = useState<ReadonlySet<string>>(() => new Set())
+  // GET /ini's misnamedKeys: keys whose line the game skips ("PVP = true"),
+  // each mapped to the option name the game reads there. Their rows say so.
+  const [iniMisnamedKeys, setIniMisnamedKeys] = useState<Readonly<Record<string, string>>>({})
   const [originalSandboxData, setOriginalSandboxData] = useState<SandboxData | null>(null)
   const [originalRawContent, setOriginalRawContent] = useState('')
 
@@ -1116,7 +1177,7 @@ export default function ServerConfig() {
       if (setting.type !== 'number') return false
       const value = iniSettings[setting.key]
       return String(value ?? '').trim() !== '' &&
-        parseNumericSettingValue(value, setting, { enforceBounds: !allowOutOfRangeSandbox }) === null
+        parseIniNumber(value, setting, { enforceBounds: !allowOutOfRangeSandbox }) === null
     }),
     [iniSettings, allowOutOfRangeSandbox],
   )
@@ -1127,8 +1188,8 @@ export default function ServerConfig() {
       if (setting.type !== 'number') return false
       const value = iniSettings[setting.key]
       if (String(value ?? '').trim() === '') return false
-      return parseNumericSettingValue(value, setting, { enforceBounds: false }) !== null &&
-        parseNumericSettingValue(value, setting) === null
+      return parseIniNumber(value, setting, { enforceBounds: false }) !== null &&
+        parseIniNumber(value, setting) === null
     })
   }, [iniSettings, allowOutOfRangeSandbox])
 
@@ -1384,10 +1445,12 @@ export default function ServerConfig() {
       // Load files that exist
       if (paths.exists.ini) {
         const iniData = await serverFilesApi.getIni(retries)
-        const loaded = mergeIniSchemaDefaults(iniData.settings)
+        // rawSettings: each value as the game reads it (see iniFormState.ts).
+        const loaded = mergeIniSchemaDefaults(iniData.rawSettings ?? iniData.settings, iniData.misnamedKeys)
         setIniSettings(loaded.settings)
         setOriginalIniSettings(loaded.settings)
         setIniDefaultedKeys(loaded.defaultedKeys)
+        setIniMisnamedKeys(iniData.misnamedKeys ?? {})
         setDuplicateKeys(iniData.duplicateKeys || [])
       }
 
@@ -1935,6 +1998,8 @@ export default function ServerConfig() {
         await serverFilesApi.saveIni(payload)
         setOriginalIniSettings({ ...iniSettings })
         setIniDefaultedKeys(new Set([...iniDefaultedKeys].filter(key => !(key in payload))))
+        // PUT /ini rewrote every sent key's line as Key=value.
+        setIniMisnamedKeys(Object.fromEntries(Object.entries(iniMisnamedKeys).filter(([key]) => !(key in payload))))
       }
 
       // Try to reload via RCON, but don't fail if RCON is not connected
@@ -1952,10 +2017,11 @@ export default function ServerConfig() {
           loadData()
         } else {
           const iniData = await serverFilesApi.getIni()
-          const loaded = mergeIniSchemaDefaults(iniData.settings)
+          const loaded = mergeIniSchemaDefaults(iniData.rawSettings ?? iniData.settings, iniData.misnamedKeys)
           setIniSettings(loaded.settings)
           setOriginalIniSettings(loaded.settings)
           setIniDefaultedKeys(loaded.defaultedKeys)
+          setIniMisnamedKeys(iniData.misnamedKeys ?? {})
         }
       } catch { /* silent refresh — local state is still valid */ }
     } catch (error) {
@@ -3211,6 +3277,7 @@ export default function ServerConfig() {
                                   onReset={resetIniValue}
                                   onBrowse={openFileBrowser}
                                   allowOutOfRange={allowOutOfRangeSandbox}
+                                  misnamedAs={iniMisnamedKeys[setting.key]}
                                 />
                               ))}
                             </div>
@@ -3423,6 +3490,7 @@ export default function ServerConfig() {
                                     onReset={resetIniValue}
                                     onBrowse={openFileBrowser}
                                     allowOutOfRange={allowOutOfRangeSandbox}
+                                    misnamedAs={iniMisnamedKeys[setting.key]}
                                   />
                                 ))}
                               </div>

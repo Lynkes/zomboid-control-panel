@@ -175,6 +175,29 @@ describe("PUT /server-files/ini -- RCON/network keys require server.configure in
     expect(fs.readFileSync(iniPath, "utf-8")).toContain("PVP=false");
   });
 
+  // GH#182 follow-up: the form now sends each value as the game reads it
+  // (GET /ini's rawSettings), and the check compares the same way toIni()
+  // decides whether to rewrite a line.
+  it("resending a governed value with the file's own space after '=' is still unchanged", async () => {
+    fs.writeFileSync(iniPath, "PVP=true\nRCONPort= 27015\n");
+    const res = await putIni({ RCONPort: " 27015", PVP: "false" }, "serverfiles_only");
+
+    expect(res.getStatusCode()).toBe(200);
+    const onDisk = fs.readFileSync(iniPath, "utf-8");
+    expect(onDisk).toContain("RCONPort= 27015");
+    expect(onDisk).toContain("PVP=false");
+  });
+
+  it("rewriting a governed line the game skips needs server.configure, even with the same value", async () => {
+    // "RCONPort =27016" has no effect on the game; rewriting it as
+    // RCONPort=27016 changes the port the game listens on.
+    fs.writeFileSync(iniPath, "PVP=true\nRCONPort =27016\n");
+    const res = await putIni({ RCONPort: "27016" }, "serverfiles_only");
+
+    expect(res.getStatusCode()).toBe(403);
+    expect(fs.readFileSync(iniPath, "utf-8")).toBe("PVP=true\nRCONPort =27016\n");
+  });
+
   it("a masked-placeholder resend of RCONPassword never reaches the capability check at all (filtered upstream before the diff)", async () => {
     const res = await putIni({ RCONPassword: "••••••••1234" }, "serverfiles_only");
 

@@ -4059,5 +4059,8 @@
   "unrecognizedIniBooleanWarning": {
     "defaultOff": "Sèvè sa a gen valè {{value}} kounye a, yon valè jwèt la pa aksepte, kidonk li sèvi ak “Dezaktive” (valè pa defo a) jiskaske ou chanje opsyon sa a.",
     "defaultOn": "Sèvè sa a gen valè {{value}} kounye a, yon valè jwèt la pa aksepte, kidonk li sèvi ak “Aktive” (valè pa defo a) jiskaske ou chanje opsyon sa a."
-  }
+  },
+  "iniMisnamedKeyWarning": "Jwèt la inyore liy sa a nan fichye a: li li non opsyon an kòm {{name}}, kidonk li sèvi ak valè pa defo ki parèt la a. Si ou chanje opsyon sa a, liy lan ap reekri pou jwèt la ka li l.",
+  "iniNumberStraySpaceError": "Jwèt la pa ka li {{value}} kòm yon nimewo, kidonk li sèvi ak valè pa defo li. Retape nimewo a san espas la.",
+  "iniTextCutAtEqualsWarning": "Jwèt la li valè sa a sèlman jiska premye “=” a, kidonk li sèvi ak: {{value}}"
 }

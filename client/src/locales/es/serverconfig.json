@@ -4072,5 +4072,8 @@
   "unrecognizedIniBooleanWarning": {
     "defaultOff": "Este servidor está configurado actualmente con {{value}}, un valor que el juego no acepta, así que usa «Desactivado» (su valor predeterminado) hasta que cambies esta opción.",
     "defaultOn": "Este servidor está configurado actualmente con {{value}}, un valor que el juego no acepta, así que usa «Activado» (su valor predeterminado) hasta que cambies esta opción."
-  }
+  },
+  "iniMisnamedKeyWarning": "El juego ignora esta línea del archivo: lee el nombre de la opción como {{name}}, así que usa el valor predeterminado que se muestra aquí. Si cambias esta opción, la línea se reescribe para que el juego la lea.",
+  "iniNumberStraySpaceError": "El juego no puede leer {{value}} como número, así que usa su valor predeterminado. Vuelve a escribir el número sin el espacio.",
+  "iniTextCutAtEqualsWarning": "El juego solo lee este valor hasta el primer «=», así que usa: {{value}}"
 }

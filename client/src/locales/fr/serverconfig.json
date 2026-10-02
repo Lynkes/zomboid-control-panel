@@ -4072,5 +4072,8 @@
   "unrecognizedIniBooleanWarning": {
     "defaultOff": "Ce serveur est actuellement réglé sur {{value}}, une valeur que le jeu n'accepte pas : il utilise donc « Désactivé » (sa valeur par défaut) jusqu'à ce que vous modifiiez cette option.",
     "defaultOn": "Ce serveur est actuellement réglé sur {{value}}, une valeur que le jeu n'accepte pas : il utilise donc « Activé » (sa valeur par défaut) jusqu'à ce que vous modifiiez cette option."
-  }
+  },
+  "iniMisnamedKeyWarning": "Le jeu ignore cette ligne du fichier : il lit le nom de l'option comme {{name}} et utilise donc la valeur par défaut affichée ici. Modifier cette option réécrit la ligne pour que le jeu la lise.",
+  "iniNumberStraySpaceError": "Le jeu ne peut pas lire {{value}} comme un nombre : il utilise donc sa valeur par défaut. Ressaisissez le nombre sans l'espace.",
+  "iniTextCutAtEqualsWarning": "Le jeu ne lit cette valeur que jusqu'au premier « = » : il utilise donc {{value}}"
 }

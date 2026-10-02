@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buildIniSavePayload, mergeIniSchemaDefaults, parsePzBoolean } from '../iniFormState'
+import {
+  buildIniSavePayload,
+  mergeIniSchemaDefaults,
+  parseIniNumber,
+  parsePzBoolean,
+  pzNumberHasStraySpace,
+  pzNumberText,
+  pzOptionText,
+  showIniWhitespace,
+} from '../iniFormState'
 import { INI_SCHEMA } from '../serverConfigSchema'
 
 afterEach(() => {
@@ -30,6 +39,63 @@ describe('parsePzBoolean (zombie.config.BooleanConfigOption)', () => {
     ['fal\u017Fe', false, 'equalsIgnoreCase folds a long s to s'],
   ])('%j -> %s (%s)', (value, expected) => {
     expect(parsePzBoolean(value)).toBe(expected)
+  })
+})
+
+// GH#182 follow-up. GET /ini's rawSettings hands the form each value as the
+// game reads it (not trimmed), and these readers apply the game's rules.
+// Expectations recorded by running 42.21's ConfigFile.read and
+// IntegerConfigOption/DoubleConfigOption.parse from projectzomboid.jar on the
+// game's Java 25 runtime.
+describe('pzOptionText', () => {
+  it('keeps the start, trims the line end, and stops at the next "="', () => {
+    expect(pzOptionText(' My Server')).toBe(' My Server')
+    expect(pzOptionText('Hello = world')).toBe('Hello ')
+    expect(pzOptionText('16 \t')).toBe('16')
+  })
+})
+
+describe('parseIniNumber (Double.parseDouble)', () => {
+  it.each([
+    ['16', 16, 'plain'],
+    [' 16', 16, 'MaxPlayers= 16: Double.parseDouble trims chars up to U+0020 itself'],
+    ['\t16', 16, 'a tab is up to U+0020 too'],
+    ['16 =x', 16, 'read up to the next "="'],
+    ['\u00A016', null, 'a no-break space is not trimmed: the game keeps the default'],
+    ['16\u00A0', null, 'not at the end either'],
+    ['\uFEFF16', null, 'nor a BOM'],
+    ['1\u20036', null, 'nor any other Unicode space'],
+  ])('%j -> %s (%s)', (value, expected) => {
+    expect(parseIniNumber(value, { min: 1, max: 254 })).toBe(expected)
+  })
+
+  it('still applies the panel\'s bounds and number rules', () => {
+    expect(parseIniNumber(' 300', { min: 1, max: 254 })).toBeNull()
+    expect(parseIniNumber(' 300', { min: 1, max: 254 }, { enforceBounds: false })).toBe(300)
+    expect(parseIniNumber('abc')).toBeNull()
+  })
+
+  it('says when the only problem is a space the game does not trim', () => {
+    expect(pzNumberHasStraySpace('\u00A0400')).toBe(true)
+    expect(pzNumberHasStraySpace('400\uFEFF')).toBe(true)
+    expect(pzNumberHasStraySpace(' 400')).toBe(false)
+    expect(pzNumberHasStraySpace('abc')).toBe(false)
+  })
+
+  it('a select (an integer option in the game) matches " 2" to option 2', () => {
+    expect(pzNumberText(' 2')).toBe('2')
+    expect(pzNumberText('\u00A02')).toBe('\u00A02')
+  })
+})
+
+describe('showIniWhitespace', () => {
+  it('marks spaces and invisible chars, and leaves other text alone', () => {
+    expect(showIniWhitespace(' true')).toBe('␣true')
+    expect(showIniWhitespace('PVP ')).toBe('PVP␣')
+    expect(showIniWhitespace('\u00A0400')).toBe('[U+00A0]400')
+    expect(showIniWhitespace('\uFEFFversion')).toBe('[U+FEFF]version')
+    expect(showIniWhitespace('Tabbed\t')).toBe('Tabbed[U+0009]')
+    expect(showIniWhitespace('admin')).toBe('admin')
   })
 })
 
@@ -64,6 +130,29 @@ describe('mergeIniSchemaDefaults', () => {
     expect(warn).not.toHaveBeenCalled()
     mergeIniSchemaDefaults({ SteamScoreboard: 'admin' })
     expect(warn).toHaveBeenCalledWith('[ServerConfig] SteamScoreboard expected boolean, got "admin"')
+  })
+})
+
+describe('mergeIniSchemaDefaults with lines the game skips (GET /ini misnamedKeys)', () => {
+  it('shows the default for a schema key whose line the game skips, and leaves it out of a save until changed', () => {
+    const { settings, defaultedKeys } = mergeIniSchemaDefaults(
+      { PVP: 'false', Public: 'true', Custom: 'x' },
+      { PVP: 'PVP ', Custom: 'Custom ' },
+    )
+    expect(settings.PVP).toBe('true')
+    expect(settings.Public).toBe('true')
+    expect(settings.Custom).toBe('x')
+    expect([...defaultedKeys]).toEqual(expect.arrayContaining(['PVP', 'Custom']))
+    expect(defaultedKeys.has('Public')).toBe(false)
+    expect(buildIniSavePayload(settings, settings, defaultedKeys)).toEqual({ Public: 'true' })
+  })
+
+  it('reads raw values as the game does: no warning for " 16" or select " 2", one for a no-break space', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mergeIniSchemaDefaults({ MaxPlayers: ' 16', BadWordPolicy: ' 2' })
+    expect(warn).not.toHaveBeenCalled()
+    mergeIniSchemaDefaults({ PingLimit: '\u00A0400' })
+    expect(warn).toHaveBeenCalledWith('[ServerConfig] PingLimit expected number, got "\u00A0400"')
   })
 })
 

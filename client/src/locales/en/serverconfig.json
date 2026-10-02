@@ -4059,5 +4059,8 @@
   "unrecognizedIniBooleanWarning": {
     "defaultOff": "This server is currently set to {{value}}, which the game does not accept, so it uses Off (its default) until you change it.",
     "defaultOn": "This server is currently set to {{value}}, which the game does not accept, so it uses On (its default) until you change it."
-  }
+  },
+  "iniMisnamedKeyWarning": "The game ignores this line in the file: it reads the setting name as {{name}}, so it uses the default shown here. Changing this setting rewrites the line so the game reads it.",
+  "iniNumberStraySpaceError": "The game can't read {{value}} as a number, so it uses its default. Retype the number without the space.",
+  "iniTextCutAtEqualsWarning": "The game reads this value only up to the first \"=\", so it uses: {{value}}"
 }

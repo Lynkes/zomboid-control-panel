@@ -2153,7 +2153,16 @@ export const serverFilesApi = {
   // INI
   getIni: (options?: { retries?: number }) =>
     apiGet("/server-files/ini", undefined, options?.retries) as Promise<{
+      /** Each value trimmed (parseIni). For readers that only want the text. */
       settings: Record<string, string>;
+      /**
+       * The same keys, each value exactly as the game reads it from its line
+       * (" true" stays " true"). The Server Settings form edits and resends
+       * these. Absent from the demo-mode mock.
+       */
+      rawSettings?: Record<string, string>;
+      /** Keys whose line the game skips, mapped to the option name it reads there ("Public "). */
+      misnamedKeys?: Record<string, string>;
       path: string;
       serverName: string;
       duplicateKeys?: Array<{ key: string; count: number }>;

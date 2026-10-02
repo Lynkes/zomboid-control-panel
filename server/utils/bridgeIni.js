@@ -23,6 +23,7 @@
  * they were, in their original order.
  */
 import { escapeRegExp } from "./regex.js";
+import { javaTrim } from "./iniGameView.js";
 
 // SteamUtils.isValidSteamID's upper bound (an unsigned 64-bit id).
 const MAX_STEAM_ID = 18446744073709551615n;
@@ -39,15 +40,6 @@ function appendKeyLine(content, key, value) {
   const text = String(content ?? "");
   if (text === "") return `${key}=${value}\n`;
   return text.endsWith("\n") ? `${text}${key}=${value}\n` : `${text}\n${key}=${value}`;
-}
-
-// Java's String.trim(): every char up to U+0020 comes off both ends.
-function javaTrim(text) {
-  let start = 0;
-  let end = text.length;
-  while (start < end && text.charCodeAt(start) <= 0x20) start++;
-  while (end > start && text.charCodeAt(end - 1) <= 0x20) end--;
-  return text.slice(start, end);
 }
 
 // SteamUtils.isValidSteamID + convertStringToSteamID: `new BigInteger(s)`,
