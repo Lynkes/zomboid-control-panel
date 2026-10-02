@@ -46,7 +46,9 @@
     "title": "Restart Pending",
     "waiting": "Waiting for players to leave before restarting (max {{minutes}} min)",
     "cancel": "Cancel",
-    "cancelAria": "Cancel pending restart"
+    "cancelAria": "Cancel pending restart",
+    "cancelledByRestartTitle": "Mod-update restart cancelled",
+    "cancelledByRestartDesc": "The server restarted after the mod updates were found and already runs them, so no second restart is needed."
   },
   "folderBrowser": {
     "title": "Choose Project Zomboid server folder"

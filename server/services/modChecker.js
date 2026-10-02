@@ -18,10 +18,23 @@ import { sanitizeError } from "../utils/sanitize.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import panelBridge from "./panelBridge.js";
 import { getWorkshopRelease } from "./bridgeWorkshopRelease.js";
+import {
+  currentLaunchSequence,
+  isLifecycleLocked,
+} from "./lifecycleCoordinator.js";
+import { resolveActiveServerStartedAt } from "../utils/serverStatus.js";
+import { getRestartWarningNotice } from "../utils/restartWarning.js";
 
 export const MOD_CHECK_INTERVAL_MINUTES_MIN = 1;
 export const MOD_CHECK_INTERVAL_MINUTES_MAX = 120;
 const MOD_CHECK_INTERVAL_DEFAULT_MS = 5 * 60 * 1000;
+// A server process counts as started after a mod update was detected only
+// when it is a different process than at detection AND the OS's start time
+// is this much later (GH #189, _serverStartedSince()): /proc start times
+// are derived from the boot time, and a borderline start must not cancel
+// the restart -- one restart too many is the old behaviour, a server left on
+// the old mods is worse.
+const SERVER_START_TIME_MARGIN_MS = 30 * 1000;
 
 export function minutesToCheckIntervalMs(minutes) {
   const value = Number(minutes);
@@ -289,6 +302,13 @@ export class ModChecker extends EventEmitter {
     this.lastUpdateDetected = null; // Timestamp of last update detection
     this.pendingRestart = false; // Whether a restart is pending (waiting for players)
     this.playerCheckInterval = null; // Interval for checking player count
+    // The pending restart's token and what it was detected against, see
+    // _armPendingRestart() (GH #189).
+    this._pendingRestartToken = 0;
+    this._pendingRestartContext = null;
+    // True while triggerModRestart() runs the restart itself, whose own
+    // relaunch must not cancel it (noteServerLaunched()).
+    this._modRestartInFlight = false;
 
     // Performance: Cache mod names to avoid repeated disk reads
     this.modNameCache = new Map(); // WorkshopID -> { name, timestamp }
@@ -973,7 +993,8 @@ export class ModChecker extends EventEmitter {
     );
 
     // Set flag immediately to prevent concurrent calls from slipping through
-    this.pendingRestart = true;
+    const token = this._armPendingRestart();
+    const context = this._pendingRestartContext;
 
     this.lastUpdateDetected = new Date();
 
@@ -990,22 +1011,36 @@ export class ModChecker extends EventEmitter {
 
     if (!this.scheduler) {
       log.warn("Scheduler not available, cannot trigger restart");
-      this.pendingRestart = false;
+      this._clearPendingRestart();
       return { success: false, retry: true, reason: "scheduler_unavailable" };
     }
+
+    // Cancelled while this waited on RCON below.
+    const cancelledMeanwhile = () => this._cancelledMeanwhileResult(context);
 
     // Check if we should delay for players
     if (this.delayIfPlayersOnline && this.serverManager) {
       try {
         const playerCount = await this.getOnlinePlayerCount();
+        if (!this._isPendingRestartCurrent(token)) return cancelledMeanwhile();
 
         if (playerCount > 0) {
+          // The run a later start replaces, read before the announcement.
+          this._snapshotServerRun(context);
           log.info(
             `${playerCount} players online, delaying restart (max ${this.maxDelayMinutes} min)`,
           );
-          await this.scheduler.rconService?.serverMessage(
+          const announcement = await this.scheduler.rconService?.serverMessage(
             `🔧 Mod updates detected! Restart pending - waiting for players to leave (max ${this.maxDelayMinutes} min).`,
           );
+          if (!this._isPendingRestartCurrent(token)) {
+            return cancelledMeanwhile();
+          }
+          // Players were told a restart is coming, so a cancellation tells
+          // them it isn't (_cancelPendingRestartAfterServerStart()).
+          if (announcement?.success && !announcement.rejected) {
+            context.announced = true;
+          }
 
           if (this.io) {
             this.io.emit("mods:restart_pending", {
@@ -1016,7 +1051,7 @@ export class ModChecker extends EventEmitter {
           }
 
           // Start player count monitoring
-          this.startPlayerMonitoring(updatedMods);
+          this.startPlayerMonitoring(updatedMods, token);
           return {
             success: true,
             pending: true,
@@ -1029,13 +1064,208 @@ export class ModChecker extends EventEmitter {
       }
     }
 
+    if (!this._isPendingRestartCurrent(token)) return cancelledMeanwhile();
+
     // No delay, trigger restart immediately
     try {
-      return await this.triggerModRestart(updatedMods);
+      return await this.triggerModRestart(updatedMods, context);
     } catch (e) {
       log.error(`handleModUpdate: triggerModRestart threw: ${e.message}`);
-      this.pendingRestart = false;
+      if (this._isPendingRestartCurrent(token)) this._clearPendingRestart();
       return { success: false, retry: true, reason: "restart_error" };
+    }
+  }
+
+  // GH #189 (panel 1.4.1, Docker all-in-one): with "delay if players
+  // online" on, an update found while players were on left a restart
+  // waiting for them to leave (up to the 120 min maximum). The operator
+  // restarted the game server by hand in the meantime -- which loads the
+  // updated Workshop mods, the whole point of the restart -- and the waiting
+  // restart went ahead anyway once the server emptied, restarting it a
+  // second time for nothing. A pending mod-update restart now ends the
+  // moment the server is started again after the update was detected, by
+  // any path: the panel's own launches (Start, Restart, Stop then Start,
+  // Force stop then Start, a scheduled restart, Discord, a Docker container
+  // start) report themselves through noteServerLaunched(); a start the panel
+  // didn't make (a crash restart by systemd or Docker's restart policy, a
+  // restart on the host) is found by the waiting loop: a different server
+  // process than at detection, started after it (_serverStartedSince()).
+  // A start that began BEFORE the update was detected doesn't count -- it
+  // may have loaded the old version -- and a newer update found later arms
+  // a new restart as usual.
+  //
+  // Each pending restart carries a token: anything that resumes after an
+  // await (the waiting loop's tick, handleModUpdate() above) checks it is
+  // still the current one before acting, so a cancellation can't be undone
+  // by work that was already in flight.
+  _armPendingRestart() {
+    this.pendingRestart = true;
+    this._pendingRestartToken += 1;
+    this._pendingRestartContext = {
+      token: this._pendingRestartToken,
+      // Launches numbered up to here began before this detection.
+      launchSeq: currentLaunchSequence(),
+      // Wall clock, to compare with the OS's process start time.
+      detectedAtMs: Date.now(),
+      // The server the update was found for (the active one now): only a
+      // start of that server loaded it. A promise of its id, or null.
+      serverId: this._resolveActiveServerId(),
+      // The run that server was on at detection (see
+      // _snapshotServerRun()), for the waiting loop to tell a later start
+      // from it. Set only where the loop will need it.
+      runAtDetection: null,
+      announced: false,
+      cancelledByServerStart: false,
+    };
+    return this._pendingRestartToken;
+  }
+
+  // Never rejects.
+  async _resolveActiveServerId() {
+    try {
+      const id = (await getActiveServer())?.id;
+      return id === null || id === undefined ? null : String(id);
+    } catch (error) {
+      log.debug(`Could not resolve the active server: ${error.message}`);
+      return null;
+    }
+  }
+
+  // What the active server runs now (resolveActiveServerStartedAt()), or
+  // null when that can't be told. Never rejects.
+  async _readServerRun() {
+    if (!this.serverManager) return null;
+    try {
+      return await resolveActiveServerStartedAt(this.serverManager);
+    } catch (error) {
+      log.debug(`Could not read the server's start time: ${error.message}`);
+      return null;
+    }
+  }
+
+  _snapshotServerRun(context) {
+    if (context && !context.runAtDetection) {
+      context.runAtDetection = this._readServerRun();
+    }
+  }
+
+  // The result for a pending restart that was cancelled while this was
+  // waiting on something: by a start of the server, which already loaded
+  // these updates (noteServerLaunched(), GH #189) -- nothing is left to do,
+  // and nothing may re-arm what it cancelled -- or by the operator's
+  // Cancel, which leaves them eligible for the next check, as
+  // cancelPendingRestart() intends.
+  _cancelledMeanwhileResult(context) {
+    return context?.cancelledByServerStart
+      ? {
+          success: true,
+          skipped: true,
+          markProcessed: true,
+          reason: "server_restarted",
+        }
+      : { success: false, skipped: true, reason: "cancelled" };
+  }
+
+  _isPendingRestartCurrent(token) {
+    return this.pendingRestart && this._pendingRestartContext?.token === token;
+  }
+
+  _clearPendingRestart() {
+    this.pendingRestart = false;
+    this._pendingRestartContext = null;
+  }
+
+  _stopPlayerMonitoring() {
+    if (this.playerCheckInterval) {
+      clearInterval(this.playerCheckInterval);
+      this.playerCheckInterval = null;
+    }
+  }
+
+  // Wired once at boot (server/index.js) to lifecycleCoordinator's
+  // setServerLaunchedHook(): every launch the panel makes, reported once it
+  // has actually happened and numbered when it began. Returns whether it
+  // cancelled the pending restart.
+  async noteServerLaunched({ serverId = null, launchSeq = null } = {}) {
+    const context = this._pendingRestartContext;
+    if (!this.pendingRestart || !context) return false;
+    // The mod-update restart's own relaunch: that IS the restart. No other
+    // launch can land while it runs -- it holds the lifecycle lock.
+    if (this._modRestartInFlight) return false;
+    // Began before the update was detected: it may run the old version.
+    if (!Number.isInteger(launchSeq) || launchSeq <= context.launchSeq) {
+      return false;
+    }
+    // Another server on this host (a scheduled task's, the Servers page's,
+    // or the one made active since) loaded nothing for the server this
+    // update was found for.
+    if (serverId === null || serverId === undefined) return false;
+    const targetServerId = await context.serverId;
+    if (targetServerId === null || targetServerId !== String(serverId)) {
+      return false;
+    }
+    if (!this._isPendingRestartCurrent(context.token) || this._modRestartInFlight) {
+      return false;
+    }
+    await this._cancelPendingRestartAfterServerStart(context);
+    return true;
+  }
+
+  // Whether the server this update was found for runs a different process
+  // (or container) than it did at detection, one that started after it.
+  // The process identity decides, not the clock: on Linux the OS start
+  // time moves with every wall-clock step (see
+  // resolveActiveServerStartedAt()), so the same process can look newly
+  // started; the start time then only confirms that a different process
+  // isn't an older one. Unknown -- no reading at detection or now, a remote
+  // server, a failed scan, another server active -- is "no": the restart
+  // then goes ahead as it always did.
+  async _serverStartedSince(context) {
+    const before = await context.runAtDetection;
+    if (!before?.processKey) return false;
+    const now = await this._readServerRun();
+    return (
+      now !== null &&
+      Boolean(now.processKey) &&
+      now.serverId === before.serverId &&
+      now.processKey !== before.processKey &&
+      now.startedAtMs > context.detectedAtMs + SERVER_START_TIME_MARGIN_MS
+    );
+  }
+
+  async _cancelPendingRestartAfterServerStart(context) {
+    context.cancelledByServerStart = true;
+    this._stopPlayerMonitoring();
+    this._clearPendingRestart();
+    // processedUpdates is kept, unlike cancelPendingRestart(): these exact
+    // versions are what the new start loaded, so they must not arm another
+    // restart -- a newer version of any of them still does.
+    const message =
+      "Pending mod-update restart cancelled: the server was started again after the update was detected, so it already runs the updated mods";
+    log.info(message);
+    await logServerEvent("mod_update_restart_cancelled", message);
+
+    // The waiting announcement went to players; a server they're on again
+    // hears that no restart is coming. A launch the panel just made has no
+    // RCON yet (nobody to tell), so this is for a start noticed later.
+    const rconService = this.scheduler?.rconService;
+    if (context.announced && rconService?.connected) {
+      try {
+        const sent = await rconService.serverMessage(
+          getRestartWarningNotice(this.scheduler?.restartWarning, "cancelled"),
+        );
+        if (!sent?.success) {
+          log.debug(
+            `Restart-cancelled broadcast failed: ${sent?.error || "unknown error"}`,
+          );
+        }
+      } catch (error) {
+        log.debug(`Restart-cancelled broadcast failed: ${error.message}`);
+      }
+    }
+
+    if (this.io) {
+      this.io.emit("mods:restart_cancelled", { reason: "server_restarted" });
     }
   }
 
@@ -1055,13 +1285,18 @@ export class ModChecker extends EventEmitter {
     return null;
   }
 
-  // Monitor player count and restart when empty
-  startPlayerMonitoring(updatedMods) {
-    if (this.playerCheckInterval) {
-      clearInterval(this.playerCheckInterval);
+  // Monitor player count and restart when empty. `token` is the pending
+  // restart handleModUpdate() armed; a direct call without one arms its own.
+  startPlayerMonitoring(updatedMods, token = null) {
+    if (token === null) {
+      token = this._armPendingRestart();
+    } else if (!this._isPendingRestartCurrent(token)) {
+      return;
     }
+    this._stopPlayerMonitoring();
+    const context = this._pendingRestartContext;
+    this._snapshotServerRun(context);
 
-    this.pendingRestart = true;
     // performance.now(), not Date.now(): this is purely an in-process
     // elapsed-time marker (never displayed, never crosses a process
     // boundary) feeding a MAX-WAIT SAFETY NET -- the whole point of
@@ -1074,35 +1309,75 @@ export class ModChecker extends EventEmitter {
     // sweep) -- same class as the startup grace-period gate above.
     const startTime = performance.now();
     const maxWaitMs = this.maxDelayMinutes * 60 * 1000;
+    let intervalId = null;
+    let tickRunning = false;
 
-    this.playerCheckInterval = setInterval(async () => {
+    // Stops this loop only: a later pending restart runs its own.
+    const stopThisLoop = () => {
+      clearInterval(intervalId);
+      if (this.playerCheckInterval === intervalId) {
+        this.playerCheckInterval = null;
+      }
+    };
+    const restartNow = async () => {
+      stopThisLoop();
       try {
+        const result = await this.triggerModRestart(updatedMods, context);
+        // A refusal comes back as a result, and leaving pendingRestart set
+        // would block every later mod-update restart. A restart cancelled
+        // while it was being announced is not a refusal.
+        if (!result?.success && !result?.skipped) {
+          log.error(
+            `Player monitor: mod restart did not run: ${result?.error || result?.message || "unknown error"}`,
+          );
+          if (this._isPendingRestartCurrent(token)) this._clearPendingRestart();
+        }
+      } catch (e) {
+        log.error(`Player monitor: triggerModRestart threw: ${e.message}`);
+        if (this._isPendingRestartCurrent(token)) this._clearPendingRestart();
+      }
+    };
+
+    intervalId = setInterval(async () => {
+      if (tickRunning) return;
+      if (!this._isPendingRestartCurrent(token)) {
+        stopThisLoop();
+        return;
+      }
+      tickRunning = true;
+      try {
+        // Started again since the update was detected (GH #189): the
+        // restart already happened, whoever made it.
+        if (await this._serverStartedSince(context)) {
+          if (this._isPendingRestartCurrent(token)) {
+            await this._cancelPendingRestartAfterServerStart(context);
+          }
+          return;
+        }
+        if (!this._isPendingRestartCurrent(token)) return;
+
+        // Another start, stop or restart is under way (a manual Restart's
+        // countdown, a Stop): let it finish rather than restart into it.
+        // If it launches the server, that launch cancels this restart.
+        if (isLifecycleLocked()) {
+          log.info(
+            "Mod-update restart waiting: another server lifecycle operation is in progress",
+          );
+          return;
+        }
+
         const elapsed = performance.now() - startTime;
 
         // Check if max delay exceeded
         if (elapsed >= maxWaitMs) {
           log.info("Max delay exceeded, forcing restart");
-          clearInterval(this.playerCheckInterval);
-          this.playerCheckInterval = null;
-          try {
-            const result = await this.triggerModRestart(updatedMods);
-            // A refusal comes back as a result, and leaving pendingRestart set
-            // would block every later mod-update restart.
-            if (!result?.success) {
-              log.error(
-                `Player monitor: mod restart did not run: ${result?.error || result?.message || "unknown error"}`,
-              );
-              this.pendingRestart = false;
-            }
-          } catch (e) {
-            log.error(`Player monitor: triggerModRestart threw: ${e.message}`);
-            this.pendingRestart = false;
-          }
+          await restartNow();
           return;
         }
 
         // Check player count
         const playerCount = await this.getOnlinePlayerCount();
+        if (!this._isPendingRestartCurrent(token)) return;
 
         if (playerCount === null) {
           const remainingMin = Math.round((maxWaitMs - elapsed) / 60000);
@@ -1111,20 +1386,7 @@ export class ModChecker extends EventEmitter {
           );
         } else if (playerCount === 0) {
           log.info("No players online, triggering restart");
-          clearInterval(this.playerCheckInterval);
-          this.playerCheckInterval = null;
-          try {
-            const result = await this.triggerModRestart(updatedMods);
-            if (!result?.success) {
-              log.error(
-                `Player monitor: mod restart did not run: ${result?.error || result?.message || "unknown error"}`,
-              );
-              this.pendingRestart = false;
-            }
-          } catch (e) {
-            log.error(`Player monitor: triggerModRestart threw: ${e.message}`);
-            this.pendingRestart = false;
-          }
+          await restartNow();
         } else {
           const remainingMin = Math.round((maxWaitMs - elapsed) / 60000);
           log.debug(
@@ -1133,16 +1395,34 @@ export class ModChecker extends EventEmitter {
         }
       } catch (error) {
         log.error(`Player monitoring error: ${error.message}`);
-        clearInterval(this.playerCheckInterval);
-        this.playerCheckInterval = null;
-        this.pendingRestart = false;
+        stopThisLoop();
+        if (this._isPendingRestartCurrent(token)) this._clearPendingRestart();
+      } finally {
+        tickRunning = false;
       }
     }, 120000); // Check every 2 minutes
+    this.playerCheckInterval = intervalId;
   }
 
-  // Trigger the actual restart
-  async triggerModRestart(updatedMods) {
+  // Trigger the actual restart. `context` is the pending restart this runs
+  // for (_armPendingRestart(), from handleModUpdate() or the waiting loop):
+  // the warning broadcasts below can take several seconds, and a start of
+  // the server in the meantime cancels it (noteServerLaunched(), GH #189) --
+  // restarting anyway would be the second restart that start already made
+  // unnecessary.
+  async triggerModRestart(updatedMods, context = null) {
     log.info(`Triggering restart for ${updatedMods.length} updated mod(s)`);
+    const token = context?.token ?? null;
+    const cancelledMeanwhile = () =>
+      token !== null && !this._isPendingRestartCurrent(token);
+    // Ends the pending restart this ran for, never a newer one armed after
+    // it was cancelled.
+    const releasePendingRestart = () => {
+      if (token === null || this._isPendingRestartCurrent(token)) {
+        this._clearPendingRestart();
+      }
+    };
+    if (cancelledMeanwhile()) return this._cancelledMeanwhileResult(context);
 
     // RCON readiness gate — verify RCON is connected before attempting restart
     const rconService = this.scheduler?.rconService;
@@ -1167,12 +1447,13 @@ export class ModChecker extends EventEmitter {
           );
         }
       }
+      if (cancelledMeanwhile()) return this._cancelledMeanwhileResult(context);
 
       if (confirmedOffline) {
         log.info(
           "Mod updates detected while the PZ server is offline — no restart needed until the server is running.",
         );
-        this.pendingRestart = false;
+        releasePendingRestart();
         return {
           success: true,
           skipped: true,
@@ -1188,7 +1469,7 @@ export class ModChecker extends EventEmitter {
       for (const m of updatedMods) {
         this.processedUpdates.delete(m.workshopId);
       }
-      this.pendingRestart = false;
+      releasePendingRestart();
       return { success: false, retry: true, reason: "rcon_disconnected" };
     }
 
@@ -1214,6 +1495,9 @@ export class ModChecker extends EventEmitter {
         `Sending mod-restart warning: ${trimmedNames} — restart in ${this.restartWarningMinutes} min`,
       );
 
+      // Players are being told a restart is coming, so a cancellation from
+      // here on tells them it isn't (_cancelPendingRestartAfterServerStart()).
+      if (context) context.announced = true;
       let rconBroadcastOk = false;
       try {
         const rconResult =
@@ -1228,6 +1512,7 @@ export class ModChecker extends EventEmitter {
       } catch (rconErr) {
         log.warn(`RCON serverMessage failed: ${rconErr?.message || rconErr}`);
       }
+      if (cancelledMeanwhile()) return this._cancelledMeanwhileResult(context);
 
       // Always also try PanelBridge if available — it can render the full
       // unicode message in chat and acts as a fallback if RCON was rejected.
@@ -1248,10 +1533,15 @@ export class ModChecker extends EventEmitter {
         );
       }
 
+      // Checked with nothing awaited before the flag below: from there on,
+      // the restart's own relaunch must not cancel it.
+      if (cancelledMeanwhile()) return this._cancelledMeanwhileResult(context);
+
       // Perform restart with configured warning time
       log.info(
         `Calling scheduler.performRestart(${this.restartWarningMinutes})`,
       );
+      this._modRestartInFlight = true;
       const result = await this.scheduler.performRestart(
         this.restartWarningMinutes,
       );
@@ -1298,7 +1588,8 @@ export class ModChecker extends EventEmitter {
       return { success: false, retry: true, reason: "restart_error" };
     } finally {
       // Always clear pendingRestart when triggerModRestart finishes
-      this.pendingRestart = false;
+      this._modRestartInFlight = false;
+      releasePendingRestart();
     }
   }
 
@@ -2128,11 +2419,10 @@ export class ModChecker extends EventEmitter {
 
   // Cancel pending restart (if waiting for players)
   cancelPendingRestart() {
-    if (this.playerCheckInterval) {
-      clearInterval(this.playerCheckInterval);
-      this.playerCheckInterval = null;
-    }
-    this.pendingRestart = false;
+    this._stopPlayerMonitoring();
+    // Clears the token too, so a waiting-loop tick already in flight can't
+    // go on to restart (see _armPendingRestart()).
+    this._clearPendingRestart();
     // Clear the dedup map so the same mod updates can re-trigger a restart
     // on the next check cycle. Without this, cancelling marks every pending
     // mod as "already processed" forever, so auto-restart silently stays

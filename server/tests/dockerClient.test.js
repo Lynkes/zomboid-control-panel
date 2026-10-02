@@ -325,3 +325,28 @@ describe("DockerClient.inspectManagedContainer -- lastError distinguishes 'confi
     expect(failedLastError).toBe("socket hang up");
   });
 });
+
+// GH #189: a Start on a container that is already running gets Docker's 304
+// and launches nothing, so it must not be reported as a fresh launch (the
+// mod checker would cancel a pending mod-update restart on it).
+describe("DockerClient.runManagedAction -- Docker's 304 is flagged unchanged", () => {
+  it("'already in the requested state' is unchanged; a real start isn't", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pz-docker-304-"));
+    const socketPath = path.join(tmpDir, "docker.sock");
+    fs.writeFileSync(socketPath, "");
+    try {
+      const client = new DockerClient({ socketPath, enabled: true });
+      vi.spyOn(client, "inspectManagedContainer").mockResolvedValue({ State: { Running: true } });
+      vi.spyOn(client, "_requestStatus").mockResolvedValueOnce(304).mockResolvedValueOnce(204);
+
+      expect(await client.runManagedAction("pz", "start")).toEqual({
+        success: true,
+        unchanged: true,
+        message: "Container is already in the requested state",
+      });
+      expect(await client.runManagedAction("pz", "start")).toEqual({ success: true });
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});

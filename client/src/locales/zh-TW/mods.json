@@ -46,7 +46,9 @@
     "title": "等待重新啟動",
     "waiting": "等待玩家離線後再重新啟動（最長 {{minutes}} 分鐘）",
     "cancel": "取消",
-    "cancelAria": "取消待處理的重新啟動"
+    "cancelAria": "取消待處理的重新啟動",
+    "cancelledByRestartTitle": "已取消模組更新重新啟動",
+    "cancelledByRestartDesc": "偵測到模組更新後伺服器已重新啟動，已在執行更新後的模組，無須再次重新啟動。"
   },
   "folderBrowser": {
     "title": "選擇 Project Zomboid 伺服器資料夾"

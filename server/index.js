@@ -104,6 +104,7 @@ import {
   setBeforeLaunchHook,
   setLaunchTargetRefresher,
   setServerDisplayNameResolver,
+  setServerLaunchedHook,
 } from "./services/lifecycleCoordinator.js";
 
 // === Supervisor bootstrap ===
@@ -1114,6 +1115,11 @@ setBeforeLaunchHook((server) => reconcileBridge(server, { reason: "launch" }));
 // auto-start used to skip it). See refreshLaunchTargetForLaunch().
 setLaunchTargetRefresher(refreshLaunchTargetForLaunch);
 const modChecker = new ModChecker();
+// Every launch the panel makes (the same paths as the before-launch hook
+// above), reported once it has happened: a fresh start loads the updated
+// Workshop mods, so a mod-update restart still pending from before it is
+// cancelled instead of restarting the server a second time (GH #189).
+setServerLaunchedHook((launch) => modChecker.noteServerLaunched(launch));
 const logTailer = new LogTailer();
 const scheduler = new Scheduler(rconService, serverManager);
 const discordBot = new DiscordBot(

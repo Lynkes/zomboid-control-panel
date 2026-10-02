@@ -415,7 +415,7 @@ describe("prepareForLaunch()", () => {
     const result = await m.prepareForLaunch({ id: "a" });
 
     expect(order).toEqual(["refresh:a:false", "hook:a"]);
-    expect(result).toEqual({ scriptWarnings: ["backed up"] });
+    expect(result).toEqual({ scriptWarnings: ["backed up"], launchSeq: expect.any(Number) });
   });
 
   it("tells the refresher a container launch owns its own command (ini only, no script)", async () => {
@@ -435,7 +435,10 @@ describe("prepareForLaunch()", () => {
     const unsubscribe = m.onLog((entry) => entries.push(entry));
 
     try {
-      await expect(m.prepareForLaunch({ id: "a" })).resolves.toEqual({ scriptWarnings: [] });
+      await expect(m.prepareForLaunch({ id: "a" })).resolves.toEqual({
+        scriptWarnings: [],
+        launchSeq: expect.any(Number),
+      });
       for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setImmediate(resolve));
     } finally {
       unsubscribe();
@@ -451,7 +454,10 @@ describe("prepareForLaunch()", () => {
 
   it("is a no-op without a server", async () => {
     m.setLaunchTargetRefresher(async () => order.push("refresh"));
-    await expect(m.prepareForLaunch(null)).resolves.toEqual({ scriptWarnings: [] });
+    await expect(m.prepareForLaunch(null)).resolves.toEqual({
+      scriptWarnings: [],
+      launchSeq: expect.any(Number),
+    });
     expect(order).toEqual([]);
   });
 

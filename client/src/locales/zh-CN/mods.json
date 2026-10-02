@@ -46,7 +46,9 @@
     "title": "等待重启",
     "waiting": "等待玩家离线后再重启（最长 {{minutes}} 分钟）",
     "cancel": "取消",
-    "cancelAria": "取消待处理的重启"
+    "cancelAria": "取消待处理的重启",
+    "cancelledByRestartTitle": "已取消模组更新重启",
+    "cancelledByRestartDesc": "检测到模组更新后服务器已重启，已在运行更新后的模组，无需再次重启。"
   },
   "folderBrowser": {
     "title": "选择 Project Zomboid 服务器文件夹"

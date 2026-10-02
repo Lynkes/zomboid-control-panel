@@ -90,8 +90,11 @@ export function setLaunchTargetRefresher(fn) {
 // script is still missing instead of falling back to the stock one -- a
 // refusal that sends the operator to the panel log for the reason. Returns
 // the refresher's backup notices for scripts that had content the panel
-// didn't write.
+// didn't write, and this launch's number (launchSeq, see
+// currentLaunchSequence() below) for the caller to hand to
+// notifyServerLaunched() once the launch has actually happened.
 export async function prepareForLaunch(server, { container = false } = {}) {
+  const launchSeq = ++launchSequence;
   let scriptWarnings = [];
   if (launchTargetRefresher && server) {
     try {
@@ -109,7 +112,54 @@ export async function prepareForLaunch(server, { container = false } = {}) {
     }
   }
   await runBeforeLaunchHook(server);
-  return { scriptWarnings };
+  return { scriptWarnings, launchSeq };
+}
+
+// GH #189: a mod-update restart still waiting for players to leave went
+// ahead after the operator had already restarted the server by hand, so the
+// game restarted a second time for nothing -- the manual restart had
+// already loaded the updated mods. The mod checker learns about every launch
+// the panel makes through the hook below, wired once at boot
+// (server/index.js) to ModChecker.noteServerLaunched() and injected for the
+// same partial-mock reason as the hooks above.
+//
+// Every launch is numbered when it begins (prepareForLaunch() above), so
+// "did this launch begin after that mod update was detected" is a plain
+// comparison against currentLaunchSequence() read at detection -- no clock
+// involved. The callers that launch -- serverManager.startServer() and its
+// systemd/OpenRC restart, managedContainer.runManagedLifecycle() and the
+// Servers page's per-container Start/Restart (routes/docker.js) -- report a
+// launch only once it has actually happened: prepareForLaunch() runs before
+// the refusals that leave the old process running ("already running", a
+// port in use), and those must not count as a fresh start.
+let launchSequence = 0;
+let serverLaunchedHook = null;
+
+export function setServerLaunchedHook(fn) {
+  serverLaunchedHook = typeof fn === "function" ? fn : null;
+}
+
+export function currentLaunchSequence() {
+  return launchSequence;
+}
+
+// Never throws and never waits: the hook's work (and any rejection) stays
+// off the launch path.
+export function notifyServerLaunched(server, launchSeq) {
+  if (!serverLaunchedHook || !Number.isInteger(launchSeq)) return;
+  try {
+    const result = serverLaunchedHook({
+      serverId: server?.id ?? null,
+      launchSeq,
+    });
+    if (typeof result?.catch === "function") {
+      result.catch((error) =>
+        log.debug(`Server-launched hook failed: ${error?.message || error}`),
+      );
+    }
+  } catch (error) {
+    log.debug(`Server-launched hook failed: ${error?.message || error}`);
+  }
 }
 
 // 2026-09-04, lifecycle-lock investigation: the lock itself was never the
