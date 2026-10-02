@@ -6,7 +6,32 @@ on:
       - main
     tags:
       - 'v*'
+    # What the root Dockerfile copies, plus the checks this job runs. A main
+    # commit that only touches docs or other workflows would rebuild both
+    # architectures into the same image. Every release tag still publishes:
+    # GitHub doesn't evaluate path filters for tag pushes, and a release
+    # commit bumps package.json anyway.
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'docker/entrypoint.sh'
+      - 'server/**'
+      - 'client/**'
+      - 'pz-mod/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'scripts/verify-package-version.mjs'
+      - '.github/workflows/docker-publish.yml'
   workflow_dispatch:
+
+# Two quick pushes to main (a merge, then its release commit) could build
+# side by side, and whichever finished last would set `latest` and `main`,
+# even the older commit. Runs for the same ref queue instead (a newer
+# pending run replaces an older pending one); a release tag has its own
+# group.
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -15,6 +40,7 @@ permissions:
 jobs:
   docker:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -68,6 +94,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # A repository with no release yet (a fresh fork) has nothing to
+          # compare against. Any other API failure leaves the count empty
+          # and still fails at gh release view below.
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=1" --jq 'length')" = "0" ]; then
+            echo "::notice::$GITHUB_REPOSITORY has no releases yet; skipping the latest-release version check."
+            exit 0
+          fi
           latest="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName' | sed 's/^v//')"
           node scripts/verify-package-version.mjs --minimum "$latest"
 

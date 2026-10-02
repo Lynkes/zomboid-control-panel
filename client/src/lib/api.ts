@@ -555,6 +555,35 @@ export interface SteamBranch {
   timeUpdated?: string | null;
 }
 
+export interface PortRange {
+  start: number;
+  end: number;
+}
+
+// GET /server/setup-plan
+export interface UsedServerPorts {
+  id: string;
+  name: string;
+  serverName: string;
+  installPath: string;
+  gamePort: number | null;
+  udpPort: number | null;
+  rconPort: number | null;
+}
+
+export interface ServerSetupPlan {
+  usedPorts: UsedServerPorts[];
+  suggestedPorts: {
+    gamePort: number | null;
+    rconPort: number | null;
+    withinPublishedRange: boolean | null;
+  };
+  allInOne: {
+    serversRoot: string | null;
+    publishedGamePorts: PortRange | null;
+  } | null;
+}
+
 // Character export/import types
 export interface PerkData {
   level: number;
@@ -701,6 +730,10 @@ export const serverApi = {
     apiGet(
       `/server/branches${steamcmdPath ? `?steamcmdPath=${encodeURIComponent(steamcmdPath)}` : ""}`,
     ) as Promise<{ branches: SteamBranch[]; source: string; message: string }>,
+
+  // Ports and folders for another server on this host -- see
+  // server/services/serverPortPlan.js.
+  getSetupPlan: () => apiGet("/server/setup-plan") as Promise<ServerSetupPlan>,
 
   // SteamCMD Installation
   install: (config: Record<string, unknown>) =>

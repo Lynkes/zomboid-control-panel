@@ -147,8 +147,15 @@ source and image automatically — you don't need to intervene.
   network, by container name. Do not add a `ports:` mapping for
   `zomboid-panel-updater` to this stack; doing so would expose that
   host-root-equivalent endpoint to the network the port is bound on.
-- The PZ game ports (`16261/udp`, `16262/udp`) are published automatically
-  by the stack — there's nothing to add to Compose by hand for this path.
+- The PZ game ports (UDP `16261-16270` by default, `PZ_GAME_PORTS` in
+  `.env`) are published automatically by the stack — there's nothing to
+  add to Compose by hand for this path. Each server uses two of them, so
+  the default range fits five servers.
+- More than one server runs in this container: create each extra one from
+  **Server Setup**, which fills in a folder on the `pz-servers` volume and
+  free ports. See [More than one
+  server](../../docker/all-in-one/README.md#more-than-one-server) for the
+  folders, ports and how an older install gets the volume.
 - PanelBridge can work both ways on this path with no file editing on
   your part. **Installed by the panel** (the default) copies
   `PanelBridge.lua` into `/pz-server/media/lua/server/` before every

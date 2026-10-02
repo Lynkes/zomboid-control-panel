@@ -578,6 +578,15 @@ export const ErrorCode = Object.freeze({
    * would be refused -- the restart is called off and the server is left
    * running. Same {{script}} and {{fallback}} params. */
   SERVER_RESTART_SCRIPT_MISSING: "SERVER_RESTART_SCRIPT_MISSING",
+  /** server/services/serverManager.js -- startServer() via
+   * gamePortInUseError() (thrown, forwarded by POST /api/server/start and by
+   * a failed Restart's scheduler:action_result like
+   * SERVER_START_SCRIPT_MISSING above): another local server that is running
+   * is configured for this server's game port or the one after it (both
+   * UDP), so this one would fail to bind partway through its start. Carries
+   * {{port}} (the shared port) and {{name}} (the running server's profile
+   * name). */
+  SERVER_START_GAME_PORT_IN_USE: "SERVER_START_GAME_PORT_IN_USE",
   /** server/services/scheduler.js -- performRestart()'s returned failure
    * when the pre-restart world save fails: the restart is called off and the
    * server is left running (forwarded by a failed Restart's
@@ -1689,6 +1698,26 @@ export const ErrorCode = Object.freeze({
   /** server/routes/server.js -- same call site as ..._WINDOWS above,
    * isWindows false (Linux/macOS guidance). */
   DIRECTORY_READ_FAILED_POSIX: "DIRECTORY_READ_FAILED_POSIX",
+  /** server/routes/server.js -- formatEphemeralContainerPathError(),
+   * /install (install or data folder) and /quick-setup (data folder): the
+   * panel runs in a container and the folder is on the image's own root
+   * filesystem, not a volume, so a recreate would erase it. Generic
+   * container; params: path. */
+  CONTAINER_PATH_NOT_PERSISTENT: "CONTAINER_PATH_NOT_PERSISTENT",
+  /** Same call sites, all-in-one image whose extra-servers folder is a
+   * volume; params: path, root (that folder). */
+  CONTAINER_PATH_NOT_PERSISTENT_AIO: "CONTAINER_PATH_NOT_PERSISTENT_AIO",
+  /** Same call sites, all-in-one image started from an older compose file
+   * with no volume for extra servers; the fix is re-running bootstrap.sh.
+   * params: path, root. */
+  CONTAINER_PATH_NOT_PERSISTENT_AIO_NO_VOLUME:
+    "CONTAINER_PATH_NOT_PERSISTENT_AIO_NO_VOLUME",
+  /** server/index.js -- handlePanelUpdateDownload(), Docker update: a
+   * Project Zomboid server other than the active one is running in this
+   * container, and recreating the container would kill it without a save.
+   * params: names (comma-separated profile names, or the process count
+   * when none can be attributed). */
+  OTHER_SERVERS_RUNNING: "OTHER_SERVERS_RUNNING",
 
   /** server/services/oidc.js -- testOidcDiscovery()'s credential check (POST
    * /api/auth/oidc/test-connection). The token-endpoint round trip with a

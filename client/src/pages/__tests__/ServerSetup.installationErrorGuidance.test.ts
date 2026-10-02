@@ -63,4 +63,16 @@ describe('ServerSetup -- installationErrorGuidance', () => {
     expect(result).toContain('/opt/zomboid-panel/data/pzserver')
     expect(result).not.toContain('translated, and this must NOT appear below')
   })
+
+  it('returns displayMessage unchanged inside a container -- there is no zomboid-panel.service there, and the systemd path is not on a volume', () => {
+    expect(
+      installationErrorGuidance(
+        'Installation path is not writable: /pz-server1',
+        'Installation path is not writable (translated)',
+        t,
+        'linux',
+        'container',
+      ),
+    ).toBe('Installation path is not writable (translated)')
+  })
 })

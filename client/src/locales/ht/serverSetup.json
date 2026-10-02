@@ -122,6 +122,20 @@
     "customDataPathPlaceholderWindows": "e.g. C:\\Users\\you\\Zomboid or %USERPROFILE%\\Zomboid",
     "customDataPathPlaceholderPosix": "e.g. /home/you/Zomboid or $HOME/Zomboid"
   },
+  "multiServer": {
+    "portsTitle": "Yon lòt sèvè sou lame sa a",
+    "portsBody": "Chak sèvè bezwen pwòp pò pa l pou l ka mache an menm tan ak lòt yo, kidonk premye pò ki lib yo deja ranpli. Deja itilize isit la:",
+    "usedPortsItem": "{{name}}: jwèt {{game}}–{{udp}} (UDP), RCON {{rcon}}",
+    "publishedRange": "Docker pibliye pò UDP {{start}}–{{end}} pou kontenè sa a. Kenbe pò jwèt la ak sa ki vin apre l nan limit sa a pou jwè yo ka konekte.",
+    "conflictGame": "Pò {{port}} deja se yon pò jwèt {{name}}: de sèvè yo pa ka mache an menm tan.",
+    "conflictUdp": "Pò {{port}} (pò jwèt + 1) deja itilize pa {{name}}: de sèvè yo pa ka mache an menm tan.",
+    "conflictRcon": "Pò RCON {{port}} deja itilize pa {{name}}: de sèvè yo pa ka mache an menm tan.",
+    "outsidePublished": "Pò {{game}}–{{udp}} yo deyò limit Docker pibliye a ({{start}}–{{end}}): sèvè a mache, men jwè yo pa ka jwenn li. Chwazi yon pò nan limit la, oswa agrandi PZ_GAME_PORTS nan .env epi relanse bootstrap.sh.",
+    "folderTitle": "Yon lòt sèvè nan kontenè sa a",
+    "folderBodyFull": "Fichye jwèt li yo ale nan <1>{{path}}</1>, epi mond ak paramèt li yo nan <1>{{dataPath}}</1>, sou volim pou sèvè anplis yo, kidonk yo siviv mizajou panèl la.",
+    "folderBodyQuick": "Li reitilize fichye jwèt ki nan <1>{{path}}</1>, epi li kenbe mond, paramèt ak jounal li yo nan <1>{{dataPath}}</1>, sou volim pou sèvè anplis yo, san l pa pataje yo ak lòt sèvè yo.",
+    "noVolume": "Kontenè sa a poko gen volim pou sèvè anplis, kidonk yon dezyèm enstalasyon isit la ta efase nan pwochen mizajou panèl la. Relanse enstalatè a (bootstrap.sh) pou ajoute l, epi tounen isit la."
+  },
   "full": {
     "pageTitle": "Nouvèl Enstalasyon",
     "pageDescription": "Telechaje, konfigire, epi anrejistre yon nouvo sèvè dedye.",

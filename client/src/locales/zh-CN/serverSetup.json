@@ -122,6 +122,20 @@
     "customDataPathPlaceholderWindows": "e.g. C:\\Users\\you\\Zomboid or %USERPROFILE%\\Zomboid",
     "customDataPathPlaceholderPosix": "e.g. /home/you/Zomboid or $HOME/Zomboid"
   },
+  "multiServer": {
+    "portsTitle": "此主机上的另一台服务器",
+    "portsBody": "每台服务器都需要自己的端口才能与其他服务器同时运行，因此已填入最先空闲的端口。此处已占用：",
+    "usedPortsItem": "{{name}}：游戏 {{game}}–{{udp}}（UDP），RCON {{rcon}}",
+    "publishedRange": "Docker 为此容器发布 UDP 端口 {{start}}–{{end}}。请让游戏端口及其下一个端口保持在此范围内，玩家才能连接。",
+    "conflictGame": "端口 {{port}} 已是 {{name}} 的游戏端口：两台服务器无法同时运行。",
+    "conflictUdp": "端口 {{port}}（游戏端口 + 1）已被 {{name}} 使用：两台服务器无法同时运行。",
+    "conflictRcon": "RCON 端口 {{port}} 已被 {{name}} 使用：两台服务器无法同时运行。",
+    "outsidePublished": "端口 {{game}}–{{udp}} 不在 Docker 发布的范围（{{start}}–{{end}}）内：服务器可以运行，但玩家无法连接。请选择范围内的端口，或在 .env 中扩大 PZ_GAME_PORTS 并重新运行 bootstrap.sh。",
+    "folderTitle": "此容器中的另一台服务器",
+    "folderBodyFull": "它的游戏文件放在 <1>{{path}}</1>，世界和设置放在 <1>{{dataPath}}</1>，都位于额外服务器专用的卷上，因此面板更新后仍会保留。",
+    "folderBodyQuick": "它复用 <1>{{path}}</1> 中的游戏文件，并把世界、设置和日志保存在 <1>{{dataPath}}</1>（额外服务器专用的卷），不与其他服务器共用。",
+    "noVolume": "此容器还没有用于额外服务器的卷，因此在这里进行的第二次安装会在下次面板更新时被清除。请重新运行安装程序（bootstrap.sh）来添加它，然后再回来。"
+  },
   "full": {
     "pageTitle": "全新安装",
     "pageDescription": "下载、配置并注册一台新的专用服务器。",

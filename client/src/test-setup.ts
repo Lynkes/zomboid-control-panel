@@ -2,6 +2,18 @@ import '@testing-library/jest-dom'
 import './i18n'
 import { configure } from '@testing-library/react'
 
+// A request a test didn't mock used to reach Node's real fetch, fail, and go
+// through api.ts's retry backoff (3 retries, about 7 seconds) before the
+// page under test could render: most Scheduler tests spent ~7s per test
+// there, because the page later started waiting on backupApi.getStatus(),
+// which their mocks predate. Fail such a request at once instead, with a
+// plain Error that fetchWithRetry doesn't retry and that names the URL. A
+// test that mocks fetch itself (vi.stubGlobal, vi.spyOn) still replaces it.
+globalThis.fetch = ((input: RequestInfo | URL) => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+  return Promise.reject(new Error(`Unmocked fetch in a test: ${url}`))
+}) as typeof fetch
+
 // waitFor()'s own real-wall-clock timeout (@testing-library/dom's
 // asyncUtilTimeout, stock default 1000ms) is the sibling vite.config.ts's
 // testTimeout=60000 decision missed -- an identical exposure to the same

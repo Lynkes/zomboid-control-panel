@@ -13,6 +13,7 @@ jobs:
     name: Queue passing Dependabot update
     if: github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       # This workflow intentionally does not check out or execute pull-request code.
       # GitHub still enforces required checks and reviews before the queued merge runs.

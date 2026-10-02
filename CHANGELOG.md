@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Server Settings read server.ini as the game does: values it rejects (`Public= true`, a hidden space in a number) and lines it skips (`PVP = true`) are flagged, and editing one writes a line the game reads.
+
+## [1.4.2] - 2026-10-02
+
 ### Added
 
+- **Several PZ servers in the all-in-one container:** Server Setup puts extra servers on a new `pz-servers` volume with their own ports (UDP 16261-16270, `PZ_GAME_PORTS`) and data folder; rerun `bootstrap.sh` to add both (#183, thanks @Lynkes).
 - Debug › Diagnostics warns about a leftover `natives/` folder from an older game build, or a `ProjectZomboid64.json` that loads it first.
 
 ### Fixed
@@ -17,7 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A stuck server's failed Stop, Restart or update now says what to do next (Force stop, or the host for a remote server) and what it costs; Settings › Updates no longer calls it "Download Failed".
 - Server Files: a .zip download asked for right after another one finished no longer fails now and then with "Too many uploads or downloads".
 - Server Settings match Build 42.21 (ranges, defaults, new Show Coordinates option) and a save no longer adds Build 41 keys (#182, thanks @p3x1187).
-- Server Settings read server.ini as the game does: values it rejects (`Public= true`, a hidden space in a number) and lines it skips (`PVP = true`) are flagged, and editing one writes a line the game reads.
+- The panel refuses a start on a game port another running server uses, a Docker folder that isn't on a volume, and a Docker update while other servers run, and says why (#183).
+- Haitian Creole counts no longer fall back to English when the system's default language has a "many" plural form (#183).
 
 ## [1.4.1] - 2026-09-30
 

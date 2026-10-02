@@ -387,8 +387,9 @@ export default function Layout({ children }: LayoutProps) {
   //
   // A failure can carry a registered error code and its params (the server's
   // codedActionResultFields(), today SERVER_START_SCRIPT_MISSING and
-  // SERVER_RESTART_SCRIPT_MISSING from GH #167), shown translated like POST /api/server/start's own refusal;
-  // the English message is the fallback.
+  // SERVER_RESTART_SCRIPT_MISSING from GH #167, and SERVER_START_GAME_PORT_IN_USE),
+  // shown translated like POST /api/server/start's own refusal; the English
+  // message is the fallback.
   useEffect(() => {
     if (!socket) return
     const onActionResult = (data?: { kind?: 'restart' | 'task'; taskName?: string; success?: boolean; message?: string; code?: string; params?: unknown }) => {

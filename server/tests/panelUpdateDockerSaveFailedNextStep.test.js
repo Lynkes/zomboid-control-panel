@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handlePanelUpdateDownload } from "../index.js";
 import { ServerManager } from "../services/serverManager.js";
 
@@ -30,6 +30,12 @@ function dockerUpdateRequest(rconService, downloadUpdate) {
 }
 
 describe("Docker panel update: a server that can't be saved and stopped", () => {
+  // The update first refuses while another server in the container runs
+  // (#183); no other server here, and no real scan of this machine.
+  beforeEach(() => {
+    vi.spyOn(ServerManager.prototype, "scanHostForServerProcesses").mockResolvedValue({ matched: [], scanFailed: false });
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
