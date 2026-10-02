@@ -47,7 +47,9 @@
     "title": "Redémarrage en attente",
     "waiting": "En attente que les joueurs se déconnectent avant de redémarrer (max {{minutes}} min)",
     "cancel": "Annuler",
-    "cancelAria": "Annuler le redémarrage en attente"
+    "cancelAria": "Annuler le redémarrage en attente",
+    "cancelledByRestartTitle": "Redémarrage pour mise à jour des mods annulé",
+    "cancelledByRestartDesc": "Le serveur a redémarré après la détection des mises à jour des mods et les utilise déjà : aucun second redémarrage n'est nécessaire."
   },
   "folderBrowser": {
     "title": "Choisir le dossier du serveur Project Zomboid"

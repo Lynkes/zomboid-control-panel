@@ -11,7 +11,7 @@
 import { resolveProvider } from "../utils/serverStatusModel.js";
 import { resolveDockerHostSignal } from "./managedContainer.js";
 import { createLinuxServiceLifecycle, isManagedLifecycleProvider } from "./linuxServiceLifecycle.js";
-import { ServerManager, scoreServerProcessOwnership } from "./serverManager.js";
+import { ServerManager, scanLeavesServerUnknown, scoreServerProcessOwnership } from "./serverManager.js";
 import { createLogger } from "../utils/logger.js";
 import { FM_LIMITS } from "./fileManagerContract.js";
 
@@ -70,7 +70,9 @@ async function computeRunState(profile, app) {
     serverPath: profile.serverPath || profile.installPath,
   };
   const owned = (scan.matched || []).some((m) => scoreServerProcessOwnership(m.cmd, descriptor) > 0);
-  return owned ? "running" : "stopped";
+  if (owned) return "running";
+  // A process Windows lists but won't let the panel read may be this one.
+  return scanLeavesServerUnknown(scan, false) ? "unknown" : "stopped";
 }
 
 /**

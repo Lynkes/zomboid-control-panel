@@ -688,7 +688,14 @@ export class LinuxServiceLifecycle {
       current.activeState,
     );
     if (action === "start" && current.running && !stateUnknown) {
-      return { success: true, confirmed: true, message: "Server is already running" };
+      // alreadyRunning: nothing was launched, so serverManager.startServer()
+      // doesn't report this as a fresh start (GH #189).
+      return {
+        success: true,
+        confirmed: true,
+        alreadyRunning: true,
+        message: "Server is already running",
+      };
     }
     if (action === "stop" && !current.running && !stateUnknown) {
       return { success: true, confirmed: true, message: "Server is already stopped" };

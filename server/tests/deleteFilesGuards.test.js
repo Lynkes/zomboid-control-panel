@@ -237,6 +237,40 @@ describe("POST /api/server/delete-files safety guards", () => {
     expect(fs.existsSync(installDir)).toBe(true);
   });
 
+  // Review finding (2026-10-02): Windows can list a java.exe whose command
+  // line the panel may not read (started as administrator or by another
+  // user). With another server recognized next to it, that row used to be
+  // dropped, and this target read as stopped although it may be that very
+  // process.
+  it("refuses (fails closed) when another server runs next to a process the panel can't read", async () => {
+    const otherInstallDir = path.join(os.tmpdir(), "pz-other-running-server");
+    getServers.mockResolvedValue([
+      { id: 1, installPath: installDir, serverName: "ServerA" },
+      { id: 2, installPath: otherInstallDir, serverName: "ServerB" },
+    ]);
+    scanHostForServerProcesses.mockResolvedValue({
+      scanFailed: false,
+      running: true,
+      matched: [
+        {
+          pid: "222",
+          cmd: `java zombie.network.GameServer -servername "ServerB" -cachedir="${otherInstallDir}"`,
+        },
+      ],
+      unreadable: [{ pid: "7000", startedMs: 1790964741863 }],
+    });
+    const handler = getDeleteFilesHandler();
+    const response = createResponse();
+
+    await handler(buildRequest({ confirm: true }), response);
+
+    expect(response.status).toHaveBeenCalledWith(503);
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "SERVER_STATE_UNKNOWN" }),
+    );
+    expect(fs.existsSync(installDir)).toBe(true);
+  });
+
   it("still deletes on the happy path: stopped, confirmed, a real PZ install", async () => {
     const handler = getDeleteFilesHandler();
     const response = createResponse();

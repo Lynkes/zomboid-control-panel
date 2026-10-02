@@ -142,6 +142,31 @@ describe("GET /api/servers/status", () => {
     expect(payload.servers.find((s) => s.id === 1).running).toBe(true);
     expect(payload.servers.find((s) => s.id === 2).running).toBe(false);
   });
+
+  // Review finding (2026-10-02): Windows can also list processes whose
+  // command line the panel may not read; a server none of the readable
+  // ones belongs to may be one of them, so it isn't confidently "stopped".
+  it("marks a server with no process of its own unknown when the scan also lists processes it can't read", async () => {
+    getServers.mockResolvedValue([
+      { id: 1, name: "A", serverName: "ServerA", installPath: "C:\\pz\\a" },
+      { id: 2, name: "B", serverName: "ServerB", installPath: "C:\\pz\\b" },
+    ]);
+    getActiveServer.mockResolvedValue({ id: 1 });
+    scanHostForServerProcesses.mockResolvedValue({
+      running: true,
+      matched: [
+        { pid: "111", cmd: 'java zombie.network.GameServer -servername "ServerA" -cachedir="C:\\Zomboid\\A"' },
+      ],
+      unreadable: [{ pid: "7000", startedMs: 1790964741863 }],
+    });
+    const response = createResponse();
+
+    await getStatusHandler()({ app: fakeApp() }, response);
+
+    const payload = response.json.mock.calls[0][0];
+    expect(payload.servers.find((s) => s.id === 1)).toMatchObject({ running: true, stateUnknown: false });
+    expect(payload.servers.find((s) => s.id === 2)).toMatchObject({ running: false, stateUnknown: true });
+  });
 });
 
 // is-running-enumeration sweep, 2026-09-08: the active server's own

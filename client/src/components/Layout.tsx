@@ -316,6 +316,7 @@ interface LayoutProps {
 export default function Layout({ children }: LayoutProps) {
   const { t } = useTranslation('shell')
   const { t: tScheduler } = useTranslation('scheduler')
+  const { t: tMods } = useTranslation('mods')
   const [activeServer, setActiveServer] = useState<ServerInstance | null>(null)
 
   const isBlockedByRemote = (item: NavItem) =>
@@ -411,6 +412,27 @@ export default function Layout({ children }: LayoutProps) {
       socket.off('scheduler:action_result', onActionResult)
     }
   }, [socket, tScheduler, toast])
+
+  // GH #189: a mod-update restart that was waiting for players ends when the
+  // server is started again after the update (the new start loaded the
+  // updated mods). Global like the restart result above: the operator
+  // usually restarted from the Dashboard, not the Mods page, and this says
+  // why the pending restart they were told about won't happen. An operator's
+  // own Cancel on the Mods page carries no reason and stays silent here.
+  useEffect(() => {
+    if (!socket) return
+    const onRestartCancelled = (data?: { reason?: string }) => {
+      if (data?.reason !== 'server_restarted') return
+      toast({
+        title: tMods('restartPending.cancelledByRestartTitle'),
+        description: tMods('restartPending.cancelledByRestartDesc'),
+      })
+    }
+    socket.on('mods:restart_cancelled', onRestartCancelled)
+    return () => {
+      socket.off('mods:restart_cancelled', onRestartCancelled)
+    }
+  }, [socket, tMods, toast])
 
   const navigate = useNavigate()
   const location = useLocation()

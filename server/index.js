@@ -104,6 +104,7 @@ import {
   setBeforeLaunchHook,
   setLaunchTargetRefresher,
   setServerDisplayNameResolver,
+  setServerLaunchedHook,
 } from "./services/lifecycleCoordinator.js";
 
 // === Supervisor bootstrap ===
@@ -339,6 +340,7 @@ import {
   stopCharacterSnapshotSampler,
 } from "./services/characterSnapshotSampler.js";
 import { pruneCharacterStore } from "./services/characterStore.js";
+import { waitForProcessExit } from "./utils/processScanRetry.js";
 
 dotenv.config();
 
@@ -1113,6 +1115,11 @@ setBeforeLaunchHook((server) => reconcileBridge(server, { reason: "launch" }));
 // auto-start used to skip it). See refreshLaunchTargetForLaunch().
 setLaunchTargetRefresher(refreshLaunchTargetForLaunch);
 const modChecker = new ModChecker();
+// Every launch the panel makes (the same paths as the before-launch hook
+// above), reported once it has happened: a fresh start loads the updated
+// Workshop mods, so a mod-update restart still pending from before it is
+// cancelled instead of restarting the server a second time (GH #189).
+setServerLaunchedHook((launch) => modChecker.noteServerLaunched(launch));
 const logTailer = new LogTailer();
 const scheduler = new Scheduler(rconService, serverManager);
 const discordBot = new DiscordBot(
@@ -2202,22 +2209,23 @@ export async function handlePanelUpdateDownload(req, res) {
           // (/wipe, /delete-files, template-apply) -- same corruption class,
           // just triggered by a container recreation instead of a second
           // process. Poll the same process-state check those routes rely on
-          // before letting the destructive step proceed, same bound as
-          // restartServer()'s own wait-for-death loop.
-          let stopConfirmed = false;
-          let recheckScanFailed = false;
-          for (let attempt = 0; attempt < 30; attempt++) {
-            const recheck = await serverManager.getServerProcessDetails();
-            if (!recheck || recheck.scanFailed) {
-              recheckScanFailed = true;
-              break;
-            }
-            if (!recheck.running) {
-              stopConfirmed = true;
-              break;
-            }
-            await serverManager.sleep(1000);
-          }
+          // before letting the destructive step proceed: 30 looks a second
+          // apart, never past a minute. A look that can't tell -- likeliest
+          // right as the JVM exits -- doesn't end the wait (GH #190); only
+          // the answer it ends on counts -- see waitForProcessExit().
+          const recheck = await waitForProcessExit(
+            () => serverManager.getServerProcessDetails(),
+            {
+              polls: 29,
+              intervalMs: 1000,
+              maxElapsedMs: 60 * 1000,
+              sleep: (ms) => serverManager.sleep(ms),
+              context: "Docker update",
+              ownProcesses: processDetails.owned,
+            },
+          );
+          const recheckScanFailed = Boolean(recheck.scanFailed);
+          const stopConfirmed = !recheckScanFailed && !recheck.running;
           // Two different outcomes, two codes: the scan itself failing is
           // SERVER_STATE_UNKNOWN (whose copy is about process detection),
           // while a process still there after 30 s is a server hanging in

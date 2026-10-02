@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Windows: a restart no longer leaves the server down when the process scan can't read the exiting server or an unrelated java.exe (#190, thanks @djcyphers).
+- A mod-update restart waiting for players is cancelled once the server is restarted any other way after the update was found, instead of restarting it a second time (#189, thanks @JeesusKrisostoomus).
 - Server Settings read server.ini as the game does and flag what it rejects or skips (`Public= true`, `PVP = true`, a line starting with `=` that voids the whole file); editing one writes a line the game reads (#182, thanks @p3x1187).
 
 ## [1.4.2] - 2026-10-02

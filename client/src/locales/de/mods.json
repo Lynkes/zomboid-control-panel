@@ -46,7 +46,9 @@
     "title": "Neustart ausstehend",
     "waiting": "Wartet, bis alle Spieler den Server verlassen haben, bevor neu gestartet wird (max. {{minutes}} Min.)",
     "cancel": "Abbrechen",
-    "cancelAria": "Ausstehenden Neustart abbrechen"
+    "cancelAria": "Ausstehenden Neustart abbrechen",
+    "cancelledByRestartTitle": "Neustart für Mod-Aktualisierung abgebrochen",
+    "cancelledByRestartDesc": "Der Server wurde neu gestartet, nachdem die Mod-Updates gefunden wurden, und verwendet sie bereits. Ein zweiter Neustart ist nicht nötig."
   },
   "folderBrowser": {
     "title": "Serverordner von Project Zomboid auswählen"

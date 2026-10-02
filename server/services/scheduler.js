@@ -15,6 +15,7 @@ import { createBackupIfChanged } from "../utils/configBackup.js";
 import { resolveServerPhase } from "../utils/serverStatus.js";
 import { candidateIniPaths } from "../routes/server.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { waitForProcessExit } from "../utils/processScanRetry.js";
 import {
   getScheduledTasks,
   updateTaskLastRun,
@@ -222,10 +223,11 @@ const SAME_SECOND_RESTART_SETTLE_MS = 5000;
 // How long past the running restart's own warning countdown that wait may
 // last before the restart is called stuck. performRestart()'s post-countdown
 // sequence is bounded by its own timeouts -- about a minute of final
-// countdown, the world save, up to ~70s for the old process to exit plus a
-// forced stop, up to 60s for the new one to appear and ~5 minutes of RCON
-// retries: 10-11 minutes at its slowest. 20 leaves room for a slow disk or
-// save without calling a healthy restart stuck.
+// countdown, the world save, up to about 2 minutes for the old process to
+// exit (a wall-clock cap of that wait's own, plus the one scan in flight)
+// and a forced stop, 60 looks for the new one to appear and ~5 minutes of
+// RCON retries: 12-13 minutes at its slowest. 20 leaves room for a slow
+// disk or save without calling a healthy restart stuck.
 const RESTART_SEQUENCE_BUDGET_MS = 20 * 60 * 1000;
 // Added per minute of that countdown: each minute's warning broadcast is an
 // RCON round trip on top of the minute's own sleep, and against a degraded
@@ -2134,13 +2136,21 @@ export class Scheduler {
         }
         await this.sleep(10000);
 
-        // Wait for server to stop. A failed scan is unknown, not stopped.
-        let attempts = 0;
-        let processDetails = await readProcessDetails();
-        if (!processDetails || processDetails.scanFailed) {
+        // Wait for server to stop: 60 looks a second apart, as before, now
+        // also capped at 2 minutes so scans that keep running into their
+        // own 18 s timeout can't hold the restart for 60 of those. A failed
+        // scan is unknown, not stopped -- and not the end of the wait
+        // either (GH #190, see waitForProcessExit()). The old server's PIDs
+        // from the check above also confirm the stop once they're gone from
+        // a scan whose only doubt is a process it can't read. Still unknown
+        // when the wait ends, the restart gives up: no second server over
+        // one that may be running, and no kill on a guess -- the forced
+        // stop below is for a confirmed `running` only.
+        const stopUnconfirmed = async () => {
           const restartDuration = Date.now() - restartStartTime;
           const errorMsg =
-            "Could not confirm the old server stopped because process detection failed";
+            "Could not confirm the old server stopped because process detection kept failing, so the new server was not started. Check whether the old one is still running before starting it.";
+          log.error(`Auto-restart failed: ${errorMsg}`);
           await logScheduleExecution(
             null,
             label,
@@ -2150,28 +2160,23 @@ export class Scheduler {
             restartDuration,
           );
           logServerEvent("auto_restart_error", errorMsg);
-          return { success: false, wasRunning: true, message: errorMsg, logged: true };
-        }
-        while (processDetails.running && attempts < 60) {
-          await this.sleep(1000);
-          attempts++;
-          processDetails = await readProcessDetails();
-          if (!processDetails || processDetails.scanFailed) {
-            const restartDuration = Date.now() - restartStartTime;
-            const errorMsg =
-              "Could not confirm the old server stopped because process detection failed";
-            await logScheduleExecution(
-              null,
-              label,
-              "restart",
-              false,
-              errorMsg,
-              restartDuration,
-            );
-            logServerEvent("auto_restart_error", errorMsg);
-            return { success: false, wasRunning: true, message: errorMsg, logged: true };
-          }
-        }
+          return {
+            success: false,
+            wasRunning: true,
+            message: errorMsg,
+            logged: true,
+            code: ErrorCode.SERVER_RESTART_STOP_UNCONFIRMED,
+          };
+        };
+        const processDetails = await waitForProcessExit(readProcessDetails, {
+          polls: 60,
+          intervalMs: 1000,
+          maxElapsedMs: 2 * 60 * 1000,
+          sleep: (ms) => this.sleep(ms),
+          context: "Auto-restart",
+          ownProcesses: initialProcessDetails?.owned,
+        });
+        if (processDetails.scanFailed) return stopUnconfirmed();
 
         // Force stop if needed
         if (processDetails.running) {
