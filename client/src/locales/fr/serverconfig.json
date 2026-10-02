@@ -4075,5 +4075,13 @@
   },
   "iniMisnamedKeyWarning": "Le jeu ignore cette ligne du fichier : il lit le nom de l'option comme {{name}} et utilise donc la valeur par défaut affichée ici. Modifier cette option réécrit la ligne pour que le jeu la lise.",
   "iniNumberStraySpaceError": "Le jeu ne peut pas lire {{value}} comme un nombre : il utilise donc sa valeur par défaut. Ressaisissez le nombre sans l'espace.",
-  "iniTextCutAtEqualsWarning": "Le jeu ne lit cette valeur que jusqu'au premier « = » : il utilise donc {{value}}"
+  "iniTextCutAtEqualsWarning": "Le jeu ne lit cette valeur que jusqu'au premier « = » : il utilise donc {{value}}",
+  "iniFatalLinesBanner": {
+    "title": "Le jeu ignore tout ce fichier et utilise la valeur par défaut de chaque paramètre",
+    "desc_one": "La ligne {{lines}} commence par « = » (ou est « Version= » sans nombre), et le jeu rejette le fichier à cause d'elle. Supprimez ou corrigez cette ligne en mode Brut.",
+    "desc_many": "Les lignes {{lines}} commencent par « = » (ou sont « Version= » sans nombre), et le jeu rejette le fichier à cause d'elles. Supprimez ou corrigez ces lignes en mode Brut.",
+    "desc_other": "Les lignes {{lines}} commencent par « = » (ou sont « Version= » sans nombre), et le jeu rejette le fichier à cause d'elles. Supprimez ou corrigez ces lignes en mode Brut."
+  },
+  "iniSecretCutAtEqualsWarning": "Le jeu ne lit cette valeur que jusqu'au premier « = » et ignore le reste. Utilisez une valeur sans « = ».",
+  "iniMisnamedKeyFileValue": "La ligne du fichier contient : {{value}}"
 }

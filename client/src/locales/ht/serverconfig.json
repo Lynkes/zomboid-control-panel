@@ -4075,5 +4075,12 @@
   },
   "iniMisnamedKeyWarning": "Jwèt la inyore liy sa a nan fichye a: li li non opsyon an kòm {{name}}, kidonk li sèvi ak valè pa defo ki parèt la a. Si ou chanje opsyon sa a, liy lan ap reekri pou jwèt la ka li l.",
   "iniNumberStraySpaceError": "Jwèt la pa ka li {{value}} kòm yon nimewo, kidonk li sèvi ak valè pa defo li. Retape nimewo a san espas la.",
-  "iniTextCutAtEqualsWarning": "Jwèt la li valè sa a sèlman jiska premye “=” a, kidonk li sèvi ak: {{value}}"
+  "iniTextCutAtEqualsWarning": "Jwèt la li valè sa a sèlman jiska premye “=” a, kidonk li sèvi ak: {{value}}",
+  "iniFatalLinesBanner": {
+    "title": "Jwèt la inyore tout fichye sa a epi li sèvi ak valè pa defo chak paramèt",
+    "desc_one": "Liy {{lines}} kòmanse ak “=” (oswa se “Version=” san nimewo), kidonk jwèt la rejte fichye a. Efase oswa korije liy sa a nan mòd Bri.",
+    "desc_other": "Liy {{lines}} yo kòmanse ak “=” (oswa se “Version=” san nimewo), kidonk jwèt la rejte fichye a. Efase oswa korije liy sa yo nan mòd Bri."
+  },
+  "iniSecretCutAtEqualsWarning": "Jwèt la li valè sa a sèlman jiska premye “=” a epi li inyore rès la. Sèvi ak yon valè ki pa gen “=”.",
+  "iniMisnamedKeyFileValue": "Liy ki nan fichye a di: {{value}}"
 }

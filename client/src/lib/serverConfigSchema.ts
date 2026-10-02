@@ -5090,6 +5090,25 @@ export function getIniTextCutAtEqualsWarning(value: string): string {
   )
 }
 
+// The same for a masked secret ("RCONPassword=ab=cd" is "ab" to the game):
+// the form only has the mask, so this never shows the value.
+export function getIniSecretCutAtEqualsWarning(): string {
+  return translatedOrFallback(
+    'iniSecretCutAtEqualsWarning',
+    'The game reads this value only up to the first "=" and ignores the rest. Use a value without "=".',
+  )
+}
+
+// Under getIniMisnamedKeyWarning on a text setting: the form shows the
+// default, so this keeps the text the skipped line holds in sight.
+export function getIniMisnamedKeyFileValue(value: string): string {
+  return translatedOrFallback(
+    'iniMisnamedKeyFileValue',
+    `The line in the file says: ${value}`,
+    { value },
+  )
+}
+
 // Sandbox tab live-range fix (2026-09-09 dispatch): SANDBOX_SCHEMA's min/max
 // above is a build-time snapshot of Project Zomboid's engine-side bounds --
 // it can never track a PZ patch, only a panel release can. ServerConfig.tsx

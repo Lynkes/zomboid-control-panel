@@ -2196,6 +2196,13 @@ export const serverFilesApi = {
       rawSettings?: Record<string, string>;
       /** Keys whose line the game skips, mapped to the option name it reads there ("Public "). */
       misnamedKeys?: Record<string, string>;
+      /**
+       * Line numbers (from 1) that make the game ignore the whole file and
+       * run on every default: a line starting with "=", or "Version=".
+       */
+      fatalLines?: number[];
+      /** Masked secrets whose value has an "=" the game stops reading at. Never the values. */
+      maskedCutAtEqualsKeys?: string[];
       path: string;
       serverName: string;
       duplicateKeys?: Array<{ key: string; count: number }>;

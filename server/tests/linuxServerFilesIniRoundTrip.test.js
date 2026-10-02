@@ -492,3 +492,72 @@ describe("GET /ini -> PUT /ini round trip: whitespace the game does not trim (GH
     expect(fs.readFileSync(iniPath, "utf-8")).toContain("\r\nDoLuaChecksum=false\r\n");
   });
 });
+
+describe("GET /ini -> PUT /ini round trip: lines as the game splits them (GH#182 follow-up)", () => {
+  // The game reads lines with BufferedReader.readLine, which also ends one
+  // at a lone "\r": 42.21 reads "A=1\rB=2" as two options. This file mixes
+  // all three line ends.
+  const mixedEndsFixture = "PVP=true\rMaxPlayers=16\nPublicName=Mine\r\nUDPPort=16262\n";
+
+  beforeEach(() => {
+    fs.writeFileSync(iniPath, mixedEndsFixture, "utf-8");
+  });
+
+  it("GET reads each line the game reads, and an unchanged form save is byte-for-byte", async () => {
+    const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
+    expect(getRes.getBody().rawSettings).toEqual({
+      PVP: "true",
+      MaxPlayers: "16",
+      PublicName: "Mine",
+      UDPPort: "16262",
+    });
+
+    const putRes = await runRoute("/ini", "put", {
+      user: { role: "admin" },
+      body: { settings: formSettings(getRes.getBody()) },
+    });
+
+    expect(putRes.getStatusCode()).toBe(200);
+    expect(fs.readFileSync(iniPath, "utf-8")).toBe(mixedEndsFixture);
+  });
+
+  it("changing one setting rewrites only its line, and every line keeps its own end", async () => {
+    const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
+    const putRes = await runRoute("/ini", "put", {
+      user: { role: "admin" },
+      body: { settings: { ...formSettings(getRes.getBody()), MaxPlayers: "20" } },
+    });
+
+    expect(putRes.getStatusCode()).toBe(200);
+    expect(fs.readFileSync(iniPath, "utf-8")).toBe("PVP=true\rMaxPlayers=20\nPublicName=Mine\r\nUDPPort=16262\n");
+  });
+});
+
+describe("GET /ini: what the form can't show from the values alone (GH#182 follow-up)", () => {
+  it("lists the lines that make the game ignore the whole file", async () => {
+    // 42.21's ConfigFile.read fails on "= stray" and "Version=", and the
+    // server then runs on the default of every setting.
+    fs.writeFileSync(iniPath, "PVP=false\n= stray\r\nVersion=\rMaxPlayers=16\n", "utf-8");
+
+    const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
+
+    expect(getRes.getBody().fatalLines).toEqual([2, 3]);
+  });
+
+  it("names a masked secret the game cuts at '=' without sending its value", async () => {
+    fs.writeFileSync(iniPath, "RCONPassword=abcd=efgh\nPassword=plain\nPublicName=a=b\n", "utf-8");
+
+    const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
+    const body = getRes.getBody();
+
+    expect(body.maskedCutAtEqualsKeys).toEqual(["RCONPassword"]);
+    expect(body.rawSettings.RCONPassword).toBe("••••••••efgh");
+    expect(JSON.stringify(body)).not.toContain("abcd");
+  });
+
+  it("is empty for a file the game reads whole", async () => {
+    const getRes = await runRoute("/ini", "get", { user: { role: "admin" } });
+
+    expect(getRes.getBody()).toMatchObject({ fatalLines: [], maskedCutAtEqualsKeys: [] });
+  });
+});

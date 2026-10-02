@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Server Settings read server.ini as the game does: values it rejects (`Public= true`, a hidden space in a number) and lines it skips (`PVP = true`) are flagged, and editing one writes a line the game reads.
+- Server Settings read server.ini as the game does and flag what it rejects or skips (`Public= true`, `PVP = true`, a line starting with `=` that voids the whole file); editing one writes a line the game reads (#182, thanks @p3x1187).
 
 ## [1.4.2] - 2026-10-02
 

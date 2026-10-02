@@ -39,6 +39,7 @@ const getPaths = vi.spyOn(serverFilesApi, 'getPaths')
 const getIni = vi.spyOn(serverFilesApi, 'getIni')
 const saveIni = vi.spyOn(serverFilesApi, 'saveIni')
 const saveAndReload = vi.spyOn(serverFilesApi, 'saveAndReload')
+const getRaw = vi.spyOn(serverFilesApi, 'getRaw')
 
 const NBSP = String.fromCharCode(0xa0)
 
@@ -49,7 +50,12 @@ afterEach(() => {
 })
 
 // GET /ini as the server builds it: `settings` trimmed, `rawSettings` not.
-function mockLoads(rawSettings: Record<string, string>, misnamedKeys: Record<string, string> = {}) {
+// `extra`: the rest of the body (fatalLines, maskedCutAtEqualsKeys).
+function mockLoads(
+  rawSettings: Record<string, string>,
+  misnamedKeys: Record<string, string> = {},
+  extra: Record<string, unknown> = {},
+) {
   const settings = Object.fromEntries(Object.entries(rawSettings).map(([key, value]) => [key, value.trim()]))
   getResolvedActive.mockResolvedValue({
     server: { id: 1, name: 'Server A', serverName: 'servera', isRemote: false } as never,
@@ -59,7 +65,7 @@ function mockLoads(rawSettings: Record<string, string>, misnamedKeys: Record<str
   getPaths.mockResolvedValue({
     exists: { ini: true, sandbox: false, spawnpoints: false, spawnregions: false },
   } as never)
-  getIni.mockResolvedValue({ settings, rawSettings, misnamedKeys, path: '/a', serverName: 'servera' } as never)
+  getIni.mockResolvedValue({ settings, rawSettings, misnamedKeys, ...extra, path: '/a', serverName: 'servera' } as never)
   saveIni.mockResolvedValue({ success: true } as never)
   saveAndReload.mockResolvedValue({ success: true } as never)
 }
@@ -204,5 +210,113 @@ describe('ServerConfig.tsx INI tab: lines the game skips (misnamedKeys)', () => 
     expect(saveIni).toHaveBeenCalledWith({ PVP: 'false' })
     await waitFor(() => expect(screen.queryByText(/ignores this line/)).not.toBeInTheDocument())
     expect(screen.getByRole('switch', { name: 'Enable PvP' })).toHaveAttribute('aria-checked', 'false')
+  })
+
+  it('a skipped text line shows what it holds, since the field shows the default', async () => {
+    mockLoads({ PublicName: ' My Server' }, { PublicName: 'PublicName ' })
+    renderIniTab('PublicName')
+
+    await waitFor(() => expect(getIni).toHaveBeenCalled())
+    expect(await screen.findByText('The line in the file says: My Server')).toBeInTheDocument()
+  })
+
+  it('a skipped line on a masked secret never shows the mask as its value', async () => {
+    mockLoads({ RCONPassword: '••••••••cret' }, { RCONPassword: 'RCONPassword ' })
+    renderIniTab('RCONPassword')
+
+    await waitFor(() => expect(getIni).toHaveBeenCalled())
+    expect(await screen.findByText(/reads the setting name as RCONPassword␣/)).toBeInTheDocument()
+    expect(screen.queryByText(/The line in the file says/)).not.toBeInTheDocument()
+  })
+
+  it('a legacy (Build 41) row keeps the file\'s value and says nothing about the line', async () => {
+    // mergeIniSchemaDefaults fills no default for a legacy key, and B42 has
+    // no such option to skip, so "uses the default shown here" would be false.
+    mockLoads({ UseTCPForMapDownloads: ' true' }, { UseTCPForMapDownloads: 'UseTCPForMapDownloads ' })
+    renderIniTab('UseTCPForMapDownloads')
+
+    await waitFor(() => expect(getIni).toHaveBeenCalled())
+    expect(await screen.findByText('Build 41 only')).toBeInTheDocument()
+    expect(screen.queryByText(/ignores this line/)).not.toBeInTheDocument()
+  })
+})
+
+describe('ServerConfig.tsx INI tab: values compared with their default as the game reads them', () => {
+  it('"MaxPlayers= 32" and a rejected " true" for Public are their defaults: no highlight, not in the changed filter', async () => {
+    mockLoads({ MaxPlayers: ' 32', Public: ' true', PublicName: 'Mine' })
+    renderIniTab()
+
+    await waitFor(() => expect(getIni).toHaveBeenCalled())
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Search server settings' }), { target: { value: 'Max Players' } })
+    expect(await screen.findByText('Default: 32')).not.toHaveClass('text-warning')
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Search server settings' }), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'modified' }))
+    await waitFor(() => expect(screen.queryByText('Max Players')).not.toBeInTheDocument())
+    expect(screen.queryByText('Public Server')).not.toBeInTheDocument()
+  })
+
+  it('a number the game reads as another value is still highlighted', async () => {
+    mockLoads({ MaxPlayers: ' 16' })
+    renderIniTab('MaxPlayers')
+
+    await waitFor(() => expect(getIni).toHaveBeenCalled())
+    expect(await screen.findByText('Default: 32')).toHaveClass('text-warning')
+  })
+})
+
+describe('ServerConfig.tsx INI tab: a masked secret the game cuts at "="', () => {
+  it('warns from GET /ini\'s maskedCutAtEqualsKeys without naming any of the value', async () => {
+    mockLoads({ RCONPassword: '••••••••efgh' }, {}, { maskedCutAtEqualsKeys: ['RCONPassword'] })
+    renderIniTab('RCONPassword')
+
+    await waitFor(() => expect(getIni).toHaveBeenCalled())
+    expect(await screen.findByText(
+      'The game reads this value only up to the first "=" and ignores the rest. Use a value without "=".',
+    )).toBeInTheDocument()
+    expect(screen.queryByText(/so it uses:/)).not.toBeInTheDocument()
+  })
+
+  it('stays quiet for a masked secret GET /ini does not list, even with "=" in its last 4 chars', async () => {
+    mockLoads({ RCONPassword: '••••••••a=bc' })
+    renderIniTab('RCONPassword')
+
+    await waitFor(() => expect(getIni).toHaveBeenCalled())
+    expect(await screen.findByDisplayValue('••••••••a=bc')).toBeInTheDocument()
+    expect(screen.queryByText(/only up to the first "="/)).not.toBeInTheDocument()
+  })
+})
+
+describe('ServerConfig.tsx: a line that makes the game ignore the whole file', () => {
+  it('names the lines GET /ini reports, above the form', async () => {
+    mockLoads({ PVP: 'false' }, {}, { fatalLines: [2, 7] })
+    renderIniTab()
+
+    await waitFor(() => expect(getIni).toHaveBeenCalled())
+    expect(await screen.findByText('The game ignores this whole file and runs on the default of every setting')).toBeInTheDocument()
+    expect(screen.getByText(
+      'Lines 2, 7 start with "=" (or are "Version=" with no number), and the game rejects the file because of them. Delete or fix those lines in Raw mode.',
+    )).toBeInTheDocument()
+  })
+
+  it('reads the raw editor\'s own text as the operator types', async () => {
+    mockLoads({ PVP: 'false' })
+    getRaw.mockResolvedValue({ content: 'PVP=false\n' } as never)
+    renderIniTab()
+
+    await waitFor(() => expect(getIni).toHaveBeenCalled())
+    const [rawToggle] = await screen.findAllByRole('button', { name: /^raw$/i })
+    await act(async () => { fireEvent.click(rawToggle) })
+    await waitFor(() => expect(getRaw).toHaveBeenCalled())
+    const textarea = await screen.findByDisplayValue('PVP=false')
+    expect(screen.queryByText(/ignores this whole file/)).not.toBeInTheDocument()
+
+    fireEvent.change(textarea, { target: { value: 'PVP=false\n= oops\n' } })
+    expect(screen.getByText(
+      'Line 2 starts with "=" (or is "Version=" with no number), and the game rejects the file because of it. Delete or fix that line in Raw mode.',
+    )).toBeInTheDocument()
+
+    fireEvent.change(textarea, { target: { value: 'PVP=false\nOops=x\n' } })
+    expect(screen.queryByText(/ignores this whole file/)).not.toBeInTheDocument()
   })
 })

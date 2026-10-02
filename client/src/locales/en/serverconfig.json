@@ -4062,5 +4062,12 @@
   },
   "iniMisnamedKeyWarning": "The game ignores this line in the file: it reads the setting name as {{name}}, so it uses the default shown here. Changing this setting rewrites the line so the game reads it.",
   "iniNumberStraySpaceError": "The game can't read {{value}} as a number, so it uses its default. Retype the number without the space.",
-  "iniTextCutAtEqualsWarning": "The game reads this value only up to the first \"=\", so it uses: {{value}}"
+  "iniTextCutAtEqualsWarning": "The game reads this value only up to the first \"=\", so it uses: {{value}}",
+  "iniFatalLinesBanner": {
+    "title": "The game ignores this whole file and runs on the default of every setting",
+    "desc_one": "Line {{lines}} starts with \"=\" (or is \"Version=\" with no number), and the game rejects the file because of it. Delete or fix that line in Raw mode.",
+    "desc_other": "Lines {{lines}} start with \"=\" (or are \"Version=\" with no number), and the game rejects the file because of them. Delete or fix those lines in Raw mode."
+  },
+  "iniSecretCutAtEqualsWarning": "The game reads this value only up to the first \"=\" and ignores the rest. Use a value without \"=\".",
+  "iniMisnamedKeyFileValue": "The line in the file says: {{value}}"
 }

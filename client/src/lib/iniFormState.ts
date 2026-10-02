@@ -7,50 +7,12 @@
 // rules to that text, and an untouched value goes back unchanged, so the
 // server leaves its line byte-for-byte.
 
-import { INI_SCHEMA, parseNumericSettingValue, type NumericSettingBounds } from './serverConfigSchema'
+import { javaTrim, parsePzBoolean, pzOptionText } from './pzIniRead'
+import { INI_SCHEMA, parseNumericSettingValue, type IniSetting, type NumericSettingBounds } from './serverConfigSchema'
 
-/** Java's String.trim(): only the chars up to U+0020 come off both ends. */
-export function javaTrim(text: string): string {
-  let start = 0
-  let end = text.length
-  while (start < end && text.charCodeAt(start) <= 0x20) start++
-  while (end > start && text.charCodeAt(end - 1) <= 0x20) end--
-  return text.slice(start, end)
-}
-
-/**
- * The text PZ 42.21 hands an option's parser, given the text after the line's
- * first "=". zombie.config.ConfigFile.read trims the whole line (Java
- * String.trim), splits it on "=" and keeps only the piece after the first
- * one; nothing trims that piece again. So only the line's end is trimmed, and
- * that is this piece's end only when no further "=" follows it:
- * "Hello = world" reads as "Hello ".
- */
-export function pzOptionText(value: string): string {
-  let end = value.indexOf('=')
-  if (end === -1) {
-    end = value.length
-    while (end > 0 && value.charCodeAt(end - 1) <= 0x20) end--
-  }
-  return value.slice(0, end)
-}
-
-/**
- * Read a server.ini boolean the way PZ 42.21 does, given the text after the
- * line's first "=" (see pzOptionText). BooleanConfigOption.parse takes
- * "true"/"1" as on and "false"/"0" as off (String.equalsIgnoreCase). Anything
- * else is logged and dropped, so the option keeps its default: B41's
- * SteamScoreboard=admin, "Public= true", "Public=true =x". Returns null for
- * such a value.
- */
-export function parsePzBoolean(value: string): boolean | null {
-  const text = pzOptionText(value)
-  // The u flag case-folds these words exactly as Java's equalsIgnoreCase
-  // does (it also takes "falſe", with a long s, as the game does).
-  if (/^(?:true|1)$/iu.test(text)) return true
-  if (/^(?:false|0)$/iu.test(text)) return false
-  return null
-}
+// The game's own line and boolean readers live in pzIniRead.ts, which has no
+// imports, so bridgeDeliveryView.ts can share them without the INI schema.
+export { findIniFatalLines, javaTrim, parsePzBoolean, pzOptionText } from './pzIniRead'
 
 /**
  * The text Double.parseDouble reads for a server.ini number: PZ's integer,
@@ -87,6 +49,31 @@ export function parseIniNumber(
   const text = pzNumberText(String(value ?? ''))
   if (/\s/u.test(text)) return null
   return parseNumericSettingValue(text, bounds, options)
+}
+
+/**
+ * Whether the game ends up on this setting's schema default with `value` on
+ * its line, for the row's default highlight and the "changed from default"
+ * filter. Each type is read as the game reads it: "MaxPlayers= 32" is 32, a
+ * boolean or number it can't read (" false", "\u00A032") leaves its default,
+ * and a select is a number. Text compares as written.
+ */
+export function iniValueIsDefault(setting: IniSetting, value: string): boolean {
+  const fallback = String(setting.default ?? '')
+  switch (setting.type) {
+    case 'boolean': {
+      const defaultOn = setting.default === true
+      return (parsePzBoolean(value) ?? defaultOn) === defaultOn
+    }
+    case 'number': {
+      const number = parseIniNumber(value, setting, { enforceBounds: false })
+      return number === null || number === Number(fallback)
+    }
+    case 'select':
+      return pzNumberText(value) === fallback
+    default:
+      return value === fallback
+  }
 }
 
 /**

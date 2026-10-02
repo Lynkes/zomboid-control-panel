@@ -4075,5 +4075,13 @@
   },
   "iniMisnamedKeyWarning": "El juego ignora esta línea del archivo: lee el nombre de la opción como {{name}}, así que usa el valor predeterminado que se muestra aquí. Si cambias esta opción, la línea se reescribe para que el juego la lea.",
   "iniNumberStraySpaceError": "El juego no puede leer {{value}} como número, así que usa su valor predeterminado. Vuelve a escribir el número sin el espacio.",
-  "iniTextCutAtEqualsWarning": "El juego solo lee este valor hasta el primer «=», así que usa: {{value}}"
+  "iniTextCutAtEqualsWarning": "El juego solo lee este valor hasta el primer «=», así que usa: {{value}}",
+  "iniFatalLinesBanner": {
+    "title": "El juego ignora todo este archivo y usa el valor predeterminado de cada ajuste",
+    "desc_one": "La línea {{lines}} empieza por «=» (o es «Version=» sin número), y por eso el juego rechaza el archivo. Elimina o corrige esa línea en el modo Texto plano.",
+    "desc_many": "Las líneas {{lines}} empiezan por «=» (o son «Version=» sin número), y por eso el juego rechaza el archivo. Elimina o corrige esas líneas en el modo Texto plano.",
+    "desc_other": "Las líneas {{lines}} empiezan por «=» (o son «Version=» sin número), y por eso el juego rechaza el archivo. Elimina o corrige esas líneas en el modo Texto plano."
+  },
+  "iniSecretCutAtEqualsWarning": "El juego solo lee este valor hasta el primer «=» e ignora el resto. Usa un valor sin «=».",
+  "iniMisnamedKeyFileValue": "La línea del archivo dice: {{value}}"
 }

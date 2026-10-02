@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  findIniFatalLines,
   iniValueChanges,
   javaTrim,
   parseIniAsGame,
@@ -79,14 +80,58 @@ describe("parseIniAsGame", () => {
     expect(parseIni(content)).toMatchObject({ Public: "true", PingLimit: "400", PauseEmpty: "true" });
   });
 
-  it("lists the keys whose line the game reads under another name, from the line parseIni() keeps", () => {
-    expect(parseIniAsGame(content).misnamed).toEqual({
+  it("lists the keys whose line the game reads under another name, unless it reads another line for the key", () => {
+    const { values, misnamed } = parseIniAsGame(content);
+    expect(misnamed).toEqual({
       Open: "Open ",
       PVP: "PVP ",
       Tabbed: "Tabbed\t",
       FirstKey: "\uFEFFFirstKey",
-      Dup: "Dup ",
     });
+    expect(values).toMatchObject({ Dup: "first", Fixed: "after" });
+  });
+
+  // The game applies the lines it reads in order and skips a misnamed one:
+  // 42.21's ConfigFile.read gives [PVP]->false and [PVP ]->" true" for the
+  // first file, and only "PVP" is a ServerOptions name.
+  it("a skipped line after one the game reads leaves that line's value", () => {
+    expect(parseIniAsGame("PVP=false\nPVP = true\n")).toEqual({ values: { PVP: "false" }, misnamed: {} });
+    expect(parseIniAsGame("PVP = true\nPVP=false\n")).toEqual({ values: { PVP: "false" }, misnamed: {} });
+    expect(parseIniAsGame("PVP = true\nPVP  = false\n")).toEqual({
+      values: { PVP: " false" },
+      misnamed: { PVP: "PVP  " },
+    });
+  });
+
+  it("ends a line at a lone CR, as the game's BufferedReader.readLine does", () => {
+    // 42.21 reads "A=1\rB=2\nC=3" as A=1, B=2 and C=3.
+    expect(parseIniAsGame("A=1\rB=2\nC=3\r\n").values).toEqual({ A: "1", B: "2", C: "3" });
+  });
+});
+
+describe("findIniFatalLines", () => {
+  // Whether 42.21's ConfigFile.read accepted each file, recorded by running
+  // it from projectzomboid.jar on the game's Java 25 runtime. A rejected
+  // file is ignored whole: the server runs on the default of every setting.
+  it.each([
+    ["Ok=1\n=\nAfter=2\n", [2]],
+    ["Ok=1\n  = x\nAfter=2\n", [2]],
+    ["Ok=1\n==\nAfter=2\n", [2]],
+    ["Ok=1\nVersion=\nAfter=2\n", [2]],
+    ["Ok=1\nVersion==\nAfter=2\n", [2]],
+    ["Ok=1\nVersion=1\nAfter=2\n", []],
+    ["Ok=1\nVersion= 1\nAfter=2\n", []],
+    ["Ok=1\nversion=\nAfter=2\n", []],
+    ["Ok=1\n#=x\nAfter=2\n", []],
+    ["\uFEFF=x\nAfter=2\n", []],
+    ["Ok=1\n\u00A0=x\nAfter=2\n", []],
+    ["Ok=1\nno equals sign\n; =x\n", []],
+  ])("%j -> %j", (content, expected) => {
+    expect(findIniFatalLines(content)).toEqual(expected);
+  });
+
+  it("numbers lines as the game counts them, a lone CR ending one", () => {
+    expect(findIniFatalLines("A=1\r=x\r\nB=2\n\t=\n")).toEqual([2, 4]);
   });
 });
 

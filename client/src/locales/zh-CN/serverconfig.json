@@ -4062,5 +4062,11 @@
   },
   "iniMisnamedKeyWarning": "游戏会忽略文件中的这一行：它把此项的名称读作 {{name}}，因此使用此处显示的默认值。更改此项会重写该行，使游戏能够读取。",
   "iniNumberStraySpaceError": "游戏无法将 {{value}} 读取为数字，因此使用其默认值。请重新输入该数字，不要带空格。",
-  "iniTextCutAtEqualsWarning": "游戏只读取此值第一个「=」之前的内容，因此使用：{{value}}"
+  "iniTextCutAtEqualsWarning": "游戏只读取此值第一个「=」之前的内容，因此使用：{{value}}",
+  "iniFatalLinesBanner": {
+    "title": "游戏会忽略整个文件，所有设置都使用默认值",
+    "desc_other": "第 {{lines}} 行以「=」开头（或是没有数字的「Version=」），游戏因此拒绝读取该文件。请在「原始」模式下删除或修正对应的行。"
+  },
+  "iniSecretCutAtEqualsWarning": "游戏只读取此值第一个「=」之前的内容，其余部分会被忽略。请使用不含「=」的值。",
+  "iniMisnamedKeyFileValue": "文件中该行的内容为：{{value}}"
 }

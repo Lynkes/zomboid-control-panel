@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildIniSavePayload,
+  findIniFatalLines,
+  iniValueIsDefault,
   mergeIniSchemaDefaults,
   parseIniNumber,
   parsePzBoolean,
@@ -153,6 +155,56 @@ describe('mergeIniSchemaDefaults with lines the game skips (GET /ini misnamedKey
     expect(warn).not.toHaveBeenCalled()
     mergeIniSchemaDefaults({ PingLimit: '\u00A0400' })
     expect(warn).toHaveBeenCalledWith('[ServerConfig] PingLimit expected number, got "\u00A0400"')
+  })
+})
+
+describe('iniValueIsDefault (the default highlight and "changed from default" filter)', () => {
+  const setting = (key: string) => {
+    const found = INI_SCHEMA.find((s) => s.key === key)
+    if (!found) throw new Error(`no schema entry for ${key}`)
+    return found
+  }
+
+  // The game's own value for each line, from 42.21's option parsers.
+  it.each([
+    ['MaxPlayers', '32', true, 'the default itself'],
+    ['MaxPlayers', ' 32', true, 'Double.parseDouble trims the space: 32'],
+    ['MaxPlayers', '32.0', true, 'the same number'],
+    ['MaxPlayers', '\u00A033', true, 'unreadable: the game keeps its default'],
+    ['MaxPlayers', '16', false, 'another number'],
+    ['Public', 'false', true, 'the default (off)'],
+    ['Public', ' true', true, 'rejected: the game keeps its default (off)'],
+    ['Public', 'admin', true, 'rejected too'],
+    ['Public', 'TRUE', false, 'on'],
+    ['Open', ' false', true, 'rejected: the game keeps its default (on)'],
+    ['BadWordPolicy', ' 3', true, 'a select is a number: option 3, the default'],
+    ['BadWordPolicy', '1', false, 'another option'],
+    ['PublicName', '', true, 'text compares as written'],
+    ['PublicName', ' ', false, 'text compares as written'],
+  ] as const)('%s=%j -> %s (%s)', (key, value, expected) => {
+    expect(iniValueIsDefault(setting(key), value)).toBe(expected)
+  })
+})
+
+describe('findIniFatalLines (the raw editor\'s copy of server/utils/iniGameView.js)', () => {
+  // Same files, and the same answers 42.21's ConfigFile.read gave, as the
+  // server's iniGameView.test.js.
+  it.each([
+    ['Ok=1\n=\nAfter=2\n', [2]],
+    ['Ok=1\n  = x\nAfter=2\n', [2]],
+    ['Ok=1\n==\nAfter=2\n', [2]],
+    ['Ok=1\nVersion=\nAfter=2\n', [2]],
+    ['Ok=1\nVersion==\nAfter=2\n', [2]],
+    ['Ok=1\nVersion=1\nAfter=2\n', []],
+    ['Ok=1\nVersion= 1\nAfter=2\n', []],
+    ['Ok=1\nversion=\nAfter=2\n', []],
+    ['Ok=1\n#=x\nAfter=2\n', []],
+    ['\uFEFF=x\nAfter=2\n', []],
+    ['Ok=1\n\u00A0=x\nAfter=2\n', []],
+    ['Ok=1\nno equals sign\n; =x\n', []],
+    ['A=1\r=x\r\nB=2\n\t=\n', [2, 4]],
+  ])('%j -> %j', (content, expected) => {
+    expect(findIniFatalLines(content)).toEqual(expected)
   })
 })
 

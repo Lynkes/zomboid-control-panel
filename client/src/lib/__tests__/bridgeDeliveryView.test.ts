@@ -373,8 +373,16 @@ describe('resolveLuaChecksumCallout (Server Config › INI, spec §4.12)', () =>
     ['', 'localBlocked'],
     ['0', null],
     ['False', null],
+    // The editor holds the value untrimmed (GET /ini rawSettings), and the
+    // game rejects "DoLuaChecksum= false" and keeps the check on.
+    [' false', 'localBlocked'],
+    ['false =x', 'localBlocked'],
   ] as const)('reads DoLuaChecksum=%j the way the game does -> %s', (value, expected) => {
     expect(resolveLuaChecksumCallout({ method: 'local', state: 'local-ok', turnOnBlockers: ['notWorkshop'] }, value)).toBe(expected)
+  })
+
+  it('a confirmed Workshop server with "DoLuaChecksum= false" is already on, as the INI switch shows', () => {
+    expect(resolveLuaChecksumCallout({ method: 'workshop', state: 'workshop-confirmed', turnOnBlockers: [] }, ' false')).toBeNull()
   })
 
   it('a confirmed Workshop server with DoLuaChecksum=1 is already on: no "you can turn this on" note', () => {

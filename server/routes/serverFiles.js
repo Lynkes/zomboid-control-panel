@@ -25,6 +25,7 @@ import {
 import { escapeRegExp } from "../utils/regex.js";
 import { findDuplicateIniKeys } from "../utils/iniDuplicateKeys.js";
 import {
+  findIniFatalLines,
   iniValueChanges,
   javaTrimEnd,
   javaTrimStart,
@@ -714,8 +715,16 @@ export function toIni(obj, originalContent = "") {
     // difference from the file's own prior state on every save, and the
     // asymmetry with mods.js's sibling writer on the SAME file is exactly
     // the shape worth closing rather than leaving to chance.
+    //
+    // Lines are split where the game splits them (BufferedReader.readLine:
+    // "\r\n", "\n" or a lone "\r", see iniGameView.js), and each keeps its
+    // own end. Splitting on "\n" alone took "A=1\rB=2", two options to the
+    // game, for one line and rewrote it on an unrelated save as "A=1B=2".
+    // A line this appends ends with the file's own style.
     const lineEnding = originalContent.includes("\r\n") ? "\r\n" : "\n";
-    const lines = originalContent.split(/\r?\n/);
+    const pieces = originalContent.split(/(\r\n|\r|\n)/);
+    const lines = pieces.filter((_, index) => index % 2 === 0);
+    const lineEnds = pieces.filter((_, index) => index % 2 === 1);
     const result = [];
     const written = new Set();
 
@@ -776,7 +785,12 @@ export function toIni(obj, originalContent = "") {
       }
     }
 
-    return result.join(lineEnding);
+    // result holds one entry per original line, in order, then the appended
+    // ones: original line i keeps lineEnds[i]; the last original line (which
+    // had no end) and the appended lines are joined with lineEnding.
+    return result
+      .map((line, index) => (index === 0 ? line : `${lineEnds[index - 1] ?? lineEnding}${line}`))
+      .join("");
   }
 
   // Generate from scratch
@@ -1464,11 +1478,23 @@ router.get("/ini", async (req, res) => {
     // game reads it (" true" stays " true"), plus `misnamedKeys` for the
     // lines the game skips ("Public = true"). It sends those raw values back,
     // which is what lets toIni() keep an untouched line byte-for-byte.
+    //
+    // `fatalLines`: the lines that make the game ignore the whole file and
+    // run on every default ("= x", see findIniFatalLines); the form can't
+    // show them, so it says so and points at the raw editor.
+    // `maskedCutAtEqualsKeys`: the masked secrets whose value has an "=",
+    // which the game cuts there (an RCONPassword "ab=cd" is "ab" to it). The
+    // form warns from the value itself for every other key; for these it
+    // only has the mask, so it gets the key and never the value.
     const gameView = parseIniAsGame(content);
     res.json({
       settings: maskSensitiveObject(parsed),
       rawSettings: maskSensitiveObject(gameView.values),
       misnamedKeys: gameView.misnamed,
+      fatalLines: findIniFatalLines(content),
+      maskedCutAtEqualsKeys: Object.keys(gameView.values).filter(
+        (key) => SENSITIVE_FIELD_RE.test(key) && gameView.values[key].includes("="),
+      ),
       path: filePath,
       serverName,
       duplicateKeys,
@@ -1610,7 +1636,7 @@ router.put("/ini", async (req, res) => {
       // reads under that name, holding the submitted text (less what the
       // game's line trim drops from its end).
       const persisted = parseIniAsGame(persistedContent);
-      const original = parseIni(originalContent);
+      const original = parseIniAsGame(originalContent).values;
       for (const [key, value] of Object.entries(submittedSettings)) {
         const isExistingKey = Object.prototype.hasOwnProperty.call(original, key);
         const isNewNonEmptyKey = value !== "" && value !== null && value !== undefined;
