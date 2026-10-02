@@ -63,7 +63,6 @@
     "manageServers": "Jere Sèvè",
     "playersOnline_one": "{{count}} jwè anliy",
     "playersOnline_other": "{{count}} jwè anliy",
-    "playersOnline_many": "{{count}} jwè anliy",
     "statusRunning": "Sèvè a ap fonksyone",
     "statusStopped": "Sèvè a sispann",
     "statusTransitioning": "Sèvè a ap demare oswa sispann",
@@ -72,8 +71,7 @@
   },
   "modBadge": {
     "updatesAvailable_one": "{{count}} mizajou mod disponib",
-    "updatesAvailable_other": "{{count}} mizajou mod disponib",
-    "updatesAvailable_many": "{{count}} mizajou mod disponib"
+    "updatesAvailable_other": "{{count}} mizajou mod disponib"
   },
   "panelUpdateBadge": {
     "titleWithVersion": "Mizajou panèl disponib: v{{version}}",

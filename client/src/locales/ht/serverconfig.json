@@ -6,7 +6,6 @@
   "duplicateKeysWarning": {
     "title_one": "\"{{keys}}\" parèt plis pase yon fwa nan fichye konfigirasyon sa a",
     "title_other": "{{count}} paramèt parèt plis pase yon fwa nan fichye konfigirasyon sa a: {{keys}}",
-    "title_many": "{{count}} paramèt parèt plis pase yon fwa nan fichye konfigirasyon sa a: {{keys}}",
     "desc": "Editè sa a li dènye kopi a, epi paj Mods li premye a — konsa toude ka montre valè diferan pou menm paramèt la."
   },
   "serverChangedBanner": {
@@ -32,7 +31,6 @@
     "sandboxLabel": "Sandbox",
     "spawnsLabel_one": "Spawn · {{count}} pwofesyon",
     "spawnsLabel_other": "Spawn · {{count}} pwofesyon",
-    "spawnsLabel_many": "Spawn · {{count}} pwofesyon",
     "regionsLabel": "Rejyon",
     "fileNotFoundTitle": "{{label}}: fichye pa jwenn",
     "notFoundAria": "Pa jwenn"
@@ -116,10 +114,8 @@
     "collapseAll": "Fèmen tout",
     "modifiedCountTitle_one": "{{count}} chanjman ki pa sove",
     "modifiedCountTitle_other": "{{count}} chanjman ki pa sove",
-    "modifiedCountTitle_many": "{{count}} chanjman ki pa sove",
     "matchCount_one": "{{count}} rezilta",
     "matchCount_other": "{{count}} rezilta",
-    "matchCount_many": "{{count}} rezilta",
     "uncategorizedIniLabel": "San Kategori / Enkoni",
     "uncategorizedIniTitle": "Kle ki nan fichye INI ou a men ki pa nan schema a (kle vanil pi resan, kle mod ajoute, oswa pèsonalize)",
     "uncategorizedSandboxLabel": "Paramèt Anplis",
@@ -130,7 +126,6 @@
     "heading": "Kle San Kategori / Enkoni",
     "keyCount_one": "{{count}} kle",
     "keyCount_other": "{{count}} kle",
-    "keyCount_many": "{{count}} kle",
     "description": "Kle ki nan INI ou a men schema a pa rekonèt. Petèt paramèt vanil pi resan oswa mod ajoute. Valè yo konsève lè ou sove — modifye ak atansyon.",
     "undoTitle": "Anile chanjman"
   },
@@ -139,7 +134,6 @@
     "heading": "Paramèt Sandbox Anplis",
     "keyCount_one": "{{count}} kle",
     "keyCount_other": "{{count}} kle",
-    "keyCount_many": "{{count}} kle",
     "description": "Paramèt editè a pa gen schema pou yo, gwoupe pa seksyon ki posede yo. Pifò se kle mod ajoute. Modifye ak atansyon.",
     "mainSection": "Seksyon prensipal",
     "undoTitle": "Anile chanjman"
@@ -147,7 +141,6 @@
   "categoryContent": {
     "settingCount_one": "{{count}} paramèt",
     "settingCount_other": "{{count}} paramèt",
-    "settingCount_many": "{{count}} paramèt",
     "noneModified": "Pa gen paramèt nan kategori sa a ki diferan de valè pa defo Project Zomboid yo.",
     "noneUnsaved": "Pa gen paramèt ki pa sove nan kategori sa a.",
     "none": "Pa gen paramèt nan kategori sa a."
@@ -183,7 +176,6 @@
     "sectionLabel": "Rejyon spawn",
     "sectionSublabel_one": "{{count}} rejyon · vil ak bouk",
     "sectionSublabel_other": "{{count}} rejyon · vil ak bouk",
-    "sectionSublabel_many": "{{count}} rejyon · vil ak bouk",
     "noRegionsTitle": "Pa gen rejyon spawn jwenn",
     "noRegionsDesc": "Eseye chanje pou mòd Bri pou wè kontni fichye a",
     "columnDisplayName": "Non ki Afiche",
@@ -204,7 +196,6 @@
     "sectionLabel": "Opsyon sandbox mod",
     "sectionSublabelLoaded_one": "{{count}} mod · dirèk soti nan bridge",
     "sectionSublabelLoaded_other": "{{count}} mod · dirèk soti nan bridge",
-    "sectionSublabelLoaded_many": "{{count}} mod · dirèk soti nan bridge",
     "sectionSublabelIdle": "panelbridge · dirèk",
     "modifiedBadge": "{{count}} modifye",
     "refresh": "aktyalize",
@@ -235,7 +226,6 @@
     "loadedAt": "Chaje {{time}}",
     "groupModifiedTitle_one": "{{count}} opsyon diferan de defo",
     "groupModifiedTitle_other": "{{count}} opsyon diferan de defo",
-    "groupModifiedTitle_many": "{{count}} opsyon diferan de defo",
     "groupModifiedBadge": "{{count}} mod",
     "onCaps": "ON",
     "offCaps": "OFF",
@@ -257,7 +247,6 @@
   "stickySaveBar": {
     "unsavedChange_one": "{{count}} chanjman ki pa sove",
     "unsavedChange_other": "{{count}} chanjman ki pa sove",
-    "unsavedChange_many": "{{count}} chanjman ki pa sove",
     "iniScope": "server ini",
     "sandboxScope": "sandbox lua",
     "hint": "ctrl+s pou sove · aplike lè rechaje",
@@ -278,7 +267,6 @@
     "showAllBackups": "Montre tout kopi sovgad",
     "totalCount_one": "{{count}} kopi sovgad antou",
     "totalCount_other": "{{count}} kopi sovgad antou",
-    "totalCount_many": "{{count}} kopi sovgad antou",
     "close": "Fèmen",
     "typeConfig": "config",
     "typeIni": "INI",
@@ -293,7 +281,6 @@
     "description": "Sove konfigirasyon aktyèl ou, oswa chaje youn ou te sove anvan.",
     "savedCount_one": "{{count}} konfigirasyon sove",
     "savedCount_other": "{{count}} konfigirasyon sove",
-    "savedCount_many": "{{count}} konfigirasyon sove",
     "saveCurrentAsTemplate": "Sove Konfigirasyon Aktyèl la",
     "emptyTitle": "Pa gen konfigirasyon sove toujou",
     "emptyDesc": "Klike 'Sove Konfigirasyon Aktyèl la' pou kreye premye a",

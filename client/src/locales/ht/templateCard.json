@@ -3,10 +3,8 @@
   "custom": "Pèsonalize",
   "settingsOverridden_one": "{{count}} paramèt ranplase",
   "settingsOverridden_other": "{{count}} paramèt ranplase",
-  "settingsOverridden_many": "{{count}} paramèt ranplase",
   "modsCount_one": "{{count}} mod",
   "modsCount_other": "{{count}} mod",
-  "modsCount_many": "{{count}} mod",
   "preview": "Apèsi",
   "exportTitle": "Ekspòte modèl",
   "deleteTitle": "Efase modèl"

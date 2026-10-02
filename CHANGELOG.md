@@ -21,7 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - In Docker, Server Setup refuses an install or data folder that isn't on a volume (it would be erased on the next update) and names the folder to use, instead of a permissions error with systemd advice.
 - A server can't start on a game port another running server already uses; the error names that server.
 - A Docker update refuses to start while a server other than the active one runs in the container, instead of stopping it without a save.
-- Haitian Creole has the plural form newer browsers ask for with exact millions, instead of falling back to English.
 
 ## [1.4.1] - 2026-09-30
 

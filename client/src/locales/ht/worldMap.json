@@ -202,7 +202,6 @@
     "templateOptionLabel": "{{name}} ({{count}})",
     "templateItemCount_one": "{{count}} atik",
     "templateItemCount_other": "{{count}} atik",
-    "templateItemCount_many": "{{count}} atik",
     "deletePackageTitle": "Efase pakè sa a",
     "noPackagesYet": "Poko gen pakè — bati youn epi sove anba a",
     "noItemsRow": "Pa gen atik — ajoute omwen youn anba a.",
@@ -234,7 +233,6 @@
     "descriptionFallback": "Pakè sa a pral retire.",
     "description_one": "“{{name}}” ({{count}} atik) ap retire nan pakè sove ou yo. Aksyon sa a pa ka anile.",
     "description_other": "“{{name}}” ({{count}} atik) ap retire nan pakè sove ou yo. Aksyon sa a pa ka anile.",
-    "description_many": "“{{name}}” ({{count}} atik) ap retire nan pakè sove ou yo. Aksyon sa a pa ka anile.",
     "cancel": "Anile",
     "confirm": "Efase"
   },
