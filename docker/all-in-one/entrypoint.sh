@@ -19,7 +19,8 @@ STEAM_HOME=/home/steam
 STEAMCMD=/home/steam/steamcmd/steamcmd.sh
 PZ_APPID=380870
 
-chown -R ${STEAM_UID}:${STEAM_GID} /pz-server /zomboid /app/data /app/logs "$STEAM_HOME" 2>/dev/null || true
+mkdir -p /pz-servers
+chown -R ${STEAM_UID}:${STEAM_GID} /pz-server /pz-servers /zomboid /app/data /app/logs "$STEAM_HOME" 2>/dev/null || true
 
 if [ ! -x "$STEAMCMD" ]; then
   echo "[entrypoint] ERROR: steamcmd not found at $STEAMCMD" >&2

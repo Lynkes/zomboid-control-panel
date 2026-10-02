@@ -80,8 +80,14 @@ import {
 } from "../services/linuxServiceLifecycle.js";
 import {
   inspectSelfContainerMounts,
+  isOnContainerRootLayer,
   translateHostPath,
 } from "../utils/containerMountInfo.js";
+import {
+  collectUsedPorts,
+  getAllInOneLayout,
+  suggestFreePorts,
+} from "../services/serverPortPlan.js";
 
 const router = express.Router();
 
@@ -1033,17 +1039,35 @@ export function resolveZomboidPaths(installPath, zomboidDataPath) {
   // extracting their piece, so deriving the default this way is
   // separator-agnostic by construction -- it doesn't matter whether
   // upstream trimmed anything, this can't reproduce the bug.
-  const defaultZomboidDataPath =
-    process.env.PZ_SAVE_PATH ||
-    path.join(path.dirname(installPath), `${path.basename(installPath)}_Data`);
+  //
+  // PZ_SAVE_PATH belongs to the install PZ_SERVER_PATH names, when both are
+  // set (the all-in-one image sets /pz-server and /zomboid). A second server
+  // installed somewhere else gets its own sibling _Data folder, as the
+  // wizard says it will: sharing the first server's data folder would make
+  // both write the same server-console.txt and Logs/ while they run.
+  const envInstallPath = process.env.PZ_SERVER_PATH;
+  const envSavePathApplies =
+    Boolean(process.env.PZ_SAVE_PATH) &&
+    (!envInstallPath || isSameDirectory(envInstallPath, installPath));
+  const defaultZomboidDataPath = envSavePathApplies
+    ? process.env.PZ_SAVE_PATH
+    : path.join(path.dirname(installPath), `${path.basename(installPath)}_Data`);
   const zomboidPath = zomboidDataPath || defaultZomboidDataPath;
 
   return {
     zomboidPath,
     serverConfigPath: path.join(zomboidPath, "Server"),
-    usesEnvironmentDataPath:
-      !zomboidDataPath && Boolean(process.env.PZ_SAVE_PATH),
+    usesEnvironmentDataPath: !zomboidDataPath && envSavePathApplies,
   };
+}
+
+// path.resolve() already drops trailing separators (keeping a bare root).
+function isSameDirectory(a, b) {
+  const normalize = (value) => {
+    const resolved = path.resolve(String(value));
+    return isWindows ? resolved.toLowerCase() : resolved;
+  };
+  return normalize(a) === normalize(b);
 }
 
 function ensureWritableDirectory(directoryPath) {
@@ -1146,6 +1170,55 @@ export function formatWritablePathError(
       kind === "install"
         ? ErrorCode.WRITABLE_PATH_INSTALL_BAREMETAL
         : ErrorCode.WRITABLE_PATH_DATA_BAREMETAL,
+    params: { path: directoryPath },
+  };
+}
+
+// Inside a container, a folder on the image's own root filesystem (not a
+// volume or bind mount) can be writable and still lose everything when the
+// container is recreated, which every all-in-one update does: a second
+// server installed at /pz-server2 would vanish with its worlds. Refused
+// before anything is created there. Returns null when the path is fine or
+// when mountinfo can't tell. Three codes because each is a different
+// remediation sentence; the path itself names which folder failed, so no
+// install/data label is needed. `layout` is getAllInOneLayout()'s answer.
+export function formatEphemeralContainerPathError(
+  directoryPath,
+  {
+    containerized = !isWindows && isContainerized(),
+    mounts,
+    layout = getAllInOneLayout(),
+  } = {},
+) {
+  if (!containerized) return null;
+  if (isOnContainerRootLayer(directoryPath, mounts) !== true) return null;
+
+  const baseMessage =
+    `${directoryPath} is inside the container's own filesystem, not on a ` +
+    `volume, so everything put there is erased when the container is ` +
+    `recreated (every panel update does that).`;
+  const root = layout?.serversRoot;
+  if (root && isOnContainerRootLayer(root, mounts) === false) {
+    return {
+      message: `${baseMessage} Use a folder inside ${root}.`,
+      code: ErrorCode.CONTAINER_PATH_NOT_PERSISTENT_AIO,
+      params: { path: directoryPath, root },
+    };
+  }
+  if (layout) {
+    const suggestedRoot = root || "/pz-servers";
+    return {
+      message:
+        `${baseMessage} This all-in-one install has no volume for extra ` +
+        `servers yet: run the installer (bootstrap.sh) again to add it, then ` +
+        `use a folder inside ${suggestedRoot}.`,
+      code: ErrorCode.CONTAINER_PATH_NOT_PERSISTENT_AIO_NO_VOLUME,
+      params: { path: directoryPath, root: suggestedRoot },
+    };
+  }
+  return {
+    message: `${baseMessage} Use a folder on a Docker volume or bind mount.`,
+    code: ErrorCode.CONTAINER_PATH_NOT_PERSISTENT,
     params: { path: directoryPath },
   };
 }
@@ -2230,14 +2303,16 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
     res.json(result);
   } catch (error) {
     log.error(`Failed to start server: ${error.message}`);
-    const body = { error: sanitizeError(error.message) };
-    // startServer()'s one coded refusal (GH #167) -- a registered code, so
-    // the dashboard shows it in the operator's language. Any other error
+    // startServer()'s coded refusals (SERVER_START_SCRIPT_MISSING, GH #167;
+    // SERVER_START_GAME_PORT_IN_USE) -- registered codes, so the dashboard
+    // shows them in the operator's language. The same list a failed
+    // Restart's action result forwards (routes/scheduler.js's
+    // codedActionResultFields()), so the two can't drift. Any other error
     // (e.g. a raw fs "ENOENT") keeps the plain-message shape.
-    if (error.code === ErrorCode.SERVER_START_SCRIPT_MISSING) {
-      body.code = error.code;
-      if (error.params) body.params = sanitizeErrorParams(error.params);
-    }
+    const body = {
+      error: sanitizeError(error.message),
+      ...codedActionResultFields(error),
+    };
     res.status(500).json(body);
   } finally {
     if (!lifecycleLockTransferred) releaseLifecycleLock();
@@ -3012,6 +3087,37 @@ router.get("/steamcmd/detect", requirePermission("server.world_events"), async (
   }
 });
 
+// What the setup wizard needs to create ANOTHER server on this host: the
+// ports every local profile is configured for, the first free ones, and in
+// the all-in-one image where extra servers go and which UDP ports Docker
+// publishes. serversRoot is returned only when it really is a volume, so
+// the wizard never suggests a folder the next update would erase.
+router.get("/setup-plan", requirePermission("server.install"), async (req, res) => {
+  try {
+    const usedPorts = collectUsedPorts(await getServers());
+    const layout = getAllInOneLayout();
+    const allInOne = layout
+      ? {
+          serversRoot:
+            layout.serversRoot && isOnContainerRootLayer(layout.serversRoot) === false
+              ? layout.serversRoot
+              : null,
+          publishedGamePorts: layout.publishedGamePorts,
+        }
+      : null;
+    res.json({
+      usedPorts,
+      suggestedPorts: suggestFreePorts(usedPorts, {
+        publishedGamePorts: allInOne?.publishedGamePorts ?? null,
+      }),
+      allInOne,
+    });
+  } catch (error) {
+    log.warn(`Failed to build setup plan: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
 // Get available Steam branches for PZ Dedicated Server (App ID 380870)
 router.get("/branches", requirePermission("server.install"), async (req, res) => {
   try {
@@ -3374,6 +3480,19 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     // profile (or launch scripts) that start without Steam.
     if (useNoSteam === true && newProfileConflictsWithWorkshop({ installPath, useNoSteam }, await getServers())) {
       return res.status(409).json(noSteamWorkshopConflictResponse());
+    }
+
+    // Before ensureWritableDirectory() below creates anything: a container
+    // folder that isn't on a volume is lost on the next recreate.
+    for (const directoryPath of [installPath, zomboidPath]) {
+      const ephemeralError = formatEphemeralContainerPathError(directoryPath);
+      if (ephemeralError) {
+        return res.status(400).json({
+          error: ephemeralError.message,
+          code: ephemeralError.code,
+          params: ephemeralError.params,
+        });
+      }
     }
 
     try {
@@ -4177,6 +4296,19 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
     // See /install above: no -nosteam profile on a Steam Workshop folder.
     if (useNoSteam === true && newProfileConflictsWithWorkshop({ installPath, useNoSteam }, await getServers())) {
       return res.status(409).json(noSteamWorkshopConflictResponse());
+    }
+
+    // Only the data folder: the game files already exist here, possibly
+    // baked into an image on purpose, and the launch scripts written next
+    // to them are regenerated before every start. The worlds are what
+    // can't be lost.
+    const quickSetupEphemeralError = formatEphemeralContainerPathError(zomboidPath);
+    if (quickSetupEphemeralError) {
+      return res.status(400).json({
+        error: quickSetupEphemeralError.message,
+        code: quickSetupEphemeralError.code,
+        params: quickSetupEphemeralError.params,
+      });
     }
 
     try {

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handlePanelUpdateDownload } from "../index.js";
 import { ServerManager } from "../services/serverManager.js";
 
@@ -11,6 +11,15 @@ function createResponse() {
 describe("Docker panel update process-state guard", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  // The other-servers check runs a host-wide scan before anything else;
+  // no other Project Zomboid server is running in these cases.
+  beforeEach(() => {
+    vi.spyOn(ServerManager.prototype, "scanHostForServerProcesses").mockResolvedValue({
+      matched: [],
+      scanFailed: false,
+    });
   });
 
   it("refuses to start a Docker update when process detection fails", async () => {

@@ -19,6 +19,9 @@ export type PanelUpdateFailureKind =
   // The panel's process scan failed: update not applied, but there is no
   // single next step to point at.
   | 'serverStateUnknown'
+  // Another server in the all-in-one container is still running (#183):
+  // update not applied; the message names the servers to stop first.
+  | 'otherServersRunning'
   | 'downloadFailed'
 
 // Wire codes, as POST /api/panel/update-download sends them (save_failed and
@@ -31,10 +34,12 @@ const SERVER_NOT_STOPPED_CODES: ReadonlySet<string> = new Set([
   'SERVER_STOP_NOT_CONFIRMED',
 ])
 const SERVER_STATE_UNKNOWN_CODES: ReadonlySet<string> = new Set(['SERVER_STATE_UNKNOWN'])
+const OTHER_SERVERS_RUNNING_CODES: ReadonlySet<string> = new Set(['OTHER_SERVERS_RUNNING'])
 
 export function classifyPanelUpdateFailure(error: unknown): PanelUpdateFailureKind {
   const code = error instanceof ApiError ? error.code : undefined
   if (typeof code === 'string' && SERVER_NOT_STOPPED_CODES.has(code)) return 'serverNotStopped'
   if (typeof code === 'string' && SERVER_STATE_UNKNOWN_CODES.has(code)) return 'serverStateUnknown'
+  if (typeof code === 'string' && OTHER_SERVERS_RUNNING_CODES.has(code)) return 'otherServersRunning'
   return 'downloadFailed'
 }

@@ -188,6 +188,35 @@ describe("POST /server/restart -- scheduler:action_result socket emission", () =
     });
   });
 
+  // The restart's start can also be refused because another running server
+  // holds this one's game port; that refusal is coded the same way.
+  it("forwards SERVER_START_GAME_PORT_IN_USE's code and params with the failure", async () => {
+    const { gamePortInUseError } = await import("../services/serverManager.js");
+    const refusal = gamePortInUseError({ port: 16262, serverName: "Second" });
+    const emit = vi.fn();
+    const performRestart = vi.fn().mockRejectedValue(refusal);
+
+    await getHandler("/restart", "post")(
+      {
+        body: {},
+        app: {
+          get: (key) =>
+            key === "scheduler" ? { performRestart } : key === "io" ? { emit } : null,
+        },
+      },
+      createResponse(),
+    );
+    await flushMicrotasks();
+
+    expect(emit).toHaveBeenCalledWith("scheduler:action_result", {
+      kind: "restart",
+      success: false,
+      message: refusal.message,
+      code: "SERVER_START_GAME_PORT_IN_USE",
+      params: { port: 16262, name: "Second" },
+    });
+  });
+
   it("does not throw when app.get('io') returns something without a real emit function", async () => {
     const performRestart = vi.fn().mockResolvedValue({ success: true, message: "ok" });
     const response = createResponse();

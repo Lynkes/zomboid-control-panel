@@ -122,6 +122,20 @@
     "noPermissionSettings": "Saving this setting requires the panel.settings permission, which this role doesn't have.",
     "noPermissionControl": "Starting the server requires the server.control permission, which this role doesn't have."
   },
+  "multiServer": {
+    "portsTitle": "Another server on this host",
+    "portsBody": "Each server needs its own ports to run at the same time as the others, so the first free ones were filled in. Already in use here:",
+    "usedPortsItem": "{{name}}: game {{game}}–{{udp}} (UDP), RCON {{rcon}}",
+    "publishedRange": "Docker publishes UDP ports {{start}}–{{end}} for this container. Keep the game port and the one after it inside that range so players can connect.",
+    "conflictGame": "Port {{port}} is already a game port of {{name}}: the two servers can't run at the same time.",
+    "conflictUdp": "Port {{port}} (game port + 1) is already used by {{name}}: the two servers can't run at the same time.",
+    "conflictRcon": "RCON port {{port}} is already used by {{name}}: the two servers can't run at the same time.",
+    "outsidePublished": "Ports {{game}}–{{udp}} are outside the range Docker publishes ({{start}}–{{end}}): the server runs, but players can't reach it. Choose a port inside the range, or widen PZ_GAME_PORTS in .env and run bootstrap.sh again.",
+    "folderTitle": "Another server in this container",
+    "folderBodyFull": "Its game files go in <1>{{path}}</1> and its worlds and settings in <1>{{dataPath}}</1>, on the volume for extra servers, so they survive panel updates.",
+    "folderBodyQuick": "It reuses the game files in <1>{{path}}</1> and keeps its worlds, settings and logs in <1>{{dataPath}}</1>, on the volume for extra servers, so it doesn't share them with the other servers.",
+    "noVolume": "This container has no volume for extra servers yet, so a second install here would be erased on the next panel update. Run the installer (bootstrap.sh) again to add it, then come back."
+  },
   "full": {
     "pageTitle": "Fresh Install",
     "pageDescription": "Download, configure, and register a new dedicated server.",

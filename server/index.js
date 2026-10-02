@@ -52,7 +52,7 @@ import {
   peekServerDisplayName,
 } from "./database/init.js";
 import { RconService } from "./services/rcon.js";
-import { ServerManager } from "./services/serverManager.js";
+import { findOtherRunningServers, ServerManager } from "./services/serverManager.js";
 import { DockerClient } from "./services/dockerClient.js";
 import {
   runManagedLifecycle,
@@ -2115,6 +2115,30 @@ export async function handlePanelUpdateDownload(req, res) {
             error:
               "Confirm the Docker update before recreating the all-in-one container.",
             code: "confirmation_required",
+          });
+        }
+
+        // Recreating the container stops every Project Zomboid server in
+        // it, and only the active one is saved and stopped below. Checked
+        // first, so a refusal here never leaves the active server stopped.
+        const otherRunning = await findOtherRunningServers(await getActiveServer());
+        if (otherRunning.scanFailed) {
+          return res.status(503).json({
+            success: false,
+            error:
+              "Can't verify whether the server is stopped because process detection failed. The Docker update was not started.",
+            code: ErrorCode.SERVER_STATE_UNKNOWN,
+          });
+        }
+        if (otherRunning.servers.length > 0 || otherRunning.unattributed.length > 0) {
+          const names = [
+            ...otherRunning.servers.map((server) => server.name || server.serverName),
+            ...otherRunning.unattributed.map((entry) => `PID ${entry.pid}`),
+          ].join(", ");
+          return res.status(409).json({
+            error: `Stop ${names} before applying a Docker update. Recreating the container stops every Project Zomboid server in it, and only the active server is saved and stopped for you.`,
+            code: ErrorCode.OTHER_SERVERS_RUNNING,
+            params: sanitizeErrorParams({ names }),
           });
         }
 

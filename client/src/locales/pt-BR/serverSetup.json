@@ -122,6 +122,20 @@
     "noPermissionSettings": "Salvar esta configuração requer a permissão panel.settings, que este cargo não tem.",
     "noPermissionControl": "Iniciar o servidor requer a permissão server.control, que este cargo não tem."
   },
+  "multiServer": {
+    "portsTitle": "Mais um servidor neste host",
+    "portsBody": "Cada servidor precisa das próprias portas para rodar junto com os outros, então as primeiras livres já foram preenchidas. Já em uso aqui:",
+    "usedPortsItem": "{{name}}: jogo {{game}}–{{udp}} (UDP), RCON {{rcon}}",
+    "publishedRange": "O Docker publica as portas UDP {{start}}–{{end}} deste contêiner. Mantenha a porta do jogo e a seguinte dentro dessa faixa para os jogadores conseguirem conectar.",
+    "conflictGame": "A porta {{port}} já é uma porta de jogo de {{name}}: os dois servidores não podem rodar ao mesmo tempo.",
+    "conflictUdp": "A porta {{port}} (porta do jogo + 1) já é usada por {{name}}: os dois servidores não podem rodar ao mesmo tempo.",
+    "conflictRcon": "A porta RCON {{port}} já é usada por {{name}}: os dois servidores não podem rodar ao mesmo tempo.",
+    "outsidePublished": "As portas {{game}}–{{udp}} estão fora da faixa que o Docker publica ({{start}}–{{end}}): o servidor roda, mas os jogadores não conseguem alcançá-lo. Escolha uma porta dentro da faixa ou aumente PZ_GAME_PORTS no .env e rode o bootstrap.sh de novo.",
+    "folderTitle": "Mais um servidor neste contêiner",
+    "folderBodyFull": "Os arquivos do jogo vão para <1>{{path}}</1> e os mundos e configurações para <1>{{dataPath}}</1>, no volume de servidores extras, então sobrevivem às atualizações do painel.",
+    "folderBodyQuick": "Ele reaproveita os arquivos do jogo de <1>{{path}}</1> e guarda mundos, configurações e logs em <1>{{dataPath}}</1>, no volume de servidores extras, sem dividi-los com os outros servidores.",
+    "noVolume": "Este contêiner ainda não tem o volume para servidores extras, então uma segunda instalação aqui seria apagada na próxima atualização do painel. Rode o instalador (bootstrap.sh) de novo para adicioná-lo e depois volte aqui."
+  },
   "full": {
     "pageTitle": "Instalação nova",
     "pageDescription": "Baixe, configure e registre um novo servidor dedicado.",

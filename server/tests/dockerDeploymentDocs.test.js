@@ -24,11 +24,24 @@ describe("Docker deployment guidance", () => {
     );
   });
 
-  it("publishes both PZ UDP ports in the all-in-one Compose stack", () => {
+  it("publishes a UDP range for several PZ servers in the all-in-one Compose stack, and tells the panel which", () => {
     const compose = readRepoFile("docker/all-in-one/docker-compose.yml");
 
-    expect(compose).toContain('"16261:16261/udp"');
-    expect(compose).toContain('"16262:16262/udp"');
+    expect(compose).toContain(
+      '"${PZ_GAME_PORTS:-16261-16270}:${PZ_GAME_PORTS:-16261-16270}/udp"',
+    );
+    expect(compose).toContain("PZ_PUBLISHED_GAME_PORTS: ${PZ_GAME_PORTS:-16261-16270}");
+  });
+
+  it("keeps extra all-in-one servers on their own volume", () => {
+    const compose = readRepoFile("docker/all-in-one/docker-compose.yml");
+    const dockerfile = readRepoFile("docker/all-in-one/Dockerfile");
+    const entrypoint = readRepoFile("docker/all-in-one/entrypoint.sh");
+
+    expect(compose).toContain("- pz-servers:/pz-servers");
+    expect(compose).toContain("PZ_EXTRA_SERVERS_PATH: /pz-servers");
+    expect(dockerfile).toContain("PANEL_ALL_IN_ONE=true");
+    expect(entrypoint).toMatch(/chown -R .* \/pz-servers /);
   });
 
   it("pulls immutable release images before falling back to local builds", () => {

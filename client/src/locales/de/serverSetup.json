@@ -122,6 +122,20 @@
     "customDataPathPlaceholderWindows": "e.g. C:\\Users\\you\\Zomboid or %USERPROFILE%\\Zomboid",
     "customDataPathPlaceholderPosix": "e.g. /home/you/Zomboid or $HOME/Zomboid"
   },
+  "multiServer": {
+    "portsTitle": "Ein weiterer Server auf diesem Host",
+    "portsBody": "Jeder Server braucht eigene Ports, um gleichzeitig mit den anderen zu laufen, daher wurden die ersten freien eingetragen. Hier bereits belegt:",
+    "usedPortsItem": "{{name}}: Spiel {{game}}–{{udp}} (UDP), RCON {{rcon}}",
+    "publishedRange": "Docker veröffentlicht für diesen Container die UDP-Ports {{start}}–{{end}}. Lass den Spielport und den nächsten in diesem Bereich, damit Spieler sich verbinden können.",
+    "conflictGame": "Port {{port}} ist bereits ein Spielport von {{name}}: Die beiden Server können nicht gleichzeitig laufen.",
+    "conflictUdp": "Port {{port}} (Spielport + 1) wird bereits von {{name}} verwendet: Die beiden Server können nicht gleichzeitig laufen.",
+    "conflictRcon": "RCON-Port {{port}} wird bereits von {{name}} verwendet: Die beiden Server können nicht gleichzeitig laufen.",
+    "outsidePublished": "Die Ports {{game}}–{{udp}} liegen außerhalb des Bereichs, den Docker veröffentlicht ({{start}}–{{end}}): Der Server läuft, aber Spieler erreichen ihn nicht. Wähle einen Port im Bereich oder erweitere PZ_GAME_PORTS in der .env und führe bootstrap.sh erneut aus.",
+    "folderTitle": "Ein weiterer Server in diesem Container",
+    "folderBodyFull": "Seine Spieldateien kommen nach <1>{{path}}</1>, Welten und Einstellungen nach <1>{{dataPath}}</1> – auf das Volume für weitere Server, damit sie Panel-Updates überstehen.",
+    "folderBodyQuick": "Er nutzt die Spieldateien aus <1>{{path}}</1> mit und legt Welten, Einstellungen und Logs in <1>{{dataPath}}</1> ab – auf dem Volume für weitere Server, ohne sie mit den anderen Servern zu teilen.",
+    "noVolume": "Dieser Container hat noch kein Volume für weitere Server, daher würde eine zweite Installation hier beim nächsten Panel-Update gelöscht. Führe den Installer (bootstrap.sh) erneut aus, um es hinzuzufügen, und komm dann zurück."
+  },
   "full": {
     "pageTitle": "Neuinstallation",
     "pageDescription": "Einen neuen dedizierten Server herunterladen, konfigurieren und registrieren.",
