@@ -114,6 +114,11 @@ const KNOWN_TRANSLATED_IDS = new Set([
   // same as before this batch, not a regression.
   "mods.thumbnailResolution",
   "rcon.commandRejections",
+  // 2026-10-01 (42.21 UnsatisfiedLinkError incident): which folders the
+  // game's native libraries load from, and a leftover natives/ folder from
+  // an older build -- buildNativeLibrariesCheck(), defined inside the
+  // scanned /diagnostics ... /worldmap range like buildStartScriptCheck().
+  "server.nativeLibs",
 ]);
 
 /**

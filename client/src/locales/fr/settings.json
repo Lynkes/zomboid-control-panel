@@ -967,6 +967,11 @@
       "title": "Échec du téléchargement",
       "fallback": "Le panneau n'a pas pu télécharger la mise à jour. Vérifiez l'accès réseau, l'espace disque et les permissions."
     },
+    "updateNotApplied": {
+      "title": "Mise à jour non appliquée",
+      "openDashboard": "Ouvrir le tableau de bord",
+      "openDashboardAlt": "Ouvrir le tableau de bord, où se trouve « Arrêt forcé »"
+    },
     "updateReady": {
       "title": "Mise à jour prête",
       "withVersion": "Le panneau v{{version}} est téléchargé. Redémarrez le panneau pour passer à la nouvelle version.",

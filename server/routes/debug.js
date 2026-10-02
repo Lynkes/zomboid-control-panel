@@ -11,9 +11,9 @@ import archiver from "archiver";
 import { createLogger } from "../utils/logger.js";
 import { getDiskFree } from "../utils/diskSpace.js";
 import {
+  launchesPanelStartScript,
   managedStartupScriptName,
   resolveLaunchMode,
-  resolveManagedStartupScript,
 } from "../services/serverManager.js";
 import { scanWorkshopFailures } from "../utils/workshopLogScan.js";
 import { resolveInstallDir } from "../services/panelBridgeInstaller.js";
@@ -70,6 +70,11 @@ import {
   getCandidateZomboidPaths,
   inspectZomboidPath,
 } from "../utils/zomboidPaths.js";
+import {
+  detectLeftoverNativeLibraries,
+  listLoadedNativeLibraryFolders,
+  resolveGameDirForNativeCheck,
+} from "../utils/nativeLibraryPaths.js";
 import { requirePermission, listRolesWithMemberCounts } from "../services/permissions.js";
 import { getDockerClient } from "../services/managedContainer.js";
 import { resolveProvider } from "../utils/serverStatusModel.js";
@@ -3589,6 +3594,13 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
           const isWin = process.platform === "win32";
           checks.push(await buildStartScriptCheck(activeServer));
 
+          const nativeLibrariesCheck = await raceWithFallback(
+            buildNativeLibrariesCheck(activeServer),
+            FS_TIMEOUT_MS,
+            null,
+          );
+          if (nativeLibrariesCheck) checks.push(nativeLibrariesCheck);
+
           // Java/JRE check — PZ ships its own JRE under jre64/.
           const isLinux = process.platform === "linux";
           const jreCandidates = isWin
@@ -5555,16 +5567,10 @@ export async function buildStartScriptCheck(
 ) {
   const isWin = platform === "win32";
   const serverName = activeServer?.serverName || "";
-  const dockerMapped = ["docker-local", "docker-managed"].includes(
-    resolveProvider(activeServer),
-  );
-  const launchesNamedScript =
-    Boolean(serverName) &&
-    resolveLaunchMode(activeServer).mode === "managed" &&
-    !activeServer?.startCommand &&
-    !dockerMapped &&
-    resolveManagedStartupScript(serverName, { windows: isWin, env }) ===
-      managedStartupScriptName(serverName, isWin);
+  const launchesNamedScript = launchesPanelStartScript(activeServer, {
+    windows: isWin,
+    env,
+  });
 
   const dir = launchesNamedScript
     ? activeServer.serverPath || activeServer.installPath
@@ -5658,6 +5664,112 @@ export async function buildStartScriptCheck(
     "Start script not found",
     `No ${scriptPattern} in install path. Server can't be started from the panel.`,
     { category: "server", params: { pattern: scriptPattern }, variant: "notFound" },
+  );
+}
+
+// server.nativeLibs (Linux only): which folders the game's native libraries
+// load from, and -- the 2026-10-01 42.21 incident -- a leftover natives/
+// folder from an older build whose libraries differ from linux64/'s (see
+// utils/nativeLibraryPaths.js). A warning, not a failure, and the fix
+// (renaming the folder) is the operator's call -- the panel never deletes
+// it. Each `variant` is a call-site literal so diagnosticsCheckRegistry
+// .test.js can enumerate them:
+//   nativesFirst -- the search order itself (a ProjectZomboid64.json that
+//     puts natives/ before linux64/) loads natives/'s OLDER copies: the
+//     incident, for every launcher that follows the game's file.
+//   leftoverNativesPartial -- natives/ also holds libraries linux64/ has no
+//     copy of, so removing it isn't called safe whoever launches.
+//   leftoverNatives -- the panel's own start script launches (linux64/
+//     first): only a custom launcher that puts natives/ first is exposed.
+//   leftoverNativesOwnLauncher -- a Docker image's command, a custom start
+//     command or launcher, or the stock script starts this server, and the
+//     panel can't see what order that uses.
+// The "ok" reading names the folders only when the panel's own script
+// launches -- for any other launcher that would be a claim the panel never
+// checked. Returns null when there's nothing true to report (Windows, no
+// game libraries where the panel looks, or a clean install another
+// launcher starts).
+export async function buildNativeLibrariesCheck(
+  activeServer,
+  { platform = process.platform, env = process.env } = {},
+) {
+  if (platform === "win32") return null;
+  const gameDir = resolveGameDirForNativeCheck(activeServer);
+  if (!gameDir) return null;
+  const panelScript = launchesPanelStartScript(activeServer, {
+    windows: false,
+    env,
+  });
+
+  const leftover = await detectLeftoverNativeLibraries(gameDir, { platform });
+  if (leftover?.loadsLeftoverFirst) {
+    const libraries = leftover.libraries.join(", ");
+    return diagWarn(
+      "server.nativeLibs",
+      "Older game libraries load first",
+      `ProjectZomboid64.json puts natives/ before linux64/, so the server loads older copies of the game's native libraries from natives/ (${libraries}) instead of the current ones in linux64/, and can crash during world saves.`,
+      {
+        category: "server",
+        hint: "While the server is stopped, rename the natives/ folder (for example to natives.old), or verify the game files with SteamCMD so ProjectZomboid64.json matches the installed build. The panel never deletes it.",
+        params: { libraries },
+        variant: "nativesFirst",
+      },
+    );
+  }
+  if (leftover && leftover.onlyInLeftover.length > 0) {
+    const libraries = leftover.libraries.join(", ");
+    const onlyInLeftover = leftover.onlyInLeftover.join(", ");
+    return diagWarn(
+      "server.nativeLibs",
+      "Old game libraries in natives/",
+      `The natives/ folder holds copies of the game's native libraries that differ from linux64/ (${libraries}), and also ${onlyInLeftover}, which linux64/ doesn't have. A start script or command that loads natives/ before linux64/ runs the old copies, and the server then crashes during world saves.`,
+      {
+        category: "server",
+        hint: "Verify the game files with SteamCMD before you remove natives/: the server may still need the libraries only it holds. Renaming it (for example to natives.old) while the server is stopped can be undone. The panel never deletes it.",
+        params: { libraries, onlyInLeftover },
+        variant: "leftoverNativesPartial",
+      },
+    );
+  }
+  if (leftover && panelScript) {
+    const libraries = leftover.libraries.join(", ");
+    return diagWarn(
+      "server.nativeLibs",
+      "Old game libraries in natives/",
+      `The natives/ folder holds copies of the game's native libraries that differ from linux64/ (${libraries}). The panel's start script loads linux64/, but a custom start script or command that loads natives/ first runs the old ones, and the server then crashes during world saves.`,
+      {
+        category: "server",
+        hint: "It's safe to remove or rename the natives/ folder (for example to natives.old) while the server is stopped. The panel never deletes it.",
+        params: { libraries },
+        variant: "leftoverNatives",
+      },
+    );
+  }
+  if (leftover) {
+    const libraries = leftover.libraries.join(", ");
+    return diagWarn(
+      "server.nativeLibs",
+      "Old game libraries in natives/",
+      `The natives/ folder holds copies of the game's native libraries that differ from linux64/ (${libraries}). This server starts with its own launcher (a Docker image's command, or a custom start script or command), not the panel's start script. If that launcher loads natives/ first, the server runs the old ones and crashes during world saves.`,
+      {
+        category: "server",
+        hint: "It's safe to remove or rename the natives/ folder (for example to natives.old) while the server is stopped. The panel never deletes it.",
+        params: { libraries },
+        variant: "leftoverNativesOwnLauncher",
+      },
+    );
+  }
+
+  if (!panelScript) return null;
+  const folders = (await listLoadedNativeLibraryFolders(gameDir, { platform })).join(", ");
+  // No game library where the panel's script looks: an incomplete install,
+  // which server.jre/server.startScript already speak to.
+  if (!folders) return null;
+  return diagOk(
+    "server.nativeLibs",
+    "Game native libraries",
+    `The game loads its native libraries from ${folders}.`,
+    { category: "server", params: { folders } },
   );
 }
 

@@ -439,7 +439,11 @@ export class StreamingZipWriter {
     await writeChunk(this.central, chunk);
   }
 
-  async finalize() {
+  // onWritten (optional): called once the archive's last byte has been
+  // written, just before the output is ended -- so a caller streaming into
+  // an HTTP response can let go of what the download held before its client
+  // can see the response complete. Additive: a backup passes nothing.
+  async finalize({ onWritten } = {}) {
     this.assertUsable();
     await this.open();
     await closeStream(this.central);
@@ -459,6 +463,7 @@ export class StreamingZipWriter {
     await this.writeOutput(
       zip64End(this.entryCount, centralSize, centralOffset),
     );
+    onWritten?.();
     await closeStream(this.output);
     this.output = null;
     this.finalized = true;
