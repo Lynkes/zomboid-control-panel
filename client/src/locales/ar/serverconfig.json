@@ -452,6 +452,7 @@
     "resetToLoadedValue": "إعادة التعيين إلى القيمة المحمَّلة",
     "resetAria": "إعادة تعيين {{label}} إلى القيمة المحمَّلة",
     "modifiedBadge": "معدَّل",
+    "legacyBadge": "Build 41 فقط",
     "on": "مُفعَّل",
     "off": "مُعطَّل",
     "defaultValue": "الافتراضي: {{value}}",
@@ -764,6 +765,10 @@
         "label": "الظهور مع الشريك",
         "description": "تفعيل الظهور في موقع شريك الشاشة المقسومة."
       },
+      "ShowCoordinates": {
+        "label": "إظهار الإحداثيات",
+        "description": "إظهار إحداثيات شخصية اللاعب في الزاوية السفلية اليمنى."
+      },
       "PlayerSaveOnDamage": {
         "label": "الحفظ عند التعرض للضرر",
         "description": "حفظ حالة اللاعب عند تعرّضه لضرر."
@@ -928,18 +933,7 @@
       },
       "SteamScoreboard": {
         "label": "لوحة نتائج Steam",
-        "description": "إظهار أسماء مستخدمي Steam وصورهم الرمزية. القيم: true/false/admin.",
-        "options": {
-          "true": {
-            "label": "الجميع"
-          },
-          "false": {
-            "label": "لا أحد"
-          },
-          "admin": {
-            "label": "المسؤولون فقط"
-          }
-        }
+        "description": "إظهار أسماء مستخدمي Steam وصورهم الرمزية في قائمة اللاعبين. لا توجد في Build 42 قيمة للمسؤولين فقط؛ الأدوار داخل اللعبة التي تملك صلاحية GetSteamScoreboard تراها دائمًا."
       },
       "SteamVAC": {
         "label": "فحص حظر VAC",

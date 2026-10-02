@@ -17,6 +17,13 @@ export interface IniSetting {
   category: string
   /** File extension filter for 'filepath' type, e.g. ['.png', '.jpg'] */
   fileExtensions?: string[]
+  /**
+   * A Build 41 option that Build 42's ServerOptions no longer declares
+   * (checked against the jar by iniSchemaBoundsGroundTruth.test.ts). The form
+   * shows it only when the loaded file already has the key, and never adds
+   * it to a file that doesn't.
+   */
+  legacy?: boolean
 }
 
 /**
@@ -152,7 +159,7 @@ export const INI_SCHEMA: IniSetting[] = [
     label: 'Public Server',
     description: 'Can your server be seen on Steam server browser.',
     type: 'boolean',
-    default: true,
+    default: false,
     category: 'general'
   },
   {
@@ -251,6 +258,7 @@ export const INI_SCHEMA: IniSetting[] = [
     min: 1,
     max: 60,
     default: 10,
+    legacy: true,
     category: 'network'
   },
   {
@@ -287,6 +295,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Use TCP instead of UDP for map downloads.',
     type: 'boolean',
     default: false,
+    legacy: true,
     category: 'network'
   },
   {
@@ -473,6 +482,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Kick players moving faster than possible. May be buggy.',
     type: 'boolean',
     default: false,
+    legacy: true,
     category: 'players'
   },
   {
@@ -524,11 +534,20 @@ export const INI_SCHEMA: IniSetting[] = [
     category: 'players'
   },
   {
+    key: 'ShowCoordinates',
+    label: 'Show Coordinates',
+    description: 'Shows player character coordinates in the lower right corner.',
+    type: 'boolean',
+    default: false,
+    category: 'players'
+  },
+  {
     key: 'PlayerSaveOnDamage',
     label: 'Save on Damage',
     description: 'Save player state when they take damage.',
     type: 'boolean',
     default: true,
+    legacy: true,
     category: 'players'
   },
   // Safehouses
@@ -537,7 +556,7 @@ export const INI_SCHEMA: IniSetting[] = [
     label: 'Enable Safehouses',
     description: 'Allow players to claim safehouses.',
     type: 'boolean',
-    default: true,
+    default: false,
     category: 'safehouse'
   },
   {
@@ -688,6 +707,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Allow players to directly trade with one another.',
     type: 'boolean',
     default: true,
+    legacy: true,
     category: 'players'
   },
 
@@ -726,6 +746,7 @@ export const INI_SCHEMA: IniSetting[] = [
     min: 1024,
     max: 65535,
     default: 8766,
+    legacy: true,
     category: 'steam'
   },
   {
@@ -736,19 +757,15 @@ export const INI_SCHEMA: IniSetting[] = [
     min: 1024,
     max: 65535,
     default: 8767,
+    legacy: true,
     category: 'steam'
   },
   {
     key: 'SteamScoreboard',
     label: 'Steam Scoreboard',
-    description: 'Show Steam usernames and avatars. true/false/admin.',
-    type: 'select',
-    options: [
-      { value: 'true', label: 'Everyone' },
-      { value: 'false', label: 'No One' },
-      { value: 'admin', label: 'Admins Only' }
-    ],
-    default: 'true',
+    description: 'Show Steam usernames and avatars in the Players list. Build 42 has no admin-only value; in-game roles with the GetSteamScoreboard capability always see them.',
+    type: 'boolean',
+    default: false,
     category: 'steam'
   },
   {
@@ -821,6 +838,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Discord channel name.',
     type: 'string',
     default: '',
+    legacy: true,
     category: 'discord'
   },
   {
@@ -829,6 +847,7 @@ export const INI_SCHEMA: IniSetting[] = [
     description: 'Discord channel ID.',
     type: 'string',
     default: '',
+    legacy: true,
     category: 'discord'
   },
 
@@ -877,6 +896,7 @@ export const INI_SCHEMA: IniSetting[] = [
     min: 100,
     max: 2000,
     default: 500,
+    legacy: true,
     category: 'advanced'
   },
   {
@@ -907,6 +927,7 @@ export const INI_SCHEMA: IniSetting[] = [
     min: 10,
     max: 200,
     default: 50,
+    legacy: true,
     category: 'advanced'
   },
   {
@@ -917,6 +938,7 @@ export const INI_SCHEMA: IniSetting[] = [
     min: 0.1,
     max: 2,
     default: 0.5,
+    legacy: true,
     category: 'advanced'
   },
 

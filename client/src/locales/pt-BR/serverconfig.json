@@ -359,6 +359,7 @@
     "resetToLoadedValue": "Redefinir para o valor carregado",
     "resetAria": "Redefinir {{label}} para o valor carregado",
     "modifiedBadge": "modificada",
+    "legacyBadge": "somente Build 41",
     "on": "Ativado",
     "off": "Desativado",
     "defaultValue": "Padrão: {{value}}",
@@ -671,6 +672,10 @@
         "label": "Renascer com parceiro",
         "description": "Permite renascer no local do parceiro de tela dividida."
       },
+      "ShowCoordinates": {
+        "label": "Mostrar coordenadas",
+        "description": "Exibe as coordenadas do personagem no canto inferior direito."
+      },
       "PlayerSaveOnDamage": {
         "label": "Salvar ao sofrer dano",
         "description": "Salva o estado do jogador quando ele sofre dano."
@@ -835,18 +840,7 @@
       },
       "SteamScoreboard": {
         "label": "Placar da Steam",
-        "description": "Mostra nomes de usuário e avatares da Steam. true/false/admin.",
-        "options": {
-          "true": {
-            "label": "Todos"
-          },
-          "false": {
-            "label": "Ninguém"
-          },
-          "admin": {
-            "label": "Somente admins"
-          }
-        }
+        "description": "Mostra nomes de usuário e avatares da Steam na lista de jogadores. A Build 42 não tem mais um valor só para admins; cargos do jogo com a permissão GetSteamScoreboard sempre os veem."
       },
       "SteamVAC": {
         "label": "Verificação de banimento VAC",

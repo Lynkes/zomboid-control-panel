@@ -107,6 +107,7 @@ import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { isDeliveryStatus, resolveLuaChecksumCallout, type LuaChecksumDelivery } from '@/lib/bridgeDeliveryView'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { formatModSettingDescription, formatModSettingLabel } from '@/lib/modSettingsLabels'
+import { buildIniSavePayload, mergeIniSchemaDefaults, parsePzBoolean } from '@/lib/iniFormState'
 import { EmptyState } from '@/components/EmptyState'
 import { useAuth } from '@/contexts/AuthContext'
 import { useSocket } from '@/contexts/SocketContext'
@@ -210,35 +211,19 @@ function describeModEnumControl(opt: { type?: string; enumValues?: string[]; max
   return { listLabels: null, blockedValue: null, tooManyToList: labels.length < max }
 }
 
-// These were shown by older panel releases but Build 42 does not support them.
+// Kept out of the "other settings in this file" list. The ServerImage* keys
+// were shown by older panel releases but Build 42 does not support them.
+// BloodSplatLifespanDays is still declared by 42.21's ServerOptions, so a
+// generated .ini has the line, but nothing reads that copy: IsoChunk and
+// IsoObject read SandboxOptions.bloodSplatLifespanDays, and the game's own
+// Server Settings screen only offers the sandbox one -- the Sandbox tab's
+// Blood Splat Lifespan is the setting that works.
 const UNSUPPORTED_INI_KEYS = new Set([
   'ServerImageLoginScreen',
   'ServerImageLoadingScreen',
   'ServerImageIcon',
+  'BloodSplatLifespanDays',
 ])
-
-/** Merge schema defaults into parsed INI settings so schema-defined keys always exist.
- *  Also warns to the console when a stored value doesn't parse for the schema type — helps
- *  catch a corrupted INI without changing behaviour. */
-function mergeSchemaDefaults(parsed: Record<string, string>): Record<string, string> {
-  const merged = { ...parsed }
-  for (const setting of INI_SCHEMA) {
-    if (!(setting.key in merged)) {
-      merged[setting.key] = String(setting.default ?? '')
-      continue
-    }
-    const raw = merged[setting.key]
-    if (raw == null || raw === '') continue
-    if (setting.type === 'boolean' && raw !== 'true' && raw !== 'false') {
-      console.warn(`[ServerConfig] ${setting.key} expected boolean, got "${raw}"`)
-    } else if (setting.type === 'number' && Number.isNaN(Number(raw))) {
-      console.warn(`[ServerConfig] ${setting.key} expected number, got "${raw}"`)
-    } else if (setting.type === 'select' && setting.options && !setting.options.some(o => o.value === raw)) {
-      console.warn(`[ServerConfig] ${setting.key} expected one of [${setting.options.map(o => o.value).join('|')}], got "${raw}"`)
-    }
-  }
-  return merged
-}
 
 function createSandboxDefaults(): SandboxData {
   const sandbox: SandboxData = {
@@ -389,6 +374,14 @@ const IniSettingRow = memo(({
     !!setting.options &&
     String(value ?? '') !== '' &&
     !setting.options.some((o) => o.value === String(value))
+  // The boolean twin: a value PZ's boolean parser rejects (B41's
+  // SteamScoreboard=admin) leaves the game on the option's default, so the
+  // switch shows that default and the row says the stored value is not
+  // recognized. Saving keeps it unless the operator flips the switch.
+  const booleanText = String(value ?? '').trim()
+  const booleanValue = parsePzBoolean(booleanText)
+  const booleanHasUnrecognizedValue = setting.type === 'boolean' && booleanText !== '' && booleanValue === null
+  const booleanChecked = booleanValue ?? setting.default === true
 
   // Multiline settings
   if (setting.type === 'multiline') {
@@ -434,6 +427,9 @@ const IniSettingRow = memo(({
             {isModified && (
               <Badge variant="warning" className="h-5 text-xs">{t('row.modifiedBadge')}</Badge>
             )}
+            {setting.legacy && (
+              <Badge variant="outline" className="h-5 text-xs">{t('row.legacyBadge')}</Badge>
+            )}
           </div>
           <p className="text-xs text-muted-foreground mt-1.5">{getIniSettingDescription(setting)}</p>
         </div>
@@ -452,13 +448,21 @@ const IniSettingRow = memo(({
           )}
           <div className={`w-full ${setting.type === 'filepath' ? 'sm:w-72' : 'sm:w-48'}`}>
             {setting.type === 'boolean' ? (
-              <div className="flex items-center gap-2 justify-end">
-                <span className="text-xs text-muted-foreground">{String(value).toLowerCase() === 'true' ? t('row.on') : t('row.off')}</span>
-                <Switch
-                  checked={String(value).toLowerCase() === 'true'}
-                  onCheckedChange={(checked) => onChange(setting.key, checked ? 'true' : 'false')}
-                  aria-label={getIniSettingLabel(setting) || setting.key}
-                />
+              <div>
+                <div className="flex items-center gap-2 justify-end">
+                  <span className="text-xs text-muted-foreground">{booleanChecked ? t('row.on') : t('row.off')}</span>
+                  <Switch
+                    checked={booleanChecked}
+                    onCheckedChange={(checked) => onChange(setting.key, checked ? 'true' : 'false')}
+                    aria-label={getIniSettingLabel(setting) || setting.key}
+                  />
+                </div>
+                {booleanHasUnrecognizedValue && (
+                  <div className="flex items-start gap-1.5 mt-1.5 text-xs text-warning">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                    <span>{getUnrecognizedSandboxOptionWarning(booleanText)}</span>
+                  </div>
+                )}
               </div>
             ) : setting.type === 'select' && setting.options ? (
               <div>
@@ -1056,6 +1060,10 @@ export default function ServerConfig() {
 
   // Track original data for change detection
   const [originalIniSettings, setOriginalIniSettings] = useState<Record<string, string>>({})
+  // Keys of originalIniSettings that hold a schema default rather than a
+  // value from the file (mergeIniSchemaDefaults); buildIniSavePayload leaves
+  // them out of a save unless the operator changed them.
+  const [iniDefaultedKeys, setIniDefaultedKeys] = useState<ReadonlySet<string>>(() => new Set())
   const [originalSandboxData, setOriginalSandboxData] = useState<SandboxData | null>(null)
   const [originalRawContent, setOriginalRawContent] = useState('')
 
@@ -1373,9 +1381,10 @@ export default function ServerConfig() {
       // Load files that exist
       if (paths.exists.ini) {
         const iniData = await serverFilesApi.getIni(retries)
-        const merged = mergeSchemaDefaults(iniData.settings)
-        setIniSettings(merged)
-        setOriginalIniSettings(merged)
+        const loaded = mergeIniSchemaDefaults(iniData.settings)
+        setIniSettings(loaded.settings)
+        setOriginalIniSettings(loaded.settings)
+        setIniDefaultedKeys(loaded.defaultedKeys)
         setDuplicateKeys(iniData.duplicateKeys || [])
       }
 
@@ -1919,8 +1928,10 @@ export default function ServerConfig() {
         await serverFilesApi.saveRaw('ini', rawContent)
         setOriginalRawContent(rawContent)
       } else {
-        await serverFilesApi.saveIni(iniSettings)
+        const payload = buildIniSavePayload(iniSettings, originalIniSettings, iniDefaultedKeys)
+        await serverFilesApi.saveIni(payload)
         setOriginalIniSettings({ ...iniSettings })
+        setIniDefaultedKeys(new Set([...iniDefaultedKeys].filter(key => !(key in payload))))
       }
 
       // Try to reload via RCON, but don't fail if RCON is not connected
@@ -1938,9 +1949,10 @@ export default function ServerConfig() {
           loadData()
         } else {
           const iniData = await serverFilesApi.getIni()
-          const merged = mergeSchemaDefaults(iniData.settings)
-          setIniSettings(merged)
-          setOriginalIniSettings(merged)
+          const loaded = mergeIniSchemaDefaults(iniData.settings)
+          setIniSettings(loaded.settings)
+          setOriginalIniSettings(loaded.settings)
+          setIniDefaultedKeys(loaded.defaultedKeys)
         }
       } catch { /* silent refresh — local state is still valid */ }
     } catch (error) {
@@ -2148,17 +2160,20 @@ export default function ServerConfig() {
     return String(curr) !== String(s.default ?? '')
   }, [sandboxData])
 
-  // Filter settings by search + filter mode
+  // Filter settings by search + filter mode. A legacy (Build 41-only) key is
+  // listed only when the loaded file has it, so a Build 42 file never offers
+  // one to fill in.
   const filteredIniSettings = useMemo(() => {
     const lower = deferredSearchQuery.toLocaleLowerCase(searchLocale)
     const filtered = INI_SCHEMA.filter(s => {
+      if (s.legacy && !(s.key in originalIniSettings)) return false
       if (deferredSearchQuery && !getIniSettingSearchText(s).toLocaleLowerCase(searchLocale).includes(lower)) return false
       if (filterMode === 'modified' && !isIniNonDefault(s)) return false
       if (filterMode === 'nondefault' && !isIniModified(s)) return false
       return true
     })
     return groupByCategory(filtered)
-  }, [deferredSearchQuery, filterMode, isIniModified, isIniNonDefault, searchLocale])
+  }, [deferredSearchQuery, filterMode, isIniModified, isIniNonDefault, searchLocale, originalIniSettings])
 
   const filteredSandboxSettings = useMemo(() => {
     const lower = deferredSearchQuery.toLocaleLowerCase(searchLocale)

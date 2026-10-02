@@ -87,8 +87,9 @@ option (`zombie.SandboxOptions` + its option groups) straight off the
 constructor bytecode, with its real type, min, max and default, and write
 `server/__fixtures__/pzServerOptions.json` / `pzSandboxOptions.json`.
 `client/src/lib/__tests__/iniSchemaBoundsGroundTruth.test.ts` and
-`sandboxSchemaBoundsGroundTruth.test.ts` diff the panel's own range tables
-against those fixtures on every test run, so re-run both after a game
+`sandboxSchemaBoundsGroundTruth.test.ts` diff the panel's own tables against
+those fixtures on every test run (ranges; for server.ini also which keys
+exist, their types and boolean defaults), so re-run both after a game
 update and fix whatever the tests then flag. Both share the class-file and
 Code-attribute reader in `constructor-bytecode.mjs`.
 

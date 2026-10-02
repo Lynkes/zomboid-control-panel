@@ -341,6 +341,7 @@
     "resetToLoadedValue": "重置为已加载的值",
     "resetAria": "将 {{label}} 重置为已加载的值",
     "modifiedBadge": "已修改",
+    "legacyBadge": "仅限 Build 41",
     "on": "开",
     "off": "关",
     "defaultValue": "默认值：{{value}}",
@@ -658,6 +659,10 @@
         "label": "在同伴附近重生",
         "description": "允许分屏/合作玩家在同伴位置出生。"
       },
+      "ShowCoordinates": {
+        "label": "显示坐标",
+        "description": "在右下角显示玩家角色坐标。"
+      },
       "PlayerSaveOnDamage": {
         "label": "受伤时保存玩家",
         "description": "角色受到伤害时立即保存玩家状态。"
@@ -821,19 +826,8 @@
         "description": "Steam 服务通信使用的第二个端口。"
       },
       "SteamScoreboard": {
-        "label": "Steam 计分板可见范围",
-        "description": "控制谁能看到 Steam 用户名和头像。",
-        "options": {
-          "true": {
-            "label": "所有人"
-          },
-          "false": {
-            "label": "无人"
-          },
-          "admin": {
-            "label": "仅管理员"
-          }
-        }
+        "label": "Steam 计分板",
+        "description": "在玩家列表中显示 Steam 用户名和头像。Build 42 已没有「仅管理员」选项；拥有 GetSteamScoreboard 权限项的游戏内角色始终可见。"
       },
       "SteamVAC": {
         "label": "Steam VAC 检查",

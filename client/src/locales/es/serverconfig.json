@@ -354,6 +354,7 @@
     "resetToLoadedValue": "Restablecer al valor cargado",
     "resetAria": "Restablecer {{label}} al valor cargado",
     "modifiedBadge": "modificado",
+    "legacyBadge": "solo Build 41",
     "on": "Activado",
     "off": "Desactivado",
     "defaultValue": "Predeterminado: {{value}}",
@@ -671,6 +672,10 @@
         "label": "Respawn with Partner",
         "description": "Enable spawning at splitscreen partner location."
       },
+      "ShowCoordinates": {
+        "label": "Mostrar coordenadas",
+        "description": "Muestra las coordenadas del personaje del jugador en la esquina inferior derecha."
+      },
       "PlayerSaveOnDamage": {
         "label": "Save on Damage",
         "description": "Save player state when they take damage."
@@ -835,18 +840,7 @@
       },
       "SteamScoreboard": {
         "label": "Steam Scoreboard",
-        "description": "Show Steam usernames and avatars. true/false/admin.",
-        "options": {
-          "true": {
-            "label": "Everyone"
-          },
-          "false": {
-            "label": "No One"
-          },
-          "admin": {
-            "label": "Admins Only"
-          }
-        }
+        "description": "Show Steam usernames and avatars in the Players list. Build 42 has no admin-only value; in-game roles with the GetSteamScoreboard capability always see them."
       },
       "SteamVAC": {
         "label": "VAC Ban Check",

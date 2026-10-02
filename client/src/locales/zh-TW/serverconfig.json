@@ -346,6 +346,7 @@
     "resetToLoadedValue": "重設為已載入的值",
     "resetAria": "將 {{label}} 重設為已載入的值",
     "modifiedBadge": "已修改",
+    "legacyBadge": "僅限 Build 41",
     "on": "開",
     "off": "關",
     "defaultValue": "預設值：{{value}}",
@@ -658,6 +659,10 @@
         "label": "Respawn with Partner",
         "description": "Enable spawning at splitscreen partner location."
       },
+      "ShowCoordinates": {
+        "label": "顯示座標",
+        "description": "在畫面右下顯示玩家角色座標。"
+      },
       "PlayerSaveOnDamage": {
         "label": "Save on Damage",
         "description": "Save player state when they take damage."
@@ -822,18 +827,7 @@
       },
       "SteamScoreboard": {
         "label": "Steam Scoreboard",
-        "description": "Show Steam usernames and avatars. true/false/admin.",
-        "options": {
-          "true": {
-            "label": "Everyone"
-          },
-          "false": {
-            "label": "No One"
-          },
-          "admin": {
-            "label": "Admins Only"
-          }
-        }
+        "description": "Show Steam usernames and avatars in the Players list. Build 42 has no admin-only value; in-game roles with the GetSteamScoreboard capability always see them."
       },
       "SteamVAC": {
         "label": "VAC Ban Check",
