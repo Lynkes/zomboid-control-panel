@@ -112,6 +112,9 @@ describe('the save-failure copy names Force stop and what it costs', () => {
     const message = getResultErrorMessage(result, '')
     expect(message).toContain("couldn't confirm the old server exited")
     expect(message).toContain('It did not start a new one')
+    // The restart also waits when the RCON quit itself failed, so the copy
+    // says the panel asked, not that the server was told.
+    expect(message).toContain('the panel asked the server to shut down')
     void i18n.changeLanguage('fr')
     expect(getResultErrorMessage(result, '')).toContain("n'en a pas démarré de nouveau")
   })

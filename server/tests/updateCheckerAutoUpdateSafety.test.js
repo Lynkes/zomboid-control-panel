@@ -1,17 +1,56 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+
+// Several runs below get past the stop and reach the SteamCMD step, where
+// they end on STEAMCMD_NOT_FOUND. Review finding (2026-10-02): with
+// /opt/steamcmd and /opt/pzserver here, a developer machine that HAS
+// SteamCMD there would have run a real `app_update 380870 validate`
+// against what may be a real install. The paths are now ones that can't
+// exist, and spawn() refuses outright, so no test here can start SteamCMD.
+const { missingDirs, spawnMock } = vi.hoisted(() => {
+  const unique = `zcp-autoupdate-safety-${process.pid}-${Date.now()}`;
+  return {
+    missingDirs: {
+      steamcmd: `/nonexistent/${unique}/steamcmd`,
+      install: `/nonexistent/${unique}/pzserver`,
+    },
+    spawnMock: {
+      fn: () => {
+        throw new Error("updateCheckerAutoUpdateSafety: a test reached spawn() -- SteamCMD must never run here");
+      },
+      calls: 0,
+    },
+  };
+});
+
+vi.mock("child_process", async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    spawn: (...args) => {
+      spawnMock.calls += 1;
+      return spawnMock.fn(...args);
+    },
+  };
+});
 
 vi.mock("../database/init.js", () => ({
   getSetting: vi.fn(async (key) => {
     if (key === "serverAutoUpdate") return true;
-    if (key === "steamcmdPath") return "/opt/steamcmd";
+    if (key === "steamcmdPath") return missingDirs.steamcmd;
     return null;
   }),
   setSetting: vi.fn(),
   getActiveServer: vi.fn(async () => ({
     id: "server-1",
-    installPath: "/opt/pzserver",
+    installPath: missingDirs.install,
   })),
 }));
+
+afterAll(() => {
+  // spawn() above throws, so a run that reached it fails its own test; this
+  // says so even for one that expected a failure anyway.
+  expect(spawnMock.calls).toBe(0);
+});
 
 vi.mock("../services/managedContainer.js", () => ({
   resolveManagedContainer: vi.fn(async () => ({ handled: false })),
@@ -78,29 +117,48 @@ describe("UpdateChecker.runAutoUpdate fails closed when process detection can't 
       checker.runAutoUpdate({ installed: { branch: "stable" } }),
     ).rejects.toThrow(/lost the ability to verify/i);
 
-    // GH #190: it asked again before giving up (1 initial + 5 in the wait).
-    expect(getServerProcessDetails).toHaveBeenCalledTimes(6);
+    // GH #190: it kept looking for the whole wait before giving up (1
+    // initial check, then the wait's first look and 60 more).
+    expect(getServerProcessDetails).toHaveBeenCalledTimes(62);
     expect(io.emit).toHaveBeenCalledWith(
       "server:autoUpdateComplete",
       expect.objectContaining({ success: false }),
     );
   });
 
-  it("does not abort on one failed scan while the server exits (GH #190)", async () => {
+  it("does not abort on failed scans while the server exits, more than five in a row included (GH #190)", async () => {
     const answers = [
       { running: true, scanFailed: false },
-      { running: false, matched: [], scanFailed: true },
+      ...Array(8).fill({ running: false, matched: [], scanFailed: true }),
       { running: false, scanFailed: false },
     ];
     const getServerProcessDetails = vi.fn(async () => answers.shift());
     const { checker } = buildChecker({ getServerProcessDetails });
     checker.sleep = vi.fn(async () => {});
 
-    // Past the stop wait, the run reaches SteamCMD -- absent on this host.
+    // Past the stop wait, the run reaches the SteamCMD step and stops there:
+    // the mocked SteamCMD path can't exist.
     await expect(
       checker.runAutoUpdate({ installed: { branch: "stable" } }),
     ).rejects.toThrow(/steamcmd not found/i);
-    expect(getServerProcessDetails).toHaveBeenCalledTimes(3);
+    expect(getServerProcessDetails).toHaveBeenCalledTimes(10);
+    expect((await checker.getStatus()).lastAutoUpdateResult.reason).toBe("STEAMCMD_NOT_FOUND");
+  });
+
+  it("counts the server stopped once its own PID is gone, next to a process the panel can't read", async () => {
+    const own = { pid: "5120", cmd: "java zombie.network.GameServer", startedMs: 1790964741863 };
+    const answers = [
+      { running: true, matched: [own], owned: [own], scanFailed: false },
+      { running: false, matched: [], owned: [], scanFailed: true, unreadable: [{ pid: "6000", startedMs: 1790000000000 }] },
+    ];
+    const getServerProcessDetails = vi.fn(async () => answers.shift());
+    const { checker } = buildChecker({ getServerProcessDetails });
+    checker.sleep = vi.fn(async () => {});
+
+    await expect(
+      checker.runAutoUpdate({ installed: { branch: "stable" } }),
+    ).rejects.toThrow(/steamcmd not found/i);
+    expect(getServerProcessDetails).toHaveBeenCalledTimes(2);
   });
 });
 

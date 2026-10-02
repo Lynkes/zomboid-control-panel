@@ -180,4 +180,31 @@ describe("Docker panel update: a server that can't be saved and stopped", () => 
     expect(downloadUpdate).toHaveBeenCalledOnce();
     expect(response.json).toHaveBeenCalledWith({ success: true });
   });
+
+  // Review finding (2026-10-02): five failed scans in a row used to end
+  // the wait with most of it left.
+  it("keeps waiting through a longer run of failed scans, within the wait's own budget", async () => {
+    let call = 0;
+    const getServerProcessDetails = vi
+      .spyOn(ServerManager.prototype, "getServerProcessDetails")
+      .mockImplementation(async () => {
+        call += 1;
+        if (call === 1) return { running: true, scanFailed: false };
+        if (call <= 13) return { running: false, scanFailed: true };
+        return { running: false, scanFailed: false };
+      });
+    vi.spyOn(ServerManager.prototype, "sleep").mockResolvedValue();
+    const rconService = {
+      connected: true,
+      save: vi.fn().mockResolvedValue({ success: true }),
+      quit: vi.fn().mockResolvedValue({ success: true }),
+    };
+    const downloadUpdate = vi.fn().mockResolvedValue({ success: true });
+    const response = createResponse();
+
+    await handlePanelUpdateDownload(dockerUpdateRequest(rconService, downloadUpdate), response);
+
+    expect(getServerProcessDetails).toHaveBeenCalledTimes(14);
+    expect(downloadUpdate).toHaveBeenCalledOnce();
+  });
 });

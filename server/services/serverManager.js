@@ -37,7 +37,10 @@ import {
   WIN32_PROCESS_START_MS,
 } from "../utils/processStartTime.js";
 import { resolveProvider } from "../utils/serverStatusModel.js";
-import { readProcessStateWithRetry } from "../utils/processScanRetry.js";
+import {
+  readProcessStateWithRetry,
+  waitForProcessExit,
+} from "../utils/processScanRetry.js";
 
 const isWindows = process.platform === "win32";
 // getProcessStartTime()'s memory of FAILED lookups: how soon one for the
@@ -947,6 +950,19 @@ export function attributeOtherRunningServers(matched, servers, excludeServer) {
 }
 
 /**
+ * Whether a host-wide scan that didn't fail still leaves one server's state
+ * unknown: Windows listed java.exe/PZ processes whose command line the panel
+ * may not read (the scan's `unreadable` -- see
+ * ServerManager._scanWindowsServerProcesses()) and none of the processes it
+ * could read is this server's (`ownsOne` false), so one of the unreadable
+ * ones may be. A server with a process of its own in `matched` is running
+ * whatever else is listed.
+ */
+export function scanLeavesServerUnknown(scan, ownsOne) {
+  return !ownsOne && Array.isArray(scan?.unreadable) && scan.unreadable.length > 0;
+}
+
+/**
  * Local servers other than `excludeServer` that are running right now. Uses
  * a throwaway instance because a host-wide scan writes `isRunning` on the
  * instance that runs it.
@@ -1374,7 +1390,22 @@ export class ServerManager {
     // host signal) gets the SAME wrong "stopped" a failed detection scan
     // gives it, instead of "we don't know." Leave it at its previous value
     // when the scan couldn't tell.
-    if (!scan.scanFailed) {
+    //
+    // Nor could it tell when another server matched but processes it can't
+    // read are listed too (Windows): one of those may be this server, so
+    // "none of the readable ones is mine" is not "stopped" -- reporting it
+    // stopped could let the panel start a second copy.
+    const unreadable = Array.isArray(scan.unreadable) ? scan.unreadable : [];
+    const unreadableLeftUnknown = scanLeavesServerUnknown(scan, resolved.length > 0);
+    if (unreadableLeftUnknown && !scan.scanFailed) {
+      const keys = unreadable.map((row) => `${row.pid}@${row.startedMs ?? "?"}`);
+      warnScanThrottled(
+        `unreadable-beside:${this.serverName}:${keys.join(",")}`,
+        `getServerProcessDetails: another server is running, and Windows also lists process(es) ${unreadable.map((row) => row.pid).join(", ")} without a command line the panel may read -- can't tell whether one of them is "${this.serverName}", so its state is unknown`,
+      );
+    }
+    const scanFailed = Boolean(scan.scanFailed) || unreadableLeftUnknown;
+    if (!scanFailed) {
       this.isRunning = resolved.length > 0;
     }
     return {
@@ -1386,7 +1417,10 @@ export class ServerManager {
         ...(entry.startedMs != null ? { startedMs: entry.startedMs } : {}),
       })),
       owned: resolved,
-      scanFailed: Boolean(scan.scanFailed),
+      scanFailed,
+      // What the scan couldn't read, when that is why it couldn't tell --
+      // see waitForProcessExit()'s ownProcesses.
+      ...(scanFailed && unreadable.length > 0 ? { unreadable } : {}),
     };
   }
 
@@ -1632,6 +1666,14 @@ export class ServerManager {
   //     read (started as administrator or by another Windows user). It could
   //     be this very server, so the scan stays "unknown", as it always has --
   //     calling it stopped could let the panel start a second copy.
+  //
+  // Those processes come back as `unreadable` ({ pid, startedMs }), on an
+  // unknown answer and next to a recognized server alike. A recognized
+  // server makes the host "running" without a second look, but a server
+  // none of `matched` belongs to may still be one of them: see
+  // getServerProcessDetails() and scanLeavesServerUnknown(). And a wait
+  // that knows its server's PIDs can tell those apart from the unreadable
+  // ones -- see waitForProcessExit().
   async _scanWindowsServerProcesses({ lookAgain = true } = {}) {
     const unknown = { running: false, matched: [], scanFailed: true };
     try {
@@ -1666,7 +1708,11 @@ export class ServerManager {
 
       const rows = classifyWin32ProcessRows(stdout);
       if (rows.matched.length > 0) {
-        return { running: true, matched: rows.matched };
+        return {
+          running: true,
+          matched: rows.matched,
+          ...(rows.unreadable.length > 0 ? { unreadable: rows.unreadable } : {}),
+        };
       }
 
       // A real dedicated server can be launched in a shape
@@ -1727,7 +1773,7 @@ export class ServerManager {
         `unreadable:${keys.join(",")}`,
         `getServerProcessDetails: Windows lists java.exe/ProjectZomboid process(es) ${pids} but won't give the panel their command line -- usually a process started as administrator or by another Windows user while the panel isn't, or one still exiting after a large heap. Can't tell whether one of them is this server, so its state is unknown`,
       );
-      return unknown;
+      return { ...unknown, unreadable: rows.unreadable };
     } catch (error) {
       log.warn(
         `getServerProcessDetails: Windows process scan failed (${error.message}), cannot determine server state`,
@@ -2979,7 +3025,9 @@ export class ServerManager {
   // gone by a Windows scan (GH #190), so one sample that can't tell asks
   // again a few times instead of reporting the stop unconfirmed -- a
   // restart that force-stopped the old server gives up on an unconfirmed
-  // stop. Capped at 30s in all: Force stop's request waits on this.
+  // stop. Force stop's request waits on this, so no new look starts past
+  // 30 s; one look can itself take up to 19 s (see
+  // _readProcessDetailsBounded()), so about 50 s at the very worst.
   async _confirmProcessStopped() {
     const details = await readProcessStateWithRetry(
       () => this._readProcessDetailsBounded(),
@@ -3171,36 +3219,31 @@ export class ServerManager {
       }
       await this.sleep(10000);
 
-      // Wait for server to fully stop. One sample that can't tell asks again
-      // a few times before giving up -- see readProcessStateWithRetry().
-      const readSettledProcessDetails = () =>
-        readProcessStateWithRetry(() => this.getServerProcessDetails(), {
+      // Wait for server to fully stop: 30 looks a second apart, never past a
+      // minute. A scan that can't tell spends one look and the wait goes on
+      // (GH #190) -- see waitForProcessExit(); only still-unknown at the end
+      // gives up. The process-table check is blind whenever PZ runs outside
+      // the panel's own PID namespace (see isJvmExecutableBusy()'s doc
+      // comment) -- the binary check runs alongside it, not instead of it,
+      // so it only ever ADDS a wait condition on setups where it can find
+      // the binary at all.
+      const processDetails = await waitForProcessExit(
+        () => this.getServerProcessDetails(),
+        {
+          polls: 30,
+          intervalMs: 1000,
+          maxElapsedMs: 60 * 1000,
           sleep: (ms) => this.sleep(ms),
           context: "Restart",
-        });
-      let processDetails = await readSettledProcessDetails();
+          alsoWaitWhile: () => this.isJvmExecutableBusy(),
+        },
+      );
       if (processDetails.scanFailed) {
         throw new Error(
           "Could not confirm the old server stopped because process detection failed",
         );
       }
-      // The process-table check above is blind whenever PZ runs outside the
-      // panel's own PID namespace (see isJvmExecutableBusy()'s doc comment)
-      // -- checked alongside it, not instead of it, so this only ever ADDS a
-      // wait condition on setups where it can find the binary at all.
       let jvmBusy = this.isJvmExecutableBusy();
-      let attempts = 0;
-      while ((processDetails.running || jvmBusy) && attempts < 30) {
-        await this.sleep(1000);
-        attempts++;
-        processDetails = await readSettledProcessDetails();
-        if (processDetails.scanFailed) {
-          throw new Error(
-            "Could not confirm the old server stopped because process detection failed",
-          );
-        }
-        jvmBusy = this.isJvmExecutableBusy();
-      }
 
       // Force stop if still running
       if (processDetails.running) {

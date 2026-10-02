@@ -211,6 +211,8 @@ describe("Windows process scan: a process that exits mid-scan (GH #190)", () => 
 
     expect(result.running).toBe(true);
     expect(result.matched).toHaveLength(1);
+    // Still reported, for a server none of `matched` belongs to.
+    expect(result.unreadable).toEqual([{ pid: "7000", startedMs: OTHER_STARTED_MS }]);
     expect(execFileMock).toHaveBeenCalledTimes(1);
   });
 
@@ -219,7 +221,12 @@ describe("Windows process scan: a process that exits mid-scan (GH #190)", () => 
 
     const result = await newManager()._scanWindowsServerProcesses();
 
-    expect(result).toEqual({ running: false, matched: [], scanFailed: true });
+    expect(result).toEqual({
+      running: false,
+      matched: [],
+      scanFailed: true,
+      unreadable: [{ pid: "7000", startedMs: OTHER_STARTED_MS }],
+    });
     expect(execFileMock).toHaveBeenCalledTimes(2);
     expect(warnings()).toHaveLength(1);
     expect(warnings()[0].message).toMatch(/7000/);
@@ -302,6 +309,58 @@ describe("Windows process scan: a process that exits mid-scan (GH #190)", () => 
     await expect(newManager()._scanWindowsServerProcesses()).resolves.toEqual({
       running: false,
       matched: [],
+    });
+  });
+
+  // Review finding (2026-10-02): a row with no command line was dropped as
+  // soon as ANY server was recognized, so on a host running several
+  // servers, one whose JVM the panel can't read (or that is exiting) read
+  // as confidently stopped while another server ran.
+  describe("on a host where another server is running", () => {
+    function managerFor(serverName) {
+      const manager = newManager();
+      manager.loadConfig = async () => {};
+      manager.usesManagedServiceLifecycle = () => false;
+      manager.serverName = serverName;
+      manager._tryPidFileFastPath = async () => null;
+      manager._scanDedicatedServerProcesses = () => manager._scanWindowsServerProcesses();
+      return manager;
+    }
+    const OTHER_SERVER_CMD = PZ_SERVER_CMD.replace("-servername Tower", "-servername Other");
+
+    it("reads this server as unknown, not stopped, when a process it can't read is listed too", async () => {
+      powershellAnswers(csv(row(4000, OTHER_SERVER_CMD, OTHER_STARTED_MS), row(7000, null)));
+      const manager = managerFor("Tower");
+      manager.isRunning = true;
+
+      const details = await manager.getServerProcessDetails();
+
+      expect(details).toMatchObject({
+        running: false,
+        scanFailed: true,
+        unreadable: [{ pid: "7000", startedMs: STARTED_MS }],
+      });
+      // An unknown answer doesn't overwrite the last known state.
+      expect(manager.isRunning).toBe(true);
+      expect(warnings().some((entry) => /7000/.test(entry.message) && /"Tower"/.test(entry.message))).toBe(true);
+    });
+
+    it("still reads the server that IS recognized as running", async () => {
+      powershellAnswers(csv(row(4000, OTHER_SERVER_CMD, OTHER_STARTED_MS), row(7000, null)));
+
+      const details = await managerFor("Other").getServerProcessDetails();
+
+      expect(details).toMatchObject({ running: true, scanFailed: false });
+      expect(details.unreadable).toBeUndefined();
+    });
+
+    it("with nothing unreadable, another server running still means this one is stopped", async () => {
+      powershellAnswers(csv(row(4000, OTHER_SERVER_CMD, OTHER_STARTED_MS)));
+
+      await expect(managerFor("Tower").getServerProcessDetails()).resolves.toMatchObject({
+        running: false,
+        scanFailed: false,
+      });
     });
   });
 
