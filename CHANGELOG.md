@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+_No unreleased changes._
+
+## [1.4.2] - 2026-10-02
+
+### Added
+
 - **Several PZ servers in the all-in-one container:** Server Setup puts extra servers on a new `pz-servers` volume with their own ports (UDP 16261-16270, `PZ_GAME_PORTS`) and data folder; rerun `bootstrap.sh` to add both (#183, thanks @Lynkes).
 - Debug › Diagnostics warns about a leftover `natives/` folder from an older game build, or a `ProjectZomboid64.json` that loads it first.
 
