@@ -273,6 +273,76 @@ describe("a zip into a real HTTP response whose client goes away", () => {
   });
 });
 
+describe("a zip's slot", () => {
+  // CI flake on PR #184 and #177 (fileManagerSftpOpenssh.test.js, "a zip
+  // the client abandons": 429 instead of 200), diagnosed by Lynkes in #183:
+  // the route gave the slot back in its finally, after the response had
+  // ended and the central-directory temp file was removed, so a client that
+  // asked for its next zip as soon as the last byte arrived could beat it.
+  // Here that clean-up is held until the next zip has been answered, which
+  // makes the old order fail every time.
+  it("is free by the time the client has the whole zip", async () => {
+    const realRm = fs.promises.rm.bind(fs.promises);
+    let openGate;
+    const gate = new Promise((done) => {
+      openGate = done;
+    });
+    // The writer removes its temp file twice: before creating it (nothing
+    // there yet) and once the archive is out. Only the second waits.
+    let held = 0;
+    const rm = vi.spyOn(fs.promises, "rm").mockImplementation(async (target, options) => {
+      if (path.basename(String(target)).startsWith(".central-") && fs.existsSync(target)) {
+        held++;
+        await gate;
+      }
+      return realRm(target, options);
+    });
+    try {
+      const first = await zip(["Server"]);
+      expect(first.status).toBe(200);
+      expect((await unzipper.Open.buffer(first.buffer)).files.length).toBeGreaterThan(0);
+      const next = await zip(["Logs"]);
+      expect(next.status, next.buffer.toString("utf8").slice(0, 200)).toBe(200);
+      // Both were answered while their clean-up was still held.
+      expect(held).toBe(2);
+      // Both zips' slots are back, and once each: two users fit across the
+      // panel, a third doesn't.
+      expect(() => acquireZipSlot("u1")).not.toThrow(FmError);
+      expect(() => acquireZipSlot("u2")).not.toThrow(FmError);
+      expect(() => acquireZipSlot("u3")).toThrow(FmError);
+    } finally {
+      openGate();
+      rm.mockRestore();
+    }
+    // Let the two handlers finish their clean-up before afterEach.
+    for (const started = Date.now(); Date.now() - started < 2000; ) {
+      const left = fs
+        .readdirSync(path.join(getDataPaths().dataDir, "file-manager-tmp"))
+        .filter((name) => name.startsWith(".central-"));
+      if (left.length === 0) break;
+      await new Promise((done) => setTimeout(done, 20));
+    }
+  });
+
+  it("is given back once when the zip ends early, and once when it completes", async () => {
+    const out = new PassThrough();
+    out.resume();
+    let releases = 0;
+    const { streamZip } = await import("../services/fileManagerZip.js");
+    const plan = { dirs: [], files: [], skipped: [] };
+    const result = await streamZip({ res: out, backend: null, root: null, plan, release: () => releases++ });
+    expect(result.aborted).toBe(false);
+    expect(releases).toBe(1);
+
+    const gone = new PassThrough();
+    gone.destroy();
+    releases = 0;
+    const cut = await streamZip({ res: gone, backend: null, root: null, plan, release: () => releases++ });
+    expect(cut.aborted).toBe(true);
+    expect(releases).toBe(1);
+  });
+});
+
 describe("zip temp files", () => {
   it("those of an earlier run, or past the time cap, are swept; a running zip's and anything else stay", () => {
     const dir = path.join(getDataPaths().dataDir, "file-manager-tmp");

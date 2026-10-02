@@ -69,10 +69,13 @@ describe("Docker panel update: quit() success is not trusted as confirmed-stoppe
     expect(rconService.quit).toHaveBeenCalledOnce();
     expect(downloadUpdate).not.toHaveBeenCalled();
     expect(response.status).toHaveBeenCalledWith(503);
+    // Its own code since 2026-10-01: SERVER_STATE_UNKNOWN's copy is about a
+    // failed process scan, which this is not -- the scan worked and keeps
+    // finding the server (see panelUpdateDockerSaveFailedNextStep.test.js).
     expect(response.json).toHaveBeenCalledWith(
       expect.objectContaining({
         success: false,
-        code: "SERVER_STATE_UNKNOWN",
+        code: "SERVER_STOP_NOT_CONFIRMED",
       }),
     );
   });

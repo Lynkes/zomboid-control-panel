@@ -642,6 +642,9 @@ router.post(
       audit.bytes = result.bytes;
       if (result.aborted) audit.result = "aborted";
     } finally {
+      // streamZip() has already given the slot back (before the response
+      // ended, or when it stopped); this covers a throw before it ran, and
+      // is a no-op otherwise.
       zip.release();
     }
   }),

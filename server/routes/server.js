@@ -28,6 +28,7 @@ import {
   restoreLineEnding,
 } from "../utils/iniKeyWrite.js";
 import {
+  launchesPanelStartScript,
   managedStartupScriptName,
   resolveLaunchMode,
   ServerManager,
@@ -56,6 +57,14 @@ import { invalidateMapFolderScan } from "./chunks.js";
 import { codedActionResultFields, emitActionResult } from "./scheduler.js";
 import panelBridge from "../services/panelBridge.js";
 import { candidateIniPaths } from "../utils/zomboidPaths.js";
+import {
+  describeLeftoverNativeLibraries,
+  detectLeftoverNativeLibraries,
+  formatJavaLibraryPath,
+  formatShellLibraryDirs,
+  resolveGameDirForNativeCheck,
+  resolveNativeLibraryDirs,
+} from "../utils/nativeLibraryPaths.js";
 import {
   newProfileConflictsWithWorkshop,
   noSteamWorkshopConflictResponse,
@@ -1458,6 +1467,38 @@ export function generateStartupScripts(options) {
 
   const classpathEntries = buildClasspathEntries(installPath);
 
+  // Native library folders, in search order -- see
+  // utils/nativeLibraryPaths.js. Linux: the install's own (server)
+  // ProjectZomboid64.json when it is sane, else linux64/ first with natives/
+  // behind it. Windows: the long-standing natives/;natives/win64/;., which
+  // the game's own ProjectZomboidServer.bat uses too (the Windows
+  // ProjectZomboid64.json is the client's). Until 2026-10-01 the .sh
+  // hardcoded natives/ FIRST, so a leftover natives/ folder from an older
+  // build shadowed the current linux64/ libraries and 42.21 crashed during
+  // every world save.
+  const windowsLibraryDirs = resolveNativeLibraryDirs(installPath, {
+    platform: "win32",
+  });
+  const linuxLibraryDirs = resolveNativeLibraryDirs(installPath, {
+    platform: "linux",
+  });
+  const ownPlatformDirs =
+    process.platform === "win32" ? windowsLibraryDirs : linuxLibraryDirs;
+  if (ownPlatformDirs.rejectedReason) {
+    log.warn(
+      `Not using the game's own native library path: ${ownPlatformDirs.rejectedReason}. The start script uses ${formatJavaLibraryPath(ownPlatformDirs.dirs, process.platform)} instead.`,
+    );
+  }
+  // Shell text, expanded by bash when the script runs (escaped \${...}).
+  const linuxLdLibraryPath = [
+    ...formatShellLibraryDirs(linuxLibraryDirs.dirs),
+    `\${INSTDIR}`,
+    `\${INSTDIR}/jre64/lib/amd64`,
+    `\${INSTDIR}/jre64/lib/x86_64`,
+    "/usr/lib64",
+    `\${LD_LIBRARY_PATH}`,
+  ].join(":");
+
   // Windows batch file
   const batchContent = `@echo off
 @setlocal enableextensions
@@ -1472,7 +1513,7 @@ REM =====================================================
 
 SET PZ_CLASSPATH=${classpathEntries.join(";")}
 
-".\\jre64\\bin\\java.exe" ${jvmArgs.join(" ")} -Djava.library.path=natives/;natives/win64/;. -cp %PZ_CLASSPATH% zombie.network.GameServer ${gameArgs.join(" ")}
+".\\jre64\\bin\\java.exe" ${jvmArgs.join(" ")} -Djava.library.path=${formatJavaLibraryPath(windowsLibraryDirs.dirs, "win32")} -cp %PZ_CLASSPATH% zombie.network.GameServer ${gameArgs.join(" ")}
 
 PAUSE
 `;
@@ -1511,9 +1552,9 @@ if ! command -v "$JAVA_CMD" >/dev/null 2>&1; then
 fi
 
 INSTDIR="$(dirname "$0")"
-export LD_LIBRARY_PATH="\${INSTDIR}/natives/:\${INSTDIR}/natives/linux64/:\${INSTDIR}/linux64/:\${INSTDIR}:\${INSTDIR}/jre64/lib/amd64:\${INSTDIR}/jre64/lib/x86_64:/usr/lib64:\${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${linuxLdLibraryPath}"
 
-"$JAVA_CMD" ${linuxJvmArgs.join(" ")} -Djava.library.path=natives/:natives/linux64/:linux64/:. -cp "$PZ_CLASSPATH" zombie.network.GameServer ${gameArgs.join(" ")}
+"$JAVA_CMD" ${linuxJvmArgs.join(" ")} -Djava.library.path=${formatJavaLibraryPath(linuxLibraryDirs.dirs, "linux")} -cp "$PZ_CLASSPATH" zombie.network.GameServer ${gameArgs.join(" ")}
 `;
 
   return { bat: batchContent, sh: shellContent };
@@ -1732,7 +1773,7 @@ router.get("/network-interfaces", async (req, res) => {
 // without either growing its own notion of it.
 export async function refreshLaunchTargetBeforeStart(
   activeServer,
-  { managedHandled = false } = {},
+  { managedHandled = false, platform = process.platform } = {},
 ) {
   try {
     const rconReady = await ensureRconConfigured(activeServer);
@@ -1753,6 +1794,9 @@ export async function refreshLaunchTargetBeforeStart(
   }
 
   let scriptBackupWarnings = [];
+  // Whether this launch runs a start script the panel wrote just now (and
+  // so loads linux64/ first), for the leftover-natives warning below.
+  let wroteLaunchedScript = false;
   const launchMode = resolveLaunchMode(activeServer);
   // The folder the game is launched from: `serverPath || installPath`, the
   // same one serverManager.loadConfig() spawns in and checks for the named
@@ -1820,6 +1864,7 @@ export async function refreshLaunchTargetBeforeStart(
       // follows.
       const launched = managedStartupScriptName(activeServer.serverName);
       const launchedPath = path.join(launchDir, launched);
+      wroteLaunchedScript = !failedPaths.includes(launchedPath);
       if (failedPaths.length === 0) {
         log.info("Regenerated startup scripts with current server config");
       } else if (!failedPaths.includes(launchedPath)) {
@@ -1839,7 +1884,35 @@ export async function refreshLaunchTargetBeforeStart(
       log.warn(`Could not regenerate startup scripts: ${scriptErr.message}`);
     }
   }
+  if (!managedHandled && activeServer && !activeServer.isRemote) {
+    await warnAboutLeftoverNativeLibraries(activeServer, platform, {
+      panelScript:
+        wroteLaunchedScript &&
+        launchesPanelStartScript(activeServer, { windows: platform === "win32" }),
+    });
+  }
   return { scriptBackupWarnings };
+}
+
+// Logs, before every launch the panel performs, the leftover natives/ folder
+// that crashed 42.21 during world saves (utils/nativeLibraryPaths.js). The
+// panel's own script no longer loads it first, but a custom launcher, a
+// custom start command, a hand-edited script or a ProjectZomboid64.json
+// that lists natives/ first still can -- and nothing else would tell the
+// operator why. `panelScript` (this launch runs the script just written)
+// picks the wording: only then can the line say what the launch loads.
+// Never deletes or renames anything, never blocks the launch.
+async function warnAboutLeftoverNativeLibraries(server, platform, { panelScript }) {
+  const gameDir = resolveGameDirForNativeCheck(server);
+  if (!gameDir) return;
+  try {
+    const leftover = await detectLeftoverNativeLibraries(gameDir, { platform });
+    if (leftover) {
+      log.warn(describeLeftoverNativeLibraries(gameDir, leftover, { panelScript }));
+    }
+  } catch (error) {
+    log.debug(`Native library check skipped: ${error.message}`);
+  }
 }
 
 // What lifecycleCoordinator.prepareForLaunch() runs (wired in server/index.js
@@ -2286,24 +2359,51 @@ router.post("/stop", requirePermission("server.control"), async (req, res) => {
     const serverManager = req.app.get("serverManager");
     log.info("POST /stop — graceful shutdown requested");
 
-    // Check if RCON is connected first
+    // Check if RCON is connected first. Both refusals below name the way
+    // out: a server whose game thread died (42.21's UnsatisfiedLinkError
+    // during a save, 2026-10-01) keeps its process up while RCON keeps
+    // dropping, and Force stop is then the only way down -- at the cost of
+    // anything since the last successful save, which is why the panel never
+    // does it on its own. With RCON disconnected Force stop can't save first
+    // (attemptBoundedSaveBeforeForceStop() skips it), so that refusal says
+    // so. A remote server has no Force stop (POST /force-stop refuses it,
+    // the Dashboard disables the button): its own codes send the operator
+    // to the host it runs on instead.
+    const isRemote = Boolean(activeServer?.isRemote);
     if (!rconService.connected) {
-      return res
-        .status(400)
-        .json({
-          error: "RCON not connected. Cannot gracefully stop server.",
-          code: ErrorCode.SERVER_STOP_RCON_NOT_CONNECTED,
-        });
+      return res.status(400).json(
+        isRemote
+          ? {
+              error:
+                "RCON is not connected, so the panel can't save the world and stop this remote server. The panel doesn't manage a remote server's process and can't force-stop it: if the server is stuck, restart it on the machine that hosts it.",
+              code: ErrorCode.SERVER_STOP_RCON_NOT_CONNECTED_REMOTE,
+            }
+          : {
+              error:
+                "RCON is not connected, so the panel can't save the world and stop the server gracefully. If the server is stuck, use Force stop: while RCON is disconnected it can't save first and stops the server straight away, so anything since the last successful save will be lost.",
+              code: ErrorCode.SERVER_STOP_RCON_NOT_CONNECTED,
+            },
+      );
     }
 
     // Save first — quitting after a failed save discards everything since
     // the last one.
     const saved = await rconService.save({ retryOnConnectionError: false });
     if (!saved?.success) {
-      return res.status(502).json({
-        error: `Save failed, so the server was left running: ${sanitizeError(saved?.error)}`,
-        code: ErrorCode.SERVER_STOP_SAVE_FAILED,
-      });
+      const reason = saved?.error || "unknown error";
+      return res.status(502).json(
+        isRemote
+          ? {
+              error: `The world could not be saved (${sanitizeError(reason)}), so the server was left running. The panel doesn't manage a remote server's process and can't force-stop it: if the server is stuck, restart it on the machine that hosts it. Anything since the last successful save can be lost.`,
+              code: ErrorCode.SERVER_STOP_SAVE_FAILED_REMOTE,
+              params: sanitizeErrorParams({ reason }),
+            }
+          : {
+              error: `The world could not be saved (${sanitizeError(reason)}), so the server was left running. If the server is stuck, use Force stop: it tries one quick save, then stops the server either way, so anything since the last successful save can be lost.`,
+              code: ErrorCode.SERVER_STOP_SAVE_FAILED,
+              params: sanitizeErrorParams({ reason }),
+            },
+      );
     }
 
     // A container-managed server must go down through Docker. RCON quit kills
@@ -2753,6 +2853,7 @@ router.post("/restart", requirePermission("server.control"), async (req, res) =>
           kind: "restart",
           success: !!result?.success,
           message: result?.message || (result?.success ? "Restart completed" : "Restart failed"),
+          ...(result?.success ? {} : codedActionResultFields(result)),
         });
       })
       .catch((err) => {

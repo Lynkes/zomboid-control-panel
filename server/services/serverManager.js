@@ -24,6 +24,7 @@ import { hasActiveSteamOperation } from "./activeSteamOperations.js";
 import { prepareForLaunch } from "./lifecycleCoordinator.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { listNonInternalIPv4Interfaces } from "../utils/networkInterfaces.js";
+import { buildLinuxLdLibraryCandidates } from "../utils/nativeLibraryPaths.js";
 import {
   collectUsedPorts,
   DEFAULT_GAME_PORT,
@@ -35,6 +36,7 @@ import {
   readProcessStartTime,
   WIN32_PROCESS_START_MS,
 } from "../utils/processStartTime.js";
+import { resolveProvider } from "../utils/serverStatusModel.js";
 
 const isWindows = process.platform === "win32";
 // getProcessStartTime()'s memory of FAILED lookups: how soon one for the
@@ -118,20 +120,17 @@ export function buildLinuxServerHome(serverDir) {
   return steamHome;
 }
 
-// Build LD_LIBRARY_PATH from server directory, filtering to only existing paths
-function buildLdLibraryPath(serverDir) {
+// Build LD_LIBRARY_PATH from server directory, filtering to only existing
+// paths. The native library folders come from the same resolver as the
+// generated start-server_<name>.sh (utils/nativeLibraryPaths.js): the game's
+// own ProjectZomboid64.json, else linux64/, with a leftover natives/ folder
+// only as a fallback -- this used to list natives/ whenever it existed, so a
+// custom .sh or start command inherited the stale libraries behind linux64/.
+export function buildLdLibraryPath(serverDir) {
   log.debug(
     `buildLdLibraryPath: scanning candidates for serverDir=${serverDir}`,
   );
-  const candidates = [
-    path.join(serverDir, "linux64"),
-    path.join(serverDir, "natives", "linux64"),
-    path.join(serverDir, "natives"),
-    serverDir,
-    path.join(serverDir, "jre64", "lib", "amd64"),
-    path.join(serverDir, "jre64", "lib", "x86_64"), // CentOS uses x86_64 instead of amd64
-    "/usr/lib64", // CentOS system 64-bit libs
-  ];
+  const candidates = buildLinuxLdLibraryCandidates(serverDir);
   const existing = candidates.filter((p) => {
     try {
       return fs.existsSync(p);
@@ -325,6 +324,31 @@ export function resolveManagedStartupScript(
   if (envBat && envBat !== stock) return envBat;
   if (serverName) return managedStartupScriptName(serverName, windows);
   return envBat || stock;
+}
+
+// Whether a start of `server` runs the script the panel writes for it
+// (managedStartupScriptName()): a MANAGED server with a name, no custom
+// start command, not a Docker-mapped container (its image owns the launch
+// command) and no PZ_SERVER_BAT naming another script. Anything else starts
+// with a launcher the panel doesn't write -- a custom launcher path or start
+// command, a container image's command, the stock script -- so the panel
+// can't vouch for what it loads. Asked by Debug › Diagnostics' start-script
+// and native-library checks, and by the pre-launch native-library warning
+// (routes/server.js). `windows` and `env` are parameters only for tests.
+export function launchesPanelStartScript(
+  server,
+  { windows = isWindows, env = process.env } = {},
+) {
+  const serverName = server?.serverName || "";
+  if (!serverName || server?.startCommand) return false;
+  if (["docker-local", "docker-managed"].includes(resolveProvider(server))) {
+    return false;
+  }
+  if (resolveLaunchMode(server).mode !== "managed") return false;
+  return (
+    resolveManagedStartupScript(serverName, { windows, env }) ===
+    managedStartupScriptName(serverName, windows)
+  );
 }
 
 // GH #167: a managed server with a name launches its own generated script or

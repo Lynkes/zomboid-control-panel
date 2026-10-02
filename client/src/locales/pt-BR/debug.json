@@ -430,6 +430,34 @@
             }
           }
         },
+        "nativeLibs": {
+          "ok": {
+            "label": "Bibliotecas nativas do jogo",
+            "message": "O jogo carrega suas bibliotecas nativas de {{folders}}."
+          },
+          "warn": {
+            "leftoverNatives": {
+              "label": "Bibliotecas antigas do jogo em natives/",
+              "message": "A pasta natives/ contém cópias das bibliotecas nativas do jogo que diferem das de linux64/ ({{libraries}}). O script de inicialização do painel carrega linux64/, mas um script ou comando de inicialização personalizado que carregue natives/ primeiro usa as antigas, e o servidor então cai durante os salvamentos do mundo.",
+              "hint": "Você pode excluir ou renomear a pasta natives/ com segurança (por exemplo, para natives.old) enquanto o servidor estiver parado. O painel nunca a exclui."
+            },
+            "leftoverNativesOwnLauncher": {
+              "label": "Bibliotecas antigas do jogo em natives/",
+              "message": "A pasta natives/ contém cópias das bibliotecas nativas do jogo que diferem das de linux64/ ({{libraries}}). Este servidor é iniciado pelo próprio inicializador (o comando de uma imagem do Docker, ou um script ou comando de inicialização personalizado), não pelo script de inicialização do painel. Se esse inicializador carregar natives/ primeiro, o servidor usa as antigas e cai durante os salvamentos do mundo.",
+              "hint": "Você pode excluir ou renomear a pasta natives/ com segurança (por exemplo, para natives.old) enquanto o servidor estiver parado. O painel nunca a exclui."
+            },
+            "leftoverNativesPartial": {
+              "label": "Bibliotecas antigas do jogo em natives/",
+              "message": "A pasta natives/ contém cópias das bibliotecas nativas do jogo que diferem das de linux64/ ({{libraries}}), e também {{onlyInLeftover}}, que linux64/ não tem. Um script ou comando de inicialização que carregue natives/ antes de linux64/ usa as cópias antigas, e o servidor então cai durante os salvamentos do mundo.",
+              "hint": "Verifique os arquivos do jogo com o SteamCMD antes de excluir natives/: o servidor ainda pode precisar das bibliotecas que só existem nela. Renomeá-la (por exemplo, para natives.old) enquanto o servidor estiver parado pode ser desfeito. O painel nunca a exclui."
+            },
+            "nativesFirst": {
+              "label": "Bibliotecas mais antigas do jogo carregam primeiro",
+              "message": "O ProjectZomboid64.json coloca natives/ antes de linux64/, então o servidor carrega de natives/ cópias mais antigas das bibliotecas nativas do jogo ({{libraries}}) em vez das atuais em linux64/, e pode cair durante os salvamentos do mundo.",
+              "hint": "Com o servidor parado, renomeie a pasta natives/ (por exemplo, para natives.old), ou verifique os arquivos do jogo com o SteamCMD para que o ProjectZomboid64.json corresponda à versão instalada. O painel nunca a exclui."
+            }
+          }
+        },
         "ini": {
           "ok": {
             "label": "server.ini encontrado",

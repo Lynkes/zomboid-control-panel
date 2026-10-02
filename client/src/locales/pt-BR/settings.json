@@ -979,6 +979,11 @@
       "title": "Falha no download",
       "fallback": "Não foi possível baixar a atualização. Verifique o acesso à rede, o espaço em disco e as permissões de arquivo."
     },
+    "updateNotApplied": {
+      "title": "Atualização não aplicada",
+      "openDashboard": "Abrir o Dashboard",
+      "openDashboardAlt": "Abrir o Dashboard, onde fica \"Forçar parada\""
+    },
     "updateReady": {
       "title": "Atualização pronta",
       "withVersion": "O painel v{{version}} foi baixado. Reinicie o painel para mudar para a nova versão.",
