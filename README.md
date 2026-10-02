@@ -228,9 +228,10 @@ curl -fsSL https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/
 ```
 
 It checks Docker, generates the secret and persistent configuration, pulls the
-prebuilt release images, installs PZ, detects the LAN address, and publishes
-the required UDP ports `16261` and `16262`, and prints the panel URL near the end
-once the health check passes.
+prebuilt release images, installs PZ, detects the LAN address, publishes
+the required UDP ports `16261-16270` (room for five servers in the same
+container), and prints the panel URL near the end once the health check
+passes.
 
 If PZ already runs on the host, in another container, or on another machine,
 use the panel-only image instead:

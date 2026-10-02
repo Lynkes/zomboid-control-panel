@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handlePanelUpdateDownload } from "../index.js";
 import { ServerManager } from "../services/serverManager.js";
 
@@ -36,6 +36,15 @@ function createRequest(checker, rconService) {
 describe("Docker panel update: quit() success is not trusted as confirmed-stopped", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  // The other-servers check runs a host-wide scan before anything else;
+  // no other Project Zomboid server is running in these cases.
+  beforeEach(() => {
+    vi.spyOn(ServerManager.prototype, "scanHostForServerProcesses").mockResolvedValue({
+      matched: [],
+      scanFailed: false,
+    });
   });
 
   it("refuses the update and never calls downloadUpdate() when the process still reports running after quit()", async () => {

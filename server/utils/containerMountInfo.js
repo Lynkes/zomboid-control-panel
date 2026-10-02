@@ -43,6 +43,7 @@
 import fs from "fs";
 import http from "http";
 import os from "os";
+import path from "path";
 
 const MOUNTINFO_PATH = "/proc/self/mountinfo";
 const DOCKER_SOCKET_PATH = "/var/run/docker.sock";
@@ -103,6 +104,44 @@ export function describeContainerMountPoints(targetPaths, mounts = getOwnMountIn
       ? { path: targetPath, mounted: true, majorMinor: mount.majorMinor, deviceRoot: mount.root }
       : { path: targetPath, mounted: false };
   });
+}
+
+// mountinfo writes a space, tab, newline or backslash in a path as a
+// three-digit octal escape (\040 for a space).
+function decodeMountPath(value) {
+  return String(value).replace(/\\([0-7]{3})/g, (_, octal) =>
+    String.fromCharCode(parseInt(octal, 8)),
+  );
+}
+
+// Filesystems that live in memory: a tmpfs such as /dev/shm or /run is gone
+// on every container restart, let alone a recreate.
+const MEMORY_FS_TYPES = new Set(["tmpfs", "ramfs"]);
+
+// Whether targetPath sits on the container's own root filesystem (the image
+// layer) or in memory rather than on a volume or bind mount. Anything
+// written there is lost when the container is recreated, and every
+// all-in-one update recreates it. The deepest mount point that contains the
+// path decides, the same way the kernel resolves it. Returns null when
+// mountinfo could not be read, so a caller can tell "unknown" apart from
+// "persistent". The path is matched as given, without following symlinks.
+// POSIX container paths only; never called on Windows.
+export function isOnContainerRootLayer(targetPath, mounts = getOwnMountInfo()) {
+  if (mounts === null || !targetPath) return null;
+  const resolved = path.posix.resolve(String(targetPath));
+  let deepest = null;
+  for (const mount of mounts) {
+    const mountPoint = decodeMountPath(mount.mountPoint);
+    const contains =
+      mountPoint === "/" ||
+      resolved === mountPoint ||
+      resolved.startsWith(`${mountPoint}/`);
+    if (contains && (!deepest || mountPoint.length > deepest.mountPoint.length)) {
+      deepest = { mountPoint, fsType: mount.fsType };
+    }
+  }
+  if (deepest === null) return null;
+  return deepest.mountPoint === "/" || MEMORY_FS_TYPES.has(deepest.fsType);
 }
 
 // This container's own short ID, the way Docker's API expects it for a

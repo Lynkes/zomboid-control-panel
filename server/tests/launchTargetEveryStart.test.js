@@ -633,4 +633,48 @@ describe("POST /api/server/start forwards the refusal's code", () => {
     expect(body.params).toEqual({ script: "start-server_Restored.sh", fallback: "start-server.sh" });
     expect(body.error).not.toContain(installPath);
   });
+
+  it("SERVER_START_GAME_PORT_IN_USE reaches the dashboard with the other server's name and the port", async () => {
+    const m = await importForPlatform(process.platform);
+    const router = m.default;
+    const layer = router.stack.find(
+      (entry) => entry.route?.path === "/start" && entry.route.methods.post,
+    );
+    const handler = layer.route.stack[layer.route.stack.length - 1].handle;
+    const res = { status: vi.fn(), json: vi.fn() };
+    res.status.mockReturnValue(res);
+    const serverManager = {
+      startServer: vi.fn(async () => {
+        throw m.gamePortInUseError({ port: 16261, serverName: "Main" });
+      }),
+    };
+    const app = { get: (key) => ({ serverManager, rconService: {} })[key] };
+
+    await handler({ app }, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    const body = res.json.mock.calls[0][0];
+    expect(body.code).toBe("SERVER_START_GAME_PORT_IN_USE");
+    expect(body.params).toEqual({ port: 16261, name: "Main" });
+  });
+
+  it("an uncoded start failure keeps the plain-message shape", async () => {
+    const m = await importForPlatform(process.platform);
+    const router = m.default;
+    const layer = router.stack.find(
+      (entry) => entry.route?.path === "/start" && entry.route.methods.post,
+    );
+    const handler = layer.route.stack[layer.route.stack.length - 1].handle;
+    const res = { status: vi.fn(), json: vi.fn() };
+    res.status.mockReturnValue(res);
+    const failure = new Error("Server path not configured");
+    failure.code = "ENOENT";
+    const serverManager = { startServer: vi.fn(async () => { throw failure; }) };
+    const app = { get: (key) => ({ serverManager, rconService: {} })[key] };
+
+    await handler({ app }, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json.mock.calls[0][0]).toEqual({ error: "Server path not configured" });
+  });
 });

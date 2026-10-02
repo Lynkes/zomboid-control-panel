@@ -59,7 +59,8 @@
     },
     "setRemoteFolders": "Defini dosye aleka yo",
     "trash_one": "Poubèl ({{count}} eleman)",
-    "trash_other": "Poubèl ({{count}} eleman)"
+    "trash_other": "Poubèl ({{count}} eleman)",
+    "trash_many": "Poubèl ({{count}} eleman)"
   },
   "serverState": {
     "running": {
@@ -106,6 +107,7 @@
     "unsupportedName": "Non sa a pa ka jere an sekirite isit la. Chanje non l atravè SFTP oswa SSH.",
     "selected_one": "{{count}} chwazi",
     "selected_other": "{{count}} chwazi",
+    "selected_many": "{{count}} chwazi",
     "empty": {
       "title": "Dosye sa a vid",
       "description": "Voye yon fichye oswa kreye youn."
@@ -121,6 +123,7 @@
     "button": "Chèche",
     "results_one": "{{count}} rezilta",
     "results_other": "{{count}} rezilta",
+    "results_many": "{{count}} rezilta",
     "truncated": "Rechèch la kanpe anvan li fini. Presize l pou w wè tout.",
     "none": "Pa gen non ki koresponn."
   },
@@ -187,6 +190,7 @@
     "move": {
       "title_one": "Deplase {{count}} eleman",
       "title_other": "Deplase {{count}} eleman",
+      "title_many": "Deplase {{count}} eleman",
       "destLabel": "Deplase nan",
       "hint": "Ou ka deplase eleman yo sèlman andedan dosye sa a."
     },
@@ -226,14 +230,17 @@
     "title": "Ou totalman sèten?",
     "delete_one": "Deplase {{count}} eleman ({{files}} fichye, {{size}}) soti nan {{folder}} pou mete l nan poubèl la? Sèvè a ka sispann mache si li bezwen l. Ou ka retabli l nan poubèl la pandan 7 jou. Poubèl la pa libere espas sou disk la toutotan yo pa vide l.",
     "delete_other": "Deplase {{count}} eleman ({{files}} fichye, {{size}}) soti nan {{folder}} pou mete yo nan poubèl la? Sèvè a ka sispann mache si li bezwen yo. Ou ka retabli yo nan poubèl la pandan 7 jou. Poubèl la pa libere espas sou disk la toutotan yo pa vide l.",
+    "delete_many": "Deplase {{count}} eleman ({{files}} fichye, {{size}}) soti nan {{folder}} pou mete yo nan poubèl la? Sèvè a ka sispann mache si li bezwen yo. Ou ka retabli yo nan poubèl la pandan 7 jou. Poubèl la pa libere espas sou disk la toutotan yo pa vide l.",
     "deleteOne": "Deplase {{name}} ({{size}}) soti nan {{folder}} pou mete l nan poubèl la? Sèvè a ka sispann mache si li bezwen l. Ou ka retabli l nan poubèl la pandan 7 jou. Poubèl la pa libere espas sou disk la toutotan yo pa vide l.",
     "deletePermanent_one": "Efase {{count}} eleman ({{files}} fichye, {{size}}) pou tout tan? Aksyon sa a pa ka anile.",
     "deletePermanent_other": "Efase {{count}} eleman ({{files}} fichye, {{size}}) pou tout tan? Aksyon sa a pa ka anile.",
+    "deletePermanent_many": "Efase {{count}} eleman ({{files}} fichye, {{size}}) pou tout tan? Aksyon sa a pa ka anile.",
     "deletePermanentOne": "Efase {{name}} ({{size}}) pou tout tan? Aksyon sa a pa ka anile.",
     "trashUnavailable": "Eleman sa yo pa ka ale nan poubèl la, kidonk efase yo se pou tout tan.",
     "typeName": "Tape {{value}} pou konfime",
     "emptyTrash_one": "Efase {{count}} eleman nan poubèl la pou tout tan? Aksyon sa a pa ka anile.",
     "emptyTrash_other": "Efase {{count}} eleman nan poubèl la pou tout tan? Aksyon sa a pa ka anile.",
+    "emptyTrash_many": "Efase {{count}} eleman nan poubèl la pou tout tan? Aksyon sa a pa ka anile.",
     "changeTitle": "Konfime chanjman sa a",
     "tokens": {
       "serverRunning": "Sèvè a ap fonksyone. Li p ap wè chanjman sa a jiskaske li redemare, epi ranplase yon fichye l ap itilize ka fè l kraze.",
@@ -259,6 +266,7 @@
     "escHint": "Peze Esc, apre sa Tab, pou soti nan editè a.",
     "lineCount_one": "{{count}} liy",
     "lineCount_other": "{{count}} liy",
+    "lineCount_many": "{{count}} liy",
     "bom": "BOM",
     "conflict": {
       "title": "Fichye sa a chanje sou disk la",
@@ -293,6 +301,7 @@
     "allDone": "Tout fichye yo fin voye.",
     "existsTitle_one": "{{count}} fichye egziste deja nan {{folder}}",
     "existsTitle_other": "{{count}} fichye egziste deja nan {{folder}}",
+    "existsTitle_many": "{{count}} fichye egziste deja nan {{folder}}",
     "existsBody": "Fichye yo ranplase yo ale nan poubèl la.",
     "replaceAll": "Ranplase tout",
     "skipExisting": "Sote sa ki egziste deja"
@@ -325,6 +334,7 @@
     "restored": "Retabli nan {{path}}",
     "undoToast_one": "{{count}} eleman deplase nan poubèl la.",
     "undoToast_other": "{{count}} eleman deplase nan poubèl la.",
+    "undoToast_many": "{{count}} eleman deplase nan poubèl la.",
     "undo": "Defèt"
   },
   "jobs": {

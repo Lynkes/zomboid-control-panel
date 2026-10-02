@@ -122,6 +122,20 @@
     "customDataPathPlaceholderWindows": "e.g. C:\\Users\\you\\Zomboid or %USERPROFILE%\\Zomboid",
     "customDataPathPlaceholderPosix": "e.g. /home/you/Zomboid or $HOME/Zomboid"
   },
+  "multiServer": {
+    "portsTitle": "Un autre serveur sur cet hôte",
+    "portsBody": "Chaque serveur a besoin de ses propres ports pour tourner en même temps que les autres : les premiers libres ont donc été remplis. Déjà utilisés ici :",
+    "usedPortsItem": "{{name}} : jeu {{game}}–{{udp}} (UDP), RCON {{rcon}}",
+    "publishedRange": "Docker publie les ports UDP {{start}}–{{end}} pour ce conteneur. Gardez le port de jeu et le suivant dans cette plage pour que les joueurs puissent se connecter.",
+    "conflictGame": "Le port {{port}} est déjà un port de jeu de {{name}} : les deux serveurs ne peuvent pas tourner en même temps.",
+    "conflictUdp": "Le port {{port}} (port de jeu + 1) est déjà utilisé par {{name}} : les deux serveurs ne peuvent pas tourner en même temps.",
+    "conflictRcon": "Le port RCON {{port}} est déjà utilisé par {{name}} : les deux serveurs ne peuvent pas tourner en même temps.",
+    "outsidePublished": "Les ports {{game}}–{{udp}} sont hors de la plage publiée par Docker ({{start}}–{{end}}) : le serveur tourne, mais les joueurs ne peuvent pas l'atteindre. Choisissez un port dans la plage, ou élargissez PZ_GAME_PORTS dans .env et relancez bootstrap.sh.",
+    "folderTitle": "Un autre serveur dans ce conteneur",
+    "folderBodyFull": "Ses fichiers de jeu vont dans <1>{{path}}</1> et ses mondes et réglages dans <1>{{dataPath}}</1>, sur le volume des serveurs supplémentaires : ils survivent donc aux mises à jour du panneau.",
+    "folderBodyQuick": "Il réutilise les fichiers de jeu de <1>{{path}}</1> et garde ses mondes, réglages et journaux dans <1>{{dataPath}}</1>, sur le volume des serveurs supplémentaires, sans les partager avec les autres serveurs.",
+    "noVolume": "Ce conteneur n'a pas encore de volume pour les serveurs supplémentaires : une deuxième installation ici serait effacée à la prochaine mise à jour du panneau. Relancez l'installateur (bootstrap.sh) pour l'ajouter, puis revenez ici."
+  },
   "full": {
     "pageTitle": "Nouvelle installation",
     "pageDescription": "Téléchargez, configurez et enregistrez un nouveau serveur dédié.",

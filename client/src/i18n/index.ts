@@ -1,6 +1,7 @@
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import { LANGUAGE_CODES, SOURCE_LANGUAGE, isRTL } from './languages'
+import { localeModules } from './localeModules'
 
 export { LANGUAGES, OFFERED_LANGUAGES, SOURCE_LANGUAGE, LANGUAGE_CODES, isRTL, directionOf } from './languages'
 export type { LanguageDef } from './languages'
@@ -8,18 +9,10 @@ export type SupportedLanguage = string
 
 export const LANGUAGE_STORAGE_KEY = 'zcp-language'
 
-// Discovers every client/src/locales/<code>/<namespace>.json file at build
-// time — no per-language, per-namespace import list to maintain. Adding a
+// localeModules holds every client/src/locales/<code>/<namespace>.json file
+// — no per-language, per-namespace import list to maintain. Adding a
 // language folder (or a namespace file within one) is picked up here with
 // no code change. See client/src/locales/README.md.
-// i18next's own Resource type is this loose (ResourceKey = string | an
-// object of unspecified shape), so `any` here matches its actual contract
-// rather than fighting it with a narrower type that doesn't describe it.
-const localeModules = import.meta.glob('../locales/*/*.json', {
-  eager: true,
-  import: 'default',
-}) as Record<string, any>
-
 const LOCALE_PATH_RE = /\.\.\/locales\/([^/]+)\/([^/]+)\.json$/
 
 const resources: Record<string, Record<string, any>> = {}

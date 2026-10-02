@@ -13,21 +13,19 @@ permissions:
   contents: read
 
 jobs:
-  server:
-    name: Server (lint + tests)
+  # Every job's timeout-minutes is several times its usual run. Without one,
+  # GitHub's default is 6 hours: a hung test held its runner, and every
+  # pull request's required checks, that long.
+  #
+  # The server suite runs in two parallel shards next to lint, and the
+  # `server` job at the end keeps the name branch protection requires,
+  # "Server (lint + tests)" -- same pattern as the client jobs below.
+  server-lint:
+    name: Server lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      # fetch-depth: 0 (full history) -- roleDescriptionStalenessGate.test.js
-      # needs real git blame/log history to detect a stale capability-
-      # description translation. actions/checkout defaults to depth 1: on a
-      # shallow clone, git blame attributes every line to the single shallow-
-      # boundary commit, which silently collapses that gate to "0 findings"
-      # regardless of actual drift (verified by cloning this repo at depth 1
-      # and confirming the collapse before this fix). The client job doesn't
-      # need this and stays shallow for its usual faster checkout.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          fetch-depth: 0
 
       - name: Reject obsolete standalone release notes
         shell: bash
@@ -58,6 +56,35 @@ jobs:
       - name: Lint
         run: npm run lint:server
 
+  server-tests:
+    name: Server tests (shard ${{ matrix.shard }}/2)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      # fetch-depth: 0 (full history) -- roleDescriptionStalenessGate.test.js
+      # needs real git blame/log history to detect a stale capability-
+      # description translation. actions/checkout defaults to depth 1: on a
+      # shallow clone, git blame attributes every line to the single shallow-
+      # boundary commit, which silently collapses that gate to "0 findings"
+      # regardless of actual drift (verified by cloning this repo at depth 1
+      # and confirming the collapse before this fix). Every shard fetches it,
+      # since which shard gets that file depends on the file list.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm install --no-audit --prefer-offline --include=optional
+
       # The Server Files SFTP suites run against a real OpenSSH sftp-server
       # (server/tests/helpers/opensshSftpServer.js), not only against
       # in-memory models of one: the models once hid a broken upload. With
@@ -86,22 +113,43 @@ jobs:
       # shape (no "Failed Tests" heading, i.e. zero real test failures,
       # AND the known error signature present) -- a real test failure
       # still fails the job immediately with no retry, since "Failed
-      # Tests" would be present and this condition is false.
+      # Tests" would be present and this condition is false. The retry
+      # reruns this shard only.
       - name: Tests
         shell: bash
         env:
           ZCP_REQUIRE_SFTP_SERVER: "1"
+          SHARD: ${{ matrix.shard }}/2
         run: |
-          if npm run test:server 2>&1 | tee /tmp/server-test-output.log; then
+          if npm run test:server -- --shard="$SHARD" 2>&1 | tee /tmp/server-test-output.log; then
             exit 0
           fi
           if grep -q 'EnvironmentTeardownError' /tmp/server-test-output.log && \
              ! grep -q 'Failed Tests' /tmp/server-test-output.log; then
             echo "::warning::vitest-worker-teardown-flake-exits-1 (known upstream race, 0 real test failures) -- retrying once"
-            npm run test:server
+            npm run test:server -- --shard="$SHARD"
           else
             exit 1
           fi
+
+  server:
+    name: Server (lint + tests)
+    if: always()
+    needs: [server-lint, server-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # always(), so a failed or cancelled shard turns this check red instead
+      # of leaving it skipped, which branch protection would count as passed.
+      - name: Require lint and every test shard
+        shell: bash
+        env:
+          RESULTS: ${{ needs.server-lint.result }} ${{ needs.server-tests.result }}
+        run: |
+          echo "lint, test shards: $RESULTS"
+          for result in $RESULTS; do
+            [ "$result" = "success" ] || exit 1
+          done
 
   # Deliberately a SEPARATE job from `server`, not a step tacked onto it: this check must never be
   # able to red-gate lint/tests/tsc, and a job boundary is the only thing GitHub Actions actually
@@ -121,6 +169,7 @@ jobs:
   engine-signatures:
     name: Engine signature check
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -170,6 +219,7 @@ jobs:
   scripts-checkers:
     name: Scripts checkers (bridge actions/routes, RCON commands, i18n duplicates)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -208,12 +258,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # A repository with no release yet (a fresh fork) has nothing to
+          # compare against. Any other API failure leaves the count empty
+          # and still fails at gh release view below.
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=1" --jq 'length')" = "0" ]; then
+            echo "::notice::$GITHUB_REPOSITORY has no releases yet; skipping the latest-release version check."
+            exit 0
+          fi
           latest="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName' | sed 's/^v//')"
           node scripts/verify-package-version.mjs --minimum "$latest"
 
-  client:
-    name: Client (lint + types + tests)
+  # The client suite took ~11 minutes in one job, the longest in CI, so its
+  # tests run in parallel shards next to lint + typecheck. Branch protection
+  # requires the check "Client (lint + types + tests)" by name: that is the
+  # `client` job at the end, which passes only when lint, types and every
+  # shard passed.
+  client-static:
+    name: Client lint + types
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -239,13 +302,60 @@ jobs:
         working-directory: client
         run: npx tsc -b
 
+  client-tests:
+    name: Client tests (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      # Every shard reports, so one red run shows all the failing files.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install
+        working-directory: client
+        run: npm install --no-audit --prefer-offline --include=optional
+
       - name: Tests
         working-directory: client
-        run: npx vitest run
+        run: npx vitest run --shard=${{ matrix.shard }}/4
 
-  windows-packaged-updater:
-    name: Windows packaged updater
+  client:
+    name: Client (lint + types + tests)
+    if: always()
+    needs: [client-static, client-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # always(), so a failed or cancelled shard turns this check red instead
+      # of leaving it skipped, which branch protection would count as passed.
+      - name: Require lint, types and every test shard
+        shell: bash
+        env:
+          RESULTS: ${{ needs.client-static.result }} ${{ needs.client-tests.result }}
+        run: |
+          echo "lint + types, test shards: $RESULTS"
+          for result in $RESULTS; do
+            [ "$result" = "success" ] || exit 1
+          done
+
+  # The Windows tests (~100s, nearly all supervisor-restart.test.js driving
+  # the real Start.bat) and the packaged build (~55s) don't depend on each
+  # other -- the tests always ran before the build existed -- so they run
+  # in parallel. `windows-packaged-updater` at the end keeps the name branch
+  # protection requires.
+  windows-tests:
+    name: Windows tests
     runs-on: windows-2022
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -256,11 +366,26 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install server dependencies
-        run: npm install --no-audit --prefer-offline --include=optional
+      # On Windows the root install took ~3 minutes even with the npm cache
+      # warm (Linux: ~20s): it unpacks 500+ packages and runs ssh2's install
+      # script, which compiles its optional crypto binding with node-gyp, on
+      # every run. Restoring node_modules itself leaves npm install only a
+      # check. Keyed on the lockfile and the installed Node's ABI version:
+      # native addons are built for it, and npm install wouldn't rebuild a
+      # cached one after a Node bump (ssh2 would quietly fall back to its
+      # pure-JS crypto). The client tree installs in seconds and isn't cached.
+      - name: Read Node ABI version
+        id: node-abi
+        shell: bash
+        run: echo "abi=$(node -p process.versions.modules)" >> "$GITHUB_OUTPUT"
 
-      - name: Install client dependencies
-        working-directory: client
+      - name: Restore root node_modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: node_modules
+          key: root-node-modules-${{ runner.os }}-${{ runner.arch }}-abi${{ steps.node-abi.outputs.abi }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install server dependencies
         run: npm install --no-audit --prefer-offline --include=optional
 
       # serverManagerSpacedPathCmdQuoting.test.js and
@@ -319,6 +444,39 @@ jobs:
       - name: Exercise bundle transaction and generated supervisor
         run: npx vitest run server/tests/panelUpdateBundle.test.js server/tests/supervisor-restart.test.js server/tests/serverManagerSpacedPathCmdQuoting.test.js server/tests/serverManagerWindowsSpawnFixes.test.js server/tests/serverManagerCustomStartCommandQuoting.test.js server/tests/serverManagerCommandLineRoundTrip.test.js server/tests/serverManagerEmptyScanWindows.test.js server/tests/serverManager-stopTimeout.test.js server/tests/setDataPaths.test.js server/tests/serverManagerWindowsProcessRow.test.js server/tests/serverManagerScanGenerationGuard.test.js server/tests/bridgeDisk.test.js server/tests/bridgeDeliveryPlan.test.js server/tests/releaseScriptGitHubNotes.test.js
 
+  windows-build:
+    name: Windows packaged build
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Same cache as the Windows tests job above.
+      - name: Read Node ABI version
+        id: node-abi
+        shell: bash
+        run: echo "abi=$(node -p process.versions.modules)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore root node_modules
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: node_modules
+          key: root-node-modules-${{ runner.os }}-${{ runner.arch }}-abi${{ steps.node-abi.outputs.abi }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install server dependencies
+        run: npm install --no-audit --prefer-offline --include=optional
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm install --no-audit --prefer-offline --include=optional
+
       - name: Build packaged Windows executable
         run: node build.js --windows
 
@@ -332,3 +490,22 @@ jobs:
           if ($buildInfo.panelVersion -ne $manifest.version) { throw "Frontend/backend version mismatch" }
           if ($buildInfo.buildSha -ne $manifest.buildSha) { throw "Frontend/backend build SHA mismatch" }
           if ($buildInfo.apiContractVersion -ne $manifest.apiContractVersion) { throw "Frontend/backend API contract mismatch" }
+
+  windows-packaged-updater:
+    name: Windows packaged updater
+    if: always()
+    needs: [windows-tests, windows-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # always(), so a failed or cancelled job turns this check red instead
+      # of leaving it skipped, which branch protection would count as passed.
+      - name: Require the Windows tests and the packaged build
+        shell: bash
+        env:
+          RESULTS: ${{ needs.windows-tests.result }} ${{ needs.windows-build.result }}
+        run: |
+          echo "tests, build: $RESULTS"
+          for result in $RESULTS; do
+            [ "$result" = "success" ] || exit 1
+          done

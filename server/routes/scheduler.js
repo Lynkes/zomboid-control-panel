@@ -46,12 +46,13 @@ export function emitActionResult(io, payload) {
 // The code and path-free params of a coded refusal thrown on the way
 // through performRestart(), spread into a failed action result so Layout
 // shows it in the operator's language, the way POST /api/server/start's
-// response does. Today that is serverManager.startServer()'s
-// SERVER_START_SCRIPT_MISSING (GH #167) and its restart-time counterpart
-// SERVER_RESTART_SCRIPT_MISSING (performRestart()'s check before it stops
-// anything): both messages name the install folder and are English-only.
-// SERVER_RESTART_RCON_UNAVAILABLE and SERVER_RESTART_SAVE_FAILED are
-// performRestart()'s RETURNED failures when RCON doesn't answer its test
+// response does (that route forwards this same list). Today that is
+// serverManager.startServer()'s SERVER_START_SCRIPT_MISSING (GH #167), its
+// restart-time counterpart SERVER_RESTART_SCRIPT_MISSING (performRestart()'s
+// check before it stops anything), and SERVER_START_GAME_PORT_IN_USE (another
+// running server holds this one's game port): their messages are
+// English-only. SERVER_RESTART_RCON_UNAVAILABLE and SERVER_RESTART_SAVE_FAILED
+// are performRestart()'s RETURNED failures when RCON doesn't answer its test
 // command or the pre-restart save fails -- a stuck server hits the first
 // (2026-10-01) -- and their copy names the way out (Force stop), so they're
 // taken from a failed result as well as a throw. Any other error adds
@@ -59,6 +60,7 @@ export function emitActionResult(io, payload) {
 const CODED_ACTION_RESULT_CODES = new Set([
   ErrorCode.SERVER_START_SCRIPT_MISSING,
   ErrorCode.SERVER_RESTART_SCRIPT_MISSING,
+  ErrorCode.SERVER_START_GAME_PORT_IN_USE,
   ErrorCode.SERVER_RESTART_RCON_UNAVAILABLE,
   ErrorCode.SERVER_RESTART_SAVE_FAILED,
 ]);

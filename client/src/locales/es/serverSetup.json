@@ -122,6 +122,20 @@
     "customDataPathPlaceholderWindows": "e.g. C:\\Users\\you\\Zomboid or %USERPROFILE%\\Zomboid",
     "customDataPathPlaceholderPosix": "e.g. /home/you/Zomboid or $HOME/Zomboid"
   },
+  "multiServer": {
+    "portsTitle": "Otro servidor en este host",
+    "portsBody": "Cada servidor necesita sus propios puertos para funcionar a la vez que los demás, así que se rellenaron los primeros libres. Ya en uso aquí:",
+    "usedPortsItem": "{{name}}: juego {{game}}–{{udp}} (UDP), RCON {{rcon}}",
+    "publishedRange": "Docker publica los puertos UDP {{start}}–{{end}} de este contenedor. Mantén el puerto de juego y el siguiente dentro de ese rango para que los jugadores puedan conectarse.",
+    "conflictGame": "El puerto {{port}} ya es un puerto de juego de {{name}}: los dos servidores no pueden funcionar a la vez.",
+    "conflictUdp": "El puerto {{port}} (puerto de juego + 1) ya lo usa {{name}}: los dos servidores no pueden funcionar a la vez.",
+    "conflictRcon": "El puerto RCON {{port}} ya lo usa {{name}}: los dos servidores no pueden funcionar a la vez.",
+    "outsidePublished": "Los puertos {{game}}–{{udp}} están fuera del rango que publica Docker ({{start}}–{{end}}): el servidor funciona, pero los jugadores no pueden alcanzarlo. Elige un puerto dentro del rango, o amplía PZ_GAME_PORTS en .env y vuelve a ejecutar bootstrap.sh.",
+    "folderTitle": "Otro servidor en este contenedor",
+    "folderBodyFull": "Sus archivos de juego van en <1>{{path}}</1> y sus mundos y ajustes en <1>{{dataPath}}</1>, en el volumen de servidores adicionales, así que sobreviven a las actualizaciones del panel.",
+    "folderBodyQuick": "Reutiliza los archivos de juego de <1>{{path}}</1> y guarda sus mundos, ajustes y registros en <1>{{dataPath}}</1>, en el volumen de servidores adicionales, sin compartirlos con los demás servidores.",
+    "noVolume": "Este contenedor aún no tiene el volumen para servidores adicionales, así que una segunda instalación aquí se borraría en la próxima actualización del panel. Vuelve a ejecutar el instalador (bootstrap.sh) para añadirlo y luego regresa."
+  },
   "full": {
     "pageTitle": "Instalación nueva",
     "pageDescription": "Descarga, configura y registra un servidor dedicado nuevo.",
