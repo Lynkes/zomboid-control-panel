@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+_No unreleased changes._
+
+## [1.4.3] - 2026-10-02
+
 ### Fixed
 
 - Windows: a restart no longer leaves the server down when the process scan can't read the exiting server or an unrelated java.exe (#190, thanks @djcyphers).
