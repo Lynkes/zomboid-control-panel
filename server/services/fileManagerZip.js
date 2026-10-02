@@ -230,19 +230,27 @@ function sameInode(a, b) {
  * Stream a planned zip into `res`. Headers must already be set. Resolves
  * with { bytes, entries, skipped } when finished; on a client abort or the
  * time cap the writer is aborted (which stops the entry being read) and the
- * socket destroyed. `release` (the zip slot) is let go at that moment too,
- * not only when the caller's finally runs: a stopped zip never keeps a slot.
+ * socket destroyed. `release` (the zip slot) is called exactly once: at
+ * that moment, or once the last byte is written and before the response
+ * ends -- not only when the caller's finally runs, so neither a stopped zip
+ * nor a finished one keeps a slot past what its client can see.
  */
 export async function streamZip({ res, backend, root, plan, release = () => {} }) {
   const writer = new StreamingZipWriter(null, { outputStream: res, tempDir: ensurePanelTempDir() });
   activeZipTemps.add(writer.centralPath);
+  let released = false;
+  const releaseSlot = () => {
+    if (released) return;
+    released = true;
+    release();
+  };
   let aborted = false;
   const abort = () => {
     if (aborted) return;
     aborted = true;
     writer.abort().catch(() => {});
     res.destroy?.();
-    release();
+    releaseSlot();
   };
   const onClose = () => {
     if (!res.writableFinished) abort();
@@ -321,7 +329,13 @@ export async function streamZip({ res, backend, root, plan, release = () => {} }
       const text = skipped.map((s) => `${s.name}: ${s.reason}`).join("\n") + "\n";
       await writer.addBuffer(Buffer.from(text, "utf8"), "_skipped.txt");
     }
-    if (!aborted) await writer.finalize();
+    // The slot goes back as soon as the last byte is written, before the
+    // response ends: a client that asks for its next zip the moment this
+    // one arrives must find it free. Releasing after res.end() (the route's
+    // finally, behind the temp file's removal) lost that race now and then:
+    // a 429 for a zip that had finished (PR #183). An abort after this point
+    // (the client gone before the end) doesn't release it again.
+    if (!aborted) await writer.finalize({ onWritten: releaseSlot });
     return { bytes, entries: plan.files.length + plan.dirs.length, skipped: skipped.length, aborted };
   } catch (err) {
     log.warn(`Zip stream stopped: ${err?.code || err?.name || "error"}`);

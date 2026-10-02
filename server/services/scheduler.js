@@ -14,6 +14,7 @@ import {
 import { createBackupIfChanged } from "../utils/configBackup.js";
 import { resolveServerPhase } from "../utils/serverStatus.js";
 import { candidateIniPaths } from "../routes/server.js";
+import { ErrorCode } from "../utils/errorCodes.js";
 import {
   getScheduledTasks,
   updateTaskLastRun,
@@ -748,6 +749,13 @@ export class Scheduler {
             result.message || result.error || "Restart failed",
           );
           if (result.logged) err.alreadyLoggedToScheduleHistory = true;
+          // A coded failure (SERVER_RESTART_RCON_UNAVAILABLE,
+          // SERVER_RESTART_SAVE_FAILED) keeps its code and params, so "Run
+          // now" shows it translated like a Dashboard Restart does.
+          if (result.code) {
+            err.code = result.code;
+            if (result.params) err.params = result.params;
+          }
           throw err;
         }
       } else if (commandKind === "save") {
@@ -1896,7 +1904,8 @@ export class Scheduler {
       });
       if (!testResult.success) {
         const restartDuration = Date.now() - restartStartTime;
-        const errorMsg = `RCON not available: ${testResult.error || "connection failed"}`;
+        const reason = testResult.error || "connection failed";
+        const errorMsg = `RCON not available: ${reason}`;
         log.error(`Auto-restart failed: ${errorMsg}`);
         await logScheduleExecution(
           null,
@@ -1907,7 +1916,23 @@ export class Scheduler {
           restartDuration,
         );
         logServerEvent("auto_restart_error", errorMsg);
-        return { success: false, message: errorMsg, logged: true };
+        // A server whose game thread died (42.21's UnsatisfiedLinkError
+        // during a save, 2026-10-01) fails HERE, not at the save below: the
+        // game runs every RCON command on that same main thread
+        // (RCONServer.update() from GameServer.main), so `players` fails
+        // exactly like `save` does. Coded like SERVER_RESTART_SAVE_FAILED,
+        // so the Restart toast says, in the operator's language, that
+        // nothing was stopped and that Force stop is the way down. Nothing
+        // was stopped, so the restart intent set above is withdrawn.
+        if (serverManager.stopIntent === "restart") serverManager.stopIntent = null;
+        return {
+          success: false,
+          wasRunning: true,
+          message: errorMsg,
+          logged: true,
+          code: ErrorCode.SERVER_RESTART_RCON_UNAVAILABLE,
+          params: { reason },
+        };
       }
 
       // GH #167: startServer() refuses a server whose generated startup
@@ -2048,7 +2073,8 @@ export class Scheduler {
       const saveResult = await rconService.save({ skipLog: true });
       if (!saveResult?.success) {
         const restartDuration = Date.now() - restartStartTime;
-        const errorMsg = `Save failed; restart cancelled: ${saveResult?.error || "unknown error"}`;
+        const reason = saveResult?.error || "unknown error";
+        const errorMsg = `Save failed; restart cancelled: ${reason}`;
         log.error(`Auto-restart: ${errorMsg}`);
         await logScheduleExecution(
           null,
@@ -2059,7 +2085,18 @@ export class Scheduler {
           restartDuration,
         );
         await logServerEvent("auto_restart_error", errorMsg);
-        return { success: false, wasRunning: true, message: errorMsg, logged: true };
+        // Coded so a failed Restart's toast can say what to do next (a
+        // stuck server only goes down through Force stop) in the
+        // operator's language -- see routes/scheduler.js's
+        // codedActionResultFields(). The schedule history keeps errorMsg.
+        return {
+          success: false,
+          wasRunning: true,
+          message: errorMsg,
+          logged: true,
+          code: ErrorCode.SERVER_RESTART_SAVE_FAILED,
+          params: { reason },
+        };
       }
       await this.sleep(3000);
 

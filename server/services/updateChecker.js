@@ -674,7 +674,7 @@ export class UpdateChecker {
       if (initialDetails.running) {
         shouldRestart = true;
         phase = "before-stop";
-        if (!this.rconService.connected) fail("RCON_NOT_CONNECTED", "RCON is not connected, so the server cannot be stopped safely");
+        if (!this.rconService.connected) fail("RCON_NOT_CONNECTED", "RCON is not connected, so the server cannot be stopped safely. If the server is stuck, use Force stop on the Dashboard (while RCON is disconnected it can't save first, so anything since the last successful save will be lost), then run the update again");
         // scheduleAutoUpdate()'s own warning announcement only fires ONCE,
         // at the moment the update was first detected -- if RCON happened
         // to be disconnected at that exact instant (a transient blip, not a
@@ -701,7 +701,7 @@ export class UpdateChecker {
           log.warn(`Could not announce imminent automatic update: ${error.message}`);
         }
         const saved = await this.rconService.save({ skipLog: true });
-        if (!saved?.success) fail("SAVE_FAILED", `The world could not be saved (${saved?.error || "unknown error"}), so the update was abandoned rather than lose progress`, { reason: sanitizeError(saved?.error || "unknown error") });
+        if (!saved?.success) fail("SAVE_FAILED", `The world could not be saved (${saved?.error || "unknown error"}), so the update was abandoned rather than lose progress. If the server is stuck, use Force stop on the Dashboard (anything since the last successful save can be lost), then run the update again`, { reason: sanitizeError(saved?.error || "unknown error") });
         const quit = await this.rconService.quit();
         if (!quit?.success) log.warn(`Quit command failed (${quit?.error || "unknown error"}); waiting to see whether the server stops anyway`);
         const deadline = Date.now() + 5 * 60 * 1000;

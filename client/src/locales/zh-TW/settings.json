@@ -965,6 +965,11 @@
       "title": "下載失敗",
       "fallback": "面板無法下載更新，請檢查網路連線、磁碟空間和權限。"
     },
+    "updateNotApplied": {
+      "title": "未套用更新",
+      "openDashboard": "開啟儀表板",
+      "openDashboardAlt": "開啟儀表板，「強制停止」就在那裡"
+    },
     "updateReady": {
       "title": "更新已就緒",
       "withVersion": "面板 v{{version}} 已下載，重新啟動面板即可切換到新版本。",
