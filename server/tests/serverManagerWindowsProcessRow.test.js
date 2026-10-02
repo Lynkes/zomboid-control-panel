@@ -50,9 +50,12 @@ describe('parseWin32ProcessCsvRow', () => {
     });
   });
 
-  it('still rejects a row with no readable command line (null CommandLine), exactly as before StartMs existed', () => {
-    // Captured live: `"4",,"1789503827395"` (the System process).
-    expect(parseWin32ProcessCsvRow('"4",,"1789503827395"')).toBeNull();
+  it('reads a row with no readable command line (null CommandLine) as cmd: null, not as a broken row (GH #190)', () => {
+    // Captured live: `"4",,"1789503827395"` (the System process) -- and the
+    // same shape for a JVM in the middle of exiting.
+    expect(parseWin32ProcessCsvRow('"4",,"1789503827395"')).toEqual({
+      pid: '4', cmd: null, startedMs: 1789503827395,
+    });
     expect(parseWin32ProcessCsvRow('garbage')).toBeNull();
   });
 });

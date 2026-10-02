@@ -101,6 +101,24 @@ describe('the save-failure copy names Force stop and what it costs', () => {
     expect(translated).toContain('RCON connection closed')
   })
 
+  // GH #190: the restart gave up after process detection kept failing once
+  // the old server had been told to quit.
+  it('SERVER_RESTART_STOP_UNCONFIRMED (detection never confirmed the old server exited), in English and translated', () => {
+    void i18n.changeLanguage('en')
+    const result = {
+      code: 'SERVER_RESTART_STOP_UNCONFIRMED',
+      error: 'Could not confirm the old server stopped because process detection kept failing',
+    }
+    const message = getResultErrorMessage(result, '')
+    expect(message).toContain("couldn't confirm the old server exited")
+    expect(message).toContain('It did not start a new one')
+    // The restart also waits when the RCON quit itself failed, so the copy
+    // says the panel asked, not that the server was told.
+    expect(message).toContain('the panel asked the server to shut down')
+    void i18n.changeLanguage('fr')
+    expect(getResultErrorMessage(result, '')).toContain("n'en a pas démarré de nouveau")
+  })
+
   // Review finding (2026-10-01): these two said Force stop "tries one quick
   // save" -- it skips the save while RCON is disconnected, which is exactly
   // when they're shown.

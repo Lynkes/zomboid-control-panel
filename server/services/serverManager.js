@@ -37,6 +37,10 @@ import {
   WIN32_PROCESS_START_MS,
 } from "../utils/processStartTime.js";
 import { resolveProvider } from "../utils/serverStatusModel.js";
+import {
+  readProcessStateWithRetry,
+  waitForProcessExit,
+} from "../utils/processScanRetry.js";
 
 const isWindows = process.platform === "win32";
 // getProcessStartTime()'s memory of FAILED lookups: how soon one for the
@@ -450,23 +454,204 @@ function windowsPowerShellPath() {
 // separately.
 const WIN32_PROCESS_COLUMNS = `ProcessId,CommandLine,${WIN32_PROCESS_START_MS}`;
 
-// One data row of that CSV: "<pid>","<cmd>","<startMs>", every field quoted
-// with inner quotes doubled -- except that PowerShell writes a null value as
-// an EMPTY, unquoted field (captured live: `"4",,"1789503827395"` for a
-// process with no readable command line). Such a row doesn't match and
-// stays malformed, exactly as before StartMs existed; an empty or missing
-// StartMs only leaves startedMs null. Returns { pid, cmd, startedMs } or
-// null.
+// The full scan's query: every process that could be a dedicated server.
+const WIN32_SERVER_SCAN_SCRIPT = `Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(java\\.exe|ProjectZomboid64\\.exe|ProjectZomboid32\\.exe)$' } | Select-Object ${WIN32_PROCESS_COLUMNS} | ConvertTo-Csv -NoTypeInformation`;
+
+// How long the scan waits before looking again at processes that came back
+// with no command line (see _scanWindowsServerProcesses()). A 4 GB JVM took
+// ~400 ms to leave the process list once it began exiting (Windows 11,
+// 2026-10-02); PowerShell's own start-up adds about as much again.
+const WIN32_UNREADABLE_RECHECK_DELAY_MS = 750;
+
+// Processes a scan already looked at twice and still found running with no
+// readable command line, as "<pid>@<startMs>". Looking a third time can only
+// end in "unknown" again, so a scan that finds nothing else skips straight
+// to it instead of paying for another PowerShell start-up on every status
+// poll. Rebuilt from each scan's own rows, so it never outlives a process.
+const knownUnreadableWin32Processes = new Set();
+
+// Repeats of the same scan warning within this window go to debug: a host
+// that keeps answering the same way (a stopped server next to a java.exe the
+// panel can't read) otherwise logs one identical warning per status poll --
+// GH #190's log had ~1,400 of them in three weeks.
+const SCAN_WARNING_REPEAT_MS = 10 * 60 * 1000;
+const scanWarningLastLogged = new Map();
+
+function warnScanThrottled(key, message) {
+  const now = Date.now();
+  const last = scanWarningLastLogged.get(key);
+  if (last !== undefined && now - last < SCAN_WARNING_REPEAT_MS) {
+    log.debug(message);
+    return;
+  }
+  scanWarningLastLogged.delete(key);
+  scanWarningLastLogged.set(key, now);
+  // Oldest first: a Map iterates in insertion order.
+  if (scanWarningLastLogged.size > 64) {
+    scanWarningLastLogged.delete(scanWarningLastLogged.keys().next().value);
+  }
+  log.warn(message);
+}
+
+// Test seam: forget which scan warnings were already logged and which
+// processes were already found unreadable, so one test's scan can't change
+// what the next one logs or skips.
+export function resetWin32ScanMemoryForTests() {
+  knownUnreadableWin32Processes.clear();
+  scanWarningLastLogged.clear();
+}
+
+// The fields of one ConvertTo-Csv record: each quoted value with its doubled
+// quotes undone, or null for an empty UNQUOTED field -- how Windows
+// PowerShell writes $null (captured live: `"4",,"1789503827395"`). A quoted
+// value may contain commas and line breaks. Returns null for text that isn't
+// such a record: Windows PowerShell quotes every value it writes, so any
+// other unquoted text is not ConvertTo-Csv output.
+function parseConvertToCsvRecord(text) {
+  const fields = [];
+  let i = 0;
+  for (;;) {
+    if (text[i] === '"') {
+      let value = "";
+      i += 1;
+      for (;;) {
+        const quote = text.indexOf('"', i);
+        if (quote === -1) return null;
+        value += text.slice(i, quote);
+        if (text[quote + 1] === '"') {
+          value += '"';
+          i = quote + 2;
+          continue;
+        }
+        i = quote + 1;
+        break;
+      }
+      fields.push(value);
+    } else {
+      const end = text.indexOf(",", i);
+      if ((end === -1 ? text.length : end) !== i) return null;
+      fields.push(null);
+    }
+    if (i >= text.length) return fields;
+    if (text[i] !== ",") return null;
+    i += 1;
+  }
+}
+
+// One data row of that CSV: "<pid>","<cmd>","<startMs>". Returns
+// { pid, cmd, startedMs }, or null when the row isn't one.
+//
+// cmd is null, not a broken row, when PowerShell wrote CommandLine as null:
+// Win32_Process reads the command line out of the process's own memory, so
+// it has none for a process the panel may not read (started as
+// administrator or by another user) and -- GH #190 -- for one that is
+// exiting. A JVM tearing down a multi-gigabyte heap stays listed as
+// `"<pid>",,"<startMs>"` until that finishes (captured 2026-10-02, Windows
+// 11, 4 GB heap: ~400 ms with ThreadCount 1). That row used to be
+// "malformed" and turned the whole scan into "unknown", which is what
+// stopped a scheduled restart halfway. The scan now decides what a null
+// command line means (see _scanWindowsServerProcesses()). An empty or
+// missing StartMs only leaves startedMs null.
 export function parseWin32ProcessCsvRow(raw) {
-  const match = String(raw || "").match(
-    /^"([^"]*)","((?:[^"]|"")*)"(?:,(?:"(\d*)")?)?$/,
-  );
-  if (!match) return null;
-  return {
-    pid: match[1],
-    cmd: match[2].replace(/""/g, '"'),
-    startedMs: parseEpochMilliseconds(match[3]),
-  };
+  const fields = parseConvertToCsvRecord(String(raw ?? "").trim());
+  if (!fields || fields.length < 2 || fields.length > 3) return null;
+  const [pid, cmd, startMs] = fields;
+  if (pid === null || !/^\d+$/.test(pid)) return null;
+  return { pid, cmd, startedMs: parseEpochMilliseconds(startMs) };
+}
+
+// ConvertTo-Csv output as one string per record. CreateProcess accepts any
+// character in a command line, line breaks included, and ConvertTo-Csv
+// keeps them inside the quoted value -- so a line that starts a row
+// (`"<pid>",`) and leaves a quote open is joined with the lines after it
+// until the quote closes, rather than read as two broken rows.
+export function splitWin32ProcessCsvRecords(stdout) {
+  const lines = String(stdout ?? "").split(/\r?\n/);
+  const hasOpenQuote = (text) => (text.match(/"/g)?.length ?? 0) % 2 === 1;
+  const records = [];
+  for (let i = 0; i < lines.length; i++) {
+    let record = lines[i];
+    if (/^\s*"\d+",/.test(record)) {
+      while (hasOpenQuote(record) && i + 1 < lines.length) {
+        i += 1;
+        record += `\n${lines[i]}`;
+      }
+    }
+    record = record.trim();
+    if (record) records.push(record);
+  }
+  return records;
+}
+
+// What a row that didn't parse looked like, for the log: quoted values and
+// other text are reduced to their lengths, so the line shows the row's shape
+// without copying a command line (which can carry -adminpassword) into it.
+export function describeWin32CsvRowShape(raw) {
+  const text = String(raw ?? "");
+  const shape = text.slice(0, 2000).replace(/"(?:[^"]|"")*"?|[^,"]+/g, (part) => {
+    if (!part.startsWith('"')) return `<${part.length}>`;
+    const closed = part.length > 1 && part.endsWith('"');
+    return `"<${part.length - (closed ? 2 : 1)}>${closed ? '"' : ""}`;
+  });
+  return text.length > 2000 ? `${shape}...(${text.length} chars)` : shape;
+}
+
+// Sorts the rows of one Win32_Process scan: `matched` (a recognized
+// dedicated-server launch, the shape _scanDedicatedServerProcesses()
+// returns), `ambiguous` (JVM-shaped and zomboid-adjacent but not a launch
+// shape it recognizes -- see looksLikeUndeterminedJvmCandidate), `unreadable`
+// (listed with no command line -- see parseWin32ProcessCsvRow) and
+// `malformed` (not a ConvertTo-Csv row at all). Anything else is noise.
+export function classifyWin32ProcessRows(stdout) {
+  const result = { matched: [], ambiguous: [], unreadable: [], malformed: [] };
+  for (const record of splitWin32ProcessCsvRecords(stdout)) {
+    if (record.startsWith('"ProcessId"')) continue;
+    const row = parseWin32ProcessCsvRow(record);
+    if (!row) {
+      result.malformed.push(record);
+      continue;
+    }
+    const { pid, cmd, startedMs } = row;
+    if (cmd === null) {
+      result.unreadable.push({ pid, startedMs });
+    } else if (!cmd) {
+      continue;
+    } else if (isWindowsDedicatedServerCommandLine(cmd)) {
+      log.debug(
+        `getServerProcessDetails: matched PZ server process pid=${pid}: ${cmd.substring(0, 200)}`,
+      );
+      result.matched.push({
+        pid,
+        cmd,
+        ...(startedMs != null ? { startedMs } : {}),
+      });
+    } else if (looksLikeUndeterminedJvmCandidate(cmd)) {
+      log.debug(
+        `getServerProcessDetails: Windows candidate ignored (not a recognized dedicated-server shape, but JVM-shaped and zomboid-adjacent -- treating as ambiguous): ${cmd.substring(0, 200)}`,
+      );
+      result.ambiguous.push(cmd.slice(0, 240));
+    }
+  }
+  return result;
+}
+
+function runWindowsPowerShell(script, timeoutMs) {
+  return new Promise((resolve) => {
+    execFile(
+      windowsPowerShellPath(),
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        script,
+      ],
+      { timeout: timeoutMs },
+      (error, stdout, stderr) => resolve({ error, stdout, stderr }),
+    );
+  });
 }
 
 export function isWindowsDedicatedServerCommandLine(commandLine) {
@@ -762,6 +947,19 @@ export function attributeOtherRunningServers(matched, servers, excludeServer) {
     unattributed.push(candidate);
   }
   return { servers: [...running.values()], unattributed };
+}
+
+/**
+ * Whether a host-wide scan that didn't fail still leaves one server's state
+ * unknown: Windows listed java.exe/PZ processes whose command line the panel
+ * may not read (the scan's `unreadable` -- see
+ * ServerManager._scanWindowsServerProcesses()) and none of the processes it
+ * could read is this server's (`ownsOne` false), so one of the unreadable
+ * ones may be. A server with a process of its own in `matched` is running
+ * whatever else is listed.
+ */
+export function scanLeavesServerUnknown(scan, ownsOne) {
+  return !ownsOne && Array.isArray(scan?.unreadable) && scan.unreadable.length > 0;
 }
 
 /**
@@ -1192,7 +1390,22 @@ export class ServerManager {
     // host signal) gets the SAME wrong "stopped" a failed detection scan
     // gives it, instead of "we don't know." Leave it at its previous value
     // when the scan couldn't tell.
-    if (!scan.scanFailed) {
+    //
+    // Nor could it tell when another server matched but processes it can't
+    // read are listed too (Windows): one of those may be this server, so
+    // "none of the readable ones is mine" is not "stopped" -- reporting it
+    // stopped could let the panel start a second copy.
+    const unreadable = Array.isArray(scan.unreadable) ? scan.unreadable : [];
+    const unreadableLeftUnknown = scanLeavesServerUnknown(scan, resolved.length > 0);
+    if (unreadableLeftUnknown && !scan.scanFailed) {
+      const keys = unreadable.map((row) => `${row.pid}@${row.startedMs ?? "?"}`);
+      warnScanThrottled(
+        `unreadable-beside:${this.serverName}:${keys.join(",")}`,
+        `getServerProcessDetails: another server is running, and Windows also lists process(es) ${unreadable.map((row) => row.pid).join(", ")} without a command line the panel may read -- can't tell whether one of them is "${this.serverName}", so its state is unknown`,
+      );
+    }
+    const scanFailed = Boolean(scan.scanFailed) || unreadableLeftUnknown;
+    if (!scanFailed) {
       this.isRunning = resolved.length > 0;
     }
     return {
@@ -1204,7 +1417,10 @@ export class ServerManager {
         ...(entry.startedMs != null ? { startedMs: entry.startedMs } : {}),
       })),
       owned: resolved,
-      scanFailed: Boolean(scan.scanFailed),
+      scanFailed,
+      // What the scan couldn't read, when that is why it couldn't tell --
+      // see waitForProcessExit()'s ownProcesses.
+      ...(scanFailed && unreadable.length > 0 ? { unreadable } : {}),
     };
   }
 
@@ -1262,9 +1478,10 @@ export class ServerManager {
       // ceiling here. Widened past that worst case with real margin so this
       // fires less often; the generation bump below is what makes it safe
       // on the (still possible) occasions it fires anyway. The Windows
-      // branch's own execFile timeout (8000ms) is unaffected -- it already
-      // settles this promise well before either the old or new outer
-      // ceiling could ever fire.
+      // branch settles on its own well inside it: an 8000ms scan, plus --
+      // only when processes came back with no command line -- a
+      // WIN32_UNREADABLE_RECHECK_DELAY_MS pause and a second 8000ms scan
+      // (see _scanWindowsServerProcesses()).
       const timeout = setTimeout(() => {
         // Invalidate THIS attempt (only if nothing already has -- a newer
         // scan call bumping the counter first is just as valid a
@@ -1278,125 +1495,14 @@ export class ServerManager {
       }, 18000);
 
       if (isWindows) {
-        const powershellScript =
-          `Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(java\\.exe|ProjectZomboid64\\.exe|ProjectZomboid32\\.exe)$' } | Select-Object ${WIN32_PROCESS_COLUMNS} | ConvertTo-Csv -NoTypeInformation`;
-        execFile(
-          windowsPowerShellPath(),
-          [
-            "-NoLogo",
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            powershellScript,
-          ],
-          { timeout: 8000 },
-          (psError, psStdout, psStderr) => {
-            clearTimeout(timeout);
-            const stderr = String(psStderr || "").trim();
-            if (psError || stderr) {
-              const detail = [
-                psError?.message,
-                stderr,
-              ]
-                .filter(Boolean)
-                .join(": ");
-              log.warn(
-                `getServerProcessDetails: Windows process scan failed (${detail}), cannot determine server state`,
-              );
-              resolve({ running: false, matched: [], scanFailed: true });
-              return;
-            }
-
-            // Empty stdout with NO error is a legitimate, successful result,
-            // not a failure: ConvertTo-Csv derives its header from the first
-            // object it receives, so an empty filtered Win32_Process pipeline
-            // (the normal, expected shape when no PZ server process exists)
-            // produces NO output at all -- not even a header row. Confirmed
-            // empirically on a real Windows host (2026-08-23): psError is
-            // null, exit code 0, psStdout is "". Treating that identically to
-            // a real exec failure meant a genuinely STOPPED Windows server
-            // could never be confirmed stopped -- deterministically, on every
-            // check -- which is exactly the state every fail-closed guard
-            // (/wipe included) exists to detect. This is what a real user hit.
-            if (!psStdout) {
-              if (this._scanGeneration === scanGeneration) this.isRunning = false;
-              resolve({ running: false, matched: [] });
-              return;
-            }
-
-            // Same three-bucket classification the Linux branch below uses
-            // (CONFIRMED / AMBIGUOUS / noise), and for the same reason: the
-            // WMI filter above already narrows candidates to
-            // java.exe/ProjectZomboid64.exe/ProjectZomboid32.exe, but a real
-            // dedicated server can still be launched in a shape
-            // isWindowsDedicatedServerCommandLine doesn't recognize (a
-            // generic `java -jar` invocation with no "zomboid" in the jar
-            // path and no -server/startserver flag -- plausible for a
-            // custom/shaded jar launcher). Reusing
-            // looksLikeUndeterminedJvmCandidate (java/javaw-in-its-own-
-            // command-line AND zomboid-adjacent) rather than inventing a
-            // Windows-specific check also gets the right answer for
-            // ProjectZomboid64.exe/32.exe candidates for free: that helper's
-            // java/javaw regex never matches a native .exe's own command
-            // line (no "java" substring in it), so a plain client launch
-            // with no server flags is correctly left as noise, not flagged
-            // ambiguous -- an operator playing the game locally on the same
-            // host must not flip every scan to "can't confirm stopped".
-            const ambiguous = [];
-            const pushAmbiguous = (cmd) => {
-              ambiguous.push(String(cmd || "").slice(0, 240));
-            };
-            const lines = psStdout.split(/\r?\n/);
-            let sawMalformedRow = false;
-            for (let raw of lines) {
-              raw = raw.trim();
-              if (!raw || raw.startsWith('"ProcessId"')) continue;
-              const row = parseWin32ProcessCsvRow(raw);
-              if (!row) {
-                sawMalformedRow = true;
-                continue;
-              }
-              const { pid, cmd } = row;
-              if (!cmd) continue;
-              if (isWindowsDedicatedServerCommandLine(cmd)) {
-                log.debug(
-                  `getServerProcessDetails: matched PZ server process pid=${pid}: ${cmd.substring(0, 200)}`,
-                );
-                pushMatch(cmd, pid, row.startedMs);
-              } else if (looksLikeUndeterminedJvmCandidate(cmd)) {
-                log.debug(
-                  `getServerProcessDetails: Windows candidate ignored (not a recognized dedicated-server shape, but JVM-shaped and zomboid-adjacent -- treating as ambiguous): ${cmd.substring(0, 200)}`,
-                );
-                pushAmbiguous(cmd);
-              }
-            }
-
-            if (sawMalformedRow && matched.length === 0 && ambiguous.length === 0) {
-              log.warn(
-                "getServerProcessDetails: Windows process scan returned unparseable output, cannot determine server state",
-              );
-              resolve({ running: false, matched: [], scanFailed: true });
-              return;
-            }
-
-            if (matched.length === 0 && ambiguous.length > 0) {
-              // Leave this.isRunning untouched -- same "a scan that couldn't
-              // tell must not overwrite the last known-good state" rule as
-              // every other uncertain case (see getServerProcessDetails()'s
-              // own comment).
-              log.warn(
-                `getServerProcessDetails: found ${ambiguous.length} JVM-shaped process(es) mentioning zomboid/zombie.network that don't match a known dedicated-server launch shape -- cannot confirm the server is stopped (first: ${ambiguous[0]})`,
-              );
-              resolve({ running: false, matched: [], scanFailed: true });
-              return;
-            }
-
-            if (this._scanGeneration === scanGeneration) this.isRunning = matched.length > 0;
-            resolve({ running: matched.length > 0, matched });
-          },
-        );
+        // _scanWindowsServerProcesses() never rejects.
+        void this._scanWindowsServerProcesses().then((result) => {
+          clearTimeout(timeout);
+          if (!result.scanFailed && this._scanGeneration === scanGeneration) {
+            this.isRunning = result.running;
+          }
+          resolve(result);
+        });
       } else {
         // Linux/macOS: pgrep first (faster, more reliable), fall back to ps aux -ww.
         // Use the same dedicated-server heuristics as Windows (module-level
@@ -1544,6 +1650,138 @@ export class ServerManager {
     });
   }
 
+  // The Windows half of _scanDedicatedServerProcesses(): resolves to the same
+  // { running, matched, scanFailed? } and never rejects. Rows are sorted by
+  // classifyWin32ProcessRows() -- the Linux branch's CONFIRMED / AMBIGUOUS /
+  // noise buckets, plus processes listed with no command line.
+  //
+  // The WMI filter only lets java.exe and ProjectZomboid64/32.exe through,
+  // so a row with no command line is a JVM or PZ binary the scan can't
+  // identify. When nothing else settles the question, the scan looks again
+  // once, shortly after:
+  //   - gone by then, or readable now: it was a process on its way out --
+  //     GH #190, the old server exiting after a restart's `quit` -- and the
+  //     second look's answer is the answer;
+  //   - still listed with no command line: a live process the panel may not
+  //     read (started as administrator or by another Windows user). It could
+  //     be this very server, so the scan stays "unknown", as it always has --
+  //     calling it stopped could let the panel start a second copy.
+  //
+  // Those processes come back as `unreadable` ({ pid, startedMs }), on an
+  // unknown answer and next to a recognized server alike. A recognized
+  // server makes the host "running" without a second look, but a server
+  // none of `matched` belongs to may still be one of them: see
+  // getServerProcessDetails() and scanLeavesServerUnknown(). And a wait
+  // that knows its server's PIDs can tell those apart from the unreadable
+  // ones -- see waitForProcessExit().
+  async _scanWindowsServerProcesses({ lookAgain = true } = {}) {
+    const unknown = { running: false, matched: [], scanFailed: true };
+    try {
+      const { error, stdout, stderr } = await runWindowsPowerShell(
+        WIN32_SERVER_SCAN_SCRIPT,
+        8000,
+      );
+      const diagnostics = String(stderr || "").trim();
+      if (error || diagnostics) {
+        const detail = [error?.message, diagnostics].filter(Boolean).join(": ");
+        log.warn(
+          `getServerProcessDetails: Windows process scan failed (${detail}), cannot determine server state`,
+        );
+        return unknown;
+      }
+
+      // Empty stdout with NO error is a legitimate, successful result, not a
+      // failure: ConvertTo-Csv derives its header from the first object it
+      // receives, so an empty filtered Win32_Process pipeline (the normal,
+      // expected shape when no PZ server process exists) produces NO output
+      // at all -- not even a header row. Confirmed empirically on a real
+      // Windows host (2026-08-23): error is null, exit code 0, stdout is "".
+      // Treating that identically to a real exec failure meant a genuinely
+      // STOPPED Windows server could never be confirmed stopped --
+      // deterministically, on every check -- which is exactly the state
+      // every fail-closed guard (/wipe included) exists to detect. This is
+      // what a real user hit.
+      if (!stdout) {
+        knownUnreadableWin32Processes.clear();
+        return { running: false, matched: [] };
+      }
+
+      const rows = classifyWin32ProcessRows(stdout);
+      if (rows.matched.length > 0) {
+        return {
+          running: true,
+          matched: rows.matched,
+          ...(rows.unreadable.length > 0 ? { unreadable: rows.unreadable } : {}),
+        };
+      }
+
+      // A real dedicated server can be launched in a shape
+      // isWindowsDedicatedServerCommandLine doesn't recognize (a generic
+      // `java -jar` with no "zomboid" in the jar path and no -server flag),
+      // so JVM-shaped, zomboid-adjacent evidence it can't rule out leaves
+      // the state unknown rather than a confident "not running". A plain
+      // client launch of ProjectZomboid64.exe is noise, not ambiguous (no
+      // "java" in its own command line): an operator playing the game on
+      // the same host must not flip every scan to "can't confirm stopped".
+      if (rows.ambiguous.length > 0) {
+        warnScanThrottled(
+          `ambiguous:${rows.ambiguous[0]}`,
+          `getServerProcessDetails: found ${rows.ambiguous.length} JVM-shaped process(es) mentioning zomboid/zombie.network that don't match a known dedicated-server launch shape -- cannot confirm the server is stopped (first: ${rows.ambiguous[0]})`,
+        );
+        return unknown;
+      }
+
+      if (rows.malformed.length > 0) {
+        const shape = describeWin32CsvRowShape(rows.malformed[0]);
+        warnScanThrottled(
+          `malformed:${shape}`,
+          `getServerProcessDetails: Windows process scan returned unparseable output (${rows.malformed.length} row(s), first shaped ${shape}), cannot determine server state`,
+        );
+        return unknown;
+      }
+
+      const keys = rows.unreadable.map(
+        (row) => `${row.pid}@${row.startedMs ?? "?"}`,
+      );
+      if (keys.length === 0) {
+        knownUnreadableWin32Processes.clear();
+        return { running: false, matched: [] };
+      }
+      const pids = rows.unreadable.map((row) => row.pid).join(", ");
+      if (
+        lookAgain &&
+        !keys.every((key) => knownUnreadableWin32Processes.has(key))
+      ) {
+        log.debug(
+          `getServerProcessDetails: PID(s) ${pids} came back with no command line; looking again in ${WIN32_UNREADABLE_RECHECK_DELAY_MS}ms`,
+        );
+        await this.sleep(WIN32_UNREADABLE_RECHECK_DELAY_MS);
+        const second = await this._scanWindowsServerProcesses({
+          lookAgain: false,
+        });
+        if (!second.scanFailed) {
+          log.debug(
+            `getServerProcessDetails: PID(s) ${pids} had no command line and were gone or readable on a second look -- a process exiting, not counted`,
+          );
+        }
+        return second;
+      }
+
+      knownUnreadableWin32Processes.clear();
+      for (const key of keys) knownUnreadableWin32Processes.add(key);
+      warnScanThrottled(
+        `unreadable:${keys.join(",")}`,
+        `getServerProcessDetails: Windows lists java.exe/ProjectZomboid process(es) ${pids} but won't give the panel their command line -- usually a process started as administrator or by another Windows user while the panel isn't, or one still exiting after a large heap. Can't tell whether one of them is this server, so its state is unknown`,
+      );
+      return { ...unknown, unreadable: rows.unreadable };
+    } catch (error) {
+      log.warn(
+        `getServerProcessDetails: Windows process scan failed (${error.message}), cannot determine server state`,
+      );
+      return unknown;
+    }
+  }
+
   // Pidfile path is scoped by server name, not a single shared file — this
   // host can run several dedicated servers (see the two-server tests above),
   // and a shared pidfile would let one server's start/stop clobber another's
@@ -1630,10 +1868,11 @@ export class ServerManager {
           (err, stdout) => {
             clearTimeout(timeout);
             if (err) return finish(null);
-            const row = String(stdout || "")
-              .split(/\r?\n/)
-              .map((line) => line.trim())
-              .filter((line) => line && !line.startsWith('"ProcessId"'))
+            // A row with no command line (cmd: null -- an exiting process,
+            // or one the panel may not read) answers null here, and the
+            // full scan decides what it means.
+            const row = splitWin32ProcessCsvRecords(stdout)
+              .filter((record) => !record.startsWith('"ProcessId"'))
               .map(parseWin32ProcessCsvRow)
               .find(Boolean);
             finish(
@@ -2792,7 +3031,29 @@ export class ServerManager {
     }
   }
 
+  // Right after a kill, the process is at its most likely to be caught half
+  // gone by a Windows scan (GH #190), so one sample that can't tell asks
+  // again a few times instead of reporting the stop unconfirmed -- a
+  // restart that force-stopped the old server gives up on an unconfirmed
+  // stop. Force stop's request waits on this, so no new look starts past
+  // 30 s; one look can itself take up to 19 s (see
+  // _readProcessDetailsBounded()), so about 50 s at the very worst.
   async _confirmProcessStopped() {
+    const details = await readProcessStateWithRetry(
+      () => this._readProcessDetailsBounded(),
+      {
+        sleep: (ms) => this.sleep(ms),
+        maxElapsedMs: 30000,
+        context: `Stop "${this.serverName}"`,
+      },
+    );
+    return !details.scanFailed && details.running === false;
+  }
+
+  // One getServerProcessDetails() sample that never rejects and never takes
+  // longer than the scan's own ceiling: null when it threw or ran out of
+  // time.
+  async _readProcessDetailsBounded() {
     let timeoutId;
     const processDetails = Promise.resolve()
       .then(() => this.getServerProcessDetails())
@@ -2814,8 +3075,7 @@ export class ServerManager {
     });
 
     try {
-      const details = await Promise.race([processDetails, timeout]);
-      return Boolean(details && !details.scanFailed && details.running === false);
+      return await Promise.race([processDetails, timeout]);
     } finally {
       clearTimeout(timeoutId);
     }
@@ -2970,30 +3230,31 @@ export class ServerManager {
       }
       await this.sleep(10000);
 
-      // Wait for server to fully stop
-      let processDetails = await this.getServerProcessDetails();
-      if (!processDetails || processDetails.scanFailed) {
+      // Wait for server to fully stop: 30 looks a second apart, never past a
+      // minute. A scan that can't tell spends one look and the wait goes on
+      // (GH #190) -- see waitForProcessExit(); only still-unknown at the end
+      // gives up. The process-table check is blind whenever PZ runs outside
+      // the panel's own PID namespace (see isJvmExecutableBusy()'s doc
+      // comment) -- the binary check runs alongside it, not instead of it,
+      // so it only ever ADDS a wait condition on setups where it can find
+      // the binary at all.
+      const processDetails = await waitForProcessExit(
+        () => this.getServerProcessDetails(),
+        {
+          polls: 30,
+          intervalMs: 1000,
+          maxElapsedMs: 60 * 1000,
+          sleep: (ms) => this.sleep(ms),
+          context: "Restart",
+          alsoWaitWhile: () => this.isJvmExecutableBusy(),
+        },
+      );
+      if (processDetails.scanFailed) {
         throw new Error(
           "Could not confirm the old server stopped because process detection failed",
         );
       }
-      // The process-table check above is blind whenever PZ runs outside the
-      // panel's own PID namespace (see isJvmExecutableBusy()'s doc comment)
-      // -- checked alongside it, not instead of it, so this only ever ADDS a
-      // wait condition on setups where it can find the binary at all.
       let jvmBusy = this.isJvmExecutableBusy();
-      let attempts = 0;
-      while ((processDetails.running || jvmBusy) && attempts < 30) {
-        await this.sleep(1000);
-        attempts++;
-        processDetails = await this.getServerProcessDetails();
-        if (!processDetails || processDetails.scanFailed) {
-          throw new Error(
-            "Could not confirm the old server stopped because process detection failed",
-          );
-        }
-        jvmBusy = this.isJvmExecutableBusy();
-      }
 
       // Force stop if still running
       if (processDetails.running) {

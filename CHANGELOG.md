@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Windows: a restart no longer leaves the server down when the process scan can't read the exiting server or an unrelated java.exe (#190, thanks @djcyphers).
 - A mod-update restart waiting for players is cancelled once the server is restarted any other way after the update was found, instead of restarting it a second time (#189, thanks @JeesusKrisostoomus).
 
 ## [1.4.2] - 2026-10-02
