@@ -425,7 +425,7 @@
       },
       "Public": {
         "label": "Public Server",
-        "description": "Can your server be seen on Steam server browser."
+        "description": "Zeigt den Server im Serverbrowser des Spiels an. Steam-fähige Server sind im Steam-Server-Browser immer sichtbar, unabhängig von dieser Einstellung."
       },
       "Open": {
         "label": "Open (No Whitelist)",
@@ -4055,5 +4055,9 @@
       "label": "Advanced"
     }
   },
-  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here."
+  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here.",
+  "unrecognizedIniBooleanWarning": {
+    "defaultOff": "Dieser Server steht aktuell auf {{value}}. Das Spiel akzeptiert diesen Wert nicht und verwendet daher „Aus“ (Standardwert), bis du die Einstellung änderst.",
+    "defaultOn": "Dieser Server steht aktuell auf {{value}}. Das Spiel akzeptiert diesen Wert nicht und verwendet daher „An“ (Standardwert), bis du die Einstellung änderst."
+  }
 }

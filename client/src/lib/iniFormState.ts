@@ -4,15 +4,28 @@
 import { INI_SCHEMA } from './serverConfigSchema'
 
 /**
- * Read a server.ini boolean the way PZ does. zombie.config.BooleanConfigOption
- * (42.21) takes "true"/"1" as on and "false"/"0" as off, case-insensitively;
- * anything else (B41's SteamScoreboard=admin, say) is logged and dropped, so
- * the option keeps its default. Returns null for such a value.
+ * Read a server.ini boolean the way PZ 42.21 does, given the text after the
+ * line's first "=". zombie.config.ConfigFile.read trims the whole line (Java
+ * String.trim: every char up to U+0020), splits it on "=" and keeps only the
+ * piece after the first one; nothing trims that piece again. Then
+ * BooleanConfigOption.parse takes "true"/"1" as on and "false"/"0" as off
+ * (String.equalsIgnoreCase). Anything else is logged and dropped, so the
+ * option keeps its default: B41's SteamScoreboard=admin, "Public= true",
+ * "Public=true =x". Returns null for such a value.
  */
 export function parsePzBoolean(value: string): boolean | null {
-  const text = value.trim()
-  if (/^(?:true|1)$/i.test(text)) return true
-  if (/^(?:false|0)$/i.test(text)) return false
+  // Only the line's end is trimmed, and that is this piece's end only when no
+  // further "=" follows it.
+  let end = value.indexOf('=')
+  if (end === -1) {
+    end = value.length
+    while (end > 0 && value.charCodeAt(end - 1) <= 0x20) end--
+  }
+  const text = value.slice(0, end)
+  // The u flag case-folds these words exactly as Java's equalsIgnoreCase
+  // does (it also takes "falſe", with a long s, as the game does).
+  if (/^(?:true|1)$/iu.test(text)) return true
+  if (/^(?:false|0)$/iu.test(text)) return false
   return null
 }
 

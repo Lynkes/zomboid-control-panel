@@ -425,7 +425,7 @@
       },
       "Public": {
         "label": "公开服务器",
-        "description": "控制服务器是否出现在 Steam 公共列表。"
+        "description": "在游戏内服务器浏览器中显示服务器。无论此项如何设置，启用 Steam 的服务器始终会显示在 Steam 服务器浏览器中。"
       },
       "Open": {
         "label": "无需白名单开放",
@@ -4055,5 +4055,9 @@
       "label": "高级"
     }
   },
-  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here."
+  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here.",
+  "unrecognizedIniBooleanWarning": {
+    "defaultOff": "此服务器当前设置为 {{value}}，游戏不接受该值，因此在你更改此项之前将使用「关」（默认值）。",
+    "defaultOn": "此服务器当前设置为 {{value}}，游戏不接受该值，因此在你更改此项之前将使用「开」（默认值）。"
+  }
 }

@@ -479,7 +479,7 @@
       },
       "Public": {
         "label": "Публічний сервер",
-        "description": "Чи буде ваш сервер видно у браузері серверів Steam."
+        "description": "Показує сервер у внутрішньоігровому браузері серверів. Сервери з увімкненим Steam завжди видно в браузері серверів Steam, незалежно від цього параметра."
       },
       "Open": {
         "label": "Відкритий (без білого списку)",
@@ -4109,5 +4109,9 @@
       "label": "Додаткові"
     }
   },
-  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here."
+  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here.",
+  "unrecognizedIniBooleanWarning": {
+    "defaultOff": "Зараз на цьому сервері встановлено {{value}}. Гра не приймає це значення, тому використовує «Вимкнено» (типове значення), доки ви не зміните цей параметр.",
+    "defaultOn": "Зараз на цьому сервері встановлено {{value}}. Гра не приймає це значення, тому використовує «Увімкнено» (типове значення), доки ви не зміните цей параметр."
+  }
 }

@@ -157,7 +157,7 @@ export const INI_SCHEMA: IniSetting[] = [
   {
     key: 'Public',
     label: 'Public Server',
-    description: 'Can your server be seen on Steam server browser.',
+    description: 'Shows the server in the in-game server browser. Steam-enabled servers always show in the Steam server browser, whatever this is set to.',
     type: 'boolean',
     default: false,
     category: 'general'
@@ -5036,6 +5036,26 @@ export function getUnrecognizedSandboxOptionWarning(value: number | string): str
     `This server is currently set to ${value}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here.`,
     { value },
   )
+}
+
+// The Server Settings (INI) boolean case. PZ's BooleanConfigOption takes only
+// true/false/1/0 (iniFormState.ts's parsePzBoolean); it logs any other value
+// and keeps the option's default, so the warning says what the game does
+// rather than that this panel doesn't recognize the value. Two keys rather
+// than an On/Off placeholder: a substituted word inside a sentence does not
+// translate safely (see GLOSSARY.de.md).
+export function getUnrecognizedIniBooleanWarning(value: string, defaultOn: boolean): string {
+  return defaultOn
+    ? translatedOrFallback(
+      'unrecognizedIniBooleanWarning.defaultOn',
+      `This server is currently set to ${value}, which the game does not accept, so it uses On (its default) until you change it.`,
+      { value },
+    )
+    : translatedOrFallback(
+      'unrecognizedIniBooleanWarning.defaultOff',
+      `This server is currently set to ${value}, which the game does not accept, so it uses Off (its default) until you change it.`,
+      { value },
+    )
 }
 
 // Sandbox tab live-range fix (2026-09-09 dispatch): SANDBOX_SCHEMA's min/max

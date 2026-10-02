@@ -425,7 +425,7 @@
       },
       "Public": {
         "label": "Public Server",
-        "description": "Can your server be seen on Steam server browser."
+        "description": "Montre sèvè a nan navigatè sèvè ki nan jwèt la. Sèvè ki gen Steam aktive toujou parèt nan navigatè sèvè Steam la, kèlkeswa valè opsyon sa a."
       },
       "Open": {
         "label": "Open (No Whitelist)",
@@ -4055,5 +4055,9 @@
       "label": "Advanced"
     }
   },
-  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here."
+  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here.",
+  "unrecognizedIniBooleanWarning": {
+    "defaultOff": "Sèvè sa a gen valè {{value}} kounye a, yon valè jwèt la pa aksepte, kidonk li sèvi ak “Dezaktive” (valè pa defo a) jiskaske ou chanje opsyon sa a.",
+    "defaultOn": "Sèvè sa a gen valè {{value}} kounye a, yon valè jwèt la pa aksepte, kidonk li sèvi ak “Aktive” (valè pa defo a) jiskaske ou chanje opsyon sa a."
+  }
 }

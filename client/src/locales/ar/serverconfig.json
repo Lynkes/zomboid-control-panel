@@ -531,7 +531,7 @@
       },
       "Public": {
         "label": "خادم عام",
-        "description": "ما إذا كان خادمك يظهر في متصفح خوادم Steam."
+        "description": "يعرض الخادم في متصفح الخوادم داخل اللعبة. تظهر الخوادم المفعَّل فيها Steam دائمًا في متصفح خوادم Steam مهما كانت قيمة هذا الخيار."
       },
       "Open": {
         "label": "مفتوح (بدون قائمة بيضاء)",
@@ -4161,5 +4161,9 @@
       "label": "متقدّم"
     }
   },
-  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here."
+  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here.",
+  "unrecognizedIniBooleanWarning": {
+    "defaultOff": "هذا الخادم مضبوط حاليًا على {{value}}، وهي قيمة لا تقبلها اللعبة، لذا يستخدم «مُعطَّل» (القيمة الافتراضية) إلى أن تغيّر هذا الخيار.",
+    "defaultOn": "هذا الخادم مضبوط حاليًا على {{value}}، وهي قيمة لا تقبلها اللعبة، لذا يستخدم «مُفعَّل» (القيمة الافتراضية) إلى أن تغيّر هذا الخيار."
+  }
 }

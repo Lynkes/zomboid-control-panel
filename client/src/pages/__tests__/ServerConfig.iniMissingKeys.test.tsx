@@ -138,13 +138,38 @@ describe('ServerConfig.tsx INI tab: keys the file does not have', () => {
     expect(saveIni).toHaveBeenCalledWith({ PublicName: 'Mine', PingFrequency: '20' })
   })
 
-  it('SteamScoreboard=admin (B41) shows Off -- what B42 falls back to -- and says the value is not recognized', async () => {
+  it('SteamScoreboard=admin (B41) shows Off -- what B42 falls back to -- and says the game does not accept the value', async () => {
     mockLoads({ SteamScoreboard: 'admin' })
     renderIniTab('SteamScoreboard')
 
     await waitFor(() => expect(getIni).toHaveBeenCalled())
     expect(await screen.findByRole('switch', { name: 'Steam Scoreboard' })).toHaveAttribute('aria-checked', 'false')
-    expect(screen.getByText(/set to admin, which this panel does not recognize/i)).toBeInTheDocument()
+    expect(screen.getByText(
+      'This server is currently set to admin, which the game does not accept, so it uses Off (its default) until you change it.',
+    )).toBeInTheDocument()
+    expect(screen.queryByText(/this panel does not recognize/i)).not.toBeInTheDocument()
+  })
+
+  it('a rejected value on a boolean that defaults to on says the game uses On', async () => {
+    mockLoads({ PVP: 'yes' })
+    renderIniTab('PVP')
+
+    await waitFor(() => expect(getIni).toHaveBeenCalled())
+    expect(await screen.findByRole('switch', { name: 'Enable PvP' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByText(/set to yes, which the game does not accept, so it uses On \(its default\)/)).toBeInTheDocument()
+  })
+
+  it('the warning stays out of the way once the switch is flipped, and the save sends the new value', async () => {
+    mockLoads({ SteamScoreboard: 'admin' })
+    renderIniTab('SteamScoreboard')
+
+    await waitFor(() => expect(getIni).toHaveBeenCalled())
+    fireEvent.click(await screen.findByRole('switch', { name: 'Steam Scoreboard' }))
+    expect(screen.queryByText(/the game does not accept/i)).not.toBeInTheDocument()
+    await clickSave()
+
+    await waitFor(() => expect(saveIni).toHaveBeenCalledTimes(1))
+    expect(saveIni).toHaveBeenCalledWith(expect.objectContaining({ SteamScoreboard: 'true' }))
   })
 
   it('a boolean written as 1 reads as on, as BooleanConfigOption parses it', async () => {
@@ -153,6 +178,15 @@ describe('ServerConfig.tsx INI tab: keys the file does not have', () => {
 
     await waitFor(() => expect(getIni).toHaveBeenCalled())
     expect(await screen.findByRole('switch', { name: 'Steam Scoreboard' })).toHaveAttribute('aria-checked', 'true')
-    expect(screen.queryByText(/does not recognize/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/does not accept/i)).not.toBeInTheDocument()
+  })
+
+  it('a value with a space after "=" is not trimmed: the game rejects " true", so the row shows Off', async () => {
+    mockLoads({ Public: ' true' })
+    renderIniTab('Public')
+
+    await waitFor(() => expect(getIni).toHaveBeenCalled())
+    expect(await screen.findByRole('switch', { name: 'Public Server' })).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByText(/which the game does not accept, so it uses Off/)).toBeInTheDocument()
   })
 })

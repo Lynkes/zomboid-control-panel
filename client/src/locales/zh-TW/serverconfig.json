@@ -425,7 +425,7 @@
       },
       "Public": {
         "label": "Public Server",
-        "description": "Can your server be seen on Steam server browser."
+        "description": "於遊戲內伺服器瀏覽器顯示伺服器。無論此項如何設定，啟用 Steam 的伺服器一律會顯示於 Steam 伺服器瀏覽器中。"
       },
       "Open": {
         "label": "Open (No Whitelist)",
@@ -4055,5 +4055,9 @@
       "label": "Advanced"
     }
   },
-  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here."
+  "unrecognizedSandboxOptionWarning": "This server is currently set to {{value}}, which this panel does not recognize. The value is preserved and will not be changed unless you pick a different option here.",
+  "unrecognizedIniBooleanWarning": {
+    "defaultOff": "此伺服器目前設定為 {{value}}，遊戲不接受此值，因此在你變更此項之前會使用「關」（預設值）。",
+    "defaultOn": "此伺服器目前設定為 {{value}}，遊戲不接受此值，因此在你變更此項之前會使用「開」（預設值）。"
+  }
 }

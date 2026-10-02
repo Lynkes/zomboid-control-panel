@@ -138,6 +138,7 @@ import {
   getSandboxCategoryLabel,
   getSandboxCategoryGroupLabel,
   getUnrecognizedSandboxOptionWarning,
+  getUnrecognizedIniBooleanWarning,
   getSandboxLiveRangesUnavailableTitle,
   getSandboxLiveRangesUnavailableBody,
   getSandboxOutOfRangeAllowedTitle,
@@ -376,12 +377,14 @@ const IniSettingRow = memo(({
     !setting.options.some((o) => o.value === String(value))
   // The boolean twin: a value PZ's boolean parser rejects (B41's
   // SteamScoreboard=admin) leaves the game on the option's default, so the
-  // switch shows that default and the row says the stored value is not
-  // recognized. Saving keeps it unless the operator flips the switch.
-  const booleanText = String(value ?? '').trim()
+  // switch shows that default and the row says the game does not accept the
+  // stored value. Saving keeps it unless the operator flips the switch. Not
+  // trimmed here: parsePzBoolean trims exactly as the game does.
+  const booleanText = String(value ?? '')
   const booleanValue = parsePzBoolean(booleanText)
   const booleanHasUnrecognizedValue = setting.type === 'boolean' && booleanText !== '' && booleanValue === null
-  const booleanChecked = booleanValue ?? setting.default === true
+  const booleanDefaultOn = setting.default === true
+  const booleanChecked = booleanValue ?? booleanDefaultOn
 
   // Multiline settings
   if (setting.type === 'multiline') {
@@ -460,7 +463,7 @@ const IniSettingRow = memo(({
                 {booleanHasUnrecognizedValue && (
                   <div className="flex items-start gap-1.5 mt-1.5 text-xs text-warning">
                     <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                    <span>{getUnrecognizedSandboxOptionWarning(booleanText)}</span>
+                    <span>{getUnrecognizedIniBooleanWarning(booleanText, booleanDefaultOn)}</span>
                   </div>
                 )}
               </div>
