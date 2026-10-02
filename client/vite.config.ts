@@ -110,7 +110,8 @@ export default defineConfig(({ mode }) => {
       // Tests read the locale JSON straight from disk instead of through
       // Vite: same object, about 2s less setup per test file. See
       // src/i18n/__tests__/localeModules.fromDisk.ts. Only src/i18n/index.ts
-      // imports './localeModules'.
+      // imports './localeModules'; src/i18n/__tests__/localeModules.test.ts
+      // imports '@/i18n/localeModules' to check the real glob against it.
       alias: [
         {
           find: /^\.\/localeModules$/,

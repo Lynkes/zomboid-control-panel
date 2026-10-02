@@ -398,8 +398,10 @@ describe('Dashboard.tsx: Stop/Force Stop/Restart/Save share server.control, gate
     // The dialog closes once Dashboard's stop confirmation
     // (waitForServerState, polling serversApi.getStatus every 1s for up to
     // 30s) sees the server stopped. Unmocked, that poll ran out its whole
-    // 30s on every run of this test.
-    getServersStatus.mockResolvedValue({ servers: [{ id: 1, running: false, stateUnknown: false }] } as Awaited<ReturnType<typeof serversApi.getStatus>>)
+    // 30s on every run of this test. Once: the first poll ends the wait, and
+    // afterEach's clearAllMocks would keep a lasting implementation for the
+    // tests after this one.
+    getServersStatus.mockResolvedValueOnce({ servers: [{ id: 1, running: false, stateUnknown: false }] } as Awaited<ReturnType<typeof serversApi.getStatus>>)
 
     renderDashboard()
 

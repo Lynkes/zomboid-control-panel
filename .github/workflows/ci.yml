@@ -370,13 +370,20 @@ jobs:
       # warm (Linux: ~20s): it unpacks 500+ packages and runs ssh2's install
       # script, which compiles its optional crypto binding with node-gyp, on
       # every run. Restoring node_modules itself leaves npm install only a
-      # check. Keyed on the lockfile and Node's major (native addons follow
-      # its ABI); the client tree installs in seconds and isn't cached.
+      # check. Keyed on the lockfile and the installed Node's ABI version:
+      # native addons are built for it, and npm install wouldn't rebuild a
+      # cached one after a Node bump (ssh2 would quietly fall back to its
+      # pure-JS crypto). The client tree installs in seconds and isn't cached.
+      - name: Read Node ABI version
+        id: node-abi
+        shell: bash
+        run: echo "abi=$(node -p process.versions.modules)" >> "$GITHUB_OUTPUT"
+
       - name: Restore root node_modules
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: node_modules
-          key: root-node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+          key: root-node-modules-${{ runner.os }}-${{ runner.arch }}-abi${{ steps.node-abi.outputs.abi }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install server dependencies
         run: npm install --no-audit --prefer-offline --include=optional
@@ -452,11 +459,16 @@ jobs:
           cache: npm
 
       # Same cache as the Windows tests job above.
+      - name: Read Node ABI version
+        id: node-abi
+        shell: bash
+        run: echo "abi=$(node -p process.versions.modules)" >> "$GITHUB_OUTPUT"
+
       - name: Restore root node_modules
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: node_modules
-          key: root-node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+          key: root-node-modules-${{ runner.os }}-${{ runner.arch }}-abi${{ steps.node-abi.outputs.abi }}-${{ hashFiles('package-lock.json') }}
 
       - name: Install server dependencies
         run: npm install --no-audit --prefer-offline --include=optional

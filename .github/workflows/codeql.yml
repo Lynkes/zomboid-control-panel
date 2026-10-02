@@ -15,7 +15,8 @@ on:
     - cron: '23 3 * * 1'
 
 # A new push to a pull request supersedes its running analysis. Pushes to
-# main and the schedule each finish.
+# main and the schedule are never cancelled mid-run; a newer one may replace
+# one still waiting.
 concurrency:
   group: codeql-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
