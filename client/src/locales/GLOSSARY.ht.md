@@ -62,6 +62,7 @@ command names, cron expressions, and anything inside `{{double braces}}`.
 | conflict | konfli | |
 | dependency | depandans | |
 | folder | dosye | |
+| data folder (a server's Zomboid folder: worlds, settings, logs) | dosye done | |
 | path | chemen | |
 | wipe (destructive) | efase nèt | "erase completely" — never *reyinisyalize* (reset), see Style rules |
 | vehicle | machin | |

@@ -1,3 +1,4 @@
+import type { ServerSetupPlan } from './api'
 import { BRIDGE_MOD_ID, type DeliveryMethod, type DeliveryPlanResponse, type DeliveryStatus } from './bridgeDeliveryTypes'
 
 const DEMO_FLAGS = new Set(['1', 'true', 'yes', 'on'])
@@ -550,6 +551,32 @@ export function getDemoBridgeDeliveryPlan(to: DeliveryMethod): DeliveryPlanRespo
   }
 }
 
+// Server Setup in the demo: the demo server is the one local profile, so
+// the wizard shows how it sets up another server beside it. The catch-all
+// reply this replaced had no usedPorts, and the page crashed on it.
+export function getDemoSetupPlan(): ServerSetupPlan {
+  const server = demoServer()
+  return {
+    usedPorts: [
+      {
+        id: server.id,
+        name: server.name,
+        serverName: server.serverName,
+        installPath: server.installPath,
+        dataPath: server.zomboidDataPath,
+        gamePort: server.serverPort,
+        udpPort: server.serverPort + 1,
+        rconPort: server.rconPort,
+      },
+    ],
+    suggestedPorts: { gamePort: server.serverPort + 2, rconPort: server.rconPort + 1, withinPublishedRange: null },
+    allInOne: null,
+    hostLayout: { serversRoot: '/opt', separator: '/' },
+    serversRootEntries: ['pz'],
+    environmentDataPath: null,
+  }
+}
+
 function demoStorageHealth() {
   return {
     diskSpace: {
@@ -804,6 +831,9 @@ export function installDemoFetchShim(): void {
     }
     if (path === '/api/server/status') {
       return jsonResponse(demoServerStatus())
+    }
+    if (path === '/api/server/setup-plan') {
+      return jsonResponse(getDemoSetupPlan())
     }
     if (path === '/api/servers/active/status') {
       return jsonResponse(demoComposedStatus())

@@ -101,6 +101,7 @@
     "useCustomLocation": "使用自訂位置",
     "serverNameLabel": "伺服器名稱",
     "serverNamePlaceholder": "myserver",
+    "summaryDataFolder": "資料資料夾",
     "summaryServerName": "伺服器名稱",
     "summaryMemory": "記憶體",
     "summaryGamePort": "遊戲埠",
@@ -134,7 +135,12 @@
     "folderTitle": "此容器中的另一台伺服器",
     "folderBodyFull": "它的遊戲檔案放在 <1>{{path}}</1>，世界和設定放在 <1>{{dataPath}}</1>，都位於額外伺服器專用的磁碟區上，因此面板更新後仍會保留。",
     "folderBodyQuick": "它重複使用 <1>{{path}}</1> 中的遊戲檔案，並將世界、設定和日誌儲存在 <1>{{dataPath}}</1>（額外伺服器專用的磁碟區），不與其他伺服器共用。",
-    "noVolume": "此容器還沒有供額外伺服器使用的磁碟區，因此在這裡進行的第二次安裝會在下次面板更新時被清除。請重新執行安裝程式（bootstrap.sh）來新增它，然後再回來。"
+    "hostFolderTitle": "此伺服器的獨立資料夾",
+    "hostFolderBodyFull": "它的遊戲檔案放在 <1>{{path}}</1>，世界、設定和日誌放在 <1>{{dataPath}}</1>。如需將資料放在別處，請在下方設定「自訂設定位置」。",
+    "hostFolderBodyQuick": "它重複使用 <1>{{path}}</1> 中的遊戲檔案，並將世界、設定和日誌儲存在 <1>{{dataPath}}</1>。如需放在別處，請在「進階選項」中變更「自訂設定位置」。",
+    "noVolume": "此容器還沒有供額外伺服器使用的磁碟區，因此在這裡進行的第二次安裝會在下次面板更新時被清除。請重新執行安裝程式（bootstrap.sh）來新增它，然後再回來。",
+    "dataFolderShared": "{{name}} 已將資料儲存在 <1>{{path}}</1>。共用資料資料夾的伺服器在執行時會寫入同一個 server-console.txt 和同一個 Logs 資料夾，因此請選擇其他資料夾，除非這兩台伺服器從不同時執行。",
+    "dataFolderExists": "<1>{{path}}</1> 已存在。如果之前有同名伺服器用過它，這台伺服器會沿用其設定和世界。如需從頭開始，請換一個伺服器名稱或資料夾。"
   },
   "full": {
     "pageTitle": "全新安裝",
@@ -171,6 +177,7 @@
       "linuxNoteTitle": "Linux 服務安裝",
       "linuxNoteBody1": "如果面板通過內建的 systemd 服務執行，請使用 <1>{{path}}</1>。使用其他資料夾需要修改 systemd 權限。",
       "linuxNoteBody2": "伺服器資料資料夾會建立在安裝資料夾旁：<1>{{path}}</1>。兩個資料夾都必須可寫。",
+      "linuxNoteBody2Elsewhere": "伺服器資料資料夾為 <1>{{path}}</1>。兩個資料夾都必須可寫。",
       "dataFolderPlaceholder": "your-install-folder_Data",
       "serverNameHelp": "僅限字母、數字和下劃線，例如 myserver。它將成為設定檔的名稱（myserver.ini）——請在安裝前設定好。安裝後再修改會建立一個新的空設定，而不是重新命名原有設定。",
       "gameVersionLabel": "遊戲版本",

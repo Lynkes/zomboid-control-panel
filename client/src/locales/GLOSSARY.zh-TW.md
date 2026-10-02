@@ -52,6 +52,7 @@ Also never translated: file paths, folder names, environment variable names, err
 | utilities (water/power) | 水電 | Project Zomboid world-decay system |
 | file | 檔案 | not 文件 |
 | folder | 資料夾 | not 文件夾 |
+| data folder (a server's Zomboid folder: worlds, settings, logs) | 資料資料夾 | |
 | default | 預設 | not 默認 |
 | software | 軟體 | not 軟件 |
 | network | 網路 | not 網絡 |
