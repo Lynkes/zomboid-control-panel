@@ -9,18 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **More than one server in the all-in-one container:** extra servers get their own `pz-servers` volume, and Docker publishes UDP ports 16261-16270 (five servers; change it with `PZ_GAME_PORTS` in `.env`). Existing installs run `bootstrap.sh` again to get both.
-- Server Setup, when other servers already exist, starts on free game and RCON ports and a free name, lists the ports each server uses, and warns when a port is taken or outside what Docker publishes. In the all-in-one image it also fills in a folder on the extra-servers volume.
-
-### Changed
-
-- A server installed outside `PZ_SERVER_PATH` gets its own `<install>_Data` folder instead of sharing `PZ_SAVE_PATH` with the first server, as Server Setup already said.
+- **Several PZ servers in the all-in-one container:** Server Setup puts extra servers on a new `pz-servers` volume with their own ports (UDP 16261-16270, `PZ_GAME_PORTS`) and data folder; rerun `bootstrap.sh` to add both (#183, thanks @Lynkes).
 
 ### Fixed
 
-- In Docker, Server Setup refuses an install or data folder that isn't on a volume (it would be erased on the next update) and names the folder to use, instead of a permissions error with systemd advice.
-- A server can't start on a game port another running server already uses; the error names that server.
-- A Docker update refuses to start while a server other than the active one runs in the container, instead of stopping it without a save.
+- The panel refuses a start on a game port another running server uses, a Docker folder that isn't on a volume, and a Docker update while other servers run, and says why (#183).
 
 ## [1.4.1] - 2026-09-30
 
