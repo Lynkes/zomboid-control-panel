@@ -32,8 +32,12 @@ import {
   effectiveDataFolder,
   findDataFolderConflicts,
   findPortConflicts,
+  hostIgnoresCase,
   isGamePortPublished,
+  isLeftoverFolder,
+  isServerSetupPlan,
   joinHostPath,
+  serversRootOf,
   uniqueServerName,
 } from "@/lib/serverPortPlan";
 import { platformTranslationKey, useRuntimeInfo } from "@/hooks/useRuntimeInfo";
@@ -311,9 +315,13 @@ export default function ServerSetup() {
   const isAdditionalServer = (setupPlan?.usedPorts.length ?? 0) > 0;
   const extraServersRoot = setupPlan?.allInOne?.serversRoot ?? null;
   const publishedGamePorts = setupPlan?.allInOne?.publishedGamePorts ?? null;
-  const hostServersRoot = setupPlan?.hostLayout?.serversRoot ?? null;
-  const serversRoot = setupPlan?.allInOne ? extraServersRoot : hostServersRoot;
-  const hostSeparator = setupPlan?.hostLayout?.separator ?? "/";
+  const serversRootInfo = useMemo(() => serversRootOf(setupPlan), [setupPlan]);
+  const serversRoot = serversRootInfo?.path ?? null;
+  const hostSeparator = serversRootInfo?.separator ?? "/";
+  const pathsIgnoreCase = hostIgnoresCase(setupPlan);
+  // An earlier install resumed from the banner: its folders being there
+  // already is expected.
+  const [resumedInstall, setResumedInstall] = useState(false);
   // The active server's install folder, which Quick Setup reuses.
   const settingsInstallPathRef = useRef("");
   // The folder values this wizard filled in itself; a field the operator
@@ -567,13 +575,17 @@ export default function ServerSetup() {
 
       // After the settings above, so another server's free ports and name
       // replace the active server's ones prefilled there, never the reverse.
+      // Anything but a plan (the demo build answers every unknown GET with
+      // {success, demo}) leaves the wizard setting up a first server.
       try {
-        const plan = await serverApi.getSetupPlan();
+        const plan: unknown = await serverApi.getSetupPlan();
+        if (!isServerSetupPlan(plan)) return;
         setSetupPlan(plan);
         if (plan.usedPorts.length > 0) {
           if (plan.suggestedPorts.gamePort) setServerPort(plan.suggestedPorts.gamePort);
           if (plan.suggestedPorts.rconPort) setRconPort(plan.suggestedPorts.rconPort);
-          setServerName((name) => uniqueServerName(name, plan.usedPorts));
+          const root = serversRootOf(plan);
+          setServerName((name) => uniqueServerName(name, plan.usedPorts, root));
         }
       } catch (error) {
         reportClientError("Failed to load the setup plan.", error);
@@ -613,9 +625,17 @@ export default function ServerSetup() {
 
     // null = no custom data folder (the server puts it beside the install).
     // Kept apart from "", so switching the custom folder on before typing
-    // one counts as the operator's choice.
+    // one counts as the operator's choice. A full install names the folder
+    // beside it too when PZ_SAVE_PATH would apply to it (set without
+    // PZ_SERVER_PATH, it applies to every install), which would otherwise
+    // put this server in the shared folder.
+    const environmentApplies =
+      setupMode === "full" &&
+      wantedInstall !== "" &&
+      effectiveDataFolder(wantedInstall, null, setupPlan.environmentDataPath, pathsIgnoreCase) !==
+        effectiveDataFolder(wantedInstall, null, null);
     const wantedData =
-      setupMode === "quick" && serversRoot
+      serversRoot && (setupMode === "quick" || environmentApplies)
         ? joinHostPath(serversRoot, `${serverName}_Data`, hostSeparator)
         : null;
     const currentData = useCustomDataPath ? zomboidDataPath : null;
@@ -632,6 +652,7 @@ export default function ServerSetup() {
     extraServersRoot,
     serversRoot,
     hostSeparator,
+    pathsIgnoreCase,
     serverName,
     setupMode,
     installPath,
@@ -642,26 +663,42 @@ export default function ServerSetup() {
   const portConflicts = useMemo(
     () =>
       setupPlan
-        ? findPortConflicts({ serverPort, rconPort, serverName, installPath }, setupPlan.usedPorts)
+        ? findPortConflicts({ serverPort, rconPort, serverName, installPath }, setupPlan.usedPorts, pathsIgnoreCase)
         : [],
-    [setupPlan, serverPort, rconPort, serverName, installPath],
+    [setupPlan, serverPort, rconPort, serverName, installPath, pathsIgnoreCase],
   );
   const gamePortPublished = isGamePortPublished(serverPort, publishedGamePorts);
 
-  // The data folder this server will get, and the other profiles already
-  // using it.
+  // The data folder this server will get, the other profiles already using
+  // it, and whether it is a leftover already in the root (never for a
+  // resumed install, whose own folder it is).
   const dataFolder = effectiveDataFolder(
     installPath,
     useCustomDataPath ? zomboidDataPath : null,
     setupPlan?.environmentDataPath,
+    pathsIgnoreCase,
   );
   const dataFolderConflicts = useMemo(
     () =>
       setupPlan
-        ? findDataFolderConflicts({ dataPath: dataFolder, serverName, installPath }, setupPlan.usedPorts)
+        ? findDataFolderConflicts(
+            { dataPath: dataFolder, serverName, installPath },
+            setupPlan.usedPorts,
+            pathsIgnoreCase,
+          )
         : [],
-    [setupPlan, dataFolder, serverName, installPath],
+    [setupPlan, dataFolder, serverName, installPath, pathsIgnoreCase],
   );
+  const dataFolderIsLeftover =
+    isAdditionalServer &&
+    !resumedInstall &&
+    isLeftoverFolder(dataFolder, serversRootInfo, setupPlan?.usedPorts ?? []);
+
+  // The bundled systemd service's install folder, offered for a full
+  // install outside a container. Not for another server given folders of
+  // its own: that path is the active server's install folder, and the
+  // folder plan notice already says where this server's go.
+  const offerLinuxServicePath = !inContainer && !(isAdditionalServer && serversRoot);
 
   // Fetch available Steam branches
   useEffect(() => {
@@ -1513,11 +1550,13 @@ export default function ServerSetup() {
     );
   };
 
-  // Another profile already uses the data folder this server would get.
-  // A warning, not a refusal, like the port warnings: servers that never
-  // run together may share one on purpose.
+  // Another profile already uses the data folder this server would get, or
+  // it is a leftover already in the root, whose settings and world the new
+  // server would take over. Warnings, not refusals, like the port warnings:
+  // servers that never run together may share one on purpose, and a
+  // leftover may be kept on purpose.
   const renderDataFolderWarnings = () => {
-    if (dataFolderConflicts.length === 0) return null;
+    if (dataFolderConflicts.length === 0 && !dataFolderIsLeftover) return null;
     return (
       <div className="space-y-1" role="status">
         {dataFolderConflicts.map((conflict) => (
@@ -1533,6 +1572,19 @@ export default function ServerSetup() {
             </span>
           </p>
         ))}
+        {dataFolderIsLeftover && (
+          <p className="text-xs text-warning flex items-start gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+            <span>
+              <Trans
+                i18nKey="multiServer.dataFolderExists"
+                t={t}
+                values={{ path: dataFolder }}
+                components={{ 1: <code className="bg-muted px-1 rounded break-all" /> }}
+              />
+            </span>
+          </p>
+        )}
       </div>
     );
   };
@@ -1561,6 +1613,7 @@ export default function ServerSetup() {
   const handleResumeContinue = () => {
     if (!resumeMarker) return;
     autoPathsRef.current.locked = true;
+    setResumedInstall(true);
     setInstallPath(resumeMarker.installPath);
     setServerName(resumeMarker.serverName);
     setSetupMode("full");
@@ -2046,7 +2099,7 @@ export default function ServerSetup() {
             <Label className="text-base">{t("full.step2.installFolderLabel")}</Label>
             {/* The systemd service path means nothing inside a container,
                 where it isn't on a volume either. */}
-            {!inContainer && (
+            {offerLinuxServicePath && (
               <Button
                 type="button"
                 variant="ghost"
@@ -2103,7 +2156,7 @@ export default function ServerSetup() {
         {/* A custom data folder gets its warning under its own field below. */}
         {!useCustomDataPath && renderDataFolderWarnings()}
 
-        {!inContainer && (
+        {offerLinuxServicePath && (
           <div className="border border-border/60 bg-muted/40 rounded-lg p-4 text-sm space-y-2">
             <p className="font-medium flex items-center gap-2">
               <Info className="w-4 h-4 text-primary" />
@@ -2118,10 +2171,16 @@ export default function ServerSetup() {
               />
             </p>
             <p className="text-muted-foreground">
+              {/* The folder the server will really use: a custom one or
+                  PZ_SAVE_PATH isn't beside the install folder. */}
               <Trans
-                i18nKey="full.step2.linuxNoteBody2"
+                i18nKey={
+                  dataFolder && dataFolder !== effectiveDataFolder(installPath, null, null)
+                    ? "full.step2.linuxNoteBody2Elsewhere"
+                    : "full.step2.linuxNoteBody2"
+                }
                 t={t}
-                values={{ path: installPath.trim() ? `${installPath.trim()}_Data` : t("full.step2.dataFolderPlaceholder") }}
+                values={{ path: dataFolder || t("full.step2.dataFolderPlaceholder") }}
                 components={{ 1: <code className="bg-muted px-1 rounded break-all" /> }}
               />
             </p>

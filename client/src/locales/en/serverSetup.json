@@ -139,7 +139,8 @@
     "hostFolderBodyFull": "Its game files go in <1>{{path}}</1> and its worlds, settings and logs in <1>{{dataPath}}</1>. To keep its data somewhere else, set Custom config location below.",
     "hostFolderBodyQuick": "It reuses the game files in <1>{{path}}</1> and keeps its worlds, settings and logs in <1>{{dataPath}}</1>. To keep them somewhere else, change Custom config location under Advanced options.",
     "noVolume": "This container has no volume for extra servers yet, so a second install here would be erased on the next panel update. Run the installer (bootstrap.sh) again to add it, then come back.",
-    "dataFolderShared": "{{name}} already keeps its data in <1>{{path}}</1>. Servers that share a data folder write the same server-console.txt and Logs folder while they run, so choose another folder unless the two never run at the same time."
+    "dataFolderShared": "{{name}} already keeps its data in <1>{{path}}</1>. Servers that share a data folder write the same server-console.txt and Logs folder while they run, so choose another folder unless the two never run at the same time.",
+    "dataFolderExists": "<1>{{path}}</1> already exists. If a server with this name used it before, this one will start with its settings and world. To start fresh, choose another server name or folder."
   },
   "full": {
     "pageTitle": "Fresh Install",
@@ -178,6 +179,7 @@
       "linuxNoteTitle": "Linux service installs",
       "linuxNoteBody1": "If the panel runs through the bundled systemd service, use <1>{{path}}</1>. Other folders require a systemd permission change.",
       "linuxNoteBody2": "The server data folder is created beside the install folder: <1>{{path}}</1>. Both folders must be writable.",
+      "linuxNoteBody2Elsewhere": "The server data folder is <1>{{path}}</1>. Both folders must be writable.",
       "dataFolderPlaceholder": "your-install-folder_Data",
       "serverNameHelp": "Alphanumeric characters and underscores only, e.g. myserver. This becomes the config file name (myserver.ini) — set it before installing. Changing it afterward creates a new, empty config instead of renaming the existing one.",
       "gameVersionLabel": "Game Version",

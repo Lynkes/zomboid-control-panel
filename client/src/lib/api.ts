@@ -597,6 +597,9 @@ export interface ServerSetupPlan {
     serversRoot: string | null;
     separator: "/" | "\\";
   } | null;
+  // The names already in whichever of the two roots applies, empty without
+  // one.
+  serversRootEntries: string[];
   environmentDataPath: EnvironmentDataPath | null;
 }
 

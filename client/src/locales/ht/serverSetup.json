@@ -139,7 +139,8 @@
     "hostFolderBodyFull": "Fichye jwèt li yo ale nan <1>{{path}}</1>, epi mond, paramèt ak jounal li yo nan <1>{{dataPath}}</1>. Pou kenbe done li yo yon lòt kote, mete “Kote konfigirasyon pèsonalize” anba a.",
     "hostFolderBodyQuick": "Li reitilize fichye jwèt ki nan <1>{{path}}</1>, epi li kenbe mond, paramèt ak jounal li yo nan <1>{{dataPath}}</1>. Pou kenbe yo yon lòt kote, chanje “Kote konfigirasyon pèsonalize” nan “Opsyon Avanse”.",
     "noVolume": "Kontenè sa a poko gen volim pou sèvè anplis, kidonk yon dezyèm enstalasyon isit la ta efase nan pwochen mizajou panèl la. Relanse enstalatè a (bootstrap.sh) pou ajoute l, epi tounen isit la.",
-    "dataFolderShared": "{{name}} deja kenbe done li nan <1>{{path}}</1>. Sèvè ki pataje yon dosye done ekri nan menm server-console.txt la ak nan menm dosye Logs la pandan y ap mache, kidonk chwazi yon lòt dosye sof si de sèvè yo pa janm mache an menm tan."
+    "dataFolderShared": "{{name}} deja kenbe done li nan <1>{{path}}</1>. Sèvè ki pataje yon dosye done ekri nan menm server-console.txt la ak nan menm dosye Logs la pandan y ap mache, kidonk chwazi yon lòt dosye sof si de sèvè yo pa janm mache an menm tan.",
+    "dataFolderExists": "<1>{{path}}</1> egziste deja. Si yon sèvè ki gen menm non an te itilize l anvan, sèvè sa a ap kòmanse ak paramèt li yo ak mond li. Pou kòmanse a zewo, chwazi yon lòt non sèvè oswa yon lòt dosye."
   },
   "full": {
     "pageTitle": "Nouvèl Enstalasyon",
@@ -176,6 +177,7 @@
       "linuxNoteTitle": "Enstalasyon sèvis Linux",
       "linuxNoteBody1": "Si panèl la fonksyone atravè sèvis systemd enkli a, itilize <1>{{path}}</1>. Lòt dosye mande yon chanjman otorizasyon systemd.",
       "linuxNoteBody2": "Dosye done sèvè a kreye akote dosye enstalasyon an: <1>{{path}}</1>. Tou de dosye yo dwe ka ekri sou yo.",
+      "linuxNoteBody2Elsewhere": "Dosye done sèvè a se <1>{{path}}</1>. Tou de dosye yo dwe ka ekri sou yo.",
       "dataFolderPlaceholder": "your-install-folder_Data",
       "serverNameHelp": "Lèt ak chif ak tirè anba sèlman, pa egzanp myserver. Sa vin non fichye konfigirasyon an (myserver.ini) — mete l anvan w enstale. Chanje l apre a kreye yon konfigirasyon nouvo ki vid olye li chanje non ansyen an.",
       "gameVersionLabel": "Vèsyon Jwèt",

@@ -91,8 +91,13 @@ export function collectUsedPorts(servers, { defaultDataPath = null } = {}) {
 // server (<install> and <install>_Data). The operator already chose that
 // parent once, the first server's default data folder was created in it,
 // and the bundled systemd unit allows it when the first install used the
-// service path. null when no local profile has an absolute install folder.
-// `pathApi` is for tests.
+// service path. A custom launcher profile stores its launcher file
+// (.bat/.sh/.exe, the rule resolveLaunchMode() applies) as installPath; the
+// folder holding it is the install folder, so the parent is one level up.
+// null when no local profile has an absolute install folder. `pathApi` is
+// for tests.
+const LAUNCHER_FILE = /\.(bat|sh|exe)$/i;
+
 export function suggestHostServersRoot(servers, pathApi = path) {
   const local = (Array.isArray(servers) ? servers : []).filter(
     (server) => server && !server.isRemote,
@@ -100,7 +105,9 @@ export function suggestHostServersRoot(servers, pathApi = path) {
   const reference = local.find((server) => server.isActive) || local[0];
   const installPath = String(reference?.installPath || reference?.serverPath || "").trim();
   if (!installPath || !pathApi.isAbsolute(installPath)) return null;
-  return pathApi.dirname(pathApi.normalize(installPath));
+  const normalized = pathApi.normalize(installPath);
+  const installFolder = LAUNCHER_FILE.test(normalized) ? pathApi.dirname(normalized) : normalized;
+  return pathApi.dirname(installFolder);
 }
 
 // A loop, not /[\\/]+$/: that regex backtracks quadratically on a long run

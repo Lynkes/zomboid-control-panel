@@ -119,6 +119,19 @@ describe("suggestHostServersRoot", () => {
     expect(suggestHostServersRoot([{ installPath: "C:\\PZServer" }], path.win32)).toBe("C:\\");
   });
 
+  // Custom launcher mode stores the launcher file as installPath: its folder
+  // is the install folder, and proposing folders inside it would put the
+  // new server in the active server's game files.
+  it("takes a custom launcher's folder as the install folder", () => {
+    expect(
+      suggestHostServersRoot([{ isActive: true, installPath: "D:\\Servers\\PZ\\StartServer_Charon.bat" }], path.win32),
+    ).toBe("D:\\Servers");
+    expect(suggestHostServersRoot([{ installPath: "D:/Servers/PZ/ProjectZomboid64.EXE" }], path.win32)).toBe("D:\\Servers");
+    expect(suggestHostServersRoot([{ isActive: true, installPath: "/opt/pz/start-server.sh" }], path.posix)).toBe("/opt");
+    // A folder whose name only contains the extension is still a folder.
+    expect(suggestHostServersRoot([{ installPath: "/opt/pz.sh.d/server" }], path.posix)).toBe("/opt/pz.sh.d");
+  });
+
   it("is null without a local profile that has an absolute install folder", () => {
     expect(suggestHostServersRoot([], path.posix)).toBeNull();
     expect(suggestHostServersRoot([{ isRemote: true, installPath: "/srv/pz" }], path.posix)).toBeNull();

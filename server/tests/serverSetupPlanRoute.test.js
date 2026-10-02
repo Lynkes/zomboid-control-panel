@@ -1,3 +1,4 @@
+import fs from "fs";
 import os from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -177,6 +178,8 @@ describe("GET /api/server/setup-plan response", () => {
       suggestedPorts: { gamePort: 16263, rconPort: 27016, withinPublishedRange: null },
       allInOne: null,
       hostLayout: { serversRoot: path.dirname(path.normalize("/pz-server")), separator: path.sep },
+      // Whatever this machine's filesystem root holds.
+      serversRootEntries: expect.any(Array),
       environmentDataPath: null,
     });
   });
@@ -188,6 +191,28 @@ describe("GET /api/server/setup-plan response", () => {
 
     expect(res.body.hostLayout).toEqual({ serversRoot: path.dirname(NATIVE_INSTALL), separator: path.sep });
     expect(res.body.usedPorts.find((entry) => entry.id === "native").dataPath).toBe(`${NATIVE_INSTALL}_Data`);
+  });
+
+  // A leftover folder from a deleted profile would hand a new server with
+  // that name the old one's settings and world, so the wizard avoids the
+  // names the root already holds.
+  it("lists the names the parent folder already holds, and none when it can't be read", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-setup-plan-"));
+    try {
+      for (const name of ["pz-main", "servertest2_Data"]) fs.mkdirSync(path.join(root, name));
+      fs.writeFileSync(path.join(root, "notes.txt"), "");
+      state.servers = [{ ...NATIVE, installPath: path.join(root, "pz-main") }];
+
+      const res = await getSetupPlan({ role: "admin" });
+
+      expect(res.body.hostLayout.serversRoot).toBe(root);
+      expect([...res.body.serversRootEntries].sort()).toEqual(["notes.txt", "pz-main", "servertest2_Data"]);
+
+      state.servers = [{ ...NATIVE, installPath: path.join(root, "missing", "pz-main") }];
+      expect((await getSetupPlan({ role: "admin" })).body.serversRootEntries).toEqual([]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("passes on the PZ_SAVE_PATH rule resolveZomboidPaths() applies", async () => {
@@ -232,6 +257,13 @@ describe("GET /api/server/setup-plan response", () => {
     });
     // The extra-servers volume replaces the native layout.
     expect(res.body.hostLayout).toBeNull();
+  });
+
+  it("lists nothing in the all-in-one image without the extra-servers volume", async () => {
+    setEnv(AIO_ENV);
+    state.mountinfo = ROOT_ONLY;
+
+    expect((await getSetupPlan({ role: "admin" })).body.serversRootEntries).toEqual([]);
   });
 
   it("gives serversRoot null when /pz-servers isn't mounted (an older compose file)", async () => {

@@ -139,7 +139,8 @@
     "hostFolderBodyFull": "Sus archivos de juego van en <1>{{path}}</1> y sus mundos, ajustes y registros en <1>{{dataPath}}</1>. Para guardar sus datos en otro sitio, usa «Ubicación de configuración personalizada» más abajo.",
     "hostFolderBodyQuick": "Reutiliza los archivos de juego de <1>{{path}}</1> y guarda sus mundos, ajustes y registros en <1>{{dataPath}}</1>. Para guardarlos en otro sitio, cambia «Ubicación de configuración personalizada» en «Opciones avanzadas».",
     "noVolume": "Este contenedor aún no tiene el volumen para servidores adicionales, así que una segunda instalación aquí se borraría en la próxima actualización del panel. Vuelve a ejecutar el instalador (bootstrap.sh) para añadirlo y luego regresa.",
-    "dataFolderShared": "{{name}} ya guarda sus datos en <1>{{path}}</1>. Los servidores que comparten carpeta de datos escriben en el mismo server-console.txt y la misma carpeta Logs mientras funcionan, así que elige otra carpeta salvo que los dos nunca funcionen a la vez."
+    "dataFolderShared": "{{name}} ya guarda sus datos en <1>{{path}}</1>. Los servidores que comparten carpeta de datos escriben en el mismo server-console.txt y la misma carpeta Logs mientras funcionan, así que elige otra carpeta salvo que los dos nunca funcionen a la vez.",
+    "dataFolderExists": "<1>{{path}}</1> ya existe. Si un servidor con este nombre la usó antes, este empezará con sus ajustes y su mundo. Para empezar de cero, elige otro nombre de servidor u otra carpeta."
   },
   "full": {
     "pageTitle": "Instalación nueva",
@@ -176,6 +177,7 @@
       "linuxNoteTitle": "Instalaciones del servicio en Linux",
       "linuxNoteBody1": "Si el panel se ejecuta mediante el servicio systemd incluido, usa <1>{{path}}</1>. Otras carpetas requieren un cambio de permisos en systemd.",
       "linuxNoteBody2": "La carpeta de datos del servidor se crea junto a la carpeta de instalación: <1>{{path}}</1>. Ambas carpetas deben tener permiso de escritura.",
+      "linuxNoteBody2Elsewhere": "La carpeta de datos del servidor es <1>{{path}}</1>. Ambas carpetas deben tener permiso de escritura.",
       "dataFolderPlaceholder": "carpeta-de-instalación_Data",
       "serverNameHelp": "Solo caracteres alfanuméricos y guion bajo, por ejemplo miservidor. Se convierte en el nombre del archivo de configuración (miservidor.ini): defínelo antes de instalar. Cambiarlo después crea una configuración nueva y vacía en lugar de renombrar la existente.",
       "gameVersionLabel": "Versión del juego",

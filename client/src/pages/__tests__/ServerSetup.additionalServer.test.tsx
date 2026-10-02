@@ -80,6 +80,7 @@ const AIO_PLAN: ServerSetupPlan = {
   suggestedPorts: { ...SUGGESTED_PORTS, withinPublishedRange: true },
   allInOne: { serversRoot: "/pz-servers", publishedGamePorts: { start: 16261, end: 16270 } },
   hostLayout: null,
+  serversRootEntries: [],
   environmentDataPath: { installPath: "/pz-server", dataPath: "/zomboid" },
 };
 const AIO_SETTINGS = {
@@ -115,6 +116,7 @@ const LINUX_PLAN: ServerSetupPlan = {
   suggestedPorts: SUGGESTED_PORTS,
   allInOne: null,
   hostLayout: { serversRoot: "/opt/zomboid-panel/data", separator: "/" },
+  serversRootEntries: ["pzserver", "pzserver_Data", "steamcmd"],
   environmentDataPath: null,
 };
 const LINUX_SETTINGS = {
@@ -147,6 +149,7 @@ const WINDOWS_PLAN: ServerSetupPlan = {
   suggestedPorts: SUGGESTED_PORTS,
   allInOne: null,
   hostLayout: { serversRoot: "D:\\Servers", separator: "\\" },
+  serversRootEntries: ["PZ", "PZ_Data"],
   environmentDataPath: null,
 };
 const WINDOWS_SETTINGS = {
@@ -209,6 +212,19 @@ function dataFolderWarnings(name: string, path: string) {
   return screen.queryAllByText(
     (_, element) => element?.tagName === "SPAN" && (element.textContent ?? "").startsWith(expected),
   );
+}
+
+// The leftover data folder warning.
+function leftoverWarnings(path: string) {
+  const expected = `${path} already exists.`;
+  return screen.queryAllByText(
+    (_, element) => element?.tagName === "SPAN" && (element.textContent ?? "").startsWith(expected),
+  );
+}
+
+// A paragraph of the Linux service note, whose path sits in its own <code>.
+function linuxNoteLine(text: string) {
+  return screen.queryAllByText((_, element) => element?.tagName === "P" && element.textContent === text);
 }
 
 function customDataSwitch() {
@@ -286,12 +302,24 @@ describe("ServerSetup -- another server on a native host", () => {
     // The active server's data folder, prefilled from the settings, is gone.
     expect(screen.queryByText(enServerSetup.full.step2.setBadge)).not.toBeInTheDocument();
     expect(dataFolderWarnings("Main", `${LINUX_INSTALL}_Data`)).toHaveLength(0);
+    // The systemd service path is the active server's install folder: no
+    // note pointing there under the folder proposed for this one, and no
+    // button filling it in.
+    expect(screen.queryByText(enServerSetup.full.step2.linuxNoteTitle)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: enServerSetup.full.step2.useLinuxPath })).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByDisplayValue("servertest2"), { target: { value: "pvp" } });
     await screen.findByDisplayValue("/opt/zomboid-panel/data/pvp");
 
+    // Linux folders that differ by case are two folders.
+    fireEvent.change(screen.getByDisplayValue("/opt/zomboid-panel/data/pvp"), {
+      target: { value: "/opt/zomboid-panel/data/PZSERVER" },
+    });
+    await screen.findByDisplayValue("/opt/zomboid-panel/data/PZSERVER");
+    expect(dataFolderWarnings("Main", `${LINUX_INSTALL}_Data`)).toHaveLength(0);
+
     // Installing into the active server's folder would share its data folder.
-    fireEvent.change(screen.getByDisplayValue("/opt/zomboid-panel/data/pvp"), { target: { value: LINUX_INSTALL } });
+    fireEvent.change(screen.getByDisplayValue("/opt/zomboid-panel/data/PZSERVER"), { target: { value: LINUX_INSTALL } });
     await waitFor(() => expect(dataFolderWarnings("Main", `${LINUX_INSTALL}_Data`)).toHaveLength(1));
 
     next();
@@ -314,8 +342,11 @@ describe("ServerSetup -- another server on a native host", () => {
     expect(screen.getByText(enServerSetup.multiServer.hostFolderTitle)).toBeInTheDocument();
     expect(dataFolderWarnings("Main", "D:\\Servers\\PZ_Data")).toHaveLength(0);
 
-    fireEvent.change(dataInput, { target: { value: "D:\\Servers\\PZ_Data" } });
+    // Windows folders don't differ by case.
+    fireEvent.change(dataInput, { target: { value: "d:\\servers\\pz_data" } });
     await waitFor(() => expect(dataFolderWarnings("Main", "D:\\Servers\\PZ_Data")).toHaveLength(1));
+    fireEvent.change(screen.getByDisplayValue("d:\\servers\\pz_data"), { target: { value: "D:\\Servers\\PZ_Data" } });
+    await screen.findByDisplayValue("D:\\Servers\\PZ_Data");
 
     typeAdminPassword();
     next();
@@ -340,5 +371,116 @@ describe("ServerSetup -- another server on a native host", () => {
     await waitFor(() => expect(dataFolderWarnings("Main", "/zomboid")).toHaveLength(1));
     expect(customDataSwitch()).toHaveAttribute("aria-checked", "false");
     expect(screen.queryByText(enServerSetup.multiServer.hostFolderTitle)).not.toBeInTheDocument();
+  });
+
+  // PZ_SAVE_PATH without PZ_SERVER_PATH (a native .env, the plain
+  // docker-compose) is every install's data folder: a full install left on
+  // the default would share it with the active server.
+  it("full install with PZ_SAVE_PATH for every install: names its own data folder beside it instead of the shared one", async () => {
+    host.plan = {
+      ...LINUX_PLAN,
+      usedPorts: [{ ...LINUX_PLAN.usedPorts[0], dataPath: "/srv/zomboid" }],
+      environmentDataPath: { installPath: null, dataPath: "/srv/zomboid" },
+    };
+    host.settings = { ...LINUX_SETTINGS, zomboidDataPath: "/srv/zomboid" };
+    host.runtime = SYSTEMD_RUNTIME;
+
+    await startFullInstall();
+    await screen.findByDisplayValue("/opt/zomboid-panel/data/servertest2");
+    await waitFor(() => expect(screen.getAllByText("/opt/zomboid-panel/data/servertest2_Data").length).toBeGreaterThan(0));
+    // Set as this server's custom data folder.
+    expect(screen.getByText(enServerSetup.full.step2.setBadge)).toBeInTheDocument();
+    expect(screen.queryAllByText("/srv/zomboid")).toHaveLength(0);
+    expect(dataFolderWarnings("Main", "/srv/zomboid")).toHaveLength(0);
+
+    // It still follows the name.
+    fireEvent.change(screen.getByDisplayValue("servertest2"), { target: { value: "pvp" } });
+    await waitFor(() => expect(screen.getAllByText("/opt/zomboid-panel/data/pvp_Data").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByText(enServerSetup.full.step2.customDataLocation));
+    expect(await screen.findByDisplayValue("/opt/zomboid-panel/data/pvp_Data")).toBeInTheDocument();
+  });
+
+  // A leftover servertest2_Data from a deleted profile would hand the new
+  // server the old one's settings and world, and another profile's install
+  // folder would be shared.
+  it("starts on a name whose folders are free, and flags a leftover data folder the operator's name lands on", async () => {
+    host.plan = {
+      ...LINUX_PLAN,
+      usedPorts: [
+        ...LINUX_PLAN.usedPorts,
+        {
+          id: "other",
+          name: "Other",
+          serverName: "other",
+          installPath: "/opt/zomboid-panel/data/servertest3",
+          dataPath: "/srv/other",
+          gamePort: 16263,
+          udpPort: 16264,
+          rconPort: 27016,
+        },
+      ],
+      serversRootEntries: [...LINUX_PLAN.serversRootEntries, "servertest2_Data"],
+    };
+    host.settings = LINUX_SETTINGS;
+    host.runtime = SYSTEMD_RUNTIME;
+
+    await startFullInstall();
+    await screen.findByDisplayValue("/opt/zomboid-panel/data/servertest4");
+    expect(screen.getByDisplayValue("servertest4")).toBeInTheDocument();
+    expect(leftoverWarnings("/opt/zomboid-panel/data/servertest4_Data")).toHaveLength(0);
+
+    fireEvent.change(screen.getByDisplayValue("servertest4"), { target: { value: "servertest2" } });
+    await screen.findByDisplayValue("/opt/zomboid-panel/data/servertest2");
+    await waitFor(() => expect(leftoverWarnings("/opt/zomboid-panel/data/servertest2_Data")).toHaveLength(1));
+
+    // The active server's own data folder is shared, not left over.
+    fireEvent.change(screen.getByDisplayValue("/opt/zomboid-panel/data/servertest2"), { target: { value: LINUX_INSTALL } });
+    await waitFor(() => expect(dataFolderWarnings("Main", `${LINUX_INSTALL}_Data`)).toHaveLength(1));
+    expect(leftoverWarnings(`${LINUX_INSTALL}_Data`)).toHaveLength(0);
+  });
+});
+
+describe("ServerSetup -- the first server", () => {
+  it("offers the Linux service path, and names the data folder the server will really use", async () => {
+    host.plan = { ...LINUX_PLAN, usedPorts: [], hostLayout: { serversRoot: null, separator: "/" }, serversRootEntries: [] };
+    host.settings = { ...LINUX_SETTINGS, zomboidDataPath: "/srv/pz-data" };
+    host.runtime = SYSTEMD_RUNTIME;
+
+    await startFullInstall();
+    await screen.findByDisplayValue(LINUX_INSTALL);
+    expect(screen.getByRole("button", { name: enServerSetup.full.step2.useLinuxPath })).toBeInTheDocument();
+    // A custom data folder isn't beside the install folder.
+    await waitFor(() =>
+      expect(
+        linuxNoteLine("The server data folder is /srv/pz-data. Both folders must be writable."),
+      ).toHaveLength(1),
+    );
+
+    fireEvent.click(screen.getByText(enServerSetup.full.step2.customDataLocation));
+    const toggle = screen
+      .getByText(enServerSetup.common.useCustomLocation, { selector: "label" })
+      .parentElement?.querySelector('[role="switch"]');
+    if (!toggle) throw new Error("no custom data folder switch");
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(
+        linuxNoteLine(
+          `The server data folder is created beside the install folder: ${LINUX_INSTALL}_Data. Both folders must be writable.`,
+        ),
+      ).toHaveLength(1),
+    );
+  });
+
+  // The demo build answers every GET it doesn't mock with {success, demo},
+  // which has no usedPorts.
+  it("survives an answer that isn't a setup plan", async () => {
+    host.plan = { success: true, demo: true };
+    host.settings = { steamcmdPath: LINUX_SETTINGS.steamcmdPath };
+    host.runtime = SYSTEMD_RUNTIME;
+
+    await startFullInstall();
+    expect(screen.getByText(enServerSetup.full.step2.installFolderLabel)).toBeInTheDocument();
+    expect(screen.queryByText(enServerSetup.multiServer.hostFolderTitle)).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue("myserver")).toBeInTheDocument();
   });
 });

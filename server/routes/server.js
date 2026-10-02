@@ -3104,6 +3104,22 @@ function hostServersRootFor(servers) {
   return root;
 }
 
+// The names already taken in that root, so the wizard starts on a server
+// name whose <name> and <name>_Data are free and warns about a leftover
+// data folder: one from a deleted profile would hand the new server the
+// old one's settings and world. Capped, and empty when the folder can't be
+// read. server.install can list any folder in the folder browser already.
+const SERVERS_ROOT_ENTRY_LIMIT = 2000;
+
+async function listServersRootEntries(root) {
+  if (!root) return [];
+  try {
+    return (await fs.promises.readdir(root)).slice(0, SERVERS_ROOT_ENTRY_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
 // What the setup wizard needs to create ANOTHER server on this host: the
 // ports and data folder every local profile is configured for, the first
 // free ports, and where the new server's folders go. In the all-in-one
@@ -3111,8 +3127,9 @@ function hostServersRootFor(servers) {
 // Docker publishes); elsewhere it is the active install's parent folder
 // (hostLayout). Either root is returned only when it really is a volume
 // inside a container, so the wizard never suggests a folder the next
-// update would erase. environmentDataPath is the PZ_SAVE_PATH rule
-// resolveZomboidPaths() applies to an install with no data folder.
+// update would erase. serversRootEntries lists what that root already
+// holds. environmentDataPath is the PZ_SAVE_PATH rule resolveZomboidPaths()
+// applies to an install with no data folder.
 router.get("/setup-plan", requirePermission("server.install"), async (req, res) => {
   try {
     const servers = await getServers();
@@ -3129,15 +3146,19 @@ router.get("/setup-plan", requirePermission("server.install"), async (req, res) 
           publishedGamePorts: layout.publishedGamePorts,
         }
       : null;
+    const hostLayout = allInOne
+      ? null
+      : { serversRoot: hostServersRootFor(servers), separator: path.sep };
     res.json({
       usedPorts,
       suggestedPorts: suggestFreePorts(usedPorts, {
         publishedGamePorts: allInOne?.publishedGamePorts ?? null,
       }),
       allInOne,
-      hostLayout: allInOne
-        ? null
-        : { serversRoot: hostServersRootFor(servers), separator: path.sep },
+      hostLayout,
+      serversRootEntries: await listServersRootEntries(
+        allInOne ? allInOne.serversRoot : hostLayout.serversRoot,
+      ),
       environmentDataPath: getEnvironmentDataPath(),
     });
   } catch (error) {
