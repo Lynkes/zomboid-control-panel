@@ -495,6 +495,8 @@
     "remoteBridgeFolderLabel": "مجلد الجسر البعيد على VPS",
     "remoteBridgeFolderHelp": "استخدم المسار كما يراه حساب SFTP هذا. ولا تُدخل مسار Windows أو مسارًا من حاسوبك المحلي.",
     "syncIntervalLabel": "فترة المزامنة (بالثواني)",
+    "trustNewHostKey": "الوثوق بمفتاح المضيف الجديد",
+    "hostKeyMismatchWarning": "قدّم خادم SFTP مفتاح مضيف مختلفًا عن المفتاح الذي حفظته اللوحة عند أول اتصال. لا تثق بالمفتاح الجديد إلا إذا أعدت بناء الخادم أو أعدت تثبيته وتأكدت من التغيير لدى مزوّد الاستضافة — وإلا فقد يكون هناك من يعترض الاتصال.",
     "verifyAndPrepare": "التحقق وتهيئة SFTP",
     "startSftpBridge": "بدء جسر SFTP",
     "sftpRunning": "يعمل",
@@ -1101,6 +1103,7 @@
     "sftpFoldersReady": {
       "title": "مجلدات SFTP جاهزة"
     },
+    "sftpHostKeyForgotten": { "title": "تمت إزالة مفتاح المضيف المحفوظ", "description": "ستحفظ اللوحة المفتاح الحالي للخادم عند الاتصال التالي." },
     "sftpTestFailed": {
       "title": "فشل اختبار SFTP",
       "fallback": "تعذّر الاتصال بـ SFTP."

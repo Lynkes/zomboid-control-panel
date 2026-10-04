@@ -401,6 +401,7 @@
   "SFTP_PERMISSION_DENIED": "{{detail}} Ranje: Bay kont SFTP la pèmisyon li ak ekri pou dosye pon adistans lan ak dosye paran li.",
   "SFTP_REMOTE_PATH_MISSING": "{{detail}} Ranje: Verifye dosye pon adistans lan se chemen VPS pou rive nan Lua/panelbridge/MyServer. Panèl la ap kreye dosye resepsyon ak voye li yo yon fwa chemen paran an kòrèk.",
   "SFTP_PATH_OCCUPIED": "{{detail}} Ranje: Retire oswa chanje non dosye k ap okipe chemen fichye pon sa a, epi kouri “Verifye epi prepare SFTP” ankò.",
+  "SFTP_HOST_KEY_MISMATCH": "{{detail}} Solisyon: Kle lame SSH sèvè sa a pa menm ak sa panèl la te sove premye fwa li te konekte. Si ou te rebati oswa reenstale sèvè a, konfime nouvo kle a ak ebèjè ou, epi itilize « Fè nouvo kle lame a konfyans » nan Paramèt › PanelBridge › SFTP. Si anyen pa t chanje sou sèvè a, pa fè l konfyans: yon moun ka ap entèsepte koneksyon an.",
   "SFTP_UNREACHABLE": "{{detail}} Ranje: Tcheke lame SFTP la, pò a, firewall la, epi konfime founisè èbèjman an pèmèt SFTP soti nan òdinatè panèl sa a.",
   "SFTP_UNKNOWN": "{{detail}} Ranje: Kouri “Verifye epi prepare SFTP” ankò. Si li kontinye echwe, telechaje yon pakè sipò epi enkli sftp-diagnostics.json.",
   "UNEXPECTED_SERVER_ERROR": "{{detail}} Sa a pa t atann — si li kontinye rive, telechaje yon pakè sipò pou yo ka egzamine li.",

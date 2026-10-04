@@ -484,6 +484,8 @@
     "remoteBridgeFolderLabel": "VPS 上的远程桥接文件夹",
     "remoteBridgeFolderHelp": "请使用此 SFTP 账户所见的路径。请勿输入 Windows 路径或本机路径。",
     "syncIntervalLabel": "同步间隔（秒）",
+    "trustNewHostKey": "信任新的主机密钥",
+    "hostKeyMismatchWarning": "SFTP 服务器提供的主机密钥与面板首次连接时保存的不同。只有在你重建或重装了服务器并已向服务商确认此变更时，才应信任新密钥——否则可能有人正在拦截连接。",
     "verifyAndPrepare": "校验并准备 SFTP",
     "startSftpBridge": "启动 SFTP 桥接",
     "sftpRunning": "运行中",
@@ -1083,6 +1085,7 @@
     "sftpFoldersReady": {
       "title": "SFTP 文件夹已就绪"
     },
+    "sftpHostKeyForgotten": { "title": "已删除保存的主机密钥", "description": "面板将在下次连接时保存服务器当前的密钥。" },
     "sftpTestFailed": {
       "title": "SFTP 测试失败",
       "fallback": "无法连接到 SFTP。"

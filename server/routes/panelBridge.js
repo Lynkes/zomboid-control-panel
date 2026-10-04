@@ -51,6 +51,7 @@ import {
   validateRemoteConfigTransport,
 } from "../services/remoteConfigFiles.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { forgetHostKey } from "../services/sftpHostKeys.js";
 const log = createLogger("API:PanelBridge");
 
 // ES Module __dirname equivalent
@@ -1083,6 +1084,35 @@ router.post("/sftp/test", requirePermission("bridge.setup"), async (req, res) =>
       code: classifySftpErrorCode(error),
       params: sanitizeErrorParams({ detail: error?.message || String(error) }),
     });
+  }
+});
+
+// "Trust new host key": drop the pinned SSH host key for one host so the
+// next connection pins whatever key it presents (services/sftpHostKeys.js,
+// security audit M3). Same gate as the routes that make those connections.
+// Host/port come from the form when given (the operator may be fixing the
+// connection before saving), else from the saved bridge settings.
+router.post("/sftp/forget-host-key", requirePermission("bridge.setup"), async (req, res) => {
+  try {
+    const settings = await getAllSettings();
+    const host = String(req.body?.host ?? settings[SFTP_SETTING_KEYS.host] ?? "").trim();
+    const rawPort = req.body?.port ?? settings[SFTP_SETTING_KEYS.port];
+    const port = rawPort === undefined || rawPort === null || rawPort === "" ? 22 : Number(rawPort);
+    if (!host || host.length > 253 || /[\s/\\]/.test(host)) {
+      return res.status(400).json({ error: "A valid SFTP host is required" });
+    }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return res.status(400).json({ error: "SFTP port must be between 1 and 65535" });
+    }
+    const result = await forgetHostKey(host, port);
+    log.warn(
+      `SFTP host key for ${host}:${port} forgotten by ${req.user?.username || "panel user"}` +
+        (result.fingerprint ? ` (was ${result.fingerprint})` : "") +
+        (result.storeReset ? " -- unreadable pin store was reset" : ""),
+    );
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
 

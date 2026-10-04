@@ -116,7 +116,10 @@ async function update(version) {
     const archiveSha256 = await sha256File(archivePath);
     if (UPDATE_SHA256) {
       if (archiveSha256 !== UPDATE_SHA256) {
-        throw new Error(`Release archive checksum mismatch (expected ${UPDATE_SHA256}, got ${archiveSha256}); refusing to update`);
+        throw new Error(
+          `Release archive checksum mismatch for v${version} (expected ${UPDATE_SHA256}, got ${archiveSha256}); refusing to update. ` +
+            "UPDATE_SHA256 pins one release: if you meant to move to this version, verify its archive hash, set PANEL_DOCKER_UPDATE_SHA256 to it and recreate the updater container (see SECURITY.md).",
+        );
       }
       console.log(`[updater] release archive checksum verified (${archiveSha256})`);
     } else {

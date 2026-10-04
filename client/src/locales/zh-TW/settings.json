@@ -484,6 +484,8 @@
     "remoteBridgeFolderLabel": "VPS 上的遠端PanelBridge 資料夾",
     "remoteBridgeFolderHelp": "請使用此 SFTP 帳號所見的路徑。請勿輸入 Windows 路徑或本機路徑。",
     "syncIntervalLabel": "同步間隔（秒）",
+    "trustNewHostKey": "信任新的主機金鑰",
+    "hostKeyMismatchWarning": "SFTP 伺服器提供的主機金鑰與面板首次連線時儲存的不同。只有在你重建或重新安裝了伺服器並已向主機商確認此變更時，才應信任新金鑰——否則可能有人正在攔截連線。",
     "verifyAndPrepare": "校驗並準備 SFTP",
     "startSftpBridge": "啟動 SFTP PanelBridge",
     "sftpRunning": "執行中",
@@ -1083,6 +1085,7 @@
     "sftpFoldersReady": {
       "title": "SFTP 資料夾已就緒"
     },
+    "sftpHostKeyForgotten": { "title": "已移除儲存的主機金鑰", "description": "面板將在下次連線時儲存伺服器目前的金鑰。" },
     "sftpTestFailed": {
       "title": "SFTP 測試失敗",
       "fallback": "無法連線到 SFTP。"

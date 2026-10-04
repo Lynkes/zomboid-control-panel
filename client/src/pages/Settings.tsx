@@ -578,6 +578,10 @@ export default function Settings() {
   const [pinging, setPinging] = useState(false);
   const [manualBridgePath, setManualBridgePath] = useState("");
   const [testingSftp, setTestingSftp] = useState(false);
+  // Set when an SFTP connection was refused because the server's host key
+  // changed (SFTP_HOST_KEY_MISMATCH); shows the "Trust new host key" action.
+  const [sftpHostKeyMismatch, setSftpHostKeyMismatch] = useState(false);
+  const [forgettingHostKey, setForgettingHostKey] = useState(false);
   const [remoteLogs, setRemoteLogs] = useState<
     Array<{ name: string; size: number; modifiedAt: string | null }>
   >([]);
@@ -2403,21 +2407,47 @@ export default function Settings() {
     }
   };
 
+  const isHostKeyMismatch = (error: unknown) =>
+    error instanceof ApiError && error.code === "SFTP_HOST_KEY_MISMATCH";
+
   const handleTestSftp = async () => {
     if (!canSetupBridge) return;
     setTestingSftp(true);
     try {
       const result = await panelBridgeApi.testSftp(sftpConfig());
+      setSftpHostKeyMismatch(false);
       toast({
         title: result.statusExists ? t("toasts.sftpBridgeReady.title") : t("toasts.sftpFoldersReady.title"),
         description: `${result.nextStep} (${result.latencyMs} ms)`,
         variant: "success" as const,
       });
     } catch (error) {
+      if (isHostKeyMismatch(error)) setSftpHostKeyMismatch(true);
       toast({ title: t("toasts.sftpTestFailed.title"), description: getUserErrorMessage(error, t("toasts.sftpTestFailed.fallback")), variant: "destructive" });
     } finally {
       setTestingSftp(false);
     }
+  };
+
+  // Explicit operator decision after a refused host key: forget the pin,
+  // then verify again, which pins the key the server presents now.
+  const handleTrustNewHostKey = async () => {
+    if (!canSetupBridge) return;
+    setForgettingHostKey(true);
+    try {
+      await panelBridgeApi.forgetSftpHostKey({
+        host: settings.panelBridgeSftpHost,
+        port: settings.panelBridgeSftpPort,
+      });
+      setSftpHostKeyMismatch(false);
+      toast({ title: t("toasts.sftpHostKeyForgotten.title"), description: t("toasts.sftpHostKeyForgotten.description"), variant: "success" as const });
+    } catch (error) {
+      toast({ title: t("toasts.sftpTestFailed.title"), description: getUserErrorMessage(error, t("toasts.sftpTestFailed.fallback")), variant: "destructive" });
+      return;
+    } finally {
+      setForgettingHostKey(false);
+    }
+    await handleTestSftp();
   };
 
   const handleConfigureSftp = async () => {
@@ -2452,6 +2482,7 @@ export default function Settings() {
           panelBridgeSftpPollIntervalSeconds: originalSettings.panelBridgeSftpPollIntervalSeconds,
         }));
       }
+      if (isHostKeyMismatch(error)) setSftpHostKeyMismatch(true);
       setBridgeError(getUserErrorMessage(error, t("errors.couldNotStartSftpBridge")));
     } finally {
       setBridgeLoading(false);
@@ -5165,6 +5196,12 @@ export default function Settings() {
                         <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}><Button type="button" variant="outline" onClick={handleTestSftp} disabled={testingSftp || bridgeLoading || !canSetupBridge}>{testingSftp ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <Link className="me-2 h-4 w-4" />}{t("bridge.verifyAndPrepare")}</Button></DisabledReason>
                         <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}><Button type="button" onClick={handleConfigureSftp} disabled={bridgeLoading || !canSetupBridge}>{bridgeLoading ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : <Cloud className="me-2 h-4 w-4" />}{t("bridge.startSftpBridge")}</Button></DisabledReason>
                       </div>
+                      {(sftpHostKeyMismatch || bridgeStatus?.transport?.lastErrorCode === "SFTP_HOST_KEY_MISMATCH") && (
+                        <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs">
+                          <p className="flex items-start gap-2 text-destructive"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{t("bridge.hostKeyMismatchWarning")}</p>
+                          <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}><Button type="button" variant="destructive" size="sm" onClick={handleTrustNewHostKey} disabled={forgettingHostKey || testingSftp || !canSetupBridge}>{forgettingHostKey ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}{t("bridge.trustNewHostKey")}</Button></DisabledReason>
+                        </div>
+                      )}
                       {bridgeStatus?.transport?.type === "sftp" && <div className="space-y-1 text-xs text-muted-foreground"><p>SFTP {bridgeStatus.transport.running ? t("bridge.sftpRunning") : t("bridge.sftpStopped")}{bridgeStatus.transport.lastLatencyMs != null ? t("bridge.lastSyncSuffix", { ms: bridgeStatus.transport.lastLatencyMs }) : ""}</p>{bridgeStatus.transport.lastError && <p className="text-warning">{getSftpStatusMessage(bridgeStatus.transport)}</p>}</div>}
                     </div>
                   </div>

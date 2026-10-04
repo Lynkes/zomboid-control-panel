@@ -107,6 +107,21 @@ container. It holds the Docker socket (root-equivalent on the host).
   and the updater refuses any archive that doesn't match. Without it, the
   updater logs a warning and the only integrity guarantee is GitHub TLS plus
   repository integrity.
+
+  **This pins exactly one release.** The hash belongs to one version's
+  archive, so while it is set the updater refuses *every* other version,
+  including newer ones — the panel's "Update" button will fail with a
+  checksum mismatch. To move to a new release:
+
+  1. Download that release's archive and compute its hash
+     (`curl -sL <archive url> | sha256sum`), ideally on a different machine
+     or network than the panel host, and compare with a hash published by
+     the maintainer if one exists.
+  2. Put the new hash in `PANEL_DOCKER_UPDATE_SHA256` in `.env`.
+  3. Recreate the updater container so it picks up the new value
+     (`docker compose up -d updater`), then run the update.
+
+  Leave it empty if you prefer one-click updates over a pinned release.
 - The updater token (`PANEL_DOCKER_UPDATER_TOKEN`) lives in the panel
   container's environment. Anyone with code execution in the panel can use
   it (and the socket) to run their own images as root on the host — treat

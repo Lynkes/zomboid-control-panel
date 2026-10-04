@@ -5,7 +5,7 @@ import SftpClient from 'ssh2-sftp-client';
 import { createLogger } from '../utils/logger.js';
 import { getDataPaths } from '../utils/paths.js';
 import { ErrorCode } from '../utils/errorCodes.js';
-import { hostKeyVerifier } from './sftpHostKeys.js';
+import { HOST_KEY_REFUSED_RE, hostKeyVerifier } from './sftpHostKeys.js';
 
 const log = createLogger('Bridge:SFTP');
 
@@ -52,6 +52,15 @@ function hasSameContent(firstPath, secondPath) {
 // patterns are more specific and must be checked first (e.g. a chrooted
 // account's mkdir failure also contains "permission denied").
 const SFTP_ERROR_CLASSIFIERS = [
+  {
+    // First: a refused host key must never be read as a generic failure --
+    // retrying cannot fix it, and "just retry" is the wrong advice for a
+    // possible man-in-the-middle (sftpHostKeys.js, security audit M3).
+    code: ErrorCode.SFTP_HOST_KEY_MISMATCH,
+    guidance:
+      'This server\'s SSH host key is not the one the panel saved the first time it connected. If you rebuilt or reinstalled the server, confirm the new key with your host, then use "Trust new host key" in Settings > PanelBridge > SFTP. If nothing changed on the server, do not trust it: someone may be intercepting the connection.',
+    test: (message) => HOST_KEY_REFUSED_RE.test(message),
+  },
   {
     code: ErrorCode.SFTP_CHROOTED_ACCOUNT,
     guidance:

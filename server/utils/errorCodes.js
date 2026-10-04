@@ -1645,6 +1645,11 @@ export const ErrorCode = Object.freeze({
    * classifySftpError()'s ordered list -- always matches, never actually
    * "unregistered". */
   SFTP_CHROOTED_ACCOUNT: "SFTP_CHROOTED_ACCOUNT",
+  /** Same file -- the server presented a different SSH host key than the
+   * one pinned on first connection (services/sftpHostKeys.js), so the
+   * connection was refused. Rebuilt server, or a man-in-the-middle; the
+   * operator decides via "Trust new host key". */
+  SFTP_HOST_KEY_MISMATCH: "SFTP_HOST_KEY_MISMATCH",
   /** Same file, sibling of SFTP_CHROOTED_ACCOUNT above -- wrong username or
    * password, or the account can't complete the SSH handshake at all. */
   SFTP_AUTH_FAILED: "SFTP_AUTH_FAILED",

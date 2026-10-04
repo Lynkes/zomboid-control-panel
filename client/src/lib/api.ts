@@ -2753,6 +2753,16 @@ export const panelBridgeApi = {
     nextStep: string;
   }>,
 
+  // Forget the pinned SSH host key for this host so the next connection
+  // trusts the key the server presents then ("Trust new host key").
+  forgetSftpHostKey: (target: { host: string; port: string }) =>
+    apiPost("/panel-bridge/sftp/forget-host-key", target) as Promise<{
+      success: boolean;
+      forgotten: boolean;
+      fingerprint: string | null;
+      storeReset?: boolean;
+    }>,
+
   // Start the bridge
   start: () => apiPost("/panel-bridge/start"),
 

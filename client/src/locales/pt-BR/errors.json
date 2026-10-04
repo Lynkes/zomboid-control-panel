@@ -401,6 +401,7 @@
   "SFTP_PERMISSION_DENIED": "{{detail}} Solução: Dê à conta SFTP permissão de leitura e escrita na pasta remota da ponte e no diretório pai dela.",
   "SFTP_REMOTE_PATH_MISSING": "{{detail}} Solução: Verifique se a pasta remota da ponte é o caminho no VPS até Lua/panelbridge/MyServer. O painel vai criar as pastas inbox e outbox dela assim que o caminho pai estiver correto.",
   "SFTP_PATH_OCCUPIED": "{{detail}} Solução: Remova ou renomeie o diretório que ocupa esse caminho de arquivo da ponte e execute Verificar e preparar SFTP novamente.",
+  "SFTP_HOST_KEY_MISMATCH": "{{detail}} Correção: a chave de host SSH deste servidor não é a que o painel salvou na primeira conexão. Se você reconstruiu ou reinstalou o servidor, confirme a nova chave com seu provedor e use “Confiar na nova chave de host” em Configurações › PanelBridge › SFTP. Se nada mudou no servidor, não confie nela: alguém pode estar interceptando a conexão.",
   "SFTP_UNREACHABLE": "{{detail}} Solução: Verifique o host SFTP, a porta e o firewall, e se a hospedagem permite SFTP a partir do computador deste painel.",
   "SFTP_UNKNOWN": "{{detail}} Solução: Execute Verificar e preparar SFTP novamente. Se ainda falhar, baixe um pacote de suporte e inclua sftp-diagnostics.json.",
   "UNEXPECTED_SERVER_ERROR": "{{detail}} Isso não era esperado — se continuar acontecendo, baixe um pacote de suporte para que o problema possa ser investigado.",

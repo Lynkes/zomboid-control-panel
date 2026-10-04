@@ -448,7 +448,7 @@ function parseOriginList(rawOrigins) {
 // hostnames like 10.evil.com (security audit L4).
 const IPV4_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 
-function isPrivateNetworkHost(host) {
+export function isPrivateNetworkHost(host) {
   if (!host) return false;
   const h = String(host).trim().toLowerCase();
   if (h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "[::1]") return true;
@@ -1439,18 +1439,35 @@ panelBridge.on("configured", ({ path }) => {
 });
 
 // The live heartbeat is consumed by the dashboard/bridge badges (alive,
-// version, serverName, playerCount) for every role, but it also carries
-// host paths (path/filePath) and a live player list (players). The paths are
-// never broadcast (no client consumes them here, and the HTTP status route
-// hides them the same way). The player list is third-party data gated like
-// GET /api/players/, so it travels as its own event to players.view sockets
-// only (security audit M1).
-panelBridge.on("modStatus", async (status) => {
+// version, serverName, playerCount) for every role, but the internal
+// modStatus also carries host paths (path, filePath, lastPath), raw error
+// text that can quote a path, and a live player list. Only an allow-list of
+// the fields those badges read is broadcast -- a delete-list re-leaks the
+// next field someone adds, which is how lastPath slipped through (same
+// rule as pingModStatusView() in services/panelBridge.js). The player list
+// is third-party data gated like GET /api/players/, so it travels as its
+// own event to players.view sockets only (security audit M1).
+const PUBLIC_MOD_STATUS_FIELDS = [
+  "alive",
+  "waiting",
+  "version",
+  "serverName",
+  "playerCount",
+  "timestamp",
+];
+export function publicModStatusView(status) {
+  const view = {};
+  for (const field of PUBLIC_MOD_STATUS_FIELDS) {
+    if (status?.[field] !== undefined) view[field] = status[field];
+  }
+  return view;
+}
+
+panelBridge.on("modStatus", (status) => {
   if (!status) return;
-  const { path: _bridgePath, filePath: _filePath, players, ...base } = status;
-  io.emit("panelBridge:modStatus", base);
-  if (players) {
-    emitToCapabilities(["players.view"], "panelBridge:players", players).catch(() => {});
+  io.emit("panelBridge:modStatus", publicModStatusView(status));
+  if (status.players) {
+    emitToCapabilities(["players.view"], "panelBridge:players", status.players).catch(() => {});
   }
 });
 
@@ -2557,15 +2574,27 @@ export async function socketHasCapability(socket, capability) {
 // content (admin chat, bridge host paths, live player lists) to every
 // authenticated socket regardless of role, bypassing the HTTP gates that
 // protect the same data.
-export async function emitToCapabilities(capabilities, event, payload) {
-  for (const s of io.sockets.sockets.values()) {
-    if (!s.user) continue;
-    for (const capability of capabilities) {
-      if (await socketHasCapability(s, capability)) {
-        s.emit(event, payload);
-        break;
-      }
+export async function emitToCapabilities(capabilities, event, payload, server = io) {
+  // Resolve each distinct role once per broadcast, not once per socket.
+  const roleAllowed = new Map();
+  const allowed = async (s) => {
+    const roleName = s.user.role;
+    if (!roleAllowed.has(roleName)) {
+      roleAllowed.set(
+        roleName,
+        (async () => {
+          for (const capability of capabilities) {
+            if (await socketHasCapability(s, capability)) return true;
+          }
+          return false;
+        })(),
+      );
     }
+    return roleAllowed.get(roleName);
+  };
+  for (const s of [...server.sockets.sockets.values()]) {
+    if (!s.user) continue;
+    if (await allowed(s)) s.emit(event, payload);
   }
 }
 
@@ -3621,6 +3650,44 @@ export function buildChatSocketPayload(data, id) {
   };
 }
 
+// Room types every signed-in role may watch: they are visible in-game to
+// every player anyway. Admin chat, and any room type not in this list
+// (Faction, Safehouse, Radio, a Private whisper...), goes only to roles
+// holding PRIVATE_CHAT_CAPABILITIES (security audit M1). That is
+// players.moderate -- the in-game moderation authority moderators,
+// technicians and admins all hold -- not rcon.execute, which would have cut
+// the moderator role off from the very admin chat it exists to take part in.
+export const PUBLIC_CHAT_ROOM_TYPES = new Set([
+  "Local",
+  "Shout",
+  "Say",
+  "General",
+  "Roleplay",
+  "Server Alert",
+  "Server chat",
+]);
+export const PRIVATE_CHAT_CAPABILITIES = ["players.moderate"];
+
+export function isPublicChatMessage(data) {
+  if (data?.type === "admin") return false;
+  const roomType = String(data?.sourceChatType || "").trim();
+  return !roomType || PUBLIC_CHAT_ROOM_TYPES.has(roomType);
+}
+
+// Every message -- public or not -- goes through one promise chain, so a
+// restricted message whose recipients are still being resolved (async role
+// lookups) cannot be overtaken by the public line that followed it in the
+// log. A failed send is reported and the chain keeps going.
+export function createChatBroadcaster({ emitPublic, emitRestricted, onError = () => {} }) {
+  let chain = Promise.resolve();
+  return (data, payload) => {
+    chain = chain
+      .then(() => (isPublicChatMessage(data) ? emitPublic(payload) : emitRestricted(payload)))
+      .catch(onError);
+    return chain;
+  };
+}
+
 // Initialize and start server
 async function start() {
   try {
@@ -3787,29 +3854,19 @@ async function start() {
     // counter: one log chunk emits several lines within the same millisecond,
     // and the client discards a message whose id it has already seen.
     let chatMessageSeq = 0;
-    // Room types every signed-in role may watch (they are visible in-game to
-    // every player anyway). Admin chat — and any room type not in this list,
-    // e.g. a private/whisper room if the log carries one — mirrors the
-    // console's rcon.execute gate instead of reaching every socket
-    // (security audit M1).
-    const PUBLIC_CHAT_ROOM_TYPES = new Set([
-      "Local",
-      "Shout",
-      "Say",
-      "General",
-      "Roleplay",
-      "Server Alert",
-      "Server chat",
-    ]);
+    // Public rooms go to every socket; admin chat and private rooms go only
+    // to moderation roles (see isPublicChatMessage). Every message -- public
+    // or not -- goes through one promise chain, so a restricted message whose
+    // recipients are still being resolved cannot be overtaken by the public
+    // line that followed it in the log.
+    const broadcastChat = createChatBroadcaster({
+      emitPublic: (payload) => io.emit("chat:message", payload),
+      emitRestricted: (payload) =>
+        emitToCapabilities(PRIVATE_CHAT_CAPABILITIES, "chat:message", payload),
+      onError: (error) => log.debug(`Chat broadcast failed: ${error.message}`),
+    });
     logTailer.on("chatMessage", (data) => {
-      const payload = buildChatSocketPayload(data, `${Date.now()}-${chatMessageSeq++}`);
-      const roomType = String(data.sourceChatType || "").trim();
-      const isPublic = data.type !== "admin" && (!roomType || PUBLIC_CHAT_ROOM_TYPES.has(roomType));
-      if (isPublic) {
-        io.emit("chat:message", payload);
-      } else {
-        emitToCapabilities(["rcon.execute"], "chat:message", payload).catch(() => {});
-      }
+      broadcastChat(data, buildChatSocketPayload(data, `${Date.now()}-${chatMessageSeq++}`));
     });
 
     // Player death events parsed from B42 user.txt — forward to Discord

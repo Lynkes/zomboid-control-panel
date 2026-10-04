@@ -9,8 +9,10 @@
 //
 // First connection to a host trusts and pins its key (logged); every later
 // connection must present the same key or is refused. To re-trust a host
-// after a legitimate key change, remove its entry from that setting (advanced
-// settings / panel data), after verifying the new fingerprint out of band.
+// after a legitimate key change (a rebuilt/reinstalled server), use
+// Settings › PanelBridge › SFTP › "Trust new host key" (forgetHostKey()
+// below, POST /api/panel-bridge/sftp/forget-host-key): the next connection
+// pins whatever key the server presents then.
 import { createHash } from "node:crypto";
 import { getSetting, setSetting } from "../database/init.js";
 
@@ -65,6 +67,32 @@ export async function verifyHostKey(host, port, hashedKey, { log } = {}) {
     return false;
   }
 }
+
+/**
+ * Drop the pin for one host so the next connection trusts and pins whatever
+ * key it presents. Only ever called from an explicit operator action. A pin
+ * store that cannot be parsed protects nothing (every connection is already
+ * refused), so it is reset rather than leaving the operator stuck.
+ * Returns { forgotten, fingerprint } -- fingerprint of the removed pin, if any.
+ */
+export async function forgetHostKey(host, port) {
+  const id = hostId(host, port);
+  let pins;
+  try {
+    pins = await readPins();
+  } catch {
+    await setSetting(KNOWN_HOSTS_SETTING, JSON.stringify({}));
+    return { forgotten: true, fingerprint: null, storeReset: true };
+  }
+  const known = pins[id];
+  if (!known) return { forgotten: false, fingerprint: null };
+  delete pins[id];
+  await setSetting(KNOWN_HOSTS_SETTING, JSON.stringify(pins));
+  return { forgotten: true, fingerprint: shortFingerprint(known) };
+}
+
+// ssh2's own message when hostVerifier refuses a key (lib/protocol/kex.js).
+export const HOST_KEY_REFUSED_RE = /host denied \(verification failed\)/i;
 
 /**
  * ssh2 `hostVerifier` in callback form (we must not return the promise:

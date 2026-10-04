@@ -484,6 +484,8 @@
     "remoteBridgeFolderLabel": "Carpeta remota del puente en el VPS",
     "remoteBridgeFolderHelp": "Usa la ruta tal como la ve esta cuenta de SFTP. No introduzcas una ruta de Windows ni una ruta de tu ordenador local.",
     "syncIntervalLabel": "Intervalo de sincronización (segundos)",
+    "trustNewHostKey": "Confiar en la nueva clave de host",
+    "hostKeyMismatchWarning": "El servidor SFTP presentó una clave de host distinta de la que el panel guardó en su primera conexión. Confía en la nueva clave solo si reconstruiste o reinstalaste el servidor y confirmaste el cambio con tu proveedor; de lo contrario, alguien podría estar interceptando la conexión.",
     "verifyAndPrepare": "Verificar y preparar SFTP",
     "startSftpBridge": "Iniciar puente SFTP",
     "sftpRunning": "en ejecución",
@@ -1085,6 +1087,7 @@
     "sftpFoldersReady": {
       "title": "Carpetas SFTP listas"
     },
+    "sftpHostKeyForgotten": { "title": "Clave de host guardada eliminada", "description": "El panel guardará la clave actual del servidor en la próxima conexión." },
     "sftpTestFailed": {
       "title": "Error en la prueba SFTP",
       "fallback": "No se pudo conectar por SFTP."

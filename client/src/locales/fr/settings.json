@@ -484,6 +484,8 @@
     "remoteBridgeFolderLabel": "Dossier bridge distant sur le VPS",
     "remoteBridgeFolderHelp": "Utilisez le chemin tel que vu par ce compte SFTP. Ne saisissez pas un chemin Windows ou un chemin de votre ordinateur local.",
     "syncIntervalLabel": "Intervalle de synchronisation (secondes)",
+    "trustNewHostKey": "Faire confiance à la nouvelle clé d'hôte",
+    "hostKeyMismatchWarning": "Le serveur SFTP a présenté une clé d'hôte différente de celle enregistrée par le panneau lors de sa première connexion. Ne faites confiance à la nouvelle clé que si vous avez reconstruit ou réinstallé le serveur et confirmé le changement auprès de votre hébergeur — sinon quelqu'un intercepte peut-être la connexion.",
     "verifyAndPrepare": "Vérifier et préparer SFTP",
     "startSftpBridge": "Démarrer le bridge SFTP",
     "sftpRunning": "en cours d'exécution",
@@ -1085,6 +1087,7 @@
     "sftpFoldersReady": {
       "title": "Dossiers SFTP prêts"
     },
+    "sftpHostKeyForgotten": { "title": "Clé d'hôte enregistrée supprimée", "description": "Le panneau enregistrera la clé actuelle du serveur à la prochaine connexion." },
     "sftpTestFailed": {
       "title": "Échec du test SFTP",
       "fallback": "Impossible de se connecter au SFTP."
