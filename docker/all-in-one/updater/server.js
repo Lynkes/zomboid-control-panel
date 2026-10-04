@@ -14,6 +14,11 @@ const PANEL_SERVICE = process.env.PANEL_SERVICE || "panel";
 const PANEL_CONTAINER = process.env.PANEL_CONTAINER || "zomboid-panel";
 const PANEL_IMAGE = process.env.PANEL_IMAGE || "zomboid-panel-allinone:latest";
 const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || "fpsacha/zomboid-control-panel";
+// security audit M5: optional. When set, the downloaded release archive must
+// match this SHA-256 or the update is refused. GitHub publishes checksums for
+// release artifacts (checksums.txt) but not for source tarballs, so a
+// deployment that wants verification pins the expected archive hash here.
+const UPDATE_SHA256 = String(process.env.UPDATE_SHA256 || "").trim().toLowerCase();
 const HEALTH_TIMEOUT_MS = 120000;
 
 let updateState = { status: "idle", version: null, message: null, startedAt: null, completedAt: null };
@@ -40,6 +45,12 @@ function rollbackTag(image) {
   return separator > image.lastIndexOf("/")
     ? `${image.slice(0, separator)}:rollback`
     : `${image}:rollback`;
+}
+
+async function sha256File(filePath) {
+  const hash = crypto.createHash("sha256");
+  hash.update(await fs.readFile(filePath));
+  return hash.digest("hex");
 }
 
 function isAuthorized(request) {
@@ -99,6 +110,18 @@ async function update(version) {
   try {
     await fs.mkdir(extractedDir, { recursive: true });
     await run("curl", ["--fail", "--location", "--silent", "--show-error", "--output", archivePath, `https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/v${version}.tar.gz`]);
+    // security audit M5: verify the archive when a checksum is pinned, and say
+    // so loudly when it is not. The updater holds the Docker socket, so an
+    // unverified archive is a root-code path.
+    const archiveSha256 = await sha256File(archivePath);
+    if (UPDATE_SHA256) {
+      if (archiveSha256 !== UPDATE_SHA256) {
+        throw new Error(`Release archive checksum mismatch (expected ${UPDATE_SHA256}, got ${archiveSha256}); refusing to update`);
+      }
+      console.log(`[updater] release archive checksum verified (${archiveSha256})`);
+    } else {
+      console.warn(`[updater] UPDATE_SHA256 is not set — release archive ${archiveSha256} was NOT checksum-verified. Set UPDATE_SHA256 to pin a release.`);
+    }
     await run("tar", ["-xzf", archivePath, "-C", extractedDir]);
     const entries = await fs.readdir(extractedDir, { withFileTypes: true });
     const sourceEntry = entries.find((entry) => entry.isDirectory());

@@ -429,7 +429,7 @@ class AuthService {
 
   async authenticateAccessToken(token) {
     try {
-      const payload = jwt.verify(token, this.jwtSecret);
+      const payload = jwt.verify(token, this.jwtSecret, { algorithms: ["HS256"] });
       if (payload.type === "refresh") {
         return null;
       }
@@ -960,7 +960,7 @@ class AuthService {
         tokenGen: user.tokenGen || 0,
       },
       this.jwtSecret,
-      { expiresIn: ACCESS_TOKEN_EXPIRY },
+      { algorithm: "HS256", expiresIn: ACCESS_TOKEN_EXPIRY },
     );
   }
 
@@ -977,7 +977,7 @@ class AuthService {
         sessionId,
       },
       this.jwtSecret,
-      { expiresIn: REFRESH_TOKEN_EXPIRY },
+      { algorithm: "HS256", expiresIn: REFRESH_TOKEN_EXPIRY },
     );
   }
 
@@ -986,7 +986,7 @@ class AuthService {
    */
   verifyAccessToken(token) {
     try {
-      const payload = jwt.verify(token, this.jwtSecret);
+      const payload = jwt.verify(token, this.jwtSecret, { algorithms: ["HS256"] });
       // Reject refresh tokens used as access tokens (token type confusion)
       if (payload.type === "refresh") return null;
       return payload;
@@ -1001,7 +1001,7 @@ class AuthService {
    */
   async refreshAccessToken(refreshToken) {
     try {
-      const payload = jwt.verify(refreshToken, this.jwtSecret);
+      const payload = jwt.verify(refreshToken, this.jwtSecret, { algorithms: ["HS256"] });
       if (payload.type !== "refresh") {
         throw new Error("Invalid token type");
       }
@@ -1405,7 +1405,7 @@ class AuthService {
     }
 
     try {
-      const payload = jwt.verify(refreshToken, this.jwtSecret);
+      const payload = jwt.verify(refreshToken, this.jwtSecret, { algorithms: ["HS256"] });
       if (
         !payload ||
         typeof payload !== "object" ||
@@ -1583,20 +1583,27 @@ class AuthService {
   middleware() {
     return async (req, res, next) => {
       try {
+        // Normalize the path ONCE, and use it for every check below.
+        // Express routes case-insensitively by default, so "/API/config/..."
+        // reaches the same handlers as "/api/config/..." — with a
+        // case-sensitive guard here, an uppercase path skipped this
+        // middleware entirely while still being routed (security audit H1).
+        const apiPath = req.path.toLowerCase();
+
         // Only protect API routes — let static files and SPA page routes through
-        if (!req.path.startsWith("/api")) {
+        if (!apiPath.startsWith("/api")) {
           return next();
         }
 
         // Only these specific /api/auth/* paths (including the three
         // /api/auth/oidc/* ones) run before req.user is set — NOT any
         // whole prefix (see PUBLIC_AUTH_PATHS above for why).
-        if (PUBLIC_AUTH_PATHS.has(req.path)) {
+        if (PUBLIC_AUTH_PATHS.has(apiPath)) {
           return next();
         }
 
         // Allow health check
-        if (req.path === "/api/health") {
+        if (apiPath === "/api/health") {
           return next();
         }
 
@@ -1605,9 +1612,9 @@ class AuthService {
         // /toptiles/ (B42 top-down for ChunkCleaner) must bypass — the proxy itself
         // only forwards to the hardcoded public domain, so there's no SSRF surface.
         if (
-          req.path.startsWith("/api/map/tiles/") ||
-          req.path.startsWith("/api/map/b41tiles/") ||
-          req.path.startsWith("/api/map/toptiles/")
+          apiPath.startsWith("/api/map/tiles/") ||
+          apiPath.startsWith("/api/map/b41tiles/") ||
+          apiPath.startsWith("/api/map/toptiles/")
         ) {
           return next();
         }
@@ -1619,7 +1626,7 @@ class AuthService {
         // gate to match (see the comment above that router.use() there); if
         // that carve-out is ever removed, this route 401s for everyone again
         // (9c6ce2e / v1.2.0, conv-mods-thumbnails).
-        if (req.path.startsWith("/api/mods/thumbnail/")) {
+        if (apiPath.startsWith("/api/mods/thumbnail/")) {
           return next();
         }
 
@@ -1628,7 +1635,7 @@ class AuthService {
         // so it gets its own narrow exemption rather than inheriting one.
         // Its own rate limit and body-size cap live in server/index.js;
         // nothing here trusts its content.
-        if (req.path === "/api/debug/client-errors") {
+        if (apiPath === "/api/debug/client-errors") {
           return next();
         }
 

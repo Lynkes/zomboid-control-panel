@@ -61,7 +61,7 @@ function getHandler(routePath) {
   return stack[stack.length - 1].handle;
 }
 
-function fakeReq(body, io = { emit: vi.fn() }) {
+function fakeReq(body, io = { emit: vi.fn(), to() { return this; } }) {
   return { app: { get: () => io }, body };
 }
 
@@ -169,7 +169,7 @@ describe("POST /api/server/install refuses an out-of-range numeric field", () =>
           minMemory: 4,
           maxMemory: 8,
         }),
-        { emit: vi.fn() },
+        { emit: vi.fn(), to() { return this; } },
       ),
       response,
     );

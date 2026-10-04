@@ -139,6 +139,33 @@ describe("authService.middleware() — /api/auth/* is no longer a blanket exempt
     expect(res.status).not.toHaveBeenCalled();
     expect(req.user).toMatchObject({ role: "admin", authDisabled: true });
   });
+
+  // Security audit H1 (1.4.3): Express routes case-insensitively by default,
+  // so a case-sensitive `req.path.startsWith("/api")` guard was skipped by
+  // "/API/..." while the request still reached the same route. Live-found:
+  // GET /API/config/app-settings returned 200 unauthenticated on a running
+  // panel while GET /api/config/app-settings returned 401. These pin the
+  // normalized guard in both directions.
+  it.each([
+    "/API/config/app-settings",
+    "/Api/servers",
+    "/API/panel-info",
+    "/API/auth/users",
+    "/API/map/secrets-not-a-real-route",
+  ])("H1: %s is refused (401) with no token — no case variant skips the middleware", async (path) => {
+    const { next, res } = await run(path);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(401);
+  });
+
+  it.each(["/API/auth/login", "/API/auth/status", "/API/health", "/API/map/tiles/42/0/0/0.png"])(
+    "H1: public path %s stays reachable with no token, whatever the case",
+    async (path) => {
+      const { next, res } = await run(path);
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(res.status).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("requireRole() — the guard itself fails closed, independent of middleware()", () => {

@@ -54,6 +54,9 @@ services:
       PANEL_CONTAINER: zomboid-panel
       PANEL_IMAGE: zomboid-panel-allinone:latest
       GITHUB_REPOSITORY: fpsacha/zomboid-control-panel
+      # security audit M5: optional SHA-256 of the release source archive.
+      # When set, the updater refuses any archive that does not match it.
+      UPDATE_SHA256: ${PANEL_DOCKER_UPDATE_SHA256:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PANEL_BUILD_DIR:?Set PANEL_BUILD_DIR in .env}:/build

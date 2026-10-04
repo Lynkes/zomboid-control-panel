@@ -5,6 +5,7 @@ import SftpClient from 'ssh2-sftp-client';
 import { createLogger } from '../utils/logger.js';
 import { getDataPaths } from '../utils/paths.js';
 import { ErrorCode } from '../utils/errorCodes.js';
+import { hostKeyVerifier } from './sftpHostKeys.js';
 
 const log = createLogger('Bridge:SFTP');
 
@@ -284,6 +285,11 @@ function connectSftpClient(client, config) {
     username: config.username,
     password: config.password,
     readyTimeout: 10000,
+    // security audit M3: pin the server host key (trust on first use) so an
+    // on-path attacker cannot impersonate the remote host and harvest the
+    // SFTP password / bridge traffic.
+    hostHash: "sha256",
+    hostVerifier: hostKeyVerifier(config.host, config.port, { log }),
   });
 }
 

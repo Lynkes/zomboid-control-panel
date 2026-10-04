@@ -320,6 +320,18 @@ export default function ChunkCleaner() {
   const runtimeInfo = useRuntimeInfo();
   const { theme } = useTheme();
   const socket = useSocket();
+  // Join the chunk-scan room (security audit M1: chunkScan:progress was
+  // broadcast to every signed-in socket; the scan routes are gated
+  // chunks.manage). Re-emitted on every reconnect.
+  useEffect(() => {
+    if (!socket) return;
+    const subscribeChunkScan = () => socket.emit("subscribe:chunkscan");
+    if (socket.connected) subscribeChunkScan();
+    socket.on("connect", subscribeChunkScan);
+    return () => {
+      socket.off("connect", subscribeChunkScan);
+    };
+  }, [socket]);
   const { can } = useAuth();
   // Bound to routes/chunks.js's requirePermission("chunks.manage") on both
   // /chunks/save-path and /chunks/delete-chunks -- the same capability for

@@ -82,7 +82,7 @@ const router = express.Router();
 // is invisible, and the next reorder of this file breaks it again silently.
 const requireModsManage = requirePermission("mods.manage");
 router.use((req, res, next) => {
-  if (req.path.startsWith("/thumbnail/")) return next();
+  if (req.path.toLowerCase().startsWith("/thumbnail/")) return next();
   return requireModsManage(req, res, next);
 });
 

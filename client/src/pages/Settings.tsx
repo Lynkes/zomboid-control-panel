@@ -2186,9 +2186,10 @@ export default function Settings() {
           serverName: data.serverName || prevModStatus?.serverName || "",
           // When alive, use playerCount (defaulting to 0); when offline, leave undefined
           playerCount: data.alive ? (data.playerCount ?? 0) : undefined,
-          players: Array.isArray(data.players)
-            ? data.players
-            : Object.keys(data.players || {}),
+          // The live player list arrives as its own event
+          // (panelBridge:players, gated players.view) — keep the current
+          // list here so the separate event can update it without flicker.
+          players: prevModStatus?.players || [],
           path: data.path || prevModStatus?.path || "",
           timestamp: data.timestamp || Date.now(),
         };
@@ -2209,13 +2210,38 @@ export default function Settings() {
       fetchBridgeStatusRef.current();
     };
 
+    // security audit M1: the live player list is no longer part of
+    // panelBridge:modStatus (which every role receives); it arrives as a
+    // separate event, sent only to sockets holding players.view.
+    const handleBridgePlayers = (players: string[] | Record<string, unknown>) => {
+      setBridgeStatus((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          modStatus: {
+            ...prev.modStatus,
+            alive: prev.modStatus?.alive ?? true,
+            version: prev.modStatus?.version || "",
+            serverName: prev.modStatus?.serverName || "",
+            path: prev.modStatus?.path || "",
+            timestamp: prev.modStatus?.timestamp || Date.now(),
+            players: Array.isArray(players)
+              ? players
+              : Object.keys(players || {}),
+          } as NonNullable<typeof prev.modStatus>,
+        };
+      });
+    };
+
     socket.on("panelBridge:status", handleBridgeStatus);
     socket.on("panelBridge:modStatus", handleModStatus);
+    socket.on("panelBridge:players", handleBridgePlayers);
     socket.on("panelBridge:configured", handleBridgeConfigured);
 
     return () => {
       socket.off("panelBridge:status", handleBridgeStatus);
       socket.off("panelBridge:modStatus", handleModStatus);
+      socket.off("panelBridge:players", handleBridgePlayers);
       socket.off("panelBridge:configured", handleBridgeConfigured);
     };
   }, [socket]); // Only depend on socket, use ref for fetchBridgeStatus

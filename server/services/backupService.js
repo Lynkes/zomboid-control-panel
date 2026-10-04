@@ -1779,11 +1779,32 @@ export class BackupService {
       // fully succeeded. Deleting the live save first meant a truncated or
       // corrupt archive destroyed the world with nothing to fall back to.
       // A sibling keeps the swap on the same filesystem, so it stays a rename.
-      stagingPath = path.join(
-        savesParentPath,
-        `.restore-staging-${Date.now()}-${process.pid}`,
-      );
-      fs.mkdirSync(stagingPath, { recursive: true });
+      // security audit M4: the name is random and mkdir is non-recursive
+      // (EEXIST = retry), and the created directory is verified to be a real
+      // directory that resolves inside the saves parent — the old
+      // Date.now()-pid name plus recursive mkdir followed a pre-planted
+      // symlink, while the zip-slip guard below is lexical and stayed inside
+      // the symlink path.
+      for (let attempt = 0; ; attempt++) {
+        stagingPath = path.join(savesParentPath, `.restore-staging-${randomUUID()}`);
+        try {
+          fs.mkdirSync(stagingPath, { recursive: false });
+          break;
+        } catch (error) {
+          if (error.code === "EEXIST" && attempt < 5) continue;
+          throw error;
+        }
+      }
+      if (!fs.lstatSync(stagingPath).isDirectory()) {
+        throw new Error("Cannot restore: staging path is not a directory");
+      }
+      const realSavesParent = fs.realpathSync(savesParentPath);
+      if (
+        fs.realpathSync(stagingPath) !==
+        path.join(realSavesParent, path.basename(stagingPath))
+      ) {
+        throw new Error("Cannot restore: staging directory resolves outside the saves folder");
+      }
 
       // Extract the backup with zip-slip protection
       log.info("Extracting backup to staging area...");

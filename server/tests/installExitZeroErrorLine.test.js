@@ -78,6 +78,9 @@ function fakeIoCapturingComplete() {
       if (event === "install:complete") resolveComplete(payload);
     }),
   };
+  // install:* events are now routed to the "install" socket room; the mock
+  // forwards room sends back to the same spy so existing assertions stand.
+  io.to = vi.fn(() => io);
   return { io, completePromise };
 }
 

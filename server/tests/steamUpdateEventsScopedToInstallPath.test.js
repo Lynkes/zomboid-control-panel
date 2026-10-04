@@ -127,7 +127,7 @@ async function waitForSpawnCount(n) {
 describe("POST /api/server/steam-update: steam:* events are scoped to their own installPath", () => {
   it("tags steam:start, steam:log and steam:complete with the requesting installPath, distinct per concurrent operation", async () => {
     const handler = getSteamUpdateHandler();
-    const io = { emit: vi.fn() };
+    const io = { emit: vi.fn(), to: vi.fn() }; io.to.mockReturnValue(io);
     const installPathA = path.join(root, "install-a");
     const installPathB = path.join(root, "install-b");
     fs.mkdirSync(installPathA, { recursive: true });

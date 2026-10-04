@@ -80,9 +80,42 @@ remote server over its PanelBridge SFTP login.
   window (per-component checks, descriptor checks, `link(2)` landing) but
   can't close it without OS support Node doesn't offer. Anyone able to do
   that already controls the folder the game runs from.
-- **No SFTP host-key pinning yet.** Like the bridge sync and the config
-  mirror, the file manager's SFTP connection doesn't verify the remote
-  host's key. Pinning will come for all three at once.
+- **SFTP host-key pinning (trust on first use).** Every outbound SFTP
+  connection (file manager, bridge sync, config mirror, remote log tail)
+  verifies the remote host's key against the `sftpKnownHosts` panel setting.
+  The first connection to a host trusts and pins its key (logged with its
+  `SHA256:` fingerprint); a later connection presenting a different key is
+  refused as a possible man-in-the-middle. If a remote host legitimately
+  changes its key, verify the new fingerprint out of band and remove that
+  host's entry from the setting to re-trust it.
 - **Audit.** Every change, download and refusal is recorded (who, from
   where, which files, never their content) in the panel database and in the
   panel's log folder, which the file manager itself can't touch.
+- **Known limit (backup restore expansion).** A holder of `backups.manage`
+  can upload an archive that expands to more data than it compresses to;
+  restore extraction is bounded by free disk space only. Keep the backup
+  store and that capability trusted.
+
+## Panel update (all-in-one Docker)
+
+The `updater` container applies panel updates by downloading the release
+source archive from GitHub, rebuilding the panel image and recreating the
+container. It holds the Docker socket (root-equivalent on the host).
+
+- Set `PANEL_DOCKER_UPDATE_SHA256` to the SHA-256 of the release source
+  archive (`https://github.com/<repo>/archive/refs/tags/v<version>.tar.gz`)
+  and the updater refuses any archive that doesn't match. Without it, the
+  updater logs a warning and the only integrity guarantee is GitHub TLS plus
+  repository integrity.
+- The updater token (`PANEL_DOCKER_UPDATER_TOKEN`) lives in the panel
+  container's environment. Anyone with code execution in the panel can use
+  it (and the socket) to run their own images as root on the host — treat
+  panel RCE as host compromise.
+
+## Role trust levels
+
+Some capabilities are code-execution equivalents on the panel host by
+design: `server.install` (install/setup commands), `files.manage` (file
+manager, including launch scripts) and `servers.manage` (custom launcher or
+start command). The default `technician` role holds all three. Grant them
+only to people you would trust with a shell on the host.

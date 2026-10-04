@@ -20,6 +20,10 @@ describe("SENSITIVE_FIELD_RE / maskSensitiveObject", () => {
       steamLoginSecure: "login-secure-abcd",
       panelBridgeSftpPassword: "sftp-pass-abcd",
       discordWebhookUrl: "webhook-abcd",
+      // security audit L2: recovery-code hashes were returned unmasked by
+      // GET /api/config/app-settings.
+      authRecoveryCodes: '[{"hash":"abc123","usedAt":null}]',
+      authRecoveryCodesCreatedAt: "2026-01-01T00:00:00.000Z",
       darkMode: true,
       serverName: "MyServer",
     };
@@ -35,6 +39,8 @@ describe("SENSITIVE_FIELD_RE / maskSensitiveObject", () => {
       "steamLoginSecure",
       "panelBridgeSftpPassword",
       "discordWebhookUrl",
+      "authRecoveryCodes",
+      "authRecoveryCodesCreatedAt",
     ]) {
       expect(masked[key]).toMatch(/^••••••••/);
       expect(masked[key]).not.toBe(settings[key]);

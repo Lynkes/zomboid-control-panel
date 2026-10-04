@@ -179,7 +179,7 @@ router.use(async (req, res, next) => {
   const { activeServer, serverName } = req.activeServerContext;
   if (!activeServer?.isRemote) return next();
 
-  if (LOCAL_ONLY_PATHS.has(req.path)) {
+  if (LOCAL_ONLY_PATHS.has(req.path.toLowerCase())) {
     return res.status(400).json({
       error:
         "Browsing the server filesystem is not available for remote servers.",
@@ -300,14 +300,14 @@ const LOCAL_CONFIG_MUTATIONS = new Set([
 // pending its own evidence rather than inheriting the edit ruling by
 // assumption.
 function isLocalConfigOverwrite(req) {
-  if (req.method === "POST" && /^\/templates\/[^/]+\/apply$/.test(req.path)) {
+  if (req.method === "POST" && /^\/templates\/[^/]+\/apply$/i.test(req.path)) {
     return true;
   }
-  return req.method === "POST" && /^\/restore\/[^/]+$/.test(req.path);
+  return req.method === "POST" && /^\/restore\/[^/]+$/i.test(req.path);
 }
 
 function isLocalConfigEdit(req) {
-  return LOCAL_CONFIG_MUTATIONS.has(`${req.method} ${req.path}`);
+  return LOCAL_CONFIG_MUTATIONS.has(`${req.method} ${req.path.toLowerCase()}`);
 }
 
 export function isLocalConfigMutation(req) {

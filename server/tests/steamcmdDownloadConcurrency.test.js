@@ -94,7 +94,7 @@ describe("POST /api/server/steamcmd/download concurrency guard", () => {
       path.join(os.tmpdir(), "pz-steamcmd-download-race-"),
     );
     const installPath = path.join(root, "steamcmd");
-    const io = { emit: vi.fn() };
+    const io = { emit: vi.fn(), to: vi.fn() }; io.to.mockReturnValue(io);
     const app = { get: (key) => (key === "io" ? io : undefined) };
 
     try {
@@ -149,7 +149,7 @@ describe("POST /api/server/steamcmd/download concurrency guard", () => {
       path.join(os.tmpdir(), "pz-steamcmd-download-race2-"),
     );
     const installPath = path.join(root, "steamcmd");
-    const io = { emit: vi.fn() };
+    const io = { emit: vi.fn(), to: vi.fn() }; io.to.mockReturnValue(io);
     const app = { get: (key) => (key === "io" ? io : undefined) };
 
     try {

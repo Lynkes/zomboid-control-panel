@@ -114,6 +114,9 @@ function fakeIoCapturingComplete() {
       if (event === "install:complete") resolveComplete(payload);
     }),
   };
+  // install:* events are now routed to the "install" socket room; the mock
+  // forwards room sends back to the same spy so existing assertions stand.
+  io.to = vi.fn(() => io);
   return { io, completePromise, emitted };
 }
 
@@ -583,7 +586,7 @@ describe("SteamCMD first-run bootstrap watchdog", () => {
     child.stderr = new EventEmitter();
     child.kill = vi.fn();
     spawnMock.mockReturnValue(child);
-    const io = { emit: vi.fn() };
+    const io = { emit: vi.fn(), to: vi.fn() }; io.to.mockReturnValue(io);
 
     vi.useFakeTimers();
     const pending = runSteamCmdFirstTimeSetup(process.execPath, os.tmpdir(), io);

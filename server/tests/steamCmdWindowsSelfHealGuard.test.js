@@ -172,7 +172,7 @@ describe("Windows SteamCMD self-heal shares one download guard with the manual d
     const downloadHandler = getHandler(router, "/steamcmd/download");
     const installHandler = getHandler(router, "/install");
 
-    const io = { emit: vi.fn() };
+    const io = { emit: vi.fn(), to: vi.fn() }; io.to.mockReturnValue(io);
     const app = { get: (key) => (key === "io" ? io : undefined) };
 
     // Claims steamcmdDownloadInProgress synchronously before its own first
@@ -247,7 +247,7 @@ describe("Windows SteamCMD self-heal shares one download guard with the manual d
 
     const router = await freshRouter();
     const installHandler = getHandler(router, "/install");
-    const io = { emit: vi.fn() };
+    const io = { emit: vi.fn(), to: vi.fn() }; io.to.mockReturnValue(io);
     const app = { get: (key) => (key === "io" ? io : undefined) };
 
     const response = createResponse();

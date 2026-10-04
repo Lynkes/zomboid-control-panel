@@ -20,6 +20,7 @@ import { createLogger } from "../utils/logger.js";
 import { FM_LIMITS, FmError } from "./fileManagerContract.js";
 import { classifySftpErrorCode } from "./panelBridgeSftp.js";
 import { validateRemoteConfigTransport } from "./remoteConfigFiles.js";
+import { hostKeyVerifier } from "./sftpHostKeys.js";
 
 const log = createLogger("FileManager:SFTP");
 
@@ -281,7 +282,16 @@ class FileManagerSftpPool {
     entry.client = client;
     const { host, port, username, password } = this.#transport;
     const connecting = Promise.resolve().then(() =>
-      client.connect({ host, port, username, password, readyTimeout: timeouts.readyMs }),
+      client.connect({
+        host,
+        port,
+        username,
+        password,
+        readyTimeout: timeouts.readyMs,
+        // security audit M3: pin the server host key (trust on first use).
+        hostHash: "sha256",
+        hostVerifier: hostKeyVerifier(host, port, { log }),
+      }),
     );
     entry.ready = withTimeout(connecting, timeouts.readyMs + CONNECT_GRACE_MS).then(
       () => {
