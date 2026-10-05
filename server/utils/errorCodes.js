@@ -2032,7 +2032,7 @@ export const ErrorCode = Object.freeze({
   CONFIG_APP_SETTINGS_REQUIRED: "CONFIG_APP_SETTINGS_REQUIRED",
   /** server/routes/config.js -- PUT /app-settings, caller tried to CHANGE a
    * settings key (rconPassword, Steam credentials, PanelBridge SFTP,
-   * discordGuildId, Workshop session cookies, ...) without holding the
+   * Workshop session cookies, ...) without holding the
    * capability that actually governs it -- panel.settings alone is not
    * enough for these. See SETTINGS_KEY_CAPABILITY in that file. */
   CONFIG_APP_SETTINGS_CAPABILITY_REQUIRED: "CONFIG_APP_SETTINGS_CAPABILITY_REQUIRED",

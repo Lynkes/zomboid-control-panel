@@ -158,10 +158,10 @@ describe("PUT /config/app-settings -- per-key capability partition", () => {
       {
         rconPassword: "new-password",
         steamApiKey: "new-key",
-        discordGuildId: "123456789012345678",
+        workshopCollectionId: "123456789",
       },
       "settings_only",
-      { rconPassword: "old-password", steamApiKey: "old-key", discordGuildId: "old" },
+      { rconPassword: "old-password", steamApiKey: "old-key", workshopCollectionId: "old" },
     );
 
     expect(response.status).toHaveBeenCalledWith(403);
@@ -170,7 +170,7 @@ describe("PUT /config/app-settings -- per-key capability partition", () => {
       expect.arrayContaining([
         { key: "rconPassword", requiredCapability: "server.configure" },
         { key: "steamApiKey", requiredCapability: "server.install" },
-        { key: "discordGuildId", requiredCapability: "integrations.manage" },
+        { key: "workshopCollectionId", requiredCapability: "mods.manage" },
       ]),
     );
     expect(setSetting).not.toHaveBeenCalled();
@@ -209,7 +209,7 @@ describe("PUT /config/app-settings -- per-key capability partition", () => {
         rconPassword: "new-password",
         steamApiKey: "new-key",
         panelBridgeSftpPassword: "new-sftp",
-        discordGuildId: "123456789012345678",
+        workshopCollectionId: "123456789",
         steamSessionId: "new-session",
       },
       "admin",
@@ -217,7 +217,7 @@ describe("PUT /config/app-settings -- per-key capability partition", () => {
         rconPassword: "old-password",
         steamApiKey: "old-key",
         panelBridgeSftpPassword: "old-sftp",
-        discordGuildId: "old",
+        workshopCollectionId: "old",
         steamSessionId: "old-session",
       },
     );
@@ -228,10 +228,7 @@ describe("PUT /config/app-settings -- per-key capability partition", () => {
       "panelBridgeSftpPassword",
       "new-sftp",
     );
-    expect(setSetting).toHaveBeenCalledWith(
-      "discordGuildId",
-      "123456789012345678",
-    );
+    expect(setSetting).toHaveBeenCalledWith("workshopCollectionId", "123456789");
     expect(setSteamSessionCredentials).toHaveBeenCalledWith(
       "new-session",
       undefined,

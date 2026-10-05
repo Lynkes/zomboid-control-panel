@@ -57,9 +57,16 @@ const TECHNICIAN_CAPABILITY_KEYS = [
   "panelBridgeSftpHost",
   "panelBridgeSftpUsername",
   "panelBridgeSftpBridgePath",
+];
+// discordGuildId is /api/discord's (integrations.manage reads it there), not
+// an app setting any more -- see VALID_SETTINGS_KEYS in routes/config.js.
+const INTERNAL = [
+  "preUpdateDataBackupPath",
+  "oidcClientId",
+  "oidcIssuerUrl",
+  "discordBotToken",
   "discordGuildId",
 ];
-const INTERNAL = ["preUpdateDataBackupPath", "oidcClientId", "oidcIssuerUrl", "discordBotToken"];
 
 let baseUrl;
 let httpServer;

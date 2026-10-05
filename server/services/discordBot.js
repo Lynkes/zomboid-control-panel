@@ -751,7 +751,17 @@ export class DiscordBot {
         cleaned[cmd] = level;
       }
     }
-    this.commandPermissions = { ...DEFAULT_COMMAND_PERMISSIONS, ...cleaned };
+    // Merged onto the current tiers, not onto the defaults: a command left
+    // out of `permissions` keeps its tier. Merging onto the defaults let a
+    // partial save (even `{}`) drop every raised tier back to its default
+    // without routes/discord.js's per-command capability check ever seeing
+    // that command (security sweep 2026-10-04, adversary pass on AUTHZ-3).
+    // The settings page sends every command, so nothing it does changes.
+    this.commandPermissions = {
+      ...DEFAULT_COMMAND_PERMISSIONS,
+      ...this.commandPermissions,
+      ...cleaned,
+    };
     await setSetting(
       "discordCommandPermissions",
       JSON.stringify(this.commandPermissions),

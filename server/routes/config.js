@@ -93,10 +93,15 @@ const VALID_SETTINGS_KEYS = [
   "autoReconnect",
   "reconnectInterval",
   // Discord config is owned by /api/discord (discordBotToken,
-  // discordAdminRoleId, ...). The old discordEnabled/discordToken/
-  // discordAdminRole keys are deliberately NOT listed: nothing reads them, so
-  // allowing them here would accept a write that silently never takes effect.
-  "discordGuildId",
+  // discordGuildId, discordAdminRoleId, ...). The old discordEnabled/
+  // discordToken/discordAdminRole keys are deliberately NOT listed: nothing
+  // reads them, so allowing them here would accept a write that silently
+  // never takes effect. discordGuildId isn't listed either (security sweep
+  // 2026-10-04, adversary pass on AUTHZ-3): the bot registers its commands
+  // in that guild and always obeys the guild's owner, so moving it is
+  // handing out every bot command. PUT /api/discord/config requires the
+  // capabilities of those commands for that change; this second door asked
+  // only for integrations.manage. Nothing in the client writes it here.
   "autoStartServer",
   "panelPort",
   "httpsEnabled",
@@ -187,7 +192,6 @@ const SETTINGS_KEY_CAPABILITY = {
   panelBridgeSftpPollIntervalSeconds: "bridge.setup",
   panelBridgeSftpLogPath: "bridge.setup",
   panelBridgeSftpConfigPath: "bridge.setup",
-  discordGuildId: "integrations.manage",
   workshopCollectionId: "mods.manage",
   workshopCollectionAutoSync: "mods.manage",
   steamSessionId: "mods.manage",

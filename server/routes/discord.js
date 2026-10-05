@@ -732,16 +732,16 @@ router.put("/permissions", async (req, res) => {
     // same shape earlier tonight), and re-submitting an unchanged value
     // must never require a capability the caller never needed for the
     // status quo.
-    // discordBot.updateCommandPermissions() does not itself read-merge
-    // against this.commandPermissions (it merges the submitted object onto
-    // DEFAULT_COMMAND_PERMISSIONS, relying on the settings UI to resend
-    // every command's tier each save, same as the comment above already
-    // notes) -- verified before fixing, per the card's instruction, since
-    // this route was pattern-matched to /config and /webhook-events but
-    // not confirmed: it does NOT share their server-side unguarded
-    // read-merge-then-save mechanism, so a config-mutex cannot close a
-    // stale-CLIENT-snapshot lost update here the way it closes the other
-    // two. Still wrapped in the same mutex as /config and /webhook-events
+    // discordBot.updateCommandPermissions() merges the submitted object
+    // onto the current tiers, so a command left out of the body keeps its
+    // tier and the per-command check below sees every tier that changes.
+    // It used to merge onto DEFAULT_COMMAND_PERMISSIONS instead, so a
+    // partial body (even `{}`) reset raised tiers with no check at all --
+    // e.g. /save, /broadcast and /kick back to the moderator tier right
+    // after a mod role was set (security sweep 2026-10-04, adversary pass
+    // on AUTHZ-3). A stale client snapshot still overwrites a newer tier
+    // it does send, so a config-mutex cannot close that lost update here
+    // the way it closes /config's and /webhook-events'. Still wrapped in the same mutex as /config and /webhook-events
     // so this write, the capability check's `current` read just below, and
     // /config's loadConfig() (which also reads discordCommandPermissions)
     // can't interleave with each other.
