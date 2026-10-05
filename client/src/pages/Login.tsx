@@ -3,6 +3,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import { useAuth } from '../contexts/AuthContext'
 import { rawErrorMessageIntentional, getUserErrorMessage } from '../lib/errorMessage'
 import { apiFetch, handleResponse } from '../lib/api'
+import { rememberTrustedDeviceFrom } from '../lib/trustedDevice'
 import { Button, buttonVariants } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
@@ -11,6 +12,7 @@ import { LanguageSwitcher } from '../components/LanguageSwitcher'
 import { Eye, EyeOff, Loader2, ArrowLeft, KeyRound } from 'lucide-react'
 
 type PanelStatus = 'checking' | 'online' | 'unreachable'
+type RecoveryMethod = 'code' | 'token'
 
 // Device-scoped only: counts failed login SUBMISSIONS from this browser,
 // never the submitted username or any per-account state. The mechanism this
@@ -77,7 +79,12 @@ export default function Login() {
   const [deviceFailedAttempts, setDeviceFailedAttempts] = useState(readDeviceFailureCount)
 
   const [resetMode, setResetMode] = useState(false)
+  // SECURITY (2026-10-05, A2): only ever true for a browser on the panel
+  // host -- GET /api/auth/reset-status no longer tells anyone else whether
+  // data/reset-token.txt exists (that told a stranger when to go and burn
+  // it). Everyone else picks what they hold with recoveryMethod instead.
   const [resetAvailable, setResetAvailable] = useState(false)
+  const [recoveryMethod, setRecoveryMethod] = useState<RecoveryMethod>('token')
   const [resetToken, setResetToken] = useState('')
   const [recoveryCodesAvailable, setRecoveryCodesAvailable] = useState(false)
   // unknown-window-instances-outside-the-bridge, 2026-09-10: distinguishes
@@ -93,7 +100,6 @@ export default function Login() {
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [localResetSupported, setLocalResetSupported] = useState(false)
   const [showRecoveryHelp, setShowRecoveryHelp] = useState(false)
-  const [checkingResetStatus, setCheckingResetStatus] = useState(false)
   const [creatingLocalReset, setCreatingLocalReset] = useState(false)
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -215,15 +221,13 @@ export default function Login() {
     }
     setLoading(true)
     try {
-      // A token file, when present, stays the primary path; otherwise fall back
-      // to a saved recovery code so no host access is needed.
-      const useRecoveryCode = !resetAvailable && recoveryCodesAvailable
+      const useRecoveryCode = recoveryMethod === 'code'
       // 2026-09-08 (auth-transport-parity): was a raw fetch() manually
       // rebuilding an ApiError from status/code -- apiFetch/handleResponse
       // does the same thing via buildResponseError, plus the fetchWithRetry
       // timeout and consistent NETWORK_ERROR/TIMEOUT classification this
       // route never had before.
-      const data = await handleResponse<{ message: string }>(
+      const data = await handleResponse<{ message: string; username?: string; deviceToken?: string }>(
         await apiFetch(useRecoveryCode ? '/auth/recover-with-code' : '/auth/reset-password', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -234,6 +238,9 @@ export default function Login() {
           ),
         }),
       )
+      // SECURITY (2026-10-05, A1): the reset retired this browser's
+      // trusted-device token; keep the fresh one (see lib/trustedDevice.ts).
+      rememberTrustedDeviceFrom(data)
       setResetSuccess(data.message)
       setResetToken('')
       setNewPassword('')
@@ -252,6 +259,13 @@ export default function Login() {
     }
   }
 
+  const openResetForm = (method: RecoveryMethod) => {
+    setError('')
+    setRecoveryMethod(method)
+    setShowRecoveryHelp(false)
+    setResetMode(true)
+  }
+
   const handleLostPassword = () => {
     setError('')
     setResetSuccess('')
@@ -264,14 +278,15 @@ export default function Login() {
     // available" routes to the token/code entry screen instead of attempting
     // a local reset that was never going to find anything for someone who
     // actually holds a real token or code. Checked the alternative isn't
-    // worse for someone who holds neither: reset-password's own
-    // RESET_TOKEN_NOT_FOUND response ("No reset token found. Create
-    // data/reset-token.txt on the server first.") is at least as specific
-    // and actionable as handleCreateLocalReset's LOCAL_RESET_NOT_LOCAL/
-    // BEHIND_PROXY errors below -- neither path is a dead end.
+    // worse for someone who holds neither: reset-password's refusal names
+    // what data/reset-token.txt has to hold (RESET_TOKEN_INVALID, or the
+    // exact reason on the host itself), at least as actionable as
+    // handleCreateLocalReset's LOCAL_RESET_NOT_LOCAL/BEHIND_PROXY errors
+    // below -- neither path is a dead end.
     if (recoveryStatusLoading || resetAvailable || recoveryCodesAvailable) {
-      setShowRecoveryHelp(false)
-      setResetMode(true)
+      // A token file the host itself confirmed comes first, then saved
+      // recovery codes; the form lets them switch either way.
+      openResetForm(resetAvailable || !recoveryCodesAvailable ? 'token' : 'code')
       return
     }
     // Always ask the server rather than branching on this browser's own
@@ -288,26 +303,6 @@ export default function Login() {
     void handleCreateLocalReset()
   }
 
-  const handleRecoveryCheck = async () => {
-    setError('')
-    setCheckingResetStatus(true)
-    try {
-      const { available } = await fetchResetStatus()
-
-      if (available) {
-        setShowRecoveryHelp(false)
-        setResetMode(true)
-        return
-      }
-
-      setError(t('errors.noRecoveryTokenYet'))
-    } catch {
-      setError(t('errors.couldNotCheckStatus'))
-    } finally {
-      setCheckingResetStatus(false)
-    }
-  }
-
   const handleCreateLocalReset = async () => {
     setError('')
     setResetSuccess('')
@@ -321,9 +316,8 @@ export default function Login() {
       setResetAvailable(true)
       setLocalResetSupported(true)
       setResetToken('')
-      setShowRecoveryHelp(false)
+      openResetForm('token')
       setResetSuccess(typeof data.message === 'string' ? data.message : t('resetTokenCreated'))
-      setResetMode(true)
     } catch (err) {
       setShowRecoveryHelp(true)
       setError(getUserErrorMessage(err, t('errors.couldNotCreateToken')))
@@ -410,16 +404,37 @@ export default function Login() {
                 </div>
               )}
 
+              <div
+                role="group"
+                aria-label={t('recovery.methodLabel')}
+                className="grid grid-cols-2 gap-1 rounded-md border border-border/70 p-0.5"
+              >
+                {(['code', 'token'] as const).map((method) => (
+                  <Button
+                    key={method}
+                    type="button"
+                    variant={recoveryMethod === method ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="h-8 text-xs"
+                    aria-pressed={recoveryMethod === method}
+                    onClick={() => { setRecoveryMethod(method); setError('') }}
+                    disabled={loading}
+                  >
+                    {method === 'code' ? t('recovery.codeLabel') : t('recovery.tokenLabel')}
+                  </Button>
+                ))}
+              </div>
+
               <div className="space-y-1.5">
                 <Label htmlFor="resetToken" className="text-sm font-medium text-foreground">
-                  {resetAvailable ? t('recovery.tokenLabel') : t('recovery.codeLabel')}
+                  {recoveryMethod === 'token' ? t('recovery.tokenLabel') : t('recovery.codeLabel')}
                 </Label>
                 <Input
                   id="resetToken"
                   type="text"
                   value={resetToken}
                   onChange={(e) => setResetToken(e.target.value)}
-                  placeholder={resetAvailable ? t('recovery.tokenPlaceholder') : t('recovery.codePlaceholder')}
+                  placeholder={recoveryMethod === 'token' ? t('recovery.tokenPlaceholder') : t('recovery.codePlaceholder')}
                   autoFocus
                   disabled={loading}
                   required
@@ -428,7 +443,7 @@ export default function Login() {
                   className="text-sm"
                 />
                 <p className="text-xs text-muted-foreground">
-                  {resetAvailable ? t('recovery.tokenHelp') : t('recovery.codeHelp')}
+                  {recoveryMethod === 'token' ? t('recovery.tokenHelp') : t('recovery.codeHelp')}
                 </p>
               </div>
 
@@ -612,7 +627,7 @@ export default function Login() {
                   variant="ghost"
                   className="w-full text-muted-foreground hover:text-foreground"
                   onClick={handleLostPassword}
-                  disabled={loading || checkingResetStatus || creatingLocalReset}
+                  disabled={loading || creatingLocalReset}
                 >
                   {creatingLocalReset ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
                   {creatingLocalReset
@@ -635,7 +650,11 @@ export default function Login() {
                   ) : (
                     <>
                       <p className="mt-2 leading-6">
-                        {t('lostPassword.helpRemote1')}
+                        <Trans
+                          t={t}
+                          i18nKey="lostPassword.helpRemote1"
+                          components={{ code: <span className="font-mono text-foreground/85" /> }}
+                        />
                       </p>
                       <p className="mt-2 leading-6">
                         <Trans
@@ -653,19 +672,21 @@ export default function Login() {
                         variant="outline"
                         className="sm:flex-1"
                         onClick={() => void handleCreateLocalReset()}
-                        disabled={creatingLocalReset || checkingResetStatus || loading}
+                        disabled={creatingLocalReset || loading}
                       >
                         {creatingLocalReset ? (<><Loader2 className="h-4 w-4 animate-spin" /> {t('lostPassword.creatingFile')}</>) : t('lostPassword.createFile')}
                       </Button>
                     ) : (
+                      // No server check first: whether a token file exists
+                      // is only ever reported to the panel host itself.
                       <Button
                         type="button"
                         variant="outline"
                         className="sm:flex-1"
-                        onClick={handleRecoveryCheck}
-                        disabled={checkingResetStatus || loading}
+                        onClick={() => openResetForm('token')}
+                        disabled={loading}
                       >
-                        {checkingResetStatus ? (<><Loader2 className="h-4 w-4 animate-spin" /> {t('lostPassword.checkingToken')}</>) : t('lostPassword.checkToken')}
+                        {t('lostPassword.enterToken')}
                       </Button>
                     )}
                     <Button
@@ -673,7 +694,7 @@ export default function Login() {
                       variant="ghost"
                       className="sm:flex-1"
                       onClick={() => { setShowRecoveryHelp(false); setError('') }}
-                      disabled={creatingLocalReset || checkingResetStatus || loading}
+                      disabled={creatingLocalReset || loading}
                     >
                       {t('lostPassword.cancel')}
                     </Button>

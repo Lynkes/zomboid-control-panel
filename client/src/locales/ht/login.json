@@ -31,6 +31,7 @@
     "description": "Itilize jeton rekiperasyon ki soti nan lame panèl la pou chwazi yon nouvo modpas administratè.",
     "tokenLabel": "Jeton rekiperasyon",
     "codeLabel": "Kòd rekiperasyon",
+    "methodLabel": "Rekipere avèk",
     "tokenPlaceholder": "Kole jeton an",
     "codePlaceholder": "XXXXX-XXXXX-XXXXX",
     "tokenHelp": "Sere nan data/reset-token.txt sou lame panèl la.",
@@ -50,18 +51,17 @@
     "recoverAccount": "Rekipere kont",
     "helpTitle": "Rekiperasyon kont",
     "helpLocal": "Navigatè sa a ap fonksyone sou lame panèl la. Kreye yon dosye rekiperasyon, epi itilize jeton li pou reyinisyalize modpas administratè a.",
-    "helpRemote1": "Kreye data/reset-token.txt sou lame panèl la ak yon jeton o aza ki gen omwen 32 karaktè.",
+    "helpRemote1": "Kreye data/reset-token.txt sou lame panèl la ak yon jeton hex o aza ki gen omwen 32 karaktè, ki soti nan yon jeneratè (pa egzanp <code>openssl rand -hex 24</code>), epi antre l isit la. Yo refize mo, fraz, suit chif ak karaktè ki repete oswa ki swiv youn dèyè lòt.",
     "helpRemote2": "Ou kapab tou demare panèl la ak <code>--reset-password</code> nan tèminal sèvè a.",
     "createFile": "Kreye dosye",
     "creatingFile": "N ap prepare…",
-    "checkToken": "Tcheke jeton",
-    "checkingToken": "N ap tcheke…",
+    "enterToken": "Antre yon jeton rekiperasyon",
     "cancel": "Anile"
   },
   "resetTokenCreated": "Jeton rekiperasyon kreye nan data/reset-token.txt. Kole li anba a pou kontinye.",
   "repeatedFailureHint": {
     "title": "Toujou pa fonksyone?",
-    "body": "Apre plizyè tantativ echwe, koneksyon nan kont sa a depi adrès sa a fè poz pou 15 minit kòm yon mezi sekirite -- ekran sa a p ap di sa. Yon kòd rekiperasyon ou te sove, oswa demare panèl la ak <code>--reset-password</code> nan tèminal sèvè a, reyinisyalize modpas la epi retire poz la."
+    "body": "Apre plizyè tantativ echwe, koneksyon nan kont sa a depi navigatè sa a oswa adrès sa a fè poz pou 15 minit kòm yon mezi sekirite -- ekran sa a p ap di sa. Yon kòd rekiperasyon ou te sove, oswa demare panèl la ak <code>--reset-password</code> nan tèminal sèvè a, reyinisyalize modpas la epi retire poz la."
   },
   "errors": {
     "loginFailed": "Koneksyon echwe",
@@ -69,8 +69,6 @@
     "passwordTooShort": "Modpas la dwe gen omwen 6 karaktè",
     "passwordsDontMatch": "Modpas yo pa menm",
     "resetFailed": "Reyinisyalizasyon echwe",
-    "noRecoveryTokenYet": "Poko gen okenn jeton rekiperasyon jwenn. Kreye data/reset-token.txt sou lame panèl la, epi eseye ankò.",
-    "couldNotCheckStatus": "Pa t kapab tcheke estati rekiperasyon an. Eseye ankò nan yon ti moman.",
     "couldNotCreateToken": "Pa t kapab kreye yon jeton rekiperasyon",
     "oidc": {
       "not_configured": "Koneksyon inik pa disponib kounye a. Konekte ak non itilizatè ak modpas ou.",

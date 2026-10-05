@@ -31,6 +31,7 @@
     "description": "使用來自面板主機的復原權杖設定新的管理員密碼。",
     "tokenLabel": "復原權杖",
     "codeLabel": "復原碼",
+    "methodLabel": "復原方式",
     "tokenPlaceholder": "貼上權杖",
     "codePlaceholder": "XXXXX-XXXXX-XXXXX",
     "tokenHelp": "儲存於面板主機的 data/reset-token.txt 中。",
@@ -50,18 +51,17 @@
     "recoverAccount": "復原帳號",
     "helpTitle": "帳號復原",
     "helpLocal": "此瀏覽器正執行在面板主機上。建立復原檔案後，使用其中的權杖重設管理員密碼。",
-    "helpRemote1": "在面板主機上建立 data/reset-token.txt，內容為至少 32 個字元的隨機權杖。",
+    "helpRemote1": "在面板主機上建立 data/reset-token.txt，內容為由產生器產生、至少 32 個字元的隨機十六進位權杖（例如 <code>openssl rand -hex 24</code>），然後在此輸入。單字、句子、數字序列以及重複或連續的字元會被拒絕。",
     "helpRemote2": "您也可以在伺服器終端使用 <code>--reset-password</code> 啟動面板。",
     "createFile": "建立檔案",
     "creatingFile": "正在準備…",
-    "checkToken": "檢查權杖",
-    "checkingToken": "正在檢查…",
+    "enterToken": "輸入復原權杖",
     "cancel": "取消"
   },
   "resetTokenCreated": "復原權杖已建立於 data/reset-token.txt。請在下方貼上以繼續。",
   "repeatedFailureHint": {
     "title": "仍然無法登入？",
-    "body": "多次登入失敗後，作為安全措施，從此位址登入該帳號會暫停 15 分鐘——此介面不會顯示這一點。使用已儲存的復原碼，或在伺服器終端上以 <code>--reset-password</code> 啟動面板，均可重設密碼並解除暫停。"
+    "body": "多次登入失敗後，作為安全措施，從此瀏覽器或位址登入該帳號會暫停 15 分鐘——此介面不會顯示這一點。使用已儲存的復原碼，或在伺服器終端上以 <code>--reset-password</code> 啟動面板，均可重設密碼並解除暫停。"
   },
   "errors": {
     "loginFailed": "登入失敗",
@@ -69,8 +69,6 @@
     "passwordTooShort": "密碼必須至少為 6 個字元",
     "passwordsDontMatch": "密碼不一致",
     "resetFailed": "重設失敗",
-    "noRecoveryTokenYet": "尚未找到找回權杖。請在面板主機上建立 data/reset-token.txt，然後重試。",
-    "couldNotCheckStatus": "無法檢查找回狀態，請稍後重試。",
     "couldNotCreateToken": "無法建立找回權杖",
     "oidc": {
       "not_configured": "單一登入目前無法使用，請使用使用者名稱和密碼登入。",

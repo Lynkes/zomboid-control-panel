@@ -24,8 +24,8 @@
   "RESET_TOKEN_NOT_FOUND": "Kein Reset-Token gefunden. Erstelle zuerst data/reset-token.txt auf dem Server.",
   "RESET_TOKEN_TOO_LARGE": "Reset-Token-Datei ungültig (zu groß). Maximal 1 KB.",
   "RESET_TOKEN_EXPIRED": "Reset-Token-Datei ist älter als 24 Stunden. Erstelle sie erneut auf dem Server.",
-  "RESET_TOKEN_TOO_SHORT": "Reset-Token-Datei ist ungültig. Sie muss ein zufälliges Token mit mindestens 32 Zeichen enthalten.",
-  "RESET_TOKEN_INVALID": "Ungültiges Reset-Token",
+  "RESET_TOKEN_TOO_SHORT": "Reset-Token-Datei ist ungültig. Sie muss ein zufälliges Hex-Token mit mindestens 32 Zeichen enthalten.",
+  "RESET_TOKEN_INVALID": "Dieses Reset-Token wurde nicht akzeptiert. Prüfe, ob data/reset-token.txt auf dem Panel-Host genau dieses Token enthält, jünger als 24 Stunden ist und das Token ein zufälliges Hex-Token aus einem Generator mit mindestens 32 Zeichen ist (Wörter, Sätze und Zahlenfolgen werden abgelehnt). Im Panel-Log steht, welche Prüfung fehlgeschlagen ist.",
   "SERVER_NOT_CONFIGURED": "Kein aktiver Server konfiguriert",
   "REMOTE_CONFIG_NOT_CONFIGURED": "Dieser Server ist extern. Um die Konfiguration von hier aus zu bearbeiten, füge die SFTP-Daten und den externen Server-Ordner unter Einstellungen > PanelBridge hinzu.",
   "REMOTE_BROWSE_NOT_AVAILABLE": "Das Durchsuchen des Server-Dateisystems ist für externe Server nicht verfügbar.",
@@ -582,7 +582,7 @@
   "CHARACTER_INVALID_SECTIONS": "Unbekannter Charakterabschnitt angefordert.",
   "CHARACTER_SHEET_FAILED": "Dieser Charakter konnte nicht gelesen werden.",
   "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Wenn du diese Discord-Einstellungen änderst, könnten andere Bot-Befehle ausführen, die {{detail}} erfordern – Rechte, die du selbst nicht besitzt.",
-  "RESET_TOKEN_BURNED": "Es wurden zu viele falsche Reset-Tokens ausprobiert, deshalb wurde data/reset-token.txt gelöscht. Erstelle eine neue auf dem Server und versuche es erneut.",
   "HOST_NOT_ALLOWED": "Dieses Panel antwortet nur auf seine eigenen Adressen, solange Panel-Anmeldungen deaktiviert sind. Öffne es über seine IP-Adresse oder localhost, oder füge diese Adresse unter Einstellungen > Fernzugriff (CORS) hinzu.",
-  "SERVER_CONFIG_PATH_OUTSIDE_DATA": "Der Konfigurationsordner des Servers muss der Ordner Server im Zomboid-Datenordner dieses Servers sein oder ein Ordner darin. Lege zuerst den Zomboid-Datenordner fest oder lass den Konfigurationsordner leer."
+  "SERVER_CONFIG_PATH_OUTSIDE_DATA": "Der Konfigurationsordner des Servers muss der Ordner Server im Zomboid-Datenordner dieses Servers sein oder ein Ordner darin. Lege zuerst den Zomboid-Datenordner fest oder lass den Konfigurationsordner leer.",
+  "RESET_TOKEN_TOO_WEAK": "Das Token in data/reset-token.txt ließe sich erraten. Ersetze es durch zufällige Hex-Zeichen aus einem Generator (0-9 und a-f, wie openssl rand -hex 24 sie ausgibt); Wörter, Sätze, Zahlenfolgen sowie wiederholte oder fortlaufende Zeichen werden abgelehnt. Oder verwende die Wiederherstellungsschaltfläche auf dem Panel-Host."
 }

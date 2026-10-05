@@ -31,6 +31,7 @@
     "description": "Use the recovery token from the panel host to choose a new admin password.",
     "tokenLabel": "Recovery token",
     "codeLabel": "Recovery code",
+    "methodLabel": "Recover with",
     "tokenPlaceholder": "Paste token",
     "codePlaceholder": "XXXXX-XXXXX-XXXXX",
     "tokenHelp": "Stored at data/reset-token.txt on the panel host.",
@@ -50,18 +51,17 @@
     "recoverAccount": "Recover account",
     "helpTitle": "Account recovery",
     "helpLocal": "This browser is running on the panel host. Create a recovery file, then use its token to reset the admin password.",
-    "helpRemote1": "Create data/reset-token.txt on the panel host containing a random token at least 32 characters long.",
+    "helpRemote1": "Create data/reset-token.txt on the panel host containing random hex at least 32 characters long from a generator (for example <code>openssl rand -hex 24</code>), then enter it here. Words, sentences, number sequences and repeated or sequential characters are refused.",
     "helpRemote2": "You can also start the panel with <code>--reset-password</code> from the server terminal.",
     "createFile": "Create file",
     "creatingFile": "Preparing…",
-    "checkToken": "Check token",
-    "checkingToken": "Checking…",
+    "enterToken": "Enter a recovery token",
     "cancel": "Cancel"
   },
   "resetTokenCreated": "Recovery token created at data/reset-token.txt. Paste it below to continue.",
   "repeatedFailureHint": {
     "title": "Still not working?",
-    "body": "After several failed attempts, sign-ins to that account from this address pause for 15 minutes as a security precaution -- this screen will not say so. A saved recovery code, or starting the panel with <code>--reset-password</code> from the server terminal, resets the password and lifts the pause."
+    "body": "After several failed attempts, sign-ins to that account from this browser or address pause for 15 minutes as a security precaution -- this screen will not say so. A saved recovery code, or starting the panel with <code>--reset-password</code> from the server terminal, resets the password and lifts the pause."
   },
   "errors": {
     "loginFailed": "Login failed",
@@ -69,8 +69,6 @@
     "passwordTooShort": "Password must be at least 6 characters",
     "passwordsDontMatch": "Passwords do not match",
     "resetFailed": "Reset failed",
-    "noRecoveryTokenYet": "No recovery token found yet. Create data/reset-token.txt on the panel host, then try again.",
-    "couldNotCheckStatus": "Could not check recovery status. Try again in a moment.",
     "couldNotCreateToken": "Could not create a recovery token",
     "oidc": {
       "not_configured": "Single sign-on isn't available right now. Sign in with your username and password.",

@@ -13,9 +13,18 @@ import bcrypt from "bcryptjs";
 // dictionary against POST /api/auth/reset-password, hits it, and signs in
 // as admin with a password of their choosing.
 //
-// Now a token must be at least RESET_TOKEN_MIN_LENGTH (32) characters, and
-// MAX_RESET_TOKEN_FAILURES wrong tokens from any mix of addresses delete
-// the file.
+// The first fix (a 32-character minimum, and 5 wrong tokens from any mix of
+// addresses deleting the file) left two holes (security sweep 2026-10-05,
+// A2): GET /reset-status told anyone whether a token file existed, so a
+// stranger could watch for one and delete it with 5 wrong guesses as soon
+// as the operator created it, keeping remote recovery from ever working;
+// and a long but predictable token ("changeme" typed four times) still
+// passed.
+//
+// Now: a token must be at least 32 characters AND unpredictable; wrong
+// tokens change nothing on disk; and a caller that isn't on the panel host
+// is never told whether a token file exists -- not by /reset-status, and
+// not by /reset-password's refusals.
 
 const settings = new Map();
 const db = { data: { users: [], roles: [] } };
@@ -37,10 +46,9 @@ vi.mock("../database/init.js", () => ({
 
 const { default: authService } = await import("../services/auth.js");
 const authRoutesModule = await import("../routes/auth.js");
-const { _resetResetTokenFailuresForTests } = authRoutesModule;
+const { default: authRouter } = authRoutesModule;
 // Spelled out rather than imported so this file still exercises the real
-// behaviour against code that doesn't export them.
-const MAX_RESET_TOKEN_FAILURES = 5;
+// behaviour against code that doesn't export it.
 const RESET_TOKEN_MIN_LENGTH = 32;
 const { getDataPaths } = await import("../utils/paths.js");
 const { io } = await import("../index.js");
@@ -48,20 +56,22 @@ const { io } = await import("../index.js");
 let port;
 // The reset limiter allows 3 tries per address per 15 minutes; every
 // request here comes from its own loopback address so only the logic under
-// test decides the outcome.
+// test decides the outcome. 127.0.0.2 and up are not this machine's own
+// addresses, so to the panel they are remote callers; 127.0.0.1 is local.
 let nextAddress = 20;
 const freshAddress = () => `127.0.0.${nextAddress++}`;
+const LOCAL = "127.0.0.1";
 
-function post(path, body) {
+function request(method, path, body, fromAddress = freshAddress()) {
   return new Promise((resolve, reject) => {
-    const data = JSON.stringify(body);
+    const data = body === undefined ? "" : JSON.stringify(body);
     const req = http.request(
       {
         host: "127.0.0.1",
         port,
         path,
-        method: "POST",
-        localAddress: freshAddress(),
+        method,
+        localAddress: fromAddress,
         headers: { "content-type": "application/json", "content-length": Buffer.byteLength(data) },
       },
       (res) => {
@@ -75,13 +85,38 @@ function post(path, body) {
   });
 }
 
+// POST /reset-password's handler itself, past the per-address limiter, as a
+// caller on the panel host -- so this file can ask for the host's detailed
+// answers as often as it needs.
+async function resetAsLocalCaller(token) {
+  const layer = authRouter.stack.find(
+    (entry) => entry.route?.path === "/reset-password" && entry.route.methods.post,
+  );
+  const handler = layer.route.stack[layer.route.stack.length - 1].handle;
+  const res = { status: vi.fn(), json: vi.fn() };
+  res.status.mockReturnValue(res);
+  await handler(
+    {
+      socket: { remoteAddress: LOCAL },
+      connection: {},
+      headers: {},
+      cookies: {},
+      body: { token, newPassword: "attacker-pw-1" },
+    },
+    res,
+  );
+  return { status: res.status.mock.calls[0]?.[0] ?? 200, body: res.json.mock.calls[0][0] };
+}
+
 const tokenPath = () => path.join(getDataPaths().dataDir, "reset-token.txt");
 function writeToken(token) {
   fs.mkdirSync(path.dirname(tokenPath()), { recursive: true });
   fs.writeFileSync(tokenPath(), `${token}\n`);
 }
-const reset = (token) => post("/api/auth/reset-password", { token, newPassword: "attacker-pw-1" });
+const reset = (token, fromAddress) =>
+  request("POST", "/api/auth/reset-password", { token, newPassword: "attacker-pw-1" }, fromAddress);
 const passwordIs = (password) => bcrypt.compare(password, db.data.users[0].password);
+const strongToken = () => crypto.randomBytes(24).toString("hex");
 
 beforeAll(async () => {
   authService.jwtSecret = "reset-token-test-secret-".padEnd(64, "x");
@@ -90,11 +125,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  fs.rmSync(tokenPath(), { force: true });
   await new Promise((resolve) => io.httpServer.close(resolve));
 });
 
 beforeEach(async () => {
-  _resetResetTokenFailuresForTests?.();
   fs.rmSync(tokenPath(), { force: true });
   db.data.roles = [{ id: "role-admin", name: "admin", capabilities: ["users.manage"], isSeeded: true }];
   db.data.users = [
@@ -110,9 +145,8 @@ beforeEach(async () => {
   ];
 });
 
-describe("AUTHN-5: the manual reset token", () => {
-  it("documents its limits", () => {
-    expect(authRoutesModule.MAX_RESET_TOKEN_FAILURES).toBe(MAX_RESET_TOKEN_FAILURES);
+describe("AUTHN-5 / A2: the manual reset token has to be unguessable", () => {
+  it("documents its minimum length", () => {
     expect(authRoutesModule.RESET_TOKEN_MIN_LENGTH).toBe(RESET_TOKEN_MIN_LENGTH);
   });
 
@@ -120,46 +154,180 @@ describe("AUTHN-5: the manual reset token", () => {
     writeToken("changeme");
     const res = await reset("changeme");
     expect(res.status).toBe(403);
-    expect(res.body.code).toBe("RESET_TOKEN_TOO_SHORT");
+    expect(res.body.code).toBe("RESET_TOKEN_INVALID");
+    expect((await resetAsLocalCaller("changeme")).body.code).toBe("RESET_TOKEN_TOO_SHORT");
     expect(await passwordIs("original-pw-1")).toBe(true);
   });
 
-  it("deletes the token file after MAX_RESET_TOKEN_FAILURES wrong tokens, whichever addresses sent them", async () => {
-    const token = crypto.randomBytes(24).toString("hex");
-    writeToken(token);
-    for (let i = 1; i < MAX_RESET_TOKEN_FAILURES; i++) {
-      const res = await reset(`wrong-guess-${i}`);
-      expect(res.body.code).toBe("RESET_TOKEN_INVALID");
+  it.each([
+    "changemechangemechangeme12345678",
+    "a".repeat(40),
+    "0123456789abcdef0123456789abcdef",
+    "qwertyuiopasdfghjklzxcvbnm123456",
+    // Accepted until round 1 of the A2 verification (a remote stranger reset
+    // the admin password with the first one over HTTP): keyboard columns,
+    // alternating case, interleaved runs, a fixed step of two.
+    "1qaz2wsx3edc4rfv5tgb6yhn7ujm8ik9",
+    "aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpP",
+    "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+    "acegikmoqsuwyACEGIKMOQSUWY024680",
+  ])("refuses a long but predictable token (%s), even when it is typed correctly", async (weak) => {
+    expect(weak.length).toBeGreaterThanOrEqual(RESET_TOKEN_MIN_LENGTH);
+    writeToken(weak);
+    const res = await reset(weak);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("RESET_TOKEN_INVALID");
+    expect((await resetAsLocalCaller(weak)).body.code).toBe("RESET_TOKEN_TOO_WEAK");
+    expect(await passwordIs("original-pw-1")).toBe(true);
+  });
+
+  // Round 2 of the A2 verification: the pattern check can't see meaning, so
+  // phrases, number constants and symbol templates passed it, and a remote
+  // stranger reset the admin password by guessing
+  // "zomboid-control-panel-reset-token" from a handful of addresses. A
+  // hand-made token now has to be a generator's hex output.
+  it.each([
+    "zomboid-control-panel-reset-token",
+    "ZomboidControlPanelResetToken2026",
+    "this is my reset token for the panel",
+    "the-panel-password-is-gone-help-me",
+    "the quick brown fox jumps over the lazy dog",
+    "one two three four five six seven eight nine ten",
+    "3.14159265358979323846264338327950",
+    "2.71828182845904523536028747135266",
+    // The digits of pi without the point: hex, but no letters.
+    "31415926535897932384626433832795028841971",
+    "Aa1!Bb2@Cc3#Dd4$Ee5%Ff6^Gg7&Hh8*",
+    // A base64 token: random, but its alphabet holds every word too.
+    "phb20kHwWx7/1dtNtaxPYs9WAnvC2tGm",
+    // Hex, but hex words with a digit or two, not a generator's mix.
+    "deadbeefcafebabefacadedecade1bad",
+    "c0ffeedeadbeefbaddecafbeefcafefacade",
+  ])("refuses %s, which isn't a generator's hex output", async (weak) => {
+    expect(weak.length).toBeGreaterThanOrEqual(RESET_TOKEN_MIN_LENGTH);
+    writeToken(weak);
+    const res = await reset(weak);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("RESET_TOKEN_INVALID");
+    expect((await resetAsLocalCaller(weak)).body.code).toBe("RESET_TOKEN_TOO_WEAK");
+    expect(await passwordIs("original-pw-1")).toBe(true);
+  });
+
+  it.each([
+    ["48 hex characters (the panel, openssl rand -hex 24, the docs' PowerShell line)", () => strongToken()],
+    ["32 hex characters (openssl rand -hex 16)", () => crypto.randomBytes(16).toString("hex")],
+    ["upper-case hex", () => crypto.randomBytes(24).toString("hex").toUpperCase()],
+    ["a UUID (uuidgen, New-Guid)", () => crypto.randomUUID()],
+  ])("accepts %s", async (_label, makeToken) => {
+    // A random token can, very rarely, fail the pattern check by chance;
+    // take the first of a few that passes it on the host.
+    let token;
+    for (let i = 0; i < 5 && !token; i++) {
+      const candidate = makeToken();
+      writeToken(candidate);
+      if ((await resetAsLocalCaller("not-the-token")).body.code === "RESET_TOKEN_INVALID") token = candidate;
     }
-    const last = await reset("wrong-guess-last");
-    expect(last.status).toBe(403);
-    expect(last.body.code).toBe("RESET_TOKEN_BURNED");
-    expect(fs.existsSync(tokenPath())).toBe(false);
-
-    // Used up: even the right token no longer works.
-    const late = await reset(token);
-    expect(late.body.code).toBe("RESET_TOKEN_NOT_FOUND");
-    expect(await passwordIs("original-pw-1")).toBe(true);
+    expect(token).toBeDefined();
+    const res = await reset(token);
+    expect(res.status).toBe(200);
+    expect(await passwordIs("attacker-pw-1")).toBe(true);
   });
 
-  it("a new token file starts a fresh count", async () => {
-    writeToken(crypto.randomBytes(24).toString("hex"));
-    for (let i = 1; i < MAX_RESET_TOKEN_FAILURES; i++) await reset(`wrong-guess-${i}`);
-    // A different length too, so the new file can't look like the old one
-    // even where a filesystem reuses the inode and its clock is coarse.
-    fs.rmSync(tokenPath());
-    writeToken(crypto.randomBytes(32).toString("hex"));
-    expect((await reset("one-more-wrong-guess")).body.code).toBe("RESET_TOKEN_INVALID");
-    expect(fs.existsSync(tokenPath())).toBe(true);
+  it("lets the local recovery button replace a token that isn't a generator's hex", async () => {
+    writeToken("zomboid-control-panel-reset-token");
+    const local = await request("POST", "/api/auth/reset-token/local", undefined, LOCAL);
+    expect(local.status).toBe(200);
+    const replaced = fs.readFileSync(tokenPath(), "utf8").trim();
+    expect(replaced).toMatch(/^[0-9a-f]{48}$/);
   });
 
   it("still resets with a strong token, once", async () => {
-    const token = crypto.randomBytes(24).toString("hex");
+    const token = strongToken();
     expect(token.length).toBeGreaterThanOrEqual(RESET_TOKEN_MIN_LENGTH);
     writeToken(token);
     const res = await reset(token);
     expect(res.status).toBe(200);
     expect(await passwordIs("attacker-pw-1")).toBe(true);
     expect(fs.existsSync(tokenPath())).toBe(false);
+    // The browser that reset it keeps a trusted-device token that counts
+    // (A1; see loginTrustedDevice.test.js).
+    expect(res.body.username).toBe("admin");
+    expect(authService.trustedDeviceId(db.data.users[0], res.body.deviceToken)).toBeTruthy();
+  });
+});
+
+describe("A2: strangers can neither find nor destroy the operator's token", () => {
+  it("wrong tokens from any number of addresses leave the token file in place, and it still works", async () => {
+    const token = strongToken();
+    writeToken(token);
+    for (let i = 0; i < 12; i++) {
+      const res = await reset(`wrong-guess-${i}`);
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe("RESET_TOKEN_INVALID");
+    }
+    expect(fs.readFileSync(tokenPath(), "utf8").trim()).toBe(token);
+
+    expect((await reset(token)).status).toBe(200);
+    expect(await passwordIs("attacker-pw-1")).toBe(true);
+  });
+
+  it("wrong tokens don't lock out the local recovery button, which keeps the operator's token", async () => {
+    const token = strongToken();
+    writeToken(token);
+    for (let i = 0; i < 6; i++) await reset(`wrong-guess-${i}`);
+    const local = await request("POST", "/api/auth/reset-token/local", undefined, LOCAL);
+    expect(local.status).toBe(200);
+    expect(fs.readFileSync(tokenPath(), "utf8").trim()).toBe(token);
+  });
+
+  it("GET /reset-status tells only the panel host whether a token file exists", async () => {
+    writeToken(strongToken());
+    const remote = await request("GET", "/api/auth/reset-status");
+    expect(remote.status).toBe(200);
+    expect(remote.body).not.toHaveProperty("resetAvailable");
+    expect(remote.body.localResetSupported).toBe(false);
+
+    const local = await request("GET", "/api/auth/reset-status", undefined, LOCAL);
+    expect(local.body).toMatchObject({ resetAvailable: true, localResetSupported: true });
+  });
+
+  it("POST /reset-password answers a remote caller the same whether or not a token file exists", async () => {
+    const missing = await reset("some-guess-that-is-long-enough-000000");
+    writeToken(strongToken());
+    const present = await reset("some-guess-that-is-long-enough-000000");
+    expect(missing).toEqual(present);
+    expect(present.status).toBe(403);
+    expect(present.body.code).toBe("RESET_TOKEN_INVALID");
+
+    // The host itself still gets the specific reason.
+    fs.rmSync(tokenPath());
+    expect((await resetAsLocalCaller("anything")).body.code).toBe("RESET_TOKEN_NOT_FOUND");
+  });
+
+  // Round 1 of the A2 verification: a token file the panel can't read
+  // (owned by another account, mode 0600) made /reset-password answer with
+  // the filesystem error instead of the usual refusal, which said the file
+  // exists.
+  it("POST /reset-password answers a remote caller the same when the file exists but can't be read", async () => {
+    const missing = await reset("some-guess-that-is-long-enough-000000");
+    writeToken(strongToken());
+    const readFileSync = fs.readFileSync;
+    const unreadable = vi.spyOn(fs, "readFileSync").mockImplementation((file, ...rest) => {
+      if (String(file) === tokenPath()) {
+        throw Object.assign(new Error(`EACCES: permission denied, open '${tokenPath()}'`), { code: "EACCES" });
+      }
+      return readFileSync(file, ...rest);
+    });
+    try {
+      const present = await reset("some-guess-that-is-long-enough-000000");
+      expect(present).toEqual(missing);
+      // The host itself still sees what went wrong.
+      const local = await resetAsLocalCaller("anything");
+      expect(local.status).toBe(400);
+      expect(local.body.error).toMatch(/EACCES/);
+    } finally {
+      unreadable.mockRestore();
+    }
+    expect(fs.existsSync(tokenPath())).toBe(true);
   });
 });

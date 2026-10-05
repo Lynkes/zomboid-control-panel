@@ -146,7 +146,16 @@ the password is right, or you simply never wrote it down.
 **What it means, first:** if a password has been mistyped 10 times for an
 account from one address, sign-ins to that account from that address pause
 for 15 minutes. Other addresses are not affected, and SSO sign-in is never
-paused by wrong passwords. The panel still shows the exact same
+paused by wrong passwords. A browser that has signed in to that account
+before (by password, first-run setup, or SSO) is counted on its own instead
+of by address: ten wrong passwords typed in that browser pause that browser,
+and nothing typed anywhere else pauses it. The browser keeps this as a small
+token in its site storage, one per username; a private window, cleared site
+data or a different browser starts over as a new browser. Changing or
+resetting the password, or regenerating the JWT signing key, makes every
+browser new again until it signs in once — except the browser you did it
+from, which is handed a fresh token straight away. The Steam Sync browser
+extension keeps one the same way. The panel still shows the exact same
 `Invalid username or password` message during the pause, not a distinct
 "account locked" message (this is deliberate: a message that changed when a
 pause started would let someone confirm an account exists just by trying
@@ -156,14 +165,23 @@ certainly why. Wait 15 minutes and try again with the correct password
 before assuming it's actually wrong — or reset it with one of the recovery
 paths below, which also lifts every pause on the account.
 
-The pause is per address, so it only protects you from strangers if the
-panel sees each visitor's real address. Behind a reverse proxy or tunnel
-(nginx, Caddy, cloudflared) every request arrives from the proxy's own
-address unless `TRUST_PROXY` is set (see [Linux](linux.md) and the Remote
-Access notes in the README), and inside Docker, IPv6 visitors can all
-arrive from the bridge gateway. In that setup everyone shares one address,
-so ten wrong passwords from anyone pause the account for everyone. Set
-`TRUST_PROXY` when the panel is only reachable through your proxy.
+For a browser that hasn't signed in before, the pause is per address, so
+it only keeps strangers' guesses apart from you if the panel sees each
+visitor's real address. Behind a reverse proxy or tunnel (nginx, Caddy,
+cloudflared) every request arrives from the proxy's own address unless
+`TRUST_PROXY` is set (see [Linux](linux.md) and the Remote Access notes in
+the README), and inside Docker, IPv6 visitors can all arrive from the bridge
+gateway. In that setup everyone shares one address, so ten wrong passwords
+from anyone pause the account for every browser that hasn't signed in
+before, and the per-minute limit below is shared too. A browser you have
+already signed in with is counted on its own for both, so wrong passwords
+from that address don't stop it. Everything else stays shared by address,
+though: the panel's general limit of 300 requests a minute, and the limit of
+3 tries per 15 minutes on reset tokens and recovery codes. Someone flooding
+that address with requests can still hold everyone at it up, a browser you
+signed in with included (`--reset-password` on the host always works). Set
+`TRUST_PROXY` when the panel is only reachable through your proxy, so
+visitors are told apart again.
 
 After a few failed sign-in attempts from the same browser, the login page
 itself starts showing a **"Still not working?"** hint explaining this same
@@ -173,8 +191,8 @@ exists, is paused, or the password was simply wrong, so seeing it isn't
 itself a sign anything is broken.
 
 Also check for `Too many login attempts. Please try again later.` — that's
-a separate, shorter limit (5 attempts per minute per IP) and clears in under
-a minute.
+a separate, shorter limit (5 attempts per minute per IP, or per browser for
+one that has signed in before) and clears in under a minute.
 
 **If you actually don't know the password**, the panel has three recovery
 paths, in order of convenience:
@@ -185,10 +203,9 @@ paths, in order of convenience:
 2. **A local recovery token** — only works when you open the panel directly
    on the machine it's running on (loopback or one of the host's own IPs).
    The login screen's recovery flow creates `data/reset-token.txt` on the
-   host; open that file, paste the token back into the browser. If the
-   panel reports `No recovery token found yet. Create data/reset-token.txt
-   on the panel host, then try again.`, the panel couldn't confirm the
-   request came from the host itself — see the reverse-proxy case below.
+   host; open that file, paste the token back into the browser. If it
+   instead explains how to create the file yourself, the panel couldn't
+   confirm the request came from the host itself — see the two cases below.
 3. **The `--reset-password` CLI flag** — run the panel binary/start script
    with `--reset-password` from a terminal on the host itself. This is
    interactive: it lists existing users and asks for a new password.
@@ -199,13 +216,41 @@ can't verify a request came from the server itself. Create
 data/reset-token.txt on the host directly, or use a recovery code instead.`
 — the local-token flow can't confirm your browser request truly originated
 on the host once a proxy sits in front of it. Either create
-`data/reset-token.txt` yourself directly on the host — a random token of at
-least 32 characters after trimming whitespace (for example the output of
-`openssl rand -hex 24`), under 1KB, and less than 24 hours old when you use
-it, or the panel refuses it — or use a recovery code, or run
-`--reset-password` on the host instead. After 5 wrong tokens, from any mix
-of addresses, the panel deletes `data/reset-token.txt` and you need to
-create a new one.
+`data/reset-token.txt` yourself directly on the host and then choose
+**Enter a recovery token** on the login screen (or switch the recovery form
+to **Recovery token**) — or use a recovery code, or run `--reset-password`
+on the host instead.
+
+The token has to be one nobody can guess: random hex (only `0-9` and
+`a-f`), at least 32 characters after trimming whitespace, made by a
+generator rather than typed by you. From the panel's folder on Linux or
+macOS:
+
+```sh
+openssl rand -hex 24 > data/reset-token.txt
+```
+
+In PowerShell on Windows:
+
+```powershell
+$b = [byte[]]::new(24); [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); -join ($b | % { $_.ToString('x2') }) | Set-Content data\reset-token.txt
+```
+
+A UUID (`uuidgen`, or `New-Guid` in PowerShell) works too. The panel
+refuses what a stranger could guess: words, a sentence or a phrase
+(`zomboid-control-panel-reset-token`), a number on its own (the digits of
+pi, a date), hex words (`deadbeefcafe…`), repeated or sequential characters
+(`aaaa`, `abcd`, `4321`), keyboard patterns (`qwerty`, `1qaz2wsx`), the same
+stretch repeated, or runs interleaved (`a1b2c3`). It refuses a password
+manager's letters and symbols too, since it can't tell those from words;
+and a file over 1KB, or more than 24 hours old when you use it. Don't make
+hex by hashing something either (a word, the date): that passes the check,
+but anyone can hash the same thing. A wrong token changes nothing: the file stays until it is used
+or expires, so nobody else can use your token up by guessing. From anywhere
+but the host itself the panel also never says whether the file exists:
+every refusal reads `That reset token wasn't accepted. …`, and the panel's
+log says which check failed (missing, too short, not hex, too predictable,
+too old, or simply a different token).
 
 If you see `This recovery action is only available when the panel is opened
 from the server itself.` instead (no proxy mentioned), you're just not

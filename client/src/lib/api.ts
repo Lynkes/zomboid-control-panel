@@ -3,6 +3,7 @@ import { clearAccessToken, getAccessToken, setAccessToken } from "./authToken";
 import { toast } from "@/components/ui/use-toast";
 import i18n from "@/i18n";
 import { hostTimeToLocal } from "./hostClock";
+import { rememberTrustedDeviceFrom } from "./trustedDevice";
 
 const API_BASE = "/api";
 
@@ -3783,11 +3784,17 @@ export const debugApi = {
 
 // Auth API
 export const authApi = {
-  changePassword: (
+  // SECURITY (2026-10-05, A1): both of these retire this browser's
+  // trusted-device token with every other one and hand back a fresh one --
+  // see lib/trustedDevice.ts's rememberTrustedDeviceFrom().
+  changePassword: async (
     currentPassword: string,
     newPassword: string,
-  ): Promise<{ success: boolean; message?: string }> =>
-    apiPost("/auth/change-password", { currentPassword, newPassword }),
+  ): Promise<{ success: boolean; message?: string }> => {
+    const result = await apiPost("/auth/change-password", { currentPassword, newPassword });
+    rememberTrustedDeviceFrom(result);
+    return result;
+  },
 
   getRecoveryCodes: (): Promise<{
     configured: boolean;
@@ -3802,8 +3809,11 @@ export const authApi = {
     createdAt: string;
   }> => apiPost("/auth/recovery-codes", {}),
 
-  regenerateJwtSecret: (): Promise<{ success: boolean; message?: string }> =>
-    apiPost("/auth/regenerate-jwt-secret", {}),
+  regenerateJwtSecret: async (): Promise<{ success: boolean; message?: string }> => {
+    const result = await apiPost("/auth/regenerate-jwt-secret", {});
+    rememberTrustedDeviceFrom(result);
+    return result;
+  },
 };
 
 // Servers detection API helpers (added to serversApi)

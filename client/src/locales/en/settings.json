@@ -595,7 +595,7 @@
     "resettingButton": "Resetting...",
     "resetAndSignOutButton": "Reset Password and Sign Out",
     "recoveryRemoteIntro1": "The panel cannot show existing passwords. If you still have filesystem access to the panel host, sign out and either create <code>data/reset-token.txt</code> or start the panel with <code>--reset-password</code>.",
-    "recoveryRemoteIntro2": "Once the token file exists, the login screen will show a recovery option so you can set a new admin password without knowing the old one.",
+    "recoveryRemoteIntro2": "Put random hex of at least 32 characters in that file, made by a generator such as openssl rand -hex 24 (words, sentences and number sequences are refused), then open account recovery on the login screen and enter it as the recovery token to set a new admin password without knowing the old one.",
     "regenerateJwt": {
       "cardTitle": "Regenerate JWT secret",
       "cardDesc": "Immediately signs out every user on every device, including you — access and refresh tokens for every current session stop working at once. Use this only if a backup containing the old signing key may have leaked; it is not a routine action and there is no automatic rotation.",

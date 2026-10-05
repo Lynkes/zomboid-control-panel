@@ -31,6 +31,7 @@
     "description": "Verwende das Wiederherstellungstoken vom Panel-Host, um ein neues Administratorpasswort festzulegen.",
     "tokenLabel": "Wiederherstellungstoken",
     "codeLabel": "Wiederherstellungscode",
+    "methodLabel": "Wiederherstellen mit",
     "tokenPlaceholder": "Token einfügen",
     "codePlaceholder": "XXXXX-XXXXX-XXXXX",
     "tokenHelp": "Gespeichert unter data/reset-token.txt auf dem Panel-Host.",
@@ -50,18 +51,17 @@
     "recoverAccount": "Konto wiederherstellen",
     "helpTitle": "Kontowiederherstellung",
     "helpLocal": "Dieser Browser läuft auf dem Panel-Host. Erstelle eine Wiederherstellungsdatei und verwende deren Token, um das Administratorpasswort zurückzusetzen.",
-    "helpRemote1": "Erstelle data/reset-token.txt auf dem Panel-Host mit einem zufälligen Token von mindestens 32 Zeichen Länge.",
+    "helpRemote1": "Erstelle data/reset-token.txt auf dem Panel-Host mit einem zufälligen Hex-Token von mindestens 32 Zeichen aus einem Generator (zum Beispiel <code>openssl rand -hex 24</code>) und gib es dann hier ein. Wörter, Sätze, Zahlenfolgen sowie wiederholte oder fortlaufende Zeichen werden abgelehnt.",
     "helpRemote2": "Das Panel kann auch mit <code>--reset-password</code> über das Server-Terminal gestartet werden.",
     "createFile": "Datei erstellen",
     "creatingFile": "Wird vorbereitet…",
-    "checkToken": "Token prüfen",
-    "checkingToken": "Wird geprüft…",
+    "enterToken": "Wiederherstellungstoken eingeben",
     "cancel": "Abbrechen"
   },
   "resetTokenCreated": "Wiederherstellungstoken unter data/reset-token.txt erstellt. Zum Fortfahren unten einfügen.",
   "repeatedFailureHint": {
     "title": "Funktioniert es immer noch nicht?",
-    "body": "Nach mehreren fehlgeschlagenen Versuchen werden Anmeldungen bei diesem Konto von dieser Adresse aus zur Sicherheit für 15 Minuten pausiert -- dieser Bildschirm zeigt das nicht an. Ein gespeicherter Wiederherstellungscode oder das Starten des Panels mit <code>--reset-password</code> über das Server-Terminal setzt das Passwort zurück und hebt die Pause auf."
+    "body": "Nach mehreren fehlgeschlagenen Versuchen werden Anmeldungen bei diesem Konto von diesem Browser oder dieser Adresse aus zur Sicherheit für 15 Minuten pausiert -- dieser Bildschirm zeigt das nicht an. Ein gespeicherter Wiederherstellungscode oder das Starten des Panels mit <code>--reset-password</code> über das Server-Terminal setzt das Passwort zurück und hebt die Pause auf."
   },
   "errors": {
     "loginFailed": "Anmeldung fehlgeschlagen",
@@ -69,8 +69,6 @@
     "passwordTooShort": "Das Passwort muss mindestens 6 Zeichen umfassen",
     "passwordsDontMatch": "Passwörter stimmen nicht überein",
     "resetFailed": "Zurücksetzen fehlgeschlagen",
-    "noRecoveryTokenYet": "Noch kein Wiederherstellungstoken gefunden. Erstelle data/reset-token.txt auf dem Panel-Host und versuche es erneut.",
-    "couldNotCheckStatus": "Der Wiederherstellungsstatus konnte nicht geprüft werden. Versuche es gleich noch einmal.",
     "couldNotCreateToken": "Es konnte kein Wiederherstellungstoken erstellt werden",
     "oidc": {
       "not_configured": "Single Sign-on ist derzeit nicht verfügbar. Melde dich mit Benutzername und Passwort an.",
