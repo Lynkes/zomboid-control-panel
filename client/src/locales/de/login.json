@@ -50,7 +50,7 @@
     "recoverAccount": "Konto wiederherstellen",
     "helpTitle": "Kontowiederherstellung",
     "helpLocal": "Dieser Browser läuft auf dem Panel-Host. Erstelle eine Wiederherstellungsdatei und verwende deren Token, um das Administratorpasswort zurückzusetzen.",
-    "helpRemote1": "Erstelle data/reset-token.txt auf dem Panel-Host mit einem beliebigen Token von mindestens 8 Zeichen Länge.",
+    "helpRemote1": "Erstelle data/reset-token.txt auf dem Panel-Host mit einem zufälligen Token von mindestens 32 Zeichen Länge.",
     "helpRemote2": "Das Panel kann auch mit <code>--reset-password</code> über das Server-Terminal gestartet werden.",
     "createFile": "Datei erstellen",
     "creatingFile": "Wird vorbereitet…",

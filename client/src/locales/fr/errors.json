@@ -24,7 +24,7 @@
   "RESET_TOKEN_NOT_FOUND": "Aucun jeton de réinitialisation trouvé. Créez data/reset-token.txt sur le serveur d'abord.",
   "RESET_TOKEN_TOO_LARGE": "Le fichier de jeton de réinitialisation est invalide (trop volumineux). 1 Ko maximum.",
   "RESET_TOKEN_EXPIRED": "Le fichier de jeton de réinitialisation date de plus de 24 heures. Recréez-le sur le serveur.",
-  "RESET_TOKEN_TOO_SHORT": "Le fichier de jeton de réinitialisation est invalide. Il doit contenir au moins 8 caractères.",
+  "RESET_TOKEN_TOO_SHORT": "Le fichier de jeton de réinitialisation est invalide. Il doit contenir un jeton aléatoire d'au moins 32 caractères.",
   "RESET_TOKEN_INVALID": "Jeton de réinitialisation invalide",
   "SERVER_NOT_CONFIGURED": "Aucun serveur actif configuré",
   "REMOTE_CONFIG_NOT_CONFIGURED": "Ce serveur est distant. Ajoutez ses informations SFTP et le dossier Server distant dans Paramètres > PanelBridge pour modifier sa configuration depuis ici.",
@@ -581,5 +581,7 @@
   "FM_SECRET_NAME_REQUIRED": "Ce fichier contient des mots de passe que le gestionnaire de fichiers masque. Gardez .ini dans le nouveau nom pour qu'ils restent masqués.",
   "CHARACTER_INVALID_SECTIONS": "Section de personnage demandée inconnue.",
   "CHARACTER_SHEET_FAILED": "Impossible de lire ce personnage.",
-  "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Modifier ces paramètres Discord permettrait d'exécuter des commandes du bot qui nécessitent {{detail}}, des capacités que vous ne détenez pas vous-même."
+  "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Modifier ces paramètres Discord permettrait d'exécuter des commandes du bot qui nécessitent {{detail}}, des capacités que vous ne détenez pas vous-même.",
+  "RESET_TOKEN_BURNED": "Trop de jetons de réinitialisation erronés ont été essayés : data/reset-token.txt a donc été supprimé. Créez-en un nouveau sur le serveur, puis réessayez.",
+  "HOST_NOT_ALLOWED": "Ce panneau ne répond qu'à ses propres adresses tant que les connexions au panneau sont désactivées. Ouvrez-le par son adresse IP ou localhost, ou ajoutez cette adresse dans Paramètres > Accès distant (CORS)."
 }

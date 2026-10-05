@@ -24,7 +24,7 @@
   "RESET_TOKEN_NOT_FOUND": "Kein Reset-Token gefunden. Erstelle zuerst data/reset-token.txt auf dem Server.",
   "RESET_TOKEN_TOO_LARGE": "Reset-Token-Datei ungültig (zu groß). Maximal 1 KB.",
   "RESET_TOKEN_EXPIRED": "Reset-Token-Datei ist älter als 24 Stunden. Erstelle sie erneut auf dem Server.",
-  "RESET_TOKEN_TOO_SHORT": "Reset-Token-Datei ist ungültig. Sie muss mindestens 8 Zeichen enthalten.",
+  "RESET_TOKEN_TOO_SHORT": "Reset-Token-Datei ist ungültig. Sie muss ein zufälliges Token mit mindestens 32 Zeichen enthalten.",
   "RESET_TOKEN_INVALID": "Ungültiges Reset-Token",
   "SERVER_NOT_CONFIGURED": "Kein aktiver Server konfiguriert",
   "REMOTE_CONFIG_NOT_CONFIGURED": "Dieser Server ist extern. Um die Konfiguration von hier aus zu bearbeiten, füge die SFTP-Daten und den externen Server-Ordner unter Einstellungen > PanelBridge hinzu.",
@@ -581,5 +581,7 @@
   "FM_SECRET_NAME_REQUIRED": "Diese Datei enthält Passwörter, die der Dateimanager ausblendet. Behalte .ini im neuen Namen, damit sie ausgeblendet bleiben.",
   "CHARACTER_INVALID_SECTIONS": "Unbekannter Charakterabschnitt angefordert.",
   "CHARACTER_SHEET_FAILED": "Dieser Charakter konnte nicht gelesen werden.",
-  "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Wenn du diese Discord-Einstellungen änderst, könnten andere Bot-Befehle ausführen, die {{detail}} erfordern – Rechte, die du selbst nicht besitzt."
+  "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Wenn du diese Discord-Einstellungen änderst, könnten andere Bot-Befehle ausführen, die {{detail}} erfordern – Rechte, die du selbst nicht besitzt.",
+  "RESET_TOKEN_BURNED": "Es wurden zu viele falsche Reset-Tokens ausprobiert, deshalb wurde data/reset-token.txt gelöscht. Erstelle eine neue auf dem Server und versuche es erneut.",
+  "HOST_NOT_ALLOWED": "Dieses Panel antwortet nur auf seine eigenen Adressen, solange Panel-Anmeldungen deaktiviert sind. Öffne es über seine IP-Adresse oder localhost, oder füge diese Adresse unter Einstellungen > Fernzugriff (CORS) hinzu."
 }

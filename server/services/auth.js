@@ -132,8 +132,8 @@ export const ACCESS_TOKEN_EXPIRY = "15m";
 const REFRESH_TOKEN_EXPIRY = "30d";
 const REFRESH_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_REFRESH_SESSIONS = 5;
-const MAX_FAILED_LOGINS = 10;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
+export const MAX_FAILED_LOGINS = 10;
+export const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 // Fixed dummy hash used to keep the "user not found" branch of login() at the
 // same cost as the "user found, wrong password" branch (bcrypt.compare is the
 // expensive step, ~200-300ms at BCRYPT_ROUNDS). Without this, an attacker can
@@ -271,6 +271,111 @@ async function assertNoCapabilityEscalation(actingUserId, targetCapabilities) {
       { detail, missing },
     );
   }
+}
+
+// Failed password sign-ins, counted per (account, client address) -- not
+// per account. A per-account lock (what this used to be: 10 failures
+// locked the account for 15 minutes, for everyone) let anyone who knew a
+// username keep that account locked out for good, admin included, from a
+// single address, and it blocked SSO sign-in too. Counting per client
+// address means MAX_FAILED_LOGINS wrong passwords from one address pause
+// that address's attempts on that account, while the owner signing in
+// from anywhere else is not affected. The tradeoff is the usual one: many
+// addresses each get MAX_FAILED_LOGINS guesses per window (on top of
+// routes/auth.js's per-address loginLimiter), which a strong password
+// absorbs and an account lock nobody can get out of does not.
+//
+// Kept in memory, not in db.json: the old lock wrote the database on
+// every failed attempt, and a restart forgetting a pause harms nobody.
+// Bounded by MAX_LOGIN_THROTTLE_ENTRIES, and only accounts that exist get
+// an entry.
+//
+// An attempt is counted when it starts, before the bcrypt compare, not
+// when it fails: checking a lock and then comparing for ~250ms let any
+// number of concurrent guesses all pass the check before the first failure
+// was written, so a burst got far more than MAX_FAILED_LOGINS tries.
+const MAX_LOGIN_THROTTLE_ENTRIES = 10000;
+const loginThrottle = new Map();
+
+function loginThrottleKey(userId, clientKey) {
+  return `${userId}\u0000${clientKey || "unknown"}`;
+}
+
+function pruneLoginThrottle(now) {
+  if (loginThrottle.size < MAX_LOGIN_THROTTLE_ENTRIES) return;
+  for (const [key, entry] of loginThrottle) {
+    const stale =
+      entry.inFlight === 0 &&
+      entry.lockedUntil <= now &&
+      now - entry.lastFailureAt > LOCKOUT_DURATION_MS;
+    if (stale) loginThrottle.delete(key);
+  }
+  // Still full: drop the oldest entries with nothing in flight.
+  for (const [key, entry] of loginThrottle) {
+    if (loginThrottle.size < MAX_LOGIN_THROTTLE_ENTRIES) break;
+    if (entry.inFlight === 0) loginThrottle.delete(key);
+  }
+}
+
+// Counts one attempt for this (account, client) and returns its entry, or
+// null when the client must not try this account right now.
+function reserveLoginAttempt(key, now = Date.now()) {
+  let entry = loginThrottle.get(key);
+  if (!entry) {
+    pruneLoginThrottle(now);
+    entry = { failures: 0, inFlight: 0, lockedUntil: 0, lastFailureAt: 0 };
+    loginThrottle.set(key, entry);
+  }
+  if (entry.lockedUntil > now) return null;
+  if (entry.lockedUntil && entry.lockedUntil <= now) entry.lockedUntil = 0;
+  if (entry.failures > 0 && now - entry.lastFailureAt > LOCKOUT_DURATION_MS) {
+    entry.failures = 0;
+  }
+  if (entry.failures + entry.inFlight >= MAX_FAILED_LOGINS) return null;
+  entry.inFlight += 1;
+  return entry;
+}
+
+// Records how a reserved attempt ended. Returns true when this failure
+// paused the client.
+function settleLoginAttempt(key, entry, succeeded, now = Date.now()) {
+  entry.inFlight = Math.max(0, entry.inFlight - 1);
+  if (succeeded) {
+    entry.failures = 0;
+    entry.lockedUntil = 0;
+    if (entry.inFlight === 0) loginThrottle.delete(key);
+    return false;
+  }
+  entry.failures += 1;
+  entry.lastFailureAt = now;
+  if (entry.failures >= MAX_FAILED_LOGINS) {
+    entry.lockedUntil = now + LOCKOUT_DURATION_MS;
+    entry.failures = 0;
+    return true;
+  }
+  return false;
+}
+
+// Every pause on one account, whichever address it was for: setting a new
+// password through reset/recovery is the documented way back in, so it has
+// to clear the pause its owner may have caused themselves by forgetting it.
+function clearLoginThrottleForUser(userId) {
+  const prefix = `${userId}\u0000`;
+  for (const key of [...loginThrottle.keys()]) {
+    if (key.startsWith(prefix)) loginThrottle.delete(key);
+  }
+}
+
+// Account-wide lock fields from before the throttle above. Never read now;
+// removed whenever the row is written for a sign-in or reset.
+function clearLegacyAccountLock(user) {
+  delete user.failedLoginCount;
+  delete user.lockedUntil;
+}
+
+// For tests only.
+export function _resetLoginThrottleForTests() {
+  loginThrottle.clear();
 }
 
 // Session-revocation event bus. Socket.IO connections authenticate once at
@@ -641,6 +746,11 @@ class AuthService {
       await commitNow();
 
       log.info(`User created: ${username} (role: ${resolvedRole})`);
+      // The panel just stopped being open to everyone: a socket that
+      // connected before any account existed carries no identity at all,
+      // and it would otherwise stay connected and keep every broadcast
+      // after setup locked the HTTP side.
+      if (isFirstUser) emitSessionRevoked({ scope: "all" });
       return { id: user.id, username: user.username, role: user.role };
     });
   }
@@ -860,9 +970,14 @@ class AuthService {
   }
 
   /**
-   * Authenticate user and return tokens
+   * Authenticate user and return tokens.
+   *
+   * clientKey identifies where the attempt came from (routes/auth.js passes
+   * the client address) -- failed attempts are counted per account AND
+   * client, see the loginThrottle comment at the top of this file. Callers
+   * that pass none share one "unknown" client.
    */
-  async login(username, password, rememberMe = true) {
+  async login(username, password, rememberMe = true, { clientKey } = {}) {
     if (!username || !password) {
       throw new Error("Username and password are required");
     }
@@ -882,12 +997,14 @@ class AuthService {
       throw new Error("Invalid username or password");
     }
 
-    // Account lockout: reject early if the account is currently locked.
-    // Generic error message keeps username enumeration impossible. Also run
-    // the dummy compare here so a locked account doesn't become a distinct,
-    // faster timing signature from a normal wrong-password attempt.
-    const lockedUntil = user.lockedUntil ? Date.parse(user.lockedUntil) : 0;
-    if (lockedUntil && lockedUntil > Date.now()) {
+    // Counted before the compare, with nothing awaited in between, so a
+    // burst of concurrent guesses can't all get past this check first.
+    // Paused: same generic error, and the dummy compare so a paused client
+    // doesn't get a distinct, faster timing signature from a normal
+    // wrong-password attempt.
+    const throttleKey = loginThrottleKey(user.id, clientKey);
+    const attempt = reserveLoginAttempt(throttleKey);
+    if (!attempt) {
       await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
       throw new Error("Invalid username or password");
     }
@@ -896,37 +1013,32 @@ class AuthService {
     // have no local password hash. Still run the dummy compare so this
     // branch costs the same as a real wrong-password attempt.
     let valid;
-    if (user.password) {
-      valid = await bcrypt.compare(password, user.password);
-    } else {
-      await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
-      valid = false;
-    }
-    if (!valid) {
-      user.failedLoginCount = (user.failedLoginCount || 0) + 1;
-      if (user.failedLoginCount >= MAX_FAILED_LOGINS) {
-        user.lockedUntil = new Date(
-          Date.now() + LOCKOUT_DURATION_MS,
-        ).toISOString();
-        user.failedLoginCount = 0;
-        log.warn(
-          `Account locked due to repeated failed logins: ${user.username}`,
-        );
+    try {
+      if (user.password) {
+        valid = await bcrypt.compare(password, user.password);
+      } else {
+        await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
+        valid = false;
       }
-      try {
-        await commitNow();
-      } catch (error) {
-        // Losing this write silently would let brute-force lockout state vanish.
-        log.error(
-          `Failed to persist failed-login state for ${user.username}: ${error.message}`,
+    } catch (error) {
+      settleLoginAttempt(throttleKey, attempt, false);
+      throw error;
+    }
+    // Re-checked after the compare: a pause that began while this attempt
+    // was being checked still refuses it.
+    if (!valid || attempt.lockedUntil > Date.now()) {
+      if (settleLoginAttempt(throttleKey, attempt, false)) {
+        log.warn(
+          `Sign-in to ${user.username} from ${clientKey || "an unknown address"} paused for ${
+            LOCKOUT_DURATION_MS / 60000
+          } minutes after ${MAX_FAILED_LOGINS} failed attempts`,
         );
       }
       throw new Error("Invalid username or password");
     }
 
-    // Successful auth — clear lockout state.
-    user.failedLoginCount = 0;
-    user.lockedUntil = null;
+    settleLoginAttempt(throttleKey, attempt, true);
+    clearLegacyAccountLock(user);
 
     this.ensureUserAuthState(user);
 
@@ -1178,20 +1290,12 @@ class AuthService {
         return { linked: false, canBootstrapAdmin: users.length === 0 };
       }
 
-      // Lockout must hold across BOTH sign-in paths. login() (password) checks
-      // lockedUntil before issuing a session; without the same check here, an
-      // account locked out by repeated failed password attempts could still
-      // sign in via OIDC and read straight through the lockout the password
-      // path just enforced.
-      const lockedUntil = existing.lockedUntil
-        ? Date.parse(existing.lockedUntil)
-        : 0;
-      if (lockedUntil && lockedUntil > Date.now()) {
-        throw new Error(
-          "Account is temporarily locked due to repeated failed sign-in attempts",
-        );
-      }
-
+      // No password-guessing pause here. Failed password attempts slow down
+      // password guessing (login() above); a verified provider identity is
+      // not a password guess. This used to refuse SSO while the account was
+      // locked, which let anyone who knew the username lock its owner out of
+      // SSO too, just by typing wrong passwords.
+      clearLegacyAccountLock(existing);
       this.ensureUserAuthState(existing);
       existing.lastLogin = new Date().toISOString();
       const refreshSession = rememberMe
@@ -1296,6 +1400,9 @@ class AuthService {
       db.data.users.push(user);
       await commitNow();
       await clearSetupToken();
+      // Same as createUser()'s first account: drop every socket that
+      // connected while the panel had no accounts.
+      emitSessionRevoked({ scope: "all" });
 
       log.info(`First admin account bootstrapped via OIDC: ${username}`);
       return { id: user.id, username: user.username, role: user.role };
@@ -1475,6 +1582,12 @@ class AuthService {
     user.password = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     user.tokenGen = (user.tokenGen || 0) + 1;
     user.refreshSessions = [];
+    // Recovery (reset token, recovery code, --reset-password) is the way
+    // back in after failed sign-ins, so it lifts every pause on the
+    // account; it used to leave the lock in place, so the new password
+    // was refused too.
+    clearLegacyAccountLock(user);
+    clearLoginThrottleForUser(user.id);
     await commitNow();
 
     log.info(`Password reset for user: ${user.username}`);
@@ -1620,8 +1733,12 @@ class AuthService {
           return next();
         }
 
-        // Allow mod thumbnail proxy (also loaded via <img> tags). Only proxies
-        // Steam Workshop preview URLs already stored in our DB — no arbitrary SSRF.
+        // Allow mod thumbnail proxy (also loaded via <img> tags). Like the tile
+        // proxy above, the upstream host is fixed (Steam), so it is not an SSRF
+        // surface -- but both fetch from the internet and write a disk cache
+        // for anyone who can reach the panel, signed in or not, so whatever
+        // bounds that work (which items, how much is kept) has to live in
+        // routes/mods.js and routes/mapProxy.js themselves, not here.
         // req.user is never set for this path — routes/mods.js carves this
         // exact path out of its router-level requirePermission("mods.manage")
         // gate to match (see the comment above that router.use() there); if

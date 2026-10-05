@@ -50,7 +50,7 @@
     "recoverAccount": "找回账户",
     "helpTitle": "账户找回",
     "helpLocal": "此浏览器正运行在面板主机上。创建找回文件后，使用其中的令牌重置管理员密码。",
-    "helpRemote1": "在面板主机上创建 data/reset-token.txt，内容为至少 8 个字符的任意令牌。",
+    "helpRemote1": "在面板主机上创建 data/reset-token.txt，内容为至少 32 个字符的随机令牌。",
     "helpRemote2": "您也可以在服务器终端使用 <code>--reset-password</code> 启动面板。",
     "createFile": "创建文件",
     "creatingFile": "正在准备…",

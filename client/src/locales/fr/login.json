@@ -50,7 +50,7 @@
     "recoverAccount": "Récupérer le compte",
     "helpTitle": "Récupération de compte",
     "helpLocal": "Ce navigateur s'exécute sur l'hôte du panneau. Créez un fichier de récupération, puis utilisez son jeton pour réinitialiser le mot de passe administrateur.",
-    "helpRemote1": "Créez data/reset-token.txt sur l'hôte du panneau avec un jeton d'au moins 8 caractères.",
+    "helpRemote1": "Créez data/reset-token.txt sur l'hôte du panneau avec un jeton aléatoire d'au moins 32 caractères.",
     "helpRemote2": "Vous pouvez aussi démarrer le panneau avec <code>--reset-password</code> depuis le terminal du serveur.",
     "createFile": "Créer le fichier",
     "creatingFile": "Préparation…",

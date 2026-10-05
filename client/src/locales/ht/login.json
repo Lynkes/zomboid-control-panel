@@ -50,7 +50,7 @@
     "recoverAccount": "Rekipere kont",
     "helpTitle": "Rekiperasyon kont",
     "helpLocal": "Navigatè sa a ap fonksyone sou lame panèl la. Kreye yon dosye rekiperasyon, epi itilize jeton li pou reyinisyalize modpas administratè a.",
-    "helpRemote1": "Kreye data/reset-token.txt sou lame panèl la ak nenpòt jeton ki gen omwen 8 karaktè.",
+    "helpRemote1": "Kreye data/reset-token.txt sou lame panèl la ak yon jeton o aza ki gen omwen 32 karaktè.",
     "helpRemote2": "Ou kapab tou demare panèl la ak <code>--reset-password</code> nan tèminal sèvè a.",
     "createFile": "Kreye dosye",
     "creatingFile": "N ap prepare…",

@@ -365,6 +365,12 @@ export function createRestoreStagingDir(savesParentPath, makeName = randomUUID) 
   return stagingPath;
 }
 
+// The Socket.IO room backup:progress, restore:progress and restore:finished
+// go to (server/index.js's CAPABILITY_ROOMS gates who may join it). They
+// used to go to every connected socket, whatever its role, with raw error
+// text that can quote host paths.
+export const BACKUP_PROGRESS_ROOM = "backups";
+
 export class BackupService {
   constructor() {
     this.backupInProgress = false;
@@ -777,10 +783,17 @@ export class BackupService {
     const startTime = Date.now();
     const io = options.io; // Socket.IO for progress updates
 
-    // Helper to emit progress
+    // Helper to emit progress. The message goes through sanitizeError()
+    // here, once, rather than at each call site: several pass a raw
+    // err.message, which can quote the save or backup folder.
     const emitProgress = (phase, percent, message, extra = {}) => {
       if (io) {
-        io.emit("backup:progress", { phase, percent, message, ...extra });
+        io.to(BACKUP_PROGRESS_ROOM).emit("backup:progress", {
+          phase,
+          percent,
+          message: sanitizeError(message),
+          ...extra,
+        });
       }
     };
 
@@ -1641,7 +1654,7 @@ export class BackupService {
       };
       this.currentRestore = null;
       this.restoreInProgress = false;
-      options.io?.emit("restore:finished", { id: restore.id });
+      options.io?.to(BACKUP_PROGRESS_ROOM).emit("restore:finished", { id: restore.id });
     }
   }
 
@@ -1657,7 +1670,12 @@ export class BackupService {
     // inner createBackup() call never received io.
     const emitProgress = (phase, percent, message, extra = {}) => {
       if (io) {
-        io.emit("restore:progress", { phase, percent, message, ...extra });
+        io.to(BACKUP_PROGRESS_ROOM).emit("restore:progress", {
+          phase,
+          percent,
+          message: sanitizeError(message),
+          ...extra,
+        });
       }
     };
 

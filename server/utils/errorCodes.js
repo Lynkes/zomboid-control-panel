@@ -126,7 +126,7 @@ export const ErrorCode = Object.freeze({
    * reset-token.txt is older than 24h. */
   RESET_TOKEN_EXPIRED: "RESET_TOKEN_EXPIRED",
   /** server/routes/auth.js -- POST /api/auth/reset-password,
-   * reset-token.txt content is under 8 characters. */
+   * reset-token.txt content is under RESET_TOKEN_MIN_LENGTH (32) characters. */
   RESET_TOKEN_TOO_SHORT: "RESET_TOKEN_TOO_SHORT",
   /** server/routes/auth.js -- POST /api/auth/reset-password, submitted token
    * does not match the stored token (timing-safe compare failed). */
@@ -2457,6 +2457,16 @@ export const ErrorCode = Object.freeze({
    * holding every capability of the bot commands that change unlocks --
    * same policy as DISCORD_PERMISSIONS_CAPABILITY_REQUIRED. */
   DISCORD_CONFIG_CAPABILITY_REQUIRED: "DISCORD_CONFIG_CAPABILITY_REQUIRED",
+  /* --- security sweep W2: auth & sessions (sec/w2-auth-sessions) --- */
+  /** server/routes/auth.js -- POST /api/auth/reset-password, the wrong token
+   * was tried MAX_RESET_TOKEN_FAILURES times (from any addresses), so
+   * reset-token.txt was deleted. */
+  RESET_TOKEN_BURNED: "RESET_TOKEN_BURNED",
+  /** server/index.js -- 403 for an /api request (or a Socket.IO handshake)
+   * whose Host header is not one of the panel's own addresses while
+   * authentication is disabled (DNS rebinding guard). */
+  HOST_NOT_ALLOWED: "HOST_NOT_ALLOWED",
+  /* --- end security sweep W2: auth & sessions --- */
 });
 
 /**

@@ -429,8 +429,12 @@ function AppContent() {
     // Don't connect socket until auth is resolved
     if (demoMode) return
     if (isLoading) return
+    // Nothing on the setup screen uses the socket, and the server refuses
+    // one until the first account exists (server/index.js's io.use). Once
+    // setup signs in, needsSetup flips and this effect connects.
+    if (needsSetup) return
     // If auth is enabled and user is not authenticated, don't connect
-    if (authEnabled && !isAuthenticated && !needsSetup) return
+    if (authEnabled && !isAuthenticated) return
 
     let cancelled = false
     let createdSocket: Socket | null = null

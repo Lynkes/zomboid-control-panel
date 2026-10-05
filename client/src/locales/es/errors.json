@@ -24,7 +24,7 @@
   "RESET_TOKEN_NOT_FOUND": "No se encontró ningún token de restablecimiento. Crea primero data/reset-token.txt en el servidor.",
   "RESET_TOKEN_TOO_LARGE": "El archivo del token de restablecimiento no es válido (demasiado grande). Máximo 1 KB.",
   "RESET_TOKEN_EXPIRED": "El archivo del token de restablecimiento tiene más de 24 horas. Vuelve a crearlo en el servidor.",
-  "RESET_TOKEN_TOO_SHORT": "El archivo del token de restablecimiento no es válido. Debe contener al menos 8 caracteres.",
+  "RESET_TOKEN_TOO_SHORT": "El archivo del token de restablecimiento no es válido. Debe contener un token aleatorio de al menos 32 caracteres.",
   "RESET_TOKEN_INVALID": "Token de restablecimiento no válido",
   "SERVER_NOT_CONFIGURED": "No hay ningún servidor activo configurado",
   "REMOTE_CONFIG_NOT_CONFIGURED": "Este servidor es remoto. Añade sus datos de SFTP y la carpeta del servidor remoto en Ajustes > PanelBridge para editar su configuración desde aquí.",
@@ -581,5 +581,7 @@
   "FM_SECRET_NAME_REQUIRED": "Este archivo contiene contraseñas que el gestor de archivos oculta. Mantén .ini en el nuevo nombre para que sigan ocultas.",
   "CHARACTER_INVALID_SECTIONS": "Se solicitó una sección de personaje desconocida.",
   "CHARACTER_SHEET_FAILED": "No se pudo leer este personaje.",
-  "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Cambiar estos ajustes de Discord permitiría ejecutar comandos del bot que requieren {{detail}}, capacidades que tú no tienes."
+  "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Cambiar estos ajustes de Discord permitiría ejecutar comandos del bot que requieren {{detail}}, capacidades que tú no tienes.",
+  "RESET_TOKEN_BURNED": "Se probaron demasiados tokens de restablecimiento incorrectos, así que se eliminó data/reset-token.txt. Crea uno nuevo en el servidor e inténtalo de nuevo.",
+  "HOST_NOT_ALLOWED": "Este panel solo responde a sus propias direcciones mientras los inicios de sesión del panel están desactivados. Ábrelo por su dirección IP o localhost, o añade esta dirección en Ajustes > Acceso remoto (CORS)."
 }
