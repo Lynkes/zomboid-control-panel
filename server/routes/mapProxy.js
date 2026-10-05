@@ -196,6 +196,18 @@ async function scanTileCacheDir(dir, found) {
   }
 }
 
+// Writes that arrive while the one-time scan runs wait for it, each holding
+// its tile buffer, so only this many may wait; later ones serve the tile
+// without keeping it (security sweep 2026-10-04, adversary pass: with a large
+// cache left by an older version, every anonymous tile miss during the scan
+// and trim held about 1 MB until it ended -- tens of seconds -- and the load
+// also waited for the whole trim's one-at-a-time deletes). The trim now runs
+// in the background once the index is built, so a write waits for the scan
+// only.
+const MAX_WRITES_WAITING_FOR_INDEX = 16;
+let diskIndexReady = false;
+let writesWaitingForIndex = 0;
+
 function ensureDiskIndex() {
   if (!diskIndexLoad) {
     diskIndexLoad = (async () => {
@@ -203,10 +215,14 @@ function ensureDiskIndex() {
       await scanTileCacheDir(TILE_CACHE_DIR, found);
       found.sort((a, b) => a.mtimeMs - b.mtimeMs);
       for (const f of found) diskIndexAdd(f.relPath, f.size);
-      await enforceDiskBudget();
-    })().catch((err) => {
-      log.warn(`Map tile cache index scan failed: ${err.message}`);
-    });
+      enforceDiskBudget();
+    })()
+      .catch((err) => {
+        log.warn(`Map tile cache index scan failed: ${err.message}`);
+      })
+      .finally(() => {
+        diskIndexReady = true;
+      });
   }
   return diskIndexLoad;
 }
@@ -249,7 +265,20 @@ export function writeDiskCacheAsync(relPath, buffer) {
   if (buffer.length > tileCacheLimits.diskMaxBytes) return Promise.resolve();
   const dest = diskPathFor(relPath);
   const tmp = `${dest}.${process.pid}.${Date.now()}.${crypto.randomBytes(4).toString("hex")}.tmp`;
-  return ensureDiskIndex()
+  let indexed;
+  if (diskIndexReady) {
+    indexed = Promise.resolve();
+  } else {
+    if (writesWaitingForIndex >= MAX_WRITES_WAITING_FOR_INDEX) {
+      ensureDiskIndex();
+      return Promise.resolve();
+    }
+    writesWaitingForIndex += 1;
+    indexed = ensureDiskIndex().finally(() => {
+      writesWaitingForIndex -= 1;
+    });
+  }
+  return indexed
     .then(() => fs.promises.mkdir(path.dirname(dest), { recursive: true }))
     .then(() => fs.promises.writeFile(tmp, buffer))
     .then(() => fs.promises.rename(tmp, dest))
