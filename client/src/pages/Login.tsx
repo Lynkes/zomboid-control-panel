@@ -3,6 +3,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import { useAuth } from '../contexts/AuthContext'
 import { rawErrorMessageIntentional, getUserErrorMessage } from '../lib/errorMessage'
 import { apiFetch, handleResponse } from '../lib/api'
+import { rememberTrustedDeviceFrom } from '../lib/trustedDevice'
 import { Button, buttonVariants } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
@@ -226,7 +227,7 @@ export default function Login() {
       // does the same thing via buildResponseError, plus the fetchWithRetry
       // timeout and consistent NETWORK_ERROR/TIMEOUT classification this
       // route never had before.
-      const data = await handleResponse<{ message: string }>(
+      const data = await handleResponse<{ message: string; username?: string; deviceToken?: string }>(
         await apiFetch(useRecoveryCode ? '/auth/recover-with-code' : '/auth/reset-password', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -237,6 +238,9 @@ export default function Login() {
           ),
         }),
       )
+      // SECURITY (2026-10-05, A1): the reset retired this browser's
+      // trusted-device token; keep the fresh one (see lib/trustedDevice.ts).
+      rememberTrustedDeviceFrom(data)
       setResetSuccess(data.message)
       setResetToken('')
       setNewPassword('')

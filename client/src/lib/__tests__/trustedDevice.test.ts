@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getTrustedDeviceToken, rememberTrustedDeviceToken } from '../trustedDevice'
+import { getTrustedDeviceToken, rememberTrustedDeviceFrom, rememberTrustedDeviceToken } from '../trustedDevice'
 
 // Security sweep 2026-10-05, A1: the device token a successful sign-in
 // returns is kept per username and sent with that account's later sign-ins,
@@ -52,6 +52,20 @@ describe('trusted-device tokens in this browser', () => {
     expect(getTrustedDeviceToken('user1')).toBeUndefined()
     expect(getTrustedDeviceToken('user2')).toBe('token-2')
     expect(getTrustedDeviceToken('user11')).toBe('token-11')
+  })
+
+  // Round 1 of the A1 verification: changing the password (or resetting it,
+  // or rotating the JWT secret) retired this browser's token and the client
+  // kept none in its place, so its next sign-in was counted by address again.
+  it('are taken from a password change, reset or key rotation response', () => {
+    rememberTrustedDeviceToken('admin', 'retired-token')
+    rememberTrustedDeviceFrom({ success: true, message: 'Password changed successfully', username: 'admin', deviceToken: 'fresh-token' })
+    expect(getTrustedDeviceToken('admin')).toBe('fresh-token')
+
+    for (const response of [null, undefined, 'admin', { username: 'admin' }, { deviceToken: 'orphan' }]) {
+      expect(() => rememberTrustedDeviceFrom(response)).not.toThrow()
+    }
+    expect(getTrustedDeviceToken('admin')).toBe('fresh-token')
   })
 
   it('carry on without storage', () => {

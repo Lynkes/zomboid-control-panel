@@ -164,6 +164,13 @@ describe("AUTHN-5 / A2: the manual reset token has to be unguessable", () => {
     "a".repeat(40),
     "0123456789abcdef0123456789abcdef",
     "qwertyuiopasdfghjklzxcvbnm123456",
+    // Accepted until round 1 of the A2 verification (a remote stranger reset
+    // the admin password with the first one over HTTP): keyboard columns,
+    // alternating case, interleaved runs, a fixed step of two.
+    "1qaz2wsx3edc4rfv5tgb6yhn7ujm8ik9",
+    "aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpP",
+    "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+    "acegikmoqsuwyACEGIKMOQSUWY024680",
   ])("refuses a long but predictable token (%s), even when it is typed correctly", async (weak) => {
     expect(weak.length).toBeGreaterThanOrEqual(RESET_TOKEN_MIN_LENGTH);
     writeToken(weak);
@@ -182,6 +189,10 @@ describe("AUTHN-5 / A2: the manual reset token has to be unguessable", () => {
     expect(res.status).toBe(200);
     expect(await passwordIs("attacker-pw-1")).toBe(true);
     expect(fs.existsSync(tokenPath())).toBe(false);
+    // The browser that reset it keeps a trusted-device token that counts
+    // (A1; see loginTrustedDevice.test.js).
+    expect(res.body.username).toBe("admin");
+    expect(authService.trustedDeviceId(db.data.users[0], res.body.deviceToken)).toBeTruthy();
   });
 });
 
@@ -231,5 +242,32 @@ describe("A2: strangers can neither find nor destroy the operator's token", () =
     // The host itself still gets the specific reason.
     fs.rmSync(tokenPath());
     expect((await resetAsLocalCaller("anything")).body.code).toBe("RESET_TOKEN_NOT_FOUND");
+  });
+
+  // Round 1 of the A2 verification: a token file the panel can't read
+  // (owned by another account, mode 0600) made /reset-password answer with
+  // the filesystem error instead of the usual refusal, which said the file
+  // exists.
+  it("POST /reset-password answers a remote caller the same when the file exists but can't be read", async () => {
+    const missing = await reset("some-guess-that-is-long-enough-000000");
+    writeToken(strongToken());
+    const readFileSync = fs.readFileSync;
+    const unreadable = vi.spyOn(fs, "readFileSync").mockImplementation((file, ...rest) => {
+      if (String(file) === tokenPath()) {
+        throw Object.assign(new Error(`EACCES: permission denied, open '${tokenPath()}'`), { code: "EACCES" });
+      }
+      return readFileSync(file, ...rest);
+    });
+    try {
+      const present = await reset("some-guess-that-is-long-enough-000000");
+      expect(present).toEqual(missing);
+      // The host itself still sees what went wrong.
+      const local = await resetAsLocalCaller("anything");
+      expect(local.status).toBe(400);
+      expect(local.body.error).toMatch(/EACCES/);
+    } finally {
+      unreadable.mockRestore();
+    }
+    expect(fs.existsSync(tokenPath())).toBe(true);
   });
 });

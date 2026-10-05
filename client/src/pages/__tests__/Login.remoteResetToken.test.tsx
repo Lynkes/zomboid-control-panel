@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Login from '../Login'
+import { getTrustedDeviceToken } from '../../lib/trustedDevice'
 
 // Security sweep 2026-10-05, A2: GET /api/auth/reset-status used to tell
 // anyone whether data/reset-token.txt existed, and this screen only offered
@@ -39,8 +40,12 @@ function stubServer({ recoveryCodesAvailable }: { recoveryCodesAvailable: boolea
         code: 'LOCAL_RESET_NOT_LOCAL',
       })
     }
-    if (url.includes('/api/auth/reset-password')) return json(200, { success: true, message: 'Password reset for admin' })
-    if (url.includes('/api/auth/recover-with-code')) return json(200, { success: true, message: 'Password reset for admin' })
+    if (url.includes('/api/auth/reset-password')) {
+      return json(200, { success: true, message: 'Password reset for admin', username: 'admin', deviceToken: 'device-after-token-reset' })
+    }
+    if (url.includes('/api/auth/recover-with-code')) {
+      return json(200, { success: true, message: 'Password reset for admin', username: 'admin', deviceToken: 'device-after-code-reset' })
+    }
     throw new Error(`unexpected fetch in test: ${url}`)
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -78,6 +83,7 @@ afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+  localStorage.clear()
 })
 
 describe('Login.tsx: a remote user can always enter a reset token', () => {
@@ -111,5 +117,33 @@ describe('Login.tsx: a remote user can always enter a reset token', () => {
 
     await waitFor(() => expect(postedTo(fetchMock, '/api/auth/reset-password')).toBeTruthy())
     expect(postedTo(fetchMock, '/api/auth/recover-with-code')).toBeUndefined()
+  })
+})
+
+// Security sweep 2026-10-05, A1 (round 1 of the verification): a reset
+// retires every trusted-device token the account had, this browser's
+// included. The server hands the browser that did it a fresh one, so its
+// next sign-in still counts on its own rather than by address.
+describe('Login.tsx: a reset keeps this browser trusted', () => {
+  it('keeps the device token a reset-token reset hands back', async () => {
+    const fetchMock = stubServer({ recoveryCodesAvailable: false })
+    await renderSettled(fetchMock)
+
+    fireEvent.click(screen.getByRole('button', { name: /recover account/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /enter a recovery token/i }))
+    fillAndSubmit('a-token-the-operator-wrote-on-the-host-0123')
+
+    await waitFor(() => expect(getTrustedDeviceToken('admin')).toBe('device-after-token-reset'))
+  })
+
+  it('keeps the device token a recovery-code reset hands back', async () => {
+    const fetchMock = stubServer({ recoveryCodesAvailable: true })
+    await renderSettled(fetchMock)
+
+    fireEvent.click(screen.getByRole('button', { name: /use recovery token/i }))
+    expect(screen.getByRole('button', { name: /^recovery code$/i })).toHaveAttribute('aria-pressed', 'true')
+    fillAndSubmit('ABCDE-FGHIJ-KLMNO')
+
+    await waitFor(() => expect(getTrustedDeviceToken('admin')).toBe('device-after-code-reset'))
   })
 })

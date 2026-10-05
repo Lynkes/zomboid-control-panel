@@ -215,10 +215,10 @@ const RESET_TOKEN_UNUSABLE_RESPONSES = {
     error: `Reset token file is invalid. It must contain a random token of at least ${RESET_TOKEN_MIN_LENGTH} characters.`,
   },
   "too-weak": {
-    log: "reset-token.txt is too predictable (repeated, sequential or keyboard-row characters, or a repeated stretch)",
+    log: "reset-token.txt is too predictable (repeated, sequential or keyboard-pattern characters, a repeated stretch, or too few different characters)",
     code: ErrorCode.RESET_TOKEN_TOO_WEAK,
     error:
-      "The token in data/reset-token.txt is too predictable (repeated, sequential or keyboard-row characters). Replace it with a random token from a password generator, or use the recovery button on the panel host.",
+      "The token in data/reset-token.txt is too predictable (repeated, sequential or keyboard-pattern characters). Replace it with a random token from a password generator, or use the recovery button on the panel host.",
   },
 };
 
@@ -240,6 +240,20 @@ function loginClientKey(req) {
     return ipKeyGenerator(ip);
   } catch {
     return ip;
+  }
+}
+
+// SECURITY (2026-10-05, A1): a device token for the browser that just
+// changed the password or rotated the JWT secret (see
+// authService.issueDeviceTokenForUserId()). Only ever an extra: the change
+// itself already succeeded, so failing to issue one must not turn its
+// response into an error.
+async function freshDeviceToken(userId) {
+  try {
+    return await authService.issueDeviceTokenForUserId(userId);
+  } catch (error) {
+    log.warn(`Could not issue a trusted-device token: ${error.message}`);
+    return null;
   }
 }
 
@@ -583,7 +597,16 @@ router.post("/change-password", async (req, res) => {
     await authService.changePassword(user.userId, currentPassword, newPassword);
     res.clearCookie("refreshToken", getRefreshCookieOptions(req, false));
 
-    res.json({ success: true, message: "Password changed successfully" });
+    // SECURITY (2026-10-05, A1): the change retired this browser's device
+    // token with all the others; it gets a fresh one (see
+    // issueDeviceTokenForUserId()) so its next sign-in still counts on its
+    // own.
+    res.json({
+      success: true,
+      message: "Password changed successfully",
+      username: user.username,
+      deviceToken: await freshDeviceToken(user.userId),
+    });
   } catch (error) {
     res.status(400).json({ error: sanitizeError(error.message) });
   }
@@ -789,6 +812,10 @@ router.post(
         success: true,
         message:
           "JWT signing key regenerated. Every session has been invalidated, including this one — you will need to log in again.",
+        // SECURITY (2026-10-05, A1): signed with the new key; see
+        // POST /change-password.
+        username: req.user?.username,
+        deviceToken: await freshDeviceToken(req.user?.userId),
       });
     } catch (error) {
       log.error(`JWT secret regeneration failed: ${error.message}`);
@@ -925,6 +952,9 @@ router.post("/recover-with-code", resetLimiter, async (req, res) => {
       success: true,
       message: `Password reset for ${result.username}`,
       remaining: result.remaining,
+      // SECURITY (2026-10-05, A1): see authService.resetPassword().
+      username: result.username,
+      deviceToken: result.deviceToken,
     });
   } catch (error) {
     log.warn(`Recovery code redemption failed: ${error.message}`);
@@ -1044,7 +1074,19 @@ router.post("/reset-password", resetLimiter, async (req, res) => {
       });
     }
 
-    const tokenState = getResetTokenState();
+    // SECURITY (2026-10-05, A2): a token file that exists but can't be read
+    // (owned by another account, mode 0600) made this throw, and the catch
+    // below answered with the filesystem error -- telling anyone that the
+    // file exists. Elsewhere that's the same refusal as every other case;
+    // the host still gets the error itself.
+    let tokenState;
+    try {
+      tokenState = getResetTokenState();
+    } catch (error) {
+      if (isLocalPanelRequest(req)) throw error;
+      log.warn(`Password reset attempted but reset-token.txt can't be read: ${error.message}`);
+      return res.status(403).json(RESET_TOKEN_NOT_ACCEPTED);
+    }
     if (!tokenState.available) {
       const unusable = RESET_TOKEN_UNUSABLE_RESPONSES[tokenState.reason] || RESET_TOKEN_UNUSABLE_RESPONSES.missing;
       log.warn(`Password reset attempted but ${unusable.log}`);
@@ -1080,6 +1122,9 @@ router.post("/reset-password", resetLimiter, async (req, res) => {
     res.json({
       success: true,
       message: `Password reset for ${result.username}`,
+      // SECURITY (2026-10-05, A1): see authService.resetPassword().
+      username: result.username,
+      deviceToken: result.deviceToken,
     });
   } catch (error) {
     log.error(`Password reset failed: ${error.message}`);

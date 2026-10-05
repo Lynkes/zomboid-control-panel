@@ -63,3 +63,14 @@ export function rememberTrustedDeviceToken(username: unknown, token: unknown): v
     // this browser are just counted by address, as before.
   }
 }
+
+// For the responses that set a password or rotate the signing key from this
+// browser (change password, reset token, recovery code, regenerating the JWT
+// secret): each retires every device token the account had, this browser's
+// included, and hands back { username, deviceToken } so the next sign-in
+// here still counts on its own. Anything else is ignored.
+export function rememberTrustedDeviceFrom(response: unknown): void {
+  if (!response || typeof response !== 'object') return
+  const { username, deviceToken } = response as { username?: unknown; deviceToken?: unknown }
+  rememberTrustedDeviceToken(username, deviceToken)
+}

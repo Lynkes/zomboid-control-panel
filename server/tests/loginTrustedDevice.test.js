@@ -71,9 +71,11 @@ async function ownerDeviceToken(clientKey = "198.18.0.1") {
   return result.deviceToken;
 }
 
-function post(path, body, fromAddress) {
+function post(path, body, fromAddress, accessToken) {
   return new Promise((resolve, reject) => {
     const data = JSON.stringify(body);
+    const headers = { "content-type": "application/json", "content-length": Buffer.byteLength(data) };
+    if (accessToken) headers.authorization = `Bearer ${accessToken}`;
     const req = http.request(
       {
         host: "127.0.0.1",
@@ -81,7 +83,7 @@ function post(path, body, fromAddress) {
         path,
         method: "POST",
         localAddress: fromAddress,
-        headers: { "content-type": "application/json", "content-length": Buffer.byteLength(data) },
+        headers,
       },
       (res) => {
         let text = "";
@@ -108,6 +110,8 @@ afterAll(async () => {
 
 beforeEach(async () => {
   _resetLoginThrottleForTests();
+  // POST /regenerate-jwt-secret below replaces it.
+  authService.jwtSecret = JWT_SECRET;
   settings.clear();
   db.data.roles = [
     { id: "role-admin", name: "admin", capabilities: ["users.manage", "roles.manage"], isSeeded: true },
@@ -281,5 +285,112 @@ describe("A1: what else carries or refuses a device token", () => {
     // More devices than the map has room for, each with a recent failure.
     for (let i = 0; i < 4; i++) await fail("198.51.100.21", 1, await ownerDeviceToken());
     await expect(signIn(PASSWORD, { clientKey: "198.51.100.22", deviceToken: paused })).rejects.toThrow();
+  });
+});
+
+// Round 1 of the A1 verification: changing the password retired every
+// device token, as it should, but POST /change-password handed none back to
+// the browser that had just proved the current password -- and signed it
+// out. Its next sign-in was counted by address, the very count a stranger
+// keeps paused, so an owner who changed the password because of a guessing
+// attack was refused from the browser they had just used. Rotating the JWT
+// secret, a reset token and a recovery code did the same.
+describe("A1: setting the password from a browser keeps that browser trusted", () => {
+  const deviceIdOf = (token) => jwt.decode(token)?.jti;
+
+  it("POST /change-password hands back a fresh device token that counts", async () => {
+    const shared = "127.0.0.71";
+    const signedIn = await post("/api/auth/login", { username: "admin", password: PASSWORD }, shared);
+    expect(signedIn.status).toBe(200);
+
+    const changed = await post(
+      "/api/auth/change-password",
+      { currentPassword: PASSWORD, newPassword: "changed-pass-1" },
+      shared,
+      signedIn.body.accessToken,
+    );
+    expect(changed.status).toBe(200);
+    expect(changed.body.username).toBe("admin");
+    expect(authService.trustedDeviceId(db.data.users[0], changed.body.deviceToken)).toBeTruthy();
+    // The one it had before no longer counts.
+    expect(authService.trustedDeviceId(db.data.users[0], signedIn.body.deviceToken)).toBeNull();
+
+    // Strangers sharing the address pause it...
+    await fail(shared, MAX_FAILED_LOGINS);
+    // ...and the owner's browser still signs in with the new password.
+    const again = await post(
+      "/api/auth/login",
+      { username: "admin", password: "changed-pass-1", deviceToken: changed.body.deviceToken },
+      shared,
+    );
+    expect(again.status).toBe(200);
+  });
+
+  it("POST /regenerate-jwt-secret hands the admin who did it a device token on the new key", async () => {
+    const shared = "127.0.0.72";
+    const signedIn = await post("/api/auth/login", { username: "admin", password: PASSWORD }, shared);
+    const rotated = await post("/api/auth/regenerate-jwt-secret", {}, shared, signedIn.body.accessToken);
+    expect(rotated.status).toBe(200);
+    expect(authService.jwtSecret).not.toBe(JWT_SECRET);
+    expect(rotated.body.username).toBe("admin");
+    expect(authService.trustedDeviceId(db.data.users[0], rotated.body.deviceToken)).toBeTruthy();
+    expect(authService.trustedDeviceId(db.data.users[0], signedIn.body.deviceToken)).toBeNull();
+
+    await fail(shared, MAX_FAILED_LOGINS);
+    await expect(
+      signIn(PASSWORD, { clientKey: shared, deviceToken: rotated.body.deviceToken }),
+    ).resolves.toBeTruthy();
+  });
+
+  it("a recovery code (and a reset token, which shares resetPassword()) hands back one too", async () => {
+    const { codes } = await authService.generateRecoveryCodes(1);
+    const recovered = await post(
+      "/api/auth/recover-with-code",
+      { code: codes[0], newPassword: "recovered-pass-1" },
+      "127.0.0.73",
+    );
+    expect(recovered.status).toBe(200);
+    expect(recovered.body.username).toBe("admin");
+
+    const shared = "127.0.0.74";
+    await fail(shared, MAX_FAILED_LOGINS);
+    await expect(
+      signIn("recovered-pass-1", { clientKey: shared, deviceToken: recovered.body.deviceToken }),
+    ).resolves.toBeTruthy();
+
+    const reset = await authService.resetPassword("reset-pass-2");
+    expect(authService.trustedDeviceId(db.data.users[0], reset.deviceToken)).toBeTruthy();
+  });
+
+  // Round 1 also found that every refresh minted a new device id, so
+  // whoever held a session cookie could collect a fresh MAX_FAILED_LOGINS
+  // budget per refresh and fill the account's device table with paused
+  // entries. A session keeps one id for its whole life now.
+  it("a kept-signed-in session keeps one device id however often it refreshes", async () => {
+    const signedIn = await authService.login("admin", PASSWORD, true, { clientKey: "198.51.100.30" });
+    const ids = [deviceIdOf(signedIn.deviceToken)];
+    let { refreshToken } = signedIn;
+    for (let i = 0; i < 3; i++) {
+      const refreshed = await authService.refreshAccessToken(refreshToken);
+      expect(authService.trustedDeviceId(db.data.users[0], refreshed.deviceToken)).toBeTruthy();
+      ids.push(deviceIdOf(refreshed.deviceToken));
+      refreshToken = refreshed.refreshToken;
+    }
+    expect(new Set(ids).size).toBe(1);
+
+    // So pausing it once pauses every token that session hands out.
+    const paused = await authService.refreshAccessToken(refreshToken);
+    await fail("198.51.100.31", MAX_FAILED_LOGINS, paused.deviceToken);
+    const next = await authService.refreshAccessToken(paused.refreshToken);
+    await expect(signIn(PASSWORD, { clientKey: "198.51.100.32", deviceToken: next.deviceToken })).rejects.toThrow();
+  });
+
+  it("a session stored before sessions had a device id gets one on refresh and keeps it", async () => {
+    const { refreshToken } = await authService.login("admin", PASSWORD, true, { clientKey: "198.51.100.33" });
+    delete db.data.users[0].refreshSessions[0].deviceId;
+    const first = await authService.refreshAccessToken(refreshToken);
+    const second = await authService.refreshAccessToken(first.refreshToken);
+    expect(deviceIdOf(first.deviceToken)).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(deviceIdOf(second.deviceToken)).toBe(deviceIdOf(first.deviceToken));
   });
 });

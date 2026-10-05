@@ -110,6 +110,7 @@ import {
   type SftpHostKeyRefusal,
 } from "@/lib/api";
 import { getUserErrorMessage } from "@/lib/errorMessage";
+import { rememberTrustedDeviceFrom } from "@/lib/trustedDevice";
 import { classifyPanelUpdateFailure } from "@/lib/panelUpdateFailure";
 import {
   RestoreNotStartedError,
@@ -2861,6 +2862,9 @@ export default function Settings() {
       setLocalPasswordResetToken("");
       setLocalPasswordResetPassword("");
       setLocalPasswordResetConfirm("");
+      // SECURITY (2026-10-05, A1): see lib/trustedDevice.ts's
+      // rememberTrustedDeviceFrom().
+      rememberTrustedDeviceFrom(data);
       toast({
         title: t("toasts.passwordReset.title"),
         description: t("toasts.passwordReset.description"),

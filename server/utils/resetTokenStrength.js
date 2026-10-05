@@ -10,43 +10,127 @@
  * characters; this check is for the ones operators write by hand.
  *
  * It counts the characters an attacker could not predict from the ones
- * before them. A character is predictable when it:
- *   - continues a run of at least three characters that each repeat, step
- *     by one (abc, 987) or sit next to each other on a keyboard row (qwe,
- *     asd) -- from the run's third character on, so a random token's
- *     occasional "aa" or "34" isn't held against it; or
+ * before them, ignoring case. A character is predictable when it:
+ *   - continues a run of at least three characters where each step repeats
+ *     a character, moves to the next or previous one (abc, 987), or moves
+ *     to a key touching the last one on a keyboard -- along a row (qwe),
+ *     down or up a column (1qaz, zaq1) or with Shift (1!2@) -- counted from
+ *     the run's third character on, so a random token's occasional "aa" or
+ *     "34" isn't held against it;
+ *   - continues a run where every step is the same size: the same move
+ *     along a keyboard row from the third character (qetu), any other
+ *     fixed code-point step or keyboard move from the fourth (aceg, 2468,
+ *     zxvt);
+ *   - does either of those counting every second or every third character,
+ *     from that sequence's fourth character on, which is what interleaving
+ *     two or three runs looks like (a1b2c3, a1!b2@c3#);
  *   - ends three characters that already appeared together earlier in the
  *     token (the second "changeme" in "changemechangeme" adds two
  *     characters, not eight).
- * Random tokens of RESET_TOKEN_MIN_LENGTH characters from any generator
- * (hex, base64, letters and digits, digits only) keep nearly all of their
- * characters; "aaaa...", "abcd...", "0123456789abcdef" twice or a word
- * repeated keep a handful. Dictionary words are not detected: the help
- * text and docs say to use a password generator.
+ * And the token needs at least RESET_TOKEN_MIN_DISTINCT_CHARS different
+ * characters.
+ *
+ * Random tokens of RESET_TOKEN_MIN_LENGTH characters from a generator keep
+ * nearly all of their characters: of 100,000 tokens each of 32 hex, base64
+ * or letters-and-digits characters, no more than 3 fall short, and none of
+ * 48 hex characters (what the panel writes, and `openssl rand -hex 24`) or
+ * of UUIDs do. Digits alone repeat and step by one far more often by
+ * chance; about 1 in 230 tokens of 32 digits is refused. What it can't see
+ * is meaning: a sentence, a quote or a few words strung together look like
+ * any other characters. The help text and docs say to use a generator's
+ * output, not something made up.
  */
 
-const KEYBOARD_ROWS = ["1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"];
+// Where each key sits on a US QWERTY keyboard: the row, and how far the key
+// is from the keyboard's left edge in key widths, so the rows keep their
+// real stagger (Tab is 1.5 keys wide, Caps Lock 1.75, Shift 2.25). A
+// shifted character sits on its key.
+const KEYBOARD_ROWS = [
+  [0, "`1234567890-=", "~!@#$%^&*()_+"],
+  [1.5, "qwertyuiop[]\\", "QWERTYUIOP{}|"],
+  [1.75, "asdfghjkl;'", 'ASDFGHJKL:"'],
+  [2.25, "zxcvbnm,./", "ZXCVBNM<>?"],
+];
+const KEY_POSITIONS = new Map();
+KEYBOARD_ROWS.forEach(([offset, keys, shiftedKeys], row) => {
+  for (let i = 0; i < keys.length; i++) {
+    const position = { row, x: offset + i };
+    KEY_POSITIONS.set(keys[i], position);
+    KEY_POSITIONS.set(shiftedKeys[i], position);
+  }
+});
 
 // At least this many unpredictable characters. Even drawn from digits alone
 // that's over 66 bits, far beyond what the reset limiter lets anyone try in
 // a token's 24 hours.
 export const RESET_TOKEN_MIN_UNPREDICTABLE_CHARS = 20;
 
-function isKeyboardNeighbour(a, b) {
-  const x = a.toLowerCase();
-  const y = b.toLowerCase();
-  for (const row of KEYBOARD_ROWS) {
-    const i = row.indexOf(x);
-    if (i !== -1 && (row[i + 1] === y || row[i - 1] === y)) return true;
-  }
-  return false;
+// At least this many different characters (ignoring case). A token drawn
+// from a handful of characters is easy to guess however they're arranged.
+export const RESET_TOKEN_MIN_DISTINCT_CHARS = 8;
+
+function fold(char) {
+  return char.toLowerCase();
 }
 
-function isPredictableStep(previous, current) {
-  if (previous === current) return true;
-  const step = current.codePointAt(0) - previous.codePointAt(0);
+function codePoint(char) {
+  return fold(char).codePointAt(0);
+}
+
+// The same character (ignoring case), the next or previous one, or a key
+// touching this one: beside it in its row, or overlapping it in the row
+// above or below (1-q, 2-q, q-a, a-z, e-d), with or without Shift.
+function isSmallStep(a, b) {
+  if (fold(a) === fold(b)) return true;
+  const step = codePoint(b) - codePoint(a);
   if (step === 1 || step === -1) return true;
-  return isKeyboardNeighbour(previous, current);
+  const from = KEY_POSITIONS.get(a);
+  const to = KEY_POSITIONS.get(b);
+  if (!from || !to) return false;
+  if (from.row === to.row) return Math.abs(from.x - to.x) <= 1;
+  return Math.abs(from.row - to.row) === 1 && Math.abs(from.x - to.x) < 1;
+}
+
+function keyMove(a, b) {
+  const from = KEY_POSITIONS.get(a);
+  const to = KEY_POSITIONS.get(b);
+  return from && to ? { rows: to.row - from.row, x: to.x - from.x } : null;
+}
+
+// a -> b and b -> c move the same way: the same code-point difference, of
+// any size, or the same move on the keyboard.
+function isSameStep(a, b, c) {
+  if (codePoint(c) - codePoint(b) === codePoint(b) - codePoint(a)) return true;
+  const first = keyMove(a, b);
+  const second = keyMove(b, c);
+  return Boolean(first && second && first.rows === second.rows && first.x === second.x);
+}
+
+function isSameRowKeyStep(a, b, c) {
+  const first = keyMove(a, b);
+  const second = keyMove(b, c);
+  return Boolean(first && second && first.rows === 0 && second.rows === 0 && first.x === second.x);
+}
+
+// Whether chars[i] continues a run, looking back `stride` characters at a
+// time: `smallRun` characters each a small step from the one before, or
+// four that each move the same way.
+function continuesRun(chars, i, stride, smallRun) {
+  const at = (back) => chars[i - back * stride];
+  if (i >= (smallRun - 1) * stride) {
+    let run = true;
+    for (let back = 0; back < smallRun - 1 && run; back++) {
+      run = isSmallStep(at(back + 1), at(back));
+    }
+    if (run) return true;
+  }
+  return i >= 3 * stride && isSameStep(at(3), at(2), at(1)) && isSameStep(at(2), at(1), at(0));
+}
+
+function isPredictableAt(chars, i) {
+  if (continuesRun(chars, i, 1, 3)) return true;
+  if (i >= 2 && isSameRowKeyStep(chars[i - 2], chars[i - 1], chars[i])) return true;
+  return continuesRun(chars, i, 2, 4) || continuesRun(chars, i, 3, 4);
 }
 
 export function countUnpredictableChars(token) {
@@ -54,17 +138,10 @@ export function countUnpredictableChars(token) {
   const seenTrigrams = new Set();
   let unpredictable = 0;
   for (let i = 0; i < chars.length; i++) {
-    let predictable = false;
+    let predictable = isPredictableAt(chars, i);
     if (i >= 2) {
-      const trigram = chars[i - 2] + chars[i - 1] + chars[i];
-      if (
-        isPredictableStep(chars[i - 2], chars[i - 1]) &&
-        isPredictableStep(chars[i - 1], chars[i])
-      ) {
-        predictable = true;
-      } else if (seenTrigrams.has(trigram)) {
-        predictable = true;
-      }
+      const trigram = fold(chars[i - 2] + chars[i - 1] + chars[i]);
+      if (seenTrigrams.has(trigram)) predictable = true;
       seenTrigrams.add(trigram);
     }
     if (!predictable) unpredictable += 1;
@@ -72,6 +149,13 @@ export function countUnpredictableChars(token) {
   return unpredictable;
 }
 
+export function countDistinctChars(token) {
+  return new Set(Array.from(typeof token === "string" ? token : "").map(fold)).size;
+}
+
 export function isResetTokenUnpredictable(token) {
-  return countUnpredictableChars(token) >= RESET_TOKEN_MIN_UNPREDICTABLE_CHARS;
+  return (
+    countUnpredictableChars(token) >= RESET_TOKEN_MIN_UNPREDICTABLE_CHARS &&
+    countDistinctChars(token) >= RESET_TOKEN_MIN_DISTINCT_CHARS
+  );
 }

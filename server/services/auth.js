@@ -439,6 +439,14 @@ export const DEVICE_TOKEN_LIFETIME_MS = 90 * 24 * 60 * 60 * 1000;
 const DEVICE_TOKEN_MAX_LENGTH = 1024;
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/;
 
+function newDeviceId() {
+  return crypto.randomBytes(16).toString("base64url");
+}
+
+function isDeviceId(value) {
+  return typeof value === "string" && DEVICE_ID_PATTERN.test(value);
+}
+
 // Records how a reserved attempt ended. Returns true when this failure
 // paused the client.
 function settleLoginAttempt({ entry, forget }, succeeded, now = Date.now()) {
@@ -583,7 +591,14 @@ class AuthService {
       .slice(-MAX_REFRESH_SESSIONS);
   }
 
-  createRefreshSession(user) {
+  // deviceId: SECURITY (2026-10-05, A1), the trusted-device id this session
+  // hands out (issueDeviceToken()). refreshAccessToken() passes the old
+  // session's on, so a session keeps one device id for its whole life. Each
+  // refresh used to mint a new one, so whoever held a session cookie could
+  // collect a fresh failed-sign-in budget per refresh -- up to the
+  // per-account device table's size -- and fill that table with paused
+  // entries.
+  createRefreshSession(user, { deviceId } = {}) {
     this.ensureUserAuthState(user);
 
     const timestamp = new Date().toISOString();
@@ -592,6 +607,7 @@ class AuthService {
       createdAt: timestamp,
       lastUsedAt: timestamp,
       expiresAt: new Date(Date.now() + REFRESH_TOKEN_LIFETIME_MS).toISOString(),
+      deviceId: isDeviceId(deviceId) ? deviceId : newDeviceId(),
     };
 
     user.refreshSessions.push(session);
@@ -1113,7 +1129,10 @@ class AuthService {
       .slice(0, 22);
   }
 
-  issueDeviceToken(user) {
+  // deviceId: the id to put in the token; a new random one when it's
+  // missing. A kept-signed-in session reuses its own (see
+  // createRefreshSession()).
+  issueDeviceToken(user, deviceId) {
     if (!this.jwtSecret || !user?.id) return null;
     const key = this._deviceTokenKey();
     return jwt.sign(
@@ -1126,9 +1145,24 @@ class AuthService {
       {
         algorithm: "HS256",
         expiresIn: Math.floor(DEVICE_TOKEN_LIFETIME_MS / 1000),
-        jwtid: crypto.randomBytes(16).toString("base64url"),
+        jwtid: isDeviceId(deviceId) ? deviceId : newDeviceId(),
       },
     );
+  }
+
+  /**
+   * A device token for the browser that just set an account's password
+   * while signed in (POST /change-password) or rotated the JWT secret: both
+   * retire every device token the account had, this browser's included, and
+   * sign it out. Without a fresh one its next sign-in was counted by
+   * address -- the very count a stranger may be keeping paused, so an owner
+   * who changed the password because of a guessing attack was refused from
+   * the browser they had just used (security sweep 2026-10-05, A1).
+   */
+  async issueDeviceTokenForUserId(userId) {
+    const db = await getDb();
+    const user = (db.data.users || []).find((u) => u.id === userId);
+    return user ? this.issueDeviceToken(user) : null;
   }
 
   /**
@@ -1281,7 +1315,7 @@ class AuthService {
       user: { id: user.id, username: user.username, role: user.role, capabilities },
       accessToken,
       refreshToken,
-      deviceToken: this.issueDeviceToken(user),
+      deviceToken: this.issueDeviceToken(user, refreshSession?.deviceId),
     };
   }
 
@@ -1364,7 +1398,8 @@ class AuthService {
         throw new Error("Refresh token session is missing");
       }
 
-      if (!this.findRefreshSession(user, payload.sessionId)) {
+      const session = this.findRefreshSession(user, payload.sessionId);
+      if (!session) {
         // sweep-round4: distinguish "kicked for capacity" from every other
         // reason this id could be missing (expired / revoked / forged) --
         // see findCapacityEvictionReason()'s own comment for why those three
@@ -1379,7 +1414,10 @@ class AuthService {
       }
 
       this.revokeRefreshSession(user, payload.sessionId);
-      const newSession = this.createRefreshSession(user);
+      // The same trusted-device id as the session it replaces (see
+      // createRefreshSession()); a session stored before sessions had one
+      // gets a new one here and keeps it from then on.
+      const newSession = this.createRefreshSession(user, { deviceId: session.deviceId });
       await commitNow();
 
       const accessToken = this.generateAccessToken(user);
@@ -1393,8 +1431,9 @@ class AuthService {
         // SECURITY (2026-10-05, A1): a kept-signed-in browser, and one that
         // just came back from SSO (oidc.js's callback can only redirect, so
         // the client's first refresh is where it gets one), keeps a current
-        // device token for when it next has to type the password.
-        deviceToken: this.issueDeviceToken(user),
+        // device token for when it next has to type the password -- always
+        // with its session's device id.
+        deviceToken: this.issueDeviceToken(user, newSession.deviceId),
       };
     } catch (error) {
       // Every failure returns null (the pre-existing, deliberately
@@ -1819,7 +1858,11 @@ class AuthService {
 
     log.info(`Password reset for user: ${user.username}`);
     emitSessionRevoked({ scope: "user", userId: user.id });
-    return { username: user.username };
+    // SECURITY (2026-10-05, A1): the browser that did the reset (a reset
+    // token or recovery code proves as much as the new password does) keeps
+    // a device token that counts, like after POST /change-password -- see
+    // issueDeviceTokenForUserId().
+    return { username: user.username, deviceToken: this.issueDeviceToken(user) };
   }
 
   /**

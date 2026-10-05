@@ -151,9 +151,11 @@ before (by password, first-run setup, or SSO) is counted on its own instead
 of by address: ten wrong passwords typed in that browser pause that browser,
 and nothing typed anywhere else pauses it. The browser keeps this as a small
 token in its site storage, one per username; a private window, cleared site
-data or a different browser starts over as a new browser, and changing or
-resetting the password makes every browser new again until it signs in
-once. The panel still shows the exact same
+data or a different browser starts over as a new browser. Changing or
+resetting the password, or regenerating the JWT signing key, makes every
+browser new again until it signs in once — except the browser you did it
+from, which is handed a fresh token straight away. The Steam Sync browser
+extension keeps one the same way. The panel still shows the exact same
 `Invalid username or password` message during the pause, not a distinct
 "account locked" message (this is deliberate: a message that changed when a
 pause started would let someone confirm an account exists just by trying
@@ -172,9 +174,14 @@ the README), and inside Docker, IPv6 visitors can all arrive from the bridge
 gateway. In that setup everyone shares one address, so ten wrong passwords
 from anyone pause the account for every browser that hasn't signed in
 before, and the per-minute limit below is shared too. A browser you have
-already signed in with keeps working: it is counted on its own for both.
-Set `TRUST_PROXY` when the panel is only reachable through your proxy, so
-new browsers aren't affected either.
+already signed in with is counted on its own for both, so wrong passwords
+from that address don't stop it. Everything else stays shared by address,
+though: the panel's general limit of 300 requests a minute, and the limit of
+3 tries per 15 minutes on reset tokens and recovery codes. Someone flooding
+that address with requests can still hold everyone at it up, a browser you
+signed in with included (`--reset-password` on the host always works). Set
+`TRUST_PROXY` when the panel is only reachable through your proxy, so
+visitors are told apart again.
 
 After a few failed sign-in attempts from the same browser, the login page
 itself starts showing a **"Still not working?"** hint explaining this same
@@ -215,13 +222,29 @@ to **Recovery token**) — or use a recovery code, or run `--reset-password`
 on the host instead.
 
 The token has to be one nobody can guess: at least 32 characters after
-trimming whitespace, made by a password generator (for example the output
-of `openssl rand -hex 24`). The panel refuses a predictable one — runs of
-repeated, sequential or keyboard-row characters such as `aaaa`, `abcd`,
-`4321` or `qwerty`, or the same stretch repeated, like a word typed several
-times — as well as a file over 1KB or more than 24 hours old when you use
-it. A wrong token changes nothing: the file stays until it is used or
-expires, so nobody else can use your token up by guessing. From anywhere
+trimming whitespace, made by a generator rather than typed by you. From the
+panel's folder on Linux or macOS:
+
+```sh
+openssl rand -hex 24 > data/reset-token.txt
+```
+
+In PowerShell on Windows:
+
+```powershell
+$b = [byte[]]::new(24); [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); -join ($b | % { $_.ToString('x2') }) | Set-Content data\reset-token.txt
+```
+
+Or use a password manager's generator. The panel refuses a predictable token —
+repeated or sequential characters (`aaaa`, `abcd`, `4321`, `aceg`), keyboard
+patterns along rows, columns or diagonals (`qwerty`, `1qaz2wsx`), the same
+stretch repeated (a word typed several times), runs interleaved or in
+alternating case (`a1b2c3`, `aAbBcC`), or too few different characters — as
+well as a file over 1KB or more than 24 hours old when you use it. It can't
+tell a made-up sentence or a few words strung together from random
+characters, so don't use one: anyone can try the well-known ones. A
+wrong token changes nothing: the file stays until it is used or expires,
+so nobody else can use your token up by guessing. From anywhere
 but the host itself the panel also never says whether the file exists:
 every refusal reads `That reset token wasn't accepted. …`, and the panel's
 log says which check failed (missing, too short, too predictable, too old,

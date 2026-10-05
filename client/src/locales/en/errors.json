@@ -584,5 +584,5 @@
   "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Changing these Discord settings would let people run bot commands that need {{detail}}, which you don't hold yourself.",
   "HOST_NOT_ALLOWED": "This panel only answers to its own addresses while panel logins are off. Open it by its IP address or localhost, or add this address under Settings > Remote Access (CORS).",
   "SERVER_CONFIG_PATH_OUTSIDE_DATA": "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
-  "RESET_TOKEN_TOO_WEAK": "The token in data/reset-token.txt is too predictable (repeated, sequential or keyboard-row characters). Replace it with a random token from a password generator, or use the recovery button on the panel host."
+  "RESET_TOKEN_TOO_WEAK": "The token in data/reset-token.txt is too predictable (repeated, sequential or keyboard-pattern characters). Replace it with a random token from a password generator, or use the recovery button on the panel host."
 }
