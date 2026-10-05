@@ -25,6 +25,12 @@ import {
 } from "../utils/restoreMessage.js";
 import { captureBackupSnapshot } from "../utils/backupSnapshot.js";
 import {
+  describeRefusal,
+  logRefusalOnce,
+  zomboidDataFolderHolds,
+  zomboidDataFolderRefusal,
+} from "./zomboidDataPath.js";
+import {
   addBackupRecord,
   listBackupRecords,
   removeBackupRecord,
@@ -365,6 +371,44 @@ export function createRestoreStagingDir(savesParentPath, makeName = randomUUID) 
   return stagingPath;
 }
 
+// The Socket.IO room backup:progress, restore:progress and restore:finished
+// go to (server/index.js's CAPABILITY_ROOMS gates who may join it). They
+// used to go to every connected socket, whatever its role, with raw error
+// text that can quote host paths.
+export const BACKUP_PROGRESS_ROOM = "backups";
+
+// SECURITY (2026-10-05, PATHS-1): backups read the world save under a
+// server's Zomboid data folder and list, write, restore and delete in its
+// backups/ folder, so that folder is held to the data-folder rule
+// (services/zomboidDataPath.js) again here, where it is used: one saved
+// before the rule existed, or one that didn't exist when it was saved and
+// has appeared since, is refused -- never swapped for the legacy setting's
+// or the panel's own folder.
+//
+// A remote server's data folder is on its own host, so none of it is here:
+// no saves or backups folder resolves for one (getSavesPath() and
+// _resolveServerDataBasePath() return null), not the legacy setting's or
+// the panel's own either. Remote records skip the save-time rule for that
+// reason, so passing them through here let servers.manage name any folder
+// on this computer as a remote server's data folder and have backups create
+// <folder>/backups and list, download and delete the .zip files in it.
+function dataFolderUsable(server, dataPath) {
+  if (server?.isRemote) return false;
+  if (zomboidDataFolderHolds(dataPath)) return true;
+  // PT5: once per folder at warn, then debug -- GET /status lands here up
+  // to three times a call, and the Backups page polls it.
+  logRefusalOnce(
+    log,
+    `Not using ${dataPath} for backups: ${describeRefusal(zomboidDataFolderRefusal())}`,
+  );
+  return false;
+}
+
+// The text routes/backup.js sends with BACKUP_REMOTE_NOT_AVAILABLE, for the
+// scheduled backup job, which reaches createBackup() without the route.
+const REMOTE_BACKUPS_MESSAGE =
+  "Backups are not available for remote servers. The server filesystem is not accessible from this panel.";
+
 export class BackupService {
   constructor() {
     this.backupInProgress = false;
@@ -426,7 +470,11 @@ export class BackupService {
           ? activeServerOverride
           : await getActiveServer();
 
+      // PATHS-1: see dataFolderUsable() -- nothing of a remote server's is here.
+      if (activeServer?.isRemote) return null;
+
       if (activeServer?.zomboidDataPath && activeServer?.serverName) {
+        if (!dataFolderUsable(activeServer, activeServer.zomboidDataPath)) return null;
         const savesPath = path.join(
           activeServer.zomboidDataPath,
           "Saves",
@@ -475,6 +523,7 @@ export class BackupService {
       const serverName = await getSetting("serverName");
 
       if (zomboidDataPath && serverName) {
+        if (!dataFolderUsable(null, zomboidDataPath)) return null;
         return path.join(zomboidDataPath, "Saves", "Multiplayer", serverName);
       }
 
@@ -500,12 +549,18 @@ export class BackupService {
         ? activeServerOverride
         : await getActiveServer();
 
+    // PATHS-1: see dataFolderUsable(). Also keeps a remote server from
+    // falling through to the legacy setting's folder or the panel's own.
+    if (activeServer?.isRemote) return null;
+
     if (activeServer?.zomboidDataPath) {
-      return activeServer.zomboidDataPath;
+      return dataFolderUsable(activeServer, activeServer.zomboidDataPath)
+        ? activeServer.zomboidDataPath
+        : null;
     }
 
     const legacyPath = await getSetting("zomboidDataPath");
-    if (legacyPath) return legacyPath;
+    if (legacyPath) return dataFolderUsable(null, legacyPath) ? legacyPath : null;
 
     // Use local backups folder as fallback
     const { getDataPaths } = await import("../utils/paths.js");
@@ -519,14 +574,24 @@ export class BackupService {
    * the full rationale; same optional-reuse parameter, same "every
    * existing caller passes nothing and keeps its own always-fresh read"
    * guarantee.
+   *
+   * SECURITY (2026-10-05, PT1): `create` -- only the callers about to write
+   * a backup into the folder (createBackup(), the upload route) create it.
+   * Every call used to, so GET /list and /status -- which only read --
+   * created <data folder>/backups, and the data folder with it when it
+   * didn't exist yet: a technician saved <folder>/Saves as a server's data
+   * folder (missing, so accepted), opened Backups, and <folder> then had
+   * the Saves folder the data-folder rule took as a sign of a real one.
+   * The folder it creates in is one _resolveServerDataBasePath() held to
+   * that rule, as before.
    */
-  async getBackupsPath(activeServerOverride) {
+  async getBackupsPath(activeServerOverride, { create = false } = {}) {
     try {
       const basePath = await this._resolveServerDataBasePath(activeServerOverride);
+      if (!basePath) return null;
       const backupsPath = path.join(basePath, "backups");
 
-      // Ensure backups folder exists
-      if (!fs.existsSync(backupsPath)) {
+      if (create && !fs.existsSync(backupsPath)) {
         fs.mkdirSync(backupsPath, { recursive: true });
       }
 
@@ -777,10 +842,17 @@ export class BackupService {
     const startTime = Date.now();
     const io = options.io; // Socket.IO for progress updates
 
-    // Helper to emit progress
+    // Helper to emit progress. The message goes through sanitizeError()
+    // here, once, rather than at each call site: several pass a raw
+    // err.message, which can quote the save or backup folder.
     const emitProgress = (phase, percent, message, extra = {}) => {
       if (io) {
-        io.emit("backup:progress", { phase, percent, message, ...extra });
+        io.to(BACKUP_PROGRESS_ROOM).emit("backup:progress", {
+          phase,
+          percent,
+          message: sanitizeError(message),
+          ...extra,
+        });
       }
     };
 
@@ -817,8 +889,15 @@ export class BackupService {
     // duration, and /servers/:id/activate takes that same lock, so the
     // active server provably cannot change under restore already.
     const activeServer = await getActiveServer();
+    if (activeServer?.isRemote) {
+      throw new Error(REMOTE_BACKUPS_MESSAGE);
+    }
+    const dataPath =
+      activeServer?.zomboidDataPath || (await getSetting("zomboidDataPath"));
+    if (dataPath && !dataFolderUsable(activeServer, dataPath)) {
+      throw new Error(zomboidDataFolderRefusal().error);
+    }
     const savesPath = await this.getSavesPath(activeServer);
-    const backupsPath = await this.getBackupsPath(activeServer);
 
     if (!savesPath) {
       throw new Error(
@@ -830,6 +909,8 @@ export class BackupService {
       throw new Error(`Saves folder not found: ${savesPath}`);
     }
 
+    // PT1: created only now, with a world save there to write into it.
+    const backupsPath = await this.getBackupsPath(activeServer, { create: true });
     if (!backupsPath) {
       throw new Error("Could not determine backups folder path");
     }
@@ -1641,7 +1722,7 @@ export class BackupService {
       };
       this.currentRestore = null;
       this.restoreInProgress = false;
-      options.io?.emit("restore:finished", { id: restore.id });
+      options.io?.to(BACKUP_PROGRESS_ROOM).emit("restore:finished", { id: restore.id });
     }
   }
 
@@ -1657,7 +1738,12 @@ export class BackupService {
     // inner createBackup() call never received io.
     const emitProgress = (phase, percent, message, extra = {}) => {
       if (io) {
-        io.emit("restore:progress", { phase, percent, message, ...extra });
+        io.to(BACKUP_PROGRESS_ROOM).emit("restore:progress", {
+          phase,
+          percent,
+          message: sanitizeError(message),
+          ...extra,
+        });
       }
     };
 

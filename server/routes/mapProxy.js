@@ -30,17 +30,43 @@ const router = express.Router();
 //     returns anything sensitive or mutates any state.
 //
 // ─── Persistent disk-backed tile cache ───────────────────────────────────
-// A given PZ map build's tiles never change once published, so unlike a
-// typical HTTP cache these never need to expire — once a tile has been
-// fetched from the upstream tile host it's cached on disk indefinitely.
-// Over time this turns the proxy into a self-hosted mirror of whatever
+// A given PZ map build's tiles never change once published, so a cached
+// tile never goes stale — once fetched from the upstream tile host it is
+// kept on disk, which turns the proxy into a self-hosted mirror of the
 // parts of the map players have actually looked at, with zero upfront
 // download and no dependency on the upstream host for anything already
 // cached. A small in-memory LRU sits in front of disk to avoid a
 // filesystem read on every request for hot tiles.
+//
+// Both tiers are BOUNDED, by bytes as well as by entry count, and evict the
+// least recently used tile when full. They used to be unbounded on disk
+// (and capped only by entry count in memory, i.e. up to ~500 MB of ~1 MB
+// tiles): the tile routes are auth-exempt (<img> tags, see the role note
+// above), so anyone who could reach the panel, before first-run setup
+// included, could walk distinct real tile coordinates and have every one
+// fetched and written to the data volume forever -- shared with world
+// saves on single-host installs -- at ~1 MB a request. An evicted tile is
+// simply fetched again from upstream the next time someone looks at it.
+//
+// The disk index (relPath -> size, oldest first) is rebuilt from what is
+// already on disk when the first tile is served, ordered by mtime, and the
+// budget is enforced right away -- which also trims a cache that grew past
+// it under an older version.
 const TILE_CACHE_DIR = path.join(getDataPaths().dataDir, "map-tiles-cache");
-const MEM_CACHE_MAX = 500;
-const memCache = new Map(); // relPath -> { buffer, contentType }
+const tileCacheLimits = {
+  diskMaxBytes: 1024 * 1024 * 1024, // 1 GiB (~1000 of the largest, deepest-zoom tiles)
+  diskMaxFiles: 50_000,
+  memMaxBytes: 64 * 1024 * 1024,
+  memMaxEntries: 500,
+};
+
+// Tests shrink the budgets so eviction is observable without writing a GiB.
+export function _setTileCacheLimitsForTests(overrides = {}) {
+  Object.assign(tileCacheLimits, overrides);
+}
+
+const memCache = new Map(); // relPath -> { buffer, contentType }, oldest first
+let memCacheBytes = 0;
 
 function memCacheGet(relPath) {
   const entry = memCache.get(relPath);
@@ -52,21 +78,175 @@ function memCacheGet(relPath) {
 }
 
 function memCachePut(relPath, buffer, contentType) {
-  if (memCache.size >= MEM_CACHE_MAX) {
-    const oldestKey = memCache.keys().next().value;
-    if (oldestKey !== undefined) memCache.delete(oldestKey);
+  const previous = memCache.get(relPath);
+  if (previous) {
+    memCache.delete(relPath);
+    memCacheBytes -= previous.buffer.length;
+  }
+  // A tile bigger than the whole budget is served but never kept.
+  if (buffer.length > tileCacheLimits.memMaxBytes) return;
+  while (
+    memCache.size > 0 &&
+    (memCache.size >= tileCacheLimits.memMaxEntries ||
+      memCacheBytes + buffer.length > tileCacheLimits.memMaxBytes)
+  ) {
+    const [oldestKey, oldest] = memCache.entries().next().value;
+    memCache.delete(oldestKey);
+    memCacheBytes -= oldest.buffer.length;
   }
   memCache.set(relPath, { buffer, contentType });
+  memCacheBytes += buffer.length;
 }
 
+// null for a path that would leave the cache folder. relPath is only ever
+// built from the regex-checked tile coordinates or read back from the
+// folder itself, so this never refuses a real tile; it keeps that true if a
+// caller ever changes (and is the containment check CodeQL can see).
 function diskPathFor(relPath) {
-  return path.join(TILE_CACHE_DIR, relPath);
+  const root = path.resolve(TILE_CACHE_DIR);
+  const resolved = path.resolve(root, relPath);
+  if (!resolved.startsWith(root + path.sep)) return null;
+  return resolved;
+}
+
+const diskIndex = new Map(); // relPath -> size in bytes, least recently used first
+let diskIndexBytes = 0;
+let diskIndexLoad = null; // Promise, set once: the one-time scan of TILE_CACHE_DIR
+const diskEvictQueue = [];
+let diskEvictWorker = null;
+
+function diskIndexRemove(relPath) {
+  const size = diskIndex.get(relPath);
+  if (size === undefined) return;
+  diskIndex.delete(relPath);
+  diskIndexBytes -= size;
+}
+
+function diskIndexAdd(relPath, size) {
+  diskIndexRemove(relPath);
+  diskIndex.set(relPath, size);
+  diskIndexBytes += size;
+}
+
+function diskIndexTouch(relPath) {
+  const size = diskIndex.get(relPath);
+  if (size === undefined) return;
+  diskIndex.delete(relPath);
+  diskIndex.set(relPath, size);
+}
+
+// Deletes evicted files one at a time (trimming an oversized cache can mean
+// a great many of them -- never thousands of concurrent unlinks). A tile
+// re-written since it was queued is back in the index and is kept.
+function drainDiskEvictions() {
+  if (!diskEvictWorker) {
+    diskEvictWorker = (async () => {
+      while (diskEvictQueue.length > 0) {
+        for (const relPath of diskEvictQueue.splice(0)) {
+          if (diskIndex.has(relPath)) continue;
+          const filePath = diskPathFor(relPath);
+          if (filePath) await fs.promises.unlink(filePath).catch(() => {});
+        }
+      }
+    })().finally(() => {
+      diskEvictWorker = null;
+      // Queued after the loop's last check but before this ran.
+      if (diskEvictQueue.length > 0) drainDiskEvictions();
+    });
+  }
+  return diskEvictWorker;
+}
+
+function enforceDiskBudget() {
+  while (
+    diskIndex.size > 0 &&
+    (diskIndexBytes > tileCacheLimits.diskMaxBytes ||
+      diskIndex.size > tileCacheLimits.diskMaxFiles)
+  ) {
+    const oldestKey = diskIndex.keys().next().value;
+    diskIndexRemove(oldestKey);
+    diskEvictQueue.push(oldestKey);
+  }
+  return diskEvictQueue.length > 0 ? drainDiskEvictions() : Promise.resolve();
+}
+
+// Plain recursive walk (no symlink following: a Dirent for a link is
+// neither a file nor a directory here). A leftover *.tmp is a write that a
+// crash interrupted -- no write of this process is in flight yet when this
+// runs, see writeDiskCacheAsync -- so it is deleted rather than counted.
+async function scanTileCacheDir(dir, found) {
+  let entries;
+  try {
+    entries = await fs.promises.readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      await scanTileCacheDir(full, found);
+    } else if (entry.isFile()) {
+      if (entry.name.endsWith(".tmp")) {
+        await fs.promises.unlink(full).catch(() => {});
+        continue;
+      }
+      try {
+        const st = await fs.promises.stat(full);
+        found.push({
+          relPath: path.relative(TILE_CACHE_DIR, full),
+          size: st.size,
+          mtimeMs: st.mtimeMs,
+        });
+      } catch {
+        /* vanished mid-scan */
+      }
+    }
+  }
+}
+
+// Writes that arrive while the one-time scan runs wait for it, each holding
+// its tile buffer, so only this many may wait; later ones serve the tile
+// without keeping it (security sweep 2026-10-04, adversary pass: with a large
+// cache left by an older version, every anonymous tile miss during the scan
+// and trim held about 1 MB until it ended -- tens of seconds -- and the load
+// also waited for the whole trim's one-at-a-time deletes). The trim now runs
+// in the background once the index is built, so a write waits for the scan
+// only.
+const MAX_WRITES_WAITING_FOR_INDEX = 16;
+let diskIndexReady = false;
+let writesWaitingForIndex = 0;
+
+function ensureDiskIndex() {
+  if (!diskIndexLoad) {
+    diskIndexLoad = (async () => {
+      const found = [];
+      await scanTileCacheDir(TILE_CACHE_DIR, found);
+      found.sort((a, b) => a.mtimeMs - b.mtimeMs);
+      for (const f of found) diskIndexAdd(f.relPath, f.size);
+      enforceDiskBudget();
+    })()
+      .catch((err) => {
+        log.warn(`Map tile cache index scan failed: ${err.message}`);
+      })
+      .finally(() => {
+        diskIndexReady = true;
+      });
+  }
+  return diskIndexLoad;
 }
 
 async function readDiskCache(relPath) {
+  const filePath = diskPathFor(relPath);
+  if (!filePath) return null;
   try {
-    return await fs.promises.readFile(diskPathFor(relPath));
-  } catch {
+    const buffer = await fs.promises.readFile(filePath);
+    diskIndexTouch(relPath);
+    return buffer;
+  } catch (err) {
+    // Gone from disk (deleted by hand, or lost a race with an eviction):
+    // stop counting it against the budget. Any other read error leaves the
+    // entry counted, so the file is still evicted in its turn.
+    if (err.code === "ENOENT") diskIndexRemove(relPath);
     return null;
   }
 }
@@ -87,13 +267,36 @@ async function readDiskCache(relPath) {
 // directly -- see server/tests/mapProxyDiskCacheCollision.test.js. The
 // production call site still calls this fire-and-forget and never awaits
 // the return value, so this changes nothing about request latency.
+// Every write waits for the one-time index scan first, so the budget
+// accounts for what was already on disk, and afterwards evicts the least
+// recently used tiles until the cache is back within budget.
 export function writeDiskCacheAsync(relPath, buffer) {
+  // A tile bigger than the whole budget is served but never kept.
+  if (buffer.length > tileCacheLimits.diskMaxBytes) return Promise.resolve();
   const dest = diskPathFor(relPath);
+  if (!dest) return Promise.resolve();
   const tmp = `${dest}.${process.pid}.${Date.now()}.${crypto.randomBytes(4).toString("hex")}.tmp`;
-  return fs.promises
-    .mkdir(path.dirname(dest), { recursive: true })
+  let indexed;
+  if (diskIndexReady) {
+    indexed = Promise.resolve();
+  } else {
+    if (writesWaitingForIndex >= MAX_WRITES_WAITING_FOR_INDEX) {
+      ensureDiskIndex();
+      return Promise.resolve();
+    }
+    writesWaitingForIndex += 1;
+    indexed = ensureDiskIndex().finally(() => {
+      writesWaitingForIndex -= 1;
+    });
+  }
+  return indexed
+    .then(() => fs.promises.mkdir(path.dirname(dest), { recursive: true }))
     .then(() => fs.promises.writeFile(tmp, buffer))
     .then(() => fs.promises.rename(tmp, dest))
+    .then(() => {
+      diskIndexAdd(relPath, buffer.length);
+      return enforceDiskBudget();
+    })
     .catch((err) => {
       log.debug(`Disk tile cache write failed for ${relPath}: ${err.message}`);
       fs.promises.unlink(tmp).catch(() => {});
@@ -827,6 +1030,9 @@ function requestIsVersioned(req) {
 }
 
 async function serveTile(req, res, url, contentType, relPath, cacheControl) {
+  // Starts the one-time disk index scan (and trim) on the first tile served.
+  ensureDiskIndex();
+
   // Tier 1: in-memory LRU — fastest, no I/O at all.
   const hot = memCacheGet(relPath);
   if (hot) {

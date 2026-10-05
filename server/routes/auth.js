@@ -4,13 +4,14 @@
  */
 
 import { Router } from "express";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import os from "os";
 import authService, { USER_ROLES, requireRole } from "../services/auth.js";
 import { createLogger } from "../utils/logger.js";
+import { escapeLogText } from "../utils/logText.js";
 import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import { getDataPaths } from "../utils/paths.js";
 import { setSetting } from "../database/init.js";
@@ -18,6 +19,12 @@ import { verifySetupToken, clearSetupToken } from "../utils/setupToken.js";
 import { getRefreshCookieOptions } from "../utils/refreshCookie.js";
 import { requirePermission, getCapabilitiesForRole } from "../services/permissions.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import {
+  decodeResetTokenFile,
+  prepareResetTokenChecks,
+  resetTokenHexDigits,
+  resetTokenWeakness,
+} from "../utils/resetTokenStrength.js";
 
 const log = createLogger("Auth");
 const router = Router();
@@ -28,6 +35,21 @@ function isNonEmptyString(value) {
 
 const RESET_TOKEN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const RESET_TOKEN_MAX_BYTES = 1024;
+// A reset token stands in for the admin password, so it has to be one
+// nobody can guess: the local button writes 48 random hex characters, and
+// a hand-made one must be at least this long. The minimum used to be 8,
+// and the remote-recovery instructions said "any token", so a remote panel
+// could end up guarded by "changeme".
+//
+// SECURITY (2026-10-05, A2): and a generator's hex output, unpredictable
+// (utils/resetTokenStrength.js); for one written in groups like a UUID,
+// this many hex digits. That, the per-address resetLimiter and the file's
+// 24-hour lifetime are what keep guessing infeasible. It used to be a
+// count instead: 5 wrong tokens from any mix of addresses deleted the file,
+// so a stranger could delete each token as soon as the operator made it
+// (GET /reset-status told them when one existed) and keep remote recovery
+// from ever working. A wrong token now changes nothing on disk.
+export const RESET_TOKEN_MIN_LENGTH = 32;
 const LOOPBACK_REMOTE_ADDRESSES = new Set([
   "127.0.0.1",
   "::1",
@@ -123,46 +145,167 @@ export function createLocalResetResponse(message) {
   };
 }
 
-function getResetTokenState() {
+async function getResetTokenState() {
+  // SECURITY (2026-10-05, A2): round 4 of the verification. The table of
+  // well-known hashes resetTokenWeakness() needs (utils/resetTokenStrength.js)
+  // was worked out the first time a file of 32 characters or more turned
+  // up, so the first remote guess after the operator wrote one took a few
+  // hundred ms instead of a few: a one-off timing signal that a token file
+  // now exists. It's worked out (once, without holding up the event loop)
+  // before the file is looked at, whether or not there is one.
+  await prepareResetTokenChecks();
   const tokenPath = getResetTokenPath();
-  if (!fs.existsSync(tokenPath)) {
-    return { tokenPath, available: false, reason: "missing", token: null };
+  // One open file for every check and the read (CodeQL js/file-system-race):
+  // the size and age judged are those of the bytes read, even if the file
+  // is replaced or grows in between.
+  let fd;
+  try {
+    fd = fs.openSync(tokenPath, "r");
+  } catch (err) {
+    if (err?.code === "ENOENT") {
+      return { tokenPath, available: false, reason: "missing", token: null };
+    }
+    throw err;
   }
+  try {
+    const stat = fs.fstatSync(fd);
+    if (stat.size > RESET_TOKEN_MAX_BYTES) {
+      return {
+        tokenPath,
+        available: false,
+        reason: "too-large",
+        token: null,
+        stat,
+      };
+    }
 
-  const stat = fs.statSync(tokenPath);
-  if (stat.size > RESET_TOKEN_MAX_BYTES) {
-    return {
-      tokenPath,
-      available: false,
-      reason: "too-large",
-      token: null,
-      stat,
-    };
+    const ageMs = Date.now() - stat.mtimeMs;
+    if (ageMs > RESET_TOKEN_MAX_AGE_MS) {
+      return {
+        tokenPath,
+        available: false,
+        reason: "expired",
+        token: null,
+        stat,
+      };
+    }
+
+    // SECURITY (2026-10-05, A2): round 3 of the verification. Read as bytes:
+    // Windows PowerShell's `>` writes UTF-16, which read as UTF-8 was refused
+    // as "not hex" (see decodeResetTokenFile()).
+    const bytes = Buffer.alloc(stat.size);
+    const length = stat.size > 0 ? fs.readSync(fd, bytes, 0, stat.size, 0) : 0;
+    const token = decodeResetTokenFile(bytes.subarray(0, length));
+    if (!token || (resetTokenHexDigits(token) ?? token).length < RESET_TOKEN_MIN_LENGTH) {
+      return {
+        tokenPath,
+        available: false,
+        reason: "too-short",
+        token: null,
+        stat,
+      };
+    }
+
+    const weakness = resetTokenWeakness(token);
+    if (weakness) {
+      return {
+        tokenPath,
+        available: false,
+        reason: weakness,
+        token: null,
+        stat,
+      };
+    }
+
+    return { tokenPath, available: true, reason: "ok", token, stat, ageMs };
+  } finally {
+    fs.closeSync(fd);
   }
+}
+const RESET_TOKEN_TOO_WEAK_MESSAGE =
+  "The token in data/reset-token.txt could be guessed. Replace it with random hex from a generator (0-9 and a-f, as openssl rand -hex 24 writes it); words, sentences, number sequences and repeated or sequential characters are refused. Or use the recovery button on the panel host.";
 
-  const ageMs = Date.now() - stat.mtimeMs;
-  if (ageMs > RESET_TOKEN_MAX_AGE_MS) {
-    return {
-      tokenPath,
-      available: false,
-      reason: "expired",
-      token: null,
-      stat,
-    };
+// What POST /reset-password tells a caller on the panel host when the token
+// file can't be used. A caller anywhere else only ever gets
+// RESET_TOKEN_INVALID (see that route).
+const RESET_TOKEN_UNUSABLE_RESPONSES = {
+  missing: {
+    log: "no reset-token.txt exists",
+    code: ErrorCode.RESET_TOKEN_NOT_FOUND,
+    error: "No reset token found. Create data/reset-token.txt on the server first.",
+  },
+  "too-large": {
+    log: "reset-token.txt is too large",
+    code: ErrorCode.RESET_TOKEN_TOO_LARGE,
+    error: "Reset token file is invalid (too large). Max 1KB.",
+  },
+  expired: {
+    log: "reset-token.txt is older than 24 hours",
+    code: ErrorCode.RESET_TOKEN_EXPIRED,
+    error: "Reset token file is older than 24 hours. Recreate it on the server.",
+  },
+  "too-short": {
+    log: `reset-token.txt holds fewer than ${RESET_TOKEN_MIN_LENGTH} characters`,
+    code: ErrorCode.RESET_TOKEN_TOO_SHORT,
+    error: `Reset token file is invalid. It must contain random hex of at least ${RESET_TOKEN_MIN_LENGTH} characters.`,
+  },
+  "not-hex": {
+    log: "reset-token.txt isn't hex (only 0-9 and a-f, as a generator writes it): words, sentences and other characters are refused",
+    code: ErrorCode.RESET_TOKEN_TOO_WEAK,
+    error: RESET_TOKEN_TOO_WEAK_MESSAGE,
+  },
+  "too-weak": {
+    log: "reset-token.txt is too predictable (all digits, too few digits, hex words, repeated, sequential or keyboard-pattern characters, a repeated stretch, or too few different characters)",
+    code: ErrorCode.RESET_TOKEN_TOO_WEAK,
+    error: RESET_TOKEN_TOO_WEAK_MESSAGE,
+  },
+  // SECURITY (2026-10-05, A2): round 3 of the verification; see
+  // resetTokenReadsAsText() and isWellKnownResetToken().
+  "hex-text": {
+    log: "reset-token.txt is text written as hex (xxd -p, .hex(), ToHexString or a text-to-hex converter), which anyone who guesses the text can write too",
+    code: ErrorCode.RESET_TOKEN_TOO_WEAK,
+    error: RESET_TOKEN_TOO_WEAK_MESSAGE,
+  },
+  "well-known": {
+    log: "reset-token.txt is a well-known value (a hash of bash's $RANDOM, of nothing or of a common word, or a UUID printed as an example)",
+    code: ErrorCode.RESET_TOKEN_TOO_WEAK,
+    error: RESET_TOKEN_TOO_WEAK_MESSAGE,
+  },
+};
+
+// A wrong token, from anyone; and every refusal to a caller elsewhere.
+const RESET_TOKEN_NOT_ACCEPTED = {
+  error:
+    "That reset token wasn't accepted. Check that data/reset-token.txt on the panel host holds exactly this token, is less than 24 hours old, and is random hex of at least 32 characters from a generator (words, sentences and number sequences are refused). The panel's log says which check failed.",
+  code: ErrorCode.RESET_TOKEN_INVALID,
+};
+
+// Which client a sign-in attempt came from, for authService.login()'s
+// per-(account, client) failure count: the address, with an IPv6 address
+// reduced to its /56 the same way express-rate-limit keys loginLimiter, so
+// one IPv6 network can't hand out a fresh count per address.
+function loginClientKey(req) {
+  const ip = typeof req.ip === "string" && req.ip ? req.ip : req.socket?.remoteAddress;
+  if (typeof ip !== "string" || !ip) return "unknown";
+  try {
+    return ipKeyGenerator(ip);
+  } catch {
+    return ip;
   }
+}
 
-  const token = fs.readFileSync(tokenPath, "utf-8").trim();
-  if (!token || token.length < 8) {
-    return {
-      tokenPath,
-      available: false,
-      reason: "too-short",
-      token: null,
-      stat,
-    };
+// SECURITY (2026-10-05, A1): a device token for the browser that just
+// changed the password or rotated the JWT secret (see
+// authService.issueDeviceTokenForUserId()). Only ever an extra: the change
+// itself already succeeded, so failing to issue one must not turn its
+// response into an error.
+async function freshDeviceToken(userId) {
+  try {
+    return await authService.issueDeviceTokenForUserId(userId);
+  } catch (error) {
+    log.warn(`Could not issue a trusted-device token: ${error.message}`);
+    return null;
   }
-
-  return { tokenPath, available: true, reason: "ok", token, stat, ageMs };
 }
 
 async function getAuthenticatedUser(req) {
@@ -183,6 +326,23 @@ const loginLimiter = rateLimit({
   message: {
     error: "Too many login attempts. Please try again later.",
     code: ErrorCode.RATE_LIMIT_LOGIN,
+  },
+  // SECURITY (2026-10-05, A1): a sign-in carrying a valid device token for
+  // the account it names gets that device's own 5 a minute, like
+  // authService.login() counts its failures per device. Keyed by address
+  // alone, one stranger sending 5 a minute from an address everyone shares
+  // (a proxy without TRUST_PROXY, Docker's bridge gateway) refused every
+  // sign-in, the owner's included. Anything else, an invalid token
+  // included, is keyed by address as before.
+  keyGenerator: async (req) => {
+    const { username, deviceToken } = req.body || {};
+    try {
+      const deviceId = await authService.trustedDeviceIdForUsername(username, deviceToken);
+      if (deviceId) return `device:${deviceId}`;
+    } catch {
+      // Fall back to the address.
+    }
+    return loginClientKey(req);
   },
 });
 
@@ -266,6 +426,7 @@ router.post("/setup", setupLimiter, async (req, res) => {
       username,
       password,
       rememberMe === true,
+      { clientKey: loginClientKey(req) },
     );
 
     // Set refresh token as httpOnly cookie
@@ -282,9 +443,10 @@ router.post("/setup", setupLimiter, async (req, res) => {
       success: true,
       user: result.user,
       accessToken: result.accessToken,
+      deviceToken: result.deviceToken,
     });
   } catch (error) {
-    log.error(`Setup failed: ${error.message}`);
+    log.error(`Setup failed: ${escapeLogText(error.message)}`);
     res.status(400).json({ error: sanitizeError(error.message) });
   }
 });
@@ -295,17 +457,20 @@ router.post("/setup", setupLimiter, async (req, res) => {
  */
 router.post("/login", loginLimiter, async (req, res) => {
   try {
-    const { username, password, rememberMe = false } = req.body || {};
+    const { username, password, rememberMe = false, deviceToken } = req.body || {};
     if (!isNonEmptyString(username) || !isNonEmptyString(password)) {
       return res.status(400).json({
         error: "Username and password are required",
         code: ErrorCode.AUTH_USERNAME_PASSWORD_REQUIRED,
       });
     }
+    // deviceToken: what this browser got back from its last successful
+    // sign-in on this account (see authService.login()).
     const result = await authService.login(
       username,
       password,
       rememberMe === true,
+      { clientKey: loginClientKey(req), deviceToken },
     );
 
     // Set refresh token as httpOnly cookie for auto-login
@@ -321,9 +486,12 @@ router.post("/login", loginLimiter, async (req, res) => {
       success: true,
       user: result.user,
       accessToken: result.accessToken,
+      deviceToken: result.deviceToken,
     });
   } catch (error) {
-    log.warn(`Login failed: ${error.message}`);
+    // Escaped like every log line that can quote what an anonymous caller
+    // sent (utils/logText.js, SECURITY 2026-10-05, H2).
+    log.warn(`Login failed: ${escapeLogText(error.message)}`);
     res.status(401).json({ error: sanitizeError(error.message) });
   }
 });
@@ -381,9 +549,10 @@ router.post("/refresh", async (req, res) => {
       success: true,
       user: result.user,
       accessToken: result.accessToken,
+      deviceToken: result.deviceToken,
     });
   } catch (error) {
-    log.error(`Token refresh failed: ${error?.message || error}`);
+    log.error(`Token refresh failed: ${escapeLogText(error?.message || error)}`);
     // Always clear stale cookie on any failure
     try {
       res.clearCookie("refreshToken", getRefreshCookieOptions(req, false));
@@ -481,7 +650,16 @@ router.post("/change-password", async (req, res) => {
     await authService.changePassword(user.userId, currentPassword, newPassword);
     res.clearCookie("refreshToken", getRefreshCookieOptions(req, false));
 
-    res.json({ success: true, message: "Password changed successfully" });
+    // SECURITY (2026-10-05, A1): the change retired this browser's device
+    // token with all the others; it gets a fresh one (see
+    // issueDeviceTokenForUserId()) so its next sign-in still counts on its
+    // own.
+    res.json({
+      success: true,
+      message: "Password changed successfully",
+      username: user.username,
+      deviceToken: await freshDeviceToken(user.userId),
+    });
   } catch (error) {
     res.status(400).json({ error: sanitizeError(error.message) });
   }
@@ -687,6 +865,10 @@ router.post(
         success: true,
         message:
           "JWT signing key regenerated. Every session has been invalidated, including this one — you will need to log in again.",
+        // SECURITY (2026-10-05, A1): signed with the new key; see
+        // POST /change-password.
+        username: req.user?.username,
+        deviceToken: await freshDeviceToken(req.user?.userId),
       });
     } catch (error) {
       log.error(`JWT secret regeneration failed: ${error.message}`);
@@ -709,18 +891,25 @@ const resetLimiter = rateLimit({
 
 /**
  * GET /api/auth/reset-status
- * Check if a password reset token file exists on disk.
- * This tells the frontend whether to show the "Reset Password" option.
+ * Whether this caller can use the local recovery button, and -- for a caller
+ * on the panel host only -- whether a usable reset token file exists.
+ *
+ * SECURITY (2026-10-05, A2): resetAvailable used to go to anyone, which told
+ * a stranger the moment the operator created reset-token.txt. Everyone else
+ * gets no resetAvailable at all; the login screen always lets them enter a
+ * token (client/src/pages/Login.tsx).
  */
 router.get("/reset-status", async (req, res) => {
   try {
-    const tokenState = getResetTokenState();
+    if (!isLocalPanelRequest(req)) {
+      return res.json({ localResetSupported: false });
+    }
     res.json({
-      resetAvailable: tokenState.available,
-      localResetSupported: isLocalPanelRequest(req),
+      resetAvailable: (await getResetTokenState()).available,
+      localResetSupported: true,
     });
   } catch (error) {
-    res.json({ resetAvailable: false, localResetSupported: false });
+    res.json({ localResetSupported: false });
   }
 });
 
@@ -816,9 +1005,12 @@ router.post("/recover-with-code", resetLimiter, async (req, res) => {
       success: true,
       message: `Password reset for ${result.username}`,
       remaining: result.remaining,
+      // SECURITY (2026-10-05, A1): see authService.resetPassword().
+      username: result.username,
+      deviceToken: result.deviceToken,
     });
   } catch (error) {
-    log.warn(`Recovery code redemption failed: ${error.message}`);
+    log.warn(`Recovery code redemption failed: ${escapeLogText(error.message)}`);
     res.status(403).json({ error: sanitizeError(error.message) });
   }
 });
@@ -848,7 +1040,7 @@ router.post("/reset-token/local", localResetTokenLimiter, async (req, res) => {
       });
     }
 
-    const tokenState = getResetTokenState();
+    const tokenState = await getResetTokenState();
     if (tokenState.available && tokenState.token) {
       return res.json(
         createLocalResetResponse(
@@ -857,11 +1049,11 @@ router.post("/reset-token/local", localResetTokenLimiter, async (req, res) => {
       );
     }
 
-    if (
-      tokenState.reason === "expired" ||
-      tokenState.reason === "too-large" ||
-      tokenState.reason === "too-short"
-    ) {
+    // A file that's there but unusable, for any reason getResetTokenState()
+    // gives: removed first so the new one is created with mode 0600
+    // (writeFileSync keeps an existing file's mode). This listed the reasons
+    // one by one, and a new one would have been left out.
+    if (tokenState.reason !== "missing") {
       try {
         fs.unlinkSync(tokenState.tokenPath);
       } catch (error) {
@@ -871,7 +1063,14 @@ router.post("/reset-token/local", localResetTokenLimiter, async (req, res) => {
       }
     }
 
-    const token = crypto.randomBytes(24).toString("hex");
+    // Random bytes read as text, by chance, about once in five million
+    // tokens (utils/resetTokenStrength.js); the panel's own token mustn't be
+    // one its checks then refuse.
+    await prepareResetTokenChecks();
+    let token;
+    do {
+      token = crypto.randomBytes(24).toString("hex");
+    } while (resetTokenWeakness(token));
     fs.writeFileSync(tokenState.tokenPath, `${token}\n`, {
       encoding: "utf-8",
       mode: 0o600,
@@ -900,11 +1099,22 @@ router.post("/reset-token/local", localResetTokenLimiter, async (req, res) => {
  *
  * Security model: The caller must provide the exact token from data/reset-token.txt.
  * This proves they have filesystem access to the server machine.
- * The token file is deleted after a successful reset.
+ * The token file is deleted after a successful reset, and only then. A file
+ * holding fewer than RESET_TOKEN_MIN_LENGTH characters, anything but a
+ * generator's hex, a predictable token, hex that reads as text or a
+ * well-known value (utils/resetTokenStrength.js), is refused outright.
+ *
+ * SECURITY (2026-10-05, A2): a wrong token no longer counts toward deleting
+ * the file (see RESET_TOKEN_MIN_LENGTH's comment). And a caller that isn't
+ * on the panel host gets the same RESET_TOKEN_INVALID whether the file is
+ * missing, unusable or simply holds a different token: telling those apart
+ * ("No reset token found" vs "Invalid reset token") was a second way to
+ * learn whether a token file exists. The log says which; a caller on the
+ * host still gets the specific reason.
  */
 router.post("/reset-password", resetLimiter, async (req, res) => {
   try {
-    const { token, newPassword } = req.body;
+    const { token, newPassword } = req.body || {};
     if (
       !token ||
       !newPassword ||
@@ -924,51 +1134,24 @@ router.post("/reset-password", resetLimiter, async (req, res) => {
       });
     }
 
-    const tokenPath = getResetTokenPath();
-
-    if (!fs.existsSync(tokenPath)) {
-      log.warn("Password reset attempted but no reset-token.txt exists");
-      return res.status(403).json({
-        error:
-          "No reset token found. Create data/reset-token.txt on the server first.",
-        code: ErrorCode.RESET_TOKEN_NOT_FOUND,
-      });
+    // SECURITY (2026-10-05, A2): a token file that exists but can't be read
+    // (owned by another account, mode 0600) made this throw, and the catch
+    // below answered with the filesystem error -- telling anyone that the
+    // file exists. Elsewhere that's the same refusal as every other case;
+    // the host still gets the error itself.
+    let tokenState;
+    try {
+      tokenState = await getResetTokenState();
+    } catch (error) {
+      if (isLocalPanelRequest(req)) throw error;
+      log.warn(`Password reset attempted but reset-token.txt can't be read: ${error.message}`);
+      return res.status(403).json(RESET_TOKEN_NOT_ACCEPTED);
     }
-
-    // Guard against oversized token files
-    const stat = fs.statSync(tokenPath);
-    if (stat.size > RESET_TOKEN_MAX_BYTES) {
-      log.warn("Password reset token file is too large");
-      return res.status(403).json({
-        error: "Reset token file is invalid (too large). Max 1KB.",
-        code: ErrorCode.RESET_TOKEN_TOO_LARGE,
-      });
-    }
-
-    // Token files older than 24h are rejected to prevent stale reset files from being abused.
-    const ageMs = Date.now() - stat.mtimeMs;
-    if (ageMs > RESET_TOKEN_MAX_AGE_MS) {
-      log.warn("Password reset attempted with expired token file (>24h old)");
-      try {
-        fs.unlinkSync(tokenPath);
-      } catch (error) {
-        log.warn(`Could not remove expired reset token file: ${error.message}`);
-      }
-      return res.status(403).json({
-        error:
-          "Reset token file is older than 24 hours. Recreate it on the server.",
-        code: ErrorCode.RESET_TOKEN_EXPIRED,
-      });
-    }
-
-    const storedToken = fs.readFileSync(tokenPath, "utf-8").trim();
-    if (!storedToken || storedToken.length < 8) {
-      log.warn("Password reset attempted with invalid token file (too short)");
-      return res.status(403).json({
-        error:
-          "Reset token file is invalid. It must contain at least 8 characters.",
-        code: ErrorCode.RESET_TOKEN_TOO_SHORT,
-      });
+    if (!tokenState.available) {
+      const unusable = RESET_TOKEN_UNUSABLE_RESPONSES[tokenState.reason] || RESET_TOKEN_UNUSABLE_RESPONSES.missing;
+      log.warn(`Password reset attempted but ${unusable.log}`);
+      const refusal = isLocalPanelRequest(req) ? unusable : RESET_TOKEN_NOT_ACCEPTED;
+      return res.status(403).json({ error: refusal.error, code: refusal.code });
     }
 
     // Hash both sides to a constant-length digest before timing-safe comparison.
@@ -979,21 +1162,18 @@ router.post("/reset-password", resetLimiter, async (req, res) => {
       .digest();
     const storedDigest = crypto
       .createHash("sha256")
-      .update(storedToken, "utf8")
+      .update(tokenState.token, "utf8")
       .digest();
     if (!crypto.timingSafeEqual(candidateDigest, storedDigest)) {
       log.warn("Password reset attempted with incorrect token");
-      return res.status(403).json({
-        error: "Invalid reset token",
-        code: ErrorCode.RESET_TOKEN_INVALID,
-      });
+      return res.status(403).json(RESET_TOKEN_NOT_ACCEPTED);
     }
 
     const result = await authService.resetPassword(newPassword);
 
     // Delete the token file after successful reset
     try {
-      fs.unlinkSync(tokenPath);
+      fs.unlinkSync(tokenState.tokenPath);
     } catch (unlinkErr) {
       log.warn(`Could not delete reset-token.txt: ${unlinkErr.message}`);
     }
@@ -1002,9 +1182,12 @@ router.post("/reset-password", resetLimiter, async (req, res) => {
     res.json({
       success: true,
       message: `Password reset for ${result.username}`,
+      // SECURITY (2026-10-05, A1): see authService.resetPassword().
+      username: result.username,
+      deviceToken: result.deviceToken,
     });
   } catch (error) {
-    log.error(`Password reset failed: ${error.message}`);
+    log.error(`Password reset failed: ${escapeLogText(error.message)}`);
     res.status(400).json({ error: sanitizeError(error.message) });
   }
 });

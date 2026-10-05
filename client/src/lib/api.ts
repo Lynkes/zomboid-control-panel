@@ -3,6 +3,7 @@ import { clearAccessToken, getAccessToken, setAccessToken } from "./authToken";
 import { toast } from "@/components/ui/use-toast";
 import i18n from "@/i18n";
 import { hostTimeToLocal } from "./hostClock";
+import { rememberTrustedDeviceFrom } from "./trustedDevice";
 
 const API_BASE = "/api";
 
@@ -1762,7 +1763,14 @@ export const discordApi = {
       chatRelayChannelId,
       chatRelayScope,
     }),
-  resetConfig: () => apiPost("/discord/reset"),
+  // keptCommandPermissions: commands whose tier the wipe kept because
+  // changing it needs a capability the caller doesn't hold.
+  resetConfig: () =>
+    apiPost("/discord/reset") as Promise<{
+      success: boolean;
+      message?: string;
+      keptCommandPermissions?: string[];
+    }>,
   start: () => apiPost("/discord/start"),
   stop: () => apiPost("/discord/stop"),
   testToken: (token: string) => apiPost("/discord/test", { token }),
@@ -1805,6 +1813,10 @@ export interface ServerInstance {
   isRemote: boolean;
   // Only set on /servers/active: the remote Server folder is reachable over SFTP.
   remoteConfigConfigured?: boolean;
+  // Set on the /servers list: why the panel won't use this server's folders
+  // (ZOMBOID_DATA_FOLDER_REFUSED or SERVER_CONFIG_PATH_OUTSIDE_DATA),
+  // or null when it will.
+  folderProblem?: { error: string; code: string } | null;
   isActive: boolean;
   startCommand: string;
   lifecycleProvider?: "direct" | "systemd" | "openrc";
@@ -2348,7 +2360,10 @@ export const serverFilesApi = {
     apiPut(`/server-files/templates/${id}`, data),
   deleteTemplate: (id: string) => apiDelete(`/server-files/templates/${id}`),
 
-  // File browser (for image path fields)
+  // File browser (for image path fields). For a role without the host-path
+  // capabilities, currentPath and parent are root references
+  // ("data:/servertest") rather than absolute folders; both routes take
+  // them back as `path`, so pass them on as they came.
   browseFiles: (browsePath?: string, extensions?: string[]) => {
     const params = new URLSearchParams();
     if (browsePath) params.set("path", browsePath);
@@ -2425,6 +2440,8 @@ export interface SimTemplateApplyResult {
     | { applied: Array<{ section: string; key: string }>; skipped: Array<{ section: string; key: string }> }
     | { skipped: true; reason: string }
     | null;
+  // File names of the .bak copies made in the config folder's backups/
+  // folder (not their full paths since 1.4.6).
   backups: string[];
   error?: string;
 }
@@ -3417,9 +3434,11 @@ export interface BackupStatus extends BackupSettings {
   // them.
   currentRestore?: RestoreRecord | null;
   lastRestore?: RestoreOutcome | null;
+  // The paths are null for a role that can't see host folders
+  // (server/routes/backup.js).
   lastBackup: {
     name: string;
-    path: string;
+    path: string | null;
     size: number;
     created: string;
   } | null;
@@ -3509,7 +3528,8 @@ export type BackupScheduleValidation =
 // See that interface's comment for why these have separate names now.
 export interface ServerBackupArchive {
   name: string;
-  path: string;
+  // null for a role that can't see host folders (server/routes/backup.js).
+  path: string | null;
   size: number;
   created: string;
 }
@@ -3783,11 +3803,17 @@ export const debugApi = {
 
 // Auth API
 export const authApi = {
-  changePassword: (
+  // SECURITY (2026-10-05, A1): both of these retire this browser's
+  // trusted-device token with every other one and hand back a fresh one --
+  // see lib/trustedDevice.ts's rememberTrustedDeviceFrom().
+  changePassword: async (
     currentPassword: string,
     newPassword: string,
-  ): Promise<{ success: boolean; message?: string }> =>
-    apiPost("/auth/change-password", { currentPassword, newPassword }),
+  ): Promise<{ success: boolean; message?: string }> => {
+    const result = await apiPost("/auth/change-password", { currentPassword, newPassword });
+    rememberTrustedDeviceFrom(result);
+    return result;
+  },
 
   getRecoveryCodes: (): Promise<{
     configured: boolean;
@@ -3802,8 +3828,11 @@ export const authApi = {
     createdAt: string;
   }> => apiPost("/auth/recovery-codes", {}),
 
-  regenerateJwtSecret: (): Promise<{ success: boolean; message?: string }> =>
-    apiPost("/auth/regenerate-jwt-secret", {}),
+  regenerateJwtSecret: async (): Promise<{ success: boolean; message?: string }> => {
+    const result = await apiPost("/auth/regenerate-jwt-secret", {});
+    rememberTrustedDeviceFrom(result);
+    return result;
+  },
 };
 
 // Servers detection API helpers (added to serversApi)
@@ -4091,7 +4120,9 @@ export interface RuntimeInfo {
   platform: string;
   family: "windows" | "posix" | "unknown";
   pathSeparator: string;
-  temporaryDirectory: string;
+  // The host's temp folder; null for a role without diagnostics.manage or
+  // panel.settings (server/routes/system.js).
+  temporaryDirectory: string | null;
   serviceManager: "systemd" | "openrc" | "container" | "none" | "unknown";
   restartAssessment: RestartAssessment;
 }

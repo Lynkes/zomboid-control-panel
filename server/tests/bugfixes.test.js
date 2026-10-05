@@ -1022,12 +1022,16 @@ describe("Discord circuit breaker is per channel", () => {
   const makeBot = async (failingChannelId) => {
     const bot = Object.create(DiscordBot.prototype);
     bot._channelBreakers = new Map();
+    // M2: the bot posts only in a channel of the configured guild.
+    bot._outsideGuildRefusals = new Map();
+    bot.guildId = "999";
     const sent = [];
     bot.client = {
       channels: {
         fetch: async (id) => {
           if (id === failingChannelId) throw new Error("Missing Access");
           return {
+            guildId: "999",
             isTextBased: () => true,
             send: async (msg) => sent.push(`${id}:${msg}`),
           };
@@ -1078,10 +1082,14 @@ describe("Discord _sendToChannel truncates an over-2000-char payload before send
   const makeBot = async () => {
     const bot = Object.create(DiscordBot.prototype);
     bot._channelBreakers = new Map();
+    // M2: the bot posts only in a channel of the configured guild.
+    bot._outsideGuildRefusals = new Map();
+    bot.guildId = "999";
     const sent = [];
     bot.client = {
       channels: {
         fetch: async (id) => ({
+          guildId: "999",
           isTextBased: () => true,
           send: async (msg) => {
             sent.push(msg);

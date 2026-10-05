@@ -107,6 +107,7 @@ describe("mods.js: previously-PARTIAL error codes now carry params on the wire",
       fs.writeFileSync(path.join(configPath, "TestServer.ini"), "Mods=\n");
       getActiveServer.mockReset().mockResolvedValue({
         id: "server-1",
+        zomboidDataPath: dataRoot,
         serverConfigPath: configPath,
         serverName: "TestServer",
         isRemote: false,

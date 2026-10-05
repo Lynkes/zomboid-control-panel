@@ -1551,8 +1551,11 @@ export class ModChecker extends EventEmitter {
           `Mod restart did not complete: ${result.message || "unknown reason"}`,
         );
         if (this.io) {
+          // Path-redacted like the catch below: every signed-in socket gets
+          // this, and a failed start can quote the install folder
+          // (SECURITY 2026-10-05, H4).
           this.io.emit("mods:restart_failed", {
-            error: result.message || "Restart did not complete",
+            error: sanitizeError(result.message || "Restart did not complete"),
           });
         }
         // Clear processed updates so we can retry on next cycle

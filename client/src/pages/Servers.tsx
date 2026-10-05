@@ -40,7 +40,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/components/ui/use-toast'
 import { reportClientError, reportClientWarning } from '@/lib/client-errors'
-import { getUserErrorMessage } from '@/lib/errorMessage'
+import { getResultErrorMessage, getUserErrorMessage } from '@/lib/errorMessage'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -2300,6 +2300,19 @@ export default function Servers() {
                         </div>
                       </div>
                     )}
+                    {/* SECURITY (2026-10-05, PT3): the panel won't use this
+                        server's folders (the data folder no longer meets the
+                        data-folder rule, or a config folder has no data
+                        folder). Said here, where they are set, rather than
+                        only as each feature's own refusal. */}
+                    {server.folderProblem && (
+                      <div role="alert" className="flex items-start gap-2.5 px-3 py-2">
+                        <AlertCircle className="w-3.5 h-3.5 mt-0.5 text-warning shrink-0" />
+                        <p className="min-w-0 flex-1 text-xs text-warning [overflow-wrap:anywhere]">
+                          {getResultErrorMessage(server.folderProblem, server.folderProblem.error)}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -3246,6 +3259,17 @@ export default function Servers() {
                   className="font-mono text-sm"
                   placeholder={t('editDialog.dataPathPlaceholder')}
                 />
+                {/* PT3: the stored folders' refusal, while the folder in the
+                    field is still the stored one. */}
+                {editingStoredServer?.folderProblem &&
+                  (editingStoredServer.zomboidDataPath || '') === (editingServer.zomboidDataPath || '') && (
+                    <Alert className="border-warning/40 bg-warning/10">
+                      <AlertCircle className="h-4 w-4 text-warning" />
+                      <AlertDescription>
+                        {getResultErrorMessage(editingStoredServer.folderProblem, editingStoredServer.folderProblem.error)}
+                      </AlertDescription>
+                    </Alert>
+                  )}
               </div>
 
               {managedLifecycleSupported && !editingServer.dockerContainerName && !editingServer.dockerContainerId && (

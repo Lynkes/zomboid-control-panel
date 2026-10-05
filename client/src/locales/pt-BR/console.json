@@ -51,6 +51,7 @@
     "streamUnavailable": "Fluxo do log indisponível — o servidor pode estar offline",
     "retry": "tentar novamente",
     "notFoundTitle": "Log do console do servidor não encontrado",
+    "unavailableTitle": "Log do console do servidor indisponível",
     "notFoundDesc": "Verifique se o servidor está em execução",
     "streamLabel": "fluxo",
     "paused": "pausado",

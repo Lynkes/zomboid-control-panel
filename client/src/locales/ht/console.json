@@ -52,6 +52,7 @@
     "streamUnavailable": "Flux jounal pa disponib — sèvè a ka òfliy",
     "retry": "eseye ankò",
     "notFoundTitle": "Jounal konsòl sèvè a pa jwenn",
+    "unavailableTitle": "Jounal konsòl sèvè a pa disponib",
     "notFoundDesc": "Asire w sèvè a ap fonksyone",
     "streamLabel": "flux",
     "paused": "an poz",

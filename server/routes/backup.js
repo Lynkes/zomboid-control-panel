@@ -4,6 +4,7 @@ import fs from "fs";
 import { createLogger } from "../utils/logger.js";
 import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import { publicRestoreMessage } from "../utils/restoreMessage.js";
+import { HOST_PATH_CAPABILITIES } from "../utils/hostPathView.js";
 import { getActiveServer } from "../database/init.js";
 import {
   getCapabilitiesForRole,
@@ -50,6 +51,72 @@ const requireAnyBackupCapability = requireAnyPermission(
   "backups.download",
   "backups.restore",
 );
+
+// SECURITY (2026-10-05, PATHS-1): a remote server's backups aren't on this
+// computer. /create, /restore and /upload refused one already, but the
+// routes below that read, download or delete a backup by name went on to
+// use the remote record's data folder here -- a folder no save-time check
+// holds (it names a path on the other host), so servers.manage could aim
+// them at any folder on this one. They refuse a remote server the same way
+// now, and backupService resolves no backups folder for one (its
+// dataFolderUsable()), so /list and /status show none.
+async function remoteServerBackupsRefusal() {
+  const activeServer = await getActiveServer();
+  if (!activeServer?.isRemote) return null;
+  return {
+    error:
+      "Backups are not available for remote servers. The server filesystem is not accessible from this panel.",
+    code: ErrorCode.BACKUP_REMOTE_NOT_AVAILABLE,
+  };
+}
+
+// SECURITY (2026-10-05, H4): ...but where backups live is not something a
+// download-only or restore-only role acts on: it picks a backup by name.
+// The folders (savesPath, backupsPath, each backup's `path`) go to the roles
+// that already see them elsewhere -- backups.manage and diagnostics.manage,
+// as for the disk routes (routes/system.js), and the roles that set the
+// server's folders up (utils/hostPathView.js) -- and are null for the rest,
+// whose last scheduled attempt's error text is path-redacted too. So is the
+// last restore's: publicRestoreMessage() keeps the folder a failed rollback
+// left the previous save in, which is for a role that can go and get it.
+const BACKUP_PATH_CAPABILITIES = Object.freeze([
+  "backups.manage",
+  "diagnostics.manage",
+  ...HOST_PATH_CAPABILITIES,
+]);
+
+async function canSeeBackupPaths(req) {
+  try {
+    const capabilities = await getCapabilitiesForRole(req.user?.role);
+    return (
+      Array.isArray(capabilities) &&
+      BACKUP_PATH_CAPABILITIES.some((capability) => capabilities.includes(capability))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function withoutBackupPath(backup) {
+  return backup && typeof backup === "object" ? { ...backup, path: null } : backup;
+}
+
+function withRedactedMessage(entry) {
+  return entry && typeof entry.message === "string" && entry.message
+    ? { ...entry, message: sanitizeError(entry.message) }
+    : entry;
+}
+
+function hideBackupPaths(status) {
+  return {
+    ...status,
+    savesPath: null,
+    backupsPath: null,
+    lastBackup: withoutBackupPath(status.lastBackup),
+    lastScheduledBackupAttempt: withRedactedMessage(status.lastScheduledBackupAttempt),
+    lastRestore: withRedactedMessage(status.lastRestore),
+  };
+}
 
 function parseBackupBoolean(value) {
   if (typeof value === "boolean") return value;
@@ -140,7 +207,8 @@ async function getRestartOverlaps(req, scheduler, schedule) {
 router.get("/status", requireAnyBackupCapability, async (req, res) => {
   try {
     const backupService = req.app.get("backupService");
-    const status = await backupService.getStatus();
+    const fullStatus = await backupService.getStatus();
+    const status = (await canSeeBackupPaths(req)) ? fullStatus : hideBackupPaths(fullStatus);
     // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): the
     // Scheduler page's backup-health card needs the backup schedule's own
     // next-run time alongside lastScheduledBackupAttempt (already computed
@@ -186,7 +254,9 @@ router.get("/list", requireAnyBackupCapability, async (req, res) => {
   try {
     const backupService = req.app.get("backupService");
     const backups = await backupService.listBackups();
-    res.json({ backups });
+    res.json({
+      backups: (await canSeeBackupPaths(req)) ? backups : backups.map(withoutBackupPath),
+    });
   } catch (error) {
     log.error(`Failed to list backups: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -215,6 +285,8 @@ router.get("/history", requireAnyBackupCapability, async (req, res) => {
 
 router.get("/:name/snapshot", requirePermission("backups.manage"), async (req, res) => {
   try {
+    const remoteRefusal = await remoteServerBackupsRefusal();
+    if (remoteRefusal) return res.status(400).json(remoteRefusal);
     const backupService = req.app.get("backupService");
     const result = await backupService.getBackupSnapshot(req.params.name);
     if (result.success) return res.json(result);
@@ -409,6 +481,8 @@ router.post("/create", requirePermission("backups.manage"), async (req, res) => 
 router.delete("/:name", requirePermission("backups.manage"), async (req, res) => {
   try {
     log.info(`DELETE /${req.params.name}`);
+    const remoteRefusal = await remoteServerBackupsRefusal();
+    if (remoteRefusal) return res.status(400).json(remoteRefusal);
     const backupService = req.app.get("backupService");
     const result = await backupService.deleteBackup(req.params.name);
 
@@ -436,6 +510,8 @@ router.delete("/:name", requirePermission("backups.manage"), async (req, res) =>
 // filenames, then download.
 router.get("/download/:name", requirePermission("backups.download"), async (req, res) => {
   try {
+    const remoteRefusal = await remoteServerBackupsRefusal();
+    if (remoteRefusal) return res.status(400).json(remoteRefusal);
     const backupService = req.app.get("backupService");
     const backupsPath = await backupService.getBackupsPath();
 
@@ -594,7 +670,13 @@ router.post("/restore/:name", requirePermission("backups.restore"), async (req, 
       // publicRestoreMessage() redacts everything except the one message
       // that deliberately needs its path visible (the rollback failure --
       // see its own comment). 2026-08-26 partial-failure-state hunt.
-      res.status(400).json({ ...result, message: publicRestoreMessage(result.message) });
+      // SECURITY (2026-10-05, H4): ...and only to a role that may see where
+      // backups live (canSeeBackupPaths()); a restore-only role gets it
+      // path-redacted, as in GET /status's lastRestore.
+      const message = (await canSeeBackupPaths(req))
+        ? publicRestoreMessage(result.message)
+        : sanitizeError(result.message);
+      res.status(400).json({ ...result, message });
     }
   } catch (error) {
     log.error(`Failed to restore backup: ${error.message}`);
@@ -607,6 +689,9 @@ router.post("/restore/:name", requirePermission("backups.restore"), async (req, 
 // Delete backups older than X days
 router.post("/delete-older-than", requirePermission("backups.manage"), async (req, res) => {
   try {
+    const remoteRefusal = await remoteServerBackupsRefusal();
+    if (remoteRefusal) return res.status(400).json(remoteRefusal);
+
     // continuous-bug-hunt round 23: same gap and same fix as POST
     // /settings above -- this bulk-deletes real backup files for
     // whichever server is currently active, with no way for the caller to
@@ -719,7 +804,9 @@ router.post(
       }
 
       const backupService = req.app.get("backupService");
-      const backupsPath = await backupService.getBackupsPath();
+      // PT1: this writes into the folder, so this creates it (the read-only
+      // routes no longer do), in a data folder held to the data-folder rule.
+      const backupsPath = await backupService.getBackupsPath(undefined, { create: true });
       if (!backupsPath) {
         return res
           .status(500)
@@ -727,9 +814,6 @@ router.post(
             error: "Backups folder not available. Configure the server first.",
             code: ErrorCode.BACKUPS_FOLDER_UNAVAILABLE,
           });
-      }
-      if (!fs.existsSync(backupsPath)) {
-        fs.mkdirSync(backupsPath, { recursive: true });
       }
 
       // Always prefix to distinguish from auto-named backups (world_backup_*).

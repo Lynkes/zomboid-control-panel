@@ -27,12 +27,18 @@ LimitNOFILE=65536
 LimitNPROC=4096
 
 # Security hardening
+# Files the panel creates (logs, database, secrets, game-server files) are
+# readable only by the service account.
+UMask=0077
 NoNewPrivileges=true
 # Use 'full' instead of 'strict' — strict breaks pkg binaries on CentOS (needs /usr/lib64)
 ProtectSystem=full
 ProtectHome=read-only
 # Self-update replaces the binary, web assets, launcher, and bundled unit
 # template inside this directory. It never writes the installed /etc unit.
+# install-linux-service.sh installs this unit from its own root-owned folder
+# (/usr/local/lib/zomboid-panel), never from this directory: everything in
+# it can be changed by the service account.
 ReadWritePaths=/opt/zomboid-panel
 PrivateTmp=true
 PrivateDevices=true

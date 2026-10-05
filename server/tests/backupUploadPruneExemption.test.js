@@ -87,7 +87,8 @@ describe("backup pruning: uploaded archives are exempt from automatic prune, not
     settings.clear();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-backup-prune-"));
     service = new BackupService();
-    backupsPath = await service.getBackupsPath();
+    // Only a caller about to write creates the folder (PT1, 2026-10-05).
+    backupsPath = await service.getBackupsPath(undefined, { create: true });
   });
 
   afterEach(() => {

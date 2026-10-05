@@ -51,6 +51,7 @@
     "streamUnavailable": "Flujo de registro no disponible — el servidor podría estar sin conexión",
     "retry": "reintentar",
     "notFoundTitle": "No se encontró el registro de consola del servidor",
+    "unavailableTitle": "El registro de consola del servidor no está disponible",
     "notFoundDesc": "Comprobar que el servidor esté en ejecución",
     "streamLabel": "flujo",
     "paused": "pausado",

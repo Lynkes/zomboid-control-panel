@@ -101,10 +101,13 @@ function writeIni(extra = "") {
 }
 
 beforeEach(() => {
-  configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ini-cap-partition-"));
+  // PATHS-2: a config folder is used only inside <data folder>/Server.
+  configDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ini-cap-partition-")), "Server");
+  fs.mkdirSync(configDir);
   iniPath = path.join(configDir, `${SERVER_NAME}.ini`);
   writeIni();
   getActiveServer.mockReset().mockResolvedValue({
+    zomboidDataPath: path.dirname(configDir),
     serverConfigPath: configDir,
     serverName: SERVER_NAME,
   });
@@ -112,7 +115,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  fs.rmSync(configDir, { recursive: true, force: true });
+  fs.rmSync(path.dirname(configDir), { recursive: true, force: true });
 });
 
 describe("PUT /server-files/ini -- RCON/network keys require server.configure in addition to serverfiles.manage", () => {

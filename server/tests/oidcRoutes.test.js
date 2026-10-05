@@ -301,31 +301,34 @@ describe('routes/oidc.js: /callback', () => {
     expect(res.cookies.find((c) => c.name === 'refreshToken')).toBeUndefined();
   });
 
-  it('redirects with session_failed and issues no cookie when the linked account is locked out', async () => {
+  // LOCKOUT (security sweep): failed PASSWORD attempts used to lock the
+  // whole account, SSO included, so anyone who knew the username could keep
+  // its owner out of SSO by typing wrong passwords. A verified identity is
+  // not a password guess: an old account-wide lock no longer refuses it,
+  // and signing in clears it.
+  it('signs in a linked account that an old account-wide password lock still marks as locked, and clears that lock', async () => {
     provider.setNextIdToken({ claims: { nonce: 'flow-nonce' } });
     authService.jwtSecret = 'test-oidc-route-secret';
     vi.spyOn(dbModule, 'commitNow').mockResolvedValue(undefined);
-    vi.spyOn(dbModule, 'getDb').mockResolvedValue({
-      data: {
-        users: [
-          {
-            id: 'user-42',
-            username: 'sso.alice',
-            role: 'moderator',
-            tokenGen: 0,
-            refreshSessions: [],
-            lockedUntil: new Date(Date.now() + 60_000).toISOString(),
-            externalIdentities: [{ issuer: provider.baseUrl, subject: SUBJECT }],
-          },
-        ],
-      },
-    });
+    const user = {
+      id: 'user-42',
+      username: 'sso.alice',
+      role: 'moderator',
+      tokenGen: 0,
+      refreshSessions: [],
+      failedLoginCount: 4,
+      lockedUntil: new Date(Date.now() + 60_000).toISOString(),
+      externalIdentities: [{ issuer: provider.baseUrl, subject: SUBJECT }],
+    };
+    vi.spyOn(dbModule, 'getDb').mockResolvedValue({ data: { users: [user] } });
 
     const res = makeRes();
     await getHandler('get', '/callback')(callbackReq(), res);
 
-    expect(res.redirectedTo).toBe('/?oidcError=session_failed');
-    expect(res.cookies.find((c) => c.name === 'refreshToken')).toBeUndefined();
+    expect(res.redirectedTo).toBe('/');
+    expect(res.cookies.find((c) => c.name === 'refreshToken')).toBeTruthy();
+    expect(user.lockedUntil).toBeUndefined();
+    expect(user.failedLoginCount).toBeUndefined();
   });
 
   it('links a verified identity to the selected existing account instead of issuing a login session', async () => {

@@ -159,11 +159,13 @@ function makeMockSocket() {
   const socket = {
     on: (event: string, cb: (data: unknown) => void) => { handlers[event] = cb },
     off: (event: string) => { delete handlers[event] },
+    // A reconnect joins the backups room again (subscribe:backups).
+    emit: () => true,
   }
   return { socket, fire: (event: string, data?: unknown) => handlers[event]?.(data) }
 }
 
-function renderBackups(socket: Pick<Socket, 'on' | 'off'>) {
+function renderBackups(socket: Pick<Socket, 'on' | 'off' | 'emit'>) {
   return render(
     <SocketContext.Provider value={socket as Socket}>
       <TooltipProvider>

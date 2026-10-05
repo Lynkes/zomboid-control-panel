@@ -9,15 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **Live updates by role:** install and SteamCMD progress, chunk scans, PanelBridge status, deaths, the player list and non-public chat now reach only the roles allowed to see them (#193, thanks @mrbean56).
-- **SFTP host keys pinned:** the first connection pins a remote server's key; a changed key is refused until you compare it and choose Trust new host key in Settings › PanelBridge (#193, thanks @mrbean56).
-- **Tokens in URLs:** `?token=` works only on the mod-conflict stream; other tools must send an Authorization header (#193, thanks @mrbean56).
-- **Panel updates:** checking for updates and reading the apply log need panel settings (admin by default) (#193, thanks @mrbean56).
-- **Hardening:** safer restore staging, owner-only `.bat` launch scripts, masked recovery codes, a stricter CORS private-network check, HS256-only tokens, server-files guards that match a trailing slash, and an optional `PANEL_DOCKER_UPDATE_SHA256` updater pin (#193, thanks @mrbean56).
+- **Live updates by role:** install progress, scans, PanelBridge status, deaths, the player list and chat reach only roles allowed to see them (#193, thanks @mrbean56).
+- **SFTP host keys:** a remote server's key is pinned on first connect, and a changed key waits for your OK in Settings › PanelBridge (#193, thanks @mrbean56).
+- **More from #193:** `?token=` works only on the mod-conflict stream, update checks are admin-only, plus safer restore staging, owner-only `.bat` scripts, HS256-only tokens and an optional updater checksum pin (#193, thanks @mrbean56).
+- **Server folders confined:** data and config folders must be the game's own, checked on save and on use; a server-management role could read and write files anywhere on the host.
+- **Remote servers:** backups, the console log and wipe no longer use a remote server's data folder on the panel's own computer.
+- **Discord permissions:** changing the bot's token, server, roles, command tiers or chat relay needs the permissions the change unlocks, and a wipe keeps tiers the caller can't change.
+- **Discord server scope:** commands, the chat relay and notifications work only in the configured Discord server; the Discord page lists channels the bot stopped posting to.
+- **Disk exhaustion:** the public thumbnail and map-tile proxies no longer fetch or cache arbitrary items; anyone could fill the panel's disk.
+- **Sign-in lockouts:** failed sign-ins pause only the sending address, and a browser that signed in before keeps its own count; strangers could lock an account out.
+- **Reset tokens:** a hand-made token must be random hex from a documented command, common weak values are refused, and wrong guesses no longer delete the file.
+- **Setup and DNS rebinding:** live connections wait for the first account, and with logins off the panel answers only its own addresses.
+- **Host paths and secrets by role:** folders, launch commands, credentials and account names are hidden from roles that can't change them, error text included, and masked secrets no longer show their last 4 characters.
+- **Linux service installer:** root never runs a file the panel's account can change; that account could gain root.
+- **Forged deaths:** player deaths come from PanelBridge instead of the game log, which a crafted co-op name could forge.
+- **PanelBridge leaderboard:** no longer kept in world-readable mod data keyed by SteamID.
+- **Smaller fixes:** no status-scan process flood, no player-export collisions, no setup token in logs, no forged log lines, and backup or disk alerts only for roles that can act on them.
+- **Update PanelBridge:** the bridge fixes ship in the mod; Workshop servers get them once the item is updated and the server restarts.
 
 ### Fixed
 
-- **Stable installs the newest build:** installs and updates now ask Steam for the stable branch by name with fresh app info, so a folder once on the 42.19 or unstable branch no longer stays on it.
+- **Stable installs the newest build:** Stable now asks Steam for the stable branch by name, so a folder once on 42.19 no longer stays there.
+- **Leaderboard deaths:** the Deaths column now counts on dedicated servers.
+- **Reset token file:** a token file written by PowerShell's `>` or `Out-File` now works, and the guide has a tested command per platform.
+- **Console log:** a server with no data folder of its own finds its log, or the Console page says what to set.
+- **Discord relay channel:** emptying the field now clears it.
 - **World Map vehicles:** Repair, Set Fuel, Set Battery and the siren work again on Build 42, and Repair is the game's own admin repair (#199).
 - **Vehicle alarm and hotwire:** Alarm On now leaves the alarm armed, and hotwiring unlocks the doors for connected players too.
 

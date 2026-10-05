@@ -14,6 +14,7 @@ import https from "https";
 import crypto from "crypto";
 import { spawn, execFile } from "child_process";
 import { createLogger } from "../utils/logger.js";
+import { sanitizeError } from "../utils/sanitize.js";
 import { getSetting, setSetting } from "../database/init.js";
 import { getDataPaths } from "../utils/paths.js";
 import { DockerUpdateProxy } from "./dockerUpdateProxy.js";
@@ -39,6 +40,29 @@ const EXE_DELETE_PROBE_TIMEOUT_MS = 8000;
 // (null) well before an operator would call the panel itself hung.
 const DOWNLOAD_HOST_PROBE_TIMEOUT_MS = 8000;
 
+// The root-owned home of install-linux-service.sh and the unit template it
+// installs (docs/install/linux.md, Phase 6). Root must never run the copies
+// inside the panel folder: the service account can rewrite them.
+export const LINUX_SERVICE_INSTALLER_PATH =
+  "/usr/local/lib/zomboid-panel/install-linux-service.sh";
+
+// What the panel tells an operator to do to load a newer systemd unit after
+// an update, or after the launcher swap below fails. It never names a file
+// in the panel folder: the service account can rewrite those, and it can
+// also make that swap fail on purpose to get this line logged, so a
+// `sudo <panel folder>/install-linux-service.sh` here was root escalation
+// (security sweep 2026-10-04, DOCKER-1 residual). The two files come from a
+// release archive the operator downloaded and extracted as their own user,
+// same as docs/install/linux.md Phase 6.
+export function linuxServiceReinstallGuidance(exeDir) {
+  const trustedDir = path.posix.dirname(LINUX_SERVICE_INSTALLER_PATH);
+  return (
+    "To load a newer systemd unit, download this release's archive yourself, extract it as your own user, " +
+    `and copy install-linux-service.sh and zomboid-panel.service from there (never from ${exeDir}) ` +
+    `to ${trustedDir}, then run: sudo ${LINUX_SERVICE_INSTALLER_PATH} --enable (docs/install/linux.md).`
+  );
+}
+
 export function getPanelFolderPermissionGuidance(platform, detail) {
   const prefix = `Panel folder is not writable by this process: ${detail}.`;
   if (platform === "win32") {
@@ -61,7 +85,6 @@ export function getRestartAssessment({
   platform = process.platform,
   packaged = typeof process.pkg !== "undefined",
   environment = process.env,
-  exeDir = path.dirname(process.execPath),
   launcherProtected =
     environment.PANEL_SUPERVISOR_V === "2" &&
     environment.PANEL_PRESERVE_GAME_SERVERS === "1",
@@ -97,9 +120,11 @@ export function getRestartAssessment({
       requiresConfirmation: true,
       reason: "service-cgroup-may-stop-children",
       // install-linux-service.sh is idempotent (no-ops if the unit already
-      // matches) and never invokes sudo itself, so this is safe to hand to
-      // an operator verbatim regardless of how far out of date they are.
-      remediationCommand: `sudo ${path.join(exeDir, "install-linux-service.sh")} --enable`,
+      // matches) and never invokes sudo itself. This names the root-owned
+      // copy docs/install/linux.md has the operator keep outside the panel
+      // folder, never the copy next to the binary: the service account can
+      // rewrite that one, and root running it would hand that account root.
+      remediationCommand: `sudo ${LINUX_SERVICE_INSTALLER_PATH} --enable`,
     };
   }
   return {
@@ -234,11 +259,17 @@ export function redactApplyResult(result) {
   return rest;
 }
 
+// SECURITY (2026-10-05, H4): lastError too. It is a raw err.message, and a
+// failed download or staging quotes the staged binary's or the panel
+// folder's path in it (EACCES/ENOSPC/EBUSY on <panel folder>\...).
 export function redactUpdateStatus(status) {
   if (!status || typeof status !== "object") return status;
   const redacted = { ...status };
   if (redacted.stagedUpdate) redacted.stagedUpdate = { version: redacted.stagedUpdate.version };
   if (redacted.lastApplyResult) redacted.lastApplyResult = redactApplyResult(redacted.lastApplyResult);
+  if (typeof redacted.lastError === "string" && redacted.lastError) {
+    redacted.lastError = sanitizeError(redacted.lastError);
+  }
   return redacted;
 }
 
@@ -1587,6 +1618,11 @@ export class PanelUpdateChecker {
   // update, it just leaves the old launcher/unit in place for this cycle —
   // logged clearly, with the same remediation command getRestartAssessment()
   // already gives an operator for exactly this state.
+  //
+  // The unit template and installer swapped in here are reference copies
+  // only. They sit in a folder the service account owns, so root must never
+  // run or install them; the log line below says where the trusted copy
+  // lives and never points root at this folder.
   activateStagedLinuxLauncherFiles(exeDir) {
     const stageDir = PanelUpdateChecker.getLinuxLauncherStageDir(exeDir);
     if (!fs.existsSync(stageDir)) return false;
@@ -1631,7 +1667,10 @@ export class PanelUpdateChecker {
     }
     for (const { backup } of swapped) fs.rmSync(backup, { force: true });
     fs.rmSync(stageDir, { recursive: true, force: true });
-    log.info("Updated Linux launcher and service templates from verified release archive");
+    log.info(
+      "Updated Linux launcher and reference service templates from verified release archive. " +
+        `The installed systemd unit is unchanged. ${linuxServiceReinstallGuidance(exeDir)}`,
+    );
     return true;
   }
 

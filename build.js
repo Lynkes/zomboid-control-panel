@@ -341,7 +341,7 @@ needs internet).
 - Start.bat                - Windows launch script
 - start.sh                 - Linux launch script
 - zomboid-panel.service    - systemd unit file (Linux) — see docs/install/linux.md, in this folder
-- install-linux-service.sh - explicit systemd installer; run with --enable to start the service
+- install-linux-service.sh - systemd installer; copy it to a root-owned folder and run it from there (docs/install/linux.md, Phase 6), never from this folder
 - docker-compose.install.yml - Docker Compose installer (published panel image)
 - docs/install/            - Install guides for every platform (see Where To Go Next, above)
 - client/dist/             - Web interface copy for manual upgrades and legacy installs

@@ -139,6 +139,9 @@
       "title": "Iniciando servidor — backup do script de inicialização feito",
       "description": "O painel detectou alterações no seu script de inicialização e salvou a sua versão antes de gerá-lo de novo."
     },
+    "startServerFolderWarning": {
+      "title": "Iniciando servidor — configurações de RCON não atualizadas"
+    },
     "stopServer": {
       "title": "Servidor parado",
       "description": "Sessão encerrada corretamente."

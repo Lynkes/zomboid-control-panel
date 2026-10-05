@@ -58,6 +58,11 @@ export async function getOrCreateSetupToken() {
  * already computed there — this function does not re-derive it, so a
  * caller and its exposure-warning sibling can never disagree about whether
  * setup is pending.
+ *
+ * Console only (`consoleOnly`, see server/utils/logger.js): the terminal,
+ * or the journal / `docker logs` under a service manager. Never the files in
+ * logs/, which another local account may be able to read, and which would
+ * let it claim the admin account first.
  */
 export async function logSetupTokenIfNeeded(needsSetup, loggerInstance = log) {
   if (!needsSetup) return;
@@ -67,6 +72,7 @@ export async function logSetupTokenIfNeeded(needsSetup, loggerInstance = log) {
       "    Treat this like a password: anyone who has it can create the admin account. " +
       "Restart the panel to print it again if you lose it, or set SETUP_TOKEN yourself " +
       "before starting to choose your own value.",
+    { consoleOnly: true },
   );
 }
 

@@ -10,9 +10,11 @@
  * refetches on the existing panelBridge:modStatus and server:status events.
  */
 import express from "express";
+import path from "path";
 import bridge from "../services/panelBridge.js";
 import { getActiveServer } from "../database/init.js";
 import { requireAnyPermission, requirePermission } from "../services/permissions.js";
+import { hostPathViewFor } from "../utils/hostPathView.js";
 import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
@@ -92,12 +94,49 @@ router.get(
       if (requested !== undefined && requested !== "" && String(requested) !== String(active.id)) {
         return notActiveServer(res);
       }
-      res.json(await getDeliveryStatus(active, deliveryDeps(req)));
+      res.json(
+        deliveryStatusView(await getDeliveryStatus(active, deliveryDeps(req)), await hostPathViewFor(req.user)),
+      );
     } catch (error) {
       sendDeliveryError(res, error);
     }
   },
 );
+
+// SECURITY (2026-10-05, H4 round 3): of the four capabilities above, only
+// bridge.setup sets folders up; a custom role holding only one of the other
+// three got the placeholder for the install folder from GET /api/servers
+// and the folder itself here. Such a role (utils/hostPathView.js) gets the
+// install and Workshop item folders as the placeholder, the ini by name and
+// each loose bridge file below the install folder (as the page shows them
+// anyway), and every other string -- the start failure's console line --
+// path-redacted.
+export function deliveryStatusView(status, view) {
+  if (view.full || !status || typeof status !== "object") return status;
+  const disk = status.disk;
+  if (!disk || typeof disk !== "object") return view.deep(status);
+  const installDir = typeof disk.installDir === "string" ? disk.installDir : null;
+  const belowInstall = (file) => {
+    if (typeof file !== "string" || !installDir) return view.file(file);
+    const relative = path.relative(installDir, file);
+    return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative : view.file(file);
+  };
+  return view.deep({
+    ...status,
+    disk: {
+      ...disk,
+      installDir: view.folder(disk.installDir),
+      iniPath: view.file(disk.iniPath),
+      looseFiles: Array.isArray(disk.looseFiles)
+        ? disk.looseFiles.map((file) => ({ ...file, path: belowInstall(file?.path) }))
+        : disk.looseFiles,
+      workshopItem:
+        disk.workshopItem && typeof disk.workshopItem === "object"
+          ? { ...disk.workshopItem, folder: view.folder(disk.workshopItem.folder) }
+          : disk.workshopItem,
+    },
+  });
+}
 
 // dryRun (the default) previews the exact steps; dryRun:false applies them
 // under the global lifecycle lock, so a switch never overlaps a start,

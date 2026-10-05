@@ -64,6 +64,10 @@ this step, since every later phase assumes you're logged in.
 **You know it worked when:** the setup screen closes and you land on the
 panel's dashboard, logged in.
 
+The token is printed to the terminal only, never to the files in `logs/`.
+If the panel is already running as the Phase 6 service, read it from the
+journal instead: `sudo journalctl -u zomboid-panel | grep "SETUP TOKEN"`.
+
 **If this goes wrong:** `Invalid or missing setup token` means the token was
 mistyped or scrolled out of view in the terminal — scroll back up, or
 restart `start.sh` to print a fresh copy of the *same* token (it doesn't
@@ -175,10 +179,14 @@ to `start.sh`.
    sudo cp -r ./* /opt/zomboid-panel/
    sudo chown -R pzuser:pzuser /opt/zomboid-panel
    ```
-3. Install the unit file and start the service:
+3. Copy the installer and the unit file into a folder only root can change,
+   then run the installer from there. Run these from the folder you extracted
+   in Phase 1, **not** from `/opt/zomboid-panel`:
    ```bash
-   cd /opt/zomboid-panel
-   sudo ./install-linux-service.sh --enable
+   sudo install -d -o root -g root -m 0755 /usr/local/lib/zomboid-panel
+   sudo install -o root -g root -m 0755 install-linux-service.sh /usr/local/lib/zomboid-panel/
+   sudo install -o root -g root -m 0644 zomboid-panel.service /usr/local/lib/zomboid-panel/
+   sudo /usr/local/lib/zomboid-panel/install-linux-service.sh --enable
    ```
 4. Check it's actually running:
    ```bash
@@ -188,17 +196,54 @@ to `start.sh`.
 **You know it worked when:** `systemctl status` shows `active (running)`, and
 `http://your-server-ip:3001` still loads.
 
+**Why not run it from `/opt/zomboid-panel`?** That folder belongs to
+`pzuser`, so anything running as `pzuser` (the panel, its updater, a game
+server it launched) can change the files in it. Running a script from there
+as root, or installing a unit file from there, would let that account rewrite
+it first and take over root. The installer checks this: it refuses to run
+unless it, the unit file next to it, and every folder above them are owned by
+root and writable only by root, and it never changes files inside
+`/opt/zomboid-panel`. Never run `sudo /opt/zomboid-panel/install-linux-service.sh`.
+
 The installer is deliberately explicit: the panel never invokes `sudo` and
 normal in-app updates never edit `/etc`. If a unit is already installed and
 differs from the bundled template, the installer creates a timestamped backup
 before replacing it. Without `--enable`, it installs the unit and runs
 `daemon-reload` but does not enable, start, or restart the service.
 
+**If this goes wrong:** `Refusing to run: ... can be modified by users other
+than root` names the folder or file that failed the check. On some older
+Debian installs `/usr/local` is group-writable by the `staff` group; use
+another root-only folder instead, such as `/root/zomboid-panel`, in all four
+commands.
+
 The bundled unit starts `start.sh` with `KillMode=process`. The launcher places
 the panel in its own process group and forwards service stop signals only to
 that group. Project Zomboid is detached into a different process group, so a
 panel-only restart or update does not stop the game server. Do not remove these
 settings unless the game server is managed by a separate service.
+
+The unit also sets `UMask=0077`, so files the panel creates (its logs,
+backups, and the game-server files it installs) are readable only by
+`pzuser`. If another account needs to read them, such as an off-machine
+backup job, run that job as `pzuser` or with `sudo` rather than loosening
+the umask.
+
+### After a panel update changes the unit
+
+In-app updates replace `start.sh` and refresh the reference copies of
+`install-linux-service.sh` and `zomboid-panel.service` inside
+`/opt/zomboid-panel`, but they never touch the installed unit or the
+root-owned copies. When a release changes the unit (its release notes say so,
+or **Settings** warns that restarting the panel may stop running game
+servers), download that release's archive yourself, extract it as your own
+user, and repeat step 3 from the extracted folder.
+
+**Installed with an older copy of this guide?** Earlier versions ran the
+installer from inside `/opt/zomboid-panel`. Repeat step 3 from a freshly
+downloaded archive, then check that `systemctl cat zomboid-panel` shows
+`User=pzuser`, `ExecStart=/opt/zomboid-panel/start.sh`, and no
+`ExecStartPre=` lines you didn't add yourself.
 
 ### Paths and environment variables shown in the UI
 
