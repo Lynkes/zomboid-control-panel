@@ -107,12 +107,12 @@ describe("POST /api/server/browse-folder (Windows): PowerShell injection via ini
     const response = createResponse();
     // No forbidden characters: this path is accepted, so the only thing that
     // can keep it out of the script is the out-of-band env-var fix itself.
-    // isValidPath() follows the host's own path rules, so on a Linux CI
-    // runner a C:\ path is "not absolute" and is (correctly) dropped. Use a
-    // path that is valid where the test runs; the route's Windows branch is
-    // what's under test either way.
+    // isValidPath() follows the real host's path rules (process.platform is
+    // only mocked to reach the Windows branch), so on a Linux CI runner a C:\
+    // path is "not absolute" and is (correctly) dropped. Use a path that is
+    // valid on the real host; the route's Windows branch is under test either way.
     const initialPath =
-      process.platform === "win32" ? "C:\\Servers\\MyPZ_InjectionMarker" : "/srv/servers/MyPZ_InjectionMarker";
+      originalPlatform === "win32" ? "C:\\Servers\\MyPZ_InjectionMarker" : "/srv/servers/MyPZ_InjectionMarker";
     await handler({ body: { initialPath, description: "Select a folder" } }, response);
 
     expect(spawnMock).toHaveBeenCalledTimes(1);
