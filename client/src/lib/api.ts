@@ -2245,7 +2245,8 @@ export const serverFilesApi = {
       sandbox: SandboxData;
       path: string;
       serverName: string;
-      // Set when SandboxVars.lua does not parse; `sandbox` is then empty.
+      // Set when SandboxVars.lua does not parse or has no SandboxVars table;
+      // `sandbox` is then empty.
       parseError?: { message: string; line: number; column: number };
     }>,
   saveSandbox: (sandbox: SandboxData) =>

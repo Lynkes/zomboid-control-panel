@@ -407,6 +407,13 @@ export function parseSandboxLua(content) {
   return doc;
 }
 
+// A file that parses but leaves no SandboxVars table (empty, "SandboxVars =
+// nil", only other globals): the game finds nothing to load and the server
+// exits on boot ("Exiting due to errors loading").
+function noSandboxVarsError() {
+  return { message: "no 'SandboxVars = { ... }' table found", line: 1, column: 1 };
+}
+
 // The entry the game ends up with for `key`: the last one wins.
 function lastField(table, key) {
   return table.last.get(key);
@@ -493,12 +500,13 @@ function sameScalar(node, value) {
  *   "table"         the entry is a table; refusing to overwrite it with a value
  *   "invalid-value" the new value is not a boolean, finite number or string
  *   "invalid-path"  a path segment is not a Lua identifier
- * When the content does not parse, returns `{ ok: false, error }` and the
- * content unchanged.
+ * When the content does not parse, or has no SandboxVars table, returns
+ * `{ ok: false, error }` and the content unchanged.
  */
 export function editSandboxValues(content, edits) {
   const doc = parseSandboxLua(content);
   if (!doc.ok) return { ok: false, error: doc.error, content, results: [] };
+  if (!doc.root) return { ok: false, error: noSandboxVarsError(), content, results: [] };
 
   // The last edit for a path wins, as it would if they ran one after another.
   const byPath = new Map();
@@ -605,14 +613,15 @@ function scalarEntries(table) {
  * blocks and mod blocks alike), so a key is never reported as top-level when
  * it lives in a table. Tables nested inside a block are not sandbox options
  * (the game only reads one level) and are left out. `error` is set, and the
- * sections are empty, when the file does not parse.
+ * sections are empty, when the file does not parse or has no SandboxVars
+ * table.
  */
 export function sandboxSectionsFromLua(content) {
   const sandbox = { VERSION: 4, settings: {} };
   for (const name of SANDBOX_KNOWN_SECTIONS) sandbox[name] = {};
   const doc = parseSandboxLua(content);
   if (!doc.ok) return { sandbox, error: doc.error };
-  if (!doc.root) return { sandbox, error: null };
+  if (!doc.root) return { sandbox, error: noSandboxVarsError() };
 
   const seen = new Set();
   for (const field of doc.root.fields) {
@@ -711,8 +720,6 @@ export function validateSandboxLua(content) {
   const doc = parseSandboxLua(content);
   const parses = doc.ok && braces.balanced;
   let error = doc.ok ? null : doc.error;
-  if (!error && !doc.root) {
-    error = { message: "no 'SandboxVars = { ... }' table found", line: 1, column: 1 };
-  }
+  if (!error && !doc.root) error = noSandboxVarsError();
   return { valid: parses && !error, parses, ...braces, error };
 }

@@ -171,6 +171,18 @@ describe("editSandboxValues", () => {
     expect(result.content).toBe(broken);
   });
 
+  // The game loads nothing from these and exits on boot.
+  it.each([
+    ["an empty file", ""],
+    ["SandboxVars = nil", "SandboxVars = nil\n"],
+    ["only other globals", "Other = { Whole = 1 }\n"],
+  ])("refuses to edit %s, which has no SandboxVars table", (_label, noTable) => {
+    const result = editSandboxValues(noTable, [{ path: ["Whole"], value: 5 }]);
+    expect(result).toEqual(
+      expect.objectContaining({ ok: false, content: noTable, error: expect.objectContaining({ message: "no 'SandboxVars = { ... }' table found" }) }),
+    );
+  });
+
   it("applies several edits at once, the last edit to a path winning", () => {
     const result = editSandboxValues(content, [
       { path: ["Whole"], value: 5 },
@@ -203,6 +215,12 @@ describe("sandboxSectionsFromLua", () => {
       Music: {},
       Debug: {},
     });
+  });
+
+  it("reports a file with no SandboxVars table as an error, not as an empty form", () => {
+    const { sandbox, error } = sandboxSectionsFromLua("SandboxVars = nil\n");
+    expect(error).toEqual({ message: "no 'SandboxVars = { ... }' table found", line: 1, column: 1 });
+    expect(sandbox.settings).toEqual({});
   });
 
   it("does not let file keys collide with the shape or Object.prototype", () => {

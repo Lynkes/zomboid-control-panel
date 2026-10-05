@@ -1421,9 +1421,9 @@ router.get("/sandbox", async (req, res) => {
     }
 
     const content = fs.readFileSync(filePath, "utf-8");
-    // A file that does not parse comes back as empty sections plus
-    // `parseError`, so the page can still open (the INI tab shares it) and
-    // PUT /sandbox refuses to edit it.
+    // A file that does not parse, or has no SandboxVars table, comes back as
+    // empty sections plus `parseError`, so the page can still open (the INI
+    // tab shares it) and PUT /sandbox refuses to edit it.
     const { sandbox, error: parseError } = sandboxSectionsFromLua(content);
 
     res.json({

@@ -604,6 +604,19 @@ describe("previewTemplate / applyTemplate", () => {
     expect(fs.readFileSync(sandboxPath, "utf-8")).toBe(broken);
   });
 
+  it("skips the sandbox portion with the reason when SandboxVars.lua has no SandboxVars table", async () => {
+    const sandboxPath = path.join(dir, "TestServer_SandboxVars.lua");
+    fs.writeFileSync(sandboxPath, "SandboxVars = nil\n");
+
+    const result = await templateService.applyTemplate("first-week-friendly", "server-1");
+
+    expect(result.sandbox).toEqual({
+      skipped: true,
+      reason: expect.stringContaining("no 'SandboxVars = { ... }' table found"),
+    });
+    expect(fs.readFileSync(sandboxPath, "utf-8")).toBe("SandboxVars = nil\n");
+  });
+
   it("refuses to apply to a remote server", async () => {
     getServer.mockResolvedValue({
       id: "server-2",

@@ -1175,8 +1175,9 @@ export default function ServerConfig() {
   const [iniFatalLines, setIniFatalLines] = useState<readonly number[]>([])
   // GET /ini's maskedCutAtEqualsKeys: masked secrets the game cuts at an "=".
   const [iniMaskedCutAtEqualsKeys, setIniMaskedCutAtEqualsKeys] = useState<readonly string[]>([])
-  // GET /sandbox's parseError: SandboxVars.lua does not parse, so the form
-  // comes back empty and the server refuses structured saves (#197).
+  // GET /sandbox's parseError: SandboxVars.lua does not parse or has no
+  // SandboxVars table, so the form comes back empty and the server refuses
+  // structured saves (#197).
   const [sandboxParseError, setSandboxParseError] = useState<string | null>(null)
   const [originalSandboxData, setOriginalSandboxData] = useState<SandboxData | null>(null)
   const [originalRawContent, setOriginalRawContent] = useState('')
@@ -2856,11 +2857,11 @@ export default function ServerConfig() {
         </Alert>
       )}
 
-      {/* SandboxVars.lua that does not parse (the #197 "Explosives = 1"
-          corruption, a hand edit gone wrong): the form has nothing to show
-          and PUT /sandbox refuses to edit it, so say why and where to fix it.
-          The detail is the parser's own message, the same wording the game
-          logs. */}
+      {/* SandboxVars.lua the game can't load (the #197 "Explosives = 1"
+          corruption, a hand edit gone wrong, a file with no SandboxVars
+          table): the form has nothing to show and PUT /sandbox refuses to
+          edit it, so say why and where to fix it. The detail is the
+          parser's own message, the same wording the game logs. */}
       {sandboxParseError && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />

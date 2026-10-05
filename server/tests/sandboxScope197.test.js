@@ -470,6 +470,62 @@ describe("POST /sandbox/repair only reports success for a file the game loads", 
   });
 });
 
+// These parse, but the game loads nothing from them and exits on boot. The
+// page used to show an empty form with no error, and a save "succeeded"
+// while every value was reported as not saved.
+describe.each([
+  ["an empty file", ""],
+  ["SandboxVars = nil", "SandboxVars = nil\n"],
+  ["only other globals", "Other = { Zombies = 4 }\n"],
+])("a file with no SandboxVars table (%s)", (_label, content) => {
+  let tmpDir;
+  let sandboxPath;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-sandbox-197-notable-"));
+    sandboxPath = path.join(tmpDir, "TestServer_SandboxVars.lua");
+    fs.writeFileSync(sandboxPath, content);
+    getActiveServer.mockReset();
+    getAllSettings.mockReset();
+    getAllSettings.mockResolvedValue({});
+    getActiveServer.mockResolvedValue({ serverConfigPath: tmpDir, serverName: "TestServer" });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("GET /sandbox reports it as parseError", async () => {
+    const res = await runHandler("/sandbox", "get", { body: {} });
+    expect(res.json.mock.calls[0][0].parseError).toEqual({
+      message: "no 'SandboxVars = { ... }' table found",
+      line: 1,
+      column: 1,
+    });
+  });
+
+  it("PUT /sandbox refuses it with 422 and writes nothing", async () => {
+    const res = await runHandler("/sandbox", "put", { body: { sandbox: { settings: { Zombies: 2 } } } });
+    expect(res.status).toHaveBeenCalledWith(422);
+    expect(res.json.mock.calls[0][0]).toEqual(
+      expect.objectContaining({
+        code: "SANDBOX_FILE_UNPARSEABLE",
+        params: { detail: "no 'SandboxVars = { ... }' table found" },
+      }),
+    );
+    expect(fs.readFileSync(sandboxPath, "utf-8")).toBe(content);
+    expect(fs.existsSync(path.join(tmpDir, "backups"))).toBe(false);
+  });
+
+  it("PUT /sandbox-option says why nothing was saved", async () => {
+    const res = await runHandler("/sandbox-option", "put", { body: { name: "Zombies", value: 2 } });
+    expect(res.json.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ persisted: false, reason: expect.stringContaining("no 'SandboxVars = { ... }' table found") }),
+    );
+    expect(fs.readFileSync(sandboxPath, "utf-8")).toBe(content);
+  });
+});
+
 describe("a string continued over a CRLF line break is not corruption", () => {
   // "\" + CRLF continues a string in the game (A = "a\nb"). The brace count
   // used to end the string at the LF, miss the "{" after it, and call the
