@@ -64,13 +64,14 @@
  * value (isWellKnownResetToken()) is refused too. Random hex reads as text
  * now and then, about 36 times in a million for 32 characters or a UUID
  * and once in a few million for 48; the well-known values never come up by
- * chance. Round 4 of the verification found more of both that passed
- * (resetTokenReadsAsText(), isWellKnownResetToken()); all told, about 1 in
- * 14,000 random tokens of 32 characters or UUIDs is refused, and hardly
- * ever one of 48.
+ * chance. Rounds 4 and 5 of the verification found more of both that
+ * passed (resetTokenReadsAsText(), isWellKnownResetToken()); all told,
+ * about 1 in 14,000 random tokens of 32 characters or UUIDs is refused, and
+ * hardly ever one of 48.
  */
 
 import crypto from "crypto";
+import { isCommonCjkChar } from "./resetTokenCjkChars.js";
 
 // Where each key sits on a US QWERTY keyboard: the row, and how far the key
 // is from the keyboard's left edge in key widths, so the rows keep their
@@ -226,22 +227,30 @@ function hasGeneratorMix(hex) {
 //     (Cyrillic, Greek, Arabic, Chinese, accented letters, curly quotes,
 //     emoji...), the last one allowed to be cut off;
 //   - or nine in ten of their 16-bit units, in either byte order, printable
-//     ASCII or in a script's block (UTF16_TEXT_RANGES).
+//     ASCII, in a script's block (UTF16_TEXT_RANGES) or half of an emoji;
+//   - or nine in ten of them Chinese, Japanese or Korean in everyday use
+//     (isCjkTextUnit());
+//   - or a non-Latin alphabet in a single-byte code page all through
+//     (isCodePageText()).
 // Random bytes are printable ASCII 98 times in 256, so of a million random
-// tokens of 32 hex characters about 36 read as text, and about as many of a
+// tokens of 32 hex characters about 40 read as text, and about as many of a
 // million UUIDs, on top of the refusals above; of 48, one in a few million
-// (the panel's own button draws again). Two kinds of text aren't looked
-// for, because random bytes look like them too often:
-//   - UTF-16 Chinese characters and Korean syllables, half of the 16-bit
-//     range; telling the common ones apart needs character tables the
-//     panel's packaged builds don't carry (their Node has no
-//     legacy-encoding decoders);
-//   - a single-byte code page (Latin-1, Windows-1252: Python's
-//     .encode('latin-1'), Windows PowerShell's [Text.Encoding]::Default)
-//     with accented letters for more than a tenth of it. Those letters are
-//     a quarter of all byte values: counting even two of them as text, with
-//     every other byte printable ASCII, refuses about 35 more random tokens
-//     of 32 hex characters in a million, doubling the refusals for text.
+// (the panel's own button draws again). What isn't looked for, because
+// random bytes look like it too often:
+//   - UTF-16 Chinese, Japanese or Korean with characters beyond the
+//     everyday ones for more than a tenth of it (殭, the first character of
+//     the traditional Chinese for "zombie", is one);
+//   - a single-byte code page with Latin letters: Latin-1 or Windows-1252
+//     (Python's .encode('latin-1'), Windows PowerShell's
+//     [Text.Encoding]::Default) with accented letters for more than a tenth
+//     of it, or Cyrillic, Greek, Hebrew or Arabic in their Windows code
+//     pages or KOI8 with Latin letters or symbols among them. Those letters
+//     are a quarter of all byte values: counting even two of them as text,
+//     with every other byte printable ASCII, refuses about 35 more random
+//     tokens of 32 hex characters in a million, doubling the refusals for
+//     text;
+//   - Thai in its code page (TIS-620, Windows-874), whose letters take up
+//     most of the bytes from A1 to EF.
 const TEXT_SHARE = 0.9;
 
 function isAsciiTextByte(byte) {
@@ -300,11 +309,24 @@ function isUtf8Text(bytes) {
 // translation), Hebrew, the Indic scripts, Thai or kana pass. These blocks
 // are small: with them, 5.7% of the 16-bit range counts as text, so eight
 // random units in eight are about once in ten billion.
+//
+// SECURITY (2026-10-05, A2): round 5 of the verification. Vietnamese,
+// whose letters with two accents are in Latin Extended Additional, and Lao,
+// Khmer, Ethiopic (Amharic) and Tibetan were outside these blocks, so their
+// UTF-16 hex passed, and a stranger who guessed the phrase reset the admin
+// password. Now these too, Myanmar and Georgian, and the symbols, dingbats
+// and variation selectors some emoji are made of (☀ ✔ ❤️): 9.0% of the
+// 16-bit range, which refuses about one more random token in a few million.
 const UTF16_TEXT_RANGES = [
   [0x00a0, 0x06ff], // accented Latin, Greek, Cyrillic, Armenian, Hebrew, Arabic, Persian
-  [0x0900, 0x0e7f], // Devanagari and the other Indic scripts, Sinhala, Thai
+  [0x0900, 0x10ff], // Devanagari and the other Indic scripts, Sinhala, Thai, Lao, Tibetan, Myanmar, Georgian
+  [0x1200, 0x139f], // Ethiopic (Amharic, Tigrinya)
+  [0x1780, 0x17ff], // Khmer
+  [0x1e00, 0x1fff], // Latin Extended Additional (Vietnamese), Greek Extended
   [0x2000, 0x206f], // dashes, curly quotes and the rest of general punctuation
+  [0x2600, 0x27bf], // symbols and dingbats
   [0x3000, 0x30ff], // CJK punctuation, hiragana, katakana
+  [0xfe00, 0xfe0f], // variation selectors
   [0xfeff, 0xfeff], // a byte order mark
   [0xff00, 0xffef], // full-width punctuation and letters, half-width kana
 ];
@@ -314,14 +336,79 @@ function isUtf16TextUnit(unit) {
   return UTF16_TEXT_RANGES.some(([first, last]) => unit >= first && unit <= last);
 }
 
-function isMostlyUtf16Text(bytes, littleEndian) {
+// SECURITY (2026-10-05, A2): round 5 of the verification. Chinese,
+// Japanese and Korean are looked for on their own, and only the characters
+// in everyday use (resetTokenCjkChars.js): [Convert]::ToHexString(
+// [Text.Encoding]::Unicode.GetBytes("重置密码面板令牌")) passed, and the panel
+// ships Chinese translations. With CJK punctuation, kana and full-width
+// forms they are 15.6% of the 16-bit range, so counted alongside the
+// blocks above, which random units mix freely, they would refuse about 100
+// more random tokens of 32 hex characters in a million. Counted on their
+// own, as a phrase in these languages is written, they refuse about 4 in a
+// million of 32 hex characters, 7 in a million UUIDs and one in a few
+// million of 48.
+const CJK_TEXT_RANGES = [
+  [0x2000, 0x206f], // dashes, curly quotes and the rest of general punctuation
+  [0x3000, 0x30ff], // CJK punctuation, hiragana, katakana
+  [0xfeff, 0xfeff], // a byte order mark
+  [0xff00, 0xffef], // full-width punctuation and letters, half-width kana
+];
+
+function isCjkTextUnit(unit) {
+  if (unit < 0x80) return isAsciiTextByte(unit);
+  return isCommonCjkChar(unit) || CJK_TEXT_RANGES.some(([first, last]) => unit >= first && unit <= last);
+}
+
+// SECURITY (2026-10-05, A2): round 5 of the verification. An emoji is two
+// 16-bit units, a high surrogate and a low one, so a short phrase with one
+// in it was only seven units of text in eight: the UTF-16 hex of "Zomboid
+// reset 🔑", the phrase round 4's own tests used, passed. A high surrogate
+// for U+1F000 to U+1FBFF, where emoji are, and the low one after it are
+// two units of text, and so is the high one alone when the bytes end there.
+function isEmojiHighSurrogate(unit) {
+  return unit >= 0xd83c && unit <= 0xd83e;
+}
+
+function isMostlyUtf16Text(bytes, littleEndian, isTextUnit) {
   const units = Math.floor(bytes.length / 2);
+  const unitAt = (i) => (littleEndian ? bytes.readUInt16LE(2 * i) : bytes.readUInt16BE(2 * i));
   let text = 0;
   for (let i = 0; i < units; i++) {
-    const unit = littleEndian ? bytes.readUInt16LE(2 * i) : bytes.readUInt16BE(2 * i);
-    if (isUtf16TextUnit(unit)) text += 1;
+    const unit = unitAt(i);
+    if (isEmojiHighSurrogate(unit) && (i + 1 === units || (unitAt(i + 1) >= 0xdc00 && unitAt(i + 1) <= 0xdfff))) {
+      text += i + 1 === units ? 1 : 2;
+      i += 1;
+    } else if (isTextUnit(unit)) {
+      text += 1;
+    }
   }
   return units > 0 && text >= units * TEXT_SHARE;
+}
+
+// SECURITY (2026-10-05, A2): round 5 of the verification. A phrase in a
+// single-byte code page passed too: Cyrillic in Windows-1251, which is what
+// Windows PowerShell 5.1's [Text.Encoding]::Default writes on a Russian or
+// Ukrainian Windows (the panel ships a Ukrainian translation), or in KOI8-R
+// or KOI8-U; Greek in Windows-1253, Hebrew in Windows-1255, Arabic in
+// Windows-1256. Their letters are the bytes from C0 to FF, and the
+// Cyrillic ones beyond the Russian alphabet (Ё Є І Ї Ґ Ў) a few from A1 to
+// BF. So bytes that are all such letters, spaces, digits or everyday
+// punctuation, letters for at least half of them, are refused: about 1
+// random token of 32 hex characters in a million, half that of UUIDs, and
+// none of 48 measured. Latin letters among them can't be allowed: with
+// them, two random bytes in three would count.
+const CODE_PAGE_LETTERS_BELOW_C0 = new Set([
+  0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7, 0xa8, 0xaa, 0xad, 0xaf, 0xb2, 0xb3, 0xb4, 0xb6, 0xb7, 0xb8, 0xba, 0xbd, 0xbf,
+]);
+const CODE_PAGE_TEXT_BYTES = new Set(Array.from(" 0123456789-_.,!?'", (char) => char.charCodeAt(0)));
+
+function isCodePageText(bytes) {
+  let letters = 0;
+  for (const byte of bytes) {
+    if (byte >= 0xc0 || CODE_PAGE_LETTERS_BELOW_C0.has(byte)) letters += 1;
+    else if (!CODE_PAGE_TEXT_BYTES.has(byte)) return false;
+  }
+  return letters * 2 >= bytes.length;
 }
 
 export function resetTokenReadsAsText(token) {
@@ -331,8 +418,11 @@ export function resetTokenReadsAsText(token) {
     const end = hex.length - ((hex.length - start) % 2);
     const bytes = Buffer.from(hex.slice(start, end), "hex");
     if (bytes.length === 0) continue;
-    if (isMostlyAscii(bytes) || isUtf8Text(bytes) || isMostlyUtf16Text(bytes, true) || isMostlyUtf16Text(bytes, false)) {
-      return true;
+    if (isMostlyAscii(bytes) || isUtf8Text(bytes) || isCodePageText(bytes)) return true;
+    for (const littleEndian of [true, false]) {
+      if (isMostlyUtf16Text(bytes, littleEndian, isUtf16TextUnit) || isMostlyUtf16Text(bytes, littleEndian, isCjkTextUnit)) {
+        return true;
+      }
     }
   }
   return false;

@@ -11,6 +11,7 @@ import {
   resetTokenReadsAsText,
   resetTokenWeakness,
 } from "../utils/resetTokenStrength.js";
+import { COMMON_CJK_FIRST, COMMON_CJK_LAST, isCommonCjkChar } from "../utils/resetTokenCjkChars.js";
 
 // Security sweep 2026-10-05, A2: once wrong reset tokens stopped deleting
 // data/reset-token.txt, the token itself is what keeps online guessing
@@ -278,10 +279,130 @@ describe("reset-token: text written as hex", () => {
     }
   });
 
+  // Round 5: Vietnamese (its letters with two accents are in Latin Extended
+  // Additional), Lao, Khmer, Ethiopic and Tibetan were outside the blocks
+  // looked for; so was every emoji, two 16-bit units, which left a short
+  // phrase with one at seven units of text in eight; and Chinese, Japanese
+  // and Korean weren't looked for at all. A stranger who guessed the phrase
+  // reset the admin password with its UTF-16 hex.
+  it.each([
+    ["Vietnamese", "Đặt lại mật khẩu bảng điều khiển"],
+    ["Vietnamese, short", "Khôi phục mật khẩu"],
+    ["one emoji", "Zomboid reset 🔑"],
+    ["one emoji, in the middle", "zomboid🧟panel"],
+    ["Lao", "ຕັ້ງລະຫັດຜ່ານໃໝ່"],
+    ["Khmer", "កំណត់ពាក្យសម្ងាត់ឡើងវិញ"],
+    ["Amharic", "የይለፍ ቃል ዳግም ማስጀመሪያ"],
+    ["Tibetan", "གསང་ཚིག་བསྐྱར་སྒྲིག"],
+    ["Burmese", "စကားဝှက်ပြန်လည်သတ်မှတ်ရန်"],
+    ["Georgian", "პაროლის აღდგენა"],
+    ["simplified Chinese", "重置密码面板令牌"],
+    ["simplified Chinese, longer", "我的僵尸服务器重置"],
+    ["traditional Chinese", "重設密碼面板權杖"],
+    ["Japanese, kana and kanji", "パスワード再設定"],
+    ["Japanese, longer", "管理者パスワード再設定"],
+    ["Korean", "비밀번호 재설정 패널"],
+    ["Korean, longer", "좀보이드 서버 비밀번호"],
+  ])("refuses %s as UTF-16 hex, in either byte order and as BitConverter writes it", (_label, phrase) => {
+    const le = hexOf(phrase, "utf16le");
+    for (const token of [le, le.toUpperCase(), `fffe${le}`, utf16be(phrase), bytePairs(le.toUpperCase())]) {
+      expect(token.replaceAll("-", "").length).toBeGreaterThanOrEqual(32);
+      expect(resetTokenWeakness(token)).toBe("hex-text");
+    }
+  });
+
+  it("refuses UTF-16 hex cut off right after the first half of an emoji", () => {
+    const token = hexOf("ResetMe🔑", "utf16le").slice(0, 32);
+    expect(token.endsWith("3dd8")).toBe(true);
+    expect(resetTokenWeakness(token)).toBe("hex-text");
+  });
+
+  // Round 5: a phrase in a single-byte code page: Cyrillic in Windows-1251
+  // (Windows PowerShell 5.1's [Text.Encoding]::Default on a Russian or
+  // Ukrainian Windows) or KOI8-R, Greek in Windows-1253, Hebrew in
+  // Windows-1255.
+  const KOI8_LETTERS = "юабцдефгхийклмнопярстужвьызшэщчъЮАБЦДЕФГХИЙКЛМНОПЯРСТУЖВЬЫЗШЭЩЧЪ";
+  const CP1251_BEYOND_RUSSIAN = { Ё: 0xa8, ё: 0xb8, Є: 0xaa, є: 0xba, І: 0xb2, і: 0xb3, Ї: 0xaf, ї: 0xbf, Ґ: 0xa5, ґ: 0xb4 };
+  const singleByteHex = (text, byteOf) =>
+    Buffer.from(Array.from(text, (char) => (char.charCodeAt(0) < 0x80 ? char.charCodeAt(0) : byteOf(char)))).toString("hex");
+  it.each([
+    ["Russian in Windows-1251", singleByteHex("сброс пароля зомбоид", (c) => 0xc0 + c.charCodeAt(0) - 0x410)],
+    ["Ukrainian in Windows-1251", singleByteHex("скидання пароля панелі", (c) => CP1251_BEYOND_RUSSIAN[c] ?? 0xc0 + c.charCodeAt(0) - 0x410)],
+    ["Ukrainian with an apostrophe", singleByteHex("пам'ять сервера зомбі", (c) => CP1251_BEYOND_RUSSIAN[c] ?? 0xc0 + c.charCodeAt(0) - 0x410)],
+    ["Russian in KOI8-R", singleByteHex("сброс пароля панели", (c) => 0xc0 + KOI8_LETTERS.indexOf(c))],
+    ["Greek in Windows-1253", singleByteHex("επαναφορά κωδικού", (c) => c.charCodeAt(0) - 0x2d0)],
+    ["Hebrew in Windows-1255", singleByteHex("איפוס סיסמה ללוח", (c) => c.charCodeAt(0) - 0x4f0)],
+  ])("refuses %s, as hex", (_label, token) => {
+    expect(token.length).toBeGreaterThanOrEqual(32);
+    expect(resetTokenWeakness(token)).toBe("hex-text");
+    expect(resetTokenWeakness(token.toUpperCase())).toBe("hex-text");
+    expect(resetTokenWeakness(bytePairs(token))).toBe("hex-text");
+  });
+
   it("doesn't read random hex as text", () => {
     for (const token of [...sample("text-hex48", HEX, 48, 20000), ...sample("text-hex64", HEX, 64, 2000)]) {
       expect(resetTokenReadsAsText(token)).toBe(false);
     }
+  });
+});
+
+// Round 5: the everyday Chinese, Japanese and Korean characters are
+// written out as bits (utils/resetTokenCjkChars.js), since the packaged
+// builds' Node can't decode the legacy encodings that list them. Where this
+// Node can, read them again and compare.
+describe("reset-token: the everyday Chinese, Japanese and Korean characters", () => {
+  const canDecode = (() => {
+    try {
+      new TextDecoder("gb2312");
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+
+  function decodeLevel(label, firstRow, lastRow, columns, lastCode) {
+    const decoder = new TextDecoder(label);
+    const chars = [];
+    for (let row = firstRow; row <= lastRow; row++) {
+      for (const column of columns) {
+        if (row * 256 + column > lastCode) continue;
+        const text = decoder.decode(Uint8Array.from([row, column]));
+        if (text.length === 1 && text !== "�") chars.push(text.charCodeAt(0));
+      }
+    }
+    return chars;
+  }
+  const range = (first, last) => Array.from({ length: last - first + 1 }, (_, i) => first + i);
+
+  it.skipIf(!canDecode)("are the first levels of GB 2312, Big5 and JIS X 0208, and KS X 1001's syllables", () => {
+    const levels = {
+      gb2312: decodeLevel("gb2312", 0xb0, 0xd7, range(0xa1, 0xfe), 0xd7f9),
+      big5: decodeLevel("big5", 0xa4, 0xc6, [...range(0x40, 0x7e), ...range(0xa1, 0xfe)], 0xc67e),
+      eucjp: decodeLevel("euc-jp", 0xb0, 0xcf, range(0xa1, 0xfe), 0xcfd3),
+      euckr: decodeLevel("euc-kr", 0xb0, 0xc8, range(0xa1, 0xfe), 0xffff),
+    };
+    expect(Object.fromEntries(Object.entries(levels).map(([label, chars]) => [label, chars.length]))).toEqual({
+      gb2312: 3755,
+      big5: 5401,
+      eucjp: 2965,
+      euckr: 2350,
+    });
+    const expected = new Set(Object.values(levels).flat());
+    const wrong = [];
+    for (let unit = 0; unit <= 0xffff; unit++) {
+      if (isCommonCjkChar(unit) !== expected.has(unit)) wrong.push(unit.toString(16));
+    }
+    expect(wrong).toEqual([]);
+    expect(expected.size).toBe(9524);
+    expect([...expected].every((unit) => unit >= COMMON_CJK_FIRST && unit <= COMMON_CJK_LAST)).toBe(true);
+  });
+
+  it("counts the characters of everyday words, and not rare ones", () => {
+    for (const char of "重置密码面板令牌設權杖再定비밀번호재설정") expect(isCommonCjkChar(char.charCodeAt(0))).toBe(true);
+    // 殭, the first character of the traditional Chinese for "zombie", is
+    // in none of the first levels.
+    expect(isCommonCjkChar("殭".charCodeAt(0))).toBe(false);
+    expect(isCommonCjkChar("a".charCodeAt(0))).toBe(false);
   });
 });
 

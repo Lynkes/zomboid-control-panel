@@ -366,6 +366,15 @@ describe("A2 round 3: hex a stranger can guess", () => {
     ["echo $RANDOM | sha384sum | head -c 32", digest("sha384", "12345\n").slice(0, 32)],
     ["echo PASSWORD | md5sum", digest("md5", "PASSWORD\n")],
     ["PostgreSQL's example UUID", "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"],
+    // Round 5: UTF-16 text with an emoji, in Vietnamese, in Chinese or
+    // Korean, and Cyrillic in Windows-1251. A stranger who guessed the
+    // first two reset the admin password over HTTP.
+    ["a phrase with one emoji as UTF-16LE hex ([Text.Encoding]::Unicode)", hexOf("Zomboid reset 🔑", "utf16le")],
+    ["a Vietnamese phrase as UTF-16LE hex", hexOf("Đặt lại mật khẩu bảng điều khiển", "utf16le")],
+    ["a Vietnamese phrase as PowerShell's BitConverter of UTF-16", hexOf("Khôi phục mật khẩu", "utf16le").toUpperCase().match(/../g).join("-")],
+    ["a Chinese phrase as UTF-16LE hex", hexOf("重置密码面板令牌", "utf16le")],
+    ["a Korean phrase as UTF-16LE hex", hexOf("비밀번호 재설정 패널", "utf16le")],
+    ["a Russian phrase in Windows-1251 as hex", Buffer.from(Array.from("сброс пароля зомбоид", (c) => (c === " " ? 0x20 : 0xc0 + c.charCodeAt(0) - 0x410))).toString("hex")],
   ])("refuses %s, even when it is typed correctly", async (_label, weak) => {
     expect(weak.replaceAll("-", "").length).toBeGreaterThanOrEqual(RESET_TOKEN_MIN_LENGTH);
     writeToken(weak);
@@ -375,6 +384,13 @@ describe("A2 round 3: hex a stranger can guess", () => {
     expect((await resetAsLocalCaller(weak)).body.code).toBe("RESET_TOKEN_TOO_WEAK");
     expect(await passwordIs("original-pw-1")).toBe(true);
     expect(fs.existsSync(tokenPath())).toBe(true);
+  });
+
+  // Round 5: the host was told this one was ready to use.
+  it("doesn't tell the host a Vietnamese phrase as UTF-16LE hex is ready", async () => {
+    writeToken(hexOf("Đặt lại mật khẩu bảng điều khiển", "utf16le"));
+    const status = await request("GET", "/api/auth/reset-status", undefined, LOCAL);
+    expect(status.body).toMatchObject({ resetAvailable: false, localResetSupported: true });
   });
 
   it("doesn't tell the host such a token is ready, and the local recovery button replaces it", async () => {
