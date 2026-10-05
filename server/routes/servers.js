@@ -749,6 +749,51 @@ router.get("/", async (req, res) => {
   }
 });
 
+// SECURITY (2026-10-04, SDOS-4): GET /status has no capability gate (every
+// role's pages poll it), and each call ran its own host-wide process scan --
+// on Windows a PowerShell Win32_Process query -- plus, when that scan
+// couldn't place the active server, the active server's own scan. A burst
+// of calls from any signed-in role started that many PowerShell processes
+// at once (24 alive together in the verifier's run). Calls now share them:
+// one that arrives while a scan runs waits for that scan, and a finished
+// scan's answer serves STATUS_SCAN_REUSE_MS more calls. Keyed on the app's
+// shared serverManager, so every app (and every test's fake one) keeps its
+// own; without one there is nothing to share and each call scans.
+const STATUS_SCAN_REUSE_MS = 2000;
+const statusScans = new WeakMap();
+
+export function sharedStatusScan(owner, key, run) {
+  if (!owner || typeof owner !== "object") return run();
+  let scans = statusScans.get(owner);
+  if (!scans) {
+    scans = new Map();
+    statusScans.set(owner, scans);
+  }
+  const now = Date.now();
+  const reusable = (entry) =>
+    entry.settledAt === null || now - entry.settledAt < STATUS_SCAN_REUSE_MS;
+  const cached = scans.get(key);
+  if (cached && reusable(cached)) return cached.promise;
+  for (const [otherKey, entry] of scans) {
+    if (!reusable(entry)) scans.delete(otherKey);
+  }
+  const entry = { settledAt: null, promise: null };
+  entry.promise = Promise.resolve()
+    .then(run)
+    .then(
+      (result) => {
+        entry.settledAt = Date.now();
+        return result;
+      },
+      (error) => {
+        if (scans.get(key) === entry) scans.delete(key);
+        throw error;
+      },
+    );
+  scans.set(key, entry);
+  return entry.promise;
+}
+
 // Per-server running status. Scans the host once for all PZ server processes
 // and attributes each match to a configured server via the same
 // scoreServerProcessOwnership() rules serverManager.js uses for its own
@@ -773,8 +818,9 @@ router.get("/status", async (req, res) => {
     let hostScan = null;
     let detectionError = null;
     try {
-      const scanner = new ServerManager();
-      const scan = await scanner.scanHostForServerProcesses();
+      const scan = await sharedStatusScan(serverManager, "host", () =>
+        new ServerManager().scanHostForServerProcesses(),
+      );
       hostScan = scan;
       matched = Array.isArray(scan?.matched) ? scan.matched : [];
       if (scan?.scanFailed) {
@@ -884,7 +930,11 @@ router.get("/status", async (req, res) => {
       let fallbackEntry = null;
       if (!running && server.id === activeId && typeof serverManager?.getServerProcessDetails === "function") {
         try {
-          const activeDetails = await serverManager.getServerProcessDetails();
+          const activeDetails = await sharedStatusScan(
+            serverManager,
+            `active:${activeId}`,
+            () => serverManager.getServerProcessDetails(),
+          );
           if (activeDetails.scanFailed) {
             activeFallbackUnknown = true;
           } else if (activeDetails.running) {
