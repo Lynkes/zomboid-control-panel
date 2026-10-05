@@ -46,7 +46,7 @@ import {
 } from "../services/activeSteamOperations.js";
 import { normalizeMemoryGb } from "../utils/memory.js";
 import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
-import { requirePermission } from "../services/permissions.js";
+import { getCapabilitiesForRole, requirePermission } from "../services/permissions.js";
 import { canSeeHostPaths, hideHostPaths } from "../utils/hostPathView.js";
 import { runManagedLifecycle } from "../services/managedContainer.js";
 import {
@@ -3085,16 +3085,31 @@ const FALLBACK_BRANCHES = [
   { name: "legacy41", description: "Legacy Build 41 branch for older worlds and mods." },
 ];
 
-router.get("/steamcmd/detect", requirePermission("server.world_events"), async (_req, res) => {
+// SECURITY (2026-10-05, H4): this read stays open to server.world_events
+// (the moderator role holds it; see serverRoutesRoleSweep.test.js for why it
+// isn't server.install), but where SteamCMD lives -- usually below the
+// panel account's profile, so it names the host account -- goes only to the
+// roles that set the server's folders up (utils/hostPathView.js). The rest
+// get whether it was found. And only a role that may set steamcmdPath
+// (server.install, as in routes/config.js) saves what detection found: a
+// GET from any other role changes no setting.
+router.get("/steamcmd/detect", requirePermission("server.world_events"), async (req, res) => {
   try {
     const steamcmdPath = await findSteamCmdPath();
     if (!steamcmdPath) {
       return res.json({ found: false, message: "SteamCMD was not found automatically" });
     }
 
-    const configuredPath = await getSetting("steamcmdPath");
-    if (configuredPath !== steamcmdPath) {
-      await setSetting("steamcmdPath", steamcmdPath);
+    const capabilities = await getCapabilitiesForRole(req.user?.role);
+    if (Array.isArray(capabilities) && capabilities.includes("server.install")) {
+      const configuredPath = await getSetting("steamcmdPath");
+      if (configuredPath !== steamcmdPath) {
+        await setSetting("steamcmdPath", steamcmdPath);
+      }
+    }
+
+    if (!(await canSeeHostPaths(req.user))) {
+      return res.json({ found: true, message: "SteamCMD found automatically" });
     }
 
     res.json({

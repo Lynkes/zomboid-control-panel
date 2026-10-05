@@ -58,7 +58,9 @@ const requireAnyBackupCapability = requireAnyPermission(
 // that already see them elsewhere -- backups.manage and diagnostics.manage,
 // as for the disk routes (routes/system.js), and the roles that set the
 // server's folders up (utils/hostPathView.js) -- and are null for the rest,
-// whose last scheduled attempt's error text is path-redacted too.
+// whose last scheduled attempt's error text is path-redacted too. So is the
+// last restore's: publicRestoreMessage() keeps the folder a failed rollback
+// left the previous save in, which is for a role that can go and get it.
 const BACKUP_PATH_CAPABILITIES = Object.freeze([
   "backups.manage",
   "diagnostics.manage",
@@ -81,17 +83,20 @@ function withoutBackupPath(backup) {
   return backup && typeof backup === "object" ? { ...backup, path: null } : backup;
 }
 
+function withRedactedMessage(entry) {
+  return entry && typeof entry.message === "string" && entry.message
+    ? { ...entry, message: sanitizeError(entry.message) }
+    : entry;
+}
+
 function hideBackupPaths(status) {
-  const attempt = status.lastScheduledBackupAttempt;
   return {
     ...status,
     savesPath: null,
     backupsPath: null,
     lastBackup: withoutBackupPath(status.lastBackup),
-    lastScheduledBackupAttempt:
-      attempt && typeof attempt.message === "string" && attempt.message
-        ? { ...attempt, message: sanitizeError(attempt.message) }
-        : attempt,
+    lastScheduledBackupAttempt: withRedactedMessage(status.lastScheduledBackupAttempt),
+    lastRestore: withRedactedMessage(status.lastRestore),
   };
 }
 
@@ -641,7 +646,13 @@ router.post("/restore/:name", requirePermission("backups.restore"), async (req, 
       // publicRestoreMessage() redacts everything except the one message
       // that deliberately needs its path visible (the rollback failure --
       // see its own comment). 2026-08-26 partial-failure-state hunt.
-      res.status(400).json({ ...result, message: publicRestoreMessage(result.message) });
+      // SECURITY (2026-10-05, H4): ...and only to a role that may see where
+      // backups live (canSeeBackupPaths()); a restore-only role gets it
+      // path-redacted, as in GET /status's lastRestore.
+      const message = (await canSeeBackupPaths(req))
+        ? publicRestoreMessage(result.message)
+        : sanitizeError(result.message);
+      res.status(400).json({ ...result, message });
     }
   } catch (error) {
     log.error(`Failed to restore backup: ${error.message}`);
