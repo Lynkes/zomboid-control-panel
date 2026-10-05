@@ -137,7 +137,9 @@ describe("ensureRconConfigured() -- INI path resolution", () => {
   it("an explicit serverConfigPath takes priority over the legacy fallbacks when an INI exists at both", async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-rcon-"));
     const zomboidDataPath = path.join(root, "Zomboid");
-    const explicitConfigPath = path.join(root, "CustomConfigDir");
+    // PATHS-2: a configured config folder is used only inside
+    // <zomboidDataPath>/Server, so the custom one sits there.
+    const explicitConfigPath = path.join(zomboidDataPath, "Server", "CustomConfigDir");
     fs.mkdirSync(zomboidDataPath, { recursive: true });
     fs.mkdirSync(explicitConfigPath, { recursive: true });
 

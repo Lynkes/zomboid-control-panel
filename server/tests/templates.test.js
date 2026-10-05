@@ -386,7 +386,9 @@ describe("previewTemplate / applyTemplate", () => {
   let dir;
 
   beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), "pz-template-apply-"));
+    // PATHS-2: a config folder is used only inside <data folder>/Server.
+    dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "pz-template-apply-")), "Server");
+    fs.mkdirSync(dir);
     fs.writeFileSync(
       path.join(dir, "TestServer.ini"),
       "PauseEmpty=false\nPVP=true\n",
@@ -414,13 +416,14 @@ describe("previewTemplate / applyTemplate", () => {
     getServer.mockResolvedValue({
       id: "server-1",
       serverName: "TestServer",
+      zomboidDataPath: path.dirname(dir),
       serverConfigPath: dir,
       isRemote: false,
     });
   });
 
   afterEach(() => {
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(path.dirname(dir), { recursive: true, force: true });
   });
 
   it("previewTemplate reports the changes applying would make", async () => {
@@ -562,6 +565,7 @@ describe("previewTemplate / applyTemplate", () => {
     getServer.mockResolvedValue({
       id: "server-1",
       serverName: "../outside",
+      zomboidDataPath: path.dirname(dir),
       serverConfigPath: dir,
       isRemote: false,
     });
@@ -591,6 +595,7 @@ describe("previewTemplate / applyTemplate", () => {
     getServer.mockResolvedValue({
       id: "server-2",
       serverName: "RemoteServer",
+      zomboidDataPath: path.dirname(dir),
       serverConfigPath: dir,
       isRemote: true,
     });

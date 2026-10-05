@@ -102,6 +102,7 @@ describe("toggle/batch-toggle: disk-verified numeric mod IDs", () => {
 
     getActiveServer.mockReset().mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       installPath,

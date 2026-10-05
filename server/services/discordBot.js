@@ -22,6 +22,7 @@ import { loadUiSecret, writeUiSecretFile } from "../utils/uiSecretFile.js";
 import { sanitizeError } from "../utils/sanitize.js";
 import { describeStartFailure } from "./discordStartFailure.js";
 import { readIniValues } from "../utils/templateFiles.js";
+import { activeServerConfigDir } from "../utils/serverConfigPath.js";
 import { runManagedLifecycle } from "./managedContainer.js";
 import { resolveObservedServerRunning } from "../utils/serverStatus.js";
 import {
@@ -1684,14 +1685,17 @@ export class DiscordBot {
     try {
       const activeServer = await getActiveServer();
       const serverName = activeServer?.serverName || (await getSetting("serverName"));
-      const configPath =
-        activeServer?.serverConfigPath ||
-        (activeServer?.zomboidDataPath
-          ? path.join(activeServer.zomboidDataPath, "Server")
-          : await getSetting("serverConfigPath")) ||
-        ((await getSetting("zomboidDataPath"))
-          ? path.join(await getSetting("zomboidDataPath"), "Server")
-          : null);
+      // SECURITY (2026-10-05, PATHS-2): MaxPlayers goes out in the bot's
+      // public presence, so it is read only from the config folder Server
+      // Files uses: a configured one only while it is inside the data folder
+      // in effect (utils/serverConfigPath.js).
+      const legacy = activeServer?.zomboidDataPath
+        ? {}
+        : {
+            serverConfigPath: await getSetting("serverConfigPath"),
+            zomboidDataPath: await getSetting("zomboidDataPath"),
+          };
+      const configPath = activeServerConfigDir(activeServer, legacy).dir;
 
       if (
         !configPath ||

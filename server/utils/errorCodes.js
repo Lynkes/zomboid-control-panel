@@ -680,7 +680,9 @@ export const ErrorCode = Object.freeze({
    * bare no-path-separators check on the already-configured server name. */
   SERVER_NAME_FORMAT_INVALID: "SERVER_NAME_FORMAT_INVALID",
   /** server/routes/server.js (sites: /install, /quick-setup) -- optional
-   * zomboidDataPath fails isValidPath(). */
+   * zomboidDataPath fails isValidPath(). Also server/services/zomboidDataPath.js
+   * (every place a data folder is saved): not an absolute path, too long,
+   * control characters, or an existing file rather than a folder. */
   ZOMBOID_DATA_PATH_INVALID: "ZOMBOID_DATA_PATH_INVALID",
   /** server/routes/server.js (sites: /install, /quick-setup,
    * /configure-network) -- serverPort isn't an integer in [1024, 65535].
@@ -2473,6 +2475,16 @@ export const ErrorCode = Object.freeze({
    * folder or a folder inside it, links followed, or there is no data
    * folder to anchor it to (serverConfigPathIsConfined(), FILES-2). */
   SERVER_CONFIG_PATH_OUTSIDE_DATA: "SERVER_CONFIG_PATH_OUTSIDE_DATA",
+  /* --- security sweep W3: server paths (sec/w3-paths) --- */
+  /** server/services/zomboidDataPath.js (400) -- a Zomboid data folder that
+   * exists but isn't one: no Saves or Multiplayer folder or save files in
+   * it, and something in it the game doesn't put in a data folder (or it is
+   * a server install folder). Sent when the folder is saved (POST/PUT
+   * /api/servers, /install, /quick-setup, create-from-discovery, chunks
+   * /save-path, PUT /config/app-settings) and when chunks /browse, Server
+   * Files or backups are about to use it (PATHS-1). */
+  ZOMBOID_DATA_PATH_NOT_DATA_FOLDER: "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER",
+  /* --- end security sweep W3: server paths --- */
 });
 
 /**

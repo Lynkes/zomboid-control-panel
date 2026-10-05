@@ -16,8 +16,10 @@ import path from 'path';
 //   - expand a leading "~" to the user's home dir
 //   - expand $VAR / ${VAR} (POSIX) and %VAR% (Windows) environment refs
 //   - convert empty string back to null
-// Defensive only — does NOT validate filesystem state.
-export function normalizeUserPath(input) {
+// Defensive only — does NOT validate filesystem state. `expandEnv: false`
+// skips the environment step (services/zomboidDataPath.js compares the two to
+// tell whether a value named an environment variable).
+export function normalizeUserPath(input, { expandEnv = true } = {}) {
   if (input == null) return null;
   let s = String(input).trim();
   if (!s) return null;
@@ -29,6 +31,7 @@ export function normalizeUserPath(input) {
   if (s === '~' || s.startsWith('~/') || s.startsWith('~\\')) {
     s = path.join(os.homedir(), s.slice(1));
   }
+  if (!expandEnv) return s;
   s = s.replace(/%([^%]+)%/g, (m, name) => process.env[name] || m);
   s = s.replace(/\$\{([^}]+)\}/g, (m, name) => process.env[name] || m);
   s = s.replace(/\$([A-Z_][A-Z0-9_]*)/gi, (m, name) => process.env[name] || m);

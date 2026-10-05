@@ -61,6 +61,7 @@ import { getWorkshopRelease } from "./bridgeWorkshopRelease.js";
 import { parseCustomStartCommand, resolveLaunchMode } from "./serverManager.js";
 import { scanBridgeStartFailure, scanSteamStartup } from "../utils/workshopLogScan.js";
 import { candidateIniPaths } from "../utils/zomboidPaths.js";
+import { serverConfigDirOf } from "../utils/serverConfigPath.js";
 import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
 import { writeIniWithBackup } from "../utils/configBackup.js";
 import { findDuplicateIniKeys } from "../utils/iniDuplicateKeys.js";
@@ -177,8 +178,13 @@ export function getEffectiveMethod(server, allServers) {
 export function resolveBridgeIniPath(server) {
   const serverName = server?.serverName;
   if (!serverName) return null;
-  const configDir =
-    server.serverConfigPath || (server.zomboidDataPath ? path.join(server.zomboidDataPath, "Server") : null);
+  // SECURITY (2026-10-05, PATHS-2): the delivery steps rewrite Mods= and
+  // WorkshopItems= in this file, so a configured config folder is used only
+  // while it is inside the server's own data folder
+  // (utils/serverConfigPath.js). Refused, there is no ini -- not one of the
+  // data folder's other candidates, which the operator didn't pick.
+  const { dir: configDir, refused } = serverConfigDirOf(server);
+  if (refused) return null;
   return candidateIniPaths(configDir, server.zomboidDataPath, serverName).find((candidate) => {
     try {
       return fs.statSync(candidate).isFile();

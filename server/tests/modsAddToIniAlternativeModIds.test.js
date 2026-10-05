@@ -113,6 +113,7 @@ describe("POST /add-to-ini: a multi-id workshop item reports its extra mod ids i
 
     getActiveServer.mockReset().mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       installPath,

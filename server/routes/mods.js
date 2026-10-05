@@ -52,6 +52,7 @@ import {
 } from "../utils/browserCookies.js";
 import { requirePermission } from "../services/permissions.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { activeServerConfigDir } from "../utils/serverConfigPath.js";
 import { withFileLock } from "../utils/fileWriteQueue.js";
 import { writeIniWithBackup as writeIniWithBackupRaw, backupWarningFor } from "../utils/configBackup.js";
 import { getBridgeManaged, protectBridgeIniEntries } from "../services/bridgeDelivery.js";
@@ -207,23 +208,24 @@ function getSanitizedIniPath(serverConfigPath, serverName) {
 export async function getActiveServerPaths() {
   const activeServer = await getActiveServer();
 
-  // First, use explicitly configured serverConfigPath if available.
-  let serverConfigPath = activeServer?.serverConfigPath || null;
-  // Fallback to zomboidDataPath + Server (like serverFiles.js does).
-  if (!serverConfigPath && activeServer?.zomboidDataPath) {
-    serverConfigPath = path.join(activeServer.zomboidDataPath, "Server");
+  // The explicitly configured serverConfigPath, else zomboidDataPath +
+  // Server, else the legacy settings of both (like serverFiles.js does).
+  // SECURITY (2026-10-05, PATHS-2): the routes here rewrite <name>.ini in
+  // that folder, so a configured one is used only while it is inside the
+  // data folder in effect (the record's, else the legacy setting) --
+  // utils/serverConfigPath.js. Refused, it comes back null, which every
+  // route below already answers as "not configured".
+  const legacy = activeServer?.zomboidDataPath
+    ? {}
+    : {
+        serverConfigPath: await getSetting("serverConfigPath"),
+        zomboidDataPath: await getSetting("zomboidDataPath"),
+      };
+  const config = activeServerConfigDir(activeServer, legacy);
+  if (config.refused) {
+    log.warn("Not using the server config folder: it is outside the Zomboid data folder");
   }
-  // Fallback to legacy settings.
-  if (!serverConfigPath) {
-    const legacyPath = await getSetting("serverConfigPath");
-    if (legacyPath) serverConfigPath = legacyPath;
-  }
-  if (!serverConfigPath) {
-    const legacyZomboidPath = await getSetting("zomboidDataPath");
-    if (legacyZomboidPath) {
-      serverConfigPath = path.join(legacyZomboidPath, "Server");
-    }
-  }
+  const serverConfigPath = config.dir;
 
   let serverName = activeServer?.serverName || null;
   if (!serverName) {

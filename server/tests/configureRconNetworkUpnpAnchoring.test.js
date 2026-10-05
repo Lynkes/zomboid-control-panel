@@ -62,7 +62,8 @@ beforeEach(() => {
     `PVP=false\n${welcomeLine}\nRCONPassword=old\nRCONPort=27015\nUPnP=true\nDefaultPort=16261\nUDPPort=16262\n`,
     "utf-8",
   );
-  getActiveServer.mockResolvedValue({ serverConfigPath, serverName: "servertest" });
+  // PATHS-2: a config folder is used only inside its data folder.
+  getActiveServer.mockResolvedValue({ zomboidDataPath: root, serverConfigPath, serverName: "servertest" });
 });
 
 afterEach(() => {

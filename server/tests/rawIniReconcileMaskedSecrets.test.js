@@ -98,18 +98,21 @@ function baseIni() {
 }
 
 beforeEach(() => {
-  configDir = fs.mkdtempSync(path.join(os.tmpdir(), "raw-ini-reconcile-"));
+  // PATHS-2: a config folder is used only inside <data folder>/Server.
+  configDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "raw-ini-reconcile-")), "Server");
+  fs.mkdirSync(configDir);
   iniPath = path.join(configDir, `${SERVER_NAME}.ini`);
   backupDir = path.join(configDir, "backups");
   fs.writeFileSync(iniPath, baseIni());
   getActiveServer.mockReset().mockResolvedValue({
+    zomboidDataPath: path.dirname(configDir),
     serverConfigPath: configDir,
     serverName: SERVER_NAME,
   });
 });
 
 afterEach(() => {
-  fs.rmSync(configDir, { recursive: true, force: true });
+  fs.rmSync(path.dirname(configDir), { recursive: true, force: true });
 });
 
 function getRawIni() {

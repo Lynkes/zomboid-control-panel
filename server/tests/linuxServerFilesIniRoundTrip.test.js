@@ -84,6 +84,7 @@ function formSettings({ rawSettings, misnamedKeys }) {
 }
 
 const SERVER_NAME = "RoundTripTest";
+let dataDir;
 let configDir;
 let iniPath;
 
@@ -107,17 +108,21 @@ const FIXTURE = [
 ].join("\n");
 
 beforeEach(() => {
-  configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ini-roundtrip-"));
+  // PATHS-2: the config folder is <data folder>/Server.
+  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ini-roundtrip-"));
+  configDir = path.join(dataDir, "Server");
+  fs.mkdirSync(configDir);
   iniPath = path.join(configDir, `${SERVER_NAME}.ini`);
   fs.writeFileSync(iniPath, FIXTURE);
   getActiveServer.mockReset().mockResolvedValue({
+    zomboidDataPath: dataDir,
     serverConfigPath: configDir,
     serverName: SERVER_NAME,
   });
 });
 
 afterEach(() => {
-  fs.rmSync(configDir, { recursive: true, force: true });
+  fs.rmSync(dataDir, { recursive: true, force: true });
 });
 
 describe("GET /ini -> PUT /ini round trip with no changes", () => {

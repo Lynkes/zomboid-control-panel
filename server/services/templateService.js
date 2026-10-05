@@ -8,6 +8,7 @@ import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 import { createLogger } from "../utils/logger.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { serverConfigDirOf } from "../utils/serverConfigPath.js";
 import { sanitizeErrorParams } from "../utils/sanitize.js";
 import { getServer, getSetting, setSetting } from "../database/init.js";
 import {
@@ -210,12 +211,14 @@ export async function importTemplate(json) {
   return { success: true, template: saved };
 }
 
+// SECURITY (2026-10-05, PATHS-2): applying a template writes the .ini and
+// SandboxVars.lua here, so a configured config folder is used only while it
+// is inside the server's own data folder (utils/serverConfigPath.js).
+// Refused, this returns { refused: true } and the callers answer
+// SERVER_CONFIG_PATH_OUTSIDE_DATA.
 function resolveServerPaths(server) {
-  const configDir = server?.serverConfigPath
-    ? server.serverConfigPath
-    : server?.zomboidDataPath
-      ? path.join(server.zomboidDataPath, "Server")
-      : null;
+  const { dir: configDir, refused } = serverConfigDirOf(server);
+  if (refused) return { refused: true };
   if (
     !configDir ||
     typeof server?.serverName !== "string" ||
@@ -264,6 +267,14 @@ export async function previewTemplate(templateId, serverId) {
   }
 
   const paths = resolveServerPaths(server);
+  if (paths?.refused) {
+    return {
+      success: false,
+      error:
+        "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
+      code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
+    };
+  }
   if (!paths) {
     return {
       success: false,
@@ -370,6 +381,14 @@ export async function applyTemplate(templateId, serverId, options = {}) {
   }
 
   const paths = resolveServerPaths(server);
+  if (paths?.refused) {
+    return {
+      success: false,
+      error:
+        "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
+      code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
+    };
+  }
   if (!paths) {
     return {
       success: false,

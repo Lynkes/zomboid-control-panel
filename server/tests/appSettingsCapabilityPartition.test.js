@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import path from "path";
 
 // PUT /config/app-settings is gated by panel.settings alone, but
 // VALID_SETTINGS_KEYS lets a holder silently rewrite rconPassword/rconHost/
@@ -267,7 +268,8 @@ describe("PUT /config/app-settings -- per-key capability partition", () => {
       "settings_and_servers_manage",
       { zomboidDataPath: "/old/path" },
     );
-    expect(setSetting).toHaveBeenCalledWith("zomboidDataPath", "/new/path");
+    // PATHS-1: stored as the path it resolves to (a drive letter on Windows).
+    expect(setSetting).toHaveBeenCalledWith("zomboidDataPath", path.resolve("/new/path"));
     expect(allowed.json).toHaveBeenCalledWith(
       expect.objectContaining({ success: true }),
     );

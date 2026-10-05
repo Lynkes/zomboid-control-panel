@@ -115,6 +115,7 @@ describe("POST /batch-delete-disk-mods keeps Map= in sync with the deleted works
 
     getActiveServer.mockReset().mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       installPath: serverPath,

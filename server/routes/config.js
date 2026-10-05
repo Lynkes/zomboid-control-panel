@@ -26,6 +26,7 @@ import {
 } from "../services/rcon.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { serverConfigPathIsConfined } from "../utils/serverConfigPath.js";
+import { checkZomboidDataPath } from "../services/zomboidDataPath.js";
 import {
   requireIntInRange,
   BIND_PORT_MIN,
@@ -882,6 +883,25 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
         params: sanitizeErrorParams({ detail }),
         missing: missingCapabilities,
       });
+    }
+
+    // SECURITY (2026-10-05, PATHS-1): the legacy copy of the data folder is
+    // the one chunks, backups, Server Files and the console log fall back
+    // to when the active server has none of its own, so it follows the rule
+    // every data-folder setter shares (services/zomboidDataPath.js), and is
+    // stored as the path it resolved to. Only a changed value is judged
+    // (Settings sends its whole form back); zomboidDataPath is a governed
+    // key, so currentSettings is loaded.
+    const dataPathSetting = filtered.find(([key]) => key === "zomboidDataPath");
+    if (
+      dataPathSetting?.[1] &&
+      String(dataPathSetting[1]) !== String(currentSettings.zomboidDataPath ?? "")
+    ) {
+      const dataPathCheck = checkZomboidDataPath(dataPathSetting[1]);
+      if (!dataPathCheck.ok) {
+        return res.status(400).json(dataPathCheck.body);
+      }
+      dataPathSetting[1] = dataPathCheck.path;
     }
 
     // FILES-2 (adversary pass 2): this legacy copy of the config folder is

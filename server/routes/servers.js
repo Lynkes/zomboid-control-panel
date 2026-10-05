@@ -22,7 +22,6 @@ import {
   setSetting,
 } from "../database/init.js";
 import { isRemoteConfigConfigured } from "../services/remoteConfigFiles.js";
-import { normalizeUserPath, inspectZomboidPath } from "../utils/zomboidPaths.js";
 import { requirePermission } from "../services/permissions.js";
 import {
   acquireLifecycleLock,
@@ -54,7 +53,8 @@ import {
 } from "../services/serverManager.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { canSeeHostPaths, hideHostPaths } from "../utils/hostPathView.js";
-import { serverConfigPathIsConfined } from "../utils/serverConfigPath.js";
+import { serverConfigDirOf, serverConfigPathIsConfined } from "../utils/serverConfigPath.js";
+import { checkZomboidDataPath } from "../services/zomboidDataPath.js";
 import {
   buildLifecycleTemplate,
   createLinuxServiceLifecycle,
@@ -1277,6 +1277,9 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
     // script is a launch target too (see changesLaunchTarget()). Judged on
     // what the caller sent, before the env fallback below.
     const requestsLauncher = isLauncherShaped(config.installPath);
+    // PATHS-1: only a data folder the request names is judged below; the
+    // PZ_SAVE_PATH fallback is the operator's own environment.
+    const requestsDataPath = Boolean(config.zomboidDataPath);
 
     // Fall back to env-configured paths (docker-compose PZ_SERVER_PATH /
     // PZ_SAVE_PATH) when the request body doesn't set them explicitly.
@@ -1306,6 +1309,20 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
       if (!installPathCheck.valid) {
         return res.status(400).json({ error: installPathCheck.error });
       }
+    }
+
+    // SECURITY (2026-10-05, PATHS-1): this route stored the data folder
+    // with no check at all, where PUT /:id and chunks /save-path checked
+    // theirs -- so servers.manage alone named any folder on this computer
+    // as a server's data folder. Same rule as every other setter now
+    // (services/zomboidDataPath.js), stored as the path it resolved to, as PUT
+    // stores it. A remote server's folder is on another host.
+    if (!isRemote && requestsDataPath) {
+      const dataPathCheck = checkZomboidDataPath(config.zomboidDataPath);
+      if (!dataPathCheck.ok) {
+        return res.status(400).json(dataPathCheck.body);
+      }
+      config.zomboidDataPath = dataPathCheck.path;
     }
 
     // FILES-2: see serverConfigPathIsConfined(). Judged against the data
@@ -1585,61 +1602,42 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
 
     // HARDEN (2026-08-29, savepath-needs-existence-validation-at-set-time):
     // this route wrote zomboidDataPath straight through with zero validation
-    // -- a wrong-but-structurally-valid path (nonexistent, or a real
-    // directory that just isn't a Zomboid data folder) saved here while the
-    // server is stopped passes silently. POST /wipe (server.js) later joins
-    // this stored path with "Saves/Multiplayer/<serverName>" and only checks
-    // fs.existsSync on THAT joined result -- if the wrong path happens to
-    // have a matching subtree underneath (another real Zomboid install on
-    // the same host, a leftover from a same-named server), a destructive
-    // wipe silently targets the wrong data. chunks.js's own POST /save-path
-    // already enforces existence + directory + inspectZomboidPath() for this
-    // EXACT same field (same updateServer() call, same DB column) -- this
-    // brings the second, unguarded setter up to the same bar rather than
-    // leaving it as a second path to the same risk. Remote servers are
-    // exempt: their data path lives on a different host, so a local fs
-    // check would always incorrectly fail -- same exemption installPath
-    // already gets at server-creation time (see !isRemote above in POST /).
-    if (updates.zomboidDataPath !== undefined && updates.zomboidDataPath !== "") {
-      const effectiveIsRemote =
-        updates.isRemote !== undefined
-          ? updates.isRemote
-          : Boolean((await getServer(serverId))?.isRemote);
-      if (!effectiveIsRemote) {
-        // SECURITY (2026-09-05, env-var-expansion-oracle): normalizeUserPath()
-        // expands %VAR%/${VAR}/$VAR from request input. `resolved` is that
-        // EXPANDED value -- it must never appear in a response, or a caller
-        // who can PUT a server reads process-environment secrets one request
-        // at a time via zomboidDataPath="%JWT_SECRET%". Errors below always
-        // echo the caller's raw literal (updates.zomboidDataPath) instead.
-        const normalized = normalizeUserPath(updates.zomboidDataPath);
-        const resolved = normalized ? path.resolve(normalized) : null;
-        if (!resolved || !fs.existsSync(resolved)) {
-          return res.status(400).json({
-            error: `Zomboid data path does not exist: ${updates.zomboidDataPath}. Check for typos and verify the panel has read access to this folder.`,
-          });
+    // -- a wrong-but-structurally-valid path saved here while the server is
+    // stopped passed silently, and POST /wipe (server.js) later deletes
+    // under it. Remote servers are exempt: their data path lives on a
+    // different host, so a local fs check would always incorrectly fail --
+    // same exemption installPath already gets at server-creation time.
+    //
+    // SECURITY (2026-10-05, PATHS-1): the rule is now the one every setter
+    // shares (services/zomboidDataPath.js): a folder that doesn't exist yet is
+    // accepted (the game creates it on first start; POST / and the install
+    // routes save one, and this route then refused every later edit of that
+    // profile), and an existing one must really be a data folder -- not
+    // merely have "zomboid" in its path. Judged when the value changes, and
+    // when a remote profile turns local (its folder was never checked here):
+    // the edit dialog sends the whole record back, and an unchanged folder
+    // is judged again where it is used. Errors echo only the caller's own
+    // value, never its %VAR% expansion (env-var-expansion-oracle,
+    // 2026-09-05).
+    if (updates.zomboidDataPath === null) updates.zomboidDataPath = "";
+    if (updates.zomboidDataPath !== undefined || updates.isRemote !== undefined) {
+      const stored = await getServer(serverId);
+      const nextIsRemote =
+        updates.isRemote !== undefined ? updates.isRemote === true : Boolean(stored?.isRemote);
+      const nextDataPath =
+        updates.zomboidDataPath !== undefined ? updates.zomboidDataPath : stored?.zomboidDataPath;
+      const dataPathChanged =
+        updates.zomboidDataPath !== undefined &&
+        String(updates.zomboidDataPath) !== String(stored?.zomboidDataPath ?? "");
+      const becomesLocal = Boolean(stored?.isRemote) && !nextIsRemote;
+      if (!nextIsRemote && nextDataPath && (dataPathChanged || becomesLocal)) {
+        const dataPathCheck = checkZomboidDataPath(nextDataPath);
+        if (!dataPathCheck.ok) {
+          return res.status(400).json(dataPathCheck.body);
         }
-        let isDir = false;
-        try {
-          isDir = fs.statSync(resolved).isDirectory();
-        } catch {
-          isDir = false;
+        if (updates.zomboidDataPath !== undefined) {
+          updates.zomboidDataPath = dataPathCheck.path;
         }
-        if (!isDir) {
-          return res.status(400).json({
-            error: `Zomboid data path is not a directory: ${updates.zomboidDataPath}`,
-          });
-        }
-        const verdict = inspectZomboidPath(resolved);
-        if (!verdict.ok) {
-          return res.status(400).json({
-            error:
-              verdict.reason === "install-folder"
-                ? "This folder looks like a Project Zomboid server install, not a user data folder. Point at the Zomboid user data folder instead."
-                : "This doesn't look like a Project Zomboid data folder (no Saves/Multiplayer directory or save files found there).",
-          });
-        }
-        updates.zomboidDataPath = resolved;
       }
     }
 
@@ -1889,14 +1887,24 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
       // bug being fixed, one layer over -- found by a same-night audit
       // before this shipped). The real toggle is the UPnP= line in the
       // server's own .ini, the same one /configure-network writes -- reused
-      // here via applyUpnpToIni() rather than duplicated.
+      // here via applyUpnpToIni() rather than duplicated. PATHS-2: only
+      // into a config folder the record's own data folder holds.
+      const upnpConfig = server.serverConfigPath ? serverConfigDirOf(server) : null;
       if (
         Object.prototype.hasOwnProperty.call(updates, "useUpnp") &&
-        server.serverConfigPath &&
+        upnpConfig?.refused
+      ) {
+        reloadWarnings.push(
+          "UPnP setting saved, but not written to the server config: its config folder is outside its Zomboid data folder. Fix the config folder, then edit UPnP again.",
+        );
+      }
+      if (
+        Object.prototype.hasOwnProperty.call(updates, "useUpnp") &&
+        upnpConfig?.dir &&
         server.serverName
       ) {
         const result = await applyUpnpToIni(
-          server.serverConfigPath,
+          upnpConfig.dir,
           server.serverName,
           updates.useUpnp,
         );

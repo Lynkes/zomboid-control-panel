@@ -102,6 +102,7 @@ describe("mods.js ini-rewriting routes back up the live ini before overwriting i
     );
     getActiveServer.mockReset().mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       isRemote: false,
@@ -193,6 +194,7 @@ describe("mods.js ini writes: a failed backup warns but never blocks the edit", 
     );
     getActiveServer.mockReset().mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       isRemote: false,
@@ -259,6 +261,7 @@ describe("mods.js ini writes preserve the live file's CRLF line endings", () => 
     );
     getActiveServer.mockReset().mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       isRemote: false,
@@ -320,6 +323,7 @@ describe("mods.js batch workshopIds routes cap array size the same way /batch-re
     );
     getActiveServer.mockReset().mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       isRemote: false,

@@ -60,3 +60,50 @@ export function serverConfigPathIsConfined(value, zomboidDataPath) {
   const anchor = resolveThroughLinks(path.join(path.resolve(zomboidDataPath), "Server"));
   return isSameOrInside(resolveThroughLinks(value), anchor);
 }
+
+// SECURITY (2026-10-05, PATHS-2): the save-time check above stops new
+// records from naming a config folder outside their data folder, but a
+// record saved before it -- or one with a config folder and no data folder,
+// or the legacy settings copy -- still reached every reader that took
+// serverConfigPath as it was: Server Files' gate held a record to the rule
+// only when it had both folders, and the other readers never did. Every
+// reader that reads or writes a server's .ini/.lua files now goes through
+// serverConfigDirOf() or activeServerConfigDir() below (or the check above,
+// directly), so they agree on which folder that is:
+//   - a config folder that is named is used only while it is inside
+//     <dataPath>/Server; otherwise it is refused, never swapped for another
+//     folder (the operator would be editing files they didn't pick);
+//   - with none named, <dataPath>/Server, as before.
+// `refused` tells a caller to answer SERVER_CONFIG_PATH_OUTSIDE_DATA.
+export function resolveServerConfigDir(configPath, dataPath) {
+  if (configPath) {
+    return serverConfigPathIsConfined(configPath, dataPath)
+      ? { dir: configPath, refused: false }
+      : { dir: null, refused: true };
+  }
+  const hasDataPath = typeof dataPath === "string" && dataPath.trim() !== "";
+  return { dir: hasDataPath ? path.join(dataPath, "Server") : null, refused: false };
+}
+
+// A server record's own config folder, held to its own data folder -- for
+// the services that act on a given server (start, scheduled restarts,
+// templates, PanelBridge delivery, backups), which may not be the active
+// one, so the legacy settings (a copy of the active server's) don't apply.
+export function serverConfigDirOf(server) {
+  return resolveServerConfigDir(server?.serverConfigPath || null, server?.zomboidDataPath || null);
+}
+
+// The active server's config folder, the legacy settings standing in for
+// what the record leaves empty -- the chain Server Files, mods and the
+// Discord presence read through (record's config folder, else
+// <record's data folder>/Server, else the legacy config folder, else
+// <legacy data folder>/Server). The config folder is held to the data
+// folder in effect: the record's, else the legacy one.
+export function activeServerConfigDir(activeServer, legacy = {}) {
+  const dataPath = activeServer?.zomboidDataPath || legacy?.zomboidDataPath || null;
+  const configPath =
+    activeServer?.serverConfigPath ||
+    (activeServer?.zomboidDataPath ? null : legacy?.serverConfigPath) ||
+    null;
+  return { ...resolveServerConfigDir(configPath, dataPath), dataPath };
+}

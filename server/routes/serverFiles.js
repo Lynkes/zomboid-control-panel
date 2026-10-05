@@ -34,6 +34,7 @@ import {
 } from "../utils/iniGameView.js";
 import { confineToRoots } from "../utils/browseRoots.js";
 import { serverConfigPathIsConfined } from "../utils/serverConfigPath.js";
+import { zomboidDataFolderHolds, zomboidDataFolderRefusal } from "../services/zomboidDataPath.js";
 import {
   SFTP_CONFIG_PATH_KEY,
   acquireMirrorLock,
@@ -189,23 +190,33 @@ router.use(async (req, res, next) => {
   // whose config folder isn't inside its data folder's Server folder (the
   // same rule, utils/serverConfigPath.js) is refused by every Server Files
   // route until it is fixed in the server's settings. A remote server's
-  // folder is the panel's own SFTP mirror, and a record without a data
-  // folder has nothing to hold it to (none can be saved with a config
-  // folder any more).
-  const { activeServer } = req.activeServerContext;
-  if (
-    activeServer &&
-    !activeServer.isRemote &&
-    activeServer.serverConfigPath &&
-    activeServer.zomboidDataPath &&
-    !serverConfigPathIsConfined(activeServer.serverConfigPath, activeServer.zomboidDataPath)
-  ) {
-    log.warn("Refusing Server Files access: the active server's config folder is outside its Zomboid data folder");
-    return res.status(400).json({
-      error:
-        "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
-      code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
-    });
+  // folder is the panel's own SFTP mirror.
+  //
+  // SECURITY (2026-10-05, PATHS-2): that check ran only when the record
+  // had both folders, so a record with a config folder and no data folder,
+  // and the legacy settings copy of the config folder (used when the record
+  // has neither), were let through. It now judges the folder this request
+  // will actually use against the data folder in effect (the record's,
+  // else the legacy setting); with no data folder to anchor it, it is
+  // refused. A folder derived as <data>/Server always passes.
+  //
+  // SECURITY (2026-10-05, PATHS-1): every route here reads or writes under
+  // that data folder, so it is held to the data-folder rule
+  // (services/zomboidDataPath.js) again here, where it is used.
+  const { activeServer, serverConfigPath, zomboidDataPath } = req.activeServerContext;
+  if (!activeServer?.isRemote) {
+    if (!serverConfigPathIsConfined(serverConfigPath, zomboidDataPath)) {
+      log.warn("Refusing Server Files access: the config folder in use is outside the Zomboid data folder");
+      return res.status(400).json({
+        error:
+          "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
+        code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
+      });
+    }
+    if (!zomboidDataFolderHolds(zomboidDataPath)) {
+      log.warn("Refusing Server Files access: the Zomboid data folder doesn't look like one");
+      return res.status(400).json(zomboidDataFolderRefusal());
+    }
   }
   next();
 });
@@ -566,13 +577,19 @@ async function getActiveServerPaths() {
   if (!serverConfigPath && activeServer?.zomboidDataPath) {
     serverConfigPath = path.join(activeServer.zomboidDataPath, "Server");
   }
-  if (!serverConfigPath) {
+  // PATHS-2: the data folder in effect -- the record's, else the legacy
+  // setting -- which the gate above holds serverConfigPath to.
+  let zomboidDataPath = activeServer?.zomboidDataPath || null;
+  if (!serverConfigPath || !zomboidDataPath) {
     const settings = await getAllSettings();
-    if (settings.serverConfigPath) {
-      serverConfigPath = settings.serverConfigPath;
-    } else if (settings.zomboidDataPath) {
-      serverConfigPath = path.join(settings.zomboidDataPath, "Server");
+    if (!serverConfigPath) {
+      if (settings.serverConfigPath) {
+        serverConfigPath = settings.serverConfigPath;
+      } else if (settings.zomboidDataPath) {
+        serverConfigPath = path.join(settings.zomboidDataPath, "Server");
+      }
     }
+    zomboidDataPath = zomboidDataPath || settings.zomboidDataPath || null;
   }
   if (!serverConfigPath) {
     if (activeServer?.isRemote) {
@@ -581,7 +598,7 @@ async function getActiveServerPaths() {
     throw new ServerNotConfiguredError();
   }
 
-  return { activeServer, serverConfigPath, serverName: safeServerName };
+  return { activeServer, serverConfigPath, serverName: safeServerName, zomboidDataPath };
 }
 
 // Exposed ONLY so the existing unit tests that already verify these three
@@ -3022,10 +3039,13 @@ async function getAllowedBrowseRoots(req) {
     wholeDataFolder
       ? path.resolve(dataPath)
       : path.join(path.resolve(dataPath), "Server");
-  if (activeServer?.zomboidDataPath)
+  // PATHS-1: a data folder is a root only while it meets the data-folder
+  // rule (services/zomboidDataPath.js); the legacy setting's can differ from
+  // the record's, so each is judged.
+  if (activeServer?.zomboidDataPath && zomboidDataFolderHolds(activeServer.zomboidDataPath))
     roots.push(dataFolderRoot(activeServer.zomboidDataPath));
   const settings = await getAllSettings();
-  if (settings.zomboidDataPath)
+  if (settings.zomboidDataPath && zomboidDataFolderHolds(settings.zomboidDataPath))
     roots.push(dataFolderRoot(settings.zomboidDataPath));
   // Always allow the default Zomboid config directory
   const defaultConfig = path.join(os.homedir(), "Zomboid");

@@ -1,0 +1,234 @@
+import fs from "fs";
+import path from "path";
+import { ErrorCode } from "../utils/errorCodes.js";
+import { inspectZomboidPath, normalizeUserPath } from "../utils/zomboidPaths.js";
+
+// SECURITY (2026-10-05, PATHS-1): a server's Zomboid data folder (its
+// zomboidDataPath, the game's -cachedir) is the folder chunks /browse lists
+// every folder name under, Server Files reaches Server/ in, backups read
+// Saves/ from and write backups/ into, and wipe deletes from. POST
+// /api/servers saved it with no check at all, so servers.manage alone
+// (technician) could name any folder on this computer as one. Every place
+// that sets it -- POST and PUT /api/servers, /install and /quick-setup,
+// create-from-discovery, chunks /save-path, and the legacy setting in PUT
+// /config/app-settings -- now holds it to this one rule, and the features
+// that list or read under it apply the rule again when they use it (a
+// folder that didn't exist when it was saved can appear later):
+//   - an absolute path, at most 1024 characters, no control characters;
+//   - and nothing there yet (the game creates the folder on first start),
+//     or a folder that already is one: a Saves or Multiplayer folder or
+//     save files in it (inspectZomboidPath()'s on-disk checks -- not its
+//     name-only ones, which any folder whose path says "zomboid" or "saves"
+//     passes, the panel's own folder included), or nothing in it but what
+//     the game itself puts in a data folder (empty included).
+// A server install folder is refused. The folder PZ_SAVE_PATH names comes
+// from the operator's own environment (the Docker images set it), not from
+// a request, and is taken as it is. Remote servers stay exempt at the
+// callers: their paths are on another host.
+const ZOMBOID_DATA_PATH_MAX_LENGTH = 1024;
+const CONTROL_CHARACTERS = /[\x00-\x1f\x7f]/;
+
+// What the game puts in its data folder, read off the B42 projectzomboid.jar
+// (the arguments ZomboidFileSystem.getCacheDirSub() is called with, and the
+// getCacheDir() + separator + name paths its callers build: GameServer,
+// GameWindow, ZipLogs, ZipBackup, DebugLog, LuaManager, InstanceTracker,
+// RecipeMonitor, CraftRecipeManager, ...), checked against a real B42
+// ~/Zomboid. Matched exactly, as the game names them.
+const GAME_DATA_FOLDER_ENTRIES = new Set([
+  // Folders
+  "Saves",
+  "Server",
+  "Logs",
+  "Lua",
+  "db",
+  "mods",
+  "Workshop",
+  "Sandbox Presets",
+  "backups",
+  "Screenshots",
+  "messaging",
+  "joypads",
+  "InputBindings",
+  "Crafting",
+  "Recording",
+  "RecipeLogs",
+  // Files
+  "console.txt",
+  "server-console.txt",
+  "coop-console.txt",
+  "options.ini",
+  "options2.bin",
+  "debug-options.ini",
+  "latestSave.ini",
+  "logs.zip",
+  "version.txt",
+  "debuglog.cfg",
+  "debuglog-server.cfg",
+  "debuglog.ini",
+  "sounds.ini",
+  "screenresolution.ini",
+  "translationProblems.txt",
+  "AllRecipes.txt",
+  "sound-event-instances.txt",
+  "ItemTracker.log",
+  "popman-options.ini",
+  "isoregions-options.ini",
+  "animationViewerState-options.ini",
+  "bulletTracerEffect-options.ini",
+  "debugChunkState-options.ini",
+  "SeamEditorState-options.ini",
+  "SpriteModelEditorState-options.ini",
+  "TileGeometryState-options.ini",
+]);
+
+const GAME_DATA_FOLDER_PATTERNS = [
+  /^log_\d+\.txt$/,
+  // Java's zip file system (ZipLogs writes logs.zip through it) leaves
+  // these next to the zip.
+  /^zipfstmp\d+\.tmp$/,
+  /^movables_stats_[^\\/]+\.txt$/,
+  /^reset-mods-[^\\/]+\.txt$/,
+];
+
+// Left by the operating system, not the game: Finder, Explorer, and the
+// root of an ext4 volume mounted as the data folder.
+const OS_FOLDER_ENTRIES = new Set([".DS_Store", "Thumbs.db", "desktop.ini", "lost+found"]);
+
+export function isGameDataFolderEntry(name) {
+  return (
+    GAME_DATA_FOLDER_ENTRIES.has(name) ||
+    OS_FOLDER_ENTRIES.has(name) ||
+    GAME_DATA_FOLDER_PATTERNS.some((pattern) => pattern.test(name))
+  );
+}
+
+function hasPathShape(value) {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= ZOMBOID_DATA_PATH_MAX_LENGTH &&
+    !CONTROL_CHARACTERS.test(value)
+  );
+}
+
+function isOperatorDataPath(resolved) {
+  const configured = process.env.PZ_SAVE_PATH;
+  if (!configured || !path.isAbsolute(configured)) return false;
+  const own = path.resolve(configured);
+  return process.platform === "win32"
+    ? own.toLowerCase() === resolved.toLowerCase()
+    : own === resolved;
+}
+
+// The rule's on-disk half, for an absolute, resolved path. Links are
+// followed (statSync, readdirSync), so a link is judged by the folder it
+// leads to.
+function judgeFolder(resolved) {
+  if (isOperatorDataPath(resolved)) return { ok: true, missing: false };
+  let stat;
+  try {
+    stat = fs.statSync(resolved);
+  } catch (err) {
+    if (err?.code === "ENOENT") return { ok: true, missing: true };
+    return { ok: false, reason: "unreadable" };
+  }
+  if (!stat.isDirectory()) return { ok: false, reason: "not-a-directory" };
+  // The common case first, cheaply: a data folder the game has run in has
+  // Saves (inspectZomboidPath() probes every subfolder for save files).
+  if (fs.existsSync(path.join(resolved, "Saves")) || fs.existsSync(path.join(resolved, "Multiplayer"))) {
+    return { ok: true, missing: false };
+  }
+  const verdict = inspectZomboidPath(resolved);
+  if (verdict.reason === "install-folder") return { ok: false, reason: "install-folder" };
+  if (verdict.checks.hasSaveArtifacts) return { ok: true, missing: false };
+  let names;
+  try {
+    names = fs.readdirSync(resolved);
+  } catch {
+    return { ok: false, reason: "unreadable" };
+  }
+  return names.every(isGameDataFolderEntry)
+    ? { ok: true, missing: false }
+    : { ok: false, reason: "not-a-data-folder" };
+}
+
+const NOT_A_DATA_FOLDER_MESSAGE =
+  "This folder holds files the game doesn't keep in a Zomboid data folder, so it can't be a server's data folder. Choose the server's own data folder (the one with a Saves folder), an empty folder, or a folder that doesn't exist yet: the game creates it when the server first starts.";
+
+/**
+ * Save time: judge a data folder a request is about to store.
+ *
+ * `expand` (default true) applies normalizeUserPath() first (quotes, "~",
+ * %VAR%/$VAR), as PUT /api/servers and chunks /save-path always have; the
+ * install routes pass false because they use the value exactly as sent.
+ * A value that names an environment variable must already exist: stored
+ * as an expanded path that isn't there, it would hand the variable's value
+ * back to anyone who can read the server's paths (env-var-expansion-oracle,
+ * 2026-09-05). Error text only ever echoes the caller's own value.
+ *
+ * @returns {{ ok: true, path: string } | { ok: false, body: { error: string, code?: string } }}
+ */
+export function checkZomboidDataPath(value, { expand = true } = {}) {
+  const raw = typeof value === "string" ? value : "";
+  const target = expand ? normalizeUserPath(raw) : raw;
+  if (!hasPathShape(raw) || !hasPathShape(target) || !path.isAbsolute(target)) {
+    return {
+      ok: false,
+      body: {
+        error: hasPathShape(raw)
+          ? `Invalid Zomboid data path: ${raw}. Use the folder's full path.`
+          : "Invalid Zomboid data path",
+        code: ErrorCode.ZOMBOID_DATA_PATH_INVALID,
+      },
+    };
+  }
+  const resolved = path.resolve(target);
+  const verdict = judgeFolder(resolved);
+  if (verdict.ok && verdict.missing && expand && target !== normalizeUserPath(raw, { expandEnv: false })) {
+    return {
+      ok: false,
+      body: {
+        error: `Zomboid data path does not exist: ${raw}. Check for typos and verify the panel has read access to this folder.`,
+      },
+    };
+  }
+  if (verdict.ok) return { ok: true, path: resolved };
+  if (verdict.reason === "not-a-directory") {
+    return {
+      ok: false,
+      body: {
+        error: `Zomboid data path is not a directory: ${raw}`,
+        code: ErrorCode.ZOMBOID_DATA_PATH_INVALID,
+      },
+    };
+  }
+  return {
+    ok: false,
+    body: {
+      error:
+        verdict.reason === "install-folder"
+          ? "This folder looks like a Project Zomboid server install, not a user data folder. Point at the Zomboid user data folder instead."
+          : NOT_A_DATA_FOLDER_MESSAGE,
+      code: ErrorCode.ZOMBOID_DATA_PATH_NOT_DATA_FOLDER,
+    },
+  };
+}
+
+/**
+ * Use time: whether a data folder a feature is about to list or read under
+ * still meets the rule. Takes the path as the feature will use it -- no
+ * normalization.
+ */
+export function zomboidDataFolderHolds(dataPath) {
+  if (!hasPathShape(dataPath) || !path.isAbsolute(dataPath)) return false;
+  return judgeFolder(path.resolve(dataPath)).ok;
+}
+
+// The response body for a data folder refused at use time.
+export function zomboidDataFolderRefusal() {
+  return {
+    error:
+      "This server's Zomboid data folder holds files the game doesn't keep in a data folder, so the panel won't list or read it. On the Servers page, edit the server and set its Zomboid data folder to the game's own, the one with a Saves folder.",
+    code: ErrorCode.ZOMBOID_DATA_PATH_NOT_DATA_FOLDER,
+  };
+}

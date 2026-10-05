@@ -15,6 +15,7 @@ import { createBackupIfChanged } from "../utils/configBackup.js";
 import { resolveServerPhase } from "../utils/serverStatus.js";
 import { candidateIniPaths } from "../routes/server.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { serverConfigDirOf } from "../utils/serverConfigPath.js";
 import { waitForProcessExit } from "../utils/processScanRetry.js";
 import {
   getScheduledTasks,
@@ -900,11 +901,15 @@ export class Scheduler {
           : await getActiveServer();
       if (!server?.serverName) return server;
 
-      const serverConfigPath =
-        server.serverConfigPath ||
-        (server.zomboidDataPath
-          ? path.join(server.zomboidDataPath, "Server")
-          : null);
+      // SECURITY (2026-10-05, PATHS-2): this writes .bak copies into the
+      // config folder, so a configured one is used only while it is inside
+      // the server's own data folder (utils/serverConfigPath.js); refused,
+      // this restart just isn't covered, as when there is no folder.
+      const configFolder = serverConfigDirOf(server);
+      if (configFolder.refused) {
+        log.warn("Pre-restart config backup skipped: the server's config folder is outside its Zomboid data folder");
+      }
+      const serverConfigPath = configFolder.dir;
       if (!serverConfigPath) return server;
 
       const iniPath =

@@ -24,6 +24,7 @@ import {
   publicRestoreMessage,
 } from "../utils/restoreMessage.js";
 import { captureBackupSnapshot } from "../utils/backupSnapshot.js";
+import { zomboidDataFolderHolds, zomboidDataFolderRefusal } from "./zomboidDataPath.js";
 import {
   addBackupRecord,
   listBackupRecords,
@@ -371,6 +372,19 @@ export function createRestoreStagingDir(savesParentPath, makeName = randomUUID) 
 // text that can quote host paths.
 export const BACKUP_PROGRESS_ROOM = "backups";
 
+// SECURITY (2026-10-05, PATHS-1): backups read the world save under a
+// server's Zomboid data folder and list, write, restore and delete in its
+// backups/ folder, so that folder is held to the data-folder rule
+// (services/zomboidDataPath.js) again here, where it is used: one saved
+// before the rule existed, or one that didn't exist when it was saved and
+// has appeared since, is refused -- never swapped for the legacy setting's
+// or the panel's own folder. A remote server's folder is on another host.
+function dataFolderUsable(server, dataPath) {
+  if (server?.isRemote || zomboidDataFolderHolds(dataPath)) return true;
+  log.warn("Not using the Zomboid data folder for backups: it doesn't look like one");
+  return false;
+}
+
 export class BackupService {
   constructor() {
     this.backupInProgress = false;
@@ -433,6 +447,7 @@ export class BackupService {
           : await getActiveServer();
 
       if (activeServer?.zomboidDataPath && activeServer?.serverName) {
+        if (!dataFolderUsable(activeServer, activeServer.zomboidDataPath)) return null;
         const savesPath = path.join(
           activeServer.zomboidDataPath,
           "Saves",
@@ -481,6 +496,7 @@ export class BackupService {
       const serverName = await getSetting("serverName");
 
       if (zomboidDataPath && serverName) {
+        if (!dataFolderUsable(null, zomboidDataPath)) return null;
         return path.join(zomboidDataPath, "Saves", "Multiplayer", serverName);
       }
 
@@ -507,11 +523,13 @@ export class BackupService {
         : await getActiveServer();
 
     if (activeServer?.zomboidDataPath) {
-      return activeServer.zomboidDataPath;
+      return dataFolderUsable(activeServer, activeServer.zomboidDataPath)
+        ? activeServer.zomboidDataPath
+        : null;
     }
 
     const legacyPath = await getSetting("zomboidDataPath");
-    if (legacyPath) return legacyPath;
+    if (legacyPath) return dataFolderUsable(null, legacyPath) ? legacyPath : null;
 
     // Use local backups folder as fallback
     const { getDataPaths } = await import("../utils/paths.js");
@@ -529,6 +547,7 @@ export class BackupService {
   async getBackupsPath(activeServerOverride) {
     try {
       const basePath = await this._resolveServerDataBasePath(activeServerOverride);
+      if (!basePath) return null;
       const backupsPath = path.join(basePath, "backups");
 
       // Ensure backups folder exists
@@ -830,6 +849,11 @@ export class BackupService {
     // duration, and /servers/:id/activate takes that same lock, so the
     // active server provably cannot change under restore already.
     const activeServer = await getActiveServer();
+    const dataPath =
+      activeServer?.zomboidDataPath || (await getSetting("zomboidDataPath"));
+    if (dataPath && !dataFolderUsable(activeServer, dataPath)) {
+      throw new Error(zomboidDataFolderRefusal().error);
+    }
     const savesPath = await this.getSavesPath(activeServer);
     const backupsPath = await this.getBackupsPath(activeServer);
 

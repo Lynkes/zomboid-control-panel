@@ -60,6 +60,8 @@ import { invalidateMapFolderScan } from "./chunks.js";
 import { codedActionResultFields, emitActionResult } from "./scheduler.js";
 import panelBridge from "../services/panelBridge.js";
 import { candidateIniPaths } from "../utils/zomboidPaths.js";
+import { checkZomboidDataPath } from "../services/zomboidDataPath.js";
+import { activeServerConfigDir, serverConfigDirOf } from "../utils/serverConfigPath.js";
 import {
   describeLeftoverNativeLibraries,
   detectLeftoverNativeLibraries,
@@ -837,11 +839,19 @@ export async function ensureRconConfigured(server = null) {
     }
 
     serverConfigPathKind = activeServer.serverConfigPath ? "install" : "data";
-    serverConfigPath =
-      activeServer.serverConfigPath ||
-      (activeServer.zomboidDataPath
-        ? path.join(activeServer.zomboidDataPath, "Server")
-        : null);
+    // SECURITY (2026-10-05, PATHS-2): this creates the folder and writes
+    // the .ini (RCON password included), so a configured config folder is
+    // used only while it is inside the server's own data folder
+    // (utils/serverConfigPath.js) -- one saved before that check, or with
+    // no data folder, is left alone and the start goes on without it.
+    const configDir = serverConfigDirOf(activeServer);
+    if (configDir.refused) {
+      log.warn(
+        "ensureRconConfigured: not writing RCON settings -- the server's config folder is outside its Zomboid data folder",
+      );
+      return false;
+    }
+    serverConfigPath = configDir.dir;
     const serverName = activeServer.serverName;
     const rconPassword = activeServer.rconPassword;
     const rconPort = activeServer.rconPort || 27015;
@@ -968,11 +978,21 @@ export async function ensureRconConfigured(server = null) {
 export async function getActiveServerPaths() {
   const activeServer = await getActiveServer();
 
-  let serverConfigPath = activeServer?.serverConfigPath || null;
-  if (!serverConfigPath) {
-    const legacyPath = await getSetting("serverConfigPath");
-    serverConfigPath = legacyPath || null;
-  }
+  // SECURITY (2026-10-05, PATHS-2): /configure-rcon and /configure-network
+  // rewrite <name>.ini in this folder, which was the record's config
+  // folder or the legacy setting's, taken as is. It is now the same folder
+  // Server Files and mods use (utils/serverConfigPath.js's
+  // activeServerConfigDir()): a configured one only while it is inside the
+  // data folder in effect, else <data folder>/Server. `configPathRefused`
+  // lets those routes say which.
+  const legacy = activeServer?.zomboidDataPath
+    ? {}
+    : {
+        serverConfigPath: await getSetting("serverConfigPath"),
+        zomboidDataPath: await getSetting("zomboidDataPath"),
+      };
+  const config = activeServerConfigDir(activeServer, legacy);
+  const serverConfigPath = config.dir;
 
   let serverName = activeServer?.serverName || null;
   if (!serverName) {
@@ -987,7 +1007,7 @@ export async function getActiveServerPaths() {
     serverName = legacyName || null;
   }
 
-  return { serverConfigPath, serverName };
+  return { serverConfigPath, serverName, configPathRefused: config.refused };
 }
 
 // Security: Sanitize string for use in batch files/commands
@@ -3507,6 +3527,19 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     const { zomboidPath, serverConfigPath, usesEnvironmentDataPath } =
       resolveZomboidPaths(installPath, zomboidDataPath);
 
+    // SECURITY (2026-10-05, PATHS-1): the data folder this install saves
+    // (the one sent, or the <install>_Data default beside a caller-chosen
+    // install folder) is held to the rule every data-folder setter shares
+    // (services/zomboidDataPath.js) before anything is downloaded or written
+    // into it. As sent, no %VAR% expansion: this route uses it that way.
+    // PZ_SAVE_PATH's folder is the operator's own.
+    if (!usesEnvironmentDataPath) {
+      const dataPathCheck = checkZomboidDataPath(zomboidPath, { expand: false });
+      if (!dataPathCheck.ok) {
+        return res.status(400).json(dataPathCheck.body);
+      }
+    }
+
     // steamcmd-routes-running-check, 2026-09-08: installPath can point at an
     // EXISTING install with a server already running there (a re-run, a
     // repair, or simply the wrong path) -- SteamCMD writing over live game
@@ -4335,6 +4368,14 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
     const { zomboidPath, serverConfigPath, usesEnvironmentDataPath } =
       resolveZomboidPaths(installPath, zomboidDataPath);
 
+    // PATHS-1: same rule as /install above.
+    if (!usesEnvironmentDataPath) {
+      const dataPathCheck = checkZomboidDataPath(zomboidPath, { expand: false });
+      if (!dataPathCheck.ok) {
+        return res.status(400).json(dataPathCheck.body);
+      }
+    }
+
     // steamcmd-routes-running-check, 2026-09-08: unlike /install, this
     // route's own precondition just above GUARANTEES server files already
     // exist at installPath -- exactly the state an existing, possibly
@@ -4613,8 +4654,15 @@ router.post("/configure-rcon", requirePermission("server.configure"), async (req
 
     // Get the server config path from active server or settings -- ONE
     // read, not two (split-derivation sweep, 2026-09-07).
-    const { serverConfigPath, serverName } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, configPathRefused } = await getActiveServerPaths();
 
+    if (configPathRefused) {
+      return res.status(400).json({
+        error:
+          "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
+        code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
+      });
+    }
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
         error: "Server config path not set. Please run installation first.",
@@ -4711,8 +4759,15 @@ router.post("/configure-network", requirePermission("server.configure"), async (
 
     // Get the server config path from active server or settings -- ONE
     // read, not two (split-derivation sweep, 2026-09-07).
-    const { serverConfigPath, serverName } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, configPathRefused } = await getActiveServerPaths();
 
+    if (configPathRefused) {
+      return res.status(400).json({
+        error:
+          "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
+        code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
+      });
+    }
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
         error: "Server config path not set. Please run installation first.",
