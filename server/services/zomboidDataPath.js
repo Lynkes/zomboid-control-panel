@@ -330,8 +330,57 @@ function listNames(folder) {
 // Exactly as the game names them (ZomboidFileSystem.getSaveDir() is
 // getCacheDirSub("Saves"), and a multiplayer world goes in its
 // Core.gameMode "Multiplayer" folder) and as resolveSavesPath() matches them.
-function isSavesMultiplayerFolder(resolved) {
-  return path.basename(resolved) === "Multiplayer" && path.basename(path.dirname(resolved)) === "Saves";
+//
+// SECURITY (2026-10-05, W5-P1): the names were compared as the stored path
+// spells them. 1.4.5 stored a data folder as it was typed, and Windows and
+// macOS ignore letter case, so a record whose data folder reads
+// ...\saves\multiplayer is the game's own Saves\Multiplayer folder -- yet
+// it was refused after the update, and every feature for that server with
+// it. A name spelled as the game spells it still matches; one spelled in
+// another letter case matches only when the folder is listed in its parent
+// under the game's name (a listing carries the real case, macOS's
+// included) and the path leads to that same folder (carriesGameName()). On
+// a case-sensitive file system such a path leads to no folder, or to a
+// folder of its own, so matching stays exact there.
+export function isSavesMultiplayerFolder(folder) {
+  const resolved = path.resolve(folder);
+  return carriesGameName(resolved, "Multiplayer") && carriesGameName(path.dirname(resolved), "Saves");
+}
+
+export function carriesGameName(folder, gameName) {
+  const given = path.basename(folder);
+  if (given === gameName) return true;
+  return given.toLowerCase() === gameName.toLowerCase() && onDiskName(folder) === gameName;
+}
+
+// The name `folder` is listed under in its parent folder: as spelled, or
+// the entry of another letter case the path leads to; null when there is
+// none.
+function onDiskName(folder) {
+  const parent = path.dirname(folder);
+  const given = path.basename(folder);
+  const names = listNames(parent);
+  if (names.includes(given)) return given;
+  const lower = given.toLowerCase();
+  return names.find((name) => name.toLowerCase() === lower && isSameFolder(folder, path.join(parent, name))) ?? null;
+}
+
+// Whether two paths lead to the same folder: the same real path on Windows
+// (fs.realpathSync.native() gives the real letter case there), the same
+// device and inode elsewhere (an inode of 0, which some network file
+// systems report for everything, proves nothing).
+function isSameFolder(first, second) {
+  try {
+    if (!fs.statSync(first).isDirectory()) return false;
+    if (process.platform === "win32") {
+      return fs.realpathSync.native(first) === fs.realpathSync.native(second);
+    }
+    const a = fs.statSync(first, { bigint: true });
+    const b = fs.statSync(second, { bigint: true });
+    return a.ino !== 0n && a.dev === b.dev && a.ino === b.ino;
+  } catch {
+    return false;
+  }
 }
 
 // What the game keeps in Saves/Multiplayer: one folder per world save --
@@ -427,31 +476,59 @@ function multiplayerFolderHoldsOnlyWorlds(folder, names) {
 // data folder; and a server the game runs with <Zomboid> as its -cachedir
 // writes its console log there. utils/serverConfigPath.js accepts a config
 // folder under this one's Server folder too, and the console log is looked
-// for here when the data folder holds none. Never for a data folder that
-// isn't named Saves/Multiplayer, nor for a Zomboid folder that is missing
-// or doesn't meet the rule: then nothing outside the data folder is used.
-export function savesMultiplayerRoot(dataPath) {
+// for here when the data folder holds none.
+//
+// SECURITY (2026-10-05, W5-P2): and for the two other folders "Save as
+// default" stored as they were typed, which its hint named and
+// resolveSavesPath() reads: a Saves folder (<Zomboid>/Saves) and a single
+// world save (<Zomboid>/Saves/Multiplayer/<world>). Those records kept
+// <Zomboid>/Server as well, and Server Files, Mods, the RCON settings and
+// templates answered SERVER_CONFIG_PATH_OUTSIDE_DATA after the update. Each
+// shape counts only as the game makes it: folders listed under the game's
+// names (letter case as in isSavesMultiplayerFolder()), and a world save --
+// save files, by their exact names -- in the Saves folder's Multiplayer
+// folder, or in the world folder named, whose name isn't one of the game's
+// own data-folder entries. Never for a data folder of no such shape, nor
+// for a Zomboid folder that is missing or doesn't meet the rule on its own:
+// then nothing outside the data folder is used. So it is always a folder
+// that could have been named as the data folder itself.
+export function zomboidFolderAround(dataPath) {
   if (!hasPathShape(dataPath) || !path.isAbsolute(dataPath)) return null;
-  const resolved = path.resolve(dataPath);
-  if (!isSavesMultiplayerFolder(resolved)) return null;
-  const root = path.dirname(path.dirname(resolved));
-  if (root === resolved || path.dirname(root) === root) return null;
+  const root = mapCleanupShapeRoot(path.resolve(dataPath));
+  if (!root || path.dirname(root) === root) return null;
   const verdict = judgeFolder(root);
   return verdict.ok && !verdict.missing ? root : null;
+}
+
+function mapCleanupShapeRoot(resolved) {
+  // <Zomboid>/Saves/Multiplayer
+  if (isSavesMultiplayerFolder(resolved)) return path.dirname(path.dirname(resolved));
+  // <Zomboid>/Saves, its Multiplayer folder holding a world save
+  if (carriesGameName(resolved, "Saves")) {
+    const multiplayer = path.join(resolved, "Multiplayer");
+    return listNames(resolved).includes("Multiplayer") && folderHoldsAWorld(multiplayer)
+      ? path.dirname(resolved)
+      : null;
+  }
+  // <Zomboid>/Saves/Multiplayer/<world>, a world save
+  const multiplayer = path.dirname(resolved);
+  if (!isSavesMultiplayerFolder(multiplayer)) return null;
+  const world = onDiskName(resolved);
+  return world && isWorldSaveFolder(multiplayer, world) ? path.dirname(path.dirname(multiplayer)) : null;
 }
 
 // Where the game writes a server's server-console.txt (and Logs/), for a
 // data folder that meets the rule: the data folder itself, the game's
 // -cachedir when the panel starts it -- unless it holds no console log and
-// it is a Saves/Multiplayer folder whose Zomboid folder (savesMultiplayerRoot())
-// holds one. A server the game runs with the Zomboid folder as its -cachedir
-// writes it there; a 1.4.5 record Map Cleanup's "Save as default" repointed
-// to the Saves/Multiplayer folder is one.
+// it is one of Map Cleanup's 1.4.5 shapes whose Zomboid folder
+// (zomboidFolderAround()) holds one. A server the game runs with the
+// Zomboid folder as its -cachedir writes it there; a 1.4.5 record Map
+// Cleanup's "Save as default" repointed to a folder inside it is one.
 const CONSOLE_LOG_FILE = "server-console.txt";
 
 export function gameLogFolderOf(dataPath) {
   if (fs.existsSync(path.join(dataPath, CONSOLE_LOG_FILE))) return dataPath;
-  const root = savesMultiplayerRoot(dataPath);
+  const root = zomboidFolderAround(dataPath);
   return root && fs.existsSync(path.join(root, CONSOLE_LOG_FILE)) ? root : dataPath;
 }
 

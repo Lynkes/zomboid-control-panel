@@ -2,9 +2,9 @@ import fs from "fs";
 import path from "path";
 import { ErrorCode } from "./errorCodes.js";
 import {
-  savesMultiplayerRoot,
   zomboidDataFolderHolds,
   zomboidDataFolderRefusal,
+  zomboidFolderAround,
 } from "../services/zomboidDataPath.js";
 
 // SECURITY (2026-10-04, FILES-2): serverConfigPath is the folder Server
@@ -70,7 +70,7 @@ export function serverConfigPathIsConfined(value, zomboidDataPath) {
 // SECURITY (2026-10-05, PT2 verifier round 1): the Server folder of the
 // data folder, and for a data folder named Saves/Multiplayer, also the
 // Server folder of the Zomboid folder it sits in -- only when that one meets
-// the data-folder rule on its own (savesMultiplayerRoot()), so it is a
+// the data-folder rule on its own (zomboidFolderAround()), so it is a
 // folder a technician could have named as the data folder anyway. In 1.4.5
 // Map Cleanup's "Save as default" set such a data folder and left the
 // record's config folder, <Zomboid>/Server, as it was; Server Files and Mods
@@ -78,9 +78,14 @@ export function serverConfigPathIsConfined(value, zomboidDataPath) {
 // config folder set, the default stays <data folder>/Server: that is where
 // the game reads its ini when the panel starts it with the data folder as
 // its -cachedir.
+//
+// SECURITY (2026-10-05, W5-P2): the same for the other two folders "Save
+// as default" stored in 1.4.5 -- a Saves folder and a single world save --
+// and for a stored path in another letter case on Windows and macOS
+// (W5-P1), each only as zomboidFolderAround() verifies it on disk.
 function configAnchors(zomboidDataPath) {
   const anchors = [resolveThroughLinks(path.join(path.resolve(zomboidDataPath), "Server"))];
-  const root = savesMultiplayerRoot(zomboidDataPath);
+  const root = zomboidFolderAround(zomboidDataPath);
   if (root) anchors.push(resolveThroughLinks(path.join(root, "Server")));
   return anchors;
 }
