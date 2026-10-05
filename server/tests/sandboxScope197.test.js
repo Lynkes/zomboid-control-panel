@@ -110,9 +110,23 @@ function getGateMiddleware() {
   return router.stack.filter((entry) => !entry.route)[1].handle;
 }
 
+// As in Express, the handler runs only when the gate calls next(). Every
+// test here expects its route to run, so a gate that answers the request
+// itself (a folder refusal, say) or passes an error on fails the test,
+// instead of the handler running anyway and hiding what production does.
 async function runHandler(routePath, method, req) {
   const res = createResponse();
-  await getGateMiddleware()(req, res, () => {});
+  let passed = false;
+  await getGateMiddleware()(req, res, (error) => {
+    if (error) throw error;
+    passed = true;
+  });
+  if (!passed) {
+    throw new Error(
+      `The Server Files gate answered ${method.toUpperCase()} ${routePath} itself: ` +
+        `${res.status.mock.calls[0]?.[0] ?? 200} ${JSON.stringify(res.json.mock.calls[0]?.[0])}`,
+    );
+  }
   await getHandler(routePath, method)(req, res, () => {});
   return res;
 }
