@@ -170,8 +170,9 @@ const UNIX_PATH_RE = new RegExp(
 const FOLDER_END = String.raw`(?![\w-]|\.\w)`;
 // The rest of a path below a configured folder, in either slash style
 // (path.join() on Windows turns a POSIX-style setting's slashes around).
-const WIN_FOLDER_TAIL = String.raw`(?:[\\/]+(?:${FWD_SPACED_NAME}[\\/]+)*${LAST_NAME})?`;
-const POSIX_FOLDER_TAIL = String.raw`(?:[\\/]+(?:${NAME}[\\/]+)*${LAST_NAME})?`;
+// Folder names below it may hold spaces: the configured folder already
+// says this is a path.
+const FOLDER_TAIL = String.raw`(?:[\\/]+(?:${FWD_SPACED_NAME}[\\/]+)*${LAST_NAME})?`;
 const WINDOWS_ABSOLUTE_RE = /^(?:[A-Za-z]:[\\/]|\\\\)/;
 const MAX_HOST_FOLDER_LENGTH = 1024;
 
@@ -236,8 +237,8 @@ function buildHostFolderRe(entries, { windows }) {
     entries.sort((a, b) => b.length - a.length).map((entry) => entry.source),
   )].join("|");
   return windows
-    ? new RegExp(String.raw`(?<!\w)(?:${alternatives})${FOLDER_END}${WIN_FOLDER_TAIL}`, "gi")
-    : new RegExp(`${POSIX_START_GUARD}(?:${alternatives})${FOLDER_END}${POSIX_FOLDER_TAIL}`, "g");
+    ? new RegExp(String.raw`(?<!\w)(?:${alternatives})${FOLDER_END}${FOLDER_TAIL}`, "gi")
+    : new RegExp(`${POSIX_START_GUARD}(?:${alternatives})${FOLDER_END}${FOLDER_TAIL}`, "g");
 }
 
 let hostFolderCache = { key: null, patterns: [] };

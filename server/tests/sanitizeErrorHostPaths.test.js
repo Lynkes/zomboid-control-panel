@@ -86,6 +86,9 @@ describe("sanitizeError: the folders the panel is configured with", () => {
     expect(sanitizeError("Backup failed: /srv/pz world is read-only")).toBe("Backup failed: [path] is read-only");
     expect(sanitizeError("/zomboid is full")).toBe("[path] is full");
     expect(sanitizeError("/zomboid/Saves/Multiplayer/x.bin is locked")).toBe("[path] is locked");
+    // Folder names below a registered folder may hold spaces.
+    expect(sanitizeError("/zomboid/My Saves/world one/map.bin is locked")).toBe("[path] is locked");
+    expect(sanitizeError("/zomboid/a/b and 3/4 done")).toBe("[path] and 3/4 done");
     // Windows folders: any case, either slash style, with the path below them.
     expect(sanitizeError(`${win("D:", "PZ Server", "My Data")} is full`)).toBe("[path] is full");
     expect(sanitizeError("d:/pz server/MY DATA/Saves/x is locked")).toBe("[path] is locked");
