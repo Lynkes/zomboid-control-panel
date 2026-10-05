@@ -328,7 +328,7 @@ import debugRoutes, { addLogToBuffer } from "./routes/debug.js";
 import { getDiskFree } from "./utils/diskSpace.js";
 import { getSwapInfo } from "./utils/swapInfo.js";
 import serverFinderRoutes from "./routes/serverFinder.js";
-import panelBridgeRoutes from "./routes/panelBridge.js";
+import panelBridgeRoutes, { bridgeFolderEventView } from "./routes/panelBridge.js";
 import bridgeDeliveryRoutes from "./routes/bridgeDelivery.js";
 import backupRoutes from "./routes/backup.js";
 import mapProxyRoutes from "./routes/mapProxy.js";
@@ -1536,23 +1536,25 @@ rconService.on("disconnected", () => {
 // bridgePath is a host filesystem path, and the HTTP status route gates it
 // behind bridge.setup / bridge.diagnostics (7ead08e0) — these rare events go
 // only to sockets holding one of those, instead of every signed-in role
-// (security audit M1).
+// (security audit M1). SECURITY (2026-10-05, H4 round 3): and a socket
+// whose role only diagnoses the bridge gets the folder as the placeholder,
+// as from GET /api/panel-bridge/status (bridgeFolderEventView()).
 panelBridge.on("started", () => {
-  emitToCapabilities(["bridge.setup", "bridge.diagnostics"], "panelBridge:status", {
-    isRunning: true,
-    bridgePath: panelBridge.bridgePath,
-  }).catch(() => {});
+  emitToCapabilities(["bridge.setup", "bridge.diagnostics"], "panelBridge:status", (s) =>
+    bridgeFolderEventView(s.user, { isRunning: true, bridgePath: panelBridge.bridgePath }),
+  ).catch(() => {});
 });
 
 panelBridge.on("stopped", () => {
-  emitToCapabilities(["bridge.setup", "bridge.diagnostics"], "panelBridge:status", {
-    isRunning: false,
-    bridgePath: panelBridge.bridgePath,
-  }).catch(() => {});
+  emitToCapabilities(["bridge.setup", "bridge.diagnostics"], "panelBridge:status", (s) =>
+    bridgeFolderEventView(s.user, { isRunning: false, bridgePath: panelBridge.bridgePath }),
+  ).catch(() => {});
 });
 
 panelBridge.on("configured", ({ path }) => {
-  emitToCapabilities(["bridge.setup", "bridge.diagnostics"], "panelBridge:configured", { bridgePath: path }).catch(() => {});
+  emitToCapabilities(["bridge.setup", "bridge.diagnostics"], "panelBridge:configured", (s) =>
+    bridgeFolderEventView(s.user, { bridgePath: path }),
+  ).catch(() => {});
 });
 
 // The live heartbeat is consumed by the dashboard/bridge badges (alive,
@@ -2775,7 +2777,8 @@ onRoleCapabilitiesChanged((roleName) => {
 // field selection) — security audit M1: several broadcasts sent privileged
 // content (admin chat, bridge host paths, live player lists) to every
 // authenticated socket regardless of role, bypassing the HTTP gates that
-// protect the same data.
+// protect the same data. `payload` may be a function of the receiving
+// socket, for an event whose fields depend on who gets it.
 export async function emitToCapabilities(capabilities, event, payload, server = io) {
   // Resolve each distinct role once per broadcast, not once per socket.
   const roleAllowed = new Map();
@@ -2796,7 +2799,7 @@ export async function emitToCapabilities(capabilities, event, payload, server = 
   };
   for (const s of [...server.sockets.sockets.values()]) {
     if (!s.user) continue;
-    if (await allowed(s)) s.emit(event, payload);
+    if (await allowed(s)) s.emit(event, typeof payload === "function" ? await payload(s) : payload);
   }
 }
 

@@ -51,6 +51,7 @@ import {
   extractSteamCookies,
 } from "../utils/browserCookies.js";
 import { requirePermission } from "../services/permissions.js";
+import { hostPathViewFor } from "../utils/hostPathView.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { withFileLock } from "../utils/fileWriteQueue.js";
 import { writeIniWithBackup as writeIniWithBackupRaw, backupWarningFor } from "../utils/configBackup.js";
@@ -273,6 +274,12 @@ function shouldRefreshTrackedModName(name) {
   );
 }
 
+// SECURITY (2026-10-05, H4 round 3): mods.manage doesn't set the server's
+// folders up, and the Workshop ACF sits in the install folder (or in the
+// SteamCMD folder below the panel account's profile). A role without the
+// host-path capabilities (utils/hostPathView.js) gets the placeholder,
+// which still reads as "found" to a page that checks it is set; the same
+// goes for the ini path the routes below answer with (its file name).
 // Get mod checker status
 router.get("/status", async (req, res) => {
   try {
@@ -280,7 +287,8 @@ router.get("/status", async (req, res) => {
     if (!modChecker) return;
 
     const status = await modChecker.getStatus();
-    res.json(status);
+    const view = await hostPathViewFor(req.user);
+    res.json({ ...status, workshopAcfPath: view.folder(status.workshopAcfPath) });
   } catch (error) {
     log.error(`Failed to get mod checker status: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -926,11 +934,12 @@ router.get("/workshop-status", async (req, res) => {
     if (!modChecker) return;
 
     const status = await modChecker.getStatus();
+    const view = await hostPathViewFor(req.user);
 
     res.json({
       success: true,
       configured: status.workshopAcfConfigured,
-      workshopAcfPath: status.workshopAcfPath,
+      workshopAcfPath: view.folder(status.workshopAcfPath),
       message: status.workshopAcfConfigured
         ? "Workshop ACF file found - mod updates can be detected automatically"
         : "Workshop ACF file not found - ensure server install path is correct",
@@ -994,11 +1003,12 @@ router.post("/sync-from-server", async (req, res) => {
     const iniPath = path.join(serverConfigPath, `${sanitizedServerName}.ini`);
     log.info(`sync-from-server: Looking for config at ${iniPath}`);
 
+    const view = await hostPathViewFor(req.user);
     if (!fs.existsSync(iniPath)) {
       log.warn(`sync-from-server: Config file not found at ${iniPath}`);
       return res.json({
         success: false,
-        message: `Server config not found at ${iniPath}. Start the server once first.`,
+        message: `Server config not found at ${view.file(iniPath)}. Start the server once first.`,
         synced: 0,
       });
     }
@@ -1112,7 +1122,7 @@ router.post("/sync-from-server", async (req, res) => {
       synced,
       skippedIgnored,
       skippedNonMod,
-      iniPath,
+      iniPath: view.file(iniPath),
     });
   } catch (error) {
     log.error(`Failed to sync mods from server: ${error.message}`);
@@ -2224,7 +2234,7 @@ router.post("/write-to-ini", async (req, res) => {
     res.json({
       success: true,
       message: `Successfully configured ${mods.length} mods in server config.${autoDetectedCount > 0 ? ` (${autoDetectedCount} mod IDs auto-detected)` : ""}${detectedMapFolders.length > 0 ? ` Map folders: ${detectedMapFolders.join(", ")}` : ""}${unresolvedWorkshopIds.length > 0 ? ` WARNING: ${unresolvedWorkshopIds.length} mod ID(s) could not be auto-detected and were subscribed but NOT enabled: ${unresolvedWorkshopIds.join(", ")}` : ""}`,
-      iniPath,
+      iniPath: (await hostPathViewFor(req.user)).file(iniPath),
       modsConfigured: mods.length,
       autoDetectedModIds: autoDetectedCount,
       unresolvedModIds: unresolvedWorkshopIds,
@@ -2330,7 +2340,7 @@ router.get("/current-config", async (req, res) => {
       workshopIds,
       maps,
       totalMods: modIds.length,
-      iniPath,
+      iniPath: (await hostPathViewFor(req.user)).file(iniPath),
       workshopModMap,
       duplicateKeys,
       // { modId, workshopId } when those entries are PanelBridge's own

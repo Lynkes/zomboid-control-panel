@@ -10,6 +10,9 @@ const { getActiveServer } = vi.hoisted(() => ({
 vi.mock("../database/init.js", () => ({
   getActiveServer,
   getAllSettings: vi.fn(async () => ({})),
+  // GET /paths names the config folder only to a role that sets the
+  // server's folders up (utils/hostPathView.js, H4 round 3).
+  getRoleByName: vi.fn(async (name) => (name === "technician" ? { capabilities: ["servers.manage"] } : null)),
 }));
 
 vi.mock("../services/remoteConfigFiles.js", () => ({
@@ -141,7 +144,7 @@ describe("server-files router: a configured server still resolves and reads real
     // req.activeServerContext instead of re-deriving it -- run the real gate
     // first, on the same req, exactly as Express's own middleware chain
     // would, rather than hand-building the context here.
-    const req = { path: "/paths", method: "GET" };
+    const req = { path: "/paths", method: "GET", user: { role: "technician" } };
     await getGateMiddleware()(req, response, () => {});
     await getRouteHandler("get", "/paths")(req, response);
 

@@ -9,6 +9,7 @@
 import fs from "fs";
 import path from "path";
 import { createLogger } from "./logger.js";
+import { sanitizeError } from "./sanitize.js";
 import { writeFileAtomic } from "./fileWriteQueue.js";
 import { withOriginalLineEnding, restoreLineEnding } from "./iniKeyWrite.js";
 
@@ -262,9 +263,15 @@ export async function createBackupIfChanged(configPath, filename) {
 // rather than silently degrading. Returns a user-facing warning string, or
 // null when there's nothing to warn about (backup succeeded, or there was
 // no prior file to back up in the first place).
+//
+// SECURITY (2026-10-05, H4 round 3): the error is a raw fs message quoting
+// the config folder ("EACCES: ..., copyfile '<config>/x.ini' -> ..."), and
+// this warning goes to mods.manage and serverfiles.manage, which can't see
+// that folder elsewhere. It is path-redacted like every route's error body;
+// createBackup() has already logged it whole.
 export function backupWarningFor(backup) {
   if (!backup || backup.backedUp || backup.reason === "no-source") return null;
-  return `Could not back up the previous version before saving: ${backup.error}. Your change was saved, but there is no safety copy of what was there before.`;
+  return `Could not back up the previous version before saving: ${sanitizeError(backup.error)}. Your change was saved, but there is no safety copy of what was there before.`;
 }
 
 // Back up the live ini at `iniPath`, then atomically write `content` in its

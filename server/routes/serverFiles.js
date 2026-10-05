@@ -48,6 +48,7 @@ import {
   warnRunningForLocalConfigEdit,
 } from "../services/configMutationGuard.js";
 import { requirePermission } from "../services/permissions.js";
+import { hostPathViewFor } from "../utils/hostPathView.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { isHostKeyRefusal } from "../services/sftpHostKeys.js";
 
@@ -1462,6 +1463,16 @@ function toSpawnRegions(regions, serverName) {
 
 // ===== ROUTES =====
 
+// SECURITY (2026-10-05, H4 round 3): serverfiles.manage edits the config
+// files but doesn't set the server's folders up, and GET /api/servers
+// already gave a custom role holding only it the placeholder for the config
+// folder. This route and the file routes below still answered with it. A
+// role without the host-path capabilities (utils/hostPathView.js) now gets
+// the config folder as the placeholder and each file by name, like GET
+// /raw/:type's `filename`. GET /browse-files keeps its folders: the image
+// picker writes the absolute path of the image it picks into the ini, and
+// it only lists the data folder's Server folder and ~/Zomboid
+// (getAllowedBrowseRoots()).
 // Get server file paths info
 router.get("/paths", async (req, res) => {
   try {
@@ -1482,7 +1493,13 @@ router.get("/paths", async (req, res) => {
       spawnregions: fs.existsSync(files.spawnregions),
     };
 
-    res.json({ configPath, serverName, files, exists });
+    const view = await hostPathViewFor(req.user);
+    res.json({
+      configPath: view.folder(configPath),
+      serverName,
+      files: Object.fromEntries(Object.entries(files).map(([kind, file]) => [kind, view.file(file)])),
+      exists,
+    });
   } catch (error) {
     log.error("Failed to get paths:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1544,7 +1561,7 @@ router.get("/ini", async (req, res) => {
       maskedCutAtEqualsKeys: Object.keys(gameView.values).filter(
         (key) => SENSITIVE_FIELD_RE.test(key) && gameView.values[key].includes("="),
       ),
-      path: filePath,
+      path: (await hostPathViewFor(req.user)).file(filePath),
       serverName,
       duplicateKeys,
     });
@@ -1705,7 +1722,7 @@ router.put("/ini", async (req, res) => {
     res.json({
       success: true,
       message: "Settings saved",
-      path: filePath,
+      path: (await hostPathViewFor(req.user)).file(filePath),
       settings: maskSensitiveObject(persistedSettings),
       ...(backupWarning ? { backupWarning } : {}),
       ...(req.configEditRestartWarning ? { restartRequired: true } : {}),
@@ -1732,7 +1749,7 @@ router.get("/sandbox", async (req, res) => {
     const content = fs.readFileSync(filePath, "utf-8");
     const parsed = parseSandboxVars(content);
 
-    res.json({ sandbox: parsed, path: filePath, serverName });
+    res.json({ sandbox: parsed, path: (await hostPathViewFor(req.user)).file(filePath), serverName });
   } catch (error) {
     log.error("Failed to read SandboxVars:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1827,7 +1844,7 @@ router.put("/sandbox", async (req, res) => {
       success: true,
       created: !fileExists,
       message: fileExists ? "Sandbox settings saved" : "SandboxVars file created",
-      path: filePath,
+      path: (await hostPathViewFor(req.user)).file(filePath),
       ...(unpersistedKeys.length > 0 ? { unpersistedKeys } : {}),
       ...(backupWarning ? { backupWarning } : {}),
       ...(req.configEditRestartWarning ? { restartRequired: true } : {}),
@@ -2126,7 +2143,7 @@ router.get("/spawnpoints", async (req, res) => {
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({
         error: "Spawn points file not found",
-        path: filePath,
+        path: (await hostPathViewFor(req.user)).file(filePath),
         code: ErrorCode.SPAWNPOINTS_FILE_NOT_FOUND,
       });
     }
@@ -2134,7 +2151,7 @@ router.get("/spawnpoints", async (req, res) => {
     const content = fs.readFileSync(filePath, "utf-8");
     const points = parseSpawnPoints(content);
 
-    res.json({ spawnpoints: points, path: filePath });
+    res.json({ spawnpoints: points, path: (await hostPathViewFor(req.user)).file(filePath) });
   } catch (error) {
     log.error("Failed to read spawn points:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -2190,7 +2207,7 @@ router.get("/spawnregions", async (req, res) => {
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({
         error: "Spawn regions file not found",
-        path: filePath,
+        path: (await hostPathViewFor(req.user)).file(filePath),
         code: ErrorCode.SPAWNREGIONS_FILE_NOT_FOUND,
       });
     }
@@ -2198,7 +2215,7 @@ router.get("/spawnregions", async (req, res) => {
     const content = fs.readFileSync(filePath, "utf-8");
     const regions = parseSpawnRegions(content);
 
-    res.json({ spawnregions: regions, path: filePath });
+    res.json({ spawnregions: regions, path: (await hostPathViewFor(req.user)).file(filePath) });
   } catch (error) {
     log.error("Failed to read spawn regions:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -2447,7 +2464,7 @@ router.get("/backups", async (req, res) => {
       })
       .map(({ _parsed, ...rest }) => rest);
 
-    res.json({ backups: files, path: backupDir });
+    res.json({ backups: files, path: (await hostPathViewFor(req.user)).folder(backupDir) });
   } catch (error) {
     log.error("Failed to list backups:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
