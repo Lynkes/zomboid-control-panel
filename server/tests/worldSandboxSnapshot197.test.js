@@ -12,9 +12,17 @@ import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
 // PanelBridge's live edits created it, after which every SandboxVars.lua
 // change, from this panel or the in-game admin panel, was undone at the next
 // restart. Server Config now reports the file and can move it out of the
-// save, only while the server is stopped.
+// save, only while the server is stopped. A remote server's file is reached
+// over SFTP (remoteConfigFiles.js; its own test drives a real sftp-server).
 
-const state = vi.hoisted(() => ({ activeServer: null, running: false, mirrorDir: null }));
+const state = vi.hoisted(() => ({
+  activeServer: null,
+  running: false,
+  rconConnected: false,
+  mirrorDir: null,
+  session: {},
+  remoteRetire: null,
+}));
 
 vi.mock("../database/init.js", () => ({
   getActiveServer: vi.fn(async () => state.activeServer),
@@ -23,17 +31,21 @@ vi.mock("../database/init.js", () => ({
 }));
 
 // A remote server with SFTP set up: its Server/ folder is mirrored into
-// state.mirrorDir, and nothing else of the remote host is reachable.
+// state.mirrorDir, and the mirror session says what the host's world save
+// holds (state.session.worldSandboxSnapshot).
+const TRANSPORT = vi.hoisted(() => ({ host: "sftp.test", configPath: "/home/pz/Zomboid/Server" }));
 vi.mock("../services/remoteConfigFiles.js", () => ({
   SFTP_CONFIG_PATH_KEY: "panelBridgeSftpConfigPath",
   acquireMirrorLock: vi.fn(async () => () => {}),
-  beginRemoteConfigSession: vi.fn(async () => ({})),
+  beginRemoteConfigSession: vi.fn(async () => state.session),
   getMirrorPath: vi.fn(() => state.mirrorDir),
   isRemoteConfigConfigured: vi.fn(() => Boolean(state.activeServer?.isRemote)),
   pushRemoteConfigFiles: vi.fn(async () => {}),
-  validateRemoteConfigTransport: vi.fn(async () => ({ host: "sftp.test" })),
+  retireRemoteWorldSandboxSnapshot: vi.fn(async () => state.remoteRetire),
+  validateRemoteConfigTransport: vi.fn(() => TRANSPORT),
 }));
 
+const { retireRemoteWorldSandboxSnapshot } = await import("../services/remoteConfigFiles.js");
 const { default: router } = await import("../routes/serverFiles.js");
 
 const SANDBOX = "SandboxVars = {\n    VERSION = 6,\n    ZombieLore = {\n        Cognition = 3,\n        DoorOpeningPercentage = 0,\n    },\n}\n";
@@ -67,6 +79,11 @@ beforeAll(async () => {
     reloadConfig: async () => {},
     getServerProcessDetails: async () => ({ running: state.running, scanFailed: false }),
   });
+  app.set("rconService", {
+    get connected() {
+      return state.rconConnected;
+    },
+  });
   app.use("/", router);
   server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -88,8 +105,25 @@ beforeEach(() => {
   fs.writeFileSync(snapshotPath, SNAPSHOT);
   state.activeServer = { id: 1, serverName: "DoB", zomboidDataPath: dataDir, isRemote: false };
   state.running = false;
+  state.rconConnected = false;
   state.mirrorDir = null;
+  state.session = {};
+  state.remoteRetire = null;
+  vi.mocked(retireRemoteWorldSandboxSnapshot).mockClear();
 });
+
+const REMOTE_SNAPSHOT = {
+  path: "/home/pz/Zomboid/Saves/Multiplayer/DoB/map_sand.bin",
+  mtime: "2026-10-05T06:58:03.000Z",
+};
+
+// A remote server whose Server/ folder is mirrored into configDir. The world
+// save in this test's local data folder is not the one it reads.
+function makeRemote({ snapshot }) {
+  state.activeServer = { id: 1, serverName: "DoB", zomboidDataPath: null, isRemote: true };
+  state.mirrorDir = configDir;
+  state.session = { worldSandboxSnapshot: snapshot ? REMOTE_SNAPSHOT : null };
+}
 
 afterEach(() => {
   fs.rmSync(dataDir, { recursive: true, force: true });
@@ -132,15 +166,43 @@ describe("Server Config reports the world's own sandbox copy (#197)", () => {
     expect((await call("GET", "/raw/sandbox")).body).not.toHaveProperty("worldSandboxSnapshot");
   });
 
-  it("says nothing for a remote server, whose save the panel can't see", async () => {
-    state.activeServer = { ...state.activeServer, isRemote: true };
-    state.mirrorDir = configDir;
+  it("PUT /sandbox-option says so too: Mod Settings writes there after a live edit", async () => {
+    const { status, body } = await call("PUT", "/sandbox-option", { name: "ZombieLore.Cognition", value: 2 });
+
+    expect(status).toBe(200);
+    expect(body.persisted).toBe(true);
+    expect(body.worldSandboxSnapshot?.path).toBe(snapshotPath);
+
+    fs.rmSync(snapshotPath);
+    const again = await call("PUT", "/sandbox-option", { name: "ZombieLore.Cognition", value: 1 });
+    expect(again.body).not.toHaveProperty("worldSandboxSnapshot");
+  });
+
+  it("reports a remote world's map_sand.bin, found over SFTP", async () => {
+    makeRemote({ snapshot: true });
 
     const { status, body } = await call("GET", "/sandbox");
 
     expect(status).toBe(200);
     expect(body.sandbox.ZombieLore).toEqual({ Cognition: 3, DoorOpeningPercentage: 0 });
-    expect(body).not.toHaveProperty("worldSandboxSnapshot");
+    expect(body.worldSandboxSnapshot).toEqual(REMOTE_SNAPSHOT);
+    expect((await call("GET", "/raw/sandbox")).body.worldSandboxSnapshot).toEqual(REMOTE_SNAPSHOT);
+    const saved = await call("PUT", "/sandbox", { sandbox: { ZombieLore: { Cognition: 2 } } });
+    expect(saved.body.worldSandboxSnapshot).toEqual(REMOTE_SNAPSHOT);
+    const option = await call("PUT", "/sandbox-option", { name: "ZombieLore.Cognition", value: 1 });
+    expect(option.body.worldSandboxSnapshot).toEqual(REMOTE_SNAPSHOT);
+  });
+
+  it("says nothing for a remote world without one", async () => {
+    makeRemote({ snapshot: false });
+
+    expect((await call("GET", "/sandbox")).body).not.toHaveProperty("worldSandboxSnapshot");
+  });
+
+  it("finds the save next to the config folder when no data folder is set and that folder is named Server", async () => {
+    state.activeServer = { id: 1, serverName: "DoB", zomboidDataPath: null, serverConfigPath: configDir, isRemote: false };
+
+    expect((await call("GET", "/sandbox")).body.worldSandboxSnapshot?.path).toBe(snapshotPath);
   });
 });
 
@@ -203,14 +265,75 @@ describe("POST /sandbox/world-snapshot/retire (#197)", () => {
     expect(fs.existsSync(path.join(configDir, "backups"))).toBe(false);
   });
 
-  it("refuses for a remote server", async () => {
-    state.activeServer = { ...state.activeServer, isRemote: true };
-    state.mirrorDir = configDir;
+  it("moves a remote world's map_sand.bin over SFTP, into the backups folder on the host", async () => {
+    makeRemote({ snapshot: true });
+    const movedTo = "/home/pz/Zomboid/Server/backups/DoB_map_sand.bin.2026-10-05T07-00-00-000Z.retired";
+    state.remoteRetire = { available: true, retired: true, movedTo };
+
+    const { status, body } = await call("POST", "/sandbox/world-snapshot/retire");
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ success: true, retired: true, movedTo });
+    expect(retireRemoteWorldSandboxSnapshot).toHaveBeenCalledWith(TRANSPORT, "DoB");
+    // The local data folder was never the remote server's.
+    expect(fs.readFileSync(snapshotPath)).toEqual(SNAPSHOT);
+  });
+
+  it("is a no-op for a remote world without map_sand.bin", async () => {
+    makeRemote({ snapshot: false });
+    state.remoteRetire = { available: true, retired: false };
+
+    const { status, body } = await call("POST", "/sandbox/world-snapshot/retire");
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ success: true, retired: false });
+  });
+
+  it("refuses for a remote server while its RCON is connected, and moves nothing", async () => {
+    makeRemote({ snapshot: true });
+    state.rconConnected = true;
+
+    const { status, body } = await call("POST", "/sandbox/world-snapshot/retire");
+
+    expect(status).toBe(409);
+    expect(body.code).toBe("SERVER_RUNNING");
+    expect(retireRemoteWorldSandboxSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("refuses for a remote server whose config folder isn't its Server folder", async () => {
+    makeRemote({ snapshot: false });
+    state.remoteRetire = { available: false, retired: false };
 
     const { status, body } = await call("POST", "/sandbox/world-snapshot/retire");
 
     expect(status).toBe(400);
     expect(body.code).toBe("WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE");
+  });
+
+  it("retires from the config folder's parent when no data folder is set and that folder is named Server", async () => {
+    state.activeServer = { id: 1, serverName: "DoB", zomboidDataPath: null, serverConfigPath: configDir, isRemote: false };
+
+    const { status, body } = await call("POST", "/sandbox/world-snapshot/retire");
+
+    expect(status).toBe(200);
+    expect(body.retired).toBe(true);
+    expect(fs.existsSync(snapshotPath)).toBe(false);
+    expect(fs.readFileSync(body.movedTo)).toEqual(SNAPSHOT);
+  });
+
+  it("says no data folder is set when the save's place can't be told", async () => {
+    const cfg = path.join(dataDir, "cfg");
+    fs.mkdirSync(cfg);
+    fs.copyFileSync(path.join(configDir, "DoB_SandboxVars.lua"), path.join(cfg, "DoB_SandboxVars.lua"));
+    state.activeServer = { id: 1, serverName: "DoB", zomboidDataPath: null, serverConfigPath: cfg, isRemote: false };
+
+    expect((await call("GET", "/sandbox")).body).not.toHaveProperty("worldSandboxSnapshot");
+    const { status, body } = await call("POST", "/sandbox/world-snapshot/retire");
+
+    expect(status).toBe(400);
+    expect(body.code).toBe("WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE");
+    expect(body.error).toMatch(/can't tell where this server's world save is.+Set the server's data folder/);
+    expect(body.error).not.toMatch(/not on this computer/);
     expect(fs.existsSync(snapshotPath)).toBe(true);
   });
 });

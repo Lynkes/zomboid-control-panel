@@ -44,7 +44,7 @@
   "SANDBOX_REPAIR_PATTERN_UNKNOWN": "No se pudo reparar este archivo automáticamente — la corrupción no coincide con ningún patrón conocido. Restáuralo desde una copia de seguridad o corrígelo manualmente.",
   "SANDBOX_REPAIR_BACKUP_FAILED": "No se pudo hacer una copia de seguridad de SandboxVars.lua antes de repararlo, así que no se cambió nada: {{reason}}. Libera espacio en disco, corrige los permisos de la carpeta de copias de seguridad, o copia el archivo aparte manualmente, y vuelve a intentarlo.",
   "SANDBOX_FILE_UNPARSEABLE": "SandboxVars.lua no se puede editar de forma segura ({{detail}}). Corrígelo en el editor sin formato, ejecuta la reparación en «Comprobaciones y correcciones» o restaura una copia de seguridad. No se escribió nada.",
-  "WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE": "La partida guardada de este servidor no está en este equipo, así que el panel no puede acceder a su map_sand.bin.",
+  "WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE": "El panel no puede saber dónde está la partida guardada de este servidor, así que no puede acceder a su map_sand.bin. Configura la carpeta de datos del servidor. En un servidor remoto, la carpeta Server remota de Ajustes > PanelBridge debe ser la carpeta Server del juego.",
   "SPAWNPOINTS_FILE_NOT_FOUND": "No se encontró el archivo de puntos de aparición",
   "SPAWNPOINTS_OBJECT_REQUIRED": "Se requiere un objeto de puntos de aparición (indexado por profesión)",
   "SPAWNREGIONS_FILE_NOT_FOUND": "No se encontró el archivo de regiones de aparición",

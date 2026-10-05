@@ -49,6 +49,7 @@ import {
   getMirrorPath,
   isRemoteConfigConfigured,
   pushRemoteConfigFiles,
+  retireRemoteWorldSandboxSnapshot,
   validateRemoteConfigTransport,
 } from "../services/remoteConfigFiles.js";
 import {
@@ -265,6 +266,10 @@ router.use(async (req, res, next) => {
   watchdog.unref?.();
   res.on("finish", finish);
   res.on("close", finish);
+  // For the handlers that reach past Server/: the session also says whether
+  // the world save has a map_sand.bin (#197).
+  req.remoteConfigTransport = transport;
+  req.remoteConfigSession = session;
   next();
 });
 
@@ -1404,15 +1409,26 @@ router.put("/ini", async (req, res) => {
 // server never does, PanelBridge did on each live edit until #197 -- so once
 // it exists, edits to SandboxVars.lua (this editor, the in-game admin panel)
 // are undone at the next start. Without it the game falls back to
-// SandboxVars.lua. Local saves only: the SFTP mirror covers Server/, not Saves/.
-function worldSandboxSnapshotPath({ activeServer, serverName }) {
-  if (!activeServer || activeServer.isRemote || !activeServer.zomboidDataPath) return null;
-  return path.join(activeServer.zomboidDataPath, "Saves", "Multiplayer", serverName, "map_sand.bin");
+// SandboxVars.lua. The save is under the data folder the server starts with
+// (-cachedir), which is also where the game keeps Server/: with no data
+// folder set, the config folder's parent stands in when it is named Server.
+// A remote server's save is checked over SFTP by the mirror session.
+function worldSandboxSnapshotPath({ activeServer, serverConfigPath, serverName }) {
+  if (!activeServer || activeServer.isRemote) return null;
+  let dataDir = activeServer.zomboidDataPath;
+  if (!dataDir && serverConfigPath && path.basename(serverConfigPath).toLowerCase() === "server") {
+    dataDir = path.dirname(serverConfigPath);
+  }
+  if (!dataDir) return null;
+  return path.join(dataDir, "Saves", "Multiplayer", serverName, "map_sand.bin");
 }
 
 // { path, mtime } when this world has a map_sand.bin, else null.
-async function findWorldSandboxSnapshot(context) {
-  const snapshotPath = worldSandboxSnapshotPath(context);
+async function findWorldSandboxSnapshot(req) {
+  if (req.activeServerContext.activeServer?.isRemote) {
+    return req.remoteConfigSession?.worldSandboxSnapshot ?? null;
+  }
+  const snapshotPath = worldSandboxSnapshotPath(req.activeServerContext);
   if (!snapshotPath) return null;
   try {
     const stats = await fs.promises.stat(snapshotPath);
@@ -1440,7 +1456,7 @@ router.get("/sandbox", async (req, res) => {
     // empty sections plus `parseError`, so the page can still open (the INI
     // tab shares it) and PUT /sandbox refuses to edit it.
     const { sandbox, error: parseError } = sandboxSectionsFromLua(content);
-    const worldSandboxSnapshot = await findWorldSandboxSnapshot(req.activeServerContext);
+    const worldSandboxSnapshot = await findWorldSandboxSnapshot(req);
 
     res.json({
       sandbox,
@@ -1574,7 +1590,7 @@ router.put("/sandbox", async (req, res) => {
     }
     log.info(`${fileExists ? "Saved" : "Created"} SandboxVars file`);
     // The save landed, but a world with map_sand.bin will not use it.
-    const worldSandboxSnapshot = await findWorldSandboxSnapshot(req.activeServerContext);
+    const worldSandboxSnapshot = await findWorldSandboxSnapshot(req);
     res.json({
       success: true,
       created: !fileExists,
@@ -1662,11 +1678,16 @@ router.put("/sandbox-option", async (req, res) => {
     log.info(
       `Sandbox option ${name} persisted: ${persisted}${reason ? ` (${reason})` : ""}`,
     );
+    // Mod Settings writes here after each live edit. A PanelBridge older
+    // than #197 has just written map_sand.bin for that edit (saveGame()),
+    // so say whether the world has one now, as PUT /sandbox does.
+    const worldSandboxSnapshot = await findWorldSandboxSnapshot(req);
     res.json({
       success: true,
       persisted,
       ...(reason ? { reason } : {}),
       ...(backupWarning ? { backupWarning } : {}),
+      ...(worldSandboxSnapshot ? { worldSandboxSnapshot } : {}),
     });
   } catch (error) {
     log.error("Failed to save sandbox option:", error);
@@ -1905,22 +1926,59 @@ router.post("/sandbox/repair", async (req, res) => {
 // map_sand.bin, SandboxOptions.load() falls back to SandboxVars.lua, and
 // neither the server's save nor its quit writes the file again (42.21, live);
 // only Lua saveGame() does, e.g. a live edit through a pre-#197 PanelBridge.
+// A remote server's file moves the same way over SFTP, into the backups
+// folder of its Server/ folder on the host.
+const WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE_BODY = {
+  error:
+    "The panel can't tell where this server's world save is, so it can't reach its map_sand.bin. Set the server's data folder. For a remote server, the remote Server folder under Settings > PanelBridge must be the game's Server folder.",
+  code: ErrorCode.WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE,
+};
+const NO_WORLD_SANDBOX_SNAPSHOT_BODY = {
+  success: true,
+  retired: false,
+  message: "This world has no map_sand.bin, so it already uses SandboxVars.lua.",
+};
+const WORLD_SANDBOX_SNAPSHOT_RETIRED_MESSAGE =
+  "map_sand.bin was moved out of the world save. The next start uses SandboxVars.lua.";
+
+async function retireRemoteWorldSandboxSnapshotRoute(req, res) {
+  // The stopped check (requireStoppedForLocalConfigMutation) can't scan a
+  // remote host's processes and lets a remote server through. A connected
+  // RCON is that server answering, so it is running: refuse as for a local
+  // one.
+  if (req.app?.get?.("rconService")?.connected) {
+    return res.status(409).json({
+      code: ErrorCode.SERVER_RUNNING,
+      error: "Stop the server before editing configuration.",
+    });
+  }
+  const result = await retireRemoteWorldSandboxSnapshot(
+    req.remoteConfigTransport,
+    req.activeServerContext.serverName,
+  );
+  if (!result.available) return res.status(400).json(WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE_BODY);
+  if (!result.retired) return res.json(NO_WORLD_SANDBOX_SNAPSHOT_BODY);
+  log.info(`Retired the remote world's sandbox copy -> ${result.movedTo}`);
+  return res.json({
+    success: true,
+    retired: true,
+    movedTo: result.movedTo,
+    message: WORLD_SANDBOX_SNAPSHOT_RETIRED_MESSAGE,
+  });
+}
+
 router.post("/sandbox/world-snapshot/retire", async (req, res) => {
   try {
+    if (req.activeServerContext.activeServer?.isRemote) {
+      return await retireRemoteWorldSandboxSnapshotRoute(req, res);
+    }
     const { serverConfigPath: configPath, serverName } = req.activeServerContext;
     const snapshotPath = worldSandboxSnapshotPath(req.activeServerContext);
     if (!snapshotPath) {
-      return res.status(400).json({
-        error: "This server's world save is not on this computer, so the panel can't reach its map_sand.bin.",
-        code: ErrorCode.WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE,
-      });
+      return res.status(400).json(WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE_BODY);
     }
-    if (!(await findWorldSandboxSnapshot(req.activeServerContext))) {
-      return res.json({
-        success: true,
-        retired: false,
-        message: "This world has no map_sand.bin, so it already uses SandboxVars.lua.",
-      });
+    if (!(await findWorldSandboxSnapshot(req))) {
+      return res.json(NO_WORLD_SANDBOX_SNAPSHOT_BODY);
     }
 
     const backupDir = await getBackupPath(configPath);
@@ -1944,7 +2002,7 @@ router.post("/sandbox/world-snapshot/retire", async (req, res) => {
       success: true,
       retired: true,
       movedTo,
-      message: "map_sand.bin was moved out of the world save. The next start uses SandboxVars.lua.",
+      message: WORLD_SANDBOX_SNAPSHOT_RETIRED_MESSAGE,
     });
   } catch (error) {
     log.error("Failed to retire map_sand.bin:", error);
@@ -2111,7 +2169,7 @@ router.get("/raw/:type", async (req, res) => {
 
     const content = fs.readFileSync(filePath, "utf-8");
     const worldSandboxSnapshot =
-      type === "sandbox" ? await findWorldSandboxSnapshot(req.activeServerContext) : null;
+      type === "sandbox" ? await findWorldSandboxSnapshot(req) : null;
     res.json({
       content: type === "ini" ? maskSensitiveIniLines(content) : content,
       filename: fileMap[type],

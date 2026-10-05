@@ -1599,6 +1599,11 @@ export default function ServerConfig() {
   // both must behave as "it might be running": unknown is the safe answer
   // here, never the permissive one.
   const serverMayBeRunning = serverRunning !== false
+  // Retiring map_sand.bin (#197) waits for a stopped server. A remote
+  // server's process is out of this panel's sight, so it never reads as
+  // confirmed stopped: there the action waits only while RCON or the bridge
+  // shows it running (the server refuses while RCON is connected).
+  const worldSandboxSnapshotRetireBlocked = activeServerRemote ? serverRunning === true : serverMayBeRunning
 
   useEffect(() => {
     void refreshServerState()
@@ -1934,6 +1939,9 @@ export default function ServerConfig() {
             optName,
             confirmedVal as string | number | boolean,
           )
+          // A bridge older than #197 has just written map_sand.bin for this
+          // edit; the reply says whether the world has one now.
+          setWorldSandboxSnapshot(saved.worldSandboxSnapshot ?? null)
           if (!saved.persisted) {
             toast({
               title: t('toasts.appliedNotSavedTitle'),
@@ -3215,11 +3223,11 @@ export default function ServerConfig() {
                   variant="outline"
                   size="sm"
                   onClick={handleRetireWorldSandboxSnapshot}
-                  disabled={serverMayBeRunning || retiringWorldSandboxSnapshot}
+                  disabled={worldSandboxSnapshotRetireBlocked || retiringWorldSandboxSnapshot}
                 >
                   {t('worldSandboxSnapshotBanner.action')}
                 </Button>
-                {serverMayBeRunning && (
+                {worldSandboxSnapshotRetireBlocked && (
                   <span className="text-xs text-muted-foreground">{t('worldSandboxSnapshotBanner.stopFirst')}</span>
                 )}
               </span>

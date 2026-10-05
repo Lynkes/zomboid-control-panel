@@ -2124,8 +2124,9 @@ export interface SandboxData {
 }
 
 // The world save's map_sand.bin: its own copy of every sandbox option, which
-// the game applies over SandboxVars.lua on every start (#197). `mtime` is an
-// ISO timestamp.
+// the game applies over SandboxVars.lua on every start (#197). `path` is on
+// the host the server runs on (a POSIX path over SFTP for a remote server);
+// `mtime` is an ISO timestamp.
 export interface WorldSandboxSnapshot {
   path: string;
   mtime: string;
@@ -2270,8 +2271,9 @@ export const serverFilesApi = {
       restartRequired?: boolean;
       worldSandboxSnapshot?: WorldSandboxSnapshot;
     }>,
-  // Moves the world's map_sand.bin into the config backups folder, so the
-  // next start uses SandboxVars.lua. 409 SERVER_RUNNING while it runs.
+  // Moves the world's map_sand.bin into the config backups folder (on the
+  // host, for a remote server), so the next start uses SandboxVars.lua. 409
+  // SERVER_RUNNING while it runs.
   retireWorldSandboxSnapshot: () =>
     apiPost("/server-files/sandbox/world-snapshot/retire") as Promise<{
       success: boolean;
@@ -2343,8 +2345,14 @@ export const serverFilesApi = {
   saveSandboxOption: (
     name: string,
     value: string | number | boolean,
-  ): Promise<{ success: boolean; persisted: boolean; reason?: string }> =>
-    apiPut("/server-files/sandbox-option", { name, value }),
+  ): Promise<{
+    success: boolean;
+    persisted: boolean;
+    reason?: string;
+    // Whether the world has a map_sand.bin after this edit: a PanelBridge
+    // older than #197 writes one on every live edit.
+    worldSandboxSnapshot?: WorldSandboxSnapshot;
+  }> => apiPut("/server-files/sandbox-option", { name, value }),
 
   // Config Templates
   getTemplates: () =>

@@ -44,7 +44,7 @@
   "SANDBOX_REPAIR_PATTERN_UNKNOWN": "Impossible de réparer automatiquement ce fichier — la corruption ne correspond à aucun modèle connu. Restaurez à partir d'une sauvegarde ou corrigez-le manuellement.",
   "SANDBOX_REPAIR_BACKUP_FAILED": "Impossible de sauvegarder SandboxVars.lua avant de le réparer ; rien n'a été modifié : {{reason}}. Libérez de l'espace disque ou corrigez les permissions du dossier de sauvegardes, ou copiez le fichier vous-même, puis réessayez.",
   "SANDBOX_FILE_UNPARSEABLE": "SandboxVars.lua ne peut pas être modifié sans risque ({{detail}}). Corrigez-le dans l'éditeur brut, lancez la réparation dans « Vérifications et corrections » ou restaurez une sauvegarde. Rien n'a été écrit.",
-  "WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE": "La sauvegarde du monde de ce serveur n'est pas sur cet ordinateur, le panneau ne peut donc pas atteindre son map_sand.bin.",
+  "WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE": "Le panneau ne sait pas où se trouve la sauvegarde du monde de ce serveur, il ne peut donc pas atteindre son map_sand.bin. Définissez le dossier de données du serveur. Pour un serveur distant, le dossier Server distant dans Paramètres > PanelBridge doit être le dossier Server du jeu.",
   "SPAWNPOINTS_FILE_NOT_FOUND": "Fichier de points d'apparition introuvable",
   "SPAWNPOINTS_OBJECT_REQUIRED": "Objet de points d'apparition requis (indexé par profession)",
   "SPAWNREGIONS_FILE_NOT_FOUND": "Fichier de régions d'apparition introuvable",

@@ -44,7 +44,7 @@
   "SANDBOX_REPAIR_PATTERN_UNKNOWN": "無法自動修復此檔案——損壞情況不符合任何已知模式。請從備份還原，或手動修復。",
   "SANDBOX_REPAIR_BACKUP_FAILED": "修復前無法備份 SandboxVars.lua，因此未做任何更改：{{reason}}。請釋放磁碟空間、修復備份資料夾的權限，或自行將檔案複製到別處，然後重試。",
   "SANDBOX_FILE_UNPARSEABLE": "無法安全編輯 SandboxVars.lua（{{detail}}）。請在原始編輯器中修復，或在“檢查與修復”中執行修復，或從備份還原。未寫入任何內容。",
-  "WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE": "此伺服器的世界存檔不在這台電腦上，因此面板無法存取其 map_sand.bin。",
+  "WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE": "面板無法確定此伺服器的世界存檔在哪裡，因此無法存取其 map_sand.bin。請設定伺服器的資料資料夾。對於遠端伺服器，「設定 > PanelBridge」中的遠端 Server 資料夾必須是遊戲的 Server 資料夾。",
   "SPAWNPOINTS_FILE_NOT_FOUND": "未找到出生點檔案",
   "SPAWNPOINTS_OBJECT_REQUIRED": "需要出生點物件（以職業為鍵）",
   "SPAWNREGIONS_FILE_NOT_FOUND": "未找到出生區域檔案",

@@ -3,7 +3,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { MemoryRouter } from 'react-router-dom'
 import ServerConfig from '../ServerConfig'
 import { ConfirmProvider } from '@/contexts/ConfirmContext'
-import { serverApi, serverFilesApi, serversApi } from '@/lib/api'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { panelBridgeApi, serverApi, serverFilesApi, serversApi } from '@/lib/api'
 
 // #197: the world save's map_sand.bin holds its own copy of every sandbox
 // option, and the game applies it over SandboxVars.lua on every start, so
@@ -36,6 +37,7 @@ vi.mock('@/contexts/SocketContext', () => ({
 const getResolvedActive = vi.spyOn(serversApi, 'getResolvedActive')
 const getActive = vi.spyOn(serversApi, 'getActive')
 const getStatus = vi.spyOn(serverApi, 'getStatus')
+const getComposedStatus = vi.spyOn(serversApi, 'getComposedStatus')
 const getPaths = vi.spyOn(serverFilesApi, 'getPaths')
 const getSandbox = vi.spyOn(serverFilesApi, 'getSandbox')
 const retire = vi.spyOn(serverFilesApi, 'retireWorldSandboxSnapshot')
@@ -82,10 +84,27 @@ function renderTab(tab: string) {
   return render(
     <MemoryRouter initialEntries={[`/server-config?tab=${tab}`]}>
       <ConfirmProvider>
-        <ServerConfig />
+        <TooltipProvider>
+          <ServerConfig />
+        </TooltipProvider>
       </ConfirmProvider>
     </MemoryRouter>,
   )
+}
+
+// A remote server (SFTP): no process scan, so the page reads RCON and the
+// bridge from the composed status, whose host is always "unknown".
+function mockRemote({ rcon }: { rcon: 'connected' | 'disconnected' }) {
+  mockLoads({ snapshot: true, running: false })
+  getResolvedActive.mockResolvedValue({
+    server: { id: 1, name: 'DoB', serverName: 'DoB', isRemote: true } as never,
+  })
+  getActive.mockResolvedValue({ server: { id: 1, isRemote: true } } as never)
+  getComposedStatus.mockResolvedValue({
+    host: { status: 'unknown' },
+    server: { status: rcon },
+    bridge: { status: 'inactive' },
+  } as never)
 }
 
 const TITLE = 'This world keeps its own copy of the sandbox settings'
@@ -144,5 +163,66 @@ describe("ServerConfig.tsx: the world's own sandbox copy (#197)", () => {
 
     await waitFor(() => expect(retire).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(screen.queryByText(TITLE)).not.toBeInTheDocument())
+  })
+
+  // A remote server never reads as confirmed stopped (its host is out of
+  // the panel's sight), so waiting for that kept the action disabled for good.
+  it('offers it on a remote server once RCON and the bridge show it down', async () => {
+    mockRemote({ rcon: 'disconnected' })
+    renderTab('sandbox')
+
+    await screen.findByText(TITLE)
+    await waitFor(() => expect(getComposedStatus).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Use SandboxVars.lua' })).not.toBeDisabled())
+    expect(screen.queryByText('Stop the server first.')).not.toBeInTheDocument()
+  })
+
+  it('holds it back on a remote server while RCON is connected', async () => {
+    mockRemote({ rcon: 'connected' })
+    renderTab('sandbox')
+
+    await screen.findByText(TITLE)
+    await waitFor(() => expect(getComposedStatus).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: 'Use SandboxVars.lua' })).toBeDisabled()
+    expect(screen.getByText('Stop the server first.')).toBeInTheDocument()
+  })
+
+  // A PanelBridge older than #197 writes map_sand.bin on every live edit,
+  // and keeps doing so until the server restarts with the current one.
+  it('appears after a live edit on Mod Settings when the world now has the copy', async () => {
+    mockLoads({ snapshot: false, running: true })
+    const saveOption = vi.spyOn(serverFilesApi, 'saveSandboxOption').mockResolvedValue({
+      success: true,
+      persisted: true,
+      worldSandboxSnapshot: SNAPSHOT,
+    })
+    const sendCommand = vi.spyOn(panelBridgeApi, 'sendCommand').mockImplementation(async (action) => {
+      if (action === 'getAllSandboxOptions') {
+        return {
+          success: true,
+          data: {
+            options: { General: [{ name: 'General.TestOption', shortName: 'TestOption', tableName: 'General', type: 'boolean', value: false }] },
+            groups: [{ name: 'General', count: 1 }],
+            totalCount: 1,
+            enumerated: true,
+          },
+        } as never
+      }
+      // What PanelBridge 1.7.72 answers: it just ran saveGame().
+      return { success: true, data: { name: 'General.TestOption', value: true, type: 'boolean', verified: 'confirmed', persisted: true } } as never
+    })
+    renderTab('modsettings')
+
+    await waitFor(() => expect(sendCommand).toHaveBeenCalledWith('getAllSandboxOptions', {}, expect.anything()))
+    fireEvent.change(await screen.findByPlaceholderText(/search/i), { target: { value: 'TestOption' } })
+    const toggle = await screen.findByRole('switch')
+    expect(screen.queryByText(TITLE)).not.toBeInTheDocument()
+    await act(async () => {
+      fireEvent.click(toggle)
+    })
+
+    await waitFor(() => expect(sendCommand).toHaveBeenCalledWith('setSandboxOption', { name: 'General.TestOption', value: true }))
+    await waitFor(() => expect(saveOption).toHaveBeenCalledWith('General.TestOption', true))
+    expect(await screen.findByText(TITLE)).toBeInTheDocument()
   })
 })
