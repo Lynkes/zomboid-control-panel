@@ -90,6 +90,23 @@ describe("Console -- the server log says why the panel won't read it", () => {
     expect(screen.queryByText(enConsole.serverLog.notFoundTitle)).not.toBeInTheDocument()
   })
 
+  // Verifier round 2: with no data folder set the refusal was
+  // SERVER_DATA_PATH_NOT_CONFIGURED, shown as "Server data path not
+  // configured" -- not where to set it. Its own code's text says.
+  it('says where to set a data folder when the server has none', async () => {
+    vi.mocked(serverApi.getConsoleLog).mockReset().mockResolvedValue({
+      success: true,
+      lines: [],
+      exists: false,
+      refusal: { error: 'raw server text', code: 'SERVER_CONSOLE_LOG_NO_DATA_FOLDER' },
+    })
+    renderConsole()
+    expect(await screen.findByText(enConsole.serverLog.unavailableTitle)).toBeInTheDocument()
+    const shown = screen.getByText(/My Servers page/)
+    expect(shown.textContent).toBe(enErrors.SERVER_CONSOLE_LOG_NO_DATA_FOLDER)
+    expect(screen.queryByText('raw server text')).not.toBeInTheDocument()
+  })
+
   it('still says "not found" when there is simply no log yet', async () => {
     vi.mocked(serverApi.getConsoleLog).mockReset().mockResolvedValue({ success: true, lines: [], exists: false })
     renderConsole()

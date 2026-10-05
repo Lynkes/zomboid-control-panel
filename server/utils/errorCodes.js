@@ -2517,6 +2517,13 @@ export const ErrorCode = Object.freeze({
    * page; ZOMBOID_DATA_PATH_NOT_DATA_FOLDER stays the save-time refusal
    * (PT3 verifier round 1). */
   ZOMBOID_DATA_FOLDER_REFUSED: "ZOMBOID_DATA_FOLDER_REFUSED",
+  /** server/routes/server.js -- GET /api/server/console-log and /stream
+   * (as `refusal`) and POST /console-log/clear (400): a local server with no
+   * Zomboid data folder set, its own or the legacy one, so there is no
+   * console log to read. Says to set it on the My Servers page;
+   * SERVER_DATA_PATH_NOT_CONFIGURED's text didn't say where (PT4 verifier
+   * round 2). */
+  SERVER_CONSOLE_LOG_NO_DATA_FOLDER: "SERVER_CONSOLE_LOG_NO_DATA_FOLDER",
   /* --- end security sweep W4: server paths --- */
 });
 

@@ -44,6 +44,8 @@ const db = await import("../database/init.js");
 const { default: serversRouter } = await import("../routes/servers.js");
 const { default: serverRouter, ensureRconConfigured } = await import("../routes/server.js");
 const { default: modsRouter } = await import("../routes/mods.js");
+const { default: chunksRouter } = await import("../routes/chunks.js");
+const { default: serverFilesRouter } = await import("../routes/serverFiles.js");
 const { BackupService } = await import("../services/backupService.js");
 const { DiscordBot } = await import("../services/discordBot.js");
 const { logRefusalOnce } = await import("../services/zomboidDataPath.js");
@@ -127,6 +129,8 @@ beforeAll(async () => {
   app.use("/api/servers", serversRouter);
   app.use("/api/server", serverRouter);
   app.use("/api/mods", modsRouter);
+  app.use("/api/chunks", chunksRouter);
+  app.use("/api/server-files", serverFilesRouter);
   await new Promise((resolve) => {
     httpServer = app.listen(0, "127.0.0.1", resolve);
   });
@@ -253,16 +257,22 @@ describe("PT3: the features that went quiet say why", () => {
 });
 
 describe("PT4: the console log of a record with no data folder", () => {
-  it("is 'no data folder set', not a refusal of its install folder", async () => {
+  // Verifier round 2: its own code, whose text (server's and client's) says
+  // where to set the folder; SERVER_DATA_PATH_NOT_CONFIGURED's didn't.
+  it("is 'no data folder set', not a refusal of its install folder, and says where to set it", async () => {
     await useRecord({ zomboidDataPath: null });
     await db.setSetting("zomboidDataPath", null);
     const cleared = await call("POST", "/api/server/console-log/clear");
     expect(cleared.status).toBe(400);
-    expect(cleared.json.code).toBe(ErrorCode.SERVER_DATA_PATH_NOT_CONFIGURED);
+    expect(cleared.json.code).toBe(ErrorCode.SERVER_CONSOLE_LOG_NO_DATA_FOLDER);
+    expect(cleared.json.error).toContain("My Servers page");
     const log = await call("GET", "/api/server/console-log?filter=all");
     expect(log.json.exists).toBe(false);
-    expect(log.json.refusal.code).toBe(ErrorCode.SERVER_DATA_PATH_NOT_CONFIGURED);
+    expect(log.json.refusal.code).toBe(ErrorCode.SERVER_CONSOLE_LOG_NO_DATA_FOLDER);
+    expect(log.json.refusal.error).toContain("My Servers page");
     expect(log.text).not.toContain("install-folder line");
+    const stream = await call("GET", "/api/server/console-log/stream?lastSize=0");
+    expect(stream.json.refusal.code).toBe(ErrorCode.SERVER_CONSOLE_LOG_NO_DATA_FOLDER);
   });
 
   it("uses the legacy data folder before the install folder", async () => {
@@ -297,6 +307,29 @@ describe("PT5: a refused folder is logged at warn once, then at debug", () => {
     // The first test in this file already loaded the page for this folder.
     expect(linesWith("API:Mods", "warn", FOLDER_REFUSED)).toHaveLength(1);
     expect(linesWith("API:Mods", "debug", FOLDER_REFUSED).length).toBeGreaterThanOrEqual(3);
+  });
+
+  // Verifier round 2: chunks /browse (asked on every Map Cleanup load) and
+  // the Server Files gate (several requests per page load) still warned on
+  // every refusal.
+  it("chunks /browse and Server Files warn once per folder, then debug", async () => {
+    await useRecord({ zomboidDataPath: refusedData });
+    for (let i = 0; i < 3; i++) {
+      const browse = await call("GET", `/api/chunks/browse?path=${encodeURIComponent(refusedData)}`);
+      expect(browse.json.code).toBe(FOLDER_REFUSED);
+      const files = await call("GET", "/api/server-files/templates");
+      expect(files.json.code).toBe(FOLDER_REFUSED);
+    }
+    expect(linesWith("API:Chunks", "warn", FOLDER_REFUSED, refusedData)).toHaveLength(1);
+    expect(linesWith("API:Chunks", "debug", FOLDER_REFUSED, refusedData)).toHaveLength(2);
+    expect(linesWith("API:Files", "warn", FOLDER_REFUSED, refusedData)).toHaveLength(1);
+    expect(linesWith("API:Files", "debug", FOLDER_REFUSED, refusedData)).toHaveLength(2);
+
+    await useRecord({ zomboidDataPath: null, serverConfigPath: path.join(realData, "Server") });
+    await call("GET", "/api/server-files/templates");
+    await call("GET", "/api/server-files/templates");
+    expect(linesWith("API:Files", "warn", OUTSIDE_DATA)).toHaveLength(1);
+    expect(linesWith("API:Files", "debug", OUTSIDE_DATA)).toHaveLength(1);
   });
 
   it("each line warns once; another folder or reason warns again", () => {

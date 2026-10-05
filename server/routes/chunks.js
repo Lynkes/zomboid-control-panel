@@ -17,6 +17,8 @@ import { deleteVehiclesInBoxes } from "../utils/vehiclesDb.js";
 import { confineToRoots } from "../utils/browseRoots.js";
 import {
   checkZomboidDataPath,
+  describeRefusal,
+  logRefusalOnce,
   zomboidDataFolderHolds,
   zomboidDataFolderRefusal,
 } from "../services/zomboidDataPath.js";
@@ -2921,9 +2923,13 @@ router.get("/browse", requirePermission("chunks.manage"), async (req, res) => {
     // (services/zomboidDataPath.js) again here, where it is used: one saved
     // before the rule existed, or one that didn't exist when it was saved
     // and has appeared since, is refused until it is fixed.
+    //
+    // PT5 (verifier round 2): Map Cleanup asks on every load, so the
+    // refusal is logged at warn once per folder, then at debug.
     if (!zomboidDataFolderHolds(zomboidDataPath)) {
-      log.warn("Refusing chunk browse: the Zomboid data folder doesn't look like one");
-      return res.status(400).json(zomboidDataFolderRefusal());
+      const refusal = zomboidDataFolderRefusal();
+      logRefusalOnce(log, `Refusing chunk browse in ${zomboidDataPath}: ${describeRefusal(refusal)}`);
+      return res.status(400).json(refusal);
     }
 
     const allowedRoots = [path.resolve(zomboidDataPath)];

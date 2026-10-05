@@ -6547,10 +6547,16 @@ function filterConsoleLogLines(lines, filterLevel = "filtered") {
 // means just that: SERVER_DATA_PATH_NOT_CONFIGURED. Either way `refusal`
 // goes out with the readers' empty answer, so the Console page says why
 // there is no log, and /clear answers it.
+//
+// SECURITY (2026-10-05, PT4 verifier round 2): with no data folder set,
+// that answer was SERVER_DATA_PATH_NOT_CONFIGURED, which the Console page
+// shows as "Server data path not configured" -- not where to set it. It has
+// its own code now, whose text names the My Servers page as every other
+// refusal does.
 const CONSOLE_LOG_NO_DATA_FOLDER = {
   error:
-    "This server has no Zomboid data folder set, and the game writes its console log there. On the Servers page, edit the server and set its Zomboid data folder.",
-  code: ErrorCode.SERVER_DATA_PATH_NOT_CONFIGURED,
+    "This server has no Zomboid data folder set, and the game writes its console log there. On the My Servers page, edit the server and set its Zomboid Data Path.",
+  code: ErrorCode.SERVER_CONSOLE_LOG_NO_DATA_FOLDER,
 };
 
 async function resolveConsoleLogFolder(activeServer) {

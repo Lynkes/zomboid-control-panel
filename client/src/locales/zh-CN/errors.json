@@ -588,5 +588,6 @@
   "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "此 Zomboid 数据文件夹中有游戏不会放在数据文件夹里的文件，因此面板不会将其用作服务器的数据文件夹。请选择服务器自己的数据文件夹（Saves 文件夹中有世界存档的那个）、一个空文件夹，或一个尚不存在的文件夹：游戏会在服务器首次启动时创建它。",
   "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "远程服务器的控制台日志位于其自己的主机上，因此面板无法在此清除它。",
   "WIPE_REMOTE_NOT_AVAILABLE": "远程服务器的世界位于其自己的主机上，因此面板无法在此清除它。",
-  "ZOMBOID_DATA_FOLDER_REFUSED": "此服务器的 Zomboid 数据文件夹中有游戏不会放在数据文件夹里的文件，因此面板不会列出或读取它。请在「我的服务器」页面编辑该服务器，将其 Zomboid 数据路径设为游戏自己的数据文件夹：Saves 文件夹中有世界存档的那个。"
+  "ZOMBOID_DATA_FOLDER_REFUSED": "此服务器的 Zomboid 数据文件夹中有游戏不会放在数据文件夹里的文件，因此面板不会列出或读取它。请在「我的服务器」页面编辑该服务器，将其 Zomboid 数据路径设为游戏自己的数据文件夹：Saves 文件夹中有世界存档的那个。",
+  "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "此服务器未设置 Zomboid 数据文件夹，而游戏会把控制台日志写在那里。请在「我的服务器」页面编辑该服务器，设置其 Zomboid 数据路径。"
 }
