@@ -212,6 +212,10 @@
       "dismissAria": "Verbindungswarnung schließen",
       "dismissTooltip": "Ausblenden, bis sich das ändert"
     },
+    "channelOutsideGuild": {
+      "title": "Einige Benachrichtigungen werden nicht gesendet",
+      "body": "Der Kanal {{channels}} gehört nicht zu dem Server, der als Guild-ID (Server) eingetragen ist, daher postet der Bot dort nicht mehr. Wähle einen Kanal aus diesem Server oder setze die Guild-ID auf den Server des Kanals."
+    },
     "commandPermissions": {
       "title": "Befehlsberechtigungen",
       "description": "Legt fest, wer welchen Slash-Command verwenden darf. Jedem Befehl wird eine Berechtigungsstufe zugewiesen.",

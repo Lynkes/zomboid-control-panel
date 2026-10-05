@@ -212,6 +212,10 @@
       "dismissAria": "Dispensar aviso de conexão",
       "dismissTooltip": "Dispensar até que isso mude"
     },
+    "channelOutsideGuild": {
+      "title": "Algumas notificações não estão sendo enviadas",
+      "body": "O canal {{channels}} não pertence ao servidor informado como ID do servidor (Guild), então o bot não publica mais lá. Escolha um canal desse servidor ou informe como ID do servidor o do canal."
+    },
     "commandPermissions": {
       "title": "Permissões de comandos",
       "description": "Controle quem pode usar cada comando de barra. Atribua um nível de permissão a cada comando.",

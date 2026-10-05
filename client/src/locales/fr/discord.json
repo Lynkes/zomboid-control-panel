@@ -212,6 +212,10 @@
       "dismissAria": "Ignorer l'avertissement de connexion",
       "dismissTooltip": "Ignorer jusqu'à ce que cela change"
     },
+    "channelOutsideGuild": {
+      "title": "Certaines notifications ne sont pas envoyées",
+      "body": "Le salon {{channels}} n'appartient pas au serveur indiqué comme ID du serveur (Guild), donc le bot n'y publie plus. Choisissez un salon de ce serveur, ou indiquez comme ID du serveur celui du salon."
+    },
     "commandPermissions": {
       "title": "Permissions des commandes",
       "description": "Contrôlez qui peut utiliser chaque commande slash. Attribuez un niveau de permission par commande.",

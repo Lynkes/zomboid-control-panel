@@ -212,6 +212,10 @@
       "dismissAria": "Ekate avètisman koneksyon an",
       "dismissTooltip": "Kite tonbe jiskaske sa chanje"
     },
+    "channelOutsideGuild": {
+      "title": "Gen kèk notifikasyon ki pa voye",
+      "body": "Chanèl {{channels}} pa nan sèvè ki mete kòm ID Sèvè (Guild) a, kidonk bot la pa poste la ankò. Chwazi yon chanèl nan sèvè sa a, oswa mete ID Sèvè a sou sèvè chanèl la."
+    },
     "commandPermissions": {
       "title": "Otorizasyon Kòmand",
       "description": "Kontwole ki moun ki ka itilize chak kòmand slash. Asiyen yon nivo otorizasyon pou chak kòmand.",

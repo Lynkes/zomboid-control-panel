@@ -212,6 +212,10 @@
       "dismissAria": "關閉連線警告",
       "dismissTooltip": "關閉，直到情況發生變化"
     },
+    "channelOutsideGuild": {
+      "title": "部分通知未傳送",
+      "body": "頻道 {{channels}} 不屬於填寫為伺服器（Guild）ID 的伺服器，因此機器人不再在該頻道發文。請改選該伺服器中的頻道，或把伺服器（Guild）ID 改為該頻道所在的伺服器。"
+    },
     "commandPermissions": {
       "title": "命令權限",
       "description": "控制誰可以使用每條斜槓命令。為每條命令分配一個權限等級。",

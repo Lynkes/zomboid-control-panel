@@ -80,6 +80,9 @@ interface DiscordStatus {
   // healthy -- used as the dismissal key so dismissing THIS episode doesn't
   // silence a later, different one.
   gatewayDegradedSince?: string | null;
+  // Channels the bot no longer posts to because they aren't in the guild
+  // set as the Guild ID (services/discordBot.js _sendToChannel()).
+  channelsOutsideGuild?: string[];
 }
 
 interface DiscordConfig {
@@ -1715,6 +1718,25 @@ export default function Discord() {
                   </button>
                 </div>
               )}
+
+            {/* The bot posts only in the guild set as the Guild ID; 1.4.5
+                also posted to channels in other guilds, so an operator who
+                updates needs to see why those notifications stopped. */}
+            {status?.channelsOutsideGuild && status.channelsOutsideGuild.length > 0 && (
+              <div
+                role="status"
+                className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg"
+              >
+                <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                  {t("management.channelOutsideGuild.title")}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {t("management.channelOutsideGuild.body", {
+                    channels: status.channelsOutsideGuild.join(", "),
+                  })}
+                </p>
+              </div>
+            )}
 
             <div className="flex gap-2">
               {status?.running ? (

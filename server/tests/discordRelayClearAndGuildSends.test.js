@@ -374,6 +374,32 @@ describe("M2: the bot posts only in a channel of the configured guild", () => {
     expect(discordLog().warn).not.toHaveBeenCalled();
   });
 
+  // 1.4.5 posted to channels in other guilds too, so an operator who updates
+  // has to see on the Discord page why those notifications stopped.
+  it("GET /discord/status lists the channels the bot stopped posting to, until each is fixed", async () => {
+    const client = await startBot({ discordChannelId: OTHER_CHANNEL });
+    const channels = attachChannels(client, { [OTHER_CHANNEL]: textChannel(OTHER_GUILD) });
+    expect(bot.getStatus().channelsOutsideGuild).toEqual([]);
+
+    await bot.sendNotification("first");
+    const refused = await route("get", "/status", bot, "integrations_only");
+    expect(refused.json.mock.calls[0][0].channelsOutsideGuild).toEqual([OTHER_CHANNEL]);
+
+    channels[OTHER_CHANNEL].guildId = GUILD;
+    await bot.sendNotification("second");
+    expect(bot.getStatus().channelsOutsideGuild).toEqual([]);
+  });
+
+  it("GET /discord/config says a bot token is set without showing any of it", async () => {
+    await startBot();
+    const response = await route("get", "/config", bot, "integrations_only");
+    const body = response.json.mock.calls[0][0];
+    expect(body.hasToken).toBe(true);
+    expect(body.token).toBe("••••••••");
+    // Not even the last characters of "operators-bot-token".
+    expect(JSON.stringify(body)).not.toMatch(/operators|-bot-|•oken/);
+  });
+
   it("legit: once the channel is one of the configured guild, the next send goes, and a later failure isn't blamed on the guild", async () => {
     const client = await startBot({ discordChannelId: OTHER_CHANNEL });
     const channels = attachChannels(client, { [OTHER_CHANNEL]: textChannel(OTHER_GUILD) });

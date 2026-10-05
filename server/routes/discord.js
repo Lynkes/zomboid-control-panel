@@ -1,6 +1,6 @@
 import express from "express";
 import { createLogger } from "../utils/logger.js";
-import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
+import { maskSecretValue, sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import {
   normalizeChatRelayScope,
   START_ALREADY_IN_PROGRESS,
@@ -138,7 +138,9 @@ router.get("/config", async (req, res) => {
     const autoStart = await getSetting("discordAutoStart");
 
     res.json({
-      token: discordBot.token ? "••••••••" + discordBot.token.slice(-4) : null,
+      // Says only that a token is set, like every other masked secret
+      // (utils/sanitize.js maskSecretValue): no part of the bot token.
+      token: discordBot.token ? maskSecretValue(discordBot.token) : null,
       hasToken: !!discordBot.token,
       guildId: discordBot.guildId,
       adminRoleId: discordBot.adminRoleId,

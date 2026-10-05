@@ -212,6 +212,10 @@
       "dismissAria": "Dismiss connection warning",
       "dismissTooltip": "Dismiss until this changes"
     },
+    "channelOutsideGuild": {
+      "title": "Some notifications aren't being sent",
+      "body": "Channel {{channels}} isn't in the server set as the Guild (Server) ID, so the bot no longer posts there. Pick a channel from that server, or set the Guild ID to the channel's server."
+    },
     "commandPermissions": {
       "title": "Command Permissions",
       "description": "Control who can use each slash command. Assign a permission tier per command.",

@@ -63,8 +63,8 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-async function renderWithRelayChannel(chatRelayChannelId: string) {
-  getStatus.mockResolvedValue({ running: true, configured: true })
+async function renderWithRelayChannel(chatRelayChannelId: string, statusExtra: Record<string, unknown> = {}) {
+  getStatus.mockResolvedValue({ running: true, configured: true, ...statusExtra })
   getConfig.mockResolvedValue({
     token: null,
     hasToken: true,
@@ -141,5 +141,20 @@ describe('Discord.tsx: emptying the relay channel clears it', () => {
     vi.mocked(fetch).mockClear()
     await renderWithRelayChannel('')
     expect(await savedConfigBody()).toHaveProperty('chatRelayChannelId', '')
+  })
+})
+
+// The bot posts only in the guild set as the Guild ID (M2); 1.4.5 also
+// posted in other guilds, so the page has to say why notifications stopped.
+describe('Discord.tsx: channels outside the configured server', () => {
+  it('says which channel the bot no longer posts to, and how to fix it', async () => {
+    await renderWithRelayChannel(RELAY_CHANNEL, { channelsOutsideGuild: [RELAY_CHANNEL] })
+    expect(await screen.findByText("Some notifications aren't being sent")).toBeInTheDocument()
+    expect(screen.getByText(new RegExp('Channel ' + RELAY_CHANNEL + " isn't in the server set as the Guild"))).toBeInTheDocument()
+  })
+
+  it('shows nothing while every channel is in the configured server', async () => {
+    await renderWithRelayChannel(RELAY_CHANNEL, { channelsOutsideGuild: [] })
+    expect(screen.queryByText("Some notifications aren't being sent")).not.toBeInTheDocument()
   })
 })

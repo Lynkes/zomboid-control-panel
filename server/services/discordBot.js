@@ -2386,6 +2386,10 @@ export class DiscordBot {
       guildId: this.guildId,
       channelId: this.channelId,
       modRoleId: this.modRoleId || null,
+      // Channels the bot stopped posting to because they aren't in the
+      // configured guild (M2): 1.4.5 posted there, so the Discord page says
+      // why notifications stopped instead of leaving it to the panel log.
+      channelsOutsideGuild: [...this._outsideGuildRefusals.keys()],
       // Persists past the one-time toast POST /start already shows, so a
       // user who navigates away and comes back still sees why the last
       // start attempt failed -- cleared the moment a start actually
