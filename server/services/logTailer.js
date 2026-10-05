@@ -14,6 +14,17 @@ const SHOUT_CHAT_ROOM_ID = 2;
 
 const DELIVERY_LINE = /Message ChatMessage\{chat=([^,]+),\s*author='(.*?)',\s*text='(.*)'\} sent to chat \(id = (\d+)\)/;
 
+// One whole B42 user.txt death line, exactly as IsoGameCharacter + ZLogger
+// write it: "[" + dd-MM-yy HH:mm:ss.SSS + "] user " + name + " died at (x,y,z)
+// (non pvp)." -- see processUserLogData for why both ends are anchored.
+// \p{Nd} rather than \d for the timestamp: SimpleDateFormat prints the host
+// locale's digits, and a name can't fake this prefix with any digits since
+// it can't contain the `.`. The single spaces either side of the name are
+// literal, not \s+: \s also matches a no-break space, which the game's
+// trim() leaves in a name, so "\u00a0Sacha" dying used to be read as Sacha.
+const USER_LOG_DEATH_LINE = /^\[\p{Nd}{2}-\p{Nd}{2}-\p{Nd}{2} \p{Nd}{2}:\p{Nd}{2}:\p{Nd}{2}\.\p{Nd}{3}\] user (.+?) died at \((-?\d+),(-?\d+),(-?\d+)\)\s*(?:\((non\s*pvp|pvp)\))?\.?$/iu;
+const USER_LOG_CONTROL_CHAR = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
+
 // startOffsetFor's watchStartedAt (Date.now()) vs a file's birthtimeMs come
 // from two different clock sources measured up to ~20ms apart on this stack
 // (see startOffsetFor's own comment). This is 5x that measured figure as a
@@ -630,15 +641,31 @@ export class LogTailer extends EventEmitter {
   //   [29-05-26 17:42:08.123] user Bob died at (2384,5923,0) (non pvp).
   //   [29-05-26 17:42:08.123] user Bob died at (2384,5923,0) (pvp).
   // Username may contain spaces; we anchor on the " died at " marker.
+  //
+  // The whole line is anchored (USER_LOG_DEATH_LINE): a PZ username may
+  // contain a newline (ServerWorldDatabase.isValidUserName doesn't reject
+  // one), so the game's own death line for a player named "q\nuser Sacha"
+  // splits into "[ts] user q" + "user Sacha died at (...)". The old
+  // unanchored match read that second half as Sacha's death -- a Discord
+  // death notice and a player-history entry for someone who never died.
+  // A bare `^\[[^\]]+\]` anchor isn't enough either, since `[` and `]` are
+  // legal in names; the strict ZLogger timestamp is enough, because a name
+  // can't contain its `.` (isValidUserName refuses that one). A name still
+  // carrying a control character (a lone CR survives the line split) is
+  // dropped outright rather than reported under a mangled name.
   processUserLogData(data) {
     const lines = this._splitLines(data, 'userRemainder');
     for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
 
-        const deathMatch = trimmed.match(/user\s+(.+?)\s+died at\s+\((-?\d+),(-?\d+),(-?\d+)\)\s*(?:\((non\s*pvp|pvp)\))?/i);
+        const deathMatch = trimmed.match(USER_LOG_DEATH_LINE);
         if (deathMatch) {
             const player = deathMatch[1];
+            if (USER_LOG_CONTROL_CHAR.test(player)) {
+                log.warn('LogTailer: ignoring a user.txt death line whose player name contains a control character');
+                continue;
+            }
             const x = parseInt(deathMatch[2], 10);
             const y = parseInt(deathMatch[3], 10);
             const z = parseInt(deathMatch[4], 10);
