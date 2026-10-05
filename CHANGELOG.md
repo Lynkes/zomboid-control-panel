@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Stable installs the newest build:** installs and updates now ask Steam for the stable branch by name with fresh app info, so a folder once on the 42.19 or unstable branch no longer stays on it.
+- **World Map vehicles:** Repair, Set Fuel, Set Battery and the siren work again on Build 42, and Repair is the game's own admin repair (#199).
+- **Vehicle alarm and hotwire:** Alarm On now leaves the alarm armed, and hotwiring unlocks the doors for connected players too.
 
 ## [1.4.5] - 2026-10-05
 
