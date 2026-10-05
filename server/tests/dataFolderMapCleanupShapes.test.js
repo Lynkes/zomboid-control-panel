@@ -24,10 +24,12 @@ import path from "path";
 // <data folder>/Saves/Multiplayer/<name>; Map Cleanup's saves folder (which
 // 1.4.5 found only for a path spelled as the game spells it); the console
 // log in the data folder (else, as for Saves/Multiplayer since PT2, the
-// Zomboid folder's).
+// Zomboid folder's); and Server Config's image browser, which opened on the
+// record's config folder (a root of its own in 1.4.5; W5 verifier round 1).
 //
 // Real routers over the real, unmocked database layer (the suite's per-file
-// temp data dir keeps it isolated), signed in as admin.
+// temp data dir keeps it isolated), signed in as admin unless a test says
+// otherwise.
 const db = await import("../database/init.js");
 const { default: serversRouter } = await import("../routes/servers.js");
 const { default: serverRouter, ensureRconConfigured } = await import("../routes/server.js");
@@ -50,7 +52,10 @@ function write(file, content = "") {
   fs.writeFileSync(file, content);
 }
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-map-cleanup-shapes-"));
+// Named in lower case only (mkdtemp's suffix isn't), so a data path typed
+// all in lower case stays inside it on a case-sensitive file system too.
+const root = path.join(os.tmpdir(), `zcp-map-cleanup-shapes-${process.pid}-${Date.now()}`);
+fs.mkdirSync(root, { recursive: true });
 // Whether this file system ignores letter case (Windows, macOS): only there
 // is a path spelled in another case the game's own folder.
 const ignoresCase = (() => {
@@ -75,6 +80,7 @@ let baseUrl;
 let httpServer;
 let installDir;
 let serverId;
+let currentRole = "admin";
 
 async function call(method, url, body) {
   const res = await fetch(baseUrl + url, {
@@ -97,6 +103,9 @@ beforeAll(async () => {
   write(path.join(installDir, "ProjectZomboid64.exe"));
 
   await db.initDatabase();
+  // Server Config without the host-path capabilities: names folders by a
+  // root id and the path below it (HT3).
+  await db.insertRole({ id: "role-w5-files", name: "w5-files", capabilities: ["serverfiles.manage"] });
   const server = await db.createServer({
     name: "Victim",
     serverName: "Victim",
@@ -111,7 +120,7 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json({ limit: "2mb" }));
   app.use((req, _res, next) => {
-    req.user = { id: "u-admin", username: "admin", role: "admin" };
+    req.user = { id: `u-${currentRole}`, username: currentRole, role: currentRole };
     next();
   });
   app.set("serverManager", {
@@ -146,12 +155,17 @@ const SHAPES = [
   ["a single world save", ["Saves", "Multiplayer", "Victim"]],
 ];
 const SPELLINGS = [
-  ["as the game spells it", (segment) => segment],
-  ["in lower case", (segment) => segment.toLowerCase()],
+  ["as the game spells it", (zomboid, segments) => path.join(zomboid, ...segments)],
+  ["in lower case", (zomboid, segments) => path.join(zomboid, ...segments.map((segment) => segment.toLowerCase()))],
+  // As typed into Map Cleanup on Windows: c:/users/.../zomboid/saves/...
+  ["in lower case, the whole path", (zomboid, segments) => path.join(zomboid, ...segments).toLowerCase()],
 ];
 const CASES = SHAPES.flatMap(([shape, segments]) =>
   SPELLINGS.map(([spelling, spell]) => ({ shape, spelling, segments, spell, lower: spelling !== SPELLINGS[0][0] })),
 );
+
+// The same file, however each path spells it.
+const realPath = (target) => fs.realpathSync.native(target);
 
 let caseNumber = 0;
 
@@ -166,12 +180,13 @@ describe.each(CASES)("a 1.4.5 record: data folder $shape, spelled $spelling; con
 
   beforeAll(() => {
     ({ zomboid, config } = buildZomboid(`case-${++caseNumber}`));
-    dataPath = path.join(zomboid, ...segments.map(spell));
+    dataPath = spell(zomboid, segments);
     // 1.4.5's Backups page made <data folder>/backups.
     write(path.join(dataPath, "backups", "Victim_2026-10-01T10-00-00-000.zip"), "zip");
   });
 
   beforeEach(async () => {
+    currentRole = "admin";
     write(path.join(config, "Victim.ini"), INI);
     write(path.join(config, "Victim_SandboxVars.lua"), SANDBOX);
     await useRecord({ zomboidDataPath: dataPath, serverConfigPath: config });
@@ -244,7 +259,7 @@ describe.each(CASES)("a 1.4.5 record: data folder $shape, spelled $spelling; con
       expect(fromZomboid.json.lines).toContain(ZOMBOID_LOG_LINE);
       const tailer = new LogTailer();
       await tailer.findLogPath();
-      expect(tailer.logPath).toBe(path.join(zomboid, "server-console.txt"));
+      expect(realPath(tailer.logPath)).toBe(realPath(path.join(zomboid, "server-console.txt")));
 
       const own = path.join(dataPath, "server-console.txt");
       write(own, "SERVER STARTED\nthe cachedir's own line\n");
@@ -253,6 +268,44 @@ describe.each(CASES)("a 1.4.5 record: data folder $shape, spelled $spelling; con
         expect(fromDataFolder.json.lines).toContain("the cachedir's own line");
       } finally {
         fs.rmSync(own);
+      }
+    });
+
+    // W5 verifier round 1: no root held the config folder, so the browser
+    // answered BROWSE_ACCESS_DENIED for every role (the Zomboid folder here
+    // isn't ~/Zomboid, so that root doesn't hold it either).
+    it("Server Config's image browser opens on the config folder and previews its images, as in 1.4.5", async () => {
+      const image = path.join(config, "loading.png");
+      write(image, "png");
+      for (const role of ["admin", "technician"]) {
+        currentRole = role;
+        const browsed = await call("GET", "/api/server-files/browse-files");
+        expect(browsed.status, `${role}: ${browsed.text}`).toBe(200);
+        expect(browsed.json.currentPath).toBe(config);
+        expect(browsed.json.files.map((f) => f.name)).toContain("loading.png");
+        const preview = await call("GET", `/api/server-files/image-preview?path=${encodeURIComponent(image)}`);
+        expect(preview.status, `${role}: ${preview.text}`).toBe(200);
+        expect(preview.text).toBe("png");
+        // Nothing above the config folder.
+        expect(browsed.json.parent).toBeNull();
+        const above = await call("GET", `/api/server-files/browse-files?path=${encodeURIComponent(zomboid)}`);
+        expect(above.status, role).toBe(403);
+      }
+
+      currentRole = "w5-files";
+      const byRef = await call("GET", "/api/server-files/browse-files");
+      expect(byRef.status, byRef.text).toBe(200);
+      expect(byRef.json.currentPath).toBe("config:/");
+      expect(byRef.json.files.map((f) => f.name)).toContain("loading.png");
+      expect(byRef.text).not.toContain(path.basename(root));
+      const previewByRef = await call(
+        "GET",
+        `/api/server-files/image-preview?path=${encodeURIComponent("config:/loading.png")}`,
+      );
+      expect(previewByRef.status, previewByRef.text).toBe(200);
+      for (const ref of ["config:/..", "config:/../Saves", "config:\\..\\Server"]) {
+        const climbed = await call("GET", `/api/server-files/browse-files?path=${encodeURIComponent(ref)}`);
+        expect(climbed.status, ref).toBe(403);
       }
     });
   });
@@ -328,5 +381,48 @@ describe("the shapes count only as the game makes them", () => {
     } finally {
       Object.defineProperty(process, "platform", platform);
     }
+  });
+});
+
+describe("Server Config's image browser takes the config folder only where Server Files does", () => {
+  it.skipIf(!ignoresCase)("a <Zomboid> data folder typed in lower case, its config folder as the game spells it", async () => {
+    // The gate compares real paths; the roots compared the two spellings.
+    const { zomboid, config } = buildZomboid("plain-lower-case");
+    write(path.join(config, "loading.png"), "png");
+    await useRecord({ zomboidDataPath: zomboid.toLowerCase(), serverConfigPath: config });
+    for (const role of ["admin", "technician"]) {
+      currentRole = role;
+      const browsed = await call("GET", "/api/server-files/browse-files");
+      expect(browsed.status, `${role}: ${browsed.text}`).toBe(200);
+      expect(browsed.json.files.map((f) => f.name)).toContain("loading.png");
+    }
+    currentRole = "admin";
+  });
+
+  it("not the Zomboid folder's Server folder when the data folder isn't one of the 1.4.5 shapes", async () => {
+    const { zomboid, config } = buildZomboid("browse-not-a-shape");
+    write(path.join(config, "loading.png"), "png");
+    // An empty folder meets the rule but is no 1.4.5 shape; a
+    // Saves/Multiplayer folder of another Zomboid folder is one, of that one.
+    const empty = path.join(root, "browse-empty");
+    fs.mkdirSync(empty);
+    const elsewhere = path.join(root, "browse-elsewhere", "Zomboid", "Saves", "Multiplayer");
+    write(path.join(elsewhere, "Victim", "map_t.bin"), "t");
+    expect(zomboidDataFolderHolds(empty) && zomboidDataFolderHolds(elsewhere)).toBe(true);
+    expect(fs.existsSync(path.join(zomboid, "Saves", "Multiplayer", "Victim"))).toBe(true);
+    for (const dataPath of [empty, elsewhere]) {
+      await useRecord({ zomboidDataPath: dataPath, serverConfigPath: config });
+      for (const role of ["admin", "technician", "w5-files"]) {
+        currentRole = role;
+        const browsed = await call("GET", "/api/server-files/browse-files");
+        expect(browsed.status, `${role}: ${browsed.text}`).not.toBe(200);
+        const preview = await call(
+          "GET",
+          `/api/server-files/image-preview?path=${encodeURIComponent(path.join(config, "loading.png"))}`,
+        );
+        expect(preview.status, role).not.toBe(200);
+      }
+    }
+    currentRole = "admin";
   });
 });
