@@ -3,7 +3,8 @@ import { JSONFile } from "lowdb/node";
 import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
-import { getDataPaths } from "../utils/paths.js";
+import { getDataPaths, getPanelProgramDir } from "../utils/paths.js";
+import { registerHostFolderSource } from "../utils/sanitize.js";
 import { checkAndExitIfOwnershipBlocked } from "../utils/firstRunOwnershipCheck.js";
 import { createLogger } from "../utils/logger.js";
 import { normalizeMemoryGb } from "../utils/memory.js";
@@ -2168,6 +2169,43 @@ export function peekServerDisplayName(serverId) {
   const server = db.data.servers.find((s) => String(s.id) === String(serverId));
   return server?.name || server?.serverName || null;
 }
+
+// SECURITY (2026-10-05, H1): the host folders sanitizeError()
+// (utils/sanitize.js) redacts by exact text, ahead of its generic path
+// patterns: the panel's data, backups, logs and program folders, and every
+// folder-shaped server field and setting (installPath, zomboidDataPath,
+// serverConfigPath, steamcmdPath, the legacy copies in settings, ...). A
+// server's backups go to <zomboidDataPath>/backups, which its data folder
+// covers. A path naming a file (a custom launcher's start.bat, an .ini)
+// adds its folder too. Synchronous and read from memory only, the same way
+// peekServerDisplayName() above is: sanitizeError() can't await, and before
+// the first getDb() there are no servers or settings to list yet.
+const HOST_FOLDER_KEY_RE = /(?:Path|Dir)$/;
+const FILE_NAME_RE = /[\\/][^\\/]+\.[A-Za-z0-9]{1,8}$/;
+
+function pushHostFolder(folders, value) {
+  if (typeof value !== "string" || !value.trim()) return;
+  const trimmed = value.trim();
+  folders.push(trimmed);
+  if (FILE_NAME_RE.test(trimmed)) folders.push(trimmed.replace(/[\\/]+[^\\/]*$/, ""));
+}
+
+export function peekHostFolders() {
+  const folders = [dataDir, backupDir, paths.logsDir, getPanelProgramDir()];
+  const current = getDataPaths();
+  folders.push(current.dataDir, current.logsDir);
+  for (const server of db?.data?.servers || []) {
+    for (const [key, value] of Object.entries(server || {})) {
+      if (HOST_FOLDER_KEY_RE.test(key)) pushHostFolder(folders, value);
+    }
+  }
+  for (const [key, value] of Object.entries(db?.data?.settings || {})) {
+    if (HOST_FOLDER_KEY_RE.test(key)) pushHostFolder(folders, value);
+  }
+  return folders;
+}
+
+registerHostFolderSource(peekHostFolders);
 
 export async function getServer(id) {
   const db = await getDb();
