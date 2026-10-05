@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Leaderboard deaths:** the Deaths column now counts on dedicated servers; it stayed at 0 there.
 - **Reset token file:** a `data/reset-token.txt` written by Windows PowerShell's `>` or `Out-File` (UTF-16) now works, the login screen checks a token's shape before sending it, and the troubleshooting guide gives a tested command per platform.
 - **Console log without a data folder:** a server with no data folder of its own reads the console log from the legacy data folder before its install folder, and otherwise the Console page says to set its Zomboid Data Path; it read the install folder, where the game never writes the log.
+- **Stable installs the newest build:** installs and updates now ask Steam for the stable branch by name with fresh app info, so a folder once on the 42.19 or unstable branch no longer stays on it.
 
 ## [1.4.5] - 2026-10-05
 

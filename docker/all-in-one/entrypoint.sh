@@ -29,7 +29,9 @@ fi
 
 if [ ! -f /pz-server/start-server.sh ]; then
   echo "[entrypoint] No PZ install found in /pz-server; installing as steam..."
-  su steam -s /bin/bash -c "export HOME='$STEAM_HOME'; exec $STEAMCMD +force_install_dir /pz-server +login anonymous +app_update $PZ_APPID validate +quit"
+  # Stable by name, with fresh app info: SteamCMD's cache comes with the base
+  # image, and without -beta it follows whatever branch it last recorded.
+  su steam -s /bin/bash -c "export HOME='$STEAM_HOME'; exec $STEAMCMD +force_install_dir /pz-server +login anonymous +app_info_update 1 +app_update $PZ_APPID -beta public validate +quit"
 else
   echo "[entrypoint] Existing PZ install found in /pz-server."
 fi
