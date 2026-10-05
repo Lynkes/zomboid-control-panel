@@ -17,6 +17,8 @@
 //   - a leading UTF-8 byte-order mark is a load error;
 //   - "\ddd", "\[" and unknown escapes ("\q" is "q", "\x41" is "x41");
 //   - long strings and --[[ ]] comments with any "=" level;
+//   - "0x1F" but not "0X1F"; "1e400" is infinity, but "-1e400" stops the load;
+//   - one optional ";" after a statement, never an empty statement;
 //   - "1 + 1" style expressions load, but this module refuses to parse them
 //     rather than guess (the game never writes them).
 //
@@ -147,6 +149,8 @@ function readShortString(src, start) {
   }
 }
 
+const MAX_HEX_NUMBER = 0x7fffffffffffffffn;
+
 function readNumber(src, start) {
   let i = start;
   while (isDigit(src[i]) || src[i] === ".") i++;
@@ -157,7 +161,10 @@ function readNumber(src, start) {
   while (src[i] !== undefined && isIdentPart(src[i])) i++;
   const text = src.slice(start, i);
   let value;
-  if (/^0[xX][0-9a-fA-F]+$/.test(text)) value = parseInt(text.slice(2), 16);
+  // The game reads "0x..." with Long.parseLong (lowercase "x" only, at most
+  // 0x7fffffffffffffff) and anything else with Double.parseDouble, where
+  // "1e400" is infinity rather than an error.
+  if (/^0x[0-9a-fA-F]+$/.test(text) && BigInt(text) <= MAX_HEX_NUMBER) value = Number(BigInt(text));
   else if (/^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(text)) value = Number(text);
   else throw new SandboxLuaSyntaxError(`malformed number near '${text}'`, src, start);
   return { end: i, value };
@@ -275,6 +282,11 @@ function parseTokens(src, tokens) {
       if (num.type !== "number") {
         fail(`unsupported expression near '${describeToken(src, num)}'`, num);
       }
+      // The game's compiler leaves a minus on an infinite number to run time,
+      // and game 42.21 stops loading the file there.
+      if (!Number.isFinite(num.value)) {
+        fail(`number out of range near '${src.slice(t.start, num.end)}'`, t);
+      }
       next();
       return { kind: "number", value: sign * num.value, start: t.start, end: num.end };
     }
@@ -339,16 +351,15 @@ function parseTokens(src, tokens) {
   const statements = [];
   while (peek().type !== "eof") {
     const t = peek();
-    if (t.type === ";") {
-      next();
-      continue;
-    }
     if (t.type !== "name" || RESERVED_WORDS.has(t.value) || peek(1).type !== "=") {
       fail(`expected an assignment such as 'SandboxVars = { ... }' near '${describeToken(src, t)}'`, t);
     }
     next();
     next();
     statements.push({ name: t.value, value: parseValue(0) });
+    // One optional ';' after a statement, as in Lua 5.1. An empty statement
+    // (a leading ';' or ';;') is a syntax error in the game.
+    if (peek().type === ";") next();
   }
   return statements;
 }

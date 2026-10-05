@@ -31,6 +31,8 @@ describe("tokenizer agrees with the game's loader", () => {
     ["backslash-newline", 'A = "a\\\nb",', "a\nb"],
     ["backslash-CRLF", 'A = "a\\\r\nb",', "a\nb"],
     ["backslash-LFCR", 'A = "a\\\n\rb",', "a\nb"],
+    ["the largest hex number the game reads", "A = 0x7fffffffffffffff,", 2 ** 63],
+    ["an exponent past the double range is infinity", "A = 1e400,", Infinity],
     ["long string skips its first newline", "A = [[\nfirst]],", "first"],
     ["long string with a level", "A = [==[x]]y]==],", "x]]y"],
     ["single quotes", "A = 'it\\'s',", "it's"],
@@ -46,6 +48,20 @@ describe("tokenizer agrees with the game's loader", () => {
     expect(readSandboxPath("SandboxVars = { A = 1 }\nSandboxVars = { A = 2 }\n", ["A"])).toBe(2);
   });
 
+  it("accepts one ';' after each statement", () => {
+    expect(readSandboxPath("X = 1; SandboxVars = { A = 2 };\n", ["A"])).toBe(2);
+  });
+
+  it.each([
+    ["a leading ';'", ";SandboxVars = { A = 1 }\n"],
+    ["two ';' after a statement", "SandboxVars = { A = 1 };;\n"],
+    ["two ';' with a space between", "SandboxVars = { A = 1 } ; ; X = 1\n"],
+  ])("rejects %s (an empty statement), as the game does", (_label, content) => {
+    const doc = parseSandboxLua(content);
+    expect(doc.ok).toBe(false);
+    expect(doc.error.message).toMatch(/near ';'/);
+  });
+
   it("accepts a [nil] key without making it addressable", () => {
     expect(parseSandboxLua(wrap("[nil] = 1, A = 2,")).ok).toBe(true);
     expect(read("[nil] = 1, A = 2,", ["A"])).toBe(2);
@@ -59,6 +75,10 @@ describe("tokenizer agrees with the game's loader", () => {
     ["a reserved word as a key", "local = 1", /reserved word/],
     ["a malformed number", "A = 1abc", /malformed number/],
     ["a hex float", "A = 0x1p4", /malformed number/],
+    ["an uppercase hex prefix", "A = 0X1F", /malformed number near '0X1F'/],
+    ["a hex number past Long.MAX_VALUE", "A = 0x8000000000000000", /malformed number/],
+    ["a minus on an infinite number", "A = -1e400", /number out of range near '-1e400'/],
+    ["a double minus on an infinite number", "A = - -1e400", /number out of range/],
     ["a newline inside a string", 'A = "line\nbreak"', /unfinished string/],
     ["an unfinished long comment", "--[[ never closed", /unfinished long comment/],
   ])("rejects %s, as the game does", (_label, body, message) => {
