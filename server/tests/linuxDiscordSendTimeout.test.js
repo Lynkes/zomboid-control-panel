@@ -34,9 +34,12 @@ const { DiscordBot } = await import("../services/discordBot.js");
 function makeBotWithFakeClient(sendImpl, fetchImpl = null) {
   const bot = new DiscordBot(null, null, null, null);
   bot.channelId = "channel-1";
+  // M2: the bot posts only in a channel of the configured guild.
+  bot.guildId = "guild-1";
   bot.client = {
     channels: {
       fetch: fetchImpl || (async () => ({
+          guildId: "guild-1",
           isTextBased: () => true,
           send: sendImpl,
         })),

@@ -221,6 +221,10 @@ const PLAYER_PRESENCE_INTERVAL_MS = 60_000;
 // self-heals silently and only a genuinely stuck reconnect (or a permanent
 // shardDisconnect, which never clears on its own) reaches the operator.
 const GATEWAY_DEGRADED_THRESHOLD_MS = 30_000;
+// How often _sendToChannel() repeats its warning for a channel it keeps
+// refusing because it isn't in the configured guild (M2): game chat would
+// otherwise log one per chat line.
+const OUTSIDE_GUILD_WARN_INTERVAL_MS = 10 * 60 * 1000;
 
 // start()'s distinguishable return for "a DIFFERENT start() call is already
 // in flight, this call was a no-op" (its _starting guard, re-entrancy sweep
@@ -291,6 +295,11 @@ export class DiscordBot {
     // Tracked per channel: a chat relay pointed at a deleted channel must not
     // silence server notifications going to a perfectly healthy one.
     this._channelBreakers = new Map(); // channelId -> {failures, openUntil, suppressed}
+    // Channels _sendToChannel() last refused because they aren't in the
+    // configured guild (M2), for its throttled warning and for POST
+    // /test-message's reason. Dropped at the channel's next send that isn't
+    // refused.
+    this._outsideGuildRefusals = new Map(); // channelId -> {channelGuildId, configuredGuildId, warnedAt, since}
 
     // hunt-wave6-2026-08-29 suspect 6: getStatus() used to have no field at
     // all for gateway health, so a real (self-healing) heartbeat black hole
@@ -800,6 +809,7 @@ export class DiscordBot {
     this.chatRelayScope = "public";
     this._registeredGuildId = null;
     this._channelBreakers.clear();
+    this._outsideGuildRefusals.clear();
     this._lastLifecycleState = null;
     this._lastLifecycleAt = 0;
     return keptCommandPermissions;
@@ -1687,6 +1697,19 @@ export class DiscordBot {
       if (!channel?.isTextBased?.() || typeof channel.send !== "function") {
         throw new Error("Configured channel is not a sendable text channel");
       }
+      // SECURITY (2026-10-05, M2): only to a channel of the guild the panel
+      // is set up for, as the Discord-to-game relay reads (HT4b) and slash
+      // commands answer (D2) only there. Game chat (to the relay channel, or
+      // the notification channel while none is set) and every notification
+      // went to whatever channel ID was saved, so one in another guild the
+      // bot is a member of -- or a direct-message channel -- received player
+      // chat, names and server events. Not a breaker failure: nothing was
+      // sent, and only a settings change makes the next send any different.
+      if (!this._isChannelInConfiguredGuild(channel)) {
+        this._refuseOutsideGuild(channelId, channel, label);
+        return false;
+      }
+      this._outsideGuildRefusals.delete(channelId);
       // bug-hunt-2026-09-18 (round: Discord bot commands and relay): a
       // caller-side length cap applied BEFORE escapeMarkdown() (e.g.
       // handleGameChat()'s own message.slice(0, 1850)/author.slice(0, 80))
@@ -1718,6 +1741,7 @@ export class DiscordBot {
       }
       return true;
     } catch (error) {
+      this._outsideGuildRefusals.delete(channelId);
       breaker.failures++;
       // A 5xx is Discord's own outage, not our configuration — classify it
       // alongside the network-level codes below rather than lumping it in
@@ -1764,6 +1788,58 @@ export class DiscordBot {
       this._channelBreakers.set(channelId, breaker);
     }
     return breaker;
+  }
+
+  // M2: a guild channel or thread carries the guild's ID; a direct-message
+  // channel carries none. Compared as text, like the relay's own check.
+  _isChannelInConfiguredGuild(channel) {
+    return (
+      Boolean(this.guildId) &&
+      String(channel?.guildId ?? "") === String(this.guildId)
+    );
+  }
+
+  // M2: warns when a channel is first refused, when what it is refused for
+  // changes, and then every OUTSIDE_GUILD_WARN_INTERVAL_MS with the number
+  // of sends refused since.
+  _refuseOutsideGuild(channelId, channel, label) {
+    const channelGuildId = channel?.guildId ? String(channel.guildId) : null;
+    const configuredGuildId = this.guildId ? String(this.guildId) : null;
+    const now = Date.now();
+    const last = this._outsideGuildRefusals.get(channelId);
+    if (
+      last &&
+      last.channelGuildId === channelGuildId &&
+      last.configuredGuildId === configuredGuildId &&
+      now - last.warnedAt < OUTSIDE_GUILD_WARN_INTERVAL_MS
+    ) {
+      last.since++;
+      return;
+    }
+    const configured = configuredGuildId
+      ? `the one set up in the panel (Guild ID ${configuredGuildId})`
+      : "one set up in the panel (no Guild ID is set)";
+    const where = channelGuildId
+      ? `it is in Discord server ${channelGuildId}, not in ${configured}`
+      : `it is not in a Discord server (a direct message), so not in ${configured}`;
+    const more = last?.since
+      ? ` ${last.since} other send(s) to it were refused since the last warning.`
+      : "";
+    log.warn(
+      `Not sending the Discord ${label} to channel ${channelId}: ${where}. Set a channel of that server on the Discord page, or correct the Guild ID.${more}`,
+    );
+    this._outsideGuildRefusals.set(channelId, {
+      channelGuildId,
+      configuredGuildId,
+      warnedAt: now,
+      since: 0,
+    });
+  }
+
+  // Whether the last send to `channelId` was refused because the channel
+  // isn't in the configured guild (M2), for POST /test-message's reason.
+  wasSendRefusedOutsideGuild(channelId) {
+    return Boolean(channelId) && this._outsideGuildRefusals.has(channelId);
   }
 
   async getConfiguredMaxPlayers() {

@@ -547,7 +547,10 @@ export default function Discord() {
         autoStart,
         modRoleId || undefined,
         chatRelayEnabled,
-        chatRelayChannelId || undefined,
+        // Sent even when empty: PUT /config keeps a relay channel it isn't
+        // sent, so `|| undefined` here meant emptying the field never cleared
+        // it. "" clears it and the relay uses the notification channel.
+        chatRelayChannelId,
         chatRelayScope,
       );
 
