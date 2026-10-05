@@ -5,6 +5,7 @@ import {
   parseSandboxLua,
   readSandboxPath,
   sandboxSectionsFromLua,
+  sectionsToEdits,
   validateSandboxLua,
 } from "../utils/sandboxLua.js";
 
@@ -212,6 +213,19 @@ describe("sandboxSectionsFromLua", () => {
     expect(Object.prototype.hasOwnProperty.call(sandbox, "__proto__")).toBe(false);
     expect({}.polluted).toBeUndefined();
     expect(sandbox.Mod).toEqual({ B: 2 });
+  });
+});
+
+describe("sectionsToEdits", () => {
+  it("never writes VERSION, from the page's own field or from settings", () => {
+    const content = "SandboxVars = {\n    VERSION = 6,\n    Zombies = 4,\n}\n";
+    const edits = sectionsToEdits({ VERSION: 1, settings: { VERSION: 1, Zombies: 2 } });
+    expect(edits.map((e) => e.path)).toEqual([["Zombies"]]);
+    expect(editSandboxValues(content, edits).content).toBe(content.replace("Zombies = 4", "Zombies = 2"));
+  });
+
+  it("still writes a mod block's own VERSION key", () => {
+    expect(sectionsToEdits({ SomeMod: { VERSION: 2 } }).map((e) => e.path)).toEqual([["SomeMod", "VERSION"]]);
   });
 });
 

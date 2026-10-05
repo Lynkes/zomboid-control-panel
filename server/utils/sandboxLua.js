@@ -625,13 +625,15 @@ export function sandboxSectionsFromLua(content) {
 /**
  * Turn the page's section shape back into edits. "settings" keys are
  * top-level; every other section is the block of the same name. VERSION is
- * the game's file-format marker and is never written from here.
+ * the game's file-format marker and is never written from here, whether it
+ * comes as the page's own VERSION or as settings.VERSION.
  */
 export function sectionsToEdits(sections) {
   const edits = [];
   for (const [section, values] of Object.entries(sections || {})) {
     if (section === "VERSION" || !values || typeof values !== "object" || Array.isArray(values)) continue;
     for (const [key, value] of Object.entries(values)) {
+      if (section === "settings" && key === "VERSION") continue;
       edits.push({ section, key, path: section === "settings" ? [key] : [section, key], value });
     }
   }
