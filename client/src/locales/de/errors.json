@@ -580,5 +580,6 @@
   "FM_TOO_MANY_ENTRIES": "Es sind zu viele Elemente, um sie auf einmal zu löschen (mehr als {{limit}}). Bereits Gelöschtes bleibt gelöscht; starte den Vorgang erneut, um ihn abzuschließen.",
   "FM_SECRET_NAME_REQUIRED": "Diese Datei enthält Passwörter, die der Dateimanager ausblendet. Behalte .ini im neuen Namen, damit sie ausgeblendet bleiben.",
   "CHARACTER_INVALID_SECTIONS": "Unbekannter Charakterabschnitt angefordert.",
-  "CHARACTER_SHEET_FAILED": "Dieser Charakter konnte nicht gelesen werden."
+  "CHARACTER_SHEET_FAILED": "Dieser Charakter konnte nicht gelesen werden.",
+  "SERVER_CONFIG_PATH_OUTSIDE_DATA": "Der Konfigurationsordner des Servers muss der Ordner Server im Zomboid-Datenordner dieses Servers sein oder ein Ordner darin. Lege zuerst den Zomboid-Datenordner fest oder lass den Konfigurationsordner leer."
 }

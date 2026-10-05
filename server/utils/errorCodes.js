@@ -2449,6 +2449,13 @@ export const ErrorCode = Object.freeze({
   /** server/routes/playerCharacter.js -- GET /api/player-character/:username,
    * the character sheet couldn't be read (generic 500; no raw error text). */
   CHARACTER_SHEET_FAILED: "CHARACTER_SHEET_FAILED",
+
+  /* Security sweep 2026-10-04, batch 7 (server paths) */
+  /** server/routes/servers.js -- POST / and PUT /:id (400): the server
+   * config folder isn't the Server folder of the server's own Zomboid data
+   * folder or a folder inside it, links followed, or there is no data
+   * folder to anchor it to (serverConfigPathIsConfined(), FILES-2). */
+  SERVER_CONFIG_PATH_OUTSIDE_DATA: "SERVER_CONFIG_PATH_OUTSIDE_DATA",
 });
 
 /**

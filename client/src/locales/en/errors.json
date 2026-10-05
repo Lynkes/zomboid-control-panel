@@ -580,5 +580,6 @@
   "FM_TOO_MANY_ENTRIES": "There are too many items to delete in one go (more than {{limit}}). What was already deleted stays deleted; run it again to finish.",
   "FM_SECRET_NAME_REQUIRED": "This file holds passwords the file manager keeps masked. Keep .ini in the new name so they stay masked.",
   "CHARACTER_INVALID_SECTIONS": "Unknown character section requested.",
-  "CHARACTER_SHEET_FAILED": "Couldn't read this character."
+  "CHARACTER_SHEET_FAILED": "Couldn't read this character.",
+  "SERVER_CONFIG_PATH_OUTSIDE_DATA": "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty."
 }

@@ -580,5 +580,6 @@
   "FM_TOO_MANY_ENTRIES": "Gen twòp eleman pou efase an yon sèl kou (plis pase {{limit}}). Sa ki deja efase rete efase; relanse l pou fini.",
   "FM_SECRET_NAME_REQUIRED": "Fichye sa a gen modpas jesyonè fichye a kache. Kenbe .ini nan nouvo non an pou yo rete kache.",
   "CHARACTER_INVALID_SECTIONS": "Yo mande yon seksyon pèsonaj ki enkoni.",
-  "CHARACTER_SHEET_FAILED": "Pa t kapab li pèsonaj sa a."
+  "CHARACTER_SHEET_FAILED": "Pa t kapab li pèsonaj sa a.",
+  "SERVER_CONFIG_PATH_OUTSIDE_DATA": "Dosye konfigirasyon sèvè a dwe se dosye Server ki andedan dosye done Zomboid sèvè sa a, oswa yon dosye ki andedan l. Mete dosye done Zomboid la anvan, oswa kite dosye konfigirasyon an vid."
 }

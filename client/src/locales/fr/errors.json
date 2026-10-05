@@ -580,5 +580,6 @@
   "FM_TOO_MANY_ENTRIES": "Il y a trop d'éléments à supprimer d'un coup (plus de {{limit}}). Ce qui est déjà supprimé le reste ; relancez l'opération pour terminer.",
   "FM_SECRET_NAME_REQUIRED": "Ce fichier contient des mots de passe que le gestionnaire de fichiers masque. Gardez .ini dans le nouveau nom pour qu'ils restent masqués.",
   "CHARACTER_INVALID_SECTIONS": "Section de personnage demandée inconnue.",
-  "CHARACTER_SHEET_FAILED": "Impossible de lire ce personnage."
+  "CHARACTER_SHEET_FAILED": "Impossible de lire ce personnage.",
+  "SERVER_CONFIG_PATH_OUTSIDE_DATA": "Le dossier de configuration du serveur doit être le dossier Server situé dans le dossier de données Zomboid de ce serveur, ou un dossier à l'intérieur de celui-ci. Définissez d'abord le dossier de données Zomboid, ou laissez le dossier de configuration vide."
 }
