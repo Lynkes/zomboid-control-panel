@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+_No unreleased changes._
+
+## [1.4.5] - 2026-10-05
+
 ### Security
 
 - **Start commands are admin-only:** setting a server's start command or custom launcher now requires admin, is confined to the install folder, and is re-validated at launch; a non-admin with server-management rights could run any program on the host.
