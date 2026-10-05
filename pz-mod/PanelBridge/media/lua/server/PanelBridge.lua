@@ -6,6 +6,16 @@
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
 
+                vNEXT Changes:
+                - Security: the leaderboard no longer lives in global mod
+                    data, which any connected player can request whole and
+                    which keyed every row by SteamID beside the username.
+                    It is kept in leaderboard.json.txt in the bridge folder,
+                    on the server only; the first load moves the existing
+                    rows there and removes the old table. Global mod data
+                    keeps only an opaque world id, so a wiped world still
+                    starts a new leaderboard. getLeaderboard is unchanged.
+
                 v1.7.72 Changes:
                 - Add: getCharacterSheet, a read-only command for the panel's
                     Character tab. It returns one online player's summary,
@@ -1493,8 +1503,21 @@ local function playerLookupError(username)
     return PanelBridge.lastPlayerLookupError or "Player not found: " .. tostring(username)
 end
 
-local LEADERBOARD_MODDATA_KEY = "PanelBridgeLeaderboard"
-local leaderboardFallback = { version = 1, players = {}, trackingStartedAt = nil }
+-- The leaderboard lives in a server-side file in the bridge folder
+-- (leaderboard.json.txt, beside status.json.txt), never in global ModData:
+-- GlobalModData.receiveRequest (42.21) sends any logged-in client the whole
+-- table for whatever tag it asks for, and the rows are keyed by
+-- steam:<SteamID64> beside each username. Up to vNEXT the store was the
+-- "PanelBridgeLeaderboard" global ModData table; the first load copies its
+-- rows into the file and removes the table once the file is written. Global
+-- ModData keeps only an opaque id for the world, so a wiped world still
+-- starts a new leaderboard, as the ModData store did.
+local LEADERBOARD_LEGACY_MODDATA_KEY = "PanelBridgeLeaderboard"
+local LEADERBOARD_WORLD_MODDATA_KEY = "PanelBridgeLeaderboardWorld"
+local LEADERBOARD_FILE = "leaderboard.json"
+local LEADERBOARD_STORE_VERSION = 2
+-- Changes reach the file at most this often (at once after a migration).
+local LEADERBOARD_FLUSH_INTERVAL_MS = 10000
 
 local function leaderboardNow()
     if getTimestampMs then
@@ -1503,25 +1526,115 @@ local function leaderboardNow()
     return os.time() * 1000
 end
 
+-- The id of the world the store belongs to. It is saved (and wiped) with the
+-- world, and says nothing about any player: a timestamp and a random number.
+local function leaderboardWorldId()
+    local ok, id = pcall(function()
+        local marker = ModData.getOrCreate(LEADERBOARD_WORLD_MODDATA_KEY)
+        if type(marker) ~= "table" then return nil end
+        if type(marker.id) ~= "string" or marker.id == "" then
+            local salt = type(ZombRand) == "function" and math.floor(ZombRand(1000000000)) or 0
+            marker.id = tostring(leaderboardNow()) .. "-" .. tostring(salt)
+        end
+        return marker.id
+    end)
+    if ok and type(id) == "string" then return id end
+    return nil
+end
+
+-- A plain copy of a legacy ModData row (its fields and the weaponKills map),
+-- so nothing recorded after the move lands back in the world-readable table.
+local function copyLeaderboardRecord(record)
+    local copy = {}
+    for field, value in pairs(record) do
+        if type(value) == "table" then
+            local inner = {}
+            for k, v in pairs(value) do
+                if type(v) ~= "table" then inner[k] = v end
+            end
+            copy[field] = inner
+        else
+            copy[field] = value
+        end
+    end
+    return copy
+end
+
+-- Copies the rows of the pre-vNEXT global ModData table into the store; a row
+-- the store already has is newer and stays. True when that table exists and
+-- is to be removed once the store is on disk.
+local function importLegacyLeaderboard(store)
+    local ok, legacy = pcall(function()
+        if not ModData.exists(LEADERBOARD_LEGACY_MODDATA_KEY) then return nil end
+        return ModData.get(LEADERBOARD_LEGACY_MODDATA_KEY)
+    end)
+    if not ok or type(legacy) ~= "table" then return false end
+
+    if type(legacy.players) == "table" then
+        for key, record in pairs(legacy.players) do
+            if type(key) == "string" and type(record) == "table" and store.players[key] == nil then
+                store.players[key] = copyLeaderboardRecord(record)
+            end
+        end
+    end
+    local legacyStart = tonumber(legacy.trackingStartedAt)
+    local storeStart = tonumber(store.trackingStartedAt)
+    if legacyStart and (not storeStart or legacyStart < storeStart) then
+        store.trackingStartedAt = legacyStart
+    end
+    return true
+end
+
+-- Writes the store to the bridge folder when it changed, at most once per
+-- LEADERBOARD_FLUSH_INTERVAL_MS unless forced (a clock that went back counts
+-- as due), then removes the legacy ModData table it was migrated from.
+-- False when the write failed; the next flush tries again.
+function PanelBridge.flushLeaderboard(force)
+    local store = PanelBridge.leaderboardStore
+    if not store or not PanelBridge.leaderboardDirty then return true end
+
+    local now = leaderboardNow()
+    local elapsed = now - (tonumber(PanelBridge.lastLeaderboardFlush) or 0)
+    if not force and elapsed >= 0 and elapsed < LEADERBOARD_FLUSH_INTERVAL_MS then return true end
+    PanelBridge.lastLeaderboardFlush = now
+
+    if not PanelBridge.writeJSON(LEADERBOARD_FILE, store) then return false end
+    PanelBridge.leaderboardDirty = false
+    if PanelBridge.leaderboardLegacyPending then
+        local removed = pcall(function() ModData.remove(LEADERBOARD_LEGACY_MODDATA_KEY) end)
+        if removed then PanelBridge.leaderboardLegacyPending = false end
+    end
+    return true
+end
+
 local function getLeaderboardStore()
     if PanelBridge.leaderboardStore then
         return PanelBridge.leaderboardStore
     end
 
+    local worldId = leaderboardWorldId()
+    local readOk, saved = pcall(PanelBridge.readJSON, LEADERBOARD_FILE)
     local store
-    local ok, result = pcall(function()
-        return ModData.getOrCreate(LEADERBOARD_MODDATA_KEY)
-    end)
-    if ok and type(result) == "table" then
-        store = result
+    if readOk and type(saved) == "table" and type(saved.players) == "table"
+        and (worldId == nil or saved.worldId == worldId) then
+        store = saved
     else
-        store = leaderboardFallback
+        -- No file yet, or one a wiped world left behind: start over.
+        store = { players = {}, trackingStartedAt = leaderboardNow() }
+        PanelBridge.leaderboardDirty = true
     end
+    store.version = LEADERBOARD_STORE_VERSION
+    store.worldId = worldId or store.worldId
+    if not tonumber(store.trackingStartedAt) then store.trackingStartedAt = leaderboardNow() end
 
-    store.version = 1
-    if type(store.players) ~= "table" then store.players = {} end
-    if not store.trackingStartedAt then store.trackingStartedAt = leaderboardNow() end
+    if importLegacyLeaderboard(store) then
+        PanelBridge.leaderboardLegacyPending = true
+        PanelBridge.leaderboardDirty = true
+    end
     PanelBridge.leaderboardStore = store
+    if PanelBridge.leaderboardLegacyPending then
+        PanelBridge.flushLeaderboard(true)
+    end
     return store
 end
 
@@ -1568,6 +1681,7 @@ local function ensureLeaderboardRecord(store, player)
     record.favoriteWeaponKills = tonumber(record.favoriteWeaponKills) or 0
     if type(record.weaponKills) ~= "table" then record.weaponKills = {} end
     record.lastSeenAt = leaderboardNow()
+    PanelBridge.leaderboardDirty = true
     return record, key
 end
 
@@ -10312,6 +10426,12 @@ function PanelBridge.onTick()
     if now - PanelBridge.lastStatusUpdate >= PanelBridge.STATUS_INTERVAL then
         PanelBridge.lastStatusUpdate = now
         pcall(PanelBridge.updateStatus)
+    end
+
+    -- Save leaderboard changes (flushLeaderboard throttles itself)
+    local leaderboardOk, leaderboardErr = pcall(PanelBridge.flushLeaderboard)
+    if not leaderboardOk then
+        PanelBridge.error("Tick error in flushLeaderboard", { error = tostring(leaderboardErr) })
     end
 end
 
