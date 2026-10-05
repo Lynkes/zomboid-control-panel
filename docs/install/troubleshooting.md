@@ -238,6 +238,16 @@ Without openssl, `uuidgen > data/reset-token.txt` or
 `head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > data/reset-token.txt`
 work too.
 
+If the panel runs as a Linux service (see [Linux](linux.md)), its `data`
+folder belongs to the service account and nobody else can write in it, so
+the line above fails with `Permission denied`. Write the file as that
+account instead (`pzuser` and `/opt/zomboid-panel` in the standard
+install):
+
+```sh
+sudo -u pzuser sh -c 'openssl rand -hex 24 > /opt/zomboid-panel/data/reset-token.txt'
+```
+
 In PowerShell on Windows (Windows PowerShell 5.1 or PowerShell 7):
 
 ```powershell
@@ -261,8 +271,10 @@ With Docker, from the host (the supplied compose files name the container
 docker exec zomboid-panel node -e "require('fs').writeFileSync('/app/data/reset-token.txt', require('crypto').randomBytes(24).toString('hex'))"
 ```
 
-Now and then (a few times in a million) random output happens to look
-like a pattern or like text and is refused; run the command again.
+Now and then random output happens to look like a pattern or like text
+and is refused: about 1 in 14,000 UUIDs or 32-digit tokens, and hardly
+ever 48 digits (`openssl rand -hex 24` and the first PowerShell line). If
+that happens, run the command again.
 
 **Don't use `echo $RANDOM | md5sum`** (or `sha256sum`), or anything else
 built on bash's `$RANDOM` or cmd's `%RANDOM%`: each is one of only 32,768
