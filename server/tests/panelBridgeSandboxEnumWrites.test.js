@@ -36,17 +36,18 @@ end
 
 describe('B42 sandbox enum writes use the same 1..N range as the selector', () => {
   it.each([[3, 3], [2, 2], [1, 1], [3, 1], [3, '3']])(
-    'applies and persists selection %s-value enum / %s without changing the choice', (size, value) => {
+    'applies selection %s-value enum / %s without changing the choice', (size, value) => {
       const bridge = loadPanelBridge(source, enumStub(size));
       const result = bridge.callHandler('setSandboxOption', { name: 'Test.Enum', value });
 
       expect(result.ok).toBe(true);
-      expect(result.data).toMatchObject({ value: Number(value), verified: 'confirmed', persisted: true });
+      expect(result.data).toMatchObject({ value: Number(value), verified: 'confirmed' });
       expect(bridge.getGlobal('syncedValue')).toBe(Number(value));
-      expect(bridge.getGlobal('savedValue')).toBe(Number(value));
       expect(bridge.getGlobal('setCalls')).toBe(1);
       expect(bridge.getGlobal('syncCalls')).toBe(1);
-      expect(bridge.getGlobal('saveCalls')).toBe(1);
+      // A live edit never saves the world: saveGame() writes map_sand.bin,
+      // which overrides SandboxVars.lua at every start (#197).
+      expect(bridge.getGlobal('saveCalls')).toBe(0);
     },
   );
 

@@ -6,6 +6,17 @@
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
 
+                vNEXT Changes:
+                - Fix: setSandboxOption and saveWorld no longer call
+                    saveGame(). On a dedicated server it wrote map_sand.bin, a
+                    copy of every sandbox option that the game loads over
+                    SandboxVars.lua on every start, so SandboxVars.lua and
+                    in-game admin changes were undone at the next restart
+                    (#197). setSandboxOption changes the live value only (the
+                    panel writes SandboxVars.lua) and no longer sends
+                    persisted/saveError; saveWorld now returns an error
+                    pointing to RCON save. The queue protocol is unchanged.
+
                 v1.7.72 Changes:
                 - Add: getCharacterSheet, a read-only command for the panel's
                     Character tab. It returns one online player's summary,
@@ -6335,29 +6346,15 @@ handlers.setSandboxOption = function(args)
     -- SandboxVars table, which stays stale until toLua() rebuilds it.
     PanelBridge.invoke(sandbox, "toLua")
 
-    -- Trigger a world save so the changed option persists across restarts.
-    -- saveGame() is a bare global -- same LuaManager$GlobalObject binding
-    -- tier as getWorld()/getCell(), both already called elsewhere in this
-    -- file with identical bare-call syntax -- NOT a method on `world`.
-    -- world:saveWorld() does not exist anywhere in the jar (Kevin's audit,
-    -- 2026-08-30). The old `world.saveWorld` field-existence guard was
-    -- always false regardless of world's real state (a Java method can be
-    -- callable while the field reads nil, this file's own recurring lesson),
-    -- so every sandbox change reported a FALSE persistence failure ("World
-    -- not available") on top of a write that had genuinely already
-    -- succeeded. saveGame() returns void -- there is no return value to
-    -- check, so success can only come from the bare call not throwing.
-    local persisted = false
-    local saveErr = nil
-    local saveOk, saveErrMsg = pcall(function() saveGame() end)
-    if saveOk then
-        persisted = true
-    else
-        saveErr = tostring(saveErrMsg)
-    end
-    if not persisted then
-        PanelBridge.error("Sandbox option set but world save failed", { name = optName, error = saveErr })
-    end
+    -- No saveGame() here (#197). On a dedicated server it runs GameWindow.save,
+    -- which writes map_sand.bin into the world save: a copy of every sandbox
+    -- option that SandboxOptions.load() applies over SandboxVars.lua on every
+    -- start. One live edit froze the whole sandbox into the world, and every
+    -- later change to SandboxVars.lua (the panel's editor, the in-game admin
+    -- panel) was undone at the next start. The panel writes the new value into
+    -- SandboxVars.lua itself (PUT /sandbox-option), which is what a vanilla
+    -- server reads at start. No `persisted` field: a panel reads its absence
+    -- as "nothing to warn about".
 
     local verifiedStr = "unverifiable"
     if verified == true then verifiedStr = "confirmed" end
@@ -6366,9 +6363,7 @@ handlers.setSandboxOption = function(args)
         name = optName,
         value = confirmed,
         type = optType,
-        verified = verifiedStr,
-        persisted = persisted,
-        saveError = saveErr
+        verified = verifiedStr
     }
 end
 
@@ -6584,23 +6579,16 @@ handlers.getChatInfo = function(args)
     return true, info
 end
 
--- Force save the world
+-- Retired (#197); kept so an older panel that still sends it gets a reason.
+-- The only save Lua can reach is saveGame(), and on a dedicated server that
+-- runs GameWindow.save, the single-player save path. It is not the server's
+-- own save (ServerMap.QueueSaveAll, reached only through the `save` command),
+-- and it writes map_sand.bin, a copy of every sandbox option that the game
+-- applies over SandboxVars.lua on every start, so each call froze the sandbox
+-- into the world. The panel saves through RCON `save` instead.
 handlers.saveWorld = function(args)
-    -- saveGame() is a bare global (same LuaManager$GlobalObject binding tier
-    -- as getWorld()/getCell()), NOT a method on `world` -- world:saveWorld()
-    -- does not exist anywhere in the jar (Kevin's audit, 2026-08-30). The old
-    -- `world.saveWorld` field-existence guard was always false, so this
-    -- handler could never succeed regardless of the server's real state.
-    -- saveGame() returns void -- there is no return value to check, so
-    -- success can only come from the bare call not throwing.
-    local success, err = pcall(function()
-        saveGame()
-    end)
-    if success then
-        return true, { message = "World save triggered" }
-    else
-        return false, nil, "World save failed: " .. tostring(err)
-    end
+    return false, nil, "saveWorld is retired: on a dedicated server it wrote map_sand.bin, " ..
+        "which overrides SandboxVars.lua on every start. Use the server's save command (RCON save)."
 end
 
 -- ============================================
