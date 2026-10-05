@@ -1023,6 +1023,28 @@ export class DiscordBot {
       `Discord command: /${commandName} by ${interaction.user?.tag || "unknown"}`,
     );
 
+    // SECURITY (2026-10-05, D2): answer only in the guild the panel is set
+    // up for. Moving the bot to another guild needs every command's
+    // capability (routes/discord.js) because checkPermission() lets that
+    // guild's owner and Administrators run everything. But the commands
+    // registered in a previous guild stay there whenever updateConfig()'s
+    // cleanup didn't run (the bot was stopped during the move) or failed,
+    // and so do resetConfig()'s -- and that guild's owner passed
+    // checkPermission() just the same, with the bot still a member there.
+    if (
+      !this.guildId ||
+      String(interaction.guildId ?? "") !== String(this.guildId)
+    ) {
+      log.warn(
+        `Refused /${commandName} from guild ${interaction.guildId || "(none)"}: not the configured guild`,
+      );
+      await interaction.reply({
+        content: "❌ This bot isn't set up for this server.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     // Check permission based on command's configured tier
     if (!this.checkPermission(interaction, commandName)) {
       const level = this.commandPermissions[commandName] || "admin";
