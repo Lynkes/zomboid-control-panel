@@ -40,7 +40,7 @@ import { HelpTip } from '@/components/HelpTip'
 import { DisabledReason } from '@/components/DisabledReason'
 import { AutoUpdateResultBanner } from '@/components/AutoUpdateResultBanner'
 import { cn, copyText } from '@/lib/utils'
-import { getUserErrorMessage, getRecoveryUrl } from '@/lib/errorMessage'
+import { getResultErrorMessage, getUserErrorMessage, getRecoveryUrl } from '@/lib/errorMessage'
 import { VerdictBand, WorkList } from '@/components/dashboard/DashboardVerdict'
 import type { Verdict, WorkItem } from '@/components/dashboard/DashboardVerdict'
 
@@ -1028,6 +1028,21 @@ export default function Dashboard() {
       } else {
         const honestlyUnconfirmed = action === 'Start server' && confirmed === false
         toast({ title: copy.title, description: copy.description, variant: honestlyUnconfirmed ? 'default' as const : 'success' as const })
+      }
+      // SECURITY (2026-10-05, PT3): the server started, but the panel won't
+      // use its folders (the data folder no longer meets the data-folder
+      // rule, or a config folder has no data folder), so it didn't write the
+      // RCON settings into the server's ini. POST /start answers why as
+      // `folderWarning`; said here, beside the start, with what to set.
+      const folderWarning = action === 'Start server' && result && typeof result === 'object'
+        ? (result as { folderWarning?: { error?: string; code?: string } | null }).folderWarning
+        : undefined
+      if (folderWarning) {
+        toast({
+          title: t('successCopy.startServerFolderWarning.title'),
+          description: getResultErrorMessage(folderWarning, t('successCopy.startServerFolderWarning.title')),
+          variant: 'warning' as const,
+        })
       }
       // Every other action refreshes after its toast, as it always has.
       if (!isLifecycleAction && mountedRef.current) fetchStatus()

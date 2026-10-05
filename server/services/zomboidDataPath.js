@@ -353,3 +353,28 @@ export function zomboidDataFolderRefusal() {
   };
 }
 
+// SECURITY (2026-10-05, PT5): the features that apply the rule at use time
+// run on every request, and some of those are polled -- GET
+// /api/backup/status applies it up to three times, every 15 s -- so a
+// refused folder wrote the same warning over and over. Each line (it names
+// the feature, the folder and the reason) is logged at warn the first time,
+// then at debug. The set is capped so a long-running panel can't grow it
+// without bound; clearing it only means a line warns once more.
+const REPORTED_REFUSALS_MAX = 256;
+const reportedRefusals = new Set();
+
+export function logRefusalOnce(logger, line) {
+  if (reportedRefusals.has(line)) {
+    logger.debug(line);
+    return;
+  }
+  if (reportedRefusals.size >= REPORTED_REFUSALS_MAX) reportedRefusals.clear();
+  reportedRefusals.add(line);
+  logger.warn(line);
+}
+
+// For log lines: a refusal body as one sentence with its code, which says
+// what to set.
+export function describeRefusal(body) {
+  return `${body.error} [${body.code}]`;
+}

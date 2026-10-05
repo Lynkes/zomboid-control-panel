@@ -138,6 +138,9 @@
       "title": "伺服器正在啟動——啟動指令碼已備份",
       "description": "面板檢測到啟動指令碼有變化，已在重新生成前儲存了你的版本。"
     },
+    "startServerFolderWarning": {
+      "title": "伺服器正在啟動——RCON 設定未更新"
+    },
     "stopServer": {
       "title": "伺服器已停止",
       "description": "工作階段已正常關閉。"

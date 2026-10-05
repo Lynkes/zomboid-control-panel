@@ -139,6 +139,9 @@
       "title": "Démarrage du serveur — script de démarrage sauvegardé",
       "description": "Le panneau a détecté des modifications du script de démarrage et a sauvegardé votre version avant de le régénérer."
     },
+    "startServerFolderWarning": {
+      "title": "Démarrage du serveur — paramètres RCON non mis à jour"
+    },
     "stopServer": {
       "title": "Serveur arrêté",
       "description": "Session terminée proprement."

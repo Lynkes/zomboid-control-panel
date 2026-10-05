@@ -22,7 +22,8 @@ import { loadUiSecret, writeUiSecretFile } from "../utils/uiSecretFile.js";
 import { sanitizeError } from "../utils/sanitize.js";
 import { describeStartFailure } from "./discordStartFailure.js";
 import { readIniValues } from "../utils/templateFiles.js";
-import { activeServerConfigDir } from "../utils/serverConfigPath.js";
+import { activeServerConfigDir, serverConfigDirRefusal } from "../utils/serverConfigPath.js";
+import { describeRefusal, logRefusalOnce } from "./zomboidDataPath.js";
 import { runManagedLifecycle } from "./managedContainer.js";
 import { resolveObservedServerRunning } from "../utils/serverStatus.js";
 import {
@@ -1740,7 +1741,18 @@ export class DiscordBot {
             serverConfigPath: await getSetting("serverConfigPath"),
             zomboidDataPath: await getSetting("zomboidDataPath"),
           };
-      const configPath = activeServerConfigDir(activeServer, legacy).dir;
+      const config = activeServerConfigDir(activeServer, legacy);
+      // SECURITY (2026-10-05, PT3/PT5): refused, the presence leaves
+      // MaxPlayers out, and the presence is public, so the reason goes to
+      // the log -- with its code and what to set, at warn once per folder
+      // and reason (this runs on every presence update), then at debug.
+      if (config.refused) {
+        logRefusalOnce(
+          log,
+          `Discord presence: not reading MaxPlayers (Zomboid data folder: ${config.dataPath || "not set"}): ${describeRefusal(serverConfigDirRefusal(config))}`,
+        );
+      }
+      const configPath = config.dir;
 
       if (
         !configPath ||

@@ -147,3 +147,22 @@ export function activeServerConfigDir(activeServer, legacy = {}) {
     null;
   return { ...resolveServerConfigDir(configPath, dataPath), dataPath };
 }
+
+// SECURITY (2026-10-05, PT3): after the update, a server whose data folder
+// no longer meets the data-folder rule, or whose record has a config folder
+// but no data folder, lost features with no word why: Server Files, chunks
+// and backups answered the refusal, but the Mods page read "Server config
+// path not set", the Console page showed no log, the Discord presence
+// dropped MaxPlayers and a start skipped writing the RCON settings with one
+// log line. This is that refusal for one server record -- the body the
+// features answer (ZOMBOID_DATA_PATH_NOT_DATA_FOLDER or
+// SERVER_CONFIG_PATH_OUTSIDE_DATA, each saying what to set) -- or null when
+// its folders are usable, unset, or on another host (a remote server).
+// Judged as serverConfigDirOf() judges them, which is what
+// ensureRconConfigured() uses at a start. The server list carries it for
+// the Servers page's warning, and POST /start answers it.
+export function serverFolderProblem(server) {
+  if (!server || server.isRemote) return null;
+  const resolved = serverConfigDirOf(server);
+  return resolved.refused ? serverConfigDirRefusal(resolved) : null;
+}

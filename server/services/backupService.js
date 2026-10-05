@@ -24,7 +24,12 @@ import {
   publicRestoreMessage,
 } from "../utils/restoreMessage.js";
 import { captureBackupSnapshot } from "../utils/backupSnapshot.js";
-import { zomboidDataFolderHolds, zomboidDataFolderRefusal } from "./zomboidDataPath.js";
+import {
+  describeRefusal,
+  logRefusalOnce,
+  zomboidDataFolderHolds,
+  zomboidDataFolderRefusal,
+} from "./zomboidDataPath.js";
 import {
   addBackupRecord,
   listBackupRecords,
@@ -390,7 +395,12 @@ export const BACKUP_PROGRESS_ROOM = "backups";
 function dataFolderUsable(server, dataPath) {
   if (server?.isRemote) return false;
   if (zomboidDataFolderHolds(dataPath)) return true;
-  log.warn("Not using the Zomboid data folder for backups: it doesn't look like one");
+  // PT5: once per folder at warn, then debug -- GET /status lands here up
+  // to three times a call, and the Backups page polls it.
+  logRefusalOnce(
+    log,
+    `Not using ${dataPath} for backups: ${describeRefusal(zomboidDataFolderRefusal())}`,
+  );
   return false;
 }
 

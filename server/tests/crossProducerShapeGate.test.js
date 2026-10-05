@@ -260,10 +260,14 @@ describe("cross-producer shape gate: Server (server/routes/servers.js)", () => {
       ).toEqual([]);
 
       if (ROUTES_WITHOUT_REMOTE_CONFIG_FIELD.has(label)) {
+        // folderProblem (2026-10-05, PT3) follows remoteConfigConfigured:
+        // GET / and GET /active attach it, these four don't. Its one client
+        // reader, Servers.tsx, takes it from GET / (serversApi.getAll()),
+        // which it refetches after every edit.
         expect(
           missing,
           `${label}'s missing-field set changed -- update the citation above or remove this exception`,
-        ).toEqual(["remoteConfigConfigured"]);
+        ).toEqual(["remoteConfigConfigured", "folderProblem"]);
       } else {
         expect(missing).toEqual([]);
       }

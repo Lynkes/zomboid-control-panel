@@ -51,6 +51,7 @@
     "streamUnavailable": "Protokoll-Stream nicht verfügbar — Server ist möglicherweise offline",
     "retry": "erneut versuchen",
     "notFoundTitle": "Serverkonsolenprotokoll nicht gefunden",
+    "unavailableTitle": "Serverkonsolenprotokoll nicht verfügbar",
     "notFoundDesc": "Stelle sicher, dass der Server läuft.",
     "streamLabel": "Stream",
     "paused": "pausiert",

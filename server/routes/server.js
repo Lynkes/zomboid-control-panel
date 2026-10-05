@@ -62,6 +62,8 @@ import panelBridge from "../services/panelBridge.js";
 import { candidateIniPaths } from "../utils/zomboidPaths.js";
 import {
   checkZomboidDataPath,
+  describeRefusal,
+  logRefusalOnce,
   zomboidDataFolderHolds,
   zomboidDataFolderRefusal,
 } from "../services/zomboidDataPath.js";
@@ -69,7 +71,7 @@ import {
   activeServerConfigDir,
   serverConfigDirOf,
   serverConfigDirRefusal,
-  serverConfigDirRefusalReason,
+  serverFolderProblem,
 } from "../utils/serverConfigPath.js";
 import {
   describeLeftoverNativeLibraries,
@@ -854,10 +856,16 @@ export async function ensureRconConfigured(server = null) {
     // (utils/serverConfigPath.js) -- one saved before that check, or with
     // no data folder, is left alone and the start goes on without it. So is
     // one whose data folder fails the data-folder rule.
+    //
+    // SECURITY (2026-10-05, PT3/PT5): the log line says why with its code
+    // and what to set (POST /start also answers it, as `folderWarning`),
+    // and the startup wait calls this every 15 s, so it warns once per
+    // folder and reason, then logs at debug.
     const configDir = serverConfigDirOf(activeServer);
     if (configDir.refused) {
-      log.warn(
-        `ensureRconConfigured: not writing RCON settings -- ${serverConfigDirRefusalReason(configDir)}`,
+      logRefusalOnce(
+        log,
+        `ensureRconConfigured: not writing RCON settings for ${activeServer.name || activeServer.serverName || "this server"} -- ${describeRefusal(serverConfigDirRefusal(configDir))}`,
       );
       return false;
     }
@@ -2188,11 +2196,20 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
 
     // startServer() refreshes the launch target itself and carries any
     // script backup notices back as result.scriptWarnings.
-    const result = managed.handled
+    const launched = managed.handled
       ? { success: true, message: managed.message || "Container starting" }
       : await serverManager.startServer({
           serverId: activeServer?.id ?? null,
         });
+    // SECURITY (2026-10-05, PT3): with the server's folders refused (a data
+    // folder that no longer meets the data-folder rule, or a config folder
+    // with no data folder), the start goes ahead without the RCON settings
+    // ensureRconConfigured() writes, which only the log used to say. The
+    // refusal goes back with the start as `folderWarning` (its code, and
+    // what to set) for the Dashboard to show. A copy, as with
+    // scriptWarnings, so a provider's own result is never mutated.
+    const folderWarning = serverFolderProblem(activeServer);
+    const result = folderWarning ? { ...launched, folderWarning } : launched;
 
     // Emit status update via Socket.IO
     const io = req.app.get("io");
@@ -6518,21 +6535,43 @@ function filterConsoleLogLines(lines, filterLevel = "filtered") {
 // readers report no file, as for a remote server, and /clear refuses with
 // ZOMBOID_DATA_PATH_NOT_DATA_FOLDER. A real install folder never held the
 // game's server-console.txt (the game writes it to its -cachedir).
+//
+// SECURITY (2026-10-05, PT3/PT4): the install folder came before the legacy
+// data folder, so a local record with no data folder of its own was judged
+// on its install folder -- which the rule refuses -- and /clear answered
+// ZOMBOID_DATA_PATH_NOT_DATA_FOLDER about a data folder that wasn't set.
+// The data folders come first now (the record's, then the legacy one), and
+// one that is set and refused is that refusal. The install folders are only
+// a fallback with no data folder set at all, and one that doesn't pass
+// means just that: SERVER_DATA_PATH_NOT_CONFIGURED. Either way `refusal`
+// goes out with the readers' empty answer, so the Console page says why
+// there is no log, and /clear answers it.
+const CONSOLE_LOG_NO_DATA_FOLDER = {
+  error:
+    "This server has no Zomboid data folder set, and the game writes its console log there. On the Servers page, edit the server and set its Zomboid data folder.",
+  code: ErrorCode.SERVER_DATA_PATH_NOT_CONFIGURED,
+};
+
 async function resolveConsoleLogFolder(activeServer) {
-  if (activeServer?.isRemote) return { folder: null, remote: true, refused: false };
+  if (activeServer?.isRemote) return { folder: null, remote: true, refused: false, refusal: null };
   // server-console.txt is in zomboidDataPath (where Server/, Saves/, Logs/ are)
-  const folder =
-    activeServer?.zomboidDataPath ||
-    activeServer?.installPath ||
-    (await getSetting("zomboidDataPath")) ||
-    (await getSetting("serverPath"));
-  if (!folder) return { folder: null, remote: false, refused: false };
-  if (!zomboidDataFolderHolds(folder)) {
-    // debug, not warn: the Console page polls these routes every 2s.
-    log.debug("Not using the server console log: the folder it would be read from doesn't look like a Zomboid data folder");
-    return { folder: null, remote: false, refused: true };
+  const dataFolder = activeServer?.zomboidDataPath || (await getSetting("zomboidDataPath"));
+  if (dataFolder) {
+    if (zomboidDataFolderHolds(dataFolder)) {
+      return { folder: dataFolder, remote: false, refused: false, refusal: null };
+    }
+    const refusal = zomboidDataFolderRefusal();
+    // PT5: the Console page polls these routes every 2s, so warn once per
+    // folder, then debug.
+    logRefusalOnce(log, `Not reading the server console log in ${dataFolder}: ${describeRefusal(refusal)}`);
+    return { folder: null, remote: false, refused: true, refusal };
   }
-  return { folder, remote: false, refused: false };
+  const installFolder = activeServer?.installPath || (await getSetting("serverPath"));
+  if (!installFolder) return { folder: null, remote: false, refused: false, refusal: null };
+  if (zomboidDataFolderHolds(installFolder)) {
+    return { folder: installFolder, remote: false, refused: false, refusal: null };
+  }
+  return { folder: null, remote: false, refused: true, refusal: CONSOLE_LOG_NO_DATA_FOLDER };
 }
 
 // SECURITY (2026-10-05, H4): the console routes below admit
@@ -6559,7 +6598,15 @@ router.get("/console-log", requirePermission("server.world_events"), async (req,
     const activeServer = await getActiveServer();
     const consoleLogFolder = await resolveConsoleLogFolder(activeServer);
     if (consoleLogFolder.remote || consoleLogFolder.refused) {
-      return res.json({ success: true, content: "", lines: [], exists: false });
+      // PT3: a refused data folder says why (`refusal`: its code, and what
+      // to set) instead of reading as a log that doesn't exist yet.
+      return res.json({
+        success: true,
+        content: "",
+        lines: [],
+        exists: false,
+        ...(consoleLogFolder.refusal ? { refusal: consoleLogFolder.refusal } : {}),
+      });
     }
     const zomboidDataPath = consoleLogFolder.folder;
 
@@ -6935,7 +6982,12 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
     // PATHS-1: see the comment above GET /console-log.
     const consoleLogFolder = await resolveConsoleLogFolder(activeServer);
     if (consoleLogFolder.remote || consoleLogFolder.refused) {
-      return res.json({ success: true, newLines: [], exists: false });
+      return res.json({
+        success: true,
+        newLines: [],
+        exists: false,
+        ...(consoleLogFolder.refusal ? { refusal: consoleLogFolder.refusal } : {}),
+      });
     }
     const zomboidDataPath = consoleLogFolder.folder;
 
@@ -7052,7 +7104,7 @@ router.post("/console-log/clear", requirePermission("server.configure"), async (
       });
     }
     if (consoleLogFolder.refused) {
-      return res.status(400).json(zomboidDataFolderRefusal());
+      return res.status(400).json(consoleLogFolder.refusal);
     }
     const zomboidDataPath = consoleLogFolder.folder;
 
