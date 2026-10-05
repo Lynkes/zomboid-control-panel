@@ -885,5 +885,8 @@
     "couldNotResetPassword": "Panèl la pa t kapab reyinisyalize modpas ou soti nan sèvè sa a.",
     "never": "Janm",
     "unknown": "Enkoni"
+  },
+  "hiddenByRole": {
+    "reason": "Kache: pou wè valè sa a, ou bezwen pèmisyon {{permission}}, e wòl sa a pa genyen li."
   }
 }

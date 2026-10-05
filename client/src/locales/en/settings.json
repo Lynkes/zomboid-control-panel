@@ -883,5 +883,8 @@
     "couldNotResetPassword": "The panel could not reset your password from this server.",
     "never": "Never",
     "unknown": "Unknown"
+  },
+  "hiddenByRole": {
+    "reason": "Hidden: seeing this value requires the {{permission}} permission, which this role doesn't have."
   }
 }

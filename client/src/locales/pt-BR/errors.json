@@ -583,5 +583,6 @@
   "CHARACTER_SHEET_FAILED": "Não foi possível ler este personagem.",
   "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Alterar essas configurações do Discord permitiria executar comandos do bot que exigem {{detail}}, permissões que você não tem.",
   "RESET_TOKEN_BURNED": "Foram tentados tokens de redefinição errados demais, então data/reset-token.txt foi excluído. Crie um novo no servidor e tente de novo.",
-  "HOST_NOT_ALLOWED": "Este painel só responde aos próprios endereços enquanto os logins do painel estão desativados. Abra-o pelo endereço IP ou por localhost, ou adicione este endereço em Configurações > Acesso remoto (CORS)."
+  "HOST_NOT_ALLOWED": "Este painel só responde aos próprios endereços enquanto os logins do painel estão desativados. Abra-o pelo endereço IP ou por localhost, ou adicione este endereço em Configurações > Acesso remoto (CORS).",
+  "SERVER_CONFIG_PATH_OUTSIDE_DATA": "A pasta de configuração do servidor precisa ser a pasta Server dentro da pasta de dados do Zomboid deste servidor, ou uma pasta dentro dela. Defina primeiro a pasta de dados do Zomboid ou deixe a pasta de configuração vazia."
 }

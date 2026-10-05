@@ -2946,8 +2946,8 @@ const IMAGE_EXTENSIONS = new Set([
 
 /**
  * Build the list of directories the file browser is allowed to access.
- * Restricts browsing to the server config path, server install path,
- * and Zomboid data path — prevents arbitrary filesystem traversal.
+ * Restricts browsing to the Zomboid data folder (which holds the server
+ * config folder) and ~/Zomboid — prevents arbitrary filesystem traversal.
  *
  * Takes req (2026-09-08 quadruple-read sweep): used to independently
  * re-derive the active server via its own getActiveServer() call, which is
@@ -2956,19 +2956,23 @@ const IMAGE_EXTENSIONS = new Set([
  * a DIFFERENT server than the one the calling handler's own path resolution
  * already agreed on via req.activeServerContext, if /activate landed between
  * the two. Reads the same single per-request snapshot instead.
+ *
+ * SECURITY (2026-10-04, FILES-2): the server config folder and serverPath
+ * used to be roots of their own. Both were plain servers.manage edits with
+ * no confinement (serverPath only has to be shaped like a folder), so
+ * either one made any folder on this computer browsable here: every file
+ * name in it, and any image in it through /image-preview. The config
+ * folder is now confined to <zomboidDataPath>/Server when saved
+ * (routes/servers.js's serverConfigPathIsConfined()), which the data
+ * folder's own root already covers; serverPath is no longer a root at all,
+ * and neither is the legacy settings copy of the config folder.
  */
 async function getAllowedBrowseRoots(req) {
   const roots = [];
   const { activeServer } = req.activeServerContext;
-  if (activeServer?.serverConfigPath)
-    roots.push(path.resolve(activeServer.serverConfigPath));
   if (activeServer?.zomboidDataPath)
     roots.push(path.resolve(activeServer.zomboidDataPath));
-  if (activeServer?.serverPath)
-    roots.push(path.resolve(activeServer.serverPath));
   const settings = await getAllSettings();
-  if (settings.serverConfigPath)
-    roots.push(path.resolve(settings.serverConfigPath));
   if (settings.zomboidDataPath)
     roots.push(path.resolve(settings.zomboidDataPath));
   // Always allow the default Zomboid config directory
@@ -2999,8 +3003,16 @@ router.get("/browse-files", async (req, res) => {
         });
       }
     } else {
-      // Default to the server config directory
+      // Default to the server config directory -- held to the same roots as
+      // a requested path, so a config folder saved before FILES-2's check
+      // can't be listed through the default either.
       const { serverConfigPath: configPath } = req.activeServerContext;
+      if (configPath && !confineToRoots(configPath, allowedRoots)) {
+        return res.status(403).json({
+          error: "Access denied: path is outside allowed server directories",
+          code: ErrorCode.BROWSE_ACCESS_DENIED,
+        });
+      }
       targetPath = configPath || "";
     }
 

@@ -1172,5 +1172,8 @@
     "couldNotResetPassword": "Não foi possível redefinir sua senha a partir deste servidor.",
     "never": "Nunca",
     "unknown": "Desconhecido"
+  },
+  "hiddenByRole": {
+    "reason": "Oculto: ver este valor requer a permissão {{permission}}, que este cargo não tem."
   }
 }

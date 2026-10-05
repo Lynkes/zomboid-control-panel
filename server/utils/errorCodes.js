@@ -2467,6 +2467,12 @@ export const ErrorCode = Object.freeze({
    * authentication is disabled (DNS rebinding guard). */
   HOST_NOT_ALLOWED: "HOST_NOT_ALLOWED",
   /* --- end security sweep W2: auth & sessions --- */
+  /* Security sweep 2026-10-04, batch 7 (server paths) */
+  /** server/routes/servers.js -- POST / and PUT /:id (400): the server
+   * config folder isn't the Server folder of the server's own Zomboid data
+   * folder or a folder inside it, links followed, or there is no data
+   * folder to anchor it to (serverConfigPathIsConfined(), FILES-2). */
+  SERVER_CONFIG_PATH_OUTSIDE_DATA: "SERVER_CONFIG_PATH_OUTSIDE_DATA",
 });
 
 /**

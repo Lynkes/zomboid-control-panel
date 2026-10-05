@@ -128,6 +128,70 @@ function validateInstallPathShape(value) {
   return { valid: true, mode };
 }
 
+// SECURITY (2026-10-04, FILES-2): serverConfigPath is the folder Server
+// Config reads and writes (<name>.ini, the .lua files, their .bak backups,
+// templates). It was saved with no check at all, so servers.manage alone
+// (technician) could point it at any folder on this computer, then list it,
+// fetch images from it and write .ini/.lua files into it through
+// /api/server-files. Every flow that sets it (detect, auto-scan, both
+// install routes) sends <zomboidDataPath>/Server, so a value is accepted
+// only when it resolves, links followed, to that folder or one inside it.
+// The server's own data folder is the anchor, so one is required. The value
+// is checked as typed (no %VAR% expansion, unlike zomboidDataPath below), so
+// nothing about the environment can be read back through this check.
+const SERVER_CONFIG_PATH_MAX_LENGTH = 1024;
+
+// realpath of the deepest part of `target` that exists, with the missing
+// rest put back: a folder that isn't there yet still can't leave the anchor
+// through a link in the part that is.
+function resolveThroughLinks(target) {
+  const resolved = path.resolve(target);
+  let existing = resolved;
+  const missing = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync.native(existing), ...missing);
+    } catch {
+      const parent = path.dirname(existing);
+      if (parent === existing) return resolved;
+      missing.unshift(path.basename(existing));
+      existing = parent;
+    }
+  }
+}
+
+function isSameOrInside(child, parent) {
+  const rel = path.relative(parent, child);
+  return (
+    rel === "" ||
+    (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel))
+  );
+}
+
+export function serverConfigPathIsConfined(value, zomboidDataPath) {
+  if (
+    typeof value !== "string" ||
+    value.length > SERVER_CONFIG_PATH_MAX_LENGTH ||
+    /[\x00-\x1f]/.test(value) ||
+    !path.isAbsolute(value)
+  ) {
+    return false;
+  }
+  if (typeof zomboidDataPath !== "string" || !zomboidDataPath.trim()) {
+    return false;
+  }
+  const anchor = resolveThroughLinks(path.join(path.resolve(zomboidDataPath), "Server"));
+  return isSameOrInside(resolveThroughLinks(value), anchor);
+}
+
+function serverConfigPathRefusal() {
+  return {
+    error:
+      "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
+    code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
+  };
+}
+
 // Run a requirePermission() check outside of route-level middleware, for a
 // capability that only applies to one branch of a handler (importIniFrom
 // below needs servers.discover -- the same capability that gates /auto-scan
@@ -685,6 +749,51 @@ router.get("/", async (req, res) => {
   }
 });
 
+// SECURITY (2026-10-04, SDOS-4): GET /status has no capability gate (every
+// role's pages poll it), and each call ran its own host-wide process scan --
+// on Windows a PowerShell Win32_Process query -- plus, when that scan
+// couldn't place the active server, the active server's own scan. A burst
+// of calls from any signed-in role started that many PowerShell processes
+// at once (24 alive together in the verifier's run). Calls now share them:
+// one that arrives while a scan runs waits for that scan, and a finished
+// scan's answer serves STATUS_SCAN_REUSE_MS more calls. Keyed on the app's
+// shared serverManager, so every app (and every test's fake one) keeps its
+// own; without one there is nothing to share and each call scans.
+const STATUS_SCAN_REUSE_MS = 2000;
+const statusScans = new WeakMap();
+
+export function sharedStatusScan(owner, key, run) {
+  if (!owner || typeof owner !== "object") return run();
+  let scans = statusScans.get(owner);
+  if (!scans) {
+    scans = new Map();
+    statusScans.set(owner, scans);
+  }
+  const now = Date.now();
+  const reusable = (entry) =>
+    entry.settledAt === null || now - entry.settledAt < STATUS_SCAN_REUSE_MS;
+  const cached = scans.get(key);
+  if (cached && reusable(cached)) return cached.promise;
+  for (const [otherKey, entry] of scans) {
+    if (!reusable(entry)) scans.delete(otherKey);
+  }
+  const entry = { settledAt: null, promise: null };
+  entry.promise = Promise.resolve()
+    .then(run)
+    .then(
+      (result) => {
+        entry.settledAt = Date.now();
+        return result;
+      },
+      (error) => {
+        if (scans.get(key) === entry) scans.delete(key);
+        throw error;
+      },
+    );
+  scans.set(key, entry);
+  return entry.promise;
+}
+
 // Per-server running status. Scans the host once for all PZ server processes
 // and attributes each match to a configured server via the same
 // scoreServerProcessOwnership() rules serverManager.js uses for its own
@@ -709,8 +818,9 @@ router.get("/status", async (req, res) => {
     let hostScan = null;
     let detectionError = null;
     try {
-      const scanner = new ServerManager();
-      const scan = await scanner.scanHostForServerProcesses();
+      const scan = await sharedStatusScan(serverManager, "host", () =>
+        new ServerManager().scanHostForServerProcesses(),
+      );
       hostScan = scan;
       matched = Array.isArray(scan?.matched) ? scan.matched : [];
       if (scan?.scanFailed) {
@@ -820,7 +930,11 @@ router.get("/status", async (req, res) => {
       let fallbackEntry = null;
       if (!running && server.id === activeId && typeof serverManager?.getServerProcessDetails === "function") {
         try {
-          const activeDetails = await serverManager.getServerProcessDetails();
+          const activeDetails = await sharedStatusScan(
+            serverManager,
+            `active:${activeId}`,
+            () => serverManager.getServerProcessDetails(),
+          );
           if (activeDetails.scanFailed) {
             activeFallbackUnknown = true;
           } else if (activeDetails.running) {
@@ -1231,6 +1345,15 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
       }
     }
 
+    // FILES-2: see serverConfigPathIsConfined(). Judged against the data
+    // folder this profile will be saved with (the env fallback included).
+    if (
+      config.serverConfigPath &&
+      !serverConfigPathIsConfined(config.serverConfigPath, config.zomboidDataPath)
+    ) {
+      return res.status(400).json(serverConfigPathRefusal());
+    }
+
     if (
       requestsLauncher &&
       (await refuseLaunchTargetChange(req, res, {
@@ -1557,6 +1680,29 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
       }
     }
 
+    // FILES-2: see serverConfigPathIsConfined(). Only a changed value is
+    // judged -- the edit dialog sends the whole record back -- and against
+    // the data folder the profile will have after this edit.
+    if (
+      updates.serverConfigPath !== undefined &&
+      updates.serverConfigPath !== null &&
+      updates.serverConfigPath !== ""
+    ) {
+      const stored = await getServer(serverId);
+      if (
+        stored &&
+        String(updates.serverConfigPath) !== String(stored.serverConfigPath ?? "") &&
+        !serverConfigPathIsConfined(
+          updates.serverConfigPath,
+          updates.zomboidDataPath !== undefined
+            ? updates.zomboidDataPath
+            : stored.zomboidDataPath,
+        )
+      ) {
+        return res.status(400).json(serverConfigPathRefusal());
+      }
+    }
+
     // GET responses mask rconPassword/adminPassword (sanitizeServerResponse).
     // If the client echoes that masked value back unmodified, drop the field
     // so the real stored secret isn't overwritten with bullets.
@@ -1866,7 +2012,7 @@ router.delete("/:id", requirePermission("servers.manage"), async (req, res) => {
           );
         }
         if (io) {
-          io.emit("activeServerChanged", { server: sanitizeServerResponse(newActiveServer) });
+          io.emit("activeServerChanged", { server: activeServerSummary(newActiveServer) });
         }
       } else if (io) {
         // No servers left at all.
@@ -1886,6 +2032,27 @@ router.delete("/:id", requirePermission("servers.manage"), async (req, res) => {
     lifecycleLock.release();
   }
 });
+
+// SECURITY (2026-10-04, PR #193 review): activeServerChanged goes to every
+// signed-in socket, whatever its role, and carried the whole server record:
+// install, data and config folders, start command, RCON host and port,
+// masked passwords. It now names the new active server and carries only
+// what the page that reads the payload uses (Dashboard: id, serverName,
+// maxMemory, and isRemote plus the Docker container reference for
+// resolveClientProvider()); a page that needs the record reads GET
+// /api/servers.
+export function activeServerSummary(server) {
+  return {
+    id: server.id,
+    name: server.name,
+    serverName: server.serverName,
+    isActive: Boolean(server.isActive),
+    isRemote: Boolean(server.isRemote),
+    dockerContainerName: server.dockerContainerName || null,
+    dockerContainerId: server.dockerContainerId || null,
+    maxMemory: server.maxMemory,
+  };
+}
 
 // Reload the live in-memory services (serverManager, RCON, PanelBridge,
 // LogTailer) to match `server` becoming the active one. Shared by
@@ -2025,7 +2192,7 @@ router.post("/:id/activate", requirePermission("servers.manage"), async (req, re
 
     // Emit to clients that active server changed
     if (io) {
-      io.emit("activeServerChanged", { server: sanitizeServerResponse(server) });
+      io.emit("activeServerChanged", { server: activeServerSummary(server) });
     }
 
     log.info(`Activated server: ${server.name} (ID: ${server.id})`);
