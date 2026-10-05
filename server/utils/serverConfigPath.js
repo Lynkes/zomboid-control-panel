@@ -1,5 +1,7 @@
 import fs from "fs";
 import path from "path";
+import { ErrorCode } from "./errorCodes.js";
+import { zomboidDataFolderHolds, zomboidDataFolderRefusal } from "../services/zomboidDataPath.js";
 
 // SECURITY (2026-10-04, FILES-2): serverConfigPath is the folder Server
 // Config reads and writes (<name>.ini, the .lua files, their .bak backups,
@@ -74,15 +76,53 @@ export function serverConfigPathIsConfined(value, zomboidDataPath) {
 //     <dataPath>/Server; otherwise it is refused, never swapped for another
 //     folder (the operator would be editing files they didn't pick);
 //   - with none named, <dataPath>/Server, as before.
-// `refused` tells a caller to answer SERVER_CONFIG_PATH_OUTSIDE_DATA.
+// `refused` tells a caller to answer serverConfigDirRefusal() below.
+//
+// SECURITY (2026-10-05, PATHS-1/PATHS-2 verifier pass 2): holding the
+// config folder to <dataPath>/Server protects nothing while the data folder
+// itself goes unjudged -- and a remote server's never is when it is saved
+// (its path names a folder on its own host), nor is the legacy settings
+// copy setActiveServer() made of one. So a technician saved a remote server
+// whose data folder was any folder here, and the mods routes,
+// /configure-rcon, /configure-network and the UPnP edit read and rewrote
+// <that folder>/Server/<name>.ini on this computer. The data folder in
+// effect is now held to the data-folder rule (services/zomboidDataPath.js)
+// here, where every one of those readers and writers resolves the folder:
+// refused (`reason: "data-folder"`), there is no config folder. A
+// same-host "remote" profile whose data folder is a real one keeps working,
+// and one on another host names a path that isn't here (nothing to judge).
 export function resolveServerConfigDir(configPath, dataPath) {
+  const hasDataPath = typeof dataPath === "string" && dataPath.trim() !== "";
+  if (hasDataPath && !zomboidDataFolderHolds(dataPath)) {
+    return { dir: null, refused: true, reason: "data-folder" };
+  }
   if (configPath) {
     return serverConfigPathIsConfined(configPath, dataPath)
-      ? { dir: configPath, refused: false }
-      : { dir: null, refused: true };
+      ? { dir: configPath, refused: false, reason: null }
+      : { dir: null, refused: true, reason: "outside-data" };
   }
-  const hasDataPath = typeof dataPath === "string" && dataPath.trim() !== "";
-  return { dir: hasDataPath ? path.join(dataPath, "Server") : null, refused: false };
+  return { dir: hasDataPath ? path.join(dataPath, "Server") : null, refused: false, reason: null };
+}
+
+const SERVER_CONFIG_PATH_OUTSIDE_DATA_MESSAGE =
+  "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.";
+
+// The response body for a config folder resolveServerConfigDir() refused:
+// SERVER_CONFIG_PATH_OUTSIDE_DATA, or ZOMBOID_DATA_PATH_NOT_DATA_FOLDER when
+// it was the data folder that failed.
+export function serverConfigDirRefusal(resolved) {
+  if (resolved?.reason === "data-folder") return zomboidDataFolderRefusal();
+  return {
+    error: SERVER_CONFIG_PATH_OUTSIDE_DATA_MESSAGE,
+    code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
+  };
+}
+
+// For log lines: why a config folder was refused.
+export function serverConfigDirRefusalReason(resolved) {
+  return resolved?.reason === "data-folder"
+    ? "the Zomboid data folder doesn't look like one"
+    : "the config folder is outside the Zomboid data folder";
 }
 
 // A server record's own config folder, held to its own data folder -- for

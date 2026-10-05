@@ -81,6 +81,11 @@ describe("toggle/batch-toggle: disk-verified numeric mod IDs", () => {
     dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mods-toggle-numeric-"));
     const configPath = path.join(dataRoot, "Server");
     fs.mkdirSync(configPath, { recursive: true });
+    // PATHS-1 verifier pass 2: the data folder is held to the data-folder
+    // rule wherever its config folder is resolved. This one also holds the
+    // test's game folder, which a real data folder doesn't; the Saves folder
+    // the game creates on first start makes it one.
+    fs.mkdirSync(path.join(dataRoot, "Saves"));
     iniPath = path.join(configPath, "TestServer.ini");
 
     installPath = path.join(dataRoot, "install");

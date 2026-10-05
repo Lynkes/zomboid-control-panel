@@ -2327,8 +2327,20 @@ function syncServerToSettings(db, server) {
   db.data.settings.serverPort = server.serverPort;
   db.data.settings.minMemory = normalizedServer.minMemory;
   db.data.settings.maxMemory = normalizedServer.maxMemory;
-  db.data.settings.zomboidDataPath = server.zomboidDataPath;
-  db.data.settings.serverConfigPath = server.serverConfigPath;
+  // SECURITY (2026-10-05, PATHS-1 verifier pass 2): these two are what the
+  // panel falls back to when the active record has no data folder of its
+  // own (the console-log routes, mods, /configure-rcon, the log tailer,
+  // ...). They were copied from every server activated, a remote one's
+  // included -- whose data folder is never judged when saved, since it
+  // names a folder on its own host -- so activating a remote server, then
+  // making it local with no data folder, left any folder here as the one
+  // those features used. A remote server's folders are not copied: nothing
+  // of its is on this computer. (The features that use the legacy folder
+  // also hold it to the data-folder rule, services/zomboidDataPath.js, for
+  // a copy made before this.)
+  const isRemote = Boolean(normalizedServer.isRemote);
+  db.data.settings.zomboidDataPath = isRemote ? null : server.zomboidDataPath;
+  db.data.settings.serverConfigPath = isRemote ? null : server.serverConfigPath;
 }
 
 // ============================================

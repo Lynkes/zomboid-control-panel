@@ -1888,14 +1888,18 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
       // before this shipped). The real toggle is the UPnP= line in the
       // server's own .ini, the same one /configure-network writes -- reused
       // here via applyUpnpToIni() rather than duplicated. PATHS-2: only
-      // into a config folder the record's own data folder holds.
+      // into a config folder the record's own data folder holds, and only
+      // while that data folder meets the data-folder rule (a remote
+      // server's is never judged when saved -- PATHS-1 verifier pass 2).
       const upnpConfig = server.serverConfigPath ? serverConfigDirOf(server) : null;
       if (
         Object.prototype.hasOwnProperty.call(updates, "useUpnp") &&
         upnpConfig?.refused
       ) {
         reloadWarnings.push(
-          "UPnP setting saved, but not written to the server config: its config folder is outside its Zomboid data folder. Fix the config folder, then edit UPnP again.",
+          upnpConfig.reason === "data-folder"
+            ? "UPnP setting saved, but not written to the server config: its Zomboid data folder holds files the game doesn't keep in a data folder. Fix the data folder, then edit UPnP again."
+            : "UPnP setting saved, but not written to the server config: its config folder is outside its Zomboid data folder. Fix the config folder, then edit UPnP again.",
         );
       }
       if (

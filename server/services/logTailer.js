@@ -5,6 +5,7 @@ import { EventEmitter } from 'events';
 import { createLogger } from '../utils/logger.js';
 const log = createLogger('LogTailer');
 import { getActiveServer, getSetting } from '../database/init.js';
+import { zomboidDataFolderHolds } from './zomboidDataPath.js';
 
 // Build 42 creates its built-in chat rooms in a fixed order, so the Q-shout
 // room is always id 2 (0 = General, 1 = Say). Both the say and the shout room
@@ -193,13 +194,28 @@ export class LogTailer extends EventEmitter {
         const homeDir = os.homedir();
         let basePath = process.env.PZ_SAVE_PATH || (homeDir ? path.join(homeDir, 'Zomboid') : '');
 
+        // SECURITY (2026-10-05, PATHS-1 verifier pass 2): this tails
+        // server-console.txt and Logs/*_chat.txt, *_user.txt under the
+        // folder below and passes their lines on (chat, deaths, the
+        // console). A remote server's data folder is never judged when
+        // saved (it names a folder on its own host), and the legacy
+        // settings copy used to take a remote server's too, so a technician
+        // could point this at any folder here. The folder used is now held
+        // to the data-folder rule (services/zomboidDataPath.js); refused,
+        // nothing is tailed. One on another host isn't here, so nothing
+        // changes for it.
         if (activeServer?.zomboidDataPath) {
             basePath = activeServer.zomboidDataPath;
         } else {
             const settingPath = await getSetting('zomboidDataPath');
             if (settingPath) basePath = settingPath;
         }
+        if (basePath && !zomboidDataFolderHolds(basePath)) {
+            log.warn("Not tailing the server's logs: its Zomboid data folder doesn't look like one");
+            basePath = null;
+        }
         this.basePath = basePath;
+        if (!basePath) return;
 
         // server-console.txt (B41 chat via [chat] markers, also general log tailing)
         const consoleLogPath = path.join(basePath, 'server-console.txt');

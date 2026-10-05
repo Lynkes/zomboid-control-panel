@@ -20,15 +20,25 @@ import { inspectZomboidPath, looksLikeSaveDir, normalizeUserPath } from "../util
 //     save files directly in it (inspectZomboidPath()'s on-disk checks --
 //     not its name-only ones, which any folder whose path says "zomboid" or
 //     "saves" passes, the panel's own folder included), or nothing in it
-//     but what the game itself puts in a data folder (empty included).
+//     but what the game itself puts in a data folder (empty included), or
+//     nothing in it but world saves (a Saves/Multiplayer folder named
+//     directly, as Map Cleanup allows).
 // A server install folder is refused. The folder PZ_SAVE_PATH names comes
 // from the operator's own environment (the Docker images set it), not from
 // a request, and is taken as it is. Remote servers stay exempt at the
 // setters: their paths are on another host. So a remote record's data
 // folder is no folder of this computer's, and the features that use one
-// here either apply zomboidDataFolderHolds() to it (chunks /browse, Server
-// Files' image browser) or don't use a remote server's at all (backups, the
-// console-log routes).
+// here either apply zomboidDataFolderHolds() to it or don't use a remote
+// server's at all. Applying it: chunks /browse, Server Files' image browser,
+// the log tailer, and every reader and writer of the server's config folder
+// (mods, /configure-rcon, /configure-network, the UPnP edit,
+// ensureRconConfigured, templates, PanelBridge delivery, pre-restart config
+// backups, backup snapshots, the Discord presence, the support bundle),
+// through utils/serverConfigPath.js. Not using a remote server's: backups,
+// the console-log routes, wipe. The legacy settings copy
+// (setActiveServer()) takes no remote server's folders, and the features
+// that fall back to it apply the rule to it as well (PATHS-1 verifier
+// pass 2).
 const ZOMBOID_DATA_PATH_MAX_LENGTH = 1024;
 const CONTROL_CHARACTERS = /[\x00-\x1f\x7f]/;
 
@@ -156,9 +166,48 @@ function judgeFolder(resolved) {
   } catch {
     return { ok: false, reason: "unreadable" };
   }
-  return names.every(isGameDataFolderEntry)
+  if (names.every(isGameDataFolderEntry)) return { ok: true, missing: false };
+  // A Saves/Multiplayer folder named directly, as Map Cleanup's custom path
+  // and "Save as default" allow (its hint names this shape, and
+  // routes/chunks.js's resolveSavesPath() reads one): named as the game
+  // names it, and nothing in it but world saves. Counting save files only
+  // directly in the folder (the first PATHS-1 verifier pass) stopped one
+  // holding saves from passing, while an empty one still did (verifier
+  // pass 2). Both halves count: the name alone is any
+  // .../Saves/Multiplayer folder, and "every folder in it has save files"
+  // alone is any folder of projects that each have a map/ folder. Judged
+  // entry by entry, so one that also holds anything else is still refused.
+  return isSavesMultiplayerFolder(resolved) &&
+    names.length > 0 &&
+    names.every((name) => isMultiplayerFolderEntry(resolved, name))
     ? { ok: true, missing: false }
     : { ok: false, reason: "not-a-data-folder" };
+}
+
+// Exactly as the game names them (ZomboidFileSystem.getSaveDir() is
+// getCacheDirSub("Saves"), and a multiplayer world goes in its
+// Core.gameMode "Multiplayer" folder) and as resolveSavesPath() matches them.
+function isSavesMultiplayerFolder(resolved) {
+  return path.basename(resolved) === "Multiplayer" && path.basename(path.dirname(resolved)) === "Saves";
+}
+
+// What the game keeps in Saves/Multiplayer: one folder per world save --
+// a dedicated server's own (named after the server, save files in it), and
+// on a machine that also plays, the client's per-server cache, which
+// ConnectToServerState names "<id>_<name>_player", the id a Java long the
+// server sends (read off the B42 jar). The OS's own entries are let through
+// as above.
+const MULTIPLAYER_PLAYER_CACHE_FOLDER = /^-?\d+_.+_player$/;
+
+function isMultiplayerFolderEntry(folder, name) {
+  if (OS_FOLDER_ENTRIES.has(name)) return true;
+  const entry = path.join(folder, name);
+  try {
+    if (!fs.statSync(entry).isDirectory()) return false;
+  } catch {
+    return false;
+  }
+  return MULTIPLAYER_PLAYER_CACHE_FOLDER.test(name) || looksLikeSaveDir(entry);
 }
 
 const NOT_A_DATA_FOLDER_MESSAGE =

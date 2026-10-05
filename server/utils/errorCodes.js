@@ -2491,6 +2491,11 @@ export const ErrorCode = Object.freeze({
    * host; its record's data folder isn't a folder on this computer
    * (PATHS-1). */
   SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE: "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE",
+  /** server/routes/server.js -- POST /api/server/wipe/preview and POST
+   * /wipe (400): the active server is remote, so its world is on its own
+   * host; its record's data folder isn't a folder on this computer
+   * (PATHS-1 verifier pass 2). */
+  WIPE_REMOTE_NOT_AVAILABLE: "WIPE_REMOTE_NOT_AVAILABLE",
   /* --- end security sweep W3: server paths --- */
 });
 

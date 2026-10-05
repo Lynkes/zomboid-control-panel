@@ -52,7 +52,7 @@ import {
 } from "../utils/browserCookies.js";
 import { requirePermission } from "../services/permissions.js";
 import { ErrorCode } from "../utils/errorCodes.js";
-import { activeServerConfigDir } from "../utils/serverConfigPath.js";
+import { activeServerConfigDir, serverConfigDirRefusalReason } from "../utils/serverConfigPath.js";
 import { withFileLock } from "../utils/fileWriteQueue.js";
 import { writeIniWithBackup as writeIniWithBackupRaw, backupWarningFor } from "../utils/configBackup.js";
 import { getBridgeManaged, protectBridgeIniEntries } from "../services/bridgeDelivery.js";
@@ -214,7 +214,9 @@ export async function getActiveServerPaths() {
   // that folder, so a configured one is used only while it is inside the
   // data folder in effect (the record's, else the legacy setting) --
   // utils/serverConfigPath.js. Refused, it comes back null, which every
-  // route below already answers as "not configured".
+  // route below already answers as "not configured". That data folder is
+  // itself held to the data-folder rule there too (PATHS-1 verifier pass
+  // 2): a remote server's, never judged when saved, named any folder here.
   const legacy = activeServer?.zomboidDataPath
     ? {}
     : {
@@ -223,7 +225,7 @@ export async function getActiveServerPaths() {
       };
   const config = activeServerConfigDir(activeServer, legacy);
   if (config.refused) {
-    log.warn("Not using the server config folder: it is outside the Zomboid data folder");
+    log.warn(`Not using the server config folder: ${serverConfigDirRefusalReason(config)}`);
   }
   const serverConfigPath = config.dir;
 

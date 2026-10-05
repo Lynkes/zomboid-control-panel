@@ -586,5 +586,6 @@
   "HOST_NOT_ALLOWED": "Este panel solo responde a sus propias direcciones mientras los inicios de sesión del panel están desactivados. Ábrelo por su dirección IP o localhost, o añade esta dirección en Ajustes > Acceso remoto (CORS).",
   "SERVER_CONFIG_PATH_OUTSIDE_DATA": "La carpeta de configuración del servidor debe ser la carpeta Server dentro de la carpeta de datos de Zomboid de este servidor, o una carpeta dentro de ella. Define primero la carpeta de datos de Zomboid o deja vacía la carpeta de configuración.",
   "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "Esta carpeta de datos de Zomboid contiene archivos que el juego no guarda en una carpeta de datos, así que el panel no la usará como carpeta de datos de un servidor. Elige la carpeta de datos propia del servidor (la que tiene una carpeta Saves), una carpeta vacía o una carpeta que todavía no exista: el juego la crea cuando el servidor arranca por primera vez.",
-  "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "El registro de consola de un servidor remoto está en su propio equipo, así que el panel no puede vaciarlo desde aquí."
+  "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "El registro de consola de un servidor remoto está en su propio equipo, así que el panel no puede vaciarlo desde aquí.",
+  "WIPE_REMOTE_NOT_AVAILABLE": "El mundo de un servidor remoto está en su propio equipo, así que el panel no puede borrarlo desde aquí."
 }

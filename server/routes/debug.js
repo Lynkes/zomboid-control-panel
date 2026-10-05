@@ -50,7 +50,7 @@ import {
 } from "../database/init.js";
 import { sanitizeError, sanitizeErrorParams, SENSITIVE_FIELD_RE } from "../utils/sanitize.js";
 import { ErrorCode } from "../utils/errorCodes.js";
-import { serverConfigPathIsConfined } from "../utils/serverConfigPath.js";
+import { serverConfigDirOf } from "../utils/serverConfigPath.js";
 import { checkSandboxBraceBalance } from "./serverFiles.js";
 import panelBridgeService from "../services/panelBridge.js";
 import authService from "../services/auth.js";
@@ -880,12 +880,11 @@ async function collectSandboxModMetadata(activeServer, ini) {
 // SECURITY (2026-10-05, PATHS-2): the support bundle reads the server's
 // .ini out of its config folder, which is used only while it is inside the
 // server's own data folder (utils/serverConfigPath.js) -- the folder Server
-// Files and the services agree on.
+// Files and the services agree on -- and while that data folder meets the
+// data-folder rule (PATHS-1 verifier pass 2).
 function supportConfigDir(activeServer) {
-  const configDir = activeServer?.serverConfigPath;
-  return configDir && serverConfigPathIsConfined(configDir, activeServer?.zomboidDataPath)
-    ? configDir
-    : null;
+  if (!activeServer?.serverConfigPath) return null;
+  return serverConfigDirOf(activeServer).dir;
 }
 
 async function buildSandboxOptionsDiagnostics(activeServer, knownSecrets = []) {
