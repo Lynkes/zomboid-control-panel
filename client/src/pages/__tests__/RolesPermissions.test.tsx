@@ -24,6 +24,12 @@ function renderRolesPermissions() {
 // whatever the first request had just removed -- a revoked capability could
 // come back with no error, no toast, nothing to indicate it happened.
 
+// The page reads the caller's own capabilities (useAuth().can) to grey out
+// reassign targets it couldn't grant -- an all-capable caller here.
+vi.mock('@/contexts/AuthContext', () => ({
+  useAuth: () => ({ can: () => true }),
+}))
+
 vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
   return {

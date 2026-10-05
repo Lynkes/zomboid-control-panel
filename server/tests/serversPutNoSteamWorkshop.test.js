@@ -36,7 +36,10 @@ async function put(id, body) {
   const layer = router.stack.find((entry) => entry.route?.path === "/:id" && entry.route.methods.put);
   const res = createResponse();
   await layer.route.stack[layer.route.stack.length - 1].handle(
-    { params: { id: String(id) }, body, app: { get: () => undefined } },
+    // RCE-STARTCMD: setting a launch target now needs files.manage, which
+    // only admin holds by default -- this suite's concern is the no-Steam /
+    // Workshop conflict logic, not that gate, so it acts as an admin.
+    { params: { id: String(id) }, body, app: { get: () => undefined }, user: { id: "admin-1", username: "admin", role: "admin" } },
     res,
   );
   return res;
@@ -46,7 +49,10 @@ async function post(body) {
   const { default: router } = await import("../routes/servers.js");
   const layer = router.stack.find((entry) => entry.route?.path === "/" && entry.route.methods.post);
   const res = createResponse();
-  await layer.route.stack[layer.route.stack.length - 1].handle({ body, app: { get: () => undefined } }, res);
+  await layer.route.stack[layer.route.stack.length - 1].handle(
+    { body, app: { get: () => undefined }, user: { id: "admin-1", username: "admin", role: "admin" } },
+    res,
+  );
   const id = res.getBody()?.server?.id;
   if (id) created.push(id);
   return res;

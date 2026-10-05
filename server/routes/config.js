@@ -12,6 +12,7 @@ import {
 } from "../utils/sanitize.js";
 import net from "net";
 import { requirePermission, getRoleByName } from "../services/permissions.js";
+import { resolveLaunchMode } from "../services/serverManager.js";
 import {
   MOD_CHECK_INTERVAL_MINUTES_MAX,
   MOD_CHECK_INTERVAL_MINUTES_MIN,
@@ -759,7 +760,20 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
     const missingCapabilities = [];
     let callerCapabilities = null;
     for (const [key, value] of filtered) {
-      const requiredCapability = SETTINGS_KEY_CAPABILITY[key];
+      let requiredCapability = SETTINGS_KEY_CAPABILITY[key];
+      // RCE-STARTCMD: the legacy serverPath mirrors servers.js's installPath
+      // (serverManager.js's loadConfig() falls back to it), so a value
+      // ending in a launcher extension puts this door into CUSTOM LAUNCHER
+      // mode -- a program the panel runs on the host. Changing it to one
+      // takes files.manage here too, matching servers.js's changesLaunchTarget()
+      // gate, instead of the servers.manage this field otherwise maps to.
+      if (
+        key === "serverPath" &&
+        typeof value === "string" &&
+        resolveLaunchMode({ installPath: value }).mode === "custom"
+      ) {
+        requiredCapability = "files.manage";
+      }
       if (!requiredCapability) continue;
       if (JSON.stringify(currentSettings[key]) === JSON.stringify(value)) {
         continue;

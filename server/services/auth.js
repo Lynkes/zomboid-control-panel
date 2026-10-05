@@ -291,7 +291,10 @@ export function onSessionRevoked(callback) {
   };
 }
 
-function emitSessionRevoked(event) {
+// Exported for services/permissions.js: a role edit or delete changes what
+// every member is authorized for without touching any user row here, so it
+// has to fire the same per-user eviction itself.
+export function emitSessionRevoked(event) {
   sessionRevocationCallbacks.forEach((cb) => {
     try {
       cb(event);

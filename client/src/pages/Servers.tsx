@@ -100,6 +100,7 @@ import { RconTestConnection } from '@/components/RconTestConnection'
 import { MountDiscoveryBanner, InaccessibleMountBanner } from '@/components/MountDiscoveryBanner'
 import { DiscoverySetup } from '@/components/DiscoverySetup'
 import { DisabledReason } from '@/components/DisabledReason'
+import { changesLaunchTarget, launchIsOperatorDefined } from '@/lib/launchTarget'
 import { HelpTip } from '@/components/HelpTip'
 import { platformTranslationKey, useRuntimeInfo } from '@/hooks/useRuntimeInfo'
 
@@ -316,6 +317,10 @@ export default function Servers() {
   const canServerWipe = can('server.wipe')
   const canServerInstall = can('server.install')
   const canServersDiscover = can('servers.discover')
+  // RCE-STARTCMD: a start command or launcher script is a program the panel
+  // runs on the host, so changing one takes files.manage (see
+  // lib/launchTarget.ts and server/routes/servers.js's changesLaunchTarget()).
+  const canFilesManage = can('files.manage')
   // Inline Start/Stop fires activate (servers.manage) THEN start/stop
   // (server.control) in sequence -- a role holding only one gets a PARTIAL
   // execution today (activate succeeds and the server record changes state,
@@ -423,6 +428,16 @@ export default function Servers() {
   // only surfacing at the moment Save is clicked. Derived from current field
   // values every render, so it clears itself the instant either field no
   // longer collides -- no separate state to remember to reset.
+  // The stored record the edit dialog started from, and whether this role
+  // may save what the dialog now holds (RCE-STARTCMD).
+  const editingStoredServer = useMemo(
+    () => (editingServer ? servers?.find((s) => s.id === editingServer.id) ?? null : null),
+    [editingServer, servers],
+  )
+  const editLaunchTargetBlocked =
+    !canFilesManage && !!editingServer && !!editingStoredServer && changesLaunchTarget(editingStoredServer, editingServer)
+  const editInstallPathLocked = !canFilesManage && launchIsOperatorDefined(editingStoredServer)
+
   const editDuplicateRemoteConflict = useMemo(() => {
     if (!editingServer || !editingServer.isRemote) return false
     const normalizedName = (editingServer.name || '').trim().toLowerCase()
@@ -1480,7 +1495,7 @@ export default function Servers() {
 
   const handleSaveEdit = async () => {
     if (!editingServer || savingEdit) return
-    if (!canServersManage) return
+    if (!canServersManage || editLaunchTargetBlocked) return
     const storedLifecycleProvider =
       servers?.find((server) => server.id === editingServer.id)?.lifecycleProvider || 'direct'
     if ((editingServer.lifecycleProvider || 'direct') !== storedLifecycleProvider) {
@@ -1762,8 +1777,10 @@ export default function Servers() {
     return installPath
   }
 
+  const addLauncherBlocked = addMode === 'local' && !canFilesManage && isCustomLauncherPath(newServer.installPath)
+
   const handleAddExistingServer = async () => {
-    if (!canServersManage) return
+    if (!canServersManage || addLauncherBlocked) return
     // For remote servers, only need name, rcon credentials
     if (addMode === 'remote') {
       if (!newServer.name.trim()) {
@@ -2870,6 +2887,9 @@ export default function Servers() {
                       <AlertDescription>{t('localForm.customLauncherNoticeBody')}</AlertDescription>
                     </Alert>
                   )}
+                  {addLauncherBlocked && (
+                    <p className="text-xs text-destructive">{t('localForm.launcherNoPermission')}</p>
+                  )}
                 </div>
               </div>
               )}
@@ -3046,10 +3066,12 @@ export default function Servers() {
             <Button variant="outline" onClick={resetAddDialog}>
               {t('addDialog.cancel')}
             </Button>
-            <DisabledReason reason={!canServersManage ? t('addDialog.noPermission') : null}>
+            <DisabledReason
+              reason={!canServersManage ? t('addDialog.noPermission') : addLauncherBlocked ? t('localForm.launcherNoPermission') : null}
+            >
               <Button
                 onClick={handleAddExistingServer}
-                disabled={addingServer || !canServersManage || (addMode === 'local' ? (!selectedServerConfig || (!newServer.rconPassword && !importIniFrom)) : (!newServer.name || !newServer.rconHost || !newServer.rconPassword))}
+                disabled={addingServer || !canServersManage || addLauncherBlocked || (addMode === 'local' ? (!selectedServerConfig || (!newServer.rconPassword && !importIniFrom)) : (!newServer.name || !newServer.rconHost || !newServer.rconPassword))}
               >
                 {addingServer ? (
                   <><Loader2 className="w-4 h-4 me-2 animate-spin" /> {t('addDialog.adding')}</>
@@ -3193,11 +3215,17 @@ export default function Servers() {
               <>
               <div className="space-y-2">
                 <Label>{t('editDialog.installPathLabel')}</Label>
-                <Input
-                  value={editingServer.installPath}
-                  onChange={e => setEditingServer({ ...editingServer, installPath: e.target.value })}
-                  className="font-mono text-sm"
-                />
+                <DisabledReason reason={editInstallPathLocked ? t('editDialog.launchTargetNoPermission') : null} className="w-full">
+                  <Input
+                    value={editingServer.installPath}
+                    onChange={e => setEditingServer({ ...editingServer, installPath: e.target.value })}
+                    className="font-mono text-sm"
+                    disabled={editInstallPathLocked}
+                  />
+                </DisabledReason>
+                {editLaunchTargetBlocked && !editInstallPathLocked && (
+                  <p className="text-xs text-destructive">{t('editDialog.launchTargetNoPermission')}</p>
+                )}
                 {isCustomLauncherPath(editingServer.installPath) && (
                   <Alert className="border-warning/40 bg-warning/10">
                     <AlertCircle className="h-4 w-4 text-warning" />
@@ -3296,13 +3324,17 @@ export default function Servers() {
                     </TooltipContent>
                   </Tooltip>
                 </Label>
-                <Input
-                  value={editingServer.startCommand || ''}
-                  onChange={e => setEditingServer({ ...editingServer, startCommand: e.target.value })}
-                  className="font-mono text-sm"
-                  placeholder={t(platformTranslationKey('editDialog.customStartCommandPlaceholder', runtimeInfo?.family))}
-                  maxLength={1024}
-                />
+                <DisabledReason reason={!canFilesManage ? t('editDialog.launchTargetNoPermission') : null} className="w-full">
+                  <Input
+                    value={editingServer.startCommand || ''}
+                    onChange={e => setEditingServer({ ...editingServer, startCommand: e.target.value })}
+                    className="font-mono text-sm"
+                    placeholder={t(platformTranslationKey('editDialog.customStartCommandPlaceholder', runtimeInfo?.family))}
+                    maxLength={1024}
+                    disabled={!canFilesManage}
+                  />
+                </DisabledReason>
+                <p className="text-xs text-muted-foreground">{t('editDialog.customStartCommandInstallFolderHint')}</p>
                 {editingServer.startCommand && /[&|;<>`${}()!\[\]]/.test(editingServer.startCommand) && (
                   <p className="text-xs text-destructive">{t('editDialog.customStartCommandDisallowed')}</p>
                 )}
@@ -3443,8 +3475,10 @@ export default function Servers() {
             <Button variant="outline" onClick={() => setEditingServer(null)}>
               {t('editDialog.cancel')}
             </Button>
-            <DisabledReason reason={!canServersManage ? t('editDialog.noPermission') : null}>
-              <Button onClick={handleSaveEdit} disabled={savingEdit || !canServersManage}>
+            <DisabledReason
+              reason={!canServersManage ? t('editDialog.noPermission') : editLaunchTargetBlocked ? t('editDialog.launchTargetNoPermission') : null}
+            >
+              <Button onClick={handleSaveEdit} disabled={savingEdit || !canServersManage || editLaunchTargetBlocked}>
                 <Check className="w-4 h-4 me-2" /> {savingEdit ? t('editDialog.saving') : t('editDialog.saveChanges')}
               </Button>
             </DisabledReason>

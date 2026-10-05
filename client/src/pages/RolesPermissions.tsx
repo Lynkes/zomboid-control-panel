@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useToast } from '@/components/ui/use-toast'
+import { useAuth } from '@/contexts/AuthContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import {
   permissionsApi,
@@ -70,6 +71,18 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
   const { t } = useTranslation(['roles', 'errors'])
   const { toast } = useToast()
   const confirm = useConfirm()
+  const { can } = useAuth()
+
+  // Moving a deleted role's members onto another role is assigning it to
+  // them, so deleteRole() (server/services/permissions.js) refuses any
+  // target granting a capability the caller doesn't hold. Grey those
+  // targets out up front instead of failing on Delete. can() fails open on
+  // an unresolved capability list -- the server still decides.
+  function reassignTargetBlockedReason(target: RoleInfo): string | null {
+    return target.capabilities.every((capability) => can(capability))
+      ? null
+      : t('deleteRoleDialog.reassignExceedsYours')
+  }
 
   const [groups, setGroups] = useState<CapabilityGroup[]>([])
   const [roles, setRoles] = useState<RoleInfo[]>([])
@@ -890,11 +903,16 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
                 <SelectContent>
                   {roles
                     .filter((r) => r.id !== deleteTarget.id)
-                    .map((r) => (
-                      <SelectItem key={r.id} value={r.id}>
-                        {r.name}
-                      </SelectItem>
-                    ))}
+                    .map((r) => {
+                      const blockedReason = reassignTargetBlockedReason(r)
+                      return (
+                        <DisabledReason key={r.id} reason={blockedReason} className="w-full">
+                          <SelectItem value={r.id} disabled={!!blockedReason}>
+                            {r.name}
+                          </SelectItem>
+                        </DisabledReason>
+                      )
+                    })}
                 </SelectContent>
               </Select>
             </div>

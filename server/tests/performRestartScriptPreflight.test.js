@@ -202,7 +202,9 @@ describe("ServerManager.assertNamedStartupScriptLaunchable()", () => {
       id: 1,
       serverName: "servertest",
       installPath: notAFolder,
-      startCommand: "/opt/pz/run.sh",
+      // Relative, so it stays inside the install folder the launch-target
+      // check (RCE-STARTCMD) confines it to.
+      startCommand: "./run.sh",
     });
 
     await expect(
