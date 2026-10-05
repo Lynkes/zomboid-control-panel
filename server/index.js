@@ -68,6 +68,7 @@ import { rehydrateActiveSteamOperationsFromDisk } from "./services/activeSteamOp
 import {
   PanelUpdateChecker,
   createUpdateDataBackup,
+  linuxServiceReinstallGuidance,
   redactUpdateStatus,
   restorePreUpdateDataBackup,
 } from "./services/panelUpdateChecker.js";
@@ -4455,14 +4456,16 @@ async function start() {
                 const activated =
                   panelUpdateChecker.activateStagedLinuxLauncherFiles(linuxExeDir);
                 if (activated) {
-                  log.info(
-                    "Linux launcher and service templates updated; re-run install-linux-service.sh --enable to load the new unit.",
-                  );
+                  log.info("Linux launcher and reference service templates updated.");
                 }
               } catch (activateErr) {
+                // Never point root at the panel folder's own copy of the
+                // installer here: the service account can rewrite it, and
+                // can make this activation fail on purpose to get the line
+                // logged (DOCKER-1, see linuxServiceReinstallGuidance()).
                 log.error(
                   `Could not update Linux launcher/service templates: ${activateErr.message}. ` +
-                    `Run: sudo ${path.join(linuxExeDir, "install-linux-service.sh")} --enable`,
+                    `The installed systemd unit is unchanged. ${linuxServiceReinstallGuidance(linuxExeDir)}`,
                 );
               }
             }

@@ -45,6 +45,23 @@ const DOWNLOAD_HOST_PROBE_TIMEOUT_MS = 8000;
 export const LINUX_SERVICE_INSTALLER_PATH =
   "/usr/local/lib/zomboid-panel/install-linux-service.sh";
 
+// What the panel tells an operator to do to load a newer systemd unit after
+// an update, or after the launcher swap below fails. It never names a file
+// in the panel folder: the service account can rewrite those, and it can
+// also make that swap fail on purpose to get this line logged, so a
+// `sudo <panel folder>/install-linux-service.sh` here was root escalation
+// (security sweep 2026-10-04, DOCKER-1 residual). The two files come from a
+// release archive the operator downloaded and extracted as their own user,
+// same as docs/install/linux.md Phase 6.
+export function linuxServiceReinstallGuidance(exeDir) {
+  const trustedDir = path.posix.dirname(LINUX_SERVICE_INSTALLER_PATH);
+  return (
+    "To load a newer systemd unit, download this release's archive yourself, extract it as your own user, " +
+    `and copy install-linux-service.sh and zomboid-panel.service from there (never from ${exeDir}) ` +
+    `to ${trustedDir}, then run: sudo ${LINUX_SERVICE_INSTALLER_PATH} --enable (docs/install/linux.md).`
+  );
+}
+
 export function getPanelFolderPermissionGuidance(platform, detail) {
   const prefix = `Panel folder is not writable by this process: ${detail}.`;
   if (platform === "win32") {
@@ -1645,9 +1662,7 @@ export class PanelUpdateChecker {
     fs.rmSync(stageDir, { recursive: true, force: true });
     log.info(
       "Updated Linux launcher and reference service templates from verified release archive. " +
-        "The installed systemd unit is unchanged; to load a newer unit, copy install-linux-service.sh " +
-        `and zomboid-panel.service from the release archive to ${path.dirname(LINUX_SERVICE_INSTALLER_PATH)} ` +
-        `and run: sudo ${LINUX_SERVICE_INSTALLER_PATH} --enable (docs/install/linux.md).`,
+        `The installed systemd unit is unchanged. ${linuxServiceReinstallGuidance(exeDir)}`,
     );
     return true;
   }
