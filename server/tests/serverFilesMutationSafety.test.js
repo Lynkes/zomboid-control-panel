@@ -91,6 +91,13 @@ describe("local config mutation safety", () => {
     }
   });
 
+  it("classifies any spelling of a mutation the way Express routes it (#193)", () => {
+    expect(isLocalConfigOverwrite(createRequest("POST", "/RESTORE/world.bak"))).toBe(true);
+    expect(isLocalConfigOverwrite(createRequest("POST", "/Templates/demo/APPLY"))).toBe(true);
+    expect(isLocalConfigEdit(createRequest("PUT", "/INI"))).toBe(true);
+    expect(isLocalConfigEdit(createRequest("PUT", "/Raw/SpawnRegions"))).toBe(true);
+  });
+
   it("classifies restore and template-apply as overwrites, not edits", () => {
     const restore = createRequest("POST", "/restore/world.bak");
     const apply = createRequest("POST", "/templates/demo/apply");

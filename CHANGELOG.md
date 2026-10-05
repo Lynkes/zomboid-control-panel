@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Panel updates:** checking for updates and reading the apply log need panel settings (admin by default) (#193, thanks @mrbean56).
 - **Hardening:** safer restore staging, owner-only `.bat` launch scripts, masked recovery codes, a stricter CORS private-network check, HS256-only tokens, server-files guards that match a trailing slash, and an optional `PANEL_DOCKER_UPDATE_SHA256` updater pin (#193, thanks @mrbean56).
 
+## [1.4.4] - 2026-10-04
+
+### Security
+
+- **Authentication bypass fixed:** an API path spelled in another letter case (`/API/...`) skipped the login check; config restores and edits on such paths also skipped their "server must be stopped" check (#193, thanks @mrbean56).
+
 ## [1.4.3] - 2026-10-02
 
 ### Fixed

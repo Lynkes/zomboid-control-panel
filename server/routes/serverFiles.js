@@ -319,6 +319,9 @@ const LOCAL_CONFIG_MUTATIONS = new Set([
 // was trying to protect. Left gated (409 while running) deliberately,
 // pending its own evidence rather than inheriting the edit ruling by
 // assumption.
+// Both checks match the path the way Express's routing does (guardPathOf):
+// /RESTORE/x and /restore/x/ reach the same handler as /restore/x, so they
+// must meet the same gate (#193).
 function isLocalConfigOverwrite(req) {
   const routePath = guardPathOf(req);
   if (req.method === "POST" && /^\/templates\/[^/]+\/apply$/.test(routePath)) {

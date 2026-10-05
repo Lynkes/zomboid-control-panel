@@ -115,6 +115,27 @@ describe("authService.middleware() — /api/auth/* is no longer a blanket exempt
     );
   });
 
+  // #193: Express routes case-insensitively, so /API/... reaches the same
+  // handlers as /api/... — and the old case-sensitive prefix test let every
+  // other spelling through with no token at all (GET /API/config/app-settings
+  // answered 200 on v1.4.3).
+  it.each(["/API/config/app-settings", "/Api/servers", "/aPi/debug/system", "/API/auth/users", "/API/HEALTH"])(
+    "%s with no Authorization header is refused: any spelling of /api needs a token",
+    async (path) => {
+      const { next, res } = await run(path);
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: "AUTH_REQUIRED" }));
+    },
+  );
+
+  it("non-API paths in any case still pass straight through (static files, SPA routes)", async () => {
+    for (const path of ["/", "/Files", "/assets/index.js"]) {
+      const { next } = await run(path);
+      expect(next, path).toHaveBeenCalled();
+    }
+  });
+
   it("a formerly-vulnerable path DOES work with a valid token — the fix isn't a new blanket refusal either", async () => {
     authService.jwtSecret = "test-secret-for-this-file";
     const jwt = (await import("jsonwebtoken")).default;
@@ -145,7 +166,9 @@ describe("authService.middleware() — /api/auth/* is no longer a blanket exempt
   // "/API/..." while the request still reached the same route. Live-found:
   // GET /API/config/app-settings returned 200 unauthenticated on a running
   // panel while GET /api/config/app-settings returned 401. These pin the
-  // normalized guard in both directions.
+  // normalized guard in both directions. As shipped in 1.4.4, the public
+  // exemptions still compare the path exactly: an odd spelling of a public
+  // path has to sign in like any other API path.
   it.each([
     "/API/config/app-settings",
     "/Api/servers",
@@ -158,12 +181,21 @@ describe("authService.middleware() — /api/auth/* is no longer a blanket exempt
     expect(res.status).toHaveBeenCalledWith(401);
   });
 
-  it.each(["/API/auth/login", "/API/auth/status", "/API/health", "/API/map/tiles/42/0/0/0.png"])(
-    "H1: public path %s stays reachable with no token, whatever the case",
+  it.each(["/api/auth/login", "/api/auth/status", "/api/health", "/api/map/tiles/42/0/0/0.png"])(
+    "H1: public path %s stays reachable with no token",
     async (path) => {
       const { next, res } = await run(path);
       expect(next).toHaveBeenCalledTimes(1);
       expect(res.status).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["/API/auth/login", "/API/health", "/API/map/tiles/42/0/0/0.png"])(
+    "H1: %s, another spelling of a public path, has to sign in",
+    async (path) => {
+      const { next, res } = await run(path);
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(401);
     },
   );
 });
