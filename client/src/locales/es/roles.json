@@ -55,6 +55,7 @@
     "reassignLabel": "Mover miembros a",
     "reassignTip": "Todos los miembros de este rol pasan de una vez al que elijas aquí — no hay forma de repartirlos entre varios roles desde este cuadro de diálogo. Para asignar personas a roles distintos de forma individual, cancela y usa la tabla \"Asignar roles a usuarios\" de más abajo.",
     "reassignPlaceholder": "Elige un rol…",
+    "reassignExceedsYours": "No tienes todas las capacidades que otorga este rol, así que no puedes mover miembros a él.",
     "cancel": "Cancelar",
     "confirm": "Eliminar rol",
     "confirming": "Eliminando…",

@@ -55,6 +55,7 @@
     "reassignLabel": "Mover membros para",
     "reassignTip": "Todos os membros deste cargo vão para o cargo que você escolher aqui, de uma só vez — não há como dividi-los entre cargos diferentes nesta janela. Para mandar pessoas para cargos diferentes uma a uma, cancele e use a tabela \"Atribuir cargos a usuários\" abaixo.",
     "reassignPlaceholder": "Escolha um cargo…",
+    "reassignExceedsYours": "Você não tem todas as permissões que este cargo concede, então não pode mover membros para ele.",
     "cancel": "Cancelar",
     "confirm": "Excluir cargo",
     "confirming": "Excluindo…",

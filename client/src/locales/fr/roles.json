@@ -55,6 +55,7 @@
     "reassignLabel": "Déplacer les membres vers",
     "reassignTip": "Tous les membres de ce rôle basculent d'un coup vers celui que vous choisissez ici — impossible de les répartir entre différents rôles depuis cette boîte de dialogue. Pour attribuer des rôles différents individuellement, annulez et utilisez plutôt le tableau « Attribuer des rôles aux utilisateurs » ci-dessous.",
     "reassignPlaceholder": "Choisissez un rôle…",
+    "reassignExceedsYours": "Vous ne détenez pas toutes les capacités accordées par ce rôle : vous ne pouvez donc pas y déplacer de membres.",
     "cancel": "Annuler",
     "confirm": "Supprimer le rôle",
     "confirming": "Suppression…",
