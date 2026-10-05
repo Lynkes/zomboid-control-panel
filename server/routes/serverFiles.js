@@ -33,6 +33,7 @@ import {
   readIniLineAsGame,
 } from "../utils/iniGameView.js";
 import { confineToRoots } from "../utils/browseRoots.js";
+import { serverConfigPathIsConfined } from "../utils/serverConfigPath.js";
 import {
   SFTP_CONFIG_PATH_KEY,
   acquireMirrorLock,
@@ -184,29 +185,27 @@ router.use(async (req, res, next) => {
   }
   // SECURITY (2026-10-04, FILES-2 adversary pass): routes/servers.js only
   // checks a server's own config folder when it is saved, so one saved
-  // before that check (or by any other door) was still read and written
-  // here. It must sit inside this caller's file-browser roots (see
-  // getAllowedBrowseRoots()), or every Server Files route refuses it until
-  // it is fixed in the server's settings. A remote server's folder is the
-  // panel's own SFTP mirror, and a folder that comes from the legacy
-  // settings (panel.settings) isn't the server record's, so neither is held
-  // to this.
-  const { activeServer, serverConfigPath } = req.activeServerContext;
-  if (activeServer && !activeServer.isRemote && activeServer.serverConfigPath) {
-    let confined;
-    try {
-      confined = confineToRoots(serverConfigPath, await getAllowedBrowseRoots(req));
-    } catch (err) {
-      return next(err);
-    }
-    if (!confined) {
-      log.warn("Refusing Server Files access: the active server's config folder is outside its Zomboid data folder");
-      return res.status(400).json({
-        error:
-          "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
-        code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
-      });
-    }
+  // before that check was still read and written here. A server record
+  // whose config folder isn't inside its data folder's Server folder (the
+  // same rule, utils/serverConfigPath.js) is refused by every Server Files
+  // route until it is fixed in the server's settings. A remote server's
+  // folder is the panel's own SFTP mirror, and a record without a data
+  // folder has nothing to hold it to (none can be saved with a config
+  // folder any more).
+  const { activeServer } = req.activeServerContext;
+  if (
+    activeServer &&
+    !activeServer.isRemote &&
+    activeServer.serverConfigPath &&
+    activeServer.zomboidDataPath &&
+    !serverConfigPathIsConfined(activeServer.serverConfigPath, activeServer.zomboidDataPath)
+  ) {
+    log.warn("Refusing Server Files access: the active server's config folder is outside its Zomboid data folder");
+    return res.status(400).json({
+      error:
+        "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
+      code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
+    });
   }
   next();
 });

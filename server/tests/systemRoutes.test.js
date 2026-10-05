@@ -2,7 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 
 const getCircuitBreakerStatus = vi.fn();
-vi.mock("../database/init.js", () => ({ getCircuitBreakerStatus }));
+// The folders behind the disk readings go only to roles that act on a full
+// disk (diagnostics.manage / backups.manage); these tests sign in as one.
+const ROLES = { diagnostics: { capabilities: ["diagnostics.manage"] } };
+vi.mock("../database/init.js", () => ({
+  getCircuitBreakerStatus,
+  getRoleByName: async (name) => ROLES[name] || null,
+}));
 
 const getDiskStatusForPath = vi.fn();
 vi.mock("../services/diskMonitor.js", () => ({ getDiskStatusForPath }));
@@ -29,8 +35,9 @@ function createResponse() {
   return response;
 }
 
-function createRequest(diskMonitor) {
+function createRequest(diskMonitor, user = { role: "diagnostics" }) {
   return {
+    user,
     app: { get: (key) => (key === "diskMonitor" ? diskMonitor : undefined) },
   };
 }
