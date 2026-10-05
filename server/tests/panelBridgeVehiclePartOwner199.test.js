@@ -331,6 +331,50 @@ VehicleUtils = {
     expect(partField(bridge, 'Engine', 'condition')).toBe(20);
     expect(list(bridge, 'JAVA_INDEX_ERRORS')).toEqual([]);
   });
+
+  it('vehicleHotwire sends the unlocked door and the engine condition, and calls no method B42 lacks', () => {
+    const bridge = load(`
+BOGUS_CALLS = {}
+VEHICLE_METHODS.transmitVehicle = function(self) table.insert(BOGUS_CALLS, "transmitVehicle") end
+VEHICLE_METHODS.updateFlags = function(self) table.insert(BOGUS_CALLS, "updateFlags") end
+`);
+    const result = bridge.callHandler('vehicleHotwire', { vehicleId: 1 });
+
+    expect(result.ok).toBe(true);
+    // Connected players otherwise keep seeing the door locked.
+    expect(list(bridge, 'TRANSMITS')).toEqual(expect.arrayContaining(['door', 'condition']));
+    expect(list(bridge, 'BOGUS_CALLS')).toEqual([]);
+  });
+
+  it('vehicleRepair fails when repair() ran but left no part at full condition', () => {
+    const bridge = load('VEHICLE_METHODS.repair = function(self) VEH.repairCalls = VEH.repairCalls + 1 end');
+    const result = bridge.callHandler('vehicleRepair', { vehicleId: 1 });
+
+    expect(result.ok).toBe(false);
+    expect(result.err).toMatch(/none of the vehicle's 4 readable part\(s\) is at full condition/);
+  });
+
+  it('vehicleSetAlarm arms the alarm and leaves it armed', () => {
+    // BaseVehicle.triggerAlarm() sounds the alarm and always sets alarmed
+    // back to false (javap -c, 42.21); calling it after setAlarmed(true)
+    // left every vehicle disarmed.
+    const bridge = load(`
+TRIGGERS = 0
+VEHICLE_METHODS.triggerAlarm = function(self) TRIGGERS = TRIGGERS + 1; VEH.alarmed = false end
+`);
+    const result = bridge.callHandler('vehicleSetAlarm', { vehicleId: 1, enabled: true });
+
+    expect(result.ok).toBe(true);
+    expect(result.data).toMatchObject({ enabled: true, verified: 'confirmed' });
+    bridge.run('__ALARMED = VEH.alarmed; __TRIGGERS = TRIGGERS');
+    expect(bridge.getGlobal('__ALARMED')).toBe(true);
+    expect(bridge.getGlobal('__TRIGGERS')).toBe(0);
+
+    const off = bridge.callHandler('vehicleSetAlarm', { vehicleId: 1, enabled: false });
+    expect(off.ok).toBe(true);
+    bridge.run('__ALARMED = VEH.alarmed');
+    expect(bridge.getGlobal('__ALARMED')).toBe(false);
+  });
 });
 
 describe('PanelBridge.lua getParts() fallback (#199)', () => {

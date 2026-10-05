@@ -9205,7 +9205,10 @@ handlers.vehicleSetAlarm = function(args)
         if not PanelBridge.invoke(vehicle, "setAlarmed", enabled) then
             error("setAlarmed not available")
         end
-        if enabled then PanelBridge.invoke(vehicle, "triggerAlarm") end
+        -- "Alarm On" arms the alarm (the panel's Alarm badge is isAlarmed).
+        -- It used to call triggerAlarm() next, which sounds the alarm and
+        -- always clears alarmed again (javap -c, 42.21), so every vehicle
+        -- ended up disarmed and the read-back below failed.
     end)
     if not ok then return false, nil, "Failed to update vehicle alarm: " .. tostring(err) end
 
@@ -9601,8 +9604,10 @@ handlers.vehicleHotwire = function(args)
             local part = vehiclePartGet(vehicle, "getPartByIndex", i)
             if part then
                 local door = PanelBridge.tryGet(part, "getDoor")
-                if door then
+                if door and PanelBridge.tryGet(door, "isLocked") ~= false then
                     PanelBridge.invoke(door, "setLocked", false)
+                    -- Sent, or connected players keep seeing it locked.
+                    PanelBridge.invoke(vehicle, "transmitPartDoor", part)
                 end
             end
         end
@@ -9614,6 +9619,7 @@ handlers.vehicleHotwire = function(args)
         local engineCond = enginePart and tonumber(PanelBridge.tryGet(enginePart, "getCondition"))
         if engineCond and engineCond < 10 then
             if PanelBridge.invoke(enginePart, "setCondition", 20) then
+                PanelBridge.invoke(vehicle, "transmitPartCondition", enginePart)
                 table.insert(actions, "engineCondRepaired")
             end
         end
@@ -9667,16 +9673,13 @@ handlers.vehicleHotwire = function(args)
             table.insert(actions, "noEngineMethod")
         end
 
-        -- 5. Transmit state to clients — try all known methods
+        -- 5. Transmit the engine state to clients. The doors and the engine
+        -- condition were sent as they changed. transmitVehicle and
+        -- updateFlags were tried here too, but neither is a BaseVehicle
+        -- method on B42 (updateFlags is a field), so each call only dumped
+        -- a caught Kahlua stack trace into the server log (#199 live test).
         if PanelBridge.invoke(vehicle, "transmitEngine") then
             table.insert(actions, "transmitEngine")
-        end
-        if PanelBridge.invoke(vehicle, "transmitVehicle") then
-            table.insert(actions, "transmitVehicle")
-        end
-        -- B42: send full update to all clients
-        if PanelBridge.invoke(vehicle, "updateFlags") then
-            table.insert(actions, "updateFlags")
         end
     end)
 
