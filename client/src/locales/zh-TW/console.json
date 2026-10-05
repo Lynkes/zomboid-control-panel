@@ -51,6 +51,7 @@
     "streamUnavailable": "日誌流無法使用——伺服器可能已離線",
     "retry": "重試",
     "notFoundTitle": "未找到伺服器主控台日誌",
+    "unavailableTitle": "伺服器主控台日誌無法使用",
     "notFoundDesc": "確認伺服器正在執行",
     "streamLabel": "日誌流",
     "paused": "已暫停",

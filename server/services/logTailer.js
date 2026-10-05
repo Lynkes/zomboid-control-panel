@@ -5,6 +5,13 @@ import { EventEmitter } from 'events';
 import { createLogger } from '../utils/logger.js';
 const log = createLogger('LogTailer');
 import { getActiveServer, getSetting } from '../database/init.js';
+import {
+    describeRefusal,
+    gameLogFolderOf,
+    logRefusalOnce,
+    zomboidDataFolderHolds,
+    zomboidDataFolderRefusal,
+} from './zomboidDataPath.js';
 
 // Build 42 creates its built-in chat rooms in a fixed order, so the Q-shout
 // room is always id 2 (0 = General, 1 = Say). Both the say and the shout room
@@ -13,6 +20,17 @@ import { getActiveServer, getSetting } from '../database/init.js';
 const SHOUT_CHAT_ROOM_ID = 2;
 
 const DELIVERY_LINE = /Message ChatMessage\{chat=([^,]+),\s*author='(.*?)',\s*text='(.*)'\} sent to chat \(id = (\d+)\)/;
+
+// One whole B42 user.txt death line, exactly as IsoGameCharacter + ZLogger
+// write it: "[" + dd-MM-yy HH:mm:ss.SSS + "] user " + name + " died at (x,y,z)
+// (non pvp)." -- see processUserLogData for why both ends are anchored.
+// \p{Nd} rather than \d for the timestamp: SimpleDateFormat prints the host
+// locale's digits, and a name can't fake this prefix with any digits since
+// it can't contain the `.`. The single spaces either side of the name are
+// literal, not \s+: \s also matches a no-break space, which the game's
+// trim() leaves in a name, so "\u00a0Sacha" dying used to be read as Sacha.
+const USER_LOG_DEATH_LINE = /^\[\p{Nd}{2}-\p{Nd}{2}-\p{Nd}{2} \p{Nd}{2}:\p{Nd}{2}:\p{Nd}{2}\.\p{Nd}{3}\] user (.+?) died at \((-?\d+),(-?\d+),(-?\d+)\)\s*(?:\((non\s*pvp|pvp)\))?\.?$/iu;
+const USER_LOG_CONTROL_CHAR = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
 
 // startOffsetFor's watchStartedAt (Date.now()) vs a file's birthtimeMs come
 // from two different clock sources measured up to ~20ms apart on this stack
@@ -182,13 +200,33 @@ export class LogTailer extends EventEmitter {
         const homeDir = os.homedir();
         let basePath = process.env.PZ_SAVE_PATH || (homeDir ? path.join(homeDir, 'Zomboid') : '');
 
+        // SECURITY (2026-10-05, PATHS-1 verifier pass 2): this tails
+        // server-console.txt and Logs/*_chat.txt, *_user.txt under the
+        // folder below and passes their lines on (chat, deaths, the
+        // console). A remote server's data folder is never judged when
+        // saved (it names a folder on its own host), and the legacy
+        // settings copy used to take a remote server's too, so a technician
+        // could point this at any folder here. The folder used is now held
+        // to the data-folder rule (services/zomboidDataPath.js); refused,
+        // nothing is tailed. One on another host isn't here, so nothing
+        // changes for it.
         if (activeServer?.zomboidDataPath) {
             basePath = activeServer.zomboidDataPath;
         } else {
             const settingPath = await getSetting('zomboidDataPath');
             if (settingPath) basePath = settingPath;
         }
+        if (basePath && !zomboidDataFolderHolds(basePath)) {
+            // PT3/PT5: why, with its code and what to set; once per folder at
+            // warn, then debug.
+            logRefusalOnce(log, `Not tailing the server's logs in ${basePath}: ${describeRefusal(zomboidDataFolderRefusal())}`);
+            basePath = null;
+        }
+        // PT2 (verifier round 1): a 1.4.5 Saves/Multiplayer data folder's
+        // logs can be in the Zomboid folder it sits in (gameLogFolderOf()).
+        if (basePath) basePath = gameLogFolderOf(basePath);
         this.basePath = basePath;
+        if (!basePath) return;
 
         // server-console.txt (B41 chat via [chat] markers, also general log tailing)
         const consoleLogPath = path.join(basePath, 'server-console.txt');
@@ -630,15 +668,39 @@ export class LogTailer extends EventEmitter {
   //   [29-05-26 17:42:08.123] user Bob died at (2384,5923,0) (non pvp).
   //   [29-05-26 17:42:08.123] user Bob died at (2384,5923,0) (pvp).
   // Username may contain spaces; we anchor on the " died at " marker.
+  //
+  // The whole line is anchored (USER_LOG_DEATH_LINE): a PZ username may
+  // contain a newline (ServerWorldDatabase.isValidUserName doesn't reject
+  // one), so the game's own death line for a player named "q\nuser Sacha"
+  // splits into "[ts] user q" + "user Sacha died at (...)". The old
+  // unanchored match read that second half as Sacha's death -- a Discord
+  // death notice and a player-history entry for someone who never died.
+  // A bare `^\[[^\]]+\]` anchor isn't enough either, since `[` and `]` are
+  // legal in names, so the strict ZLogger timestamp is required. A name still
+  // carrying a control character (a lone CR survives the line split) is
+  // dropped outright rather than reported under a mangled name.
+  //
+  // That only stops an account name: isValidUserName refuses `.`, so one
+  // can't hold a whole line. A co-op (split-screen) player's name never
+  // goes through that check (ConnectCoopPacket only compares it with the
+  // names already connected), so it can carry complete, timestamped,
+  // '.'-terminated death lines for anyone, which no parsing here can tell
+  // from real ones. That is why index.js ignores these deaths while
+  // PanelBridge reports deaths itself (services/playerDeathEvents.js); this
+  // parser is the fallback when there is no bridge.
   processUserLogData(data) {
     const lines = this._splitLines(data, 'userRemainder');
     for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
 
-        const deathMatch = trimmed.match(/user\s+(.+?)\s+died at\s+\((-?\d+),(-?\d+),(-?\d+)\)\s*(?:\((non\s*pvp|pvp)\))?/i);
+        const deathMatch = trimmed.match(USER_LOG_DEATH_LINE);
         if (deathMatch) {
             const player = deathMatch[1];
+            if (USER_LOG_CONTROL_CHAR.test(player)) {
+                log.warn('LogTailer: ignoring a user.txt death line whose player name contains a control character');
+                continue;
+            }
             const x = parseInt(deathMatch[2], 10);
             const y = parseInt(deathMatch[3], 10);
             const z = parseInt(deathMatch[4], 10);

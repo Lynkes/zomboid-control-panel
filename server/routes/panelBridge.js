@@ -24,6 +24,7 @@ import {
 } from "../database/init.js";
 import { sanitizeError, sanitizeErrorParams, isMaskedSecret } from "../utils/sanitize.js";
 import { getDataPaths } from "../utils/paths.js";
+import { encodeExportFolderName, legacyExportFolderName } from "../utils/exportFolderName.js";
 import { persistSandboxValues } from "./serverFiles.js";
 import {
   LIVE_SANDBOX_BRIDGE_ACTIONS,
@@ -33,6 +34,7 @@ import {
   worldSandboxAfterLiveChange,
 } from "../services/worldSandboxSnapshot.js";
 import { requirePermission, requireAnyPermission } from "../services/permissions.js";
+import { hostPathViewFor, withWorldSandboxSnapshotView } from "../utils/hostPathView.js";
 import { parseClampedInteger } from "../utils/queryNumbers.js";
 import {
   canAutoInstall,
@@ -559,20 +561,71 @@ router.get(
     // Ignore
   }
 
-  res.json({
-    ...status,
-    modConnected: bridge.isModConnected(),
-    detectedPaths,
-    localInstall,
-    remoteBridgeVersionCheck,
-    deliveryMethod,
-    // Every SFTP host whose key is being refused, whoever connected (the
-    // bridge, Files, the log viewer, the config mirror), so Settings can
-    // offer "Trust new host key" with both fingerprints even when the bridge
-    // itself is not running (services/sftpHostKeys.js).
-    hostKeyRefusals: listHostKeyRefusals(),
-  });
+  res.json(
+    bridgeStatusView(
+      {
+        ...status,
+        modConnected: bridge.isModConnected(),
+        detectedPaths,
+        localInstall,
+        remoteBridgeVersionCheck,
+        deliveryMethod,
+        // Every SFTP host whose key is being refused, whoever connected (the
+        // bridge, Files, the log viewer, the config mirror), so Settings can
+        // offer "Trust new host key" with both fingerprints even when the bridge
+        // itself is not running (services/sftpHostKeys.js).
+        hostKeyRefusals: listHostKeyRefusals(),
+      },
+      await hostPathViewFor(req.user),
+    ),
+  );
 });
+
+// SECURITY (2026-10-05, H4 round 3): bridge.diagnostics alone doesn't set
+// the bridge or the server's folders up (bridge.setup does), so a custom
+// role holding only it gets this status the way GET /api/servers gives it
+// the server record (utils/hostPathView.js): the bridge folder, install and
+// data folders as the placeholder, the status file and the bridge's Lua
+// files by name, and every other string -- the heartbeat's own file paths,
+// a failed read's error, the SFTP transport's errors -- path-redacted.
+export function bridgeStatusView(body, view) {
+  if (view.full || !body || typeof body !== "object") return body;
+  const masked = { ...body, bridgePath: view.folder(body.bridgePath) };
+  if (body.statusFile && typeof body.statusFile === "object") {
+    masked.statusFile = { ...body.statusFile, path: view.file(body.statusFile.path) };
+  }
+  if (body.modStatus && typeof body.modStatus === "object") {
+    masked.modStatus = {
+      ...body.modStatus,
+      filePath: view.file(body.modStatus.filePath),
+      lastPath: view.folder(body.modStatus.lastPath),
+    };
+  }
+  if (body.detectedPaths && typeof body.detectedPaths === "object") {
+    masked.detectedPaths = {
+      ...body.detectedPaths,
+      installPath: view.folder(body.detectedPaths.installPath),
+      zomboidDataPath: view.folder(body.detectedPaths.zomboidDataPath),
+    };
+  }
+  if (body.localInstall && typeof body.localInstall === "object") {
+    masked.localInstall = {
+      ...body.localInstall,
+      sourcePath: view.file(body.localInstall.sourcePath),
+      targetPath: view.file(body.localInstall.targetPath),
+    };
+  }
+  // A host key's base64 fingerprint holds slashes; it names no folder.
+  const { hostKeyRefusals, ...rest } = masked;
+  return { ...view.deep(rest), hostKeyRefusals };
+}
+
+// The bridge folder in a panelBridge:status / panelBridge:configured event,
+// per socket, by the same rule as GET /status above.
+export async function bridgeFolderEventView(user, payload) {
+  const view = await hostPathViewFor(user);
+  return view.full ? payload : { ...payload, bridgePath: view.folder(payload?.bridgePath) };
+}
 
 // The effective PanelBridge delivery method, for responses that report it
 // even when reconcileBridge() skipped the server (remote, no install dir).
@@ -1431,7 +1484,11 @@ router.get("/ping", async (req, res) => {
 
   try {
     const result = await bridge.ping();
-    res.json(result);
+    // Any signed-in role may ping, and a failed command write quotes the
+    // bridge folder in its error (SECURITY 2026-10-05, H4).
+    res.json(
+      typeof result?.error === "string" ? { ...result, error: sanitizeError(result.error) } : result,
+    );
   } catch (error) {
     res.status(500).json({ error: sanitizeError(error.message) });
   }
@@ -1680,7 +1737,7 @@ router.post("/command", requireBridgeCommandUnlessGmToolsOnly, async (req, res) 
     // { path, refreshed } when the world has a map_sand.bin: refreshed says
     // the change is kept in it, and otherwise the next start undoes it.
     const worldSandboxSnapshot = worldSandboxAfterLiveChange(action, result?.data, worldSandboxBefore);
-    res.json(worldSandboxSnapshot ? { ...result, worldSandboxSnapshot } : result);
+    res.json(await withWorldSandboxSnapshotView(req.user, worldSandboxSnapshot ? { ...result, worldSandboxSnapshot } : result));
   } catch (error) {
     const durationMs = Date.now() - startTime;
     const message = sanitizeError(error?.message || "Bridge command failed");
@@ -2396,11 +2453,11 @@ router.post("/world/save", requirePermission("server.control"), async (req, res)
     const { worldSandboxSnapshot, error } = await refreshWorldSandboxSnapshotAfterSave(bridge);
     if (!worldSandboxSnapshot) return res.json(result);
     if (error) log.warn(`World saved, but its map_sand.bin was not refreshed: ${error}`);
-    res.json({
+    res.json(await withWorldSandboxSnapshotView(req.user, {
       ...result,
       worldSandboxSnapshot,
       ...(error ? { worldSandboxError: sanitizeError(error) } : {}),
-    });
+    }));
   } catch (error) {
     res.status(500).json({ error: sanitizeError(error.message) });
   }
@@ -3645,7 +3702,7 @@ router.post("/utilities/restore", requirePermission("server.world_events"), asyn
       `Utilities restored successfully`,
       result?.debug ? { debug: result.debug } : {},
     );
-    res.json({
+    res.json(await withWorldSandboxSnapshotView(req.user, {
       ...result,
       ...(await persistUtilities(
         power !== false,
@@ -3653,7 +3710,7 @@ router.post("/utilities/restore", requirePermission("server.world_events"), asyn
         true,
         worldSandboxAfterLiveChange("restoreUtilities", result?.data, worldSandboxBefore),
       )),
-    });
+    }));
   } catch (error) {
     log.error(`Failed to restore utilities: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -3685,7 +3742,7 @@ router.post("/utilities/shutoff", requirePermission("server.world_events"), asyn
       `Utilities shut off successfully`,
       result?.debug ? { debug: result.debug } : {},
     );
-    res.json({
+    res.json(await withWorldSandboxSnapshotView(req.user, {
       ...result,
       ...(await persistUtilities(
         power !== false,
@@ -3693,7 +3750,7 @@ router.post("/utilities/shutoff", requirePermission("server.world_events"), asyn
         false,
         worldSandboxAfterLiveChange("shutOffUtilities", result?.data, worldSandboxBefore),
       )),
-    });
+    }));
   } catch (error) {
     log.error(`Failed to shut off utilities: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -3797,9 +3854,15 @@ router.post("/character/import", requirePermission("players.gm_tools"), async (r
   try {
     const snapshot = await bridge.sendCommand("exportPlayerData", { username });
     const { dataDir } = getDataPaths();
-    const safeUsername = username.replace(/[^a-zA-Z0-9_-]/g, "_");
-    const exportDir = path.join(dataDir, "exports", safeUsername);
-    // codeql[js/path-injection] username is stripped to [a-zA-Z0-9_-] via safeUsername = username.replace(...) immediately above before being joined into this path.
+    const safeUsername = legacyExportFolderName(username);
+    // The player's own folder, never one shared with a similar name
+    // (utils/exportFolderName.js).
+    const exportFolder = encodeExportFolderName(username);
+    if (!exportFolder) {
+      throw new Error("This player name can't be used as an export folder");
+    }
+    const exportDir = path.join(dataDir, "exports", exportFolder);
+    // codeql[js/path-injection] exportFolder is "@" plus lowercase hex (encodeExportFolderName), so it can't leave the exports folder.
     fs.mkdirSync(exportDir, { recursive: true });
     // toISOString() is millisecond-resolution -- two imports for the same
     // player landing in the same millisecond (a double-submit before the
@@ -3820,7 +3883,7 @@ router.post("/character/import", requirePermission("players.gm_tools"), async (r
       );
     }
     fs.writeFileSync(
-      // codeql[js/path-injection] username is stripped to [a-zA-Z0-9_-] via safeUsername = username.replace(...) immediately above before being joined into this path.
+      // codeql[js/path-injection] the folder is "@" plus lowercase hex (encodeExportFolderName) and the file name is safeUsername, stripped to [a-zA-Z0-9_-], plus a timestamp.
       snapshotPath,
       JSON.stringify(snapshot.data ?? snapshot, null, 2),
     );

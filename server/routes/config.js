@@ -25,6 +25,8 @@ import {
   RCON_USER_ACTION_TIMEOUT_MS,
 } from "../services/rcon.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { serverConfigPathIsConfined } from "../utils/serverConfigPath.js";
+import { checkZomboidDataPath } from "../services/zomboidDataPath.js";
 import {
   requireIntInRange,
   BIND_PORT_MIN,
@@ -93,10 +95,15 @@ const VALID_SETTINGS_KEYS = [
   "autoReconnect",
   "reconnectInterval",
   // Discord config is owned by /api/discord (discordBotToken,
-  // discordAdminRoleId, ...). The old discordEnabled/discordToken/
-  // discordAdminRole keys are deliberately NOT listed: nothing reads them, so
-  // allowing them here would accept a write that silently never takes effect.
-  "discordGuildId",
+  // discordGuildId, discordAdminRoleId, ...). The old discordEnabled/
+  // discordToken/discordAdminRole keys are deliberately NOT listed: nothing
+  // reads them, so allowing them here would accept a write that silently
+  // never takes effect. discordGuildId isn't listed either (security sweep
+  // 2026-10-04, adversary pass on AUTHZ-3): the bot registers its commands
+  // in that guild and always obeys the guild's owner, so moving it is
+  // handing out every bot command. PUT /api/discord/config requires the
+  // capabilities of those commands for that change; this second door asked
+  // only for integrations.manage. Nothing in the client writes it here.
   "autoStartServer",
   "panelPort",
   "httpsEnabled",
@@ -187,7 +194,6 @@ const SETTINGS_KEY_CAPABILITY = {
   panelBridgeSftpPollIntervalSeconds: "bridge.setup",
   panelBridgeSftpLogPath: "bridge.setup",
   panelBridgeSftpConfigPath: "bridge.setup",
-  discordGuildId: "integrations.manage",
   workshopCollectionId: "mods.manage",
   workshopCollectionAutoSync: "mods.manage",
   steamSessionId: "mods.manage",
@@ -248,6 +254,84 @@ const maskSensitiveSettings = maskSensitiveObject;
 // them, since they are not in VALID_SETTINGS_KEYS.
 const SERVER_MANAGED_SETTINGS = new Set([KNOWN_HOSTS_SETTING]);
 
+// SECURITY (2026-10-04, PR #193 review): GET /app-settings has no capability
+// gate -- the pages every role opens read a setting or two from it
+// (Dashboard's auto-start, Players' auto-export, Chat's quick messages, the
+// read-only view of Settings) -- and it returned the whole settings store:
+// host paths (HTTPS certificate and key, the legacy server folders, the
+// pre-update data backup), the SFTP host, account and folders, the Steam
+// account name, Discord and OIDC configuration, update bookkeeping. A role
+// without panel.settings now gets only:
+//   - APP_SETTINGS_ANY_ROLE_KEYS below: app behaviour, ports and toggles,
+//     no paths, hosts or account names;
+//   - each key SETTINGS_KEY_CAPABILITY maps to a capability the role holds,
+//     which it can see and change through that capability's own pages;
+//   - the masked placeholder of a secret Settings edits, which says only
+//     that one is set (the "Configured" badges read that).
+// Everything else is left out, so a setting added later stays hidden from
+// them until someone decides otherwise. A role that can't be resolved gets
+// the any-role keys alone.
+const APP_SETTINGS_ANY_ROLE_KEYS = new Set([
+  "serverName",
+  "minMemory",
+  "maxMemory",
+  "serverPort",
+  "modCheckInterval",
+  "modAutoRestart",
+  "modRestartDelay",
+  "serverAutoUpdate",
+  "serverAutoUpdateWarningMinutes",
+  "darkMode",
+  "autoReconnect",
+  "reconnectInterval",
+  "autoStartServer",
+  "panelPort",
+  "httpsEnabled",
+  "httpsPort",
+  "corsAllowAll",
+  "corsAllowPrivateNetworks",
+  "corsDebug",
+  "panelBridgeAutoUpdate",
+  "autoExportOnLogin",
+  "autoExportMaxPerPlayer",
+  "enablePublicIpLookup",
+  "workshopCollectionId",
+  "workshopCollectionAutoSync",
+  "chatPresets",
+  // Shown on the Dashboard to every role already.
+  "lanIpAddress",
+  "panelBridgeSftpEnabled",
+  "panelBridgeSftpPort",
+  "panelBridgeSftpPollIntervalSeconds",
+]);
+
+async function capabilitiesOf(user) {
+  if (!user) return new Set();
+  try {
+    const role = await getRoleByName(user.role);
+    return new Set(Array.isArray(role?.capabilities) ? role.capabilities : []);
+  } catch (error) {
+    log.warn(`Could not resolve the role for GET /app-settings: ${error.message}`);
+    return new Set();
+  }
+}
+
+export function appSettingsViewFor(settings, capabilities) {
+  if (capabilities.has("panel.settings")) return settings;
+  const view = {};
+  for (const [key, value] of Object.entries(settings)) {
+    const capability = SETTINGS_KEY_CAPABILITY[key];
+    if (
+      APP_SETTINGS_ANY_ROLE_KEYS.has(key) ||
+      (capability && capabilities.has(capability)) ||
+      (VALID_SETTINGS_KEYS.includes(key) && SENSITIVE_FIELD_RE.test(key))
+    ) {
+      view[key] = value;
+    }
+  }
+  return view;
+}
+
 // Get application settings
 router.get("/app-settings", async (req, res) => {
   try {
@@ -256,7 +340,8 @@ router.get("/app-settings", async (req, res) => {
         ([key]) => !SERVER_MANAGED_SETTINGS.has(key),
       ),
     );
-    res.json({ settings: maskSensitiveSettings(settings) });
+    const view = appSettingsViewFor(settings, await capabilitiesOf(req.user));
+    res.json({ settings: maskSensitiveSettings(view) });
   } catch (error) {
     log.error(`Failed to get app settings: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -798,6 +883,47 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
         params: sanitizeErrorParams({ detail }),
         missing: missingCapabilities,
       });
+    }
+
+    // SECURITY (2026-10-05, PATHS-1): the legacy copy of the data folder is
+    // the one chunks, backups, Server Files and the console log fall back
+    // to when the active server has none of its own, so it follows the rule
+    // every data-folder setter shares (services/zomboidDataPath.js), and is
+    // stored as the path it resolved to. Only a changed value is judged
+    // (Settings sends its whole form back); zomboidDataPath is a governed
+    // key, so currentSettings is loaded.
+    const dataPathSetting = filtered.find(([key]) => key === "zomboidDataPath");
+    if (
+      dataPathSetting?.[1] &&
+      String(dataPathSetting[1]) !== String(currentSettings.zomboidDataPath ?? "")
+    ) {
+      const dataPathCheck = checkZomboidDataPath(dataPathSetting[1]);
+      if (!dataPathCheck.ok) {
+        return res.status(400).json(dataPathCheck.body);
+      }
+      dataPathSetting[1] = dataPathCheck.path;
+    }
+
+    // FILES-2 (adversary pass 2): this legacy copy of the config folder is
+    // the one Server Files falls back to when the active server has none of
+    // its own, so it follows the same rule as a server's own
+    // (utils/serverConfigPath.js), judged against the data folder this save
+    // leaves. Only a changed value is judged: Settings sends its whole form
+    // back. serverConfigPath is a governed key, so currentSettings is loaded.
+    const configPathEntry = filtered.find(([key]) => key === "serverConfigPath");
+    if (
+      configPathEntry?.[1] &&
+      String(configPathEntry[1]) !== String(currentSettings.serverConfigPath ?? "")
+    ) {
+      const dataPathEntry = filtered.find(([key]) => key === "zomboidDataPath");
+      const dataPath = dataPathEntry ? dataPathEntry[1] : currentSettings.zomboidDataPath;
+      if (!serverConfigPathIsConfined(String(configPathEntry[1]), dataPath)) {
+        return res.status(400).json({
+          error:
+            "The server config folder must be the Server folder inside the Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
+          code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
+        });
+      }
     }
 
     const steamSessionIdEntry = filtered.find(

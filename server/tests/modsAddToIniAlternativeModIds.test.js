@@ -90,6 +90,13 @@ describe("POST /add-to-ini: a multi-id workshop item reports its extra mod ids i
     dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mods-add-to-ini-"));
     const configPath = path.join(dataRoot, "Server");
     fs.mkdirSync(configPath, { recursive: true });
+    // PATHS-1 verifier pass 2: the data folder is held to the data-folder
+    // rule wherever its config folder is resolved. This one also holds the
+    // test's game folder, which a real data folder doesn't; the world save
+    // the game writes on first start makes it one.
+    // PT1 (2026-10-05): a Saves folder counts only with a world save in it.
+    fs.mkdirSync(path.join(dataRoot, "Saves", "Multiplayer", "World"), { recursive: true });
+    fs.writeFileSync(path.join(dataRoot, "Saves", "Multiplayer", "World", "map_t.bin"), "");
     fs.writeFileSync(path.join(configPath, "TestServer.ini"), "Mods=\nWorkshopItems=\n");
 
     installPath = path.join(dataRoot, "install");
@@ -113,6 +120,7 @@ describe("POST /add-to-ini: a multi-id workshop item reports its extra mod ids i
 
     getActiveServer.mockReset().mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       installPath,

@@ -16,6 +16,15 @@ import { requirePermission, getRoleByName } from "../services/permissions.js";
 import { deleteVehiclesInBoxes } from "../utils/vehiclesDb.js";
 import { confineToRoots } from "../utils/browseRoots.js";
 import {
+  carriesGameName,
+  checkZomboidDataPath,
+  describeRefusal,
+  isSavesMultiplayerFolder,
+  logRefusalOnce,
+  zomboidDataFolderHolds,
+  zomboidDataFolderRefusal,
+} from "../services/zomboidDataPath.js";
+import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
 } from "../services/lifecycleCoordinator.js";
@@ -273,17 +282,20 @@ function resolveSavesPath(zomboidDataPath) {
   let savesPath = path.join(zomboidDataPath, "Saves", "Multiplayer");
 
   if (!fs.existsSync(savesPath)) {
-    const basename = path.basename(zomboidDataPath);
     const parentDir = path.dirname(zomboidDataPath);
-    const parentBase = path.basename(parentDir);
-    const grandparentBase = path.basename(path.dirname(parentDir));
-    if (basename === "Multiplayer" && parentBase === "Saves") {
+    // SECURITY (2026-10-05, W5-P1): the folder names as the data-folder
+    // rule reads them (services/zomboidDataPath.js): spelled as the game
+    // spells them, or in another letter case where the file system ignores
+    // case and the folder on disk carries the game's name. Map Cleanup's
+    // "Save as default" stored such a path as typed in 1.4.5 --
+    // ...\saves\multiplayer -- and it listed no saves here.
+    if (isSavesMultiplayerFolder(zomboidDataPath)) {
       // User pointed at .../Saves/Multiplayer directly
       savesPath = zomboidDataPath;
-    } else if (basename === "Saves") {
+    } else if (carriesGameName(zomboidDataPath, "Saves")) {
       // User pointed at .../Saves — append Multiplayer
       savesPath = path.join(zomboidDataPath, "Multiplayer");
-    } else if (parentBase === "Multiplayer" && grandparentBase === "Saves") {
+    } else if (isSavesMultiplayerFolder(parentDir)) {
       // User pointed at an INDIVIDUAL save directory (.../Saves/Multiplayer/<savename>).
       // Walk up one level so we list saves from the right parent. Without this we
       // double-append and log: "Saves path not found: .../<savename>/Saves/Multiplayer".
@@ -547,19 +559,17 @@ router.get("/saves", requirePermission("chunks.manage"), async (req, res) => {
     const attempted = [savesPath];
 
     if (!fs.existsSync(savesPath)) {
-      // Maybe the user pointed directly to Saves/Multiplayer
-      const basename = path.basename(zomboidDataPath);
+      // Maybe the user pointed directly to Saves/Multiplayer (W5-P1: names
+      // read as resolveSavesPath() reads them)
       const parentDir = path.dirname(zomboidDataPath);
-      const parentBase = path.basename(parentDir);
-      const grandparentBase = path.basename(path.dirname(parentDir));
-      if (basename === "Multiplayer" && parentBase === "Saves") {
+      if (isSavesMultiplayerFolder(zomboidDataPath)) {
         savesPath = zomboidDataPath;
         log.info(`[ChunkCleaner] Path points directly to Saves/Multiplayer`);
-      } else if (basename === "Saves") {
+      } else if (carriesGameName(zomboidDataPath, "Saves")) {
         savesPath = path.join(zomboidDataPath, "Multiplayer");
         attempted.push(savesPath);
         log.info(`[ChunkCleaner] Path points directly to Saves dir`);
-      } else if (parentBase === "Multiplayer" && grandparentBase === "Saves") {
+      } else if (isSavesMultiplayerFolder(parentDir)) {
         // Individual save directory — walk up to list siblings
         savesPath = parentDir;
         attempted.push(savesPath);
@@ -829,6 +839,16 @@ router.post("/save-path", requirePermission("chunks.manage"), async (req, res) =
         error: "Path is empty after normalization.",
         code: ErrorCode.CHUNKS_SAVE_PATH_EMPTY,
       });
+    }
+    // SECURITY (2026-10-05, PATHS-1): resolveCustomOrDefaultDataPath()
+    // accepts any folder whose path merely says "zomboid" or "saves" (the
+    // panel's own folder, for one). What this saves is the server's data
+    // folder, so it follows the rule every data-folder setter shares
+    // (services/zomboidDataPath.js). `validated` is already expanded and
+    // resolved; the error never echoes it.
+    const dataPathCheck = checkZomboidDataPath(validated, { expand: false });
+    if (!dataPathCheck.ok) {
+      return res.status(400).json(dataPathCheck.body);
     }
 
     const activeServer = await getActiveServer();
@@ -1503,6 +1523,14 @@ router.post("/delete-chunks", requirePermission("chunks.manage"), async (req, re
     // vehicles are being deleted) so the operation is fully reversible.
     let backupPath = null;
     if (createBackup) {
+      // SECURITY (2026-10-05, PT1): this creates backups/ in the data folder
+      // (and the folders above it that are missing), so only in one that
+      // meets the data-folder rule (services/zomboidDataPath.js) -- checked
+      // before anything is deleted. A real one, with the world being cleaned
+      // up in it, does.
+      if (!zomboidDataFolderHolds(zomboidDataPath)) {
+        return res.status(400).json(zomboidDataFolderRefusal());
+      }
       // No lock guards this route the way /wipe and restoreBackup() are
       // guarded (see server.js's wipeInProgress / backupService.js's
       // restoreInProgress) -- two concurrent delete-chunks requests for the
@@ -1595,10 +1623,13 @@ router.post("/delete-chunks", requirePermission("chunks.manage"), async (req, re
               await fs.promises.unlink(chunkDataFile);
               wasDeleted = true;
             } catch (e) {
+              // SECURITY (2026-10-05, M3): redacted like the map-file
+              // branch below. fs messages name the full path, and this
+              // reaches the caller in `errors`, `error` and `params.reason`.
               if (e.code !== "ENOENT")
                 return {
                   success: false,
-                  error: `chunkdata: ${e.message}`,
+                  error: `chunkdata: ${sanitizeError(e.message)}`,
                   file: chunk.file,
                 };
             }
@@ -1722,7 +1753,8 @@ router.post("/delete-chunks", requirePermission("chunks.manage"), async (req, re
         log.info(`vehicles.db: removed ${vehiclesResult.deleted} rows`);
       } catch (e) {
         log.warn(`vehicles.db cleanup failed: ${e.message}`);
-        errors.push(`vehicles.db: ${e.message}`);
+        // SECURITY (2026-10-05, M3): see the chunkdata branch above.
+        errors.push(`vehicles.db: ${sanitizeError(e.message)}`);
       }
     }
 
@@ -2126,6 +2158,10 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
     // is identical.
     let backupPath = null;
     if (createBackup) {
+      // PT1: see /delete-chunks' backup above.
+      if (!zomboidDataFolderHolds(zomboidDataPath)) {
+        return res.status(400).json(zomboidDataFolderRefusal());
+      }
       backupPath = path.join(
         zomboidDataPath,
         "backups",
@@ -2298,7 +2334,8 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
         // request that deletes chunk files fine but whose vehicles.db
         // cleanup fails stays a silent, undetectable partial failure).
         // Matches /delete-chunks' shape exactly.
-        errors.push(`vehicles.db: ${e.message}`);
+        // SECURITY (2026-10-05, M3): redacted, as /delete-chunks' is.
+        errors.push(`vehicles.db: ${sanitizeError(e.message)}`);
       }
     }
 
@@ -2889,6 +2926,20 @@ router.get("/browse", requirePermission("chunks.manage"), async (req, res) => {
       });
     }
 
+    // SECURITY (2026-10-05, PATHS-1): this lists every folder name under
+    // the data folder, so the folder is held to the data-folder rule
+    // (services/zomboidDataPath.js) again here, where it is used: one saved
+    // before the rule existed, or one that didn't exist when it was saved
+    // and has appeared since, is refused until it is fixed.
+    //
+    // PT5 (verifier round 2): Map Cleanup asks on every load, so the
+    // refusal is logged at warn once per folder, then at debug.
+    if (!zomboidDataFolderHolds(zomboidDataPath)) {
+      const refusal = zomboidDataFolderRefusal();
+      logRefusalOnce(log, `Refusing chunk browse in ${zomboidDataPath}: ${describeRefusal(refusal)}`);
+      return res.status(400).json(refusal);
+    }
+
     const allowedRoots = [path.resolve(zomboidDataPath)];
     const resolved = confineToRoots(browsePath, allowedRoots);
     if (!resolved) {
@@ -2925,11 +2976,9 @@ router.get("/browse", requirePermission("chunks.manage"), async (req, res) => {
     const savesMultiplayer = path.join(resolved, "Saves", "Multiplayer");
     const hasSavesMultiplayer = fs.existsSync(savesMultiplayer);
 
-    // Or if it IS a Saves/Multiplayer path
-    const basename = path.basename(resolved);
-    const parentBase = path.basename(path.dirname(resolved));
-    const isSavesMultiplayer =
-      basename === "Multiplayer" && parentBase === "Saves";
+    // Or if it IS a Saves/Multiplayer path (W5-P1: as resolveSavesPath()
+    // reads the names)
+    const isSavesMultiplayer = isSavesMultiplayerFolder(resolved);
 
     // Check if any child dirs contain a map/ folder or B41 root chunk files (direct save dirs)
     const B41_ROOT_REGEX = /^map_\d+_\d+\.bin$/i;

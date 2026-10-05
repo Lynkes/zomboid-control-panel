@@ -101,6 +101,7 @@ beforeEach(() => {
   iniPath = path.join(configPath, "TestServer.ini");
   getActiveServer.mockReset().mockResolvedValue({
     id: "server-1",
+    zomboidDataPath: dataRoot,
     serverConfigPath: configPath,
     serverName: "TestServer",
     isRemote: false,

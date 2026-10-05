@@ -147,6 +147,7 @@ interface IniConfig {
   totalMods: number
   iniPath?: string
   error?: string
+  code?: string
   workshopModMap?: Record<string, Array<{ id: string; name: string; enabled: boolean; require?: string[] }>>
   duplicateKeys?: Array<{ key: string; count: number }>
   // Set while the active server gets PanelBridge from the Steam Workshop
@@ -155,6 +156,10 @@ interface IniConfig {
   // (routes/mods.js) is the real enforcement and puts the entries back.
   bridgeManaged?: BridgeManaged | null
 }
+
+// Why GET /mods/current-config found no config folder when it was refused
+// rather than unset (server/routes/mods.js's withConfigRefusal()).
+const FOLDER_REFUSAL_CODES = new Set(['ZOMBOID_DATA_FOLDER_REFUSED', 'SERVER_CONFIG_PATH_OUTSIDE_DATA'])
 
 // ── Pure helper — parse workshop ID from URL or numeric input ──
 function parseWorkshopId(input: string): string | null {
@@ -6145,8 +6150,20 @@ export default function Mods() {
             ) : (
               <div className="text-center py-8">
                 <FileText className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">{iniConfig?.error || t('serverConfigTab.notConfiguredTitle')}</p>
-                <p className="text-sm text-muted-foreground">{t('serverConfigTab.notConfiguredHint')}</p>
+                {iniConfig?.code && FOLDER_REFUSAL_CODES.has(iniConfig.code) ? (
+                  // PT3: the server's folders were refused (the data folder
+                  // no longer meets the data-folder rule, or a config folder
+                  // has no data folder): the refusal says what to set, and
+                  // starting the server won't make the ini appear here.
+                  <p className="text-muted-foreground max-w-xl mx-auto">
+                    {getResultErrorMessage(iniConfig, t('serverConfigTab.notConfiguredTitle'))}
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-muted-foreground">{iniConfig?.error || t('serverConfigTab.notConfiguredTitle')}</p>
+                    <p className="text-sm text-muted-foreground">{t('serverConfigTab.notConfiguredHint')}</p>
+                  </>
+                )}
               </div>
             )}
           </div>

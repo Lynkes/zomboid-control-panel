@@ -248,6 +248,9 @@ describe.skipIf(isWindows || !opensslAvailable)(
       // needs directly, same shortcut linuxDiscordSendTimeout.test.js uses.
       const ok = await bot.start();
       expect(ok).toBe(true);
+      // M2: the bot posts only in a channel of the configured guild; the
+      // mock's channel 1111 is in guild 2222.
+      bot.guildId = "2222";
       bots.push(bot);
       return bot;
     }

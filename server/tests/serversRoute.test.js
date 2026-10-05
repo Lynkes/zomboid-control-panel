@@ -567,6 +567,7 @@ describe("PUT /api/servers/:id", () => {
     let realDataDir;
     let installLikeDir;
     let emptyDir;
+    let unrelatedDir;
 
     beforeEach(() => {
       getServer.mockReset();
@@ -582,9 +583,18 @@ describe("PUT /api/servers/:id", () => {
 
       emptyDir = path.join(root, "JustSomeEmptyFolder");
       fs.mkdirSync(emptyDir, { recursive: true });
+
+      unrelatedDir = path.join(root, "zomboid-notes");
+      fs.mkdirSync(unrelatedDir, { recursive: true });
+      fs.writeFileSync(path.join(unrelatedDir, "notes.txt"), "not a PZ file");
     });
 
-    it("rejects a nonexistent zomboidDataPath instead of persisting it", async () => {
+    // PATHS-1 (2026-10-05): changed on purpose. The game creates its data
+    // folder on first start, POST / and the install routes save one that
+    // isn't there yet, and refusing it here refused every later edit of
+    // such a profile. Nothing is read or deleted under a folder that isn't
+    // there, and the features that do re-check it when they use it.
+    it("accepts a zomboidDataPath that doesn't exist yet, stored as the path it resolves to", async () => {
       const response = createResponse();
       const missing = path.join(os.tmpdir(), "zcp-savepath-does-not-exist-12345");
 
@@ -593,8 +603,30 @@ describe("PUT /api/servers/:id", () => {
         response,
       );
 
-      expect(response.status).toHaveBeenCalledWith(400);
-      expect(updateServer).not.toHaveBeenCalled();
+      expect(updateServer).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ zomboidDataPath: path.resolve(missing) }),
+      );
+    });
+
+    it("refuses a missing folder named through an environment variable, so the expansion is never stored", async () => {
+      process.env.ZCP_TEST_LEAK_SECRET = "super-secret-value-should-not-leak";
+      try {
+        const response = createResponse();
+        const value = path.join(os.tmpdir(), "%ZCP_TEST_LEAK_SECRET%");
+        await getUpdateHandler()(
+          { params: { id: "1" }, body: { zomboidDataPath: value } },
+          response,
+        );
+
+        expect(response.status).toHaveBeenCalledWith(400);
+        expect(updateServer).not.toHaveBeenCalled();
+        const [[body]] = response.json.mock.calls;
+        expect(body.error).toContain("%ZCP_TEST_LEAK_SECRET%");
+        expect(body.error).not.toContain("super-secret-value-should-not-leak");
+      } finally {
+        delete process.env.ZCP_TEST_LEAK_SECRET;
+      }
     });
 
     // SECURITY (2026-09-05, env-var-expansion-oracle): zomboidDataPath goes
@@ -623,7 +655,25 @@ describe("PUT /api/servers/:id", () => {
       }
     });
 
+    // PATHS-1 (2026-10-05): changed on purpose. An empty folder is one the
+    // game can make its data folder; a folder holding anything the game
+    // doesn't put there is refused, whatever its name says.
     it("rejects a real directory that does not look like a Zomboid data folder (the exact 'structurally valid but wrong' case the card describes)", async () => {
+      const response = createResponse();
+
+      await getUpdateHandler()(
+        { params: { id: "1" }, body: { zomboidDataPath: unrelatedDir } },
+        response,
+      );
+
+      expect(response.status).toHaveBeenCalledWith(400);
+      expect(updateServer).not.toHaveBeenCalled();
+      expect(response.json).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER" }),
+      );
+    });
+
+    it("accepts an empty folder", async () => {
       const response = createResponse();
 
       await getUpdateHandler()(
@@ -631,8 +681,10 @@ describe("PUT /api/servers/:id", () => {
         response,
       );
 
-      expect(response.status).toHaveBeenCalledWith(400);
-      expect(updateServer).not.toHaveBeenCalled();
+      expect(updateServer).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ zomboidDataPath: path.resolve(emptyDir) }),
+      );
     });
 
     it("rejects a server install folder pointed at by mistake, with a specific error", async () => {

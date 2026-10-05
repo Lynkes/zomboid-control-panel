@@ -74,6 +74,23 @@ function issue197File({ nestedFirst, eol }) {
 // The corruption the issue reports, as the game finds it on disk.
 const corrupt = (content) => content.replace("    Explosives = {", "    Explosives = 1");
 
+// FILES-2/PATHS-2: Server Files uses a config folder only inside its
+// server's <data folder>/Server, so each test's config folder is the Server
+// folder of a data folder of its own, as the panel's own setups make it.
+function makeConfigDir(prefix) {
+  const configDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), prefix)), "Server");
+  fs.mkdirSync(configDir);
+  return configDir;
+}
+
+function serverRecord(configDir) {
+  return { zomboidDataPath: path.dirname(configDir), serverConfigPath: configDir, serverName: "TestServer" };
+}
+
+function removeConfigDir(configDir) {
+  fs.rmSync(path.dirname(configDir), { recursive: true, force: true });
+}
+
 function createResponse() {
   const response = { status: vi.fn(), json: vi.fn() };
   response.status.mockReturnValue(response);
@@ -113,17 +130,17 @@ describe.each(cases)("#197 shape (%s)", (_label, shape) => {
   let sandboxPath;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-sandbox-197-"));
+    tmpDir = makeConfigDir("zcp-sandbox-197-");
     sandboxPath = path.join(tmpDir, "TestServer_SandboxVars.lua");
     fs.writeFileSync(sandboxPath, content);
     getActiveServer.mockReset();
     getAllSettings.mockReset();
     getAllSettings.mockResolvedValue({});
-    getActiveServer.mockResolvedValue({ serverConfigPath: tmpDir, serverName: "TestServer" });
+    getActiveServer.mockResolvedValue(serverRecord(tmpDir));
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    removeConfigDir(tmpDir);
   });
 
   it("parseSandboxVars reports each Explosives under the table it lives in", () => {
@@ -277,15 +294,15 @@ describe("persistSandboxValues only writes real top-level keys", () => {
   let tmpDir;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-sandbox-197-persist-"));
+    tmpDir = makeConfigDir("zcp-sandbox-197-persist-");
     getActiveServer.mockReset();
     getAllSettings.mockReset();
     getAllSettings.mockResolvedValue({});
-    getActiveServer.mockResolvedValue({ serverConfigPath: tmpDir, serverName: "TestServer" });
+    getActiveServer.mockResolvedValue(serverRecord(tmpDir));
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    removeConfigDir(tmpDir);
   });
 
   // The old missing-key check was a file-wide regex, so a key that only
@@ -315,15 +332,15 @@ describe("GET /sandbox/validate checks what the game checks", () => {
   let tmpDir;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-sandbox-197-validate-"));
+    tmpDir = makeConfigDir("zcp-sandbox-197-validate-");
     getActiveServer.mockReset();
     getAllSettings.mockReset();
     getAllSettings.mockResolvedValue({});
-    getActiveServer.mockResolvedValue({ serverConfigPath: tmpDir, serverName: "TestServer" });
+    getActiveServer.mockResolvedValue(serverRecord(tmpDir));
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    removeConfigDir(tmpDir);
   });
 
   async function validate(content) {
@@ -403,12 +420,12 @@ describe("POST /sandbox/repair puts back the '{' the #197 bug overwrote", () => 
   });
 
   it("writes the restored file through the route, after a backup", async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-sandbox-197-restore-"));
+    const tmpDir = makeConfigDir("zcp-sandbox-197-restore-");
     try {
       const sandboxPath = path.join(tmpDir, "TestServer_SandboxVars.lua");
       const original = issue197File({ nestedFirst: false, eol: "\r\n" });
       fs.writeFileSync(sandboxPath, corrupt(original));
-      getActiveServer.mockResolvedValue({ serverConfigPath: tmpDir, serverName: "TestServer" });
+      getActiveServer.mockResolvedValue(serverRecord(tmpDir));
       getAllSettings.mockResolvedValue({});
 
       const res = await runHandler("/sandbox/repair", "post", {});
@@ -416,7 +433,7 @@ describe("POST /sandbox/repair puts back the '{' the #197 bug overwrote", () => 
       expect(fs.readFileSync(sandboxPath, "utf-8")).toBe(original);
       expect(fs.readdirSync(path.join(tmpDir, "backups"))).toHaveLength(1);
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      removeConfigDir(tmpDir);
     }
   });
 });
@@ -549,11 +566,11 @@ describe("POST /sandbox/repair only touches code, never a string or a comment", 
   });
 
   it("writes the restored root line through the route, after a backup", async () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-sandbox-197-root-"));
+    const tmpDir = makeConfigDir("zcp-sandbox-197-root-");
     try {
       const sandboxPath = path.join(tmpDir, "TestServer_SandboxVars.lua");
       fs.writeFileSync(sandboxPath, ROOT_DAMAGED);
-      getActiveServer.mockResolvedValue({ serverConfigPath: tmpDir, serverName: "TestServer" });
+      getActiveServer.mockResolvedValue(serverRecord(tmpDir));
       getAllSettings.mockResolvedValue({});
 
       const res = await runHandler("/sandbox/repair", "post", {});
@@ -568,7 +585,7 @@ describe("POST /sandbox/repair only touches code, never a string or a comment", 
       expect(again.json).toHaveBeenCalledWith(expect.objectContaining({ success: true, alreadyValid: true }));
       expect(fs.readdirSync(path.join(tmpDir, "backups"))).toHaveLength(1);
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      removeConfigDir(tmpDir);
     }
   });
 
@@ -584,11 +601,11 @@ describe("POST /sandbox/repair only touches code, never a string or a comment", 
     );
     expect(attempt.fixed).toBe(false);
 
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-sandbox-197-root-"));
+    const tmpDir = makeConfigDir("zcp-sandbox-197-root-");
     try {
       const sandboxPath = path.join(tmpDir, "TestServer_SandboxVars.lua");
       fs.writeFileSync(sandboxPath, broken);
-      getActiveServer.mockResolvedValue({ serverConfigPath: tmpDir, serverName: "TestServer" });
+      getActiveServer.mockResolvedValue(serverRecord(tmpDir));
       getAllSettings.mockResolvedValue({});
 
       const res = await runHandler("/sandbox/repair", "post", {});
@@ -596,7 +613,7 @@ describe("POST /sandbox/repair only touches code, never a string or a comment", 
       expect(fs.readFileSync(sandboxPath, "utf-8")).toBe(broken);
       expect(fs.existsSync(path.join(tmpDir, "backups"))).toBe(false);
     } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
+      removeConfigDir(tmpDir);
     }
   });
 });
@@ -609,16 +626,16 @@ describe("POST /sandbox/repair only reports success for a file the game loads", 
   let sandboxPath;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-sandbox-197-repair-"));
+    tmpDir = makeConfigDir("zcp-sandbox-197-repair-");
     sandboxPath = path.join(tmpDir, "TestServer_SandboxVars.lua");
     getActiveServer.mockReset();
     getAllSettings.mockReset();
     getAllSettings.mockResolvedValue({});
-    getActiveServer.mockResolvedValue({ serverConfigPath: tmpDir, serverName: "TestServer" });
+    getActiveServer.mockResolvedValue(serverRecord(tmpDir));
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    removeConfigDir(tmpDir);
   });
 
   const backups = () =>
@@ -663,17 +680,17 @@ describe.each([
   let sandboxPath;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-sandbox-197-notable-"));
+    tmpDir = makeConfigDir("zcp-sandbox-197-notable-");
     sandboxPath = path.join(tmpDir, "TestServer_SandboxVars.lua");
     fs.writeFileSync(sandboxPath, content);
     getActiveServer.mockReset();
     getAllSettings.mockReset();
     getAllSettings.mockResolvedValue({});
-    getActiveServer.mockResolvedValue({ serverConfigPath: tmpDir, serverName: "TestServer" });
+    getActiveServer.mockResolvedValue(serverRecord(tmpDir));
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    removeConfigDir(tmpDir);
   });
 
   it("GET /sandbox reports it as parseError", async () => {
@@ -726,16 +743,16 @@ describe("a string continued over a CRLF line break is not corruption", () => {
   let sandboxPath;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-sandbox-197-continued-"));
+    tmpDir = makeConfigDir("zcp-sandbox-197-continued-");
     sandboxPath = path.join(tmpDir, "TestServer_SandboxVars.lua");
     getActiveServer.mockReset();
     getAllSettings.mockReset();
     getAllSettings.mockResolvedValue({});
-    getActiveServer.mockResolvedValue({ serverConfigPath: tmpDir, serverName: "TestServer" });
+    getActiveServer.mockResolvedValue(serverRecord(tmpDir));
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    removeConfigDir(tmpDir);
   });
 
   it("GET /sandbox/validate calls it valid", async () => {
@@ -766,16 +783,16 @@ describe("PUT /sandbox with nothing to change writes nothing", () => {
   let sandboxPath;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-sandbox-197-noop-"));
+    tmpDir = makeConfigDir("zcp-sandbox-197-noop-");
     sandboxPath = path.join(tmpDir, "TestServer_SandboxVars.lua");
     getActiveServer.mockReset();
     getAllSettings.mockReset();
     getAllSettings.mockResolvedValue({});
-    getActiveServer.mockResolvedValue({ serverConfigPath: tmpDir, serverName: "TestServer" });
+    getActiveServer.mockResolvedValue(serverRecord(tmpDir));
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    removeConfigDir(tmpDir);
   });
 
   const backups = () =>

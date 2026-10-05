@@ -212,6 +212,10 @@
       "dismissAria": "關閉連線警告",
       "dismissTooltip": "關閉，直到情況發生變化"
     },
+    "channelOutsideGuild": {
+      "title": "部分通知未傳送",
+      "body": "頻道 {{channels}} 不屬於填寫為伺服器（Guild）ID 的伺服器，因此機器人不再在該頻道發文。請改選該伺服器中的頻道，或把伺服器（Guild）ID 改為該頻道所在的伺服器。"
+    },
     "commandPermissions": {
       "title": "命令權限",
       "description": "控制誰可以使用每條斜槓命令。為每條命令分配一個權限等級。",
@@ -341,9 +345,14 @@
     "testMessageSent": "測試訊息已傳送到 Discord 頻道",
     "testMessageFailedFallback": "傳送測試訊息失敗",
     "wipeConfirmTitle": "清除 Discord 機器人設定？",
-    "wipeConfirmDesc": "這將清除已儲存的機器人權杖、伺服器和頻道 ID、角色 ID、聊天中繼設定、命令權限，以及 Discord 事件通知設定。機器人將停止執行，頁面將返回首次設定流程。",
+    "wipeConfirmDesc": "這將清除已儲存的機器人權杖、伺服器和頻道 ID、角色 ID、聊天中繼頻道，以及 Discord 事件通知設定，並將每條命令的權限等級恢復為預設值。如果某條命令需要你在本面板中沒有的權限，它將保留目前的等級。自動啟動和聊天中繼會恢復為預設值，即開啟：一旦設定了新權杖，機器人會隨面板啟動，並透過通知頻道雙向中繼所有公共聊天。機器人將停止執行，頁面將返回首次設定流程。",
     "wipeConfirmLabel": "清除 Discord 設定",
     "wipeSuccess": "Discord 機器人設定已清除。可以從頭開始設定。",
+    "wipeSuccessKeptTiers": "Discord 機器人設定已清除。以下命令保留了原有權限等級，因為它們需要你在本面板中沒有的權限：{{commands}}",
     "wipeFailedFallback": "清除 Discord 設定失敗"
+  },
+  "capabilityGate": {
+    "connection": "只有擁有機器人所有命令所需全部權限的人才能變更此項：機器人所在 Discord 伺服器的所有者，以及擁有其管理員角色的任何人，都可以使用每一條命令。",
+    "modRole": "只有擁有「協管員」等級命令所需權限的人才能變更此項：擁有此角色的任何人都可以使用這些命令。"
   }
 }

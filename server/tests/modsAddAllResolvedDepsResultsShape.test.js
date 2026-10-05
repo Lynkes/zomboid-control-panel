@@ -80,6 +80,7 @@ describe("POST /add-all-resolved-deps: per-item results[]", () => {
     );
     getActiveServer.mockReset().mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       isRemote: false,

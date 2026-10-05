@@ -116,10 +116,10 @@ function getHandler(routePath) {
 
 const rconService = { connected: true, save: vi.fn() };
 
-async function post(routePath, body = {}) {
+async function post(routePath, body = {}, role = "admin") {
   const res = createResponse();
   await getHandler(routePath)(
-    { user: { role: "admin" }, body, app: { get: () => rconService } },
+    { user: { role }, body, app: { get: () => rconService } },
     res,
     () => {},
   );
@@ -395,5 +395,84 @@ describe("Save World (#197)", () => {
     expect(rconService.save).toHaveBeenCalledTimes(1);
     expect(sendCommand).toHaveBeenCalledWith("saveWorld", { worldHasSandboxSnapshot: true });
     expect(body).toMatchObject({ success: true, worldSandboxSnapshot: { path: snapshotPath, refreshed: true } });
+  });
+});
+
+// The live-change check runs outside Server Files, so it applies Server
+// Files' own folder rules itself (utils/serverConfigPath.js): a server whose
+// folders Server Config refuses gets no world save check at all. Nothing
+// under its data folder is looked at, and the bridge is told nothing.
+describe("a server whose folders Server Config refuses (FILES-2, PATHS-1)", () => {
+  let otherDir;
+  let statSpy;
+
+  beforeEach(() => {
+    otherDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-197-live-other-"));
+    statSpy = vi.spyOn(fs.promises, "stat");
+  });
+
+  afterEach(() => {
+    statSpy.mockRestore();
+    fs.rmSync(otherDir, { recursive: true, force: true });
+  });
+
+  const statsUnder = (folder) =>
+    statSpy.mock.calls.filter((call) => path.resolve(String(call[0])).startsWith(path.resolve(folder) + path.sep));
+
+  it("a config folder outside its data folder", async () => {
+    giveWorldSnapshot();
+    state.activeServer = { ...state.activeServer, serverConfigPath: path.join(otherDir, "Server") };
+
+    const body = await post("/command", { action: "setSandboxOption", args: { name: "ZombieLore.Cognition", value: 1 } });
+
+    expect(sendCommand).toHaveBeenCalledWith("setSandboxOption", { name: "ZombieLore.Cognition", value: 1 });
+    expect(body).not.toHaveProperty("worldSandboxSnapshot");
+    expect(statsUnder(path.join(dataDir, "Saves"))).toEqual([]);
+  });
+
+  it("a config folder with no data folder to anchor it", async () => {
+    giveWorldSnapshot();
+    state.activeServer = { ...state.activeServer, zomboidDataPath: null };
+
+    const body = await post("/utilities/shutoff", { power: true, water: true });
+
+    expect(sendCommand).toHaveBeenCalledWith("shutOffUtilities", { power: true, water: true });
+    expect(body).not.toHaveProperty("worldSandboxSnapshot");
+    expect(statsUnder(path.join(dataDir, "Saves"))).toEqual([]);
+  });
+
+  it("a data folder the data-folder rule refuses", async () => {
+    fs.writeFileSync(path.join(dataDir, "notes.txt"), "not the game's");
+    fs.mkdirSync(path.join(dataDir, "Saves", "Multiplayer", "DoB"), { recursive: true });
+
+    const result = await new Scheduler(rconService, { _serverId: null }).runTaskNow({
+      id: 1,
+      name: "Save",
+      command: "bridge:saveWorld",
+    });
+
+    expect(result.success).toBe(true);
+    expect(sendCommand).not.toHaveBeenCalled();
+    expect(statsUnder(path.join(dataDir, "Saves"))).toEqual([]);
+  });
+});
+
+// The world save's path is a host path: a role without the host-path
+// capabilities (utils/hostPathView.js; the seeded moderator has none) gets
+// its file name only.
+describe("map_sand.bin for a role that can't see host folders (#197)", () => {
+  it("POST /command, /utilities/restore and /world/save name the file only", async () => {
+    giveWorldSnapshot();
+
+    const answers = [
+      await post("/command", { action: "setSandboxOption", args: { name: "ZombieLore.Cognition", value: 1 } }, "moderator"),
+      await post("/utilities/restore", { power: true, water: true }, "moderator"),
+      await post("/world/save", {}, "moderator"),
+    ];
+
+    for (const body of answers) {
+      expect(body.worldSandboxSnapshot).toEqual({ path: "map_sand.bin", refreshed: true });
+      expect(JSON.stringify(body)).not.toContain(JSON.stringify(dataDir).slice(1, -1));
+    }
   });
 });

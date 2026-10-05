@@ -3,7 +3,8 @@ import { JSONFile } from "lowdb/node";
 import path from "path";
 import fs from "fs";
 import { randomUUID } from "crypto";
-import { getDataPaths } from "../utils/paths.js";
+import { getDataPaths, getPanelProgramDir } from "../utils/paths.js";
+import { registerHostFolderSource } from "../utils/sanitize.js";
 import { checkAndExitIfOwnershipBlocked } from "../utils/firstRunOwnershipCheck.js";
 import { createLogger } from "../utils/logger.js";
 import { normalizeMemoryGb } from "../utils/memory.js";
@@ -1815,6 +1816,13 @@ export async function getTrackedMods() {
   return db.data.tracked_mods.filter((m) => m.server_id === serverId);
 }
 
+// Every Workshop id some server tracks (legacy rows without a server_id
+// included) -- the ones whose thumbnails routes/mods.js keeps on disk.
+export async function getAllTrackedWorkshopIds() {
+  const db = await getDb();
+  return new Set((db.data.tracked_mods || []).map((m) => String(m.workshop_id)));
+}
+
 export async function addTrackedMod(workshopId, name = null) {
   const db = await getDb();
   const serverId = await getActiveServerId();
@@ -2169,6 +2177,43 @@ export function peekServerDisplayName(serverId) {
   return server?.name || server?.serverName || null;
 }
 
+// SECURITY (2026-10-05, H1): the host folders sanitizeError()
+// (utils/sanitize.js) redacts by exact text, ahead of its generic path
+// patterns: the panel's data, backups, logs and program folders, and every
+// folder-shaped server field and setting (installPath, zomboidDataPath,
+// serverConfigPath, steamcmdPath, the legacy copies in settings, ...). A
+// server's backups go to <zomboidDataPath>/backups, which its data folder
+// covers. A path naming a file (a custom launcher's start.bat, an .ini)
+// adds its folder too. Synchronous and read from memory only, the same way
+// peekServerDisplayName() above is: sanitizeError() can't await, and before
+// the first getDb() there are no servers or settings to list yet.
+const HOST_FOLDER_KEY_RE = /(?:Path|Dir)$/;
+const FILE_NAME_RE = /[\\/][^\\/]+\.[A-Za-z0-9]{1,8}$/;
+
+function pushHostFolder(folders, value) {
+  if (typeof value !== "string" || !value.trim()) return;
+  const trimmed = value.trim();
+  folders.push(trimmed);
+  if (FILE_NAME_RE.test(trimmed)) folders.push(trimmed.replace(/[\\/]+[^\\/]*$/, ""));
+}
+
+export function peekHostFolders() {
+  const folders = [dataDir, backupDir, paths.logsDir, getPanelProgramDir()];
+  const current = getDataPaths();
+  folders.push(current.dataDir, current.logsDir);
+  for (const server of db?.data?.servers || []) {
+    for (const [key, value] of Object.entries(server || {})) {
+      if (HOST_FOLDER_KEY_RE.test(key)) pushHostFolder(folders, value);
+    }
+  }
+  for (const [key, value] of Object.entries(db?.data?.settings || {})) {
+    if (HOST_FOLDER_KEY_RE.test(key)) pushHostFolder(folders, value);
+  }
+  return folders;
+}
+
+registerHostFolderSource(peekHostFolders);
+
 export async function getServer(id) {
   const db = await getDb();
   return normalizeServerMemory(
@@ -2327,8 +2372,20 @@ function syncServerToSettings(db, server) {
   db.data.settings.serverPort = server.serverPort;
   db.data.settings.minMemory = normalizedServer.minMemory;
   db.data.settings.maxMemory = normalizedServer.maxMemory;
-  db.data.settings.zomboidDataPath = server.zomboidDataPath;
-  db.data.settings.serverConfigPath = server.serverConfigPath;
+  // SECURITY (2026-10-05, PATHS-1 verifier pass 2): these two are what the
+  // panel falls back to when the active record has no data folder of its
+  // own (the console-log routes, mods, /configure-rcon, the log tailer,
+  // ...). They were copied from every server activated, a remote one's
+  // included -- whose data folder is never judged when saved, since it
+  // names a folder on its own host -- so activating a remote server, then
+  // making it local with no data folder, left any folder here as the one
+  // those features used. A remote server's folders are not copied: nothing
+  // of its is on this computer. (The features that use the legacy folder
+  // also hold it to the data-folder rule, services/zomboidDataPath.js, for
+  // a copy made before this.)
+  const isRemote = Boolean(normalizedServer.isRemote);
+  db.data.settings.zomboidDataPath = isRemote ? null : server.zomboidDataPath;
+  db.data.settings.serverConfigPath = isRemote ? null : server.serverConfigPath;
 }
 
 // ============================================

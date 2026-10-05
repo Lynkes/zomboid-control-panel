@@ -596,7 +596,7 @@
     "resettingButton": "N ap reyinisyalize...",
     "resetAndSignOutButton": "Reyinisyalize Modpas epi Dekonekte",
     "recoveryRemoteIntro1": "Panèl la pa ka montre modpas ki egziste yo. Si ou toujou gen aksè sistèm fichye nan lame panèl la, dekonekte epi swa kreye <code>data/reset-token.txt</code> oswa demare panèl la ak <code>--reset-password</code>.",
-    "recoveryRemoteIntro2": "Depi fichye jeton an egziste, ekran koneksyon an ap montre yon opsyon rekiperasyon pou ou ka mete yon nouvo modpas administratè san ou pa konnen ansyen an.",
+    "recoveryRemoteIntro2": "Mete yon jeton hex o aza ki gen omwen 32 karaktè, ki soti nan yon jeneratè tankou openssl rand -hex 24, nan fichye sa a (yo refize mo, fraz ak suit chif), epi louvri rekiperasyon kont sou ekran koneksyon an epi antre l kòm jeton rekiperasyon pou mete yon nouvo modpas administratè san ou pa konnen ansyen an.",
     "regenerateJwt": {
       "cardTitle": "Rejenere sekrè JWT",
       "cardDesc": "Dekonekte imedyatman chak itilizatè sou chak aparèy, ou menm ladan — jeton aksè ak rafrechisman pou chak sesyon aktyèl sispann fonksyone tousuit. Itilize sa a sèlman si yon kopi sovgad ki gen ansyen kle siyati a ka fuit; se pa yon aksyon woutin epi pa gen rotasyon otomatik.",
@@ -885,5 +885,8 @@
     "couldNotResetPassword": "Panèl la pa t kapab reyinisyalize modpas ou soti nan sèvè sa a.",
     "never": "Janm",
     "unknown": "Enkoni"
+  },
+  "hiddenByRole": {
+    "reason": "Kache: pou wè valè sa a, ou bezwen pèmisyon {{permission}}, e wòl sa a pa genyen li."
   }
 }

@@ -91,6 +91,8 @@ describe("PUT /servers/:id -- editing useUpnp actually changes the server's own 
       name: "UpnpEditTest",
       serverName: "UpnpEditTest",
       installPath: tmpRoot,
+      // PATHS-2: the ini is written only inside the record's data folder.
+      zomboidDataPath: path.dirname(serverConfigPath),
       serverConfigPath,
       rconHost: "127.0.0.1",
       rconPort: 27015,
@@ -131,6 +133,8 @@ describe("PUT /servers/:id -- editing useUpnp actually changes the server's own 
       name: "UpnpEditPortTest",
       serverName: "UpnpEditTest",
       installPath: tmpRoot,
+      // PATHS-2: the ini is written only inside the record's data folder.
+      zomboidDataPath: path.dirname(serverConfigPath),
       serverConfigPath,
       rconHost: "127.0.0.1",
       rconPort: 27016,
@@ -160,6 +164,8 @@ describe("PUT /servers/:id -- editing useUpnp actually changes the server's own 
       name: "UpnpNoIniTest",
       serverName: "UpnpEditTest",
       installPath: tmpRoot,
+      // PATHS-2: the ini is written only inside the record's data folder.
+      zomboidDataPath: path.dirname(serverConfigPath),
       serverConfigPath,
       rconHost: "127.0.0.1",
       rconPort: 27017,

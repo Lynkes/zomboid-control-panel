@@ -84,18 +84,21 @@ describe("createBackup() itself: distinguishes no-source from a real failure", (
   let tmpDir;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-backup-fail-unit-"));
+    // PATHS-2: a config folder is used only inside <data folder>/Server.
+    tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "zcp-backup-fail-unit-")), "Server");
+    fs.mkdirSync(tmpDir);
     getActiveServer.mockReset();
     getAllSettings.mockReset();
     getAllSettings.mockResolvedValue({});
     getActiveServer.mockResolvedValue({
+      zomboidDataPath: path.dirname(tmpDir),
       serverConfigPath: tmpDir,
       serverName: "TestServer",
     });
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(path.dirname(tmpDir), { recursive: true, force: true });
   });
 
   it("returns backedUp:false, reason:no-source when the file doesn't exist -- benign, not a failure", async () => {
@@ -145,11 +148,14 @@ describe("PUT /ini (an 'ordinary edit' site): backup failure never blocks the ed
   let tmpDir;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-backup-fail-ini-"));
+    // PATHS-2: a config folder is used only inside <data folder>/Server.
+    tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "zcp-backup-fail-ini-")), "Server");
+    fs.mkdirSync(tmpDir);
     getActiveServer.mockReset();
     getAllSettings.mockReset();
     getAllSettings.mockResolvedValue({});
     getActiveServer.mockResolvedValue({
+      zomboidDataPath: path.dirname(tmpDir),
       serverConfigPath: tmpDir,
       serverName: "TestServer",
     });
@@ -157,7 +163,7 @@ describe("PUT /ini (an 'ordinary edit' site): backup failure never blocks the ed
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(path.dirname(tmpDir), { recursive: true, force: true });
   });
 
   it("a SUCCESSFUL backup still lets the edit through and carries no warning", async () => {
@@ -218,18 +224,21 @@ describe("POST /sandbox/repair (the ONE unrecoverable-operation site): refuses t
   }
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-backup-fail-repair-"));
+    // PATHS-2: a config folder is used only inside <data folder>/Server.
+    tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "zcp-backup-fail-repair-")), "Server");
+    fs.mkdirSync(tmpDir);
     getActiveServer.mockReset();
     getAllSettings.mockReset();
     getAllSettings.mockResolvedValue({});
     getActiveServer.mockResolvedValue({
+      zomboidDataPath: path.dirname(tmpDir),
       serverConfigPath: tmpDir,
       serverName: "TestServer",
     });
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(path.dirname(tmpDir), { recursive: true, force: true });
   });
 
   it("a SUCCESSFUL backup lets the repair proceed and names the real backup in the message", async () => {

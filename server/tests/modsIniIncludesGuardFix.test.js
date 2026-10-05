@@ -100,6 +100,7 @@ describe("POST /toggle-mod-id: the requested change lands even when a free-text 
     );
     getActiveServer.mockReset().mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       isRemote: false,
@@ -138,6 +139,7 @@ describe("POST /toggle-mod-id: the requested change lands even when a free-text 
     );
     getActiveServer.mockReset().mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       isRemote: false,

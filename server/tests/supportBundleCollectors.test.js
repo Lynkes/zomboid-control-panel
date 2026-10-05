@@ -287,12 +287,15 @@ describe("support bundle: UI language reported by the bundle-download request", 
 describe("support bundle: server config summary flags a Mods/WorkshopItems length mismatch", () => {
   let configDir;
 
+  // PATHS-2: the support bundle reads a config folder only inside its
+  // server's <data folder>/Server.
   beforeEach(() => {
-    configDir = fs.mkdtempSync(path.join(os.tmpdir(), "pz-bundle-config-"));
+    configDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "pz-bundle-config-")), "Server");
+    fs.mkdirSync(configDir);
   });
 
   afterEach(() => {
-    fs.rmSync(configDir, { recursive: true, force: true });
+    fs.rmSync(path.dirname(configDir), { recursive: true, force: true });
   });
 
   function writeIni(mods, workshopItems) {
@@ -305,6 +308,7 @@ describe("support bundle: server config summary flags a Mods/WorkshopItems lengt
   it("flags true when the two lists have different lengths", async () => {
     writeIni("ModA;ModB", "111111");
     const result = await buildServerConfigSummary({
+      zomboidDataPath: path.dirname(configDir),
       serverConfigPath: configDir,
       serverName: "servertest",
     });
@@ -324,6 +328,7 @@ describe("support bundle: server config summary flags a Mods/WorkshopItems lengt
   it("flags false when the two lists are the same length", async () => {
     writeIni("ModA;ModB", "111111;222222");
     const result = await buildServerConfigSummary({
+      zomboidDataPath: path.dirname(configDir),
       serverConfigPath: configDir,
       serverName: "servertest",
     });
@@ -338,13 +343,18 @@ describe("support bundle: server config summary flags a Mods/WorkshopItems lengt
       sandboxPath,
       "SandboxVars = {\n    Explosives = 1\n        VanillaBallisticsEnabled = false,\n    },\n}\n",
     );
-    let result = await buildServerConfigSummary({ serverConfigPath: configDir, serverName: "servertest" });
+    const server = {
+      zomboidDataPath: path.dirname(configDir),
+      serverConfigPath: configDir,
+      serverName: "servertest",
+    };
+    let result = await buildServerConfigSummary(server);
     expect(result.sandbox.syntaxError).toBe(
       "line 3: '}' expected (to close '{' at line 1) near 'VanillaBallisticsEnabled'",
     );
 
     fs.writeFileSync(sandboxPath, 'SandboxVars = {\n    Banner = "}",\n}\n');
-    result = await buildServerConfigSummary({ serverConfigPath: configDir, serverName: "servertest" });
+    result = await buildServerConfigSummary(server);
     expect(result.sandbox.syntaxError).toBeNull();
     expect(result.sandbox.braceBalance).toEqual({ balanced: true, depth: 0 });
   });
@@ -391,7 +401,9 @@ describe("support bundle: sandbox-options diagnostics identify the failure and c
 
   beforeEach(() => {
     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "pz-bundle-sandbox-data-"));
-    configDir = fs.mkdtempSync(path.join(os.tmpdir(), "pz-bundle-sandbox-config-"));
+    // PATHS-2: the config folder is <data folder>/Server.
+    configDir = path.join(dataDir, "Server");
+    fs.mkdirSync(configDir);
     installDir = fs.mkdtempSync(path.join(os.tmpdir(), "pz-bundle-sandbox-install-"));
     const modRoot = path.join(
       installDir,

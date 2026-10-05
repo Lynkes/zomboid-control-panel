@@ -25,8 +25,11 @@ import path from "path";
 // so the test genuinely fails on the pre-fix code instead of accidentally
 // routing around it.
 
+// Both ids are tracked: a cached file is served only for a tracked mod
+// (security sweep 2026-10-05, H3; see modThumbnailStaleCache.test.js).
 vi.mock("../database/init.js", () => ({
-  getTrackedMods: vi.fn(async () => []),
+  getTrackedMods: vi.fn(async () => [{ workshop_id: "444" }, { workshop_id: "555" }]),
+  getAllTrackedWorkshopIds: vi.fn(async () => new Set(["444", "555"])),
   setModPreviewUrl: vi.fn(),
 }));
 

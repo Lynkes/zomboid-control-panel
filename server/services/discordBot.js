@@ -22,6 +22,8 @@ import { loadUiSecret, writeUiSecretFile } from "../utils/uiSecretFile.js";
 import { sanitizeError } from "../utils/sanitize.js";
 import { describeStartFailure } from "./discordStartFailure.js";
 import { readIniValues } from "../utils/templateFiles.js";
+import { activeServerConfigDir, serverConfigDirRefusal } from "../utils/serverConfigPath.js";
+import { describeRefusal, logRefusalOnce } from "./zomboidDataPath.js";
 import { runManagedLifecycle } from "./managedContainer.js";
 import { resolveObservedServerRunning } from "../utils/serverStatus.js";
 import {
@@ -180,6 +182,37 @@ const DEFAULT_COMMAND_PERMISSIONS = {
   rcon: "admin",
 };
 
+const COMMAND_TIERS = new Set(["everyone", "moderator", "admin"]);
+
+// SECURITY (2026-10-05, HT4a): one reading of a command's tier. A stored
+// tier that is missing, empty or not a tier read as "admin" in
+// checkPermission() and getCommands() but as the default in resetConfig(),
+// so a wipe by someone without that command's capability "reset" an
+// effectively admin-only /kick to "moderator" -- the D1 rule only keeps a
+// tier that differs from the default. Every reader now goes through this,
+// and loadConfig() and updateCommandPermissions() store the result
+// (normalizeCommandPermissions()), so all of them see "admin": the
+// stricter reading.
+export function commandTierOf(permissions, command) {
+  const tier = permissions?.[command];
+  return COMMAND_TIERS.has(tier) ? tier : "admin";
+}
+
+// Every command's tier from a stored object: its own valid tier, else
+// "admin" (also for every command when the object can't be read). With
+// nothing stored at all, loadConfig() keeps the defaults instead. Every
+// release has written all nine valid tiers, so a saved setup reads exactly
+// as before.
+export function normalizeCommandPermissions(stored) {
+  const source = stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+  return Object.fromEntries(
+    Object.keys(DEFAULT_COMMAND_PERMISSIONS).map((command) => [
+      command,
+      commandTierOf(source, command),
+    ]),
+  );
+}
+
 const LIFECYCLE_DEDUPE_WINDOW_MS = 60_000;
 const PLAYER_PRESENCE_INTERVAL_MS = 60_000;
 // How long a gateway reconnect must persist before getStatus() reports it —
@@ -188,6 +221,10 @@ const PLAYER_PRESENCE_INTERVAL_MS = 60_000;
 // self-heals silently and only a genuinely stuck reconnect (or a permanent
 // shardDisconnect, which never clears on its own) reaches the operator.
 const GATEWAY_DEGRADED_THRESHOLD_MS = 30_000;
+// How often _sendToChannel() repeats its warning for a channel it keeps
+// refusing because it isn't in the configured guild (M2): game chat would
+// otherwise log one per chat line.
+const OUTSIDE_GUILD_WARN_INTERVAL_MS = 10 * 60 * 1000;
 
 // start()'s distinguishable return for "a DIFFERENT start() call is already
 // in flight, this call was a no-op" (its _starting guard, re-entrancy sweep
@@ -258,6 +295,11 @@ export class DiscordBot {
     // Tracked per channel: a chat relay pointed at a deleted channel must not
     // silence server notifications going to a perfectly healthy one.
     this._channelBreakers = new Map(); // channelId -> {failures, openUntil, suppressed}
+    // Channels _sendToChannel() last refused because they aren't in the
+    // configured guild (M2), for its throttled warning and for POST
+    // /test-message's reason. Dropped at the channel's next send that isn't
+    // refused.
+    this._outsideGuildRefusals = new Map(); // channelId -> {channelGuildId, configuredGuildId, warnedAt, since}
 
     // hunt-wave6-2026-08-29 suspect 6: getStatus() used to have no field at
     // all for gateway health, so a real (self-healing) heartbeat black hole
@@ -437,16 +479,19 @@ export class DiscordBot {
     this.modRoleId = await getSetting("discordModRoleId");
     this.channelId = await getSetting("discordChannelId");
 
-    // Load command permissions
+    // Load command permissions. HT4a: through normalizeCommandPermissions(),
+    // so a missing or broken tier reads as "admin" everywhere; a stored
+    // value that can't be parsed used to read as every default.
     const savedPerms = await getSetting("discordCommandPermissions");
     if (savedPerms) {
+      let parsed = null;
       try {
-        const parsed =
+        parsed =
           typeof savedPerms === "string" ? JSON.parse(savedPerms) : savedPerms;
-        this.commandPermissions = { ...DEFAULT_COMMAND_PERMISSIONS, ...parsed };
       } catch (e) {
-        this.commandPermissions = { ...DEFAULT_COMMAND_PERMISSIONS };
+        log.warn(`Stored Discord command tiers can't be read, so every command is admin-only: ${e.message}`);
       }
+      this.commandPermissions = normalizeCommandPermissions(parsed);
     }
 
     // Load chat relay settings
@@ -676,7 +721,15 @@ export class DiscordBot {
     await setSetting("discordChatRelayScope", this.chatRelayScope);
   }
 
-  async resetConfig() {
+  // SECURITY (2026-10-05, D1): command tiers survive a wipe. Only the
+  // commands named in `commandTiersToReset` go back to their default tier;
+  // routes/discord.js's POST /reset names the ones whose tier the caller
+  // could change through PUT /permissions anyway. A wipe used to put every
+  // tier back to its default, so someone without players.moderate could
+  // undo an admin raising /kick to "admin": once the bot was set up again,
+  // mod-role holders could kick players. Naming nothing keeps every tier.
+  // Returns the commands that kept a tier other than their default.
+  async resetConfig({ commandTiersToReset = [] } = {}) {
     const token = this.token;
     const guildId = this.guildId;
 
@@ -710,18 +763,37 @@ export class DiscordBot {
       await this.stop();
     }
 
+    const commandPermissions = {};
+    const keptCommandPermissions = [];
+    for (const [command, defaultTier] of Object.entries(
+      DEFAULT_COMMAND_PERMISSIONS,
+    )) {
+      const currentTier = commandTierOf(this.commandPermissions, command);
+      if (commandTiersToReset.includes(command) || currentTier === defaultTier) {
+        commandPermissions[command] = defaultTier;
+      } else {
+        commandPermissions[command] = currentTier;
+        keptCommandPermissions.push(command);
+      }
+    }
+
     writeUiSecretFile("discordBotToken", "");
     await setSetting("discordGuildId", "");
     await setSetting("discordAdminRoleId", "");
     await setSetting("discordModRoleId", "");
     await setSetting("discordChannelId", "");
+    // HT4c: auto-start and the chat relay go back to what a fresh install
+    // reads (both on; the relay in the notification channel, public chat),
+    // not off -- the wipe dialog says so in those words. Neither does
+    // anything until someone enters a token again, which needs every
+    // command's capability, server.world_events (the relay's) among them.
     await setSetting("discordAutoStart", true);
     await setSetting("discordChatRelayEnabled", true);
     await setSetting("discordChatRelayChannelId", "");
     await setSetting("discordChatRelayScope", "public");
     await setSetting(
       "discordCommandPermissions",
-      JSON.stringify(DEFAULT_COMMAND_PERMISSIONS),
+      JSON.stringify(commandPermissions),
     );
     await setSetting("discordWebhookEvents", JSON.stringify({}));
 
@@ -731,14 +803,16 @@ export class DiscordBot {
     this.modRoleId = null;
     this.channelId = null;
     this.webhookEvents = {};
-    this.commandPermissions = { ...DEFAULT_COMMAND_PERMISSIONS };
+    this.commandPermissions = commandPermissions;
     this.chatRelayEnabled = true;
     this.chatRelayChannelId = null;
     this.chatRelayScope = "public";
     this._registeredGuildId = null;
     this._channelBreakers.clear();
+    this._outsideGuildRefusals.clear();
     this._lastLifecycleState = null;
     this._lastLifecycleAt = 0;
+    return keptCommandPermissions;
   }
 
   async updateCommandPermissions(permissions) {
@@ -751,7 +825,17 @@ export class DiscordBot {
         cleaned[cmd] = level;
       }
     }
-    this.commandPermissions = { ...DEFAULT_COMMAND_PERMISSIONS, ...cleaned };
+    // Merged onto the current tiers, not onto the defaults: a command left
+    // out of `permissions` keeps its tier. Merging onto the defaults let a
+    // partial save (even `{}`) drop every raised tier back to its default
+    // without routes/discord.js's per-command capability check ever seeing
+    // that command (security sweep 2026-10-04, adversary pass on AUTHZ-3).
+    // The settings page sends every command, so nothing it does changes.
+    // HT4a: stored normalized, the way loadConfig() reads it back.
+    this.commandPermissions = normalizeCommandPermissions({
+      ...this.commandPermissions,
+      ...cleaned,
+    });
     await setSetting(
       "discordCommandPermissions",
       JSON.stringify(this.commandPermissions),
@@ -865,7 +949,7 @@ export class DiscordBot {
     // is configured we leave the command visible and let checkPermission() answer,
     // which replies with a clear refusal instead of hiding the command.
     for (const cmd of commands) {
-      const level = this.commandPermissions[cmd.name] || "admin";
+      const level = commandTierOf(this.commandPermissions, cmd.name);
       if (level === "admin" && !this.adminRoleId) {
         cmd.builder.setDefaultMemberPermissions(
           PermissionFlagsBits.Administrator,
@@ -945,7 +1029,7 @@ export class DiscordBot {
   }
 
   checkPermission(interaction, commandName) {
-    const level = this.commandPermissions[commandName] || "admin";
+    const level = commandTierOf(this.commandPermissions, commandName);
 
     if (level === "everyone") return true;
 
@@ -990,9 +1074,31 @@ export class DiscordBot {
       `Discord command: /${commandName} by ${interaction.user?.tag || "unknown"}`,
     );
 
+    // SECURITY (2026-10-05, D2): answer only in the guild the panel is set
+    // up for. Moving the bot to another guild needs every command's
+    // capability (routes/discord.js) because checkPermission() lets that
+    // guild's owner and Administrators run everything. But the commands
+    // registered in a previous guild stay there whenever updateConfig()'s
+    // cleanup didn't run (the bot was stopped during the move) or failed,
+    // and so do resetConfig()'s -- and that guild's owner passed
+    // checkPermission() just the same, with the bot still a member there.
+    if (
+      !this.guildId ||
+      String(interaction.guildId ?? "") !== String(this.guildId)
+    ) {
+      log.warn(
+        `Refused /${commandName} from guild ${interaction.guildId || "(none)"}: not the configured guild`,
+      );
+      await interaction.reply({
+        content: "❌ This bot isn't set up for this server.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
     // Check permission based on command's configured tier
     if (!this.checkPermission(interaction, commandName)) {
-      const level = this.commandPermissions[commandName] || "admin";
+      const level = commandTierOf(this.commandPermissions, commandName);
       const roleName = level === "admin" ? "Admin" : "Moderator";
       await interaction.reply({
         content: `❌ You need the **${roleName}** role to use this command.`,
@@ -1591,6 +1697,19 @@ export class DiscordBot {
       if (!channel?.isTextBased?.() || typeof channel.send !== "function") {
         throw new Error("Configured channel is not a sendable text channel");
       }
+      // SECURITY (2026-10-05, M2): only to a channel of the guild the panel
+      // is set up for, as the Discord-to-game relay reads (HT4b) and slash
+      // commands answer (D2) only there. Game chat (to the relay channel, or
+      // the notification channel while none is set) and every notification
+      // went to whatever channel ID was saved, so one in another guild the
+      // bot is a member of -- or a direct-message channel -- received player
+      // chat, names and server events. Not a breaker failure: nothing was
+      // sent, and only a settings change makes the next send any different.
+      if (!this._isChannelInConfiguredGuild(channel)) {
+        this._refuseOutsideGuild(channelId, channel, label);
+        return false;
+      }
+      this._outsideGuildRefusals.delete(channelId);
       // bug-hunt-2026-09-18 (round: Discord bot commands and relay): a
       // caller-side length cap applied BEFORE escapeMarkdown() (e.g.
       // handleGameChat()'s own message.slice(0, 1850)/author.slice(0, 80))
@@ -1622,6 +1741,7 @@ export class DiscordBot {
       }
       return true;
     } catch (error) {
+      this._outsideGuildRefusals.delete(channelId);
       breaker.failures++;
       // A 5xx is Discord's own outage, not our configuration — classify it
       // alongside the network-level codes below rather than lumping it in
@@ -1670,18 +1790,84 @@ export class DiscordBot {
     return breaker;
   }
 
+  // M2: a guild channel or thread carries the guild's ID; a direct-message
+  // channel carries none. Compared as text, like the relay's own check.
+  _isChannelInConfiguredGuild(channel) {
+    return (
+      Boolean(this.guildId) &&
+      String(channel?.guildId ?? "") === String(this.guildId)
+    );
+  }
+
+  // M2: warns when a channel is first refused, when what it is refused for
+  // changes, and then every OUTSIDE_GUILD_WARN_INTERVAL_MS with the number
+  // of sends refused since.
+  _refuseOutsideGuild(channelId, channel, label) {
+    const channelGuildId = channel?.guildId ? String(channel.guildId) : null;
+    const configuredGuildId = this.guildId ? String(this.guildId) : null;
+    const now = Date.now();
+    const last = this._outsideGuildRefusals.get(channelId);
+    if (
+      last &&
+      last.channelGuildId === channelGuildId &&
+      last.configuredGuildId === configuredGuildId &&
+      now - last.warnedAt < OUTSIDE_GUILD_WARN_INTERVAL_MS
+    ) {
+      last.since++;
+      return;
+    }
+    const configured = configuredGuildId
+      ? `the one set up in the panel (Guild ID ${configuredGuildId})`
+      : "one set up in the panel (no Guild ID is set)";
+    const where = channelGuildId
+      ? `it is in Discord server ${channelGuildId}, not in ${configured}`
+      : `it is not in a Discord server (a direct message), so not in ${configured}`;
+    const more = last?.since
+      ? ` ${last.since} other send(s) to it were refused since the last warning.`
+      : "";
+    log.warn(
+      `Not sending the Discord ${label} to channel ${channelId}: ${where}. Set a channel of that server on the Discord page, or correct the Guild ID.${more}`,
+    );
+    this._outsideGuildRefusals.set(channelId, {
+      channelGuildId,
+      configuredGuildId,
+      warnedAt: now,
+      since: 0,
+    });
+  }
+
+  // Whether the last send to `channelId` was refused because the channel
+  // isn't in the configured guild (M2), for POST /test-message's reason.
+  wasSendRefusedOutsideGuild(channelId) {
+    return Boolean(channelId) && this._outsideGuildRefusals.has(channelId);
+  }
+
   async getConfiguredMaxPlayers() {
     try {
       const activeServer = await getActiveServer();
       const serverName = activeServer?.serverName || (await getSetting("serverName"));
-      const configPath =
-        activeServer?.serverConfigPath ||
-        (activeServer?.zomboidDataPath
-          ? path.join(activeServer.zomboidDataPath, "Server")
-          : await getSetting("serverConfigPath")) ||
-        ((await getSetting("zomboidDataPath"))
-          ? path.join(await getSetting("zomboidDataPath"), "Server")
-          : null);
+      // SECURITY (2026-10-05, PATHS-2): MaxPlayers goes out in the bot's
+      // public presence, so it is read only from the config folder Server
+      // Files uses: a configured one only while it is inside the data folder
+      // in effect (utils/serverConfigPath.js).
+      const legacy = activeServer?.zomboidDataPath
+        ? {}
+        : {
+            serverConfigPath: await getSetting("serverConfigPath"),
+            zomboidDataPath: await getSetting("zomboidDataPath"),
+          };
+      const config = activeServerConfigDir(activeServer, legacy);
+      // SECURITY (2026-10-05, PT3/PT5): refused, the presence leaves
+      // MaxPlayers out, and the presence is public, so the reason goes to
+      // the log -- with its code and what to set, at warn once per folder
+      // and reason (this runs on every presence update), then at debug.
+      if (config.refused) {
+        logRefusalOnce(
+          log,
+          `Discord presence: not reading MaxPlayers (Zomboid data folder: ${config.dataPath || "not set"}): ${describeRefusal(serverConfigDirRefusal(config))}`,
+        );
+      }
+      const configPath = config.dir;
 
       if (
         !configPath ||
@@ -1924,6 +2110,19 @@ export class DiscordBot {
       // The relay switch covers the whole bridge. Leaving this direction live
       // meant turning the relay off still piped Discord chatter into the game.
       if (!this.chatRelayEnabled) return;
+
+      // SECURITY (2026-10-05, HT4b): only from the guild the panel is set up
+      // for, as handleInteraction() answers commands (D2). The channel check
+      // below matched an ID alone, so a channel the bot can see in another
+      // guild -- one it was moved away from, say -- relayed into the game
+      // as "[Discord] name: text" through RCON servermsg, which the panel's
+      // own POST /server/message gates behind server.world_events.
+      if (
+        !this.guildId ||
+        String(message.guildId ?? "") !== String(this.guildId)
+      ) {
+        return;
+      }
 
       // Use the dedicated relay channel in both directions when configured.
       const relayChannelId = this.chatRelayChannelId || this.channelId;
@@ -2187,6 +2386,10 @@ export class DiscordBot {
       guildId: this.guildId,
       channelId: this.channelId,
       modRoleId: this.modRoleId || null,
+      // Channels the bot stopped posting to because they aren't in the
+      // configured guild (M2): 1.4.5 posted there, so the Discord page says
+      // why notifications stopped instead of leaving it to the panel log.
+      channelsOutsideGuild: [...this._outsideGuildRefusals.keys()],
       // Persists past the one-time toast POST /start already shows, so a
       // user who navigates away and comes back still sees why the last
       // start attempt failed -- cleared the moment a start actually

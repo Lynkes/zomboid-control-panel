@@ -24,8 +24,8 @@
   "RESET_TOKEN_NOT_FOUND": "No se encontró ningún token de restablecimiento. Crea primero data/reset-token.txt en el servidor.",
   "RESET_TOKEN_TOO_LARGE": "El archivo del token de restablecimiento no es válido (demasiado grande). Máximo 1 KB.",
   "RESET_TOKEN_EXPIRED": "El archivo del token de restablecimiento tiene más de 24 horas. Vuelve a crearlo en el servidor.",
-  "RESET_TOKEN_TOO_SHORT": "El archivo del token de restablecimiento no es válido. Debe contener al menos 8 caracteres.",
-  "RESET_TOKEN_INVALID": "Token de restablecimiento no válido",
+  "RESET_TOKEN_TOO_SHORT": "El archivo del token de restablecimiento no es válido. Debe contener un token hexadecimal aleatorio de al menos 32 caracteres.",
+  "RESET_TOKEN_INVALID": "No se aceptó ese token de restablecimiento. Comprueba que data/reset-token.txt en el host del panel contenga exactamente este token, tenga menos de 24 horas y que el token sea hexadecimal aleatorio de un generador, de al menos 32 caracteres (se rechazan palabras, frases y secuencias de números). El registro del panel indica qué comprobación falló.",
   "SERVER_NOT_CONFIGURED": "No hay ningún servidor activo configurado",
   "REMOTE_CONFIG_NOT_CONFIGURED": "Este servidor es remoto. Añade sus datos de SFTP y la carpeta del servidor remoto en Ajustes > PanelBridge para editar su configuración desde aquí.",
   "REMOTE_BROWSE_NOT_AVAILABLE": "Explorar el sistema de archivos del servidor no está disponible para servidores remotos.",
@@ -583,5 +583,16 @@
   "FM_TOO_MANY_ENTRIES": "Hay demasiados elementos para eliminarlos de una vez (más de {{limit}}). Lo que ya se eliminó sigue eliminado; vuelve a ejecutarlo para terminar.",
   "FM_SECRET_NAME_REQUIRED": "Este archivo contiene contraseñas que el gestor de archivos oculta. Mantén .ini en el nuevo nombre para que sigan ocultas.",
   "CHARACTER_INVALID_SECTIONS": "Se solicitó una sección de personaje desconocida.",
-  "CHARACTER_SHEET_FAILED": "No se pudo leer este personaje."
+  "CHARACTER_SHEET_FAILED": "No se pudo leer este personaje.",
+  "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Cambiar estos ajustes de Discord permitiría ejecutar comandos del bot que requieren {{detail}}, capacidades que tú no tienes.",
+  "HOST_NOT_ALLOWED": "Este panel solo responde a sus propias direcciones mientras los inicios de sesión del panel están desactivados. Ábrelo por su dirección IP o localhost, o añade esta dirección en Ajustes > Acceso remoto (CORS).",
+  "SERVER_CONFIG_PATH_OUTSIDE_DATA": "La carpeta de configuración del servidor debe ser la carpeta Server dentro de la carpeta de datos de Zomboid de este servidor, o una carpeta dentro de ella. Define primero la carpeta de datos de Zomboid o deja vacía la carpeta de configuración.",
+  "RESET_TOKEN_TOO_WEAK": "El token de data/reset-token.txt se podría adivinar. Sustitúyelo por hexadecimal aleatorio de un generador (0-9 y a-f, como lo escribe openssl rand -hex 24); se rechazan palabras, frases, secuencias de números y caracteres repetidos o consecutivos. O usa el botón de recuperación en el host del panel.",
+  "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "Esta carpeta de datos de Zomboid contiene archivos que el juego no guarda en una carpeta de datos, así que el panel no la usará como carpeta de datos de un servidor. Elige la carpeta de datos propia del servidor (la que tiene una partida guardada en su carpeta Saves), una carpeta vacía o una carpeta que todavía no exista: el juego la crea cuando el servidor arranca por primera vez.",
+  "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "El registro de consola de un servidor remoto está en su propio equipo, así que el panel no puede vaciarlo desde aquí.",
+  "WIPE_REMOTE_NOT_AVAILABLE": "El mundo de un servidor remoto está en su propio equipo, así que el panel no puede borrarlo desde aquí.",
+  "ZOMBOID_DATA_FOLDER_REFUSED": "La carpeta de datos de Zomboid de este servidor contiene archivos que el juego no guarda en una carpeta de datos, así que el panel no la listará ni la leerá. En la página Mis servidores, edita el servidor y pon como su ruta de datos de Zomboid la carpeta de datos propia del juego: la que tiene una partida guardada en su carpeta Saves.",
+  "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "Este servidor no tiene definida una carpeta de datos de Zomboid, y es ahí donde el juego escribe su registro de consola. En la página Mis servidores, edita el servidor y define su ruta de datos de Zomboid.",
+  "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "La retransmisión de chat publica en el juego lo que la gente escribe en su canal de Discord, y eso requiere {{detail}}. No lo tienes, así que no puedes activar la retransmisión ni cambiar el canal que escucha (el canal de notificaciones, mientras no haya un canal de retransmisión).",
+  "DISCORD_CHANNEL_OUTSIDE_GUILD": "El canal de notificaciones no pertenece al servidor de Discord configurado aquí, así que el bot no publicará en él. Usa un canal del servidor cuyo ID del servidor (Guild) está configurado, o corrige ese ID."
 }

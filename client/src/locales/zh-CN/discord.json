@@ -212,6 +212,10 @@
       "dismissAria": "关闭连接警告",
       "dismissTooltip": "关闭，直到情况发生变化"
     },
+    "channelOutsideGuild": {
+      "title": "部分通知未发送",
+      "body": "频道 {{channels}} 不属于填写为服务器（Guild）ID 的服务器，因此机器人不再在该频道发帖。请改选该服务器中的频道，或把服务器（Guild）ID 改为该频道所在的服务器。"
+    },
     "commandPermissions": {
       "title": "命令权限",
       "description": "控制谁可以使用每条斜杠命令。为每条命令分配一个权限等级。",
@@ -341,9 +345,14 @@
     "testMessageSent": "测试消息已发送到 Discord 频道",
     "testMessageFailedFallback": "发送测试消息失败",
     "wipeConfirmTitle": "清除 Discord 机器人设置？",
-    "wipeConfirmDesc": "这将清除已保存的机器人令牌、服务器和频道 ID、角色 ID、聊天中继设置、命令权限，以及 Discord 事件通知配置。机器人将停止运行，页面将返回首次设置流程。",
+    "wipeConfirmDesc": "这将清除已保存的机器人令牌、服务器和频道 ID、角色 ID、聊天中继频道，以及 Discord 事件通知配置，并将每条命令的权限等级恢复为默认值。如果某条命令需要你在本面板中没有的权限，它将保留当前等级。自动启动和聊天中继会恢复为默认值，即开启：一旦设置了新令牌，机器人会随面板启动，并通过通知频道双向中继所有公共聊天。机器人将停止运行，页面将返回首次设置流程。",
     "wipeConfirmLabel": "清除 Discord 设置",
     "wipeSuccess": "Discord 机器人设置已清除。可以从头开始设置。",
+    "wipeSuccessKeptTiers": "Discord 机器人设置已清除。以下命令保留了原有权限等级，因为它们需要你在本面板中没有的权限：{{commands}}",
     "wipeFailedFallback": "清除 Discord 设置失败"
+  },
+  "capabilityGate": {
+    "connection": "只有拥有机器人所有命令所需全部权限的人才能更改此项：机器人所在 Discord 服务器的所有者，以及拥有其管理员角色的任何人，都可以使用每一条命令。",
+    "modRole": "只有拥有「协管员」等级命令所需权限的人才能更改此项：拥有此角色的任何人都可以使用这些命令。"
   }
 }

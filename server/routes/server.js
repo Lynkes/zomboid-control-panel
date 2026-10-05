@@ -46,7 +46,8 @@ import {
 } from "../services/activeSteamOperations.js";
 import { normalizeMemoryGb } from "../utils/memory.js";
 import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
-import { requirePermission } from "../services/permissions.js";
+import { getCapabilitiesForRole, requirePermission } from "../services/permissions.js";
+import { canSeeHostPaths, hideHostPaths } from "../utils/hostPathView.js";
 import { runManagedLifecycle } from "../services/managedContainer.js";
 import {
   acquireLifecycleLock,
@@ -59,6 +60,20 @@ import { invalidateMapFolderScan } from "./chunks.js";
 import { codedActionResultFields, emitActionResult } from "./scheduler.js";
 import panelBridge from "../services/panelBridge.js";
 import { candidateIniPaths } from "../utils/zomboidPaths.js";
+import {
+  checkZomboidDataPath,
+  describeRefusal,
+  gameLogFolderOf,
+  logRefusalOnce,
+  zomboidDataFolderHolds,
+  zomboidDataFolderRefusal,
+} from "../services/zomboidDataPath.js";
+import {
+  activeServerConfigDir,
+  serverConfigDirOf,
+  serverConfigDirRefusal,
+  serverFolderProblem,
+} from "../utils/serverConfigPath.js";
 import {
   describeLeftoverNativeLibraries,
   detectLeftoverNativeLibraries,
@@ -859,11 +874,26 @@ export async function ensureRconConfigured(server = null) {
     }
 
     serverConfigPathKind = activeServer.serverConfigPath ? "install" : "data";
-    serverConfigPath =
-      activeServer.serverConfigPath ||
-      (activeServer.zomboidDataPath
-        ? path.join(activeServer.zomboidDataPath, "Server")
-        : null);
+    // SECURITY (2026-10-05, PATHS-2): this creates the folder and writes
+    // the .ini (RCON password included), so a configured config folder is
+    // used only while it is inside the server's own data folder
+    // (utils/serverConfigPath.js) -- one saved before that check, or with
+    // no data folder, is left alone and the start goes on without it. So is
+    // one whose data folder fails the data-folder rule.
+    //
+    // SECURITY (2026-10-05, PT3/PT5): the log line says why with its code
+    // and what to set (POST /start also answers it, as `folderWarning`),
+    // and the startup wait calls this every 15 s, so it warns once per
+    // folder and reason, then logs at debug.
+    const configDir = serverConfigDirOf(activeServer);
+    if (configDir.refused) {
+      logRefusalOnce(
+        log,
+        `ensureRconConfigured: not writing RCON settings for ${activeServer.name || activeServer.serverName || "this server"} -- ${describeRefusal(serverConfigDirRefusal(configDir))}`,
+      );
+      return false;
+    }
+    serverConfigPath = configDir.dir;
     const serverName = activeServer.serverName;
     const rconPassword = activeServer.rconPassword;
     const rconPort = activeServer.rconPort || 27015;
@@ -990,11 +1020,24 @@ export async function ensureRconConfigured(server = null) {
 export async function getActiveServerPaths() {
   const activeServer = await getActiveServer();
 
-  let serverConfigPath = activeServer?.serverConfigPath || null;
-  if (!serverConfigPath) {
-    const legacyPath = await getSetting("serverConfigPath");
-    serverConfigPath = legacyPath || null;
-  }
+  // SECURITY (2026-10-05, PATHS-2): /configure-rcon and /configure-network
+  // rewrite <name>.ini in this folder, which was the record's config
+  // folder or the legacy setting's, taken as is. It is now the same folder
+  // Server Files and mods use (utils/serverConfigPath.js's
+  // activeServerConfigDir()): a configured one only while it is inside the
+  // data folder in effect, else <data folder>/Server. `configPathRefused`
+  // lets those routes say which, and `configRefusal` is their answer: that
+  // data folder is held to the data-folder rule there too (PATHS-1 verifier
+  // pass 2), so a remote server's, never judged when saved, can't name a
+  // folder here.
+  const legacy = activeServer?.zomboidDataPath
+    ? {}
+    : {
+        serverConfigPath: await getSetting("serverConfigPath"),
+        zomboidDataPath: await getSetting("zomboidDataPath"),
+      };
+  const config = activeServerConfigDir(activeServer, legacy);
+  const serverConfigPath = config.dir;
 
   let serverName = activeServer?.serverName || null;
   if (!serverName) {
@@ -1009,7 +1052,12 @@ export async function getActiveServerPaths() {
     serverName = legacyName || null;
   }
 
-  return { serverConfigPath, serverName };
+  return {
+    serverConfigPath,
+    serverName,
+    configPathRefused: config.refused,
+    configRefusal: config.refused ? serverConfigDirRefusal(config) : null,
+  };
 }
 
 // Security: Sanitize string for use in batch files/commands
@@ -1755,7 +1803,10 @@ router.get("/status", async (req, res) => {
     const rconStatus = rconService.getConfig();
 
     res.json({
-      ...status,
+      // The install folder only for a role that sets it up
+      // (utils/hostPathView.js); serverPathConfigured still says whether
+      // there is one.
+      ...((await canSeeHostPaths(req.user)) ? status : hideHostPaths(status)),
       rcon: rconStatus,
       // For the client to re-express startTime in its own clock -- see
       // routes/serverStatus.js, which sends the same field.
@@ -2169,11 +2220,20 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
 
     // startServer() refreshes the launch target itself and carries any
     // script backup notices back as result.scriptWarnings.
-    const result = managed.handled
+    const launched = managed.handled
       ? { success: true, message: managed.message || "Container starting" }
       : await serverManager.startServer({
           serverId: activeServer?.id ?? null,
         });
+    // SECURITY (2026-10-05, PT3): with the server's folders refused (a data
+    // folder that no longer meets the data-folder rule, or a config folder
+    // with no data folder), the start goes ahead without the RCON settings
+    // ensureRconConfigured() writes, which only the log used to say. The
+    // refusal goes back with the start as `folderWarning` (its code, and
+    // what to set) for the Dashboard to show. A copy, as with
+    // scriptWarnings, so a provider's own result is never mutated.
+    const folderWarning = serverFolderProblem(activeServer);
+    const result = folderWarning ? { ...launched, folderWarning } : launched;
 
     // Emit status update via Socket.IO
     const io = req.app.get("io");
@@ -3104,16 +3164,31 @@ const FALLBACK_BRANCHES = [
   { name: "legacy41", description: "Legacy Build 41 branch for older worlds and mods." },
 ];
 
-router.get("/steamcmd/detect", requirePermission("server.world_events"), async (_req, res) => {
+// SECURITY (2026-10-05, H4): this read stays open to server.world_events
+// (the moderator role holds it; see serverRoutesRoleSweep.test.js for why it
+// isn't server.install), but where SteamCMD lives -- usually below the
+// panel account's profile, so it names the host account -- goes only to the
+// roles that set the server's folders up (utils/hostPathView.js). The rest
+// get whether it was found. And only a role that may set steamcmdPath
+// (server.install, as in routes/config.js) saves what detection found: a
+// GET from any other role changes no setting.
+router.get("/steamcmd/detect", requirePermission("server.world_events"), async (req, res) => {
   try {
     const steamcmdPath = await findSteamCmdPath();
     if (!steamcmdPath) {
       return res.json({ found: false, message: "SteamCMD was not found automatically" });
     }
 
-    const configuredPath = await getSetting("steamcmdPath");
-    if (configuredPath !== steamcmdPath) {
-      await setSetting("steamcmdPath", steamcmdPath);
+    const capabilities = await getCapabilitiesForRole(req.user?.role);
+    if (Array.isArray(capabilities) && capabilities.includes("server.install")) {
+      const configuredPath = await getSetting("steamcmdPath");
+      if (configuredPath !== steamcmdPath) {
+        await setSetting("steamcmdPath", steamcmdPath);
+      }
+    }
+
+    if (!(await canSeeHostPaths(req.user))) {
+      return res.json({ found: true, message: "SteamCMD found automatically" });
     }
 
     res.json({
@@ -3529,6 +3604,19 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
 
     const { zomboidPath, serverConfigPath, usesEnvironmentDataPath } =
       resolveZomboidPaths(installPath, zomboidDataPath);
+
+    // SECURITY (2026-10-05, PATHS-1): the data folder this install saves
+    // (the one sent, or the <install>_Data default beside a caller-chosen
+    // install folder) is held to the rule every data-folder setter shares
+    // (services/zomboidDataPath.js) before anything is downloaded or written
+    // into it. As sent, no %VAR% expansion: this route uses it that way.
+    // PZ_SAVE_PATH's folder is the operator's own.
+    if (!usesEnvironmentDataPath) {
+      const dataPathCheck = checkZomboidDataPath(zomboidPath, { expand: false });
+      if (!dataPathCheck.ok) {
+        return res.status(400).json(dataPathCheck.body);
+      }
+    }
 
     // steamcmd-routes-running-check, 2026-09-08: installPath can point at an
     // EXISTING install with a server already running there (a re-run, a
@@ -4382,6 +4470,14 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
     const { zomboidPath, serverConfigPath, usesEnvironmentDataPath } =
       resolveZomboidPaths(installPath, zomboidDataPath);
 
+    // PATHS-1: same rule as /install above.
+    if (!usesEnvironmentDataPath) {
+      const dataPathCheck = checkZomboidDataPath(zomboidPath, { expand: false });
+      if (!dataPathCheck.ok) {
+        return res.status(400).json(dataPathCheck.body);
+      }
+    }
+
     // steamcmd-routes-running-check, 2026-09-08: unlike /install, this
     // route's own precondition just above GUARANTEES server files already
     // exist at installPath -- exactly the state an existing, possibly
@@ -4660,8 +4756,12 @@ router.post("/configure-rcon", requirePermission("server.configure"), async (req
 
     // Get the server config path from active server or settings -- ONE
     // read, not two (split-derivation sweep, 2026-09-07).
-    const { serverConfigPath, serverName } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, configPathRefused, configRefusal } =
+      await getActiveServerPaths();
 
+    if (configPathRefused) {
+      return res.status(400).json(configRefusal);
+    }
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
         error: "Server config path not set. Please run installation first.",
@@ -4758,8 +4858,12 @@ router.post("/configure-network", requirePermission("server.configure"), async (
 
     // Get the server config path from active server or settings -- ONE
     // read, not two (split-derivation sweep, 2026-09-07).
-    const { serverConfigPath, serverName } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, configPathRefused, configRefusal } =
+      await getActiveServerPaths();
 
+    if (configPathRefused) {
+      return res.status(400).json(configRefusal);
+    }
     if (!serverConfigPath || !serverName) {
       return res.status(400).json({
         error: "Server config path not set. Please run installation first.",
@@ -6469,22 +6573,128 @@ function filterConsoleLogLines(lines, filterLevel = "filtered") {
   });
 }
 
+// SECURITY (2026-10-05, PATHS-1): a remote server's server-console.txt is
+// on its own host. Its record's data folder names a path there, so no
+// save-time check holds it (services/zomboidDataPath.js leaves remote
+// records alone), yet the four console-log routes below read, polled and
+// truncated <that folder>/server-console.txt on this computer: servers.manage
+// could aim them at that file name in any folder here. The Console page
+// already shows a remote server's log as unavailable; the routes now agree
+// -- the readers report no file, and /clear refuses.
+//
+// SECURITY (2026-10-05, PATHS-1 verifier pass 2): a local record with no
+// data folder of its own fell back to the legacy settings copy, which
+// setActiveServer() had copied from whichever server was active before --
+// a remote one's included, never judged -- and to the install folder, which
+// servers.manage sets to any folder. So the routes read and truncated
+// server-console.txt there. The folder they use, whichever it is, is now
+// held to the data-folder rule (services/zomboidDataPath.js): refused, the
+// readers report no file, as for a remote server, and /clear refuses with
+// ZOMBOID_DATA_FOLDER_REFUSED. A real install folder never held the
+// game's server-console.txt (the game writes it to its -cachedir).
+//
+// SECURITY (2026-10-05, PT3/PT4): the install folder came before the legacy
+// data folder, so a local record with no data folder of its own was judged
+// on its install folder -- which the rule refuses -- and /clear answered
+// ZOMBOID_DATA_PATH_NOT_DATA_FOLDER about a data folder that wasn't set.
+// The data folders come first now (the record's, then the legacy one), and
+// one that is set and refused is that refusal. The install folders are only
+// a fallback with no data folder set at all, and one that doesn't pass
+// means just that: SERVER_DATA_PATH_NOT_CONFIGURED. Either way `refusal`
+// goes out with the readers' empty answer, so the Console page says why
+// there is no log, and /clear answers it.
+//
+// SECURITY (2026-10-05, PT4 verifier round 2): with no data folder set,
+// that answer was SERVER_DATA_PATH_NOT_CONFIGURED, which the Console page
+// shows as "Server data path not configured" -- not where to set it. It has
+// its own code now, whose text names the My Servers page as every other
+// refusal does.
+//
+// SECURITY (2026-10-05, W5-P3): but an install folder that wasn't there
+// yet passed the rule (a data folder that doesn't exist yet is accepted:
+// the game creates it), so the Console page showed "no log" and no reason,
+// and with no install folder at all the routes answered
+// SERVER_DATA_PATH_NOT_CONFIGURED. With no data folder set, the start
+// script the panel writes passes the game no -cachedir, so the game writes
+// its console log in its own default folder, not the install folder. The
+// install folder is used only when it meets the rule and already holds the
+// game's console log (a custom launcher can name it as the -cachedir);
+// anything else is this answer.
+const CONSOLE_LOG_NO_DATA_FOLDER = {
+  error:
+    "This server has no Zomboid data folder set, and the game writes its console log there. On the My Servers page, edit the server and set its Zomboid Data Path.",
+  code: ErrorCode.SERVER_CONSOLE_LOG_NO_DATA_FOLDER,
+};
+
+async function resolveConsoleLogFolder(activeServer) {
+  if (activeServer?.isRemote) return { folder: null, remote: true, refused: false, refusal: null };
+  // server-console.txt is in zomboidDataPath (where Server/, Saves/, Logs/ are)
+  const dataFolder = activeServer?.zomboidDataPath || (await getSetting("zomboidDataPath"));
+  if (dataFolder) {
+    if (zomboidDataFolderHolds(dataFolder)) {
+      // PT2 (verifier round 1): a 1.4.5 Saves/Multiplayer data folder's log
+      // can be in the Zomboid folder it sits in (gameLogFolderOf()).
+      return { folder: gameLogFolderOf(dataFolder), remote: false, refused: false, refusal: null };
+    }
+    const refusal = zomboidDataFolderRefusal();
+    // PT5: the Console page polls these routes every 2s, so warn once per
+    // folder, then debug.
+    logRefusalOnce(log, `Not reading the server console log in ${dataFolder}: ${describeRefusal(refusal)}`);
+    return { folder: null, remote: false, refused: true, refusal };
+  }
+  const installFolder = activeServer?.installPath || (await getSetting("serverPath"));
+  if (
+    installFolder &&
+    zomboidDataFolderHolds(installFolder) &&
+    fs.existsSync(path.join(installFolder, CONSOLE_LOG_FILE_NAME))
+  ) {
+    return { folder: installFolder, remote: false, refused: false, refusal: null };
+  }
+  return { folder: null, remote: false, refused: true, refusal: CONSOLE_LOG_NO_DATA_FOLDER };
+}
+
+// SECURITY (2026-10-05, H4): the console routes below admit
+// server.world_events, which the moderator role holds, and the game's
+// console log is full of host folders (the JVM's user.home and cachedir,
+// every mod's install folder, ...). A role that doesn't set the server's
+// folders up (utils/hostPathView.js) gets the lines path-redacted and the
+// log's file name instead of where it lives.
+const CONSOLE_LOG_FILE_NAME = "server-console.txt";
+
+async function consoleLogView(req) {
+  if (await canSeeHostPaths(req.user)) {
+    return { lines: (lines) => lines, path: (consoleLogPath) => consoleLogPath };
+  }
+  return {
+    lines: (lines) => lines.map((line) => (line ? sanitizeError(line) : line)),
+    path: () => CONSOLE_LOG_FILE_NAME,
+  };
+}
+
 // Get server console log content
 router.get("/console-log", requirePermission("server.world_events"), async (req, res) => {
   try {
     const activeServer = await getActiveServer();
-    // server-console.txt is in zomboidDataPath (where Server/, Saves/, Logs/ are)
-    const zomboidDataPath =
-      activeServer?.zomboidDataPath ||
-      activeServer?.installPath ||
-      (await getSetting("zomboidDataPath")) ||
-      (await getSetting("serverPath"));
+    const consoleLogFolder = await resolveConsoleLogFolder(activeServer);
+    if (consoleLogFolder.remote || consoleLogFolder.refused) {
+      // PT3: a refused data folder says why (`refusal`: its code, and what
+      // to set) instead of reading as a log that doesn't exist yet.
+      return res.json({
+        success: true,
+        content: "",
+        lines: [],
+        exists: false,
+        ...(consoleLogFolder.refusal ? { refusal: consoleLogFolder.refusal } : {}),
+      });
+    }
+    const zomboidDataPath = consoleLogFolder.folder;
 
     if (!zomboidDataPath) {
       return res.status(400).json({ error: "Server data path not configured", code: ErrorCode.SERVER_DATA_PATH_NOT_CONFIGURED });
     }
 
-    const consoleLogPath = path.join(zomboidDataPath, "server-console.txt");
+    const consoleLogPath = path.join(zomboidDataPath, CONSOLE_LOG_FILE_NAME);
+    const view = await consoleLogView(req);
 
     if (!fs.existsSync(consoleLogPath)) {
       return res.json({
@@ -6492,7 +6702,7 @@ router.get("/console-log", requirePermission("server.world_events"), async (req,
         content: "",
         lines: [],
         exists: false,
-        path: consoleLogPath,
+        path: view.path(consoleLogPath),
       });
     }
 
@@ -6530,7 +6740,7 @@ router.get("/console-log", requirePermission("server.world_events"), async (req,
 
     // Apply filtering
     const filteredLines = filterConsoleLogLines(allLines, filterLevel);
-    const lines = filteredLines.slice(-maxLines);
+    const lines = view.lines(filteredLines.slice(-maxLines));
 
     res.json({
       success: true,
@@ -6540,7 +6750,7 @@ router.get("/console-log", requirePermission("server.world_events"), async (req,
       filteredCount: filteredLines.length,
       filterLevel,
       exists: true,
-      path: consoleLogPath,
+      path: view.path(consoleLogPath),
       lastModified: stats.mtime.toISOString(),
       size: stats.size,
     });
@@ -6564,11 +6774,8 @@ router.get("/console-log/error-count", requirePermission("server.world_events"),
     }
 
     const activeServer = await getActiveServer();
-    const zomboidDataPath =
-      activeServer?.zomboidDataPath ||
-      activeServer?.installPath ||
-      (await getSetting("zomboidDataPath")) ||
-      (await getSetting("serverPath"));
+    // PATHS-1: see the comment above GET /console-log.
+    const zomboidDataPath = (await resolveConsoleLogFolder(activeServer)).folder;
 
     if (!zomboidDataPath) {
       return res.json({ exists: false, count: 0, sinceStart: false });
@@ -6851,22 +7058,28 @@ function consoleLogIdentityChanged(consoleLogPath, stats) {
 router.get("/console-log/stream", requirePermission("server.world_events"), async (req, res) => {
   try {
     const activeServer = await getActiveServer();
-    // server-console.txt is in zomboidDataPath (where Server/, Saves/, Logs/ are)
-    const zomboidDataPath =
-      activeServer?.zomboidDataPath ||
-      activeServer?.installPath ||
-      (await getSetting("zomboidDataPath")) ||
-      (await getSetting("serverPath"));
+    // PATHS-1: see the comment above GET /console-log.
+    const consoleLogFolder = await resolveConsoleLogFolder(activeServer);
+    if (consoleLogFolder.remote || consoleLogFolder.refused) {
+      return res.json({
+        success: true,
+        newLines: [],
+        exists: false,
+        ...(consoleLogFolder.refusal ? { refusal: consoleLogFolder.refusal } : {}),
+      });
+    }
+    const zomboidDataPath = consoleLogFolder.folder;
 
     if (!zomboidDataPath) {
       return res.status(400).json({ error: "Server data path not configured", code: ErrorCode.SERVER_DATA_PATH_NOT_CONFIGURED });
     }
 
-    const consoleLogPath = path.join(zomboidDataPath, "server-console.txt");
+    const consoleLogPath = path.join(zomboidDataPath, CONSOLE_LOG_FILE_NAME);
 
     if (!fs.existsSync(consoleLogPath)) {
       return res.json({ success: true, newLines: [], exists: false });
     }
+    const view = await consoleLogView(req);
 
     // Filter level: 'all' | 'filtered' | 'important' | 'errors'
     const filterLevel = req.query.filter || "filtered";
@@ -6897,7 +7110,7 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
       );
       storeConsoleStreamRemainder(consoleLogPath, stats.size, remainder);
       const allLines = completeLines.filter((l) => l.trim());
-      const lines = filterConsoleLogLines(allLines, filterLevel);
+      const lines = view.lines(filterConsoleLogLines(allLines, filterLevel));
       return res.json({
         success: true,
         newLines: lines,
@@ -6941,7 +7154,7 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
     );
     storeConsoleStreamRemainder(consoleLogPath, stats.size, remainder);
     const allNewLines = completeLines.filter((l) => l.trim());
-    const newLines = filterConsoleLogLines(allNewLines, filterLevel);
+    const newLines = view.lines(filterConsoleLogLines(allNewLines, filterLevel));
 
     res.json({
       success: true,
@@ -6960,12 +7173,19 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
 router.post("/console-log/clear", requirePermission("server.configure"), async (req, res) => {
   try {
     const activeServer = await getActiveServer();
-    // server-console.txt is in zomboidDataPath (where Server/, Saves/, Logs/ are)
-    const zomboidDataPath =
-      activeServer?.zomboidDataPath ||
-      activeServer?.installPath ||
-      (await getSetting("zomboidDataPath")) ||
-      (await getSetting("serverPath"));
+    // PATHS-1: see the comment above GET /console-log.
+    const consoleLogFolder = await resolveConsoleLogFolder(activeServer);
+    if (consoleLogFolder.remote) {
+      return res.status(400).json({
+        error:
+          "A remote server's console log is on its own host, so the panel can't clear it from here.",
+        code: ErrorCode.SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE,
+      });
+    }
+    if (consoleLogFolder.refused) {
+      return res.status(400).json(consoleLogFolder.refusal);
+    }
+    const zomboidDataPath = consoleLogFolder.folder;
 
     if (!zomboidDataPath) {
       return res.status(400).json({ error: "Server data path not configured", code: ErrorCode.SERVER_DATA_PATH_NOT_CONFIGURED });
@@ -7151,6 +7371,19 @@ export async function countDir(dir, budget) {
 // Preview what will be wiped (dry-run). Admin-only, same as /wipe itself --
 // this pairs with the actual wipe, so anyone who can't wipe has no reason
 // to preview one.
+// SECURITY (2026-10-05, PATHS-1 verifier pass 2): a remote server's world
+// is on its own host, and its record's data folder -- never judged when
+// saved -- names a path there, yet /wipe deleted under <that folder>/Saves/
+// Multiplayer/<name> on this computer (only its pre-wipe backup refused a
+// remote server). The Dashboard already disables Wipe for a remote server;
+// both routes now refuse one too, as backups and the console log do.
+function wipeRemoteRefusal() {
+  return {
+    error: "A remote server's world is on its own host, so the panel can't wipe it from here.",
+    code: ErrorCode.WIPE_REMOTE_NOT_AVAILABLE,
+  };
+}
+
 router.post("/wipe/preview", requirePermission("server.wipe"), async (req, res) => {
   try {
     const serverManager = req.app.get("serverManager");
@@ -7180,6 +7413,9 @@ router.post("/wipe/preview", requirePermission("server.wipe"), async (req, res) 
     const activeServer = await getActiveServer();
     if (!activeServer) {
       return res.status(400).json({ error: "No active server configured", code: ErrorCode.WIPE_ZOMBOID_DATA_PATH_NOT_CONFIGURED });
+    }
+    if (activeServer.isRemote) {
+      return res.status(400).json(wipeRemoteRefusal());
     }
     try {
       await serverManager.reloadConfig();
@@ -7481,6 +7717,9 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
     if (!activeServer) {
       return res.status(400).json({ error: "No active server configured", code: ErrorCode.WIPE_ZOMBOID_DATA_PATH_NOT_CONFIGURED });
     }
+    if (activeServer.isRemote) {
+      return res.status(400).json(wipeRemoteRefusal());
+    }
 
     // steamcmd-routes-running-check card: this route never checked for an
     // in-progress SteamCMD operation before wiping. A default install keeps
@@ -7614,12 +7853,16 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
       // failure, same as the existing backup-or-abort posture below.
       const backupIncomplete =
         backupResult.success && (backupResult.skippedFiles?.length ?? 0) > 0;
+      // SECURITY (2026-10-05, HT2): the reason is path-redacted, like the
+      // partial-failure answer below. server.wipe can be a custom role
+      // without the host-path capabilities, and the backup's own message
+      // can quote the save or backups folder.
       if (!backupResult.success || backupIncomplete) {
         const reason = backupIncomplete
           ? `it could not include ${backupResult.skippedFiles.length} file(s) (${backupResult.skippedFiles.join(", ")}) -- an incomplete pre-wipe backup is not a safety net`
           : backupResult.message;
         return res.status(500).json({
-          error: `Wipe aborted: could not create a backup first (${reason}). Nothing was deleted.`,
+          error: `Wipe aborted: could not create a backup first (${sanitizeError(reason)}). Nothing was deleted.`,
           code: ErrorCode.WIPE_BACKUP_FAILED,
         });
       }
@@ -7649,8 +7892,9 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
             }
           }
         } catch (e) {
+          log.error(`Wipe aborted: accounts database backup failed: ${e.message}`);
           return res.status(500).json({
-            error: `Wipe aborted: could not back up the accounts database (${e.message}). Nothing was deleted.`,
+            error: `Wipe aborted: could not back up the accounts database (${sanitizeError(e.message)}). Nothing was deleted.`,
             code: ErrorCode.WIPE_BACKUP_FAILED,
           });
         }

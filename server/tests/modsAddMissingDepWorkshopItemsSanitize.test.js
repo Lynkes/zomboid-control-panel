@@ -79,6 +79,7 @@ describe("POST /add-missing-dep: WorkshopItems= sanitization", () => {
     );
     getActiveServer.mockReset().mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       isRemote: false,

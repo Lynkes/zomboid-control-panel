@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 import path from "path";
 import { getDataPaths } from "../utils/paths.js";
+import { encodeExportFolderName } from "../utils/exportFolderName.js";
 
 // 2026-09-06 (kevin, ms-filename-sweep): POST /character/import's pre-import
 // safety snapshot (server/routes/panelBridge.js, ~line 3752) had the exact
@@ -81,7 +82,7 @@ describe("POST /character/import: pre-import snapshot collision handling", () =>
     expect(secondRes.status).not.toHaveBeenCalled();
 
     const { dataDir } = getDataPaths();
-    const exportDir = path.join(dataDir, "exports", "ImportSnapshotUser");
+    const exportDir = path.join(dataDir, "exports", encodeExportFolderName("ImportSnapshotUser"));
     const snapshots = fs
       .readdirSync(exportDir)
       .filter((f) => f.includes("pre-import"));

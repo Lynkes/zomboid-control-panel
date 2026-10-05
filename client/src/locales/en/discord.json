@@ -212,6 +212,10 @@
       "dismissAria": "Dismiss connection warning",
       "dismissTooltip": "Dismiss until this changes"
     },
+    "channelOutsideGuild": {
+      "title": "Some notifications aren't being sent",
+      "body": "Channel {{channels}} isn't in the server set as the Guild (Server) ID, so the bot no longer posts there. Pick a channel from that server, or set the Guild ID to the channel's server."
+    },
     "commandPermissions": {
       "title": "Command Permissions",
       "description": "Control who can use each slash command. Assign a permission tier per command.",
@@ -323,9 +327,14 @@
     "testMessageSent": "Test message sent to Discord channel",
     "testMessageFailedFallback": "Failed to send test message",
     "wipeConfirmTitle": "Wipe Discord bot settings?",
-    "wipeConfirmDesc": "This clears the saved bot token, guild and channel IDs, role IDs, chat relay settings, command permissions, and Discord event notification setup. The bot will stop and the page will return to first-time setup.",
+    "wipeConfirmDesc": "This clears the saved bot token, guild and channel IDs, role IDs, chat relay channel and Discord event notification setup, and puts each command's permission tier back to its default. A command that needs a permission you don't hold in this panel keeps its current tier. Auto-start and the chat relay go back to their defaults, which are on: once a new token is set up, the bot starts with the panel and relays all public chat both ways through the notification channel. The bot will stop and the page will return to first-time setup.",
     "wipeConfirmLabel": "Wipe Discord Settings",
     "wipeSuccess": "Discord bot settings wiped. You can start setup from scratch.",
+    "wipeSuccessKeptTiers": "Discord bot settings wiped. These commands kept their permission tier because they need permissions you don't hold in this panel: {{commands}}",
     "wipeFailedFallback": "Failed to wipe Discord settings"
+  },
+  "capabilityGate": {
+    "connection": "Only someone who holds every permission the bot's commands need can change this: the owner of the bot's Discord server and anyone with its admin role can run every command.",
+    "modRole": "Only someone who holds the permissions the Moderator-tier commands need can change this: anyone with this role can run those commands."
   }
 }

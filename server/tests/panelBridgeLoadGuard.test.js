@@ -67,8 +67,8 @@ describe("PanelBridge.lua load guard", () => {
     const module = bridge.getGlobal("PanelBridgeModule");
     expect(module).toMatchObject({ MOD_ID: "ZCPB", PROTOCOL_VERSION: "queue-v1" });
     expect(asList(bridge.getGlobal("EVENT_ADDS")).sort()).toEqual([
+      "OnCharacterDeath",
       "OnClientCommand",
-      "OnPlayerDeath",
       "OnServerStarted",
       "OnTickEvenPaused",
       "OnZombieDead",

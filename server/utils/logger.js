@@ -2,6 +2,7 @@ import winston from 'winston';
 import path from 'path';
 import fs from 'fs';
 import { getDataPaths } from './paths.js';
+import { escapeLogLineBreakers } from './logText.js';
 
 // Get paths from central config
 const paths = getDataPaths();
@@ -9,8 +10,32 @@ const logsDir = paths.logsDir;
 
 // Ensure logs directory exists
 if (!fs.existsSync(logsDir)) {
-  fs.mkdirSync(logsDir, { recursive: true });
+  fs.mkdirSync(logsDir, { recursive: true, mode: 0o700 });
 }
+
+// The log files carry host paths, usernames, IPs and command output, so they
+// are private to the account running the panel: the directory 0700, the
+// files 0600. Same pattern as dataDir in paths.js: mkdirSync's mode is
+// umask-filtered and ignored when the directory already exists, so the
+// chmods run on every start. That is what tightens an existing install's
+// world-readable logs/ (the shipped systemd unit had no UMask) too.
+const LOG_FILE_MODE = 0o600;
+const ERROR_LOG = path.join(logsDir, 'error.log');
+const COMBINED_LOG = path.join(logsDir, 'combined.log');
+for (const [target, mode] of [[logsDir, 0o700], [ERROR_LOG, LOG_FILE_MODE], [COMBINED_LOG, LOG_FILE_MODE]]) {
+  try {
+    if (fs.existsSync(target)) fs.chmodSync(target, mode);
+  } catch {
+    /* best-effort: Windows / network shares don't support POSIX modes */
+  }
+}
+
+// Entries logged with { consoleOnly: true } (the first-run setup token) go
+// to the console only: the terminal, or the journal / `docker logs` under a
+// service manager. They never reach the log files, which outlive the moment
+// and can be readable by other local accounts, nor the in-memory buffer and
+// live stream that the Debug page and support bundles read.
+const skipConsoleOnly = winston.format((info) => (info.consoleOnly ? false : info));
 
 // Store callbacks for log streaming
 const logCallbacks = [];
@@ -23,6 +48,14 @@ export function onLog(callback) {
   };
 }
 
+// SECURITY (2026-10-05, H2): every entry, whatever its source, has its C1
+// control characters (U+0085 NEL among them) and U+2028/U+2029 escaped
+// (utils/logText.js). Some log viewers break a line on them, nothing the
+// panel writes contains them, and a request header can: Node's HTTP parser
+// hands bytes 0x80-0xFF over as latin1. CR/LF are left to the call sites
+// that quote request input (escapeLogText), since the panel's own messages
+// and stack traces use them.
+
 // Custom transport to stream logs to callbacks
 class CallbackTransport extends winston.Transport {
   log(info, callback) {
@@ -31,7 +64,7 @@ class CallbackTransport extends winston.Transport {
         try {
           cb({
             level: info.level,
-            message: info.message,
+            message: escapeLogLineBreakers(info.message),
             timestamp: info.timestamp || new Date().toISOString(),
             source: info.source || 'server'
           });
@@ -57,7 +90,7 @@ const consolePrintf = winston.format.printf(({ level, message, timestamp, stack,
   const time = timestamp;                       // HH:mm:ss only
   const icon = levelIcons[level] || '•';
   const tag  = source ? `[${source}]` : '';
-  const msg  = stack || message;
+  const msg  = escapeLogLineBreakers(stack || message);
   // e.g.  12:34:56 ● [RCON] Connected on attempt 1
   return `${time} ${icon} ${tag}${tag ? ' ' : ''}${msg}`;
 });
@@ -72,7 +105,7 @@ const consoleFormat = winston.format.combine(
 // ── File format (full timestamp, structured, no colors) ──
 const filePrintf = winston.format.printf(({ level, message, timestamp, stack, source }) => {
   const tag = source ? `[${source}] ` : '';
-  return `${timestamp} [${level.toUpperCase()}] ${tag}${stack || message}`;
+  return `${timestamp} [${level.toUpperCase()}] ${tag}${escapeLogLineBreakers(stack || message)}`;
 });
 
 const fileFormat = winston.format.combine(
@@ -98,22 +131,25 @@ export const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
   transports: [
     consoleTransport,
-    new winston.transports.File({ 
-      filename: path.join(logsDir, 'error.log'), 
+    new winston.transports.File({
+      filename: ERROR_LOG,
       level: 'error',
-      format: fileFormat,
+      format: winston.format.combine(skipConsoleOnly(), fileFormat),
+      // mode applies whenever winston creates the file (first run, rotation)
+      options: { flags: 'a', mode: LOG_FILE_MODE },
       maxsize: 10 * 1024 * 1024, // 10MB max file size
       maxFiles: 5,
       tailable: true
     }),
-    new winston.transports.File({ 
-      filename: path.join(logsDir, 'combined.log'),
-      format: fileFormat,
+    new winston.transports.File({
+      filename: COMBINED_LOG,
+      format: winston.format.combine(skipConsoleOnly(), fileFormat),
+      options: { flags: 'a', mode: LOG_FILE_MODE },
       maxsize: 25 * 1024 * 1024, // 25MB max file size
       maxFiles: 3,
       tailable: true
     }),
-    new CallbackTransport()
+    new CallbackTransport({ format: skipConsoleOnly() })
   ]
 });
 

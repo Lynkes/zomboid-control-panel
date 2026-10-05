@@ -212,6 +212,10 @@
       "dismissAria": "Dispensar aviso de conexão",
       "dismissTooltip": "Dispensar até que isso mude"
     },
+    "channelOutsideGuild": {
+      "title": "Algumas notificações não estão sendo enviadas",
+      "body": "O canal {{channels}} não pertence ao servidor informado como ID do servidor (Guild), então o bot não publica mais lá. Escolha um canal desse servidor ou informe como ID do servidor o do canal."
+    },
     "commandPermissions": {
       "title": "Permissões de comandos",
       "description": "Controle quem pode usar cada comando de barra. Atribua um nível de permissão a cada comando.",
@@ -323,9 +327,14 @@
     "testMessageSent": "Mensagem de teste enviada ao canal do Discord",
     "testMessageFailedFallback": "Falha ao enviar a mensagem de teste",
     "wipeConfirmTitle": "Apagar as configurações do bot do Discord?",
-    "wipeConfirmDesc": "Isso apaga o token do bot salvo, os IDs do servidor (Guild) e do canal, os IDs de cargo, as configurações de retransmissão do chat, as permissões de comandos e a configuração das notificações de eventos do Discord. O bot será parado e a página voltará à configuração inicial.",
+    "wipeConfirmDesc": "Isso apaga o token do bot salvo, os IDs do servidor (Guild) e do canal, os IDs de cargo, o canal de retransmissão do chat e a configuração das notificações de eventos do Discord, e volta o nível de permissão de cada comando ao padrão. Um comando que exige uma permissão que você não tem neste painel mantém o nível atual. O início automático e a retransmissão do chat voltam ao padrão, que é ligado: assim que um novo token for configurado, o bot inicia junto com o painel e retransmite todo o chat público nos dois sentidos pelo canal de notificações. O bot será parado e a página voltará à configuração inicial.",
     "wipeConfirmLabel": "Apagar configurações do Discord",
     "wipeSuccess": "Configurações do bot do Discord apagadas. Você pode refazer a configuração do zero.",
+    "wipeSuccessKeptTiers": "Configurações do bot do Discord apagadas. Estes comandos mantiveram o nível de permissão porque exigem permissões que você não tem neste painel: {{commands}}",
     "wipeFailedFallback": "Falha ao apagar as configurações do Discord"
+  },
+  "capabilityGate": {
+    "connection": "Só pode alterar isto quem tem todas as permissões que os comandos do bot exigem: o proprietário do servidor do Discord do bot e qualquer pessoa com o cargo de admin dele podem executar todos os comandos.",
+    "modRole": "Só pode alterar isto quem tem as permissões que os comandos de nível Moderador exigem: qualquer pessoa com este cargo pode executar esses comandos."
   }
 }

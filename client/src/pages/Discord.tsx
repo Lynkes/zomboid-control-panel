@@ -80,6 +80,9 @@ interface DiscordStatus {
   // healthy -- used as the dismissal key so dismissing THIS episode doesn't
   // silence a later, different one.
   gatewayDegradedSince?: string | null;
+  // Channels the bot no longer posts to because they aren't in the guild
+  // set as the Guild ID (services/discordBot.js _sendToChannel()).
+  channelsOutsideGuild?: string[];
 }
 
 interface DiscordConfig {
@@ -237,6 +240,23 @@ function getSetupSteps(t: TFunction) {
 }
 
 const GATEWAY_ISSUE_DISMISSED_KEY = "pz-discord-gateway-issue-dismissed";
+
+// Mirrors DISCORD_COMMAND_CAPABILITY in server/routes/discord.js: the panel
+// capability behind each slash command. PUT /discord/config refuses a token,
+// guild or admin role change unless the caller holds all of them, and a mod
+// role change unless they hold those of the commands at the Moderator tier
+// (security sweep AUTHZ-3), so the fields are locked here to match.
+const DISCORD_COMMAND_CAPABILITY: Record<string, string | null> = {
+  status: null,
+  players: "players.view",
+  save: "server.control",
+  broadcast: "server.world_events",
+  kick: "players.moderate",
+  start: "server.control",
+  stop: "server.control",
+  restart: "server.control",
+  rcon: "rcon.execute",
+};
 
 export default function Discord() {
   const { t } = useTranslation("discord");
@@ -436,11 +456,44 @@ export default function Discord() {
     guildId && (token || config?.hasToken) && !hasConfigValidationError,
   );
 
+  // See DISCORD_COMMAND_CAPABILITY above.
+  const canChangeBotConnection = Object.values(DISCORD_COMMAND_CAPABILITY).every(
+    (capability) => !capability || can(capability),
+  );
+  const canChangeModRole = Object.entries(DISCORD_COMMAND_CAPABILITY).every(
+    ([command, capability]) =>
+      !capability ||
+      (commandPermissions[command] || "admin") !== "moderator" ||
+      can(capability),
+  );
+  const botConnectionLockedReason = !canManageIntegrations
+    ? t("shared.noPermission")
+    : !canChangeBotConnection
+      ? t("capabilityGate.connection")
+      : null;
+  const modRoleLockedReason = !canManageIntegrations
+    ? t("shared.noPermission")
+    : !canChangeModRole
+      ? t("capabilityGate.modRole")
+      : null;
+
   const handleSaveConfig = async (andStart = false) => {
     // The disabled attribute on the buttons below is only the affordance --
     // this early return is the real gate, in case another path ever calls
     // this handler directly (bug-hunt-2026-08-27 floor rule).
     if (!canManageIntegrations) return;
+    // Same floor for the locked connection and role fields.
+    const changesBotConnection =
+      Boolean(token) ||
+      guildId !== (config?.guildId || "") ||
+      adminRoleId !== (config?.adminRoleId || "");
+    const changesModRole = modRoleId !== (config?.modRoleId || "");
+    if (
+      (changesBotConnection && !canChangeBotConnection) ||
+      (changesModRole && !canChangeModRole)
+    ) {
+      return;
+    }
     try {
       setSaving(true);
       setConfigMessage(null);
@@ -497,7 +550,10 @@ export default function Discord() {
         autoStart,
         modRoleId || undefined,
         chatRelayEnabled,
-        chatRelayChannelId || undefined,
+        // Sent even when empty: PUT /config keeps a relay channel it isn't
+        // sent, so `|| undefined` here meant emptying the field never cleared
+        // it. "" clears it and the relay uses the notification channel.
+        chatRelayChannelId,
         chatRelayScope,
       );
 
@@ -636,7 +692,12 @@ export default function Discord() {
     try {
       setResetting(true);
       setConfigMessage(null);
-      await discordApi.resetConfig();
+      const result = await discordApi.resetConfig();
+      // The server keeps the tier of each command whose capability this
+      // user doesn't hold (security sweep 2026-10-05, D1); say which.
+      const keptCommands = Array.isArray(result?.keptCommandPermissions)
+        ? result.keptCommandPermissions
+        : [];
       setToken("");
       setGuildId("");
       setAdminRoleId("");
@@ -653,7 +714,12 @@ export default function Discord() {
       setSetupStep(0);
       setConfigMessage({
         type: "success",
-        text: t("toasts.wipeSuccess"),
+        text:
+          keptCommands.length > 0
+            ? t("toasts.wipeSuccessKeptTiers", {
+                commands: keptCommands.map((command) => `/${command}`).join(", "),
+              })
+            : t("toasts.wipeSuccess"),
       });
       await loadData();
     } catch (error: unknown) {
@@ -1393,11 +1459,11 @@ export default function Discord() {
                     <ChevronLeft className="w-4 h-4 me-1" /> {t("wizard.step5.back")}
                   </Button>
                   <div className="flex gap-2">
-                    <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
+                    <DisabledReason reason={botConnectionLockedReason}>
                     <Button
                       variant="outline"
                       onClick={() => handleSaveConfig(false)}
-                      disabled={saving || !canSaveConfig || !canManageIntegrations}
+                      disabled={saving || !canSaveConfig || !!botConnectionLockedReason}
                     >
                       {saving ? (
                         <RefreshCw className="w-4 h-4 me-2 animate-spin" />
@@ -1407,10 +1473,10 @@ export default function Discord() {
                       {t("wizard.step5.saveDraft")}
                     </Button>
                     </DisabledReason>
-                    <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
+                    <DisabledReason reason={botConnectionLockedReason}>
                     <Button
                       onClick={() => handleSaveConfig(true)}
-                      disabled={saving || !canSaveConfig || !canManageIntegrations}
+                      disabled={saving || !canSaveConfig || !!botConnectionLockedReason}
                     >
                       {saving ? (
                         <RefreshCw className="w-4 h-4 me-2 animate-spin" />
@@ -1652,6 +1718,25 @@ export default function Discord() {
                   </button>
                 </div>
               )}
+
+            {/* The bot posts only in the guild set as the Guild ID; 1.4.5
+                also posted to channels in other guilds, so an operator who
+                updates needs to see why those notifications stopped. */}
+            {status?.channelsOutsideGuild && status.channelsOutsideGuild.length > 0 && (
+              <div
+                role="status"
+                className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg"
+              >
+                <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                  {t("management.channelOutsideGuild.title")}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {t("management.channelOutsideGuild.body", {
+                    channels: status.channelsOutsideGuild.join(", "),
+                  })}
+                </p>
+              </div>
+            )}
 
             <div className="flex gap-2">
               {status?.running ? (
@@ -1904,6 +1989,7 @@ export default function Discord() {
             </Label>
             <div className="flex gap-2">
               <div className="relative flex-1">
+                <DisabledReason reason={botConnectionLockedReason} className="w-full">
                 <Input
                   id="token"
                   type={showToken ? "text" : "password"}
@@ -1920,7 +2006,9 @@ export default function Discord() {
                   }
                   className="pe-10"
                   maxLength={200}
+                  disabled={!!botConnectionLockedReason}
                 />
+                </DisabledReason>
                 <Button
                   type="button"
                   variant="ghost"
@@ -1977,6 +2065,7 @@ export default function Discord() {
                 <Server className="w-4 h-4" />
                 {t("management.configuration.guildIdLabel")}
               </Label>
+              <DisabledReason reason={botConnectionLockedReason} className="w-full">
               <Input
                 id="guildId"
                 value={guildId}
@@ -1984,7 +2073,9 @@ export default function Discord() {
                 placeholder="123456789012345678"
                 className="font-mono"
                 maxLength={20}
+                disabled={!!botConnectionLockedReason}
               />
+              </DisabledReason>
               <p className="text-xs text-muted-foreground">
                 {t("management.configuration.guildIdHelp")}
               </p>
@@ -2025,6 +2116,7 @@ export default function Discord() {
                 <Lock className="w-4 h-4 text-primary" />
                 {t("management.configuration.adminRoleLabel")}
               </Label>
+              <DisabledReason reason={botConnectionLockedReason} className="w-full">
               <Input
                 id="adminRoleId"
                 value={adminRoleId}
@@ -2032,7 +2124,9 @@ export default function Discord() {
                 placeholder={t("management.configuration.adminRolePlaceholder")}
                 className="font-mono"
                 maxLength={20}
+                disabled={!!botConnectionLockedReason}
               />
+              </DisabledReason>
               <p className="text-xs text-muted-foreground">
                 {t("management.configuration.adminRoleHelp")}
               </p>
@@ -2049,6 +2143,7 @@ export default function Discord() {
                 <Shield className="w-4 h-4 text-primary" />
                 {t("management.configuration.modRoleLabel")}
               </Label>
+              <DisabledReason reason={modRoleLockedReason} className="w-full">
               <Input
                 id="modRoleId"
                 value={modRoleId}
@@ -2056,7 +2151,9 @@ export default function Discord() {
                 placeholder={t("management.configuration.modRolePlaceholder")}
                 className="font-mono"
                 maxLength={20}
+                disabled={!!modRoleLockedReason}
               />
+              </DisabledReason>
               <p className="text-xs text-muted-foreground">
                 {t("management.configuration.modRoleHelp")}
               </p>

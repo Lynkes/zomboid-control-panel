@@ -23,12 +23,21 @@ const state = vi.hoisted(() => ({
   mirrorDir: null,
   session: {},
   remoteRetire: null,
+  role: "admin",
+}));
+
+// A custom role that edits Server Config without the host-path
+// capabilities (utils/hostPathView.js): it sees a host path's file name only.
+const FILES_ONLY_ROLE = vi.hoisted(() => ({
+  id: "role-files-only",
+  name: "files-only",
+  capabilities: ["serverfiles.manage"],
 }));
 
 vi.mock("../database/init.js", () => ({
   getActiveServer: vi.fn(async () => state.activeServer),
   getAllSettings: vi.fn(async () => state.settings),
-  getRoleByName: mockGetRoleByName,
+  getRoleByName: async (name) => (name === FILES_ONLY_ROLE.name ? FILES_ONLY_ROLE : mockGetRoleByName(name)),
 }));
 
 // A remote server with SFTP set up: its Server/ folder is mirrored into
@@ -81,7 +90,7 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
-    req.user = { userId: "u1", username: "op", role: "admin" };
+    req.user = { userId: "u1", username: "op", role: state.role };
     next();
   });
   app.set("serverManager", {
@@ -119,6 +128,7 @@ beforeEach(() => {
   state.mirrorDir = null;
   state.session = {};
   state.remoteRetire = null;
+  state.role = "admin";
   vi.mocked(retireRemoteWorldSandboxSnapshot).mockClear();
 });
 
@@ -146,7 +156,29 @@ function homeHoldsDataDir() {
   return path.join(home, "Zomboid");
 }
 
+// A server whose config folder is anchored by the legacy setting's data
+// folder (FILES-2's data folder in effect) while its record has none: the
+// panel's start script passes no -cachedir then, so the game keeps its save
+// in its default folder.
+function legacyAnchoredProfile(extra = {}) {
+  state.settings = { zomboidDataPath: dataDir };
+  state.activeServer = { id: 1, serverName: "DoB", zomboidDataPath: null, serverConfigPath: configDir, isRemote: false, ...extra };
+}
+
+// Every fs.promises.stat() call, to show a folder was never looked in.
+let statSpy = null;
+function statCalls() {
+  statSpy = vi.spyOn(fs.promises, "stat");
+  return statSpy;
+}
+
+const under = (folder) => (call) => path.resolve(String(call[0])).startsWith(path.resolve(folder) + path.sep);
+
 afterEach(() => {
+  if (statSpy) {
+    statSpy.mockRestore();
+    statSpy = null;
+  }
   if (homedirSpy) {
     const home = os.homedir();
     homedirSpy.mockRestore();
@@ -226,32 +258,51 @@ describe("Server Config reports the world's own sandbox copy (#197)", () => {
     expect((await call("GET", "/sandbox")).body).not.toHaveProperty("worldSandboxSnapshot");
   });
 
-  it("finds the save next to the config folder when no data folder is set and that folder is named Server", async () => {
+  // FILES-2/PATHS-2: a config folder with no data folder to anchor it is
+  // refused before any route runs, so the save next to it isn't looked at.
+  it("says nothing about the world save of a profile whose config folder has no data folder, which Server Config refuses", async () => {
     state.activeServer = { id: 1, serverName: "DoB", zomboidDataPath: null, serverConfigPath: configDir, isRemote: false };
+    const stat = statCalls();
 
-    expect((await call("GET", "/sandbox")).body.worldSandboxSnapshot?.path).toBe(snapshotPath);
+    const { status, body } = await call("GET", "/sandbox");
+
+    expect(status).toBe(400);
+    expect(body.code).toBe("SERVER_CONFIG_PATH_OUTSIDE_DATA");
+    expect(body).not.toHaveProperty("worldSandboxSnapshot");
+    expect(stat.mock.calls.filter(under(path.join(dataDir, "Saves")))).toEqual([]);
   });
 
-  // The panel's start script passes -cachedir only for a set data folder,
-  // so without one the game keeps its save in its default folder.
-  it("finds the save in the game's default folder for a profile with no data folder that the panel starts", async () => {
-    const cfg = path.join(dataDir, "cfg");
-    fs.mkdirSync(cfg);
-    fs.copyFileSync(path.join(configDir, "DoB_SandboxVars.lua"), path.join(cfg, "DoB_SandboxVars.lua"));
+  // The panel's start script passes -cachedir only for the record's own data
+  // folder, so without one the game keeps its save in its default folder.
+  it("finds the save in the game's default folder for a profile with no data folder of its own that the panel starts", async () => {
     const install = path.join(dataDir, "install");
     fs.mkdirSync(install);
     const home = homeHoldsDataDir();
-    state.activeServer = {
-      id: 1,
-      serverName: "DoB",
-      installPath: install,
-      zomboidDataPath: null,
-      serverConfigPath: cfg,
-      isRemote: false,
-    };
+    legacyAnchoredProfile({ installPath: install });
 
     const expected = path.join(home, "Saves", "Multiplayer", "DoB", "map_sand.bin");
     expect((await call("GET", "/sandbox")).body.worldSandboxSnapshot?.path).toBe(expected);
+  });
+
+  // PATHS-1: the default folder is no folder the gate judged, so it is held
+  // to the data-folder rule before anything under it is looked at.
+  it("never looks in a default folder the data-folder rule refuses", async () => {
+    const install = path.join(dataDir, "install");
+    fs.mkdirSync(install);
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-map-sand-197-home-"));
+    fs.mkdirSync(path.join(home, "Zomboid", "Saves"), { recursive: true });
+    fs.writeFileSync(path.join(home, "Zomboid", "notes.txt"), "not the game's");
+    homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(home);
+    legacyAnchoredProfile({ installPath: install });
+    const stat = statCalls();
+
+    expect((await call("GET", "/sandbox")).body).not.toHaveProperty("worldSandboxSnapshot");
+    const { status, body } = await call("POST", "/sandbox/world-snapshot/retire");
+
+    expect(status).toBe(400);
+    expect(body.code).toBe("ZOMBOID_DATA_FOLDER_REFUSED");
+    expect(stat.mock.calls.filter(under(path.join(home, "Zomboid", "Saves")))).toEqual([]);
+    expect(fs.existsSync(path.join(configDir, "backups"))).toBe(false);
   });
 
   it("finds a legacy setup's save (no profile row) under the data folder in its settings", async () => {
@@ -388,38 +439,30 @@ describe("POST /sandbox/world-snapshot/retire (#197)", () => {
     expect(body.code).toBe("WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE");
   });
 
-  it("retires from the config folder's parent when no data folder is set and that folder is named Server", async () => {
+  // FILES-2/PATHS-2: refused before the handler runs; nothing moves.
+  it("moves nothing for a profile whose config folder has no data folder, which Server Config refuses", async () => {
     state.activeServer = { id: 1, serverName: "DoB", zomboidDataPath: null, serverConfigPath: configDir, isRemote: false };
 
     const { status, body } = await call("POST", "/sandbox/world-snapshot/retire");
 
-    expect(status).toBe(200);
-    expect(body.retired).toBe(true);
-    expect(fs.existsSync(snapshotPath)).toBe(false);
-    expect(fs.readFileSync(body.movedTo)).toEqual(SNAPSHOT);
+    expect(status).toBe(400);
+    expect(body.code).toBe("SERVER_CONFIG_PATH_OUTSIDE_DATA");
+    expect(fs.readFileSync(snapshotPath)).toEqual(SNAPSHOT);
+    expect(fs.existsSync(path.join(configDir, "backups"))).toBe(false);
   });
 
-  it("retires from the game's default folder for a profile with no data folder that the panel starts", async () => {
+  it("retires from the game's default folder for a profile with no data folder of its own that the panel starts", async () => {
     const install = path.join(dataDir, "install");
     fs.mkdirSync(install);
-    const cfg = path.join(dataDir, "cfg");
-    fs.mkdirSync(cfg);
     const home = homeHoldsDataDir();
-    state.activeServer = {
-      id: 1,
-      serverName: "DoB",
-      installPath: install,
-      zomboidDataPath: null,
-      serverConfigPath: cfg,
-      isRemote: false,
-    };
+    legacyAnchoredProfile({ installPath: install });
 
     const { status, body } = await call("POST", "/sandbox/world-snapshot/retire");
 
     expect(status).toBe(200);
     expect(body.retired).toBe(true);
     expect(fs.existsSync(path.join(home, "Saves", "Multiplayer", "DoB", "map_sand.bin"))).toBe(false);
-    expect(path.dirname(body.movedTo)).toBe(path.join(cfg, "backups"));
+    expect(path.dirname(body.movedTo)).toBe(path.join(configDir, "backups"));
     expect(fs.readFileSync(body.movedTo)).toEqual(SNAPSHOT);
   });
 
@@ -455,11 +498,21 @@ describe("POST /sandbox/world-snapshot/retire (#197)", () => {
     expect(refused.body.code).toBe("SERVER_RUNNING");
   });
 
+  // A start the panel doesn't write (a custom command) may pass its own
+  // -cachedir, and a config folder not named Server doesn't say where.
   it("says no data folder is set when the save's place can't be told", async () => {
-    const cfg = path.join(dataDir, "cfg");
+    const cfg = path.join(configDir, "cfg");
     fs.mkdirSync(cfg);
     fs.copyFileSync(path.join(configDir, "DoB_SandboxVars.lua"), path.join(cfg, "DoB_SandboxVars.lua"));
-    state.activeServer = { id: 1, serverName: "DoB", zomboidDataPath: null, serverConfigPath: cfg, isRemote: false };
+    state.settings = { zomboidDataPath: dataDir };
+    state.activeServer = {
+      id: 1,
+      serverName: "DoB",
+      startCommand: "./my-start.sh",
+      zomboidDataPath: null,
+      serverConfigPath: cfg,
+      isRemote: false,
+    };
 
     expect((await call("GET", "/sandbox")).body).not.toHaveProperty("worldSandboxSnapshot");
     const { status, body } = await call("POST", "/sandbox/world-snapshot/retire");
@@ -469,5 +522,50 @@ describe("POST /sandbox/world-snapshot/retire (#197)", () => {
     expect(body.error).toMatch(/can't tell where this server's world save is.+Set the server's data folder/);
     expect(body.error).not.toMatch(/not on this computer/);
     expect(fs.existsSync(snapshotPath)).toBe(true);
+  });
+});
+
+// The world save's path is a host path: a role without the host-path
+// capabilities (utils/hostPathView.js) gets its file name only, as it does
+// for every other path Server Config answers with.
+describe("map_sand.bin for a role that can't see host folders (#197)", () => {
+  beforeEach(() => {
+    state.role = FILES_ONLY_ROLE.name;
+  });
+
+  it("GET and PUT /sandbox, PUT /sandbox-option and GET /raw/sandbox name the file only", async () => {
+    const answers = [
+      (await call("GET", "/sandbox")).body,
+      (await call("PUT", "/sandbox", { sandbox: { ZombieLore: { Cognition: 2 } } })).body,
+      (await call("PUT", "/sandbox-option", { name: "ZombieLore.Cognition", value: 1 })).body,
+      (await call("GET", "/raw/sandbox")).body,
+    ];
+
+    for (const body of answers) {
+      expect(body.worldSandboxSnapshot.path).toBe("map_sand.bin");
+      expect(body.worldSandboxSnapshot.mtime).toEqual(expect.any(String));
+      expect(JSON.stringify(body)).not.toContain(JSON.stringify(dataDir).slice(1, -1));
+    }
+  });
+
+  it("the retire route names the moved file only, for a local and a remote world", async () => {
+    const local = (await call("POST", "/sandbox/world-snapshot/retire")).body;
+    expect(local.retired).toBe(true);
+    expect(local.movedTo).toMatch(/^DoB_map_sand\.bin\..+\.retired$/);
+    expect(fs.readdirSync(path.join(configDir, "backups"))).toEqual([local.movedTo]);
+
+    makeRemote({ snapshot: true });
+    state.remoteRetire = {
+      available: true,
+      retired: true,
+      movedTo: "/home/pz/Zomboid/Server/backups/DoB_map_sand.bin.2026-10-05T07-00-00-000Z.retired",
+    };
+    const remote = (await call("POST", "/sandbox/world-snapshot/retire")).body;
+    expect(remote).toMatchObject({ retired: true, movedTo: "DoB_map_sand.bin.2026-10-05T07-00-00-000Z.retired" });
+
+    expect((await call("GET", "/sandbox")).body.worldSandboxSnapshot).toEqual({
+      path: "map_sand.bin",
+      mtime: REMOTE_SNAPSHOT.mtime,
+    });
   });
 });

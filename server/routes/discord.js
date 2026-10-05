@@ -1,6 +1,6 @@
 import express from "express";
 import { createLogger } from "../utils/logger.js";
-import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
+import { maskSecretValue, sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import {
   normalizeChatRelayScope,
   START_ALREADY_IN_PROGRESS,
@@ -34,6 +34,63 @@ const DISCORD_COMMAND_CAPABILITY = {
   restart: "server.control",
   rcon: "rcon.execute",
 };
+
+// Which capabilities a PUT /config change hands out through Discord, and so
+// which ones the caller must already hold (security sweep AUTHZ-3, same rule
+// as PUT /permissions below: you cannot hand out an authority through
+// Discord that you do not hold yourself in the panel).
+// - token / guildId: whoever owns the guild the bot answers in, and its
+//   Discord Administrators, pass discordBot.checkPermission() for every
+//   command whatever its tier -- swapping in your own bot or guild makes
+//   you that owner.
+// - adminRoleId: holders of the admin role likewise pass for every command.
+// - modRoleId: holders of the mod role pass for the commands currently at
+//   the "moderator" tier.
+// Any change counts, clearing one included: an unchanged resend (the
+// settings page resends every field on each save) never needs anything.
+const EVERY_DISCORD_COMMAND_CAPABILITY = [
+  ...new Set(Object.values(DISCORD_COMMAND_CAPABILITY).filter(Boolean)),
+];
+
+function capabilitiesUnlockedByConfigChange(changed, discordBot) {
+  const required = new Set();
+  if (changed.includes("token") || changed.includes("guildId") || changed.includes("adminRoleId")) {
+    for (const capability of EVERY_DISCORD_COMMAND_CAPABILITY) {
+      required.add(capability);
+    }
+  }
+  if (changed.includes("modRoleId")) {
+    const commandPermissions = discordBot.getCommandPermissions();
+    for (const [command, capability] of Object.entries(DISCORD_COMMAND_CAPABILITY)) {
+      if (capability && commandPermissions[command] === "moderator") {
+        required.add(capability);
+      }
+    }
+  }
+  return [...required];
+}
+
+// SECURITY (2026-10-05, HT4b): the chat relay posts what anyone types in
+// the channel it listens in into the game as "[Discord] name: text"
+// through RCON servermsg -- what the panel's own POST /server/message
+// gates behind server.world_events. integrations.manage doesn't include
+// it (technician and admin hold both; a custom role can hold one without
+// the other), so turning the relay on, or pointing it at another channel,
+// needs it too. It listens in the relay channel, or the notification
+// channel while none is set, and only while it is on; turning it off or
+// leaving the channel as it is needs nothing.
+const CHAT_RELAY_CAPABILITY = "server.world_events";
+
+function chatRelayListenChannel({ enabled, relayChannelId, channelId }) {
+  if (!enabled) return null;
+  return relayChannelId || channelId || null;
+}
+
+// The caller's panel capabilities, for the checks above and below.
+async function capabilitiesOfCaller(req) {
+  const role = req.user ? await getRoleByName(req.user.role) : null;
+  return Array.isArray(role?.capabilities) ? role.capabilities : [];
+}
 
 // Bot config/lifecycle/permissions — "config" is technician's job per the
 // role brief; moderator has no need to reconfigure the Discord integration.
@@ -81,7 +138,9 @@ router.get("/config", async (req, res) => {
     const autoStart = await getSetting("discordAutoStart");
 
     res.json({
-      token: discordBot.token ? "••••••••" + discordBot.token.slice(-4) : null,
+      // Says only that a token is set, like every other masked secret
+      // (utils/sanitize.js maskSecretValue): no part of the bot token.
+      token: discordBot.token ? maskSecretValue(discordBot.token) : null,
       hasToken: !!discordBot.token,
       guildId: discordBot.guildId,
       adminRoleId: discordBot.adminRoleId,
@@ -109,9 +168,16 @@ router.put("/config", async (req, res) => {
       channelId,
       autoStart,
       chatRelayEnabled,
-      chatRelayChannelId,
+      chatRelayChannelId: sentChatRelayChannelId,
       chatRelayScope,
     } = req.body;
+    // SECURITY (2026-10-05, M1): "" or null clears the relay channel, so the
+    // relay goes back to the notification channel -- a change of the channel
+    // it listens in, gated below (HT4b) exactly as setting one is. Left out,
+    // it keeps its value. The settings page used to leave it out when the
+    // field was emptied, so a relay channel could never be cleared.
+    const chatRelayChannelId =
+      sentChatRelayChannelId === null ? "" : sentChatRelayChannelId;
     log.info(
       `PUT /config: guildId=${guildId}, token=${token ? (token === "KEEP_EXISTING" ? "KEEP" : "***") : "none"}, autoStart=${autoStart}`,
     );
@@ -202,6 +268,71 @@ router.put("/config", async (req, res) => {
       const prevToken = discordBot.token;
       const prevGuildId = discordBot.guildId;
 
+      // Refuse before anything is written: see
+      // capabilitiesUnlockedByConfigChange() above. Role IDs compare
+      // normalized because updateConfig() stores a missing one as "" and
+      // loadConfig() reads it back as "".
+      const changed = [];
+      if (prevToken !== finalToken) changed.push("token");
+      if ((prevGuildId || null) !== (guildId || null)) changed.push("guildId");
+      if ((discordBot.adminRoleId || null) !== (adminRoleId || null)) {
+        changed.push("adminRoleId");
+      }
+      if ((discordBot.modRoleId || null) !== (modRoleId || null)) {
+        changed.push("modRoleId");
+      }
+      const requiredCapabilities = capabilitiesUnlockedByConfigChange(
+        changed,
+        discordBot,
+      );
+      if (requiredCapabilities.length > 0) {
+        const callerCapabilities = await capabilitiesOfCaller(req);
+        const missing = requiredCapabilities.filter(
+          (capability) => !callerCapabilities.includes(capability),
+        );
+        if (missing.length > 0) {
+          const detail = missing.join(", ");
+          return res.status(403).json({
+            error: `Changing these Discord settings would let people run bot commands that need ${detail}, which you don't hold yourself.`,
+            code: ErrorCode.DISCORD_CONFIG_CAPABILITY_REQUIRED,
+            params: sanitizeErrorParams({ detail }),
+            changed,
+            missing,
+          });
+        }
+      }
+
+      // HT4b: see chatRelayListenChannel() above. updateConfig() below
+      // stores a missing channelId as "", and a relay field left out of the
+      // body keeps its value.
+      const relayListensIn = chatRelayListenChannel({
+        enabled: discordBot.chatRelayEnabled !== false,
+        relayChannelId: discordBot.chatRelayChannelId,
+        channelId: discordBot.channelId,
+      });
+      const relayWillListenIn = chatRelayListenChannel({
+        enabled:
+          typeof chatRelayEnabled === "boolean"
+            ? chatRelayEnabled
+            : discordBot.chatRelayEnabled !== false,
+        relayChannelId:
+          typeof chatRelayChannelId === "string"
+            ? chatRelayChannelId
+            : discordBot.chatRelayChannelId,
+        channelId,
+      });
+      if (relayWillListenIn && relayWillListenIn !== relayListensIn) {
+        const callerCapabilities = await capabilitiesOfCaller(req);
+        if (!callerCapabilities.includes(CHAT_RELAY_CAPABILITY)) {
+          return res.status(403).json({
+            error: `The chat relay posts what people type in its Discord channel in game, which needs ${CHAT_RELAY_CAPABILITY}. You don't hold it, so you can't turn the relay on or change the channel it listens in (the notification channel, while no relay channel is set).`,
+            code: ErrorCode.DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED,
+            params: sanitizeErrorParams({ detail: CHAT_RELAY_CAPABILITY }),
+            missing: [CHAT_RELAY_CAPABILITY],
+          });
+        }
+      }
+
       await discordBot.updateConfig(
         finalToken,
         guildId,
@@ -253,13 +384,10 @@ router.put("/config", async (req, res) => {
         // running".
         const started = await discordBot.start();
         if (started === START_ALREADY_IN_PROGRESS) {
-          // Cannot happen from a second /config save any more -- the mutex
-          // above already serializes those. Only reachable if a separate
-          // POST /discord/start landed in the narrow window between this
-          // request's own stop() and start() (outside this mutex, on
-          // purpose -- widening the mutex to cover /start and /stop is a
-          // different, unrequested change). Say so rather than claiming a
-          // reconnect this request never performed.
+          // Cannot happen from a route any more: the mutex above serializes
+          // /config saves, and POST /start and /stop take it too (HT4d).
+          // Kept for a start() some other caller began outside it. Say so
+          // rather than claiming a reconnect this request never performed.
           return res.json({
             success: true,
             message:
@@ -289,6 +417,14 @@ router.put("/config", async (req, res) => {
 });
 
 // Start Discord bot
+//
+// SECURITY (2026-10-05, HT4d): under the config mutex, like /config and
+// /reset. start() reads the token, then logs in for up to 30s; a wipe that
+// landed in between cleared the token and found no running bot to stop
+// (isRunning comes true only once the login is done), so the client logged
+// in with the old token stayed connected afterwards. /stop takes the mutex
+// for the same reason: a stop that lands while /config reconnects or a
+// wipe runs waits for it instead of answering "not running".
 router.post("/start", async (req, res) => {
   try {
     log.info("POST /start — starting Discord bot");
@@ -300,31 +436,33 @@ router.post("/start", async (req, res) => {
       });
     }
 
-    if (discordBot.isRunning) {
-      return res.json({ success: true, message: "Bot is already running" });
-    }
+    await discordBot.withConfigMutex(async () => {
+      if (discordBot.isRunning) {
+        return res.json({ success: true, message: "Bot is already running" });
+      }
 
-    const started = await discordBot.start();
+      const started = await discordBot.start();
 
-    if (started) {
-      res.json({ success: true, message: "Discord bot started" });
-    } else {
-      // "check configuration" used to be the ENTIRE message for every cause
-      // -- a bad token, a network timeout, and privileged intents not being
-      // enabled in the Discord Developer Portal (the classic one: correct
-      // token and IDs, still fails, and no amount of re-checking credentials
-      // would ever find it) all looked identical. discordBot.lastStartError
-      // carries the real discord.js error code now; describeStartFailure()
-      // is the same mapping getStatus() uses for the persistent version of
-      // this same message, so the toast here and the record that survives a
-      // page refresh never say two different things about the same failure.
-      const reason = describeStartFailure(discordBot.lastStartError);
-      res.status(400).json({
-        error: reason,
-        code: ErrorCode.DISCORD_START_FAILED,
-        params: sanitizeErrorParams({ reason }),
-      });
-    }
+      if (started) {
+        res.json({ success: true, message: "Discord bot started" });
+      } else {
+        // "check configuration" used to be the ENTIRE message for every cause
+        // -- a bad token, a network timeout, and privileged intents not being
+        // enabled in the Discord Developer Portal (the classic one: correct
+        // token and IDs, still fails, and no amount of re-checking credentials
+        // would ever find it) all looked identical. discordBot.lastStartError
+        // carries the real discord.js error code now; describeStartFailure()
+        // is the same mapping getStatus() uses for the persistent version of
+        // this same message, so the toast here and the record that survives a
+        // page refresh never say two different things about the same failure.
+        const reason = describeStartFailure(discordBot.lastStartError);
+        res.status(400).json({
+          error: reason,
+          code: ErrorCode.DISCORD_START_FAILED,
+          params: sanitizeErrorParams({ reason }),
+        });
+      }
+    });
   } catch (error) {
     log.error(`Failed to start Discord bot: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -342,12 +480,15 @@ router.post("/stop", async (req, res) => {
       });
     }
 
-    if (!discordBot.isRunning) {
-      return res.json({ success: true, message: "Bot is not running" });
-    }
+    // HT4d: under the config mutex, see POST /start above.
+    await discordBot.withConfigMutex(async () => {
+      if (!discordBot.isRunning) {
+        return res.json({ success: true, message: "Bot is not running" });
+      }
 
-    await discordBot.stop();
-    res.json({ success: true, message: "Discord bot stopped" });
+      await discordBot.stop();
+      res.json({ success: true, message: "Discord bot stopped" });
+    });
   } catch (error) {
     log.error(`Failed to stop Discord bot: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -355,6 +496,19 @@ router.post("/stop", async (req, res) => {
 });
 
 // Reset Discord bot configuration
+//
+// SECURITY (2026-10-05, D1): a wipe puts a command's tier back to its
+// default only where the caller could have made that change through PUT
+// /permissions: the command has no capability (status), or the caller
+// holds it. Every other tier is kept as it is. A wipe used to reset every
+// tier, so an integrations.manage holder without players.moderate could
+// undo an admin raising /kick to "admin" -- the next setup came back with
+// /kick at "moderator" and nobody had chosen that.
+// The token, guild, role and channel IDs are still cleared: clearing them
+// only narrows who can run commands (with no token the bot can't run at
+// all), and entering a new token already needs every command's capability
+// (capabilitiesUnlockedByConfigChange() above). Under the config mutex so
+// the tiers checked here are the tiers resetConfig() writes back.
 router.post("/reset", async (req, res) => {
   try {
     const discordBot = req.app.get("discordBot");
@@ -365,10 +519,25 @@ router.post("/reset", async (req, res) => {
       });
     }
 
-    await discordBot.resetConfig();
-    res.json({
-      success: true,
-      message: "Discord bot settings wiped. Setup can start from scratch.",
+    await discordBot.withConfigMutex(async () => {
+      const callerCapabilities = await capabilitiesOfCaller(req);
+      const commandTiersToReset = Object.entries(DISCORD_COMMAND_CAPABILITY)
+        .filter(
+          ([, capability]) =>
+            !capability || callerCapabilities.includes(capability),
+        )
+        .map(([command]) => command);
+      const keptCommandPermissions = await discordBot.resetConfig({
+        commandTiersToReset,
+      });
+      res.json({
+        success: true,
+        message:
+          keptCommandPermissions.length > 0
+            ? `Discord bot settings wiped. These commands kept their tier because changing it needs a capability you don't hold: ${keptCommandPermissions.map((command) => `/${command}`).join(", ")}.`
+            : "Discord bot settings wiped. Setup can start from scratch.",
+        keptCommandPermissions,
+      });
     });
   } catch (error) {
     log.error(`Failed to reset Discord config: ${error.message}`);
@@ -484,6 +653,15 @@ router.post("/test-message", async (req, res) => {
       "🧪 **Test message** from PZ Server Manager",
     );
     if (!sent) {
+      // SECURITY (2026-10-05, M2): the bot posts only in a channel of the
+      // configured guild now. Say so, rather than that Discord rejected it.
+      if (discordBot.wasSendRefusedOutsideGuild(discordBot.channelId)) {
+        return res.status(400).json({
+          error:
+            "The notification channel isn't in the Discord server set up here, so the bot won't post in it. Use a channel of the server whose Guild ID is set, or correct the Guild ID.",
+          code: ErrorCode.DISCORD_CHANNEL_OUTSIDE_GUILD,
+        });
+      }
       return res.status(502).json({
         error:
           "Discord rejected the message. Check the notification channel ID and that the bot can post there.",
@@ -660,16 +838,16 @@ router.put("/permissions", async (req, res) => {
     // same shape earlier tonight), and re-submitting an unchanged value
     // must never require a capability the caller never needed for the
     // status quo.
-    // discordBot.updateCommandPermissions() does not itself read-merge
-    // against this.commandPermissions (it merges the submitted object onto
-    // DEFAULT_COMMAND_PERMISSIONS, relying on the settings UI to resend
-    // every command's tier each save, same as the comment above already
-    // notes) -- verified before fixing, per the card's instruction, since
-    // this route was pattern-matched to /config and /webhook-events but
-    // not confirmed: it does NOT share their server-side unguarded
-    // read-merge-then-save mechanism, so a config-mutex cannot close a
-    // stale-CLIENT-snapshot lost update here the way it closes the other
-    // two. Still wrapped in the same mutex as /config and /webhook-events
+    // discordBot.updateCommandPermissions() merges the submitted object
+    // onto the current tiers, so a command left out of the body keeps its
+    // tier and the per-command check below sees every tier that changes.
+    // It used to merge onto DEFAULT_COMMAND_PERMISSIONS instead, so a
+    // partial body (even `{}`) reset raised tiers with no check at all --
+    // e.g. /save, /broadcast and /kick back to the moderator tier right
+    // after a mod role was set (security sweep 2026-10-04, adversary pass
+    // on AUTHZ-3). A stale client snapshot still overwrites a newer tier
+    // it does send, so a config-mutex cannot close that lost update here
+    // the way it closes /config's and /webhook-events'. Still wrapped in the same mutex as /config and /webhook-events
     // so this write, the capability check's `current` read just below, and
     // /config's loadConfig() (which also reads discordCommandPermissions)
     // can't interleave with each other.
@@ -682,10 +860,7 @@ router.put("/permissions", async (req, res) => {
         if (!requiredCapability) continue; // unmapped/no-op key, or status (null)
         if (!(command in current) || current[command] === tier) continue;
         if (callerCapabilities === null) {
-          const role = req.user ? await getRoleByName(req.user.role) : null;
-          callerCapabilities = Array.isArray(role?.capabilities)
-            ? role.capabilities
-            : [];
+          callerCapabilities = await capabilitiesOfCaller(req);
         }
         if (!callerCapabilities.includes(requiredCapability)) {
           missing.push({ command, requiredCapability });

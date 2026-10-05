@@ -642,7 +642,7 @@
     "resettingButton": "Wird zurückgesetzt...",
     "resetAndSignOutButton": "Passwort zurücksetzen und abmelden",
     "recoveryRemoteIntro1": "Das Panel kann bestehende Passwörter nicht anzeigen. Bei weiterhin bestehendem Dateisystemzugriff auf den Panel-Host: abmelden und entweder <code>data/reset-token.txt</code> anlegen oder das Panel mit <code>--reset-password</code> starten.",
-    "recoveryRemoteIntro2": "Sobald die Token-Datei existiert, zeigt der Anmeldebildschirm eine Wiederherstellungsoption, mit der ein neues Administratorpasswort festgelegt werden kann, ohne das alte zu kennen.",
+    "recoveryRemoteIntro2": "Lege in diese Datei ein zufälliges Hex-Token von mindestens 32 Zeichen aus einem Generator wie openssl rand -hex 24 (Wörter, Sätze und Zahlenfolgen werden abgelehnt), öffne dann auf dem Anmeldebildschirm die Kontowiederherstellung und gib es als Wiederherstellungstoken ein, um ein neues Administratorpasswort festzulegen, ohne das alte zu kennen.",
     "tipsRconTitle": "RCON-Sicherheit:",
     "tipsRconDesc": "Dein RCON-Passwort wird lokal gespeichert und niemals außerhalb der RCON-Verbindung zu deinem Server übertragen.",
     "tipsAdminTitle": "Admin-Befehle:",
@@ -1158,5 +1158,8 @@
     "couldNotResetPassword": "Das Panel konnte dein Passwort nicht von diesem Server aus zurücksetzen.",
     "never": "Nie",
     "unknown": "Unbekannt"
+  },
+  "hiddenByRole": {
+    "reason": "Ausgeblendet: Um diesen Wert zu sehen, ist die Berechtigung {{permission}} erforderlich, die diese Rolle nicht hat."
   }
 }

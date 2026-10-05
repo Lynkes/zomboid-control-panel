@@ -24,8 +24,8 @@
   "RESET_TOKEN_NOT_FOUND": "No reset token found. Create data/reset-token.txt on the server first.",
   "RESET_TOKEN_TOO_LARGE": "Reset token file is invalid (too large). Max 1KB.",
   "RESET_TOKEN_EXPIRED": "Reset token file is older than 24 hours. Recreate it on the server.",
-  "RESET_TOKEN_TOO_SHORT": "Reset token file is invalid. It must contain at least 8 characters.",
-  "RESET_TOKEN_INVALID": "Invalid reset token",
+  "RESET_TOKEN_TOO_SHORT": "Reset token file is invalid. It must contain random hex of at least 32 characters.",
+  "RESET_TOKEN_INVALID": "That reset token wasn't accepted. Check that data/reset-token.txt on the panel host holds exactly this token, is less than 24 hours old, and is random hex of at least 32 characters from a generator (words, sentences and number sequences are refused). The panel's log says which check failed.",
   "SERVER_NOT_CONFIGURED": "No active server configured",
   "REMOTE_CONFIG_NOT_CONFIGURED": "This server is remote. Add its SFTP details and the remote Server folder under Settings > PanelBridge to edit its configuration from here.",
   "REMOTE_BROWSE_NOT_AVAILABLE": "Browsing the server filesystem is not available for remote servers.",
@@ -583,5 +583,16 @@
   "FM_TOO_MANY_ENTRIES": "There are too many items to delete in one go (more than {{limit}}). What was already deleted stays deleted; run it again to finish.",
   "FM_SECRET_NAME_REQUIRED": "This file holds passwords the file manager keeps masked. Keep .ini in the new name so they stay masked.",
   "CHARACTER_INVALID_SECTIONS": "Unknown character section requested.",
-  "CHARACTER_SHEET_FAILED": "Couldn't read this character."
+  "CHARACTER_SHEET_FAILED": "Couldn't read this character.",
+  "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Changing these Discord settings would let people run bot commands that need {{detail}}, which you don't hold yourself.",
+  "HOST_NOT_ALLOWED": "This panel only answers to its own addresses while panel logins are off. Open it by its IP address or localhost, or add this address under Settings > Remote Access (CORS).",
+  "SERVER_CONFIG_PATH_OUTSIDE_DATA": "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
+  "RESET_TOKEN_TOO_WEAK": "The token in data/reset-token.txt could be guessed. Replace it with random hex from a generator (0-9 and a-f, as openssl rand -hex 24 writes it); words, sentences, number sequences and repeated or sequential characters are refused. Or use the recovery button on the panel host.",
+  "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "This Zomboid data folder holds files the game doesn't keep in a data folder, so the panel won't use it as a server's data folder. Choose the server's own data folder (the one with a world save in its Saves folder), an empty folder, or a folder that doesn't exist yet: the game creates it when the server first starts.",
+  "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "A remote server's console log is on its own host, so the panel can't clear it from here.",
+  "WIPE_REMOTE_NOT_AVAILABLE": "A remote server's world is on its own host, so the panel can't wipe it from here.",
+  "ZOMBOID_DATA_FOLDER_REFUSED": "This server's Zomboid data folder holds files the game doesn't keep in a data folder, so the panel won't list or read it. On the My Servers page, edit the server and set its Zomboid Data Path to the game's own data folder: the one with a world save in its Saves folder.",
+  "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "This server has no Zomboid data folder set, and the game writes its console log there. On the My Servers page, edit the server and set its Zomboid Data Path.",
+  "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "The chat relay posts what people type in its Discord channel in game, which needs {{detail}}. You don't hold it, so you can't turn the relay on or change the channel it listens in (the notification channel, while no relay channel is set).",
+  "DISCORD_CHANNEL_OUTSIDE_GUILD": "The notification channel isn't in the Discord server set up here, so the bot won't post in it. Use a channel of the server whose Guild ID is set, or correct the Guild ID."
 }

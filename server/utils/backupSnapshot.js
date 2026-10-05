@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { readIniValues, readSandboxValue } from "./templateFiles.js";
+import { serverConfigDirOf } from "./serverConfigPath.js";
 
 const INI_KEYS = [
   "MaxPlayers",
@@ -26,11 +27,11 @@ const SANDBOX_KEYS = [
   "HoursForLootRespawn",
 ];
 
+// SECURITY (2026-10-05, PATHS-2): a configured config folder is read only
+// while it is inside the server's own data folder (utils/serverConfigPath.js);
+// refused, the snapshot just has no ini/sandbox values, as with no folder.
 function getConfigPath(server) {
-  if (server?.serverConfigPath) return server.serverConfigPath;
-  return server?.zomboidDataPath
-    ? path.join(server.zomboidDataPath, "Server")
-    : null;
+  return serverConfigDirOf(server).dir;
 }
 
 function readFileIfPresent(filePath) {

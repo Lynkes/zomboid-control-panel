@@ -93,16 +93,19 @@ function putRaw(content) {
 }
 
 beforeEach(() => {
-  configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ini-dup-guard-"));
+  // PATHS-2: a config folder is used only inside <data folder>/Server.
+  configDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ini-dup-guard-")), "Server");
+  fs.mkdirSync(configDir);
   iniPath = path.join(configDir, `${SERVER_NAME}.ini`);
   getActiveServer.mockReset().mockResolvedValue({
+    zomboidDataPath: path.dirname(configDir),
     serverConfigPath: configDir,
     serverName: SERVER_NAME,
   });
 });
 
 afterEach(() => {
-  fs.rmSync(configDir, { recursive: true, force: true });
+  fs.rmSync(path.dirname(configDir), { recursive: true, force: true });
 });
 
 describe("PUT /server-files/ini -- refuses a structured save while a duplicate key exists on disk", () => {

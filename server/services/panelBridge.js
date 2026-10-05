@@ -133,6 +133,9 @@ class PanelBridge extends EventEmitter {
     this.lastQueueCleanupAt = 0;
     this.modStatus = null;
     this.previousPlayers = new Set(); // Track previous player list for connect/disconnect detection
+    // Which of the deaths status.json lists were already reported (see
+    // trackPlayerDeaths()); null until the first status of this bridge path.
+    this.deathTracking = null;
     this.lastStatusFileCheck = 0;
     // mtime of the status file the last exited server process left behind
     // (see markServerExited()); null when nothing is being disbelieved.
@@ -186,6 +189,8 @@ class PanelBridge extends EventEmitter {
     // Its existence serves as a signal that the mod has been installed and initialized.
 
     log.debug(`Configured path: ${this.bridgePath}`);
+    // Another folder is another server: its recent deaths aren't new.
+    this.deathTracking = null;
     this.emit('configured', { path: this.bridgePath });
 
     return this.bridgePath;
@@ -818,6 +823,7 @@ class PanelBridge extends EventEmitter {
     this.trackPlayerActivity([]);
     this.watcherRetries = 0;
     this.modStatus = null;
+    this.deathTracking = null;
     this.consecutiveFailures = 0;
     this.lastStatusFileCheck = 0;
     this.queueState.initialized = false;
@@ -1675,6 +1681,9 @@ class PanelBridge extends EventEmitter {
       if (status.alive && status.players) {
         this.trackPlayerActivity(status.players);
       }
+      if (status.alive) {
+        this.trackPlayerDeaths(status);
+      }
 
       // Emit status change (always emit if alive status changed or it's a new status)
       const aliveChanged = this.modStatus?.alive !== status.alive;
@@ -1741,6 +1750,74 @@ class PanelBridge extends EventEmitter {
     } else if (!this.modStatus) {
       this.modStatus = { alive: false, waiting: true, version: null, playerCount: undefined, players: [] };
     }
+  }
+
+  /**
+   * Player deaths the mod reports in status.json (`deaths`: the last few,
+   * oldest first, numbered from 1 each time the server starts).
+   *
+   * SECURITY (2026-10-04, BRIDGE-1 adversary pass): deaths used to come only
+   * from the game's user log, and a co-op (split-screen) player's name skips
+   * the server's username check, so it can carry line breaks and whole fake
+   * "[timestamp] user X died at ..." lines -- a forged death for any player,
+   * which no parsing of that log can tell from a real one. A bridge that
+   * sends `deaths` takes over (reportsPlayerDeaths(); index.js then ignores
+   * the log's deaths). A name with a control character is the co-op trick
+   * itself, so it is dropped rather than reported under a mangled name.
+   *
+   * The first status read for a bridge folder only records where the list
+   * stands: those deaths happened before the panel was watching. A new
+   * startedAt is a server restart, whose numbering starts over.
+   */
+  trackPlayerDeaths(status) {
+    if (!Array.isArray(status.deaths)) return;
+    const run = status.startedAt ?? null;
+    const deaths = status.deaths.filter(
+      (death) =>
+        death &&
+        Number.isSafeInteger(death.seq) &&
+        death.seq > 0 &&
+        typeof death.username === 'string' &&
+        death.username !== '',
+    );
+    if (this.deathTracking === null) {
+      this.deathTracking = {
+        run,
+        lastSeq: deaths.reduce((max, death) => Math.max(max, death.seq), 0),
+      };
+      return;
+    }
+    if (this.deathTracking.run !== run) {
+      this.deathTracking = { run, lastSeq: 0 };
+    }
+    for (const death of deaths) {
+      if (death.seq <= this.deathTracking.lastSeq) continue;
+      this.deathTracking.lastSeq = death.seq;
+      if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/.test(death.username)) {
+        log.warn('Ignoring a reported player death whose name contains a control character');
+        continue;
+      }
+      const x = Math.trunc(Number(death.x)) || 0;
+      const y = Math.trunc(Number(death.y)) || 0;
+      const z = Math.trunc(Number(death.z)) || 0;
+      this.emit('playerDeath', {
+        player: death.username,
+        x,
+        y,
+        z,
+        pvp: death.pvp === true,
+        location: `${x},${y},${z}`,
+        timestamp: new Date(),
+      });
+    }
+  }
+
+  /**
+   * True while a live mod reports player deaths itself (see
+   * trackPlayerDeaths()); the game's user log is only the fallback then.
+   */
+  reportsPlayerDeaths() {
+    return Boolean(this.modStatus?.alive && Array.isArray(this.modStatus.deaths));
   }
 
   /**

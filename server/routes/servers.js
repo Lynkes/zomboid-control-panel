@@ -22,7 +22,6 @@ import {
   setSetting,
 } from "../database/init.js";
 import { isRemoteConfigConfigured } from "../services/remoteConfigFiles.js";
-import { normalizeUserPath, inspectZomboidPath } from "../utils/zomboidPaths.js";
 import { requirePermission } from "../services/permissions.js";
 import {
   acquireLifecycleLock,
@@ -53,6 +52,9 @@ import {
   scoreServerProcessOwnership,
 } from "../services/serverManager.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { canSeeHostPaths, hideHostPaths } from "../utils/hostPathView.js";
+import { serverConfigDirOf, serverConfigPathIsConfined, serverFolderProblem } from "../utils/serverConfigPath.js";
+import { checkZomboidDataPath } from "../services/zomboidDataPath.js";
 import {
   buildLifecycleTemplate,
   createLinuxServiceLifecycle,
@@ -126,6 +128,19 @@ function validateInstallPathShape(value) {
     // real error at install/start time.
   }
   return { valid: true, mode };
+}
+
+// FILES-2: a server's config folder must resolve to <zomboidDataPath>/Server
+// or a folder inside it -- see utils/serverConfigPath.js. Re-exported for
+// the tests that import it from here.
+export { serverConfigPathIsConfined };
+
+function serverConfigPathRefusal() {
+  return {
+    error:
+      "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
+    code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
+  };
 }
 
 // Run a requirePermission() check outside of route-level middleware, for a
@@ -671,10 +686,21 @@ router.get("/", async (req, res) => {
   try {
     const servers = await getServers();
     const settings = await getAllSettings();
-    const withRemoteConfig = servers.map((server) => ({
-      ...server,
-      remoteConfigConfigured: computeRemoteConfigConfigured(server, settings),
-    }));
+    // Host folders only for a role that sets them up (utils/hostPathView.js).
+    const showPaths = await canSeeHostPaths(req.user);
+    const withRemoteConfig = servers.map((server) => {
+      const view = {
+        ...server,
+        remoteConfigConfigured: computeRemoteConfigConfigured(server, settings),
+        // SECURITY (2026-10-05, PT3): why the panel won't use this server's
+        // folders, if it won't (utils/serverConfigPath.js's
+        // serverFolderProblem()) -- for the Servers page's warning, so an
+        // operator whose data folder no longer passes after the update
+        // sees what to set where it is set. A code and text, no folder.
+        folderProblem: serverFolderProblem(server),
+      };
+      return showPaths ? view : hideHostPaths(view);
+    });
     res.json({
       servers: sanitizeServerResponseList(withRemoteConfig),
       lifecycleCapabilities: getLinuxLifecycleCapabilities(),
@@ -684,6 +710,51 @@ router.get("/", async (req, res) => {
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
+
+// SECURITY (2026-10-04, SDOS-4): GET /status has no capability gate (every
+// role's pages poll it), and each call ran its own host-wide process scan --
+// on Windows a PowerShell Win32_Process query -- plus, when that scan
+// couldn't place the active server, the active server's own scan. A burst
+// of calls from any signed-in role started that many PowerShell processes
+// at once (24 alive together in the verifier's run). Calls now share them:
+// one that arrives while a scan runs waits for that scan, and a finished
+// scan's answer serves STATUS_SCAN_REUSE_MS more calls. Keyed on the app's
+// shared serverManager, so every app (and every test's fake one) keeps its
+// own; without one there is nothing to share and each call scans.
+const STATUS_SCAN_REUSE_MS = 2000;
+const statusScans = new WeakMap();
+
+export function sharedStatusScan(owner, key, run) {
+  if (!owner || typeof owner !== "object") return run();
+  let scans = statusScans.get(owner);
+  if (!scans) {
+    scans = new Map();
+    statusScans.set(owner, scans);
+  }
+  const now = Date.now();
+  const reusable = (entry) =>
+    entry.settledAt === null || now - entry.settledAt < STATUS_SCAN_REUSE_MS;
+  const cached = scans.get(key);
+  if (cached && reusable(cached)) return cached.promise;
+  for (const [otherKey, entry] of scans) {
+    if (!reusable(entry)) scans.delete(otherKey);
+  }
+  const entry = { settledAt: null, promise: null };
+  entry.promise = Promise.resolve()
+    .then(run)
+    .then(
+      (result) => {
+        entry.settledAt = Date.now();
+        return result;
+      },
+      (error) => {
+        if (scans.get(key) === entry) scans.delete(key);
+        throw error;
+      },
+    );
+  scans.set(key, entry);
+  return entry.promise;
+}
 
 // Per-server running status. Scans the host once for all PZ server processes
 // and attributes each match to a configured server via the same
@@ -709,8 +780,9 @@ router.get("/status", async (req, res) => {
     let hostScan = null;
     let detectionError = null;
     try {
-      const scanner = new ServerManager();
-      const scan = await scanner.scanHostForServerProcesses();
+      const scan = await sharedStatusScan(serverManager, "host", () =>
+        new ServerManager().scanHostForServerProcesses(),
+      );
       hostScan = scan;
       matched = Array.isArray(scan?.matched) ? scan.matched : [];
       if (scan?.scanFailed) {
@@ -820,7 +892,11 @@ router.get("/status", async (req, res) => {
       let fallbackEntry = null;
       if (!running && server.id === activeId && typeof serverManager?.getServerProcessDetails === "function") {
         try {
-          const activeDetails = await serverManager.getServerProcessDetails();
+          const activeDetails = await sharedStatusScan(
+            serverManager,
+            `active:${activeId}`,
+            () => serverManager.getServerProcessDetails(),
+          );
           if (activeDetails.scanFailed) {
             activeFallbackUnknown = true;
           } else if (activeDetails.running) {
@@ -853,7 +929,9 @@ router.get("/status", async (req, res) => {
     res.json({
       servers: statuses,
       detectedProcesses: matched.length,
-      detectionError,
+      // Every role reads this route; a failed process scan's raw error can
+      // quote the tool it ran or a host folder (SECURITY 2026-10-05, H4).
+      detectionError: detectionError ? sanitizeError(detectionError) : null,
       // This host's clock as it answered, so the client can count the
       // rows' startedAt in its own clock -- see the client's hostClock.ts.
       serverTime: Date.now(),
@@ -913,8 +991,12 @@ router.get("/active", async (req, res) => {
       server,
       await getAllSettings(),
     );
+    // PT3: as GET / above, so the two stay the same shape.
+    const view = { ...server, remoteConfigConfigured, folderProblem: serverFolderProblem(server) };
     res.json({
-      server: sanitizeServerResponse({ ...server, remoteConfigConfigured }),
+      server: sanitizeServerResponse(
+        (await canSeeHostPaths(req.user)) ? view : hideHostPaths(view),
+      ),
     });
   } catch (error) {
     log.error(`Failed to get active server: ${error.message}`);
@@ -939,7 +1021,11 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ error: "Server not found" });
     }
 
-    res.json({ server: sanitizeServerResponse(server) });
+    res.json({
+      server: sanitizeServerResponse(
+        (await canSeeHostPaths(req.user)) ? server : hideHostPaths(server),
+      ),
+    });
   } catch (error) {
     log.error(`Failed to get server: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1200,6 +1286,9 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
     // script is a launch target too (see changesLaunchTarget()). Judged on
     // what the caller sent, before the env fallback below.
     const requestsLauncher = isLauncherShaped(config.installPath);
+    // PATHS-1: only a data folder the request names is judged below; the
+    // PZ_SAVE_PATH fallback is the operator's own environment.
+    const requestsDataPath = Boolean(config.zomboidDataPath);
 
     // Fall back to env-configured paths (docker-compose PZ_SERVER_PATH /
     // PZ_SAVE_PATH) when the request body doesn't set them explicitly.
@@ -1229,6 +1318,29 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
       if (!installPathCheck.valid) {
         return res.status(400).json({ error: installPathCheck.error });
       }
+    }
+
+    // SECURITY (2026-10-05, PATHS-1): this route stored the data folder
+    // with no check at all, where PUT /:id and chunks /save-path checked
+    // theirs -- so servers.manage alone named any folder on this computer
+    // as a server's data folder. Same rule as every other setter now
+    // (services/zomboidDataPath.js), stored as the path it resolved to, as PUT
+    // stores it. A remote server's folder is on another host.
+    if (!isRemote && requestsDataPath) {
+      const dataPathCheck = checkZomboidDataPath(config.zomboidDataPath);
+      if (!dataPathCheck.ok) {
+        return res.status(400).json(dataPathCheck.body);
+      }
+      config.zomboidDataPath = dataPathCheck.path;
+    }
+
+    // FILES-2: see serverConfigPathIsConfined(). Judged against the data
+    // folder this profile will be saved with (the env fallback included).
+    if (
+      config.serverConfigPath &&
+      !serverConfigPathIsConfined(config.serverConfigPath, config.zomboidDataPath)
+    ) {
+      return res.status(400).json(serverConfigPathRefusal());
     }
 
     if (
@@ -1499,61 +1611,68 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
 
     // HARDEN (2026-08-29, savepath-needs-existence-validation-at-set-time):
     // this route wrote zomboidDataPath straight through with zero validation
-    // -- a wrong-but-structurally-valid path (nonexistent, or a real
-    // directory that just isn't a Zomboid data folder) saved here while the
-    // server is stopped passes silently. POST /wipe (server.js) later joins
-    // this stored path with "Saves/Multiplayer/<serverName>" and only checks
-    // fs.existsSync on THAT joined result -- if the wrong path happens to
-    // have a matching subtree underneath (another real Zomboid install on
-    // the same host, a leftover from a same-named server), a destructive
-    // wipe silently targets the wrong data. chunks.js's own POST /save-path
-    // already enforces existence + directory + inspectZomboidPath() for this
-    // EXACT same field (same updateServer() call, same DB column) -- this
-    // brings the second, unguarded setter up to the same bar rather than
-    // leaving it as a second path to the same risk. Remote servers are
-    // exempt: their data path lives on a different host, so a local fs
-    // check would always incorrectly fail -- same exemption installPath
-    // already gets at server-creation time (see !isRemote above in POST /).
-    if (updates.zomboidDataPath !== undefined && updates.zomboidDataPath !== "") {
-      const effectiveIsRemote =
-        updates.isRemote !== undefined
-          ? updates.isRemote
-          : Boolean((await getServer(serverId))?.isRemote);
-      if (!effectiveIsRemote) {
-        // SECURITY (2026-09-05, env-var-expansion-oracle): normalizeUserPath()
-        // expands %VAR%/${VAR}/$VAR from request input. `resolved` is that
-        // EXPANDED value -- it must never appear in a response, or a caller
-        // who can PUT a server reads process-environment secrets one request
-        // at a time via zomboidDataPath="%JWT_SECRET%". Errors below always
-        // echo the caller's raw literal (updates.zomboidDataPath) instead.
-        const normalized = normalizeUserPath(updates.zomboidDataPath);
-        const resolved = normalized ? path.resolve(normalized) : null;
-        if (!resolved || !fs.existsSync(resolved)) {
-          return res.status(400).json({
-            error: `Zomboid data path does not exist: ${updates.zomboidDataPath}. Check for typos and verify the panel has read access to this folder.`,
-          });
+    // -- a wrong-but-structurally-valid path saved here while the server is
+    // stopped passed silently, and POST /wipe (server.js) later deletes
+    // under it. Remote servers are exempt: their data path lives on a
+    // different host, so a local fs check would always incorrectly fail --
+    // same exemption installPath already gets at server-creation time.
+    //
+    // SECURITY (2026-10-05, PATHS-1): the rule is now the one every setter
+    // shares (services/zomboidDataPath.js): a folder that doesn't exist yet is
+    // accepted (the game creates it on first start; POST / and the install
+    // routes save one, and this route then refused every later edit of that
+    // profile), and an existing one must really be a data folder -- not
+    // merely have "zomboid" in its path. Judged when the value changes, and
+    // when a remote profile turns local (its folder was never checked here):
+    // the edit dialog sends the whole record back, and an unchanged folder
+    // is judged again where it is used. Errors echo only the caller's own
+    // value, never its %VAR% expansion (env-var-expansion-oracle,
+    // 2026-09-05).
+    if (updates.zomboidDataPath === null) updates.zomboidDataPath = "";
+    if (updates.zomboidDataPath !== undefined || updates.isRemote !== undefined) {
+      const stored = await getServer(serverId);
+      const nextIsRemote =
+        updates.isRemote !== undefined ? updates.isRemote === true : Boolean(stored?.isRemote);
+      const nextDataPath =
+        updates.zomboidDataPath !== undefined ? updates.zomboidDataPath : stored?.zomboidDataPath;
+      const dataPathChanged =
+        updates.zomboidDataPath !== undefined &&
+        String(updates.zomboidDataPath) !== String(stored?.zomboidDataPath ?? "");
+      const becomesLocal = Boolean(stored?.isRemote) && !nextIsRemote;
+      if (!nextIsRemote && nextDataPath && (dataPathChanged || becomesLocal)) {
+        const dataPathCheck = checkZomboidDataPath(nextDataPath);
+        if (!dataPathCheck.ok) {
+          return res.status(400).json(dataPathCheck.body);
         }
-        let isDir = false;
-        try {
-          isDir = fs.statSync(resolved).isDirectory();
-        } catch {
-          isDir = false;
+        if (updates.zomboidDataPath !== undefined) {
+          updates.zomboidDataPath = dataPathCheck.path;
         }
-        if (!isDir) {
-          return res.status(400).json({
-            error: `Zomboid data path is not a directory: ${updates.zomboidDataPath}`,
-          });
+      }
+    }
+
+    // FILES-2: see serverConfigPathIsConfined(). Judged against the data
+    // folder the profile will have after this edit, whenever either folder
+    // changes -- the edit dialog sends the whole record back, so an
+    // unchanged pair is left alone. Moving or clearing the data folder
+    // judges the stored config folder again: clearing it used to leave a
+    // config folder with nothing to hold it to, which Server Files then
+    // let through (FILES-2 adversary pass 2).
+    if (updates.serverConfigPath !== undefined || updates.zomboidDataPath !== undefined) {
+      const stored = await getServer(serverId);
+      if (stored) {
+        const changed = (key) =>
+          updates[key] !== undefined && String(updates[key] ?? "") !== String(stored[key] ?? "");
+        const nextConfigPath =
+          updates.serverConfigPath !== undefined ? updates.serverConfigPath : stored.serverConfigPath;
+        const nextDataPath =
+          updates.zomboidDataPath !== undefined ? updates.zomboidDataPath : stored.zomboidDataPath;
+        if (
+          nextConfigPath &&
+          (changed("serverConfigPath") || changed("zomboidDataPath")) &&
+          !serverConfigPathIsConfined(nextConfigPath, nextDataPath)
+        ) {
+          return res.status(400).json(serverConfigPathRefusal());
         }
-        const verdict = inspectZomboidPath(resolved);
-        if (!verdict.ok) {
-          return res.status(400).json({
-            error:
-              verdict.reason === "install-folder"
-                ? "This folder looks like a Project Zomboid server install, not a user data folder. Point at the Zomboid user data folder instead."
-                : "This doesn't look like a Project Zomboid data folder (no Saves/Multiplayer directory or save files found there).",
-          });
-        }
-        updates.zomboidDataPath = resolved;
       }
     }
 
@@ -1777,14 +1896,28 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
       // bug being fixed, one layer over -- found by a same-night audit
       // before this shipped). The real toggle is the UPnP= line in the
       // server's own .ini, the same one /configure-network writes -- reused
-      // here via applyUpnpToIni() rather than duplicated.
+      // here via applyUpnpToIni() rather than duplicated. PATHS-2: only
+      // into a config folder the record's own data folder holds, and only
+      // while that data folder meets the data-folder rule (a remote
+      // server's is never judged when saved -- PATHS-1 verifier pass 2).
+      const upnpConfig = server.serverConfigPath ? serverConfigDirOf(server) : null;
       if (
         Object.prototype.hasOwnProperty.call(updates, "useUpnp") &&
-        server.serverConfigPath &&
+        upnpConfig?.refused
+      ) {
+        reloadWarnings.push(
+          upnpConfig.reason === "data-folder"
+            ? "UPnP setting saved, but not written to the server config: its Zomboid data folder holds files the game doesn't keep in a data folder. Fix the data folder, then edit UPnP again."
+            : "UPnP setting saved, but not written to the server config: its config folder is outside its Zomboid data folder. Fix the config folder, then edit UPnP again.",
+        );
+      }
+      if (
+        Object.prototype.hasOwnProperty.call(updates, "useUpnp") &&
+        upnpConfig?.dir &&
         server.serverName
       ) {
         const result = await applyUpnpToIni(
-          server.serverConfigPath,
+          upnpConfig.dir,
           server.serverName,
           updates.useUpnp,
         );
@@ -1866,7 +1999,7 @@ router.delete("/:id", requirePermission("servers.manage"), async (req, res) => {
           );
         }
         if (io) {
-          io.emit("activeServerChanged", { server: sanitizeServerResponse(newActiveServer) });
+          io.emit("activeServerChanged", { server: activeServerSummary(newActiveServer) });
         }
       } else if (io) {
         // No servers left at all.
@@ -1886,6 +2019,27 @@ router.delete("/:id", requirePermission("servers.manage"), async (req, res) => {
     lifecycleLock.release();
   }
 });
+
+// SECURITY (2026-10-04, PR #193 review): activeServerChanged goes to every
+// signed-in socket, whatever its role, and carried the whole server record:
+// install, data and config folders, start command, RCON host and port,
+// masked passwords. It now names the new active server and carries only
+// what the page that reads the payload uses (Dashboard: id, serverName,
+// maxMemory, and isRemote plus the Docker container reference for
+// resolveClientProvider()); a page that needs the record reads GET
+// /api/servers.
+export function activeServerSummary(server) {
+  return {
+    id: server.id,
+    name: server.name,
+    serverName: server.serverName,
+    isActive: Boolean(server.isActive),
+    isRemote: Boolean(server.isRemote),
+    dockerContainerName: server.dockerContainerName || null,
+    dockerContainerId: server.dockerContainerId || null,
+    maxMemory: server.maxMemory,
+  };
+}
 
 // Reload the live in-memory services (serverManager, RCON, PanelBridge,
 // LogTailer) to match `server` becoming the active one. Shared by
@@ -2025,7 +2179,7 @@ router.post("/:id/activate", requirePermission("servers.manage"), async (req, re
 
     // Emit to clients that active server changed
     if (io) {
-      io.emit("activeServerChanged", { server: sanitizeServerResponse(server) });
+      io.emit("activeServerChanged", { server: activeServerSummary(server) });
     }
 
     log.info(`Activated server: ${server.name} (ID: ${server.id})`);

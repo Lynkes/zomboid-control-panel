@@ -94,20 +94,23 @@ describe("GET /backups: orders by each backup's own embedded timestamp, not fs b
   let backupDir;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-backups-order-"));
+    // PATHS-2: a config folder is used only inside <data folder>/Server.
+    tmpDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "zcp-backups-order-")), "Server");
+    fs.mkdirSync(tmpDir);
     backupDir = path.join(tmpDir, "backups");
     fs.mkdirSync(backupDir);
     getActiveServer.mockReset();
     getAllSettings.mockReset();
     getAllSettings.mockResolvedValue({});
     getActiveServer.mockResolvedValue({
+      zomboidDataPath: path.dirname(tmpDir),
       serverConfigPath: tmpDir,
       serverName: "TestServer",
     });
   });
 
   afterEach(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.rmSync(path.dirname(tmpDir), { recursive: true, force: true });
   });
 
   it("ranks the higher collision suffix as newer even when its real fs birthtime is EARLIER than the plain file's", async () => {

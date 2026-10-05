@@ -3,6 +3,8 @@ import os from "os";
 import path from "path";
 import { getActiveServer, getAllSettings } from "../database/init.js";
 import { createLogger } from "../utils/logger.js";
+import { activeServerConfigDir, serverConfigDirRefusal } from "../utils/serverConfigPath.js";
+import { describeRefusal, logRefusalOnce, zomboidDataFolderHolds } from "./zomboidDataPath.js";
 import {
   SFTP_CONFIG_PATH_KEY,
   findRemoteWorldSandboxSnapshot,
@@ -94,10 +96,18 @@ export function localGameDataDir({ activeServer, legacyDataPath, serverConfigPat
 
 // <data folder>/Saves/Multiplayer/<server>/map_sand.bin for a local server,
 // null for a remote one (checked over SFTP) or when the place can't be told.
+//
+// The data folder is held to the data-folder rule (services/zomboidDataPath.js,
+// PATHS-1) here, where every caller gets the path it stats or moves the file
+// from: a folder the rule refuses gives null, so nothing under it is
+// touched. That covers each folder localGameDataDir() can pick (the
+// record's, the legacy setting's, the game's default folder, the config
+// folder's parent), not only the data folder in effect that Server Files'
+// gate judges.
 export function localWorldSandboxSnapshotPath(context) {
   if (context?.activeServer?.isRemote || !isServerFolderName(context?.serverName)) return null;
   const dataDir = localGameDataDir(context);
-  if (!dataDir) return null;
+  if (!dataDir || !zomboidDataFolderHolds(dataDir)) return null;
   return path.join(dataDir, "Saves", "Multiplayer", context.serverName, WORLD_SANDBOX_SNAPSHOT_FILE);
 }
 
@@ -134,9 +144,10 @@ function remoteConfigTransport(settings) {
  * null. For the callers outside Server Config's request pipeline (the
  * PanelBridge routes, the scheduler), which resolve the active server the
  * way Server Config does: a local world by its data folder
- * (localGameDataDir), a remote one over SFTP (the same check as the config
- * pull). A check that fails reads as "none", as the Server Config warning
- * does, so the bridge is never told to write a file the panel didn't see.
+ * (localGameDataDir), under the folder rules Server Config's gate applies,
+ * a remote one over SFTP (the same check as the config pull). A check that
+ * fails or is refused reads as "none", as the Server Config warning does, so
+ * the bridge is never told to write a file the panel didn't see.
  */
 export async function findActiveWorldSandboxSnapshot() {
   try {
@@ -166,19 +177,24 @@ export async function findActiveWorldSandboxSnapshot() {
       }
     }
 
-    // Server Config's config folder (serverFiles.js getActiveServerPaths),
-    // which only matters when no data folder is set.
-    const serverConfigPath =
-      activeServer?.serverConfigPath ||
-      (activeServer?.zomboidDataPath && path.join(activeServer.zomboidDataPath, "Server")) ||
-      settings.serverConfigPath ||
-      (settings.zomboidDataPath && path.join(settings.zomboidDataPath, "Server")) ||
-      null;
+    // Server Config's config folder, judged as Server Files' gate judges it
+    // (utils/serverConfigPath.js, FILES-2/PATHS-1/PATHS-2): a config folder
+    // outside the data folder in effect, or a data folder that fails the
+    // data-folder rule, is refused there, so its world save isn't looked at
+    // here either and the bridge is told nothing about one.
+    const configDir = activeServerConfigDir(activeServer, settings);
+    if (configDir.refused) {
+      logRefusalOnce(
+        log,
+        `Not checking the world save for map_sand.bin: ${describeRefusal(serverConfigDirRefusal(configDir))}`,
+      );
+      return null;
+    }
     return await statLocalWorldSandboxSnapshot(
       localWorldSandboxSnapshotPath({
         activeServer,
         legacyDataPath: settings.zomboidDataPath,
-        serverConfigPath,
+        serverConfigPath: configDir.dir,
         serverName,
       }),
     );

@@ -645,7 +645,7 @@
     "resettingButton": "Redefinindo...",
     "resetAndSignOutButton": "Redefinir senha e sair",
     "recoveryRemoteIntro1": "O painel não consegue mostrar senhas existentes. Se você ainda tem acesso ao sistema de arquivos do host do painel, saia e crie <code>data/reset-token.txt</code> ou inicie o painel com <code>--reset-password</code>.",
-    "recoveryRemoteIntro2": "Assim que o arquivo de token existir, a tela de login vai mostrar uma opção de recuperação para você definir uma nova senha de admin sem saber a antiga.",
+    "recoveryRemoteIntro2": "Coloque nesse arquivo um token hexadecimal aleatório de pelo menos 32 caracteres feito por um gerador como o openssl rand -hex 24 (palavras, frases e sequências de números são recusadas); depois abra a recuperação de conta na tela de login e insira-o como token de recuperação para definir uma nova senha de admin sem saber a antiga.",
     "regenerateJwt": {
       "cardTitle": "Regenerar segredo JWT",
       "cardDesc": "Encerra imediatamente a sessão de todos os usuários em todos os dispositivos, inclusive a sua — os tokens de acesso e de renovação de todas as sessões atuais param de funcionar na hora. Use isto somente se um backup com a chave de assinatura antiga puder ter vazado; não é uma ação de rotina e não há rotação automática.",
@@ -1172,5 +1172,8 @@
     "couldNotResetPassword": "Não foi possível redefinir sua senha a partir deste servidor.",
     "never": "Nunca",
     "unknown": "Desconhecido"
+  },
+  "hiddenByRole": {
+    "reason": "Oculto: ver este valor requer a permissão {{permission}}, que este cargo não tem."
   }
 }

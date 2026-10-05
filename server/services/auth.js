@@ -54,6 +54,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { createLogger } from "../utils/logger.js";
+import { escapeLogText } from "../utils/logText.js";
 import { getSetting, setSetting, getDb, commitNow } from "../database/init.js";
 import { verifySetupToken, clearSetupToken } from "../utils/setupToken.js";
 import {
@@ -132,8 +133,8 @@ export const ACCESS_TOKEN_EXPIRY = "15m";
 const REFRESH_TOKEN_EXPIRY = "30d";
 const REFRESH_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_REFRESH_SESSIONS = 5;
-const MAX_FAILED_LOGINS = 10;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
+export const MAX_FAILED_LOGINS = 10;
+export const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 // Fixed dummy hash used to keep the "user not found" branch of login() at the
 // same cost as the "user found, wrong password" branch (bcrypt.compare is the
 // expensive step, ~200-300ms at BCRYPT_ROUNDS). Without this, an attacker can
@@ -273,6 +274,236 @@ async function assertNoCapabilityEscalation(actingUserId, targetCapabilities) {
   }
 }
 
+// Failed password sign-ins, counted per (account, client address) -- not
+// per account. A per-account lock (what this used to be: 10 failures
+// locked the account for 15 minutes, for everyone) let anyone who knew a
+// username keep that account locked out for good, admin included, from a
+// single address, and it blocked SSO sign-in too. Counting per client
+// address means MAX_FAILED_LOGINS wrong passwords from one address pause
+// that address's attempts on that account, while the owner signing in
+// from anywhere else is not affected. The tradeoff is the usual one: many
+// addresses each get MAX_FAILED_LOGINS guesses per window (on top of
+// routes/auth.js's per-address loginLimiter), which a strong password
+// absorbs and an account lock nobody can get out of does not.
+//
+// Kept in memory, not in db.json: the old lock wrote the database on
+// every failed attempt, and a restart forgetting a pause harms nobody.
+// Bounded by MAX_LOGIN_THROTTLE_ENTRIES, and only accounts that exist get
+// an entry.
+//
+// An attempt is counted when it starts, before the bcrypt compare, not
+// when it fails: checking a lock and then comparing for ~250ms let any
+// number of concurrent guesses all pass the check before the first failure
+// was written, so a burst got far more than MAX_FAILED_LOGINS tries.
+//
+// SECURITY (2026-10-05, A1): a browser that signed in before is counted on
+// its own, not by address -- see the trusted-device notes below
+// (deviceLoginThrottle). Without that, someone with about
+// MAX_LOGIN_THROTTLE_ENTRIES addresses (cheap with IPv6) could fill this
+// table and keep the overflow entry paused, so the owner signing in from a
+// new address was refused; and where every client arrives from one address
+// (a proxy or tunnel without TRUST_PROXY, Docker's bridge gateway for IPv6),
+// the per-address count was account-wide anyway.
+let MAX_LOGIN_THROTTLE_ENTRIES = 10000;
+const loginThrottle = new Map();
+
+function loginThrottleKey(userId, clientKey) {
+  return `${userId}\u0000${clientKey || "unknown"}`;
+}
+
+// Where a new address's attempts are counted once the table is full of
+// entries that still matter (see reserveLoginAttempt()). Not an address.
+const OVERFLOW_CLIENT_KEY = "\u0001overflow";
+
+function newThrottleEntry() {
+  return { failures: 0, inFlight: 0, lockedUntil: 0, lastFailureAt: 0 };
+}
+
+// Nothing in flight, not paused, no failure within the window: nothing
+// depends on this entry any more.
+function isStaleThrottleEntry(entry, now) {
+  return (
+    entry.inFlight === 0 &&
+    entry.lockedUntil <= now &&
+    now - entry.lastFailureAt > LOCKOUT_DURATION_MS
+  );
+}
+
+// Drops only stale entries. It used to drop the oldest other entries too
+// when that wasn't enough, paused ones included, so an attacker with about
+// MAX_LOGIN_THROTTLE_ENTRIES / (number of accounts) addresses could cycle
+// them and give each address a fresh count -- roughly loginLimiter's 5
+// guesses a minute per address instead of MAX_FAILED_LOGINS per window
+// (security sweep 2026-10-04, adversary pass).
+function pruneLoginThrottle(now) {
+  if (loginThrottle.size < MAX_LOGIN_THROTTLE_ENTRIES) return;
+  for (const [key, entry] of loginThrottle) {
+    if (isStaleThrottleEntry(entry, now)) loginThrottle.delete(key);
+  }
+}
+
+// Counts one attempt against `entry` if the client may try now.
+function admitLoginAttempt(entry, now) {
+  if (entry.lockedUntil > now) return false;
+  if (entry.lockedUntil && entry.lockedUntil <= now) entry.lockedUntil = 0;
+  if (entry.failures > 0 && now - entry.lastFailureAt > LOCKOUT_DURATION_MS) {
+    entry.failures = 0;
+  }
+  if (entry.failures + entry.inFlight >= MAX_FAILED_LOGINS) return false;
+  entry.inFlight += 1;
+  return true;
+}
+
+// Counts one attempt for this (account, client) and returns { entry,
+// forget }, or null when the client must not try this account right now.
+// When the table is still full after pruning, a client with no entry of its
+// own shares the account's overflow entry: all such addresses together get
+// MAX_FAILED_LOGINS per window, and a client that already has an entry is
+// not affected.
+function reserveLoginAttempt(userId, clientKey, now = Date.now()) {
+  let key = loginThrottleKey(userId, clientKey);
+  let entry = loginThrottle.get(key);
+  if (!entry) {
+    pruneLoginThrottle(now);
+    if (loginThrottle.size >= MAX_LOGIN_THROTTLE_ENTRIES) {
+      key = loginThrottleKey(userId, OVERFLOW_CLIENT_KEY);
+      entry = loginThrottle.get(key);
+    }
+  }
+  if (!entry) {
+    entry = newThrottleEntry();
+    loginThrottle.set(key, entry);
+  }
+  if (!admitLoginAttempt(entry, now)) return null;
+  return { entry, forget: () => loginThrottle.delete(key) };
+}
+
+// SECURITY (2026-10-05, A1): trusted devices (OWASP "device cookies").
+// A successful sign-in hands the browser a device token (issueDeviceToken()
+// below) that it sends with later attempts on the same account. An attempt
+// carrying a valid one is counted here, under that device's own entry with
+// its own MAX_FAILED_LOGINS window -- never under the address or overflow
+// entry above -- so neither a full address table nor an address shared with
+// strangers can refuse a browser that signed in before. A stolen device
+// token is worth exactly one more address to an attacker: one entry, the
+// same MAX_FAILED_LOGINS per window, and routes/auth.js's loginLimiter
+// gives it its own per-minute budget the same way.
+//
+// Kept apart from loginThrottle so strangers can't crowd it out, and bounded
+// per account: only holders of a valid token for an account can add entries
+// to that account's map, so one account's holders (say, a moderator minting
+// tokens for their own account) can't fill the room another account's
+// devices need. Like the address table, a full map never forgets a pause: a
+// device with no entry of its own then shares the account's device overflow
+// entry.
+let MAX_DEVICE_THROTTLE_ENTRIES_PER_ACCOUNT = 100;
+const deviceLoginThrottle = new Map(); // userId -> Map(deviceId -> entry)
+const DEVICE_OVERFLOW_ID = "\u0001overflow";
+
+function reserveDeviceLoginAttempt(userId, deviceId, now = Date.now()) {
+  let devices = deviceLoginThrottle.get(userId);
+  if (!devices) {
+    devices = new Map();
+    deviceLoginThrottle.set(userId, devices);
+  }
+  let id = deviceId;
+  let entry = devices.get(id);
+  if (!entry && devices.size >= MAX_DEVICE_THROTTLE_ENTRIES_PER_ACCOUNT) {
+    for (const [key, candidate] of devices) {
+      if (isStaleThrottleEntry(candidate, now)) devices.delete(key);
+    }
+    if (devices.size >= MAX_DEVICE_THROTTLE_ENTRIES_PER_ACCOUNT) {
+      id = DEVICE_OVERFLOW_ID;
+      entry = devices.get(id);
+    }
+  }
+  if (!entry) {
+    entry = newThrottleEntry();
+    devices.set(id, entry);
+  }
+  if (!admitLoginAttempt(entry, now)) return null;
+  return {
+    entry,
+    forget: () => {
+      devices.delete(id);
+      if (devices.size === 0 && deviceLoginThrottle.get(userId) === devices) {
+        deviceLoginThrottle.delete(userId);
+      }
+    },
+  };
+}
+
+// How long a device token stays valid. Every successful sign-in, and every
+// refresh of a kept-signed-in session, hands out a fresh one, so this only
+// runs out for a browser nobody used for that long.
+export const DEVICE_TOKEN_LIFETIME_MS = 90 * 24 * 60 * 60 * 1000;
+const DEVICE_TOKEN_MAX_LENGTH = 1024;
+const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/;
+
+function newDeviceId() {
+  return crypto.randomBytes(16).toString("base64url");
+}
+
+function isDeviceId(value) {
+  return typeof value === "string" && DEVICE_ID_PATTERN.test(value);
+}
+
+// Records how a reserved attempt ended. Returns true when this failure
+// paused the client.
+function settleLoginAttempt({ entry, forget }, succeeded, now = Date.now()) {
+  entry.inFlight = Math.max(0, entry.inFlight - 1);
+  if (succeeded) {
+    entry.failures = 0;
+    entry.lockedUntil = 0;
+    if (entry.inFlight === 0) forget();
+    return false;
+  }
+  entry.failures += 1;
+  entry.lastFailureAt = now;
+  if (entry.failures >= MAX_FAILED_LOGINS) {
+    entry.lockedUntil = now + LOCKOUT_DURATION_MS;
+    entry.failures = 0;
+    return true;
+  }
+  return false;
+}
+
+// Every pause on one account, whichever address it was for: setting a new
+// password through reset/recovery is the documented way back in, so it has
+// to clear the pause its owner may have caused themselves by forgetting it.
+function clearLoginThrottleForUser(userId) {
+  const prefix = `${userId}\u0000`;
+  for (const key of [...loginThrottle.keys()]) {
+    if (key.startsWith(prefix)) loginThrottle.delete(key);
+  }
+  deviceLoginThrottle.delete(userId);
+}
+
+// Account-wide lock fields from before the throttle above. Never read now;
+// removed whenever the row is written for a sign-in or reset.
+function clearLegacyAccountLock(user) {
+  delete user.failedLoginCount;
+  delete user.lockedUntil;
+}
+
+// For tests only.
+export function _resetLoginThrottleForTests() {
+  loginThrottle.clear();
+  deviceLoginThrottle.clear();
+  MAX_LOGIN_THROTTLE_ENTRIES = 10000;
+  MAX_DEVICE_THROTTLE_ENTRIES_PER_ACCOUNT = 100;
+}
+
+// For tests only: a small table, so filling it doesn't take 10000 logins.
+export function _setLoginThrottleCapacityForTests(capacity) {
+  MAX_LOGIN_THROTTLE_ENTRIES = capacity;
+}
+
+// For tests only: the same for one account's trusted devices.
+export function _setDeviceThrottleCapacityForTests(capacity) {
+  MAX_DEVICE_THROTTLE_ENTRIES_PER_ACCOUNT = capacity;
+}
+
 // Session-revocation event bus. Socket.IO connections authenticate once at
 // handshake (index.js's io.use middleware) and are never re-validated per
 // event, so the tokenGen/secret/role/deletion checks below -- all of which
@@ -361,7 +592,14 @@ class AuthService {
       .slice(-MAX_REFRESH_SESSIONS);
   }
 
-  createRefreshSession(user) {
+  // deviceId: SECURITY (2026-10-05, A1), the trusted-device id this session
+  // hands out (issueDeviceToken()). refreshAccessToken() passes the old
+  // session's on, so a session keeps one device id for its whole life. Each
+  // refresh used to mint a new one, so whoever held a session cookie could
+  // collect a fresh failed-sign-in budget per refresh -- up to the
+  // per-account device table's size -- and fill that table with paused
+  // entries.
+  createRefreshSession(user, { deviceId } = {}) {
     this.ensureUserAuthState(user);
 
     const timestamp = new Date().toISOString();
@@ -370,6 +608,7 @@ class AuthService {
       createdAt: timestamp,
       lastUsedAt: timestamp,
       expiresAt: new Date(Date.now() + REFRESH_TOKEN_LIFETIME_MS).toISOString(),
+      deviceId: isDeviceId(deviceId) ? deviceId : newDeviceId(),
     };
 
     user.refreshSessions.push(session);
@@ -641,6 +880,11 @@ class AuthService {
       await commitNow();
 
       log.info(`User created: ${username} (role: ${resolvedRole})`);
+      // The panel just stopped being open to everyone: a socket that
+      // connected before any account existed carries no identity at all,
+      // and it would otherwise stay connected and keep every broadcast
+      // after setup locked the HTTP side.
+      if (isFirstUser) emitSessionRevoked({ scope: "all" });
       return { id: user.id, username: user.username, role: user.role };
     });
   }
@@ -859,10 +1103,133 @@ class AuthService {
     }));
   }
 
+  // SECURITY (2026-10-05, A1): trusted-device tokens -- see the
+  // deviceLoginThrottle comment at the top of this file for what they
+  // change. A JWT signed with a key derived from the JWT secret, never the
+  // secret itself, so a device token can't pass as an access or refresh
+  // token (and rotating the JWT secret retires every device token too). It
+  // carries a random id (jti), the account's id, the issue time (iat), an
+  // expiry, and a stamp of the account's current password hash: changing,
+  // resetting or recovering the password writes a new hash (new salt, even
+  // for the same password), so every device token issued before stops
+  // counting. Sent back by the client in the login request body, not as a
+  // cookie: a cross-site page can't attach it to a forged sign-in to spend
+  // the device's attempts, and nothing about CORS or cookie flags changes.
+  _deviceTokenKey() {
+    return crypto
+      .createHmac("sha256", String(this.jwtSecret))
+      .update("zcp-trusted-device-token-v1")
+      .digest("hex");
+  }
+
+  _devicePasswordStamp(user, key) {
+    return crypto
+      .createHmac("sha256", key)
+      .update(`password:${user.password || ""}`)
+      .digest("base64url")
+      .slice(0, 22);
+  }
+
+  // deviceId: the id to put in the token; a new random one when it's
+  // missing. A kept-signed-in session reuses its own (see
+  // createRefreshSession()).
+  issueDeviceToken(user, deviceId) {
+    if (!this.jwtSecret || !user?.id) return null;
+    const key = this._deviceTokenKey();
+    return jwt.sign(
+      {
+        type: "device",
+        userId: user.id,
+        pwd: this._devicePasswordStamp(user, key),
+      },
+      key,
+      {
+        algorithm: "HS256",
+        expiresIn: Math.floor(DEVICE_TOKEN_LIFETIME_MS / 1000),
+        jwtid: isDeviceId(deviceId) ? deviceId : newDeviceId(),
+      },
+    );
+  }
+
   /**
-   * Authenticate user and return tokens
+   * A device token for the browser that just set an account's password
+   * while signed in (POST /change-password) or rotated the JWT secret: both
+   * retire every device token the account had, this browser's included, and
+   * sign it out. Without a fresh one its next sign-in was counted by
+   * address -- the very count a stranger may be keeping paused, so an owner
+   * who changed the password because of a guessing attack was refused from
+   * the browser they had just used (security sweep 2026-10-05, A1).
    */
-  async login(username, password, rememberMe = true) {
+  async issueDeviceTokenForUserId(userId) {
+    const db = await getDb();
+    const user = (db.data.users || []).find((u) => u.id === userId);
+    return user ? this.issueDeviceToken(user) : null;
+  }
+
+  /**
+   * The device id a sign-in attempt on `user` is counted under, or null
+   * when deviceToken is missing, malformed, expired, issued for another
+   * account or from before the account's current password -- those attempts
+   * are counted by address, the same as a browser that never signed in.
+   * Synchronous on purpose: login() reserves the attempt right after this,
+   * with nothing awaited in between.
+   */
+  trustedDeviceId(user, deviceToken) {
+    if (
+      !user ||
+      !this.jwtSecret ||
+      typeof deviceToken !== "string" ||
+      !deviceToken ||
+      deviceToken.length > DEVICE_TOKEN_MAX_LENGTH
+    ) {
+      return null;
+    }
+    try {
+      const key = this._deviceTokenKey();
+      const payload = jwt.verify(deviceToken, key, { algorithms: ["HS256"] });
+      if (
+        !payload ||
+        typeof payload !== "object" ||
+        payload.type !== "device" ||
+        payload.userId !== user.id ||
+        typeof payload.jti !== "string" ||
+        !DEVICE_ID_PATTERN.test(payload.jti) ||
+        payload.pwd !== this._devicePasswordStamp(user, key)
+      ) {
+        return null;
+      }
+      return payload.jti;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * trustedDeviceId() for the account a sign-in names, for routes/auth.js's
+   * loginLimiter, which runs before login() and only has the request body.
+   */
+  async trustedDeviceIdForUsername(username, deviceToken) {
+    if (typeof username !== "string" || !username) return null;
+    if (typeof deviceToken !== "string" || !deviceToken) return null;
+    const db = await getDb();
+    const user = (db.data.users || []).find(
+      (u) => u.username.toLowerCase() === username.toLowerCase(),
+    );
+    return user ? this.trustedDeviceId(user, deviceToken) : null;
+  }
+
+  /**
+   * Authenticate user and return tokens.
+   *
+   * clientKey identifies where the attempt came from (routes/auth.js passes
+   * the client address) -- failed attempts are counted per account AND
+   * client, see the loginThrottle comment at the top of this file. Callers
+   * that pass none share one "unknown" client. deviceToken is the one this
+   * browser got from an earlier successful sign-in, if any: a valid one
+   * counts the attempt under that device instead of the address. The result
+   * carries a fresh deviceToken for the browser to keep.
+   */
+  async login(username, password, rememberMe = true, { clientKey, deviceToken } = {}) {
     if (!username || !password) {
       throw new Error("Username and password are required");
     }
@@ -882,51 +1249,54 @@ class AuthService {
       throw new Error("Invalid username or password");
     }
 
-    // Account lockout: reject early if the account is currently locked.
-    // Generic error message keeps username enumeration impossible. Also run
-    // the dummy compare here so a locked account doesn't become a distinct,
-    // faster timing signature from a normal wrong-password attempt.
-    const lockedUntil = user.lockedUntil ? Date.parse(user.lockedUntil) : 0;
-    if (lockedUntil && lockedUntil > Date.now()) {
+    // Counted before the compare, with nothing awaited in between, so a
+    // burst of concurrent guesses can't all get past this check first.
+    // Paused: same generic error, and the dummy compare so a paused client
+    // doesn't get a distinct, faster timing signature from a normal
+    // wrong-password attempt.
+    const deviceId = this.trustedDeviceId(user, deviceToken);
+    const reserved = deviceId
+      ? reserveDeviceLoginAttempt(user.id, deviceId)
+      : reserveLoginAttempt(user.id, clientKey);
+    if (!reserved) {
       await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
       throw new Error("Invalid username or password");
     }
+    const attempt = reserved.entry;
 
     // OIDC-only accounts (bootstrapped via bootstrapAdminFromExternalIdentity)
     // have no local password hash. Still run the dummy compare so this
     // branch costs the same as a real wrong-password attempt.
     let valid;
-    if (user.password) {
-      valid = await bcrypt.compare(password, user.password);
-    } else {
-      await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
-      valid = false;
-    }
-    if (!valid) {
-      user.failedLoginCount = (user.failedLoginCount || 0) + 1;
-      if (user.failedLoginCount >= MAX_FAILED_LOGINS) {
-        user.lockedUntil = new Date(
-          Date.now() + LOCKOUT_DURATION_MS,
-        ).toISOString();
-        user.failedLoginCount = 0;
-        log.warn(
-          `Account locked due to repeated failed logins: ${user.username}`,
-        );
+    try {
+      if (user.password) {
+        valid = await bcrypt.compare(password, user.password);
+      } else {
+        await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
+        valid = false;
       }
-      try {
-        await commitNow();
-      } catch (error) {
-        // Losing this write silently would let brute-force lockout state vanish.
-        log.error(
-          `Failed to persist failed-login state for ${user.username}: ${error.message}`,
+    } catch (error) {
+      settleLoginAttempt(reserved, false);
+      throw error;
+    }
+    // Re-checked after the compare: a pause that began while this attempt
+    // was being checked still refuses it.
+    if (!valid || attempt.lockedUntil > Date.now()) {
+      if (settleLoginAttempt(reserved, false)) {
+        // SECURITY (2026-10-05, H2): behind TRUST_PROXY the address is the
+        // X-Forwarded-For value as sent, so it is escaped for the log line.
+        const from = clientKey ? escapeLogText(clientKey) : "an unknown address";
+        log.warn(
+          `Sign-in to ${user.username} ${
+            deviceId ? `from a browser that signed in before (now at ${from})` : `from ${from}`
+          } paused for ${LOCKOUT_DURATION_MS / 60000} minutes after ${MAX_FAILED_LOGINS} failed attempts`,
         );
       }
       throw new Error("Invalid username or password");
     }
 
-    // Successful auth — clear lockout state.
-    user.failedLoginCount = 0;
-    user.lockedUntil = null;
+    settleLoginAttempt(reserved, true);
+    clearLegacyAccountLock(user);
 
     this.ensureUserAuthState(user);
 
@@ -941,13 +1311,18 @@ class AuthService {
       ? this.generateRefreshToken(user, refreshSession.id)
       : null;
 
-    log.info(`User logged in: ${username}`);
+    // The stored name (letters, digits, _ and - only), not the one typed,
+    // which only has to match it ignoring case -- U+212A KELVIN SIGN
+    // lower-cases to "k" -- so the log names the account exactly
+    // (SECURITY 2026-10-05, H2: no request text in log lines unescaped).
+    log.info(`User logged in: ${user.username}`);
     // UX-only field -- see getCapabilitiesForRole()'s doc comment.
     const capabilities = await getCapabilitiesForRole(user.role);
     return {
       user: { id: user.id, username: user.username, role: user.role, capabilities },
       accessToken,
       refreshToken,
+      deviceToken: this.issueDeviceToken(user, refreshSession?.deviceId),
     };
   }
 
@@ -1030,7 +1405,8 @@ class AuthService {
         throw new Error("Refresh token session is missing");
       }
 
-      if (!this.findRefreshSession(user, payload.sessionId)) {
+      const session = this.findRefreshSession(user, payload.sessionId);
+      if (!session) {
         // sweep-round4: distinguish "kicked for capacity" from every other
         // reason this id could be missing (expired / revoked / forged) --
         // see findCapacityEvictionReason()'s own comment for why those three
@@ -1045,7 +1421,10 @@ class AuthService {
       }
 
       this.revokeRefreshSession(user, payload.sessionId);
-      const newSession = this.createRefreshSession(user);
+      // The same trusted-device id as the session it replaces (see
+      // createRefreshSession()); a session stored before sessions had one
+      // gets a new one here and keeps it from then on.
+      const newSession = this.createRefreshSession(user, { deviceId: session.deviceId });
       await commitNow();
 
       const accessToken = this.generateAccessToken(user);
@@ -1056,6 +1435,12 @@ class AuthService {
         user: { id: user.id, username: user.username, role: user.role, capabilities },
         accessToken,
         refreshToken: newRefreshToken,
+        // SECURITY (2026-10-05, A1): a kept-signed-in browser, and one that
+        // just came back from SSO (oidc.js's callback can only redirect, so
+        // the client's first refresh is where it gets one), keeps a current
+        // device token for when it next has to type the password -- always
+        // with its session's device id.
+        deviceToken: this.issueDeviceToken(user, newSession.deviceId),
       };
     } catch (error) {
       // Every failure returns null (the pre-existing, deliberately
@@ -1167,7 +1552,7 @@ class AuthService {
 
       if (matches.length > 1) {
         log.error(
-          `Refusing OIDC login: identity ${issuer}/${subject} is linked to multiple accounts`,
+          `Refusing OIDC login: identity ${escapeLogText(issuer)}/${escapeLogText(subject)} is linked to multiple accounts`,
         );
         throw new Error("External identity is linked to multiple accounts");
       }
@@ -1178,20 +1563,12 @@ class AuthService {
         return { linked: false, canBootstrapAdmin: users.length === 0 };
       }
 
-      // Lockout must hold across BOTH sign-in paths. login() (password) checks
-      // lockedUntil before issuing a session; without the same check here, an
-      // account locked out by repeated failed password attempts could still
-      // sign in via OIDC and read straight through the lockout the password
-      // path just enforced.
-      const lockedUntil = existing.lockedUntil
-        ? Date.parse(existing.lockedUntil)
-        : 0;
-      if (lockedUntil && lockedUntil > Date.now()) {
-        throw new Error(
-          "Account is temporarily locked due to repeated failed sign-in attempts",
-        );
-      }
-
+      // No password-guessing pause here. Failed password attempts slow down
+      // password guessing (login() above); a verified provider identity is
+      // not a password guess. This used to refuse SSO while the account was
+      // locked, which let anyone who knew the username lock its owner out of
+      // SSO too, just by typing wrong passwords.
+      clearLegacyAccountLock(existing);
       this.ensureUserAuthState(existing);
       existing.lastLogin = new Date().toISOString();
       const refreshSession = rememberMe
@@ -1296,6 +1673,9 @@ class AuthService {
       db.data.users.push(user);
       await commitNow();
       await clearSetupToken();
+      // Same as createUser()'s first account: drop every socket that
+      // connected while the panel had no accounts.
+      emitSessionRevoked({ scope: "all" });
 
       log.info(`First admin account bootstrapped via OIDC: ${username}`);
       return { id: user.id, username: user.username, role: user.role };
@@ -1475,11 +1855,21 @@ class AuthService {
     user.password = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     user.tokenGen = (user.tokenGen || 0) + 1;
     user.refreshSessions = [];
+    // Recovery (reset token, recovery code, --reset-password) is the way
+    // back in after failed sign-ins, so it lifts every pause on the
+    // account; it used to leave the lock in place, so the new password
+    // was refused too.
+    clearLegacyAccountLock(user);
+    clearLoginThrottleForUser(user.id);
     await commitNow();
 
     log.info(`Password reset for user: ${user.username}`);
     emitSessionRevoked({ scope: "user", userId: user.id });
-    return { username: user.username };
+    // SECURITY (2026-10-05, A1): the browser that did the reset (a reset
+    // token or recovery code proves as much as the new password does) keeps
+    // a device token that counts, like after POST /change-password -- see
+    // issueDeviceTokenForUserId().
+    return { username: user.username, deviceToken: this.issueDeviceToken(user) };
   }
 
   /**
@@ -1620,8 +2010,12 @@ class AuthService {
           return next();
         }
 
-        // Allow mod thumbnail proxy (also loaded via <img> tags). Only proxies
-        // Steam Workshop preview URLs already stored in our DB — no arbitrary SSRF.
+        // Allow mod thumbnail proxy (also loaded via <img> tags). Like the tile
+        // proxy above, the upstream host is fixed (Steam), so it is not an SSRF
+        // surface -- but both fetch from the internet and write a disk cache
+        // for anyone who can reach the panel, signed in or not, so whatever
+        // bounds that work (which items, how much is kept) has to live in
+        // routes/mods.js and routes/mapProxy.js themselves, not here.
         // req.user is never set for this path — routes/mods.js carves this
         // exact path out of its router-level requirePermission("mods.manage")
         // gate to match (see the comment above that router.use() there); if

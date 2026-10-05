@@ -642,7 +642,7 @@
     "resettingButton": "正在重置…",
     "resetAndSignOutButton": "重置密码并退出登录",
     "recoveryRemoteIntro1": "面板无法显示现有密码。如果仍具有面板主机的文件系统访问权限，请退出登录，然后创建 <code>data/reset-token.txt</code>，或使用 <code>--reset-password</code> 启动面板。",
-    "recoveryRemoteIntro2": "令牌文件创建后，登录页面将显示找回选项，可在不知道旧密码的情况下设置新的管理员密码。",
+    "recoveryRemoteIntro2": "在该文件中写入由生成器（如 openssl rand -hex 24）生成的、至少 32 个字符的随机十六进制令牌（单词、句子和数字序列会被拒绝），然后在登录页面打开账户找回，将其作为找回令牌输入，即可在不知道旧密码的情况下设置新的管理员密码。",
     "tipsRconTitle": "RCON 安全：",
     "tipsRconDesc": "RCON 密码存储于本地，且仅通过与服务器的 RCON 连接传输，不会外泄。",
     "tipsAdminTitle": "管理员命令：",
@@ -1158,5 +1158,8 @@
     "couldNotResetPassword": "面板无法从此服务器重置您的密码。",
     "never": "从未",
     "unknown": "未知"
+  },
+  "hiddenByRole": {
+    "reason": "已隐藏：查看此值需要 {{permission}} 权限，此角色没有该权限。"
   }
 }

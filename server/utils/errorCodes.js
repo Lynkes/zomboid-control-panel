@@ -117,19 +117,23 @@ export const ErrorCode = Object.freeze({
    * exceeds 128 characters. */
   RESET_PASSWORD_TOO_LONG: "RESET_PASSWORD_TOO_LONG",
   /** server/routes/auth.js -- POST /api/auth/reset-password, no
-   * reset-token.txt exists on disk. */
+   * reset-token.txt exists on disk. Sent only to a caller on the panel host
+   * (security sweep 2026-10-05, A2); anyone else gets RESET_TOKEN_INVALID. */
   RESET_TOKEN_NOT_FOUND: "RESET_TOKEN_NOT_FOUND",
   /** server/routes/auth.js -- POST /api/auth/reset-password,
-   * reset-token.txt exceeds the 1KB size cap. */
+   * reset-token.txt exceeds the 1KB size cap. Panel host only, as above. */
   RESET_TOKEN_TOO_LARGE: "RESET_TOKEN_TOO_LARGE",
   /** server/routes/auth.js -- POST /api/auth/reset-password,
-   * reset-token.txt is older than 24h. */
+   * reset-token.txt is older than 24h. Panel host only, as above. */
   RESET_TOKEN_EXPIRED: "RESET_TOKEN_EXPIRED",
   /** server/routes/auth.js -- POST /api/auth/reset-password,
-   * reset-token.txt content is under 8 characters. */
+   * reset-token.txt content is under RESET_TOKEN_MIN_LENGTH (32) characters.
+   * Panel host only, as above. */
   RESET_TOKEN_TOO_SHORT: "RESET_TOKEN_TOO_SHORT",
   /** server/routes/auth.js -- POST /api/auth/reset-password, submitted token
-   * does not match the stored token (timing-safe compare failed). */
+   * does not match the stored token (timing-safe compare failed); and, for a
+   * caller that isn't on the panel host, every reason the token file can't
+   * be used, so the answer never says whether one exists. */
   RESET_TOKEN_INVALID: "RESET_TOKEN_INVALID",
   /** server/routes/serverFiles.js -- ServerNotConfiguredError, thrown by the
    * router-level gate when no server is configured at all. */
@@ -507,7 +511,9 @@ export const ErrorCode = Object.freeze({
   RCON_EXECUTE_DISCONNECTED: "RCON_EXECUTE_DISCONNECTED",
 
   /** server/routes/backup.js -- POST /api/backup/create, active server is
-   * remote (SFTP-managed), so there's no local filesystem to back up. */
+   * remote (SFTP-managed), so there's no local filesystem to back up. Also
+   * GET /download/:name, GET /:name/snapshot, DELETE /:name and POST
+   * /delete-older-than (PATHS-1, 2026-10-05). */
   BACKUP_REMOTE_NOT_AVAILABLE: "BACKUP_REMOTE_NOT_AVAILABLE",
   /** server/routes/backup.js -- GET /api/backup/download/:name,
    * getBackupsPath() returned nothing (no server configured yet). */
@@ -694,7 +700,9 @@ export const ErrorCode = Object.freeze({
    * bare no-path-separators check on the already-configured server name. */
   SERVER_NAME_FORMAT_INVALID: "SERVER_NAME_FORMAT_INVALID",
   /** server/routes/server.js (sites: /install, /quick-setup) -- optional
-   * zomboidDataPath fails isValidPath(). */
+   * zomboidDataPath fails isValidPath(). Also server/services/zomboidDataPath.js
+   * (every place a data folder is saved): not an absolute path, too long,
+   * control characters, or an existing file rather than a folder. */
   ZOMBOID_DATA_PATH_INVALID: "ZOMBOID_DATA_PATH_INVALID",
   /** server/routes/server.js (sites: /install, /quick-setup,
    * /configure-network) -- serverPort isn't an integer in [1024, 65535].
@@ -2046,7 +2054,7 @@ export const ErrorCode = Object.freeze({
   CONFIG_APP_SETTINGS_REQUIRED: "CONFIG_APP_SETTINGS_REQUIRED",
   /** server/routes/config.js -- PUT /app-settings, caller tried to CHANGE a
    * settings key (rconPassword, Steam credentials, PanelBridge SFTP,
-   * discordGuildId, Workshop session cookies, ...) without holding the
+   * Workshop session cookies, ...) without holding the
    * capability that actually governs it -- panel.settings alone is not
    * enough for these. See SETTINGS_KEY_CAPABILITY in that file. */
   CONFIG_APP_SETTINGS_CAPABILITY_REQUIRED: "CONFIG_APP_SETTINGS_CAPABILITY_REQUIRED",
@@ -2463,6 +2471,91 @@ export const ErrorCode = Object.freeze({
   /** server/routes/playerCharacter.js -- GET /api/player-character/:username,
    * the character sheet couldn't be read (generic 500; no raw error text). */
   CHARACTER_SHEET_FAILED: "CHARACTER_SHEET_FAILED",
+
+  /* Discord bot config capability gate (security sweep AUTHZ-3) */
+  /** server/routes/discord.js -- PUT /config, 403, params {detail} (the
+   * missing capability keys, comma-joined). The caller changed the bot
+   * token, the guild ID, the admin role ID or the mod role ID without
+   * holding every capability of the bot commands that change unlocks --
+   * same policy as DISCORD_PERMISSIONS_CAPABILITY_REQUIRED. */
+  DISCORD_CONFIG_CAPABILITY_REQUIRED: "DISCORD_CONFIG_CAPABILITY_REQUIRED",
+  /* --- security sweep W2: auth & sessions (sec/w2-auth-sessions) --- */
+  /** server/index.js -- 403 for an /api request (or a Socket.IO handshake)
+   * whose Host header is not one of the panel's own addresses while
+   * authentication is disabled (DNS rebinding guard). */
+  HOST_NOT_ALLOWED: "HOST_NOT_ALLOWED",
+  /* --- end security sweep W2: auth & sessions --- */
+  /* Security sweep 2026-10-04, batch 7 (server paths) */
+  /** server/routes/servers.js -- POST / and PUT /:id (400): the server
+   * config folder isn't the Server folder of the server's own Zomboid data
+   * folder or a folder inside it, links followed, or there is no data
+   * folder to anchor it to (serverConfigPathIsConfined(), FILES-2). */
+  SERVER_CONFIG_PATH_OUTSIDE_DATA: "SERVER_CONFIG_PATH_OUTSIDE_DATA",
+  /* --- security sweep W3: auth (sec/w3-auth) --- */
+  /** server/routes/auth.js -- POST /api/auth/reset-password (403), sent only
+   * to a caller on the panel host: reset-token.txt is long enough but not a
+   * generator's hex output (words, sentences, other characters, all digits,
+   * hex words) or too predictable -- repeated, sequential or keyboard-pattern
+   * characters, a repeated stretch or too few different characters
+   * (utils/resetTokenStrength.js). Replaces the never-
+   * released RESET_TOKEN_BURNED: wrong tokens no longer delete the file, so
+   * the token itself has to be unguessable (security sweep 2026-10-05, A2). */
+  RESET_TOKEN_TOO_WEAK: "RESET_TOKEN_TOO_WEAK",
+  /* --- end security sweep W3: auth --- */
+  /* --- security sweep W3: server paths (sec/w3-paths) --- */
+  /** server/services/zomboidDataPath.js (400) -- a Zomboid data folder that
+   * exists but isn't one: no Saves or Multiplayer folder or save files in
+   * it, and something in it the game doesn't put in a data folder (or it is
+   * a server install folder). Sent when the folder is saved (POST/PUT
+   * /api/servers, /install, /quick-setup, create-from-discovery, chunks
+   * /save-path, PUT /config/app-settings) (PATHS-1). A stored folder that
+   * fails the rule where it is used answers ZOMBOID_DATA_FOLDER_REFUSED. */
+  ZOMBOID_DATA_PATH_NOT_DATA_FOLDER: "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER",
+  /** server/routes/server.js -- POST /api/server/console-log/clear (400):
+   * the active server is remote, so its server-console.txt is on its own
+   * host; its record's data folder isn't a folder on this computer
+   * (PATHS-1). */
+  SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE: "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE",
+  /** server/routes/server.js -- POST /api/server/wipe/preview and POST
+   * /wipe (400): the active server is remote, so its world is on its own
+   * host; its record's data folder isn't a folder on this computer
+   * (PATHS-1 verifier pass 2). */
+  WIPE_REMOTE_NOT_AVAILABLE: "WIPE_REMOTE_NOT_AVAILABLE",
+  /* --- end security sweep W3: server paths --- */
+  /* --- security sweep W4: server paths (sec/w4-paths) --- */
+  /** server/services/zomboidDataPath.js zomboidDataFolderRefusal() -- a
+   * server's stored Zomboid data folder no longer meets the data-folder rule
+   * where a feature is about to use it: chunks /browse, Server Files, backups,
+   * mods, the console log, POST /api/server/start's folderWarning and the
+   * /api/servers list's folderProblem. Says to set the folder on the Servers
+   * page; ZOMBOID_DATA_PATH_NOT_DATA_FOLDER stays the save-time refusal
+   * (PT3 verifier round 1). */
+  ZOMBOID_DATA_FOLDER_REFUSED: "ZOMBOID_DATA_FOLDER_REFUSED",
+  /** server/routes/server.js -- GET /api/server/console-log and /stream
+   * (as `refusal`) and POST /console-log/clear (400): a local server with no
+   * Zomboid data folder set, its own or the legacy one, so there is no
+   * console log to read. Says to set it on the My Servers page;
+   * SERVER_DATA_PATH_NOT_CONFIGURED's text didn't say where (PT4 verifier
+   * round 2). */
+  SERVER_CONSOLE_LOG_NO_DATA_FOLDER: "SERVER_CONSOLE_LOG_NO_DATA_FOLDER",
+  /* --- end security sweep W4: server paths --- */
+  /* --- security sweep W4: hardening (sec/w4-hardening) --- */
+  /** server/routes/discord.js -- PUT /config (403): the change turns the
+   * Discord-to-game chat relay on, or moves the channel it listens in (the
+   * relay channel, or the notification channel while none is set), and the
+   * caller doesn't hold server.world_events, which the panel's own
+   * in-game message route needs. `params.detail` names the capability
+   * (security sweep 2026-10-05, HT4b). */
+  DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED: "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED",
+  /* --- end security sweep W4: hardening --- */
+  /* --- security sweep W5: hardening (sec/w5-hardening) --- */
+  /** server/routes/discord.js -- POST /test-message (400): the bot didn't
+   * post the test message because the notification channel isn't a channel
+   * of the configured guild (another server the bot is in, or a direct
+   * message); discordBot.js _sendToChannel() sends nothing outside it
+   * (security sweep 2026-10-05, M2). */
+  DISCORD_CHANNEL_OUTSIDE_GUILD: "DISCORD_CHANNEL_OUTSIDE_GUILD",
+  /* --- end security sweep W5: hardening --- */
 });
 
 /**

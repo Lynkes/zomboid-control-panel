@@ -511,8 +511,15 @@ export default function Backups() {
     }
     // A reconnect always does: events sent while the socket was down are
     // gone for good -- a restore's end, a backup's 'complete' -- this
-    // page's own restore running or not.
-    const handleReconnect = () => { void fetchBackupStatus() }
+    // page's own restore running or not. It also has to join the backups
+    // room again: backup/restore progress goes only to sockets in it (a
+    // role without a backup capability is refused, server/index.js).
+    const subscribeBackups = () => socket.emit('subscribe:backups')
+    const handleReconnect = () => {
+      subscribeBackups()
+      void fetchBackupStatus()
+    }
+    if (socket.connected) subscribeBackups()
 
     socket.on('backup:progress', handleBackupProgress)
     socket.on('backup:deferred', handleBackupDeferred)

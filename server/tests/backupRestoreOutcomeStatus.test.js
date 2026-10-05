@@ -18,6 +18,20 @@ import archiver from "archiver";
 
 const logServerEvent = vi.fn(async () => {});
 
+// backup:progress / restore:progress / restore:finished go to the backups
+// room only (server/index.js's CAPABILITY_ROOMS), never to every socket.
+function backupRoomIo(onEmit) {
+  return {
+    emit: () => {
+      throw new Error("backup/restore events must go to the backups room, not every socket");
+    },
+    to: (room) => {
+      if (room !== "backups") throw new Error(`unexpected room ${room}`);
+      return { emit: onEmit };
+    },
+  };
+}
+
 vi.mock("../database/init.js", () => ({
   getActiveServer: vi.fn(async () => null),
   getServers: vi.fn(async () => []),
@@ -96,16 +110,14 @@ describe("GET /backup/status carries a restore's outcome, not just the POST's re
     const events = [];
     let statusAtPreBackupComplete = null;
     let flagWhenFinished = null;
-    const io = {
-      emit: (event, payload) => {
-        events.push([event, payload]);
-        // What Backups.tsx does on this exact event: re-read the status.
-        if (event === "backup:progress" && payload.phase === "complete") {
-          statusAtPreBackupComplete = service.getStatus();
-        }
-        if (event === "restore:finished") flagWhenFinished = service.restoreInProgress;
-      },
-    };
+    const io = backupRoomIo((event, payload) => {
+      events.push([event, payload]);
+      // What Backups.tsx does on this exact event: re-read the status.
+      if (event === "backup:progress" && payload.phase === "complete") {
+        statusAtPreBackupComplete = service.getStatus();
+      }
+      if (event === "restore:finished") flagWhenFinished = service.restoreInProgress;
+    });
 
     const result = await service.restoreBackup("good.zip", {
       createPreRestoreBackup: true,
@@ -160,7 +172,7 @@ describe("GET /backup/status carries a restore's outcome, not just the POST's re
       createPreRestoreBackup: false,
       // Not an id the page may pick: the server makes one instead.
       requestId: "../../etc",
-      io: { emit: (event, payload) => events.push([event, payload]) },
+      io: backupRoomIo((event, payload) => events.push([event, payload])),
     });
 
     expect(result.success).toBe(false);
@@ -178,8 +190,9 @@ describe("GET /backup/status carries a restore's outcome, not just the POST's re
   });
 
   it("keeps a rollback failure's host path in the capability-gated status, out of the restore:finished broadcast", async () => {
-    // restore:finished goes to every signed-in socket, backup capability or
-    // not (a moderator holds none); GET /backup/status is gated on one. The
+    // restore:finished goes to the backups room, which a moderator (no
+    // backup capability) can't join, but it is still a broadcast to every
+    // socket in that room; GET /backup/status is gated per request. The
     // rollback-failure message deliberately keeps its path (it's where the
     // previous world now sits), so it may reach only the status.
     const { RESTORE_ROLLBACK_FAILED_PREFIX } = await import("../utils/restoreMessage.js");
@@ -193,7 +206,7 @@ describe("GET /backup/status carries a restore's outcome, not just the POST's re
 
     await service.restoreBackup("good.zip", {
       requestId: "page-request-0002",
-      io: { emit: (event, payload) => events.push([event, payload]) },
+      io: backupRoomIo((event, payload) => events.push([event, payload])),
     });
 
     const { lastRestore } = await service.getStatus();
