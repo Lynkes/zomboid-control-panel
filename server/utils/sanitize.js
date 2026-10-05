@@ -12,7 +12,9 @@ export const SENSITIVE_FIELD_RE =
 
 /**
  * Detect a value that is just the bullet-mask sentinel we send to clients
- * (see maskSecretValue/maskSensitiveObject below). Used to avoid writing the
+ * (see maskSecretValue/maskSensitiveObject below). Still accepts the older
+ * "••••••••" + last-4 shape too, which a page loaded before an upgrade may
+ * send back. Used to avoid writing the
  * masked placeholder back over a real stored secret when a client echoes an
  * unmodified masked field back on save.
  */
@@ -23,10 +25,20 @@ export function isMaskedSecret(value) {
   return false;
 }
 
-/** Mask a secret string, keeping only its last 4 characters for reference. */
+/**
+ * Mask a secret string. Says only that a value is set: no part of it.
+ *
+ * SECURITY (2026-10-04, AUTHZ-4): this used to keep the secret's last 4
+ * characters "for reference". GET /api/servers has no capability gate (every
+ * role's pages read the server list), so every signed-in role, moderator
+ * included, read the last 4 characters of each server's RCON and admin
+ * password -- the same went for every other masked setting and .ini line.
+ * The fixed sentinel still satisfies isMaskedSecret(), so a client that
+ * echoes it back on save keeps the stored value, as before.
+ */
 export function maskSecretValue(value) {
   if (typeof value !== "string" || value.length === 0) return value;
-  return "••••••••" + value.slice(-4);
+  return "••••••••";
 }
 
 /**

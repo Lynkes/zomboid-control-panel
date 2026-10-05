@@ -430,7 +430,8 @@ describe("GET /ini -> PUT /ini round trip: whitespace the game does not trim (GH
       PublicName: " My Server",
       PublicDescription: "Hello = world",
       Open: "true",
-      RCONPassword: "••••••••pass",
+      // A masked secret says only that it is set (AUTHZ-4, 2026-10-04).
+      RCONPassword: "••••••••",
       DoLuaChecksum: " true",
     });
     expect(misnamedKeys).toEqual({});
@@ -551,8 +552,9 @@ describe("GET /ini: what the form can't show from the values alone (GH#182 follo
     const body = getRes.getBody();
 
     expect(body.maskedCutAtEqualsKeys).toEqual(["RCONPassword"]);
-    expect(body.rawSettings.RCONPassword).toBe("••••••••efgh");
+    expect(body.rawSettings.RCONPassword).toBe("••••••••");
     expect(JSON.stringify(body)).not.toContain("abcd");
+    expect(JSON.stringify(body)).not.toContain("efgh");
   });
 
   it("is empty for a file the game reads whole", async () => {
