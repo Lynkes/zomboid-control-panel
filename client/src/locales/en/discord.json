@@ -323,9 +323,10 @@
     "testMessageSent": "Test message sent to Discord channel",
     "testMessageFailedFallback": "Failed to send test message",
     "wipeConfirmTitle": "Wipe Discord bot settings?",
-    "wipeConfirmDesc": "This clears the saved bot token, guild and channel IDs, role IDs, chat relay settings, command permissions, and Discord event notification setup. The bot will stop and the page will return to first-time setup.",
+    "wipeConfirmDesc": "This clears the saved bot token, guild and channel IDs, role IDs, chat relay settings and Discord event notification setup, and puts each command's permission tier back to its default. A command that needs a permission you don't hold in this panel keeps its current tier. The bot will stop and the page will return to first-time setup.",
     "wipeConfirmLabel": "Wipe Discord Settings",
     "wipeSuccess": "Discord bot settings wiped. You can start setup from scratch.",
+    "wipeSuccessKeptTiers": "Discord bot settings wiped. These commands kept their permission tier because they need permissions you don't hold in this panel: {{commands}}",
     "wipeFailedFallback": "Failed to wipe Discord settings"
   },
   "capabilityGate": {

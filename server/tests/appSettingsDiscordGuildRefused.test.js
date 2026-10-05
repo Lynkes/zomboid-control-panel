@@ -69,4 +69,29 @@ describe("PUT /config/app-settings no longer moves the Discord bot", () => {
     // The rest of the save still lands.
     expect(setSetting).toHaveBeenCalledWith("darkMode", true);
   });
+
+  // Security sweep 2026-10-05, D2: the same holds for every other Discord
+  // setting the bot's command checks read. /api/discord is the only door.
+  it("no other Discord bot setting is writable here either", async () => {
+    const discordSettings = {
+      discordBotToken: "attackers-bot-token",
+      discordAdminRoleId: "200000000000000099",
+      discordModRoleId: "300000000000000099",
+      discordChannelId: "400000000000000099",
+      discordChatRelayChannelId: "400000000000000098",
+      discordChatRelayEnabled: true,
+      discordCommandPermissions: JSON.stringify({ rcon: "everyone" }),
+    };
+
+    await putAppSettings(
+      { ...discordSettings, darkMode: true },
+      "settings_and_integrations",
+      { darkMode: false },
+    );
+
+    for (const key of Object.keys(discordSettings)) {
+      expect(setSetting).not.toHaveBeenCalledWith(key, expect.anything());
+    }
+    expect(setSetting).toHaveBeenCalledWith("darkMode", true);
+  });
 });

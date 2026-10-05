@@ -341,9 +341,10 @@
     "testMessageSent": "测试消息已发送到 Discord 频道",
     "testMessageFailedFallback": "发送测试消息失败",
     "wipeConfirmTitle": "清除 Discord 机器人设置？",
-    "wipeConfirmDesc": "这将清除已保存的机器人令牌、服务器和频道 ID、角色 ID、聊天中继设置、命令权限，以及 Discord 事件通知配置。机器人将停止运行，页面将返回首次设置流程。",
+    "wipeConfirmDesc": "这将清除已保存的机器人令牌、服务器和频道 ID、角色 ID、聊天中继设置，以及 Discord 事件通知配置，并将每条命令的权限等级恢复为默认值。如果某条命令需要你在本面板中没有的权限，它将保留当前等级。机器人将停止运行，页面将返回首次设置流程。",
     "wipeConfirmLabel": "清除 Discord 设置",
     "wipeSuccess": "Discord 机器人设置已清除。可以从头开始设置。",
+    "wipeSuccessKeptTiers": "Discord 机器人设置已清除。以下命令保留了原有权限等级，因为它们需要你在本面板中没有的权限：{{commands}}",
     "wipeFailedFallback": "清除 Discord 设置失败"
   },
   "capabilityGate": {

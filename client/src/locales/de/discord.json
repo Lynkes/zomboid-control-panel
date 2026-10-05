@@ -341,9 +341,10 @@
     "testMessageSent": "Testnachricht an Discord-Kanal gesendet",
     "testMessageFailedFallback": "Testnachricht konnte nicht gesendet werden",
     "wipeConfirmTitle": "Discord-Bot-Einstellungen unwiderruflich löschen?",
-    "wipeConfirmDesc": "Dies löscht das gespeicherte Bot-Token, Guild- und Kanal-IDs, Rollen-IDs, Chat-Relay-Einstellungen, Befehlsberechtigungen und die Einrichtung der Discord-Ereignisbenachrichtigungen. Der Bot wird gestoppt und die Seite kehrt zur Ersteinrichtung zurück.",
+    "wipeConfirmDesc": "Dies löscht das gespeicherte Bot-Token, Guild- und Kanal-IDs, Rollen-IDs, Chat-Relay-Einstellungen und die Einrichtung der Discord-Ereignisbenachrichtigungen und setzt die Berechtigungsstufe jedes Befehls auf den Standard zurück. Ein Befehl, der eine Berechtigung erfordert, die du in diesem Panel nicht besitzt, behält seine aktuelle Stufe. Der Bot wird gestoppt und die Seite kehrt zur Ersteinrichtung zurück.",
     "wipeConfirmLabel": "Discord-Einstellungen unwiderruflich löschen",
     "wipeSuccess": "Discord-Bot-Einstellungen unwiderruflich gelöscht. Die Einrichtung kann von vorn begonnen werden.",
+    "wipeSuccessKeptTiers": "Discord-Bot-Einstellungen gelöscht. Diese Befehle haben ihre Berechtigungsstufe behalten, weil sie Berechtigungen erfordern, die du in diesem Panel nicht besitzt: {{commands}}",
     "wipeFailedFallback": "Discord-Einstellungen konnten nicht gelöscht werden"
   },
   "capabilityGate": {

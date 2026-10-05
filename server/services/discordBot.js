@@ -677,7 +677,15 @@ export class DiscordBot {
     await setSetting("discordChatRelayScope", this.chatRelayScope);
   }
 
-  async resetConfig() {
+  // SECURITY (2026-10-05, D1): command tiers survive a wipe. Only the
+  // commands named in `commandTiersToReset` go back to their default tier;
+  // routes/discord.js's POST /reset names the ones whose tier the caller
+  // could change through PUT /permissions anyway. A wipe used to put every
+  // tier back to its default, so someone without players.moderate could
+  // undo an admin raising /kick to "admin": once the bot was set up again,
+  // mod-role holders could kick players. Naming nothing keeps every tier.
+  // Returns the commands that kept a tier other than their default.
+  async resetConfig({ commandTiersToReset = [] } = {}) {
     const token = this.token;
     const guildId = this.guildId;
 
@@ -711,6 +719,20 @@ export class DiscordBot {
       await this.stop();
     }
 
+    const commandPermissions = {};
+    const keptCommandPermissions = [];
+    for (const [command, defaultTier] of Object.entries(
+      DEFAULT_COMMAND_PERMISSIONS,
+    )) {
+      const currentTier = this.commandPermissions[command] || defaultTier;
+      if (commandTiersToReset.includes(command) || currentTier === defaultTier) {
+        commandPermissions[command] = defaultTier;
+      } else {
+        commandPermissions[command] = currentTier;
+        keptCommandPermissions.push(command);
+      }
+    }
+
     writeUiSecretFile("discordBotToken", "");
     await setSetting("discordGuildId", "");
     await setSetting("discordAdminRoleId", "");
@@ -722,7 +744,7 @@ export class DiscordBot {
     await setSetting("discordChatRelayScope", "public");
     await setSetting(
       "discordCommandPermissions",
-      JSON.stringify(DEFAULT_COMMAND_PERMISSIONS),
+      JSON.stringify(commandPermissions),
     );
     await setSetting("discordWebhookEvents", JSON.stringify({}));
 
@@ -732,7 +754,7 @@ export class DiscordBot {
     this.modRoleId = null;
     this.channelId = null;
     this.webhookEvents = {};
-    this.commandPermissions = { ...DEFAULT_COMMAND_PERMISSIONS };
+    this.commandPermissions = commandPermissions;
     this.chatRelayEnabled = true;
     this.chatRelayChannelId = null;
     this.chatRelayScope = "public";
@@ -740,6 +762,7 @@ export class DiscordBot {
     this._channelBreakers.clear();
     this._lastLifecycleState = null;
     this._lastLifecycleAt = 0;
+    return keptCommandPermissions;
   }
 
   async updateCommandPermissions(permissions) {
@@ -1000,6 +1023,28 @@ export class DiscordBot {
     log.info(
       `Discord command: /${commandName} by ${interaction.user?.tag || "unknown"}`,
     );
+
+    // SECURITY (2026-10-05, D2): answer only in the guild the panel is set
+    // up for. Moving the bot to another guild needs every command's
+    // capability (routes/discord.js) because checkPermission() lets that
+    // guild's owner and Administrators run everything. But the commands
+    // registered in a previous guild stay there whenever updateConfig()'s
+    // cleanup didn't run (the bot was stopped during the move) or failed,
+    // and so do resetConfig()'s -- and that guild's owner passed
+    // checkPermission() just the same, with the bot still a member there.
+    if (
+      !this.guildId ||
+      String(interaction.guildId ?? "") !== String(this.guildId)
+    ) {
+      log.warn(
+        `Refused /${commandName} from guild ${interaction.guildId || "(none)"}: not the configured guild`,
+      );
+      await interaction.reply({
+        content: "❌ This bot isn't set up for this server.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
 
     // Check permission based on command's configured tier
     if (!this.checkPermission(interaction, commandName)) {
