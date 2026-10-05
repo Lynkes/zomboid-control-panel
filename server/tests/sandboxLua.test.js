@@ -362,8 +362,9 @@ describe("findOverwrittenTableOpeners", () => {
     ).toEqual([{ line: 1, key: "A", value: "1" }]);
   });
 
-  // The line scanner the repair used before 19f98921 took these (it skipped
-  // a line starting with "--" and measured the one after it).
+  // The line scanner the repair used before 19f98921 skipped a line starting
+  // with "--" and measured the entry after it, so it restored such a table
+  // when another entry followed. These measure the commented entry itself.
   it.each([
     ["a short comment", ["    A = 1", "        --[[ tip ]] B = 1,"]],
     ["a comment with a level", ["    A = 1", "        --[==[ tip ]] ]==]B = 1,"]],
