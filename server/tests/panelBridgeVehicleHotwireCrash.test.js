@@ -35,13 +35,10 @@ function FakeVehicle:getId() return self.id end
 function FakeVehicle:setHotwired(v) self.hotwired = v return true end
 function FakeVehicle:setHotwiredBroken(v) return true end
 function FakeVehicle:setKeysInIgnition(v) return true end
--- getPartCount lives on VehicleParts, reached only via vehicle:getParts() --
--- not on the vehicle object itself. An empty parts container here matches
--- this test's original intent (no doors to unlock) without modeling the
--- wrong-receiver call the real code no longer makes.
-FakeVehicleParts = {}
-function FakeVehicleParts:getPartCount() return 0 end
-function FakeVehicle:getParts() return FakeVehicleParts end
+-- getPartCount is a VehiclePartOwner default method, called on the vehicle
+-- (GitHub #199). No parts matches this test's original intent: no doors to
+-- unlock.
+function FakeVehicle:getPartCount() return 0 end
 function FakeVehicle:setTrunkLocked(v) return true end
 function FakeVehicle:startEngine() self.engineStarted = true end
 function FakeVehicle:transmitEngine() return true end

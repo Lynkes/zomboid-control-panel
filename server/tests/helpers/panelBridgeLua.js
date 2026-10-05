@@ -54,8 +54,54 @@ getTimestampMs = function() return 0 end
 //     | { throws: string } -- getModInfoByID(id), nil for an unknown id (the
 //     real ChooseGameInfo.getModDetails returns null). Calls are counted in
 //     GET_MOD_INFO_CALLS.
+//   javaObjects: true -- defines JavaObject(className, methods, opts), which
+//     builds a fake Java object the way Kahlua hands one to Lua: a userdata,
+//     never a table (Kahlua's type() says "userdata" for every Java object).
+//     - Exposed class (the default): LuaManager$Exposer exposed the class or
+//       one of its supertypes, so Kahlua has a class metatable for it.
+//       obj:method() resolves through `methods`, an unknown name reads as nil
+//       ("attempt to call a nil value"), getmetatable(obj) is truthy, and
+//       tostring(obj) is opts.toString or Java's default "<class>@<hex>".
+//       The methods get the userdata as self and can't store fields on it,
+//       so keep their state in upvalues or globals.
+//     - opts.exposed = false: the class isn't exposed (zombie.vehicles.
+//       VehicleParts, zombie.vehicles.LightbarSirenMode). Kahlua has no
+//       metatable for it, so any index raises Kahlua's own "attempted index:
+//       <key> of non-table: <object>" -- recorded in JAVA_INDEX_ERRORS before
+//       it is raised -- and getmetatable(obj) returns false. Real Kahlua
+//       returns nil there; a Lua 5.3 VM can't hide a metatable any further
+//       and still raise that text, and both read as "no metatable" to a
+//       truthiness test.
 function engineStubLua(engine = {}) {
   const parts = [];
+  if (engine.javaObjects) {
+    parts.push(`
+JAVA_INDEX_ERRORS = {}
+local javaIdentityHash = 0x5f3a1c00
+function JavaObject(className, methods, opts)
+  opts = opts or {}
+  local obj = __newJavaUserdata()
+  javaIdentityHash = javaIdentityHash + 1
+  local text = opts.toString or (className .. "@" .. string.format("%x", javaIdentityHash))
+  if opts.exposed == false then
+    debug.setmetatable(obj, {
+      __index = function(_, key)
+        local message = "attempted index: " .. tostring(key) .. " of non-table: " .. text
+        table.insert(JAVA_INDEX_ERRORS, message)
+        error(message, 2)
+      end,
+      __tostring = function() return text end,
+      __metatable = false,
+    })
+  else
+    debug.setmetatable(obj, {
+      __index = methods or {},
+      __tostring = function() return text end,
+    })
+  end
+  return obj
+end`);
+  }
   if (engine.isServer === null) parts.push('isServer = nil');
   else if (typeof engine.isServer === 'boolean') parts.push(`isServer = function() return ${engine.isServer} end`);
   if (typeof engine.isClient === 'boolean') parts.push(`isClient = function() return ${engine.isClient} end`);
@@ -275,6 +321,14 @@ function loadLuaChunk(luaPath, label, extraStubLua, engine) {
   lualib.luaL_openlibs(L);
 
   runOrThrow(L, BASE_STUBS, 'base-stubs');
+  if (engine.javaObjects) {
+    // Plain Lua can't create a userdata; JavaObject (engineStubLua) needs one.
+    lua.lua_pushcfunction(L, (state) => {
+      lua.lua_newuserdata(state, 0);
+      return 1;
+    });
+    lua.lua_setglobal(L, to_luastring('__newJavaUserdata'));
+  }
   const engineStubs = engineStubLua(engine);
   if (engineStubs) runOrThrow(L, engineStubs, 'engine-stubs');
   if (extraStubLua) runOrThrow(L, extraStubLua, 'test-stubs');

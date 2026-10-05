@@ -6,6 +6,28 @@
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
 
+                vNEXT Changes:
+                - Fix: vehicle Repair, Set Fuel, Set Battery and Hotwire work
+                    again on Build 42 (GitHub #199). They asked
+                    vehicle:getParts() for their parts, but its
+                    zombie.vehicles.VehicleParts object isn't exposed to Lua,
+                    so every call on it failed with "attempted index ... of
+                    non-table" and the action reported "0 parts" or "No fuel
+                    setter available". Part lookups now go through the
+                    vehicle itself, as the game's own Lua does, and use
+                    getParts() only when Lua can actually call into it. The
+                    vehicle list's battery reading and the siren read-back
+                    (getLightbarSirenMode) are fixed the same way.
+                - Change: Repair runs the game's own vehicle:repair(), the
+                    same repair as the in-game admin Repair: every part to
+                    100%, missing parts reinstalled, tanks and battery topped
+                    up, rust and blood cleared. The per-part loop is kept as
+                    a fallback.
+                - Fix: Set Battery writes the requested charge to the battery
+                    item instead of calling VehicleUtils.chargeBattery, which
+                    applies its delta twice, and its read-back compares the
+                    game's 0-1 charge as a percentage.
+
                 v1.7.72 Changes:
                 - Add: getCharacterSheet, a read-only command for the panel's
                     Character tab. It returns one online player's summary,
@@ -8917,16 +8939,75 @@ local function vehicleGet(v, methodName)
     return nil
 end
 
--- getPartCount/getPartByIndex/getPartById/getBattery/getBatteryCharge live on
--- zombie.vehicles.VehicleParts, reachable ONLY via vehicle:getParts() -- they
--- are NOT on the vehicle object itself (zombie.vehicles.BaseVehicle). Every
--- call to one of those five methods must go through this, or it silently
--- returns nil despite the method genuinely existing (2026-08-30, Kevin's jar
--- audit: it just doesn't exist on the object being asked). getParts() can
--- itself return nil (no parts container), so every caller must still treat
--- the result as optional.
-local function vehicleParts(vehicle)
-    return PanelBridge.tryGet(vehicle, "getParts")
+-- Whether Lua can call methods on `obj` at all. A Lua table always can. A
+-- Java object can only when LuaManager$Exposer exposed its class (or a
+-- superclass or interface of it): Kahlua then has a class metatable for it,
+-- and getmetatable() returns that. A Java object of an UNEXPOSED class has no
+-- metatable, and indexing it -- obj:anything() -- raises "attempted index:
+-- anything of non-table: <object>" and prints a stack trace to the server log
+-- even inside pcall. Check this before calling into an object whose class
+-- may not be exposed, instead of letting the call fail.
+local function isLuaIndexable(obj)
+    if obj == nil then return false end
+    if type(obj) == "table" then return true end
+    local ok, metatable = pcall(getmetatable, obj)
+    return ok and metatable and true or false
+end
+
+-- Calls one of the vehicle's part accessors (getPartCount, getPartByIndex,
+-- getPartById, getBattery, getBatteryCharge) and returns (ok, result) like
+-- PanelBridge.invoke.
+--
+-- Call these on the VEHICLE. BaseVehicle implements
+-- zombie.vehicles.VehiclePartOwner, whose default methods provide all five
+-- (each one forwards to getParts()), and Kahlua exposes BaseVehicle's
+-- interface defaults like any other public method -- vanilla Lua calls
+-- vehicle:getPartCount(), vehicle:getPartById("GasTank") and
+-- vehicle:getBatteryCharge() the same way. What getParts() returns,
+-- zombie.vehicles.VehicleParts, is NOT exposed to Lua (LuaManager$Exposer
+-- exposes BaseVehicle and VehiclePart but not VehicleParts, checked against
+-- the 42.20 and 42.21 jars), so every call on it fails (GitHub #199). The
+-- 2026-08-30 audit that moved these calls onto getParts() read
+-- `javap -p BaseVehicle`, which lists only the class's own methods and not
+-- the interface defaults it inherits.
+--
+-- getParts() stays as a fallback for a build where the vehicle call fails,
+-- but only when Lua can call into the object it returns (see
+-- isLuaIndexable). On every build checked so far it can't, so the fallback
+-- never runs there.
+local function vehiclePartCall(vehicle, methodName, ...)
+    local ok, result = PanelBridge.invoke(vehicle, methodName, ...)
+    if ok then return true, result end
+    local parts = PanelBridge.tryGet(vehicle, "getParts")
+    if isLuaIndexable(parts) then
+        return PanelBridge.invoke(parts, methodName, ...)
+    end
+    return false, result
+end
+
+-- vehiclePartCall's result, or nil when it failed.
+local function vehiclePartGet(vehicle, methodName, ...)
+    local ok, result = vehiclePartCall(vehicle, methodName, ...)
+    if ok then return result end
+    return nil
+end
+
+-- The vehicle's lightbar siren mode (0 = off), or nil when unreadable.
+-- getLightbarSirenMode() is a default method of
+-- zombie.vehicleSound.VehicleSoundOwner, which BaseVehicle implements, so it
+-- is callable on the vehicle (vanilla Vehicles.lua and ISLightbarUI.lua call
+-- it). The 2026-08-30 audit missed it for the same reason as the part
+-- accessors above and switched to getLightbarSirenModeObject():get(), but
+-- zombie.vehicles.LightbarSirenMode isn't exposed to Lua either, so that read
+-- always failed. The object path stays as a fallback behind the same check.
+local function vehicleSirenMode(vehicle)
+    local ok, mode = PanelBridge.invoke(vehicle, "getLightbarSirenMode")
+    if ok and tonumber(mode) then return tonumber(mode) end
+    local modeObj = PanelBridge.tryGet(vehicle, "getLightbarSirenModeObject")
+    if isLuaIndexable(modeObj) then
+        return tonumber(PanelBridge.tryGet(modeObj, "get"))
+    end
+    return nil
 end
 
 -- Returns (vehicle, nil) on success, (nil, err) on failure -- and "not
@@ -8998,23 +9079,12 @@ handlers.getVehiclesDetailed = function(args)
             local function get(methodName)
                 return vehicleGet(v, methodName)
             end
-            -- getLightbarSirenMode does not exist on BaseVehicle in the real
-            -- B42 jar (confirmed 2026-08-30, cross-checked against the same
-            -- jar that also confirmed isAlarmed/isTrunkLocked genuinely DO
-            -- exist -- this field alone was dead, not the whole trio).
-            -- getLightbarSirenModeObject() is the real accessor; it returns
-            -- a LightbarSirenMode wrapper whose own get():int is the same
-            -- primitive this code already wants. Two-hop, both hops via
-            -- tryGet (already nil-safe: PanelBridge.invoke itself treats a
-            -- nil object as a clean failure, not a throw), since vehicleGet
-            -- above only calls a method on `v` itself, not on an
-            -- intermediate object a first call returns.
-            local sirenModeObj = PanelBridge.tryGet(v, "getLightbarSirenModeObject")
-            local sirenLevel = tonumber(PanelBridge.tryGet(sirenModeObj, "get")) or 0
-            -- getBatteryCharge is a VehicleParts method, not a vehicle
-            -- method -- see vehicleParts(). Every other get() call here
-            -- targets a real BaseVehicle method and is unaffected.
-            local parts = vehicleParts(v)
+            -- Siren mode and battery charge come from interface default
+            -- methods on the vehicle -- see vehicleSirenMode() and
+            -- vehiclePartCall(). batteryCharge is the game's own 0-1
+            -- fraction (the battery item's getCurrentUsesFloat()), not a
+            -- percentage like fuelPct.
+            local sirenLevel = vehicleSirenMode(v) or 0
             return {
                 id = get("getId"),
                 x = get("getX"),
@@ -9023,7 +9093,7 @@ handlers.getVehiclesDetailed = function(args)
                 scriptName = get("getScriptName"),
                 type = get("getVehicleType"),
                 speedKmh = get("getCurrentSpeedKmHour") or 0,
-                batteryCharge = parts and PanelBridge.tryGet(parts, "getBatteryCharge") or nil,
+                batteryCharge = vehiclePartGet(v, "getBatteryCharge"),
                 fuelPct = get("getRemainingFuelPercentage"),
                 alarmed = get("isAlarmed") == true,
                 sirening = sirenLevel > 0,
@@ -9044,20 +9114,47 @@ handlers.vehicleRepair = function(args)
     local vehicle, findErr = findVehicleById(args.vehicleId)
     if not vehicle then return false, nil, findErr or "Vehicle not found" end
 
-    local ok, repairedOrErr = pcall(function()
-        -- getPartCount/getPartByIndex are VehicleParts methods, not vehicle
-        -- methods -- see vehicleParts(). Before this fix they were called
-        -- directly on `vehicle`, always returned nil, and this handler could
-        -- never repair anything on ANY vehicle regardless of real part
-        -- condition (2026-08-30, Kevin's jar audit).
-        local parts = vehicleParts(vehicle)
-        if not parts then
-            error("Vehicle has no accessible parts container (getParts() returned nothing on this build)")
+    local ok, resultOrErr = pcall(function()
+        -- Part accessors are called on the vehicle -- see vehiclePartCall().
+        -- nil means the count couldn't be read, which is not the same as 0.
+        local partCount = tonumber(vehiclePartGet(vehicle, "getPartCount"))
+
+        -- 1. The game's own full repair. BaseVehicle.repair() is the call the
+        -- in-game admin Repair makes (VehicleCommands.lua, Commands.repair).
+        -- Per javap -c on the 42.21 jar it runs VehiclePart.repair() on every
+        -- part -- condition 100, a missing part's item reinstalled, a broken
+        -- door lock fixed, container parts such as the gas tank filled, a
+        -- drainable item such as the battery recharged -- transmitting each
+        -- change, then clears rust and blood.
+        local repairOk, repairErr = PanelBridge.invoke(vehicle, "repair")
+        if repairOk then
+            PanelBridge.invoke(vehicle, "updatePartStats")
+            PanelBridge.invoke(vehicle, "updateBulletStats")
+            -- Read back: VehiclePart.repair() leaves every part at condition
+            -- 100, so count the parts that now read it.
+            local readable, repaired = 0, 0
+            for i = 0, (partCount or 0) - 1 do
+                local part = vehiclePartGet(vehicle, "getPartByIndex", i)
+                local condition = part and tonumber(PanelBridge.tryGet(part, "getCondition"))
+                if condition then
+                    readable = readable + 1
+                    if condition >= 100 then repaired = repaired + 1 end
+                end
+            end
+            if readable > 0 and repaired == 0 then
+                error("repair() ran, but none of the vehicle's " .. readable .. " readable part(s) is at full condition")
+            end
+            return { parts = repaired, partCount = partCount, method = "repair" }
         end
-        local partCount = tonumber(PanelBridge.tryGet(parts, "getPartCount")) or 0
+        PanelBridge.debug("vehicle:repair() failed; repairing part by part", { error = tostring(repairErr) })
+
+        -- 2. Fallback: set each part's condition one by one.
+        if partCount == nil then
+            error("repair() failed (" .. tostring(repairErr) .. ") and the vehicle's part count couldn't be read")
+        end
         local repaired = 0
         for i = 0, partCount - 1 do
-            local part = PanelBridge.tryGet(parts, "getPartByIndex", i)
+            local part = vehiclePartGet(vehicle, "getPartByIndex", i)
             if part then
                 local item = PanelBridge.tryGet(part, "getInventoryItem")
                 local condition = (item and tonumber(PanelBridge.tryGet(item, "getConditionMax"))) or 100
@@ -9076,10 +9173,8 @@ handlers.vehicleRepair = function(args)
             end
         end
         if repaired == 0 then
-            -- Name the REAL reason instead of the old blanket "No repairable
-            -- vehicle parts available", which used to fire on every single
-            -- call (wrong receiver, not an actual absence of parts) and sent
-            -- the operator looking for a vehicle problem that didn't exist.
+            -- Name the real reason: a count that was read as 0 is a vehicle
+            -- with no parts, not a part that refused its condition.
             if partCount == 0 then
                 error("This vehicle reports 0 parts -- nothing to repair")
             else
@@ -9088,11 +9183,17 @@ handlers.vehicleRepair = function(args)
         end
         PanelBridge.invoke(vehicle, "updatePartStats")
         PanelBridge.invoke(vehicle, "updateBulletStats")
-        return repaired
+        return { parts = repaired, partCount = partCount, method = "parts" }
     end)
-    if not ok then return false, nil, "Vehicle repair failed: " .. tostring(repairedOrErr) end
+    if not ok then return false, nil, "Vehicle repair failed: " .. tostring(resultOrErr) end
 
-    return true, { message = "Vehicle repaired", vehicleId = tonumber(args.vehicleId), parts = repairedOrErr }
+    return true, {
+        message = "Vehicle repaired",
+        vehicleId = tonumber(args.vehicleId),
+        parts = resultOrErr.parts,
+        partCount = resultOrErr.partCount,
+        method = resultOrErr.method,
+    }
 end
 
 handlers.vehicleSetAlarm = function(args)
@@ -9137,13 +9238,8 @@ handlers.vehicleSetSiren = function(args)
     end)
     if not ok then return false, nil, "Failed to set vehicle siren mode: " .. tostring(err) end
 
-    -- getLightbarSirenMode does not exist on BaseVehicle (see
-    -- getVehiclesDetailed's own comment above for the jar evidence) --
-    -- getLightbarSirenModeObject().get() is the real two-hop path, same as
-    -- that read side now uses, so `verified` can finally reach true instead
-    -- of being permanently pinned at nil/"unverifiable".
-    local sirenModeObj = PanelBridge.tryGet(vehicle, "getLightbarSirenModeObject")
-    local actualMode = tonumber(PanelBridge.tryGet(sirenModeObj, "get"))
+    -- Same read getVehiclesDetailed uses -- see vehicleSirenMode().
+    local actualMode = vehicleSirenMode(vehicle)
     local verified
     if actualMode == nil then
         verified = nil
@@ -9192,13 +9288,11 @@ handlers.vehicleSetFuel = function(args)
     pct = math.min(math.max(pct, 0), 100)
 
     local ok, err = pcall(function()
-        -- B42: fuel is stored as container content amount on the GasTank part
-        -- Pattern from Vehicles.Create.GasTank / Vehicles.Update.GasTank.
-        -- getPartById is a VehicleParts method, not a vehicle method -- see
-        -- vehicleParts() (2026-08-30, Kevin's jar audit: wrong receiver meant
-        -- this always fell through to the B41 fallback below, silently).
-        local parts = vehicleParts(vehicle)
-        local part = parts and PanelBridge.tryGet(parts, "getPartById", "GasTank")
+        -- B42: fuel is stored as container content amount on the GasTank part,
+        -- the write vanilla's Commands.setContainerContentAmount makes
+        -- (VehicleCommands.lua). getPartById is called on the vehicle -- see
+        -- vehiclePartCall().
+        local part = vehiclePartGet(vehicle, "getPartById", "GasTank")
         local capacity = part and tonumber(PanelBridge.tryGet(part, "getContainerCapacity"))
         if capacity and capacity > 0 then
             local amount = capacity * pct / 100
@@ -9207,9 +9301,16 @@ handlers.vehicleSetFuel = function(args)
                 return -- B42 success
             end
         end
-        -- B41 fallback (also used if B42 GasTank has no capacity)
+        -- B41 fallback (also used if B42 GasTank has no capacity).
+        -- setRemainingFuelPercentage doesn't exist on B42, so on B42 the
+        -- error names what the GasTank route found instead.
         if not PanelBridge.invoke(vehicle, "setRemainingFuelPercentage", pct) then
-            error("No fuel setter available")
+            if not part then
+                error("No fuel setter available: this vehicle has no GasTank part")
+            elseif not capacity or capacity <= 0 then
+                error("No fuel setter available: the GasTank part reports no capacity")
+            end
+            error("No fuel setter available: the GasTank part rejected setContainerContentAmount")
         end
     end)
     if not ok then return false, nil, "Failed to set fuel: " .. tostring(err) end
@@ -9240,57 +9341,59 @@ handlers.vehicleSetBattery = function(args)
     if not charge then return false, nil, "charge required (0-100)" end
     charge = math.min(math.max(charge, 0), 100)
 
-    -- getBattery is a VehicleParts method, not a vehicle method -- see
-    -- vehicleParts() (2026-08-30, Kevin's jar audit). Before this fix
-    -- getBattery was called directly on `vehicle`, always returned nil, so
-    -- the primary VehicleUtils.chargeBattery path below could never even be
-    -- attempted -- every call fell straight to the B41 fallback.
-    local parts = vehicleParts(vehicle)
-
     local ok, err = pcall(function()
-        local battery = parts and PanelBridge.tryGet(parts, "getBattery")
+        -- getBattery is called on the vehicle -- see vehiclePartCall().
+        local battery = vehiclePartGet(vehicle, "getBattery")
         local item = battery and PanelBridge.tryGet(battery, "getInventoryItem")
-        local currentUses = item and tonumber(PanelBridge.tryGet(item, "getCurrentUsesFloat"))
-        if currentUses and VehicleUtils then
-            local chargeOk = pcall(function()
-                VehicleUtils.chargeBattery(vehicle, charge / 100 - currentUses)
-            end)
-            if chargeOk then return end
+        -- The battery's charge is its item's uses as a 0-1 fraction.
+        -- setCurrentUsesFloat is the write vanilla's VehicleUtils.chargeBattery
+        -- ends in (its setUsedDelta just calls it; DrainableComboItem clamps
+        -- to 0-1). chargeBattery itself isn't used: it adds its delta twice
+        -- (Vehicles.lua, 42.21), so only a full or empty target lands where
+        -- it should.
+        if item and PanelBridge.invoke(item, "setCurrentUsesFloat", charge / 100) then
+            PanelBridge.invoke(vehicle, "transmitPartUsedDelta", battery)
+            return
         end
         -- setBatteryCharge does NOT exist anywhere in the B42 vehicle API
-        -- (BaseVehicle, VehicleParts, VehiclePart -- no near-miss at all,
-        -- 2026-08-30 jar audit). This is not a wrong-receiver bug like the
-        -- others in this handler; rerouting the receiver cannot fix it. This
-        -- call is kept only as a last-ditch attempt in case a future PZ
-        -- build re-adds an equivalent method under this name; on every
-        -- current build it is expected to fail, and the error below says so
-        -- honestly instead of implying a real setter merely misfired.
+        -- (BaseVehicle and its interfaces, VehicleParts, VehiclePart -- no
+        -- near-miss at all, 2026-08-30 jar audit). This call is kept only
+        -- as a last-ditch attempt in case a future PZ build re-adds an
+        -- equivalent method under this name; on every current build it is
+        -- expected to fail, and the error below names what the battery
+        -- route found instead of implying a real setter merely misfired.
         if not PanelBridge.invoke(vehicle, "setBatteryCharge", charge) then
-            error("No working battery setter on this build: the battery item route needs a battery with an inventory item (none found), and setBatteryCharge does not exist in the B42 vehicle API")
+            local reason
+            if not battery then
+                reason = "this vehicle has no battery part"
+            elseif not item then
+                reason = "no battery is installed"
+            else
+                reason = "the battery item rejected setCurrentUsesFloat"
+            end
+            error("No working battery setter on this build: " .. reason .. ", and setBatteryCharge does not exist in the B42 vehicle API")
         end
     end)
     if not ok then return false, nil, "Failed to set battery: " .. tostring(err) end
 
     -- getBatteryCharge is already read elsewhere in this file
-    -- (getVehiclesDetailed) -- reuse it to confirm the write took effect.
-    -- 1.0 percentage-point tolerance is float/rounding slack on a 0-100
-    -- scale (the B42 path applies a computed DELTA via VehicleUtils, so
-    -- exact-equality would be brittle), not a guess about game mechanics.
+    -- (getVehiclesDetailed) -- reuse it to confirm the write took effect. It
+    -- returns the game's 0-1 fraction, so compare it as a percentage. 1.0
+    -- percentage-point tolerance is float/rounding slack on a 0-100 scale,
+    -- not a guess about game mechanics.
     local BATTERY_TOLERANCE = 1.0
-    local okGet, actualCharge = false, nil
-    if parts then
-        okGet, actualCharge = PanelBridge.invoke(parts, "getBatteryCharge")
-    end
+    local actualCharge = tonumber(vehiclePartGet(vehicle, "getBatteryCharge"))
+    local actualPct = actualCharge and actualCharge * 100 or nil
     local verified
-    if not okGet or tonumber(actualCharge) == nil then
+    if actualPct == nil then
         verified = nil
     else
-        verified = (math.abs(tonumber(actualCharge) - charge) <= BATTERY_TOLERANCE)
+        verified = (math.abs(actualPct - charge) <= BATTERY_TOLERANCE)
     end
 
     return PanelBridge.verifiedResult(verified,
         { message = "Vehicle battery set to " .. charge, vehicleId = tonumber(args.vehicleId), charge = charge },
-        "Battery call succeeded but did not take effect (still " .. tostring(actualCharge) .. ")")
+        "Battery call succeeded but did not take effect (still " .. tostring(actualPct) .. ")")
 end
 
 handlers.removeVehicle = function(args)
@@ -9486,17 +9589,16 @@ handlers.vehicleHotwire = function(args)
             table.insert(actions, "keysInIgnition")
         end
 
-        -- getPartCount/getPartByIndex/getPartById are VehicleParts methods,
-        -- not vehicle methods -- see vehicleParts() (2026-08-30, Kevin's jar
-        -- audit: wrong receiver meant doors never unlocked and the engine
-        -- condition was never actually checked, though "unlocked" was still
-        -- reported since setTrunkLocked below is genuinely a vehicle method).
-        local parts = vehicleParts(vehicle)
+        -- getPartCount/getPartByIndex/getPartById are called on the vehicle --
+        -- see vehiclePartCall(). Through getParts() they always failed on
+        -- B42 (GitHub #199): no door was unlocked and the engine condition
+        -- was never checked, though "unlocked" was still reported since
+        -- setTrunkLocked below is genuinely a vehicle method.
 
         -- 2. Unlock all doors
-        local partCount = parts and tonumber(PanelBridge.tryGet(parts, "getPartCount")) or 0
+        local partCount = tonumber(vehiclePartGet(vehicle, "getPartCount")) or 0
         for i = 0, partCount - 1 do
-            local part = PanelBridge.tryGet(parts, "getPartByIndex", i)
+            local part = vehiclePartGet(vehicle, "getPartByIndex", i)
             if part then
                 local door = PanelBridge.tryGet(part, "getDoor")
                 if door then
@@ -9508,7 +9610,7 @@ handlers.vehicleHotwire = function(args)
         table.insert(actions, "unlocked")
 
         -- 3. Ensure engine part has enough condition to start
-        local enginePart = parts and PanelBridge.tryGet(parts, "getPartById", "Engine")
+        local enginePart = vehiclePartGet(vehicle, "getPartById", "Engine")
         local engineCond = enginePart and tonumber(PanelBridge.tryGet(enginePart, "getCondition"))
         if engineCond and engineCond < 10 then
             if PanelBridge.invoke(enginePart, "setCondition", 20) then
