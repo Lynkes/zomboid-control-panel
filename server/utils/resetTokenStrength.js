@@ -64,10 +64,13 @@
  * value (isWellKnownResetToken()) is refused too. Random hex reads as text
  * now and then, about 36 times in a million for 32 characters or a UUID
  * and once in a few million for 48; the well-known values never come up by
- * chance. Rounds 4 and 5 of the verification found more of both that
- * passed (resetTokenReadsAsText(), isWellKnownResetToken()); all told,
- * about 1 in 14,000 random tokens of 32 characters or UUIDs is refused, and
- * hardly ever one of 48.
+ * chance. Rounds 4 to 6 of the verification found more of both that
+ * passed (resetTokenReadsAsText(), isWellKnownResetToken()); all told, of
+ * 21 million random tokens of each kind, about 1 in 13,000 of 32
+ * characters is refused, 1 in 15,000 UUIDs and 1 in 2 million of 48.
+ * These checks catch the common mistakes, not every guessable value (see
+ * resetTokenReadsAsText()), which is why the docs say the token must come
+ * from one of the commands they give.
  */
 
 import crypto from "crypto";
@@ -231,7 +234,11 @@ function hasGeneratorMix(hex) {
 //   - or nine in ten of them Chinese, Japanese or Korean in everyday use
 //     (isCjkTextUnit());
 //   - or a non-Latin alphabet in a single-byte code page all through
-//     (isCodePageText()).
+//     (isCodePageText());
+//   - or everyday Chinese in GBK or Big5 all through
+//     (isDoubleByteCodePageText());
+//   - or nine in ten of their 32-bit units, in either byte order,
+//     characters (isMostlyUtf32Text()).
 // Random bytes are printable ASCII 98 times in 256, so of a million random
 // tokens of 32 hex characters about 40 read as text, and about as many of a
 // million UUIDs, on top of the refusals above; of 48, one in a few million
@@ -250,7 +257,18 @@ function hasGeneratorMix(hex) {
 //     tokens of 32 hex characters in a million, doubling the refusals for
 //     text;
 //   - Thai in its code page (TIS-620, Windows-874), whose letters take up
-//     most of the bytes from A1 to EF.
+//     most of the bytes from A1 to EF;
+//   - Chinese in GBK or Big5 with Latin letters or characters beyond the
+//     everyday ones among it, for the same reasons.
+//
+// SECURITY (2026-10-05, A2): round 6 of the verification. And that is
+// where this stops. Every round found text in one more encoding, there is
+// always another (Japanese in Shift_JIS, EBCDIC, text scrambled or hashed
+// before it was written as hex), and every reading added refuses a little
+// more of what generators write. These readings catch the usual ways of
+// writing text as hex; isWellKnownResetToken() catches the usual hashes
+// and example UUIDs. Neither can recognise every guessable value, so the
+// docs say the token has to come from one of the commands they give.
 const TEXT_SHARE = 0.9;
 
 function isAsciiTextByte(byte) {
@@ -317,6 +335,14 @@ function isUtf8Text(bytes) {
 // password. Now these too, Myanmar and Georgian, and the symbols, dingbats
 // and variation selectors some emoji are made of (☀ ✔ ❤️): 9.0% of the
 // 16-bit range, which refuses about one more random token in a few million.
+//
+// SECURITY (2026-10-05, A2): round 6 of the verification. The other emoji
+// and symbols of the 16-bit range were still outside these blocks (⭐ ⬆ ▶
+// ◀ ⏰ ⌚ ↔ ™), so a phrase with a few of them passed as UTF-16 hex. Now
+// letterlike symbols, arrows, technical symbols, geometric shapes and the
+// other symbols and arrows too: 10.2% of the 16-bit range, which refuses
+// about one more random token in seven million of 32 hex characters, one
+// in ten million UUIDs and none of 48 (172 million of each measured).
 const UTF16_TEXT_RANGES = [
   [0x00a0, 0x06ff], // accented Latin, Greek, Cyrillic, Armenian, Hebrew, Arabic, Persian
   [0x0900, 0x10ff], // Devanagari and the other Indic scripts, Sinhala, Thai, Lao, Tibetan, Myanmar, Georgian
@@ -324,7 +350,12 @@ const UTF16_TEXT_RANGES = [
   [0x1780, 0x17ff], // Khmer
   [0x1e00, 0x1fff], // Latin Extended Additional (Vietnamese), Greek Extended
   [0x2000, 0x206f], // dashes, curly quotes and the rest of general punctuation
+  [0x2100, 0x214f], // letterlike symbols (™ ℹ)
+  [0x2190, 0x21ff], // arrows (↔ ↩)
+  [0x2300, 0x23ff], // technical symbols (⌚ ⏰ ⏩ ⏳)
+  [0x25a0, 0x25ff], // geometric shapes (▶ ◀ ◼)
   [0x2600, 0x27bf], // symbols and dingbats
+  [0x2b00, 0x2bff], // more symbols and arrows (⬆ ⬛ ⭐ ⭕)
   [0x3000, 0x30ff], // CJK punctuation, hiragana, katakana
   [0xfe00, 0xfe0f], // variation selectors
   [0xfeff, 0xfeff], // a byte order mark
@@ -411,6 +442,76 @@ function isCodePageText(bytes) {
   return letters * 2 >= bytes.length;
 }
 
+// SECURITY (2026-10-05, A2): round 6 of the verification. Chinese in the
+// Windows code page of a Chinese Windows passed: GBK (cp936) for
+// simplified Chinese and Big5 (cp950) for traditional, which is what
+// Windows PowerShell 5.1's [Text.Encoding]::Default writes there, and what
+// a Chinese text-to-hex site offers; the panel ships both translations.
+// Their characters are two bytes each, and the everyday ones are the
+// first levels resetTokenCjkChars.js lists, at fixed byte values, so no
+// decoder is needed (the packaged builds' Node has none for these): GB
+// 2312's level 1 (B0A1 to D7F9) and its punctuation and full-width rows
+// (A1A1 to A1FE, A3A1 to A3FE); Big5's level 1 (A440 to C67E) and its
+// punctuation and full-width forms (A140 to A3BF). Bytes that are all such
+// characters, spaces, digits or everyday punctuation, the characters at
+// least half of them, are refused, the last byte allowed to be the first
+// half of one. Korean in EUC-KR and kanji in EUC-JP use the bytes of GB
+// 2312's level 1, so they are refused too. Random tokens of 32 hex
+// characters or UUIDs are that about once in twelve million (Big5 once in
+// fifteen million, GBK once in eighty), and none of 48 measured; as with the
+// single-byte code pages, Latin letters among them can't be allowed,
+// since random bytes are printable ASCII so often that they would be
+// several in a million.
+const inRange = (value, first, last) => value >= first && value <= last;
+const DOUBLE_BYTE_CODE_PAGES = [
+  // GBK (cp936)
+  (lead, trail) =>
+    (inRange(lead, 0xb0, 0xd7) && inRange(trail, 0xa1, lead === 0xd7 ? 0xf9 : 0xfe)) ||
+    ((lead === 0xa1 || lead === 0xa3) && inRange(trail, 0xa1, 0xfe)),
+  // Big5 (cp950)
+  (lead, trail) =>
+    inRange(lead * 256 + trail, 0xa140, 0xc67e) &&
+    !inRange(lead * 256 + trail, 0xa3c0, 0xa43f) &&
+    (inRange(trail, 0x40, 0x7e) || inRange(trail, 0xa1, 0xfe)),
+];
+
+function isDoubleByteCodePageText(bytes, isEverydayChar) {
+  let charBytes = 0;
+  for (let i = 0; i < bytes.length; ) {
+    if (CODE_PAGE_TEXT_BYTES.has(bytes[i])) {
+      i += 1;
+    } else if (i + 1 < bytes.length && isEverydayChar(bytes[i], bytes[i + 1])) {
+      charBytes += 2;
+      i += 2;
+    } else if (i + 1 === bytes.length && (isEverydayChar(bytes[i], 0x40) || isEverydayChar(bytes[i], 0xa1))) {
+      charBytes += 1;
+      i += 1;
+    } else {
+      return false;
+    }
+  }
+  return charBytes * 2 >= bytes.length;
+}
+
+// SECURITY (2026-10-05, A2): round 6 of the verification. UTF-32 (Python's
+// .encode('utf-32'), [Text.Encoding]::UTF32) takes four bytes a character,
+// three of them zero for an ASCII one, so none of the readings above saw
+// text in it: the docs' own example of a refused phrase,
+// zomboid-control-panel-reset-token, passed that way. Nine in ten of its
+// 32-bit units, in either byte order, are characters: printable ASCII or a
+// code point from U+00A0 to U+10FFFF that isn't half of a surrogate pair.
+// Random units are one about once in 3,900, so four in four never come up
+// (none in 172 million random tokens of each kind).
+function isMostlyUtf32Text(bytes, littleEndian) {
+  const units = Math.floor(bytes.length / 4);
+  let text = 0;
+  for (let i = 0; i < units; i++) {
+    const unit = littleEndian ? bytes.readUInt32LE(4 * i) : bytes.readUInt32BE(4 * i);
+    if (unit < 0xa0 ? isAsciiTextByte(unit) : unit <= 0x10ffff && !inRange(unit, 0xd800, 0xdfff)) text += 1;
+  }
+  return units > 0 && text >= units * TEXT_SHARE;
+}
+
 export function resetTokenReadsAsText(token) {
   const hex = resetTokenHexDigits(token);
   if (hex === null) return false;
@@ -419,8 +520,13 @@ export function resetTokenReadsAsText(token) {
     const bytes = Buffer.from(hex.slice(start, end), "hex");
     if (bytes.length === 0) continue;
     if (isMostlyAscii(bytes) || isUtf8Text(bytes) || isCodePageText(bytes)) return true;
+    if (DOUBLE_BYTE_CODE_PAGES.some((isEverydayChar) => isDoubleByteCodePageText(bytes, isEverydayChar))) return true;
     for (const littleEndian of [true, false]) {
-      if (isMostlyUtf16Text(bytes, littleEndian, isUtf16TextUnit) || isMostlyUtf16Text(bytes, littleEndian, isCjkTextUnit)) {
+      if (
+        isMostlyUtf16Text(bytes, littleEndian, isUtf16TextUnit) ||
+        isMostlyUtf16Text(bytes, littleEndian, isCjkTextUnit) ||
+        isMostlyUtf32Text(bytes, littleEndian)
+      ) {
         return true;
       }
     }

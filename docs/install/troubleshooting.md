@@ -272,9 +272,9 @@ docker exec zomboid-panel node -e "require('fs').writeFileSync('/app/data/reset-
 ```
 
 Now and then random output happens to look like a pattern or like text
-and is refused: about 1 in 14,000 UUIDs or 32-digit tokens, and hardly
-ever 48 digits (`openssl rand -hex 24` and the first PowerShell line). If
-that happens, run the command again.
+and is refused: about 1 in 13,000 32-digit tokens or 1 in 15,000 UUIDs,
+and hardly ever 48 digits (`openssl rand -hex 24` and the first PowerShell
+line). If that happens, run the command again.
 
 **Don't use `echo $RANDOM | md5sum` or `date | md5sum`** (or `sha256sum`),
 or anything else built on bash's `$RANDOM`, cmd's `%RANDOM%` or the time:
@@ -285,24 +285,30 @@ variation, and it can't tell a hash of the time from random hex at all.
 The same goes for hashing a word: the panel refuses hashes of the obvious
 words, but it can't know every word you might pick.
 
-The panel refuses what a stranger could guess: words, a sentence or a phrase
+The panel refuses the common mistakes: words, a sentence or a phrase
 (`zomboid-control-panel-reset-token`), a number on its own (the digits of
 pi, a date), hex words (`deadbeefcafe…`), repeated or sequential characters
 (`aaaa`, `abcd`, `4321`), keyboard patterns (`qwerty`, `1qaz2wsx`), the same
-stretch repeated, or runs interleaved (`a1b2c3`); text written as hex, in
-most languages and encodings (a phrase run through `xxd -p`, Python's
-`.hex()`, PowerShell's `[Convert]::ToHexString` or an online text-to-hex
-converter); hashes of
-`$RANDOM` or of common words; and UUIDs printed as examples
+stretch repeated, or runs interleaved (`a1b2c3`); text written as hex in
+the usual encodings (a phrase run through `xxd -p`, Python's `.hex()`,
+PowerShell's `[Convert]::ToHexString` or an online text-to-hex converter);
+hashes of `$RANDOM` or of common words; and UUIDs printed as examples
 (`123e4567-e89b-12d3-a456-426614174000` and the like). It refuses a password
 manager's letters and symbols too, since it can't tell those from words;
-and a file over 1KB, or more than 24 hours old when you use it. A wrong
-token changes nothing: the file stays until it is used or expires, so
-nobody else can use your token up by guessing. From anywhere but the host
-itself the panel also never says whether the file exists: every refusal
-reads `That reset token wasn't accepted. …`, and the panel's log says which
-check failed (missing, too short, not hex, too predictable, text written as
-hex, a well-known value, too old, or simply a different token).
+and a file over 1KB, or more than 24 hours old when you use it.
+
+**The panel can't recognise every guessable value**, though. Text in an
+encoding it doesn't read, a hash of the time or of a word it doesn't list,
+or anything else worked out from something a stranger could guess can pass
+these checks and still be guessed. So the token must come from one of the
+commands above: don't type one, and don't derive one from anything.
+
+A wrong token changes nothing: the file stays until it is used or expires,
+so nobody else can use your token up by guessing. From anywhere but the
+host itself the panel also never says whether the file exists: every
+refusal reads `That reset token wasn't accepted. …`, and the panel's log
+says which check failed (missing, too short, not hex, too predictable, text
+written as hex, a well-known value, too old, or simply a different token).
 
 If you see `This recovery action is only available when the panel is opened
 from the server itself.` instead (no proxy mentioned), you're just not

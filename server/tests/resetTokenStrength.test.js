@@ -56,6 +56,17 @@ const BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345678
 const ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const PRINTABLE = `${ALNUM}!@#$%^&*()-_=+[]{};:,.<>/?~`;
 
+// Whether this Node can decode the legacy Chinese, Japanese and Korean
+// encodings (a full-ICU build can; the packaged builds' can't).
+const canDecodeLegacy = (() => {
+  try {
+    for (const label of ["gb2312", "gbk", "big5", "euc-jp", "euc-kr"]) new TextDecoder(label);
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
 describe("reset-token strength", () => {
   it.each([
     ["one character repeated", "a".repeat(40)],
@@ -349,6 +360,73 @@ describe("reset-token: text written as hex", () => {
     expect(resetTokenWeakness(bytePairs(token))).toBe("hex-text");
   });
 
+  // Round 6: UTF-32 is four bytes a character, three of them zero for an
+  // ASCII one, so no reading saw text in it, and the docs' own example of a
+  // refused phrase passed as [BitConverter]::ToString(
+  // [Text.Encoding]::UTF32.GetBytes("zomboid-control-panel-reset-token")).
+  const utf32Hex = (text, littleEndian = true) =>
+    Buffer.concat(
+      Array.from(text, (char) => {
+        const unit = Buffer.alloc(4);
+        if (littleEndian) unit.writeUInt32LE(char.codePointAt(0));
+        else unit.writeUInt32BE(char.codePointAt(0));
+        return unit;
+      }),
+    ).toString("hex");
+  it.each([
+    ["the docs' example of a refused phrase", "zomboid-control-panel-reset-token"],
+    ["an English sentence", "reset the admin password please"],
+    ["a phrase with an emoji", "Zomboid reset 🔑"],
+  ])("refuses %s as UTF-32 hex, in either byte order, with a byte order mark and as BitConverter writes it", (_label, phrase) => {
+    const le = utf32Hex(phrase);
+    const be = utf32Hex(phrase, false);
+    for (const token of [le, be, le.toUpperCase(), `fffe0000${le}`, `0000feff${be}`, bytePairs(le.toUpperCase()), `7${le}`, le.slice(2)]) {
+      expect(resetTokenWeakness(token)).toBe("hex-text");
+    }
+  });
+
+  // Round 6: Chinese in the Windows code page of a Chinese Windows, GBK
+  // (cp936) or Big5 (cp950), which is what Windows PowerShell 5.1's
+  // [Text.Encoding]::Default writes there. The bytes are Python's gbk,
+  // big5 and euc-kr codecs'.
+  const DOUBLE_BYTE_PHRASES = [
+    ["GBK", "重置密码面板令牌", "gbk", "d6d8d6c3c3dcc2ebc3e6b0e5c1eec5c6"],
+    ["GBK", "僵尸毁灭工程控制面板", "gbk", "bda9caacbbd9c3f0b9a4b3ccbfd8d6c6c3e6b0e5"],
+    ["GBK", "我的僵尸毁灭工程服务器", "gbk", "ced2b5c4bda9caacbbd9c3f0b9a4b3ccb7fecef1c6f7"],
+    ["GBK", "2026 服务器，重置密码！", "gbk", "3230323620b7fecef1c6f7a3acd6d8d6c3c3dcc2eba3a1"],
+    ["Big5", "控制面板重設密碼", "big5", "b1b1a8eeadb1aa4fadabb35db14bbd58"],
+    ["Big5", "喪屍伺服器重設密碼", "big5", "b3e0abcda6f8aa41beb9adabb35db14bbd58"],
+    ["Big5", "2026 伺服器，重設密碼！", "big5", "3230323620a6f8aa41beb9a141adabb35db14bbd58a149"],
+    // Korean in EUC-KR (cp949) uses the bytes of GB 2312's level 1.
+    ["EUC-KR", "관리자 비밀번호 초기화", "euc-kr", "b0fcb8aec0da20baf1b9d0b9f8c8a320c3cab1e2c8ad"],
+  ];
+  it.each(DOUBLE_BYTE_PHRASES)("refuses %s hex of %s", (_encoding, _phrase, _label, hex) => {
+    for (const token of [hex, hex.toUpperCase(), bytePairs(hex.toUpperCase()), `a${hex}`, hex.slice(0, 32)]) {
+      expect(resetTokenWeakness(token)).toBe("hex-text");
+    }
+  });
+
+  it.skipIf(!canDecodeLegacy)("has the bytes of those phrases right", () => {
+    for (const [, phrase, label, hex] of DOUBLE_BYTE_PHRASES) {
+      expect(new TextDecoder(label, { fatal: true }).decode(Buffer.from(hex, "hex"))).toBe(phrase);
+    }
+  });
+
+  // Round 6: the other emoji and symbols of the 16-bit range.
+  it.each([
+    ["stars", "zomboid⭐panel⭐reset"],
+    ["play and back", "▶▶▶ reset ◀◀◀"],
+    ["alarm clocks", "⏰reset⏰panel⏰"],
+    ["arrows", "↔zomboid↔reset↔"],
+    ["arrows and squares", "⬆⬆ zomboid ⬛⬛"],
+  ])("refuses a phrase with %s as UTF-16 hex", (_label, phrase) => {
+    const le = hexOf(phrase, "utf16le");
+    for (const token of [le, utf16be(phrase), bytePairs(le.toUpperCase())]) {
+      expect(token.replaceAll("-", "").length).toBeGreaterThanOrEqual(32);
+      expect(resetTokenWeakness(token)).toBe("hex-text");
+    }
+  });
+
   it("doesn't read random hex as text", () => {
     for (const token of [...sample("text-hex48", HEX, 48, 20000), ...sample("text-hex64", HEX, 64, 2000)]) {
       expect(resetTokenReadsAsText(token)).toBe(false);
@@ -413,6 +491,42 @@ describe("reset-token: the everyday Chinese, Japanese and Korean characters", ()
     // in none of the first levels.
     expect(isCommonCjkChar("殭".charCodeAt(0))).toBe(false);
     expect(isCommonCjkChar("a".charCodeAt(0))).toBe(false);
+  });
+
+  // Round 6: hex of GBK or Big5 text is read without a decoder, at the
+  // byte values of these same first levels and of their punctuation and
+  // full-width rows. Where this Node can decode them, check those bytes are
+  // these characters, and that every one of them is read as text.
+  it.skipIf(!canDecode)("are read as GBK and Big5 text at the bytes those code pages give them", () => {
+    const pairs = (leads, trails, first, last) =>
+      leads.flatMap((lead) => trails.map((trail) => [lead, trail])).filter(([lead, trail]) => {
+        const code = lead * 256 + trail;
+        return code >= first && code <= last;
+      });
+    const big5Trails = [...range(0x40, 0x7e), ...range(0xa1, 0xfe)];
+    const codePages = {
+      gbk: {
+        level1: pairs(range(0xb0, 0xd7), range(0xa1, 0xfe), 0xb0a1, 0xd7f9),
+        punctuation: [...pairs([0xa1], range(0xa1, 0xfe), 0, 0xffff), ...pairs([0xa3], range(0xa1, 0xfe), 0, 0xffff)],
+      },
+      big5: {
+        level1: pairs(range(0xa4, 0xc6), big5Trails, 0xa440, 0xc67e),
+        punctuation: pairs(range(0xa1, 0xa3), big5Trails, 0xa140, 0xa3bf),
+      },
+    };
+    expect(codePages.gbk.level1).toHaveLength(3755);
+    expect(codePages.big5.level1).toHaveLength(5401);
+    for (const [label, { level1, punctuation }] of Object.entries(codePages)) {
+      const decoder = new TextDecoder(label, { fatal: true });
+      const decode = ([lead, trail]) => decoder.decode(Uint8Array.from([lead, trail]));
+      expect(level1.map(decode).filter((char) => char.length !== 1 || !isCommonCjkChar(char.charCodeAt(0)))).toEqual([]);
+      expect(punctuation.map(decode).filter((char) => char.length !== 1)).toEqual([]);
+      const chars = [...level1, ...punctuation];
+      for (let i = 0; i < chars.length; i += 8) {
+        const token = Buffer.from(chars.slice(i, i + 8).flat()).toString("hex");
+        expect({ label, token, text: resetTokenReadsAsText(token) }).toEqual({ label, token, text: true });
+      }
+    }
   });
 });
 

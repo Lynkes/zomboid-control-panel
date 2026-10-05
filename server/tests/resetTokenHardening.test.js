@@ -350,6 +350,14 @@ describe("A2: strangers can neither find nor destroy the operator's token", () =
 // passed too.
 const hexOf = (text, encoding = "utf8") => Buffer.from(text, encoding).toString("hex");
 const digest = (algorithm, input) => crypto.createHash(algorithm).update(input).digest("hex");
+const utf32leHex = (text) =>
+  Buffer.concat(
+    Array.from(text, (char) => {
+      const unit = Buffer.alloc(4);
+      unit.writeUInt32LE(char.codePointAt(0));
+      return unit;
+    }),
+  ).toString("hex");
 
 describe("A2 round 3: hex a stranger can guess", () => {
   it.each([
@@ -383,6 +391,14 @@ describe("A2 round 3: hex a stranger can guess", () => {
     ["a Chinese phrase as UTF-16LE hex", hexOf("重置密码面板令牌", "utf16le")],
     ["a Korean phrase as UTF-16LE hex", hexOf("비밀번호 재설정 패널", "utf16le")],
     ["a Russian phrase in Windows-1251 as hex", Buffer.from(Array.from("сброс пароля зомбоид", (c) => (c === " " ? 0x20 : 0xc0 + c.charCodeAt(0) - 0x410))).toString("hex")],
+    // Round 6: UTF-32, Chinese in GBK or Big5 (Windows PowerShell 5.1's
+    // [Text.Encoding]::Default on a Chinese Windows), and UTF-16 with the
+    // other emoji and symbols. A stranger who guessed the first one, the
+    // docs' own example of a refused phrase, reset the admin password.
+    ["the docs' example phrase as UTF-32LE hex ([Text.Encoding]::UTF32)", utf32leHex("zomboid-control-panel-reset-token")],
+    ["a simplified Chinese phrase in GBK as PowerShell's BitConverter writes it", "D6-D8-D6-C3-C3-DC-C2-EB-C3-E6-B0-E5-C1-EE-C5-C6"],
+    ["a traditional Chinese phrase in Big5 as hex", "b3e0abcda6f8aa41beb9adabb35db14bbd58"],
+    ["a phrase with stars as UTF-16LE hex", hexOf("zomboid⭐panel⭐reset", "utf16le")],
   ])("refuses %s, even when it is typed correctly", async (_label, weak) => {
     expect(weak.replaceAll("-", "").length).toBeGreaterThanOrEqual(RESET_TOKEN_MIN_LENGTH);
     writeToken(weak);
