@@ -209,7 +209,7 @@ async function saveAndResolveSteamCmdExe(candidatePath) {
 // through this helper (or not) is what makes "raw" and "authored" mutually
 // exclusive now, not a comment.
 function emitRawSteamCmdLine(io, event, type, text, extra) {
-  io?.emit(event, { type, text, ...(extra || {}) });
+  io?.to("install").emit(event, { type, text, ...(extra || {}) });
 }
 
 // GH #147: a real user's SteamCMD install kept failing with "Missing file
@@ -271,7 +271,7 @@ async function ensureSteamCmdLinux(installPath, io) {
 
   const emit = (event, payload) => {
     try {
-      io?.emit(event, payload);
+      io?.to("install").emit(event, payload);
     } catch {
       /* best effort */
     }
@@ -374,7 +374,7 @@ export function runSteamCmdFirstTimeSetup(steamcmdExe, installPath, io) {
       firstRunOpts.env = buildLinuxSteamCmdEnv(installPath);
     }
 
-    io?.emit("steamcmd:status", {
+    io?.to("install").emit("steamcmd:status", {
       status: "initializing",
       message: "Initializing SteamCMD (first run)...",
       progressCode: ProgressCode.STEAMCMD_INITIALIZING,
@@ -396,7 +396,7 @@ export function runSteamCmdFirstTimeSetup(steamcmdExe, installPath, io) {
       settled = true;
       steamcmd.kill();
       const message = `SteamCMD first-run setup timed out after ${STEAMCMD_FIRST_RUN_TIMEOUT_MS}ms`;
-      io?.emit("steamcmd:status", {
+      io?.to("install").emit("steamcmd:status", {
         status: "error",
         message,
         progressCode: ProgressCode.STEAMCMD_SETUP_FAILED,
@@ -411,7 +411,7 @@ export function runSteamCmdFirstTimeSetup(steamcmdExe, installPath, io) {
       settled = true;
       clearTimeout(timeoutId);
       if (code !== 0 && code !== 7) {
-        io?.emit("steamcmd:status", {
+        io?.to("install").emit("steamcmd:status", {
           status: "error",
           message: `SteamCMD setup failed with code ${code}`,
           progressCode: ProgressCode.STEAMCMD_SETUP_FAILED,
@@ -435,7 +435,7 @@ export function runSteamCmdFirstTimeSetup(steamcmdExe, installPath, io) {
         // reach it (see that route's own historical comment) -- for the one
         // genuinely-unexpected outcome this function can produce.
         const message = `SteamCMD download completed but ${steamcmdExe} still missing`;
-        io?.emit("steamcmd:status", {
+        io?.to("install").emit("steamcmd:status", {
           status: "error",
           message: `SteamCMD setup failed unexpectedly: ${message}`,
           progressCode: ProgressCode.STEAMCMD_SELF_SETUP_UNEXPECTED_ERROR,
@@ -445,7 +445,7 @@ export function runSteamCmdFirstTimeSetup(steamcmdExe, installPath, io) {
         reject(new Error(message));
         return;
       }
-      io?.emit("steamcmd:status", {
+      io?.to("install").emit("steamcmd:status", {
         status: "complete",
         message: "SteamCMD installed successfully!",
         path: installPath,
@@ -459,7 +459,7 @@ export function runSteamCmdFirstTimeSetup(steamcmdExe, installPath, io) {
       if (settled) return;
       settled = true;
       clearTimeout(timeoutId);
-      io?.emit("steamcmd:status", {
+      io?.to("install").emit("steamcmd:status", {
         status: "error",
         message: `Failed to run SteamCMD: ${sanitizeError(error.message)}`,
         progressCode: ProgressCode.STEAMCMD_RUN_FAILED,
@@ -567,7 +567,7 @@ async function provisionSteamCmdWindows(installPath, io) {
       download(steamcmdUrl);
     });
   } catch (downloadError) {
-    io?.emit("steamcmd:status", {
+    io?.to("install").emit("steamcmd:status", {
       status: "error",
       message: `Download failed: ${downloadError.message}`,
       progressCode: ProgressCode.STEAMCMD_DOWNLOAD_FAILED,
@@ -577,7 +577,7 @@ async function provisionSteamCmdWindows(installPath, io) {
     throw downloadError;
   }
 
-  io?.emit("steamcmd:status", {
+  io?.to("install").emit("steamcmd:status", {
     status: "extracting",
     message: "Extracting SteamCMD...",
     progressCode: ProgressCode.STEAMCMD_EXTRACTING,
@@ -589,7 +589,7 @@ async function provisionSteamCmdWindows(installPath, io) {
       .pipe(unzipper.default.Extract({ path: installPath }))
       .promise();
   } catch (extractError) {
-    io?.emit("steamcmd:status", {
+    io?.to("install").emit("steamcmd:status", {
       status: "error",
       message: `Extraction failed: ${sanitizeError(extractError.message)}`,
       progressCode: ProgressCode.STEAMCMD_EXTRACTION_FAILED,
@@ -626,7 +626,7 @@ async function ensureSteamCmdWindows(installPath, io) {
   // platform-neutral -- deliberately reused here rather than adding a
   // same-text Windows-named twin, which would touch progressCodes.js and
   // all 9 locale files for zero user-visible change (god's call, 2026-09-10).
-  io?.emit("steamcmd:status", {
+  io?.to("install").emit("steamcmd:status", {
     status: "downloading",
     message: "SteamCMD missing — downloading it now...",
     progressCode: ProgressCode.STEAMCMD_LINUX_AUTO_DOWNLOAD_START,
@@ -1647,6 +1647,14 @@ export function writeStartupScriptsWithBackup(installPath, files) {
         }
         try {
           fs.copyFileSync(filePath, backupPath);
+          // The copy keeps the source's mode, and a script from before #193
+          // may still be world-readable -- the backup carries the same
+          // -adminpassword, so it is owner-only whatever the source was.
+          try {
+            fs.chmodSync(backupPath, 0o600);
+          } catch {
+            /* best effort: Windows has no POSIX modes to tighten */
+          }
           backupMessages.push(
             `${fileName} had content the panel didn't last write (a hand-edit, or an install from before this backup existed) -- your version was saved to ${path.basename(backupPath)} before regenerating.`,
           );
@@ -1659,10 +1667,15 @@ export function writeStartupScriptsWithBackup(installPath, files) {
     }
 
     try {
+      // Both scripts embed -adminpassword. An explicit mode also tightens a
+      // .bat written before #193 (writeFileAtomic otherwise keeps an existing
+      // file's mode), since every Start regenerates it here.
       writeFileAtomic(
         filePath,
         content,
-        filePath.endsWith(".sh") ? { encoding: "utf8", mode: 0o750 } : "utf8",
+        filePath.endsWith(".sh")
+          ? { encoding: "utf8", mode: 0o750 }
+          : { encoding: "utf8", mode: 0o600 },
       );
       fingerprints[fileName] = hashScriptContent(content);
     } catch (writeErr) {
@@ -3811,7 +3824,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
             log.error(
               "SteamCMD exited cleanly (code 0) but reported an error in its own output during the install",
             );
-            io.emit("install:complete", {
+            io.to("install").emit("install:complete", {
               success: false,
               message:
                 "SteamCMD exited cleanly (code 0) but reported an error in its own output -- check the SteamCMD log above for the exact line. This can happen when the disk fills up mid-download or a Steam-side error interrupts it partway; the install did not complete. Free up space or retry, then reinstall.",
@@ -3852,7 +3865,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
                 await setSetting("zomboidDataPath", zomboidDataPath);
               } else {
                 await setSetting("zomboidDataPath", zomboidPath);
-                io.emit("install:log", {
+                io.to("install").emit("install:log", {
                   type: "stdout",
                   text: `Using ${usesEnvironmentDataPath ? "configured" : "isolated"} data folder: ${zomboidPath}`,
                   progressCode: usesEnvironmentDataPath
@@ -3900,7 +3913,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
                 writableError.code === ErrorCode.WRITABLE_PATH_DATA_BAREMETAL
                   ? `sudo install -d -m 0755 -o "$(whoami)" -g "$(whoami)" "${zomboidPath}"`
                   : null;
-              io.emit("install:complete", {
+              io.to("install").emit("install:complete", {
                 success: false,
                 message: bareMetalCommand
                   ? `${writableError.message} For example: ${bareMetalCommand}`
@@ -3928,7 +3941,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
                 await setSetting("rconPassword", rconPassword);
                 await setSetting("rconPort", rconPort);
                 await setSetting("rconHost", resolveEnvRconHost());
-                io.emit("install:log", {
+                io.to("install").emit("install:log", {
                   type: "stdout",
                   text: `RCON settings saved (port: ${rconPort})`,
                   progressCode: ProgressCode.RCON_SETTINGS_SAVED,
@@ -3978,7 +3991,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
                 log.info(
                   `Pre-created INI at ${iniPath} (UPnP=${useUpnp}${rconPassword ? ", RCON configured" : ""})`,
                 );
-                io.emit("install:log", rconPassword
+                io.to("install").emit("install:log", rconPassword
                   ? {
                       type: "stdout",
                       text: "Pre-created server INI with RCON credentials",
@@ -4023,7 +4036,12 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
                 installPath,
                 `StartServer_${serverName}.bat`,
               );
-              writeFileAtomic(batchPath, scripts.bat, "utf8");
+              writeFileAtomic(batchPath, scripts.bat, {
+                encoding: "utf8",
+                // security audit L1: the .bat embeds -adminpassword; keep it
+                // owner-only like the .sh (0750) instead of the umask default.
+                mode: 0o600,
+              });
               log.info(`Created custom startup batch: ${batchPath}`);
 
               const shellPath = path.join(
@@ -4040,7 +4058,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
                 process.platform === "win32"
                   ? `StartServer_${serverName}.bat`
                   : `start-server_${serverName}.sh`;
-              io.emit("install:log", {
+              io.to("install").emit("install:log", {
                 type: "stdout",
                 text: `Created custom startup script: ${scriptName}`,
                 progressCode: ProgressCode.STARTUP_SCRIPT_CREATED,
@@ -4092,7 +4110,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
               { reason: "setup" },
             );
             if (bridgeSetup.actions.some((action) => action.kind === "installed" || action.kind === "updated")) {
-              io.emit("install:log", {
+              io.to("install").emit("install:log", {
                 type: "stdout",
                 text: "PanelBridge mod installed automatically",
                 progressCode: ProgressCode.PANELBRIDGE_AUTO_INSTALLED,
@@ -4101,7 +4119,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
               log.info("PanelBridge mod auto-installed to server");
             }
 
-            io.emit("install:complete", {
+            io.to("install").emit("install:complete", {
               success: true,
               message: "Server installed successfully",
               installPath,
@@ -4123,7 +4141,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
             log.error(
               `SteamCMD produced no output for ${idleMinutes} minutes and was stopped`,
             );
-            io.emit("install:complete", {
+            io.to("install").emit("install:complete", {
               success: false,
               message: `Installation was stopped after ${idleMinutes} minutes with no output from SteamCMD -- it may have stalled or lost its connection. Try again.`,
               output,
@@ -4133,7 +4151,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
             });
           } else {
             log.error(`SteamCMD exited with code ${code}`);
-            io.emit("install:complete", {
+            io.to("install").emit("install:complete", {
               success: false,
               message: `Installation failed with exit code ${code}`,
               output,
@@ -4152,7 +4170,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
           clearActiveSteamOperation(normalizedPath);
 
           log.error(`SteamCMD error: ${error.message}`);
-          io.emit("install:complete", {
+          io.to("install").emit("install:complete", {
             success: false,
             message: `Failed to run SteamCMD: ${sanitizeError(error.message)}`,
             progressCode: ProgressCode.STEAMCMD_RUN_FAILED,
@@ -4175,7 +4193,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
         log.error(`Installation error: ${err.message}`);
         const isDownloadConflict =
           err.code === ErrorCode.STEAMCMD_DOWNLOAD_ALREADY_IN_PROGRESS;
-        io.emit("install:complete", {
+        io.to("install").emit("install:complete", {
           success: false,
           message: isDownloadConflict
             ? err.message
@@ -4512,7 +4530,12 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
     });
 
     const batchPath = path.join(installPath, `StartServer_${serverName}.bat`);
-    writeFileAtomic(batchPath, scripts.bat, "utf8");
+    writeFileAtomic(batchPath, scripts.bat, {
+      encoding: "utf8",
+      // security audit L1: the .bat embeds -adminpassword; keep it
+      // owner-only like the .sh (0750) instead of the umask default.
+      mode: 0o600,
+    });
     log.info(`Created custom startup batch: ${batchPath}`);
 
     const shellPath = path.join(installPath, `start-server_${serverName}.sh`);
@@ -5114,7 +5137,7 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
         ];
 
         // Emit start event
-        io.emit("steam:start", {
+        io.to("install").emit("steam:start", {
           type: validateFiles ? "verify" : "update",
           message: validateFiles ? "Verifying game files..." : "Updating server...",
           progressCode: validateFiles
@@ -5240,7 +5263,7 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
             completeParams = { code };
           }
 
-          io.emit("steam:complete", {
+          io.to("install").emit("steam:complete", {
             success,
             message: success
               ? `Server ${operation} completed successfully`
@@ -5274,7 +5297,7 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
           // Clear active operation on error
           clearActiveSteamOperation(normalizedPath);
 
-          io.emit("steam:complete", {
+          io.to("install").emit("steam:complete", {
             success: false,
             message: `Failed to run SteamCMD: ${sanitizeError(error.message)}`,
             progressCode: ProgressCode.STEAMCMD_RUN_FAILED,
@@ -5298,7 +5321,7 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
         log.error(`Steam update failed: ${err.message}`);
         const isDownloadConflict =
           err.code === ErrorCode.STEAMCMD_DOWNLOAD_ALREADY_IN_PROGRESS;
-        io.emit("steam:complete", {
+        io.to("install").emit("steam:complete", {
           success: false,
           message: isDownloadConflict
             ? err.message
@@ -5394,7 +5417,7 @@ router.post("/steamcmd/download", requirePermission("server.install"), async (re
     }
 
     if (isWindows) {
-      io.emit("steamcmd:status", {
+      io.to("install").emit("steamcmd:status", {
         status: "downloading",
         message: "Downloading SteamCMD...",
         progressCode: ProgressCode.STEAMCMD_DOWNLOADING,
@@ -5439,7 +5462,7 @@ router.post("/steamcmd/download", requirePermission("server.install"), async (re
         "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz";
       const tarPath = path.join(installPath, "steamcmd_linux.tar.gz");
 
-      io.emit("steamcmd:status", {
+      io.to("install").emit("steamcmd:status", {
         status: "downloading",
         message: "Downloading SteamCMD for Linux...",
         progressCode: ProgressCode.STEAMCMD_DOWNLOADING_LINUX,
@@ -5463,7 +5486,7 @@ router.post("/steamcmd/download", requirePermission("server.install"), async (re
           }
           if (dlErr) {
             steamcmdDownloadInProgress = false;
-            io.emit("steamcmd:status", {
+            io.to("install").emit("steamcmd:status", {
               status: "error",
               message: `Download failed: ${dlErr.message}. Ensure curl or wget is installed.`,
               progressCode: ProgressCode.STEAMCMD_DOWNLOAD_FAILED_LINUX,
@@ -5479,7 +5502,7 @@ router.post("/steamcmd/download", requirePermission("server.install"), async (re
       tryDownload(curlCmd, wgetCmd);
 
       function afterDownload() {
-        io.emit("steamcmd:status", {
+        io.to("install").emit("steamcmd:status", {
           status: "extracting",
           message: "Extracting SteamCMD...",
           progressCode: ProgressCode.STEAMCMD_EXTRACTING,
@@ -5502,7 +5525,7 @@ router.post("/steamcmd/download", requirePermission("server.install"), async (re
             steamcmdDownloadInProgress = false;
 
             if (tarErr) {
-              io.emit("steamcmd:status", {
+              io.to("install").emit("steamcmd:status", {
                 status: "error",
                 message: `Extraction failed: ${tarErr.message}`,
                 progressCode: ProgressCode.STEAMCMD_EXTRACTION_FAILED,
@@ -5547,7 +5570,7 @@ router.post("/steamcmd/download", requirePermission("server.install"), async (re
                   // the helper split in place, a raw line physically
                   // cannot carry a progressCode, so this one being
                   // authored is now visible in the payload shape itself.
-                  io.emit("steamcmd:log", {
+                  io.to("install").emit("steamcmd:log", {
                     type: "stderr",
                     text: "Warning: Could not verify 32-bit libraries. If SteamCMD fails, install: yum install glibc.i686 libstdc++.i686 (CentOS/RHEL) or apt install lib32gcc-s1 (Debian/Ubuntu)",
                     progressCode: ProgressCode.STEAMCMD_32BIT_LIB_WARNING,

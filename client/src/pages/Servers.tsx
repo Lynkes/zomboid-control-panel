@@ -601,6 +601,18 @@ export default function Servers() {
 
   const { toast } = useToast()
   const socket = useContext(SocketContext)
+  // Join the server-install room (security audit M1: steam:start/log/complete
+  // were broadcast to every signed-in socket). Re-emitted on every reconnect —
+  // room membership is per-connection state.
+  useEffect(() => {
+    if (!socket) return
+    const subscribeInstall = () => socket.emit('subscribe:install')
+    if (socket.connected) subscribeInstall()
+    socket.on('connect', subscribeInstall)
+    return () => {
+      socket.off('connect', subscribeInstall)
+    }
+  }, [socket])
   const navigate = useNavigate()
   const currentActiveStatus = activeServerId !== null &&
     activeStatusServerId !== null &&

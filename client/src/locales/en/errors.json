@@ -405,6 +405,8 @@
   "SFTP_PERMISSION_DENIED": "{{detail}} Fix: Give the SFTP account read and write permission for the remote bridge folder and its parent directory.",
   "SFTP_REMOTE_PATH_MISSING": "{{detail}} Fix: Verify the remote bridge folder is the VPS path to Lua/panelbridge/MyServer. The panel will create its inbox and outbox folders after the parent path is correct.",
   "SFTP_PATH_OCCUPIED": "{{detail}} Fix: Remove or rename the directory occupying that bridge file path, then run Verify and prepare SFTP again.",
+  "SFTP_HOST_KEY_MISMATCH": "{{detail}} Fix: This server's SSH host key is not the one the panel saved the first time it connected. If you rebuilt or reinstalled the server, confirm the new key with your host, then use “Trust new host key” in Settings › PanelBridge › SFTP. If nothing changed on the server, do not trust it: someone may be intercepting the connection.",
+  "SFTP_HOST_KEY_NOT_PRESENTED": "This server is no longer presenting that host key, so nothing was trusted. Connect to it again, then compare the key the panel shows before trusting it.",
   "SFTP_UNREACHABLE": "{{detail}} Fix: Check the SFTP host, port, firewall, and that the hosting provider allows SFTP from this panel computer.",
   "SFTP_UNKNOWN": "{{detail}} Fix: Run Verify and prepare SFTP again. If it still fails, download a support bundle and include sftp-diagnostics.json.",
   "UNEXPECTED_SERVER_ERROR": "{{detail}} This wasn't expected — if it keeps happening, download a support bundle so it can be investigated.",

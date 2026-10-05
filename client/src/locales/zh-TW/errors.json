@@ -405,6 +405,8 @@
   "SFTP_PERMISSION_DENIED": "{{detail}} 修復方法：請為該 SFTP 帳號授予遠端PanelBridge 資料夾及其上級目錄的讀寫權限。",
   "SFTP_REMOTE_PATH_MISSING": "{{detail}} 修復方法：請確認遠端PanelBridge 資料夾是指向 VPS 上 Lua/panelbridge/MyServer 的路徑。上級路徑正確後，面板會自動建立收件和發件資料夾。",
   "SFTP_PATH_OCCUPIED": "{{detail}} 修復方法：請刪除或重新命名佔用該PanelBridge 檔案路徑的目錄，然後重新執行“校驗並準備 SFTP”。",
+  "SFTP_HOST_KEY_MISMATCH": "{{detail}} 解決方法：此伺服器的 SSH 主機金鑰與面板首次連線時儲存的不一致。如果你重建或重新安裝了伺服器，請先向主機商確認新金鑰，然後在 設定 › PanelBridge › SFTP 中使用「信任新的主機金鑰」。如果伺服器沒有任何變更，請不要信任它：可能有人正在攔截連線。",
+  "SFTP_HOST_KEY_NOT_PRESENTED": "此伺服器已不再提供這個主機金鑰，因此未信任任何金鑰。請重新連線，然後在信任之前核對面板顯示的金鑰。",
   "SFTP_UNREACHABLE": "{{detail}} 修復方法：請檢查 SFTP 主機、埠、防火牆設定，並確認託管服務商允許從此面板所在計算機訪問 SFTP。",
   "SFTP_UNKNOWN": "{{detail}} 修復方法：請重新執行“校驗並準備 SFTP”。如果仍然失敗，請下載支援包並附上 sftp-diagnostics.json。",
   "UNEXPECTED_SERVER_ERROR": "{{detail}} 發生非預期的伺服器錯誤——若問題持續發生，請下載支援包以利除錯分析。",

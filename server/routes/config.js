@@ -38,6 +38,7 @@ import {
 } from "./server.js";
 import { parseBoundedInteger } from "../utils/queryNumbers.js";
 import { setSteamSessionCredentials } from "../services/steamSessionCredentials.js";
+import { KNOWN_HOSTS_SETTING } from "../services/sftpHostKeys.js";
 
 // Local to this route: autoExportMaxPerPlayer has no counterpart check in
 // server.js (or anywhere else), so unlike the port/memory constants above
@@ -240,10 +241,21 @@ function validateCorsAllowedOrigins(value) {
 // plaintext until someone remembers to list it here.
 const maskSensitiveSettings = maskSensitiveObject;
 
+// Settings the server keeps for itself, never edited through this route.
+// The SFTP host-key pins (services/sftpHostKeys.js) change only through
+// "Trust new host key" (bridge.setup); listing them here would also have
+// the Settings page send its copy back on every Save. PUT already ignores
+// them, since they are not in VALID_SETTINGS_KEYS.
+const SERVER_MANAGED_SETTINGS = new Set([KNOWN_HOSTS_SETTING]);
+
 // Get application settings
 router.get("/app-settings", async (req, res) => {
   try {
-    const settings = await getAllSettings();
+    const settings = Object.fromEntries(
+      Object.entries((await getAllSettings()) || {}).filter(
+        ([key]) => !SERVER_MANAGED_SETTINGS.has(key),
+      ),
+    );
     res.json({ settings: maskSensitiveSettings(settings) });
   } catch (error) {
     log.error(`Failed to get app settings: ${error.message}`);

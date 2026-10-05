@@ -152,7 +152,7 @@ async function waitForCompleteCount(io, n) {
 describe("POST /api/server/install: install:* events are scoped to their own installPath", () => {
   it("tags install:log and install:complete with the requesting installPath, distinct per concurrent install", async () => {
     const handler = getInstallHandler();
-    const io = { emit: vi.fn() };
+    const io = { emit: vi.fn(), to: vi.fn() }; io.to.mockReturnValue(io);
     const installPathA = path.join(root, "install-a");
     const installPathB = path.join(root, "install-b");
     fs.mkdirSync(installPathA, { recursive: true });

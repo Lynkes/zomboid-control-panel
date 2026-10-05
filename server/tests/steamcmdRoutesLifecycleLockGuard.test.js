@@ -148,7 +148,7 @@ afterEach(() => {
 // stub instead of `undefined` so that background continuation (now
 // unawaited by the route handler itself) doesn't throw trying to call
 // .emit() on it in the one test below that lets self-heal actually run.
-const io = { emit: vi.fn() };
+const io = { emit: vi.fn(), to: vi.fn() }; io.to.mockReturnValue(io);
 const app = { get: (key) => (key === "io" ? io : undefined) };
 
 describe("POST /api/server/install same-server lifecycle-lock guard", () => {

@@ -67,6 +67,7 @@ import { rehydrateActiveSteamOperationsFromDisk } from "./services/activeSteamOp
 import {
   PanelUpdateChecker,
   createUpdateDataBackup,
+  redactUpdateStatus,
   restorePreUpdateDataBackup,
 } from "./services/panelUpdateChecker.js";
 import {
@@ -80,7 +81,12 @@ import {
 import { LogTailer } from "./services/logTailer.js";
 import { DiskMonitor } from "./services/diskMonitor.js";
 import authService, { onSessionRevoked } from "./services/auth.js";
-import { getRoleByName } from "./services/permissions.js";
+import {
+  getCapabilitiesForRole,
+  getRoleByName,
+  onRoleCapabilitiesChanged,
+  requirePermission,
+} from "./services/permissions.js";
 import { requireRole } from "./services/auth.js";
 import authRoutes from "./routes/auth.js";
 import oidcRoutes from "./routes/oidc.js";
@@ -443,19 +449,25 @@ function parseOriginList(rawOrigins) {
   return [...new Set(parsed)].slice(0, MAX_CORS_CUSTOM_ORIGINS);
 }
 
-function isPrivateNetworkHost(host) {
+// A dotted-quad IPv4 literal with every octet range-checked. Matching by
+// string prefix ("10.", "192.168.") also admitted attacker-controlled
+// hostnames like 10.evil.com (security audit L4).
+const IPV4_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+export function isPrivateNetworkHost(host) {
   if (!host) return false;
+  const h = String(host).trim().toLowerCase();
+  if (h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "[::1]") return true;
+  const match = IPV4_RE.exec(h);
+  if (!match) return false; // a hostname is never private-by-shape, however it starts
+  const octets = match.slice(1).map(Number);
+  if (octets.some((n) => n > 255)) return false;
+  const [a, b] = octets;
   return (
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    host === "::1" ||
-    host.startsWith("192.168.") ||
-    host.startsWith("10.") ||
-    // CGNAT/Tailscale range is 100.64.0.0/10 (second octet 64-127), NOT the
-    // whole 100.0.0.0/8. `host.startsWith("100.")` used to match all of
-    // 100.0.0.0-100.63.255.255 too, which are regular public IPv4 addresses.
-    /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+    a === 10 || // 10.0.0.0/8
+    (a === 192 && b === 168) || // 192.168.0.0/16
+    (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+    (a === 100 && b >= 64 && b <= 127) // CGNAT/Tailscale 100.64.0.0/10
   );
 }
 
@@ -921,9 +933,20 @@ const apiLimiter = rateLimit({
 app.use("/api/", apiLimiter);
 
 // Auth middleware — protects all /api/ routes except /api/auth/*
-// SSE endpoints can't set custom headers, so we accept ?token= as a fallback
+// SSE endpoints can't set custom headers, so we accept ?token= as a fallback —
+// but ONLY for the endpoints that actually need it. Accepting it on every
+// /api route put 15-minute access tokens in proxy access logs and browser
+// history (security audit M2). originalUrl is used because req.path is
+// mount-relative inside this app.use("/api/") layer.
+export const QUERY_TOKEN_PATHS = new Set(["/api/mods/conflicts/stream"]);
+export function acceptsQueryToken(req) {
+  const fullPath = String(req.originalUrl || req.url || req.path || "")
+    .split("?")[0]
+    .toLowerCase();
+  return QUERY_TOKEN_PATHS.has(fullPath);
+}
 app.use("/api/", (req, res, next) => {
-  if (req.query.token && !req.headers.authorization) {
+  if (req.query.token && !req.headers.authorization && acceptsQueryToken(req)) {
     req.headers.authorization = `Bearer ${req.query.token}`;
   }
   next();
@@ -1398,27 +1421,60 @@ rconService.on("disconnected", () => {
   }, 3000); // wait 3s for process to fully exit
 });
 
-// Emit PanelBridge status changes to connected clients via Socket.IO
+// Emit PanelBridge status changes to connected clients via Socket.IO.
+// bridgePath is a host filesystem path, and the HTTP status route gates it
+// behind bridge.setup / bridge.diagnostics (7ead08e0) — these rare events go
+// only to sockets holding one of those, instead of every signed-in role
+// (security audit M1).
 panelBridge.on("started", () => {
-  io.emit("panelBridge:status", {
+  emitToCapabilities(["bridge.setup", "bridge.diagnostics"], "panelBridge:status", {
     isRunning: true,
     bridgePath: panelBridge.bridgePath,
-  });
+  }).catch(() => {});
 });
 
 panelBridge.on("stopped", () => {
-  io.emit("panelBridge:status", {
+  emitToCapabilities(["bridge.setup", "bridge.diagnostics"], "panelBridge:status", {
     isRunning: false,
     bridgePath: panelBridge.bridgePath,
-  });
-});
-
-panelBridge.on("modStatus", (status) => {
-  io.emit("panelBridge:modStatus", status);
+  }).catch(() => {});
 });
 
 panelBridge.on("configured", ({ path }) => {
-  io.emit("panelBridge:configured", { bridgePath: path });
+  emitToCapabilities(["bridge.setup", "bridge.diagnostics"], "panelBridge:configured", { bridgePath: path }).catch(() => {});
+});
+
+// The live heartbeat is consumed by the dashboard/bridge badges (alive,
+// version, serverName, playerCount) for every role, but the internal
+// modStatus also carries host paths (path, filePath, lastPath), raw error
+// text that can quote a path, and a live player list. Only an allow-list of
+// the fields those badges read is broadcast -- a delete-list re-leaks the
+// next field someone adds, which is how lastPath slipped through (same
+// rule as pingModStatusView() in services/panelBridge.js). The player list
+// is third-party data gated like GET /api/players/, so it travels as its
+// own event to players.view sockets only (security audit M1).
+const PUBLIC_MOD_STATUS_FIELDS = [
+  "alive",
+  "waiting",
+  "version",
+  "serverName",
+  "playerCount",
+  "timestamp",
+];
+export function publicModStatusView(status) {
+  const view = {};
+  for (const field of PUBLIC_MOD_STATUS_FIELDS) {
+    if (status?.[field] !== undefined) view[field] = status[field];
+  }
+  return view;
+}
+
+panelBridge.on("modStatus", (status) => {
+  if (!status) return;
+  io.emit("panelBridge:modStatus", publicModStatusView(status));
+  if (status.players) {
+    emitToCapabilities(["players.view"], "panelBridge:players", status.players).catch(() => {});
+  }
 });
 
 // PanelBridge is the preferred source of truth for player presence (its
@@ -2025,7 +2081,7 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
 });
 
 // Panel self-update endpoints
-app.get("/api/panel/update-check", async (req, res) => {
+app.get("/api/panel/update-check", requirePermission("panel.settings"), async (req, res) => {
   try {
     const checker = req.app.get("panelUpdateChecker");
     if (!checker)
@@ -2040,14 +2096,23 @@ app.get("/api/panel/update-check", async (req, res) => {
   }
 });
 
-app.get("/api/panel/update-status", (req, res) => {
+// Login-only on purpose: Layout and Dashboard poll it for every role. The
+// helper log and host paths in it are panel.settings content (the same gate
+// as update-apply-log), so other roles get the status without them (#193).
+app.get("/api/panel/update-status", async (req, res) => {
   try {
     const checker = req.app.get("panelUpdateChecker");
     if (!checker)
       return res
         .status(500)
         .json({ error: "Panel update checker not available" });
-    res.json(checker.getStatus());
+    const status = checker.getStatus();
+    const capabilities = await getCapabilitiesForRole(req.user?.role);
+    res.json(
+      Array.isArray(capabilities) && capabilities.includes("panel.settings")
+        ? status
+        : redactUpdateStatus(status),
+    );
   } catch (error) {
     // The only inline update route with no try/catch, found by comparing it
     // against its three siblings (update-check, update-preflight,
@@ -2063,7 +2128,7 @@ app.get("/api/panel/update-status", (req, res) => {
   }
 });
 
-app.get("/api/panel/update-preflight", async (req, res) => {
+app.get("/api/panel/update-preflight", requirePermission("panel.settings"), async (req, res) => {
   try {
     const checker = req.app.get("panelUpdateChecker");
     if (!checker)
@@ -2078,7 +2143,7 @@ app.get("/api/panel/update-preflight", async (req, res) => {
   }
 });
 
-app.get("/api/panel/update-apply-log", (req, res) => {
+app.get("/api/panel/update-apply-log", requirePermission("panel.settings"), (req, res) => {
   try {
     const checker = req.app.get("panelUpdateChecker");
     if (!checker)
@@ -2516,7 +2581,72 @@ export async function socketHasCapability(socket, capability) {
   }
 }
 
+// Socket.IO rooms that carry capability-gated broadcasts, and the capability
+// each subscribe:* handler below checks before joining. Membership is
+// decided once, at join time, so a role edit re-checks it
+// (recheckCapabilityRooms below): otherwise a member kept receiving install,
+// chunk-scan, log, perf, player and live-RCON events after the capability
+// was taken off their role, until they reconnected.
+export const CAPABILITY_ROOMS = Object.freeze({
+  players: "players.view",
+  install: "server.install",
+  chunkscan: "chunks.manage",
+  logs: "diagnostics.manage",
+  perf: "diagnostics.manage",
+  "rcon-live": "rcon.execute",
+});
+
+// Remove the sockets of `roleName`'s members (every socket when null) from
+// each capability room their role no longer allows. Fail closed like the
+// join checks: a role that no longer resolves leaves every gated room.
+export async function recheckCapabilityRooms(roleName = null, server = io) {
+  for (const s of [...server.sockets.sockets.values()]) {
+    if (!s.user || (roleName && s.user.role !== roleName)) continue;
+    for (const [room, capability] of Object.entries(CAPABILITY_ROOMS)) {
+      if (s.rooms.has(room) && !(await socketHasCapability(s, capability))) {
+        s.leave(room);
+      }
+    }
+  }
+}
+onRoleCapabilitiesChanged((roleName) => {
+  recheckCapabilityRooms(roleName).catch((error) =>
+    log.warn(`Could not re-check socket rooms after a role edit: ${error.message}`),
+  );
+});
+
 // Socket.IO connection handling
+// Emit an event only to sockets whose role holds one of `capabilities`.
+// Fail closed: a socket with no resolvable role receives nothing. Used for
+// broadcasts that cannot use a pre-joined room (rare events, or per-socket
+// field selection) — security audit M1: several broadcasts sent privileged
+// content (admin chat, bridge host paths, live player lists) to every
+// authenticated socket regardless of role, bypassing the HTTP gates that
+// protect the same data.
+export async function emitToCapabilities(capabilities, event, payload, server = io) {
+  // Resolve each distinct role once per broadcast, not once per socket.
+  const roleAllowed = new Map();
+  const allowed = async (s) => {
+    const roleName = s.user.role;
+    if (!roleAllowed.has(roleName)) {
+      roleAllowed.set(
+        roleName,
+        (async () => {
+          for (const capability of capabilities) {
+            if (await socketHasCapability(s, capability)) return true;
+          }
+          return false;
+        })(),
+      );
+    }
+    return roleAllowed.get(roleName);
+  };
+  for (const s of [...server.sockets.sockets.values()]) {
+    if (!s.user) continue;
+    if (await allowed(s)) s.emit(event, payload);
+  }
+}
+
 io.on("connection", (socket) => {
   log.debug(
     `Client connected: ${socket.id}${socket.user ? ` (${socket.user.username})` : ""}`,
@@ -2547,8 +2677,24 @@ io.on("connection", (socket) => {
   // which requires players.view -- this room carries the same data and
   // must not be reachable by a role that route refuses.
   socket.on("subscribe:players", async () => {
-    if (!(await socketHasCapability(socket, "players.view"))) return;
+    if (!(await socketHasCapability(socket, CAPABILITY_ROOMS.players))) return;
     socket.join("players");
+  });
+
+  // Subscribe to server-install progress (install:* and steamcmd:* events).
+  // Mirrors the install routes' server.install gate: the payloads carry host
+  // paths and raw SteamCMD output, so they must not reach every signed-in
+  // role (security audit M1).
+  socket.on("subscribe:install", async () => {
+    if (!(await socketHasCapability(socket, CAPABILITY_ROOMS.install))) return;
+    socket.join("install");
+  });
+
+  // Subscribe to chunk-scan progress. Mirrors routes/chunks.js's
+  // chunks.manage gate (security audit M1).
+  socket.on("subscribe:chunkscan", async () => {
+    if (!(await socketHasCapability(socket, CAPABILITY_ROOMS.chunkscan))) return;
+    socket.join("chunkscan");
   });
 
   // Subscribe to logs. Mirrors GET /api/debug/logs (debug.js), which
@@ -2571,14 +2717,14 @@ io.on("connection", (socket) => {
   // (see /rcon/history's own header comment) and diagnostics.manage is a
   // different, broader capability that never mentions RCON at all.
   socket.on("subscribe:logs", async () => {
-    if (!(await socketHasCapability(socket, "diagnostics.manage"))) return;
+    if (!(await socketHasCapability(socket, CAPABILITY_ROOMS.logs))) return;
     socket.join("logs");
   });
 
   // Subscribe to performance snapshots. Mirrors POST
   // /api/debug/performance-snapshot (debug.js), also diagnostics.manage.
   socket.on("subscribe:perf", async () => {
-    if (!(await socketHasCapability(socket, "diagnostics.manage"))) return;
+    if (!(await socketHasCapability(socket, CAPABILITY_ROOMS.perf))) return;
     socket.join("perf");
   });
   socket.on("unsubscribe:perf", () => {
@@ -2595,7 +2741,7 @@ io.on("connection", (socket) => {
   // content class must not reopen that through a narrower-looking but
   // still-too-broad gate (2026-08-31 bug hunt).
   socket.on("subscribe:rcon", async () => {
-    if (!(await socketHasCapability(socket, "rcon.execute"))) return;
+    if (!(await socketHasCapability(socket, CAPABILITY_ROOMS["rcon-live"]))) return;
     socket.join("rcon-live");
   });
 });
@@ -3553,6 +3699,44 @@ export function buildChatSocketPayload(data, id) {
   };
 }
 
+// Room types every signed-in role may watch: they are visible in-game to
+// every player anyway. Admin chat, and any room type not in this list
+// (Faction, Safehouse, Radio, a Private whisper...), goes only to roles
+// holding PRIVATE_CHAT_CAPABILITIES (security audit M1). That is
+// players.moderate -- the in-game moderation authority moderators,
+// technicians and admins all hold -- not rcon.execute, which would have cut
+// the moderator role off from the very admin chat it exists to take part in.
+export const PUBLIC_CHAT_ROOM_TYPES = new Set([
+  "Local",
+  "Shout",
+  "Say",
+  "General",
+  "Roleplay",
+  "Server Alert",
+  "Server chat",
+]);
+export const PRIVATE_CHAT_CAPABILITIES = ["players.moderate"];
+
+export function isPublicChatMessage(data) {
+  if (data?.type === "admin") return false;
+  const roomType = String(data?.sourceChatType || "").trim();
+  return !roomType || PUBLIC_CHAT_ROOM_TYPES.has(roomType);
+}
+
+// Every message -- public or not -- goes through one promise chain, so a
+// restricted message whose recipients are still being resolved (async role
+// lookups) cannot be overtaken by the public line that followed it in the
+// log. A failed send is reported and the chain keeps going.
+export function createChatBroadcaster({ emitPublic, emitRestricted, onError = () => {} }) {
+  let chain = Promise.resolve();
+  return (data, payload) => {
+    chain = chain
+      .then(() => (isPublicChatMessage(data) ? emitPublic(payload) : emitRestricted(payload)))
+      .catch(onError);
+    return chain;
+  };
+}
+
 // Initialize and start server
 async function start() {
   try {
@@ -3719,11 +3903,19 @@ async function start() {
     // counter: one log chunk emits several lines within the same millisecond,
     // and the client discards a message whose id it has already seen.
     let chatMessageSeq = 0;
+    // Public rooms go to every socket; admin chat and private rooms go only
+    // to moderation roles (see isPublicChatMessage). Every message -- public
+    // or not -- goes through one promise chain, so a restricted message whose
+    // recipients are still being resolved cannot be overtaken by the public
+    // line that followed it in the log.
+    const broadcastChat = createChatBroadcaster({
+      emitPublic: (payload) => io.emit("chat:message", payload),
+      emitRestricted: (payload) =>
+        emitToCapabilities(PRIVATE_CHAT_CAPABILITIES, "chat:message", payload),
+      onError: (error) => log.debug(`Chat broadcast failed: ${error.message}`),
+    });
     logTailer.on("chatMessage", (data) => {
-      io.emit(
-        "chat:message",
-        buildChatSocketPayload(data, `${Date.now()}-${chatMessageSeq++}`),
-      );
+      broadcastChat(data, buildChatSocketPayload(data, `${Date.now()}-${chatMessageSeq++}`));
     });
 
     // Player death events parsed from B42 user.txt — forward to Discord
@@ -3753,7 +3945,7 @@ async function start() {
         .catch((err) =>
           log.debug(`Discord playerDeath notification failed: ${err.message}`),
         );
-      io.emit("player:death", data);
+      io.to("players").emit("player:death", data);
     });
 
     // Initialize scheduler first (needed by modChecker for auto-restart)

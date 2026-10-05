@@ -107,6 +107,7 @@ import {
   PanelUpdatePreflight,
   PanelUpdateMessage,
   ServerInstance,
+  type SftpHostKeyRefusal,
 } from "@/lib/api";
 import { getUserErrorMessage } from "@/lib/errorMessage";
 import { classifyPanelUpdateFailure } from "@/lib/panelUpdateFailure";
@@ -563,6 +564,7 @@ export default function Settings() {
       behind: boolean | null;
     } | null;
     deliveryMethod?: "local" | "workshop";
+    hostKeyRefusals?: SftpHostKeyRefusal[];
   } | null>(null);
   const [bridgeLoading, setBridgeLoading] = useState(false);
   const [bridgeError, setBridgeError] = useState<string | null>(null);
@@ -578,6 +580,13 @@ export default function Settings() {
   const [pinging, setPinging] = useState(false);
   const [manualBridgePath, setManualBridgePath] = useState("");
   const [testingSftp, setTestingSftp] = useState(false);
+  // The refusal (both fingerprints) from the last Verify/Start that failed
+  // with SFTP_HOST_KEY_MISMATCH. /panel-bridge/status lists every refused
+  // host as well (hostKeyRefusals), whoever connected; this one covers a
+  // host typed into the form that the status poll has not picked up yet.
+  const [sftpHostKeyRefusal, setSftpHostKeyRefusal] = useState<SftpHostKeyRefusal | null>(null);
+  // host:port of the refusal being trusted right now.
+  const [trustingHostKey, setTrustingHostKey] = useState<string | null>(null);
   const [remoteLogs, setRemoteLogs] = useState<
     Array<{ name: string; size: number; modifiedAt: string | null }>
   >([]);
@@ -938,8 +947,10 @@ export default function Settings() {
         setPanelUpdateReady(false);
       }
       // If a previous apply failed, surface the helper log right away so the
-      // user can see what happened without clicking anything.
-      if (status.lastApplyResult?.status === "failed") {
+      // user can see what happened without clicking anything. The log is
+      // panel.settings content (#193): other roles get the status without it
+      // and must not be sent to the gated log route.
+      if (status.lastApplyResult?.status === "failed" && canSavePanelSettings) {
         if (status.lastApplyResult.helperLog) {
           setPanelApplyLog(status.lastApplyResult.helperLog);
         } else {
@@ -957,7 +968,7 @@ export default function Settings() {
       setPanelUpdateStatusError(message);
       reportClientError("Failed to fetch panel update status.", error);
     }
-  }, [t]);
+  }, [t, canSavePanelSettings]);
 
   const fetchPanelUpdatePreflight = useCallback(async () => {
     try {
@@ -1014,13 +1025,15 @@ export default function Settings() {
 
   // Run preflight once status tells us we're in a packaged build and there is
   // anything actionable (either an available update or a staged file on disk).
+  // update-preflight needs panel.settings (#193), like Check for Updates.
   useEffect(() => {
-    if (!hasActionablePanelUpdate) return;
+    if (!hasActionablePanelUpdate || !canSavePanelSettings) return;
     fetchPanelUpdatePreflight();
   }, [
     hasActionablePanelUpdate,
     stagedPanelUpdatePath,
     fetchPanelUpdatePreflight,
+    canSavePanelSettings,
   ]);
 
   const normalizePort = (value: string): string => {
@@ -1339,6 +1352,8 @@ export default function Settings() {
   }, [pollForPanelReconnect]);
 
   const handleCheckPanelUpdate = async () => {
+    // GET /panel/update-check needs panel.settings (#193).
+    if (!canSavePanelSettings) return;
     setCheckingPanelUpdate(true);
     setPanelUpdateStatusError(null);
     try {
@@ -2186,9 +2201,10 @@ export default function Settings() {
           serverName: data.serverName || prevModStatus?.serverName || "",
           // When alive, use playerCount (defaulting to 0); when offline, leave undefined
           playerCount: data.alive ? (data.playerCount ?? 0) : undefined,
-          players: Array.isArray(data.players)
-            ? data.players
-            : Object.keys(data.players || {}),
+          // The live player list arrives as its own event
+          // (panelBridge:players, gated players.view) — keep the current
+          // list here so the separate event can update it without flicker.
+          players: prevModStatus?.players || [],
           path: data.path || prevModStatus?.path || "",
           timestamp: data.timestamp || Date.now(),
         };
@@ -2209,13 +2225,38 @@ export default function Settings() {
       fetchBridgeStatusRef.current();
     };
 
+    // security audit M1: the live player list is no longer part of
+    // panelBridge:modStatus (which every role receives); it arrives as a
+    // separate event, sent only to sockets holding players.view.
+    const handleBridgePlayers = (players: string[] | Record<string, unknown>) => {
+      setBridgeStatus((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          modStatus: {
+            ...prev.modStatus,
+            alive: prev.modStatus?.alive ?? true,
+            version: prev.modStatus?.version || "",
+            serverName: prev.modStatus?.serverName || "",
+            path: prev.modStatus?.path || "",
+            timestamp: prev.modStatus?.timestamp || Date.now(),
+            players: Array.isArray(players)
+              ? players
+              : Object.keys(players || {}),
+          } as NonNullable<typeof prev.modStatus>,
+        };
+      });
+    };
+
     socket.on("panelBridge:status", handleBridgeStatus);
     socket.on("panelBridge:modStatus", handleModStatus);
+    socket.on("panelBridge:players", handleBridgePlayers);
     socket.on("panelBridge:configured", handleBridgeConfigured);
 
     return () => {
       socket.off("panelBridge:status", handleBridgeStatus);
       socket.off("panelBridge:modStatus", handleModStatus);
+      socket.off("panelBridge:players", handleBridgePlayers);
       socket.off("panelBridge:configured", handleBridgeConfigured);
     };
   }, [socket]); // Only depend on socket, use ref for fetchBridgeStatus
@@ -2377,22 +2418,87 @@ export default function Settings() {
     }
   };
 
+  // The refusal a failed SFTP call reported, if its host key was refused.
+  const hostKeyRefusalFrom = (error: unknown): SftpHostKeyRefusal | null => {
+    if (!(error instanceof ApiError) || error.code !== "SFTP_HOST_KEY_MISMATCH") return null;
+    const data = error.data as { hostKey?: SftpHostKeyRefusal } | undefined;
+    return data?.hostKey ?? null;
+  };
+  const noteHostKeyRefusal = (error: unknown) => {
+    const refusal = hostKeyRefusalFrom(error);
+    if (!refusal) return;
+    setSftpHostKeyRefusal(refusal);
+    fetchBridgeStatus();
+  };
+
   const handleTestSftp = async () => {
     if (!canSetupBridge) return;
     setTestingSftp(true);
     try {
       const result = await panelBridgeApi.testSftp(sftpConfig());
+      setSftpHostKeyRefusal(null);
       toast({
         title: result.statusExists ? t("toasts.sftpBridgeReady.title") : t("toasts.sftpFoldersReady.title"),
         description: `${result.nextStep} (${result.latencyMs} ms)`,
         variant: "success" as const,
       });
     } catch (error) {
+      noteHostKeyRefusal(error);
       toast({ title: t("toasts.sftpTestFailed.title"), description: getUserErrorMessage(error, t("toasts.sftpTestFailed.fallback")), variant: "destructive" });
     } finally {
       setTestingSftp(false);
     }
   };
+
+  // Explicit operator decision after a refused host key: pin exactly the
+  // key shown (the one the server presents), never "whatever key the next
+  // connection sees". The server refuses if the host presents another key
+  // by now. The bridge and Files reconnect on their own afterwards.
+  const handleTrustHostKey = async (refusal: SftpHostKeyRefusal) => {
+    if (!canSetupBridge) return;
+    setTrustingHostKey(`${refusal.host}:${refusal.port}`);
+    try {
+      const result = await panelBridgeApi.trustSftpHostKey({
+        host: refusal.host,
+        port: refusal.port,
+        fingerprint: refusal.presented,
+      });
+      setSftpHostKeyRefusal((current) =>
+        current && current.host === refusal.host && current.port === refusal.port ? null : current,
+      );
+      toast({
+        title: t("toasts.sftpHostKeyTrusted.title"),
+        description: t("toasts.sftpHostKeyTrusted.description", {
+          host: `${result.host}:${result.port}`,
+          fingerprint: result.fingerprint,
+        }),
+        variant: "success" as const,
+      });
+    } catch (error) {
+      // The host no longer presents that key (or the panel restarted since
+      // the refusal): the status poll shows whatever is refused now, so the
+      // copy kept from the last Verify is out of date.
+      if (error instanceof ApiError && error.code === "SFTP_HOST_KEY_NOT_PRESENTED") {
+        setSftpHostKeyRefusal((current) =>
+          current && current.host === refusal.host && current.port === refusal.port ? null : current,
+        );
+      }
+      toast({ title: t("toasts.sftpHostKeyTrustFailed.title"), description: getUserErrorMessage(error, t("toasts.sftpHostKeyTrustFailed.fallback")), variant: "destructive" });
+    } finally {
+      setTrustingHostKey(null);
+      fetchBridgeStatus();
+    }
+  };
+
+  // Every refused host: the status poll's list, plus the last Verify/Start
+  // refusal if the poll has not caught up with it yet.
+  const hostKeyRefusals: SftpHostKeyRefusal[] = [...(bridgeStatus?.hostKeyRefusals ?? [])];
+  if (
+    sftpHostKeyRefusal &&
+    !hostKeyRefusals.some((r) => r.host === sftpHostKeyRefusal.host && r.port === sftpHostKeyRefusal.port)
+  ) {
+    hostKeyRefusals.push(sftpHostKeyRefusal);
+  }
 
   const handleConfigureSftp = async () => {
     if (!canSetupBridge) return;
@@ -2426,6 +2532,7 @@ export default function Settings() {
           panelBridgeSftpPollIntervalSeconds: originalSettings.panelBridgeSftpPollIntervalSeconds,
         }));
       }
+      noteHostKeyRefusal(error);
       setBridgeError(getUserErrorMessage(error, t("errors.couldNotStartSftpBridge")));
     } finally {
       setBridgeLoading(false);
@@ -3776,28 +3883,32 @@ export default function Settings() {
                             >
                               {t("updates.dismiss")}
                             </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={async () => {
-                                try {
-                                  const { log: helperLog } =
-                                    await panelUpdateApi.getApplyLog();
-                                  setPanelApplyLog(
-                                    helperLog || "No helper log found.",
-                                  );
-                                } catch (error) {
-                                  toast({
-                                    title: t("updates.couldNotReadLog.title"),
-                                    description:
-                                      getUserErrorMessage(error, t("updates.couldNotReadLog.fallback")),
-                                    variant: "destructive",
-                                  });
-                                }
-                              }}
-                            >
-                              {t("updates.refreshLog")}
-                            </Button>
+                            <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={!canSavePanelSettings}
+                                onClick={async () => {
+                                  if (!canSavePanelSettings) return;
+                                  try {
+                                    const { log: helperLog } =
+                                      await panelUpdateApi.getApplyLog();
+                                    setPanelApplyLog(
+                                      helperLog || "No helper log found.",
+                                    );
+                                  } catch (error) {
+                                    toast({
+                                      title: t("updates.couldNotReadLog.title"),
+                                      description:
+                                        getUserErrorMessage(error, t("updates.couldNotReadLog.fallback")),
+                                      variant: "destructive",
+                                    });
+                                  }
+                                }}
+                              >
+                                {t("updates.refreshLog")}
+                              </Button>
+                            </DisabledReason>
                           </div>
                         </AlertDescription>
                       </Alert>
@@ -3853,25 +3964,28 @@ export default function Settings() {
                     )}
 
                   <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={handleCheckPanelUpdate}
-                      disabled={
-                        checkingPanelUpdate ||
-                        downloadingPanelUpdate ||
-                        restarting
-                      }
-                      className="gap-2"
-                    >
-                      {checkingPanelUpdate ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <RefreshCw className="w-4 h-4" />
-                      )}
-                      {checkingPanelUpdate
-                        ? t("updates.statusChecking")
-                        : t("updates.checkForUpdates")}
-                    </Button>
+                    <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
+                      <Button
+                        variant="outline"
+                        onClick={handleCheckPanelUpdate}
+                        disabled={
+                          checkingPanelUpdate ||
+                          downloadingPanelUpdate ||
+                          restarting ||
+                          !canSavePanelSettings
+                        }
+                        className="gap-2"
+                      >
+                        {checkingPanelUpdate ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-4 h-4" />
+                        )}
+                        {checkingPanelUpdate
+                          ? t("updates.statusChecking")
+                          : t("updates.checkForUpdates")}
+                      </Button>
+                    </DisabledReason>
 
                     {isDockerPanelUpdate ? (
                       <AlertDialog
@@ -5056,6 +5170,42 @@ export default function Settings() {
                     </CollapsibleContent>
                   </div>
                 </Collapsible>
+
+                {/* A refused SFTP host key, from any caller (bridge, Files,
+                    log viewer, config mirror). Outside the collapsed
+                    "Remote connection" section so it is seen; both
+                    fingerprints are shown so the operator trusts the key
+                    they compared, not whatever comes next. */}
+                {hostKeyRefusals.length > 0 && (
+                  <div id="sftp-host-key" role="alert" className="space-y-3 rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-xs">
+                    <p className="flex items-start gap-2 text-destructive"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{t("bridge.hostKeyMismatchWarning")}</p>
+                    {hostKeyRefusals.map((refusal) => {
+                      const id = `${refusal.host}:${refusal.port}`;
+                      return (
+                        <div key={id} className="space-y-2 rounded-md border border-border/50 bg-background/60 p-3">
+                          <p className="font-mono text-sm text-foreground">{id}</p>
+                          <dl className="grid gap-x-3 gap-y-1 sm:grid-cols-[auto_1fr]">
+                            {refusal.pinned && (
+                              <>
+                                <dt className="text-muted-foreground">{t("bridge.hostKeySaved")}</dt>
+                                <dd className="font-mono break-all">{refusal.pinned}</dd>
+                              </>
+                            )}
+                            <dt className="text-muted-foreground">{t("bridge.hostKeyPresented")}</dt>
+                            <dd className="font-mono break-all text-foreground">{refusal.presented}</dd>
+                          </dl>
+                          <DisabledReason reason={!canSetupBridge ? t("permissions.noBridgeSetup") : null}>
+                            <Button type="button" variant="destructive" size="sm" onClick={() => handleTrustHostKey(refusal)} disabled={trustingHostKey !== null || !canSetupBridge}>
+                              {trustingHostKey === id ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}
+                              {t("bridge.trustNewHostKey")}
+                            </Button>
+                          </DisabledReason>
+                        </div>
+                      );
+                    })}
+                    <p className="text-muted-foreground"><Trans t={t} i18nKey="bridge.hostKeyCheckHint" components={{ code: <code className="font-mono text-foreground" /> }} /></p>
+                  </div>
+                )}
 
                 <Collapsible>
                   <div className="rounded-xl border border-border/40 bg-card/40">

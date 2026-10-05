@@ -432,7 +432,7 @@ class AuthService {
 
   async authenticateAccessToken(token) {
     try {
-      const payload = jwt.verify(token, this.jwtSecret);
+      const payload = jwt.verify(token, this.jwtSecret, { algorithms: ["HS256"] });
       if (payload.type === "refresh") {
         return null;
       }
@@ -963,7 +963,7 @@ class AuthService {
         tokenGen: user.tokenGen || 0,
       },
       this.jwtSecret,
-      { expiresIn: ACCESS_TOKEN_EXPIRY },
+      { algorithm: "HS256", expiresIn: ACCESS_TOKEN_EXPIRY },
     );
   }
 
@@ -980,7 +980,7 @@ class AuthService {
         sessionId,
       },
       this.jwtSecret,
-      { expiresIn: REFRESH_TOKEN_EXPIRY },
+      { algorithm: "HS256", expiresIn: REFRESH_TOKEN_EXPIRY },
     );
   }
 
@@ -989,7 +989,7 @@ class AuthService {
    */
   verifyAccessToken(token) {
     try {
-      const payload = jwt.verify(token, this.jwtSecret);
+      const payload = jwt.verify(token, this.jwtSecret, { algorithms: ["HS256"] });
       // Reject refresh tokens used as access tokens (token type confusion)
       if (payload.type === "refresh") return null;
       return payload;
@@ -1004,7 +1004,7 @@ class AuthService {
    */
   async refreshAccessToken(refreshToken) {
     try {
-      const payload = jwt.verify(refreshToken, this.jwtSecret);
+      const payload = jwt.verify(refreshToken, this.jwtSecret, { algorithms: ["HS256"] });
       if (payload.type !== "refresh") {
         throw new Error("Invalid token type");
       }
@@ -1408,7 +1408,7 @@ class AuthService {
     }
 
     try {
-      const payload = jwt.verify(refreshToken, this.jwtSecret);
+      const payload = jwt.verify(refreshToken, this.jwtSecret, { algorithms: ["HS256"] });
       if (
         !payload ||
         typeof payload !== "object" ||

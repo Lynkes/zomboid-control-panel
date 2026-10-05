@@ -51,6 +51,13 @@ import {
   validateRemoteConfigTransport,
 } from "../services/remoteConfigFiles.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import {
+  HostKeyTrustError,
+  getHostKeyRefusal,
+  isHostKeyRefusal,
+  listHostKeyRefusals,
+  trustHostKey,
+} from "../services/sftpHostKeys.js";
 const log = createLogger("API:PanelBridge");
 
 // ES Module __dirname equivalent
@@ -542,6 +549,11 @@ router.get(
     localInstall,
     remoteBridgeVersionCheck,
     deliveryMethod,
+    // Every SFTP host whose key is being refused, whoever connected (the
+    // bridge, Files, the log viewer, the config mirror), so Settings can
+    // offer "Trust new host key" with both fingerprints even when the bridge
+    // itself is not running (services/sftpHostKeys.js).
+    hostKeyRefusals: listHostKeyRefusals(),
   });
 });
 
@@ -1067,9 +1079,23 @@ router.post("/configure-direct", requirePermission("bridge.setup"), async (req, 
   }
 });
 
+// A refused host key, reported the same way by every SFTP route: the
+// classified code, and the refusal with both fingerprints so the client can
+// show what it would be trusting. {} for any other error.
+function hostKeyRefusalFields(error, target) {
+  if (!isHostKeyRefusal(error)) return {};
+  const refusal = target?.host ? getHostKeyRefusal(target.host, target.port) : null;
+  return {
+    code: ErrorCode.SFTP_HOST_KEY_MISMATCH,
+    params: sanitizeErrorParams({ detail: error?.message || String(error) }),
+    ...(refusal ? { hostKey: refusal } : {}),
+  };
+}
+
 router.post("/sftp/test", requirePermission("bridge.setup"), async (req, res) => {
+  let config;
   try {
-    const config = await resolveSftpConfig(req.body);
+    config = await resolveSftpConfig(req.body);
     const result = await testSftpBridge(config);
     res.json(result);
   } catch (error) {
@@ -1082,13 +1108,51 @@ router.post("/sftp/test", requirePermission("bridge.setup"), async (req, res) =>
       error: sanitizeError(formatSftpError(error)),
       code: classifySftpErrorCode(error),
       params: sanitizeErrorParams({ detail: error?.message || String(error) }),
+      ...hostKeyRefusalFields(error, config),
     });
   }
 });
 
-router.post("/sftp/configure", requirePermission("bridge.setup"), async (req, res) => {
+// "Trust new host key": pin exactly the fingerprint the operator compared
+// with their host, and only while it is the key that host is being refused
+// for (services/sftpHostKeys.js, security audit M3). There is no "forget
+// and trust whatever comes next": that pinned an attacker's key as readily
+// as a rebuilt server's. Same gate as the routes that make the connections.
+// Host/port come from the form when given (the operator may be fixing the
+// connection before saving), else from the saved bridge settings.
+router.post("/sftp/trust-host-key", requirePermission("bridge.setup"), async (req, res) => {
   try {
-    const config = await resolveSftpConfig(req.body);
+    const settings = await getAllSettings();
+    const host = String(req.body?.host ?? settings[SFTP_SETTING_KEYS.host] ?? "").trim();
+    const rawPort = req.body?.port ?? settings[SFTP_SETTING_KEYS.port];
+    const port = rawPort === undefined || rawPort === null || rawPort === "" ? 22 : Number(rawPort);
+    if (!host || host.length > 253 || /[\s/\\]/.test(host)) {
+      return res.status(400).json({ error: "A valid SFTP host is required" });
+    }
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      return res.status(400).json({ error: "SFTP port must be between 1 and 65535" });
+    }
+    const result = await trustHostKey(host, port, req.body?.fingerprint);
+    log.warn(
+      `SFTP host key for ${result.host}:${result.port} trusted by ${req.user?.username || "panel user"}: now ${result.fingerprint}` +
+        (result.previous ? ` (was ${result.previous})` : "") +
+        (result.storeReset ? " -- unreadable pin store was reset" : ""),
+    );
+    res.json({ success: true, ...result });
+  } catch (error) {
+    if (error instanceof HostKeyTrustError) {
+      return res
+        .status(error.status)
+        .json({ error: error.message, ...(error.code ? { code: error.code } : {}) });
+    }
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+router.post("/sftp/configure", requirePermission("bridge.setup"), async (req, res) => {
+  let config;
+  try {
+    config = await resolveSftpConfig(req.body);
     const cachePath = getSftpCachePath(config);
     await bridge.configureSftp(config, cachePath);
     for (const [field, key] of Object.entries(SFTP_SETTING_KEYS)) {
@@ -1101,40 +1165,44 @@ router.post("/sftp/configure", requirePermission("bridge.setup"), async (req, re
       error: sanitizeError(formatSftpError(error)),
       code: classifySftpErrorCode(error),
       params: sanitizeErrorParams({ detail: error?.message || String(error) }),
+      ...hostKeyRefusalFields(error, config),
     });
   }
 });
 
 router.post("/sftp/logs/list", requirePermission("bridge.setup"), async (req, res) => {
+  let config;
   try {
-    const config = await resolveSftpLogConfig(req.body);
+    config = await resolveSftpLogConfig(req.body);
     const result = await listSftpLogs(config);
     if (req.body?.logPath) await setSetting(SFTP_LOG_PATH_KEY, config.logPath);
     res.json({ success: true, ...result });
   } catch (error) {
-    res.status(400).json({ error: sanitizeError(error.message) });
+    res.status(400).json({ error: sanitizeError(error.message), ...hostKeyRefusalFields(error, config) });
   }
 });
 
 router.post("/sftp/logs/tail", requirePermission("bridge.setup"), async (req, res) => {
+  let config;
   try {
-    const config = await resolveSftpLogConfig(req.body);
+    config = await resolveSftpLogConfig(req.body);
     const result = await readSftpLogTail(config, req.body?.name, req.body?.maxBytes);
     res.json({ success: true, ...result });
   } catch (error) {
-    res.status(400).json({ error: sanitizeError(error.message) });
+    res.status(400).json({ error: sanitizeError(error.message), ...hostKeyRefusalFields(error, config) });
   }
 });
 
 // Verify the remote Server/ folder the config editor mirrors for a remote server.
 router.post("/sftp/config/list", requirePermission("bridge.setup"), async (req, res) => {
+  let config;
   try {
     const settings = await getAllSettings();
     const password =
       req.body?.password && !isMaskedSecret(req.body.password)
         ? req.body.password
         : settings[SFTP_SETTING_KEYS.password] || "";
-    const config = validateRemoteConfigTransport({
+    config = validateRemoteConfigTransport({
       host: req.body?.host ?? settings[SFTP_SETTING_KEYS.host],
       port: req.body?.port ?? settings[SFTP_SETTING_KEYS.port],
       username: req.body?.username ?? settings[SFTP_SETTING_KEYS.username],
@@ -1148,7 +1216,7 @@ router.post("/sftp/config/list", requirePermission("bridge.setup"), async (req, 
     }
     res.json({ success: true, ...result });
   } catch (error) {
-    res.status(400).json({ error: sanitizeError(error.message) });
+    res.status(400).json({ error: sanitizeError(error.message), ...hostKeyRefusalFields(error, config) });
   }
 });
 

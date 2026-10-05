@@ -48,6 +48,7 @@ import {
 } from "../services/configMutationGuard.js";
 import { requirePermission } from "../services/permissions.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { isHostKeyRefusal } from "../services/sftpHostKeys.js";
 
 const router = express.Router();
 
@@ -110,6 +111,19 @@ export class RemoteConfigNotConfiguredError extends Error {
 // These read or write the panel host's own filesystem, so an SFTP mirror of
 // the remote Server/ folder cannot stand in for them.
 const LOCAL_ONLY_PATHS = new Set(["/browse-files", "/image-preview"]);
+
+// The path the guards in this file compare, matched the way Express routes
+// it: case-insensitively and with or without a trailing slash (neither
+// caseSensitive nor strict routing is on). Comparing req.path exactly let
+// /RESTORE/x or /restore/x/ reach the restore handler without the "server
+// must be stopped" gate (#193).
+export function guardPathOf(req) {
+  return String(req.path || "").toLowerCase().replace(/\/+$/, "") || "/";
+}
+
+export function isLocalOnlyPath(req) {
+  return LOCAL_ONLY_PATHS.has(guardPathOf(req));
+}
 
 async function resolveRemoteConfigTransport() {
   const settings = await getAllSettings();
@@ -179,7 +193,7 @@ router.use(async (req, res, next) => {
   const { activeServer, serverName } = req.activeServerContext;
   if (!activeServer?.isRemote) return next();
 
-  if (LOCAL_ONLY_PATHS.has(req.path)) {
+  if (isLocalOnlyPath(req)) {
     return res.status(400).json({
       error:
         "Browsing the server filesystem is not available for remote servers.",
@@ -210,8 +224,14 @@ router.use(async (req, res, next) => {
   } catch (err) {
     release();
     log.error(`Remote config pull failed: ${err.message}`);
+    const error = `Could not read the remote server config folder: ${sanitizeError(err.message)}`;
+    // A refused host key gets the same code and guidance as the PanelBridge
+    // SFTP routes, which point to Settings > PanelBridge > SFTP.
     return res.status(502).json({
-      error: `Could not read the remote server config folder: ${sanitizeError(err.message)}`,
+      error,
+      ...(isHostKeyRefusal(err)
+        ? { code: ErrorCode.SFTP_HOST_KEY_MISMATCH, params: sanitizeErrorParams({ detail: error }) }
+        : {}),
     });
   }
 
@@ -299,10 +319,11 @@ const LOCAL_CONFIG_MUTATIONS = new Set([
 // was trying to protect. Left gated (409 while running) deliberately,
 // pending its own evidence rather than inheriting the edit ruling by
 // assumption.
-// Both checks ignore case the way Express's routing does: /RESTORE/x reaches
-// the same handler as /restore/x, so it must meet the same gate (#193).
+// Both checks match the path the way Express's routing does (guardPathOf):
+// /RESTORE/x and /restore/x/ reach the same handler as /restore/x, so they
+// must meet the same gate (#193).
 function isLocalConfigOverwrite(req) {
-  const routePath = req.path.toLowerCase();
+  const routePath = guardPathOf(req);
   if (req.method === "POST" && /^\/templates\/[^/]+\/apply$/.test(routePath)) {
     return true;
   }
@@ -310,7 +331,7 @@ function isLocalConfigOverwrite(req) {
 }
 
 function isLocalConfigEdit(req) {
-  return LOCAL_CONFIG_MUTATIONS.has(`${req.method} ${req.path.toLowerCase()}`);
+  return LOCAL_CONFIG_MUTATIONS.has(`${req.method} ${guardPathOf(req)}`);
 }
 
 export function isLocalConfigMutation(req) {

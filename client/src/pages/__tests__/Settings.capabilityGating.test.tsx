@@ -39,7 +39,7 @@ vi.mock('@/lib/api', async () => {
       reloadCorsDiagnostics: vi.fn(),
       testRcon: vi.fn(),
     },
-    panelUpdateApi: { ...actual.panelUpdateApi, getStatus: vi.fn(), preflight: vi.fn() },
+    panelUpdateApi: { ...actual.panelUpdateApi, getStatus: vi.fn(), preflight: vi.fn(), check: vi.fn(), getApplyLog: vi.fn() },
     panelBridgeApi: { ...actual.panelBridgeApi, autoConfigure: vi.fn() },
     serversApi: { ...actual.serversApi, getAll: vi.fn() },
   }
@@ -51,6 +51,8 @@ const reloadCorsDiagnostics = vi.mocked(configApi.reloadCorsDiagnostics)
 const testRcon = vi.mocked(configApi.testRcon)
 const getUpdateStatus = vi.mocked(panelUpdateApi.getStatus)
 const preflight = vi.mocked(panelUpdateApi.preflight)
+const checkForUpdate = vi.mocked(panelUpdateApi.check)
+const getApplyLog = vi.mocked(panelUpdateApi.getApplyLog)
 const autoConfigure = vi.mocked(panelBridgeApi.autoConfigure)
 const getAllServers = vi.mocked(serversApi.getAll)
 
@@ -169,5 +171,51 @@ describe('Settings.tsx: Restart and Apply / Restart Panel are restricted to the 
     renderSettings('general')
     const restartButton = await screen.findByRole('button', { name: /^restart panel$/i })
     expect(restartButton).toBeDisabled()
+  })
+})
+
+// #193 moved update-check, update-preflight and update-apply-log behind
+// panel.settings. Without it, Check for Updates stayed enabled and failed
+// with a 403 toast, and every Settings visit with an update available
+// fired a preflight that 403'd into the client error log.
+describe('Settings.tsx: panel update checks are gated on panel.settings', () => {
+  function primeUpdateAvailable() {
+    primeCommonMocks()
+    getUpdateStatus.mockResolvedValue({
+      currentVersion: '1.0.0', updateAvailable: true, latestVersion: '1.1.0',
+      releaseUrl: null, releaseNotes: null, publishedAt: null, isChecking: false,
+      isDownloading: false, downloadProgress: 0, lastCheck: null, lastError: null,
+      updateMode: 'direct', stagedUpdate: null,
+      // What update-status gives a role without panel.settings: no helperLog.
+      lastApplyResult: { status: 'failed', pendingVersion: '1.1.0', canRetryApply: false },
+    } as never)
+    getApplyLog.mockResolvedValue({ log: null, logPath: '' } as never)
+  }
+
+  it('disables Check for Updates and calls none of the gated routes without panel.settings', async () => {
+    mockCan = (cap) => cap !== 'panel.settings'
+    primeUpdateAvailable()
+
+    renderSettings('updates')
+    const checkButton = await screen.findByRole('button', { name: 'Check for Updates' })
+    await waitFor(() => expect(getUpdateStatus).toHaveBeenCalled())
+    expect(checkButton).toBeDisabled()
+
+    fireEvent.click(checkButton)
+    await new Promise((r) => setTimeout(r, 0))
+    expect(checkForUpdate).not.toHaveBeenCalled()
+    expect(preflight).not.toHaveBeenCalled()
+    expect(getApplyLog).not.toHaveBeenCalled()
+  })
+
+  it('still runs the preflight and reads the apply log for a panel.settings holder', async () => {
+    mockCan = () => true
+    primeUpdateAvailable()
+
+    renderSettings('updates')
+    const checkButton = await screen.findByRole('button', { name: 'Check for Updates' })
+    expect(checkButton).toBeEnabled()
+    await waitFor(() => expect(preflight).toHaveBeenCalled())
+    await waitFor(() => expect(getApplyLog).toHaveBeenCalled())
   })
 })

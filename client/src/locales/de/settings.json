@@ -484,6 +484,11 @@
     "remoteBridgeFolderLabel": "Remote-Brückenordner auf dem VPS",
     "remoteBridgeFolderHelp": "Verwende den Pfad, wie ihn dieses SFTP-Konto sieht. Gib keinen Windows-Pfad oder einen Pfad von deinem lokalen Computer ein.",
     "syncIntervalLabel": "Sync-Intervall (Sekunden)",
+    "trustNewHostKey": "Neuem Hostschlüssel vertrauen",
+    "hostKeyMismatchWarning": "Der SFTP-Server hat einen anderen Hostschlüssel vorgelegt als den, den das Panel bei der ersten Verbindung gespeichert hat. Vertraue dem neuen Schlüssel nur, wenn du den Server neu aufgesetzt oder neu installiert und die Änderung bei deinem Hoster bestätigt hast – sonst könnte jemand die Verbindung abfangen.",
+    "hostKeySaved": "Gespeicherter Schlüssel",
+    "hostKeyPresented": "Schlüssel, den der Server jetzt vorlegt",
+    "hostKeyCheckHint": "Bevor du ihm vertraust, vergleiche den Schlüssel, den der Server jetzt vorlegt, mit dem SHA256-Fingerabdruck von deinem Hoster oder mit der Ausgabe von <code>ssh-keygen -lf</code> für die Dateien <code>/etc/ssh/ssh_host_*_key.pub</code> des Servers.",
     "verifyAndPrepare": "SFTP überprüfen und vorbereiten",
     "startSftpBridge": "SFTP-Brücke starten",
     "sftpRunning": "läuft",
@@ -1083,6 +1088,8 @@
     "sftpFoldersReady": {
       "title": "SFTP-Ordner bereit"
     },
+    "sftpHostKeyTrusted": { "title": "Neuem Hostschlüssel vertraut", "description": "Das Panel akzeptiert von {{host}} jetzt nur noch {{fingerprint}}." },
+    "sftpHostKeyTrustFailed": { "title": "Hostschlüssel nicht vertraut", "fallback": "Dem neuen Hostschlüssel konnte nicht vertraut werden." },
     "sftpTestFailed": {
       "title": "SFTP-Test fehlgeschlagen",
       "fallback": "Verbindung zu SFTP konnte nicht hergestellt werden."

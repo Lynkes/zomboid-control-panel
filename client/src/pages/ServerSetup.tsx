@@ -392,6 +392,18 @@ export default function ServerSetup() {
   const { toast } = useToast();
   const { can } = useAuth();
   const socket = useContext(SocketContext);
+  // Join the server-install room (security audit M1: install:*, steamcmd:*
+  // and steam:* were broadcast to every signed-in socket). Re-emitted on
+  // every reconnect — room membership is per-connection state.
+  useEffect(() => {
+    if (!socket) return;
+    const subscribeInstall = () => socket.emit("subscribe:install");
+    if (socket.connected) subscribeInstall();
+    socket.on("connect", subscribeInstall);
+    return () => {
+      socket.off("connect", subscribeInstall);
+    };
+  }, [socket]);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 

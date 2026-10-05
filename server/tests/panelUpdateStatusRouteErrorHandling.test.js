@@ -35,7 +35,7 @@ function makeRes() {
 }
 
 describe("GET /api/panel/update-status", () => {
-  it("returns a structured 500 instead of throwing when checker.getStatus() throws", () => {
+  it("returns a structured 500 instead of throwing when checker.getStatus() throws", async () => {
     const handler = getHandler("get", "/api/panel/update-status");
     const throwingChecker = {
       getStatus: () => {
@@ -47,14 +47,15 @@ describe("GET /api/panel/update-status", () => {
     };
     const res = makeRes();
 
-    expect(() => handler(req, res)).not.toThrow();
+    // An async handler that threw would reject here and fail the test.
+    await handler(req, res);
     expect(res.statusCode).toBe(500);
     expect(res.jsonBody).toEqual(
       expect.objectContaining({ error: expect.any(String) }),
     );
   });
 
-  it("still returns the real status on the happy path", () => {
+  it("still returns the real status on the happy path", async () => {
     const handler = getHandler("get", "/api/panel/update-status");
     const checker = { getStatus: () => ({ currentVersion: "1.0.0" }) };
     const req = {
@@ -62,7 +63,7 @@ describe("GET /api/panel/update-status", () => {
     };
     const res = makeRes();
 
-    handler(req, res);
+    await handler(req, res);
 
     expect(res.jsonBody).toEqual({ currentVersion: "1.0.0" });
   });

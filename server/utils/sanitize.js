@@ -8,7 +8,7 @@
 // secret (e.g. jwtSecret, discordBotToken) is masked automatically instead
 // of leaking until someone remembers to add it to a list.
 export const SENSITIVE_FIELD_RE =
-  /password|secret|token|apikey|api_key|jwt|sessionid|loginsecure|cookie|webhook/i;
+  /password|secret|token|apikey|api_key|jwt|sessionid|loginsecure|cookie|webhook|recovery/i;
 
 /**
  * Detect a value that is just the bullet-mask sentinel we send to clients

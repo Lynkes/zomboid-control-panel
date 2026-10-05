@@ -14,6 +14,11 @@ const PANEL_SERVICE = process.env.PANEL_SERVICE || "panel";
 const PANEL_CONTAINER = process.env.PANEL_CONTAINER || "zomboid-panel";
 const PANEL_IMAGE = process.env.PANEL_IMAGE || "zomboid-panel-allinone:latest";
 const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || "fpsacha/zomboid-control-panel";
+// security audit M5: optional. When set, the downloaded release archive must
+// match this SHA-256 or the update is refused. GitHub publishes checksums for
+// release artifacts (checksums.txt) but not for source tarballs, so a
+// deployment that wants verification pins the expected archive hash here.
+const UPDATE_SHA256 = String(process.env.UPDATE_SHA256 || "").trim().toLowerCase();
 const HEALTH_TIMEOUT_MS = 120000;
 
 let updateState = { status: "idle", version: null, message: null, startedAt: null, completedAt: null };
@@ -40,6 +45,12 @@ function rollbackTag(image) {
   return separator > image.lastIndexOf("/")
     ? `${image.slice(0, separator)}:rollback`
     : `${image}:rollback`;
+}
+
+async function sha256File(filePath) {
+  const hash = crypto.createHash("sha256");
+  hash.update(await fs.readFile(filePath));
+  return hash.digest("hex");
 }
 
 function isAuthorized(request) {
@@ -99,6 +110,21 @@ async function update(version) {
   try {
     await fs.mkdir(extractedDir, { recursive: true });
     await run("curl", ["--fail", "--location", "--silent", "--show-error", "--output", archivePath, `https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/v${version}.tar.gz`]);
+    // security audit M5: verify the archive when a checksum is pinned, and say
+    // so loudly when it is not. The updater holds the Docker socket, so an
+    // unverified archive is a root-code path.
+    const archiveSha256 = await sha256File(archivePath);
+    if (UPDATE_SHA256) {
+      if (archiveSha256 !== UPDATE_SHA256) {
+        throw new Error(
+          `Release archive checksum mismatch for v${version} (expected ${UPDATE_SHA256}, got ${archiveSha256}); refusing to update. ` +
+            "UPDATE_SHA256 pins one release: if you meant to move to this version, verify its archive hash, set PANEL_DOCKER_UPDATE_SHA256 to it and recreate the updater container (see SECURITY.md).",
+        );
+      }
+      console.log(`[updater] release archive checksum verified (${archiveSha256})`);
+    } else {
+      console.warn(`[updater] UPDATE_SHA256 is not set — release archive ${archiveSha256} was NOT checksum-verified. Set UPDATE_SHA256 to pin a release.`);
+    }
     await run("tar", ["-xzf", archivePath, "-C", extractedDir]);
     const entries = await fs.readdir(extractedDir, { withFileTypes: true });
     const sourceEntry = entries.find((entry) => entry.isDirectory());
@@ -130,13 +156,17 @@ async function update(version) {
         error.message = `${error.message}; rollback failed: ${rollbackError.message}`;
       }
     }
+    // The panel only learns that the update started, and /status needs the
+    // token, so the container log is where an operator finds out why it did
+    // not happen (a refused checksum, a failed build, a rollback).
+    console.error(`[updater] update to v${version} failed: ${error.message}`);
     updateState = { status: "failed", version, message: error.message, startedAt: updateState.startedAt, completedAt: new Date().toISOString() };
   } finally {
     await fs.rm(workDir, { recursive: true, force: true });
   }
 }
 
-http.createServer(async (request, response) => {
+const server = http.createServer(async (request, response) => {
   if (request.method === "GET" && request.url === "/health") return reply(response, 200, { status: "ok" });
   if (request.method === "GET" && request.url === "/status") {
     if (!isAuthorized(request)) return reply(response, 401, { error: "Unauthorized" });
@@ -156,6 +186,14 @@ http.createServer(async (request, response) => {
   } catch (error) {
     return reply(response, 400, { error: error.message });
   }
-}).listen(PORT, "0.0.0.0", () => {
-  console.log(`Docker update controller listening on ${PORT}`);
 });
+
+// Listens only when run as the container's entrypoint (node server.js);
+// tests require() it for update() alone.
+if (require.main === module) {
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`Docker update controller listening on ${PORT}`);
+  });
+}
+
+module.exports = { update, getUpdateState: () => updateState };

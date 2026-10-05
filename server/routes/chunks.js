@@ -910,7 +910,7 @@ router.get("/chunks/:saveName", requirePermission("chunks.manage"), async (req, 
       // Throttle to ~5/sec to avoid flooding the socket on fast local disks.
       if (!force && now - lastProgressAt < 200) return;
       lastProgressAt = now;
-      io.emit("chunkScan:progress", { scanId, scanned, total, chunks: found });
+      io.to("chunkscan").emit("chunkScan:progress", { scanId, scanned, total, chunks: found });
     };
 
     // Sanitize saveName to prevent path traversal. path.basename() alone

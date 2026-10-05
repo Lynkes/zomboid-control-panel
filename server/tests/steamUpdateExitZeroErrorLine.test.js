@@ -114,7 +114,7 @@ function buildRequest() {
   const serverManager = {
     getServerProcessDetails: async () => ({ running: false, scanFailed: false }),
   };
-  const io = { emit: vi.fn() };
+  const io = { emit: vi.fn(), to: vi.fn() }; io.to.mockReturnValue(io);
   const app = {
     get: (key) => (key === "serverManager" ? serverManager : key === "io" ? io : undefined),
   };

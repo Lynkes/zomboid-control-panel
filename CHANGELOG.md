@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Security
 
-_No unreleased changes._
+- **Live updates by role:** install and SteamCMD progress, chunk scans, PanelBridge status, deaths, the player list and non-public chat now reach only the roles allowed to see them (#193, thanks @mrbean56).
+- **SFTP host keys pinned:** the first connection pins a remote server's key; a changed key is refused until you compare it and choose Trust new host key in Settings › PanelBridge (#193, thanks @mrbean56).
+- **Tokens in URLs:** `?token=` works only on the mod-conflict stream; other tools must send an Authorization header (#193, thanks @mrbean56).
+- **Panel updates:** checking for updates and reading the apply log need panel settings (admin by default) (#193, thanks @mrbean56).
+- **Hardening:** safer restore staging, owner-only `.bat` launch scripts, masked recovery codes, a stricter CORS private-network check, HS256-only tokens, server-files guards that match a trailing slash, and an optional `PANEL_DOCKER_UPDATE_SHA256` updater pin (#193, thanks @mrbean56).
 
 ## [1.4.5] - 2026-10-05
 
