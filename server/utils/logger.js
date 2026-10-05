@@ -9,8 +9,32 @@ const logsDir = paths.logsDir;
 
 // Ensure logs directory exists
 if (!fs.existsSync(logsDir)) {
-  fs.mkdirSync(logsDir, { recursive: true });
+  fs.mkdirSync(logsDir, { recursive: true, mode: 0o700 });
 }
+
+// The log files carry host paths, usernames, IPs and command output, so they
+// are private to the account running the panel: the directory 0700, the
+// files 0600. Same pattern as dataDir in paths.js: mkdirSync's mode is
+// umask-filtered and ignored when the directory already exists, so the
+// chmods run on every start. That is what tightens an existing install's
+// world-readable logs/ (the shipped systemd unit had no UMask) too.
+const LOG_FILE_MODE = 0o600;
+const ERROR_LOG = path.join(logsDir, 'error.log');
+const COMBINED_LOG = path.join(logsDir, 'combined.log');
+for (const [target, mode] of [[logsDir, 0o700], [ERROR_LOG, LOG_FILE_MODE], [COMBINED_LOG, LOG_FILE_MODE]]) {
+  try {
+    if (fs.existsSync(target)) fs.chmodSync(target, mode);
+  } catch {
+    /* best-effort: Windows / network shares don't support POSIX modes */
+  }
+}
+
+// Entries logged with { consoleOnly: true } (the first-run setup token) go
+// to the console only: the terminal, or the journal / `docker logs` under a
+// service manager. They never reach the log files, which outlive the moment
+// and can be readable by other local accounts, nor the in-memory buffer and
+// live stream that the Debug page and support bundles read.
+const skipConsoleOnly = winston.format((info) => (info.consoleOnly ? false : info));
 
 // Store callbacks for log streaming
 const logCallbacks = [];
@@ -98,22 +122,25 @@ export const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
   transports: [
     consoleTransport,
-    new winston.transports.File({ 
-      filename: path.join(logsDir, 'error.log'), 
+    new winston.transports.File({
+      filename: ERROR_LOG,
       level: 'error',
-      format: fileFormat,
+      format: winston.format.combine(skipConsoleOnly(), fileFormat),
+      // mode applies whenever winston creates the file (first run, rotation)
+      options: { flags: 'a', mode: LOG_FILE_MODE },
       maxsize: 10 * 1024 * 1024, // 10MB max file size
       maxFiles: 5,
       tailable: true
     }),
-    new winston.transports.File({ 
-      filename: path.join(logsDir, 'combined.log'),
-      format: fileFormat,
+    new winston.transports.File({
+      filename: COMBINED_LOG,
+      format: winston.format.combine(skipConsoleOnly(), fileFormat),
+      options: { flags: 'a', mode: LOG_FILE_MODE },
       maxsize: 25 * 1024 * 1024, // 25MB max file size
       maxFiles: 3,
       tailable: true
     }),
-    new CallbackTransport()
+    new CallbackTransport({ format: skipConsoleOnly() })
   ]
 });
 
