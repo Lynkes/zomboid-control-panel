@@ -643,7 +643,7 @@
     "resettingButton": "Restableciendo…",
     "resetAndSignOutButton": "Restablecer contraseña y cerrar sesión",
     "recoveryRemoteIntro1": "El panel no puede mostrar las contraseñas existentes. Si aún tienes acceso al sistema de archivos del host del panel, cierra sesión y crea <code>data/reset-token.txt</code> o inicia el panel con <code>--reset-password</code>.",
-    "recoveryRemoteIntro2": "Una vez que exista el archivo del token, la pantalla de inicio de sesión mostrará una opción de recuperación para que puedas establecer una nueva contraseña de administrador sin conocer la anterior.",
+    "recoveryRemoteIntro2": "Pon en ese archivo un token aleatorio de al menos 32 caracteres hecho con un generador de contraseñas; luego abre la recuperación de cuenta en la pantalla de inicio de sesión e introdúcelo como token de recuperación para establecer una nueva contraseña de administrador sin conocer la anterior.",
     "tipsRconTitle": "Seguridad de RCON:",
     "tipsRconDesc": "Tu contraseña de RCON se almacena localmente y nunca se transmite fuera de la conexión RCON a tu servidor.",
     "tipsAdminTitle": "Comandos de administración:",

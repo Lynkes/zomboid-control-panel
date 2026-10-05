@@ -117,19 +117,23 @@ export const ErrorCode = Object.freeze({
    * exceeds 128 characters. */
   RESET_PASSWORD_TOO_LONG: "RESET_PASSWORD_TOO_LONG",
   /** server/routes/auth.js -- POST /api/auth/reset-password, no
-   * reset-token.txt exists on disk. */
+   * reset-token.txt exists on disk. Sent only to a caller on the panel host
+   * (security sweep 2026-10-05, A2); anyone else gets RESET_TOKEN_INVALID. */
   RESET_TOKEN_NOT_FOUND: "RESET_TOKEN_NOT_FOUND",
   /** server/routes/auth.js -- POST /api/auth/reset-password,
-   * reset-token.txt exceeds the 1KB size cap. */
+   * reset-token.txt exceeds the 1KB size cap. Panel host only, as above. */
   RESET_TOKEN_TOO_LARGE: "RESET_TOKEN_TOO_LARGE",
   /** server/routes/auth.js -- POST /api/auth/reset-password,
-   * reset-token.txt is older than 24h. */
+   * reset-token.txt is older than 24h. Panel host only, as above. */
   RESET_TOKEN_EXPIRED: "RESET_TOKEN_EXPIRED",
   /** server/routes/auth.js -- POST /api/auth/reset-password,
-   * reset-token.txt content is under RESET_TOKEN_MIN_LENGTH (32) characters. */
+   * reset-token.txt content is under RESET_TOKEN_MIN_LENGTH (32) characters.
+   * Panel host only, as above. */
   RESET_TOKEN_TOO_SHORT: "RESET_TOKEN_TOO_SHORT",
   /** server/routes/auth.js -- POST /api/auth/reset-password, submitted token
-   * does not match the stored token (timing-safe compare failed). */
+   * does not match the stored token (timing-safe compare failed); and, for a
+   * caller that isn't on the panel host, every reason the token file can't
+   * be used, so the answer never says whether one exists. */
   RESET_TOKEN_INVALID: "RESET_TOKEN_INVALID",
   /** server/routes/serverFiles.js -- ServerNotConfiguredError, thrown by the
    * router-level gate when no server is configured at all. */
@@ -2458,10 +2462,6 @@ export const ErrorCode = Object.freeze({
    * same policy as DISCORD_PERMISSIONS_CAPABILITY_REQUIRED. */
   DISCORD_CONFIG_CAPABILITY_REQUIRED: "DISCORD_CONFIG_CAPABILITY_REQUIRED",
   /* --- security sweep W2: auth & sessions (sec/w2-auth-sessions) --- */
-  /** server/routes/auth.js -- POST /api/auth/reset-password, the wrong token
-   * was tried MAX_RESET_TOKEN_FAILURES times (from any addresses), so
-   * reset-token.txt was deleted. */
-  RESET_TOKEN_BURNED: "RESET_TOKEN_BURNED",
   /** server/index.js -- 403 for an /api request (or a Socket.IO handshake)
    * whose Host header is not one of the panel's own addresses while
    * authentication is disabled (DNS rebinding guard). */
@@ -2473,6 +2473,15 @@ export const ErrorCode = Object.freeze({
    * folder or a folder inside it, links followed, or there is no data
    * folder to anchor it to (serverConfigPathIsConfined(), FILES-2). */
   SERVER_CONFIG_PATH_OUTSIDE_DATA: "SERVER_CONFIG_PATH_OUTSIDE_DATA",
+  /* --- security sweep W3: auth (sec/w3-auth) --- */
+  /** server/routes/auth.js -- POST /api/auth/reset-password (403), sent only
+   * to a caller on the panel host: reset-token.txt is long enough but too
+   * predictable -- repeated, sequential or keyboard-row characters, or a
+   * repeated stretch (utils/resetTokenStrength.js). Replaces the never-
+   * released RESET_TOKEN_BURNED: wrong tokens no longer delete the file, so
+   * the token itself has to be unguessable (security sweep 2026-10-05, A2). */
+  RESET_TOKEN_TOO_WEAK: "RESET_TOKEN_TOO_WEAK",
+  /* --- end security sweep W3: auth --- */
 });
 
 /**

@@ -25,7 +25,7 @@
   "RESET_TOKEN_TOO_LARGE": "重設權杖檔案無效（過大）。最大為 1KB。",
   "RESET_TOKEN_EXPIRED": "重設權杖檔案已超過 24 小時。請在伺服器上重新建立。",
   "RESET_TOKEN_TOO_SHORT": "重設權杖檔案無效，必須包含至少 32 個字元的隨機權杖。",
-  "RESET_TOKEN_INVALID": "重設權杖無效",
+  "RESET_TOKEN_INVALID": "此重設權杖未被接受。請檢查面板主機上的 data/reset-token.txt 是否恰好包含此權杖、建立時間不超過 24 小時，且權杖是至少 32 個字元的隨機權杖。面板日誌會說明是哪項檢查未通過。",
   "SERVER_NOT_CONFIGURED": "尚未設定活動伺服器",
   "REMOTE_CONFIG_NOT_CONFIGURED": "此伺服器為遠端伺服器。請在「設定 > PanelBridge」中新增其 SFTP 詳情及遠端 Server 資料夾，以便在此處編輯其設定。",
   "REMOTE_BROWSE_NOT_AVAILABLE": "遠端伺服器不支援瀏覽伺服器檔案系統。",
@@ -582,7 +582,7 @@
   "CHARACTER_INVALID_SECTIONS": "要求了未知的角色資料區段。",
   "CHARACTER_SHEET_FAILED": "無法讀取此角色。",
   "DISCORD_CONFIG_CAPABILITY_REQUIRED": "變更這些 Discord 設定會讓他人能夠使用需要 {{detail}} 的機器人命令，而您自己並未擁有這些權限項目。",
-  "RESET_TOKEN_BURNED": "嘗試了太多錯誤的重設權杖，因此已刪除 data/reset-token.txt。請在伺服器上重新建立一個，然後再試一次。",
   "HOST_NOT_ALLOWED": "面板登入關閉時，此面板只回應它自己的位址。請透過 IP 位址或 localhost 開啟，或在「設定 > 允許連線來源（CORS）」中加入此位址。",
-  "SERVER_CONFIG_PATH_OUTSIDE_DATA": "伺服器設定資料夾必須是此伺服器 Zomboid 資料資料夾中的 Server 資料夾，或其中的某個資料夾。請先設定 Zomboid 資料資料夾，或將設定資料夾留空。"
+  "SERVER_CONFIG_PATH_OUTSIDE_DATA": "伺服器設定資料夾必須是此伺服器 Zomboid 資料資料夾中的 Server 資料夾，或其中的某個資料夾。請先設定 Zomboid 資料資料夾，或將設定資料夾留空。",
+  "RESET_TOKEN_TOO_WEAK": "data/reset-token.txt 中的權杖過於容易猜測（含重複、連續或鍵盤上相鄰的字元）。請換成密碼產生器產生的隨機權杖，或在面板主機上使用復原按鈕。"
 }

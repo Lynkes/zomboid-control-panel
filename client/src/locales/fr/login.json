@@ -31,6 +31,7 @@
     "description": "Utilisez le jeton de récupération de l'hôte du panneau pour choisir un nouveau mot de passe administrateur.",
     "tokenLabel": "Jeton de récupération",
     "codeLabel": "Code de récupération",
+    "methodLabel": "Récupérer avec",
     "tokenPlaceholder": "Coller le jeton",
     "codePlaceholder": "XXXXX-XXXXX-XXXXX",
     "tokenHelp": "Stocké dans data/reset-token.txt sur l'hôte du panneau.",
@@ -50,18 +51,17 @@
     "recoverAccount": "Récupérer le compte",
     "helpTitle": "Récupération de compte",
     "helpLocal": "Ce navigateur s'exécute sur l'hôte du panneau. Créez un fichier de récupération, puis utilisez son jeton pour réinitialiser le mot de passe administrateur.",
-    "helpRemote1": "Créez data/reset-token.txt sur l'hôte du panneau avec un jeton aléatoire d'au moins 32 caractères.",
+    "helpRemote1": "Créez data/reset-token.txt sur l'hôte du panneau avec un jeton aléatoire d'au moins 32 caractères produit par un générateur de mots de passe (les caractères répétés ou qui se suivent sont refusés), puis saisissez-le ici.",
     "helpRemote2": "Vous pouvez aussi démarrer le panneau avec <code>--reset-password</code> depuis le terminal du serveur.",
     "createFile": "Créer le fichier",
     "creatingFile": "Préparation…",
-    "checkToken": "Vérifier le jeton",
-    "checkingToken": "Vérification…",
+    "enterToken": "Saisir un jeton de récupération",
     "cancel": "Annuler"
   },
   "resetTokenCreated": "Jeton de récupération créé dans data/reset-token.txt. Collez-le ci-dessous pour continuer.",
   "repeatedFailureHint": {
     "title": "Toujours bloqué ?",
-    "body": "Après plusieurs tentatives infructueuses, les connexions à ce compte depuis cette adresse sont suspendues pendant 15 minutes par mesure de sécurité -- cet écran ne l'indiquera pas. Un code de récupération enregistré, ou démarrer le panneau avec <code>--reset-password</code> depuis le terminal du serveur, réinitialise le mot de passe et lève la suspension."
+    "body": "Après plusieurs tentatives infructueuses, les connexions à ce compte depuis ce navigateur ou cette adresse sont suspendues pendant 15 minutes par mesure de sécurité -- cet écran ne l'indiquera pas. Un code de récupération enregistré, ou démarrer le panneau avec <code>--reset-password</code> depuis le terminal du serveur, réinitialise le mot de passe et lève la suspension."
   },
   "errors": {
     "loginFailed": "Échec de la connexion",
@@ -69,8 +69,6 @@
     "passwordTooShort": "Le mot de passe doit comporter au moins 6 caractères",
     "passwordsDontMatch": "Les mots de passe ne correspondent pas",
     "resetFailed": "Échec de la réinitialisation",
-    "noRecoveryTokenYet": "Aucun jeton de récupération trouvé pour l'instant. Créez data/reset-token.txt sur l'hôte du panneau, puis réessayez.",
-    "couldNotCheckStatus": "Impossible de vérifier l'état de récupération. Réessayez dans un instant.",
     "couldNotCreateToken": "Impossible de créer un jeton de récupération",
     "oidc": {
       "not_configured": "La connexion unique n'est pas disponible pour le moment. Connectez-vous avec votre nom d'utilisateur et votre mot de passe.",

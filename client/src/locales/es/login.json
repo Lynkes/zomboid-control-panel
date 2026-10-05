@@ -31,6 +31,7 @@
     "description": "Usa el token de recuperación del host del panel para elegir una nueva contraseña de administrador.",
     "tokenLabel": "Token de recuperación",
     "codeLabel": "Código de recuperación",
+    "methodLabel": "Recuperar con",
     "tokenPlaceholder": "Pega el token",
     "codePlaceholder": "XXXXX-XXXXX-XXXXX",
     "tokenHelp": "Almacenado en data/reset-token.txt en el host del panel.",
@@ -50,18 +51,17 @@
     "recoverAccount": "Recuperar cuenta",
     "helpTitle": "Recuperación de cuenta",
     "helpLocal": "Este navegador se ejecuta en el host del panel. Crea un archivo de recuperación y usa después su token para restablecer la contraseña de administrador.",
-    "helpRemote1": "Crea data/reset-token.txt en el host del panel con un token aleatorio de al menos 32 caracteres.",
+    "helpRemote1": "Crea data/reset-token.txt en el host del panel con un token aleatorio de al menos 32 caracteres hecho con un generador de contraseñas (se rechazan los caracteres repetidos o consecutivos) y luego introdúcelo aquí.",
     "helpRemote2": "También puedes iniciar el panel con <code>--reset-password</code> desde la terminal del servidor.",
     "createFile": "Crear archivo",
     "creatingFile": "Preparando…",
-    "checkToken": "Comprobar token",
-    "checkingToken": "Comprobando…",
+    "enterToken": "Introducir un token de recuperación",
     "cancel": "Cancelar"
   },
   "resetTokenCreated": "Token de recuperación creado en data/reset-token.txt. Pégalo abajo para continuar.",
   "repeatedFailureHint": {
     "title": "¿Sigue sin funcionar?",
-    "body": "Tras varios intentos fallidos, los inicios de sesión en esa cuenta desde esta dirección se pausan durante 15 minutos como medida de seguridad -- esta pantalla no lo indicará. Un código de recuperación guardado, o iniciar el panel con <code>--reset-password</code> desde la terminal del servidor, restablece la contraseña y levanta la pausa."
+    "body": "Tras varios intentos fallidos, los inicios de sesión en esa cuenta desde este navegador o esta dirección se pausan durante 15 minutos como medida de seguridad -- esta pantalla no lo indicará. Un código de recuperación guardado, o iniciar el panel con <code>--reset-password</code> desde la terminal del servidor, restablece la contraseña y levanta la pausa."
   },
   "errors": {
     "loginFailed": "Error al iniciar sesión",
@@ -69,8 +69,6 @@
     "passwordTooShort": "La contraseña debe tener al menos 6 caracteres",
     "passwordsDontMatch": "Las contraseñas no coinciden",
     "resetFailed": "Error al restablecer",
-    "noRecoveryTokenYet": "Aún no se ha encontrado ningún token de recuperación. Crea data/reset-token.txt en el host del panel e inténtalo de nuevo.",
-    "couldNotCheckStatus": "No se pudo comprobar el estado de la recuperación. Inténtalo de nuevo en un momento.",
     "couldNotCreateToken": "No se pudo crear un token de recuperación",
     "oidc": {
       "not_configured": "El inicio de sesión único no está disponible ahora mismo. Inicia sesión con tu nombre de usuario y contraseña.",

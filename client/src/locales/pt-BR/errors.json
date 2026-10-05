@@ -25,7 +25,7 @@
   "RESET_TOKEN_TOO_LARGE": "O arquivo do token de redefinição é inválido (grande demais). Máximo de 1KB.",
   "RESET_TOKEN_EXPIRED": "O arquivo do token de redefinição tem mais de 24 horas. Crie-o novamente no servidor.",
   "RESET_TOKEN_TOO_SHORT": "O arquivo do token de redefinição é inválido. Ele deve conter um token aleatório de pelo menos 32 caracteres.",
-  "RESET_TOKEN_INVALID": "Token de redefinição inválido",
+  "RESET_TOKEN_INVALID": "Esse token de redefinição não foi aceito. Verifique se data/reset-token.txt no host do painel contém exatamente este token, tem menos de 24 horas e se o token é aleatório e tem pelo menos 32 caracteres. O log do painel informa qual verificação falhou.",
   "SERVER_NOT_CONFIGURED": "Nenhum servidor ativo configurado",
   "REMOTE_CONFIG_NOT_CONFIGURED": "Este servidor é remoto. Para editar a configuração dele por aqui, adicione os dados de SFTP e a pasta Server remota em Configurações > PanelBridge.",
   "REMOTE_BROWSE_NOT_AVAILABLE": "Navegar pelo sistema de arquivos do servidor não está disponível para servidores remotos.",
@@ -582,7 +582,7 @@
   "CHARACTER_INVALID_SECTIONS": "Seção de personagem desconhecida solicitada.",
   "CHARACTER_SHEET_FAILED": "Não foi possível ler este personagem.",
   "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Alterar essas configurações do Discord permitiria executar comandos do bot que exigem {{detail}}, permissões que você não tem.",
-  "RESET_TOKEN_BURNED": "Foram tentados tokens de redefinição errados demais, então data/reset-token.txt foi excluído. Crie um novo no servidor e tente de novo.",
   "HOST_NOT_ALLOWED": "Este painel só responde aos próprios endereços enquanto os logins do painel estão desativados. Abra-o pelo endereço IP ou por localhost, ou adicione este endereço em Configurações > Acesso remoto (CORS).",
-  "SERVER_CONFIG_PATH_OUTSIDE_DATA": "A pasta de configuração do servidor precisa ser a pasta Server dentro da pasta de dados do Zomboid deste servidor, ou uma pasta dentro dela. Defina primeiro a pasta de dados do Zomboid ou deixe a pasta de configuração vazia."
+  "SERVER_CONFIG_PATH_OUTSIDE_DATA": "A pasta de configuração do servidor precisa ser a pasta Server dentro da pasta de dados do Zomboid deste servidor, ou uma pasta dentro dela. Defina primeiro a pasta de dados do Zomboid ou deixe a pasta de configuração vazia.",
+  "RESET_TOKEN_TOO_WEAK": "O token em data/reset-token.txt é previsível demais (caracteres repetidos, em sequência ou vizinhos no teclado). Substitua-o por um token aleatório de um gerador de senhas ou use o botão de recuperação no host do painel."
 }

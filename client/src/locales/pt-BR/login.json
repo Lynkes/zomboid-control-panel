@@ -31,6 +31,7 @@
     "description": "Use o token de recuperação do host do painel para escolher uma nova senha de administrador.",
     "tokenLabel": "Token de recuperação",
     "codeLabel": "Código de recuperação",
+    "methodLabel": "Recuperar com",
     "tokenPlaceholder": "Cole o token",
     "codePlaceholder": "XXXXX-XXXXX-XXXXX",
     "tokenHelp": "Armazenado em data/reset-token.txt no host do painel.",
@@ -50,18 +51,17 @@
     "recoverAccount": "Recuperar conta",
     "helpTitle": "Recuperação de conta",
     "helpLocal": "Este navegador está rodando no host do painel. Crie um arquivo de recuperação e use o token dele para redefinir a senha de administrador.",
-    "helpRemote1": "Crie data/reset-token.txt no host do painel com um token aleatório de pelo menos 32 caracteres.",
+    "helpRemote1": "Crie data/reset-token.txt no host do painel com um token aleatório de pelo menos 32 caracteres feito por um gerador de senhas (caracteres repetidos ou em sequência são recusados) e depois insira-o aqui.",
     "helpRemote2": "Você também pode iniciar o painel com <code>--reset-password</code> pelo terminal do servidor.",
     "createFile": "Criar arquivo",
     "creatingFile": "Preparando…",
-    "checkToken": "Verificar token",
-    "checkingToken": "Verificando…",
+    "enterToken": "Inserir um token de recuperação",
     "cancel": "Cancelar"
   },
   "resetTokenCreated": "Token de recuperação criado em data/reset-token.txt. Cole-o abaixo para continuar.",
   "repeatedFailureHint": {
     "title": "Ainda não funciona?",
-    "body": "Após várias tentativas malsucedidas, os logins nessa conta a partir deste endereço ficam pausados por 15 minutos como precaução de segurança -- esta tela não avisa isso. Um código de recuperação salvo, ou iniciar o painel com <code>--reset-password</code> pelo terminal do servidor, redefine a senha e remove a pausa."
+    "body": "Após várias tentativas malsucedidas, os logins nessa conta a partir deste navegador ou endereço ficam pausados por 15 minutos como precaução de segurança -- esta tela não avisa isso. Um código de recuperação salvo, ou iniciar o painel com <code>--reset-password</code> pelo terminal do servidor, redefine a senha e remove a pausa."
   },
   "errors": {
     "loginFailed": "Falha no login",
@@ -69,8 +69,6 @@
     "passwordTooShort": "A senha deve ter pelo menos 6 caracteres",
     "passwordsDontMatch": "As senhas não coincidem",
     "resetFailed": "Falha ao redefinir",
-    "noRecoveryTokenYet": "Nenhum token de recuperação encontrado ainda. Crie data/reset-token.txt no host do painel e tente novamente.",
-    "couldNotCheckStatus": "Não foi possível verificar o status da recuperação. Tente novamente daqui a pouco.",
     "couldNotCreateToken": "Não foi possível criar um token de recuperação",
     "oidc": {
       "not_configured": "O login único não está disponível agora. Entre com seu nome de usuário e senha.",

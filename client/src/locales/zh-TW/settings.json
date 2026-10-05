@@ -642,7 +642,7 @@
     "resettingButton": "正在重設…",
     "resetAndSignOutButton": "重設密碼並登出",
     "recoveryRemoteIntro1": "面板無法顯示現有密碼。如果仍具有面板主機的檔案系統訪問權限，請登出，然後建立 <code>data/reset-token.txt</code>，或使用 <code>--reset-password</code> 啟動面板。",
-    "recoveryRemoteIntro2": "權杖檔案建立後，登入頁面將顯示找回選項，可在不知道舊密碼的情況下設定新的管理員密碼。",
+    "recoveryRemoteIntro2": "在該檔案中寫入由密碼產生器產生、至少 32 個字元的隨機權杖，然後在登入頁面開啟帳號復原，將其作為復原權杖輸入，即可在不知道舊密碼的情況下設定新的管理員密碼。",
     "tipsRconTitle": "RCON 安全：",
     "tipsRconDesc": "RCON 密碼儲存於本地，且僅通過與伺服器的 RCON 連線傳輸，不會外洩。",
     "tipsAdminTitle": "管理員命令：",
