@@ -57,12 +57,30 @@ describe("findUnpersistedSandboxKeys", () => {
     ]);
   });
 
-  it("does not flag Music/Debug keys since no writer ever attempts them", () => {
-    const musicAndDebug = {
+  // Since #197 every section is written at its own path (Music, Debug and
+  // mod blocks included), so the read-back checks them all: a key that
+  // landed is not flagged, one the file has no entry for is.
+  it("checks Music/Debug and mod blocks like any other section", () => {
+    const withBlocks = content.replace(
+      "    ZombieLore = {",
+      [
+        "    Music = {",
+        "        StrengthMultiplier = 2,",
+        "    },",
+        "    SomeMod = {",
+        "        Enabled = false,",
+        "    },",
+        "    ZombieLore = {",
+      ].join("\n"),
+    );
+    const changes = {
       Music: { StrengthMultiplier: 5 },
       Debug: { CheatMode: true },
+      SomeMod: { Enabled: true },
     };
-    const persisted = parseSandboxVars(content);
-    expect(findUnpersistedSandboxKeys(musicAndDebug, persisted)).toEqual([]);
+    const persisted = parseSandboxVars(applySandboxChanges(withBlocks, changes));
+    expect(persisted.Music.StrengthMultiplier).toBe(5);
+    expect(persisted.SomeMod.Enabled).toBe(true);
+    expect(findUnpersistedSandboxKeys(changes, persisted)).toEqual(["Debug.CheatMode"]);
   });
 });

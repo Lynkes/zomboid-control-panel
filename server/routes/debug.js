@@ -51,6 +51,7 @@ import {
 import { sanitizeError, sanitizeErrorParams, SENSITIVE_FIELD_RE } from "../utils/sanitize.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { checkSandboxBraceBalance } from "./serverFiles.js";
+import { validateSandboxLua } from "../utils/sandboxLua.js";
 import panelBridgeService from "../services/panelBridge.js";
 import authService from "../services/auth.js";
 import { listBackupRecords } from "../services/backupRecords.js";
@@ -1028,6 +1029,10 @@ async function buildServerConfigSummary(activeServer) {
       bytes: Buffer.byteLength(sandboxContent),
       sha256: crypto.createHash("sha256").update(sandboxContent).digest("hex"),
       braceBalance: braces,
+      // The editors' own parser verdict, in the game's wording ("line N:
+      // '}' expected ... near 'X'"), so a bundle shows where a file broke
+      // without anyone sending the file itself (#197).
+      syntaxError: validateSandboxLua(sandboxContent).error?.message ?? null,
     };
   } catch (error) {
     result.sandbox.error = error.message;

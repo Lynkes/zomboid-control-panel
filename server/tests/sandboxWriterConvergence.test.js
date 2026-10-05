@@ -18,6 +18,9 @@ const { modifySandboxValue } = await import("../routes/serverFiles.js");
 // below are deliberately small/synthetic rather than the full real file, to
 // keep this fast and self-contained; the real-file comparison itself was
 // exploratory, not something worth committing as a giant embedded fixture.
+// Since #197 both are thin wrappers over utils/sandboxLua.js, so parity holds
+// by construction; this stays as a guard against either growing its own path
+// again (sandboxScopeEdgeCases.test.js has the real-file round trips).
 
 const sandboxContent = [
   "SandboxVars = {",

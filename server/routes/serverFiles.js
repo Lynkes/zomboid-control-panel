@@ -22,7 +22,15 @@ import {
   writeIniWithBackup,
   parseAnyBackupFilename,
 } from "../utils/configBackup.js";
-import { escapeRegExp } from "../utils/regex.js";
+import {
+  countSandboxBraces,
+  editSandboxValues,
+  escapeLuaString,
+  isLuaIdentifier,
+  sandboxSectionsFromLua,
+  sectionsToEdits,
+  validateSandboxLua,
+} from "../utils/sandboxLua.js";
 import { findDuplicateIniKeys } from "../utils/iniDuplicateKeys.js";
 import {
   findIniFatalLines,
@@ -352,53 +360,6 @@ router.use((req, res, next) => {
   }
   return next();
 });
-
-// Escape strings for safe interpolation into Lua source code
-function escapeLuaString(str) {
-  return String(str).replace(/[\\"'\n\r\t\0\[\]]/g, (c) => {
-    const escapes = {
-      "\\": "\\\\",
-      '"': '\\"',
-      "'": "\\'",
-      "\n": "\\n",
-      "\r": "\\r",
-      "\t": "\\t",
-      "\0": "\\0",
-      "[": "\\[",
-      "]": "\\]",
-    };
-    return escapes[c] || c;
-  });
-}
-
-const LUA_UNESCAPES = {
-  "\\": "\\",
-  '"': '"',
-  "'": "'",
-  n: "\n",
-  r: "\r",
-  t: "\t",
-  0: "\0",
-  "[": "[",
-  "]": "]",
-};
-
-// Inverse of escapeLuaString. Parsing must undo what writing escaped, otherwise
-// every save re-escapes the same backslashes and doubles them until the file is
-// corrupt (seen in the wild: StreetlightGen.ExcludeSprites grew to 16k slashes).
-function unescapeLuaString(value) {
-  const str = String(value);
-  if (!/^"[\s\S]*"$|^'[\s\S]*'$/.test(str)) {
-    return str.replace(/^["']|["']$/g, "");
-  }
-  return str
-    .slice(1, -1)
-    .replace(/\\([\s\S])/g, (match, c) =>
-      Object.prototype.hasOwnProperty.call(LUA_UNESCAPES, c)
-        ? LUA_UNESCAPES[c]
-        : match,
-    );
-}
 
 // Get the server config directory path. Not exported -- see
 // getActiveServerPaths()'s own comment below; this exists only for that
@@ -836,271 +797,67 @@ export function toIni(obj, originalContent = "") {
     .join("\n");
 }
 
-// Parse SandboxVars.lua
+// Parse SandboxVars.lua into the Server Config page's shape: { VERSION,
+// settings: { top-level values }, ZombieLore: {...}, ..., <ModBlock>: {...} }.
+// Every key is reported under the table it really lives in. A mod table's
+// "Explosives = 1.0" used to come back as a top-level setting, and the page
+// then saved it as one over a same-named top-level table (#197).
 export function parseSandboxVars(content) {
-  const result = {
-    VERSION: 4,
-    settings: {},
-    ZombieLore: {},
-    ZombieConfig: {},
-    MultiplierConfig: {},
-    Map: {},
-    Basement: {},
-    Music: {},
-    Debug: {},
-  };
-
-  // Known nested blocks to skip when parsing top-level settings
-  const nestedBlocks = [
-    "ZombieLore",
-    "ZombieConfig",
-    "MultiplierConfig",
-    "Map",
-    "Basement",
-    "Music",
-    "Debug",
-  ];
-
-  try {
-    // Extract VERSION
-    const versionMatch = content.match(/VERSION\s*=\s*(\d+)/);
-    if (versionMatch) {
-      result.VERSION = parseInt(versionMatch[1], 10);
-    }
-
-    // Strip nested block regions from content so the top-level regex
-    // doesn't accidentally capture keys that belong inside ZombieLore,
-    // ZombieConfig, MultiplierConfig, Map, or Basement.
-    let topLevelContent = content;
-    for (const blockName of nestedBlocks) {
-      const blockPattern = new RegExp(
-        escapeRegExp(blockName) + "\\s*=\\s*\\{[\\s\\S]*?\\n\\s*\\}",
-        "m",
-      );
-      topLevelContent = topLevelContent.replace(blockPattern, "");
-    }
-
-    // Parse simple key=value pairs (top-level settings only).
-    // The value alternation tries a quoted string first so values like
-    // WorldItemRemovalList = "Base.Hat,Base.Glasses,..." aren't truncated
-    // at the first comma *inside* the quotes.
-    const simplePattern =
-      /^\s*(\w+)\s*=\s*("(?:[^"\\]|\\.)*"|[^,{}\n]+),?\s*(?:--.*)?$/gm;
-    let match;
-    while ((match = simplePattern.exec(topLevelContent)) !== null) {
-      const key = match[1];
-      let value = match[2].trim();
-
-      // Skip nested objects and VERSION
-      if (nestedBlocks.includes(key) || key === "VERSION") continue;
-
-      // Parse value type
-      if (value === "true") value = true;
-      else if (value === "false") value = false;
-      else if (!isNaN(parseFloat(value))) value = parseFloat(value);
-      else value = unescapeLuaString(value);
-
-      result.settings[key] = value;
-    }
-
-    // Helper function to parse a nested block
-    function parseNestedBlock(blockName) {
-      // Match nested blocks - handle both simple and complex nested structures
-      const blockPattern = new RegExp(
-        `${blockName}\\s*=\\s*\\{([\\s\\S]*?)\\n\\s*\\}`,
-        "m",
-      );
-      const blockMatch = content.match(blockPattern);
-
-      if (blockMatch) {
-        const blockContent = blockMatch[1];
-        // Strip Lua comment lines to avoid parsing comment text as keys
-        // (e.g. "-- 1 = Sprinters" or "-- Default = Random")
-        const strippedContent = blockContent.replace(/^\s*--.*$/gm, "");
-        const valuePattern = /(\w+)\s*=\s*("(?:[^"\\]|\\.)*"|[^,\n]+)/g;
-        let valueMatch;
-        while ((valueMatch = valuePattern.exec(strippedContent)) !== null) {
-          let value = valueMatch[2].trim();
-          // Remove trailing comma if present
-          value = value.replace(/,\s*$/, "");
-
-          if (value === "true") value = true;
-          else if (value === "false") value = false;
-          else if (!isNaN(parseFloat(value))) value = parseFloat(value);
-          else value = unescapeLuaString(value);
-
-          result[blockName][valueMatch[1]] = value;
-        }
-      }
-    }
-
-    // Parse all nested blocks
-    nestedBlocks.forEach(parseNestedBlock);
-  } catch (error) {
-    log.error("Failed to parse SandboxVars:", error);
+  const { sandbox, error } = sandboxSectionsFromLua(content);
+  if (error) {
+    log.warn(`SandboxVars.lua does not parse (${error.message}); returning empty sections`);
   }
-
-  return result;
+  return sandbox;
 }
 
-// Format a number for Lua, preserving the original file's decimal format
-function formatLuaNumber(newValue, originalValueStr) {
-  const trimmed = originalValueStr
-    ? originalValueStr.trim().replace(/,\s*$/, "")
-    : "";
-  // If the original value had a decimal point and the new value is a whole number, add .0
-  if (Number.isInteger(newValue) && trimmed.includes(".")) {
-    return newValue.toFixed(1);
+// Why an edit from editSandboxValues() was not written, for logs and API
+// responses.
+function describeSandboxEditStatus(status, error) {
+  switch (status) {
+    case "not-found":
+      return "not present in SandboxVars.lua";
+    case "table":
+      return "is a table in SandboxVars.lua, not a single value";
+    case "invalid-value":
+      return "value must be true/false, a finite number or text";
+    case "invalid-path":
+      return "not a valid option name";
+    default:
+      return `SandboxVars.lua does not parse (${error?.message || "unknown error"})`;
   }
-  return newValue.toString();
 }
 
-// Modify a single value in the SandboxVars file content in-place
-// Preserves all comments and file structure
+// Write one value into SandboxVars.lua in place. `nestedBlock` null means a
+// top-level key. Returns the content unchanged when the key is not in the
+// file, is a table, or the file does not parse (editSandboxValues() has the
+// rules); only the value's own characters ever change.
 export function modifySandboxValue(
   originalContent,
   key,
   newValue,
   nestedBlock = null,
 ) {
-  let content = originalContent;
-
-  // Validate key is a valid identifier (alphanumeric and underscore only)
-  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
-    log.warn(`Invalid sandbox key skipped: ${key}`);
-    return content;
-  }
-
-  // Format the value for Lua (base format, may be refined by context)
-  function formatValue(originalValueStr) {
-    if (typeof newValue === "boolean") {
-      return newValue.toString();
-    } else if (typeof newValue === "number") {
-      return formatLuaNumber(newValue, originalValueStr);
-    } else {
-      return `"${escapeLuaString(String(newValue))}"`;
-    }
-  }
-
-  // Escape key for use in regex (even though we validate, this is defense in depth)
-  const escapedKey = escapeRegExp(key);
-
-  if (nestedBlock) {
-    // For nested blocks (ZombieLore, ZombieConfig, etc.)
-    // Only match actual assignment lines (not comment lines starting with --)
-    const escapedBlock = escapeRegExp(nestedBlock);
-    const blockStartPattern = new RegExp(`${escapedBlock}\\s*=\\s*\\{`);
-    const blockStartMatch = content.match(blockStartPattern);
-    if (blockStartMatch) {
-      const blockStart = blockStartMatch.index;
-      const blockEnd = content.indexOf(
-        "}",
-        blockStart + blockStartMatch[0].length,
-      );
-      if (blockEnd !== -1) {
-        const before = content.substring(0, blockStart);
-        const blockSection = content.substring(blockStart, blockEnd + 1);
-        const after = content.substring(blockEnd + 1);
-        // Replace only on non-comment lines within the block.
-        // The value alternation matches a full quoted string first so
-        // values containing commas (e.g. comma-separated lists) aren't
-        // truncated mid-string, which would corrupt the Lua syntax.
-        //
-        // continuous-bug-hunt, 2026-09-18 (settings-truth round): the lazy
-        // `[^\n]*?` prefix crosses arbitrary identifier characters to reach
-        // its target, and without a boundary check on the LEFT side of the
-        // key it happily matches the key as a bare substring of an earlier,
-        // longer identifier on the same line -- e.g. requesting "Speed" in a
-        // block that also has "WalkSpeed" above it matches "...Walk|Speed"
-        // and silently rewrites WalkSpeed's value instead, while "Speed"
-        // itself never changes. Confirmed via a standalone regex repro, not
-        // theoretical. The `(?<![A-Za-z0-9_])` lookbehind rejects any match
-        // position immediately preceded by an identifier character, so the
-        // key can only match at a real identifier boundary -- exactly what
-        // the validated `^[a-zA-Z_][a-zA-Z0-9_]*$` key format already
-        // guarantees "the whole key" looks like. This is the sole source of
-        // the "silent success, wrong value" reports: PUT /sandbox-option and
-        // panelBridge's live in-game option persistence have no read-back at
-        // all and would report success unconditionally; PUT /sandbox's own
-        // read-back (findUnpersistedSandboxKeys) does catch the requested
-        // key never changing, but never reports the OTHER key it silently
-        // clobbered as a side effect. Fixing the match itself, not just
-        // detecting its wrong output after the fact, closes both.
-        const updatedBlock = blockSection.replace(
-          new RegExp(
-            `(^(?!\\s*--)[^\\n]*?)(?<![A-Za-z0-9_])(${escapedKey})(\\s*=\\s*)("(?:[^"\\\\]|\\\\.)*"|[^,\\n}]+)(,?)`,
-            "m",
-          ),
-          (_, prefix, k, eq, oldVal, comma) =>
-            `${prefix}${k}${eq}${formatValue(oldVal)}${comma}`,
-        );
-        content = before + updatedBlock + after;
-      }
-    }
-  } else {
-    // For top-level settings, only replace occurrences OUTSIDE nested blocks
-    // to avoid accidentally modifying keys that share a name with a nested key.
-    const knownBlocks = [
-      "ZombieLore",
-      "ZombieConfig",
-      "MultiplierConfig",
-      "Map",
-      "Basement",
-      "Music",
-      "Debug",
-    ];
-    const blockRanges = [];
-    for (const bn of knownBlocks) {
-      const bp = new RegExp(escapeRegExp(bn) + "\\s*=\\s*\\{");
-      const bm = content.match(bp);
-      if (bm) {
-        const start = bm.index;
-        const end = content.indexOf("}", start + bm[0].length);
-        if (end !== -1) blockRanges.push({ start, end: end + 1 });
-      }
-    }
-
-    // The value alternation matches a full quoted string first so values
-    // containing commas (e.g. comma-separated lists like
-    // WorldItemRemovalList) aren't truncated mid-string, which would
-    // corrupt the Lua syntax.
-    const pattern = new RegExp(
-      `(^\\s*)(${escapedKey})(\\s*=\\s*)("(?:[^"\\\\]|\\\\.)*"|[^,\\n}]+)(,?)(\\s*(?:--.*)?$)`,
-      "gm",
-    );
-    content = content.replace(
-      pattern,
-      (fullMatch, indent, k, eq, oldVal, comma, comment, offset) => {
-        // Skip matches inside nested blocks
-        for (const range of blockRanges) {
-          if (offset >= range.start && offset < range.end) return fullMatch;
-        }
-        return `${indent}${k}${eq}${formatValue(oldVal)}${comma}${comment}`;
-      },
+  const path = nestedBlock ? [nestedBlock, key] : [key];
+  const result = editSandboxValues(originalContent, [{ path, value: newValue }]);
+  const status = result.ok ? result.results[0].status : "unparseable";
+  if (status !== "changed" && status !== "unchanged") {
+    log.warn(
+      `Sandbox value ${path.join(".")} not written: ${describeSandboxEditStatus(status, result.error)}`,
     );
   }
-
-  return content;
+  return result.content;
 }
 
-// Count { / } in a SandboxVars.lua content string. A healthy file always has
-// an equal number of each with the running depth never going negative. This
-// is the cheapest possible syntax sanity check we can do without a real Lua
-// parser, but it happens to catch the exact class of corruption PZ's own
+// Count { / } in a SandboxVars.lua content string, skipping strings and
+// comments (a mod tooltip comment with a brace in it is not corruption). A
+// healthy file always has an equal number of each with the running depth
+// never going negative. This catches the exact class of corruption PZ's own
 // dedicated server crashes on: an orphaned/dropped block header that leaves
 // a dangling closing brace (see "Exiting due to errors loading ..." crashes
-// with a KahluaException "'}' expected").
+// with a KahluaException "'}' expected"). validateSandboxLua() is the full
+// check; this count still works on a file that does not parse.
 export function checkSandboxBraceBalance(content) {
-  let depth = 0;
-  let wentNegative = false;
-  for (const ch of content) {
-    if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth < 0) wentNegative = true;
-    }
-  }
-  return { balanced: depth === 0 && !wentNegative, depth };
+  return countSandboxBraces(content);
 }
 
 // Attempt to auto-repair the most common SandboxVars.lua corruption pattern:
@@ -1117,7 +874,7 @@ export function checkSandboxBraceBalance(content) {
 // table around it so the existing (now-dangling) closing brace has
 // something to match again. This is deliberately conservative — it never
 // deletes or reinterprets existing content, only restores brace balance —
-// and every attempt is re-validated for balance before anything is written.
+// and every attempt has to parse cleanly before anything is written.
 export function repairSandboxSyntax(content) {
   const before = checkSandboxBraceBalance(content);
   if (before.balanced) {
@@ -1159,99 +916,56 @@ export function repairSandboxSyntax(content) {
   }
 
   const repaired = lines.join("\n");
-  const after = checkSandboxBraceBalance(repaired);
+  // Balanced braces are not enough to write it: the result has to tokenize
+  // and parse, through the same parser every editor uses.
+  const after = validateSandboxLua(repaired);
   return {
     content: repaired,
-    fixed: after.balanced && changes.length > 0,
+    fixed: after.parses && changes.length > 0,
     changes,
   };
 }
 
-// Apply multiple sandbox changes to file content in-place
-export function applySandboxChanges(originalContent, changes) {
-  let content = originalContent;
-
-  // Apply settings changes
-  if (changes.settings) {
-    for (const [key, value] of Object.entries(changes.settings)) {
-      content = modifySandboxValue(content, key, value, null);
-    }
-  }
-
-  // Apply ZombieLore changes
-  if (changes.ZombieLore) {
-    for (const [key, value] of Object.entries(changes.ZombieLore)) {
-      content = modifySandboxValue(content, key, value, "ZombieLore");
-    }
-  }
-
-  // Apply ZombieConfig changes
-  if (changes.ZombieConfig) {
-    for (const [key, value] of Object.entries(changes.ZombieConfig)) {
-      content = modifySandboxValue(content, key, value, "ZombieConfig");
-    }
-  }
-
-  // Apply MultiplierConfig changes
-  if (changes.MultiplierConfig) {
-    for (const [key, value] of Object.entries(changes.MultiplierConfig)) {
-      content = modifySandboxValue(content, key, value, "MultiplierConfig");
-    }
-  }
-
-  // Apply Map changes
-  if (changes.Map) {
-    for (const [key, value] of Object.entries(changes.Map)) {
-      content = modifySandboxValue(content, key, value, "Map");
-    }
-  }
-
-  // Apply Basement changes
-  if (changes.Basement) {
-    for (const [key, value] of Object.entries(changes.Basement)) {
-      content = modifySandboxValue(content, key, value, "Basement");
-    }
-  }
-
-  return content;
+// Apply the Server Config page's sections ({ settings: {...}, <Block>: {...} })
+// to existing file content. Each value is written at its own path, only where
+// the file already has that entry, and only when it differs: saving an
+// untouched form leaves the file byte-for-byte as it was. `refused` lists the
+// entries that were not written and why.
+export function planSandboxChanges(originalContent, changes) {
+  const edits = sectionsToEdits(changes);
+  const result = editSandboxValues(originalContent, edits);
+  const refused = [];
+  result.results.forEach((r, i) => {
+    if (r.status === "changed" || r.status === "unchanged") return;
+    const { section, key } = edits[i];
+    refused.push({
+      name: section === "settings" ? key : `${section}.${key}`,
+      status: r.status,
+      reason: describeSandboxEditStatus(r.status),
+    });
+  });
+  return { ...result, refused };
 }
 
-// The 6 top-level shapes applySandboxChanges()/createSandboxVars() actually
-// know how to write. Music and Debug are parsed by parseSandboxVars() (read
-// path) but neither writer touches them, so they're deliberately excluded
-// here too -- checking them would report every Music/Debug key as
-// "unpersisted" even though no write was ever attempted for them.
-const SANDBOX_WRITABLE_SECTIONS = [
-  "settings",
-  "ZombieLore",
-  "ZombieConfig",
-  "MultiplierConfig",
-  "Map",
-  "Basement",
-];
+// Same as planSandboxChanges(), content only.
+export function applySandboxChanges(originalContent, changes) {
+  return planSandboxChanges(originalContent, changes).content;
+}
 
-// modifySandboxValue() (used by applySandboxChanges for an existing file)
-// silently returns its input unchanged when a submitted key's regex finds no
-// matching line to update -- key not present in this file, lives in a block
-// modifySandboxValue doesn't know about, unusual formatting, etc. Compares
-// `submitted` (the request body's `sandbox` object) against `persisted` (the
-// freshly re-parsed on-disk content, via parseSandboxVars) and returns the
-// list of keys that were requested but did not actually change, formatted as
-// "key" for top-level settings or "Section.key" for a nested block.
+// planSandboxChanges() writes only entries the file already has, and refuses
+// a value over a table. Compares `submitted` (the request body's `sandbox`
+// object) against `persisted` (the freshly re-parsed on-disk content, via
+// parseSandboxVars -- the same reader the writer uses) and returns the keys
+// that were requested but did not land, formatted as "key" for top-level
+// settings or "Section.key" for a block.
 export function findUnpersistedSandboxKeys(submitted, persisted) {
-  const unpersistedKeys = [];
-  for (const section of SANDBOX_WRITABLE_SECTIONS) {
-    const submittedSection = submitted[section];
-    if (!submittedSection || typeof submittedSection !== "object") continue;
-    const persistedSection =
-      section === "settings" ? persisted.settings : persisted[section];
-    for (const [key, value] of Object.entries(submittedSection)) {
-      if ((persistedSection || {})[key] !== value) {
-        unpersistedKeys.push(section === "settings" ? key : `${section}.${key}`);
-      }
-    }
-  }
-  return unpersistedKeys;
+  const own = (obj, key) =>
+    obj && typeof obj === "object" && Object.prototype.hasOwnProperty.call(obj, key)
+      ? obj[key]
+      : undefined;
+  return sectionsToEdits(submitted)
+    .filter(({ section, key, value }) => own(own(persisted, section), key) !== value)
+    .map(({ section, key }) => (section === "settings" ? key : `${section}.${key}`));
 }
 
 function createSandboxVars(sandbox) {
@@ -1279,7 +993,7 @@ function createSandboxVars(sandbox) {
 
     if (sectionName === "settings") {
       for (const [key, value] of Object.entries(values)) {
-        if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
+        if (isLuaIdentifier(key)) {
           lines.push(`    ${key} = ${formatValue(value)},`);
         }
       }
@@ -1288,7 +1002,7 @@ function createSandboxVars(sandbox) {
 
     lines.push(`    ${sectionName} = {`);
     for (const [key, value] of Object.entries(values)) {
-      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
+      if (isLuaIdentifier(key)) {
         lines.push(`        ${key} = ${formatValue(value)},`);
       }
     }
@@ -1705,9 +1419,17 @@ router.get("/sandbox", async (req, res) => {
     }
 
     const content = fs.readFileSync(filePath, "utf-8");
-    const parsed = parseSandboxVars(content);
+    // A file that does not parse comes back as empty sections plus
+    // `parseError`, so the page can still open (the INI tab shares it) and
+    // PUT /sandbox refuses to edit it.
+    const { sandbox, error: parseError } = sandboxSectionsFromLua(content);
 
-    res.json({ sandbox: parsed, path: filePath, serverName });
+    res.json({
+      sandbox,
+      path: filePath,
+      serverName,
+      ...(parseError ? { parseError } : {}),
+    });
   } catch (error) {
     log.error("Failed to read SandboxVars:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1772,11 +1494,30 @@ router.put("/sandbox", async (req, res) => {
     let fileExists;
     let backupWarning = null;
     let unpersistedKeys = [];
+    let parseError = null;
     await withFileLock(filePath, async () => {
       fileExists = fs.existsSync(filePath);
-      const newContent = fileExists
-        ? applySandboxChanges(fs.readFileSync(filePath, "utf-8"), sandbox)
-        : createSandboxVars(sandbox);
+      let newContent;
+      if (fileExists) {
+        const plan = planSandboxChanges(fs.readFileSync(filePath, "utf-8"), sandbox);
+        if (!plan.ok) {
+          parseError = plan.error;
+          return;
+        }
+        if (plan.refused.length > 0) {
+          log.warn(
+            `Sandbox values not written: ${plan.refused.map((r) => `${r.name} (${r.reason})`).join(", ")}`,
+          );
+        }
+        newContent = plan.content;
+      } else {
+        newContent = createSandboxVars(sandbox);
+        const check = validateSandboxLua(newContent);
+        if (!check.valid) {
+          parseError = check.error;
+          return;
+        }
+      }
       if (fileExists) {
         backupWarning = backupWarningFor(
           await createBackup(configPath, `${serverName}_SandboxVars.lua`),
@@ -1784,18 +1525,25 @@ router.put("/sandbox", async (req, res) => {
       }
       writeFileAtomic(filePath, newContent, "utf-8");
 
-      // Without this read-back, a key modifySandboxValue() couldn't find a
-      // line for was silently dropped and this route still reported success
-      // (this route's own PUT /ini sibling already verifies its writes this
-      // way; this route did not).
+      // Without this read-back, a key the writer couldn't place was silently
+      // dropped and this route still reported success (this route's own PUT
+      // /ini sibling already verifies its writes this way; this route did
+      // not). Same reader as the writer, so a value refused over a table
+      // shows up here too.
       const persisted = parseSandboxVars(fs.readFileSync(filePath, "utf-8"));
       unpersistedKeys = findUnpersistedSandboxKeys(sandbox, persisted);
     });
 
+    if (parseError) {
+      log.warn(`PUT /sandbox refused, SandboxVars.lua does not parse: ${parseError.message}`);
+      return res.status(422).json({
+        error: `SandboxVars.lua can't be edited safely (${parseError.message}). Fix it in the raw editor, run the repair under Checks & Fixes, or restore a backup. Nothing was written.`,
+        code: ErrorCode.SANDBOX_FILE_UNPARSEABLE,
+        params: sanitizeErrorParams({ detail: parseError.message }),
+      });
+    }
     if (unpersistedKeys.length > 0) {
-      log.warn(
-        `SandboxVars keys did not persist (no matching entry found to update): ${unpersistedKeys.join(", ")}`,
-      );
+      log.warn(`SandboxVars keys did not persist: ${unpersistedKeys.join(", ")}`);
     }
     log.info(`${fileExists ? "Saved" : "Created"} SandboxVars file`);
     res.json({
@@ -1857,22 +1605,37 @@ router.put("/sandbox-option", async (req, res) => {
     }
 
     let persisted = false;
+    let reason = null;
     let backupWarning = null;
     await withFileLock(filePath, async () => {
       const originalContent = fs.readFileSync(filePath, "utf-8");
-      const newContent = modifySandboxValue(originalContent, key, value, block);
-      if (newContent === originalContent) return;
+      const result = editSandboxValues(originalContent, [
+        { path: block ? [block, key] : [key], value },
+      ]);
+      const status = result.ok ? result.results[0].status : "unparseable";
+      if (status === "unchanged") {
+        // Already what the file says; nothing to write, nothing lost.
+        persisted = true;
+        return;
+      }
+      if (status !== "changed") {
+        reason = describeSandboxEditStatus(status, result.error);
+        return;
+      }
       backupWarning = backupWarningFor(
         await createBackup(configPath, `${serverName}_SandboxVars.lua`),
       );
-      writeFileAtomic(filePath, newContent, "utf-8");
+      writeFileAtomic(filePath, result.content, "utf-8");
       persisted = true;
     });
 
-    log.info(`Sandbox option ${name} persisted: ${persisted}`);
+    log.info(
+      `Sandbox option ${name} persisted: ${persisted}${reason ? ` (${reason})` : ""}`,
+    );
     res.json({
       success: true,
       persisted,
+      ...(reason ? { reason } : {}),
       ...(backupWarning ? { backupWarning } : {}),
     });
   } catch (error) {
@@ -1942,23 +1705,32 @@ async function writeSandboxValues(entries, configPath, serverName) {
   let reason = null;
   await withFileLock(filePath, async () => {
     const originalContent = fs.readFileSync(filePath, "utf-8");
-    let content = originalContent;
-
-    // modifySandboxValue only rewrites existing assignments, so a key that
-    // isn't in the file would no-op and look like "already correct".
-    const missing = entries
-      .map(([key]) => key)
-      .filter(
-        (key) => !new RegExp(`^\\s*${escapeRegExp(key)}\\s*=`, "m").test(content),
-      );
-    if (missing.length > 0) {
-      reason = `not present in SandboxVars.lua: ${missing.join(", ")}`;
+    const result = editSandboxValues(
+      originalContent,
+      entries.map(([key, value]) => ({ path: [key], value })),
+    );
+    if (!result.ok) {
+      reason = describeSandboxEditStatus("unparseable", result.error);
       return;
     }
 
-    for (const [key, value] of entries) {
-      content = modifySandboxValue(content, key, value, null);
+    // Only existing top-level entries are rewritten, so a key that isn't in
+    // the file (or only exists inside some block) would no-op and look like
+    // "already correct". All or nothing: a partial utilities write would
+    // leave power and its modifier disagreeing.
+    const refused = new Map();
+    for (const r of result.results) {
+      if (r.status === "changed" || r.status === "unchanged") continue;
+      refused.set(r.status, [...(refused.get(r.status) || []), r.path.join(".")]);
     }
+    if (refused.size > 0) {
+      reason = [...refused]
+        .map(([status, keys]) => `${keys.join(", ")}: ${describeSandboxEditStatus(status)}`)
+        .join("; ");
+      return;
+    }
+
+    const content = result.content;
     if (content === originalContent) {
       reason = "values already match";
       return;
@@ -1976,9 +1748,10 @@ async function writeSandboxValues(entries, configPath, serverName) {
   return { persisted, reason };
 }
 
-// Check whether SandboxVars.lua is syntactically well-formed (brace balance
-// only — we don't have a real Lua parser). A corrupt file here is a classic
-// cause of "server won't boot, no obvious reason" reports.
+// Check whether the game can load SandboxVars.lua: it has to parse (the same
+// tokenizer every editor here uses) and its braces have to balance. A corrupt
+// file here is a classic cause of "server won't boot, no obvious reason"
+// reports.
 router.get("/sandbox/validate", async (req, res) => {
   try {
     const { serverConfigPath: configPath, serverName } = req.activeServerContext;
@@ -1992,8 +1765,8 @@ router.get("/sandbox/validate", async (req, res) => {
     }
 
     const content = fs.readFileSync(filePath, "utf-8");
-    const { balanced, depth } = checkSandboxBraceBalance(content);
-    res.json({ valid: balanced, braceDepth: depth });
+    const { valid, depth, error } = validateSandboxLua(content);
+    res.json({ valid, braceDepth: depth, ...(error ? { parseError: error.message } : {}) });
   } catch (error) {
     log.error("Failed to validate SandboxVars:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -2001,7 +1774,7 @@ router.get("/sandbox/validate", async (req, res) => {
 });
 
 // Attempt to auto-repair SandboxVars.lua. Refuses to write anything unless
-// BOTH the repaired content is verified brace-balanced AND a real backup of
+// BOTH the repaired content parses cleanly AND a real backup of
 // the broken file was made first — if the corruption doesn't match a known
 // repair pattern, or the backup can't be created, nothing is written and
 // the caller is told exactly why and what to do about it. This route
@@ -2024,8 +1797,7 @@ router.post("/sandbox/repair", async (req, res) => {
 
     const result = await withFileLock(filePath, async () => {
       const originalContent = fs.readFileSync(filePath, "utf-8");
-      const before = checkSandboxBraceBalance(originalContent);
-      if (before.balanced) {
+      if (validateSandboxLua(originalContent).parses) {
         return { alreadyValid: true };
       }
 
@@ -2792,6 +2564,22 @@ router.post("/templates/:id/apply", async (req, res) => {
 
     const template = JSON.parse(fs.readFileSync(templateFile, "utf-8"));
     const { serverConfigPath: configPath, serverName } = req.activeServerContext;
+
+    // A template stores the whole SandboxVars.lua as it was when saved, so
+    // one saved from a corrupted file would put the corruption straight back.
+    // Checked before anything is written, INI included.
+    if (applySandbox && template.sandboxRaw) {
+      const check = validateSandboxLua(template.sandboxRaw);
+      if (!check.valid) {
+        const detail = check.error?.message || "unbalanced braces";
+        log.warn(`Template ${safeId} not applied: its SandboxVars.lua does not parse (${detail})`);
+        return res.status(422).json({
+          error: `This template's saved SandboxVars.lua is not valid Lua (${detail}), so nothing was applied. Apply its INI settings only, or save a new template from a working configuration.`,
+          code: ErrorCode.TEMPLATE_SANDBOX_UNPARSEABLE,
+          params: sanitizeErrorParams({ detail }),
+        });
+      }
+    }
 
     const backupWarnings = [];
 

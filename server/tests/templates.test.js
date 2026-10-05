@@ -587,6 +587,23 @@ describe("previewTemplate / applyTemplate", () => {
     });
   });
 
+  // #197: the old regex writers edited a file the game already rejects (the
+  // "Explosives = 1" shape), keeping it broken. Now it is left as it is.
+  it("skips the sandbox portion, without touching the file, when SandboxVars.lua does not parse", async () => {
+    const sandboxPath = path.join(dir, "TestServer_SandboxVars.lua");
+    const broken = fs.readFileSync(sandboxPath, "utf-8").replace("    ZombieLore = {", "    ZombieLore = 1");
+    fs.writeFileSync(sandboxPath, broken);
+
+    const result = await templateService.applyTemplate("first-week-friendly", "server-1");
+
+    expect(result.success).toBe(true);
+    expect(result.sandbox).toEqual({
+      skipped: true,
+      reason: expect.stringMatching(/does not parse \(line 6: '}' expected/),
+    });
+    expect(fs.readFileSync(sandboxPath, "utf-8")).toBe(broken);
+  });
+
   it("refuses to apply to a remote server", async () => {
     getServer.mockResolvedValue({
       id: "server-2",

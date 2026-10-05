@@ -1,53 +1,15 @@
 // Low-level, sparse-key read/write for a server's .ini and _SandboxVars.lua
 // files, used by templateService when applying a template. Deliberately
 // narrow: it only ever touches the specific keys a template mentions, never
-// attempts a full generic parse/rewrite of either file. This mirrors the
-// existing precedent in server/services/serverManager.js (INI) and
-// server/routes/serverFiles.js (Lua) of small, independent regex-based
-// editors rather than a shared full-fidelity parser.
+// attempts a full rewrite of either file. The INI side mirrors the small
+// regex editors in server/services/serverManager.js; the Lua side goes
+// through utils/sandboxLua.js, the one SandboxVars.lua reader/editor every
+// route shares (#197).
 import fs from "fs";
 import path from "path";
 import { escapeRegExp } from "./regex.js";
 import { writeFileAtomic } from "./fileWriteQueue.js";
-
-function escapeLuaString(str) {
-  return String(str).replace(/[\\"'\n\r\t]/g, (c) => {
-    const map = { "\\": "\\\\", '"': '\\"', "'": "\\'", "\n": "\\n", "\r": "\\r", "\t": "\\t" };
-    return map[c];
-  });
-}
-
-// continuous-bug-hunt round 30 (card: consolidate-nested-sandbox-writer):
-// confirmed by direct comparison against routes/serverFiles.js's sibling
-// writer (modifySandboxValue/formatLuaNumber) against a real save's
-// SandboxVars.lua: that function preserves a field's existing decimal
-// format ("0.05" -> writing 3 produces "3.0", not "3") because SandboxVars
-// fields are ambiguous between int/float at the syntax level and a bare "3"
-// looks like a different field type on a manual diff even though Kahlua
-// parses "3" and "3.0" identically. This function used to always emit
-// String(value), silently dropping that formatting -- the ONE behavioral
-// disagreement the two writers had across every edge case checked (nested
-// blocks, missing keys, quoting/escaping, CRLF, comments all already
-// matched). `originalValueStr` is the regex's own raw matched value (before
-// its trailing comma), same shape modifySandboxValue's formatValue() reads.
-function formatLuaValue(value, originalValueStr) {
-  if (typeof value === "boolean") return String(value);
-  if (typeof value === "number" && Number.isFinite(value)) {
-    const trimmed = originalValueStr ? originalValueStr.trim().replace(/,\s*$/, "") : "";
-    if (Number.isInteger(value) && trimmed.includes(".")) return value.toFixed(1);
-    return String(value);
-  }
-  return `"${escapeLuaString(String(value))}"`;
-}
-
-function coerceSandboxValue(raw) {
-  const trimmed = raw.trim().replace(/,\s*$/, "");
-  if (trimmed === "true") return true;
-  if (trimmed === "false") return false;
-  if (/^-?\d+(\.\d+)?$/.test(trimmed)) return parseFloat(trimmed);
-  const quoted = trimmed.match(/^"((?:[^"\\]|\\.)*)"$/);
-  return quoted ? quoted[1].replace(/\\(.)/g, "$1") : trimmed;
-}
+import { editSandboxValues, readSandboxPath } from "./sandboxLua.js";
 
 // ---- server.ini ----------------------------------------------------------
 
@@ -104,42 +66,16 @@ export function mergeIniValues(content, updates) {
 
 // ---- SandboxVars.lua -------------------------------------------------------
 
-function findBlockRange(content, blockName) {
-  const start = content.match(new RegExp(`${escapeRegExp(blockName)}\\s*=\\s*\\{`));
-  if (!start) return null;
-  const openAt = start.index + start[0].length;
-  const closeAt = content.indexOf("}", openAt);
-  if (closeAt === -1) return null;
-  return { start: start.index, openAt, closeAt };
+// "settings" is the top level; any other section is the block of that name.
+// Keys are looked up in their own table only, so a top-level "Farming" and
+// MultiplierConfig.Farming never read or write each other.
+function sandboxPath(section, key) {
+  return section === "settings" ? [key] : [section, key];
 }
 
 /** Read the current value of `key` within `section` ("settings" = top level). */
 export function readSandboxValue(content, section, key) {
-  if (section !== "settings") {
-    const range = findBlockRange(content, section);
-    if (!range) return undefined;
-    return readFirstMatch(content.slice(range.openAt, range.closeAt), key);
-  }
-
-  // Top-level keys can share a name with a nested-block key (e.g. "Farming"
-  // and "Strength" both exist under settings AND MultiplierConfig), so a
-  // plain whole-file regex could read the wrong section's value. Search only
-  // outside the known nested-block byte ranges, same as applySandboxValue.
-  const nestedRanges = getKnownSectionRanges(content);
-  const pattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*"|[^,\\n}]+)`, "gm");
-  let match;
-  while ((match = pattern.exec(content)) !== null) {
-    if (nestedRanges.some((r) => match.index >= r.start && match.index < r.closeAt)) continue;
-    return coerceSandboxValue(match[1]);
-  }
-  return undefined;
-}
-
-function readFirstMatch(scope, key) {
-  const match = scope.match(
-    new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*"|[^,\\n}]+)`, "m"),
-  );
-  return match ? coerceSandboxValue(match[1]) : undefined;
+  return readSandboxPath(content, sandboxPath(section, key));
 }
 
 /**
@@ -148,87 +84,43 @@ function readFirstMatch(scope, key) {
  * reported as not applied rather than appended — SandboxVars.lua is always
  * server-generated with every known key present, so a missing key means the
  * file predates this setting and blindly appending risks a malformed table.
+ * A key that is a table in the file is never overwritten with a value.
  */
 export function applySandboxValue(content, section, key, value) {
-  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) return { content, applied: false };
-  const valuePattern = '("(?:[^"\\\\]|\\\\.)*"|[^,\\n}]+)(,?)';
-
-  if (section === "settings") {
-    const nestedRanges = getKnownSectionRanges(content);
-    const pattern = new RegExp(`(^\\s*)(${escapeRegExp(key)})(\\s*=\\s*)${valuePattern}`, "gm");
-    let applied = false;
-    const next = content.replace(pattern, (full, indent, k, eq, oldVal, comma, offset) => {
-      if (nestedRanges.some((r) => offset >= r.start && offset < r.closeAt)) return full;
-      applied = true;
-      return `${indent}${k}${eq}${formatLuaValue(value, oldVal)}${comma}`;
-    });
-    return { content: next, applied };
-  }
-
-  const blockRange = findBlockRange(content, section);
-  if (!blockRange) return { content, applied: false };
-  const before = content.slice(0, blockRange.openAt);
-  const block = content.slice(blockRange.openAt, blockRange.closeAt);
-  const after = content.slice(blockRange.closeAt);
-  let applied = false;
-  // continuous-bug-hunt round 16 (template apply/import/export truth): the
-  // lazy `[^\n]*?` prefix crosses arbitrary identifier characters to reach
-  // its target, and without a boundary check on the LEFT side of the key it
-  // happily matches the key as a bare SUBSTRING of an earlier, longer
-  // identifier on the same line -- e.g. a template setting "Speed" in a
-  // block that also has "WalkSpeed" above it matches "...Walk|Speed" and
-  // silently rewrites WalkSpeed's value instead, while "Speed" itself never
-  // changes and is still reported as applied. This is the identical defect
-  // routes/serverFiles.js's modifySandboxValue() was fixed for (2026-09-18,
-  // settings-truth round, see that function's own comment for the full
-  // repro) -- confirmed by inspection to be a SEPARATE, independent
-  // implementation of the same "nested-block key rewrite" operation used by
-  // template apply specifically, which the earlier fix never touched. Same
-  // fix: `(?<![A-Za-z0-9_])` rejects any match position immediately
-  // preceded by an identifier character, so the key can only match at a
-  // real identifier boundary -- exactly what the validated
-  // `^[a-zA-Z_][a-zA-Z0-9_]*$` key format above already guarantees "the
-  // whole key" looks like.
-  const pattern = new RegExp(
-    `(^(?!\\s*--)[^\\n]*?)(?<![A-Za-z0-9_])(${escapeRegExp(key)})(\\s*=\\s*)${valuePattern}`,
-    "m",
-  );
-  const nextBlock = block.replace(pattern, (full, prefix, k, eq, oldVal, comma) => {
-    applied = true;
-    return `${prefix}${k}${eq}${formatLuaValue(value, oldVal)}${comma}`;
+  const { content: next, applied } = mergeSandboxSections(content, {
+    [section]: { [key]: value },
   });
-  return { content: before + nextBlock + after, applied };
+  return { content: next, applied: applied.length > 0 };
 }
 
-// continuous-bug-hunt round 30 (card: consolidate-nested-sandbox-writer):
-// routes/serverFiles.js's own nestedBlocks/knownBlocks lists (used for both
-// parsing and modifySandboxValue's top-level exclusion) also carry "Music"
-// and "Debug" alongside these five -- this list was missing them, so a
-// same-named key under either block (neither appears in a real save's
-// SandboxVars.lua checked against D:/pz-verify, but the file format doesn't
-// forbid them) would not have been excluded from a top-level "settings"
-// write here, unlike its sibling. findBlockRange() is a no-op (returns
-// null, filtered out below) for a block name absent from the file, so
-// adding these has no effect on any file that doesn't define them.
-function getKnownSectionRanges(content) {
-  return ["ZombieLore", "ZombieConfig", "MultiplierConfig", "Map", "Basement", "Music", "Debug"]
-    .map((name) => findBlockRange(content, name))
-    .filter(Boolean);
-}
-
-/** Apply every key in `sectionUpdates` (shape: { settings: {...}, ZombieLore: {...} }). */
+/**
+ * Apply every key in `sectionUpdates` (shape: { settings: {...}, ZombieLore: {...} }).
+ * `error` is set, and nothing is applied, when the file does not parse.
+ */
 export function mergeSandboxSections(content, sectionUpdates) {
-  let result = content;
-  const applied = [];
-  const skipped = [];
+  const entries = [];
   for (const [section, values] of Object.entries(sectionUpdates || {})) {
     for (const [key, value] of Object.entries(values || {})) {
-      const out = applySandboxValue(result, section, key, value);
-      result = out.content;
-      (out.applied ? applied : skipped).push({ section, key });
+      entries.push({ section, key, path: sandboxPath(section, key), value });
     }
   }
-  return { content: result, applied, skipped };
+  const result = editSandboxValues(content, entries);
+  if (!result.ok) {
+    return {
+      content,
+      applied: [],
+      skipped: entries.map(({ section, key }) => ({ section, key })),
+      error: result.error,
+    };
+  }
+  const applied = [];
+  const skipped = [];
+  result.results.forEach((r, i) => {
+    const { section, key } = entries[i];
+    if (r.status === "changed" || r.status === "unchanged") applied.push({ section, key });
+    else skipped.push({ section, key });
+  });
+  return { content: result.content, applied, skipped };
 }
 
 // ---- Backups ---------------------------------------------------------------

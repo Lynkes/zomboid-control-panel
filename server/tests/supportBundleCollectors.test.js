@@ -329,6 +329,25 @@ describe("support bundle: server config summary flags a Mods/WorkshopItems lengt
     });
     expect(result.ini.modsWorkshopCountMismatch).toBe(false);
   });
+
+  // #197: the bundle said only "braces unbalanced"; it now carries the
+  // parser's own message, which names the line the game stops at.
+  it("reports where SandboxVars.lua stops parsing", async () => {
+    const sandboxPath = path.join(configDir, "servertest_SandboxVars.lua");
+    fs.writeFileSync(
+      sandboxPath,
+      "SandboxVars = {\n    Explosives = 1\n        VanillaBallisticsEnabled = false,\n    },\n}\n",
+    );
+    let result = await buildServerConfigSummary({ serverConfigPath: configDir, serverName: "servertest" });
+    expect(result.sandbox.syntaxError).toBe(
+      "line 3: '}' expected (to close '{' at line 1) near 'VanillaBallisticsEnabled'",
+    );
+
+    fs.writeFileSync(sandboxPath, 'SandboxVars = {\n    Banner = "}",\n}\n');
+    result = await buildServerConfigSummary({ serverConfigPath: configDir, serverName: "servertest" });
+    expect(result.sandbox.syntaxError).toBeNull();
+    expect(result.sandbox.braceBalance).toEqual({ balanced: true, depth: 0 });
+  });
 });
 
 describe("support bundle: sandbox-options diagnostics identify the failure and candidate mods", () => {

@@ -206,6 +206,11 @@ export const ErrorCode = Object.freeze({
    * through the withFileLock result object's own `params` field, same
    * pattern as its `code` field documented above. */
   SANDBOX_REPAIR_BACKUP_FAILED: "SANDBOX_REPAIR_BACKUP_FAILED",
+  /** server/routes/serverFiles.js -- PUT /sandbox, the existing
+   * SandboxVars.lua does not parse (utils/sandboxLua.js), so the structured
+   * save refuses to edit it rather than write into a file the game already
+   * rejects. Sends `{ detail }` (the parser's "line N: ..." message). #197. */
+  SANDBOX_FILE_UNPARSEABLE: "SANDBOX_FILE_UNPARSEABLE",
   /** server/routes/serverFiles.js -- GET /spawnpoints, no
    * <serverName>_spawnpoints.lua at the resolved path. */
   SPAWNPOINTS_FILE_NOT_FOUND: "SPAWNPOINTS_FILE_NOT_FOUND",
@@ -283,6 +288,11 @@ export const ErrorCode = Object.freeze({
   /** server/routes/serverFiles.js -- POST /templates/:id/apply, neither
    * applyIni nor applySandbox matched anything in the stored template. */
   TEMPLATE_APPLY_NOTHING_TO_APPLY: "TEMPLATE_APPLY_NOTHING_TO_APPLY",
+  /** server/routes/serverFiles.js -- POST /templates/:id/apply, the
+   * template's saved sandboxRaw does not parse, so nothing (INI included) is
+   * written; applying it would put a corrupted file back. Sends `{ detail }`.
+   * #197. */
+  TEMPLATE_SANDBOX_UNPARSEABLE: "TEMPLATE_SANDBOX_UNPARSEABLE",
   /** server/routes/serverFiles.js (sites: GET /browse-files, GET
    * /image-preview) -- confineToRoots() rejected the requested path.
    * Identical wording/meaning both sites, shared code. */
