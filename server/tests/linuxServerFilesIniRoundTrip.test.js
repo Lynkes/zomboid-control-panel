@@ -84,6 +84,7 @@ function formSettings({ rawSettings, misnamedKeys }) {
 }
 
 const SERVER_NAME = "RoundTripTest";
+let dataDir;
 let configDir;
 let iniPath;
 
@@ -107,17 +108,21 @@ const FIXTURE = [
 ].join("\n");
 
 beforeEach(() => {
-  configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ini-roundtrip-"));
+  // PATHS-2: the config folder is <data folder>/Server.
+  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ini-roundtrip-"));
+  configDir = path.join(dataDir, "Server");
+  fs.mkdirSync(configDir);
   iniPath = path.join(configDir, `${SERVER_NAME}.ini`);
   fs.writeFileSync(iniPath, FIXTURE);
   getActiveServer.mockReset().mockResolvedValue({
+    zomboidDataPath: dataDir,
     serverConfigPath: configDir,
     serverName: SERVER_NAME,
   });
 });
 
 afterEach(() => {
-  fs.rmSync(configDir, { recursive: true, force: true });
+  fs.rmSync(dataDir, { recursive: true, force: true });
 });
 
 describe("GET /ini -> PUT /ini round trip with no changes", () => {
@@ -430,7 +435,8 @@ describe("GET /ini -> PUT /ini round trip: whitespace the game does not trim (GH
       PublicName: " My Server",
       PublicDescription: "Hello = world",
       Open: "true",
-      RCONPassword: "••••••••pass",
+      // A masked secret says only that it is set (AUTHZ-4, 2026-10-04).
+      RCONPassword: "••••••••",
       DoLuaChecksum: " true",
     });
     expect(misnamedKeys).toEqual({});
@@ -551,8 +557,9 @@ describe("GET /ini: what the form can't show from the values alone (GH#182 follo
     const body = getRes.getBody();
 
     expect(body.maskedCutAtEqualsKeys).toEqual(["RCONPassword"]);
-    expect(body.rawSettings.RCONPassword).toBe("••••••••efgh");
+    expect(body.rawSettings.RCONPassword).toBe("••••••••");
     expect(JSON.stringify(body)).not.toContain("abcd");
+    expect(JSON.stringify(body)).not.toContain("efgh");
   });
 
   it("is empty for a file the game reads whole", async () => {

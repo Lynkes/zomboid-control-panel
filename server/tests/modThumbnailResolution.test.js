@@ -198,7 +198,9 @@ describe("GET /thumbnail/:workshopId — negative caching", () => {
           ok: true,
           json: async () => ({
             response: {
-              publishedfiledetails: [{ result: 1, preview_url: PREVIEW_URL }],
+              // consumer_app_id 108600 = Project Zomboid: the route only
+              // ever fetches a PZ item's preview (DISKFILL, 2026-10-04).
+              publishedfiledetails: [{ result: 1, consumer_app_id: 108600, preview_url: PREVIEW_URL }],
             },
           }),
         };

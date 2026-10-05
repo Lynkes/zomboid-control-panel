@@ -212,6 +212,10 @@
       "dismissAria": "Ignorer l'avertissement de connexion",
       "dismissTooltip": "Ignorer jusqu'à ce que cela change"
     },
+    "channelOutsideGuild": {
+      "title": "Certaines notifications ne sont pas envoyées",
+      "body": "Le salon {{channels}} n'appartient pas au serveur indiqué comme ID du serveur (Guild), donc le bot n'y publie plus. Choisissez un salon de ce serveur, ou indiquez comme ID du serveur celui du salon."
+    },
     "commandPermissions": {
       "title": "Permissions des commandes",
       "description": "Contrôlez qui peut utiliser chaque commande slash. Attribuez un niveau de permission par commande.",
@@ -341,9 +345,14 @@
     "testMessageSent": "Message de test envoyé au salon Discord",
     "testMessageFailedFallback": "Échec de l'envoi du message de test",
     "wipeConfirmTitle": "Réinitialiser les paramètres du bot Discord ?",
-    "wipeConfirmDesc": "Ceci efface le jeton du bot enregistré, les ID de serveur et de salon, les ID de rôles, les paramètres du pont de chat, les permissions des commandes et la configuration des notifications d'événements Discord. Le bot s'arrêtera et la page reviendra à la configuration initiale.",
+    "wipeConfirmDesc": "Ceci efface le jeton du bot enregistré, les ID de serveur et de salon, les ID de rôles, le salon du pont de chat et la configuration des notifications d'événements Discord, et remet le niveau de permission de chaque commande à sa valeur par défaut. Une commande qui requiert une permission que vous ne détenez pas dans ce panneau garde son niveau actuel. Le démarrage automatique et le pont de chat reviennent à leur valeur par défaut, c'est-à-dire activés : dès qu'un nouveau jeton est configuré, le bot démarre avec le panneau et relaie tout le chat public dans les deux sens par le salon de notification. Le bot s'arrêtera et la page reviendra à la configuration initiale.",
     "wipeConfirmLabel": "Réinitialiser les paramètres Discord",
     "wipeSuccess": "Paramètres du bot Discord réinitialisés. Vous pouvez recommencer la configuration depuis le début.",
+    "wipeSuccessKeptTiers": "Paramètres du bot Discord réinitialisés. Ces commandes ont gardé leur niveau de permission, car elles requièrent des permissions que vous ne détenez pas dans ce panneau : {{commands}}",
     "wipeFailedFallback": "Échec de la réinitialisation des paramètres Discord"
+  },
+  "capabilityGate": {
+    "connection": "Seule une personne détenant toutes les permissions requises par les commandes du bot peut modifier ceci : le propriétaire du serveur Discord du bot et toute personne ayant son rôle admin peuvent exécuter toutes les commandes.",
+    "modRole": "Seule une personne détenant les permissions requises par les commandes de niveau Modérateur peut modifier ceci : toute personne ayant ce rôle peut exécuter ces commandes."
   }
 }

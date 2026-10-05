@@ -212,6 +212,10 @@
       "dismissAria": "Ekate avètisman koneksyon an",
       "dismissTooltip": "Kite tonbe jiskaske sa chanje"
     },
+    "channelOutsideGuild": {
+      "title": "Gen kèk notifikasyon ki pa voye",
+      "body": "Chanèl {{channels}} pa nan sèvè ki mete kòm ID Sèvè (Guild) a, kidonk bot la pa poste la ankò. Chwazi yon chanèl nan sèvè sa a, oswa mete ID Sèvè a sou sèvè chanèl la."
+    },
     "commandPermissions": {
       "title": "Otorizasyon Kòmand",
       "description": "Kontwole ki moun ki ka itilize chak kòmand slash. Asiyen yon nivo otorizasyon pou chak kòmand.",
@@ -323,9 +327,14 @@
     "testMessageSent": "Mesaj tès voye nan chanèl Discord",
     "testMessageFailedFallback": "Echwe pou voye mesaj tès",
     "wipeConfirmTitle": "Efase nèt paramèt bot Discord?",
-    "wipeConfirmDesc": "Sa a efase jeton bot ki sove a, ID guild ak chanèl, ID wòl, paramèt relè chat, otorizasyon kòmand, ak konfigirasyon notifikasyon evènman Discord. Bot la ap sispann epi paj la ap retounen nan konfigirasyon premye fwa.",
+    "wipeConfirmDesc": "Sa a efase jeton bot ki sove a, ID guild ak chanèl, ID wòl, chanèl relè chat la, ak konfigirasyon notifikasyon evènman Discord, epi li remete nivo otorizasyon chak kòmand sou valè pa defo li. Yon kòmand ki bezwen yon otorizasyon ou pa genyen nan panèl la kenbe nivo li genyen kounye a. Demaraj otomatik ak relè chat la retounen sou valè pa defo yo, ki se aktive: depi yo konfigire yon nouvo jeton, bot la ap demare ansanm ak panèl la epi l ap relè tout chat piblik nan de sans atravè chanèl notifikasyon an. Bot la ap sispann epi paj la ap retounen nan konfigirasyon premye fwa.",
     "wipeConfirmLabel": "Efase Nèt Paramèt Discord",
     "wipeSuccess": "Paramèt bot Discord efase nèt. Ou ka kòmanse konfigirasyon soti nan zewo.",
+    "wipeSuccessKeptTiers": "Paramèt bot Discord efase. Kòmand sa yo kenbe nivo otorizasyon yo paske yo bezwen otorizasyon ou pa genyen nan panèl la: {{commands}}",
     "wipeFailedFallback": "Echwe pou efase nèt paramèt Discord"
+  },
+  "capabilityGate": {
+    "connection": "Se sèlman yon moun ki gen tout otorizasyon kòmand bot la bezwen ki ka chanje sa a: pwopriyetè sèvè Discord bot la ak nenpòt moun ki gen wòl administratè li ka itilize tout kòmand yo.",
+    "modRole": "Se sèlman yon moun ki gen otorizasyon kòmand nivo Moderatè yo bezwen ki ka chanje sa a: nenpòt moun ki gen wòl sa a ka itilize kòmand sa yo."
   }
 }

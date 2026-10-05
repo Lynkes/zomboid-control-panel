@@ -27,7 +27,10 @@ vi.mock("../database/init.js", () => ({
   getServers: vi.fn(async () => []),
 }));
 
-vi.mock("../utils/zomboidPaths.js", () => ({
+// The rest of the module stays real: the data-folder rule
+// (services/zomboidDataPath.js) judges the folder with holdsSaveFiles().
+vi.mock("../utils/zomboidPaths.js", async (importOriginal) => ({
+  ...(await importOriginal()),
   normalizeUserPath: (p) => p,
   getCandidateZomboidPaths: () => [],
   invalidateCandidatePathsCache: () => {},

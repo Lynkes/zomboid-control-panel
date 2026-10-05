@@ -9,6 +9,7 @@ import { execFile } from "child_process";
 import { fileURLToPath } from "url";
 import archiver from "archiver";
 import { createLogger } from "../utils/logger.js";
+import { escapeLogText } from "../utils/logText.js";
 import { getDiskFree } from "../utils/diskSpace.js";
 import {
   launchesPanelStartScript,
@@ -50,6 +51,7 @@ import {
 } from "../database/init.js";
 import { sanitizeError, sanitizeErrorParams, SENSITIVE_FIELD_RE } from "../utils/sanitize.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { serverConfigDirOf } from "../utils/serverConfigPath.js";
 import { checkSandboxBraceBalance } from "./serverFiles.js";
 import panelBridgeService from "../services/panelBridge.js";
 import authService from "../services/auth.js";
@@ -876,9 +878,22 @@ async function collectSandboxModMetadata(activeServer, ini) {
   return records.slice(0, SANDBOX_DIAGNOSTIC_MAX_MODS);
 }
 
+// SECURITY (2026-10-05, PATHS-2): the support bundle reads the server's
+// .ini out of its config folder, which is used only while it is inside the
+// server's own data folder (utils/serverConfigPath.js) -- the folder Server
+// Files and the services agree on -- and while that data folder meets the
+// data-folder rule (PATHS-1 verifier pass 2).
+function supportConfigDir(activeServer) {
+  if (!activeServer?.serverConfigPath) return null;
+  return serverConfigDirOf(activeServer).dir;
+}
+
 async function buildSandboxOptionsDiagnostics(activeServer, knownSecrets = []) {
   if (!activeServer?.zomboidDataPath || !activeServer?.serverConfigPath) {
     return { available: false, reason: "Active server paths are not configured" };
+  }
+  if (!supportConfigDir(activeServer)) {
+    return { available: false, reason: "The server config folder is outside the Zomboid data folder" };
   }
 
   const serverName = activeServer.serverName || activeServer.name || null;
@@ -963,6 +978,9 @@ async function buildServerConfigSummary(activeServer) {
   const serverName = activeServer?.serverName || activeServer?.name;
   if (!configDir || !serverName) {
     return { available: false, reason: "Active server configuration is not set" };
+  }
+  if (!supportConfigDir(activeServer)) {
+    return { available: false, reason: "The server config folder is outside the Zomboid data folder" };
   }
 
   const iniPath = path.join(configDir, `${serverName}.ini`);
@@ -6787,6 +6805,16 @@ const CLIENT_ERROR_MAX = 30; // max reports per minute per IP
 // left a permanent entry. Sweep expired ones once the map gets large.
 const CLIENT_ERROR_RATE_MAX_ENTRIES = 5000;
 
+// Every field of a report is chosen by whoever sends it -- this route takes
+// no login -- and lands in combined.log, which support bundles ship. A CR/LF
+// in `message`, `error` or `url` used to start a brand-new line in that file,
+// indistinguishable from a real panel entry (`2026-10-04 03:12:44 [INFO]
+// [Auth] Password reset successful for user: admin`). escapeLogText()
+// (utils/logText.js, which every log line quoting request input shares
+// since 2026-10-05) turns each control character into a visible escape, so
+// one report is always exactly one `[ClientError]` line while a real
+// multi-line error stays readable.
+
 // Deliberately unauthenticated -- no requirePermission gate at all, not
 // even "any logged-in role" (compare the file header above, which
 // undersells this). A frontend crash can happen before the client has
@@ -6842,11 +6870,15 @@ router.post("/client-errors", (req, res) => {
     // renders.
     const errorPart =
       typeof errorDetail === "string" && errorDetail
-        ? ` -- ${errorDetail.slice(0, 300)}`
+        ? ` -- ${escapeLogText(errorDetail.slice(0, 300))}`
         : "";
     const urlPart =
-      typeof url === "string" && url ? ` (page: ${url.slice(0, 200)})` : "";
-    log.warn(`[ClientError] ${message.slice(0, 500)}${errorPart}${urlPart}`);
+      typeof url === "string" && url
+        ? ` (page: ${escapeLogText(url.slice(0, 200))})`
+        : "";
+    log.warn(
+      `[ClientError] ${escapeLogText(message.slice(0, 500))}${errorPart}${urlPart}`,
+    );
 
     res.json({ ok: true });
   } catch (err) {

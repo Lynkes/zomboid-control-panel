@@ -51,6 +51,7 @@
     "streamUnavailable": "日志流不可用——服务器可能已离线",
     "retry": "重试",
     "notFoundTitle": "未找到服务器控制台日志",
+    "unavailableTitle": "服务器控制台日志不可用",
     "notFoundDesc": "确认服务器正在运行",
     "streamLabel": "日志流",
     "paused": "已暂停",

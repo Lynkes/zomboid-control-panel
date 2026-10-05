@@ -61,6 +61,24 @@ function recreateFile(filePath, content) {
   fs.writeFileSync(filePath, content);
 }
 
+// Rewrites fs.statSync's answer for one file, every time it is asked about
+// it, until the spy is restored (each test restores it right after its one
+// poll). The route stats other paths too, and the data-folder rule (since
+// 2026-10-05) also stats this very file while judging the folder, so a
+// one-shot stub -- bare mockImplementationOnce(), or "first stat of this
+// path" -- was used up before the route's own identity check: the tmpfs case
+// below then failed on Linux, and the ctime case passed without testing
+// anything. Every stat of the log in that poll sees the same faked file.
+function stubStatFor(targetPath, override) {
+  const realStatSync = fs.statSync.bind(fs);
+  const target = path.resolve(targetPath);
+  return vi.spyOn(fs, "statSync").mockImplementation((p, ...rest) => {
+    const real = realStatSync(p, ...rest);
+    if (!real || path.resolve(String(p)) !== target) return real;
+    return override(real);
+  });
+}
+
 describe("GET /console-log/stream: file identity survives a same-path recreate", () => {
   let dataDir;
   let consoleLogPath;
@@ -157,9 +175,7 @@ describe("GET /console-log/stream: file identity survives a same-path recreate",
     );
     recreateFile(consoleLogPath, newSessionContent);
 
-    const realStatSync = fs.statSync.bind(fs);
-    const statSpy = vi.spyOn(fs, "statSync").mockImplementationOnce((p) => {
-      const real = realStatSync(p);
+    const statSpy = stubStatFor(consoleLogPath, (real) => {
       // Simulate the filesystem handing the just-freed inode straight back
       // to the recreated file, while birthtime -- genuinely different for a
       // new file created moments later -- is the only signal left that can
@@ -213,16 +229,13 @@ describe("GET /console-log/stream: file identity survives a same-path recreate",
   // alone, which agrees (same file, no rotation).
   it("does not report a rotation for ordinary growth of the SAME file on a filesystem where birthtime is really ctime in disguise", async () => {
     fs.writeFileSync(consoleLogPath, "Line 1\n");
-    const realStatSync = fs.statSync.bind(fs);
-
     // Both polls are mocked explicitly (not left to real OS timing) so this
     // test is deterministic on every platform: real birthtime/ctime CAN
     // coincidentally tie on a fresh single-write file even on a filesystem
     // with genuine creation-time tracking (nothing has touched the file's
     // metadata since creation yet), which would make an unmocked first poll
     // an unreliable way to force this specific filesystem shape.
-    let statSpy = vi.spyOn(fs, "statSync").mockImplementationOnce((p) => {
-      const real = realStatSync(p);
+    let statSpy = stubStatFor(consoleLogPath, (real) => {
       // Same value for both -- exactly what a ctime-backed "birthtime"
       // looks like at any single moment, including right after creation.
       return Object.create(real, {
@@ -235,8 +248,7 @@ describe("GET /console-log/stream: file identity survives a same-path recreate",
 
     fs.appendFileSync(consoleLogPath, "Line 2\n");
 
-    statSpy = vi.spyOn(fs, "statSync").mockImplementationOnce((p) => {
-      const real = realStatSync(p);
+    statSpy = stubStatFor(consoleLogPath, (real) => {
       // Same inode (it IS the same file, genuinely appended to) but
       // birthtimeMs forced equal to ctimeMs -- and both moved forward from
       // the first poll, exactly like a ctime-backed "birthtime" does after

@@ -51,7 +51,10 @@ import {
   extractSteamCookies,
 } from "../utils/browserCookies.js";
 import { requirePermission } from "../services/permissions.js";
+import { hostPathViewFor } from "../utils/hostPathView.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { activeServerConfigDir, serverConfigDirRefusal } from "../utils/serverConfigPath.js";
+import { describeRefusal, logRefusalOnce } from "../services/zomboidDataPath.js";
 import { withFileLock } from "../utils/fileWriteQueue.js";
 import { writeIniWithBackup as writeIniWithBackupRaw, backupWarningFor } from "../utils/configBackup.js";
 import { getBridgeManaged, protectBridgeIniEntries } from "../services/bridgeDelivery.js";
@@ -207,23 +210,34 @@ function getSanitizedIniPath(serverConfigPath, serverName) {
 export async function getActiveServerPaths() {
   const activeServer = await getActiveServer();
 
-  // First, use explicitly configured serverConfigPath if available.
-  let serverConfigPath = activeServer?.serverConfigPath || null;
-  // Fallback to zomboidDataPath + Server (like serverFiles.js does).
-  if (!serverConfigPath && activeServer?.zomboidDataPath) {
-    serverConfigPath = path.join(activeServer.zomboidDataPath, "Server");
+  // The explicitly configured serverConfigPath, else zomboidDataPath +
+  // Server, else the legacy settings of both (like serverFiles.js does).
+  // SECURITY (2026-10-05, PATHS-2): the routes here rewrite <name>.ini in
+  // that folder, so a configured one is used only while it is inside the
+  // data folder in effect (the record's, else the legacy setting) --
+  // utils/serverConfigPath.js. Refused, it comes back null, which every
+  // route below already answers as "not configured". That data folder is
+  // itself held to the data-folder rule there too (PATHS-1 verifier pass
+  // 2): a remote server's, never judged when saved, named any folder here.
+  const legacy = activeServer?.zomboidDataPath
+    ? {}
+    : {
+        serverConfigPath: await getSetting("serverConfigPath"),
+        zomboidDataPath: await getSetting("zomboidDataPath"),
+      };
+  const config = activeServerConfigDir(activeServer, legacy);
+  // SECURITY (2026-10-05, PT3/PT5): refused, the routes below answer the
+  // refusal itself (configRefusal, through withConfigRefusal()), not "not
+  // set", and every route lands here, so the log line is written at warn
+  // once per data folder and reason, then at debug.
+  const configRefusal = config.refused ? serverConfigDirRefusal(config) : null;
+  if (configRefusal) {
+    logRefusalOnce(
+      log,
+      `Not using the server config folder for mods (Zomboid data folder: ${config.dataPath || "not set"}): ${describeRefusal(configRefusal)}`,
+    );
   }
-  // Fallback to legacy settings.
-  if (!serverConfigPath) {
-    const legacyPath = await getSetting("serverConfigPath");
-    if (legacyPath) serverConfigPath = legacyPath;
-  }
-  if (!serverConfigPath) {
-    const legacyZomboidPath = await getSetting("zomboidDataPath");
-    if (legacyZomboidPath) {
-      serverConfigPath = path.join(legacyZomboidPath, "Server");
-    }
-  }
+  const serverConfigPath = config.dir;
 
   let serverName = activeServer?.serverName || null;
   if (!serverName) {
@@ -247,7 +261,18 @@ export async function getActiveServerPaths() {
     serverPath = legacyPath || null;
   }
 
-  return { serverConfigPath, serverName, serverPath };
+  return { serverConfigPath, serverName, serverPath, configRefusal };
+}
+
+// SECURITY (2026-10-05, PT3): the body a route answers when it has no
+// config folder to use. When the folder was refused -- a data folder that
+// no longer meets the data-folder rule after the update, or a config folder
+// with no data folder -- that refusal goes out (its code, and what to set),
+// not `fallback`'s "Server config path not set. Please configure the server
+// first.", which sent the operator to configure a server that was
+// configured.
+function withConfigRefusal(configRefusal, fallback) {
+  return configRefusal ? { ...fallback, error: configRefusal.error, code: configRefusal.code } : fallback;
 }
 
 async function getServerPath() {
@@ -273,6 +298,12 @@ function shouldRefreshTrackedModName(name) {
   );
 }
 
+// SECURITY (2026-10-05, H4 round 3): mods.manage doesn't set the server's
+// folders up, and the Workshop ACF sits in the install folder (or in the
+// SteamCMD folder below the panel account's profile). A role without the
+// host-path capabilities (utils/hostPathView.js) gets the placeholder,
+// which still reads as "found" to a page that checks it is set; the same
+// goes for the ini path the routes below answer with (its file name).
 // Get mod checker status
 router.get("/status", async (req, res) => {
   try {
@@ -280,7 +311,8 @@ router.get("/status", async (req, res) => {
     if (!modChecker) return;
 
     const status = await modChecker.getStatus();
-    res.json(status);
+    const view = await hostPathViewFor(req.user);
+    res.json({ ...status, workshopAcfPath: view.folder(status.workshopAcfPath) });
   } catch (error) {
     log.error(`Failed to get mod checker status: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -926,11 +958,12 @@ router.get("/workshop-status", async (req, res) => {
     if (!modChecker) return;
 
     const status = await modChecker.getStatus();
+    const view = await hostPathViewFor(req.user);
 
     res.json({
       success: true,
       configured: status.workshopAcfConfigured,
-      workshopAcfPath: status.workshopAcfPath,
+      workshopAcfPath: view.folder(status.workshopAcfPath),
       message: status.workshopAcfConfigured
         ? "Workshop ACF file found - mod updates can be detected automatically"
         : "Workshop ACF file not found - ensure server install path is correct",
@@ -966,14 +999,16 @@ router.post("/cancel-pending-restart", async (req, res) => {
 router.post("/sync-from-server", async (req, res) => {
   try {
     // Use direct INI reading (more reliable than serverManager which has path issues)
-    const { serverConfigPath, serverName } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      log.warn("sync-from-server: Server config path not set");
+      // PT3: a refused folder is logged (once) by getActiveServerPaths().
+      if (!configRefusal) log.warn("sync-from-server: Server config path not set");
       return res.json({
         success: false,
         message:
-          "Server config path not set. Please configure the server first.",
+          configRefusal?.error ?? "Server config path not set. Please configure the server first.",
+        ...(configRefusal ? { code: configRefusal.code } : {}),
         synced: 0,
       });
     }
@@ -994,11 +1029,12 @@ router.post("/sync-from-server", async (req, res) => {
     const iniPath = path.join(serverConfigPath, `${sanitizedServerName}.ini`);
     log.info(`sync-from-server: Looking for config at ${iniPath}`);
 
+    const view = await hostPathViewFor(req.user);
     if (!fs.existsSync(iniPath)) {
       log.warn(`sync-from-server: Config file not found at ${iniPath}`);
       return res.json({
         success: false,
-        message: `Server config not found at ${iniPath}. Start the server once first.`,
+        message: `Server config not found at ${view.file(iniPath)}. Start the server once first.`,
         synced: 0,
       });
     }
@@ -1112,7 +1148,7 @@ router.post("/sync-from-server", async (req, res) => {
       synced,
       skippedIgnored,
       skippedNonMod,
-      iniPath,
+      iniPath: view.file(iniPath),
     });
   } catch (error) {
     log.error(`Failed to sync mods from server: ${error.message}`);
@@ -1999,13 +2035,15 @@ router.post("/write-to-ini", async (req, res) => {
       }
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set. Please configure the server first.",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET_GUIDANCE,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set. Please configure the server first.",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET_GUIDANCE,
+        }),
+      );
     }
 
     // Sanitize serverName to prevent path traversal
@@ -2224,7 +2262,7 @@ router.post("/write-to-ini", async (req, res) => {
     res.json({
       success: true,
       message: `Successfully configured ${mods.length} mods in server config.${autoDetectedCount > 0 ? ` (${autoDetectedCount} mod IDs auto-detected)` : ""}${detectedMapFolders.length > 0 ? ` Map folders: ${detectedMapFolders.join(", ")}` : ""}${unresolvedWorkshopIds.length > 0 ? ` WARNING: ${unresolvedWorkshopIds.length} mod ID(s) could not be auto-detected and were subscribed but NOT enabled: ${unresolvedWorkshopIds.join(", ")}` : ""}`,
-      iniPath,
+      iniPath: (await hostPathViewFor(req.user)).file(iniPath),
       modsConfigured: mods.length,
       autoDetectedModIds: autoDetectedCount,
       unresolvedModIds: unresolvedWorkshopIds,
@@ -2243,17 +2281,19 @@ router.post("/write-to-ini", async (req, res) => {
 // Get current mod configuration from .ini file
 router.get("/current-config", async (req, res) => {
   try {
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.json({
-        configured: false,
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-        modIds: [],
-        workshopIds: [],
-        totalMods: 0,
-      });
+      return res.json(
+        withConfigRefusal(configRefusal, {
+          configured: false,
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+          modIds: [],
+          workshopIds: [],
+          totalMods: 0,
+        }),
+      );
     }
 
     // Sanitize serverName to prevent path traversal
@@ -2330,7 +2370,7 @@ router.get("/current-config", async (req, res) => {
       workshopIds,
       maps,
       totalMods: modIds.length,
-      iniPath,
+      iniPath: (await hostPathViewFor(req.user)).file(iniPath),
       workshopModMap,
       duplicateKeys,
       // { modId, workshopId } when those entries are PanelBridge's own
@@ -2368,13 +2408,15 @@ router.post("/toggle-mod-id", async (req, res) => {
       });
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
 
     const sanitizedServerName = path.basename(serverName);
@@ -2528,13 +2570,15 @@ router.post("/batch-toggle-mod-ids", async (req, res) => {
       }
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
 
     const sanitizedServerName = path.basename(serverName);
@@ -2660,14 +2704,16 @@ router.post("/add-to-ini", async (req, res) => {
       });
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error:
-          "Server config path not set. Please configure the server first in Settings.",
-        code: ErrorCode.MODS_ADD_TO_INI_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error:
+            "Server config path not set. Please configure the server first in Settings.",
+          code: ErrorCode.MODS_ADD_TO_INI_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
 
     // Sanitize serverName to prevent path traversal
@@ -3478,13 +3524,15 @@ router.post("/remove-from-ini", async (req, res) => {
       ? clientModIds.slice(0, 50)
       : [];
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
 
     // Sanitize serverName
@@ -3732,7 +3780,7 @@ router.post("/batch-remove", async (req, res) => {
     const dbResults = { removed: 0, failed: 0 };
 
     // Step 2: Remove all from INI in a single locked write
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     let iniResult = { removed: 0, skipped: 0 };
     // Tracks whether the INI edit block below actually ran. Ignore-listing
@@ -3885,13 +3933,14 @@ router.post("/batch-remove", async (req, res) => {
       iniRemoved: iniResult.removed,
       iniSkipped: iniResult.skipped,
       ...(iniResult.backupWarning ? { backupWarning: iniResult.backupWarning } : {}),
+      // PT3 (verifier round 1): a refused folder says why, as above.
       ...(iniEditApplied
         ? {}
-        : {
+        : withConfigRefusal(configRefusal, {
             error:
               "Server config file was not found or not accessible — no mods were removed.",
             code: ErrorCode.MODS_BATCH_REMOVE_INI_NOT_ACCESSIBLE,
-          }),
+          })),
     });
   } catch (error) {
     log.error(`Batch removal failed: ${error.message}`);
@@ -3902,13 +3951,15 @@ router.post("/batch-remove", async (req, res) => {
 // Repair Map= entries - validates each entry has actual map data on disk and removes invalid ones
 router.post("/repair-map-entries", async (req, res) => {
   try {
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverPath || !serverName) {
-      return res.status(400).json({
-        error: "Server path not configured.",
-        code: ErrorCode.MODS_SERVER_PATH_NOT_CONFIGURED,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server path not configured.",
+          code: ErrorCode.MODS_SERVER_PATH_NOT_CONFIGURED,
+        }),
+      );
     }
 
     const sanitizedServerName = path.basename(serverName);
@@ -4043,13 +4094,15 @@ router.post("/repair-map-entries", async (req, res) => {
 // Deduplicate mod IDs in the Mods= line — removes exact duplicates, keeps one of each
 router.post("/deduplicate-mod-ids", async (req, res) => {
   try {
-    const { serverConfigPath, serverName } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server path not configured.",
-        code: ErrorCode.MODS_SERVER_PATH_NOT_CONFIGURED,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server path not configured.",
+          code: ErrorCode.MODS_SERVER_PATH_NOT_CONFIGURED,
+        }),
+      );
     }
 
     const sanitizedServerName = path.basename(serverName);
@@ -4161,12 +4214,14 @@ router.post("/add-missing-dep", async (req, res) => {
       });
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
     if (!serverConfigPath || !serverName)
-      return res.status(400).json({
-        error: "Server path not configured.",
-        code: ErrorCode.MODS_SERVER_PATH_NOT_CONFIGURED,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server path not configured.",
+          code: ErrorCode.MODS_SERVER_PATH_NOT_CONFIGURED,
+        }),
+      );
 
     const sanitizedServerName = path.basename(serverName);
     if (
@@ -4331,12 +4386,14 @@ router.post("/add-all-resolved-deps", async (req, res) => {
       }
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
     const sanitizedServerName = path.basename(serverName);
     if (
@@ -4912,12 +4969,14 @@ router.post("/resolve-missing-deps", async (req, res) => {
 // ─── Sync mod IDs from Workshop → INI ─────────────────────────────────────
 router.post("/sync-mod-ids", async (req, res) => {
   try {
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
     const sanitizedServerName = path.basename(serverName);
     if (
@@ -5094,13 +5153,15 @@ router.post("/sync-mod-ids", async (req, res) => {
 // Validate mod configuration (check for dependencies and consistency)
 router.get("/validate-config", async (req, res) => {
   try {
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
 
     // Sanitize serverName
@@ -5270,14 +5331,16 @@ router.post("/presets", async (req, res) => {
     }
 
     // Read current mods from INI
-    const { serverConfigPath, serverName } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, configRefusal } = await getActiveServerPaths();
     const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
 
     if (!iniPath) {
-      return res.status(400).json({
-        error: "Invalid server name",
-        code: ErrorCode.MODS_INVALID_SERVER_NAME,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Invalid server name",
+          code: ErrorCode.MODS_INVALID_SERVER_NAME,
+        }),
+      );
     }
 
     if (!fs.existsSync(iniPath)) {
@@ -5426,14 +5489,16 @@ router.post("/presets/:id/apply", async (req, res) => {
       });
     }
 
-    const { serverConfigPath, serverName } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, configRefusal } = await getActiveServerPaths();
     const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
 
     if (!iniPath) {
-      return res.status(400).json({
-        error: "Invalid server name",
-        code: ErrorCode.MODS_INVALID_SERVER_NAME,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Invalid server name",
+          code: ErrorCode.MODS_INVALID_SERVER_NAME,
+        }),
+      );
     }
 
     if (!fs.existsSync(iniPath)) {
@@ -5517,14 +5582,16 @@ router.post("/save-order", async (req, res) => {
       }
     }
 
-    const { serverConfigPath, serverName } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, configRefusal } = await getActiveServerPaths();
     const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
 
     if (!iniPath) {
-      return res.status(400).json({
-        error: "Invalid server name",
-        code: ErrorCode.MODS_INVALID_SERVER_NAME,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Invalid server name",
+          code: ErrorCode.MODS_INVALID_SERVER_NAME,
+        }),
+      );
     }
 
     if (!fs.existsSync(iniPath)) {
@@ -5749,13 +5816,15 @@ router.post("/add-mod-advanced", async (req, res) => {
       });
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
 
     const sanitizedServerName = path.basename(serverName);
@@ -8285,12 +8354,14 @@ router.post("/enable-disk-mod", async (req, res) => {
       });
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
     const sanitized = path.basename(serverName);
     if (sanitized !== serverName || serverName.includes("..")) {
@@ -8378,9 +8449,10 @@ router.post("/enable-disk-mod", async (req, res) => {
 // mod-folder IDs and its map folders from the server INI so the server stops
 // loading it. Returns iniEditApplied=false when the config file could not be
 // reached — callers must not ignore-list in that case, because the mod may
-// still be live in Mods=/WorkshopItems=.
+// still be live in Mods=/WorkshopItems=. `configRefusal` is why, when the
+// server's folders were refused (PT3, verifier round 1).
 async function deleteModFromDiskAndIni(wsId) {
-  const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+  const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
   const sanitized = serverName ? path.basename(serverName) : null;
   const iniPath =
     sanitized && serverConfigPath
@@ -8394,6 +8466,7 @@ async function deleteModFromDiskAndIni(wsId) {
       mapFoldersToStrip: [],
       iniEditApplied: false,
       error: "Server config file was not found or not accessible",
+      configRefusal,
     };
   }
 
@@ -8488,16 +8561,18 @@ router.post("/delete-disk-mod", async (req, res) => {
       });
     }
 
-    const { removedPath, modIdsToStrip, iniEditApplied, backupWarning } =
+    const { removedPath, modIdsToStrip, iniEditApplied, backupWarning, configRefusal } =
       await deleteModFromDiskAndIni(wsId);
 
     if (!iniEditApplied) {
-      return res.status(400).json({
-        error: "Server config file was not found or not accessible",
-        code: ErrorCode.MODS_INI_NOT_ACCESSIBLE,
-        workshopId: wsId,
-        deletedFromDisk: false,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config file was not found or not accessible",
+          code: ErrorCode.MODS_INI_NOT_ACCESSIBLE,
+          workshopId: wsId,
+          deletedFromDisk: false,
+        }),
+      );
     }
 
     // Drop from tracking, then ADD to the ignore list so auto-sync won't
@@ -8593,19 +8668,22 @@ router.post("/purge", async (req, res) => {
       mapFoldersToStrip,
       iniEditApplied,
       backupWarning,
+      configRefusal,
     } = await deleteModFromDiskAndIni(wsId);
 
     if (!iniEditApplied) {
       log.error(
         `Purge ${wsId}: INI edit was never applied (missing server config path or ini file) — not untracking or ignore-listing`,
       );
-      return res.status(500).json({
-        error:
-          "Server config file was not found or not accessible — the mod was not removed from the server.",
-        code: ErrorCode.MODS_PURGE_INI_NOT_ACCESSIBLE,
-        collection,
-        deletedFromDisk: !!removedPath,
-      });
+      return res.status(500).json(
+        withConfigRefusal(configRefusal, {
+          error:
+            "Server config file was not found or not accessible — the mod was not removed from the server.",
+          code: ErrorCode.MODS_PURGE_INI_NOT_ACCESSIBLE,
+          collection,
+          deletedFromDisk: !!removedPath,
+        }),
+      );
     }
 
     try {
@@ -8683,7 +8761,7 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
       });
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
     const sanitized = serverName ? path.basename(serverName) : null;
     const iniPath =
       sanitized && serverConfigPath
@@ -8691,10 +8769,12 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
         : null;
 
     if (!iniPath || !fs.existsSync(iniPath)) {
-      return res.status(400).json({
-        error: "Server config file was not found or not accessible",
-        code: ErrorCode.MODS_INI_NOT_ACCESSIBLE,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config file was not found or not accessible",
+          code: ErrorCode.MODS_INI_NOT_ACCESSIBLE,
+        }),
+      );
     }
 
     // Capture all mod IDs AND map folders BEFORE we start deleting -- both
@@ -8869,12 +8949,14 @@ router.post("/resolve-orphan-workshop", async (req, res) => {
       });
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
     const sanitized = path.basename(serverName);
     if (sanitized !== serverName || serverName.includes("..")) {
@@ -9018,6 +9100,27 @@ router.post("/resolve-orphan-workshop", async (req, res) => {
 // mod, no extension games. Content-Type is always reported as image/jpeg;
 // browsers handle the actual decoding regardless (Steam serves JPEG or PNG).
 //
+// Being auth-exempt, this route is reachable by anyone who can reach the
+// panel, before first-run setup included. It used to fetch and permanently
+// cache the preview of ANY Workshop id it was handed (any game's, tracked or
+// not), so an anonymous caller could fill the data volume -- shared with
+// world saves on single-host installs -- one ~1 MB file per request. It now
+// only ever goes to Steam (and to disk) for a mod tracked on the active
+// server -- getTrackedMods(), the same list the Mods page renders every
+// thumbnail from -- and only for a Workshop item that belongs to Project
+// Zomboid (consumer_app_id). The set of files it can create is therefore
+// bounded by what an admin or technician has tracked. Anything else gets
+// the placeholder with no network call and no disk write. An image already
+// on disk is still served as-is: reading it costs nothing and grows nothing.
+//
+// SECURITY (2026-10-05, H3): ...but only for a mod tracked on the active
+// server, checked before the disk cache too. Versions before the DISKFILL
+// fix cached thumbnails for any id an anonymous caller named, and those
+// files stayed on disk for good and kept being served. Files for ids no
+// server tracks are pruned (pruneModThumbnailCache()): at startup, and in
+// the background -- at most once per THUMB_PRUNE_INTERVAL_MS -- when a
+// thumbnail is written or a request finds one for an untracked id.
+//
 // A resolution FAILURE is never written to that disk cache (there is nothing
 // worth persisting), which used to mean a host where resolution is broken —
 // missing preview_url and an unreachable/failing Steam — re-ran the full
@@ -9039,10 +9142,98 @@ const THUMB_EMPTY_GIF = Buffer.from(
 // codebase's failed-external-resolution retry windows.
 const THUMB_FAIL_TTL_MS = 5 * 60 * 1000;
 const THUMB_FAIL_CACHE = new Map(); // workshopId → { failedAt, reason }
+// Hard ceiling on THUMB_FAIL_CACHE: entries only expire lazily (on lookup),
+// so without a cap the map grows with every distinct id that ever failed.
+// Only tracked ids can fail now, but the cap holds regardless; the oldest
+// entry goes first (a Map iterates in insertion order).
+const THUMB_FAIL_CACHE_MAX = 1000;
+// Steam app id of Project Zomboid. A Workshop item's consumer_app_id names
+// the game it belongs to (collections included); anything else is not a PZ
+// mod and its preview is never fetched or cached.
+const THUMB_PZ_APP_ID = 108600;
 let _thumbLastFailure = null; // { workshopId, reason, at } — outlives any one entry's TTL, for diagnostics
+// Background prunes of the disk cache, after the startup one: at most one
+// per interval, however many writes or untracked hits ask for one.
+const THUMB_PRUNE_INTERVAL_MS = 10 * 60 * 1000;
+// A "<id>.img.tmp-<pid>-<ms>" this old is a write that never finished (the
+// process died between writeFile and rename); a younger one may be in flight.
+const THUMB_TMP_MAX_AGE_MS = 60 * 60 * 1000;
+const THUMB_CACHE_FILE_RE = /^(\d{1,15})\.img$/;
+const THUMB_CACHE_TMP_RE = /^\d{1,15}\.img\.tmp-/;
+let _thumbPrune = null; // the prune running now, if any
+let _thumbLastPruneAt = 0;
+
+function thumbnailCacheDir() {
+  return path.join(getDataPaths().dataDir, "mod-thumbnails");
+}
+
+/**
+ * Delete cached thumbnails of Workshop ids no server tracks (and abandoned
+ * temp files). Concurrent calls share one run. Resolves to { removed, kept }.
+ */
+export function pruneModThumbnailCache() {
+  if (_thumbPrune) return _thumbPrune;
+  _thumbLastPruneAt = Date.now();
+  _thumbPrune = (async () => {
+    const cacheDir = thumbnailCacheDir();
+    let names;
+    try {
+      names = await fsp.readdir(cacheDir);
+    } catch (err) {
+      if (err.code === "ENOENT") return { removed: 0, kept: 0 };
+      throw err;
+    }
+    // Read after the listing: every file in it was written for a mod that
+    // was tracked then, so one tracked since the listing is in this set too.
+    const { getAllTrackedWorkshopIds } = await import("../database/init.js");
+    const tracked = await getAllTrackedWorkshopIds();
+    let removed = 0;
+    let kept = 0;
+    for (const name of names) {
+      const cached = THUMB_CACHE_FILE_RE.exec(name);
+      const filePath = path.join(cacheDir, name);
+      try {
+        if (cached) {
+          if (tracked.has(cached[1])) {
+            kept++;
+            continue;
+          }
+        } else if (THUMB_CACHE_TMP_RE.test(name)) {
+          const st = await fsp.stat(filePath);
+          if (Date.now() - st.mtimeMs < THUMB_TMP_MAX_AGE_MS) continue;
+        } else {
+          continue; // not something this cache wrote
+        }
+        await fsp.unlink(filePath);
+        removed++;
+      } catch (err) {
+        if (err.code !== "ENOENT") log.debug(`Could not prune cached thumbnail ${name}: ${err.message}`);
+      }
+    }
+    if (removed > 0) {
+      log.info(`Removed ${removed} cached mod thumbnail file(s) for Workshop items no server tracks`);
+    }
+    return { removed, kept };
+  })().finally(() => {
+    _thumbPrune = null;
+  });
+  return _thumbPrune;
+}
+
+// A background prune unless one ran (or started) within the interval.
+function pruneModThumbnailCacheSoon() {
+  if (_thumbPrune || Date.now() - _thumbLastPruneAt < THUMB_PRUNE_INTERVAL_MS) return;
+  pruneModThumbnailCache().catch((err) =>
+    log.debug(`Mod thumbnail cache prune failed: ${err.message}`),
+  );
+}
 
 function recordThumbFailure(wsId, reason) {
   const failedAt = Date.now();
+  THUMB_FAIL_CACHE.delete(wsId);
+  while (THUMB_FAIL_CACHE.size >= THUMB_FAIL_CACHE_MAX) {
+    THUMB_FAIL_CACHE.delete(THUMB_FAIL_CACHE.keys().next().value);
+  }
   THUMB_FAIL_CACHE.set(wsId, { failedAt, reason });
   _thumbLastFailure = { workshopId: wsId, reason, at: failedAt };
 }
@@ -9080,9 +9271,9 @@ export async function getThumbnailResolutionStatus() {
   return { failing, total: tracked.length, lastError: _thumbLastFailure };
 }
 
-function sendEmptyThumbnail(res) {
+function sendEmptyThumbnail(res, cacheControl = "public, max-age=3600") {
   res.setHeader("Content-Type", "image/gif");
-  res.setHeader("Cache-Control", "public, max-age=3600");
+  res.setHeader("Cache-Control", cacheControl);
   return res.end(THUMB_EMPTY_GIF);
 }
 
@@ -9102,7 +9293,11 @@ async function fetchSteamPreviewUrl(workshopId) {
     if (!res.ok) return null;
     const data = await res.json();
     const item = data?.response?.publishedfiledetails?.[0];
-    if (item?.result === 1 && typeof item.preview_url === "string") {
+    if (
+      item?.result === 1 &&
+      Number(item.consumer_app_id) === THUMB_PZ_APP_ID &&
+      typeof item.preview_url === "string"
+    ) {
       return item.preview_url;
     }
     return null;
@@ -9155,13 +9350,28 @@ router.get("/thumbnail/:workshopId", async (req, res) => {
     return res.status(400).end();
   }
 
-  const dataDir = getDataPaths().dataDir;
-  const cacheDir = path.join(dataDir, "mod-thumbnails");
+  const cacheDir = thumbnailCacheDir();
   const cacheFile = path.join(cacheDir, `${wsId}.img`);
 
   // Defensive: confirm resolved path stays inside cacheDir.
   if (!cacheFile.startsWith(cacheDir + path.sep)) {
     return res.status(400).end();
+  }
+
+  // Only a mod tracked on the active server gets its thumbnail, from the
+  // disk cache or from Steam (see the header comment). Not a failure:
+  // nothing is recorded, and the placeholder is not cacheable, so the real
+  // image shows up as soon as the mod is tracked. A file left on disk for
+  // an untracked id is never served, and gets the cache pruned.
+  let mod = null;
+  try {
+    mod = (await getTrackedMods()).find((m) => m.workshop_id === wsId) || null;
+  } catch (err) {
+    log.debug(`Thumbnail tracked-mod lookup failed for ${wsId}: ${err.message}`);
+  }
+  if (!mod) {
+    fsp.stat(cacheFile).then(() => pruneModThumbnailCacheSoon(), () => {});
+    return sendEmptyThumbnail(res, "no-store");
   }
 
   try {
@@ -9201,11 +9411,7 @@ router.get("/thumbnail/:workshopId", async (req, res) => {
   let pending = THUMB_INFLIGHT.get(wsId);
   if (!pending) {
     pending = (async () => {
-      // Locate preview URL from tracked mods (across all servers, not just
-      // active — thumbnails are per-mod, not per-server).
-      const tracked = await getTrackedMods();
-      let mod = tracked.find((m) => m.workshop_id === wsId);
-      let previewUrl = mod?.preview_url || null;
+      let previewUrl = mod.preview_url || null;
       if (!previewUrl) {
         previewUrl = await fetchSteamPreviewUrl(wsId);
         if (previewUrl) {
@@ -9231,6 +9437,7 @@ router.get("/thumbnail/:workshopId", async (req, res) => {
       await fsp.writeFile(tmp, buf);
       await fsp.rename(tmp, cacheFile);
       clearThumbFailure(wsId);
+      pruneModThumbnailCacheSoon();
       return buf;
     })().finally(() => {
       THUMB_INFLIGHT.delete(wsId);

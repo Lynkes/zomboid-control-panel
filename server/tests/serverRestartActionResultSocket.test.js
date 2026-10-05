@@ -179,10 +179,14 @@ describe("POST /server/restart -- scheduler:action_result socket emission", () =
     );
     await flushMicrotasks();
 
+    // Every signed-in socket gets this event, so the English message has its
+    // folder redacted (security sweep 2026-10-05, H4); the toast is built
+    // from the code and params.
+    expect(refusal.message).toContain("/srv/pz");
     expect(emit).toHaveBeenCalledWith("scheduler:action_result", {
       kind: "restart",
       success: false,
-      message: refusal.message,
+      message: expect.not.stringContaining("/srv/pz"),
       code: "SERVER_START_SCRIPT_MISSING",
       params: { script: "start-server_Restored.sh", fallback: "start-server.sh" },
     });

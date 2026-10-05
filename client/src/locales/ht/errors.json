@@ -24,8 +24,8 @@
   "RESET_TOKEN_NOT_FOUND": "Pa jwenn jeton reyinisyalizasyon. Kreye data/reset-token.txt sou sèvè a dabò.",
   "RESET_TOKEN_TOO_LARGE": "Dosye jeton reyinisyalizasyon envalid (twò gwo). Maksimòm 1KB.",
   "RESET_TOKEN_EXPIRED": "Dosye jeton reyinisyalizasyon pi vye pase 24 èdtan. Rekreye l sou sèvè a.",
-  "RESET_TOKEN_TOO_SHORT": "Dosye jeton reyinisyalizasyon envalid. Li dwe gen omwen 8 karaktè.",
-  "RESET_TOKEN_INVALID": "Jeton reyinisyalizasyon envalid",
+  "RESET_TOKEN_TOO_SHORT": "Dosye jeton reyinisyalizasyon envalid. Li dwe gen yon jeton hex o aza ki gen omwen 32 karaktè.",
+  "RESET_TOKEN_INVALID": "Yo pa t aksepte jeton reyinisyalizasyon sa a. Tcheke si data/reset-token.txt sou lame panèl la gen egzakteman jeton sa a, si li gen mwens pase 24 èdtan, epi si jeton an se karaktè hex o aza ki soti nan yon jeneratè, omwen 32 karaktè (yo refize mo, fraz ak suit chif). Jounal panèl la di ki tchèk ki echwe.",
   "SERVER_NOT_CONFIGURED": "Pa gen sèvè aktif konfigire",
   "REMOTE_CONFIG_NOT_CONFIGURED": "Sèvè sa a se aleka. Ajoute detay SFTP li yo ak dosye Server aleka a anba Paramèt > PanelBridge pou modifye konfigirasyon l soti isit la.",
   "REMOTE_BROWSE_NOT_AVAILABLE": "Navige sistèm dosye sèvè a pa disponib pou sèvè aleka.",
@@ -580,5 +580,16 @@
   "FM_TOO_MANY_ENTRIES": "Gen twòp eleman pou efase an yon sèl kou (plis pase {{limit}}). Sa ki deja efase rete efase; relanse l pou fini.",
   "FM_SECRET_NAME_REQUIRED": "Fichye sa a gen modpas jesyonè fichye a kache. Kenbe .ini nan nouvo non an pou yo rete kache.",
   "CHARACTER_INVALID_SECTIONS": "Yo mande yon seksyon pèsonaj ki enkoni.",
-  "CHARACTER_SHEET_FAILED": "Pa t kapab li pèsonaj sa a."
+  "CHARACTER_SHEET_FAILED": "Pa t kapab li pèsonaj sa a.",
+  "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Si w chanje paramèt Discord sa yo, lòt moun ta ka itilize kòmand bot ki bezwen {{detail}}, e ou menm ou pa gen kapasite sa yo.",
+  "HOST_NOT_ALLOWED": "Panèl sa a reponn sèlman a pwòp adrès li tank koneksyon nan panèl la dezaktive. Louvri l ak adrès IP li oswa localhost, oswa ajoute adrès sa a nan Paramèt > Aksè Adistans (CORS).",
+  "SERVER_CONFIG_PATH_OUTSIDE_DATA": "Dosye konfigirasyon sèvè a dwe se dosye Server ki andedan dosye done Zomboid sèvè sa a, oswa yon dosye ki andedan l. Mete dosye done Zomboid la anvan, oswa kite dosye konfigirasyon an vid.",
+  "RESET_TOKEN_TOO_WEAK": "Yon moun ta ka devine jeton ki nan data/reset-token.txt la. Ranplase l ak karaktè hex o aza ki soti nan yon jeneratè (0-9 ak a-f, jan openssl rand -hex 24 ekri yo); yo refize mo, fraz, suit chif ak karaktè ki repete oswa ki swiv youn dèyè lòt. Oswa itilize bouton rekiperasyon an sou lame panèl la.",
+  "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "Dosye done Zomboid sa a gen fichye jwèt la pa mete nan yon dosye done, kidonk panèl la p ap sèvi avè l kòm dosye done yon sèvè. Chwazi pwòp dosye done sèvè a (sa ki gen yon sovgad nan dosye Saves li), yon dosye vid, oswa yon dosye ki poko egziste: jwèt la kreye l premye fwa sèvè a demare.",
+  "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "Jounal konsòl yon sèvè aleka sou pwòp machin pa l, kidonk panèl la pa ka efase l depi isit la.",
+  "WIPE_REMOTE_NOT_AVAILABLE": "Mond yon sèvè aleka sou pwòp machin pa l, kidonk panèl la pa ka efase l depi isit la.",
+  "ZOMBOID_DATA_FOLDER_REFUSED": "Dosye done Zomboid sèvè sa a gen fichye jwèt la pa mete nan yon dosye done, kidonk panèl la p ap liste l ni li l. Nan paj Sèvè m yo, modifye sèvè a epi mete chemen done Zomboid li sou pwòp dosye done jwèt la: sa ki gen yon sovgad nan dosye Saves li.",
+  "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "Sèvè sa a pa gen dosye done Zomboid, epi se la jwèt la ekri jounal konsòl li. Nan paj Sèvè m yo, modifye sèvè a epi mete chemen done Zomboid li.",
+  "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "Relè chat la poste nan jwèt la sa moun ekri nan chanèl Discord li a, e sa bezwen {{detail}}. Ou pa gen kapasite sa a, kidonk ou pa ka aktive relè a ni chanje chanèl li koute a (chanèl notifikasyon an, toutotan pa gen chanèl relè ki defini).",
+  "DISCORD_CHANNEL_OUTSIDE_GUILD": "Chanèl notifikasyon an pa nan sèvè Discord ki konfigire isit la, kidonk bot la p ap poste ladan l. Itilize yon chanèl nan sèvè ki gen ID Sèvè (Guild) a, oswa korije ID sa a."
 }

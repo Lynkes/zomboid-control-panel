@@ -15,6 +15,7 @@ import {
   getServer
 } from '../database/init.js';
 import { requirePermission } from '../services/permissions.js';
+import { hostPathViewFor } from '../utils/hostPathView.js';
 import { requiredCapabilityForScheduledCommand } from '../services/scheduler.js';
 import {
   hasUnsupportedCronFieldCount,
@@ -39,8 +40,19 @@ export function parseTaskId(value) {
 // reuse the exact same guard and event shape rather than drifting a second
 // copy of it (2026-08-26 bug hunt: /server/restart turned out to be the
 // same blind-success shape as /restart-now, just in a different file).
+//
+// SECURITY (2026-10-05, H4): every signed-in socket gets this event, and a
+// failed task's or restart's message is often a raw err.message quoting the
+// install or save folder, so it is path-redacted here, once, for every
+// caller.
 export function emitActionResult(io, payload) {
-  if (typeof io?.emit === 'function') io.emit('scheduler:action_result', payload);
+  if (typeof io?.emit !== 'function') return;
+  io.emit(
+    'scheduler:action_result',
+    payload && typeof payload.message === 'string' && payload.message
+      ? { ...payload, message: sanitizeError(payload.message) }
+      : payload,
+  );
 }
 
 // The code and path-free params of a coded refusal thrown on the way
@@ -797,7 +809,22 @@ router.get('/history', async (req, res) => {
       serverId = activeServer?.id ?? null;
     }
     const history = await getScheduleHistory(limit, taskId, serverId);
-    res.json({ history });
+    // SECURITY (2026-10-05, H4 round 3): a failed task's row holds its raw
+    // err.message -- a refused restart names the install folder, a deferred
+    // backup its saves folder -- and rows written before this release were
+    // stored that way too. emitActionResult() redacts the same text live;
+    // here a role that can't see host folders (utils/hostPathView.js) or the
+    // panel's diagnostics gets it path-redacted on the way out.
+    const view = await hostPathViewFor(req.user, ['diagnostics.manage']);
+    res.json({
+      history: view.full
+        ? history
+        : history.map((row) => ({
+            ...row,
+            message: view.text(row.message),
+            message_params: sanitizeErrorParams(row.message_params),
+          })),
+    });
   } catch (error) {
     log.error(`Failed to get schedule history: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });

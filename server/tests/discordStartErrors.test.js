@@ -57,6 +57,9 @@ function mockDiscordBot(lastStartError) {
     isRunning: false,
     lastStartError,
     start: vi.fn(async () => false),
+    // POST /start runs under the config mutex (security sweep 2026-10-05,
+    // HT4d); a passthrough is enough here.
+    withConfigMutex: vi.fn((fn) => fn()),
   };
 }
 

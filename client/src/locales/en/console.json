@@ -51,6 +51,7 @@
     "streamUnavailable": "Log stream unavailable — server may be offline",
     "retry": "retry",
     "notFoundTitle": "Server console log not found",
+    "unavailableTitle": "Server console log unavailable",
     "notFoundDesc": "Make sure the server is running",
     "streamLabel": "stream",
     "paused": "paused",

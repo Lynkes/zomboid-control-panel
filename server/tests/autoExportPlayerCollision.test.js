@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { autoExportPlayer } from "../index.js";
 import { getDataPaths } from "../utils/paths.js";
+import { encodeExportFolderName } from "../utils/exportFolderName.js";
 import { setSetting } from "../database/init.js";
 import panelBridge from "../services/panelBridge.js";
 
@@ -55,7 +56,8 @@ describe("autoExportPlayer: same-millisecond collision", () => {
 
   function exportDirFor(username) {
     const { dataDir } = getDataPaths();
-    return path.join(dataDir, "exports", username);
+    // One folder per exact name (BRIDGE-3, utils/exportFolderName.js).
+    return path.join(dataDir, "exports", encodeExportFolderName(username));
   }
 
   it("places the collision suffix before the .json extension, not after", async () => {

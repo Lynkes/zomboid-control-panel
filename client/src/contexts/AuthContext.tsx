@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useMemo, t
 import { clearAccessToken, getAccessToken, setAccessToken } from '../lib/authToken'
 import { ApiError, apiFetch, handleResponse } from '../lib/api'
 import { getUserErrorMessage } from '../lib/errorMessage'
+import { getTrustedDeviceToken, rememberTrustedDeviceToken } from '../lib/trustedDevice'
 
 interface User {
   id: string
@@ -173,6 +174,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (refreshRes.ok) {
         const data = await refreshRes.json()
         setAccessToken(data.accessToken)
+        // Also where a browser back from SSO first gets one (see
+        // lib/trustedDevice.ts).
+        rememberTrustedDeviceToken(data.user?.username, data.deviceToken)
         setState({
           user: data.user,
           isAuthenticated: true,
@@ -210,15 +214,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // classification). apiFetch/handleResponse throws an equivalent-or-
       // better ApiError on failure via the same buildResponseError() every
       // other call site uses.
-      const data = await handleResponse<{ accessToken: string; user: AuthState['user'] }>(
+      const data = await handleResponse<{ accessToken: string; user: AuthState['user']; deviceToken?: string }>(
         await apiFetch('/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include', // Send/receive cookies
-          body: JSON.stringify({ username, password, rememberMe }),
+          // deviceToken: SECURITY (2026-10-05, A1), see lib/trustedDevice.ts.
+          // Undefined (never signed in here) is dropped by JSON.stringify.
+          body: JSON.stringify({ username, password, rememberMe, deviceToken: getTrustedDeviceToken(username) }),
         }),
       )
       setAccessToken(data.accessToken)
+      rememberTrustedDeviceToken(data.user?.username ?? username, data.deviceToken)
       setState({
         user: data.user,
         isAuthenticated: true,
@@ -234,7 +241,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const setup = useCallback(async (username: string, password: string, rememberMe = true, panelPort = '3001', setupToken = '') => {
-    let data: { accessToken: string; user: AuthState['user'] }
+    let data: { accessToken: string; user: AuthState['user']; deviceToken?: string }
     try {
       // 2026-09-08 (auth-transport-parity): see login()'s own comment above
       // -- same swap, same reasoning.
@@ -261,6 +268,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new ApiError("We couldn't create the admin account. Try again.")
     }
     setAccessToken(data.accessToken)
+    rememberTrustedDeviceToken(data.user?.username ?? username, data.deviceToken)
     setState({
       user: data.user,
       isAuthenticated: true,

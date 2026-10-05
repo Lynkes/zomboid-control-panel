@@ -33,6 +33,13 @@ import {
   readIniLineAsGame,
 } from "../utils/iniGameView.js";
 import { confineToRoots } from "../utils/browseRoots.js";
+import { serverConfigPathIsConfined } from "../utils/serverConfigPath.js";
+import {
+  describeRefusal,
+  logRefusalOnce,
+  zomboidDataFolderHolds,
+  zomboidDataFolderRefusal,
+} from "../services/zomboidDataPath.js";
 import {
   SFTP_CONFIG_PATH_KEY,
   acquireMirrorLock,
@@ -47,6 +54,7 @@ import {
   warnRunningForLocalConfigEdit,
 } from "../services/configMutationGuard.js";
 import { requirePermission } from "../services/permissions.js";
+import { hostPathViewFor } from "../utils/hostPathView.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { isHostKeyRefusal } from "../services/sftpHostKeys.js";
 
@@ -181,6 +189,49 @@ router.use(async (req, res, next) => {
       return res.status(400).json({ error: err.message, code: err.code });
     }
     return next(err);
+  }
+  // SECURITY (2026-10-04, FILES-2 adversary pass): routes/servers.js only
+  // checks a server's own config folder when it is saved, so one saved
+  // before that check was still read and written here. A server record
+  // whose config folder isn't inside its data folder's Server folder (the
+  // same rule, utils/serverConfigPath.js) is refused by every Server Files
+  // route until it is fixed in the server's settings. A remote server's
+  // folder is the panel's own SFTP mirror.
+  //
+  // SECURITY (2026-10-05, PATHS-2): that check ran only when the record
+  // had both folders, so a record with a config folder and no data folder,
+  // and the legacy settings copy of the config folder (used when the record
+  // has neither), were let through. It now judges the folder this request
+  // will actually use against the data folder in effect (the record's,
+  // else the legacy setting); with no data folder to anchor it, it is
+  // refused. A folder derived as <data>/Server always passes.
+  //
+  // SECURITY (2026-10-05, PATHS-1): every route here reads or writes under
+  // that data folder, so it is held to the data-folder rule
+  // (services/zomboidDataPath.js) again here, where it is used.
+  //
+  // PT5 (verifier round 2): every Server Files request comes through here,
+  // several per page load, so each refusal is logged at warn once per
+  // folder, then at debug.
+  const { activeServer, serverConfigPath, zomboidDataPath } = req.activeServerContext;
+  if (!activeServer?.isRemote) {
+    if (!serverConfigPathIsConfined(serverConfigPath, zomboidDataPath)) {
+      const refusal = {
+        error:
+          "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
+        code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
+      };
+      logRefusalOnce(
+        log,
+        `Refusing Server Files access to ${serverConfigPath || "the default config folder"} (Zomboid data folder: ${zomboidDataPath || "not set"}): ${describeRefusal(refusal)}`,
+      );
+      return res.status(400).json(refusal);
+    }
+    if (!zomboidDataFolderHolds(zomboidDataPath)) {
+      const refusal = zomboidDataFolderRefusal();
+      logRefusalOnce(log, `Refusing Server Files access (Zomboid data folder: ${zomboidDataPath || "not set"}): ${describeRefusal(refusal)}`);
+      return res.status(400).json(refusal);
+    }
   }
   next();
 });
@@ -541,13 +592,19 @@ async function getActiveServerPaths() {
   if (!serverConfigPath && activeServer?.zomboidDataPath) {
     serverConfigPath = path.join(activeServer.zomboidDataPath, "Server");
   }
-  if (!serverConfigPath) {
+  // PATHS-2: the data folder in effect -- the record's, else the legacy
+  // setting -- which the gate above holds serverConfigPath to.
+  let zomboidDataPath = activeServer?.zomboidDataPath || null;
+  if (!serverConfigPath || !zomboidDataPath) {
     const settings = await getAllSettings();
-    if (settings.serverConfigPath) {
-      serverConfigPath = settings.serverConfigPath;
-    } else if (settings.zomboidDataPath) {
-      serverConfigPath = path.join(settings.zomboidDataPath, "Server");
+    if (!serverConfigPath) {
+      if (settings.serverConfigPath) {
+        serverConfigPath = settings.serverConfigPath;
+      } else if (settings.zomboidDataPath) {
+        serverConfigPath = path.join(settings.zomboidDataPath, "Server");
+      }
     }
+    zomboidDataPath = zomboidDataPath || settings.zomboidDataPath || null;
   }
   if (!serverConfigPath) {
     if (activeServer?.isRemote) {
@@ -556,7 +613,7 @@ async function getActiveServerPaths() {
     throw new ServerNotConfiguredError();
   }
 
-  return { activeServer, serverConfigPath, serverName: safeServerName };
+  return { activeServer, serverConfigPath, serverName: safeServerName, zomboidDataPath };
 }
 
 // Exposed ONLY so the existing unit tests that already verify these three
@@ -1437,6 +1494,15 @@ function toSpawnRegions(regions, serverName) {
 
 // ===== ROUTES =====
 
+// SECURITY (2026-10-05, H4 round 3): serverfiles.manage edits the config
+// files but doesn't set the server's folders up, and GET /api/servers
+// already gave a custom role holding only it the placeholder for the config
+// folder. This route and the file routes below still answered with it. A
+// role without the host-path capabilities (utils/hostPathView.js) now gets
+// the config folder as the placeholder and each file by name, like GET
+// /raw/:type's `filename`. GET /browse-files and /image-preview name
+// folders the same way for that role since HT3: by a root id and the path
+// below it (browseRefFor() below).
 // Get server file paths info
 router.get("/paths", async (req, res) => {
   try {
@@ -1457,7 +1523,13 @@ router.get("/paths", async (req, res) => {
       spawnregions: fs.existsSync(files.spawnregions),
     };
 
-    res.json({ configPath, serverName, files, exists });
+    const view = await hostPathViewFor(req.user);
+    res.json({
+      configPath: view.folder(configPath),
+      serverName,
+      files: Object.fromEntries(Object.entries(files).map(([kind, file]) => [kind, view.file(file)])),
+      exists,
+    });
   } catch (error) {
     log.error("Failed to get paths:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1519,7 +1591,7 @@ router.get("/ini", async (req, res) => {
       maskedCutAtEqualsKeys: Object.keys(gameView.values).filter(
         (key) => SENSITIVE_FIELD_RE.test(key) && gameView.values[key].includes("="),
       ),
-      path: filePath,
+      path: (await hostPathViewFor(req.user)).file(filePath),
       serverName,
       duplicateKeys,
     });
@@ -1680,7 +1752,7 @@ router.put("/ini", async (req, res) => {
     res.json({
       success: true,
       message: "Settings saved",
-      path: filePath,
+      path: (await hostPathViewFor(req.user)).file(filePath),
       settings: maskSensitiveObject(persistedSettings),
       ...(backupWarning ? { backupWarning } : {}),
       ...(req.configEditRestartWarning ? { restartRequired: true } : {}),
@@ -1707,7 +1779,7 @@ router.get("/sandbox", async (req, res) => {
     const content = fs.readFileSync(filePath, "utf-8");
     const parsed = parseSandboxVars(content);
 
-    res.json({ sandbox: parsed, path: filePath, serverName });
+    res.json({ sandbox: parsed, path: (await hostPathViewFor(req.user)).file(filePath), serverName });
   } catch (error) {
     log.error("Failed to read SandboxVars:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1802,7 +1874,7 @@ router.put("/sandbox", async (req, res) => {
       success: true,
       created: !fileExists,
       message: fileExists ? "Sandbox settings saved" : "SandboxVars file created",
-      path: filePath,
+      path: (await hostPathViewFor(req.user)).file(filePath),
       ...(unpersistedKeys.length > 0 ? { unpersistedKeys } : {}),
       ...(backupWarning ? { backupWarning } : {}),
       ...(req.configEditRestartWarning ? { restartRequired: true } : {}),
@@ -2101,7 +2173,7 @@ router.get("/spawnpoints", async (req, res) => {
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({
         error: "Spawn points file not found",
-        path: filePath,
+        path: (await hostPathViewFor(req.user)).file(filePath),
         code: ErrorCode.SPAWNPOINTS_FILE_NOT_FOUND,
       });
     }
@@ -2109,7 +2181,7 @@ router.get("/spawnpoints", async (req, res) => {
     const content = fs.readFileSync(filePath, "utf-8");
     const points = parseSpawnPoints(content);
 
-    res.json({ spawnpoints: points, path: filePath });
+    res.json({ spawnpoints: points, path: (await hostPathViewFor(req.user)).file(filePath) });
   } catch (error) {
     log.error("Failed to read spawn points:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -2165,7 +2237,7 @@ router.get("/spawnregions", async (req, res) => {
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({
         error: "Spawn regions file not found",
-        path: filePath,
+        path: (await hostPathViewFor(req.user)).file(filePath),
         code: ErrorCode.SPAWNREGIONS_FILE_NOT_FOUND,
       });
     }
@@ -2173,7 +2245,7 @@ router.get("/spawnregions", async (req, res) => {
     const content = fs.readFileSync(filePath, "utf-8");
     const regions = parseSpawnRegions(content);
 
-    res.json({ spawnregions: regions, path: filePath });
+    res.json({ spawnregions: regions, path: (await hostPathViewFor(req.user)).file(filePath) });
   } catch (error) {
     log.error("Failed to read spawn regions:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -2422,7 +2494,7 @@ router.get("/backups", async (req, res) => {
       })
       .map(({ _parsed, ...rest }) => rest);
 
-    res.json({ backups: files, path: backupDir });
+    res.json({ backups: files, path: (await hostPathViewFor(req.user)).folder(backupDir) });
   } catch (error) {
     log.error("Failed to list backups:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -2595,7 +2667,15 @@ async function ensureTemplatesDir(req) {
 // GET /templates - List all saved templates
 router.get("/templates", async (req, res) => {
   try {
-    const templatesPath = await ensureTemplatesDir(req);
+    // SECURITY (2026-10-05, PT1): a listing only reads. It used to create
+    // <config folder>/templates -- and the config and data folders above it
+    // when they didn't exist yet -- so opening the page made folders in a
+    // data folder saved before it existed. POST /templates, which writes
+    // one, still creates it.
+    const templatesPath = await getTemplatesPath(req);
+    if (!fs.existsSync(templatesPath)) {
+      return res.json({ templates: [] });
+    }
 
     const files = fs
       .readdirSync(templatesPath)
@@ -2946,8 +3026,9 @@ const IMAGE_EXTENSIONS = new Set([
 
 /**
  * Build the list of directories the file browser is allowed to access.
- * Restricts browsing to the server config path, server install path,
- * and Zomboid data path — prevents arbitrary filesystem traversal.
+ * Restricts browsing to the Zomboid data folder's Server folder (the whole
+ * data folder for a files.manage holder) and ~/Zomboid — prevents arbitrary
+ * filesystem traversal.
  *
  * Takes req (2026-09-08 quadruple-read sweep): used to independently
  * re-derive the active server via its own getActiveServer() call, which is
@@ -2956,51 +3037,205 @@ const IMAGE_EXTENSIONS = new Set([
  * a DIFFERENT server than the one the calling handler's own path resolution
  * already agreed on via req.activeServerContext, if /activate landed between
  * the two. Reads the same single per-request snapshot instead.
+ *
+ * SECURITY (2026-10-04, FILES-2): the server config folder and serverPath
+ * used to be roots of their own. Both were plain servers.manage edits with
+ * no confinement (serverPath only has to be shaped like a folder), so
+ * either one made any folder on this computer browsable here: every file
+ * name in it, and any image in it through /image-preview. The config
+ * folder is now confined to <zomboidDataPath>/Server when saved
+ * (routes/servers.js's serverConfigPathIsConfined()), which the data
+ * folder's own root already covers; serverPath is no longer a root at all,
+ * and neither is the legacy settings copy of the config folder.
  */
+// SECURITY (2026-10-04, FILES-2 adversary pass): the data folder itself is
+// as much a servers.manage edit as the config folder was, and POST
+// /api/servers, the install routes and chunks.js's /save-path all set it
+// to a folder of the caller's choosing. As a root it made that whole folder
+// browsable, so a technician named any folder on this computer as a
+// server's data folder and listed it and fetched its images here. A role
+// without files.manage now gets only the data folder's Server folder (where
+// the game keeps the files Server Config edits, and the config folder sits
+// in it): a folder the game creates, not one that was already there. A
+// files.manage holder, who can already reach the game's files through the
+// file manager, keeps the whole data folder.
+async function holdsFilesManage(req) {
+  if (!req.user) return false;
+  try {
+    const role = await getRoleByName(req.user.role);
+    return Array.isArray(role?.capabilities) && role.capabilities.includes("files.manage");
+  } catch {
+    return false;
+  }
+}
+
+// Each root with the id GET /browse-files and /image-preview name it by for
+// a role that doesn't see host folders (browseRefFor() below): "data" for
+// the active server's data folder, "settings" for the legacy setting's,
+// "zomboid" for ~/Zomboid, "config" for the config folder in effect when
+// none of those holds it. The first id for a folder wins.
+//
+// SECURITY (2026-10-05, W5-P2 verifier round 1): a 1.4.5 record whose data
+// folder Map Cleanup's "Save as default" set to a folder inside the Zomboid
+// folder -- <Zomboid>/Saves/Multiplayer, <Zomboid>/Saves or a world save in
+// it -- kept its config folder, <Zomboid>/Server, which the gate above
+// accepts (utils/serverConfigPath.js's configAnchors()). No root held it,
+// so the image browser, which opens on the config folder, answered
+// BROWSE_ACCESS_DENIED for every role wherever the Zomboid folder isn't
+// ~/Zomboid; 1.4.5 had the config folder as a root of its own. So did a
+// record whose config folder spells the data folder's path in another letter
+// case on Windows or macOS (the gate compares real paths, the roots compare
+// as spelled). The config folder in effect is a root again, but only when
+// no other root holds it and it passes the gate's own checks here too: the
+// data folder in effect meets the data-folder rule, and the config folder is
+// inside its Server folder or, for those 1.4.5 shapes, inside the Server
+// folder of a Zomboid folder that meets the rule on its own
+// (zomboidFolderAround()). That is the folder a role gets as "data" by
+// setting the data folder to that Zomboid folder, so nothing else is
+// reached.
 async function getAllowedBrowseRoots(req) {
   const roots = [];
-  const { activeServer } = req.activeServerContext;
-  if (activeServer?.serverConfigPath)
-    roots.push(path.resolve(activeServer.serverConfigPath));
-  if (activeServer?.zomboidDataPath)
-    roots.push(path.resolve(activeServer.zomboidDataPath));
-  if (activeServer?.serverPath)
-    roots.push(path.resolve(activeServer.serverPath));
+  const { activeServer, serverConfigPath, zomboidDataPath } = req.activeServerContext;
+  const wholeDataFolder = await holdsFilesManage(req);
+  const dataFolderRoot = (dataPath) =>
+    wholeDataFolder
+      ? path.resolve(dataPath)
+      : path.join(path.resolve(dataPath), "Server");
+  // PATHS-1: a data folder is a root only while it meets the data-folder
+  // rule (services/zomboidDataPath.js); the legacy setting's can differ from
+  // the record's, so each is judged.
+  if (activeServer?.zomboidDataPath && zomboidDataFolderHolds(activeServer.zomboidDataPath))
+    roots.push({ id: "data", path: dataFolderRoot(activeServer.zomboidDataPath) });
   const settings = await getAllSettings();
-  if (settings.serverConfigPath)
-    roots.push(path.resolve(settings.serverConfigPath));
-  if (settings.zomboidDataPath)
-    roots.push(path.resolve(settings.zomboidDataPath));
+  if (settings.zomboidDataPath && zomboidDataFolderHolds(settings.zomboidDataPath))
+    roots.push({ id: "settings", path: dataFolderRoot(settings.zomboidDataPath) });
   // Always allow the default Zomboid config directory
   const defaultConfig = path.join(os.homedir(), "Zomboid");
-  roots.push(path.resolve(defaultConfig));
+  roots.push({ id: "zomboid", path: path.resolve(defaultConfig) });
+  if (
+    !activeServer?.isRemote &&
+    serverConfigPath &&
+    zomboidDataFolderHolds(zomboidDataPath) &&
+    serverConfigPathIsConfined(serverConfigPath, zomboidDataPath) &&
+    !confineToRoots(serverConfigPath, roots.map((root) => root.path))
+  ) {
+    roots.push({ id: "config", path: path.resolve(serverConfigPath) });
+  }
   // De-duplicate
-  return [...new Set(roots)];
+  const seen = new Set();
+  return roots.filter((root) => !seen.has(root.path) && seen.add(root.path));
+}
+
+// SECURITY (2026-10-05, HT3): GET /browse-files answered with absolute
+// folders (currentPath, parent) to serverfiles.manage, the config folder
+// GET /paths gives a role without the host-path capabilities as the
+// placeholder (H4 round 3) among them. Round 3 kept them because the image
+// picker wrote the absolute path it picked into the ini. Nothing needs one
+// any more: the picker was for ServerImageLoginScreen/LoadingScreen/Icon,
+// which Build 42's ServerOptions no longer declares (nothing in the 42.21
+// jar or the game's Lua reads them) and Server Config hasn't offered since
+// 1.1.25, so no field saves a picked path. Such a role now names a folder
+// or image by a root id and the path below it ("data:/servertest/x.png"):
+// GET /browse-files answers in that form and both routes take it, and an
+// absolute path from it is refused like one outside the roots, so a guess
+// at a folder's name isn't confirmed either. The host-path roles keep
+// absolute paths and may send either form. A field that ever saves a
+// picked image again must map the reference back with resolveBrowseRef()
+// before writing it.
+const BROWSE_REF_RE = /^([a-z]+):(.*)$/s;
+
+// The path of `target` below `folder` ("" for the folder itself), or null
+// when it isn't inside it.
+function pathBelow(folder, target) {
+  const relative = path.relative(folder, target);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    return null;
+  }
+  return relative;
+}
+
+function realpathOrSelf(target) {
+  try {
+    return fs.realpathSync(target);
+  } catch {
+    return target;
+  }
+}
+
+// "<root id>:/<path below it>" for a folder or file inside a root -- the
+// innermost one holding it, links followed when the plain path doesn't
+// say -- or null when it is in none.
+function browseRefFor(target, roots) {
+  const resolved = path.resolve(target);
+  const innermostFirst = [...roots].sort((a, b) => b.path.length - a.path.length);
+  for (const [rootOf, targetPath] of [
+    [(root) => root.path, resolved],
+    [(root) => realpathOrSelf(root.path), realpathOrSelf(resolved)],
+  ]) {
+    for (const root of innermostFirst) {
+      const relative = pathBelow(rootOf(root), targetPath);
+      if (relative !== null) return `${root.id}:/${relative.split(path.sep).join("/")}`;
+    }
+  }
+  return null;
+}
+
+// The absolute folder or file a browse reference names, held to its root
+// (links followed, as confineToRoots() does); null for anything else. A
+// "." or ".." name, or one holding ':', is refused rather than resolved.
+function resolveBrowseRef(ref, roots) {
+  const match = typeof ref === "string" ? BROWSE_REF_RE.exec(ref) : null;
+  if (!match) return null;
+  const root = roots.find((entry) => entry.id === match[1]);
+  if (!root) return null;
+  const names = match[2].split(/[\\/]+/).filter(Boolean);
+  if (names.some((name) => name === "." || name === ".." || /[:\0]/.test(name))) return null;
+  return confineToRoots(path.join(root.path, ...names), [root.path]);
+}
+
+// What a request's `path` names: a browse reference from anyone, an
+// absolute path only from a role that sees host folders.
+function resolveBrowseTarget(requested, roots, view) {
+  const fromRef = resolveBrowseRef(requested, roots);
+  if (fromRef) return fromRef;
+  if (!view.full) return null;
+  return confineToRoots(requested, roots.map((root) => root.path));
 }
 
 // GET /browse-files - List directories and files at a given path
 router.get("/browse-files", async (req, res) => {
   try {
     const browsePath = req.query.path ? String(req.query.path) : null;
+    // Image files only, whatever the caller asks for: the browser picks
+    // image paths for the .ini, and listing every file name in a folder is
+    // more than that needs (FILES-2).
     const filterExts = req.query.extensions
       ? String(req.query.extensions)
           .split(",")
           .map((e) => e.toLowerCase().trim())
+          .filter((e) => IMAGE_EXTENSIONS.has(e))
       : null;
 
-    const allowedRoots = await getAllowedBrowseRoots(req);
+    const roots = await getAllowedBrowseRoots(req);
+    const allowedRoots = roots.map((root) => root.path);
+    // HT3: how this caller names folders (see browseRefFor()).
+    const view = await hostPathViewFor(req.user);
+    const shown = (folder) => (view.full ? folder : browseRefFor(folder, roots));
+    const accessDenied = () =>
+      res.status(403).json({
+        error: "Access denied: path is outside allowed server directories",
+        code: ErrorCode.BROWSE_ACCESS_DENIED,
+      });
     let targetPath;
     if (browsePath) {
-      targetPath = confineToRoots(browsePath, allowedRoots);
-      if (!targetPath) {
-        return res.status(403).json({
-          error: "Access denied: path is outside allowed server directories",
-          code: ErrorCode.BROWSE_ACCESS_DENIED,
-        });
-      }
+      targetPath = resolveBrowseTarget(browsePath, roots, view);
+      if (!targetPath) return accessDenied();
     } else {
-      // Default to the server config directory
+      // Default to the server config directory -- held to the same roots as
+      // a requested path, so a config folder saved before FILES-2's check
+      // can't be listed through the default either.
       const { serverConfigPath: configPath } = req.activeServerContext;
+      if (configPath && !confineToRoots(configPath, allowedRoots)) return accessDenied();
       targetPath = configPath || "";
     }
 
@@ -3010,6 +3245,9 @@ router.get("/browse-files", async (req, res) => {
         code: ErrorCode.BROWSE_NO_PATH,
       });
     }
+    // A folder this caller can't be shown by reference isn't listed.
+    const currentPath = shown(targetPath);
+    if (!currentPath) return accessDenied();
 
     if (!fs.existsSync(targetPath)) {
       return res.status(400).json({
@@ -3064,12 +3302,12 @@ router.get("/browse-files", async (req, res) => {
       a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
     );
 
+    const parentPath = path.dirname(targetPath);
     res.json({
-      currentPath: targetPath,
+      currentPath,
       parent:
-        path.dirname(targetPath) !== targetPath &&
-        confineToRoots(path.dirname(targetPath), allowedRoots)
-          ? path.dirname(targetPath)
+        parentPath !== targetPath && confineToRoots(parentPath, allowedRoots)
+          ? shown(parentPath)
           : null,
       directories,
       files,
@@ -3091,8 +3329,13 @@ router.get("/image-preview", async (req, res) => {
       });
     }
 
-    const allowedRoots = await getAllowedBrowseRoots(req);
-    const resolved = confineToRoots(filePath, allowedRoots);
+    // HT3: a browse reference, or an absolute path from a role that sees
+    // host folders (resolveBrowseTarget()).
+    const resolved = resolveBrowseTarget(
+      filePath,
+      await getAllowedBrowseRoots(req),
+      await hostPathViewFor(req.user),
+    );
     if (!resolved) {
       return res.status(403).json({
         error: "Access denied: path is outside allowed server directories",

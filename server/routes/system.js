@@ -9,6 +9,7 @@ import { getDiskStatusForPath } from "../services/diskMonitor.js";
 import { getCircuitBreakerStatus } from "../database/init.js";
 import { getRestartAssessment } from "../services/panelUpdateChecker.js";
 import { isContainerized } from "../utils/dockerDetect.js";
+import { getRoleByName } from "../services/permissions.js";
 
 const log = createLogger("API:System");
 const router = express.Router();
@@ -62,6 +63,46 @@ export function buildRuntimeInfo({
 // disk coming before it becomes their problem. Read-only, and error
 // messages already run through sanitizeError before leaving this file.
 
+// The folders behind those readings (the save volume and the panel's data
+// folder) go only to roles that can act on a full disk -- the same ones
+// index.js sends the disk:* events to (DISK_EVENT_CAPABILITIES). Every
+// other role gets the readings with `path: null`, which the banner never
+// reads (security sweep 2026-10-04, adversary pass: the disk:* events were
+// scoped, but these two routes still sent the paths to every role).
+const DISK_PATH_CAPABILITIES = ["diagnostics.manage", "backups.manage"];
+
+// Fails closed: a role that can't be resolved holds none of them.
+async function roleHasAnyCapability(user, required) {
+  if (!user) return false;
+  try {
+    const role = await getRoleByName(user.role);
+    const capabilities = Array.isArray(role?.capabilities) ? role.capabilities : [];
+    return required.some((capability) => capabilities.includes(capability));
+  } catch {
+    return false;
+  }
+}
+
+function canSeeDiskPaths(user) {
+  return roleHasAnyCapability(user, DISK_PATH_CAPABILITIES);
+}
+
+// SECURITY (2026-10-05, H4): GET /runtime is read by every role's pages
+// (platform-specific wording), and it returned the host's temp folder --
+// os.tmpdir(), which names the account the panel runs as on Windows
+// (C:\Users\<name>\AppData\Local\Temp). Its one reader is the panel-update
+// confirmation, as the fallback for where the update helper writes its log;
+// the update preflight (panel.settings) already sends that folder itself.
+// So it goes to the roles that see host details elsewhere -- diagnostics
+// (which downloads the panel's logs and moves its folders) and panel
+// settings (the update flow) -- and is null for everyone else, the way the
+// disk routes above send path: null.
+const RUNTIME_PATH_CAPABILITIES = ["diagnostics.manage", "panel.settings"];
+
+function withoutPath(status) {
+  return status && typeof status === "object" ? { ...status, path: null } : status;
+}
+
 // Combined disk status for both the save volume (polled by DiskMonitor) and
 // the panel's own data directory (checked fresh — it's cheap, and its
 // disk isn't necessarily the same mount as the save volume).
@@ -69,7 +110,8 @@ async function buildDiskSpace(req) {
   const diskMonitor = req.app.get("diskMonitor");
   const saveVolume = diskMonitor ? diskMonitor.getDiskStatus() : null;
   const panelData = await getDiskStatusForPath(getDataPaths().dataDir);
-  return { saveVolume, panelData };
+  if (await canSeeDiskPaths(req.user)) return { saveVolume, panelData };
+  return { saveVolume: withoutPath(saveVolume), panelData: withoutPath(panelData) };
 }
 
 router.get("/disk-space", async (req, res) => {
@@ -81,8 +123,10 @@ router.get("/disk-space", async (req, res) => {
   }
 });
 
-router.get("/runtime", (_req, res) => {
-  res.json(buildRuntimeInfo());
+router.get("/runtime", async (req, res) => {
+  const runtime = buildRuntimeInfo();
+  if (await roleHasAnyCapability(req.user, RUNTIME_PATH_CAPABILITIES)) return res.json(runtime);
+  res.json({ ...runtime, temporaryDirectory: null });
 });
 
 // Single endpoint the frontend polls: disk space + write circuit breaker

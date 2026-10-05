@@ -143,26 +143,56 @@ tab.
 **What you see:** `Invalid username or password` even though you're sure
 the password is right, or you simply never wrote it down.
 
-**What it means, first:** if you've mistyped the password 10 times, the
-account locks for 15 minutes — but the panel still shows the exact same
-`Invalid username or password` message during the lockout, not a distinct
-"account locked" message (this is deliberate: a message that changed when an
-account got locked would let someone confirm an account exists just by
-trying wrong passwords against it). If you were sure of the password and it
+**What it means, first:** if a password has been mistyped 10 times for an
+account from one address, sign-ins to that account from that address pause
+for 15 minutes. Other addresses are not affected, and SSO sign-in is never
+paused by wrong passwords. A browser that has signed in to that account
+before (by password, first-run setup, or SSO) is counted on its own instead
+of by address: ten wrong passwords typed in that browser pause that browser,
+and nothing typed anywhere else pauses it. The browser keeps this as a small
+token in its site storage, one per username; a private window, cleared site
+data or a different browser starts over as a new browser. Changing or
+resetting the password, or regenerating the JWT signing key, makes every
+browser new again until it signs in once — except the browser you did it
+from, which is handed a fresh token straight away. The Steam Sync browser
+extension keeps one the same way. The panel still shows the exact same
+`Invalid username or password` message during the pause, not a distinct
+"account locked" message (this is deliberate: a message that changed when a
+pause started would let someone confirm an account exists just by trying
+wrong passwords against it). If you were sure of the password and it
 suddenly stops working for a while after several attempts, this is almost
 certainly why. Wait 15 minutes and try again with the correct password
-before assuming it's actually wrong.
+before assuming it's actually wrong — or reset it with one of the recovery
+paths below, which also lifts every pause on the account.
+
+For a browser that hasn't signed in before, the pause is per address, so
+it only keeps strangers' guesses apart from you if the panel sees each
+visitor's real address. Behind a reverse proxy or tunnel (nginx, Caddy,
+cloudflared) every request arrives from the proxy's own address unless
+`TRUST_PROXY` is set (see [Linux](linux.md) and the Remote Access notes in
+the README), and inside Docker, IPv6 visitors can all arrive from the bridge
+gateway. In that setup everyone shares one address, so ten wrong passwords
+from anyone pause the account for every browser that hasn't signed in
+before, and the per-minute limit below is shared too. A browser you have
+already signed in with is counted on its own for both, so wrong passwords
+from that address don't stop it. Everything else stays shared by address,
+though: the panel's general limit of 300 requests a minute, and the limit of
+3 tries per 15 minutes on reset tokens and recovery codes. Someone flooding
+that address with requests can still hold everyone at it up, a browser you
+signed in with included (`--reset-password` on the host always works). Set
+`TRUST_PROXY` when the panel is only reachable through your proxy, so
+visitors are told apart again.
 
 After a few failed sign-in attempts from the same browser, the login page
 itself starts showing a **"Still not working?"** hint explaining this same
-15-minute lockout and pointing at recovery codes and `--reset-password` —
+15-minute pause and pointing at recovery codes and `--reset-password` —
 it appears the same way regardless of whether the account you're typing
-exists, is locked, or the password was simply wrong, so seeing it isn't
+exists, is paused, or the password was simply wrong, so seeing it isn't
 itself a sign anything is broken.
 
 Also check for `Too many login attempts. Please try again later.` — that's
-a separate, shorter limit (5 attempts per minute per IP) and clears in under
-a minute.
+a separate, shorter limit (5 attempts per minute per IP, or per browser for
+one that has signed in before) and clears in under a minute.
 
 **If you actually don't know the password**, the panel has three recovery
 paths, in order of convenience:
@@ -173,10 +203,9 @@ paths, in order of convenience:
 2. **A local recovery token** — only works when you open the panel directly
    on the machine it's running on (loopback or one of the host's own IPs).
    The login screen's recovery flow creates `data/reset-token.txt` on the
-   host; open that file, paste the token back into the browser. If the
-   panel reports `No recovery token found yet. Create data/reset-token.txt
-   on the panel host, then try again.`, the panel couldn't confirm the
-   request came from the host itself — see the reverse-proxy case below.
+   host; open that file, paste the token back into the browser. If it
+   instead explains how to create the file yourself, the panel couldn't
+   confirm the request came from the host itself — see the two cases below.
 3. **The `--reset-password` CLI flag** — run the panel binary/start script
    with `--reset-password` from a terminal on the host itself. This is
    interactive: it lists existing users and asks for a new password.
@@ -187,10 +216,99 @@ can't verify a request came from the server itself. Create
 data/reset-token.txt on the host directly, or use a recovery code instead.`
 — the local-token flow can't confirm your browser request truly originated
 on the host once a proxy sits in front of it. Either create
-`data/reset-token.txt` yourself directly on the host — at least 8 characters
-after trimming whitespace, under 1KB, and less than 24 hours old when you use
-it, or the panel treats it the same as missing — or use a recovery code, or
-run `--reset-password` on the host instead.
+`data/reset-token.txt` yourself directly on the host and then choose
+**Enter a recovery token** on the login screen (or switch the recovery form
+to **Recovery token**) — or use a recovery code, or run `--reset-password`
+on the host instead.
+
+The token has to be one nobody can guess: random hex (only `0-9` and
+`a-f`, in either case), at least 32 hex digits, made by a generator rather
+than typed by you. Run one of these from the panel's folder. Each writes a
+file the panel reads as it is: a line break at the end, Windows line
+breaks, a byte order mark, and the UTF-16 that Windows PowerShell's `>`
+writes are all fine.
+
+On Linux or macOS:
+
+```sh
+openssl rand -hex 24 > data/reset-token.txt
+```
+
+Without openssl, `uuidgen > data/reset-token.txt` or
+`head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > data/reset-token.txt`
+work too.
+
+If the panel runs as a Linux service (see [Linux](linux.md)), its `data`
+folder belongs to the service account and nobody else can write in it, so
+the line above fails with `Permission denied`. Write the file as that
+account instead (`pzuser` and `/opt/zomboid-panel` in the standard
+install):
+
+```sh
+sudo -u pzuser sh -c 'openssl rand -hex 24 > /opt/zomboid-panel/data/reset-token.txt'
+```
+
+In PowerShell on Windows (Windows PowerShell 5.1 or PowerShell 7):
+
+```powershell
+$b = [byte[]]::new(24); [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); -join ($b | % { $_.ToString('x2') }) | Set-Content -Encoding ascii data\reset-token.txt
+```
+
+or a UUID:
+
+```powershell
+(New-Guid).Guid | Set-Content -Encoding ascii data\reset-token.txt
+```
+
+If openssl is installed (Git for Windows ships one),
+`openssl rand -hex 24 > data\reset-token.txt` works in PowerShell too. From
+`cmd.exe`, type `powershell` first, then one of the lines above.
+
+With Docker, from the host (the supplied compose files name the container
+`zomboid-panel`):
+
+```sh
+docker exec zomboid-panel node -e "require('fs').writeFileSync('/app/data/reset-token.txt', require('crypto').randomBytes(24).toString('hex'))"
+```
+
+Now and then random output happens to look like a pattern or like text
+and is refused: about 1 in 13,000 32-digit tokens or 1 in 15,000 UUIDs,
+and hardly ever 48 digits (`openssl rand -hex 24` and the first PowerShell
+line). If that happens, run the command again.
+
+**Don't use `echo $RANDOM | md5sum` or `date | md5sum`** (or `sha256sum`),
+or anything else built on bash's `$RANDOM`, cmd's `%RANDOM%` or the time:
+`$RANDOM` is one of only 32,768 numbers, and the time to the second one of
+86,400 a day, so anyone can work out every token they can make. The panel
+refuses the usual `$RANDOM` hashes, but don't count on it to catch every
+variation, and it can't tell a hash of the time from random hex at all.
+The same goes for hashing a word: the panel refuses hashes of the obvious
+words, but it can't know every word you might pick.
+
+The panel refuses the common mistakes: words, a sentence or a phrase
+(`zomboid-control-panel-reset-token`), a number on its own (the digits of
+pi, a date), hex words (`deadbeefcafe…`), repeated or sequential characters
+(`aaaa`, `abcd`, `4321`), keyboard patterns (`qwerty`, `1qaz2wsx`), the same
+stretch repeated, or runs interleaved (`a1b2c3`); text written as hex in
+the usual encodings (a phrase run through `xxd -p`, Python's `.hex()`,
+PowerShell's `[Convert]::ToHexString` or an online text-to-hex converter);
+hashes of `$RANDOM` or of common words; and UUIDs printed as examples
+(`123e4567-e89b-12d3-a456-426614174000` and the like). It refuses a password
+manager's letters and symbols too, since it can't tell those from words;
+and a file over 1KB, or more than 24 hours old when you use it.
+
+**The panel can't recognise every guessable value**, though. Text in an
+encoding it doesn't read, a hash of the time or of a word it doesn't list,
+or anything else worked out from something a stranger could guess can pass
+these checks and still be guessed. So the token must come from one of the
+commands above: don't type one, and don't derive one from anything.
+
+A wrong token changes nothing: the file stays until it is used or expires,
+so nobody else can use your token up by guessing. From anywhere but the
+host itself the panel also never says whether the file exists: every
+refusal reads `That reset token wasn't accepted. …`, and the panel's log
+says which check failed (missing, too short, not hex, too predictable, text
+written as hex, a well-known value, too old, or simply a different token).
 
 If you see `This recovery action is only available when the panel is opened
 from the server itself.` instead (no proxy mentioned), you're just not
@@ -727,6 +845,30 @@ errors: they're harmless, and with Workshop delivery Steam manages the mod
 folder. If PanelBridge doesn't work, look for other lines that mention
 `PanelBridge` instead, and see
 [PanelBridge shows disconnected](#panelbridge-shows-disconnected).
+
+---
+
+### Death notices for a player who didn't die
+
+**What you see:** a Discord **Player Death** notice (by default
+*"💀 **{player}** died at {location}"*), or a death in a player's history,
+for a player who is alive.
+
+**What it means:** the panel takes deaths from PanelBridge, which reports
+them from the character that died. Without an up-to-date PanelBridge (not
+installed, an older version, or not answering), it falls back to the
+game's user log (`Logs/*_user.txt`), and that log can be forged: a co-op
+(split-screen) player's name skips the server's username check, so a
+player who joins can pick one that writes a death line for anyone.
+`AllowCoop` is on by default.
+
+**What to do:**
+- Update PanelBridge to the one that comes with panel v1.4.6 or later, and
+  restart the server: a panel-installed PanelBridge updates with the panel,
+  a Workshop one downloads at the next start, and on a hosted server you
+  upload the new `PanelBridge.lua` (see [hosted.md](hosted.md)).
+- If you can't, and nobody on the server plays split-screen, set
+  `AllowCoop=false` in the server's `.ini` and restart.
 
 ---
 

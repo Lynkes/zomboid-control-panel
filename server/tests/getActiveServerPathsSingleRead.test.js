@@ -27,8 +27,17 @@ vi.mock("../database/init.js", () => ({
 const { getActiveServerPaths } = await import("../routes/server.js");
 const { getActiveServer } = await import("../database/init.js");
 
-const SERVER_A = { serverConfigPath: "/data/serverA/Server", serverName: "serverA" };
-const SERVER_B = { serverConfigPath: "/data/serverB/Server", serverName: "serverB" };
+// PATHS-2: each has a data folder -- a config folder is used only inside it.
+const SERVER_A = {
+  zomboidDataPath: "/data/serverA",
+  serverConfigPath: "/data/serverA/Server",
+  serverName: "serverA",
+};
+const SERVER_B = {
+  zomboidDataPath: "/data/serverB",
+  serverConfigPath: "/data/serverB/Server",
+  serverName: "serverB",
+};
 
 describe("getActiveServerPaths() reads the active server exactly once", () => {
   it("does not observe a concurrent active-server switch between deriving configPath and name", async () => {
@@ -56,6 +65,7 @@ describe("getActiveServerPaths() reads the active server exactly once", () => {
     const { getSetting } = await import("../database/init.js");
     getSetting.mockImplementation(async (key) => {
       if (key === "serverConfigPath") return "/legacy/Server";
+      if (key === "zomboidDataPath") return "/legacy";
       if (key === "serverName") return "legacy-name";
       return null;
     });

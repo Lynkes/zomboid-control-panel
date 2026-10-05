@@ -101,6 +101,7 @@ describe("POST /write-to-ini: existing key line with whitespace around '='", () 
     fs.writeFileSync(iniPath, "Mods = OldMod\nWorkshopItems = 1111111111\n");
     getActiveServer.mockReset().mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       isRemote: false,

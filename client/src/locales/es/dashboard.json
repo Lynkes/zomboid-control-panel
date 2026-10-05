@@ -139,6 +139,9 @@
       "title": "Iniciando servidor — script de inicio respaldado",
       "description": "El panel detectó cambios en tu script de inicio y guardó tu versión antes de regenerarlo."
     },
+    "startServerFolderWarning": {
+      "title": "Iniciando servidor — la configuración de RCON no se actualizó"
+    },
     "stopServer": {
       "title": "Servidor detenido",
       "description": "Sesión cerrada correctamente."

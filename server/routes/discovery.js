@@ -9,6 +9,7 @@ import { sanitizeError, sanitizeServerResponse } from "../utils/sanitize.js";
 import { normalizeRconHost, resolveEnvRconHost } from "../services/rcon.js";
 import { createServer } from "../database/init.js";
 import { requirePermission } from "../services/permissions.js";
+import { checkZomboidDataPath } from "../services/zomboidDataPath.js";
 import {
   discoverMounts,
   discoverMountIssues,
@@ -110,6 +111,14 @@ router.post("/create-from-discovery", requirePermission("servers.manage"), async
       return res
         .status(400)
         .json({ error: "dataPath does not look like a PZ data folder" });
+    }
+    // PATHS-1: the same data-folder rule as every other setter
+    // (services/zomboidDataPath.js). The mount list is the panel's own, so this
+    // only refuses a discovered folder that also holds files the game
+    // doesn't put there.
+    const dataPathCheck = checkZomboidDataPath(discovered.dataPath, { expand: false });
+    if (!dataPathCheck.ok) {
+      return res.status(400).json(dataPathCheck.body);
     }
 
     // discovery-silent-multi-server-autopick, 2026-09-09: same

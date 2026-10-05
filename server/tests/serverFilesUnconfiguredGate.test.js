@@ -10,6 +10,9 @@ const { getActiveServer } = vi.hoisted(() => ({
 vi.mock("../database/init.js", () => ({
   getActiveServer,
   getAllSettings: vi.fn(async () => ({})),
+  // GET /paths names the config folder only to a role that sets the
+  // server's folders up (utils/hostPathView.js, H4 round 3).
+  getRoleByName: vi.fn(async (name) => (name === "technician" ? { capabilities: ["servers.manage"] } : null)),
 }));
 
 vi.mock("../services/remoteConfigFiles.js", () => ({
@@ -85,6 +88,7 @@ describe("server-files router: unconfigured-server gate", () => {
     // server row always has both.
     getActiveServer.mockResolvedValue({
       serverName: "RealServer",
+      zomboidDataPath: "/srv/pz",
       serverConfigPath: "/srv/pz/Server",
     });
     const response = createResponse();
@@ -124,13 +128,16 @@ describe("server-files router: a configured server still resolves and reads real
 
   beforeEach(() => {
     getActiveServer.mockReset();
-    configDir = fs.mkdtempSync(path.join(os.tmpdir(), "serverfiles-configured-"));
+    // PATHS-2: a config folder is used only inside <data folder>/Server.
+    configDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "serverfiles-configured-")), "Server");
+    fs.mkdirSync(configDir);
     fs.writeFileSync(
       path.join(configDir, "RealServer_spawnpoints.lua"),
       "-- real file",
     );
     getActiveServer.mockResolvedValue({
       serverName: "RealServer",
+      zomboidDataPath: path.dirname(configDir),
       serverConfigPath: configDir,
     });
   });
@@ -141,7 +148,7 @@ describe("server-files router: a configured server still resolves and reads real
     // req.activeServerContext instead of re-deriving it -- run the real gate
     // first, on the same req, exactly as Express's own middleware chain
     // would, rather than hand-building the context here.
-    const req = { path: "/paths", method: "GET" };
+    const req = { path: "/paths", method: "GET", user: { role: "technician" } };
     await getGateMiddleware()(req, response, () => {});
     await getRouteHandler("get", "/paths")(req, response);
 

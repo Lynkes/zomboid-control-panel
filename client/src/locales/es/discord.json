@@ -212,6 +212,10 @@
       "dismissAria": "Descartar aviso de conexión",
       "dismissTooltip": "Descartar hasta que esto cambie"
     },
+    "channelOutsideGuild": {
+      "title": "Algunas notificaciones no se están enviando",
+      "body": "El canal {{channels}} no pertenece al servidor indicado como ID del servidor (Guild), así que el bot ya no publica allí. Elige un canal de ese servidor o pon como ID del servidor el del canal."
+    },
     "commandPermissions": {
       "title": "Permisos de comandos",
       "description": "Controlar quién puede usar cada comando de barra. Asignar un nivel de permiso por comando.",
@@ -341,9 +345,14 @@
     "testMessageSent": "Mensaje de prueba enviado al canal de Discord",
     "testMessageFailedFallback": "No se pudo enviar el mensaje de prueba",
     "wipeConfirmTitle": "¿Borrar por completo la configuración del bot de Discord?",
-    "wipeConfirmDesc": "Esto elimina el token del bot guardado, los ID del servidor y del canal, los ID de rol, los ajustes de retransmisión de chat, los permisos de comandos y la configuración de notificaciones de eventos de Discord. El bot se detendrá y la página volverá a la configuración inicial.",
+    "wipeConfirmDesc": "Esto elimina el token del bot guardado, los ID del servidor y del canal, los ID de rol, el canal de retransmisión de chat y la configuración de notificaciones de eventos de Discord, y devuelve el nivel de permiso de cada comando a su valor predeterminado. Un comando que requiere un permiso que no tienes en este panel conserva su nivel actual. El inicio automático y la retransmisión de chat vuelven a su valor predeterminado, que es activado: en cuanto se configure un token nuevo, el bot se iniciará con el panel y retransmitirá todo el chat público en ambos sentidos por el canal de notificaciones. El bot se detendrá y la página volverá a la configuración inicial.",
     "wipeConfirmLabel": "Borrar configuración de Discord",
     "wipeSuccess": "Configuración del bot de Discord borrada por completo. Se puede empezar la configuración desde cero.",
+    "wipeSuccessKeptTiers": "Configuración del bot de Discord borrada. Estos comandos conservaron su nivel de permiso porque requieren permisos que no tienes en este panel: {{commands}}",
     "wipeFailedFallback": "No se pudo borrar la configuración de Discord"
+  },
+  "capabilityGate": {
+    "connection": "Solo puede cambiar esto quien tenga todos los permisos que requieren los comandos del bot: el propietario del servidor de Discord del bot y cualquiera con su rol de administrador pueden ejecutar todos los comandos.",
+    "modRole": "Solo puede cambiar esto quien tenga los permisos que requieren los comandos de nivel Moderador: cualquiera con este rol puede ejecutar esos comandos."
   }
 }

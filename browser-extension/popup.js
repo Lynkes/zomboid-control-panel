@@ -10,7 +10,9 @@
  *   - Only talks to (a) the configured panel URL and (b) Steam (locally,
  *     to read cookies via the cookies API).
  *   - Password is NOT persisted unless the user explicitly ticks
- *     "Remember password". Only the access token is cached by default.
+ *     "Remember password". Only the access token is cached by default,
+ *     plus the panel's trusted-device token for each panel and username
+ *     (see rememberDeviceToken()).
  */
 
 const browserAPI = (typeof browser !== 'undefined' && browser.cookies) ? browser : chrome;
@@ -153,11 +155,57 @@ async function saveSettings(silent = false) {
   if (!silent) setStatus(ui.setupStatus, 'Saved.', 'success');
 }
 
+// SECURITY (2026-10-05, A1): the trusted-device token the panel hands back
+// after a successful sign-in (server/services/auth.js, issueDeviceToken()).
+// Sent with later sign-ins to the same panel and username, it makes the
+// panel count this extension's failed attempts on their own, so a stranger
+// who fills the panel's per-address table, or who shares this browser's
+// address (a proxy without TRUST_PROXY), can't get its sign-ins refused --
+// the same thing the panel's own login page does. It grants nothing else.
+const DEVICE_TOKENS_KEY = 'deviceTokens';
+const MAX_DEVICE_TOKENS = 10;
+const MAX_DEVICE_TOKEN_LENGTH = 1024;
+
+// Never "__proto__" or another Object.prototype name: it always starts
+// with "[".
+function deviceTokenKey(panelUrl, username) {
+  return JSON.stringify([panelUrl, String(username).trim().toLowerCase()]);
+}
+
+async function readDeviceTokens() {
+  const { deviceTokens } = await storageGet([DEVICE_TOKENS_KEY]);
+  if (!deviceTokens || typeof deviceTokens !== 'object' || Array.isArray(deviceTokens)) return {};
+  const entries = {};
+  for (const [key, value] of Object.entries(deviceTokens)) {
+    if (!key.startsWith('[') || !value || typeof value.token !== 'string') continue;
+    entries[key] = { token: value.token, savedAt: Number(value.savedAt) || 0 };
+  }
+  return entries;
+}
+
+async function getDeviceToken(panelUrl, username) {
+  return (await readDeviceTokens())[deviceTokenKey(panelUrl, username)]?.token;
+}
+
+// Stored newest first; the oldest drop off past MAX_DEVICE_TOKENS.
+async function rememberDeviceToken(panelUrl, username, token) {
+  if (typeof token !== 'string' || !token || token.length > MAX_DEVICE_TOKEN_LENGTH) return;
+  const key = deviceTokenKey(panelUrl, username);
+  const entries = await readDeviceTokens();
+  delete entries[key];
+  const kept = [[key, { token, savedAt: Date.now() }], ...Object.entries(entries)]
+    .sort((a, b) => b[1].savedAt - a[1].savedAt)
+    .slice(0, MAX_DEVICE_TOKENS);
+  await storageSet({ [DEVICE_TOKENS_KEY]: Object.fromEntries(kept) });
+}
+
 async function loginToPanel(panelUrl, username, password) {
+  // Undefined (never signed in from here) is dropped by JSON.stringify.
+  const deviceToken = await getDeviceToken(panelUrl, username);
   const res = await fetch(panelUrl + '/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password, rememberMe: false }),
+    body: JSON.stringify({ username, password, rememberMe: false, deviceToken }),
   });
   if (!res.ok) {
     let detail = '';
@@ -166,6 +214,7 @@ async function loginToPanel(panelUrl, username, password) {
   }
   const data = await res.json();
   if (!data.accessToken) throw new Error('Login response missing accessToken');
+  await rememberDeviceToken(panelUrl, username, data.deviceToken);
   return data.accessToken;
 }
 

@@ -92,19 +92,22 @@ let parentDir;
 let backupDir;
 
 beforeEach(() => {
-  parentDir = fs.mkdtempSync(path.join(os.tmpdir(), "restore-traversal-"));
+  // PATHS-2: a config folder is used only inside <data folder>/Server.
+  parentDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "restore-traversal-")), "Server");
+  fs.mkdirSync(parentDir);
   configDir = path.join(parentDir, "config");
   fs.mkdirSync(configDir, { recursive: true });
   backupDir = path.join(configDir, "backups");
   fs.mkdirSync(backupDir, { recursive: true });
   getActiveServer.mockReset().mockResolvedValue({
+    zomboidDataPath: path.dirname(parentDir),
     serverConfigPath: configDir,
     serverName: SERVER_NAME,
   });
 });
 
 afterEach(() => {
-  fs.rmSync(parentDir, { recursive: true, force: true });
+  fs.rmSync(path.dirname(parentDir), { recursive: true, force: true });
 });
 
 describe("POST /restore/:filename -- originalName must be rejected when it resolves to '.' or '..'", () => {
