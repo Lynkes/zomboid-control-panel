@@ -95,7 +95,7 @@ const CANNOT_VERIFY_OR_EQUIVALENT = {
   vehicleHotwire: 'No single verifiable end-state exists for a multi-step hotwire sequence -- `actions` documents what ran step by step. (Also the site of the earlier undefined-global crash fix, commit 364c56d.)',
   clearZombiesNearPlayer: 'Reports a real removed-count computed via per-zombie pcall success, not a boolean -- equivalent honesty under a differently-shaped field (`removed`).',
   clearAllZombies: 'Same mechanism as clearZombiesNearPlayer; the ForceKillAllZombies branch is pcall-ceiling by nature of being a bulk fire-and-forget API, the manual fallback counts real removals.',
-  vehicleRepair: 'Counts real per-part invoke success into `parts`, fails if 0 -- honest count, not a boolean flag.',
+  vehicleRepair: 'After the game\'s own vehicle:repair() it reads every part\'s condition back and reports how many are at 100 in `parts` (out of `partCount`), failing if none is; the part-by-part fallback counts real setCondition successes and fails if 0 -- honest counts, not a boolean flag.',
   giveItem: 'Counts real per-item AddItem success into `count`, fails if 0 added -- honest count.',
   airdrop: 'Counts real per-item placement success into `itemCount`/`failed` -- honest count, not a boolean.',
   killPlayer: 'Already gates the returned `ok` itself on isDead() -- the read-back IS the ok value (this file\'s own gold-standard pattern), no separate field needed.',

@@ -23,6 +23,15 @@
 // manifest lets the checker FAIL definitively on ABSENT, and PASS (not "confirm callable") on
 // PRESENT. Do not let a later refactor upgrade a PRESENT match into a stronger claim than that.
 //
+// Both halves showed up in GitHub #199. ABSENT needs the WHOLE chain: `javap -p` on a class lists
+// only the methods it declares, not the default methods of the interfaces it implements, which is
+// why loadClass() below javaps every superinterface too. A hand-run `javap -p BaseVehicle` missed
+// VehiclePartOwner's getPartCount/getPartById/getBattery defaults and the bridge was moved onto
+// vehicle:getParts(). And PRESENT isn't callable: getParts() is present, but it returns
+// zombie.vehicles.VehicleParts, a class LuaManager$Exposer never exposes, so every call on what it
+// returns fails in Kahlua ("attempted index ... of non-table"). This manifest records methods, not
+// Lua exposure, so the checker can't catch that second case.
+//
 // Usage: node scripts/gen-engine-signatures.mjs [--javap <path>] [--jar <path>]
 // Defaults match the toolchain the operator installed 2026-08-30:
 //   javap: C:\Program Files\Eclipse Adoptium\jdk-21.0.12.101-hotspot\bin\javap.exe
