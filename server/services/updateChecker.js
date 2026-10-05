@@ -556,7 +556,11 @@ export class UpdateChecker {
       return updateInfo;
     } catch (err) {
       log.error(`Update check failed: ${err.message}`);
-      this.lastError = err.message;
+      // SECURITY (2026-10-05, H4): path-redacted. server:updateCheckFailed
+      // goes to every signed-in socket, and GET /update-check/status to
+      // server.world_events (a moderator's), while a SteamCMD or appmanifest
+      // read error quotes the install folder. The full text is in the log.
+      this.lastError = sanitizeError(err.message);
       this.io.emit("server:updateCheckFailed", { lastError: this.lastError });
       this.isChecking = false;
       return null;
@@ -891,7 +895,9 @@ export class UpdateChecker {
         appliedVersion: postUpdate?.buildId ?? null,
       });
     } catch (error) {
-      this.io.emit("server:autoUpdateComplete", { success: false, error: error.message });
+      // Every signed-in socket gets this; the messages above name the
+      // SteamCMD and install folders (SECURITY 2026-10-05, H4).
+      this.io.emit("server:autoUpdateComplete", { success: false, error: sanitizeError(error.message) });
       await this._recordAutoUpdateResult({
         status: "failed",
         at: new Date().toISOString(),

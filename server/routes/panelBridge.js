@@ -1415,7 +1415,11 @@ router.get("/ping", async (req, res) => {
 
   try {
     const result = await bridge.ping();
-    res.json(result);
+    // Any signed-in role may ping, and a failed command write quotes the
+    // bridge folder in its error (SECURITY 2026-10-05, H4).
+    res.json(
+      typeof result?.error === "string" ? { ...result, error: sanitizeError(result.error) } : result,
+    );
   } catch (error) {
     res.status(500).json({ error: sanitizeError(error.message) });
   }

@@ -4,6 +4,7 @@ import fs from "fs";
 import { createLogger } from "../utils/logger.js";
 import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import { publicRestoreMessage } from "../utils/restoreMessage.js";
+import { HOST_PATH_CAPABILITIES } from "../utils/hostPathView.js";
 import { getActiveServer } from "../database/init.js";
 import {
   getCapabilitiesForRole,
@@ -50,6 +51,49 @@ const requireAnyBackupCapability = requireAnyPermission(
   "backups.download",
   "backups.restore",
 );
+
+// SECURITY (2026-10-05, H4): ...but where backups live is not something a
+// download-only or restore-only role acts on: it picks a backup by name.
+// The folders (savesPath, backupsPath, each backup's `path`) go to the roles
+// that already see them elsewhere -- backups.manage and diagnostics.manage,
+// as for the disk routes (routes/system.js), and the roles that set the
+// server's folders up (utils/hostPathView.js) -- and are null for the rest,
+// whose last scheduled attempt's error text is path-redacted too.
+const BACKUP_PATH_CAPABILITIES = Object.freeze([
+  "backups.manage",
+  "diagnostics.manage",
+  ...HOST_PATH_CAPABILITIES,
+]);
+
+async function canSeeBackupPaths(req) {
+  try {
+    const capabilities = await getCapabilitiesForRole(req.user?.role);
+    return (
+      Array.isArray(capabilities) &&
+      BACKUP_PATH_CAPABILITIES.some((capability) => capabilities.includes(capability))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function withoutBackupPath(backup) {
+  return backup && typeof backup === "object" ? { ...backup, path: null } : backup;
+}
+
+function hideBackupPaths(status) {
+  const attempt = status.lastScheduledBackupAttempt;
+  return {
+    ...status,
+    savesPath: null,
+    backupsPath: null,
+    lastBackup: withoutBackupPath(status.lastBackup),
+    lastScheduledBackupAttempt:
+      attempt && typeof attempt.message === "string" && attempt.message
+        ? { ...attempt, message: sanitizeError(attempt.message) }
+        : attempt,
+  };
+}
 
 function parseBackupBoolean(value) {
   if (typeof value === "boolean") return value;
@@ -140,7 +184,8 @@ async function getRestartOverlaps(req, scheduler, schedule) {
 router.get("/status", requireAnyBackupCapability, async (req, res) => {
   try {
     const backupService = req.app.get("backupService");
-    const status = await backupService.getStatus();
+    const fullStatus = await backupService.getStatus();
+    const status = (await canSeeBackupPaths(req)) ? fullStatus : hideBackupPaths(fullStatus);
     // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): the
     // Scheduler page's backup-health card needs the backup schedule's own
     // next-run time alongside lastScheduledBackupAttempt (already computed
@@ -186,7 +231,9 @@ router.get("/list", requireAnyBackupCapability, async (req, res) => {
   try {
     const backupService = req.app.get("backupService");
     const backups = await backupService.listBackups();
-    res.json({ backups });
+    res.json({
+      backups: (await canSeeBackupPaths(req)) ? backups : backups.map(withoutBackupPath),
+    });
   } catch (error) {
     log.error(`Failed to list backups: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });

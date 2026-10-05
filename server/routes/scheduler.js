@@ -39,8 +39,19 @@ export function parseTaskId(value) {
 // reuse the exact same guard and event shape rather than drifting a second
 // copy of it (2026-08-26 bug hunt: /server/restart turned out to be the
 // same blind-success shape as /restart-now, just in a different file).
+//
+// SECURITY (2026-10-05, H4): every signed-in socket gets this event, and a
+// failed task's or restart's message is often a raw err.message quoting the
+// install or save folder, so it is path-redacted here, once, for every
+// caller.
 export function emitActionResult(io, payload) {
-  if (typeof io?.emit === 'function') io.emit('scheduler:action_result', payload);
+  if (typeof io?.emit !== 'function') return;
+  io.emit(
+    'scheduler:action_result',
+    payload && typeof payload.message === 'string' && payload.message
+      ? { ...payload, message: sanitizeError(payload.message) }
+      : payload,
+  );
 }
 
 // The code and path-free params of a coded refusal thrown on the way

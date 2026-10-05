@@ -6417,6 +6417,24 @@ function filterConsoleLogLines(lines, filterLevel = "filtered") {
   });
 }
 
+// SECURITY (2026-10-05, H4): the console routes below admit
+// server.world_events, which the moderator role holds, and the game's
+// console log is full of host folders (the JVM's user.home and cachedir,
+// every mod's install folder, ...). A role that doesn't set the server's
+// folders up (utils/hostPathView.js) gets the lines path-redacted and the
+// log's file name instead of where it lives.
+const CONSOLE_LOG_FILE_NAME = "server-console.txt";
+
+async function consoleLogView(req) {
+  if (await canSeeHostPaths(req.user)) {
+    return { lines: (lines) => lines, path: (consoleLogPath) => consoleLogPath };
+  }
+  return {
+    lines: (lines) => lines.map((line) => (line ? sanitizeError(line) : line)),
+    path: () => CONSOLE_LOG_FILE_NAME,
+  };
+}
+
 // Get server console log content
 router.get("/console-log", requirePermission("server.world_events"), async (req, res) => {
   try {
@@ -6432,7 +6450,8 @@ router.get("/console-log", requirePermission("server.world_events"), async (req,
       return res.status(400).json({ error: "Server data path not configured", code: ErrorCode.SERVER_DATA_PATH_NOT_CONFIGURED });
     }
 
-    const consoleLogPath = path.join(zomboidDataPath, "server-console.txt");
+    const consoleLogPath = path.join(zomboidDataPath, CONSOLE_LOG_FILE_NAME);
+    const view = await consoleLogView(req);
 
     if (!fs.existsSync(consoleLogPath)) {
       return res.json({
@@ -6440,7 +6459,7 @@ router.get("/console-log", requirePermission("server.world_events"), async (req,
         content: "",
         lines: [],
         exists: false,
-        path: consoleLogPath,
+        path: view.path(consoleLogPath),
       });
     }
 
@@ -6478,7 +6497,7 @@ router.get("/console-log", requirePermission("server.world_events"), async (req,
 
     // Apply filtering
     const filteredLines = filterConsoleLogLines(allLines, filterLevel);
-    const lines = filteredLines.slice(-maxLines);
+    const lines = view.lines(filteredLines.slice(-maxLines));
 
     res.json({
       success: true,
@@ -6488,7 +6507,7 @@ router.get("/console-log", requirePermission("server.world_events"), async (req,
       filteredCount: filteredLines.length,
       filterLevel,
       exists: true,
-      path: consoleLogPath,
+      path: view.path(consoleLogPath),
       lastModified: stats.mtime.toISOString(),
       size: stats.size,
     });
@@ -6810,11 +6829,12 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
       return res.status(400).json({ error: "Server data path not configured", code: ErrorCode.SERVER_DATA_PATH_NOT_CONFIGURED });
     }
 
-    const consoleLogPath = path.join(zomboidDataPath, "server-console.txt");
+    const consoleLogPath = path.join(zomboidDataPath, CONSOLE_LOG_FILE_NAME);
 
     if (!fs.existsSync(consoleLogPath)) {
       return res.json({ success: true, newLines: [], exists: false });
     }
+    const view = await consoleLogView(req);
 
     // Filter level: 'all' | 'filtered' | 'important' | 'errors'
     const filterLevel = req.query.filter || "filtered";
@@ -6845,7 +6865,7 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
       );
       storeConsoleStreamRemainder(consoleLogPath, stats.size, remainder);
       const allLines = completeLines.filter((l) => l.trim());
-      const lines = filterConsoleLogLines(allLines, filterLevel);
+      const lines = view.lines(filterConsoleLogLines(allLines, filterLevel));
       return res.json({
         success: true,
         newLines: lines,
@@ -6889,7 +6909,7 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
     );
     storeConsoleStreamRemainder(consoleLogPath, stats.size, remainder);
     const allNewLines = completeLines.filter((l) => l.trim());
-    const newLines = filterConsoleLogLines(allNewLines, filterLevel);
+    const newLines = view.lines(filterConsoleLogLines(allNewLines, filterLevel));
 
     res.json({
       success: true,

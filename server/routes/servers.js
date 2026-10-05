@@ -923,7 +923,9 @@ router.get("/status", async (req, res) => {
     res.json({
       servers: statuses,
       detectedProcesses: matched.length,
-      detectionError,
+      // Every role reads this route; a failed process scan's raw error can
+      // quote the tool it ran or a host folder (SECURITY 2026-10-05, H4).
+      detectionError: detectionError ? sanitizeError(detectionError) : null,
       // This host's clock as it answered, so the client can count the
       // rows' startedAt in its own clock -- see the client's hostClock.ts.
       serverTime: Date.now(),

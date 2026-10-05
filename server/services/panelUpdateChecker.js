@@ -14,6 +14,7 @@ import https from "https";
 import crypto from "crypto";
 import { spawn, execFile } from "child_process";
 import { createLogger } from "../utils/logger.js";
+import { sanitizeError } from "../utils/sanitize.js";
 import { getSetting, setSetting } from "../database/init.js";
 import { getDataPaths } from "../utils/paths.js";
 import { DockerUpdateProxy } from "./dockerUpdateProxy.js";
@@ -258,11 +259,17 @@ export function redactApplyResult(result) {
   return rest;
 }
 
+// SECURITY (2026-10-05, H4): lastError too. It is a raw err.message, and a
+// failed download or staging quotes the staged binary's or the panel
+// folder's path in it (EACCES/ENOSPC/EBUSY on <panel folder>\...).
 export function redactUpdateStatus(status) {
   if (!status || typeof status !== "object") return status;
   const redacted = { ...status };
   if (redacted.stagedUpdate) redacted.stagedUpdate = { version: redacted.stagedUpdate.version };
   if (redacted.lastApplyResult) redacted.lastApplyResult = redactApplyResult(redacted.lastApplyResult);
+  if (typeof redacted.lastError === "string" && redacted.lastError) {
+    redacted.lastError = sanitizeError(redacted.lastError);
+  }
   return redacted;
 }
 
