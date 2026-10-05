@@ -156,13 +156,17 @@ async function update(version) {
         error.message = `${error.message}; rollback failed: ${rollbackError.message}`;
       }
     }
+    // The panel only learns that the update started, and /status needs the
+    // token, so the container log is where an operator finds out why it did
+    // not happen (a refused checksum, a failed build, a rollback).
+    console.error(`[updater] update to v${version} failed: ${error.message}`);
     updateState = { status: "failed", version, message: error.message, startedAt: updateState.startedAt, completedAt: new Date().toISOString() };
   } finally {
     await fs.rm(workDir, { recursive: true, force: true });
   }
 }
 
-http.createServer(async (request, response) => {
+const server = http.createServer(async (request, response) => {
   if (request.method === "GET" && request.url === "/health") return reply(response, 200, { status: "ok" });
   if (request.method === "GET" && request.url === "/status") {
     if (!isAuthorized(request)) return reply(response, 401, { error: "Unauthorized" });
@@ -182,6 +186,14 @@ http.createServer(async (request, response) => {
   } catch (error) {
     return reply(response, 400, { error: error.message });
   }
-}).listen(PORT, "0.0.0.0", () => {
-  console.log(`Docker update controller listening on ${PORT}`);
 });
+
+// Listens only when run as the container's entrypoint (node server.js);
+// tests require() it for update() alone.
+if (require.main === module) {
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`Docker update controller listening on ${PORT}`);
+  });
+}
+
+module.exports = { update, getUpdateState: () => updateState };
