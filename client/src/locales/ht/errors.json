@@ -590,5 +590,6 @@
   "WIPE_REMOTE_NOT_AVAILABLE": "Mond yon sèvè aleka sou pwòp machin pa l, kidonk panèl la pa ka efase l depi isit la.",
   "ZOMBOID_DATA_FOLDER_REFUSED": "Dosye done Zomboid sèvè sa a gen fichye jwèt la pa mete nan yon dosye done, kidonk panèl la p ap liste l ni li l. Nan paj Sèvè m yo, modifye sèvè a epi mete chemen done Zomboid li sou pwòp dosye done jwèt la: sa ki gen yon sovgad nan dosye Saves li.",
   "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "Sèvè sa a pa gen dosye done Zomboid, epi se la jwèt la ekri jounal konsòl li. Nan paj Sèvè m yo, modifye sèvè a epi mete chemen done Zomboid li.",
-  "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "Relè chat la poste nan jwèt la sa moun ekri nan chanèl Discord li a, e sa bezwen {{detail}}. Ou pa gen kapasite sa a, kidonk ou pa ka aktive relè a ni chanje chanèl li koute a (chanèl notifikasyon an, toutotan pa gen chanèl relè ki defini)."
+  "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "Relè chat la poste nan jwèt la sa moun ekri nan chanèl Discord li a, e sa bezwen {{detail}}. Ou pa gen kapasite sa a, kidonk ou pa ka aktive relè a ni chanje chanèl li koute a (chanèl notifikasyon an, toutotan pa gen chanèl relè ki defini).",
+  "DISCORD_CHANNEL_OUTSIDE_GUILD": "Chanèl notifikasyon an pa nan sèvè Discord ki konfigire isit la, kidonk bot la p ap poste ladan l. Itilize yon chanèl nan sèvè ki gen ID Sèvè (Guild) a, oswa korije ID sa a."
 }

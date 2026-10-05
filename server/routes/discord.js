@@ -166,9 +166,16 @@ router.put("/config", async (req, res) => {
       channelId,
       autoStart,
       chatRelayEnabled,
-      chatRelayChannelId,
+      chatRelayChannelId: sentChatRelayChannelId,
       chatRelayScope,
     } = req.body;
+    // SECURITY (2026-10-05, M1): "" or null clears the relay channel, so the
+    // relay goes back to the notification channel -- a change of the channel
+    // it listens in, gated below (HT4b) exactly as setting one is. Left out,
+    // it keeps its value. The settings page used to leave it out when the
+    // field was emptied, so a relay channel could never be cleared.
+    const chatRelayChannelId =
+      sentChatRelayChannelId === null ? "" : sentChatRelayChannelId;
     log.info(
       `PUT /config: guildId=${guildId}, token=${token ? (token === "KEEP_EXISTING" ? "KEEP" : "***") : "none"}, autoStart=${autoStart}`,
     );
@@ -644,6 +651,15 @@ router.post("/test-message", async (req, res) => {
       "🧪 **Test message** from PZ Server Manager",
     );
     if (!sent) {
+      // SECURITY (2026-10-05, M2): the bot posts only in a channel of the
+      // configured guild now. Say so, rather than that Discord rejected it.
+      if (discordBot.wasSendRefusedOutsideGuild(discordBot.channelId)) {
+        return res.status(400).json({
+          error:
+            "The notification channel isn't in the Discord server set up here, so the bot won't post in it. Use a channel of the server whose Guild ID is set, or correct the Guild ID.",
+          code: ErrorCode.DISCORD_CHANNEL_OUTSIDE_GUILD,
+        });
+      }
       return res.status(502).json({
         error:
           "Discord rejected the message. Check the notification channel ID and that the bot can post there.",

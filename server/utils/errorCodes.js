@@ -2534,6 +2534,14 @@ export const ErrorCode = Object.freeze({
    * (security sweep 2026-10-05, HT4b). */
   DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED: "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED",
   /* --- end security sweep W4: hardening --- */
+  /* --- security sweep W5: hardening (sec/w5-hardening) --- */
+  /** server/routes/discord.js -- POST /test-message (400): the bot didn't
+   * post the test message because the notification channel isn't a channel
+   * of the configured guild (another server the bot is in, or a direct
+   * message); discordBot.js _sendToChannel() sends nothing outside it
+   * (security sweep 2026-10-05, M2). */
+  DISCORD_CHANNEL_OUTSIDE_GUILD: "DISCORD_CHANNEL_OUTSIDE_GUILD",
+  /* --- end security sweep W5: hardening --- */
 });
 
 /**

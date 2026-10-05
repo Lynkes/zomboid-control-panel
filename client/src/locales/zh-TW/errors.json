@@ -590,5 +590,6 @@
   "WIPE_REMOTE_NOT_AVAILABLE": "遠端伺服器的世界位於其自己的主機上，因此面板無法在此清除它。",
   "ZOMBOID_DATA_FOLDER_REFUSED": "此伺服器的 Zomboid 資料資料夾中有遊戲不會放在資料資料夾裡的檔案，因此面板不會列出或讀取它。請在「我的伺服器」頁面編輯該伺服器，將其 Zomboid 資料路徑設為遊戲自己的資料資料夾：Saves 資料夾中有世界存檔的那個。",
   "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "此伺服器未設定 Zomboid 資料資料夾，而遊戲會把主控台日誌寫在那裡。請在「我的伺服器」頁面編輯該伺服器，設定其 Zomboid 資料路徑。",
-  "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "聊天中繼會把人們在其 Discord 頻道中輸入的內容發布到遊戲中，這需要 {{detail}}。您並未擁有該權限項目，因此無法開啟中繼，也無法變更它監聽的頻道（未設定中繼頻道時即為通知頻道）。"
+  "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "聊天中繼會把人們在其 Discord 頻道中輸入的內容發布到遊戲中，這需要 {{detail}}。您並未擁有該權限項目，因此無法開啟中繼，也無法變更它監聽的頻道（未設定中繼頻道時即為通知頻道）。",
+  "DISCORD_CHANNEL_OUTSIDE_GUILD": "通知頻道不屬於此處設定的 Discord 伺服器，因此機器人不會在其中傳送訊息。請使用已填寫伺服器（Guild）ID 的那個伺服器中的頻道，或更正該 ID。"
 }
