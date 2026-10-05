@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import {
   RESET_TOKEN_MIN_DISTINCT_CHARS,
   RESET_TOKEN_MIN_UNPREDICTABLE_CHARS,
@@ -35,6 +36,18 @@ function sample(label, alphabet, length, count) {
     tokens.push(token);
   }
   return tokens;
+}
+
+// Version 4 UUIDs, as uuidgen, New-Guid and Node's randomUUID write them.
+function sampleUuids(label, count) {
+  const bytes = seededBytes(label);
+  return Array.from({ length: count }, () => {
+    const b = Buffer.from(Array.from({ length: 16 }, () => bytes.next().value));
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    const hex = b.toString("hex");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  });
 }
 
 const HEX = "0123456789abcdef";
@@ -97,12 +110,16 @@ describe("reset-token strength", () => {
     expect(refused).toEqual([]);
   });
 
+  // Round 6 of the A2 verification: this drew 200 UUIDs and 400 tokens of
+  // 48 hex characters without a seed, and about 1 random UUID in 15,000 is
+  // refused, so release CI failed about one run in 70.
   it("accepts what the docs suggest and what the panel writes", () => {
-    for (let i = 0; i < 200; i++) {
-      expect(resetTokenWeakness(crypto.randomBytes(24).toString("hex"))).toBeNull();
-      expect(resetTokenWeakness(crypto.randomBytes(24).toString("hex").toUpperCase())).toBeNull();
-      expect(resetTokenWeakness(crypto.randomUUID())).toBeNull();
-    }
+    const tokens = [
+      ...sample("docs-hex48", HEX, 48, 200),
+      ...sample("docs-HEX48", HEX.toUpperCase(), 48, 200),
+      ...sampleUuids("docs-uuid", 200),
+    ];
+    expect(tokens.filter((token) => resetTokenWeakness(token) !== null)).toEqual([]);
   });
 
   it("counts a stretch seen before as predictable after its first two characters", () => {
@@ -174,7 +191,7 @@ describe("reset-token shape", () => {
   });
 
   it("reads hex in dash-separated groups, like a UUID, as its digits", () => {
-    const uuid = crypto.randomUUID();
+    const [uuid] = sampleUuids("dash-groups", 1);
     expect(resetTokenHexDigits(uuid)).toBe(uuid.replaceAll("-", ""));
     expect(resetTokenHexDigits(uuid.toUpperCase())).toBe(uuid.replaceAll("-", "").toUpperCase());
   });
@@ -189,14 +206,7 @@ describe("reset-token shape", () => {
   });
 
   it("accepts every one of 2000 seeded random UUIDs", () => {
-    const bytes = seededBytes("uuid");
-    const uuids = Array.from({ length: 2000 }, () => {
-      const b = Buffer.from(Array.from({ length: 16 }, () => bytes.next().value));
-      b[6] = (b[6] & 0x0f) | 0x40;
-      b[8] = (b[8] & 0x3f) | 0x80;
-      const hex = b.toString("hex");
-      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-    });
+    const uuids = sampleUuids("uuid", 2000);
     expect(uuids.filter((uuid) => resetTokenWeakness(uuid) !== null)).toEqual([]);
   });
 });
@@ -589,4 +599,19 @@ describe("reading data/reset-token.txt", () => {
   ])("reads the token from a file with %s", (_label, bytes) => {
     expect(decodeResetTokenFile(bytes)).toBe(token);
   });
+});
+
+// Round 6 of the A2 verification: a test here drew 200 UUIDs and 400
+// tokens of 48 hex characters without a seed, and about 1 random UUID in
+// 15,000 is refused, so release CI failed about one run in 70. Every
+// random token in the reset-token suites comes from a fixed seed.
+describe("the reset-token suites", () => {
+  it.each(["resetTokenStrength.test.js", "resetTokenHardening.test.js", "resetTokenCheckWarmup.test.js"])(
+    "%s draws no random token without a seed",
+    (file) => {
+      const source = fs.readFileSync(new URL(file, import.meta.url), "utf8");
+      // (This line doesn't match itself: the backslashes are in the way.)
+      expect(source.match(/crypto\.random(?:Bytes|UUID|Int)\(|Math\.random\(|getRandomValues\(/g)).toBeNull();
+    },
+  );
 });

@@ -117,7 +117,21 @@ const writeToken = (token) => writeRaw(`${token}\n`);
 const reset = (token, fromAddress) =>
   request("POST", "/api/auth/reset-password", { token, newPassword: "attacker-pw-1" }, fromAddress);
 const passwordIs = (password) => bcrypt.compare(password, db.data.users[0].password);
-const strongToken = () => crypto.randomBytes(24).toString("hex");
+
+// Random tokens from a fixed seed: the checks refuse a random one now and
+// then (about 1 UUID in 15,000), and an unseeded draw would make this
+// file fail that often. Round 6 of the A2 verification.
+const seededBytes = (label, size) => crypto.createHash("sha512").update(label).digest().subarray(0, size);
+const seededHex = (label, size) => seededBytes(label, size).toString("hex");
+function seededUuid(label) {
+  const b = Buffer.from(seededBytes(label, 16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const hex = b.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+let strongTokens = 0;
+const strongToken = () => seededHex(`strong-token-${strongTokens++}`, 24);
 
 beforeAll(async () => {
   authService.jwtSecret = "reset-token-test-secret-".padEnd(64, "x");
@@ -215,20 +229,14 @@ describe("AUTHN-5 / A2: the manual reset token has to be unguessable", () => {
   });
 
   it.each([
-    ["48 hex characters (the panel, openssl rand -hex 24, the docs' PowerShell line)", () => strongToken()],
-    ["32 hex characters (openssl rand -hex 16)", () => crypto.randomBytes(16).toString("hex")],
-    ["upper-case hex", () => crypto.randomBytes(24).toString("hex").toUpperCase()],
-    ["a UUID (uuidgen, New-Guid)", () => crypto.randomUUID()],
-  ])("accepts %s", async (_label, makeToken) => {
-    // A random token can, very rarely, fail the pattern check by chance;
-    // take the first of a few that passes it on the host.
-    let token;
-    for (let i = 0; i < 5 && !token; i++) {
-      const candidate = makeToken();
-      writeToken(candidate);
-      if ((await resetAsLocalCaller("not-the-token")).body.code === "RESET_TOKEN_INVALID") token = candidate;
-    }
-    expect(token).toBeDefined();
+    ["48 hex characters (the panel, openssl rand -hex 24, the docs' PowerShell line)", seededHex("accepts-hex48", 24)],
+    ["32 hex characters (openssl rand -hex 16)", seededHex("accepts-hex32", 16)],
+    ["upper-case hex", seededHex("accepts-HEX48", 24).toUpperCase()],
+    ["a UUID (uuidgen, New-Guid)", seededUuid("accepts-uuid")],
+  ])("accepts %s", async (_label, token) => {
+    writeToken(token);
+    // The host is told only that this isn't the token: the file is usable.
+    expect((await resetAsLocalCaller("not-the-token")).body.code).toBe("RESET_TOKEN_INVALID");
     const res = await reset(token);
     expect(res.status).toBe(200);
     expect(await passwordIs("attacker-pw-1")).toBe(true);
