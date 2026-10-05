@@ -10,7 +10,7 @@ import { discordApi } from '@/lib/api'
 // so emptying the field never cleared it -- the page said "saved" and the
 // relay kept its channel. The page now sends "" (server side, and its
 // server.world_events gate, pinned in
-// server/tests/discordRelayChannelClear.test.js). Checked on the
+// server/tests/discordRelayClearAndGuildSends.test.js). Checked on the
 // wire: the real discordApi.updateConfig() with fetch faked.
 
 vi.mock('@/contexts/AuthContext', () => ({

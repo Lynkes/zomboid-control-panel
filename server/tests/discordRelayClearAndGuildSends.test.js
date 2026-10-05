@@ -352,7 +352,7 @@ describe("M2: the bot posts only in a channel of the configured guild", () => {
     expect(channels[OTHER_CHANNEL].send).not.toHaveBeenCalled();
   });
 
-  it("legit: chat, notifications and the test message still go to channels of the configured guild (its ID compared as text)", async () => {
+  it("legit: chat, notifications and the test message still go to channels of the configured guild", async () => {
     const client = await startBot({
       discordChatRelayChannelId: RELAY_CHANNEL,
       discordWebhookEvents: JSON.stringify({ playerJoin: { enabled: true, template: "{player} joined" } }),
