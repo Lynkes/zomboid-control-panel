@@ -1620,10 +1620,13 @@ router.post("/delete-chunks", requirePermission("chunks.manage"), async (req, re
               await fs.promises.unlink(chunkDataFile);
               wasDeleted = true;
             } catch (e) {
+              // SECURITY (2026-10-05, M3): redacted like the map-file
+              // branch below. fs messages name the full path, and this
+              // reaches the caller in `errors`, `error` and `params.reason`.
               if (e.code !== "ENOENT")
                 return {
                   success: false,
-                  error: `chunkdata: ${e.message}`,
+                  error: `chunkdata: ${sanitizeError(e.message)}`,
                   file: chunk.file,
                 };
             }
@@ -1747,7 +1750,8 @@ router.post("/delete-chunks", requirePermission("chunks.manage"), async (req, re
         log.info(`vehicles.db: removed ${vehiclesResult.deleted} rows`);
       } catch (e) {
         log.warn(`vehicles.db cleanup failed: ${e.message}`);
-        errors.push(`vehicles.db: ${e.message}`);
+        // SECURITY (2026-10-05, M3): see the chunkdata branch above.
+        errors.push(`vehicles.db: ${sanitizeError(e.message)}`);
       }
     }
 
@@ -2327,7 +2331,8 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
         // request that deletes chunk files fine but whose vehicles.db
         // cleanup fails stays a silent, undetectable partial failure).
         // Matches /delete-chunks' shape exactly.
-        errors.push(`vehicles.db: ${e.message}`);
+        // SECURITY (2026-10-05, M3): redacted, as /delete-chunks' is.
+        errors.push(`vehicles.db: ${sanitizeError(e.message)}`);
       }
     }
 
