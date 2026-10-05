@@ -2012,7 +2012,7 @@ router.delete("/:id", requirePermission("servers.manage"), async (req, res) => {
           );
         }
         if (io) {
-          io.emit("activeServerChanged", { server: sanitizeServerResponse(newActiveServer) });
+          io.emit("activeServerChanged", { server: activeServerSummary(newActiveServer) });
         }
       } else if (io) {
         // No servers left at all.
@@ -2032,6 +2032,27 @@ router.delete("/:id", requirePermission("servers.manage"), async (req, res) => {
     lifecycleLock.release();
   }
 });
+
+// SECURITY (2026-10-04, PR #193 review): activeServerChanged goes to every
+// signed-in socket, whatever its role, and carried the whole server record:
+// install, data and config folders, start command, RCON host and port,
+// masked passwords. It now names the new active server and carries only
+// what the page that reads the payload uses (Dashboard: id, serverName,
+// maxMemory, and isRemote plus the Docker container reference for
+// resolveClientProvider()); a page that needs the record reads GET
+// /api/servers.
+export function activeServerSummary(server) {
+  return {
+    id: server.id,
+    name: server.name,
+    serverName: server.serverName,
+    isActive: Boolean(server.isActive),
+    isRemote: Boolean(server.isRemote),
+    dockerContainerName: server.dockerContainerName || null,
+    dockerContainerId: server.dockerContainerId || null,
+    maxMemory: server.maxMemory,
+  };
+}
 
 // Reload the live in-memory services (serverManager, RCON, PanelBridge,
 // LogTailer) to match `server` becoming the active one. Shared by
@@ -2171,7 +2192,7 @@ router.post("/:id/activate", requirePermission("servers.manage"), async (req, re
 
     // Emit to clients that active server changed
     if (io) {
-      io.emit("activeServerChanged", { server: sanitizeServerResponse(server) });
+      io.emit("activeServerChanged", { server: activeServerSummary(server) });
     }
 
     log.info(`Activated server: ${server.name} (ID: ${server.id})`);
