@@ -345,5 +345,9 @@
     "wipeConfirmLabel": "清除 Discord 設定",
     "wipeSuccess": "Discord 機器人設定已清除。可以從頭開始設定。",
     "wipeFailedFallback": "清除 Discord 設定失敗"
+  },
+  "capabilityGate": {
+    "connection": "只有擁有機器人所有命令所需全部權限的人才能變更此項：機器人所在 Discord 伺服器的所有者，以及擁有其管理員角色的任何人，都可以使用每一條命令。",
+    "modRole": "只有擁有「協管員」等級命令所需權限的人才能變更此項：擁有此角色的任何人都可以使用這些命令。"
   }
 }

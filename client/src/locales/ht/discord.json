@@ -327,5 +327,9 @@
     "wipeConfirmLabel": "Efase Nèt Paramèt Discord",
     "wipeSuccess": "Paramèt bot Discord efase nèt. Ou ka kòmanse konfigirasyon soti nan zewo.",
     "wipeFailedFallback": "Echwe pou efase nèt paramèt Discord"
+  },
+  "capabilityGate": {
+    "connection": "Se sèlman yon moun ki gen tout otorizasyon kòmand bot la bezwen ki ka chanje sa a: pwopriyetè sèvè Discord bot la ak nenpòt moun ki gen wòl administratè li ka itilize tout kòmand yo.",
+    "modRole": "Se sèlman yon moun ki gen otorizasyon kòmand nivo Moderatè yo bezwen ki ka chanje sa a: nenpòt moun ki gen wòl sa a ka itilize kòmand sa yo."
   }
 }

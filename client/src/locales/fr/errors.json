@@ -580,5 +580,6 @@
   "FM_TOO_MANY_ENTRIES": "Il y a trop d'éléments à supprimer d'un coup (plus de {{limit}}). Ce qui est déjà supprimé le reste ; relancez l'opération pour terminer.",
   "FM_SECRET_NAME_REQUIRED": "Ce fichier contient des mots de passe que le gestionnaire de fichiers masque. Gardez .ini dans le nouveau nom pour qu'ils restent masqués.",
   "CHARACTER_INVALID_SECTIONS": "Section de personnage demandée inconnue.",
-  "CHARACTER_SHEET_FAILED": "Impossible de lire ce personnage."
+  "CHARACTER_SHEET_FAILED": "Impossible de lire ce personnage.",
+  "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Modifier ces paramètres Discord permettrait d'exécuter des commandes du bot qui nécessitent {{detail}}, des capacités que vous ne détenez pas vous-même."
 }

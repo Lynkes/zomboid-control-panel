@@ -580,5 +580,6 @@
   "FM_TOO_MANY_ENTRIES": "Hay demasiados elementos para eliminarlos de una vez (más de {{limit}}). Lo que ya se eliminó sigue eliminado; vuelve a ejecutarlo para terminar.",
   "FM_SECRET_NAME_REQUIRED": "Este archivo contiene contraseñas que el gestor de archivos oculta. Mantén .ini en el nuevo nombre para que sigan ocultas.",
   "CHARACTER_INVALID_SECTIONS": "Se solicitó una sección de personaje desconocida.",
-  "CHARACTER_SHEET_FAILED": "No se pudo leer este personaje."
+  "CHARACTER_SHEET_FAILED": "No se pudo leer este personaje.",
+  "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Cambiar estos ajustes de Discord permitiría ejecutar comandos del bot que requieren {{detail}}, capacidades que tú no tienes."
 }

@@ -238,6 +238,23 @@ function getSetupSteps(t: TFunction) {
 
 const GATEWAY_ISSUE_DISMISSED_KEY = "pz-discord-gateway-issue-dismissed";
 
+// Mirrors DISCORD_COMMAND_CAPABILITY in server/routes/discord.js: the panel
+// capability behind each slash command. PUT /discord/config refuses a token,
+// guild or admin role change unless the caller holds all of them, and a mod
+// role change unless they hold those of the commands at the Moderator tier
+// (security sweep AUTHZ-3), so the fields are locked here to match.
+const DISCORD_COMMAND_CAPABILITY: Record<string, string | null> = {
+  status: null,
+  players: "players.view",
+  save: "server.control",
+  broadcast: "server.world_events",
+  kick: "players.moderate",
+  start: "server.control",
+  stop: "server.control",
+  restart: "server.control",
+  rcon: "rcon.execute",
+};
+
 export default function Discord() {
   const { t } = useTranslation("discord");
   const eventLabels = useMemo(() => getEventLabels(t), [t]);
@@ -436,11 +453,44 @@ export default function Discord() {
     guildId && (token || config?.hasToken) && !hasConfigValidationError,
   );
 
+  // See DISCORD_COMMAND_CAPABILITY above.
+  const canChangeBotConnection = Object.values(DISCORD_COMMAND_CAPABILITY).every(
+    (capability) => !capability || can(capability),
+  );
+  const canChangeModRole = Object.entries(DISCORD_COMMAND_CAPABILITY).every(
+    ([command, capability]) =>
+      !capability ||
+      (commandPermissions[command] || "admin") !== "moderator" ||
+      can(capability),
+  );
+  const botConnectionLockedReason = !canManageIntegrations
+    ? t("shared.noPermission")
+    : !canChangeBotConnection
+      ? t("capabilityGate.connection")
+      : null;
+  const modRoleLockedReason = !canManageIntegrations
+    ? t("shared.noPermission")
+    : !canChangeModRole
+      ? t("capabilityGate.modRole")
+      : null;
+
   const handleSaveConfig = async (andStart = false) => {
     // The disabled attribute on the buttons below is only the affordance --
     // this early return is the real gate, in case another path ever calls
     // this handler directly (bug-hunt-2026-08-27 floor rule).
     if (!canManageIntegrations) return;
+    // Same floor for the locked connection and role fields.
+    const changesBotConnection =
+      Boolean(token) ||
+      guildId !== (config?.guildId || "") ||
+      adminRoleId !== (config?.adminRoleId || "");
+    const changesModRole = modRoleId !== (config?.modRoleId || "");
+    if (
+      (changesBotConnection && !canChangeBotConnection) ||
+      (changesModRole && !canChangeModRole)
+    ) {
+      return;
+    }
     try {
       setSaving(true);
       setConfigMessage(null);
@@ -1393,11 +1443,11 @@ export default function Discord() {
                     <ChevronLeft className="w-4 h-4 me-1" /> {t("wizard.step5.back")}
                   </Button>
                   <div className="flex gap-2">
-                    <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
+                    <DisabledReason reason={botConnectionLockedReason}>
                     <Button
                       variant="outline"
                       onClick={() => handleSaveConfig(false)}
-                      disabled={saving || !canSaveConfig || !canManageIntegrations}
+                      disabled={saving || !canSaveConfig || !!botConnectionLockedReason}
                     >
                       {saving ? (
                         <RefreshCw className="w-4 h-4 me-2 animate-spin" />
@@ -1407,10 +1457,10 @@ export default function Discord() {
                       {t("wizard.step5.saveDraft")}
                     </Button>
                     </DisabledReason>
-                    <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
+                    <DisabledReason reason={botConnectionLockedReason}>
                     <Button
                       onClick={() => handleSaveConfig(true)}
-                      disabled={saving || !canSaveConfig || !canManageIntegrations}
+                      disabled={saving || !canSaveConfig || !!botConnectionLockedReason}
                     >
                       {saving ? (
                         <RefreshCw className="w-4 h-4 me-2 animate-spin" />
@@ -1904,6 +1954,7 @@ export default function Discord() {
             </Label>
             <div className="flex gap-2">
               <div className="relative flex-1">
+                <DisabledReason reason={botConnectionLockedReason} className="w-full">
                 <Input
                   id="token"
                   type={showToken ? "text" : "password"}
@@ -1920,7 +1971,9 @@ export default function Discord() {
                   }
                   className="pe-10"
                   maxLength={200}
+                  disabled={!!botConnectionLockedReason}
                 />
+                </DisabledReason>
                 <Button
                   type="button"
                   variant="ghost"
@@ -1977,6 +2030,7 @@ export default function Discord() {
                 <Server className="w-4 h-4" />
                 {t("management.configuration.guildIdLabel")}
               </Label>
+              <DisabledReason reason={botConnectionLockedReason} className="w-full">
               <Input
                 id="guildId"
                 value={guildId}
@@ -1984,7 +2038,9 @@ export default function Discord() {
                 placeholder="123456789012345678"
                 className="font-mono"
                 maxLength={20}
+                disabled={!!botConnectionLockedReason}
               />
+              </DisabledReason>
               <p className="text-xs text-muted-foreground">
                 {t("management.configuration.guildIdHelp")}
               </p>
@@ -2025,6 +2081,7 @@ export default function Discord() {
                 <Lock className="w-4 h-4 text-primary" />
                 {t("management.configuration.adminRoleLabel")}
               </Label>
+              <DisabledReason reason={botConnectionLockedReason} className="w-full">
               <Input
                 id="adminRoleId"
                 value={adminRoleId}
@@ -2032,7 +2089,9 @@ export default function Discord() {
                 placeholder={t("management.configuration.adminRolePlaceholder")}
                 className="font-mono"
                 maxLength={20}
+                disabled={!!botConnectionLockedReason}
               />
+              </DisabledReason>
               <p className="text-xs text-muted-foreground">
                 {t("management.configuration.adminRoleHelp")}
               </p>
@@ -2049,6 +2108,7 @@ export default function Discord() {
                 <Shield className="w-4 h-4 text-primary" />
                 {t("management.configuration.modRoleLabel")}
               </Label>
+              <DisabledReason reason={modRoleLockedReason} className="w-full">
               <Input
                 id="modRoleId"
                 value={modRoleId}
@@ -2056,7 +2116,9 @@ export default function Discord() {
                 placeholder={t("management.configuration.modRolePlaceholder")}
                 className="font-mono"
                 maxLength={20}
+                disabled={!!modRoleLockedReason}
               />
+              </DisabledReason>
               <p className="text-xs text-muted-foreground">
                 {t("management.configuration.modRoleHelp")}
               </p>

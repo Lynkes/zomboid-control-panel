@@ -2449,6 +2449,14 @@ export const ErrorCode = Object.freeze({
   /** server/routes/playerCharacter.js -- GET /api/player-character/:username,
    * the character sheet couldn't be read (generic 500; no raw error text). */
   CHARACTER_SHEET_FAILED: "CHARACTER_SHEET_FAILED",
+
+  /* Discord bot config capability gate (security sweep AUTHZ-3) */
+  /** server/routes/discord.js -- PUT /config, 403, params {detail} (the
+   * missing capability keys, comma-joined). The caller changed the bot
+   * token, the guild ID, the admin role ID or the mod role ID without
+   * holding every capability of the bot commands that change unlocks --
+   * same policy as DISCORD_PERMISSIONS_CAPABILITY_REQUIRED. */
+  DISCORD_CONFIG_CAPABILITY_REQUIRED: "DISCORD_CONFIG_CAPABILITY_REQUIRED",
 });
 
 /**

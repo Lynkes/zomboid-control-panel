@@ -345,5 +345,9 @@
     "wipeConfirmLabel": "Discord-Einstellungen unwiderruflich löschen",
     "wipeSuccess": "Discord-Bot-Einstellungen unwiderruflich gelöscht. Die Einrichtung kann von vorn begonnen werden.",
     "wipeFailedFallback": "Discord-Einstellungen konnten nicht gelöscht werden"
+  },
+  "capabilityGate": {
+    "connection": "Ändern kann das nur, wer alle Berechtigungen besitzt, die die Bot-Befehle erfordern: Der Eigentümer des Discord-Servers des Bots und alle mit seiner Admin-Rolle können jeden Befehl ausführen.",
+    "modRole": "Ändern kann das nur, wer die Berechtigungen besitzt, die die Befehle der Stufe „Moderator“ erfordern: Alle mit dieser Rolle können diese Befehle ausführen."
   }
 }

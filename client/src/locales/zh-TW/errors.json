@@ -580,5 +580,6 @@
   "FM_TOO_MANY_ENTRIES": "要刪除的項目太多，無法一次完成（超過 {{limit}} 個）。已刪除的內容會保持刪除狀態；請再執行一次以完成刪除。",
   "FM_SECRET_NAME_REQUIRED": "此檔案包含檔案管理員會隱藏的密碼。請在新名稱中保留 .ini，這些密碼才會繼續隱藏。",
   "CHARACTER_INVALID_SECTIONS": "要求了未知的角色資料區段。",
-  "CHARACTER_SHEET_FAILED": "無法讀取此角色。"
+  "CHARACTER_SHEET_FAILED": "無法讀取此角色。",
+  "DISCORD_CONFIG_CAPABILITY_REQUIRED": "變更這些 Discord 設定會讓他人能夠使用需要 {{detail}} 的機器人命令，而您自己並未擁有這些權限項目。"
 }

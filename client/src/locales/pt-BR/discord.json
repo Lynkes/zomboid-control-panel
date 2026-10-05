@@ -327,5 +327,9 @@
     "wipeConfirmLabel": "Apagar configurações do Discord",
     "wipeSuccess": "Configurações do bot do Discord apagadas. Você pode refazer a configuração do zero.",
     "wipeFailedFallback": "Falha ao apagar as configurações do Discord"
+  },
+  "capabilityGate": {
+    "connection": "Só pode alterar isto quem tem todas as permissões que os comandos do bot exigem: o proprietário do servidor do Discord do bot e qualquer pessoa com o cargo de admin dele podem executar todos os comandos.",
+    "modRole": "Só pode alterar isto quem tem as permissões que os comandos de nível Moderador exigem: qualquer pessoa com este cargo pode executar esses comandos."
   }
 }

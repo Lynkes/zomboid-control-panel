@@ -345,5 +345,9 @@
     "wipeConfirmLabel": "Borrar configuración de Discord",
     "wipeSuccess": "Configuración del bot de Discord borrada por completo. Se puede empezar la configuración desde cero.",
     "wipeFailedFallback": "No se pudo borrar la configuración de Discord"
+  },
+  "capabilityGate": {
+    "connection": "Solo puede cambiar esto quien tenga todos los permisos que requieren los comandos del bot: el propietario del servidor de Discord del bot y cualquiera con su rol de administrador pueden ejecutar todos los comandos.",
+    "modRole": "Solo puede cambiar esto quien tenga los permisos que requieren los comandos de nivel Moderador: cualquiera con este rol puede ejecutar esos comandos."
   }
 }

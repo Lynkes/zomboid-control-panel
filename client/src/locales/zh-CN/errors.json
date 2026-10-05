@@ -580,5 +580,6 @@
   "FM_TOO_MANY_ENTRIES": "要删除的项目太多，无法一次完成（超过 {{limit}} 个）。已删除的内容会保持删除状态；请再运行一次以完成删除。",
   "FM_SECRET_NAME_REQUIRED": "此文件包含文件管理器会隐藏的密码。请在新名称中保留 .ini，这些密码才会继续隐藏。",
   "CHARACTER_INVALID_SECTIONS": "请求了未知的角色数据分区。",
-  "CHARACTER_SHEET_FAILED": "无法读取此角色。"
+  "CHARACTER_SHEET_FAILED": "无法读取此角色。",
+  "DISCORD_CONFIG_CAPABILITY_REQUIRED": "更改这些 Discord 设置会让他人能够使用需要 {{detail}} 的机器人命令，而您自己并不拥有这些权限项。"
 }

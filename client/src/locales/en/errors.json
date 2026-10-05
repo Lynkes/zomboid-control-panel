@@ -580,5 +580,6 @@
   "FM_TOO_MANY_ENTRIES": "There are too many items to delete in one go (more than {{limit}}). What was already deleted stays deleted; run it again to finish.",
   "FM_SECRET_NAME_REQUIRED": "This file holds passwords the file manager keeps masked. Keep .ini in the new name so they stay masked.",
   "CHARACTER_INVALID_SECTIONS": "Unknown character section requested.",
-  "CHARACTER_SHEET_FAILED": "Couldn't read this character."
+  "CHARACTER_SHEET_FAILED": "Couldn't read this character.",
+  "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Changing these Discord settings would let people run bot commands that need {{detail}}, which you don't hold yourself."
 }

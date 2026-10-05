@@ -580,5 +580,6 @@
   "FM_TOO_MANY_ENTRIES": "Es sind zu viele Elemente, um sie auf einmal zu löschen (mehr als {{limit}}). Bereits Gelöschtes bleibt gelöscht; starte den Vorgang erneut, um ihn abzuschließen.",
   "FM_SECRET_NAME_REQUIRED": "Diese Datei enthält Passwörter, die der Dateimanager ausblendet. Behalte .ini im neuen Namen, damit sie ausgeblendet bleiben.",
   "CHARACTER_INVALID_SECTIONS": "Unbekannter Charakterabschnitt angefordert.",
-  "CHARACTER_SHEET_FAILED": "Dieser Charakter konnte nicht gelesen werden."
+  "CHARACTER_SHEET_FAILED": "Dieser Charakter konnte nicht gelesen werden.",
+  "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Wenn du diese Discord-Einstellungen änderst, könnten andere Bot-Befehle ausführen, die {{detail}} erfordern – Rechte, die du selbst nicht besitzt."
 }

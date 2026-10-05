@@ -345,5 +345,9 @@
     "wipeConfirmLabel": "清除 Discord 设置",
     "wipeSuccess": "Discord 机器人设置已清除。可以从头开始设置。",
     "wipeFailedFallback": "清除 Discord 设置失败"
+  },
+  "capabilityGate": {
+    "connection": "只有拥有机器人所有命令所需全部权限的人才能更改此项：机器人所在 Discord 服务器的所有者，以及拥有其管理员角色的任何人，都可以使用每一条命令。",
+    "modRole": "只有拥有「协管员」等级命令所需权限的人才能更改此项：拥有此角色的任何人都可以使用这些命令。"
   }
 }

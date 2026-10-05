@@ -327,5 +327,9 @@
     "wipeConfirmLabel": "Wipe Discord Settings",
     "wipeSuccess": "Discord bot settings wiped. You can start setup from scratch.",
     "wipeFailedFallback": "Failed to wipe Discord settings"
+  },
+  "capabilityGate": {
+    "connection": "Only someone who holds every permission the bot's commands need can change this: the owner of the bot's Discord server and anyone with its admin role can run every command.",
+    "modRole": "Only someone who holds the permissions the Moderator-tier commands need can change this: anyone with this role can run those commands."
   }
 }

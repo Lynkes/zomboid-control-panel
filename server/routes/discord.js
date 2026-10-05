@@ -35,6 +35,41 @@ const DISCORD_COMMAND_CAPABILITY = {
   rcon: "rcon.execute",
 };
 
+// Which capabilities a PUT /config change hands out through Discord, and so
+// which ones the caller must already hold (security sweep AUTHZ-3, same rule
+// as PUT /permissions below: you cannot hand out an authority through
+// Discord that you do not hold yourself in the panel).
+// - token / guildId: whoever owns the guild the bot answers in, and its
+//   Discord Administrators, pass discordBot.checkPermission() for every
+//   command whatever its tier -- swapping in your own bot or guild makes
+//   you that owner.
+// - adminRoleId: holders of the admin role likewise pass for every command.
+// - modRoleId: holders of the mod role pass for the commands currently at
+//   the "moderator" tier.
+// Any change counts, clearing one included: an unchanged resend (the
+// settings page resends every field on each save) never needs anything.
+const EVERY_DISCORD_COMMAND_CAPABILITY = [
+  ...new Set(Object.values(DISCORD_COMMAND_CAPABILITY).filter(Boolean)),
+];
+
+function capabilitiesUnlockedByConfigChange(changed, discordBot) {
+  const required = new Set();
+  if (changed.includes("token") || changed.includes("guildId") || changed.includes("adminRoleId")) {
+    for (const capability of EVERY_DISCORD_COMMAND_CAPABILITY) {
+      required.add(capability);
+    }
+  }
+  if (changed.includes("modRoleId")) {
+    const commandPermissions = discordBot.getCommandPermissions();
+    for (const [command, capability] of Object.entries(DISCORD_COMMAND_CAPABILITY)) {
+      if (capability && commandPermissions[command] === "moderator") {
+        required.add(capability);
+      }
+    }
+  }
+  return [...required];
+}
+
 // Bot config/lifecycle/permissions — "config" is technician's job per the
 // role brief; moderator has no need to reconfigure the Discord integration.
 // Applied once at the router level (matches panelBridge.js's identical
@@ -201,6 +236,43 @@ router.put("/config", async (req, res) => {
       // whether a full Discord reconnection is actually needed.
       const prevToken = discordBot.token;
       const prevGuildId = discordBot.guildId;
+
+      // Refuse before anything is written: see
+      // capabilitiesUnlockedByConfigChange() above. Role IDs compare
+      // normalized because updateConfig() stores a missing one as "" and
+      // loadConfig() reads it back as "".
+      const changed = [];
+      if (prevToken !== finalToken) changed.push("token");
+      if ((prevGuildId || null) !== (guildId || null)) changed.push("guildId");
+      if ((discordBot.adminRoleId || null) !== (adminRoleId || null)) {
+        changed.push("adminRoleId");
+      }
+      if ((discordBot.modRoleId || null) !== (modRoleId || null)) {
+        changed.push("modRoleId");
+      }
+      const requiredCapabilities = capabilitiesUnlockedByConfigChange(
+        changed,
+        discordBot,
+      );
+      if (requiredCapabilities.length > 0) {
+        const role = req.user ? await getRoleByName(req.user.role) : null;
+        const callerCapabilities = Array.isArray(role?.capabilities)
+          ? role.capabilities
+          : [];
+        const missing = requiredCapabilities.filter(
+          (capability) => !callerCapabilities.includes(capability),
+        );
+        if (missing.length > 0) {
+          const detail = missing.join(", ");
+          return res.status(403).json({
+            error: `Changing these Discord settings would let people run bot commands that need ${detail}, which you don't hold yourself.`,
+            code: ErrorCode.DISCORD_CONFIG_CAPABILITY_REQUIRED,
+            params: sanitizeErrorParams({ detail }),
+            changed,
+            missing,
+          });
+        }
+      }
 
       await discordBot.updateConfig(
         finalToken,

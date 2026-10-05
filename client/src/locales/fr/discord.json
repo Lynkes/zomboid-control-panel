@@ -345,5 +345,9 @@
     "wipeConfirmLabel": "Réinitialiser les paramètres Discord",
     "wipeSuccess": "Paramètres du bot Discord réinitialisés. Vous pouvez recommencer la configuration depuis le début.",
     "wipeFailedFallback": "Échec de la réinitialisation des paramètres Discord"
+  },
+  "capabilityGate": {
+    "connection": "Seule une personne détenant toutes les permissions requises par les commandes du bot peut modifier ceci : le propriétaire du serveur Discord du bot et toute personne ayant son rôle admin peuvent exécuter toutes les commandes.",
+    "modRole": "Seule une personne détenant les permissions requises par les commandes de niveau Modérateur peut modifier ceci : toute personne ayant ce rôle peut exécuter ces commandes."
   }
 }
