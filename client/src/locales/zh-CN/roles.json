@@ -53,6 +53,7 @@
     "reassignLabel": "将成员转移至",
     "reassignTip": "此角色的所有成员会一次性全部转移到您在此处选择的角色——无法通过此对话框将他们分配到不同的角色。如需分别为不同用户指定不同角色，请取消并改用下方的「为用户分配角色」表格。",
     "reassignPlaceholder": "选择角色…",
+    "reassignExceedsYours": "您并未拥有此角色授予的全部权限项，因此无法将成员转移到该角色。",
     "cancel": "取消",
     "confirm": "删除角色",
     "confirming": "正在删除…"
