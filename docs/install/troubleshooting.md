@@ -276,21 +276,23 @@ and is refused: about 1 in 14,000 UUIDs or 32-digit tokens, and hardly
 ever 48 digits (`openssl rand -hex 24` and the first PowerShell line). If
 that happens, run the command again.
 
-**Don't use `echo $RANDOM | md5sum`** (or `sha256sum`), or anything else
-built on bash's `$RANDOM` or cmd's `%RANDOM%`: each is one of only 32,768
-numbers, so anyone can work out every token it can make. The panel
+**Don't use `echo $RANDOM | md5sum` or `date | md5sum`** (or `sha256sum`),
+or anything else built on bash's `$RANDOM`, cmd's `%RANDOM%` or the time:
+`$RANDOM` is one of only 32,768 numbers, and the time to the second one of
+86,400 a day, so anyone can work out every token they can make. The panel
 refuses the usual `$RANDOM` hashes, but don't count on it to catch every
-variation. The same goes for hashing a word or the date: the panel
-refuses hashes of the obvious words, but it can't know every word you
-might pick.
+variation, and it can't tell a hash of the time from random hex at all.
+The same goes for hashing a word: the panel refuses hashes of the obvious
+words, but it can't know every word you might pick.
 
 The panel refuses what a stranger could guess: words, a sentence or a phrase
 (`zomboid-control-panel-reset-token`), a number on its own (the digits of
 pi, a date), hex words (`deadbeefcafe…`), repeated or sequential characters
 (`aaaa`, `abcd`, `4321`), keyboard patterns (`qwerty`, `1qaz2wsx`), the same
-stretch repeated, or runs interleaved (`a1b2c3`); text written as hex (a
-phrase run through `xxd -p`, Python's `.hex()`, PowerShell's
-`[Convert]::ToHexString` or an online text-to-hex converter); hashes of
+stretch repeated, or runs interleaved (`a1b2c3`); text written as hex, in
+most languages and encodings (a phrase run through `xxd -p`, Python's
+`.hex()`, PowerShell's `[Convert]::ToHexString` or an online text-to-hex
+converter); hashes of
 `$RANDOM` or of common words; and UUIDs printed as examples
 (`123e4567-e89b-12d3-a456-426614174000` and the like). It refuses a password
 manager's letters and symbols too, since it can't tell those from words;
