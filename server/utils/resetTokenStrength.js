@@ -62,8 +62,12 @@
  * who guessed the phrase or the hash reset the admin password. So a token
  * whose hex reads as text (resetTokenReadsAsText()) or is a well-known
  * value (isWellKnownResetToken()) is refused too. Random hex reads as text
- * now and then, about 33 times in a million for 32 characters and once in
- * five million for 48; the well-known values never come up by chance.
+ * now and then, about 36 times in a million for 32 characters or a UUID
+ * and once in a few million for 48; the well-known values never come up by
+ * chance. Round 4 of the verification found more of both that passed
+ * (resetTokenReadsAsText(), isWellKnownResetToken()); all told, about 1 in
+ * 14,000 random tokens of 32 characters or UUIDs is refused, and hardly
+ * ever one of 48.
  */
 
 import crypto from "crypto";
@@ -218,17 +222,26 @@ function hasGeneratorMix(hex) {
 // from the second in case one was added or lost -- and a token is refused
 // when the bytes read as text:
 //   - nine in ten of them printable ASCII (tabs and line breaks included);
-//   - or UTF-8 text all through, with at least two characters beyond ASCII
-//     (Cyrillic, Greek, Arabic, Chinese, accented letters...), the last
-//     one allowed to be cut off;
+//   - or UTF-8 text all through, with at least one character beyond ASCII
+//     (Cyrillic, Greek, Arabic, Chinese, accented letters, curly quotes,
+//     emoji...), the last one allowed to be cut off;
 //   - or nine in ten of their 16-bit units, in either byte order, printable
-//     ASCII, Latin, Greek, Cyrillic or common punctuation (UTF-16).
+//     ASCII or in a script's block (UTF16_TEXT_RANGES).
 // Random bytes are printable ASCII 98 times in 256, so of a million random
-// tokens of 32 hex characters about 33 read as text, and about 32 of a
-// million UUIDs, on top of the refusals above; of 48, one in five million
-// (the panel's own button draws again). UTF-16 Chinese or Japanese isn't
-// looked for: those characters fill a third of the 16-bit range, so random
-// bytes would read as them far too often.
+// tokens of 32 hex characters about 36 read as text, and about as many of a
+// million UUIDs, on top of the refusals above; of 48, one in a few million
+// (the panel's own button draws again). Two kinds of text aren't looked
+// for, because random bytes look like them too often:
+//   - UTF-16 Chinese characters and Korean syllables, half of the 16-bit
+//     range; telling the common ones apart needs character tables the
+//     panel's packaged builds don't carry (their Node has no
+//     legacy-encoding decoders);
+//   - a single-byte code page (Latin-1, Windows-1252: Python's
+//     .encode('latin-1'), Windows PowerShell's [Text.Encoding]::Default)
+//     with accented letters for more than a tenth of it. Those letters are
+//     a quarter of all byte values: counting even two of them as text, with
+//     every other byte printable ASCII, refuses about 35 more random tokens
+//     of 32 hex characters in a million, doubling the refusals for text.
 const TEXT_SHARE = 0.9;
 
 function isAsciiTextByte(byte) {
@@ -259,6 +272,13 @@ function isMostlyAscii(bytes) {
   return text >= bytes.length * TEXT_SHARE;
 }
 
+// SECURITY (2026-10-05, A2): round 4 of the verification. This wanted two
+// characters beyond ASCII, so a phrase with one -- an accented letter, the
+// curly apostrophe or dash macOS, iOS and Word type for you, an emoji --
+// that wasn't also nine tenths ASCII passed: `echo -n "Zomboid’s reset
+// token" | xxd -p`. One is enough when every other byte is printable ASCII
+// and every other sequence valid UTF-8; that refuses about 4 more random
+// tokens in a million of 32 hex characters or UUIDs, and none of 48.
 function isUtf8Text(bytes) {
   let beyondAscii = 0;
   for (let i = 0; i < bytes.length; ) {
@@ -267,21 +287,31 @@ function isUtf8Text(bytes) {
       continue;
     }
     const length = utf8CharLength(bytes, i);
-    if (length === -1) break;
     if (length === 0) return false;
     beyondAscii += 1;
+    if (length === -1) break;
     i += length;
   }
-  return beyondAscii >= 2;
+  return beyondAscii >= 1;
 }
 
+// SECURITY (2026-10-05, A2): round 4 of the verification. Latin, Greek and
+// Cyrillic only let UTF-16 text in Arabic (the panel ships an Arabic
+// translation), Hebrew, the Indic scripts, Thai or kana pass. These blocks
+// are small: with them, 5.7% of the 16-bit range counts as text, so eight
+// random units in eight are about once in ten billion.
+const UTF16_TEXT_RANGES = [
+  [0x00a0, 0x06ff], // accented Latin, Greek, Cyrillic, Armenian, Hebrew, Arabic, Persian
+  [0x0900, 0x0e7f], // Devanagari and the other Indic scripts, Sinhala, Thai
+  [0x2000, 0x206f], // dashes, curly quotes and the rest of general punctuation
+  [0x3000, 0x30ff], // CJK punctuation, hiragana, katakana
+  [0xfeff, 0xfeff], // a byte order mark
+  [0xff00, 0xffef], // full-width punctuation and letters, half-width kana
+];
+
 function isUtf16TextUnit(unit) {
-  return (
-    (unit < 0x80 && isAsciiTextByte(unit)) ||
-    (unit >= 0xa0 && unit <= 0x52f) ||
-    (unit >= 0x2000 && unit <= 0x206f) ||
-    unit === 0xfeff
-  );
+  if (unit < 0x80) return isAsciiTextByte(unit);
+  return UTF16_TEXT_RANGES.some(([first, last]) => unit >= first && unit <= last);
 }
 
 function isMostlyUtf16Text(bytes, littleEndian) {
@@ -312,12 +342,15 @@ export function resetTokenReadsAsText(token) {
 // does come from a generator, but from so few inputs that it's the first
 // thing an attacker tries:
 //   - a hash of bash's $RANDOM, a number from 0 to 32767: `echo $RANDOM |
-//     md5sum | head -c 32`, or sha1sum, sha256sum or sha512sum, echo -n or
-//     printf, the whole hash or its first 32 characters or more;
-//   - a hash of nothing, of a line break, or of a word anyone would try;
+//     md5sum | head -c 32`, or sha1sum, sha224sum, sha256sum, sha384sum or
+//     sha512sum, echo -n or printf, the whole hash or its first 32
+//     characters or more; or of cmd's %RANDOM%, the same numbers, written
+//     to a file and hashed with certutil -hashfile or Get-FileHash;
+//   - a hash of nothing, of a line break, or of a word anyone would try,
+//     as typed, capitalized or in capitals;
 //   - the nil UUID and the UUIDs printed as examples: in RFC 4122 and RFC
 //     9562 (their namespaces and test vectors), on Wikipedia, in Python's
-//     uuid docs and Swagger's.
+//     uuid docs and Swagger's, in PostgreSQL's, SQL Server's and MySQL's.
 // A random token is one of these about as often as it guesses a hash, so
 // they cost no legitimate token anything.
 const WELL_KNOWN_UUIDS = new Set(
@@ -352,6 +385,11 @@ const WELL_KNOWN_UUIDS = new Set(
     "16fd2706-8baf-433b-82eb-8c7fada847da",
     "886313e1-3b8a-5372-9b90-0c9aee199e5d",
     "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    // PostgreSQL's uuid type, SQL Server's uniqueidentifier and MySQL's
+    // UUID() docs (round 4 of the verification).
+    "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+    "6f9619ff-8b86-d011-b42d-00c04fc964ff",
+    "6ccd780c-baba-1026-9564-5b8c656024db",
   ].map((uuid) => uuid.replaceAll("-", "")),
 );
 
@@ -385,14 +423,44 @@ const COMMON_WORDS = [
   "123456",
   "12345678",
   "123456789",
+  // Round 4 of the verification: with a digit or two added.
+  "password1",
+  "password123",
+  "passw0rd",
+  "p@ssw0rd",
+  "admin1",
+  "admin123",
+  "changeme1",
+  "changeme123",
+  "qwerty123",
+  "abc123",
+  "zomboid1",
+  "zomboid123",
 ];
 
-// Every hash of those inputs, kept as the first 32 bits of each
-// (knownHashDigest() says which input, line break and algorithm an entry
-// is) and grouped by their first 16 bits, so a lookup hashes again only the
-// few entries that share a token's first 32: under 4 MB with the inputs,
+// How each input gets hashed: the algorithm, and what follows the number or
+// word. echo -n or printf, and echo, piped to md5sum ... sha512sum: nothing,
+// or a line break. SECURITY (2026-10-05, A2): round 4 of the verification
+// added sha224sum and sha384sum, and cmd's `echo %RANDOM%>file` or `echo
+// %RANDOM% > file` hashed with certutil -hashfile (SHA1 unless told
+// otherwise) or Get-FileHash (SHA256): a Windows line break, after a space
+// in the second form.
+const KNOWN_HASH_FORMS = [
+  ...["md5", "sha1", "sha224", "sha256", "sha384", "sha512"].flatMap((algorithm) => [
+    [algorithm, ""],
+    [algorithm, "\n"],
+  ]),
+  ...["md5", "sha1", "sha256"].flatMap((algorithm) => [
+    [algorithm, "\r\n"],
+    [algorithm, " \r\n"],
+  ]),
+];
+
+// Every hash of those inputs in each of those forms, kept as the first 32
+// bits of each (knownHashDigest() says which input and form an entry is)
+// and grouped by their first 16 bits, so a lookup hashes again only the
+// few entries that share a token's first 32: under 6 MB with the inputs,
 // where the hashes as strings would take several times that.
-const KNOWN_HASH_ALGORITHMS = ["md5", "sha1", "sha256", "sha512"];
 const KNOWN_HASH_SLICE = 2048;
 let knownHashInputs = null;
 let knownHashes = null;
@@ -403,8 +471,8 @@ const hexDigest =
     : (algorithm, input) => crypto.createHash(algorithm).update(input).digest("hex");
 
 function knownHashDigest(entry) {
-  const input = knownHashInputs[entry >> 3] + ((entry >> 2) & 1 ? "\n" : "");
-  return hexDigest(KNOWN_HASH_ALGORITHMS[entry & 3], input);
+  const [algorithm, ending] = KNOWN_HASH_FORMS[entry % KNOWN_HASH_FORMS.length];
+  return hexDigest(algorithm, knownHashInputs[Math.floor(entry / KNOWN_HASH_FORMS.length)] + ending);
 }
 
 // Works out up to `count` more of the hashes, and groups them once they're
@@ -412,11 +480,17 @@ function knownHashDigest(entry) {
 function fillKnownHashes(count) {
   if (!knownHashes) {
     const capitalized = COMMON_WORDS.map((word) => word.charAt(0).toUpperCase() + word.slice(1));
+    const capitals = COMMON_WORDS.map((word) => word.toUpperCase());
     knownHashInputs = [
       ...Array.from({ length: 32768 }, (_, n) => String(n)),
-      ...new Set([...COMMON_WORDS, ...capitalized]),
+      ...new Set([...COMMON_WORDS, ...capitalized, ...capitals]),
     ];
-    knownHashes = { prefixes: new Uint32Array(knownHashInputs.length * 8), filled: 0, starts: null, order: null };
+    knownHashes = {
+      prefixes: new Uint32Array(knownHashInputs.length * KNOWN_HASH_FORMS.length),
+      filled: 0,
+      starts: null,
+      order: null,
+    };
   }
   const { prefixes } = knownHashes;
   const end = Math.min(prefixes.length, knownHashes.filled + count);
@@ -439,16 +513,27 @@ function fillKnownHashes(count) {
   return knownHashes.order !== null;
 }
 
+let preparing = null;
+
 /**
  * Works out the hashes isWellKnownResetToken() needs, a slice at a time so
- * the event loop keeps turning: about 260,000 of them, some 200 ms of work
- * in slices of a few ms, once per process and only once a token file turns
- * up. Without it the first check does it all in one go.
+ * the event loop keeps turning: about 590,000 of them, half a second of
+ * work in slices of a few ms, once per process. Without it the first check
+ * does it all in one go.
+ *
+ * SECURITY (2026-10-05, A2): round 4 of the verification. Callers that ask
+ * while it's under way wait for the same work; each used to run its own
+ * slices, and Node runs every queued setImmediate callback in one go, so
+ * 50 requests arriving together held up the event loop for 50 slices at a
+ * time.
  */
-export async function prepareResetTokenChecks() {
-  while (!fillKnownHashes(KNOWN_HASH_SLICE)) {
-    await new Promise((resolve) => setImmediate(resolve));
-  }
+export function prepareResetTokenChecks() {
+  preparing ??= (async () => {
+    while (!fillKnownHashes(KNOWN_HASH_SLICE)) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+  })();
+  return preparing;
 }
 
 function isKnownHash(hex) {
@@ -494,11 +579,29 @@ export function resetTokenWeakness(token) {
  * (Notepad, PowerShell's -Encoding utf8) or UTF-16's, which Windows
  * PowerShell 5.1 writes for `openssl rand -hex 24 > data\reset-token.txt`
  * and Out-File, so the token reads the same whichever wrote it.
+ *
+ * SECURITY (2026-10-05, A2): round 4 of the verification. And UTF-32's,
+ * which Set-Content -Encoding utf32 writes: its little-endian mark starts
+ * like UTF-16's, so it was read as UTF-16 and refused as "not hex".
  */
 export function decodeResetTokenFile(bytes) {
   const evenEnd = bytes.length - (bytes.length % 2);
   let text;
-  if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+  const utf32 =
+    bytes[0] === 0xff && bytes[1] === 0xfe && bytes[2] === 0 && bytes[3] === 0
+      ? "le"
+      : bytes[0] === 0 && bytes[1] === 0 && bytes[2] === 0xfe && bytes[3] === 0xff
+        ? "be"
+        : null;
+  if (utf32) {
+    const chars = [];
+    for (let i = 4; i + 4 <= bytes.length; i += 4) {
+      const codePoint = utf32 === "le" ? bytes.readUInt32LE(i) : bytes.readUInt32BE(i);
+      // Not a character at all: anything that isn't hex is refused anyway.
+      chars.push(codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : "?");
+    }
+    text = chars.join("");
+  } else if (bytes[0] === 0xff && bytes[1] === 0xfe) {
     text = bytes.subarray(2, evenEnd).toString("utf16le");
   } else if (bytes[0] === 0xfe && bytes[1] === 0xff) {
     text = Buffer.from(bytes.subarray(2, evenEnd)).swap16().toString("utf16le");

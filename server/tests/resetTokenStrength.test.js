@@ -236,6 +236,48 @@ describe("reset-token: text written as hex", () => {
     expect(resetTokenWeakness(token)).toBe("hex-text");
   });
 
+  // Round 4: UTF-8 with a single character beyond ASCII -- one accented
+  // letter, the curly apostrophe or dash macOS, iOS and Word type for you,
+  // an emoji -- was neither nine-tenths ASCII nor two characters beyond it,
+  // so `echo -n "Zomboid’s reset token" | xxd -p` passed.
+  it.each([
+    ["one accented letter", hexOf("Passwort zurück")],
+    ["one accented letter, upper-case", hexOf("Réinitialisation").toUpperCase()],
+    ["one accented letter, BitConverter", bytePairs(hexOf("Passwort zurück").toUpperCase())],
+    ["one ñ", hexOf("contraseña olvi")],
+    ["one curly apostrophe", hexOf("Zomboid’s reset token")],
+    ["one en dash", hexOf("Zomboid – Panel Reset 2026")],
+    ["one emoji", hexOf("Zomboid reset 🔑")],
+    ["one emoji in a longer phrase", hexOf("My zomboid server 🧟 reset")],
+    ["its one emoji cut off at 32 digits", hexOf("Zomboid reset 🔑").slice(0, 32)],
+    ["one accented letter, a digit added in front", `7${hexOf("Passwort zurück")}`],
+  ])("refuses UTF-8 text with %s", (_label, token) => {
+    expect(token.replaceAll("-", "").length).toBeGreaterThanOrEqual(32);
+    expect(resetTokenReadsAsText(token)).toBe(true);
+    expect(resetTokenWeakness(token)).toBe("hex-text");
+  });
+
+  // Round 4: UTF-16 text was looked for in Latin, Greek and Cyrillic only;
+  // Arabic (the panel ships an Arabic translation), Hebrew, the Indic
+  // scripts, Thai and kana passed.
+  const utf16be = (text) => Buffer.from(text, "utf16le").swap16().toString("hex");
+  it.each([
+    ["Arabic", "إعادة تعيين كلمة المرور للوحة"],
+    ["Arabic, short", "كلمة سر اللوحة"],
+    ["Persian", "بازنشانی رمز عبور"],
+    ["Hebrew", "איפוס סיסמה ללוח"],
+    ["Armenian", "գաղտնաբառի վերականգնում"],
+    ["Hindi", "पासवर्ड रीसेट करें"],
+    ["Thai", "รีเซ็ตรหัสผ่าน"],
+    ["katakana", "パスワードリセット"],
+    ["hiragana and full-width punctuation", "ぱすわーど、りせっと！"],
+  ])("refuses %s as UTF-16 hex, in either byte order", (_label, phrase) => {
+    for (const token of [hexOf(phrase, "utf16le"), hexOf(phrase, "utf16le").toUpperCase(), `fffe${hexOf(phrase, "utf16le")}`, utf16be(phrase)]) {
+      expect(token.length).toBeGreaterThanOrEqual(32);
+      expect(resetTokenWeakness(token)).toBe("hex-text");
+    }
+  });
+
   it("doesn't read random hex as text", () => {
     for (const token of [...sample("text-hex48", HEX, 48, 20000), ...sample("text-hex64", HEX, 64, 2000)]) {
       expect(resetTokenReadsAsText(token)).toBe(false);
@@ -306,6 +348,43 @@ describe("reset-token: well-known values", () => {
     expect(resetTokenWeakness(uuid)).toBe("well-known");
   });
 
+  // Round 4: the near variants. cmd's `echo %RANDOM%> file` (or with a
+  // space before the >) hashed with certutil -hashfile or Get-FileHash, so
+  // a Windows line break; coreutils' sha224sum and sha384sum; common words
+  // with a digit or in capitals; the example UUIDs in database docs.
+  it.each([
+    ["cmd's echo %RANDOM%>file | certutil (SHA1)", "sha1", "12345\r\n", 40],
+    ["cmd's echo %RANDOM% > file | Get-FileHash (SHA256)", "sha256", "4242 \r\n", 64],
+    ["cmd's echo %RANDOM%>file | certutil MD5", "md5", "31337\r\n", 32],
+    ["cmd's echo %RANDOM% > file | certutil MD5", "md5", "0 \r\n", 32],
+    ["sha224sum", "sha224", "12345\n", 56],
+    ["echo -n | sha224sum | head -c 32", "sha224", "777", 32],
+    ["sha384sum | head -c 32", "sha384", "12345\n", 32],
+    ["sha384sum, whole", "sha384", "32767\n", 96],
+  ])("refuses a hash of $RANDOM: %s", (_label, algorithm, input, length) => {
+    const token = digest(algorithm, input).slice(0, length);
+    expect(isWellKnownResetToken(token)).toBe(true);
+    expect(isWellKnownResetToken(token.toUpperCase())).toBe(true);
+    expect(resetTokenWeakness(token)).toBe("well-known");
+  });
+
+  it.each([
+    ["echo password1 | md5sum", "md5", "password1\n"],
+    ["echo PASSWORD | md5sum", "md5", "PASSWORD\n"],
+    ["sha256 of admin123", "sha256", "admin123"],
+    ["echo ZOMBOID | sha1sum", "sha1", "ZOMBOID\n"],
+  ])("refuses the %s", (_label, algorithm, input) => {
+    expect(resetTokenWeakness(digest(algorithm, input))).toBe("well-known");
+  });
+
+  it.each([
+    "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+    "6F9619FF-8B86-D011-B42D-00C04FC964FF",
+    "6ccd780c-baba-1026-9564-5b8c656024db",
+  ])("refuses the database docs' example UUID %s", (uuid) => {
+    expect(resetTokenWeakness(uuid)).toBe("well-known");
+  });
+
   it("refuses the nil and max UUIDs", () => {
     for (const uuid of ["00000000-0000-0000-0000-000000000000", "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF"]) {
       expect(isWellKnownResetToken(uuid)).toBe(true);
@@ -338,6 +417,26 @@ describe("reset-token: well-known values", () => {
     expect(ticks).toBeGreaterThan(20);
     expect(fresh.isWellKnownResetToken(digest("md5", "4096\n"))).toBe(true);
   });
+
+  // Round 4: each caller used to run its own slices, and Node runs every
+  // queued setImmediate callback in one go, so 50 requests arriving
+  // together worked through 50 slices between two turns of the event loop.
+  it("shares one build among callers that ask at the same time", async () => {
+    vi.resetModules();
+    const fresh = await import("../utils/resetTokenStrength.js");
+    let ticks = 0;
+    let running = true;
+    const tick = () => {
+      ticks += 1;
+      if (running) setImmediate(tick);
+    };
+    setImmediate(tick);
+    const callers = Array.from({ length: 50 }, () => fresh.prepareResetTokenChecks());
+    await Promise.all(callers);
+    running = false;
+    expect(ticks).toBeGreaterThan(20);
+    expect(fresh.isWellKnownResetToken(digest("sha1", "4096\n"))).toBe(true);
+  });
 });
 
 // Round 3 of the A2 verification: the natural way to write the file on
@@ -347,6 +446,13 @@ describe("reset-token: well-known values", () => {
 describe("reading data/reset-token.txt", () => {
   const token = "3f9a0c7be15d42a8960e7d1fb4c2a95e0d63b8f1c7a24e59";
   const utf16le = (text) => Buffer.from(text, "utf16le");
+  const utf32 = (text, littleEndian) => {
+    const bytes = Buffer.alloc(text.length * 4);
+    Array.from(text).forEach((char, i) =>
+      littleEndian ? bytes.writeUInt32LE(char.codePointAt(0), 4 * i) : bytes.writeUInt32BE(char.codePointAt(0), 4 * i),
+    );
+    return bytes;
+  };
   it.each([
     ["a trailing line break", Buffer.from(`${token}\n`)],
     ["a Windows line break", Buffer.from(`${token}\r\n`)],
@@ -355,6 +461,10 @@ describe("reading data/reset-token.txt", () => {
     ["UTF-16LE with a byte order mark (Windows PowerShell's > and Out-File)", Buffer.concat([Buffer.from([0xff, 0xfe]), utf16le(`${token}\r\n`)])],
     ["UTF-16BE with a byte order mark", Buffer.concat([Buffer.from([0xfe, 0xff]), utf16le(`${token}\r\n`).swap16()])],
     ["UTF-16LE cut off by a byte", Buffer.concat([Buffer.from([0xff, 0xfe]), utf16le(`${token}\n`), Buffer.from([0x20])])],
+    // Round 4: Set-Content -Encoding utf32 writes UTF-32LE, whose byte order
+    // mark starts like UTF-16LE's; read as UTF-16 it was refused as not hex.
+    ["UTF-32LE with a byte order mark (Set-Content -Encoding utf32)", Buffer.concat([Buffer.from([0xff, 0xfe, 0, 0]), utf32(`${token}\r\n`, true)])],
+    ["UTF-32BE with a byte order mark", Buffer.concat([Buffer.from([0, 0, 0xfe, 0xff]), utf32(`${token}\r\n`, false)])],
   ])("reads the token from a file with %s", (_label, bytes) => {
     expect(decodeResetTokenFile(bytes)).toBe(token);
   });

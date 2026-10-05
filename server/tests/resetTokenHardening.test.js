@@ -355,6 +355,17 @@ describe("A2 round 3: hex a stranger can guess", () => {
     ["the md5 of nothing", digest("md5", "")],
     ["Wikipedia's example UUID", "123e4567-e89b-12d3-a456-426614174000"],
     ["RFC 4122's example UUID", "f81d4fae-7dec-11d0-a765-00a0c91e6bf6"],
+    // Round 4: UTF-8 with a single character beyond ASCII, UTF-16 in
+    // Arabic, and the near variants of the well-known values.
+    ["a phrase with one accented letter as hex", hexOf("Passwort zurück")],
+    ["a phrase with one curly apostrophe as hex", hexOf("Zomboid’s reset token")],
+    ["a phrase with one emoji as hex", hexOf("Zomboid reset 🔑")],
+    ["an Arabic phrase as UTF-16LE hex", hexOf("كلمة سر اللوحة", "utf16le")],
+    ["an Arabic phrase as PowerShell's BitConverter of UTF-16", hexOf("إعادة تعيين كلمة المرور", "utf16le").toUpperCase().match(/../g).join("-")],
+    ["cmd's echo %RANDOM% > file, hashed with certutil", digest("sha1", "12345 \r\n")],
+    ["echo $RANDOM | sha384sum | head -c 32", digest("sha384", "12345\n").slice(0, 32)],
+    ["echo PASSWORD | md5sum", digest("md5", "PASSWORD\n")],
+    ["PostgreSQL's example UUID", "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"],
   ])("refuses %s, even when it is typed correctly", async (_label, weak) => {
     expect(weak.replaceAll("-", "").length).toBeGreaterThanOrEqual(RESET_TOKEN_MIN_LENGTH);
     writeToken(weak);
@@ -421,6 +432,14 @@ describe("A2 round 3: the token file as each tool writes it", () => {
       Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`${token}\r\n`, "utf16le")])],
     ["as UTF-16BE with a byte order mark", () =>
       Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.from(`${token}\r\n`, "utf16le").swap16()])],
+    // Round 4: read as UTF-16, this was refused as not hex.
+    ["as UTF-32LE with a byte order mark (Set-Content -Encoding utf32)", () => {
+      const text = `${token}\r\n`;
+      const bytes = Buffer.alloc(4 + text.length * 4);
+      bytes.set([0xff, 0xfe, 0, 0]);
+      for (let i = 0; i < text.length; i++) bytes.writeUInt32LE(text.charCodeAt(i), 4 + 4 * i);
+      return bytes;
+    }],
   ])("accepts a token written %s", async (_label, bytes) => {
     writeRaw(bytes());
     const res = await reset(token);

@@ -146,6 +146,14 @@ export function createLocalResetResponse(message) {
 }
 
 async function getResetTokenState() {
+  // SECURITY (2026-10-05, A2): round 4 of the verification. The table of
+  // well-known hashes resetTokenWeakness() needs (utils/resetTokenStrength.js)
+  // was worked out the first time a file of 32 characters or more turned
+  // up, so the first remote guess after the operator wrote one took a few
+  // hundred ms instead of a few: a one-off timing signal that a token file
+  // now exists. It's worked out (once, without holding up the event loop)
+  // before the file is looked at, whether or not there is one.
+  await prepareResetTokenChecks();
   const tokenPath = getResetTokenPath();
   if (!fs.existsSync(tokenPath)) {
     return { tokenPath, available: false, reason: "missing", token: null };
@@ -187,9 +195,6 @@ async function getResetTokenState() {
     };
   }
 
-  // The well-known-hash check needs a table of hashes worked out once; build
-  // it without holding up the event loop.
-  await prepareResetTokenChecks();
   const weakness = resetTokenWeakness(token);
   if (weakness) {
     return {
