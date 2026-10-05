@@ -181,6 +181,66 @@ describe("AUTHN-5 / A2: the manual reset token has to be unguessable", () => {
     expect(await passwordIs("original-pw-1")).toBe(true);
   });
 
+  // Round 2 of the A2 verification: the pattern check can't see meaning, so
+  // phrases, number constants and symbol templates passed it, and a remote
+  // stranger reset the admin password by guessing
+  // "zomboid-control-panel-reset-token" from a handful of addresses. A
+  // hand-made token now has to be a generator's hex output.
+  it.each([
+    "zomboid-control-panel-reset-token",
+    "ZomboidControlPanelResetToken2026",
+    "this is my reset token for the panel",
+    "the-panel-password-is-gone-help-me",
+    "the quick brown fox jumps over the lazy dog",
+    "one two three four five six seven eight nine ten",
+    "3.14159265358979323846264338327950",
+    "2.71828182845904523536028747135266",
+    // The digits of pi without the point: hex, but no letters.
+    "31415926535897932384626433832795028841971",
+    "Aa1!Bb2@Cc3#Dd4$Ee5%Ff6^Gg7&Hh8*",
+    // A base64 token: random, but its alphabet holds every word too.
+    "phb20kHwWx7/1dtNtaxPYs9WAnvC2tGm",
+    // Hex, but hex words with a digit or two, not a generator's mix.
+    "deadbeefcafebabefacadedecade1bad",
+    "c0ffeedeadbeefbaddecafbeefcafefacade",
+  ])("refuses %s, which isn't a generator's hex output", async (weak) => {
+    expect(weak.length).toBeGreaterThanOrEqual(RESET_TOKEN_MIN_LENGTH);
+    writeToken(weak);
+    const res = await reset(weak);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("RESET_TOKEN_INVALID");
+    expect((await resetAsLocalCaller(weak)).body.code).toBe("RESET_TOKEN_TOO_WEAK");
+    expect(await passwordIs("original-pw-1")).toBe(true);
+  });
+
+  it.each([
+    ["48 hex characters (the panel, openssl rand -hex 24, the docs' PowerShell line)", () => strongToken()],
+    ["32 hex characters (openssl rand -hex 16)", () => crypto.randomBytes(16).toString("hex")],
+    ["upper-case hex", () => crypto.randomBytes(24).toString("hex").toUpperCase()],
+    ["a UUID (uuidgen, New-Guid)", () => crypto.randomUUID()],
+  ])("accepts %s", async (_label, makeToken) => {
+    // A random token can, very rarely, fail the pattern check by chance;
+    // take the first of a few that passes it on the host.
+    let token;
+    for (let i = 0; i < 5 && !token; i++) {
+      const candidate = makeToken();
+      writeToken(candidate);
+      if ((await resetAsLocalCaller("not-the-token")).body.code === "RESET_TOKEN_INVALID") token = candidate;
+    }
+    expect(token).toBeDefined();
+    const res = await reset(token);
+    expect(res.status).toBe(200);
+    expect(await passwordIs("attacker-pw-1")).toBe(true);
+  });
+
+  it("lets the local recovery button replace a token that isn't a generator's hex", async () => {
+    writeToken("zomboid-control-panel-reset-token");
+    const local = await request("POST", "/api/auth/reset-token/local", undefined, LOCAL);
+    expect(local.status).toBe(200);
+    const replaced = fs.readFileSync(tokenPath(), "utf8").trim();
+    expect(replaced).toMatch(/^[0-9a-f]{48}$/);
+  });
+
   it("still resets with a strong token, once", async () => {
     const token = strongToken();
     expect(token.length).toBeGreaterThanOrEqual(RESET_TOKEN_MIN_LENGTH);

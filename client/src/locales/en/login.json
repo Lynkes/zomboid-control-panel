@@ -51,7 +51,7 @@
     "recoverAccount": "Recover account",
     "helpTitle": "Account recovery",
     "helpLocal": "This browser is running on the panel host. Create a recovery file, then use its token to reset the admin password.",
-    "helpRemote1": "Create data/reset-token.txt on the panel host containing a random token at least 32 characters long, made with a password generator (repeated or sequential characters are refused), then enter it here.",
+    "helpRemote1": "Create data/reset-token.txt on the panel host containing random hex at least 32 characters long from a generator (for example <code>openssl rand -hex 24</code>), then enter it here. Words, sentences, number sequences and repeated or sequential characters are refused.",
     "helpRemote2": "You can also start the panel with <code>--reset-password</code> from the server terminal.",
     "createFile": "Create file",
     "creatingFile": "Preparing…",

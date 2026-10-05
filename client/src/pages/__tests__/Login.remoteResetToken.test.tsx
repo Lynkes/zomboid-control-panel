@@ -104,6 +104,25 @@ describe('Login.tsx: a remote user can always enter a reset token', () => {
     expect(body).toEqual({ token, newPassword: 'new-password-1' })
   })
 
+  // Round 2 of the A2 verification: the help said "a password generator",
+  // and the server accepted phrases and number constants that a stranger
+  // could guess. A hand-made token must now be a generator's hex output, and
+  // the help says how to make one.
+  it('the remote help asks for hex from a generator and shows the command', async () => {
+    const fetchMock = stubServer({ recoveryCodesAvailable: false })
+    await renderSettled(fetchMock)
+
+    fireEvent.click(screen.getByRole('button', { name: /recover account/i }))
+    await screen.findByRole('button', { name: /enter a recovery token/i })
+
+    const command = screen.getByText('openssl rand -hex 24')
+    expect(command).toHaveClass('font-mono')
+    const help = command.closest('p')
+    expect(help).toHaveTextContent(/random hex at least 32 characters long from a generator/i)
+    expect(help).toHaveTextContent(/words, sentences, number sequences/i)
+    expect(help?.textContent).not.toContain('<code>')
+  })
+
   it('with recovery codes: the form opens on codes, and switching to a token sends it to /reset-password', async () => {
     const fetchMock = stubServer({ recoveryCodesAvailable: true })
     await renderSettled(fetchMock)

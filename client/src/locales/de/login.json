@@ -51,7 +51,7 @@
     "recoverAccount": "Konto wiederherstellen",
     "helpTitle": "Kontowiederherstellung",
     "helpLocal": "Dieser Browser läuft auf dem Panel-Host. Erstelle eine Wiederherstellungsdatei und verwende deren Token, um das Administratorpasswort zurückzusetzen.",
-    "helpRemote1": "Erstelle data/reset-token.txt auf dem Panel-Host mit einem zufälligen Token von mindestens 32 Zeichen Länge aus einem Passwortgenerator (wiederholte oder fortlaufende Zeichen werden abgelehnt) und gib es dann hier ein.",
+    "helpRemote1": "Erstelle data/reset-token.txt auf dem Panel-Host mit einem zufälligen Hex-Token von mindestens 32 Zeichen aus einem Generator (zum Beispiel <code>openssl rand -hex 24</code>) und gib es dann hier ein. Wörter, Sätze, Zahlenfolgen sowie wiederholte oder fortlaufende Zeichen werden abgelehnt.",
     "helpRemote2": "Das Panel kann auch mit <code>--reset-password</code> über das Server-Terminal gestartet werden.",
     "createFile": "Datei erstellen",
     "creatingFile": "Wird vorbereitet…",

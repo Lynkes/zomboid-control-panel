@@ -51,7 +51,7 @@
     "recoverAccount": "Recuperar conta",
     "helpTitle": "Recuperação de conta",
     "helpLocal": "Este navegador está rodando no host do painel. Crie um arquivo de recuperação e use o token dele para redefinir a senha de administrador.",
-    "helpRemote1": "Crie data/reset-token.txt no host do painel com um token aleatório de pelo menos 32 caracteres feito por um gerador de senhas (caracteres repetidos ou em sequência são recusados) e depois insira-o aqui.",
+    "helpRemote1": "Crie data/reset-token.txt no host do painel com um token hexadecimal aleatório de pelo menos 32 caracteres feito por um gerador (por exemplo <code>openssl rand -hex 24</code>) e depois insira-o aqui. Palavras, frases, sequências de números e caracteres repetidos ou em sequência são recusados.",
     "helpRemote2": "Você também pode iniciar o painel com <code>--reset-password</code> pelo terminal do servidor.",
     "createFile": "Criar arquivo",
     "creatingFile": "Preparando…",

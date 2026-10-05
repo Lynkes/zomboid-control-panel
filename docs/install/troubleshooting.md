@@ -221,9 +221,10 @@ on the host once a proxy sits in front of it. Either create
 to **Recovery token**) — or use a recovery code, or run `--reset-password`
 on the host instead.
 
-The token has to be one nobody can guess: at least 32 characters after
-trimming whitespace, made by a generator rather than typed by you. From the
-panel's folder on Linux or macOS:
+The token has to be one nobody can guess: random hex (only `0-9` and
+`a-f`), at least 32 characters after trimming whitespace, made by a
+generator rather than typed by you. From the panel's folder on Linux or
+macOS:
 
 ```sh
 openssl rand -hex 24 > data/reset-token.txt
@@ -235,20 +236,21 @@ In PowerShell on Windows:
 $b = [byte[]]::new(24); [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); -join ($b | % { $_.ToString('x2') }) | Set-Content data\reset-token.txt
 ```
 
-Or use a password manager's generator. The panel refuses a predictable token —
-repeated or sequential characters (`aaaa`, `abcd`, `4321`, `aceg`), keyboard
-patterns along rows, columns or diagonals (`qwerty`, `1qaz2wsx`), the same
-stretch repeated (a word typed several times), runs interleaved or in
-alternating case (`a1b2c3`, `aAbBcC`), or too few different characters — as
-well as a file over 1KB or more than 24 hours old when you use it. It can't
-tell a made-up sentence or a few words strung together from random
-characters, so don't use one: anyone can try the well-known ones. A
-wrong token changes nothing: the file stays until it is used or expires,
-so nobody else can use your token up by guessing. From anywhere
+A UUID (`uuidgen`, or `New-Guid` in PowerShell) works too. The panel
+refuses what a stranger could guess: words, a sentence or a phrase
+(`zomboid-control-panel-reset-token`), a number on its own (the digits of
+pi, a date), hex words (`deadbeefcafe…`), repeated or sequential characters
+(`aaaa`, `abcd`, `4321`), keyboard patterns (`qwerty`, `1qaz2wsx`), the same
+stretch repeated, or runs interleaved (`a1b2c3`). It refuses a password
+manager's letters and symbols too, since it can't tell those from words;
+and a file over 1KB, or more than 24 hours old when you use it. Don't make
+hex by hashing something either (a word, the date): that passes the check,
+but anyone can hash the same thing. A wrong token changes nothing: the file stays until it is used
+or expires, so nobody else can use your token up by guessing. From anywhere
 but the host itself the panel also never says whether the file exists:
 every refusal reads `That reset token wasn't accepted. …`, and the panel's
-log says which check failed (missing, too short, too predictable, too old,
-or simply a different token).
+log says which check failed (missing, too short, not hex, too predictable,
+too old, or simply a different token).
 
 If you see `This recovery action is only available when the panel is opened
 from the server itself.` instead (no proxy mentioned), you're just not

@@ -18,7 +18,7 @@ import { verifySetupToken, clearSetupToken } from "../utils/setupToken.js";
 import { getRefreshCookieOptions } from "../utils/refreshCookie.js";
 import { requirePermission, getCapabilitiesForRole } from "../services/permissions.js";
 import { ErrorCode } from "../utils/errorCodes.js";
-import { isResetTokenUnpredictable } from "../utils/resetTokenStrength.js";
+import { resetTokenHexDigits, resetTokenWeakness } from "../utils/resetTokenStrength.js";
 
 const log = createLogger("Auth");
 const router = Router();
@@ -35,13 +35,14 @@ const RESET_TOKEN_MAX_BYTES = 1024;
 // and the remote-recovery instructions said "any token", so a remote panel
 // could end up guarded by "changeme".
 //
-// SECURITY (2026-10-05, A2): and unpredictable (utils/resetTokenStrength.js).
-// That, the per-address resetLimiter and the file's 24-hour lifetime are
-// what keep guessing infeasible. It used to be a count instead: 5 wrong
-// tokens from any mix of addresses deleted the file, so a stranger could
-// delete each token as soon as the operator made it (GET /reset-status told
-// them when one existed) and keep remote recovery from ever working. A
-// wrong token now changes nothing on disk.
+// SECURITY (2026-10-05, A2): and a generator's hex output, unpredictable
+// (utils/resetTokenStrength.js); for one written in groups like a UUID,
+// this many hex digits. That, the per-address resetLimiter and the file's
+// 24-hour lifetime are what keep guessing infeasible. It used to be a
+// count instead: 5 wrong tokens from any mix of addresses deleted the file,
+// so a stranger could delete each token as soon as the operator made it
+// (GET /reset-status told them when one existed) and keep remote recovery
+// from ever working. A wrong token now changes nothing on disk.
 export const RESET_TOKEN_MIN_LENGTH = 32;
 const LOOPBACK_REMOTE_ADDRESSES = new Set([
   "127.0.0.1",
@@ -167,7 +168,7 @@ function getResetTokenState() {
   }
 
   const token = fs.readFileSync(tokenPath, "utf-8").trim();
-  if (!token || token.length < RESET_TOKEN_MIN_LENGTH) {
+  if (!token || (resetTokenHexDigits(token) ?? token).length < RESET_TOKEN_MIN_LENGTH) {
     return {
       tokenPath,
       available: false,
@@ -177,11 +178,12 @@ function getResetTokenState() {
     };
   }
 
-  if (!isResetTokenUnpredictable(token)) {
+  const weakness = resetTokenWeakness(token);
+  if (weakness) {
     return {
       tokenPath,
       available: false,
-      reason: "too-weak",
+      reason: weakness,
       token: null,
       stat,
     };
@@ -189,6 +191,9 @@ function getResetTokenState() {
 
   return { tokenPath, available: true, reason: "ok", token, stat, ageMs };
 }
+
+const RESET_TOKEN_TOO_WEAK_MESSAGE =
+  "The token in data/reset-token.txt could be guessed. Replace it with random hex from a generator (0-9 and a-f, as openssl rand -hex 24 writes it); words, sentences, number sequences and repeated or sequential characters are refused. Or use the recovery button on the panel host.";
 
 // What POST /reset-password tells a caller on the panel host when the token
 // file can't be used. A caller anywhere else only ever gets
@@ -212,20 +217,24 @@ const RESET_TOKEN_UNUSABLE_RESPONSES = {
   "too-short": {
     log: `reset-token.txt holds fewer than ${RESET_TOKEN_MIN_LENGTH} characters`,
     code: ErrorCode.RESET_TOKEN_TOO_SHORT,
-    error: `Reset token file is invalid. It must contain a random token of at least ${RESET_TOKEN_MIN_LENGTH} characters.`,
+    error: `Reset token file is invalid. It must contain random hex of at least ${RESET_TOKEN_MIN_LENGTH} characters.`,
+  },
+  "not-hex": {
+    log: "reset-token.txt isn't hex (only 0-9 and a-f, as a generator writes it): words, sentences and other characters are refused",
+    code: ErrorCode.RESET_TOKEN_TOO_WEAK,
+    error: RESET_TOKEN_TOO_WEAK_MESSAGE,
   },
   "too-weak": {
-    log: "reset-token.txt is too predictable (repeated, sequential or keyboard-pattern characters, a repeated stretch, or too few different characters)",
+    log: "reset-token.txt is too predictable (all digits, too few digits, hex words, repeated, sequential or keyboard-pattern characters, a repeated stretch, or too few different characters)",
     code: ErrorCode.RESET_TOKEN_TOO_WEAK,
-    error:
-      "The token in data/reset-token.txt is too predictable (repeated, sequential or keyboard-pattern characters). Replace it with a random token from a password generator, or use the recovery button on the panel host.",
+    error: RESET_TOKEN_TOO_WEAK_MESSAGE,
   },
 };
 
 // A wrong token, from anyone; and every refusal to a caller elsewhere.
 const RESET_TOKEN_NOT_ACCEPTED = {
   error:
-    "That reset token wasn't accepted. Check that data/reset-token.txt on the panel host holds exactly this token, is less than 24 hours old, and is a random token of at least 32 characters. The panel's log says which check failed.",
+    "That reset token wasn't accepted. Check that data/reset-token.txt on the panel host holds exactly this token, is less than 24 hours old, and is random hex of at least 32 characters from a generator (words, sentences and number sequences are refused). The panel's log says which check failed.",
   code: ErrorCode.RESET_TOKEN_INVALID,
 };
 
@@ -1000,6 +1009,7 @@ router.post("/reset-token/local", localResetTokenLimiter, async (req, res) => {
       tokenState.reason === "expired" ||
       tokenState.reason === "too-large" ||
       tokenState.reason === "too-short" ||
+      tokenState.reason === "not-hex" ||
       tokenState.reason === "too-weak"
     ) {
       try {
@@ -1041,8 +1051,8 @@ router.post("/reset-token/local", localResetTokenLimiter, async (req, res) => {
  * Security model: The caller must provide the exact token from data/reset-token.txt.
  * This proves they have filesystem access to the server machine.
  * The token file is deleted after a successful reset, and only then. A file
- * holding fewer than RESET_TOKEN_MIN_LENGTH characters, or a predictable
- * token, is refused outright.
+ * holding fewer than RESET_TOKEN_MIN_LENGTH characters, anything but a
+ * generator's hex, or a predictable token, is refused outright.
  *
  * SECURITY (2026-10-05, A2): a wrong token no longer counts toward deleting
  * the file (see RESET_TOKEN_MIN_LENGTH's comment). And a caller that isn't

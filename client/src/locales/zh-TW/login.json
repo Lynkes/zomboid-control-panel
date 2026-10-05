@@ -51,7 +51,7 @@
     "recoverAccount": "復原帳號",
     "helpTitle": "帳號復原",
     "helpLocal": "此瀏覽器正執行在面板主機上。建立復原檔案後，使用其中的權杖重設管理員密碼。",
-    "helpRemote1": "在面板主機上建立 data/reset-token.txt，內容為由密碼產生器產生、至少 32 個字元的隨機權杖（重複或連續的字元會被拒絕），然後在此輸入。",
+    "helpRemote1": "在面板主機上建立 data/reset-token.txt，內容為由產生器產生、至少 32 個字元的隨機十六進位權杖（例如 <code>openssl rand -hex 24</code>），然後在此輸入。單字、句子、數字序列以及重複或連續的字元會被拒絕。",
     "helpRemote2": "您也可以在伺服器終端使用 <code>--reset-password</code> 啟動面板。",
     "createFile": "建立檔案",
     "creatingFile": "正在準備…",

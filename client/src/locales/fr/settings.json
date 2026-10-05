@@ -643,7 +643,7 @@
     "resettingButton": "Réinitialisation...",
     "resetAndSignOutButton": "Réinitialiser le mot de passe et se déconnecter",
     "recoveryRemoteIntro1": "Le panneau ne peut pas afficher les mots de passe existants. Si vous avez encore un accès au système de fichiers de l'hôte du panneau, déconnectez-vous et créez <code>data/reset-token.txt</code> ou démarrez le panneau avec <code>--reset-password</code>.",
-    "recoveryRemoteIntro2": "Placez dans ce fichier un jeton aléatoire d'au moins 32 caractères produit par un générateur de mots de passe, puis ouvrez la récupération de compte sur l'écran de connexion et saisissez-le comme jeton de récupération pour définir un nouveau mot de passe administrateur sans connaître l'ancien.",
+    "recoveryRemoteIntro2": "Placez dans ce fichier un jeton hexadécimal aléatoire d'au moins 32 caractères produit par un générateur comme openssl rand -hex 24 (les mots, les phrases et les suites de nombres sont refusés), puis ouvrez la récupération de compte sur l'écran de connexion et saisissez-le comme jeton de récupération pour définir un nouveau mot de passe administrateur sans connaître l'ancien.",
     "tipsRconTitle": "Sécurité RCON :",
     "tipsRconDesc": "Votre mot de passe RCON est stocké localement et n'est jamais transmis en dehors de la connexion RCON vers votre serveur.",
     "tipsAdminTitle": "Commandes d'administration :",

@@ -37,8 +37,24 @@
  * of UUIDs do. Digits alone repeat and step by one far more often by
  * chance; about 1 in 230 tokens of 32 digits is refused. What it can't see
  * is meaning: a sentence, a quote or a few words strung together look like
- * any other characters. The help text and docs say to use a generator's
- * output, not something made up.
+ * any other characters.
+ *
+ * SECURITY (2026-10-05, A2): so on its own this check passed panel-themed
+ * phrases ("zomboid-control-panel-reset-token"), sentences, word lists, the
+ * digits of pi and e and symbol templates (Aa1!Bb2@...), and a remote
+ * stranger reset the admin password by guessing one. A hand-made token now
+ * also has to be what every generator the docs name writes
+ * (resetTokenWeakness()): hex digits, in one piece or in dash-separated
+ * groups like a UUID, with a generator's mix of digits and letters -- at
+ * least one letter, and digits for at least a quarter of it, which random
+ * hex (10 digits in 16) all but always has and pure numbers or hex words
+ * ("deadbeefcafe...") don't. Hex spells only a handful of words, so what's
+ * left to guess is the generator's randomness. (A hash of something
+ * guessable is hex too; no check can see that, and the docs say not to.)
+ * The pattern check above then runs on the hex digits alone. Of a million
+ * random tokens of 32 hex characters (`openssl rand -hex 16`) about 36 are
+ * refused, and about 20 of a million UUIDs; none of 300,000 of 48 (the
+ * panel's button, `openssl rand -hex 24` and the docs' PowerShell line).
  */
 
 // Where each key sits on a US QWERTY keyboard: the row, and how far the key
@@ -60,9 +76,9 @@ KEYBOARD_ROWS.forEach(([offset, keys, shiftedKeys], row) => {
   }
 });
 
-// At least this many unpredictable characters. Even drawn from digits alone
-// that's over 66 bits, far beyond what the reset limiter lets anyone try in
-// a token's 24 hours.
+// At least this many unpredictable characters. Hex digits carry 4 bits each,
+// so that's 80 bits, far beyond what the reset limiter lets anyone try in a
+// token's 24 hours.
 export const RESET_TOKEN_MIN_UNPREDICTABLE_CHARS = 20;
 
 // At least this many different characters (ignoring case). A token drawn
@@ -158,4 +174,35 @@ export function isResetTokenUnpredictable(token) {
     countUnpredictableChars(token) >= RESET_TOKEN_MIN_UNPREDICTABLE_CHARS &&
     countDistinctChars(token) >= RESET_TOKEN_MIN_DISTINCT_CHARS
   );
+}
+
+// Hex digits, either case, in one piece or in groups joined by single dashes
+// (a UUID from uuidgen or PowerShell's New-Guid).
+const HEX_TOKEN_SHAPE = /^[0-9a-f]+(?:-[0-9a-f]+)*$/i;
+
+// The token's hex digits without the dashes between groups, or null when it
+// isn't written in hex.
+export function resetTokenHexDigits(token) {
+  if (typeof token !== "string" || !HEX_TOKEN_SHAPE.test(token)) return null;
+  return token.replaceAll("-", "");
+}
+
+// At least one letter, and digits for at least a quarter of the hex. Random
+// hex is 10 digits in 16, so of 32 characters fewer than 8 digits happens
+// about 3 times in a million, and no letter at all far less often.
+function hasGeneratorMix(hex) {
+  const digits = hex.replace(/[^0-9]/g, "").length;
+  return digits < hex.length && digits * 4 >= hex.length;
+}
+
+/**
+ * Why a hand-made reset token can't be used, or null when it can: "not-hex"
+ * when it isn't written in hex, "too-weak" when it is but without a
+ * generator's mix of digits and letters, or predictably. The caller checks
+ * the length first.
+ */
+export function resetTokenWeakness(token) {
+  const hex = resetTokenHexDigits(token);
+  if (hex === null) return "not-hex";
+  return hasGeneratorMix(hex) && isResetTokenUnpredictable(hex) ? null : "too-weak";
 }

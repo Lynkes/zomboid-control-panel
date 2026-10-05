@@ -24,8 +24,8 @@
   "RESET_TOKEN_NOT_FOUND": "No reset token found. Create data/reset-token.txt on the server first.",
   "RESET_TOKEN_TOO_LARGE": "Reset token file is invalid (too large). Max 1KB.",
   "RESET_TOKEN_EXPIRED": "Reset token file is older than 24 hours. Recreate it on the server.",
-  "RESET_TOKEN_TOO_SHORT": "Reset token file is invalid. It must contain a random token of at least 32 characters.",
-  "RESET_TOKEN_INVALID": "That reset token wasn't accepted. Check that data/reset-token.txt on the panel host holds exactly this token, is less than 24 hours old, and is a random token of at least 32 characters. The panel's log says which check failed.",
+  "RESET_TOKEN_TOO_SHORT": "Reset token file is invalid. It must contain random hex of at least 32 characters.",
+  "RESET_TOKEN_INVALID": "That reset token wasn't accepted. Check that data/reset-token.txt on the panel host holds exactly this token, is less than 24 hours old, and is random hex of at least 32 characters from a generator (words, sentences and number sequences are refused). The panel's log says which check failed.",
   "SERVER_NOT_CONFIGURED": "No active server configured",
   "REMOTE_CONFIG_NOT_CONFIGURED": "This server is remote. Add its SFTP details and the remote Server folder under Settings > PanelBridge to edit its configuration from here.",
   "REMOTE_BROWSE_NOT_AVAILABLE": "Browsing the server filesystem is not available for remote servers.",
@@ -584,5 +584,5 @@
   "DISCORD_CONFIG_CAPABILITY_REQUIRED": "Changing these Discord settings would let people run bot commands that need {{detail}}, which you don't hold yourself.",
   "HOST_NOT_ALLOWED": "This panel only answers to its own addresses while panel logins are off. Open it by its IP address or localhost, or add this address under Settings > Remote Access (CORS).",
   "SERVER_CONFIG_PATH_OUTSIDE_DATA": "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
-  "RESET_TOKEN_TOO_WEAK": "The token in data/reset-token.txt is too predictable (repeated, sequential or keyboard-pattern characters). Replace it with a random token from a password generator, or use the recovery button on the panel host."
+  "RESET_TOKEN_TOO_WEAK": "The token in data/reset-token.txt could be guessed. Replace it with random hex from a generator (0-9 and a-f, as openssl rand -hex 24 writes it); words, sentences, number sequences and repeated or sequential characters are refused. Or use the recovery button on the panel host."
 }

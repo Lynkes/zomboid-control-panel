@@ -5,6 +5,8 @@ import {
   RESET_TOKEN_MIN_UNPREDICTABLE_CHARS,
   countUnpredictableChars,
   isResetTokenUnpredictable,
+  resetTokenHexDigits,
+  resetTokenWeakness,
 } from "../utils/resetTokenStrength.js";
 
 // Security sweep 2026-10-05, A2: once wrong reset tokens stopped deleting
@@ -93,9 +95,9 @@ describe("reset-token strength", () => {
 
   it("accepts what the docs suggest and what the panel writes", () => {
     for (let i = 0; i < 200; i++) {
-      expect(isResetTokenUnpredictable(crypto.randomBytes(24).toString("hex"))).toBe(true);
-      expect(isResetTokenUnpredictable(crypto.randomBytes(24).toString("base64"))).toBe(true);
-      expect(isResetTokenUnpredictable(crypto.randomUUID())).toBe(true);
+      expect(resetTokenWeakness(crypto.randomBytes(24).toString("hex"))).toBeNull();
+      expect(resetTokenWeakness(crypto.randomBytes(24).toString("hex").toUpperCase())).toBeNull();
+      expect(resetTokenWeakness(crypto.randomUUID())).toBeNull();
     }
   });
 
@@ -114,5 +116,83 @@ describe("reset-token strength", () => {
     );
     expect(sevenChars).toBeDefined();
     expect(isResetTokenUnpredictable(sevenChars)).toBe(false);
+  });
+});
+
+// Round 2 of the A2 verification: the pattern check can't see meaning, so
+// panel-themed phrases, sentences, word lists, the digits of pi and e and a
+// symbol template all passed it, and with nothing deleting the file a
+// remote stranger could guess the weakest of them. A hand-made token now
+// has to be what a generator writes: hex.
+describe("reset-token shape", () => {
+  it.each([
+    "zomboid-control-panel-reset-token",
+    "ZomboidControlPanelResetToken2026",
+    "this is my reset token for the panel",
+    "the-panel-password-is-gone-help-me",
+    "the quick brown fox jumps over the lazy dog",
+    "Twinkle, twinkle, little star, how I wonder what you are",
+    "one two three four five six seven eight nine ten",
+    "MondayTuesdayWednesdayThursdayFriday",
+    "JanuaryFebruaryMarchAprilMayJuneJuly",
+    "redorangeyellowgreenblueindigoviolet",
+    "3.14159265358979323846264338327950",
+    "2.71828182845904523536028747135266",
+    "Aa1!Bb2@Cc3#Dd4$Ee5%Ff6^Gg7&Hh8*",
+    // Base64 or letters and digits from a generator: random, but the same
+    // alphabet spells every word, so the check couldn't tell them apart.
+    sample("b64-shape", BASE64, 32, 1)[0],
+    sample("alnum-shape", ALNUM, 32, 1)[0],
+    // Dashes only between groups of hex digits.
+    `-${"0f".repeat(20)}`,
+    `${"0f".repeat(10)}--${"0f".repeat(10)}`,
+  ])("refuses %s as not hex", (token) => {
+    expect(resetTokenHexDigits(token)).toBeNull();
+    expect(resetTokenWeakness(token)).toBe("not-hex");
+  });
+
+  it.each([
+    ["the digits of pi", "31415926535897932384626433832795028841971"],
+    ["the digits of e", "27182818284590452353602874713526624977572"],
+    ["a date and a phone number", "2026100518005550199202610051800555"],
+    ["hex words", "deadbeefcafebabefacadedecadebeadfeed"],
+    ["hex words and a digit", "deadbeefcafebabefacadedecade1bad"],
+    ["hex words with digits for letters", "c0ffeedeadbeefbaddecafbeefcafefacade"],
+  ])("refuses %s: hex, but not a generator's mix of digits and letters", (_label, token) => {
+    expect(resetTokenHexDigits(token)).toBe(token);
+    expect(resetTokenWeakness(token)).toBe("too-weak");
+  });
+
+  it("still refuses predictable hex", () => {
+    for (const token of ["0123456789abcdef0123456789abcdef", "00112233445566778899aabbccddeeff", "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"]) {
+      expect(resetTokenWeakness(token)).toBe("too-weak");
+    }
+  });
+
+  it("reads hex in dash-separated groups, like a UUID, as its digits", () => {
+    const uuid = crypto.randomUUID();
+    expect(resetTokenHexDigits(uuid)).toBe(uuid.replaceAll("-", ""));
+    expect(resetTokenHexDigits(uuid.toUpperCase())).toBe(uuid.replaceAll("-", "").toUpperCase());
+  });
+
+  it.each([
+    ["32 hex characters", sample("shape-hex32", HEX, 32, 2000), 3],
+    ["32 upper-case hex characters", sample("shape-HEX32", HEX.toUpperCase(), 32, 2000), 3],
+    ["48 hex characters (the panel's own button)", sample("shape-hex48", HEX, 48, 2000), 0],
+  ])("accepts seeded random tokens of %s", (_label, tokens, allowedRefusals) => {
+    const refused = tokens.filter((token) => resetTokenWeakness(token) !== null);
+    expect(refused.length).toBeLessThanOrEqual(allowedRefusals);
+  });
+
+  it("accepts every one of 2000 seeded random UUIDs", () => {
+    const bytes = seededBytes("uuid");
+    const uuids = Array.from({ length: 2000 }, () => {
+      const b = Buffer.from(Array.from({ length: 16 }, () => bytes.next().value));
+      b[6] = (b[6] & 0x0f) | 0x40;
+      b[8] = (b[8] & 0x3f) | 0x80;
+      const hex = b.toString("hex");
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    });
+    expect(uuids.filter((uuid) => resetTokenWeakness(uuid) !== null)).toEqual([]);
   });
 });

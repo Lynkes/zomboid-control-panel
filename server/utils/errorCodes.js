@@ -2475,9 +2475,10 @@ export const ErrorCode = Object.freeze({
   SERVER_CONFIG_PATH_OUTSIDE_DATA: "SERVER_CONFIG_PATH_OUTSIDE_DATA",
   /* --- security sweep W3: auth (sec/w3-auth) --- */
   /** server/routes/auth.js -- POST /api/auth/reset-password (403), sent only
-   * to a caller on the panel host: reset-token.txt is long enough but too
-   * predictable -- repeated, sequential or keyboard-pattern characters, a
-   * repeated stretch or too few different characters
+   * to a caller on the panel host: reset-token.txt is long enough but not a
+   * generator's hex output (words, sentences, other characters, all digits,
+   * hex words) or too predictable -- repeated, sequential or keyboard-pattern
+   * characters, a repeated stretch or too few different characters
    * (utils/resetTokenStrength.js). Replaces the never-
    * released RESET_TOKEN_BURNED: wrong tokens no longer delete the file, so
    * the token itself has to be unguessable (security sweep 2026-10-05, A2). */

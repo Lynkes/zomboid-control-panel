@@ -51,7 +51,7 @@
     "recoverAccount": "找回账户",
     "helpTitle": "账户找回",
     "helpLocal": "此浏览器正运行在面板主机上。创建找回文件后，使用其中的令牌重置管理员密码。",
-    "helpRemote1": "在面板主机上创建 data/reset-token.txt，内容为由密码生成器生成的、至少 32 个字符的随机令牌（重复或连续的字符会被拒绝），然后在此处输入。",
+    "helpRemote1": "在面板主机上创建 data/reset-token.txt，内容为由生成器生成的、至少 32 个字符的随机十六进制令牌（例如 <code>openssl rand -hex 24</code>），然后在此处输入。单词、句子、数字序列以及重复或连续的字符会被拒绝。",
     "helpRemote2": "您也可以在服务器终端使用 <code>--reset-password</code> 启动面板。",
     "createFile": "创建文件",
     "creatingFile": "正在准备…",

@@ -650,7 +650,11 @@ export default function Login() {
                   ) : (
                     <>
                       <p className="mt-2 leading-6">
-                        {t('lostPassword.helpRemote1')}
+                        <Trans
+                          t={t}
+                          i18nKey="lostPassword.helpRemote1"
+                          components={{ code: <span className="font-mono text-foreground/85" /> }}
+                        />
                       </p>
                       <p className="mt-2 leading-6">
                         <Trans
