@@ -98,8 +98,15 @@ function memCachePut(relPath, buffer, contentType) {
   memCacheBytes += buffer.length;
 }
 
+// null for a path that would leave the cache folder. relPath is only ever
+// built from the regex-checked tile coordinates or read back from the
+// folder itself, so this never refuses a real tile; it keeps that true if a
+// caller ever changes (and is the containment check CodeQL can see).
 function diskPathFor(relPath) {
-  return path.join(TILE_CACHE_DIR, relPath);
+  const root = path.resolve(TILE_CACHE_DIR);
+  const resolved = path.resolve(root, relPath);
+  if (!resolved.startsWith(root + path.sep)) return null;
+  return resolved;
 }
 
 const diskIndex = new Map(); // relPath -> size in bytes, least recently used first
@@ -137,7 +144,8 @@ function drainDiskEvictions() {
       while (diskEvictQueue.length > 0) {
         for (const relPath of diskEvictQueue.splice(0)) {
           if (diskIndex.has(relPath)) continue;
-          await fs.promises.unlink(diskPathFor(relPath)).catch(() => {});
+          const filePath = diskPathFor(relPath);
+          if (filePath) await fs.promises.unlink(filePath).catch(() => {});
         }
       }
     })().finally(() => {
@@ -228,8 +236,10 @@ function ensureDiskIndex() {
 }
 
 async function readDiskCache(relPath) {
+  const filePath = diskPathFor(relPath);
+  if (!filePath) return null;
   try {
-    const buffer = await fs.promises.readFile(diskPathFor(relPath));
+    const buffer = await fs.promises.readFile(filePath);
     diskIndexTouch(relPath);
     return buffer;
   } catch (err) {
@@ -264,6 +274,7 @@ export function writeDiskCacheAsync(relPath, buffer) {
   // A tile bigger than the whole budget is served but never kept.
   if (buffer.length > tileCacheLimits.diskMaxBytes) return Promise.resolve();
   const dest = diskPathFor(relPath);
+  if (!dest) return Promise.resolve();
   const tmp = `${dest}.${process.pid}.${Date.now()}.${crypto.randomBytes(4).toString("hex")}.tmp`;
   let indexed;
   if (diskIndexReady) {

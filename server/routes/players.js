@@ -1175,10 +1175,14 @@ function resolveExportFile(username, filename) {
   }
   const folders = exportFoldersFor(username);
   if (folders.length === 0) return null;
-  const exportsRoot = path.join(getDataPaths().dataDir, 'exports');
+  const exportsRoot = path.resolve(getDataPaths().dataDir, 'exports');
   for (const { folder } of folders) {
-    const filePath = path.join(exportsRoot, folder, filename);
-    // codeql[js/path-injection] folder is "@" plus lowercase hex (encodeExportFolderName) or matches LEGACY_EXPORT_FOLDER_RE, and filename matches /^[a-zA-Z0-9_.-]+\.json$/, so neither can leave the exports folder.
+    // folder is "@" plus lowercase hex (encodeExportFolderName) or matches
+    // LEGACY_EXPORT_FOLDER_RE, and filename matches /^[a-zA-Z0-9_.-]+\.json$/,
+    // so neither can leave the exports folder; the containment check below
+    // keeps that true if either rule ever changes (and is the one CodeQL sees).
+    const filePath = path.resolve(exportsRoot, folder, filename);
+    if (!filePath.startsWith(exportsRoot + path.sep)) continue;
     if (fs.existsSync(filePath)) return { filePath };
   }
   return { filePath: null };
