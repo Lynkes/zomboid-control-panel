@@ -46,7 +46,7 @@ import {
 } from "../services/activeSteamOperations.js";
 import { normalizeMemoryGb } from "../utils/memory.js";
 import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
-import { requirePermission } from "../services/permissions.js";
+import { getCapabilitiesForRole, requirePermission } from "../services/permissions.js";
 import { canSeeHostPaths, hideHostPaths } from "../utils/hostPathView.js";
 import { runManagedLifecycle } from "../services/managedContainer.js";
 import {
@@ -3123,16 +3123,31 @@ const FALLBACK_BRANCHES = [
   { name: "legacy41", description: "Legacy Build 41 branch for older worlds and mods." },
 ];
 
-router.get("/steamcmd/detect", requirePermission("server.world_events"), async (_req, res) => {
+// SECURITY (2026-10-05, H4): this read stays open to server.world_events
+// (the moderator role holds it; see serverRoutesRoleSweep.test.js for why it
+// isn't server.install), but where SteamCMD lives -- usually below the
+// panel account's profile, so it names the host account -- goes only to the
+// roles that set the server's folders up (utils/hostPathView.js). The rest
+// get whether it was found. And only a role that may set steamcmdPath
+// (server.install, as in routes/config.js) saves what detection found: a
+// GET from any other role changes no setting.
+router.get("/steamcmd/detect", requirePermission("server.world_events"), async (req, res) => {
   try {
     const steamcmdPath = await findSteamCmdPath();
     if (!steamcmdPath) {
       return res.json({ found: false, message: "SteamCMD was not found automatically" });
     }
 
-    const configuredPath = await getSetting("steamcmdPath");
-    if (configuredPath !== steamcmdPath) {
-      await setSetting("steamcmdPath", steamcmdPath);
+    const capabilities = await getCapabilitiesForRole(req.user?.role);
+    if (Array.isArray(capabilities) && capabilities.includes("server.install")) {
+      const configuredPath = await getSetting("steamcmdPath");
+      if (configuredPath !== steamcmdPath) {
+        await setSetting("steamcmdPath", steamcmdPath);
+      }
+    }
+
+    if (!(await canSeeHostPaths(req.user))) {
+      return res.json({ found: true, message: "SteamCMD found automatically" });
     }
 
     res.json({
@@ -6520,6 +6535,24 @@ async function resolveConsoleLogFolder(activeServer) {
   return { folder, remote: false, refused: false };
 }
 
+// SECURITY (2026-10-05, H4): the console routes below admit
+// server.world_events, which the moderator role holds, and the game's
+// console log is full of host folders (the JVM's user.home and cachedir,
+// every mod's install folder, ...). A role that doesn't set the server's
+// folders up (utils/hostPathView.js) gets the lines path-redacted and the
+// log's file name instead of where it lives.
+const CONSOLE_LOG_FILE_NAME = "server-console.txt";
+
+async function consoleLogView(req) {
+  if (await canSeeHostPaths(req.user)) {
+    return { lines: (lines) => lines, path: (consoleLogPath) => consoleLogPath };
+  }
+  return {
+    lines: (lines) => lines.map((line) => (line ? sanitizeError(line) : line)),
+    path: () => CONSOLE_LOG_FILE_NAME,
+  };
+}
+
 // Get server console log content
 router.get("/console-log", requirePermission("server.world_events"), async (req, res) => {
   try {
@@ -6534,7 +6567,8 @@ router.get("/console-log", requirePermission("server.world_events"), async (req,
       return res.status(400).json({ error: "Server data path not configured", code: ErrorCode.SERVER_DATA_PATH_NOT_CONFIGURED });
     }
 
-    const consoleLogPath = path.join(zomboidDataPath, "server-console.txt");
+    const consoleLogPath = path.join(zomboidDataPath, CONSOLE_LOG_FILE_NAME);
+    const view = await consoleLogView(req);
 
     if (!fs.existsSync(consoleLogPath)) {
       return res.json({
@@ -6542,7 +6576,7 @@ router.get("/console-log", requirePermission("server.world_events"), async (req,
         content: "",
         lines: [],
         exists: false,
-        path: consoleLogPath,
+        path: view.path(consoleLogPath),
       });
     }
 
@@ -6580,7 +6614,7 @@ router.get("/console-log", requirePermission("server.world_events"), async (req,
 
     // Apply filtering
     const filteredLines = filterConsoleLogLines(allLines, filterLevel);
-    const lines = filteredLines.slice(-maxLines);
+    const lines = view.lines(filteredLines.slice(-maxLines));
 
     res.json({
       success: true,
@@ -6590,7 +6624,7 @@ router.get("/console-log", requirePermission("server.world_events"), async (req,
       filteredCount: filteredLines.length,
       filterLevel,
       exists: true,
-      path: consoleLogPath,
+      path: view.path(consoleLogPath),
       lastModified: stats.mtime.toISOString(),
       size: stats.size,
     });
@@ -6909,11 +6943,12 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
       return res.status(400).json({ error: "Server data path not configured", code: ErrorCode.SERVER_DATA_PATH_NOT_CONFIGURED });
     }
 
-    const consoleLogPath = path.join(zomboidDataPath, "server-console.txt");
+    const consoleLogPath = path.join(zomboidDataPath, CONSOLE_LOG_FILE_NAME);
 
     if (!fs.existsSync(consoleLogPath)) {
       return res.json({ success: true, newLines: [], exists: false });
     }
+    const view = await consoleLogView(req);
 
     // Filter level: 'all' | 'filtered' | 'important' | 'errors'
     const filterLevel = req.query.filter || "filtered";
@@ -6944,7 +6979,7 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
       );
       storeConsoleStreamRemainder(consoleLogPath, stats.size, remainder);
       const allLines = completeLines.filter((l) => l.trim());
-      const lines = filterConsoleLogLines(allLines, filterLevel);
+      const lines = view.lines(filterConsoleLogLines(allLines, filterLevel));
       return res.json({
         success: true,
         newLines: lines,
@@ -6988,7 +7023,7 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
     );
     storeConsoleStreamRemainder(consoleLogPath, stats.size, remainder);
     const allNewLines = completeLines.filter((l) => l.trim());
-    const newLines = filterConsoleLogLines(allNewLines, filterLevel);
+    const newLines = view.lines(filterConsoleLogLines(allNewLines, filterLevel));
 
     res.json({
       success: true,

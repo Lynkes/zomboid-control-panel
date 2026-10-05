@@ -11,6 +11,7 @@ import crypto from "crypto";
 import os from "os";
 import authService, { USER_ROLES, requireRole } from "../services/auth.js";
 import { createLogger } from "../utils/logger.js";
+import { escapeLogText } from "../utils/logText.js";
 import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import { getDataPaths } from "../utils/paths.js";
 import { setSetting } from "../database/init.js";
@@ -404,7 +405,7 @@ router.post("/setup", setupLimiter, async (req, res) => {
       deviceToken: result.deviceToken,
     });
   } catch (error) {
-    log.error(`Setup failed: ${error.message}`);
+    log.error(`Setup failed: ${escapeLogText(error.message)}`);
     res.status(400).json({ error: sanitizeError(error.message) });
   }
 });
@@ -447,7 +448,9 @@ router.post("/login", loginLimiter, async (req, res) => {
       deviceToken: result.deviceToken,
     });
   } catch (error) {
-    log.warn(`Login failed: ${error.message}`);
+    // Escaped like every log line that can quote what an anonymous caller
+    // sent (utils/logText.js, SECURITY 2026-10-05, H2).
+    log.warn(`Login failed: ${escapeLogText(error.message)}`);
     res.status(401).json({ error: sanitizeError(error.message) });
   }
 });
@@ -508,7 +511,7 @@ router.post("/refresh", async (req, res) => {
       deviceToken: result.deviceToken,
     });
   } catch (error) {
-    log.error(`Token refresh failed: ${error?.message || error}`);
+    log.error(`Token refresh failed: ${escapeLogText(error?.message || error)}`);
     // Always clear stale cookie on any failure
     try {
       res.clearCookie("refreshToken", getRefreshCookieOptions(req, false));
@@ -966,7 +969,7 @@ router.post("/recover-with-code", resetLimiter, async (req, res) => {
       deviceToken: result.deviceToken,
     });
   } catch (error) {
-    log.warn(`Recovery code redemption failed: ${error.message}`);
+    log.warn(`Recovery code redemption failed: ${escapeLogText(error.message)}`);
     res.status(403).json({ error: sanitizeError(error.message) });
   }
 });
@@ -1137,7 +1140,7 @@ router.post("/reset-password", resetLimiter, async (req, res) => {
       deviceToken: result.deviceToken,
     });
   } catch (error) {
-    log.error(`Password reset failed: ${error.message}`);
+    log.error(`Password reset failed: ${escapeLogText(error.message)}`);
     res.status(400).json({ error: sanitizeError(error.message) });
   }
 });

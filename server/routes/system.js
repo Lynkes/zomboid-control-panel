@@ -71,16 +71,33 @@ export function buildRuntimeInfo({
 // scoped, but these two routes still sent the paths to every role).
 const DISK_PATH_CAPABILITIES = ["diagnostics.manage", "backups.manage"];
 
-async function canSeeDiskPaths(user) {
+// Fails closed: a role that can't be resolved holds none of them.
+async function roleHasAnyCapability(user, required) {
   if (!user) return false;
   try {
     const role = await getRoleByName(user.role);
     const capabilities = Array.isArray(role?.capabilities) ? role.capabilities : [];
-    return DISK_PATH_CAPABILITIES.some((capability) => capabilities.includes(capability));
+    return required.some((capability) => capabilities.includes(capability));
   } catch {
     return false;
   }
 }
+
+function canSeeDiskPaths(user) {
+  return roleHasAnyCapability(user, DISK_PATH_CAPABILITIES);
+}
+
+// SECURITY (2026-10-05, H4): GET /runtime is read by every role's pages
+// (platform-specific wording), and it returned the host's temp folder --
+// os.tmpdir(), which names the account the panel runs as on Windows
+// (C:\Users\<name>\AppData\Local\Temp). Its one reader is the panel-update
+// confirmation, as the fallback for where the update helper writes its log;
+// the update preflight (panel.settings) already sends that folder itself.
+// So it goes to the roles that see host details elsewhere -- diagnostics
+// (which downloads the panel's logs and moves its folders) and panel
+// settings (the update flow) -- and is null for everyone else, the way the
+// disk routes above send path: null.
+const RUNTIME_PATH_CAPABILITIES = ["diagnostics.manage", "panel.settings"];
 
 function withoutPath(status) {
   return status && typeof status === "object" ? { ...status, path: null } : status;
@@ -106,8 +123,10 @@ router.get("/disk-space", async (req, res) => {
   }
 });
 
-router.get("/runtime", (_req, res) => {
-  res.json(buildRuntimeInfo());
+router.get("/runtime", async (req, res) => {
+  const runtime = buildRuntimeInfo();
+  if (await roleHasAnyCapability(req.user, RUNTIME_PATH_CAPABILITIES)) return res.json(runtime);
+  res.json({ ...runtime, temporaryDirectory: null });
 });
 
 // Single endpoint the frontend polls: disk space + write circuit breaker

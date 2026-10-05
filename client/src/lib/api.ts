@@ -3425,9 +3425,11 @@ export interface BackupStatus extends BackupSettings {
   // them.
   currentRestore?: RestoreRecord | null;
   lastRestore?: RestoreOutcome | null;
+  // The paths are null for a role that can't see host folders
+  // (server/routes/backup.js).
   lastBackup: {
     name: string;
-    path: string;
+    path: string | null;
     size: number;
     created: string;
   } | null;
@@ -3517,7 +3519,8 @@ export type BackupScheduleValidation =
 // See that interface's comment for why these have separate names now.
 export interface ServerBackupArchive {
   name: string;
-  path: string;
+  // null for a role that can't see host folders (server/routes/backup.js).
+  path: string | null;
   size: number;
   created: string;
 }
@@ -4108,7 +4111,9 @@ export interface RuntimeInfo {
   platform: string;
   family: "windows" | "posix" | "unknown";
   pathSeparator: string;
-  temporaryDirectory: string;
+  // The host's temp folder; null for a role without diagnostics.manage or
+  // panel.settings (server/routes/system.js).
+  temporaryDirectory: string | null;
   serviceManager: "systemd" | "openrc" | "container" | "none" | "unknown";
   restartAssessment: RestartAssessment;
 }

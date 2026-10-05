@@ -95,6 +95,7 @@ import authRoutes from "./routes/auth.js";
 import oidcRoutes from "./routes/oidc.js";
 import { loadOrCreateCerts } from "./utils/certs.js";
 import { sanitizeError, sanitizeErrorParams } from "./utils/sanitize.js";
+import { escapeLogText } from "./utils/logText.js";
 import { ErrorCode } from "./utils/errorCodes.js";
 import { getSftpCachePath } from "./services/panelBridgeSftp.js";
 import { reconcileBridge } from "./services/bridgeDelivery.js";
@@ -320,14 +321,14 @@ import playerRoutes from "./routes/players.js";
 import rconRoutes from "./routes/rcon.js";
 import configRoutes from "./routes/config.js";
 import schedulerRoutes from "./routes/scheduler.js";
-import modsRoutes from "./routes/mods.js";
+import modsRoutes, { pruneModThumbnailCache } from "./routes/mods.js";
 import chunksRoutes from "./routes/chunks.js";
 import discordRoutes from "./routes/discord.js";
 import debugRoutes, { addLogToBuffer } from "./routes/debug.js";
 import { getDiskFree } from "./utils/diskSpace.js";
 import { getSwapInfo } from "./utils/swapInfo.js";
 import serverFinderRoutes from "./routes/serverFinder.js";
-import panelBridgeRoutes from "./routes/panelBridge.js";
+import panelBridgeRoutes, { bridgeFolderEventView } from "./routes/panelBridge.js";
 import bridgeDeliveryRoutes from "./routes/bridgeDelivery.js";
 import backupRoutes from "./routes/backup.js";
 import mapProxyRoutes from "./routes/mapProxy.js";
@@ -497,12 +498,21 @@ function isLikelyLanHostname(host) {
   return false;
 }
 
+// SECURITY (2026-10-05, H2): the Origin header is whatever the caller sent,
+// signed in or not. Node's HTTP parser keeps bytes 0x80-0xFF in a header as
+// latin1, so 0x85 arrives as U+0085 (NEL), a line break to some log viewers.
+// Both this record (shown in Settings > Remote Access and support bundles)
+// and the "CORS blocked" log line keep it escaped (utils/logText.js).
+function describeBlockedOrigin(origin) {
+  const normalizedOrigin = typeof origin === "string" ? origin.trim() : "";
+  return normalizedOrigin
+    ? escapeLogText(normalizedOrigin.slice(0, MAX_CORS_ORIGIN_LENGTH))
+    : "null";
+}
+
 function recordCorsBlock(origin, source) {
   if (!corsState.debug) return;
-  const normalizedOrigin = typeof origin === "string" ? origin.trim() : "";
-  const safeOrigin = normalizedOrigin
-    ? normalizedOrigin.slice(0, MAX_CORS_ORIGIN_LENGTH)
-    : "null";
+  const safeOrigin = describeBlockedOrigin(origin);
   const entry = {
     id: randomUUID(),
     origin: safeOrigin,
@@ -959,7 +969,7 @@ app.use(
         callback(null, true);
       } else {
         recordCorsBlock(origin, "http");
-        log.warn(`CORS blocked request from origin: ${origin}`);
+        log.warn(`CORS blocked request from origin: ${describeBlockedOrigin(origin)}`);
         callback(new Error(CORS_DENY_MESSAGE));
       }
     },
@@ -1021,7 +1031,9 @@ const loggedRefusedHosts = new Set();
 app.use(async (req, res, next) => {
   if (!req.path.toLowerCase().startsWith("/api")) return next();
   if (await isRequestHostAllowed(req.headers.host)) return next();
-  const host = String(req.headers.host || "").slice(0, 100);
+  // Escaped for the log line (utils/logText.js): the Host header is the
+  // caller's, and this runs before any sign-in.
+  const host = escapeLogText(String(req.headers.host || "").slice(0, 100));
   if (!loggedRefusedHosts.has(host) && loggedRefusedHosts.size < 50) {
     loggedRefusedHosts.add(host);
     log.warn(
@@ -1524,23 +1536,25 @@ rconService.on("disconnected", () => {
 // bridgePath is a host filesystem path, and the HTTP status route gates it
 // behind bridge.setup / bridge.diagnostics (7ead08e0) — these rare events go
 // only to sockets holding one of those, instead of every signed-in role
-// (security audit M1).
+// (security audit M1). SECURITY (2026-10-05, H4 round 3): and a socket
+// whose role only diagnoses the bridge gets the folder as the placeholder,
+// as from GET /api/panel-bridge/status (bridgeFolderEventView()).
 panelBridge.on("started", () => {
-  emitToCapabilities(["bridge.setup", "bridge.diagnostics"], "panelBridge:status", {
-    isRunning: true,
-    bridgePath: panelBridge.bridgePath,
-  }).catch(() => {});
+  emitToCapabilities(["bridge.setup", "bridge.diagnostics"], "panelBridge:status", (s) =>
+    bridgeFolderEventView(s.user, { isRunning: true, bridgePath: panelBridge.bridgePath }),
+  ).catch(() => {});
 });
 
 panelBridge.on("stopped", () => {
-  emitToCapabilities(["bridge.setup", "bridge.diagnostics"], "panelBridge:status", {
-    isRunning: false,
-    bridgePath: panelBridge.bridgePath,
-  }).catch(() => {});
+  emitToCapabilities(["bridge.setup", "bridge.diagnostics"], "panelBridge:status", (s) =>
+    bridgeFolderEventView(s.user, { isRunning: false, bridgePath: panelBridge.bridgePath }),
+  ).catch(() => {});
 });
 
 panelBridge.on("configured", ({ path }) => {
-  emitToCapabilities(["bridge.setup", "bridge.diagnostics"], "panelBridge:configured", { bridgePath: path }).catch(() => {});
+  emitToCapabilities(["bridge.setup", "bridge.diagnostics"], "panelBridge:configured", (s) =>
+    bridgeFolderEventView(s.user, { bridgePath: path }),
+  ).catch(() => {});
 });
 
 // The live heartbeat is consumed by the dashboard/bridge badges (alive,
@@ -2595,7 +2609,12 @@ export function describeErrorCause(err) {
 // Exported so server/tests/errorCodeReachability.test.js can assert the
 // allowlist both ways directly against the real handler, not a reimplementation.
 export function apiErrorHandler(err, req, res, next) {
-  log.error(`Unhandled API error on ${req.method} ${req.path}: ${err.message}`);
+  // Escaped (utils/logText.js): this also catches errors from before any
+  // sign-in -- a body the JSON parser rejects quotes that body in
+  // err.message -- and req.path keeps bytes 0x80-0xFF from the request line.
+  log.error(
+    `Unhandled API error on ${escapeLogText(req.method)} ${escapeLogText(req.path)}: ${escapeLogText(err.message)}`,
+  );
   const status = err.status || 500;
   const body = { error: sanitizeError(err.message) };
   const code = registeredErrorCode(err);
@@ -2758,7 +2777,8 @@ onRoleCapabilitiesChanged((roleName) => {
 // field selection) — security audit M1: several broadcasts sent privileged
 // content (admin chat, bridge host paths, live player lists) to every
 // authenticated socket regardless of role, bypassing the HTTP gates that
-// protect the same data.
+// protect the same data. `payload` may be a function of the receiving
+// socket, for an event whose fields depend on who gets it.
 export async function emitToCapabilities(capabilities, event, payload, server = io) {
   // Resolve each distinct role once per broadcast, not once per socket.
   const roleAllowed = new Map();
@@ -2779,7 +2799,7 @@ export async function emitToCapabilities(capabilities, event, payload, server = 
   };
   for (const s of [...server.sockets.sockets.values()]) {
     if (!s.user) continue;
-    if (await allowed(s)) s.emit(event, payload);
+    if (await allowed(s)) s.emit(event, typeof payload === "function" ? await payload(s) : payload);
   }
 }
 
@@ -4116,6 +4136,13 @@ async function start() {
 
     // Initialize mod checker with scheduler, serverManager, and socket.io
     await modChecker.init(scheduler, serverManager, io);
+
+    // Thumbnails cached for Workshop items no server tracks -- older
+    // versions cached any id an anonymous caller named (routes/mods.js,
+    // SECURITY 2026-10-05, H3). In the background: startup doesn't wait.
+    pruneModThumbnailCache().catch((err) =>
+      log.warn(`Could not prune the mod thumbnail cache: ${err.message}`),
+    );
 
     // Start mod checker if workshop ACF file is found. Otherwise it starts
     // by itself once one appears: the server writes its own on its first

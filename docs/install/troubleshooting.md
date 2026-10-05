@@ -790,6 +790,30 @@ folder. If PanelBridge doesn't work, look for other lines that mention
 
 ---
 
+### Death notices for a player who didn't die
+
+**What you see:** a Discord **Player Death** notice (by default
+*"💀 **{player}** died at {location}"*), or a death in a player's history,
+for a player who is alive.
+
+**What it means:** the panel takes deaths from PanelBridge, which reports
+them from the character that died. Without an up-to-date PanelBridge (not
+installed, an older version, or not answering), it falls back to the
+game's user log (`Logs/*_user.txt`), and that log can be forged: a co-op
+(split-screen) player's name skips the server's username check, so a
+player who joins can pick one that writes a death line for anyone.
+`AllowCoop` is on by default.
+
+**What to do:**
+- Update PanelBridge to the one that comes with panel v1.4.6 or later, and
+  restart the server: a panel-installed PanelBridge updates with the panel,
+  a Workshop one downloads at the next start, and on a hosted server you
+  upload the new `PanelBridge.lua` (see [hosted.md](hosted.md)).
+- If you can't, and nobody on the server plays split-screen, set
+  `AllowCoop=false` in the server's `.ini` and restart.
+
+---
+
 ### Blank or partial World Map
 
 **What you see:** the map area shows one of:
