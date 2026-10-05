@@ -710,6 +710,95 @@ export function countSandboxBraces(content) {
   return { balanced: depth === 0 && !wentNegative, depth };
 }
 
+// ---- Repair ------------------------------------------------------------------
+
+// Start offset of every line, with Lua's line breaks (\n, \r, \r\n, \n\r).
+function lineStarts(src) {
+  const starts = [0];
+  for (let i = 0; i < src.length; i++) {
+    if (isNewline(src[i])) {
+      i = skipNewline(src, i) - 1;
+      starts.push(i + 1);
+    }
+  }
+  return starts;
+}
+
+const SPACES_ONLY = /^[ \t\f\v]*$/;
+
+/**
+ * Where #197 overwrote a table's opening "{" with a value ("Explosives = 1"
+ * in place of "Explosives = {"), leaving the table's entries and its closing
+ * "}" below it. A match is a "Key = <value>" entry whose value is a single
+ * string, number, true or false, that
+ *   - starts its line (only spaces or tabs before the key),
+ *   - ends its line (nothing but spaces and comments after the value), and
+ *   - is followed by a "Name = ..." entry that starts a later line and is
+ *     indented deeper.
+ * The scan runs on this module's tokens, so text inside a string or a comment
+ * is never taken for an entry: a long string whose text reads "Speed = 2" is
+ * that string's value, and rewriting it would change the option. Returns
+ * [{ line, key, value, start, end }] in file order, where `value` is the
+ * value's source text and start/end its span; [] when the content does not
+ * tokenize, since nothing in it can then be told apart from a string.
+ */
+export function findOverwrittenTableOpeners(content) {
+  const src = String(content);
+  let tokens;
+  try {
+    tokens = tokenize(src);
+  } catch (error) {
+    if (error instanceof SandboxLuaSyntaxError) return [];
+    throw error;
+  }
+  const starts = lineStarts(src);
+  // Line index of each token's first character (tokens are in file order).
+  const lineOf = [];
+  let line = 0;
+  for (const t of tokens) {
+    while (line + 1 < starts.length && starts[line + 1] <= t.start) line++;
+    lineOf.push(line);
+  }
+  // The indentation before token k, or null when something other than
+  // spaces and tabs comes before it on its line (another token, or the end
+  // of a multi-line string or comment).
+  const indentOf = (k) => {
+    const before = src.slice(starts[lineOf[k]], tokens[k].start);
+    return SPACES_ONLY.test(before) ? before : null;
+  };
+
+  const found = [];
+  for (let k = 0; k + 2 < tokens.length; k++) {
+    const key = tokens[k];
+    if (key.type !== "name" || RESERVED_WORDS.has(key.value) || tokens[k + 1].type !== "=") continue;
+    let v = k + 2;
+    if (tokens[v].type === "-" && tokens[v + 1].type === "number") v++;
+    const value = tokens[v];
+    const scalar =
+      value.type === "number" ||
+      (value.type === "string" && value.quote !== "[") ||
+      (value.type === "name" && (value.value === "true" || value.value === "false"));
+    if (!scalar) continue;
+    const valueStart = tokens[k + 2].start;
+    // Key and value on one line, and only comments after the value on it.
+    if (/[\r\n]/.test(src.slice(key.start, value.end))) continue;
+    const next = v + 1;
+    if (lineOf[next] === lineOf[k]) continue;
+    if (tokens[next].type !== "name" || tokens[next + 1]?.type !== "=") continue;
+    const indent = indentOf(k);
+    const nextIndent = indentOf(next);
+    if (indent === null || nextIndent === null || nextIndent.length <= indent.length) continue;
+    found.push({
+      line: lineOf[k] + 1,
+      key: key.value,
+      value: src.slice(valueStart, value.end),
+      start: valueStart,
+      end: value.end,
+    });
+  }
+  return found;
+}
+
 /**
  * Whether the game can load this content. `parses` is a clean tokenize and
  * parse (the bar for writing anything); `valid` also needs a SandboxVars

@@ -26,6 +26,7 @@ import {
   countSandboxBraces,
   editSandboxValues,
   escapeLuaString,
+  findOverwrittenTableOpeners,
   isLuaIdentifier,
   sandboxSectionsFromLua,
   sectionsToEdits,
@@ -871,57 +872,41 @@ export function checkSandboxBraceBalance(content) {
 // so the file has one "}" too many and the game refuses to load it.
 //
 // Repair: a "key = value" line with no trailing comma, followed by an entry
-// indented deeper than it, gets "{" back in place of its value. Nothing else
-// in the file changes, line endings included. The value is dropped: it is
-// what the old writer put over the "{", and the table under its real name
-// is what the game reads. (This used to wrap the line in a synthetic
+// indented deeper than it, gets "{" back in place of its value
+// (findOverwrittenTableOpeners() has the exact rule). Nothing else in the
+// file changes, line endings included. The value is dropped: it is what the
+// old writer put over the "{", and the table under its real name is what the
+// game reads. (This used to wrap the line in a synthetic
 // "_RepairedBlockN = { ... }" table instead. The file then loaded, but the
 // game found no table under the real name, so every option in it went back
 // to its default and was dropped when the game next saved the file; a
-// damaged "SandboxVars = 1" root line ended up inside the wrapper.) Nothing
-// is written unless the result is a file the game loads.
+// damaged "SandboxVars = 1" root line ended up inside the wrapper.)
+//
+// Lines are found on the tokenizer's tokens, not by matching text line by
+// line: a long string or a --[[ ]] comment can hold a line that reads like
+// "Speed = 2" above a deeper one, and putting a "{" there rewrote another
+// option's text while the file still loaded. Nothing is written unless the
+// result is a file the game loads (validateSandboxLua().valid).
 export function repairSandboxSyntax(content) {
   const before = checkSandboxBraceBalance(content);
   if (before.balanced) {
     return { content, fixed: false, changes: [] };
   }
 
-  // Split after each "\n" so every line keeps its own line ending.
-  const lines = content.split(/(?<=\n)/);
-  const text = (line) => line.replace(/\r?\n$/, "");
-  const changes = [];
-  // 1: everything up to the value, 2: indent, 3: key, 4: value, 5: the rest.
-  const scalarLine =
-    /^((\s*)(\w+)\s*=\s*)("(?:[^"\\]|\\.)*"|true|false|-?\d+(?:\.\d+)?)(\s*(?:--.*)?)$/;
-  const entryLine = /^(\s*)(\w+)\s*=\s*/;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = text(lines[i]);
-    const m = line.match(scalarLine);
-    if (!m) continue;
-    const indent = m[2];
-
-    // Find the next non-blank, non-comment line.
-    let j = i + 1;
-    while (
-      j < lines.length &&
-      (lines[j].trim() === "" || /^\s*--/.test(lines[j]))
-    ) {
-      j++;
-    }
-    if (j >= lines.length) continue;
-
-    const nextEntry = lines[j].match(entryLine);
-    if (!nextEntry) continue;
-    if (nextEntry[1].length <= indent.length) continue; // normal sibling/closing — not orphaned
-
-    changes.push(
-      `Line ${i + 1}: '${m[3]} = ${m[4]}' stood where the opening of the '${m[3]}' table belongs — put its '{' back.`,
-    );
-    lines[i] = `${m[1]}{${m[5]}${lines[i].slice(line.length)}`;
+  const openers = findOverwrittenTableOpeners(content);
+  const pieces = [];
+  let at = 0;
+  for (const { start, end } of openers) {
+    pieces.push(content.slice(at, start), "{");
+    at = end;
   }
+  pieces.push(content.slice(at));
+  const repaired = pieces.join("");
+  const changes = openers.map(
+    ({ line, key, value }) =>
+      `Line ${line}: '${key} = ${value}' stood where the opening of the '${key}' table belongs — put its '{' back.`,
+  );
 
-  const repaired = lines.join("");
   // Balanced braces are not enough to write it, and neither is parsing: the
   // result needs a SandboxVars table too. A file without one parses, but
   // the game finds nothing to load and exits on boot.

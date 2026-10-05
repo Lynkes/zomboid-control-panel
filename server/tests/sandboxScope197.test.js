@@ -44,6 +44,7 @@ const {
   repairSandboxSyntax,
 } = await import("../routes/serverFiles.js");
 const { readSandboxValue, mergeSandboxSections } = await import("../utils/templateFiles.js");
+const { validateSandboxLua } = await import("../utils/sandboxLua.js");
 
 const LOOT_TABLE = [
   "    LootTweaks = {",
@@ -414,6 +415,171 @@ describe("POST /sandbox/repair puts back the '{' the #197 bug overwrote", () => 
       expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: true, repaired: true }));
       expect(fs.readFileSync(sandboxPath, "utf-8")).toBe(original);
       expect(fs.readdirSync(path.join(tmpDir, "backups"))).toHaveLength(1);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// The repair used to read the file line by line, blind to strings and
+// comments. A line inside a long string or a --[[ ]] comment that read like
+// "Speed = 2", above a line indented deeper, got a "{" too: the file still
+// loaded, with another option's text changed. Each file below was checked
+// with game build 42.21's own loader: the original loads, the damaged file
+// does not, and the repaired file loads with the original's values. (The
+// last case's attempt loads too, but as "SandboxVars = 1": no table.)
+describe("POST /sandbox/repair only touches code, never a string or a comment", () => {
+  const LOOKALIKE = ["Speed = 2", "    Fast = 1"];
+  const fileWith = (block, eol) =>
+    ["SandboxVars = {", "    VERSION = 6,", ...block, ...MOD_TABLE, "}", ""].join(eol);
+
+  describe.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+  ])("%s", (_eolLabel, eol) => {
+    it.each([
+      ["a long string", ["    Note = [[", ...LOOKALIKE, "]],"]],
+      ["a long string with a level", ["    Note = [==[", ...LOOKALIKE, "    ]==],"]],
+      ["a string continued over lines", ['    Note = "a\\', "Speed = 2 --\\", "    Fast = 1 --\\", 'b",']],
+      ["a --[[ ]] comment", ["    --[[", ...LOOKALIKE, "    ]]"]],
+      ["a --[==[ ]==] comment", ["    --[==[ old", ...LOOKALIKE, "]==]"]],
+    ])("leaves %s alone and restores the real table", (_label, block) => {
+      const original = fileWith(block, eol);
+      const repaired = repairSandboxSyntax(corrupt(original));
+      expect(repaired.fixed).toBe(true);
+      expect(repaired.content).toBe(original);
+      expect(repaired.changes).toEqual([expect.stringMatching(/^Line \d+: 'Explosives = 1'/)]);
+    });
+  });
+
+  it("leaves a long string inside the damaged table alone", () => {
+    const original = [
+      "SandboxVars = {",
+      "    Explosives = {",
+      "        Note = [[",
+      ...LOOKALIKE,
+      "]],",
+      "        LootMultiplier = 1.0,",
+      "    },",
+      "}",
+      "",
+    ].join("\n");
+    const repaired = repairSandboxSyntax(corrupt(original));
+    expect(repaired.fixed).toBe(true);
+    expect(repaired.content).toBe(original);
+    expect(parseSandboxVars(repaired.content).Explosives).toEqual({
+      Note: "Speed = 2\n    Fast = 1\n",
+      LootMultiplier: 1,
+    });
+  });
+
+  it("restores a line whose trailing --[[ comment runs over the lines below it", () => {
+    const original = [
+      "SandboxVars = {",
+      '    Explosives = { --[[ the "{" goes here',
+      ...LOOKALIKE,
+      "    ]]",
+      "        LootMultiplier = 1.0,",
+      "    },",
+      "}",
+      "",
+    ].join("\n");
+    const repaired = repairSandboxSyntax(original.replace("Explosives = {", "Explosives = 1"));
+    expect(repaired.fixed).toBe(true);
+    expect(repaired.content).toBe(original);
+  });
+
+  it("changes nothing when the only line that looks damaged is inside a string", () => {
+    // One "}" too many, and no damaged opener to put back.
+    const broken = ["SandboxVars = {", "    Note = [[", ...LOOKALIKE, "]],", "    },", "}", ""].join("\n");
+    const repaired = repairSandboxSyntax(broken);
+    expect(repaired).toEqual({ content: broken, fixed: false, changes: [] });
+  });
+
+  // A damaged root line ("SandboxVars = 1") with a comment and a string
+  // holding look-alike lines below it. Read line by line, the comment's
+  // "Zombies = 4" hid the real entries, so the root line stayed damaged and
+  // the comment and string got a "{" each.
+  const ROOT_ORIGINAL = [
+    "SandboxVars = {",
+    "    --[[ Zombies = 4 was the old default",
+    "Zombies = 4",
+    "    Speed = 2",
+    "    ]]",
+    "    Note = [[",
+    "Zombies = 4",
+    "    Speed = 2",
+    "]],",
+    "    VERSION = 6,",
+    "    ZombieLore = {",
+    "        Speed = 2,",
+    "    },",
+    "}",
+    "",
+  ].join("\r\n");
+  const ROOT_DAMAGED = ROOT_ORIGINAL.replace("SandboxVars = {", "SandboxVars = 1");
+
+  it("restores a damaged root line below which a comment and a string hold look-alike lines", () => {
+    const repaired = repairSandboxSyntax(ROOT_DAMAGED);
+    expect(repaired.fixed).toBe(true);
+    expect(repaired.content).toBe(ROOT_ORIGINAL);
+    expect(repaired.changes).toEqual([expect.stringMatching(/^Line 1: 'SandboxVars = 1'/)]);
+    expect(parseSandboxVars(repaired.content)).toEqual(
+      expect.objectContaining({
+        VERSION: 6,
+        settings: { Note: "Zombies = 4\n    Speed = 2\n" },
+        ZombieLore: { Speed: 2 },
+      }),
+    );
+  });
+
+  it("writes the restored root line through the route, after a backup", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-sandbox-197-root-"));
+    try {
+      const sandboxPath = path.join(tmpDir, "TestServer_SandboxVars.lua");
+      fs.writeFileSync(sandboxPath, ROOT_DAMAGED);
+      getActiveServer.mockResolvedValue({ serverConfigPath: tmpDir, serverName: "TestServer" });
+      getAllSettings.mockResolvedValue({});
+
+      const res = await runHandler("/sandbox/repair", "post", {});
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true, repaired: true, changes: [expect.stringMatching(/^Line 1: /)] }),
+      );
+      expect(fs.readFileSync(sandboxPath, "utf-8")).toBe(ROOT_ORIGINAL);
+      expect(fs.readdirSync(path.join(tmpDir, "backups"))).toHaveLength(1);
+
+      // Now valid, so a second repair is the "already valid" answer.
+      const again = await runHandler("/sandbox/repair", "post", {});
+      expect(again.json).toHaveBeenCalledWith(expect.objectContaining({ success: true, alreadyValid: true }));
+      expect(fs.readdirSync(path.join(tmpDir, "backups"))).toHaveLength(1);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a damaged root line it cannot restore, and writes nothing", async () => {
+    // No entry is indented under the root line, so it is left as it is. Its
+    // "ZombieLore" line below does get its "{" back, and the result parses,
+    // but "SandboxVars = 1" is no table: the game would find nothing to load.
+    const broken = ["SandboxVars = 1", "ZombieLore = 1", "    Speed = 2,", "}", ""].join("\n");
+    const attempt = repairSandboxSyntax(broken);
+    expect(attempt.changes).toEqual([expect.stringMatching(/^Line 2: 'ZombieLore = 1'/)]);
+    expect(validateSandboxLua(attempt.content)).toEqual(
+      expect.objectContaining({ parses: true, valid: false }),
+    );
+    expect(attempt.fixed).toBe(false);
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-sandbox-197-root-"));
+    try {
+      const sandboxPath = path.join(tmpDir, "TestServer_SandboxVars.lua");
+      fs.writeFileSync(sandboxPath, broken);
+      getActiveServer.mockResolvedValue({ serverConfigPath: tmpDir, serverName: "TestServer" });
+      getAllSettings.mockResolvedValue({});
+
+      const res = await runHandler("/sandbox/repair", "post", {});
+      expect(res.status).toHaveBeenCalledWith(422);
+      expect(fs.readFileSync(sandboxPath, "utf-8")).toBe(broken);
+      expect(fs.existsSync(path.join(tmpDir, "backups"))).toBe(false);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

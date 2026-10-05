@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   countSandboxBraces,
   editSandboxValues,
+  findOverwrittenTableOpeners,
   parseSandboxLua,
   readSandboxPath,
   sandboxSectionsFromLua,
@@ -306,5 +307,62 @@ describe("validation", () => {
     expect(validateSandboxLua(wrap("A = 1 B = 2"))).toEqual(
       expect.objectContaining({ valid: false, balanced: true }),
     );
+  });
+});
+
+// The lines POST /sandbox/repair puts a "{" back on (#197).
+describe("findOverwrittenTableOpeners", () => {
+  const openers = (lines, eol = "\n") =>
+    findOverwrittenTableOpeners(lines.join(eol)).map(({ line, key, value }) => ({ line, key, value }));
+
+  it("finds 'Key = value' standing above a deeper entry, with the value's own span", () => {
+    const content = ["SandboxVars = {", "    Explosives = -1 -- was here", "        A = 1,", "    },", "}"].join("\r\n");
+    const [found] = findOverwrittenTableOpeners(content);
+    expect(found).toEqual(expect.objectContaining({ line: 2, key: "Explosives", value: "-1" }));
+    expect(content.slice(found.start, found.end)).toBe("-1");
+  });
+
+  it.each([
+    ["a string", ['    A = "x"', "        B = 1,"], "\"x\""],
+    ["a single-quoted string", ["    A = 'x'", "        B = 1,"], "'x'"],
+    ["true", ["    A = true", "        B = 1,"], "true"],
+    ["a number with a fraction", ["    A = 1.5", "        B = 1,"], "1.5"],
+  ])("takes %s as the overwritten value", (_label, lines, value) => {
+    expect(openers(lines)).toEqual([{ line: 1, key: "A", value }]);
+  });
+
+  it.each([
+    ["a trailing comma", ["    A = 1,", "        B = 1,"]],
+    ["a sibling, not a deeper entry", ["    A = 1", "    B = 1,"]],
+    ["a closing brace below it", ["    A = 1", "        }"]],
+    ["a table value", ["    A = {}", "        B = 1,"]],
+    ["a long-string value", ["    A = [[x]]", "        B = 1,"]],
+    ["another token before the key", ["    }; A = 1", "        B = 1,"]],
+    ["the end of a long comment before the key", ["    --[[ x", "]] A = 1", "        B = 1,"]],
+    ["the end of a long comment before the next entry", ["    A = 1 --[[ x", "    ]]  B = 1,"]],
+    ["nothing after it", ["    A = 1"]],
+  ])("skips a line with %s", (_label, lines) => {
+    expect(openers(lines)).toEqual([]);
+  });
+
+  it.each([
+    ["a long string", ["Note = [[", "Speed = 2", "    Fast = 1", "]]"]],
+    ["a long string with a level", ["Note = [=[", "Speed = 2", "    Fast = 1", "]=]"]],
+    ["a long comment", ["--[[", "Speed = 2", "    Fast = 1", "]]"]],
+    ["line comments", ["-- Speed = 2", "--     Fast = 1"]],
+    ["a string continued over lines", ['Note = "\\', "Speed = 2 --\\", '    Fast = 1"']],
+  ])("never reports a line inside %s", (_label, lines) => {
+    expect(openers(lines)).toEqual([]);
+    expect(openers(lines, "\r\n")).toEqual([]);
+  });
+
+  it("looks past comments for the entry below", () => {
+    expect(
+      openers(["    A = 1 --[[ spans", "Speed = 2", "    Fast = 1", "    ]]", "    -- note", "", "        B = 1,"]),
+    ).toEqual([{ line: 1, key: "A", value: "1" }]);
+  });
+
+  it("finds nothing in content that does not tokenize", () => {
+    expect(openers(["    A = 1", "        B = 1,", "    C = [[ never closed"])).toEqual([]);
   });
 });
