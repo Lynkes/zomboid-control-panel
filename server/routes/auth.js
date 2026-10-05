@@ -19,7 +19,12 @@ import { verifySetupToken, clearSetupToken } from "../utils/setupToken.js";
 import { getRefreshCookieOptions } from "../utils/refreshCookie.js";
 import { requirePermission, getCapabilitiesForRole } from "../services/permissions.js";
 import { ErrorCode } from "../utils/errorCodes.js";
-import { resetTokenHexDigits, resetTokenWeakness } from "../utils/resetTokenStrength.js";
+import {
+  decodeResetTokenFile,
+  prepareResetTokenChecks,
+  resetTokenHexDigits,
+  resetTokenWeakness,
+} from "../utils/resetTokenStrength.js";
 
 const log = createLogger("Auth");
 const router = Router();
@@ -140,7 +145,7 @@ export function createLocalResetResponse(message) {
   };
 }
 
-function getResetTokenState() {
+async function getResetTokenState() {
   const tokenPath = getResetTokenPath();
   if (!fs.existsSync(tokenPath)) {
     return { tokenPath, available: false, reason: "missing", token: null };
@@ -168,7 +173,10 @@ function getResetTokenState() {
     };
   }
 
-  const token = fs.readFileSync(tokenPath, "utf-8").trim();
+  // SECURITY (2026-10-05, A2): round 3 of the verification. Read as bytes:
+  // Windows PowerShell's `>` writes UTF-16, which read as UTF-8 was refused
+  // as "not hex" (see decodeResetTokenFile()).
+  const token = decodeResetTokenFile(fs.readFileSync(tokenPath));
   if (!token || (resetTokenHexDigits(token) ?? token).length < RESET_TOKEN_MIN_LENGTH) {
     return {
       tokenPath,
@@ -179,6 +187,9 @@ function getResetTokenState() {
     };
   }
 
+  // The well-known-hash check needs a table of hashes worked out once; build
+  // it without holding up the event loop.
+  await prepareResetTokenChecks();
   const weakness = resetTokenWeakness(token);
   if (weakness) {
     return {
@@ -227,6 +238,18 @@ const RESET_TOKEN_UNUSABLE_RESPONSES = {
   },
   "too-weak": {
     log: "reset-token.txt is too predictable (all digits, too few digits, hex words, repeated, sequential or keyboard-pattern characters, a repeated stretch, or too few different characters)",
+    code: ErrorCode.RESET_TOKEN_TOO_WEAK,
+    error: RESET_TOKEN_TOO_WEAK_MESSAGE,
+  },
+  // SECURITY (2026-10-05, A2): round 3 of the verification; see
+  // resetTokenReadsAsText() and isWellKnownResetToken().
+  "hex-text": {
+    log: "reset-token.txt is text written as hex (xxd -p, .hex(), ToHexString or a text-to-hex converter), which anyone who guesses the text can write too",
+    code: ErrorCode.RESET_TOKEN_TOO_WEAK,
+    error: RESET_TOKEN_TOO_WEAK_MESSAGE,
+  },
+  "well-known": {
+    log: "reset-token.txt is a well-known value (a hash of bash's $RANDOM, of nothing or of a common word, or a UUID printed as an example)",
     code: ErrorCode.RESET_TOKEN_TOO_WEAK,
     error: RESET_TOKEN_TOO_WEAK_MESSAGE,
   },
@@ -864,7 +887,7 @@ router.get("/reset-status", async (req, res) => {
       return res.json({ localResetSupported: false });
     }
     res.json({
-      resetAvailable: getResetTokenState().available,
+      resetAvailable: (await getResetTokenState()).available,
       localResetSupported: true,
     });
   } catch (error) {
@@ -999,7 +1022,7 @@ router.post("/reset-token/local", localResetTokenLimiter, async (req, res) => {
       });
     }
 
-    const tokenState = getResetTokenState();
+    const tokenState = await getResetTokenState();
     if (tokenState.available && tokenState.token) {
       return res.json(
         createLocalResetResponse(
@@ -1008,13 +1031,11 @@ router.post("/reset-token/local", localResetTokenLimiter, async (req, res) => {
       );
     }
 
-    if (
-      tokenState.reason === "expired" ||
-      tokenState.reason === "too-large" ||
-      tokenState.reason === "too-short" ||
-      tokenState.reason === "not-hex" ||
-      tokenState.reason === "too-weak"
-    ) {
+    // A file that's there but unusable, for any reason getResetTokenState()
+    // gives: removed first so the new one is created with mode 0600
+    // (writeFileSync keeps an existing file's mode). This listed the reasons
+    // one by one, and a new one would have been left out.
+    if (tokenState.reason !== "missing") {
       try {
         fs.unlinkSync(tokenState.tokenPath);
       } catch (error) {
@@ -1024,7 +1045,14 @@ router.post("/reset-token/local", localResetTokenLimiter, async (req, res) => {
       }
     }
 
-    const token = crypto.randomBytes(24).toString("hex");
+    // Random bytes read as text, by chance, about once in five million
+    // tokens (utils/resetTokenStrength.js); the panel's own token mustn't be
+    // one its checks then refuse.
+    await prepareResetTokenChecks();
+    let token;
+    do {
+      token = crypto.randomBytes(24).toString("hex");
+    } while (resetTokenWeakness(token));
     fs.writeFileSync(tokenState.tokenPath, `${token}\n`, {
       encoding: "utf-8",
       mode: 0o600,
@@ -1055,7 +1083,8 @@ router.post("/reset-token/local", localResetTokenLimiter, async (req, res) => {
  * This proves they have filesystem access to the server machine.
  * The token file is deleted after a successful reset, and only then. A file
  * holding fewer than RESET_TOKEN_MIN_LENGTH characters, anything but a
- * generator's hex, or a predictable token, is refused outright.
+ * generator's hex, a predictable token, hex that reads as text or a
+ * well-known value (utils/resetTokenStrength.js), is refused outright.
  *
  * SECURITY (2026-10-05, A2): a wrong token no longer counts toward deleting
  * the file (see RESET_TOKEN_MIN_LENGTH's comment). And a caller that isn't
@@ -1094,7 +1123,7 @@ router.post("/reset-password", resetLimiter, async (req, res) => {
     // the host still gets the error itself.
     let tokenState;
     try {
-      tokenState = getResetTokenState();
+      tokenState = await getResetTokenState();
     } catch (error) {
       if (isLocalPanelRequest(req)) throw error;
       log.warn(`Password reset attempted but reset-token.txt can't be read: ${error.message}`);
