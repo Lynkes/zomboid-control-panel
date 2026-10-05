@@ -362,6 +362,24 @@ describe("findOverwrittenTableOpeners", () => {
     ).toEqual([{ line: 1, key: "A", value: "1" }]);
   });
 
+  // The line scanner the repair used before 19f98921 took these (it skipped
+  // a line starting with "--" and measured the one after it).
+  it.each([
+    ["a short comment", ["    A = 1", "        --[[ tip ]] B = 1,"]],
+    ["a comment with a level", ["    A = 1", "        --[==[ tip ]] ]==]B = 1,"]],
+    ["two comments", ["    A = 1", "        --[[ a ]] --[[ b ]] B = 1,"]],
+  ])("measures the entry below by its line's indentation, past %s before it", (_label, lines) => {
+    expect(openers(lines)).toEqual([{ line: 1, key: "A", value: "1" }]);
+    expect(openers(lines, "\r\n")).toEqual([{ line: 1, key: "A", value: "1" }]);
+  });
+
+  it.each([
+    ["no deeper than the line above", ["    A = 1", "    --[[ tip ]]      B = 1,"]],
+    ["a comment that opened on an earlier line", ["    A = 1 --[[ x", "        --[[ ]] B = 1,"]],
+  ])("skips an entry below with a comment before it on its line, %s", (_label, lines) => {
+    expect(openers(lines)).toEqual([]);
+  });
+
   it("finds nothing in content that does not tokenize", () => {
     expect(openers(["    A = 1", "        B = 1,", "    C = [[ never closed"])).toEqual([]);
   });

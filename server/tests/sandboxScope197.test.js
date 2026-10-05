@@ -489,6 +489,21 @@ describe("POST /sandbox/repair only touches code, never a string or a comment", 
     expect(repaired.content).toBe(original);
   });
 
+  it("restores a table whose first entry has a short comment before it on its line", () => {
+    const original = [
+      "SandboxVars = {",
+      "    ZombieLore = {",
+      "        --[[ tip ]] Speed = 2,",
+      "        Cognition = 3,",
+      "    },",
+      "}",
+      "",
+    ].join("\n");
+    const repaired = repairSandboxSyntax(original.replace("    ZombieLore = {", "    ZombieLore = 1"));
+    expect(repaired.fixed).toBe(true);
+    expect(repaired.content).toBe(original);
+  });
+
   it("changes nothing when the only line that looks damaged is inside a string", () => {
     // One "}" too many, and no damaged opener to put back.
     const broken = ["SandboxVars = {", "    Note = [[", ...LOOKALIKE, "]],", "    },", "}", ""].join("\n");

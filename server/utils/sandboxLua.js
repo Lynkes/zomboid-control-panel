@@ -725,6 +725,7 @@ function lineStarts(src) {
 }
 
 const SPACES_ONLY = /^[ \t\f\v]*$/;
+const LEADING_SPACES = /^[ \t\f\v]*/;
 
 /**
  * Where #197 overwrote a table's opening "{" with a value ("Explosives = 1"
@@ -734,7 +735,8 @@ const SPACES_ONLY = /^[ \t\f\v]*$/;
  *   - starts its line (only spaces or tabs before the key),
  *   - ends its line (nothing but spaces and comments after the value), and
  *   - is followed by a "Name = ..." entry that starts a later line and is
- *     indented deeper.
+ *     indented deeper (only spaces, tabs and comments that open on that
+ *     line come before it).
  * The scan runs on this module's tokens, so text inside a string or a comment
  * is never taken for an entry: a long string whose text reads "Speed = 2" is
  * that string's value, and rewriting it would change the option. Returns
@@ -766,6 +768,34 @@ export function findOverwrittenTableOpeners(content) {
     const before = src.slice(starts[lineOf[k]], tokens[k].start);
     return SPACES_ONLY.test(before) ? before : null;
   };
+  // The same, but comments that open on token k's line may come between
+  // the indentation and the token ("        --[[ tip ]] Speed = 2,"). Walks
+  // the gap from the token before, which holds only whitespace and
+  // comments, so a line that starts inside a comment opened higher up
+  // (null) is told apart from one that opens its own.
+  const indentPastCommentsOf = (k) => {
+    const end = tokens[k].start;
+    let lineStart = -1;
+    let i = tokens[k - 1].end;
+    while (i < end) {
+      if (isNewline(src[i])) {
+        i = skipNewline(src, i);
+        lineStart = i;
+      } else if (src[i] === "-" && src[i + 1] === "-") {
+        const level = src[i + 2] === "[" ? longBracketLevel(src, i + 2) : -1;
+        if (level < 0) {
+          while (i < end && !isNewline(src[i])) i++;
+        } else {
+          const commentEnd = readLongBracket(src, i + 2, level, "comment").end;
+          if (/[\r\n]/.test(src.slice(i, commentEnd))) lineStart = -1;
+          i = commentEnd;
+        }
+      } else {
+        i++;
+      }
+    }
+    return lineStart < 0 ? null : src.slice(lineStart, end).match(LEADING_SPACES)[0];
+  };
 
   const found = [];
   for (let k = 0; k + 2 < tokens.length; k++) {
@@ -786,7 +816,7 @@ export function findOverwrittenTableOpeners(content) {
     if (lineOf[next] === lineOf[k]) continue;
     if (tokens[next].type !== "name" || tokens[next + 1]?.type !== "=") continue;
     const indent = indentOf(k);
-    const nextIndent = indentOf(next);
+    const nextIndent = indentPastCommentsOf(next);
     if (indent === null || nextIndent === null || nextIndent.length <= indent.length) continue;
     found.push({
       line: lineOf[k] + 1,
