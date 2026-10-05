@@ -222,35 +222,87 @@ to **Recovery token**) — or use a recovery code, or run `--reset-password`
 on the host instead.
 
 The token has to be one nobody can guess: random hex (only `0-9` and
-`a-f`), at least 32 characters after trimming whitespace, made by a
-generator rather than typed by you. From the panel's folder on Linux or
-macOS:
+`a-f`, in either case), at least 32 hex digits, made by a generator rather
+than typed by you. Run one of these from the panel's folder. Each writes a
+file the panel reads as it is: a line break at the end, Windows line
+breaks, a byte order mark, and the UTF-16 that Windows PowerShell's `>`
+writes are all fine.
+
+On Linux or macOS:
 
 ```sh
 openssl rand -hex 24 > data/reset-token.txt
 ```
 
-In PowerShell on Windows:
+Without openssl, `uuidgen > data/reset-token.txt` or
+`head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > data/reset-token.txt`
+work too.
 
-```powershell
-$b = [byte[]]::new(24); [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); -join ($b | % { $_.ToString('x2') }) | Set-Content data\reset-token.txt
+If the panel runs as a Linux service (see [Linux](linux.md)), its `data`
+folder belongs to the service account and nobody else can write in it, so
+the line above fails with `Permission denied`. Write the file as that
+account instead (`pzuser` and `/opt/zomboid-panel` in the standard
+install):
+
+```sh
+sudo -u pzuser sh -c 'openssl rand -hex 24 > /opt/zomboid-panel/data/reset-token.txt'
 ```
 
-A UUID (`uuidgen`, or `New-Guid` in PowerShell) works too. The panel
-refuses what a stranger could guess: words, a sentence or a phrase
+In PowerShell on Windows (Windows PowerShell 5.1 or PowerShell 7):
+
+```powershell
+$b = [byte[]]::new(24); [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); -join ($b | % { $_.ToString('x2') }) | Set-Content -Encoding ascii data\reset-token.txt
+```
+
+or a UUID:
+
+```powershell
+(New-Guid).Guid | Set-Content -Encoding ascii data\reset-token.txt
+```
+
+If openssl is installed (Git for Windows ships one),
+`openssl rand -hex 24 > data\reset-token.txt` works in PowerShell too. From
+`cmd.exe`, type `powershell` first, then one of the lines above.
+
+With Docker, from the host (the supplied compose files name the container
+`zomboid-panel`):
+
+```sh
+docker exec zomboid-panel node -e "require('fs').writeFileSync('/app/data/reset-token.txt', require('crypto').randomBytes(24).toString('hex'))"
+```
+
+Now and then random output happens to look like a pattern or like text
+and is refused: about 1 in 14,000 UUIDs or 32-digit tokens, and hardly
+ever 48 digits (`openssl rand -hex 24` and the first PowerShell line). If
+that happens, run the command again.
+
+**Don't use `echo $RANDOM | md5sum` or `date | md5sum`** (or `sha256sum`),
+or anything else built on bash's `$RANDOM`, cmd's `%RANDOM%` or the time:
+`$RANDOM` is one of only 32,768 numbers, and the time to the second one of
+86,400 a day, so anyone can work out every token they can make. The panel
+refuses the usual `$RANDOM` hashes, but don't count on it to catch every
+variation, and it can't tell a hash of the time from random hex at all.
+The same goes for hashing a word: the panel refuses hashes of the obvious
+words, but it can't know every word you might pick.
+
+The panel refuses what a stranger could guess: words, a sentence or a phrase
 (`zomboid-control-panel-reset-token`), a number on its own (the digits of
 pi, a date), hex words (`deadbeefcafe…`), repeated or sequential characters
 (`aaaa`, `abcd`, `4321`), keyboard patterns (`qwerty`, `1qaz2wsx`), the same
-stretch repeated, or runs interleaved (`a1b2c3`). It refuses a password
+stretch repeated, or runs interleaved (`a1b2c3`); text written as hex, in
+most languages and encodings (a phrase run through `xxd -p`, Python's
+`.hex()`, PowerShell's `[Convert]::ToHexString` or an online text-to-hex
+converter); hashes of
+`$RANDOM` or of common words; and UUIDs printed as examples
+(`123e4567-e89b-12d3-a456-426614174000` and the like). It refuses a password
 manager's letters and symbols too, since it can't tell those from words;
-and a file over 1KB, or more than 24 hours old when you use it. Don't make
-hex by hashing something either (a word, the date): that passes the check,
-but anyone can hash the same thing. A wrong token changes nothing: the file stays until it is used
-or expires, so nobody else can use your token up by guessing. From anywhere
-but the host itself the panel also never says whether the file exists:
-every refusal reads `That reset token wasn't accepted. …`, and the panel's
-log says which check failed (missing, too short, not hex, too predictable,
-too old, or simply a different token).
+and a file over 1KB, or more than 24 hours old when you use it. A wrong
+token changes nothing: the file stays until it is used or expires, so
+nobody else can use your token up by guessing. From anywhere but the host
+itself the panel also never says whether the file exists: every refusal
+reads `That reset token wasn't accepted. …`, and the panel's log says which
+check failed (missing, too short, not hex, too predictable, text written as
+hex, a well-known value, too old, or simply a different token).
 
 If you see `This recovery action is only available when the panel is opened
 from the server itself.` instead (no proxy mentioned), you're just not

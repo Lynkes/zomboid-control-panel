@@ -99,6 +99,7 @@ import { escapeLogText } from "./utils/logText.js";
 import { ErrorCode } from "./utils/errorCodes.js";
 import { getSftpCachePath } from "./services/panelBridgeSftp.js";
 import { reconcileBridge } from "./services/bridgeDelivery.js";
+import { prepareResetTokenChecks } from "./utils/resetTokenStrength.js";
 import {
   clientDistMatchesMetadata,
   getEmbeddedClientDistPath,
@@ -391,6 +392,19 @@ if (trustProxySetting) {
 // its 60 s.
 const httpServer = installRequestBodyDeadline(createServer(PANEL_SERVER_TIMEOUTS, app));
 let activePanelPort = null;
+
+// SECURITY (2026-10-05, A2): round 5 of the reset-token verification. The
+// table of well-known hashes the reset-token checks need
+// (utils/resetTokenStrength.js) was worked out by whichever reset request
+// came first, which waited most of a second for it: a stranger's first
+// guess after a restart was slow unless the host's login page had already
+// asked. It's worked out in the background, a slice at a time, as soon as
+// the panel is listening.
+httpServer.once("listening", () => {
+  prepareResetTokenChecks().catch((error) => {
+    log.warn(`Could not prepare the reset-token checks in advance: ${error.message}`);
+  });
+});
 
 // HTTPS server — created during startup if certs are available
 let httpsServer = null;

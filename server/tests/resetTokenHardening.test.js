@@ -109,10 +109,11 @@ async function resetAsLocalCaller(token) {
 }
 
 const tokenPath = () => path.join(getDataPaths().dataDir, "reset-token.txt");
-function writeToken(token) {
+function writeRaw(bytes) {
   fs.mkdirSync(path.dirname(tokenPath()), { recursive: true });
-  fs.writeFileSync(tokenPath(), `${token}\n`);
+  fs.writeFileSync(tokenPath(), bytes);
 }
+const writeToken = (token) => writeRaw(`${token}\n`);
 const reset = (token, fromAddress) =>
   request("POST", "/api/auth/reset-password", { token, newPassword: "attacker-pw-1" }, fromAddress);
 const passwordIs = (password) => bcrypt.compare(password, db.data.users[0].password);
@@ -329,5 +330,136 @@ describe("A2: strangers can neither find nor destroy the operator's token", () =
       unreadable.mockRestore();
     }
     expect(fs.existsSync(tokenPath())).toBe(true);
+  });
+});
+
+// Round 3 of the A2 verification: hex is also what every text-to-hex tool
+// writes, and some generator output comes from a handful of inputs. A
+// stranger reset the admin password over HTTP with
+// hex("zomboid-control-panel-reset-token") and with the same phrase in
+// PowerShell's BitConverter form; the hash of bash's $RANDOM (32,768
+// possible tokens), of a common word, and the UUIDs printed as examples
+// passed too.
+const hexOf = (text, encoding = "utf8") => Buffer.from(text, encoding).toString("hex");
+const digest = (algorithm, input) => crypto.createHash(algorithm).update(input).digest("hex");
+
+describe("A2 round 3: hex a stranger can guess", () => {
+  it.each([
+    ["a phrase as hex (xxd -p, Python's .hex())", hexOf("zomboid-control-panel-reset-token")],
+    ["a phrase as PowerShell's BitConverter writes it", hexOf("ZomboidPanelRecovery2026").toUpperCase().match(/../g).join("-")],
+    ["a phrase as UTF-16LE hex", hexOf("zomboid-panel-reset", "utf16le")],
+    ["a phrase as hex with a digit added", `a${hexOf("correct horse battery staple")}`],
+    ["echo $RANDOM | md5sum | head -c 32", digest("md5", "12345\n")],
+    ["echo $RANDOM | sha256sum | head -c 48", digest("sha256", "31337\n").slice(0, 48)],
+    ["echo password | md5sum", digest("md5", "password\n")],
+    ["the md5 of nothing", digest("md5", "")],
+    ["Wikipedia's example UUID", "123e4567-e89b-12d3-a456-426614174000"],
+    ["RFC 4122's example UUID", "f81d4fae-7dec-11d0-a765-00a0c91e6bf6"],
+    // Round 4: UTF-8 with a single character beyond ASCII, UTF-16 in
+    // Arabic, and the near variants of the well-known values.
+    ["a phrase with one accented letter as hex", hexOf("Passwort zurück")],
+    ["a phrase with one curly apostrophe as hex", hexOf("Zomboid’s reset token")],
+    ["a phrase with one emoji as hex", hexOf("Zomboid reset 🔑")],
+    ["an Arabic phrase as UTF-16LE hex", hexOf("كلمة سر اللوحة", "utf16le")],
+    ["an Arabic phrase as PowerShell's BitConverter of UTF-16", hexOf("إعادة تعيين كلمة المرور", "utf16le").toUpperCase().match(/../g).join("-")],
+    ["cmd's echo %RANDOM% > file, hashed with certutil", digest("sha1", "12345 \r\n")],
+    ["echo $RANDOM | sha384sum | head -c 32", digest("sha384", "12345\n").slice(0, 32)],
+    ["echo PASSWORD | md5sum", digest("md5", "PASSWORD\n")],
+    ["PostgreSQL's example UUID", "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"],
+    // Round 5: UTF-16 text with an emoji, in Vietnamese, in Chinese or
+    // Korean, and Cyrillic in Windows-1251. A stranger who guessed the
+    // first two reset the admin password over HTTP.
+    ["a phrase with one emoji as UTF-16LE hex ([Text.Encoding]::Unicode)", hexOf("Zomboid reset 🔑", "utf16le")],
+    ["a Vietnamese phrase as UTF-16LE hex", hexOf("Đặt lại mật khẩu bảng điều khiển", "utf16le")],
+    ["a Vietnamese phrase as PowerShell's BitConverter of UTF-16", hexOf("Khôi phục mật khẩu", "utf16le").toUpperCase().match(/../g).join("-")],
+    ["a Chinese phrase as UTF-16LE hex", hexOf("重置密码面板令牌", "utf16le")],
+    ["a Korean phrase as UTF-16LE hex", hexOf("비밀번호 재설정 패널", "utf16le")],
+    ["a Russian phrase in Windows-1251 as hex", Buffer.from(Array.from("сброс пароля зомбоид", (c) => (c === " " ? 0x20 : 0xc0 + c.charCodeAt(0) - 0x410))).toString("hex")],
+  ])("refuses %s, even when it is typed correctly", async (_label, weak) => {
+    expect(weak.replaceAll("-", "").length).toBeGreaterThanOrEqual(RESET_TOKEN_MIN_LENGTH);
+    writeToken(weak);
+    const res = await reset(weak);
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe("RESET_TOKEN_INVALID");
+    expect((await resetAsLocalCaller(weak)).body.code).toBe("RESET_TOKEN_TOO_WEAK");
+    expect(await passwordIs("original-pw-1")).toBe(true);
+    expect(fs.existsSync(tokenPath())).toBe(true);
+  });
+
+  // Round 5: the host was told this one was ready to use.
+  it("doesn't tell the host a Vietnamese phrase as UTF-16LE hex is ready", async () => {
+    writeToken(hexOf("Đặt lại mật khẩu bảng điều khiển", "utf16le"));
+    const status = await request("GET", "/api/auth/reset-status", undefined, LOCAL);
+    expect(status.body).toMatchObject({ resetAvailable: false, localResetSupported: true });
+  });
+
+  it("doesn't tell the host such a token is ready, and the local recovery button replaces it", async () => {
+    writeToken(hexOf("zomboid-control-panel-reset-token"));
+    const status = await request("GET", "/api/auth/reset-status", undefined, LOCAL);
+    expect(status.body).toMatchObject({ resetAvailable: false, localResetSupported: true });
+
+    const local = await request("POST", "/api/auth/reset-token/local", undefined, LOCAL);
+    expect(local.status).toBe(200);
+    const replaced = fs.readFileSync(tokenPath(), "utf8").trim();
+    expect(replaced).toMatch(/^[0-9a-f]{48}$/);
+    expect((await reset(replaced)).status).toBe(200);
+  });
+
+  it("the local recovery button draws again rather than write a token its own checks refuse", async () => {
+    // 24 random bytes that happen to be printable text, as one in five
+    // million draws are.
+    const textBytes = Buffer.from("ZomboidPanelRecoveryTok!");
+    const randomBytes = crypto.randomBytes;
+    let handedOut = false;
+    const draw = vi.spyOn(crypto, "randomBytes").mockImplementation((size, ...rest) => {
+      if (size === 24 && !handedOut) {
+        handedOut = true;
+        return Buffer.from(textBytes);
+      }
+      return randomBytes(size, ...rest);
+    });
+    try {
+      const local = await request("POST", "/api/auth/reset-token/local", undefined, LOCAL);
+      expect(local.status).toBe(200);
+    } finally {
+      draw.mockRestore();
+    }
+    expect(handedOut).toBe(true);
+    const written = fs.readFileSync(tokenPath(), "utf8").trim();
+    expect(written).not.toBe(textBytes.toString("hex"));
+    expect(written).toMatch(/^[0-9a-f]{48}$/);
+    expect((await reset(written)).status).toBe(200);
+  });
+});
+
+// Round 3 of the A2 verification: the file is read the same whichever
+// tool wrote it. Windows PowerShell 5.1's `>` (`openssl rand -hex 24 >
+// data\reset-token.txt`) and Out-File write UTF-16 with a byte order mark,
+// which used to be refused as "not hex".
+describe("A2 round 3: the token file as each tool writes it", () => {
+  const token = "3f9a0c7be15d42a8960e7d1fb4c2a95e0d63b8f1c7a24e59";
+  it.each([
+    ["with a line break (openssl rand -hex 24 > file)", () => Buffer.from(`${token}\n`)],
+    ["with a Windows line break (Set-Content)", () => Buffer.from(`${token}\r\n`)],
+    ["with no line break (Set-Content -NoNewline)", () => Buffer.from(token)],
+    ["as UTF-8 with a byte order mark (Notepad, Out-File -Encoding utf8)", () =>
+      Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(`${token}\r\n`)])],
+    ["as UTF-16LE with a byte order mark (Windows PowerShell's >)", () =>
+      Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`${token}\r\n`, "utf16le")])],
+    ["as UTF-16BE with a byte order mark", () =>
+      Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.from(`${token}\r\n`, "utf16le").swap16()])],
+    // Round 4: read as UTF-16, this was refused as not hex.
+    ["as UTF-32LE with a byte order mark (Set-Content -Encoding utf32)", () => {
+      const text = `${token}\r\n`;
+      const bytes = Buffer.alloc(4 + text.length * 4);
+      bytes.set([0xff, 0xfe, 0, 0]);
+      for (let i = 0; i < text.length; i++) bytes.writeUInt32LE(text.charCodeAt(i), 4 + 4 * i);
+      return bytes;
+    }],
+  ])("accepts a token written %s", async (_label, bytes) => {
+    writeRaw(bytes());
+    const res = await reset(token);
+    expect(res.status).toBe(200);
+    expect(await passwordIs("attacker-pw-1")).toBe(true);
   });
 });

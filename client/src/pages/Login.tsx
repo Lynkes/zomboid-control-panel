@@ -37,6 +37,21 @@ function readDeviceFailureCount(): number {
   }
 }
 
+// SECURITY (2026-10-05, A2): round 3 of the verification. The server takes
+// a recovery token of hex digits only, at least 32 of them, in one piece or
+// in dash-separated groups like a UUID (RESET_TOKEN_MIN_LENGTH and
+// resetTokenHexDigits(), server/routes/auth.js and
+// server/utils/resetTokenStrength.js). This screen still asked for 8
+// characters, so it sent tokens the server could only refuse, with a vaguer
+// answer. Recovery codes (XXXXX-XXXXX-XXXXX) keep their own check.
+const RECOVERY_TOKEN_SHAPE = /^[0-9a-f]+(?:-[0-9a-f]+)*$/i
+const RECOVERY_TOKEN_MIN_HEX_DIGITS = 32
+
+function isRecoveryTokenShaped(token: string): boolean {
+  const trimmed = token.trim()
+  return RECOVERY_TOKEN_SHAPE.test(trimmed) && trimmed.replace(/-/g, '').length >= RECOVERY_TOKEN_MIN_HEX_DIGITS
+}
+
 function usePanelHealth() {
   const [status, setStatus] = useState<PanelStatus>('checking')
   const [version, setVersion] = useState<string | null>(null)
@@ -207,7 +222,12 @@ export default function Login() {
     e.preventDefault()
     setError('')
     setResetSuccess('')
-    if (!resetToken || resetToken.trim().length < 8) {
+    if (recoveryMethod === 'token') {
+      if (!isRecoveryTokenShaped(resetToken)) {
+        setError(t('errors.resetTokenFormat'))
+        return
+      }
+    } else if (!resetToken || resetToken.trim().length < 8) {
       setError(t('errors.resetTokenTooShort'))
       return
     }
@@ -438,7 +458,9 @@ export default function Login() {
                   autoFocus
                   disabled={loading}
                   required
-                  minLength={8}
+                  // A token's rule is more than a length; handleReset says
+                  // what it is rather than the browser's length tooltip.
+                  minLength={recoveryMethod === 'token' ? undefined : 8}
                   maxLength={512}
                   className="text-sm"
                 />

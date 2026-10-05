@@ -66,6 +66,7 @@
   "errors": {
     "loginFailed": "Anmeldung fehlgeschlagen",
     "resetTokenTooShort": "Das Reset-Token muss mindestens 8 Zeichen lang sein",
+    "resetTokenFormat": "Ein Wiederherstellungstoken besteht aus zufälligen Hex-Zeichen (0-9 und a-f), mindestens 32 davon, genau wie in data/reset-token.txt auf dem Panel-Host.",
     "passwordTooShort": "Das Passwort muss mindestens 6 Zeichen umfassen",
     "passwordsDontMatch": "Passwörter stimmen nicht überein",
     "resetFailed": "Zurücksetzen fehlgeschlagen",

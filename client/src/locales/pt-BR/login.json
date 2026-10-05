@@ -66,6 +66,7 @@
   "errors": {
     "loginFailed": "Falha no login",
     "resetTokenTooShort": "O token de recuperação deve ter pelo menos 8 caracteres",
+    "resetTokenFormat": "Um token de recuperação é hexadecimal aleatório (0-9 e a-f) de pelo menos 32 caracteres, exatamente como em data/reset-token.txt no host do painel.",
     "passwordTooShort": "A senha deve ter pelo menos 6 caracteres",
     "passwordsDontMatch": "As senhas não coincidem",
     "resetFailed": "Falha ao redefinir",

@@ -66,6 +66,7 @@
   "errors": {
     "loginFailed": "Échec de la connexion",
     "resetTokenTooShort": "Le jeton de récupération doit comporter au moins 8 caractères",
+    "resetTokenFormat": "Un jeton de récupération est une suite hexadécimale aléatoire (0-9 et a-f) d'au moins 32 caractères, exactement comme dans data/reset-token.txt sur l'hôte du panneau.",
     "passwordTooShort": "Le mot de passe doit comporter au moins 6 caractères",
     "passwordsDontMatch": "Les mots de passe ne correspondent pas",
     "resetFailed": "Échec de la réinitialisation",

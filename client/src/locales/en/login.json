@@ -66,6 +66,7 @@
   "errors": {
     "loginFailed": "Login failed",
     "resetTokenTooShort": "Reset token must be at least 8 characters",
+    "resetTokenFormat": "A recovery token is random hex (0-9 and a-f) at least 32 characters long, exactly as in data/reset-token.txt on the panel host.",
     "passwordTooShort": "Password must be at least 6 characters",
     "passwordsDontMatch": "Passwords do not match",
     "resetFailed": "Reset failed",
