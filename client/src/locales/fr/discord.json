@@ -341,9 +341,10 @@
     "testMessageSent": "Message de test envoyé au salon Discord",
     "testMessageFailedFallback": "Échec de l'envoi du message de test",
     "wipeConfirmTitle": "Réinitialiser les paramètres du bot Discord ?",
-    "wipeConfirmDesc": "Ceci efface le jeton du bot enregistré, les ID de serveur et de salon, les ID de rôles, les paramètres du pont de chat, les permissions des commandes et la configuration des notifications d'événements Discord. Le bot s'arrêtera et la page reviendra à la configuration initiale.",
+    "wipeConfirmDesc": "Ceci efface le jeton du bot enregistré, les ID de serveur et de salon, les ID de rôles, les paramètres du pont de chat et la configuration des notifications d'événements Discord, et remet le niveau de permission de chaque commande à sa valeur par défaut. Une commande qui requiert une permission que vous ne détenez pas dans ce panneau garde son niveau actuel. Le bot s'arrêtera et la page reviendra à la configuration initiale.",
     "wipeConfirmLabel": "Réinitialiser les paramètres Discord",
     "wipeSuccess": "Paramètres du bot Discord réinitialisés. Vous pouvez recommencer la configuration depuis le début.",
+    "wipeSuccessKeptTiers": "Paramètres du bot Discord réinitialisés. Ces commandes ont gardé leur niveau de permission, car elles requièrent des permissions que vous ne détenez pas dans ce panneau : {{commands}}",
     "wipeFailedFallback": "Échec de la réinitialisation des paramètres Discord"
   },
   "capabilityGate": {

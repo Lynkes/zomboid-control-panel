@@ -1762,7 +1762,14 @@ export const discordApi = {
       chatRelayChannelId,
       chatRelayScope,
     }),
-  resetConfig: () => apiPost("/discord/reset"),
+  // keptCommandPermissions: commands whose tier the wipe kept because
+  // changing it needs a capability the caller doesn't hold.
+  resetConfig: () =>
+    apiPost("/discord/reset") as Promise<{
+      success: boolean;
+      message?: string;
+      keptCommandPermissions?: string[];
+    }>,
   start: () => apiPost("/discord/start"),
   stop: () => apiPost("/discord/stop"),
   testToken: (token: string) => apiPost("/discord/test", { token }),

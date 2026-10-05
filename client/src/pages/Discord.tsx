@@ -686,7 +686,12 @@ export default function Discord() {
     try {
       setResetting(true);
       setConfigMessage(null);
-      await discordApi.resetConfig();
+      const result = await discordApi.resetConfig();
+      // The server keeps the tier of each command whose capability this
+      // user doesn't hold (security sweep 2026-10-05, D1); say which.
+      const keptCommands = Array.isArray(result?.keptCommandPermissions)
+        ? result.keptCommandPermissions
+        : [];
       setToken("");
       setGuildId("");
       setAdminRoleId("");
@@ -703,7 +708,12 @@ export default function Discord() {
       setSetupStep(0);
       setConfigMessage({
         type: "success",
-        text: t("toasts.wipeSuccess"),
+        text:
+          keptCommands.length > 0
+            ? t("toasts.wipeSuccessKeptTiers", {
+                commands: keptCommands.map((command) => `/${command}`).join(", "),
+              })
+            : t("toasts.wipeSuccess"),
       });
       await loadData();
     } catch (error: unknown) {

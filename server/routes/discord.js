@@ -70,6 +70,12 @@ function capabilitiesUnlockedByConfigChange(changed, discordBot) {
   return [...required];
 }
 
+// The caller's panel capabilities, for the checks above and below.
+async function capabilitiesOfCaller(req) {
+  const role = req.user ? await getRoleByName(req.user.role) : null;
+  return Array.isArray(role?.capabilities) ? role.capabilities : [];
+}
+
 // Bot config/lifecycle/permissions — "config" is technician's job per the
 // role brief; moderator has no need to reconfigure the Discord integration.
 // Applied once at the router level (matches panelBridge.js's identical
@@ -255,10 +261,7 @@ router.put("/config", async (req, res) => {
         discordBot,
       );
       if (requiredCapabilities.length > 0) {
-        const role = req.user ? await getRoleByName(req.user.role) : null;
-        const callerCapabilities = Array.isArray(role?.capabilities)
-          ? role.capabilities
-          : [];
+        const callerCapabilities = await capabilitiesOfCaller(req);
         const missing = requiredCapabilities.filter(
           (capability) => !callerCapabilities.includes(capability),
         );
@@ -427,6 +430,19 @@ router.post("/stop", async (req, res) => {
 });
 
 // Reset Discord bot configuration
+//
+// SECURITY (2026-10-05, D1): a wipe puts a command's tier back to its
+// default only where the caller could have made that change through PUT
+// /permissions: the command has no capability (status), or the caller
+// holds it. Every other tier is kept as it is. A wipe used to reset every
+// tier, so an integrations.manage holder without players.moderate could
+// undo an admin raising /kick to "admin" -- the next setup came back with
+// /kick at "moderator" and nobody had chosen that.
+// The token, guild, role and channel IDs are still cleared: clearing them
+// only narrows who can run commands (with no token the bot can't run at
+// all), and entering a new token already needs every command's capability
+// (capabilitiesUnlockedByConfigChange() above). Under the config mutex so
+// the tiers checked here are the tiers resetConfig() writes back.
 router.post("/reset", async (req, res) => {
   try {
     const discordBot = req.app.get("discordBot");
@@ -437,10 +453,25 @@ router.post("/reset", async (req, res) => {
       });
     }
 
-    await discordBot.resetConfig();
-    res.json({
-      success: true,
-      message: "Discord bot settings wiped. Setup can start from scratch.",
+    await discordBot.withConfigMutex(async () => {
+      const callerCapabilities = await capabilitiesOfCaller(req);
+      const commandTiersToReset = Object.entries(DISCORD_COMMAND_CAPABILITY)
+        .filter(
+          ([, capability]) =>
+            !capability || callerCapabilities.includes(capability),
+        )
+        .map(([command]) => command);
+      const keptCommandPermissions = await discordBot.resetConfig({
+        commandTiersToReset,
+      });
+      res.json({
+        success: true,
+        message:
+          keptCommandPermissions.length > 0
+            ? `Discord bot settings wiped. These commands kept their tier because changing it needs a capability you don't hold: ${keptCommandPermissions.map((command) => `/${command}`).join(", ")}.`
+            : "Discord bot settings wiped. Setup can start from scratch.",
+        keptCommandPermissions,
+      });
     });
   } catch (error) {
     log.error(`Failed to reset Discord config: ${error.message}`);
@@ -754,10 +785,7 @@ router.put("/permissions", async (req, res) => {
         if (!requiredCapability) continue; // unmapped/no-op key, or status (null)
         if (!(command in current) || current[command] === tier) continue;
         if (callerCapabilities === null) {
-          const role = req.user ? await getRoleByName(req.user.role) : null;
-          callerCapabilities = Array.isArray(role?.capabilities)
-            ? role.capabilities
-            : [];
+          callerCapabilities = await capabilitiesOfCaller(req);
         }
         if (!callerCapabilities.includes(requiredCapability)) {
           missing.push({ command, requiredCapability });
