@@ -27,6 +27,9 @@ LimitNOFILE=65536
 LimitNPROC=4096
 
 # Security hardening
+# Files the panel creates (logs, database, secrets, game-server files) are
+# readable only by the service account.
+UMask=0077
 NoNewPrivileges=true
 # Use 'full' instead of 'strict' — strict breaks pkg binaries on CentOS (needs /usr/lib64)
 ProtectSystem=full

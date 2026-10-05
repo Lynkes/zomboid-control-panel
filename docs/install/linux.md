@@ -64,6 +64,10 @@ this step, since every later phase assumes you're logged in.
 **You know it worked when:** the setup screen closes and you land on the
 panel's dashboard, logged in.
 
+The token is printed to the terminal only, never to the files in `logs/`.
+If the panel is already running as the Phase 6 service, read it from the
+journal instead: `sudo journalctl -u zomboid-panel | grep "SETUP TOKEN"`.
+
 **If this goes wrong:** `Invalid or missing setup token` means the token was
 mistyped or scrolled out of view in the terminal — scroll back up, or
 restart `start.sh` to print a fresh copy of the *same* token (it doesn't
@@ -199,6 +203,12 @@ the panel in its own process group and forwards service stop signals only to
 that group. Project Zomboid is detached into a different process group, so a
 panel-only restart or update does not stop the game server. Do not remove these
 settings unless the game server is managed by a separate service.
+
+The unit also sets `UMask=0077`, so files the panel creates (its logs,
+backups, and the game-server files it installs) are readable only by
+`pzuser`. If another account needs to read them, such as an off-machine
+backup job, run that job as `pzuser` or with `sudo` rather than loosening
+the umask.
 
 ### Paths and environment variables shown in the UI
 
