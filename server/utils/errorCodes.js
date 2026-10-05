@@ -2494,8 +2494,8 @@ export const ErrorCode = Object.freeze({
    * it, and something in it the game doesn't put in a data folder (or it is
    * a server install folder). Sent when the folder is saved (POST/PUT
    * /api/servers, /install, /quick-setup, create-from-discovery, chunks
-   * /save-path, PUT /config/app-settings) and when chunks /browse, Server
-   * Files or backups are about to use it (PATHS-1). */
+   * /save-path, PUT /config/app-settings) (PATHS-1). A stored folder that
+   * fails the rule where it is used answers ZOMBOID_DATA_FOLDER_REFUSED. */
   ZOMBOID_DATA_PATH_NOT_DATA_FOLDER: "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER",
   /** server/routes/server.js -- POST /api/server/console-log/clear (400):
    * the active server is remote, so its server-console.txt is on its own
@@ -2508,6 +2508,16 @@ export const ErrorCode = Object.freeze({
    * (PATHS-1 verifier pass 2). */
   WIPE_REMOTE_NOT_AVAILABLE: "WIPE_REMOTE_NOT_AVAILABLE",
   /* --- end security sweep W3: server paths --- */
+  /* --- security sweep W4: server paths (sec/w4-paths) --- */
+  /** server/services/zomboidDataPath.js zomboidDataFolderRefusal() -- a
+   * server's stored Zomboid data folder no longer meets the data-folder rule
+   * where a feature is about to use it: chunks /browse, Server Files, backups,
+   * mods, the console log, POST /api/server/start's folderWarning and the
+   * /api/servers list's folderProblem. Says to set the folder on the Servers
+   * page; ZOMBOID_DATA_PATH_NOT_DATA_FOLDER stays the save-time refusal
+   * (PT3 verifier round 1). */
+  ZOMBOID_DATA_FOLDER_REFUSED: "ZOMBOID_DATA_FOLDER_REFUSED",
+  /* --- end security sweep W4: server paths --- */
 });
 
 /**

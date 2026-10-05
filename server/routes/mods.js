@@ -3780,7 +3780,7 @@ router.post("/batch-remove", async (req, res) => {
     const dbResults = { removed: 0, failed: 0 };
 
     // Step 2: Remove all from INI in a single locked write
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     let iniResult = { removed: 0, skipped: 0 };
     // Tracks whether the INI edit block below actually ran. Ignore-listing
@@ -3933,13 +3933,14 @@ router.post("/batch-remove", async (req, res) => {
       iniRemoved: iniResult.removed,
       iniSkipped: iniResult.skipped,
       ...(iniResult.backupWarning ? { backupWarning: iniResult.backupWarning } : {}),
+      // PT3 (verifier round 1): a refused folder says why, as above.
       ...(iniEditApplied
         ? {}
-        : {
+        : withConfigRefusal(configRefusal, {
             error:
               "Server config file was not found or not accessible — no mods were removed.",
             code: ErrorCode.MODS_BATCH_REMOVE_INI_NOT_ACCESSIBLE,
-          }),
+          })),
     });
   } catch (error) {
     log.error(`Batch removal failed: ${error.message}`);
@@ -8448,9 +8449,10 @@ router.post("/enable-disk-mod", async (req, res) => {
 // mod-folder IDs and its map folders from the server INI so the server stops
 // loading it. Returns iniEditApplied=false when the config file could not be
 // reached — callers must not ignore-list in that case, because the mod may
-// still be live in Mods=/WorkshopItems=.
+// still be live in Mods=/WorkshopItems=. `configRefusal` is why, when the
+// server's folders were refused (PT3, verifier round 1).
 async function deleteModFromDiskAndIni(wsId) {
-  const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+  const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
   const sanitized = serverName ? path.basename(serverName) : null;
   const iniPath =
     sanitized && serverConfigPath
@@ -8464,6 +8466,7 @@ async function deleteModFromDiskAndIni(wsId) {
       mapFoldersToStrip: [],
       iniEditApplied: false,
       error: "Server config file was not found or not accessible",
+      configRefusal,
     };
   }
 
@@ -8558,16 +8561,18 @@ router.post("/delete-disk-mod", async (req, res) => {
       });
     }
 
-    const { removedPath, modIdsToStrip, iniEditApplied, backupWarning } =
+    const { removedPath, modIdsToStrip, iniEditApplied, backupWarning, configRefusal } =
       await deleteModFromDiskAndIni(wsId);
 
     if (!iniEditApplied) {
-      return res.status(400).json({
-        error: "Server config file was not found or not accessible",
-        code: ErrorCode.MODS_INI_NOT_ACCESSIBLE,
-        workshopId: wsId,
-        deletedFromDisk: false,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config file was not found or not accessible",
+          code: ErrorCode.MODS_INI_NOT_ACCESSIBLE,
+          workshopId: wsId,
+          deletedFromDisk: false,
+        }),
+      );
     }
 
     // Drop from tracking, then ADD to the ignore list so auto-sync won't
@@ -8663,19 +8668,22 @@ router.post("/purge", async (req, res) => {
       mapFoldersToStrip,
       iniEditApplied,
       backupWarning,
+      configRefusal,
     } = await deleteModFromDiskAndIni(wsId);
 
     if (!iniEditApplied) {
       log.error(
         `Purge ${wsId}: INI edit was never applied (missing server config path or ini file) — not untracking or ignore-listing`,
       );
-      return res.status(500).json({
-        error:
-          "Server config file was not found or not accessible — the mod was not removed from the server.",
-        code: ErrorCode.MODS_PURGE_INI_NOT_ACCESSIBLE,
-        collection,
-        deletedFromDisk: !!removedPath,
-      });
+      return res.status(500).json(
+        withConfigRefusal(configRefusal, {
+          error:
+            "Server config file was not found or not accessible — the mod was not removed from the server.",
+          code: ErrorCode.MODS_PURGE_INI_NOT_ACCESSIBLE,
+          collection,
+          deletedFromDisk: !!removedPath,
+        }),
+      );
     }
 
     try {

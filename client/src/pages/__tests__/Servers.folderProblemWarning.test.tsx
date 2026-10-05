@@ -69,7 +69,7 @@ const REFUSED = {
   installPath: '/srv/a',
   zomboidDataPath: '/home/someone',
   isActive: true,
-  folderProblem: { error: 'raw server text', code: 'ZOMBOID_DATA_PATH_NOT_DATA_FOLDER' },
+  folderProblem: { error: 'raw server text', code: 'ZOMBOID_DATA_FOLDER_REFUSED' },
 } as never
 const FINE = {
   ...BASE,
@@ -125,7 +125,7 @@ describe("Servers.tsx: a card says when the panel won't use the server's folders
     )
     await screen.findByText('fine-server')
 
-    expect(cardFor('refused-server').textContent).toContain(enErrors.ZOMBOID_DATA_PATH_NOT_DATA_FOLDER)
-    expect(cardFor('fine-server').textContent).not.toContain(enErrors.ZOMBOID_DATA_PATH_NOT_DATA_FOLDER)
+    expect(cardFor('refused-server').textContent).toContain(enErrors.ZOMBOID_DATA_FOLDER_REFUSED)
+    expect(cardFor('fine-server').textContent).not.toContain(enErrors.ZOMBOID_DATA_FOLDER_REFUSED)
   })
 })

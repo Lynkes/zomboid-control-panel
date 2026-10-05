@@ -105,7 +105,7 @@ describe("POST /start answers why the RCON settings weren't written", () => {
     state.server.zomboidDataPath = refusedData;
     const body = await start();
     expect(body.success).toBe(true);
-    expect(body.folderWarning.code).toBe(ErrorCode.ZOMBOID_DATA_PATH_NOT_DATA_FOLDER);
+    expect(body.folderWarning.code).toBe(ErrorCode.ZOMBOID_DATA_FOLDER_REFUSED);
   });
 
   it("with the config folder's refusal when the record has no data folder", async () => {

@@ -82,11 +82,11 @@ describe("Console -- the server log says why the panel won't read it", () => {
       success: true,
       lines: [],
       exists: false,
-      refusal: { error: 'raw server text', code: 'ZOMBOID_DATA_PATH_NOT_DATA_FOLDER' },
+      refusal: { error: 'raw server text', code: 'ZOMBOID_DATA_FOLDER_REFUSED' },
     })
     renderConsole()
     expect(await screen.findByText(enConsole.serverLog.unavailableTitle)).toBeInTheDocument()
-    expect(screen.getByText(enErrors.ZOMBOID_DATA_PATH_NOT_DATA_FOLDER)).toBeInTheDocument()
+    expect(screen.getByText(enErrors.ZOMBOID_DATA_FOLDER_REFUSED)).toBeInTheDocument()
     expect(screen.queryByText(enConsole.serverLog.notFoundTitle)).not.toBeInTheDocument()
   })
 

@@ -7,6 +7,7 @@ const log = createLogger('LogTailer');
 import { getActiveServer, getSetting } from '../database/init.js';
 import {
     describeRefusal,
+    gameLogFolderOf,
     logRefusalOnce,
     zomboidDataFolderHolds,
     zomboidDataFolderRefusal,
@@ -221,6 +222,9 @@ export class LogTailer extends EventEmitter {
             logRefusalOnce(log, `Not tailing the server's logs in ${basePath}: ${describeRefusal(zomboidDataFolderRefusal())}`);
             basePath = null;
         }
+        // PT2 (verifier round 1): a 1.4.5 Saves/Multiplayer data folder's
+        // logs can be in the Zomboid folder it sits in (gameLogFolderOf()).
+        if (basePath) basePath = gameLogFolderOf(basePath);
         this.basePath = basePath;
         if (!basePath) return;
 

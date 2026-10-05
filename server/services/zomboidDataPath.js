@@ -21,8 +21,9 @@ import { holdsSaveFiles, inspectZomboidPath, normalizeUserPath } from "../utils/
 //     not inspectZomboidPath()'s name-only ones, which any folder whose
 //     path says "zomboid" or "saves" passes, the panel's own folder
 //     included), or nothing in it but what the game itself puts in a data
-//     folder (empty included), or nothing in it but world saves (a
-//     Saves/Multiplayer folder named directly, as Map Cleanup allows).
+//     folder (empty included), or nothing in it but world saves and what
+//     the game and the panel put there (a Saves/Multiplayer folder named
+//     directly, as Map Cleanup allows).
 // A server install folder is refused. The folder PZ_SAVE_PATH names comes
 // from the operator's own environment (the Docker images set it), not from
 // a request, and is taken as it is. Remote servers stay exempt at the
@@ -48,8 +49,7 @@ const CONTROL_CHARACTERS = /[\x00-\x1f\x7f]/;
 // GameWindow, ZipLogs, ZipBackup, DebugLog, LuaManager, InstanceTracker,
 // RecipeMonitor, CraftRecipeManager, ...), checked against a real B42
 // ~/Zomboid. Matched exactly, as the game names them.
-const GAME_DATA_FOLDER_ENTRIES = new Set([
-  // Folders
+const GAME_DATA_FOLDERS = new Set([
   "Saves",
   "Server",
   "Logs",
@@ -66,7 +66,9 @@ const GAME_DATA_FOLDER_ENTRIES = new Set([
   "Crafting",
   "Recording",
   "RecipeLogs",
-  // Files
+]);
+
+const GAME_DATA_FILES = new Set([
   "console.txt",
   "server-console.txt",
   "coop-console.txt",
@@ -95,7 +97,8 @@ const GAME_DATA_FOLDER_ENTRIES = new Set([
   "TileGeometryState-options.ini",
 ]);
 
-const GAME_DATA_FOLDER_PATTERNS = [
+// Files too.
+const GAME_DATA_FILE_PATTERNS = [
   /^log_\d+\.txt$/,
   // Java's zip file system (ZipLogs writes logs.zip through it) leaves
   // these next to the zip.
@@ -109,11 +112,11 @@ const GAME_DATA_FOLDER_PATTERNS = [
 const OS_FOLDER_ENTRIES = new Set([".DS_Store", "Thumbs.db", "desktop.ini", "lost+found"]);
 
 export function isGameDataFolderEntry(name) {
-  return (
-    GAME_DATA_FOLDER_ENTRIES.has(name) ||
-    OS_FOLDER_ENTRIES.has(name) ||
-    GAME_DATA_FOLDER_PATTERNS.some((pattern) => pattern.test(name))
-  );
+  return GAME_DATA_FOLDERS.has(name) || OS_FOLDER_ENTRIES.has(name) || isGameDataFileName(name);
+}
+
+function isGameDataFileName(name) {
+  return GAME_DATA_FILES.has(name) || GAME_DATA_FILE_PATTERNS.some((pattern) => pattern.test(name));
 }
 
 function hasPathShape(value) {
@@ -193,18 +196,41 @@ function judgeFolder(resolved) {
 // Multiplayer/ when the data folder named is a Saves folder. Names are
 // compared as the folder lists them, never through existsSync(). Nothing
 // the panel creates holds save files, so nothing it creates counts.
+//
+// SECURITY (2026-10-05, PT1 verifier round 1): what the game writes counts
+// only where the game writes a world. A server's data folder is the game's
+// -cachedir, so a technician who saves <folder>/Saves (missing, so
+// accepted) and starts the server has the game create its own folders --
+// Lua, db, mods, Server ... -- where the rule looks for game modes, and
+// with <folder>/Saves/x, where it looks for worlds. In Lua/ a server-side
+// mod writes files by any name it likes (getFileOutput() checks only for
+// ".."), map_t.bin included, and a local mod in mods/ writes into its own
+// folder. A real game mode or world is never named like one of the game's
+// own data-folder entries (modes are Sandbox, Apocalypse, Multiplayer ...;
+// a dedicated server's world is named after the server), so a folder named
+// like one never counts as either.
 function holdsWorldSave(folder, names) {
   if (names.includes("Saves")) {
     const saves = path.join(folder, "Saves");
     // Multiplayer first: a dedicated server's own world is there.
-    const modes = listNames(saves).sort((a, b) => (b === "Multiplayer") - (a === "Multiplayer"));
+    const modes = listNames(saves)
+      .filter(isWorldOrModeName)
+      .sort((a, b) => (b === "Multiplayer") - (a === "Multiplayer"));
     if (modes.some((mode) => folderHoldsAWorld(path.join(saves, mode)))) return true;
   }
   return names.includes("Multiplayer") && folderHoldsAWorld(path.join(folder, "Multiplayer"));
 }
 
 function folderHoldsAWorld(folder) {
-  return listNames(folder).some((name) => holdsSaveFiles(path.join(folder, name)));
+  return listNames(folder).some((name) => isWorldSaveFolder(folder, name));
+}
+
+function isWorldOrModeName(name) {
+  return !isGameDataFolderEntry(name);
+}
+
+function isWorldSaveFolder(folder, name) {
+  return isWorldOrModeName(name) && holdsSaveFiles(path.join(folder, name));
 }
 
 function listNames(folder) {
@@ -241,39 +267,101 @@ const MULTIPLAYER_PLAYER_CACHE_FOLDER = /^-?\d+_.+_player$/;
 // in Saves/Multiplayer when it can't clean up. Let through, as the OS's
 // entries are, but none of them counts as the world save the folder must
 // hold: the panel makes them whatever the folder is.
+//
+// SECURITY (2026-10-05, PT2 verifier round 1): the panel also makes the
+// server's config folder there. With no config folder set, a record's is
+// <data folder>/Server, so the Server Config Templates dialog (1.4.5's GET
+// /api/server-files/templates, and saving a template now) creates
+// Server/templates, a start writes the RCON settings into Server/<name>.ini
+// (ensureRconConfigured()), and an edit keeps its .bak copies in
+// Server/backups. And PanelBridge's queue goes to <data folder>/Lua/
+// panelbridge/<server>/ (inbox/, outbox/), created when the panel first
+// sends the bridge a command. A 1.4.5 Saves/Multiplayer data folder holding
+// either one was refused everywhere again. Both are let through, as
+// folders only; neither ever counts as a world save.
 const PANEL_MULTIPLAYER_FOLDER_ENTRIES = [
   /^backups$/,
+  /^Server$/,
+  /^Lua$/,
   /^\.restore-staging-[0-9a-f-]+$/,
   /^.+\.replaced-\d+$/,
 ];
 
-// Folders only, as the game and the panel make them. At least one must be
-// a world save (save files in it); a player cache counts once the game has
-// saved into it.
+// Folders, as the game and the panel make them. At least one must be a
+// world save (save files in it); a player cache counts once the game has
+// saved into it. The panel's own entries are looked at first, so none ever
+// counts as the world save, not even one holding a world (a replaced world,
+// a staging folder).
+//
+// SECURITY (2026-10-05, PT2 verifier round 1): and what the game writes in
+// its own data folder, each as the kind of entry the game makes (a folder
+// as a folder, a file as a file), never counted either. The panel starts the
+// game with a server's data folder as its -cachedir, as 1.4.5 did, so once
+// it has started a server whose data folder is a Saves/Multiplayer folder,
+// the game's console.txt, server-console.txt, Logs/, db/ ... are in it too.
 function multiplayerFolderHoldsOnlyWorlds(folder, names) {
   let worlds = 0;
   for (const name of names) {
     if (OS_FOLDER_ENTRIES.has(name)) continue;
-    const entry = path.join(folder, name);
+    let stat;
     try {
-      if (!fs.statSync(entry).isDirectory()) return false;
+      stat = fs.statSync(path.join(folder, name));
     } catch {
       return false;
     }
-    if (holdsSaveFiles(entry)) {
+    if (!stat.isDirectory()) {
+      if (stat.isFile() && isGameDataFileName(name)) continue;
+      return false;
+    }
+    if (PANEL_MULTIPLAYER_FOLDER_ENTRIES.some((pattern) => pattern.test(name))) continue;
+    if (GAME_DATA_FOLDERS.has(name)) continue;
+    if (isWorldSaveFolder(folder, name)) {
       worlds++;
-    } else if (
-      !MULTIPLAYER_PLAYER_CACHE_FOLDER.test(name) &&
-      !PANEL_MULTIPLAYER_FOLDER_ENTRIES.some((pattern) => pattern.test(name))
-    ) {
+    } else if (!MULTIPLAYER_PLAYER_CACHE_FOLDER.test(name)) {
       return false;
     }
   }
   return worlds > 0;
 }
 
+// SECURITY (2026-10-05, PT2 verifier round 1): the Zomboid folder a
+// Saves/Multiplayer data folder sits in (two levels up), when that folder
+// exists and meets the rule on its own -- or null. A 1.4.5 record whose data
+// folder Map Cleanup's "Save as default" set to <Zomboid>/Saves/Multiplayer
+// kept the config folder it had, <Zomboid>/Server, which isn't inside the
+// data folder; and a server the game runs with <Zomboid> as its -cachedir
+// writes its console log there. utils/serverConfigPath.js accepts a config
+// folder under this one's Server folder too, and the console log is looked
+// for here when the data folder holds none. Never for a data folder that
+// isn't named Saves/Multiplayer, nor for a Zomboid folder that is missing
+// or doesn't meet the rule: then nothing outside the data folder is used.
+export function savesMultiplayerRoot(dataPath) {
+  if (!hasPathShape(dataPath) || !path.isAbsolute(dataPath)) return null;
+  const resolved = path.resolve(dataPath);
+  if (!isSavesMultiplayerFolder(resolved)) return null;
+  const root = path.dirname(path.dirname(resolved));
+  if (root === resolved || path.dirname(root) === root) return null;
+  const verdict = judgeFolder(root);
+  return verdict.ok && !verdict.missing ? root : null;
+}
+
+// Where the game writes a server's server-console.txt (and Logs/), for a
+// data folder that meets the rule: the data folder itself, the game's
+// -cachedir when the panel starts it -- unless it holds no console log and
+// it is a Saves/Multiplayer folder whose Zomboid folder (savesMultiplayerRoot())
+// holds one. A server the game runs with the Zomboid folder as its -cachedir
+// writes it there; a 1.4.5 record Map Cleanup's "Save as default" repointed
+// to the Saves/Multiplayer folder is one.
+const CONSOLE_LOG_FILE = "server-console.txt";
+
+export function gameLogFolderOf(dataPath) {
+  if (fs.existsSync(path.join(dataPath, CONSOLE_LOG_FILE))) return dataPath;
+  const root = savesMultiplayerRoot(dataPath);
+  return root && fs.existsSync(path.join(root, CONSOLE_LOG_FILE)) ? root : dataPath;
+}
+
 const NOT_A_DATA_FOLDER_MESSAGE =
-  "This folder holds files the game doesn't keep in a Zomboid data folder, so it can't be a server's data folder. Choose the server's own data folder (the one with a Saves folder), an empty folder, or a folder that doesn't exist yet: the game creates it when the server first starts.";
+  "This folder holds files the game doesn't keep in a Zomboid data folder, so it can't be a server's data folder. Choose the server's own data folder (the one with a world save in its Saves folder), an empty folder, or a folder that doesn't exist yet: the game creates it when the server first starts.";
 
 /**
  * Save time: judge a data folder a request is about to store.
@@ -345,11 +433,17 @@ export function zomboidDataFolderHolds(dataPath) {
 }
 
 // The response body for a data folder refused at use time.
+//
+// SECURITY (2026-10-05, PT3 verifier round 1): its own code. With the
+// save-time code (ZOMBOID_DATA_PATH_NOT_DATA_FOLDER) the client showed the
+// save-time text, which doesn't say where to set the folder, wherever a
+// feature refused a stored one (Mods, Console, the Servers page, the
+// Dashboard's start warning, chunks, Server Files, backups).
 export function zomboidDataFolderRefusal() {
   return {
     error:
-      "This server's Zomboid data folder holds files the game doesn't keep in a data folder, so the panel won't list or read it. On the Servers page, edit the server and set its Zomboid data folder to the game's own, the one with a Saves folder.",
-    code: ErrorCode.ZOMBOID_DATA_PATH_NOT_DATA_FOLDER,
+      "This server's Zomboid data folder holds files the game doesn't keep in a data folder, so the panel won't list or read it. On the My Servers page, edit the server and set its Zomboid Data Path to the game's own data folder: the one with a world save in its Saves folder.",
+    code: ErrorCode.ZOMBOID_DATA_FOLDER_REFUSED,
   };
 }
 

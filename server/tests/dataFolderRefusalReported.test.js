@@ -11,7 +11,7 @@ import path from "path";
 // "Server config path not set. Please configure the server first.", the
 // Console page showed no log, the Discord presence dropped MaxPlayers and a
 // start skipped the RCON settings with one log line. Each now reports the
-// refusal itself (ZOMBOID_DATA_PATH_NOT_DATA_FOLDER or
+// refusal itself (ZOMBOID_DATA_FOLDER_REFUSED or
 // SERVER_CONFIG_PATH_OUTSIDE_DATA, saying what to set), and the server list
 // carries it for the Servers page.
 //
@@ -49,7 +49,7 @@ const { DiscordBot } = await import("../services/discordBot.js");
 const { logRefusalOnce } = await import("../services/zomboidDataPath.js");
 const { ErrorCode } = await import("../utils/errorCodes.js");
 
-const NOT_A_DATA_FOLDER = ErrorCode.ZOMBOID_DATA_PATH_NOT_DATA_FOLDER;
+const FOLDER_REFUSED = ErrorCode.ZOMBOID_DATA_FOLDER_REFUSED;
 const OUTSIDE_DATA = ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA;
 
 let baseUrl;
@@ -159,16 +159,32 @@ describe("PT3: the features that went quiet say why", () => {
     await useRecord({ zomboidDataPath: refusedData });
     const current = await call("GET", "/api/mods/current-config");
     expect(current.json.configured).toBe(false);
-    expect(current.json.code).toBe(NOT_A_DATA_FOLDER);
+    expect(current.json.code).toBe(FOLDER_REFUSED);
     expect(current.json.error).toMatch(/Servers page/);
     expect(current.text).not.toContain("Hijacked");
 
     const added = await call("POST", "/api/mods/add-to-ini", { modIds: ["Some"], workshopId: "123" });
     expect(added.status).toBe(400);
-    expect(added.json.code).toBe(NOT_A_DATA_FOLDER);
+    expect(added.json.code).toBe(FOLDER_REFUSED);
     const sync = await call("POST", "/api/mods/sync-from-server");
     expect(sync.json.success).toBe(false);
-    expect(sync.json.code).toBe(NOT_A_DATA_FOLDER);
+    expect(sync.json.code).toBe(FOLDER_REFUSED);
+  });
+
+  // Verifier round 1: these kept "Server config file was not found or not
+  // accessible".
+  it("removing mods (batch, from disk, purge) says why nothing was removed", async () => {
+    await useRecord({ zomboidDataPath: refusedData });
+    const batch = await call("POST", "/api/mods/batch-remove", { workshopIds: ["123"] });
+    expect(batch.json.success).toBe(false);
+    expect(batch.json.code).toBe(FOLDER_REFUSED);
+    const disk = await call("POST", "/api/mods/delete-disk-mod", { workshopId: "123" });
+    expect(disk.status).toBe(400);
+    expect(disk.json.code).toBe(FOLDER_REFUSED);
+    expect(disk.json.deletedFromDisk).toBe(false);
+    const purge = await call("POST", "/api/mods/purge", { workshopId: "123" });
+    expect(purge.json.code).toBe(FOLDER_REFUSED);
+    expect(fs.readFileSync(path.join(refusedData, "Server", "Victim.ini"), "utf8")).toContain("Hijacked");
   });
 
   it("a config folder with no data folder answers SERVER_CONFIG_PATH_OUTSIDE_DATA", async () => {
@@ -193,21 +209,21 @@ describe("PT3: the features that went quiet say why", () => {
     await useRecord({ zomboidDataPath: refusedData });
     const log = await call("GET", "/api/server/console-log?filter=all");
     expect(log.json.exists).toBe(false);
-    expect(log.json.refusal.code).toBe(NOT_A_DATA_FOLDER);
+    expect(log.json.refusal.code).toBe(FOLDER_REFUSED);
     expect(log.text).not.toContain("refused folder line");
     const stream = await call("GET", "/api/server/console-log/stream?lastSize=0");
     expect(stream.json.exists).toBe(false);
-    expect(stream.json.refusal.code).toBe(NOT_A_DATA_FOLDER);
+    expect(stream.json.refusal.code).toBe(FOLDER_REFUSED);
     const cleared = await call("POST", "/api/server/console-log/clear");
     expect(cleared.status).toBe(400);
-    expect(cleared.json.code).toBe(NOT_A_DATA_FOLDER);
+    expect(cleared.json.code).toBe(FOLDER_REFUSED);
   });
 
   it("the server list carries the refusal for the Servers page", async () => {
     await useRecord({ zomboidDataPath: refusedData });
     const servers = await call("GET", "/api/servers");
     const listed = servers.json.servers.find((s) => s.id === serverId);
-    expect(listed.folderProblem.code).toBe(NOT_A_DATA_FOLDER);
+    expect(listed.folderProblem.code).toBe(FOLDER_REFUSED);
 
     await useRecord({ zomboidDataPath: null, serverConfigPath: path.join(realData, "Server") });
     const again = await call("GET", "/api/servers");
@@ -219,8 +235,8 @@ describe("PT3: the features that went quiet say why", () => {
     const record = await db.getServer(serverId);
     expect(await ensureRconConfigured(record)).toBe(false);
     expect(await ensureRconConfigured(record)).toBe(false);
-    expect(linesWith("API:Server", "warn", NOT_A_DATA_FOLDER, "RCON settings")).toHaveLength(1);
-    expect(linesWith("API:Server", "debug", NOT_A_DATA_FOLDER, "RCON settings")).toHaveLength(1);
+    expect(linesWith("API:Server", "warn", FOLDER_REFUSED, "RCON settings")).toHaveLength(1);
+    expect(linesWith("API:Server", "debug", FOLDER_REFUSED, "RCON settings")).toHaveLength(1);
     expect(fs.readFileSync(path.join(refusedData, "Server", "Victim.ini"), "utf8")).not.toContain("RCON");
   });
 
@@ -229,7 +245,7 @@ describe("PT3: the features that went quiet say why", () => {
     const bot = new DiscordBot();
     expect(await bot.getConfiguredMaxPlayers()).toBeNull();
     expect(await bot.getConfiguredMaxPlayers()).toBeNull();
-    expect(linesWith("Discord", "warn", NOT_A_DATA_FOLDER)).toHaveLength(1);
+    expect(linesWith("Discord", "warn", FOLDER_REFUSED)).toHaveLength(1);
 
     await useRecord({});
     expect(await bot.getConfiguredMaxPlayers()).toBe(12);
@@ -268,8 +284,8 @@ describe("PT5: a refused folder is logged at warn once, then at debug", () => {
     const service = new BackupService();
     await service.getStatus();
     await service.getStatus();
-    expect(linesWith("Backup", "warn", NOT_A_DATA_FOLDER)).toHaveLength(1);
-    expect(linesWith("Backup", "debug", NOT_A_DATA_FOLDER).length).toBeGreaterThanOrEqual(3);
+    expect(linesWith("Backup", "warn", FOLDER_REFUSED)).toHaveLength(1);
+    expect(linesWith("Backup", "debug", FOLDER_REFUSED).length).toBeGreaterThanOrEqual(3);
     expect(fs.existsSync(path.join(refusedData, "backups"))).toBe(false);
   });
 
@@ -279,8 +295,8 @@ describe("PT5: a refused folder is logged at warn once, then at debug", () => {
     await call("GET", "/api/mods/current-config");
     await call("GET", "/api/mods/validate-config");
     // The first test in this file already loaded the page for this folder.
-    expect(linesWith("API:Mods", "warn", NOT_A_DATA_FOLDER)).toHaveLength(1);
-    expect(linesWith("API:Mods", "debug", NOT_A_DATA_FOLDER).length).toBeGreaterThanOrEqual(3);
+    expect(linesWith("API:Mods", "warn", FOLDER_REFUSED)).toHaveLength(1);
+    expect(linesWith("API:Mods", "debug", FOLDER_REFUSED).length).toBeGreaterThanOrEqual(3);
   });
 
   it("each line warns once; another folder or reason warns again", () => {

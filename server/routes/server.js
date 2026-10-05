@@ -63,6 +63,7 @@ import { candidateIniPaths } from "../utils/zomboidPaths.js";
 import {
   checkZomboidDataPath,
   describeRefusal,
+  gameLogFolderOf,
   logRefusalOnce,
   zomboidDataFolderHolds,
   zomboidDataFolderRefusal,
@@ -6533,7 +6534,7 @@ function filterConsoleLogLines(lines, filterLevel = "filtered") {
 // server-console.txt there. The folder they use, whichever it is, is now
 // held to the data-folder rule (services/zomboidDataPath.js): refused, the
 // readers report no file, as for a remote server, and /clear refuses with
-// ZOMBOID_DATA_PATH_NOT_DATA_FOLDER. A real install folder never held the
+// ZOMBOID_DATA_FOLDER_REFUSED. A real install folder never held the
 // game's server-console.txt (the game writes it to its -cachedir).
 //
 // SECURITY (2026-10-05, PT3/PT4): the install folder came before the legacy
@@ -6558,7 +6559,9 @@ async function resolveConsoleLogFolder(activeServer) {
   const dataFolder = activeServer?.zomboidDataPath || (await getSetting("zomboidDataPath"));
   if (dataFolder) {
     if (zomboidDataFolderHolds(dataFolder)) {
-      return { folder: dataFolder, remote: false, refused: false, refusal: null };
+      // PT2 (verifier round 1): a 1.4.5 Saves/Multiplayer data folder's log
+      // can be in the Zomboid folder it sits in (gameLogFolderOf()).
+      return { folder: gameLogFolderOf(dataFolder), remote: false, refused: false, refusal: null };
     }
     const refusal = zomboidDataFolderRefusal();
     // PT5: the Console page polls these routes every 2s, so warn once per

@@ -95,7 +95,7 @@ describe("Map Cleanup's delete-with-backup creates backups/ only in a data folde
     ]) {
       const res = await post(route, body);
       expect(res.getStatusCode(), route).toBe(400);
-      expect(res.getBody()?.code, route).toBe(ErrorCode.ZOMBOID_DATA_PATH_NOT_DATA_FOLDER);
+      expect(res.getBody()?.code, route).toBe(ErrorCode.ZOMBOID_DATA_FOLDER_REFUSED);
       expect(fs.existsSync(path.join(dataRoot, "backups")), route).toBe(false);
       expect(fs.existsSync(chunk), route).toBe(true);
     }

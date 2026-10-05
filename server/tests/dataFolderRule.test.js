@@ -29,6 +29,8 @@ const { checkZomboidDataPath, isGameDataFolderEntry, zomboidDataFolderHolds } = 
 const { ErrorCode } = await import("../utils/errorCodes.js");
 
 const NOT_A_DATA_FOLDER = ErrorCode.ZOMBOID_DATA_PATH_NOT_DATA_FOLDER;
+// A stored folder refused where it is used (W4: its own code).
+const FOLDER_REFUSED = ErrorCode.ZOMBOID_DATA_FOLDER_REFUSED;
 
 let baseUrl;
 let httpServer;
@@ -307,7 +309,7 @@ describe("every feature that lists or reads under a stored data folder", () => {
     await setStoredDataPath(hostDir);
     const refused = await call("GET", `/api/chunks/browse?path=${encodeURIComponent(hostDir)}`);
     expect(refused.status).toBe(400);
-    expect(refused.json.code).toBe(NOT_A_DATA_FOLDER);
+    expect(refused.json.code).toBe(FOLDER_REFUSED);
     expect(JSON.stringify(refused.json)).not.toContain("secret-project");
 
     await setStoredDataPath(realData);
@@ -326,7 +328,7 @@ describe("every feature that lists or reads under a stored data folder", () => {
     fs.mkdirSync(path.join(later, "not-from-the-game"), { recursive: true });
     const r = await call("GET", `/api/chunks/browse?path=${encodeURIComponent(later)}`);
     expect(r.status).toBe(400);
-    expect(r.json.code).toBe(NOT_A_DATA_FOLDER);
+    expect(r.json.code).toBe(FOLDER_REFUSED);
   });
 
   it("Server Files refuses every route for a folder saved before the rule, files.manage included", async () => {
@@ -335,10 +337,10 @@ describe("every feature that lists or reads under a stored data folder", () => {
       currentRole = role;
       const raw = await call("GET", "/api/server-files/raw/ini");
       expect(raw.status).toBe(400);
-      expect(raw.json.code).toBe(NOT_A_DATA_FOLDER);
+      expect(raw.json.code).toBe(FOLDER_REFUSED);
       const listed = await call("GET", `/api/server-files/browse-files?path=${encodeURIComponent(hostDir)}`);
       expect(listed.status).toBe(400);
-      expect(listed.json.code).toBe(NOT_A_DATA_FOLDER);
+      expect(listed.json.code).toBe(FOLDER_REFUSED);
     }
     expect(fs.existsSync(path.join(hostDir, "Server"))).toBe(false);
   });

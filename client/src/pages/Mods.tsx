@@ -159,7 +159,7 @@ interface IniConfig {
 
 // Why GET /mods/current-config found no config folder when it was refused
 // rather than unset (server/routes/mods.js's withConfigRefusal()).
-const FOLDER_REFUSAL_CODES = new Set(['ZOMBOID_DATA_PATH_NOT_DATA_FOLDER', 'SERVER_CONFIG_PATH_OUTSIDE_DATA'])
+const FOLDER_REFUSAL_CODES = new Set(['ZOMBOID_DATA_FOLDER_REFUSED', 'SERVER_CONFIG_PATH_OUTSIDE_DATA'])
 
 // ── Pure helper — parse workshop ID from URL or numeric input ──
 function parseWorkshopId(input: string): string | null {

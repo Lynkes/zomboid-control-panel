@@ -1814,7 +1814,7 @@ export interface ServerInstance {
   // Only set on /servers/active: the remote Server folder is reachable over SFTP.
   remoteConfigConfigured?: boolean;
   // Set on the /servers list: why the panel won't use this server's folders
-  // (ZOMBOID_DATA_PATH_NOT_DATA_FOLDER or SERVER_CONFIG_PATH_OUTSIDE_DATA),
+  // (ZOMBOID_DATA_FOLDER_REFUSED or SERVER_CONFIG_PATH_OUTSIDE_DATA),
   // or null when it will.
   folderProblem?: { error: string; code: string } | null;
   isActive: boolean;

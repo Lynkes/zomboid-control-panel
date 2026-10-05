@@ -23,10 +23,18 @@ import path from "path";
 // made backups/ in it (the Backups page, Map Cleanup's delete-with-backup
 // backups) -- after the update the rule refused that folder everywhere.
 //
+// Verifier round 1: players.db counted as a world save, and the game also
+// writes <cachedir>/db/<server name>.db -- a server named "players" started
+// with <folder>/Saves/x as its data folder made <folder> pass. And a
+// Saves/Multiplayer data folder holding the panel's own Server/ (the config
+// folder 1.4.5 and 1.4.6 make there when none is set) or Lua/ (PanelBridge's
+// queue) was refused again.
+//
 // Real routers over the real, unmocked database layer (the suite's per-file
 // temp data dir keeps it isolated), with the signed-in role injected.
 const db = await import("../database/init.js");
 const { default: serversRouter } = await import("../routes/servers.js");
+const { generateStartupScripts } = await import("../routes/server.js");
 const { default: backupRouter } = await import("../routes/backup.js");
 const { default: chunksRouter } = await import("../routes/chunks.js");
 const { default: serverFilesRouter } = await import("../routes/serverFiles.js");
@@ -36,6 +44,7 @@ const { checkZomboidDataPath, zomboidDataFolderHolds } = await import("../servic
 const { ErrorCode } = await import("../utils/errorCodes.js");
 
 const NOT_A_DATA_FOLDER = ErrorCode.ZOMBOID_DATA_PATH_NOT_DATA_FOLDER;
+const FOLDER_REFUSED = ErrorCode.ZOMBOID_DATA_FOLDER_REFUSED;
 
 let baseUrl;
 let httpServer;
@@ -131,7 +140,12 @@ afterAll(async () => {
 
 beforeEach(async () => {
   currentRole = "technician";
-  await db.updateServer(localId, { zomboidDataPath: realData, serverConfigPath: null, isRemote: false });
+  await db.updateServer(localId, {
+    zomboidDataPath: realData,
+    serverConfigPath: null,
+    serverName: "Victim",
+    isRemote: false,
+  });
   await db.setActiveServer(localId);
 });
 
@@ -174,6 +188,67 @@ describe("PT1: a Saves or Multiplayer folder counts only when it holds a world s
     writeWorld(path.join(dir, "saves", "Multiplayer", "World"));
     expect(zomboidDataFolderHolds(dir)).toBe(false);
     expect(checkZomboidDataPath(dir).ok).toBe(false);
+  });
+
+  // The game writes more than worlds under its -cachedir (a server's data
+  // folder): db/<server name>.db (ServerWorldDatabase.connect()), a
+  // server-side mod's files in Lua/ by any name (getFileOutput() checks only
+  // for ".."), a local mod's in mods/<mod>/. With the data folder at
+  // <folder>/Saves/x those land where the rule looks for worlds; at
+  // <folder>/Saves, where it looks for game modes.
+  it("what the game writes outside a world never counts as one: db/players.db, Lua/ and mods/ files", () => {
+    const shapes = [
+      "Saves/x/db/players.db",
+      "Saves/x/Lua/map_t.bin",
+      "Saves/Multiplayer/Lua/WorldDictionary.bin",
+      "Saves/Lua/w/map_t.bin",
+      "Saves/mods/SomeMod/map_t.bin",
+      "Multiplayer/Lua/map_t.bin",
+    ];
+    for (const file of shapes) {
+      const dir = privateFolder(`game-written-${file.replace(/\W+/g, "-")}`);
+      write(path.join(dir, ...file.split("/")), "written by the game");
+      expect(zomboidDataFolderHolds(dir), file).toBe(false);
+      expect(checkZomboidDataPath(dir).ok, file).toBe(false);
+    }
+  });
+
+  it("the chain through the game: a server named 'players' started in <folder>/Saves/x -- <folder> is still refused", async () => {
+    const victim = privateFolder("chain-db");
+    const target = path.join(victim, "Saves", "x");
+    const saved = await call("PUT", `/api/servers/${localId}`, { zomboidDataPath: target, serverName: "players" });
+    expect(saved.status).toBe(200);
+
+    // The start bakes both into the game's arguments ...
+    const stored = await db.getServer(localId);
+    const scripts = generateStartupScripts({
+      installPath: installDir,
+      serverName: stored.serverName,
+      zomboidDataPath: stored.zomboidDataPath,
+    });
+    expect(`${scripts.bat}\n${scripts.sh}`).toContain(`-cachedir="${target}`);
+    expect(`${scripts.bat}\n${scripts.sh}`).toContain('-servername "players"');
+    // ... and the game then writes getCacheDir() + /db/ + serverName + .db.
+    write(path.join(target, "db", "players.db"), "sqlite");
+
+    const step2 = await call("PUT", `/api/servers/${localId}`, { zomboidDataPath: victim });
+    expect(step2.status).toBe(400);
+    expect(step2.json.code).toBe(NOT_A_DATA_FOLDER);
+    const browse = await call("GET", `/api/chunks/browse?path=${encodeURIComponent(victim)}`);
+    expect(browse.status).not.toBe(200);
+    expect(JSON.stringify(browse.json)).not.toContain("Documents");
+  });
+
+  it("a stored folder refused where it is used has its own code, which says where to set it", async () => {
+    const refused = privateFolder("refused-in-use");
+    await db.updateServer(localId, { zomboidDataPath: refused });
+    const browse = await call("GET", `/api/chunks/browse?path=${encodeURIComponent(refused)}`);
+    expect(browse.status).toBe(400);
+    expect(browse.json.code).toBe(FOLDER_REFUSED);
+    expect(browse.json.error).toContain("My Servers page");
+    expect(browse.json.error).toContain("a world save in its Saves folder");
+    // Saving one is still the save-time refusal.
+    expect(checkZomboidDataPath(refused).body.code).toBe(NOT_A_DATA_FOLDER);
   });
 
   it("still accepts a data folder the game has run in (with files of the operator's own), a Saves folder, a world save, a missing, an empty and an operator folder", () => {
@@ -266,7 +341,11 @@ describe("PT1: a Saves or Multiplayer folder counts only when it holds a world s
 describe("PT2: a 1.4.5 Saves/Multiplayer data folder with the panel's own entries in it", () => {
   // As 1.4.5 left one: a dedicated server's world, the client's per-server
   // cache (this machine also plays), backups/ from the Backups page and a
-  // Map Cleanup delete-with-backup, and a restore's leftover staging folder.
+  // Map Cleanup delete-with-backup, a restore's leftover staging folder, and
+  // the config folder the panel makes as <data folder>/Server when the
+  // record has none -- templates/ from the Server Config Templates dialog,
+  // <name>.ini from the RCON settings a start writes, backups/ from an
+  // edit -- and PanelBridge's queue in Lua/panelbridge/<server>/.
   function build145Shape(name) {
     const multiplayer = path.join(root, name, "Zomboid", "Saves", "Multiplayer");
     writeWorld(path.join(multiplayer, "Victim"));
@@ -277,6 +356,11 @@ describe("PT2: a 1.4.5 Saves/Multiplayer data folder with the panel's own entrie
     fs.mkdirSync(path.join(multiplayer, ".restore-staging-6f1c2a1e-7b7c-4c39-9a35-8f0e1d2c3b4a"), {
       recursive: true,
     });
+    fs.mkdirSync(path.join(multiplayer, "Server", "templates"), { recursive: true });
+    write(path.join(multiplayer, "Server", "Victim.ini"), "RCONPort=27015\nRCONPassword=x\n");
+    write(path.join(multiplayer, "Server", "backups", "Victim.ini.2026-10-01T10-00-00-000Z.bak"), "Mods=\n");
+    fs.mkdirSync(path.join(multiplayer, "Lua", "panelbridge", "Victim", "inbox"), { recursive: true });
+    fs.mkdirSync(path.join(multiplayer, "Lua", "panelbridge", "Victim", "outbox"), { recursive: true });
     return multiplayer;
   }
 
@@ -293,7 +377,20 @@ describe("PT2: a 1.4.5 Saves/Multiplayer data folder with the panel's own entrie
     expect(list.status).toBe(200);
     expect(list.json.backups.map((b) => b.name)).toContain("Victim_2026-10-01T10-00-00-000.zip");
     const mods = await call("GET", "/api/mods/current-config");
+    expect(mods.json.code).not.toBe(FOLDER_REFUSED);
     expect(mods.json.code).not.toBe(NOT_A_DATA_FOLDER);
+  });
+
+  it("is still accepted once the panel has started the server there (the game's -cachedir)", () => {
+    const started = build145Shape("upgrade-145-started");
+    write(path.join(started, "server-console.txt"), "SERVER STARTED\n");
+    write(path.join(started, "console.txt"), "");
+    write(path.join(started, "Logs", "2026-10-05_10-00_chat.txt"), "");
+    write(path.join(started, "db", "Victim.db"), "sqlite");
+    write(path.join(started, "Server", "Victim_SandboxVars.lua"), "SandboxVars = {}\n");
+    fs.mkdirSync(path.join(started, "Saves", "Multiplayer"), { recursive: true });
+    expect(zomboidDataFolderHolds(started)).toBe(true);
+    expect(checkZomboidDataPath(started).ok).toBe(true);
   });
 
   it("the panel's entries don't count as the world save the folder must hold, and anything else is still refused", () => {
@@ -310,5 +407,23 @@ describe("PT2: a 1.4.5 Saves/Multiplayer data folder with the panel's own entrie
     fs.rmSync(path.join(backupsFile, "backups"), { recursive: true });
     write(path.join(backupsFile, "backups"), "a file, not the panel's folder");
     expect(zomboidDataFolderHolds(backupsFile)).toBe(false);
+    const serverFile = build145Shape("upgrade-145-server-file");
+    fs.rmSync(path.join(serverFile, "Server"), { recursive: true });
+    write(path.join(serverFile, "Server"), "a file, not the panel's folder");
+    expect(zomboidDataFolderHolds(serverFile)).toBe(false);
+
+    const gameFileAsFolder = build145Shape("upgrade-145-console-folder");
+    fs.mkdirSync(path.join(gameFileAsFolder, "server-console.txt", "Documents"), { recursive: true });
+    expect(zomboidDataFolderHolds(gameFileAsFolder)).toBe(false);
+
+    // Server/ and Lua/ are let through, never counted, whatever they hold
+    // (next to a player cache, which isn't one of the game's own entries, so
+    // the folder isn't let through as nothing but those).
+    for (const entry of ["Server", "Lua", "backups"]) {
+      const onlyPanel = path.join(root, `only-${entry}`, "Saves", "Multiplayer");
+      writeWorld(path.join(onlyPanel, entry));
+      fs.mkdirSync(path.join(onlyPanel, "76561198000000000_Victim_player"), { recursive: true });
+      expect(zomboidDataFolderHolds(onlyPanel), entry).toBe(false);
+    }
   });
 });
