@@ -286,6 +286,162 @@ function validateStartCommand(cmd) {
   return { valid: true };
 }
 
+// SECURITY (2026-10-04, RCE-STARTCMD): a server's launch target -- its
+// custom start command, or a launcher script named by installPath/serverPath
+// (resolveLaunchMode()'s CUSTOM LAUNCHER) -- is a program the panel runs on
+// this computer, as its own account, every time the server starts. The
+// blocklist above stops chaining, not the choice of program:
+// `powershell.exe -enc <base64>` passed it, and a technician could save that
+// (servers.manage) and press Start (server.control). Saving a launch target
+// now takes files.manage (routes/servers.js), and every launch asks again
+// here, so a value stored before that check existed, or written some other
+// way, still can't run. No launch target may be an OS program or a command
+// interpreter (resolved through realpath so a symlink or junction can't
+// disguise one); a start command additionally has to resolve inside the
+// server's own install folder (the EXEC-1 vector). A custom launcher is the
+// operator's own script and a supported mode that can live anywhere, so it
+// is not folder-confined -- see findLaunchTargetRefusal() for the split.
+// The script the panel writes for a MANAGED server is its own and isn't
+// asked about.
+const COMMAND_INTERPRETER_RE =
+  /^(cmd|command|powershell(_ise)?|pwsh|wscript|cscript|mshta|rundll32|regsvr32|msiexec|wsl|bash|sh|dash|zsh|ksh|csh|tcsh|fish|busybox|env|python[\d.]*w?|pyw?|perl[\d.]*|ruby[\d.]*|node(js)?|php[\d.]*|lua[\d.]*)$/;
+
+function systemProgramDirs() {
+  return isWindows
+    ? [process.env.SystemRoot || process.env.windir || "C:\\Windows"]
+    : ["/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/local/bin", "/usr/local/sbin",
+        "/usr/lib", "/usr/lib64", "/usr/libexec", "/lib", "/lib64", "/etc", "/boot",
+        "/dev", "/proc", "/sys"];
+}
+
+// realpath of the longest part of `target` that exists, with the rest
+// appended as written: a start command may name a script that isn't there
+// yet when it's saved, but a symlinked folder on the way to it still
+// resolves to where it really leads.
+function realpathOrNearest(target) {
+  const rest = [];
+  let current = path.resolve(target);
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync.native(current), ...rest);
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return path.resolve(target);
+      rest.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+// path.relative() folds case on Windows, and answers with an absolute path
+// for a target on another drive.
+function isInsideFolder(target, folder, { orSame = false } = {}) {
+  const rel = path.relative(folder, target);
+  if (rel === "") return orSame;
+  return rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+}
+
+// The server's own install DIRECTORY -- the anchor the launch target is
+// confined to. The first of installPath/serverPath that is a directory
+// (not itself launcher-shaped) wins; when the only thing configured is the
+// launcher path itself, there is no separate directory and its own parent
+// is the best anchor (confinement is then vacuous for that launcher, and
+// the system-program/interpreter checks and the files.manage route gate are
+// what protect it). PZ_SERVER_PATH stands in when the record names nothing.
+function installDirOf(server) {
+  for (const value of [server?.installPath, server?.serverPath]) {
+    if (value && resolveLaunchMode({ installPath: value }).mode !== "custom") {
+      return value;
+    }
+  }
+  const launcher = resolveLaunchMode(server).launcherPath;
+  if (launcher) return path.dirname(launcher);
+  return process.env.PZ_SERVER_PATH || "";
+}
+
+// What a server record launches, for findLaunchTargetRefusal(): its own
+// install directory, its start command, and its custom launcher script if
+// it has one.
+export function launchTargetOf(server) {
+  return {
+    installDir: installDirOf(server),
+    startCommand: server?.startCommand,
+    launcherPath: resolveLaunchMode(server).launcherPath,
+  };
+}
+
+// A resolved launch target is refused when it is an OS command interpreter
+// (by file name) or sits in a system program directory -- true of every
+// launch, start command or custom launcher alike.
+function isSystemOrInterpreter(real) {
+  if (
+    systemProgramDirs().some((dir) =>
+      isInsideFolder(real, realpathOrNearest(dir), { orSame: true }),
+    )
+  ) {
+    return true;
+  }
+  const name = path.basename(real, path.extname(real)).toLowerCase();
+  return COMMAND_INTERPRETER_RE.test(name);
+}
+
+// null when the launch may go ahead, or `{ program }` (the file name only,
+// never its folder) when it is refused. A start command wins over a custom
+// launcher, as in startServer().
+//
+// A START COMMAND is the EXEC-1 vector (`powershell.exe -enc <base64>`): its
+// program is resolved against the install folder and must sit inside it --
+// a command naming a program elsewhere on the host, legitimate or not, is
+// refused (the plan's "legitimate but outside the folder" case, with an
+// admin-fix message). A CUSTOM LAUNCHER (installPath/serverPath ending in a
+// launcher extension) is the operator's own script and a real supported
+// mode that can legitimately live anywhere, so it is NOT folder-confined --
+// setting it is already admin-only (routes/servers.js), and here it only
+// has to not be an interpreter or a system program. Both reject interpreters
+// and system-dir programs.
+export function findLaunchTargetRefusal({ installDir, startCommand, launcherPath } = {}) {
+  const command = typeof startCommand === "string" ? startCommand.trim() : "";
+  if (command) {
+    const cmd = parseCustomStartCommand(command).cmd;
+    if (!cmd) return null;
+    const program = path.basename(cmd) || cmd;
+    const folder = installDir ? realpathOrNearest(installDir) : null;
+    const real = realpathOrNearest(path.resolve(installDir || ".", cmd));
+    if (folder && !isInsideFolder(real, folder, { orSame: true })) return { program };
+    if (isSystemOrInterpreter(real)) return { program };
+    return null;
+  }
+  if (!launcherPath) return null;
+  const program = path.basename(launcherPath) || launcherPath;
+  if (isSystemOrInterpreter(realpathOrNearest(path.resolve(launcherPath)))) {
+    return { program };
+  }
+  return null;
+}
+
+// The refusal, thrown by startServer() and forwarded by POST
+// /api/server/start like SERVER_START_SCRIPT_MISSING below. Only the file
+// name goes in `params`.
+export function launchTargetRefusedError({ program }) {
+  const error = new Error(
+    `The panel won't launch ${program} for this server: it only launches a script or program inside the server's own install folder, never one elsewhere on this computer or a system command interpreter. An admin can fix this in My Servers › Edit Server: point Custom Start Command (or an Install Path that names a launcher script) at a script inside the server's install folder, or clear Custom Start Command so the panel writes and runs its own launch script.`,
+  );
+  error.code = ErrorCode.SERVER_LAUNCH_TARGET_REFUSED;
+  error.params = { program };
+  return error;
+}
+
+// The same refusal, asked before a Restart stops anything (see
+// ServerManager.assertNamedStartupScriptLaunchable()).
+export function launchTargetRestartRefusedError({ program }) {
+  const error = new Error(
+    `Restart called off before stopping the server, which is still running: the panel wouldn't launch ${program} to start it again, because it only launches a script or program inside the server's own install folder, never one elsewhere on this computer or a system command interpreter. An admin can fix this in My Servers › Edit Server, then restart again.`,
+  );
+  error.code = ErrorCode.SERVER_RESTART_LAUNCH_TARGET_REFUSED;
+  error.params = { program };
+  return error;
+}
+
 // Get the default startup script name for the current platform
 function getDefaultStartupScript(windows = isWindows) {
   return windows ? "StartServer64.bat" : "start-server.sh";
@@ -2154,6 +2310,34 @@ export class ServerManager {
       // auto-start skipped the refresh the dashboard's Start did, launched
       // the stock script on a fresh install, and kept old RCON/admin
       // passwords after an edit until a manual restart.
+      // RCE-STARTCMD: what this start would run is asked again on every
+      // launch, not only when it was saved (findLaunchTargetRefusal()).
+      // Before prepareForLaunch(), so a refused launch writes nothing. The
+      // DB record is the authority on install dir vs launcher (loadConfig()
+      // collapses serverPath to the launcher's parent in custom mode);
+      // falls back to this manager's own fields for a legacy settings-only
+      // config with no record. A systemd/OpenRC unit runs the launcher
+      // baked into the reviewed unit file, not this.
+      if (!this.usesManagedServiceLifecycle()) {
+        const target = this._serverRecord
+          ? launchTargetOf(this._serverRecord)
+          : {
+              installDir: this.serverPath || process.env.PZ_SERVER_PATH || "",
+              startCommand: this.startCommand,
+              launcherPath:
+                this.launchMode === "custom" && this.serverPath
+                  ? path.join(this.serverPath, this.serverBat)
+                  : null,
+            };
+        const refusal = findLaunchTargetRefusal(target);
+        if (refusal) {
+          log.warn(
+            `Start refused: launch target ${refusal.program} is outside the install folder or is a system program`,
+          );
+          throw launchTargetRefusedError(refusal);
+        }
+      }
+
       const { scriptWarnings, launchSeq } = await prepareForLaunch(
         this._serverRecord,
       );
@@ -3469,6 +3653,18 @@ export class ServerManager {
     }
     if (!record || record.isRemote) return;
     if (record.dockerContainerName || record.dockerContainerId) return;
+    // RCE-STARTCMD: startServer() refuses a launch target outside the
+    // install folder (findLaunchTargetRefusal()); asked here too so a
+    // Restart doesn't stop a server it would then refuse to start.
+    if (!isManagedLifecycleProvider(record.lifecycleProvider || "direct")) {
+      const refusal = findLaunchTargetRefusal(launchTargetOf(record));
+      if (refusal) {
+        log.warn(
+          `Restart refused before stopping the server: launch target ${refusal.program} is outside the install folder or is a system program`,
+        );
+        throw launchTargetRestartRefusedError(refusal);
+      }
+    }
     if (resolveLaunchMode(record).mode === "custom" || !record.serverName) return;
     const script = resolveManagedStartupScript(record.serverName);
     if (script !== managedStartupScriptName(record.serverName)) return;
