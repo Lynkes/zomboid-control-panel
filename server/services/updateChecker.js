@@ -737,7 +737,12 @@ export class UpdateChecker {
           ? path.join(steamcmdPath, "steamcmd.sh")
           : path.join(steamcmdPath, "steamcmd");
       if (!fs.existsSync(steamcmdExe)) fail("STEAMCMD_NOT_FOUND", `SteamCMD not found at ${steamcmdExe}`, { path: sanitizeError(steamcmdExe) });
-      const branch = ["public", "stable"].includes(updateInfo.installed.branch) ? [] : ["-beta", updateInfo.installed.branch];
+      // The branch that's mounted, named even when it's public: with no
+      // -beta, SteamCMD follows the branch the appmanifest last asked for
+      // (UserConfig), which can differ from the mounted one, and an
+      // unattended update would quietly move the server to it.
+      const mountedBranch = updateInfo.installed.branch;
+      const branch = ["-beta", !mountedBranch || mountedBranch === "stable" ? "public" : mountedBranch];
       const loginArgs = await getSteamLoginArgs();
 
       // Guard against racing a manual POST /install or POST /steam-update
@@ -785,7 +790,7 @@ export class UpdateChecker {
       let code;
       let killedByWatchdog = false;
       try {
-        const child = spawn(steamcmdExe, ["+force_install_dir", activeServer.installPath, ...loginArgs, "+app_update", "380870", ...branch, "validate", "+quit"], { cwd: steamcmdPath });
+        const child = spawn(steamcmdExe, ["+force_install_dir", activeServer.installPath, ...loginArgs, "+app_info_update", "1", "+app_update", "380870", ...branch, "validate", "+quit"], { cwd: steamcmdPath });
         // Listeners attached synchronously, in the same tick as spawn --
         // 'error'/'close' can fire on any subsequent macrotask, so an
         // await between spawn() and .once() here (e.g. persisting the pid
