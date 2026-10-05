@@ -191,7 +191,7 @@ export function resolveBridgeIniPath(server) {
 function readLauncherHead(launcherPath) {
   let fd;
   try {
-    // codeql[js/path-injection] launcherPath is either serverManager.resolveLaunchMode()'s custom launcher (the profile's own serverPath/installPath ending in .bat/.sh/.exe, an operator setting accepted only by the servers.manage / server.install routes: POST /api/servers' validateInstallPathShape; /install and /quick-setup's isValidPath: absolute, no "..") or the .bat/.cmd/.sh script of the profile's own startCommand (servers.manage only), resolved against the install folder as serverManager.startServer() does -- in both cases the very script the panel launches as-is. This only reads its first 64 KB to test NO_STEAM_RE and the Steam flag, and returns nothing but those booleans.
+    // codeql[js/path-injection] launcherPath is either serverManager.resolveLaunchMode()'s custom launcher (the profile's own serverPath/installPath ending in .bat/.sh/.exe, an operator setting a launcher-shaped value of which only files.manage may save: POST/PUT /api/servers' validateInstallPathShape and changesLaunchTarget(); /install and /quick-setup's isValidPath: absolute, no "..") or the .bat/.cmd/.sh script of the profile's own startCommand (files.manage only), resolved against the install folder as serverManager.startServer() does -- in both cases the very script the panel launches as-is. This only reads its first 64 KB to test NO_STEAM_RE and the Steam flag, and returns nothing but those booleans.
     fd = fs.openSync(launcherPath, "r");
     const buf = Buffer.alloc(LAUNCHER_SCAN_BYTES);
     const read = fs.readSync(fd, buf, 0, LAUNCHER_SCAN_BYTES, 0);

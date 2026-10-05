@@ -163,6 +163,10 @@ describe("installPath/serverPath shape validation (POST / and PUT /:id)", () => 
           body: baseCreateBody({
             installPath: "D:\\PZServer\\MyCustomLauncher.bat",
           }),
+          // RCE-STARTCMD: setting a launcher install path now needs
+          // files.manage (admin by default); this suite's concern is the
+          // shape validation, so it acts as an admin.
+          user: { id: "admin-1", username: "admin", role: "admin" },
         },
         response,
       );

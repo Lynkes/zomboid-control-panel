@@ -104,6 +104,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useToast } from '@/components/ui/use-toast'
 import { modsApi, serversApi, ApiError } from '@/lib/api'
+import { launchIsOperatorDefined } from '@/lib/launchTarget'
 import { FolderBrowser } from '@/components/FolderBrowser'
 import {
   buildRequiresMap,
@@ -271,6 +272,9 @@ export default function Mods() {
   // convention as every other capability check in the app.
   const canManageMods = can('mods.manage')
   const canManageServers = can('servers.manage')
+  // Saving that path on a server with its own start command or launcher
+  // script also takes files.manage (RCE-STARTCMD, lib/launchTarget.ts).
+  const canFilesManage = can('files.manage')
 
   // Search and filters
   const [searchQuery, setSearchQuery] = useState('')
@@ -713,6 +717,15 @@ export default function Mods() {
         })
         return
       }
+      // Said before the folder is picked, not after Save is refused.
+      if (!canFilesManage && launchIsOperatorDefined(server)) {
+        toast({
+          title: t('toasts.couldNotSaveWorkshopPathTitle'),
+          description: t('errors:SERVER_LAUNCH_TARGET_ADMIN_ONLY'),
+          variant: 'destructive',
+        })
+        return
+      }
       const installPath = server?.installPath?.trim() || ''
       const lastSlash = Math.max(installPath.lastIndexOf('\\'), installPath.lastIndexOf('/'))
       const isStartupScript = /\.(bat|cmd|exe|sh)$/i.test(installPath)
@@ -729,7 +742,7 @@ export default function Mods() {
       return
     }
     setWorkshopBrowserOpen(true)
-  }, [toast, t])
+  }, [toast, t, canFilesManage])
 
   const handleWorkshopFolderSelected = useCallback(async (selectedPath: string) => {
     if (savingWorkshopPath || !selectedPath.trim() || !canManageServers) return
