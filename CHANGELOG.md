@@ -9,43 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **Live updates by role:** install and SteamCMD progress, chunk scans, PanelBridge status, deaths, the player list and non-public chat now reach only the roles allowed to see them (#193, thanks @mrbean56).
-- **SFTP host keys pinned:** the first connection pins a remote server's key; a changed key is refused until you compare it and choose Trust new host key in Settings › PanelBridge (#193, thanks @mrbean56).
-- **Tokens in URLs:** `?token=` works only on the mod-conflict stream; other tools must send an Authorization header (#193, thanks @mrbean56).
-- **Panel updates:** checking for updates and reading the apply log need panel settings (admin by default) (#193, thanks @mrbean56).
-- **Hardening:** safer restore staging, owner-only `.bat` launch scripts, masked recovery codes, a stricter CORS private-network check, HS256-only tokens, server-files guards that match a trailing slash, and an optional `PANEL_DOCKER_UPDATE_SHA256` updater pin (#193, thanks @mrbean56).
-- **Server folders confined:** a server's data folder must be the game's own (one with a world save in its Saves folder, or a Saves, Saves/Multiplayer or world folder 1.4.5's Map Cleanup saved as default, typed in any letter case on Windows or macOS), an empty one or one not yet created, and its config folder the Server folder inside it (or, for those Map Cleanup folders, the Zomboid folder's), checked on save and again wherever either is used, and the pages that refuse one say what to set; without file-manager rights the Server Config image browser reaches only the data folder's Server folder, the config folder and the panel account's own `~/Zomboid`; a server-management role could read and write files anywhere on the host.
-- **Remote servers' data folder:** backups, the console log, wipe and the legacy settings no longer use a remote server's data folder on the panel's own computer; a technician could aim it at any local folder to list, download or delete .zip files, read or empty a server-console.txt, or rewrite a Server/<name>.ini.
-- **Discord bot settings:** changing the bot's token, server, admin/moderator roles or command tiers needs the permissions of the bot commands the change unlocks; a Discord-integration role could give itself RCON and server control through the bot.
-- **Discord wipe:** wiping the Discord setup keeps the command tiers the caller can't change, an empty or damaged tier counting as admin-only, and says it turns auto-start and the chat relay back on; a wipe could quietly undo an admin's raised tiers (e.g. /kick back to the Moderator role) for the next setup.
-- **Discord bot's server:** slash commands are answered only in the configured Discord server; a previous server's owner could keep running every command, /rcon included, after the bot was moved.
-- **Discord chat relay:** the chat relay and notifications work only in channels of the configured Discord server, both ways (Send Test says so when the notification channel is elsewhere), and turning the relay on or changing the channel it listens in needs the in-game broadcast permission; a Discord-integration role could post in game as `[Discord] name` from any channel the bot could see.
-- **Discord bot start:** starting or stopping the bot now waits for a wipe or settings save in progress; a wipe during sign-in could leave the bot connected with the wiped token.
-- **Disk exhaustion:** the unauthenticated thumbnail and map-tile proxies no longer fetch or cache arbitrary items without bounds, and thumbnails cached for mods no server tracks are no longer served and are pruned at startup; anyone who could reach the panel could fill its disk.
-- **Sign-in pauses:** failed sign-ins pause only the address they come from, counted atomically, and a browser or Steam Sync extension that signed in before is counted on its own, so strangers filling the address table or sharing your proxy address can no longer lock an account or its SSO out; password recovery lifts any pause.
-- **Reset tokens:** a hand-made reset token must be random hex of at least 32 digits from a command in the troubleshooting guide, such as `openssl rand -hex 24`; the panel refuses common mistakes (words, sentences, predictable patterns, text written as hex, hashes of `$RANDOM` or common words, example UUIDs) but can't catch every guessable value, wrong tokens no longer delete the file, and only the panel host is told whether one exists; a stranger could watch for the token and burn it with 5 guesses, or guess a weak one.
-- **Pre-setup connections:** live connections are refused until the first account exists, and creating the first admin drops any that got in.
-- **DNS rebinding:** with panel logins turned off, the API and live connection only answer requests addressed to the panel's own addresses.
-- **Host paths and credentials by role:** server details, app settings, disk readings, the temp and backup folders, the game console log, SteamCMD detection, failed restores, the PanelBridge, Mods and Schedule History views, template apply results, the Server Config image browser, the active-server-changed event and raw update, restart, scan and ping errors no longer send host folders, launch commands, credentials, SFTP details or account names to roles that can't change them.
-- **Paths in error text:** error messages, failed config backups, wipe aborts, Map Cleanup delete failures and backup/restore progress now redact every configured folder, Windows folders with spaces, POSIX paths, PATH-style lists and file:/// URLs; parts of these reached roles without host-path access.
-- **Masked secrets:** masked passwords and secrets no longer show their last 4 characters.
-- **Backup progress and disk alerts:** backup/restore progress and disk-space alerts reach only roles that can act on them, with host paths removed.
-- **Status scan flood:** the server-status endpoint shares one host process scan between calls, so a signed-in user can no longer start a flood of PowerShell processes.
-- **Player exports:** export folders are keyed by the exact player name, so players with similar names can't rotate out each other's exports.
-- **Linux service installer:** the installer refuses inputs the panel's account can modify or swap for a link, and the panel never tells root to run its own copies; that account could otherwise gain root.
-- **Setup token:** the first-run setup token is no longer written to world-readable log files.
-- **Log forging:** client-error reports, request headers and sign-in, OIDC and API-error input are escaped in the panel log, NEL and U+2028/U+2029 included; an anonymous caller could forge log lines, e.g. with a 0x85 byte in Origin or Host.
-- **Forged deaths:** player deaths now come from PanelBridge instead of the game's user log, where a crafted co-op player name could forge another player's death; without an up-to-date bridge, the log parser is anchored to the game's own line format, and troubleshooting explains what can still be forged.
-- **PanelBridge leaderboard:** leaderboard data no longer sits in world-readable global mod data keyed by SteamID; it moves to a server-only file in the bridge folder when the server starts.
-- **Update PanelBridge:** the death and leaderboard fixes ship in the mod; Workshop servers get them once the updated item is published and the server restarts, and panel-installed copies update with the panel.
+- **Live updates by role:** install progress, scans, PanelBridge status, deaths, the player list and chat reach only roles allowed to see them (#193, thanks @mrbean56).
+- **SFTP host keys:** a remote server's key is pinned on first connect, and a changed key waits for your OK in Settings › PanelBridge (#193, thanks @mrbean56).
+- **More from #193:** `?token=` works only on the mod-conflict stream, update checks are admin-only, plus safer restore staging, owner-only `.bat` scripts, HS256-only tokens and an optional updater checksum pin (#193, thanks @mrbean56).
+- **Server folders confined:** data and config folders must be the game's own, checked on save and on use; a server-management role could read and write files anywhere on the host.
+- **Remote servers:** backups, the console log and wipe no longer use a remote server's data folder on the panel's own computer.
+- **Discord permissions:** changing the bot's token, server, roles, command tiers or chat relay needs the permissions the change unlocks, and a wipe keeps tiers the caller can't change.
+- **Discord server scope:** commands, the chat relay and notifications work only in the configured Discord server; the Discord page lists channels the bot stopped posting to.
+- **Disk exhaustion:** the public thumbnail and map-tile proxies no longer fetch or cache arbitrary items; anyone could fill the panel's disk.
+- **Sign-in lockouts:** failed sign-ins pause only the sending address, and a browser that signed in before keeps its own count; strangers could lock an account out.
+- **Reset tokens:** a hand-made token must be random hex from a documented command, common weak values are refused, and wrong guesses no longer delete the file.
+- **Setup and DNS rebinding:** live connections wait for the first account, and with logins off the panel answers only its own addresses.
+- **Host paths and secrets by role:** folders, launch commands, credentials and account names are hidden from roles that can't change them, error text included, and masked secrets no longer show their last 4 characters.
+- **Linux service installer:** root never runs a file the panel's account can change; that account could gain root.
+- **Forged deaths:** player deaths come from PanelBridge instead of the game log, which a crafted co-op name could forge.
+- **PanelBridge leaderboard:** no longer kept in world-readable mod data keyed by SteamID.
+- **Smaller fixes:** no status-scan process flood, no player-export collisions, no setup token in logs, no forged log lines, and backup or disk alerts only for roles that can act on them.
+- **Update PanelBridge:** the bridge fixes ship in the mod; Workshop servers get them once the item is updated and the server restarts.
 
 ### Fixed
 
-- **Leaderboard deaths:** the Deaths column now counts on dedicated servers; it stayed at 0 there.
-- **Reset token file:** a `data/reset-token.txt` written by Windows PowerShell's `>` or `Out-File` (UTF-16) now works, the login screen checks a token's shape before sending it, and the troubleshooting guide gives a tested command per platform.
-- **Console log without a data folder:** a server with no data folder of its own reads the console log from the legacy data folder, then from its install folder only when the log is already there, and otherwise the Console page says to set its Zomboid Data Path; it read the install folder, where the game never writes the log, and gave no reason when that folder didn't exist yet.
-- **Discord relay channel:** emptying the Chat Relay Channel field now clears it, so the relay goes back to the notification channel; it kept the old channel.
-- **Stable installs the newest build:** installs and updates now ask Steam for the stable branch by name with fresh app info, so a folder once on the 42.19 or unstable branch no longer stays on it.
+- **Stable installs the newest build:** Stable now asks Steam for the stable branch by name, so a folder once on 42.19 no longer stays there.
+- **Leaderboard deaths:** the Deaths column now counts on dedicated servers.
+- **Reset token file:** a token file written by PowerShell's `>` or `Out-File` now works, and the guide has a tested command per platform.
+- **Console log:** a server with no data folder of its own finds its log, or the Console page says what to set.
+- **Discord relay channel:** emptying the field now clears it.
 
 ## [1.4.5] - 2026-10-05
 
