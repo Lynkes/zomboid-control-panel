@@ -2107,6 +2107,10 @@ export interface SpawnRegion {
   isServerFile?: boolean;
 }
 
+// GET /server-files/sandbox's parse of SandboxVars.lua. Every other top-level
+// table in the file (mod option blocks) also comes back as a section of its
+// own name, holding that table's values; PUT /server-files/sandbox writes
+// each section back at that same path (#197).
 export interface SandboxData {
   VERSION: number;
   settings: Record<string, string | number | boolean>;
@@ -2241,6 +2245,8 @@ export const serverFilesApi = {
       sandbox: SandboxData;
       path: string;
       serverName: string;
+      // Set when SandboxVars.lua does not parse; `sandbox` is then empty.
+      parseError?: { message: string; line: number; column: number };
     }>,
   saveSandbox: (sandbox: SandboxData) =>
     apiPut("/server-files/sandbox", { sandbox }) as Promise<{
@@ -2255,6 +2261,7 @@ export const serverFilesApi = {
     apiGet("/server-files/sandbox/validate") as Promise<{
       valid: boolean;
       braceDepth: number;
+      parseError?: string;
     }>,
   repairSandbox: () =>
     apiPost("/server-files/sandbox/repair") as Promise<{
@@ -2312,7 +2319,7 @@ export const serverFilesApi = {
   saveSandboxOption: (
     name: string,
     value: string | number | boolean,
-  ): Promise<{ success: boolean; persisted: boolean }> =>
+  ): Promise<{ success: boolean; persisted: boolean; reason?: string }> =>
     apiPut("/server-files/sandbox-option", { name, value }),
 
   // Config Templates

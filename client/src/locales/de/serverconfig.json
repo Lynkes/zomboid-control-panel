@@ -4068,6 +4068,10 @@
     "desc_one": "Zeile {{lines}} beginnt mit „=“ (oder ist „Version=“ ohne Zahl), und deshalb lehnt das Spiel die Datei ab. Lösche oder korrigiere diese Zeile im Raw-Modus.",
     "desc_other": "Die Zeilen {{lines}} beginnen mit „=“ (oder sind „Version=“ ohne Zahl), und deshalb lehnt das Spiel die Datei ab. Lösche oder korrigiere diese Zeilen im Raw-Modus."
   },
+  "sandboxParseErrorBanner": {
+    "title": "SandboxVars.lua enthält einen Lua-Fehler, daher kann dieses Formular sie nicht anzeigen",
+    "desc": "Behebe den Fehler im Raw-Modus, starte die Reparatur unter „Prüfungen & Korrekturen“ oder stelle ein Backup wieder her. Bis dahin ist das Speichern aus diesem Formular gesperrt."
+  },
   "iniSecretCutAtEqualsWarning": "Das Spiel liest diesen Wert nur bis zum ersten „=“ und ignoriert den Rest. Verwende einen Wert ohne „=“.",
   "iniMisnamedKeyFileValue": "In der Zeile in der Datei steht: {{value}}"
 }

@@ -4082,6 +4082,10 @@
     "desc_many": "As linhas {{lines}} começam com \"=\" (ou são \"Version=\" sem número), e por isso o jogo rejeita o arquivo. Exclua ou corrija essas linhas no modo Texto.",
     "desc_other": "As linhas {{lines}} começam com \"=\" (ou são \"Version=\" sem número), e por isso o jogo rejeita o arquivo. Exclua ou corrija essas linhas no modo Texto."
   },
+  "sandboxParseErrorBanner": {
+    "title": "O SandboxVars.lua tem um erro de Lua, então este formulário não consegue exibi-lo",
+    "desc": "Corrija-o no modo Texto, execute o reparo em Verificações e correções ou restaure um backup. Até lá, salvar por este formulário fica bloqueado."
+  },
   "iniSecretCutAtEqualsWarning": "O jogo lê este valor só até o primeiro \"=\" e ignora o resto. Use um valor sem \"=\".",
   "iniMisnamedKeyFileValue": "A linha no arquivo diz: {{value}}"
 }

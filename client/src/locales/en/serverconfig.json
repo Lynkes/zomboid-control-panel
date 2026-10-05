@@ -4068,6 +4068,10 @@
     "desc_one": "Line {{lines}} starts with \"=\" (or is \"Version=\" with no number), and the game rejects the file because of it. Delete or fix that line in Raw mode.",
     "desc_other": "Lines {{lines}} start with \"=\" (or are \"Version=\" with no number), and the game rejects the file because of them. Delete or fix those lines in Raw mode."
   },
+  "sandboxParseErrorBanner": {
+    "title": "SandboxVars.lua has a Lua error, so this form can't show it",
+    "desc": "Fix it in Raw mode, run the repair under Checks & Fixes, or restore a backup. Saving from this form is blocked until then."
+  },
   "iniSecretCutAtEqualsWarning": "The game reads this value only up to the first \"=\" and ignores the rest. Use a value without \"=\".",
   "iniMisnamedKeyFileValue": "The line in the file says: {{value}}"
 }

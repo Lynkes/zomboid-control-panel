@@ -4067,6 +4067,10 @@
     "title": "遊戲會忽略整個檔案，所有設定都使用預設值",
     "desc_other": "第 {{lines}} 行以「=」開頭（或是沒有數字的「Version=」），遊戲因此拒絕讀取該檔案。請在「原始」模式下刪除或修正對應的行。"
   },
+  "sandboxParseErrorBanner": {
+    "title": "SandboxVars.lua 存在 Lua 錯誤，因此此表單無法顯示它",
+    "desc": "請在「原始」模式下修復，或在「檢查與修復」中執行修復，或從備份還原。在此之前，無法從此表單儲存。"
+  },
   "iniSecretCutAtEqualsWarning": "遊戲只讀取此值第一個「=」之前的內容，其餘部分會被忽略。請使用不含「=」的值。",
   "iniMisnamedKeyFileValue": "檔案中該行的內容為：{{value}}"
 }

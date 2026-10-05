@@ -4082,6 +4082,10 @@
     "desc_many": "Les lignes {{lines}} commencent par « = » (ou sont « Version= » sans nombre), et le jeu rejette le fichier à cause d'elles. Supprimez ou corrigez ces lignes en mode Brut.",
     "desc_other": "Les lignes {{lines}} commencent par « = » (ou sont « Version= » sans nombre), et le jeu rejette le fichier à cause d'elles. Supprimez ou corrigez ces lignes en mode Brut."
   },
+  "sandboxParseErrorBanner": {
+    "title": "SandboxVars.lua contient une erreur Lua, ce formulaire ne peut donc pas l'afficher",
+    "desc": "Corrigez-le en mode Brut, lancez la réparation dans « Vérifications et corrections » ou restaurez une sauvegarde. D'ici là, l'enregistrement depuis ce formulaire est bloqué."
+  },
   "iniSecretCutAtEqualsWarning": "Le jeu ne lit cette valeur que jusqu'au premier « = » et ignore le reste. Utilisez une valeur sans « = ».",
   "iniMisnamedKeyFileValue": "La ligne du fichier contient : {{value}}"
 }

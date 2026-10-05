@@ -1175,6 +1175,9 @@ export default function ServerConfig() {
   const [iniFatalLines, setIniFatalLines] = useState<readonly number[]>([])
   // GET /ini's maskedCutAtEqualsKeys: masked secrets the game cuts at an "=".
   const [iniMaskedCutAtEqualsKeys, setIniMaskedCutAtEqualsKeys] = useState<readonly string[]>([])
+  // GET /sandbox's parseError: SandboxVars.lua does not parse, so the form
+  // comes back empty and the server refuses structured saves (#197).
+  const [sandboxParseError, setSandboxParseError] = useState<string | null>(null)
   const [originalSandboxData, setOriginalSandboxData] = useState<SandboxData | null>(null)
   const [originalRawContent, setOriginalRawContent] = useState('')
 
@@ -1516,6 +1519,7 @@ export default function ServerConfig() {
         : { sandbox: createSandboxDefaults() }
       setSandboxData(sandboxRes.sandbox)
       setOriginalSandboxData(sandboxRes.sandbox)
+      setSandboxParseError(('parseError' in sandboxRes && sandboxRes.parseError?.message) || null)
 
       if (paths.exists.spawnpoints) {
         const spawnRes = await serverFilesApi.getSpawnPoints(retries)
@@ -2181,6 +2185,7 @@ export default function ServerConfig() {
           const sandboxRes = await serverFilesApi.getSandbox()
           setSandboxData(sandboxRes.sandbox)
           setOriginalSandboxData(sandboxRes.sandbox)
+          setSandboxParseError(sandboxRes.parseError?.message || null)
         }
       } catch { /* silent refresh — local state is still valid */ }
     } catch (error) {
@@ -2847,6 +2852,22 @@ export default function ServerConfig() {
           <AlertTitle>{t('iniFatalLinesBanner.title')}</AlertTitle>
           <AlertDescription>
             {t('iniFatalLinesBanner.desc', { count: shownIniFatalLines.length, lines: shownIniFatalLines.join(listSep) })}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* SandboxVars.lua that does not parse (the #197 "Explosives = 1"
+          corruption, a hand edit gone wrong): the form has nothing to show
+          and PUT /sandbox refuses to edit it, so say why and where to fix it.
+          The detail is the parser's own message, the same wording the game
+          logs. */}
+      {sandboxParseError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>{t('sandboxParseErrorBanner.title')}</AlertTitle>
+          <AlertDescription className="space-y-1">
+            <code className="block break-words font-mono text-xs" dir="ltr">{sandboxParseError}</code>
+            <span className="block">{t('sandboxParseErrorBanner.desc')}</span>
           </AlertDescription>
         </Alert>
       )}

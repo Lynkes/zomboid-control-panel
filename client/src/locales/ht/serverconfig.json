@@ -4081,6 +4081,10 @@
     "desc_one": "Liy {{lines}} kòmanse ak “=” (oswa se “Version=” san nimewo), kidonk jwèt la rejte fichye a. Efase oswa korije liy sa a nan mòd Bri.",
     "desc_other": "Liy {{lines}} yo kòmanse ak “=” (oswa se “Version=” san nimewo), kidonk jwèt la rejte fichye a. Efase oswa korije liy sa yo nan mòd Bri."
   },
+  "sandboxParseErrorBanner": {
+    "title": "SandboxVars.lua gen yon erè Lua, kidonk fòmilè sa a pa ka montre l",
+    "desc": "Korije l nan mòd Bri, lanse reparasyon an nan Verifikasyon ak Korije, oswa retabli yon kopi sovgad. Jiskaske sa fèt, ou pa ka sove nan fòmilè sa a."
+  },
   "iniSecretCutAtEqualsWarning": "Jwèt la li valè sa a sèlman jiska premye “=” a epi li inyore rès la. Sèvi ak yon valè ki pa gen “=”.",
   "iniMisnamedKeyFileValue": "Liy ki nan fichye a di: {{value}}"
 }
