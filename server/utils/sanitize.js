@@ -115,11 +115,19 @@ export function sanitizeServerResponseList(servers) {
 //      POSIX path of two or more names is a path, but only where one can
 //      start, so URLs ("https://host/a/b"), times and ratios ("3/4")
 //      stay as written.
+// Round 2 (verifier): a path straight after ':' ("config:/data/x", the
+// second folder of "LD_LIBRARY_PATH=/a/b:/c/d") counts again -- only a
+// URL's "://" keeps what follows, and a file URL's path is redacted too --
+// an apostrophe between letters ("O'Brien") belongs to the name, and API
+// routes ("/api/...") and Steam Web API methods ("/ISteamX/Method/v1"),
+// which are no host's folders, stay as written.
 const PATH_PLACEHOLDER = "[path]";
 
+// An apostrophe inside a name ("O'Brien"): between two word characters.
+const INNER_APOSTROPHE = String.raw`(?<=\w)'(?=\w)`;
 // One folder or file name: no whitespace, separator, quote, or character
 // Windows forbids in a name.
-const NAME = String.raw`[^\s\\/'"<>|*?:]+`;
+const NAME = String.raw`(?:[^\s\\/'"<>|*?:]|${INNER_APOSTROPHE})+`;
 // A Windows folder name that may hold single spaces ("Program Files (x86)",
 // "Project Zomboid Dedicated Server"). Only ever used in front of a
 // separator, so the words after a path are never taken for a folder.
@@ -130,18 +138,23 @@ const SPACED_NAME = `${NAME}(?: ${NAME})*`;
 const FWD_SPACED_NAME = String.raw`${NAME}(?: (?!\d)${NAME})*`;
 // The last name of a path. It also stops at a closing bracket, since a
 // path is often written "(C:\...\file.txt)".
-const LAST_NAME = String.raw`[^\s\\/'"<>|*?:)\]}]*`;
+const LAST_NAME = String.raw`(?:[^\s\\/'"<>|*?:)\]}]|${INNER_APOSTROPHE})*`;
 // The last name of a backslash path, which may hold forward slashes.
-const WIN_LAST_NAME = String.raw`[^\s\\'"<>|*?:)\]}]*`;
-// Characters that can't come right before the start of a POSIX path: the
-// rest of a word, URL, version, time, ratio or relative path.
-const POSIX_START_GUARD = String.raw`(?<![\w.:~/\\\])%-])`;
+const WIN_LAST_NAME = String.raw`(?:[^\s\\'"<>|*?:)\]}]|${INNER_APOSTROPHE})*`;
+// Where a POSIX path can't start: right after the rest of a word, version,
+// time, ratio or relative path, or at a URL's "://" -- except a file URL's,
+// whose path is a host path.
+const POSIX_START_GUARD = String.raw`(?:(?<=file:\/\/)|(?<![\w.~/\\\])%-])(?!(?<=:)\/\/))`;
+// Right after a POSIX path's first slash: not an API route or a Steam Web
+// API method.
+const NOT_HOST_ROUTE = String.raw`(?!api\/|I[A-Z]\w*\/\w+\/v\d)`;
 
 // 'C:\...', "\\server\...", '/data/pz' -- a quoted string that starts like
 // an absolute path is redacted whole, spaces included. A POSIX one needs a
-// second name ('/help' is a chat command, '/data/pz' a folder).
-const QUOTED_PATH_START = String.raw`(?:[A-Za-z]:[\\/]|\\\\|\/[^\s'"\/\\]+\/)`;
-const SINGLE_QUOTED_PATH_RE = new RegExp(String.raw`'${QUOTED_PATH_START}[^'\r\n]*'`, "g");
+// second name ('/help' is a chat command, '/data/pz' a folder). A single
+// quote followed by a letter is an apostrophe, not the closing quote.
+const QUOTED_PATH_START = String.raw`(?:[A-Za-z]:[\\/]|\\\\|\/${NOT_HOST_ROUTE}[^\s'"\/\\]+\/)`;
+const SINGLE_QUOTED_PATH_RE = new RegExp(String.raw`'${QUOTED_PATH_START}[^'\r\n]*'(?!\w)`, "g");
 const DOUBLE_QUOTED_PATH_RE = new RegExp(String.raw`"${QUOTED_PATH_START}[^"\r\n]*"`, "g");
 // C:\Users\foo\bar or D:\Program Files (x86)\Steam\x.txt; one or more
 // backslashes per separator, so a JSON-escaped C:\\Users\\foo is one path.
@@ -161,7 +174,7 @@ const UNC_PATH_RE = new RegExp(
 );
 // /data/pz/server, /Users/me/Zomboid, /app/data/db.json: two names or more.
 const UNIX_PATH_RE = new RegExp(
-  String.raw`${POSIX_START_GUARD}\/(?:${NAME}\/+)+${LAST_NAME}`,
+  String.raw`${POSIX_START_GUARD}\/${NOT_HOST_ROUTE}(?:${NAME}\/+)+${LAST_NAME}`,
   "g",
 );
 

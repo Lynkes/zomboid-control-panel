@@ -71,6 +71,54 @@ describe("sanitizeError: generic path patterns", () => {
   });
 });
 
+// Round 2 (verifier, info): a path straight after ':' was never redacted --
+// the guard meant for "https://" also skipped "key:/path" and the second
+// folder of a PATH-style list, which the old /home|/opt|... pattern did
+// redact -- and an apostrophe in a quoted Windows path ended the match
+// there. API routes and Steam Web API methods are not host folders.
+describe("sanitizeError: round 2 of the generic patterns", () => {
+  it("redacts a path straight after ':' but not a URL's", () => {
+    expect(sanitizeError("config:/data/pz/server.ini")).toBe("config:[path]");
+    expect(sanitizeError("home:/home/steam/Zomboid")).toBe("home:[path]");
+    expect(sanitizeError("LD_LIBRARY_PATH=/data/pz/linux64:/data/pz/natives")).toBe(
+      "LD_LIBRARY_PATH=[path]:[path]",
+    );
+    expect(sanitizeError("Cannot find module imported from file:///app/server/index.js")).toBe(
+      "Cannot find module imported from file://[path]",
+    );
+    for (const text of [
+      "See https://steamcommunity.com/sharedfiles/filedetails/?id=2392709985 for details",
+      "Docs at https://example.com/home/docs/backups",
+      "Proxy at http://127.0.0.1:8080/data/pz/x",
+      "Restart at 12:30:45/12:31:00",
+    ]) {
+      expect(sanitizeError(text)).toBe(text);
+    }
+  });
+
+  it("redacts a whole Windows path with an apostrophe in a folder name", () => {
+    const home = win("G:", "Users", "O'Brien", "Zomboid", "Server", "servertest.ini");
+    expect(sanitizeError(`EACCES: permission denied, open '${home}'`)).toBe(
+      "EACCES: permission denied, open '[path]'",
+    );
+    expect(sanitizeError(`Missing ${home} after restore`)).toBe("Missing [path] after restore");
+    expect(sanitizeError("rename '/home/o'neil/Zomboid/a.bin' -> 'b'")).toBe("rename '[path]' -> 'b'");
+    // Two quoted paths still end at their own closing quotes.
+    expect(sanitizeError(`copy '${win("C:", "a")}' to '${win("D:", "b")}'`)).toBe("copy '[path]' to '[path]'");
+  });
+
+  it("leaves API routes and Steam Web API methods as written", () => {
+    for (const text of [
+      "Request to /api/servers/1/status failed: 500",
+      "Steam API returned 500 for /ISteamRemoteStorage/GetPublishedFileDetails/v1",
+      "POST /IPublishedFileService/QueryFiles/v1 timed out",
+    ]) {
+      expect(sanitizeError(text)).toBe(text);
+    }
+    expect(sanitizeError("open /apidata/pz/x.ini")).toBe("open [path]");
+  });
+});
+
 describe("sanitizeError: the folders the panel is configured with", () => {
   const unregister = [];
 
