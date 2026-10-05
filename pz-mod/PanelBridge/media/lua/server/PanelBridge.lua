@@ -1850,6 +1850,11 @@ function PanelBridge.onCharacterDeath(character)
     -- The leaderboard's deaths column counts here too: it used OnPlayerDeath,
     -- so it never moved on a dedicated server.
     pcall(recordPlayerDeath, character)
+    -- And reaches the file on the next tick, not after up to a minute: 42.21
+    -- runs no Lua hook when the server quits, so whatever is still waiting
+    -- for the flush interval is lost on a stop. Deaths are rare; zombie kills
+    -- (weapon stats) still wait.
+    PanelBridge.lastLeaderboardFlush = 0
 end
 
 local function onLeaderboardZombieDead(zombie)

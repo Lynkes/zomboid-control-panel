@@ -177,6 +177,29 @@ describe('PanelBridge leaderboard storage', () => {
     expect(Object.keys(stores[WORLD_KEY])).toEqual(['id']);
   });
 
+  it('saves a death at the next tick instead of waiting out the flush interval', () => {
+    // 42.21 runs no Lua hook when the server quits (live smoke test,
+    // 2026-10-05), so whatever waits for the 60-second flush is lost on a stop.
+    const bridge = loadPanelBridge(LUA_PATH, stubs());
+    bridge.callHandler('getLeaderboard');
+    bridge.run('OnZombieDeadHandler(Zombie)');
+    tick(bridge, 2000000);
+    const first = leaderboardFile(bridge);
+    expect(first.players['steam:76561198000000001'].deaths).toBe(0);
+
+    // A zombie kill still waits for the interval...
+    bridge.run('Now = 2005000; OnZombieDeadHandler(Zombie)');
+    tick(bridge, 2005000);
+    expect(leaderboardFile(bridge).flushSeq).toBe(first.flushSeq);
+
+    // ...a death doesn't.
+    bridge.run('Now = 2006000; OnCharacterDeathHandler(Alice)');
+    tick(bridge, 2006000);
+    const saved = leaderboardFile(bridge);
+    expect(saved.flushSeq).toBe(first.flushSeq + 1);
+    expect(saved.players['steam:76561198000000001'].deaths).toBe(1);
+  });
+
   it('saves the leaderboard in the bridge folder and reads it back after a restart', () => {
     const first = loadPanelBridge(LUA_PATH, stubs());
     first.callHandler('getLeaderboard');
