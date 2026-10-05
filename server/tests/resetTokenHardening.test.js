@@ -320,12 +320,14 @@ describe("A2: strangers can neither find nor destroy the operator's token", () =
   it("POST /reset-password answers a remote caller the same when the file exists but can't be read", async () => {
     const missing = await reset("some-guess-that-is-long-enough-000000");
     writeToken(strongToken());
-    const readFileSync = fs.readFileSync;
-    const unreadable = vi.spyOn(fs, "readFileSync").mockImplementation((file, ...rest) => {
+    // The token file is opened once for its checks and its read (CodeQL
+    // js/file-system-race), so an unreadable one fails at open.
+    const openSync = fs.openSync;
+    const unreadable = vi.spyOn(fs, "openSync").mockImplementation((file, ...rest) => {
       if (String(file) === tokenPath()) {
         throw Object.assign(new Error(`EACCES: permission denied, open '${tokenPath()}'`), { code: "EACCES" });
       }
-      return readFileSync(file, ...rest);
+      return openSync(file, ...rest);
     });
     try {
       const present = await reset("some-guess-that-is-long-enough-000000");

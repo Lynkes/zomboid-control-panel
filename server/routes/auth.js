@@ -155,60 +155,73 @@ async function getResetTokenState() {
   // before the file is looked at, whether or not there is one.
   await prepareResetTokenChecks();
   const tokenPath = getResetTokenPath();
-  if (!fs.existsSync(tokenPath)) {
-    return { tokenPath, available: false, reason: "missing", token: null };
+  // One open file for every check and the read (CodeQL js/file-system-race):
+  // the size and age judged are those of the bytes read, even if the file
+  // is replaced or grows in between.
+  let fd;
+  try {
+    fd = fs.openSync(tokenPath, "r");
+  } catch (err) {
+    if (err?.code === "ENOENT") {
+      return { tokenPath, available: false, reason: "missing", token: null };
+    }
+    throw err;
   }
+  try {
+    const stat = fs.fstatSync(fd);
+    if (stat.size > RESET_TOKEN_MAX_BYTES) {
+      return {
+        tokenPath,
+        available: false,
+        reason: "too-large",
+        token: null,
+        stat,
+      };
+    }
 
-  const stat = fs.statSync(tokenPath);
-  if (stat.size > RESET_TOKEN_MAX_BYTES) {
-    return {
-      tokenPath,
-      available: false,
-      reason: "too-large",
-      token: null,
-      stat,
-    };
+    const ageMs = Date.now() - stat.mtimeMs;
+    if (ageMs > RESET_TOKEN_MAX_AGE_MS) {
+      return {
+        tokenPath,
+        available: false,
+        reason: "expired",
+        token: null,
+        stat,
+      };
+    }
+
+    // SECURITY (2026-10-05, A2): round 3 of the verification. Read as bytes:
+    // Windows PowerShell's `>` writes UTF-16, which read as UTF-8 was refused
+    // as "not hex" (see decodeResetTokenFile()).
+    const bytes = Buffer.alloc(stat.size);
+    const length = stat.size > 0 ? fs.readSync(fd, bytes, 0, stat.size, 0) : 0;
+    const token = decodeResetTokenFile(bytes.subarray(0, length));
+    if (!token || (resetTokenHexDigits(token) ?? token).length < RESET_TOKEN_MIN_LENGTH) {
+      return {
+        tokenPath,
+        available: false,
+        reason: "too-short",
+        token: null,
+        stat,
+      };
+    }
+
+    const weakness = resetTokenWeakness(token);
+    if (weakness) {
+      return {
+        tokenPath,
+        available: false,
+        reason: weakness,
+        token: null,
+        stat,
+      };
+    }
+
+    return { tokenPath, available: true, reason: "ok", token, stat, ageMs };
+  } finally {
+    fs.closeSync(fd);
   }
-
-  const ageMs = Date.now() - stat.mtimeMs;
-  if (ageMs > RESET_TOKEN_MAX_AGE_MS) {
-    return {
-      tokenPath,
-      available: false,
-      reason: "expired",
-      token: null,
-      stat,
-    };
-  }
-
-  // SECURITY (2026-10-05, A2): round 3 of the verification. Read as bytes:
-  // Windows PowerShell's `>` writes UTF-16, which read as UTF-8 was refused
-  // as "not hex" (see decodeResetTokenFile()).
-  const token = decodeResetTokenFile(fs.readFileSync(tokenPath));
-  if (!token || (resetTokenHexDigits(token) ?? token).length < RESET_TOKEN_MIN_LENGTH) {
-    return {
-      tokenPath,
-      available: false,
-      reason: "too-short",
-      token: null,
-      stat,
-    };
-  }
-
-  const weakness = resetTokenWeakness(token);
-  if (weakness) {
-    return {
-      tokenPath,
-      available: false,
-      reason: weakness,
-      token: null,
-      stat,
-    };
-  }
-
-  return { tokenPath, available: true, reason: "ok", token, stat, ageMs };
 }
-
 const RESET_TOKEN_TOO_WEAK_MESSAGE =
   "The token in data/reset-token.txt could be guessed. Replace it with random hex from a generator (0-9 and a-f, as openssl rand -hex 24 writes it); words, sentences, number sequences and repeated or sequential characters are refused. Or use the recovery button on the panel host.";
 
