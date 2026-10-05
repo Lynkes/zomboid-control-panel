@@ -51,6 +51,7 @@
     "streamUnavailable": "Flux du journal indisponible — le serveur est peut-être hors ligne",
     "retry": "réessayer",
     "notFoundTitle": "Journal de la console du serveur introuvable",
+    "unavailableTitle": "Journal de la console du serveur indisponible",
     "notFoundDesc": "Assurez-vous que le serveur est en cours d'exécution",
     "streamLabel": "flux",
     "paused": "en pause",

@@ -53,7 +53,8 @@ import {
 import { requirePermission } from "../services/permissions.js";
 import { hostPathViewFor } from "../utils/hostPathView.js";
 import { ErrorCode } from "../utils/errorCodes.js";
-import { activeServerConfigDir, serverConfigDirRefusalReason } from "../utils/serverConfigPath.js";
+import { activeServerConfigDir, serverConfigDirRefusal } from "../utils/serverConfigPath.js";
+import { describeRefusal, logRefusalOnce } from "../services/zomboidDataPath.js";
 import { withFileLock } from "../utils/fileWriteQueue.js";
 import { writeIniWithBackup as writeIniWithBackupRaw, backupWarningFor } from "../utils/configBackup.js";
 import { getBridgeManaged, protectBridgeIniEntries } from "../services/bridgeDelivery.js";
@@ -225,8 +226,16 @@ export async function getActiveServerPaths() {
         zomboidDataPath: await getSetting("zomboidDataPath"),
       };
   const config = activeServerConfigDir(activeServer, legacy);
-  if (config.refused) {
-    log.warn(`Not using the server config folder: ${serverConfigDirRefusalReason(config)}`);
+  // SECURITY (2026-10-05, PT3/PT5): refused, the routes below answer the
+  // refusal itself (configRefusal, through withConfigRefusal()), not "not
+  // set", and every route lands here, so the log line is written at warn
+  // once per data folder and reason, then at debug.
+  const configRefusal = config.refused ? serverConfigDirRefusal(config) : null;
+  if (configRefusal) {
+    logRefusalOnce(
+      log,
+      `Not using the server config folder for mods (Zomboid data folder: ${config.dataPath || "not set"}): ${describeRefusal(configRefusal)}`,
+    );
   }
   const serverConfigPath = config.dir;
 
@@ -252,7 +261,18 @@ export async function getActiveServerPaths() {
     serverPath = legacyPath || null;
   }
 
-  return { serverConfigPath, serverName, serverPath };
+  return { serverConfigPath, serverName, serverPath, configRefusal };
+}
+
+// SECURITY (2026-10-05, PT3): the body a route answers when it has no
+// config folder to use. When the folder was refused -- a data folder that
+// no longer meets the data-folder rule after the update, or a config folder
+// with no data folder -- that refusal goes out (its code, and what to set),
+// not `fallback`'s "Server config path not set. Please configure the server
+// first.", which sent the operator to configure a server that was
+// configured.
+function withConfigRefusal(configRefusal, fallback) {
+  return configRefusal ? { ...fallback, error: configRefusal.error, code: configRefusal.code } : fallback;
 }
 
 async function getServerPath() {
@@ -979,14 +999,16 @@ router.post("/cancel-pending-restart", async (req, res) => {
 router.post("/sync-from-server", async (req, res) => {
   try {
     // Use direct INI reading (more reliable than serverManager which has path issues)
-    const { serverConfigPath, serverName } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      log.warn("sync-from-server: Server config path not set");
+      // PT3: a refused folder is logged (once) by getActiveServerPaths().
+      if (!configRefusal) log.warn("sync-from-server: Server config path not set");
       return res.json({
         success: false,
         message:
-          "Server config path not set. Please configure the server first.",
+          configRefusal?.error ?? "Server config path not set. Please configure the server first.",
+        ...(configRefusal ? { code: configRefusal.code } : {}),
         synced: 0,
       });
     }
@@ -2013,13 +2035,15 @@ router.post("/write-to-ini", async (req, res) => {
       }
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set. Please configure the server first.",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET_GUIDANCE,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set. Please configure the server first.",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET_GUIDANCE,
+        }),
+      );
     }
 
     // Sanitize serverName to prevent path traversal
@@ -2257,17 +2281,19 @@ router.post("/write-to-ini", async (req, res) => {
 // Get current mod configuration from .ini file
 router.get("/current-config", async (req, res) => {
   try {
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.json({
-        configured: false,
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-        modIds: [],
-        workshopIds: [],
-        totalMods: 0,
-      });
+      return res.json(
+        withConfigRefusal(configRefusal, {
+          configured: false,
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+          modIds: [],
+          workshopIds: [],
+          totalMods: 0,
+        }),
+      );
     }
 
     // Sanitize serverName to prevent path traversal
@@ -2382,13 +2408,15 @@ router.post("/toggle-mod-id", async (req, res) => {
       });
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
 
     const sanitizedServerName = path.basename(serverName);
@@ -2542,13 +2570,15 @@ router.post("/batch-toggle-mod-ids", async (req, res) => {
       }
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
 
     const sanitizedServerName = path.basename(serverName);
@@ -2674,14 +2704,16 @@ router.post("/add-to-ini", async (req, res) => {
       });
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error:
-          "Server config path not set. Please configure the server first in Settings.",
-        code: ErrorCode.MODS_ADD_TO_INI_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error:
+            "Server config path not set. Please configure the server first in Settings.",
+          code: ErrorCode.MODS_ADD_TO_INI_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
 
     // Sanitize serverName to prevent path traversal
@@ -3492,13 +3524,15 @@ router.post("/remove-from-ini", async (req, res) => {
       ? clientModIds.slice(0, 50)
       : [];
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
 
     // Sanitize serverName
@@ -3746,7 +3780,7 @@ router.post("/batch-remove", async (req, res) => {
     const dbResults = { removed: 0, failed: 0 };
 
     // Step 2: Remove all from INI in a single locked write
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     let iniResult = { removed: 0, skipped: 0 };
     // Tracks whether the INI edit block below actually ran. Ignore-listing
@@ -3899,13 +3933,14 @@ router.post("/batch-remove", async (req, res) => {
       iniRemoved: iniResult.removed,
       iniSkipped: iniResult.skipped,
       ...(iniResult.backupWarning ? { backupWarning: iniResult.backupWarning } : {}),
+      // PT3 (verifier round 1): a refused folder says why, as above.
       ...(iniEditApplied
         ? {}
-        : {
+        : withConfigRefusal(configRefusal, {
             error:
               "Server config file was not found or not accessible — no mods were removed.",
             code: ErrorCode.MODS_BATCH_REMOVE_INI_NOT_ACCESSIBLE,
-          }),
+          })),
     });
   } catch (error) {
     log.error(`Batch removal failed: ${error.message}`);
@@ -3916,13 +3951,15 @@ router.post("/batch-remove", async (req, res) => {
 // Repair Map= entries - validates each entry has actual map data on disk and removes invalid ones
 router.post("/repair-map-entries", async (req, res) => {
   try {
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverPath || !serverName) {
-      return res.status(400).json({
-        error: "Server path not configured.",
-        code: ErrorCode.MODS_SERVER_PATH_NOT_CONFIGURED,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server path not configured.",
+          code: ErrorCode.MODS_SERVER_PATH_NOT_CONFIGURED,
+        }),
+      );
     }
 
     const sanitizedServerName = path.basename(serverName);
@@ -4057,13 +4094,15 @@ router.post("/repair-map-entries", async (req, res) => {
 // Deduplicate mod IDs in the Mods= line — removes exact duplicates, keeps one of each
 router.post("/deduplicate-mod-ids", async (req, res) => {
   try {
-    const { serverConfigPath, serverName } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server path not configured.",
-        code: ErrorCode.MODS_SERVER_PATH_NOT_CONFIGURED,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server path not configured.",
+          code: ErrorCode.MODS_SERVER_PATH_NOT_CONFIGURED,
+        }),
+      );
     }
 
     const sanitizedServerName = path.basename(serverName);
@@ -4175,12 +4214,14 @@ router.post("/add-missing-dep", async (req, res) => {
       });
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
     if (!serverConfigPath || !serverName)
-      return res.status(400).json({
-        error: "Server path not configured.",
-        code: ErrorCode.MODS_SERVER_PATH_NOT_CONFIGURED,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server path not configured.",
+          code: ErrorCode.MODS_SERVER_PATH_NOT_CONFIGURED,
+        }),
+      );
 
     const sanitizedServerName = path.basename(serverName);
     if (
@@ -4345,12 +4386,14 @@ router.post("/add-all-resolved-deps", async (req, res) => {
       }
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
     const sanitizedServerName = path.basename(serverName);
     if (
@@ -4926,12 +4969,14 @@ router.post("/resolve-missing-deps", async (req, res) => {
 // ─── Sync mod IDs from Workshop → INI ─────────────────────────────────────
 router.post("/sync-mod-ids", async (req, res) => {
   try {
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
     const sanitizedServerName = path.basename(serverName);
     if (
@@ -5108,13 +5153,15 @@ router.post("/sync-mod-ids", async (req, res) => {
 // Validate mod configuration (check for dependencies and consistency)
 router.get("/validate-config", async (req, res) => {
   try {
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
 
     // Sanitize serverName
@@ -5284,14 +5331,16 @@ router.post("/presets", async (req, res) => {
     }
 
     // Read current mods from INI
-    const { serverConfigPath, serverName } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, configRefusal } = await getActiveServerPaths();
     const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
 
     if (!iniPath) {
-      return res.status(400).json({
-        error: "Invalid server name",
-        code: ErrorCode.MODS_INVALID_SERVER_NAME,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Invalid server name",
+          code: ErrorCode.MODS_INVALID_SERVER_NAME,
+        }),
+      );
     }
 
     if (!fs.existsSync(iniPath)) {
@@ -5440,14 +5489,16 @@ router.post("/presets/:id/apply", async (req, res) => {
       });
     }
 
-    const { serverConfigPath, serverName } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, configRefusal } = await getActiveServerPaths();
     const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
 
     if (!iniPath) {
-      return res.status(400).json({
-        error: "Invalid server name",
-        code: ErrorCode.MODS_INVALID_SERVER_NAME,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Invalid server name",
+          code: ErrorCode.MODS_INVALID_SERVER_NAME,
+        }),
+      );
     }
 
     if (!fs.existsSync(iniPath)) {
@@ -5531,14 +5582,16 @@ router.post("/save-order", async (req, res) => {
       }
     }
 
-    const { serverConfigPath, serverName } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, configRefusal } = await getActiveServerPaths();
     const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
 
     if (!iniPath) {
-      return res.status(400).json({
-        error: "Invalid server name",
-        code: ErrorCode.MODS_INVALID_SERVER_NAME,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Invalid server name",
+          code: ErrorCode.MODS_INVALID_SERVER_NAME,
+        }),
+      );
     }
 
     if (!fs.existsSync(iniPath)) {
@@ -5763,13 +5816,15 @@ router.post("/add-mod-advanced", async (req, res) => {
       });
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
 
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
 
     const sanitizedServerName = path.basename(serverName);
@@ -8299,12 +8354,14 @@ router.post("/enable-disk-mod", async (req, res) => {
       });
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
     const sanitized = path.basename(serverName);
     if (sanitized !== serverName || serverName.includes("..")) {
@@ -8392,9 +8449,10 @@ router.post("/enable-disk-mod", async (req, res) => {
 // mod-folder IDs and its map folders from the server INI so the server stops
 // loading it. Returns iniEditApplied=false when the config file could not be
 // reached — callers must not ignore-list in that case, because the mod may
-// still be live in Mods=/WorkshopItems=.
+// still be live in Mods=/WorkshopItems=. `configRefusal` is why, when the
+// server's folders were refused (PT3, verifier round 1).
 async function deleteModFromDiskAndIni(wsId) {
-  const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+  const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
   const sanitized = serverName ? path.basename(serverName) : null;
   const iniPath =
     sanitized && serverConfigPath
@@ -8408,6 +8466,7 @@ async function deleteModFromDiskAndIni(wsId) {
       mapFoldersToStrip: [],
       iniEditApplied: false,
       error: "Server config file was not found or not accessible",
+      configRefusal,
     };
   }
 
@@ -8502,16 +8561,18 @@ router.post("/delete-disk-mod", async (req, res) => {
       });
     }
 
-    const { removedPath, modIdsToStrip, iniEditApplied, backupWarning } =
+    const { removedPath, modIdsToStrip, iniEditApplied, backupWarning, configRefusal } =
       await deleteModFromDiskAndIni(wsId);
 
     if (!iniEditApplied) {
-      return res.status(400).json({
-        error: "Server config file was not found or not accessible",
-        code: ErrorCode.MODS_INI_NOT_ACCESSIBLE,
-        workshopId: wsId,
-        deletedFromDisk: false,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config file was not found or not accessible",
+          code: ErrorCode.MODS_INI_NOT_ACCESSIBLE,
+          workshopId: wsId,
+          deletedFromDisk: false,
+        }),
+      );
     }
 
     // Drop from tracking, then ADD to the ignore list so auto-sync won't
@@ -8607,19 +8668,22 @@ router.post("/purge", async (req, res) => {
       mapFoldersToStrip,
       iniEditApplied,
       backupWarning,
+      configRefusal,
     } = await deleteModFromDiskAndIni(wsId);
 
     if (!iniEditApplied) {
       log.error(
         `Purge ${wsId}: INI edit was never applied (missing server config path or ini file) — not untracking or ignore-listing`,
       );
-      return res.status(500).json({
-        error:
-          "Server config file was not found or not accessible — the mod was not removed from the server.",
-        code: ErrorCode.MODS_PURGE_INI_NOT_ACCESSIBLE,
-        collection,
-        deletedFromDisk: !!removedPath,
-      });
+      return res.status(500).json(
+        withConfigRefusal(configRefusal, {
+          error:
+            "Server config file was not found or not accessible — the mod was not removed from the server.",
+          code: ErrorCode.MODS_PURGE_INI_NOT_ACCESSIBLE,
+          collection,
+          deletedFromDisk: !!removedPath,
+        }),
+      );
     }
 
     try {
@@ -8697,7 +8761,7 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
       });
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
     const sanitized = serverName ? path.basename(serverName) : null;
     const iniPath =
       sanitized && serverConfigPath
@@ -8705,10 +8769,12 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
         : null;
 
     if (!iniPath || !fs.existsSync(iniPath)) {
-      return res.status(400).json({
-        error: "Server config file was not found or not accessible",
-        code: ErrorCode.MODS_INI_NOT_ACCESSIBLE,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config file was not found or not accessible",
+          code: ErrorCode.MODS_INI_NOT_ACCESSIBLE,
+        }),
+      );
     }
 
     // Capture all mod IDs AND map folders BEFORE we start deleting -- both
@@ -8883,12 +8949,14 @@ router.post("/resolve-orphan-workshop", async (req, res) => {
       });
     }
 
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
     if (!serverConfigPath || !serverName) {
-      return res.status(400).json({
-        error: "Server config path not set",
-        code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
-      });
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
     }
     const sanitized = path.basename(serverName);
     if (sanitized !== serverName || serverName.includes("..")) {

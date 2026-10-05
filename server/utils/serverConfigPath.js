@@ -1,7 +1,11 @@
 import fs from "fs";
 import path from "path";
 import { ErrorCode } from "./errorCodes.js";
-import { zomboidDataFolderHolds, zomboidDataFolderRefusal } from "../services/zomboidDataPath.js";
+import {
+  savesMultiplayerRoot,
+  zomboidDataFolderHolds,
+  zomboidDataFolderRefusal,
+} from "../services/zomboidDataPath.js";
 
 // SECURITY (2026-10-04, FILES-2): serverConfigPath is the folder Server
 // Config reads and writes (<name>.ini, the .lua files, their .bak backups,
@@ -59,8 +63,26 @@ export function serverConfigPathIsConfined(value, zomboidDataPath) {
   if (typeof zomboidDataPath !== "string" || !zomboidDataPath.trim()) {
     return false;
   }
-  const anchor = resolveThroughLinks(path.join(path.resolve(zomboidDataPath), "Server"));
-  return isSameOrInside(resolveThroughLinks(value), anchor);
+  const target = resolveThroughLinks(value);
+  return configAnchors(zomboidDataPath).some((anchor) => isSameOrInside(target, anchor));
+}
+
+// SECURITY (2026-10-05, PT2 verifier round 1): the Server folder of the
+// data folder, and for a data folder named Saves/Multiplayer, also the
+// Server folder of the Zomboid folder it sits in -- only when that one meets
+// the data-folder rule on its own (savesMultiplayerRoot()), so it is a
+// folder a technician could have named as the data folder anyway. In 1.4.5
+// Map Cleanup's "Save as default" set such a data folder and left the
+// record's config folder, <Zomboid>/Server, as it was; Server Files and Mods
+// refused it after the update (SERVER_CONFIG_PATH_OUTSIDE_DATA). With no
+// config folder set, the default stays <data folder>/Server: that is where
+// the game reads its ini when the panel starts it with the data folder as
+// its -cachedir.
+function configAnchors(zomboidDataPath) {
+  const anchors = [resolveThroughLinks(path.join(path.resolve(zomboidDataPath), "Server"))];
+  const root = savesMultiplayerRoot(zomboidDataPath);
+  if (root) anchors.push(resolveThroughLinks(path.join(root, "Server")));
+  return anchors;
 }
 
 // SECURITY (2026-10-05, PATHS-2): the save-time check above stops new
@@ -108,7 +130,7 @@ const SERVER_CONFIG_PATH_OUTSIDE_DATA_MESSAGE =
   "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.";
 
 // The response body for a config folder resolveServerConfigDir() refused:
-// SERVER_CONFIG_PATH_OUTSIDE_DATA, or ZOMBOID_DATA_PATH_NOT_DATA_FOLDER when
+// SERVER_CONFIG_PATH_OUTSIDE_DATA, or ZOMBOID_DATA_FOLDER_REFUSED when
 // it was the data folder that failed.
 export function serverConfigDirRefusal(resolved) {
   if (resolved?.reason === "data-folder") return zomboidDataFolderRefusal();
@@ -146,4 +168,23 @@ export function activeServerConfigDir(activeServer, legacy = {}) {
     (activeServer?.zomboidDataPath ? null : legacy?.serverConfigPath) ||
     null;
   return { ...resolveServerConfigDir(configPath, dataPath), dataPath };
+}
+
+// SECURITY (2026-10-05, PT3): after the update, a server whose data folder
+// no longer meets the data-folder rule, or whose record has a config folder
+// but no data folder, lost features with no word why: Server Files, chunks
+// and backups answered the refusal, but the Mods page read "Server config
+// path not set", the Console page showed no log, the Discord presence
+// dropped MaxPlayers and a start skipped writing the RCON settings with one
+// log line. This is that refusal for one server record -- the body the
+// features answer (ZOMBOID_DATA_FOLDER_REFUSED or
+// SERVER_CONFIG_PATH_OUTSIDE_DATA, each saying what to set) -- or null when
+// its folders are usable, unset, or on another host (a remote server).
+// Judged as serverConfigDirOf() judges them, which is what
+// ensureRconConfigured() uses at a start. The server list carries it for
+// the Servers page's warning, and POST /start answers it.
+export function serverFolderProblem(server) {
+  if (!server || server.isRemote) return null;
+  const resolved = serverConfigDirOf(server);
+  return resolved.refused ? serverConfigDirRefusal(resolved) : null;
 }

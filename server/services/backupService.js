@@ -24,7 +24,12 @@ import {
   publicRestoreMessage,
 } from "../utils/restoreMessage.js";
 import { captureBackupSnapshot } from "../utils/backupSnapshot.js";
-import { zomboidDataFolderHolds, zomboidDataFolderRefusal } from "./zomboidDataPath.js";
+import {
+  describeRefusal,
+  logRefusalOnce,
+  zomboidDataFolderHolds,
+  zomboidDataFolderRefusal,
+} from "./zomboidDataPath.js";
 import {
   addBackupRecord,
   listBackupRecords,
@@ -390,7 +395,12 @@ export const BACKUP_PROGRESS_ROOM = "backups";
 function dataFolderUsable(server, dataPath) {
   if (server?.isRemote) return false;
   if (zomboidDataFolderHolds(dataPath)) return true;
-  log.warn("Not using the Zomboid data folder for backups: it doesn't look like one");
+  // PT5: once per folder at warn, then debug -- GET /status lands here up
+  // to three times a call, and the Backups page polls it.
+  logRefusalOnce(
+    log,
+    `Not using ${dataPath} for backups: ${describeRefusal(zomboidDataFolderRefusal())}`,
+  );
   return false;
 }
 
@@ -564,15 +574,24 @@ export class BackupService {
    * the full rationale; same optional-reuse parameter, same "every
    * existing caller passes nothing and keeps its own always-fresh read"
    * guarantee.
+   *
+   * SECURITY (2026-10-05, PT1): `create` -- only the callers about to write
+   * a backup into the folder (createBackup(), the upload route) create it.
+   * Every call used to, so GET /list and /status -- which only read --
+   * created <data folder>/backups, and the data folder with it when it
+   * didn't exist yet: a technician saved <folder>/Saves as a server's data
+   * folder (missing, so accepted), opened Backups, and <folder> then had
+   * the Saves folder the data-folder rule took as a sign of a real one.
+   * The folder it creates in is one _resolveServerDataBasePath() held to
+   * that rule, as before.
    */
-  async getBackupsPath(activeServerOverride) {
+  async getBackupsPath(activeServerOverride, { create = false } = {}) {
     try {
       const basePath = await this._resolveServerDataBasePath(activeServerOverride);
       if (!basePath) return null;
       const backupsPath = path.join(basePath, "backups");
 
-      // Ensure backups folder exists
-      if (!fs.existsSync(backupsPath)) {
+      if (create && !fs.existsSync(backupsPath)) {
         fs.mkdirSync(backupsPath, { recursive: true });
       }
 
@@ -879,7 +898,6 @@ export class BackupService {
       throw new Error(zomboidDataFolderRefusal().error);
     }
     const savesPath = await this.getSavesPath(activeServer);
-    const backupsPath = await this.getBackupsPath(activeServer);
 
     if (!savesPath) {
       throw new Error(
@@ -891,6 +909,8 @@ export class BackupService {
       throw new Error(`Saves folder not found: ${savesPath}`);
     }
 
+    // PT1: created only now, with a world save there to write into it.
+    const backupsPath = await this.getBackupsPath(activeServer, { create: true });
     if (!backupsPath) {
       throw new Error("Could not determine backups folder path");
     }

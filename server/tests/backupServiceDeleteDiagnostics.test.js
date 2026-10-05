@@ -77,7 +77,8 @@ describe("BackupService.deleteBackup() diagnostics", () => {
     warnCalls.length = 0;
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-backup-delete-diag-"));
     service = new BackupService();
-    backupsPath = await service.getBackupsPath();
+    // Only a caller about to write creates the folder (PT1, 2026-10-05).
+    backupsPath = await service.getBackupsPath(undefined, { create: true });
   });
 
   afterEach(() => {

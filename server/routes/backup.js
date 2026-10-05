@@ -804,7 +804,9 @@ router.post(
       }
 
       const backupService = req.app.get("backupService");
-      const backupsPath = await backupService.getBackupsPath();
+      // PT1: this writes into the folder, so this creates it (the read-only
+      // routes no longer do), in a data folder held to the data-folder rule.
+      const backupsPath = await backupService.getBackupsPath(undefined, { create: true });
       if (!backupsPath) {
         return res
           .status(500)
@@ -812,9 +814,6 @@ router.post(
             error: "Backups folder not available. Configure the server first.",
             code: ErrorCode.BACKUPS_FOLDER_UNAVAILABLE,
           });
-      }
-      if (!fs.existsSync(backupsPath)) {
-        fs.mkdirSync(backupsPath, { recursive: true });
       }
 
       // Always prefix to distinguish from auto-named backups (world_backup_*).

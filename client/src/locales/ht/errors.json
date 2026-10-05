@@ -585,7 +585,9 @@
   "HOST_NOT_ALLOWED": "Panèl sa a reponn sèlman a pwòp adrès li tank koneksyon nan panèl la dezaktive. Louvri l ak adrès IP li oswa localhost, oswa ajoute adrès sa a nan Paramèt > Aksè Adistans (CORS).",
   "SERVER_CONFIG_PATH_OUTSIDE_DATA": "Dosye konfigirasyon sèvè a dwe se dosye Server ki andedan dosye done Zomboid sèvè sa a, oswa yon dosye ki andedan l. Mete dosye done Zomboid la anvan, oswa kite dosye konfigirasyon an vid.",
   "RESET_TOKEN_TOO_WEAK": "Yon moun ta ka devine jeton ki nan data/reset-token.txt la. Ranplase l ak karaktè hex o aza ki soti nan yon jeneratè (0-9 ak a-f, jan openssl rand -hex 24 ekri yo); yo refize mo, fraz, suit chif ak karaktè ki repete oswa ki swiv youn dèyè lòt. Oswa itilize bouton rekiperasyon an sou lame panèl la.",
-  "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "Dosye done Zomboid sa a gen fichye jwèt la pa mete nan yon dosye done, kidonk panèl la p ap sèvi avè l kòm dosye done yon sèvè. Chwazi pwòp dosye done sèvè a (sa ki gen yon dosye Saves), yon dosye vid, oswa yon dosye ki poko egziste: jwèt la kreye l premye fwa sèvè a demare.",
+  "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "Dosye done Zomboid sa a gen fichye jwèt la pa mete nan yon dosye done, kidonk panèl la p ap sèvi avè l kòm dosye done yon sèvè. Chwazi pwòp dosye done sèvè a (sa ki gen yon sovgad nan dosye Saves li), yon dosye vid, oswa yon dosye ki poko egziste: jwèt la kreye l premye fwa sèvè a demare.",
   "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "Jounal konsòl yon sèvè aleka sou pwòp machin pa l, kidonk panèl la pa ka efase l depi isit la.",
-  "WIPE_REMOTE_NOT_AVAILABLE": "Mond yon sèvè aleka sou pwòp machin pa l, kidonk panèl la pa ka efase l depi isit la."
+  "WIPE_REMOTE_NOT_AVAILABLE": "Mond yon sèvè aleka sou pwòp machin pa l, kidonk panèl la pa ka efase l depi isit la.",
+  "ZOMBOID_DATA_FOLDER_REFUSED": "Dosye done Zomboid sèvè sa a gen fichye jwèt la pa mete nan yon dosye done, kidonk panèl la p ap liste l ni li l. Nan paj Sèvè m yo, modifye sèvè a epi mete chemen done Zomboid li sou pwòp dosye done jwèt la: sa ki gen yon sovgad nan dosye Saves li.",
+  "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "Sèvè sa a pa gen dosye done Zomboid, epi se la jwèt la ekri jounal konsòl li. Nan paj Sèvè m yo, modifye sèvè a epi mete chemen done Zomboid li."
 }

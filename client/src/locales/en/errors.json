@@ -585,7 +585,9 @@
   "HOST_NOT_ALLOWED": "This panel only answers to its own addresses while panel logins are off. Open it by its IP address or localhost, or add this address under Settings > Remote Access (CORS).",
   "SERVER_CONFIG_PATH_OUTSIDE_DATA": "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
   "RESET_TOKEN_TOO_WEAK": "The token in data/reset-token.txt could be guessed. Replace it with random hex from a generator (0-9 and a-f, as openssl rand -hex 24 writes it); words, sentences, number sequences and repeated or sequential characters are refused. Or use the recovery button on the panel host.",
-  "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "This Zomboid data folder holds files the game doesn't keep in a data folder, so the panel won't use it as a server's data folder. Choose the server's own data folder (the one with a Saves folder), an empty folder, or a folder that doesn't exist yet: the game creates it when the server first starts.",
+  "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "This Zomboid data folder holds files the game doesn't keep in a data folder, so the panel won't use it as a server's data folder. Choose the server's own data folder (the one with a world save in its Saves folder), an empty folder, or a folder that doesn't exist yet: the game creates it when the server first starts.",
   "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "A remote server's console log is on its own host, so the panel can't clear it from here.",
-  "WIPE_REMOTE_NOT_AVAILABLE": "A remote server's world is on its own host, so the panel can't wipe it from here."
+  "WIPE_REMOTE_NOT_AVAILABLE": "A remote server's world is on its own host, so the panel can't wipe it from here.",
+  "ZOMBOID_DATA_FOLDER_REFUSED": "This server's Zomboid data folder holds files the game doesn't keep in a data folder, so the panel won't list or read it. On the My Servers page, edit the server and set its Zomboid Data Path to the game's own data folder: the one with a world save in its Saves folder.",
+  "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "This server has no Zomboid data folder set, and the game writes its console log there. On the My Servers page, edit the server and set its Zomboid Data Path."
 }

@@ -133,6 +133,7 @@
   "successCopy": {
     "startServer": { "title": "Sèvè ap demare", "description": "Veye tablo a pou estati an dirèk." },
     "startServerScriptBackup": { "title": "Sèvè ap demare — script demaraj sovgade", "description": "Panèl la detekte chanjman nan script demaraj ou a e li sovgade vèsyon ou anvan li rejenere l." },
+    "startServerFolderWarning": { "title": "Sèvè ap demare — paramèt RCON yo pa mete ajou" },
     "stopServer": { "title": "Sèvè sispann", "description": "Sesyon an fèmen san pwoblèm." },
     "stopServerRequested": { "title": "Arè mande", "description": "Sèvè a ap sove epi fèmen an dousè — sa ka pran yon ti moman sou yon gwo mond. Badj estati a ap mete ajou yon fwa arè a konfime." },
     "forceStopRequested": { "title": "Arè fòse mande", "description": "Siyal arè a te voye — veye tablo a pou konfimasyon." },

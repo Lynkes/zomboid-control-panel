@@ -62,11 +62,14 @@ beforeAll(async () => {
   victimServer = path.join(victimRoot, "Server");
   // PATHS-1 (2026-10-05): a data folder must now look like one when it is
   // saved and used -- POST /api/servers refuses a folder with these files and
-  // no Saves folder (dataFolderRule.test.js). With a Saves folder it does,
-  // and these files beside it are what FILES-2's roots still keep out.
-  for (const dir of [installDir, victimServer, path.join(victimRoot, "Saves")]) {
+  // no Saves folder (dataFolderRule.test.js). With a world save in its Saves
+  // folder it does (PT1, 2026-10-05: an empty Saves folder no longer
+  // counts), and these files beside it are what FILES-2's roots still keep
+  // out.
+  for (const dir of [installDir, victimServer, path.join(victimRoot, "Saves", "Multiplayer", "Victim")]) {
     fs.mkdirSync(dir, { recursive: true });
   }
+  fs.writeFileSync(path.join(victimRoot, "Saves", "Multiplayer", "Victim", "map_t.bin"), "");
   fs.writeFileSync(path.join(victimRoot, "private-notes.txt"), "top secret\n");
   fs.writeFileSync(path.join(victimRoot, "credentials.env"), "AWS_SECRET=hunter2\n");
   fs.writeFileSync(path.join(victimRoot, "photo.png"), PNG);

@@ -132,6 +132,7 @@
   "successCopy": {
     "startServer": { "title": "服务器正在启动", "description": "在仪表盘上查看实时状态。" },
     "startServerScriptBackup": { "title": "服务器正在启动——启动脚本已备份", "description": "面板检测到启动脚本有变化，已在重新生成前保存了你的版本。" },
+    "startServerFolderWarning": { "title": "服务器正在启动——RCON 设置未更新" },
     "stopServer": { "title": "服务器已停止", "description": "会话已正常关闭。" },
     "stopServerRequested": { "title": "已请求关闭", "description": "服务器正在保存并正常关闭——大型存档可能需要一些时间。状态徽标会在确认已停止后更新。" },
     "forceStopRequested": { "title": "已请求强制停止", "description": "已发送停止信号——请在仪表盘上查看确认。" },

@@ -132,6 +132,7 @@
   "successCopy": {
     "startServer": { "title": "Server starting", "description": "Watch the dashboard for live status." },
     "startServerScriptBackup": { "title": "Server starting — startup script backed up", "description": "The panel detected changes to your startup script and saved your version before regenerating it." },
+    "startServerFolderWarning": { "title": "Server starting — RCON settings not updated" },
     "stopServer": { "title": "Server stopped", "description": "Session closed cleanly." },
     "stopServerRequested": { "title": "Shutdown requested", "description": "The server is saving and closing gracefully — this can take a moment on a large world. The status badge will update once it's confirmed stopped." },
     "forceStopRequested": { "title": "Force-stop requested", "description": "The stop signal was sent — watch the dashboard for confirmation." },

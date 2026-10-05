@@ -585,7 +585,9 @@
   "HOST_NOT_ALLOWED": "面板登入關閉時，此面板只回應它自己的位址。請透過 IP 位址或 localhost 開啟，或在「設定 > 允許連線來源（CORS）」中加入此位址。",
   "SERVER_CONFIG_PATH_OUTSIDE_DATA": "伺服器設定資料夾必須是此伺服器 Zomboid 資料資料夾中的 Server 資料夾，或其中的某個資料夾。請先設定 Zomboid 資料資料夾，或將設定資料夾留空。",
   "RESET_TOKEN_TOO_WEAK": "data/reset-token.txt 中的權杖可能被猜到。請換成產生器產生的隨機十六進位字串（0-9 和 a-f，如 openssl rand -hex 24 的輸出）；單字、句子、數字序列以及重複或連續的字元會被拒絕。也可以在面板主機上使用復原按鈕。",
-  "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "此 Zomboid 資料資料夾中有遊戲不會放在資料資料夾裡的檔案，因此面板不會將其用作伺服器的資料資料夾。請選擇伺服器自己的資料資料夾（含有 Saves 資料夾的那個）、一個空資料夾，或一個尚不存在的資料夾：遊戲會在伺服器首次啟動時建立它。",
+  "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "此 Zomboid 資料資料夾中有遊戲不會放在資料資料夾裡的檔案，因此面板不會將其用作伺服器的資料資料夾。請選擇伺服器自己的資料資料夾（Saves 資料夾中有世界存檔的那個）、一個空資料夾，或一個尚不存在的資料夾：遊戲會在伺服器首次啟動時建立它。",
   "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "遠端伺服器的主控台日誌位於其自己的主機上，因此面板無法在此清除它。",
-  "WIPE_REMOTE_NOT_AVAILABLE": "遠端伺服器的世界位於其自己的主機上，因此面板無法在此清除它。"
+  "WIPE_REMOTE_NOT_AVAILABLE": "遠端伺服器的世界位於其自己的主機上，因此面板無法在此清除它。",
+  "ZOMBOID_DATA_FOLDER_REFUSED": "此伺服器的 Zomboid 資料資料夾中有遊戲不會放在資料資料夾裡的檔案，因此面板不會列出或讀取它。請在「我的伺服器」頁面編輯該伺服器，將其 Zomboid 資料路徑設為遊戲自己的資料資料夾：Saves 資料夾中有世界存檔的那個。",
+  "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "此伺服器未設定 Zomboid 資料資料夾，而遊戲會把主控台日誌寫在那裡。請在「我的伺服器」頁面編輯該伺服器，設定其 Zomboid 資料路徑。"
 }

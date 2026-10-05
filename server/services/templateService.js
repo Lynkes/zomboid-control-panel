@@ -217,7 +217,7 @@ export async function importTemplate(json) {
 // only while that data folder meets the data-folder rule (PATHS-1 verifier
 // pass 2). Refused, this returns { refused: true, refusal } and the callers
 // answer with that refusal (SERVER_CONFIG_PATH_OUTSIDE_DATA or
-// ZOMBOID_DATA_PATH_NOT_DATA_FOLDER).
+// ZOMBOID_DATA_FOLDER_REFUSED).
 function resolveServerPaths(server) {
   const config = serverConfigDirOf(server);
   const configDir = config.dir;

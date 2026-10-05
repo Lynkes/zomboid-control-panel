@@ -34,7 +34,12 @@ import {
 } from "../utils/iniGameView.js";
 import { confineToRoots } from "../utils/browseRoots.js";
 import { serverConfigPathIsConfined } from "../utils/serverConfigPath.js";
-import { zomboidDataFolderHolds, zomboidDataFolderRefusal } from "../services/zomboidDataPath.js";
+import {
+  describeRefusal,
+  logRefusalOnce,
+  zomboidDataFolderHolds,
+  zomboidDataFolderRefusal,
+} from "../services/zomboidDataPath.js";
 import {
   SFTP_CONFIG_PATH_KEY,
   acquireMirrorLock,
@@ -204,19 +209,28 @@ router.use(async (req, res, next) => {
   // SECURITY (2026-10-05, PATHS-1): every route here reads or writes under
   // that data folder, so it is held to the data-folder rule
   // (services/zomboidDataPath.js) again here, where it is used.
+  //
+  // PT5 (verifier round 2): every Server Files request comes through here,
+  // several per page load, so each refusal is logged at warn once per
+  // folder, then at debug.
   const { activeServer, serverConfigPath, zomboidDataPath } = req.activeServerContext;
   if (!activeServer?.isRemote) {
     if (!serverConfigPathIsConfined(serverConfigPath, zomboidDataPath)) {
-      log.warn("Refusing Server Files access: the config folder in use is outside the Zomboid data folder");
-      return res.status(400).json({
+      const refusal = {
         error:
           "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
         code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
-      });
+      };
+      logRefusalOnce(
+        log,
+        `Refusing Server Files access to ${serverConfigPath || "the default config folder"} (Zomboid data folder: ${zomboidDataPath || "not set"}): ${describeRefusal(refusal)}`,
+      );
+      return res.status(400).json(refusal);
     }
     if (!zomboidDataFolderHolds(zomboidDataPath)) {
-      log.warn("Refusing Server Files access: the Zomboid data folder doesn't look like one");
-      return res.status(400).json(zomboidDataFolderRefusal());
+      const refusal = zomboidDataFolderRefusal();
+      logRefusalOnce(log, `Refusing Server Files access (Zomboid data folder: ${zomboidDataPath || "not set"}): ${describeRefusal(refusal)}`);
+      return res.status(400).json(refusal);
     }
   }
   next();
@@ -2654,7 +2668,15 @@ async function ensureTemplatesDir(req) {
 // GET /templates - List all saved templates
 router.get("/templates", async (req, res) => {
   try {
-    const templatesPath = await ensureTemplatesDir(req);
+    // SECURITY (2026-10-05, PT1): a listing only reads. It used to create
+    // <config folder>/templates -- and the config and data folders above it
+    // when they didn't exist yet -- so opening the page made folders in a
+    // data folder saved before it existed. POST /templates, which writes
+    // one, still creates it.
+    const templatesPath = await getTemplatesPath(req);
+    if (!fs.existsSync(templatesPath)) {
+      return res.json({ templates: [] });
+    }
 
     const files = fs
       .readdirSync(templatesPath)

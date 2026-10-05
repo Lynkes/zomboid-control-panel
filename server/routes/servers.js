@@ -53,7 +53,7 @@ import {
 } from "../services/serverManager.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { canSeeHostPaths, hideHostPaths } from "../utils/hostPathView.js";
-import { serverConfigDirOf, serverConfigPathIsConfined } from "../utils/serverConfigPath.js";
+import { serverConfigDirOf, serverConfigPathIsConfined, serverFolderProblem } from "../utils/serverConfigPath.js";
 import { checkZomboidDataPath } from "../services/zomboidDataPath.js";
 import {
   buildLifecycleTemplate,
@@ -692,6 +692,12 @@ router.get("/", async (req, res) => {
       const view = {
         ...server,
         remoteConfigConfigured: computeRemoteConfigConfigured(server, settings),
+        // SECURITY (2026-10-05, PT3): why the panel won't use this server's
+        // folders, if it won't (utils/serverConfigPath.js's
+        // serverFolderProblem()) -- for the Servers page's warning, so an
+        // operator whose data folder no longer passes after the update
+        // sees what to set where it is set. A code and text, no folder.
+        folderProblem: serverFolderProblem(server),
       };
       return showPaths ? view : hideHostPaths(view);
     });
@@ -985,7 +991,8 @@ router.get("/active", async (req, res) => {
       server,
       await getAllSettings(),
     );
-    const view = { ...server, remoteConfigConfigured };
+    // PT3: as GET / above, so the two stay the same shape.
+    const view = { ...server, remoteConfigConfigured, folderProblem: serverFolderProblem(server) };
     res.json({
       server: sanitizeServerResponse(
         (await canSeeHostPaths(req.user)) ? view : hideHostPaths(view),

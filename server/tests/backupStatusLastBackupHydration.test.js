@@ -75,7 +75,8 @@ describe("BackupService.getStatus() -- lastBackup self-heals from disk instead o
     settings.clear();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-backup-lastbackup-"));
     service = new BackupService();
-    backupsPath = await service.getBackupsPath();
+    // Only a caller about to write creates the folder (PT1, 2026-10-05).
+    backupsPath = await service.getBackupsPath(undefined, { create: true });
   });
 
   afterEach(() => {

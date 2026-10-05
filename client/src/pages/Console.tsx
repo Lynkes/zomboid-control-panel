@@ -413,6 +413,10 @@ export default function Console() {
   const [_serverLogSize, setServerLogSize] = useState(0)
   const [serverLogPath, setServerLogPath] = useState('')
   const [serverLogExists, setServerLogExists] = useState(false)
+  // PT3: why the panel won't read the log ({ error, code } from the server:
+  // the data folder no longer meets the data-folder rule, or none is set),
+  // instead of "not found" while the server writes it somewhere else.
+  const [serverLogRefusal, setServerLogRefusal] = useState<{ error?: string; code?: string } | null>(null)
   const [serverLogLoading, setServerLogLoading] = useState(false)
   const [serverLogError, setServerLogError] = useState<string | null>(null)
   const serverLogErrorCountRef = useRef(0)
@@ -642,6 +646,7 @@ export default function Console() {
         setServerLogSize(0)
         setServerLogPath('')
         setServerLogExists(false)
+        setServerLogRefusal(null)
         setServerLogError(null)
         serverLogErrorCountRef.current = 0
         serverLogSizeRef.current = 0
@@ -664,6 +669,7 @@ export default function Console() {
         serverLogSizeRef.current = data.size || 0
         setServerLogPath(data.path || '')
         setServerLogExists(data.exists || false)
+        setServerLogRefusal(data.refusal ?? null)
       } else {
         // Stream new content - use ref to avoid stale closure
         const data = await serverApi.streamConsoleLog(serverLogSizeRef.current)
@@ -777,6 +783,7 @@ export default function Console() {
     serverLogSizeRef.current = 0
     setServerLogPath('')
     setServerLogExists(false)
+    setServerLogRefusal(null)
     setServerLogError(null)
     serverLogErrorCountRef.current = 0
   }, [activeServerId])
@@ -1331,7 +1338,16 @@ export default function Console() {
           {/* Terminal pane — framed tactical viewer */}
           {!serverLogExists ? (
             <div className="flex h-[calc(100vh-360px)] min-h-[300px] items-center justify-center rounded-md border border-border/50 bg-muted/20 p-4">
-              <EmptyState type="serverOffline" title={t('serverLog.notFoundTitle')} description={t('serverLog.notFoundDesc')} compact />
+              {serverLogRefusal ? (
+                <EmptyState
+                  type="serverOffline"
+                  title={t('serverLog.unavailableTitle')}
+                  description={getResultErrorMessage(serverLogRefusal, t('serverLog.notFoundDesc'))}
+                  compact
+                />
+              ) : (
+                <EmptyState type="serverOffline" title={t('serverLog.notFoundTitle')} description={t('serverLog.notFoundDesc')} compact />
+              )}
             </div>
           ) : (
             <div className="relative rounded-md border border-border/55 bg-card/85 overflow-hidden shadow-lg">

@@ -132,6 +132,7 @@
   "successCopy": {
     "startServer": { "title": "Server wird gestartet", "description": "Behalte das Dashboard für den Live-Status im Blick." },
     "startServerScriptBackup": { "title": "Server wird gestartet — Startskript gesichert", "description": "Der Panel hat Änderungen am Startskript erkannt und deine Version vor dem Neuerstellen gesichert." },
+    "startServerFolderWarning": { "title": "Server wird gestartet — RCON-Einstellungen nicht aktualisiert" },
     "stopServer": { "title": "Server gestoppt", "description": "Sitzung sauber beendet." },
     "stopServerRequested": { "title": "Herunterfahren angefordert", "description": "Der Server speichert und beendet sich gerade geordnet — bei einer großen Welt kann das einen Moment dauern. Das Status-Badge wird aktualisiert, sobald der Stopp bestätigt ist." },
     "forceStopRequested": { "title": "Erzwungenes Stoppen angefordert", "description": "Das Stoppsignal wurde gesendet — behalte das Dashboard für die Bestätigung im Blick." },

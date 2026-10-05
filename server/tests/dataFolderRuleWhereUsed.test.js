@@ -37,6 +37,8 @@ const { checkZomboidDataPath, zomboidDataFolderHolds } = await import("../servic
 const { ErrorCode } = await import("../utils/errorCodes.js");
 
 const NOT_A_DATA_FOLDER = ErrorCode.ZOMBOID_DATA_PATH_NOT_DATA_FOLDER;
+// A stored folder refused where it is used (W4: its own code).
+const FOLDER_REFUSED = ErrorCode.ZOMBOID_DATA_FOLDER_REFUSED;
 const OTHER_INI =
   "PublicName=OtherApp\nMaxPlayers=64\nMods=\nMap=SecretMapValue\nUPnP=true\nRCONPassword=hunter2\nRCONPort=27015\n";
 const HOST_LOG_LINE = "HOST LOG LINE from a file on this computer";
@@ -106,6 +108,10 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(remoteWorld, "Saves", "Multiplayer", "Victim", "map", "0_0.bin"), "chunk");
   fs.writeFileSync(path.join(remoteWorld, "Saves", "Multiplayer", "Victim", "map_meta.bin"), "meta");
   fs.writeFileSync(path.join(realData, "Saves", "Multiplayer", "Victim", "map_sand.bin"), "");
+  // A world save holds save files, not just a map folder (PT1: a folder
+  // named "map" is one anyone can make). GameTime writes map_t.bin in every
+  // world.
+  fs.writeFileSync(path.join(realData, "Saves", "Multiplayer", "servertest", "map_t.bin"), "");
   fs.writeFileSync(path.join(otherApp, "notes.txt"), "not a PZ file\n");
   fs.writeFileSync(path.join(sameHostData, "Server", "Victim.ini"), "Mods=SameHostMod\nMaxPlayers=8\n");
 
@@ -197,14 +203,14 @@ describe("a remote server whose data folder is a folder here that isn't one", ()
       rconPort: 27015,
     });
     expect(rcon.status).toBe(400);
-    expect(rcon.json.code).toBe(NOT_A_DATA_FOLDER);
+    expect(rcon.json.code).toBe(FOLDER_REFUSED);
 
     const network = await call("POST", "/api/server/configure-network", {
       serverPort: 16261,
       useUpnp: false,
     });
     expect(network.status).toBe(400);
-    expect(network.json.code).toBe(NOT_A_DATA_FOLDER);
+    expect(network.json.code).toBe(FOLDER_REFUSED);
     otherAppUntouched();
   });
 
@@ -218,7 +224,7 @@ describe("a remote server whose data folder is a folder here that isn't one", ()
   it("the template preview, the Discord presence, ensureRconConfigured, PanelBridge delivery and backup snapshots don't use it", async () => {
     const preview = await previewTemplate("first-week-friendly", remoteId);
     expect(preview.success).toBe(false);
-    expect(preview.code).toBe(NOT_A_DATA_FOLDER);
+    expect(preview.code).toBe(FOLDER_REFUSED);
 
     expect(await new DiscordBot(null, null, null).getConfiguredMaxPlayers()).toBeNull();
 
@@ -298,7 +304,7 @@ describe("the legacy settings copy of the data folder", () => {
 
     const cleared = await call("POST", "/api/server/console-log/clear");
     expect(cleared.status).toBe(400);
-    expect(cleared.json.code).toBe(NOT_A_DATA_FOLDER);
+    expect(cleared.json.code).toBe(FOLDER_REFUSED);
     otherAppUntouched();
   });
 
@@ -310,7 +316,7 @@ describe("the legacy settings copy of the data folder", () => {
 
     const rcon = await call("POST", "/api/server/configure-rcon", { rconPassword: "chosen", rconPort: 27015 });
     expect(rcon.status).toBe(400);
-    expect(rcon.json.code).toBe(NOT_A_DATA_FOLDER);
+    expect(rcon.json.code).toBe(FOLDER_REFUSED);
 
     const tailer = new LogTailer();
     await tailer.findLogPath();

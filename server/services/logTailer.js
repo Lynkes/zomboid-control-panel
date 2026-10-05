@@ -5,7 +5,13 @@ import { EventEmitter } from 'events';
 import { createLogger } from '../utils/logger.js';
 const log = createLogger('LogTailer');
 import { getActiveServer, getSetting } from '../database/init.js';
-import { zomboidDataFolderHolds } from './zomboidDataPath.js';
+import {
+    describeRefusal,
+    gameLogFolderOf,
+    logRefusalOnce,
+    zomboidDataFolderHolds,
+    zomboidDataFolderRefusal,
+} from './zomboidDataPath.js';
 
 // Build 42 creates its built-in chat rooms in a fixed order, so the Q-shout
 // room is always id 2 (0 = General, 1 = Say). Both the say and the shout room
@@ -211,9 +217,14 @@ export class LogTailer extends EventEmitter {
             if (settingPath) basePath = settingPath;
         }
         if (basePath && !zomboidDataFolderHolds(basePath)) {
-            log.warn("Not tailing the server's logs: its Zomboid data folder doesn't look like one");
+            // PT3/PT5: why, with its code and what to set; once per folder at
+            // warn, then debug.
+            logRefusalOnce(log, `Not tailing the server's logs in ${basePath}: ${describeRefusal(zomboidDataFolderRefusal())}`);
             basePath = null;
         }
+        // PT2 (verifier round 1): a 1.4.5 Saves/Multiplayer data folder's
+        // logs can be in the Zomboid folder it sits in (gameLogFolderOf()).
+        if (basePath) basePath = gameLogFolderOf(basePath);
         this.basePath = basePath;
         if (!basePath) return;
 
