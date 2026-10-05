@@ -39,6 +39,12 @@ const EXE_DELETE_PROBE_TIMEOUT_MS = 8000;
 // (null) well before an operator would call the panel itself hung.
 const DOWNLOAD_HOST_PROBE_TIMEOUT_MS = 8000;
 
+// The root-owned home of install-linux-service.sh and the unit template it
+// installs (docs/install/linux.md, Phase 6). Root must never run the copies
+// inside the panel folder: the service account can rewrite them.
+export const LINUX_SERVICE_INSTALLER_PATH =
+  "/usr/local/lib/zomboid-panel/install-linux-service.sh";
+
 export function getPanelFolderPermissionGuidance(platform, detail) {
   const prefix = `Panel folder is not writable by this process: ${detail}.`;
   if (platform === "win32") {
@@ -61,7 +67,6 @@ export function getRestartAssessment({
   platform = process.platform,
   packaged = typeof process.pkg !== "undefined",
   environment = process.env,
-  exeDir = path.dirname(process.execPath),
   launcherProtected =
     environment.PANEL_SUPERVISOR_V === "2" &&
     environment.PANEL_PRESERVE_GAME_SERVERS === "1",
@@ -97,9 +102,11 @@ export function getRestartAssessment({
       requiresConfirmation: true,
       reason: "service-cgroup-may-stop-children",
       // install-linux-service.sh is idempotent (no-ops if the unit already
-      // matches) and never invokes sudo itself, so this is safe to hand to
-      // an operator verbatim regardless of how far out of date they are.
-      remediationCommand: `sudo ${path.join(exeDir, "install-linux-service.sh")} --enable`,
+      // matches) and never invokes sudo itself. This names the root-owned
+      // copy docs/install/linux.md has the operator keep outside the panel
+      // folder, never the copy next to the binary: the service account can
+      // rewrite that one, and root running it would hand that account root.
+      remediationCommand: `sudo ${LINUX_SERVICE_INSTALLER_PATH} --enable`,
     };
   }
   return {
@@ -1587,6 +1594,11 @@ export class PanelUpdateChecker {
   // update, it just leaves the old launcher/unit in place for this cycle —
   // logged clearly, with the same remediation command getRestartAssessment()
   // already gives an operator for exactly this state.
+  //
+  // The unit template and installer swapped in here are reference copies
+  // only. They sit in a folder the service account owns, so root must never
+  // run or install them; the log line below says where the trusted copy
+  // lives and never points root at this folder.
   activateStagedLinuxLauncherFiles(exeDir) {
     const stageDir = PanelUpdateChecker.getLinuxLauncherStageDir(exeDir);
     if (!fs.existsSync(stageDir)) return false;
@@ -1631,7 +1643,12 @@ export class PanelUpdateChecker {
     }
     for (const { backup } of swapped) fs.rmSync(backup, { force: true });
     fs.rmSync(stageDir, { recursive: true, force: true });
-    log.info("Updated Linux launcher and service templates from verified release archive");
+    log.info(
+      "Updated Linux launcher and reference service templates from verified release archive. " +
+        "The installed systemd unit is unchanged; to load a newer unit, copy install-linux-service.sh " +
+        `and zomboid-panel.service from the release archive to ${path.dirname(LINUX_SERVICE_INSTALLER_PATH)} ` +
+        `and run: sudo ${LINUX_SERVICE_INSTALLER_PATH} --enable (docs/install/linux.md).`,
+    );
     return true;
   }
 
