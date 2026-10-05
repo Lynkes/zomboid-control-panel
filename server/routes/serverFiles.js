@@ -299,15 +299,18 @@ const LOCAL_CONFIG_MUTATIONS = new Set([
 // was trying to protect. Left gated (409 while running) deliberately,
 // pending its own evidence rather than inheriting the edit ruling by
 // assumption.
+// Both checks ignore case the way Express's routing does: /RESTORE/x reaches
+// the same handler as /restore/x, so it must meet the same gate (#193).
 function isLocalConfigOverwrite(req) {
-  if (req.method === "POST" && /^\/templates\/[^/]+\/apply$/.test(req.path)) {
+  const routePath = req.path.toLowerCase();
+  if (req.method === "POST" && /^\/templates\/[^/]+\/apply$/.test(routePath)) {
     return true;
   }
-  return req.method === "POST" && /^\/restore\/[^/]+$/.test(req.path);
+  return req.method === "POST" && /^\/restore\/[^/]+$/.test(routePath);
 }
 
 function isLocalConfigEdit(req) {
-  return LOCAL_CONFIG_MUTATIONS.has(`${req.method} ${req.path}`);
+  return LOCAL_CONFIG_MUTATIONS.has(`${req.method} ${req.path.toLowerCase()}`);
 }
 
 export function isLocalConfigMutation(req) {

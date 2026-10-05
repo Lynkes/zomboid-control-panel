@@ -1583,8 +1583,13 @@ class AuthService {
   middleware() {
     return async (req, res, next) => {
       try {
-        // Only protect API routes — let static files and SPA page routes through
-        if (!req.path.startsWith("/api")) {
+        // Only protect API routes — let static files and SPA page routes through.
+        // Express matches routes case-insensitively, so /API/... and /Api/...
+        // reach the same handlers as /api/...: the prefix test must ignore case
+        // too, or any other spelling skips authentication entirely (reported in
+        // #193). The exemptions below still compare the path exactly, so an
+        // odd spelling of a public path just has to sign in.
+        if (!req.path.toLowerCase().startsWith("/api")) {
           return next();
         }
 
