@@ -616,6 +616,11 @@ let preparing = null;
  * slices, and Node runs every queued setImmediate callback in one go, so
  * 50 requests arriving together held up the event loop for 50 slices at a
  * time.
+ *
+ * SECURITY (2026-10-05, A2): round 5 of the verification. index.js starts
+ * it as soon as the panel is listening, so a reset request seldom has to
+ * wait for it: the first one used to, most of a second, and the ones that
+ * queued up behind it all resumed in the same turn of the event loop.
  */
 export function prepareResetTokenChecks() {
   preparing ??= (async () => {

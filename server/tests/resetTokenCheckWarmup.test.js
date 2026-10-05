@@ -13,6 +13,11 @@ import bcrypt from "bcryptjs";
 // which the panel tells nobody but the host. The table is now worked out
 // before the file is looked at, whether or not there is one.
 //
+// Round 5: so whichever reset request came first worked it out and waited
+// for it, most of a second: a stranger's first guess after a restart was
+// slow unless the host's login page had asked first. It's now worked out
+// in the background as soon as the panel is listening (index.js).
+//
 // A file of its own, so the first request here is the process's first.
 
 const settings = new Map();
@@ -33,8 +38,8 @@ vi.mock("../database/init.js", () => ({
   peekServerDisplayName: () => null,
 }));
 
-// Each call the routes make, and whether the table was ready when it
-// returned.
+// Each call made, whether the table was ready when it returned, and the
+// promise to wait for it.
 const builds = vi.hoisted(() => []);
 vi.mock("../utils/resetTokenStrength.js", async (importOriginal) => {
   const original = await importOriginal();
@@ -42,10 +47,11 @@ vi.mock("../utils/resetTokenStrength.js", async (importOriginal) => {
     ...original,
     prepareResetTokenChecks: () => {
       const build = { settled: false };
-      builds.push(build);
-      return original.prepareResetTokenChecks().then(() => {
+      build.done = original.prepareResetTokenChecks().then(() => {
         build.settled = true;
       });
+      builds.push(build);
+      return build.done;
     },
   };
 });
@@ -106,11 +112,19 @@ afterAll(async () => {
   await new Promise((resolve) => io.httpServer.close(resolve));
 });
 
-describe("A2 round 4: the first guess costs the same whether or not a token file exists", () => {
-  it("works the hash table out on a remote guess made before any token file exists", async () => {
+describe("A2: the first guess costs the same whether or not a token file exists", () => {
+  // Round 5.
+  it("works the hash table out as soon as the panel is listening, before any request", async () => {
+    // beforeAll's listen() is all that has happened so far.
+    expect(builds).toHaveLength(1);
+    await builds[0].done;
+    expect(builds[0].settled).toBe(true);
+  });
+
+  // Round 4.
+  it("answers a remote guess the same before and after a token file turns up", async () => {
     const guess = "e4c1f0a8b2d6973e5a1c0f8b7d2e6a49e4c1f0a8b2d6973e";
     fs.rmSync(tokenPath(), { force: true });
-    expect(builds).toEqual([]);
 
     const missing = await reset(guess);
     expect(missing).toEqual({ status: 403, body: expect.objectContaining({ code: "RESET_TOKEN_INVALID" }) });
