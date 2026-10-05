@@ -160,6 +160,30 @@ describe('Settings.tsx: SFTP host-key refusal', () => {
     expect(screen.getByText(PINNED)).toBeInTheDocument()
   })
 
+  it('drops a Verify refusal the server says is no longer presented', async () => {
+    primeMocks([])
+    testSftp.mockRejectedValue(
+      new ApiError('Host denied (verification failed)', {
+        status: 400,
+        code: 'SFTP_HOST_KEY_MISMATCH',
+        data: { code: 'SFTP_HOST_KEY_MISMATCH', hostKey: REFUSAL },
+      }),
+    )
+    trustSftpHostKey.mockRejectedValue(
+      new ApiError('This server is not presenting that host key now', {
+        status: 409,
+        code: 'SFTP_HOST_KEY_NOT_PRESENTED',
+      }),
+    )
+    renderSettings()
+
+    fireEvent.click(await screen.findByRole('button', { name: /remote connection/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /verify and prepare sftp/i }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Trust new host key' }))
+
+    await waitFor(() => expect(screen.queryByText(PRESENTED)).not.toBeInTheDocument())
+  })
+
   it('keeps Trust disabled without bridge.setup', async () => {
     mockCan = (cap) => cap !== 'bridge.setup'
     primeMocks([REFUSAL])

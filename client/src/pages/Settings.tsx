@@ -2475,6 +2475,14 @@ export default function Settings() {
         variant: "success" as const,
       });
     } catch (error) {
+      // The host no longer presents that key (or the panel restarted since
+      // the refusal): the status poll shows whatever is refused now, so the
+      // copy kept from the last Verify is out of date.
+      if (error instanceof ApiError && error.code === "SFTP_HOST_KEY_NOT_PRESENTED") {
+        setSftpHostKeyRefusal((current) =>
+          current && current.host === refusal.host && current.port === refusal.port ? null : current,
+        );
+      }
       toast({ title: t("toasts.sftpHostKeyTrustFailed.title"), description: getUserErrorMessage(error, t("toasts.sftpHostKeyTrustFailed.fallback")), variant: "destructive" });
     } finally {
       setTrustingHostKey(null);
