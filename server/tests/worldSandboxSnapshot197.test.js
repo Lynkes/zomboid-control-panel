@@ -17,6 +17,7 @@ import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
 
 const state = vi.hoisted(() => ({
   activeServer: null,
+  settings: {},
   running: false,
   rconConnected: false,
   mirrorDir: null,
@@ -26,7 +27,7 @@ const state = vi.hoisted(() => ({
 
 vi.mock("../database/init.js", () => ({
   getActiveServer: vi.fn(async () => state.activeServer),
-  getAllSettings: vi.fn(async () => ({})),
+  getAllSettings: vi.fn(async () => state.settings),
   getRoleByName: mockGetRoleByName,
 }));
 
@@ -46,7 +47,8 @@ vi.mock("../services/remoteConfigFiles.js", () => ({
 }));
 
 const { retireRemoteWorldSandboxSnapshot } = await import("../services/remoteConfigFiles.js");
-const { default: router } = await import("../routes/serverFiles.js");
+const { default: router, __testOnlyDirectReads } = await import("../routes/serverFiles.js");
+const { localWorldSandboxSnapshotPath } = await import("../services/worldSandboxSnapshot.js");
 
 const SANDBOX = "SandboxVars = {\n    VERSION = 6,\n    ZombieLore = {\n        Cognition = 3,\n        DoorOpeningPercentage = 0,\n    },\n}\n";
 // The bytes do not matter to the panel; keep them recognisable.
@@ -65,7 +67,14 @@ async function call(method, url, body) {
     headers: body === undefined ? {} : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  return { status: response.status, body: await response.json() };
+  const text = await response.text();
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // Express's own error page.
+  }
+  return { status: response.status, body: parsed };
 }
 
 beforeAll(async () => {
@@ -104,6 +113,7 @@ beforeEach(() => {
   fs.writeFileSync(path.join(configDir, "DoB_SandboxVars.lua"), SANDBOX);
   fs.writeFileSync(snapshotPath, SNAPSHOT);
   state.activeServer = { id: 1, serverName: "DoB", zomboidDataPath: dataDir, isRemote: false };
+  state.settings = {};
   state.running = false;
   state.rconConnected = false;
   state.mirrorDir = null;
@@ -125,7 +135,24 @@ function makeRemote({ snapshot }) {
   state.session = { worldSandboxSnapshot: snapshot ? REMOTE_SNAPSHOT : null };
 }
 
+let homedirSpy = null;
+
+// The game's default data folder (Zomboid in the home folder), pointed at
+// this test's data folder.
+function homeHoldsDataDir() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-map-sand-197-home-"));
+  fs.cpSync(dataDir, path.join(home, "Zomboid"), { recursive: true });
+  homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(home);
+  return path.join(home, "Zomboid");
+}
+
 afterEach(() => {
+  if (homedirSpy) {
+    const home = os.homedir();
+    homedirSpy.mockRestore();
+    homedirSpy = null;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
 
@@ -203,6 +230,57 @@ describe("Server Config reports the world's own sandbox copy (#197)", () => {
     state.activeServer = { id: 1, serverName: "DoB", zomboidDataPath: null, serverConfigPath: configDir, isRemote: false };
 
     expect((await call("GET", "/sandbox")).body.worldSandboxSnapshot?.path).toBe(snapshotPath);
+  });
+
+  // The panel's start script passes -cachedir only for a set data folder,
+  // so without one the game keeps its save in its default folder.
+  it("finds the save in the game's default folder for a profile with no data folder that the panel starts", async () => {
+    const cfg = path.join(dataDir, "cfg");
+    fs.mkdirSync(cfg);
+    fs.copyFileSync(path.join(configDir, "DoB_SandboxVars.lua"), path.join(cfg, "DoB_SandboxVars.lua"));
+    const install = path.join(dataDir, "install");
+    fs.mkdirSync(install);
+    const home = homeHoldsDataDir();
+    state.activeServer = {
+      id: 1,
+      serverName: "DoB",
+      installPath: install,
+      zomboidDataPath: null,
+      serverConfigPath: cfg,
+      isRemote: false,
+    };
+
+    const expected = path.join(home, "Saves", "Multiplayer", "DoB", "map_sand.bin");
+    expect((await call("GET", "/sandbox")).body.worldSandboxSnapshot?.path).toBe(expected);
+  });
+
+  it("finds a legacy setup's save (no profile row) under the data folder in its settings", async () => {
+    state.activeServer = null;
+    state.settings = { serverName: "DoB", zomboidDataPath: dataDir };
+
+    const { status, body } = await call("GET", "/sandbox");
+
+    expect(status).toBe(200);
+    expect(body.worldSandboxSnapshot?.path).toBe(snapshotPath);
+  });
+});
+
+describe("a server name of '.' or '..' (#197)", () => {
+  // Both pass a basename test, and the world save's path uses the name as a
+  // folder: Saves/Multiplayer/.. is Saves/.
+  it("is refused before any path is built from it", async () => {
+    const above = path.join(dataDir, "Saves", "map_sand.bin");
+    fs.writeFileSync(above, "not this world's");
+    for (const serverName of [".", ".."]) {
+      state.activeServer = { id: 1, serverName, zomboidDataPath: dataDir, isRemote: false };
+
+      await expect(__testOnlyDirectReads.getActiveServerPaths()).rejects.toThrow(/invalid path characters/);
+      await expect(__testOnlyDirectReads.getServerName()).rejects.toThrow(/invalid path characters/);
+      expect(localWorldSandboxSnapshotPath({ activeServer: state.activeServer, serverName, serverConfigPath: configDir })).toBeNull();
+      expect((await call("POST", "/sandbox/world-snapshot/retire")).status).toBe(500);
+    }
+    expect(fs.readFileSync(above, "utf8")).toBe("not this world's");
+    expect(fs.existsSync(path.join(configDir, "backups"))).toBe(false);
   });
 });
 
@@ -319,6 +397,62 @@ describe("POST /sandbox/world-snapshot/retire (#197)", () => {
     expect(body.retired).toBe(true);
     expect(fs.existsSync(snapshotPath)).toBe(false);
     expect(fs.readFileSync(body.movedTo)).toEqual(SNAPSHOT);
+  });
+
+  it("retires from the game's default folder for a profile with no data folder that the panel starts", async () => {
+    const install = path.join(dataDir, "install");
+    fs.mkdirSync(install);
+    const cfg = path.join(dataDir, "cfg");
+    fs.mkdirSync(cfg);
+    const home = homeHoldsDataDir();
+    state.activeServer = {
+      id: 1,
+      serverName: "DoB",
+      installPath: install,
+      zomboidDataPath: null,
+      serverConfigPath: cfg,
+      isRemote: false,
+    };
+
+    const { status, body } = await call("POST", "/sandbox/world-snapshot/retire");
+
+    expect(status).toBe(200);
+    expect(body.retired).toBe(true);
+    expect(fs.existsSync(path.join(home, "Saves", "Multiplayer", "DoB", "map_sand.bin"))).toBe(false);
+    expect(path.dirname(body.movedTo)).toBe(path.join(cfg, "backups"));
+    expect(fs.readFileSync(body.movedTo)).toEqual(SNAPSHOT);
+  });
+
+  it("retires a legacy setup's file (no profile row)", async () => {
+    state.activeServer = null;
+    state.settings = { serverName: "DoB", zomboidDataPath: dataDir };
+
+    const { status, body } = await call("POST", "/sandbox/world-snapshot/retire");
+
+    expect(status).toBe(200);
+    expect(body.retired).toBe(true);
+    expect(fs.existsSync(snapshotPath)).toBe(false);
+    expect(fs.readFileSync(body.movedTo)).toEqual(SNAPSHOT);
+  });
+
+  // The local stopped check can't see a remote host's processes; for a
+  // profile whose local paths are set (and only exist on the host) it
+  // answered SERVER_STATE_UNKNOWN. The server's own RCON decides instead.
+  it("moves a remote world's file when the profile's local paths exist only on the host", async () => {
+    makeRemote({ snapshot: true });
+    state.activeServer.installPath = "/home/pz/pzserver-not-on-this-computer";
+    const movedTo = "/home/pz/Zomboid/Server/backups/DoB_map_sand.bin.2026-10-05T07-00-00-000Z.retired";
+    state.remoteRetire = { available: true, retired: true, movedTo };
+
+    const { status, body } = await call("POST", "/sandbox/world-snapshot/retire");
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ success: true, retired: true, movedTo });
+
+    state.rconConnected = true;
+    const refused = await call("POST", "/sandbox/world-snapshot/retire");
+    expect(refused.status).toBe(409);
+    expect(refused.body.code).toBe("SERVER_RUNNING");
   });
 
   it("says no data folder is set when the save's place can't be told", async () => {

@@ -59,6 +59,11 @@ import {
 import { requirePermission } from "../services/permissions.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { isHostKeyRefusal } from "../services/sftpHostKeys.js";
+import {
+  isServerFolderName,
+  localWorldSandboxSnapshotPath,
+  statLocalWorldSandboxSnapshot,
+} from "../services/worldSandboxSnapshot.js";
 
 const router = express.Router();
 
@@ -338,12 +343,16 @@ const LOCAL_CONFIG_MUTATIONS = new Set([
 // Both checks match the path the way Express's routing does (guardPathOf):
 // /RESTORE/x and /restore/x/ reach the same handler as /restore/x, so they
 // must meet the same gate (#193).
+function isWorldSandboxSnapshotRetire(req) {
+  return req.method === "POST" && guardPathOf(req) === "/sandbox/world-snapshot/retire";
+}
+
 function isLocalConfigOverwrite(req) {
   const routePath = guardPathOf(req);
   if (req.method === "POST" && /^\/templates\/[^/]+\/apply$/.test(routePath)) {
     return true;
   }
-  if (req.method === "POST" && routePath === "/sandbox/world-snapshot/retire") {
+  if (isWorldSandboxSnapshotRetire(req)) {
     return true;
   }
   return req.method === "POST" && /^\/restore\/[^/]+$/.test(routePath);
@@ -364,6 +373,13 @@ export {
 };
 router.use((req, res, next) => {
   if (isLocalConfigOverwrite(req)) {
+    // A remote server's map_sand.bin is on its host, reached over the
+    // mirror session above, and its handler refuses while the server's
+    // RCON answers. The local check scans this computer's processes and,
+    // for a remote profile whose local paths are set but absent here,
+    // answers SERVER_STATE_UNKNOWN about a server it was never going to
+    // see (#197).
+    if (req.remoteConfigSession && isWorldSandboxSnapshotRetire(req)) return next();
     return requireStoppedForLocalConfigMutation(req, res, next);
   }
   if (isLocalConfigEdit(req)) {
@@ -451,11 +467,12 @@ async function getServerName() {
     throw new ServerNotConfiguredError();
   }
 
-  const safe = path.basename(raw);
-  if (safe !== raw || !safe) {
+  // "." and ".." pass the basename test but name a folder above or at the
+  // save's own (Saves/Multiplayer/<name>, #197).
+  if (!isServerFolderName(raw)) {
     throw new Error("Configured server name contains invalid path characters");
   }
-  return safe;
+  return raw;
 }
 
 // split-derivation sweep, 2026-09-07 (same class as /wipe's pre-fix bug,
@@ -486,19 +503,25 @@ async function getActiveServerPaths() {
   // to build the local SFTP mirror path, and every consolidated call site
   // needs both values together anyway.
   let serverName;
+  // A legacy setup with no profile row keeps its data folder in the flat
+  // settings: the world save (map_sand.bin, #197) is found under it.
+  let legacyDataPath = null;
   if (activeServer?.serverName) {
     serverName = activeServer.serverName;
   } else {
     const settings = await getAllSettings();
     serverName = settings.serverName;
+    if (!activeServer) legacyDataPath = settings.zomboidDataPath || null;
   }
   if (!serverName) {
     throw new ServerNotConfiguredError();
   }
-  const safeServerName = path.basename(serverName);
-  if (safeServerName !== serverName || !safeServerName) {
+  // "." and ".." pass a basename test but name a folder above or at the
+  // world save's own (Saves/Multiplayer/<name>).
+  if (!isServerFolderName(serverName)) {
     throw new Error("Configured server name contains invalid path characters");
   }
+  const safeServerName = serverName;
 
   let serverConfigPath;
   if (activeServer?.isRemote) {
@@ -528,7 +551,7 @@ async function getActiveServerPaths() {
     throw new ServerNotConfiguredError();
   }
 
-  return { activeServer, serverConfigPath, serverName: safeServerName };
+  return { activeServer, serverConfigPath, serverName: safeServerName, legacyDataPath };
 }
 
 // Exposed ONLY so the existing unit tests that already verify these three
@@ -1410,32 +1433,15 @@ router.put("/ini", async (req, res) => {
 // it exists, edits to SandboxVars.lua (this editor, the in-game admin panel)
 // are undone at the next start. Without it the game falls back to
 // SandboxVars.lua. The save is under the data folder the server starts with
-// (-cachedir), which is also where the game keeps Server/: with no data
-// folder set, the config folder's parent stands in when it is named Server.
-// A remote server's save is checked over SFTP by the mirror session.
-function worldSandboxSnapshotPath({ activeServer, serverConfigPath, serverName }) {
-  if (!activeServer || activeServer.isRemote) return null;
-  let dataDir = activeServer.zomboidDataPath;
-  if (!dataDir && serverConfigPath && path.basename(serverConfigPath).toLowerCase() === "server") {
-    dataDir = path.dirname(serverConfigPath);
-  }
-  if (!dataDir) return null;
-  return path.join(dataDir, "Saves", "Multiplayer", serverName, "map_sand.bin");
-}
-
+// (-cachedir); localWorldSandboxSnapshotPath() (services/worldSandboxSnapshot.js)
+// finds it the way the start does, default folder included. A remote
+// server's save is checked over SFTP by the mirror session.
 // { path, mtime } when this world has a map_sand.bin, else null.
 async function findWorldSandboxSnapshot(req) {
   if (req.activeServerContext.activeServer?.isRemote) {
     return req.remoteConfigSession?.worldSandboxSnapshot ?? null;
   }
-  const snapshotPath = worldSandboxSnapshotPath(req.activeServerContext);
-  if (!snapshotPath) return null;
-  try {
-    const stats = await fs.promises.stat(snapshotPath);
-    return stats.isFile() ? { path: snapshotPath, mtime: stats.mtime.toISOString() } : null;
-  } catch {
-    return null;
-  }
+  return statLocalWorldSandboxSnapshot(localWorldSandboxSnapshotPath(req.activeServerContext));
 }
 
 // Get SandboxVars (parsed)
@@ -1942,10 +1948,10 @@ const WORLD_SANDBOX_SNAPSHOT_RETIRED_MESSAGE =
   "map_sand.bin was moved out of the world save. The next start uses SandboxVars.lua.";
 
 async function retireRemoteWorldSandboxSnapshotRoute(req, res) {
-  // The stopped check (requireStoppedForLocalConfigMutation) can't scan a
-  // remote host's processes and lets a remote server through. A connected
-  // RCON is that server answering, so it is running: refuse as for a local
-  // one.
+  // The local stopped check (requireStoppedForLocalConfigMutation) can't
+  // scan a remote host's processes, so the router's gate leaves this to
+  // the server itself: a connected RCON is that server answering, so it is
+  // running. Refuse as for a local one.
   if (req.app?.get?.("rconService")?.connected) {
     return res.status(409).json({
       code: ErrorCode.SERVER_RUNNING,
@@ -1973,7 +1979,7 @@ router.post("/sandbox/world-snapshot/retire", async (req, res) => {
       return await retireRemoteWorldSandboxSnapshotRoute(req, res);
     }
     const { serverConfigPath: configPath, serverName } = req.activeServerContext;
-    const snapshotPath = worldSandboxSnapshotPath(req.activeServerContext);
+    const snapshotPath = localWorldSandboxSnapshotPath(req.activeServerContext);
     if (!snapshotPath) {
       return res.status(400).json(WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE_BODY);
     }
