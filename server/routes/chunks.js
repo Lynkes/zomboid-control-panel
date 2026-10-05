@@ -1518,6 +1518,14 @@ router.post("/delete-chunks", requirePermission("chunks.manage"), async (req, re
     // vehicles are being deleted) so the operation is fully reversible.
     let backupPath = null;
     if (createBackup) {
+      // SECURITY (2026-10-05, PT1): this creates backups/ in the data folder
+      // (and the folders above it that are missing), so only in one that
+      // meets the data-folder rule (services/zomboidDataPath.js) -- checked
+      // before anything is deleted. A real one, with the world being cleaned
+      // up in it, does.
+      if (!zomboidDataFolderHolds(zomboidDataPath)) {
+        return res.status(400).json(zomboidDataFolderRefusal());
+      }
       // No lock guards this route the way /wipe and restoreBackup() are
       // guarded (see server.js's wipeInProgress / backupService.js's
       // restoreInProgress) -- two concurrent delete-chunks requests for the
@@ -2141,6 +2149,10 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
     // is identical.
     let backupPath = null;
     if (createBackup) {
+      // PT1: see /delete-chunks' backup above.
+      if (!zomboidDataFolderHolds(zomboidDataPath)) {
+        return res.status(400).json(zomboidDataFolderRefusal());
+      }
       backupPath = path.join(
         zomboidDataPath,
         "backups",

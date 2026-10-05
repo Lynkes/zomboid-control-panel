@@ -106,6 +106,10 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(remoteWorld, "Saves", "Multiplayer", "Victim", "map", "0_0.bin"), "chunk");
   fs.writeFileSync(path.join(remoteWorld, "Saves", "Multiplayer", "Victim", "map_meta.bin"), "meta");
   fs.writeFileSync(path.join(realData, "Saves", "Multiplayer", "Victim", "map_sand.bin"), "");
+  // A world save holds save files, not just a map folder (PT1: a folder
+  // named "map" is one anyone can make). GameTime writes map_t.bin in every
+  // world.
+  fs.writeFileSync(path.join(realData, "Saves", "Multiplayer", "servertest", "map_t.bin"), "");
   fs.writeFileSync(path.join(otherApp, "notes.txt"), "not a PZ file\n");
   fs.writeFileSync(path.join(sameHostData, "Server", "Victim.ini"), "Mods=SameHostMod\nMaxPlayers=8\n");
 

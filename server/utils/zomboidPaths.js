@@ -164,6 +164,49 @@ export function looksLikeSaveDir(dir) {
   } catch { return false; }
 }
 
+// SECURITY (2026-10-05, PT1): looksLikeSaveDir() above is a hint for folder
+// pickers: it asks existsSync() about each name, which on Windows and macOS
+// matches any case, and its "map" is a folder name anyone can make. The
+// data-folder rule (services/zomboidDataPath.js) counts a world save only
+// when it holds one of these files, as a file, named exactly as the game
+// writes it (read off the B42 jar: GameTime writes map_t.bin in every world,
+// a client's per-server cache included; ServerPlayerDB players.db; IsoWorld,
+// IsoMetaGrid, DictionaryData, GlobalModData and ReanimatedPlayers the
+// rest). The panel writes a file by one of these names only inside a world
+// save it restores (<data folder>/Saves/Multiplayer/<server>/), so nothing
+// it creates anywhere else passes for a world save.
+const SAVE_FILES = new Set([
+  'map_t.bin',
+  'map_ver.bin',
+  'map_meta.bin',
+  'map_sand.bin',
+  'map_zone.bin',
+  'players.db',
+  'WorldDictionary.bin',
+  'global_mod_data.bin',
+  'reanimated.bin',
+]);
+
+// Links are followed (statSync), as the rule follows them everywhere.
+export function holdsSaveFiles(dir, names = null) {
+  let entries = names;
+  if (!entries) {
+    try {
+      entries = fs.readdirSync(dir);
+    } catch {
+      return false;
+    }
+  }
+  return entries.some((name) => {
+    if (!SAVE_FILES.has(name)) return false;
+    try {
+      return fs.statSync(path.join(dir, name)).isFile();
+    } catch {
+      return false;
+    }
+  });
+}
+
 function looksLikeServerInstall(dir) {
   try {
     return SERVER_INSTALL_ARTIFACTS.some(f => fs.existsSync(path.join(dir, f)));

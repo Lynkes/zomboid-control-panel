@@ -73,8 +73,10 @@ describe("ensureRconConfigured() -- INI path resolution", () => {
     fs.mkdirSync(zomboidDataPath, { recursive: true });
     // PATHS-1 verifier pass 2: the data folder is held to the data-folder
     // rule wherever its config folder is resolved; one the game has run in
-    // has a Saves folder (and the root-level ini makes it fail otherwise).
-    fs.mkdirSync(path.join(zomboidDataPath, "Saves"));
+    // has a world save in Saves (and the root-level ini makes it fail otherwise).
+    // PT1 (2026-10-05): a Saves folder counts only with a world save in it.
+    fs.mkdirSync(path.join(zomboidDataPath, "Saves", "Multiplayer", "World"), { recursive: true });
+    fs.writeFileSync(path.join(zomboidDataPath, "Saves", "Multiplayer", "World", "map_t.bin"), "");
     // Deliberately no Server/ subdirectory at all -- only the legacy path.
     const iniPath = path.join(zomboidDataPath, "servertest.ini");
     fs.writeFileSync(
@@ -106,8 +108,10 @@ describe("ensureRconConfigured() -- INI path resolution", () => {
     fs.mkdirSync(zomboidDataPath, { recursive: true });
     // PATHS-1 verifier pass 2: the data folder is held to the data-folder
     // rule wherever its config folder is resolved; one the game has run in
-    // has a Saves folder (and the root-level ini makes it fail otherwise).
-    fs.mkdirSync(path.join(zomboidDataPath, "Saves"));
+    // has a world save in Saves (and the root-level ini makes it fail otherwise).
+    // PT1 (2026-10-05): a Saves folder counts only with a world save in it.
+    fs.mkdirSync(path.join(zomboidDataPath, "Saves", "Multiplayer", "World"), { recursive: true });
+    fs.writeFileSync(path.join(zomboidDataPath, "Saves", "Multiplayer", "World", "map_t.bin"), "");
     const iniPath = path.join(zomboidDataPath, "serveroptions.ini");
     fs.writeFileSync(
       iniPath,
@@ -151,8 +155,10 @@ describe("ensureRconConfigured() -- INI path resolution", () => {
     fs.mkdirSync(zomboidDataPath, { recursive: true });
     // PATHS-1 verifier pass 2: the data folder is held to the data-folder
     // rule wherever its config folder is resolved; one the game has run in
-    // has a Saves folder (and the root-level ini makes it fail otherwise).
-    fs.mkdirSync(path.join(zomboidDataPath, "Saves"));
+    // has a world save in Saves (and the root-level ini makes it fail otherwise).
+    // PT1 (2026-10-05): a Saves folder counts only with a world save in it.
+    fs.mkdirSync(path.join(zomboidDataPath, "Saves", "Multiplayer", "World"), { recursive: true });
+    fs.writeFileSync(path.join(zomboidDataPath, "Saves", "Multiplayer", "World", "map_t.bin"), "");
     fs.mkdirSync(explicitConfigPath, { recursive: true });
 
     const explicitIni = path.join(explicitConfigPath, "servertest.ini");

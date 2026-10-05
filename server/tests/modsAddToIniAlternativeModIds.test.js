@@ -92,9 +92,11 @@ describe("POST /add-to-ini: a multi-id workshop item reports its extra mod ids i
     fs.mkdirSync(configPath, { recursive: true });
     // PATHS-1 verifier pass 2: the data folder is held to the data-folder
     // rule wherever its config folder is resolved. This one also holds the
-    // test's game folder, which a real data folder doesn't; the Saves folder
-    // the game creates on first start makes it one.
-    fs.mkdirSync(path.join(dataRoot, "Saves"));
+    // test's game folder, which a real data folder doesn't; the world save
+    // the game writes on first start makes it one.
+    // PT1 (2026-10-05): a Saves folder counts only with a world save in it.
+    fs.mkdirSync(path.join(dataRoot, "Saves", "Multiplayer", "World"), { recursive: true });
+    fs.writeFileSync(path.join(dataRoot, "Saves", "Multiplayer", "World", "map_t.bin"), "");
     fs.writeFileSync(path.join(configPath, "TestServer.ini"), "Mods=\nWorkshopItems=\n");
 
     installPath = path.join(dataRoot, "install");

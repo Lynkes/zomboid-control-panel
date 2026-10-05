@@ -2654,7 +2654,15 @@ async function ensureTemplatesDir(req) {
 // GET /templates - List all saved templates
 router.get("/templates", async (req, res) => {
   try {
-    const templatesPath = await ensureTemplatesDir(req);
+    // SECURITY (2026-10-05, PT1): a listing only reads. It used to create
+    // <config folder>/templates -- and the config and data folders above it
+    // when they didn't exist yet -- so opening the page made folders in a
+    // data folder saved before it existed. POST /templates, which writes
+    // one, still creates it.
+    const templatesPath = await getTemplatesPath(req);
+    if (!fs.existsSync(templatesPath)) {
+      return res.json({ templates: [] });
+    }
 
     const files = fs
       .readdirSync(templatesPath)

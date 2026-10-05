@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { ErrorCode } from "../utils/errorCodes.js";
-import { inspectZomboidPath, looksLikeSaveDir, normalizeUserPath } from "../utils/zomboidPaths.js";
+import { holdsSaveFiles, inspectZomboidPath, normalizeUserPath } from "../utils/zomboidPaths.js";
 
 // SECURITY (2026-10-05, PATHS-1): a server's Zomboid data folder (its
 // zomboidDataPath, the game's -cachedir) is the folder chunks /browse lists
@@ -16,13 +16,13 @@ import { inspectZomboidPath, looksLikeSaveDir, normalizeUserPath } from "../util
 // folder that didn't exist when it was saved can appear later):
 //   - an absolute path, at most 1024 characters, no control characters;
 //   - and nothing there yet (the game creates the folder on first start),
-//     or a folder that already is one: a Saves or Multiplayer folder or
-//     save files directly in it (inspectZomboidPath()'s on-disk checks --
-//     not its name-only ones, which any folder whose path says "zomboid" or
-//     "saves" passes, the panel's own folder included), or nothing in it
-//     but what the game itself puts in a data folder (empty included), or
-//     nothing in it but world saves (a Saves/Multiplayer folder named
-//     directly, as Map Cleanup allows).
+//     or a folder that already is one: a world save in its Saves (or
+//     Multiplayer) folder, or save files directly in it (on-disk checks --
+//     not inspectZomboidPath()'s name-only ones, which any folder whose
+//     path says "zomboid" or "saves" passes, the panel's own folder
+//     included), or nothing in it but what the game itself puts in a data
+//     folder (empty included), or nothing in it but world saves (a
+//     Saves/Multiplayer folder named directly, as Map Cleanup allows).
 // A server install folder is refused. The folder PZ_SAVE_PATH names comes
 // from the operator's own environment (the Docker images set it), not from
 // a request, and is taken as it is. Remote servers stay exempt at the
@@ -147,11 +147,15 @@ function judgeFolder(resolved) {
     return { ok: false, reason: "unreadable" };
   }
   if (!stat.isDirectory()) return { ok: false, reason: "not-a-directory" };
-  // The common case first, cheaply: a data folder the game has run in has
-  // Saves (inspectZomboidPath() probes every subfolder for save files).
-  if (fs.existsSync(path.join(resolved, "Saves")) || fs.existsSync(path.join(resolved, "Multiplayer"))) {
-    return { ok: true, missing: false };
+  let names;
+  try {
+    names = fs.readdirSync(resolved);
+  } catch {
+    return { ok: false, reason: "unreadable" };
   }
+  // The common case first: a data folder the game has run in holds a world
+  // save under Saves/.
+  if (holdsWorldSave(resolved, names)) return { ok: true, missing: false };
   const verdict = inspectZomboidPath(resolved);
   if (verdict.reason === "install-folder") return { ok: false, reason: "install-folder" };
   // Save files directly in the folder (a world save folder), not its
@@ -159,13 +163,7 @@ function judgeFolder(resolved) {
   // this one, so any folder holding, say, some-project/map/ passed, whatever
   // else it held (PATHS-1 verifier pass). A real data folder's save files
   // sit under Saves/, which the check above already accepts.
-  if (looksLikeSaveDir(resolved)) return { ok: true, missing: false };
-  let names;
-  try {
-    names = fs.readdirSync(resolved);
-  } catch {
-    return { ok: false, reason: "unreadable" };
-  }
+  if (holdsSaveFiles(resolved, names)) return { ok: true, missing: false };
   if (names.every(isGameDataFolderEntry)) return { ok: true, missing: false };
   // A Saves/Multiplayer folder named directly, as Map Cleanup's custom path
   // and "Save as default" allow (its hint names this shape, and
@@ -177,11 +175,44 @@ function judgeFolder(resolved) {
   // .../Saves/Multiplayer folder, and "every folder in it has save files"
   // alone is any folder of projects that each have a map/ folder. Judged
   // entry by entry, so one that also holds anything else is still refused.
-  return isSavesMultiplayerFolder(resolved) &&
-    names.length > 0 &&
-    names.every((name) => isMultiplayerFolderEntry(resolved, name))
+  return isSavesMultiplayerFolder(resolved) && multiplayerFolderHoldsOnlyWorlds(resolved, names)
     ? { ok: true, missing: false }
     : { ok: false, reason: "not-a-data-folder" };
+}
+
+// SECURITY (2026-10-05, PT1): a Saves or Multiplayer folder used to be
+// enough on its own (existsSync(), which on Windows and macOS also matched
+// "saves" or "SAVES"), and so was any folder named like a save file, "map"
+// included. The panel itself creates folders inside a data folder (backups/,
+// Server/ ...), and a data folder that doesn't exist yet is accepted, so a
+// technician saved <folder>/Saves as one, opened Backups (which created
+// <folder>/Saves/backups), and then saved <folder> itself, whatever else it
+// held. Such a folder counts now only when it holds what the game writes
+// there: a world save -- a folder holding save files (holdsSaveFiles(), the
+// files themselves, by their exact names) -- in Saves/<game mode>/, or in
+// Multiplayer/ when the data folder named is a Saves folder. Names are
+// compared as the folder lists them, never through existsSync(). Nothing
+// the panel creates holds save files, so nothing it creates counts.
+function holdsWorldSave(folder, names) {
+  if (names.includes("Saves")) {
+    const saves = path.join(folder, "Saves");
+    // Multiplayer first: a dedicated server's own world is there.
+    const modes = listNames(saves).sort((a, b) => (b === "Multiplayer") - (a === "Multiplayer"));
+    if (modes.some((mode) => folderHoldsAWorld(path.join(saves, mode)))) return true;
+  }
+  return names.includes("Multiplayer") && folderHoldsAWorld(path.join(folder, "Multiplayer"));
+}
+
+function folderHoldsAWorld(folder) {
+  return listNames(folder).some((name) => holdsSaveFiles(path.join(folder, name)));
+}
+
+function listNames(folder) {
+  try {
+    return fs.readdirSync(folder);
+  } catch {
+    return [];
+  }
 }
 
 // Exactly as the game names them (ZomboidFileSystem.getSaveDir() is
@@ -199,15 +230,46 @@ function isSavesMultiplayerFolder(resolved) {
 // as above.
 const MULTIPLAYER_PLAYER_CACHE_FOLDER = /^-?\d+_.+_player$/;
 
-function isMultiplayerFolderEntry(folder, name) {
-  if (OS_FOLDER_ENTRIES.has(name)) return true;
-  const entry = path.join(folder, name);
-  try {
-    if (!fs.statSync(entry).isDirectory()) return false;
-  } catch {
-    return false;
+// SECURITY (2026-10-05, PT2): what the panel itself creates in a
+// Saves/Multiplayer folder. Map Cleanup's "Save as default" stored one as a
+// server's data folder in 1.4.5, and the panel then created backups/ in it
+// (the Backups page, and Map Cleanup's delete-with-backup backups,
+// backups/<save>_chunks_<stamp> and backups/<save>_region_<stamp>), so after
+// the update that server's data folder was refused everywhere. A restore
+// leaves its staging folder (.restore-staging-<uuid>; <ms>-<pid> before
+// 1.4.6) or the world it replaced (<world>.replaced-<ms>) next to the world
+// in Saves/Multiplayer when it can't clean up. Let through, as the OS's
+// entries are, but none of them counts as the world save the folder must
+// hold: the panel makes them whatever the folder is.
+const PANEL_MULTIPLAYER_FOLDER_ENTRIES = [
+  /^backups$/,
+  /^\.restore-staging-[0-9a-f-]+$/,
+  /^.+\.replaced-\d+$/,
+];
+
+// Folders only, as the game and the panel make them. At least one must be
+// a world save (save files in it); a player cache counts once the game has
+// saved into it.
+function multiplayerFolderHoldsOnlyWorlds(folder, names) {
+  let worlds = 0;
+  for (const name of names) {
+    if (OS_FOLDER_ENTRIES.has(name)) continue;
+    const entry = path.join(folder, name);
+    try {
+      if (!fs.statSync(entry).isDirectory()) return false;
+    } catch {
+      return false;
+    }
+    if (holdsSaveFiles(entry)) {
+      worlds++;
+    } else if (
+      !MULTIPLAYER_PLAYER_CACHE_FOLDER.test(name) &&
+      !PANEL_MULTIPLAYER_FOLDER_ENTRIES.some((pattern) => pattern.test(name))
+    ) {
+      return false;
+    }
   }
-  return MULTIPLAYER_PLAYER_CACHE_FOLDER.test(name) || looksLikeSaveDir(entry);
+  return worlds > 0;
 }
 
 const NOT_A_DATA_FOLDER_MESSAGE =
@@ -290,3 +352,4 @@ export function zomboidDataFolderRefusal() {
     code: ErrorCode.ZOMBOID_DATA_PATH_NOT_DATA_FOLDER,
   };
 }
+
