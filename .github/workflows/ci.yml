@@ -441,8 +441,14 @@ jobs:
       # release.ps1's GitHub Release step under pwsh and starts a real
       # process with the arguments gh would get, so only Windows has the
       # 32,767-character command-line limit it checks against.
+      #
+      # dataFolderMapCleanupShapes.test.js (security sweep 2026-10-05, W5):
+      # a 1.4.5 data folder stored in another letter case, saves/multiplayer
+      # say, is the game's own folder only where the file system ignores
+      # case, so half its cases run only here (the ubuntu job runs the
+      # case-sensitive half).
       - name: Exercise bundle transaction and generated supervisor
-        run: npx vitest run server/tests/panelUpdateBundle.test.js server/tests/supervisor-restart.test.js server/tests/serverManagerSpacedPathCmdQuoting.test.js server/tests/serverManagerWindowsSpawnFixes.test.js server/tests/serverManagerCustomStartCommandQuoting.test.js server/tests/serverManagerCommandLineRoundTrip.test.js server/tests/serverManagerEmptyScanWindows.test.js server/tests/serverManager-stopTimeout.test.js server/tests/setDataPaths.test.js server/tests/serverManagerWindowsProcessRow.test.js server/tests/serverManagerScanGenerationGuard.test.js server/tests/bridgeDisk.test.js server/tests/bridgeDeliveryPlan.test.js server/tests/releaseScriptGitHubNotes.test.js
+        run: npx vitest run server/tests/panelUpdateBundle.test.js server/tests/supervisor-restart.test.js server/tests/serverManagerSpacedPathCmdQuoting.test.js server/tests/serverManagerWindowsSpawnFixes.test.js server/tests/serverManagerCustomStartCommandQuoting.test.js server/tests/serverManagerCommandLineRoundTrip.test.js server/tests/serverManagerEmptyScanWindows.test.js server/tests/serverManager-stopTimeout.test.js server/tests/setDataPaths.test.js server/tests/serverManagerWindowsProcessRow.test.js server/tests/serverManagerScanGenerationGuard.test.js server/tests/bridgeDisk.test.js server/tests/bridgeDeliveryPlan.test.js server/tests/releaseScriptGitHubNotes.test.js server/tests/dataFolderMapCleanupShapes.test.js
 
   windows-build:
     name: Windows packaged build

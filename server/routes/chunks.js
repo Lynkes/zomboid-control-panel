@@ -16,8 +16,10 @@ import { requirePermission, getRoleByName } from "../services/permissions.js";
 import { deleteVehiclesInBoxes } from "../utils/vehiclesDb.js";
 import { confineToRoots } from "../utils/browseRoots.js";
 import {
+  carriesGameName,
   checkZomboidDataPath,
   describeRefusal,
+  isSavesMultiplayerFolder,
   logRefusalOnce,
   zomboidDataFolderHolds,
   zomboidDataFolderRefusal,
@@ -280,17 +282,20 @@ function resolveSavesPath(zomboidDataPath) {
   let savesPath = path.join(zomboidDataPath, "Saves", "Multiplayer");
 
   if (!fs.existsSync(savesPath)) {
-    const basename = path.basename(zomboidDataPath);
     const parentDir = path.dirname(zomboidDataPath);
-    const parentBase = path.basename(parentDir);
-    const grandparentBase = path.basename(path.dirname(parentDir));
-    if (basename === "Multiplayer" && parentBase === "Saves") {
+    // SECURITY (2026-10-05, W5-P1): the folder names as the data-folder
+    // rule reads them (services/zomboidDataPath.js): spelled as the game
+    // spells them, or in another letter case where the file system ignores
+    // case and the folder on disk carries the game's name. Map Cleanup's
+    // "Save as default" stored such a path as typed in 1.4.5 --
+    // ...\saves\multiplayer -- and it listed no saves here.
+    if (isSavesMultiplayerFolder(zomboidDataPath)) {
       // User pointed at .../Saves/Multiplayer directly
       savesPath = zomboidDataPath;
-    } else if (basename === "Saves") {
+    } else if (carriesGameName(zomboidDataPath, "Saves")) {
       // User pointed at .../Saves — append Multiplayer
       savesPath = path.join(zomboidDataPath, "Multiplayer");
-    } else if (parentBase === "Multiplayer" && grandparentBase === "Saves") {
+    } else if (isSavesMultiplayerFolder(parentDir)) {
       // User pointed at an INDIVIDUAL save directory (.../Saves/Multiplayer/<savename>).
       // Walk up one level so we list saves from the right parent. Without this we
       // double-append and log: "Saves path not found: .../<savename>/Saves/Multiplayer".
@@ -554,19 +559,17 @@ router.get("/saves", requirePermission("chunks.manage"), async (req, res) => {
     const attempted = [savesPath];
 
     if (!fs.existsSync(savesPath)) {
-      // Maybe the user pointed directly to Saves/Multiplayer
-      const basename = path.basename(zomboidDataPath);
+      // Maybe the user pointed directly to Saves/Multiplayer (W5-P1: names
+      // read as resolveSavesPath() reads them)
       const parentDir = path.dirname(zomboidDataPath);
-      const parentBase = path.basename(parentDir);
-      const grandparentBase = path.basename(path.dirname(parentDir));
-      if (basename === "Multiplayer" && parentBase === "Saves") {
+      if (isSavesMultiplayerFolder(zomboidDataPath)) {
         savesPath = zomboidDataPath;
         log.info(`[ChunkCleaner] Path points directly to Saves/Multiplayer`);
-      } else if (basename === "Saves") {
+      } else if (carriesGameName(zomboidDataPath, "Saves")) {
         savesPath = path.join(zomboidDataPath, "Multiplayer");
         attempted.push(savesPath);
         log.info(`[ChunkCleaner] Path points directly to Saves dir`);
-      } else if (parentBase === "Multiplayer" && grandparentBase === "Saves") {
+      } else if (isSavesMultiplayerFolder(parentDir)) {
         // Individual save directory — walk up to list siblings
         savesPath = parentDir;
         attempted.push(savesPath);
@@ -2968,11 +2971,9 @@ router.get("/browse", requirePermission("chunks.manage"), async (req, res) => {
     const savesMultiplayer = path.join(resolved, "Saves", "Multiplayer");
     const hasSavesMultiplayer = fs.existsSync(savesMultiplayer);
 
-    // Or if it IS a Saves/Multiplayer path
-    const basename = path.basename(resolved);
-    const parentBase = path.basename(path.dirname(resolved));
-    const isSavesMultiplayer =
-      basename === "Multiplayer" && parentBase === "Saves";
+    // Or if it IS a Saves/Multiplayer path (W5-P1: as resolveSavesPath()
+    // reads the names)
+    const isSavesMultiplayer = isSavesMultiplayerFolder(resolved);
 
     // Check if any child dirs contain a map/ folder or B41 root chunk files (direct save dirs)
     const B41_ROOT_REGEX = /^map_\d+_\d+\.bin$/i;

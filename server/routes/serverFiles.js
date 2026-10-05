@@ -3072,10 +3072,30 @@ async function holdsFilesManage(req) {
 // Each root with the id GET /browse-files and /image-preview name it by for
 // a role that doesn't see host folders (browseRefFor() below): "data" for
 // the active server's data folder, "settings" for the legacy setting's,
-// "zomboid" for ~/Zomboid. The first id for a folder wins.
+// "zomboid" for ~/Zomboid, "config" for the config folder in effect when
+// none of those holds it. The first id for a folder wins.
+//
+// SECURITY (2026-10-05, W5-P2 verifier round 1): a 1.4.5 record whose data
+// folder Map Cleanup's "Save as default" set to a folder inside the Zomboid
+// folder -- <Zomboid>/Saves/Multiplayer, <Zomboid>/Saves or a world save in
+// it -- kept its config folder, <Zomboid>/Server, which the gate above
+// accepts (utils/serverConfigPath.js's configAnchors()). No root held it,
+// so the image browser, which opens on the config folder, answered
+// BROWSE_ACCESS_DENIED for every role wherever the Zomboid folder isn't
+// ~/Zomboid; 1.4.5 had the config folder as a root of its own. So did a
+// record whose config folder spells the data folder's path in another letter
+// case on Windows or macOS (the gate compares real paths, the roots compare
+// as spelled). The config folder in effect is a root again, but only when
+// no other root holds it and it passes the gate's own checks here too: the
+// data folder in effect meets the data-folder rule, and the config folder is
+// inside its Server folder or, for those 1.4.5 shapes, inside the Server
+// folder of a Zomboid folder that meets the rule on its own
+// (zomboidFolderAround()). That is the folder a role gets as "data" by
+// setting the data folder to that Zomboid folder, so nothing else is
+// reached.
 async function getAllowedBrowseRoots(req) {
   const roots = [];
-  const { activeServer } = req.activeServerContext;
+  const { activeServer, serverConfigPath, zomboidDataPath } = req.activeServerContext;
   const wholeDataFolder = await holdsFilesManage(req);
   const dataFolderRoot = (dataPath) =>
     wholeDataFolder
@@ -3092,6 +3112,15 @@ async function getAllowedBrowseRoots(req) {
   // Always allow the default Zomboid config directory
   const defaultConfig = path.join(os.homedir(), "Zomboid");
   roots.push({ id: "zomboid", path: path.resolve(defaultConfig) });
+  if (
+    !activeServer?.isRemote &&
+    serverConfigPath &&
+    zomboidDataFolderHolds(zomboidDataPath) &&
+    serverConfigPathIsConfined(serverConfigPath, zomboidDataPath) &&
+    !confineToRoots(serverConfigPath, roots.map((root) => root.path))
+  ) {
+    roots.push({ id: "config", path: path.resolve(serverConfigPath) });
+  }
   // De-duplicate
   const seen = new Set();
   return roots.filter((root) => !seen.has(root.path) && seen.add(root.path));

@@ -6553,6 +6553,17 @@ function filterConsoleLogLines(lines, filterLevel = "filtered") {
 // shows as "Server data path not configured" -- not where to set it. It has
 // its own code now, whose text names the My Servers page as every other
 // refusal does.
+//
+// SECURITY (2026-10-05, W5-P3): but an install folder that wasn't there
+// yet passed the rule (a data folder that doesn't exist yet is accepted:
+// the game creates it), so the Console page showed "no log" and no reason,
+// and with no install folder at all the routes answered
+// SERVER_DATA_PATH_NOT_CONFIGURED. With no data folder set, the start
+// script the panel writes passes the game no -cachedir, so the game writes
+// its console log in its own default folder, not the install folder. The
+// install folder is used only when it meets the rule and already holds the
+// game's console log (a custom launcher can name it as the -cachedir);
+// anything else is this answer.
 const CONSOLE_LOG_NO_DATA_FOLDER = {
   error:
     "This server has no Zomboid data folder set, and the game writes its console log there. On the My Servers page, edit the server and set its Zomboid Data Path.",
@@ -6576,8 +6587,11 @@ async function resolveConsoleLogFolder(activeServer) {
     return { folder: null, remote: false, refused: true, refusal };
   }
   const installFolder = activeServer?.installPath || (await getSetting("serverPath"));
-  if (!installFolder) return { folder: null, remote: false, refused: false, refusal: null };
-  if (zomboidDataFolderHolds(installFolder)) {
+  if (
+    installFolder &&
+    zomboidDataFolderHolds(installFolder) &&
+    fs.existsSync(path.join(installFolder, CONSOLE_LOG_FILE_NAME))
+  ) {
     return { folder: installFolder, remote: false, refused: false, refusal: null };
   }
   return { folder: null, remote: false, refused: true, refusal: CONSOLE_LOG_NO_DATA_FOLDER };
