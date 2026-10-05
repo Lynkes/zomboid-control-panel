@@ -70,6 +70,22 @@ function capabilitiesUnlockedByConfigChange(changed, discordBot) {
   return [...required];
 }
 
+// SECURITY (2026-10-05, HT4b): the chat relay posts what anyone types in
+// the channel it listens in into the game as "[Discord] name: text"
+// through RCON servermsg -- what the panel's own POST /server/message
+// gates behind server.world_events. integrations.manage doesn't include
+// it (technician and admin hold both; a custom role can hold one without
+// the other), so turning the relay on, or pointing it at another channel,
+// needs it too. It listens in the relay channel, or the notification
+// channel while none is set, and only while it is on; turning it off or
+// leaving the channel as it is needs nothing.
+const CHAT_RELAY_CAPABILITY = "server.world_events";
+
+function chatRelayListenChannel({ enabled, relayChannelId, channelId }) {
+  if (!enabled) return null;
+  return relayChannelId || channelId || null;
+}
+
 // The caller's panel capabilities, for the checks above and below.
 async function capabilitiesOfCaller(req) {
   const role = req.user ? await getRoleByName(req.user.role) : null;
@@ -277,6 +293,37 @@ router.put("/config", async (req, res) => {
         }
       }
 
+      // HT4b: see chatRelayListenChannel() above. updateConfig() below
+      // stores a missing channelId as "", and a relay field left out of the
+      // body keeps its value.
+      const relayListensIn = chatRelayListenChannel({
+        enabled: discordBot.chatRelayEnabled !== false,
+        relayChannelId: discordBot.chatRelayChannelId,
+        channelId: discordBot.channelId,
+      });
+      const relayWillListenIn = chatRelayListenChannel({
+        enabled:
+          typeof chatRelayEnabled === "boolean"
+            ? chatRelayEnabled
+            : discordBot.chatRelayEnabled !== false,
+        relayChannelId:
+          typeof chatRelayChannelId === "string"
+            ? chatRelayChannelId
+            : discordBot.chatRelayChannelId,
+        channelId,
+      });
+      if (relayWillListenIn && relayWillListenIn !== relayListensIn) {
+        const callerCapabilities = await capabilitiesOfCaller(req);
+        if (!callerCapabilities.includes(CHAT_RELAY_CAPABILITY)) {
+          return res.status(403).json({
+            error: `The chat relay posts what people type in its Discord channel in game, which needs ${CHAT_RELAY_CAPABILITY}. You don't hold it, so you can't turn the relay on or change the channel it listens in (the notification channel, while no relay channel is set).`,
+            code: ErrorCode.DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED,
+            params: sanitizeErrorParams({ detail: CHAT_RELAY_CAPABILITY }),
+            missing: [CHAT_RELAY_CAPABILITY],
+          });
+        }
+      }
+
       await discordBot.updateConfig(
         finalToken,
         guildId,
@@ -328,13 +375,10 @@ router.put("/config", async (req, res) => {
         // running".
         const started = await discordBot.start();
         if (started === START_ALREADY_IN_PROGRESS) {
-          // Cannot happen from a second /config save any more -- the mutex
-          // above already serializes those. Only reachable if a separate
-          // POST /discord/start landed in the narrow window between this
-          // request's own stop() and start() (outside this mutex, on
-          // purpose -- widening the mutex to cover /start and /stop is a
-          // different, unrequested change). Say so rather than claiming a
-          // reconnect this request never performed.
+          // Cannot happen from a route any more: the mutex above serializes
+          // /config saves, and POST /start and /stop take it too (HT4d).
+          // Kept for a start() some other caller began outside it. Say so
+          // rather than claiming a reconnect this request never performed.
           return res.json({
             success: true,
             message:
@@ -364,6 +408,14 @@ router.put("/config", async (req, res) => {
 });
 
 // Start Discord bot
+//
+// SECURITY (2026-10-05, HT4d): under the config mutex, like /config and
+// /reset. start() reads the token, then logs in for up to 30s; a wipe that
+// landed in between cleared the token and found no running bot to stop
+// (isRunning comes true only once the login is done), so the client logged
+// in with the old token stayed connected afterwards. /stop takes the mutex
+// for the same reason: a stop that lands while /config reconnects or a
+// wipe runs waits for it instead of answering "not running".
 router.post("/start", async (req, res) => {
   try {
     log.info("POST /start — starting Discord bot");
@@ -375,31 +427,33 @@ router.post("/start", async (req, res) => {
       });
     }
 
-    if (discordBot.isRunning) {
-      return res.json({ success: true, message: "Bot is already running" });
-    }
+    await discordBot.withConfigMutex(async () => {
+      if (discordBot.isRunning) {
+        return res.json({ success: true, message: "Bot is already running" });
+      }
 
-    const started = await discordBot.start();
+      const started = await discordBot.start();
 
-    if (started) {
-      res.json({ success: true, message: "Discord bot started" });
-    } else {
-      // "check configuration" used to be the ENTIRE message for every cause
-      // -- a bad token, a network timeout, and privileged intents not being
-      // enabled in the Discord Developer Portal (the classic one: correct
-      // token and IDs, still fails, and no amount of re-checking credentials
-      // would ever find it) all looked identical. discordBot.lastStartError
-      // carries the real discord.js error code now; describeStartFailure()
-      // is the same mapping getStatus() uses for the persistent version of
-      // this same message, so the toast here and the record that survives a
-      // page refresh never say two different things about the same failure.
-      const reason = describeStartFailure(discordBot.lastStartError);
-      res.status(400).json({
-        error: reason,
-        code: ErrorCode.DISCORD_START_FAILED,
-        params: sanitizeErrorParams({ reason }),
-      });
-    }
+      if (started) {
+        res.json({ success: true, message: "Discord bot started" });
+      } else {
+        // "check configuration" used to be the ENTIRE message for every cause
+        // -- a bad token, a network timeout, and privileged intents not being
+        // enabled in the Discord Developer Portal (the classic one: correct
+        // token and IDs, still fails, and no amount of re-checking credentials
+        // would ever find it) all looked identical. discordBot.lastStartError
+        // carries the real discord.js error code now; describeStartFailure()
+        // is the same mapping getStatus() uses for the persistent version of
+        // this same message, so the toast here and the record that survives a
+        // page refresh never say two different things about the same failure.
+        const reason = describeStartFailure(discordBot.lastStartError);
+        res.status(400).json({
+          error: reason,
+          code: ErrorCode.DISCORD_START_FAILED,
+          params: sanitizeErrorParams({ reason }),
+        });
+      }
+    });
   } catch (error) {
     log.error(`Failed to start Discord bot: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -417,12 +471,15 @@ router.post("/stop", async (req, res) => {
       });
     }
 
-    if (!discordBot.isRunning) {
-      return res.json({ success: true, message: "Bot is not running" });
-    }
+    // HT4d: under the config mutex, see POST /start above.
+    await discordBot.withConfigMutex(async () => {
+      if (!discordBot.isRunning) {
+        return res.json({ success: true, message: "Bot is not running" });
+      }
 
-    await discordBot.stop();
-    res.json({ success: true, message: "Discord bot stopped" });
+      await discordBot.stop();
+      res.json({ success: true, message: "Discord bot stopped" });
+    });
   } catch (error) {
     log.error(`Failed to stop Discord bot: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });

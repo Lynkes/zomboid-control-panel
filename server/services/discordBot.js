@@ -181,6 +181,37 @@ const DEFAULT_COMMAND_PERMISSIONS = {
   rcon: "admin",
 };
 
+const COMMAND_TIERS = new Set(["everyone", "moderator", "admin"]);
+
+// SECURITY (2026-10-05, HT4a): one reading of a command's tier. A stored
+// tier that is missing, empty or not a tier read as "admin" in
+// checkPermission() and getCommands() but as the default in resetConfig(),
+// so a wipe by someone without that command's capability "reset" an
+// effectively admin-only /kick to "moderator" -- the D1 rule only keeps a
+// tier that differs from the default. Every reader now goes through this,
+// and loadConfig() and updateCommandPermissions() store the result
+// (normalizeCommandPermissions()), so all of them see "admin": the
+// stricter reading.
+export function commandTierOf(permissions, command) {
+  const tier = permissions?.[command];
+  return COMMAND_TIERS.has(tier) ? tier : "admin";
+}
+
+// Every command's tier from a stored object: its own valid tier, else
+// "admin" (also for every command when the object can't be read). With
+// nothing stored at all, loadConfig() keeps the defaults instead. Every
+// release has written all nine valid tiers, so a saved setup reads exactly
+// as before.
+export function normalizeCommandPermissions(stored) {
+  const source = stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+  return Object.fromEntries(
+    Object.keys(DEFAULT_COMMAND_PERMISSIONS).map((command) => [
+      command,
+      commandTierOf(source, command),
+    ]),
+  );
+}
+
 const LIFECYCLE_DEDUPE_WINDOW_MS = 60_000;
 const PLAYER_PRESENCE_INTERVAL_MS = 60_000;
 // How long a gateway reconnect must persist before getStatus() reports it —
@@ -438,16 +469,19 @@ export class DiscordBot {
     this.modRoleId = await getSetting("discordModRoleId");
     this.channelId = await getSetting("discordChannelId");
 
-    // Load command permissions
+    // Load command permissions. HT4a: through normalizeCommandPermissions(),
+    // so a missing or broken tier reads as "admin" everywhere; a stored
+    // value that can't be parsed used to read as every default.
     const savedPerms = await getSetting("discordCommandPermissions");
     if (savedPerms) {
+      let parsed = null;
       try {
-        const parsed =
+        parsed =
           typeof savedPerms === "string" ? JSON.parse(savedPerms) : savedPerms;
-        this.commandPermissions = { ...DEFAULT_COMMAND_PERMISSIONS, ...parsed };
       } catch (e) {
-        this.commandPermissions = { ...DEFAULT_COMMAND_PERMISSIONS };
+        log.warn(`Stored Discord command tiers can't be read, so every command is admin-only: ${e.message}`);
       }
+      this.commandPermissions = normalizeCommandPermissions(parsed);
     }
 
     // Load chat relay settings
@@ -724,7 +758,7 @@ export class DiscordBot {
     for (const [command, defaultTier] of Object.entries(
       DEFAULT_COMMAND_PERMISSIONS,
     )) {
-      const currentTier = this.commandPermissions[command] || defaultTier;
+      const currentTier = commandTierOf(this.commandPermissions, command);
       if (commandTiersToReset.includes(command) || currentTier === defaultTier) {
         commandPermissions[command] = defaultTier;
       } else {
@@ -738,6 +772,11 @@ export class DiscordBot {
     await setSetting("discordAdminRoleId", "");
     await setSetting("discordModRoleId", "");
     await setSetting("discordChannelId", "");
+    // HT4c: auto-start and the chat relay go back to what a fresh install
+    // reads (both on; the relay in the notification channel, public chat),
+    // not off -- the wipe dialog says so in those words. Neither does
+    // anything until someone enters a token again, which needs every
+    // command's capability, server.world_events (the relay's) among them.
     await setSetting("discordAutoStart", true);
     await setSetting("discordChatRelayEnabled", true);
     await setSetting("discordChatRelayChannelId", "");
@@ -781,11 +820,11 @@ export class DiscordBot {
     // without routes/discord.js's per-command capability check ever seeing
     // that command (security sweep 2026-10-04, adversary pass on AUTHZ-3).
     // The settings page sends every command, so nothing it does changes.
-    this.commandPermissions = {
-      ...DEFAULT_COMMAND_PERMISSIONS,
+    // HT4a: stored normalized, the way loadConfig() reads it back.
+    this.commandPermissions = normalizeCommandPermissions({
       ...this.commandPermissions,
       ...cleaned,
-    };
+    });
     await setSetting(
       "discordCommandPermissions",
       JSON.stringify(this.commandPermissions),
@@ -899,7 +938,7 @@ export class DiscordBot {
     // is configured we leave the command visible and let checkPermission() answer,
     // which replies with a clear refusal instead of hiding the command.
     for (const cmd of commands) {
-      const level = this.commandPermissions[cmd.name] || "admin";
+      const level = commandTierOf(this.commandPermissions, cmd.name);
       if (level === "admin" && !this.adminRoleId) {
         cmd.builder.setDefaultMemberPermissions(
           PermissionFlagsBits.Administrator,
@@ -979,7 +1018,7 @@ export class DiscordBot {
   }
 
   checkPermission(interaction, commandName) {
-    const level = this.commandPermissions[commandName] || "admin";
+    const level = commandTierOf(this.commandPermissions, commandName);
 
     if (level === "everyone") return true;
 
@@ -1048,7 +1087,7 @@ export class DiscordBot {
 
     // Check permission based on command's configured tier
     if (!this.checkPermission(interaction, commandName)) {
-      const level = this.commandPermissions[commandName] || "admin";
+      const level = commandTierOf(this.commandPermissions, commandName);
       const roleName = level === "admin" ? "Admin" : "Moderator";
       await interaction.reply({
         content: `❌ You need the **${roleName}** role to use this command.`,
@@ -1983,6 +2022,19 @@ export class DiscordBot {
       // The relay switch covers the whole bridge. Leaving this direction live
       // meant turning the relay off still piped Discord chatter into the game.
       if (!this.chatRelayEnabled) return;
+
+      // SECURITY (2026-10-05, HT4b): only from the guild the panel is set up
+      // for, as handleInteraction() answers commands (D2). The channel check
+      // below matched an ID alone, so a channel the bot can see in another
+      // guild -- one it was moved away from, say -- relayed into the game
+      // as "[Discord] name: text" through RCON servermsg, which the panel's
+      // own POST /server/message gates behind server.world_events.
+      if (
+        !this.guildId ||
+        String(message.guildId ?? "") !== String(this.guildId)
+      ) {
+        return;
+      }
 
       // Use the dedicated relay channel in both directions when configured.
       const relayChannelId = this.chatRelayChannelId || this.channelId;

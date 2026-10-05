@@ -323,7 +323,7 @@
     "testMessageSent": "Mesaj tès voye nan chanèl Discord",
     "testMessageFailedFallback": "Echwe pou voye mesaj tès",
     "wipeConfirmTitle": "Efase nèt paramèt bot Discord?",
-    "wipeConfirmDesc": "Sa a efase jeton bot ki sove a, ID guild ak chanèl, ID wòl, paramèt relè chat, ak konfigirasyon notifikasyon evènman Discord, epi li remete nivo otorizasyon chak kòmand sou valè pa defo li. Yon kòmand ki bezwen yon otorizasyon ou pa genyen nan panèl la kenbe nivo li genyen kounye a. Bot la ap sispann epi paj la ap retounen nan konfigirasyon premye fwa.",
+    "wipeConfirmDesc": "Sa a efase jeton bot ki sove a, ID guild ak chanèl, ID wòl, chanèl relè chat la, ak konfigirasyon notifikasyon evènman Discord, epi li remete nivo otorizasyon chak kòmand sou valè pa defo li. Yon kòmand ki bezwen yon otorizasyon ou pa genyen nan panèl la kenbe nivo li genyen kounye a. Demaraj otomatik ak relè chat la retounen sou valè pa defo yo, ki se aktive: depi yo konfigire yon nouvo jeton, bot la ap demare ansanm ak panèl la epi l ap relè tout chat piblik nan de sans atravè chanèl notifikasyon an. Bot la ap sispann epi paj la ap retounen nan konfigirasyon premye fwa.",
     "wipeConfirmLabel": "Efase Nèt Paramèt Discord",
     "wipeSuccess": "Paramèt bot Discord efase nèt. Ou ka kòmanse konfigirasyon soti nan zewo.",
     "wipeSuccessKeptTiers": "Paramèt bot Discord efase. Kòmand sa yo kenbe nivo otorizasyon yo paske yo bezwen otorizasyon ou pa genyen nan panèl la: {{commands}}",

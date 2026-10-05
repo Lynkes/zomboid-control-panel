@@ -587,5 +587,6 @@
   "RESET_TOKEN_TOO_WEAK": "Yon moun ta ka devine jeton ki nan data/reset-token.txt la. Ranplase l ak karaktè hex o aza ki soti nan yon jeneratè (0-9 ak a-f, jan openssl rand -hex 24 ekri yo); yo refize mo, fraz, suit chif ak karaktè ki repete oswa ki swiv youn dèyè lòt. Oswa itilize bouton rekiperasyon an sou lame panèl la.",
   "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "Dosye done Zomboid sa a gen fichye jwèt la pa mete nan yon dosye done, kidonk panèl la p ap sèvi avè l kòm dosye done yon sèvè. Chwazi pwòp dosye done sèvè a (sa ki gen yon dosye Saves), yon dosye vid, oswa yon dosye ki poko egziste: jwèt la kreye l premye fwa sèvè a demare.",
   "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "Jounal konsòl yon sèvè aleka sou pwòp machin pa l, kidonk panèl la pa ka efase l depi isit la.",
-  "WIPE_REMOTE_NOT_AVAILABLE": "Mond yon sèvè aleka sou pwòp machin pa l, kidonk panèl la pa ka efase l depi isit la."
+  "WIPE_REMOTE_NOT_AVAILABLE": "Mond yon sèvè aleka sou pwòp machin pa l, kidonk panèl la pa ka efase l depi isit la.",
+  "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "Relè chat la poste nan jwèt la sa moun ekri nan chanèl Discord li a, e sa bezwen {{detail}}. Ou pa gen kapasite sa a, kidonk ou pa ka aktive relè a ni chanje chanèl li koute a (chanèl notifikasyon an, toutotan pa gen chanèl relè ki defini)."
 }

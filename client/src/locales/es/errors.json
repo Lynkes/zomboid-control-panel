@@ -587,5 +587,6 @@
   "RESET_TOKEN_TOO_WEAK": "El token de data/reset-token.txt se podría adivinar. Sustitúyelo por hexadecimal aleatorio de un generador (0-9 y a-f, como lo escribe openssl rand -hex 24); se rechazan palabras, frases, secuencias de números y caracteres repetidos o consecutivos. O usa el botón de recuperación en el host del panel.",
   "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "Esta carpeta de datos de Zomboid contiene archivos que el juego no guarda en una carpeta de datos, así que el panel no la usará como carpeta de datos de un servidor. Elige la carpeta de datos propia del servidor (la que tiene una carpeta Saves), una carpeta vacía o una carpeta que todavía no exista: el juego la crea cuando el servidor arranca por primera vez.",
   "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "El registro de consola de un servidor remoto está en su propio equipo, así que el panel no puede vaciarlo desde aquí.",
-  "WIPE_REMOTE_NOT_AVAILABLE": "El mundo de un servidor remoto está en su propio equipo, así que el panel no puede borrarlo desde aquí."
+  "WIPE_REMOTE_NOT_AVAILABLE": "El mundo de un servidor remoto está en su propio equipo, así que el panel no puede borrarlo desde aquí.",
+  "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "La retransmisión de chat publica en el juego lo que la gente escribe en su canal de Discord, y eso requiere {{detail}}. No lo tienes, así que no puedes activar la retransmisión ni cambiar el canal que escucha (el canal de notificaciones, mientras no haya un canal de retransmisión)."
 }

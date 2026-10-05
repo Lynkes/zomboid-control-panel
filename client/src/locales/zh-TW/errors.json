@@ -587,5 +587,6 @@
   "RESET_TOKEN_TOO_WEAK": "data/reset-token.txt 中的權杖可能被猜到。請換成產生器產生的隨機十六進位字串（0-9 和 a-f，如 openssl rand -hex 24 的輸出）；單字、句子、數字序列以及重複或連續的字元會被拒絕。也可以在面板主機上使用復原按鈕。",
   "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "此 Zomboid 資料資料夾中有遊戲不會放在資料資料夾裡的檔案，因此面板不會將其用作伺服器的資料資料夾。請選擇伺服器自己的資料資料夾（含有 Saves 資料夾的那個）、一個空資料夾，或一個尚不存在的資料夾：遊戲會在伺服器首次啟動時建立它。",
   "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "遠端伺服器的主控台日誌位於其自己的主機上，因此面板無法在此清除它。",
-  "WIPE_REMOTE_NOT_AVAILABLE": "遠端伺服器的世界位於其自己的主機上，因此面板無法在此清除它。"
+  "WIPE_REMOTE_NOT_AVAILABLE": "遠端伺服器的世界位於其自己的主機上，因此面板無法在此清除它。",
+  "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "聊天中繼會把人們在其 Discord 頻道中輸入的內容發布到遊戲中，這需要 {{detail}}。您並未擁有該權限項目，因此無法開啟中繼，也無法變更它監聽的頻道（未設定中繼頻道時即為通知頻道）。"
 }

@@ -587,5 +587,6 @@
   "RESET_TOKEN_TOO_WEAK": "Das Token in data/reset-token.txt ließe sich erraten. Ersetze es durch zufällige Hex-Zeichen aus einem Generator (0-9 und a-f, wie openssl rand -hex 24 sie ausgibt); Wörter, Sätze, Zahlenfolgen sowie wiederholte oder fortlaufende Zeichen werden abgelehnt. Oder verwende die Wiederherstellungsschaltfläche auf dem Panel-Host.",
   "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "Dieser Zomboid-Datenordner enthält Dateien, die das Spiel nicht in einem Datenordner ablegt, daher verwendet das Panel ihn nicht als Datenordner eines Servers. Wähle den eigenen Datenordner des Servers (den mit einem Ordner Saves), einen leeren Ordner oder einen Ordner, den es noch nicht gibt: Das Spiel legt ihn beim ersten Start des Servers an.",
   "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "Das Konsolenprotokoll eines externen Servers liegt auf dessen eigenem Host, daher kann das Panel es von hier aus nicht leeren.",
-  "WIPE_REMOTE_NOT_AVAILABLE": "Die Welt eines externen Servers liegt auf dessen eigenem Host, daher kann das Panel sie von hier aus nicht löschen."
+  "WIPE_REMOTE_NOT_AVAILABLE": "Die Welt eines externen Servers liegt auf dessen eigenem Host, daher kann das Panel sie von hier aus nicht löschen.",
+  "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "Das Chat-Relay stellt ins Spiel, was Leute in seinem Discord-Kanal schreiben, und braucht dafür {{detail}}. Du besitzt das nicht, darum kannst du das Relay weder einschalten noch den Kanal ändern, in dem es mitliest (den Benachrichtigungskanal, solange kein Relay-Kanal festgelegt ist)."
 }
