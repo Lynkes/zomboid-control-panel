@@ -165,6 +165,22 @@ function legacyAnchoredProfile(extra = {}) {
   state.activeServer = { id: 1, serverName: "DoB", zomboidDataPath: null, serverConfigPath: configDir, isRemote: false, ...extra };
 }
 
+// Starts the panel doesn't write, each of which may pass its own -cachedir:
+// the record's fields for each.
+const STARTS_THE_PANEL_DOES_NOT_WRITE = [
+  ["a start command", () => ({ startCommand: "./my-start.sh" })],
+  [
+    "a launcher of the operator's",
+    () => {
+      const launcher = path.join(dataDir, "install", "start-server.sh");
+      fs.mkdirSync(path.dirname(launcher));
+      fs.writeFileSync(launcher, "#!/bin/sh\n");
+      return { installPath: launcher };
+    },
+  ],
+  ["no install folder", () => ({})],
+];
+
 // Every fs.promises.stat() call, to show a folder was never looked in.
 let statSpy = null;
 function statCalls() {
@@ -464,6 +480,55 @@ describe("POST /sandbox/world-snapshot/retire (#197)", () => {
     expect(fs.existsSync(path.join(home, "Saves", "Multiplayer", "DoB", "map_sand.bin"))).toBe(false);
     expect(path.dirname(body.movedTo)).toBe(path.join(configDir, "backups"));
     expect(fs.readFileSync(body.movedTo)).toEqual(SNAPSHOT);
+  });
+
+  // With no data folder of the record's own and a start the panel doesn't
+  // write, the game keeps Server/ and Saves/ side by side, so a config
+  // folder named Server says where the save is. The legacy data folder
+  // anchors that config folder for Server Config's gate (FILES-2/PATHS-2).
+  it.each(STARTS_THE_PANEL_DOES_NOT_WRITE)(
+    "finds and retires the save next to a config folder named Server (%s)",
+    async (_label, start) => {
+      legacyAnchoredProfile(start());
+
+      expect((await call("GET", "/sandbox")).body.worldSandboxSnapshot?.path).toBe(snapshotPath);
+      const { status, body } = await call("POST", "/sandbox/world-snapshot/retire");
+
+      expect(status).toBe(200);
+      expect(body.retired).toBe(true);
+      expect(fs.existsSync(snapshotPath)).toBe(false);
+      expect(path.dirname(body.movedTo)).toBe(path.join(configDir, "backups"));
+      expect(fs.readFileSync(body.movedTo)).toEqual(SNAPSHOT);
+    },
+  );
+
+  // PATHS-1: the gate judged the legacy data folder, not the config
+  // folder's parent, so that parent is held to the data-folder rule before
+  // anything under it is looked at.
+  it("never looks next to a config folder named Server whose parent the data-folder rule refuses", async () => {
+    // Inside <data folder>/Server, so the gate lets it through; its parent
+    // holds a file the game never writes. No map_sand.bin under it: a
+    // Saves/Multiplayer/<name>/map_sand.bin is a world save to the
+    // data-folder rule, so a folder holding one passes it.
+    const parent = path.join(configDir, "x");
+    const nestedConfig = path.join(parent, "Server");
+    fs.mkdirSync(path.join(parent, "Saves", "Multiplayer", "DoB"), { recursive: true });
+    fs.mkdirSync(nestedConfig);
+    fs.writeFileSync(path.join(nestedConfig, "DoB_SandboxVars.lua"), SANDBOX);
+    fs.writeFileSync(path.join(parent, "notes.txt"), "not the game's");
+    legacyAnchoredProfile({ startCommand: "./my-start.sh", serverConfigPath: nestedConfig });
+    const stat = statCalls();
+
+    const got = await call("GET", "/sandbox");
+    expect(got.status).toBe(200);
+    expect(got.body).not.toHaveProperty("worldSandboxSnapshot");
+    const { status, body } = await call("POST", "/sandbox/world-snapshot/retire");
+
+    expect(status).toBe(400);
+    expect(body.code).toBe("ZOMBOID_DATA_FOLDER_REFUSED");
+    expect(stat.mock.calls.filter(under(path.join(parent, "Saves")))).toEqual([]);
+    expect(fs.existsSync(path.join(nestedConfig, "backups"))).toBe(false);
+    expect(fs.readFileSync(snapshotPath)).toEqual(SNAPSHOT);
   });
 
   it("retires a legacy setup's file (no profile row)", async () => {
