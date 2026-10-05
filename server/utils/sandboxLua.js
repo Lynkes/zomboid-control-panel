@@ -632,9 +632,11 @@ export function sectionsToEdits(sections) {
 /**
  * Count structural braces, skipping strings and comments. Lenient on purpose:
  * it still gives a count for a file that does not parse (that is when it is
- * needed), treating an unfinished string as ending at its line.
+ * needed), treating an unfinished string as ending at its line. A file that
+ * parses has every brace matched, so the parser answers for it.
  */
 export function countSandboxBraces(content) {
+  if (parseSandboxLua(content).ok) return { balanced: true, depth: 0 };
   const src = String(content);
   let depth = 0;
   let wentNegative = false;
@@ -652,7 +654,17 @@ export function countSandboxBraces(content) {
       }
     } else if (c === '"' || c === "'") {
       i++;
-      while (i < src.length && src[i] !== c && !isNewline(src[i])) i += src[i] === "\\" ? 2 : 1;
+      while (i < src.length && src[i] !== c && !isNewline(src[i])) {
+        if (src[i] !== "\\") {
+          i++;
+        } else if (isNewline(src[i + 1])) {
+          // Backslash-newline continues the string; "\r\n" and "\n\r" are one
+          // line break, as in readShortString().
+          i = skipNewline(src, i + 1);
+        } else {
+          i += 2;
+        }
+      }
       i++;
     } else if (c === "[" && longBracketLevel(src, i) >= 0) {
       const level = longBracketLevel(src, i);

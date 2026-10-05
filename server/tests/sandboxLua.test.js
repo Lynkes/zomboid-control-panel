@@ -29,6 +29,8 @@ describe("tokenizer agrees with the game's loader", () => {
     ["unknown escape keeps the character", 'A = "q\\qz",', "qqz"],
     ['no "\\x" escape in Lua 5.1', 'A = "\\x41",', "x41"],
     ["backslash-newline", 'A = "a\\\nb",', "a\nb"],
+    ["backslash-CRLF", 'A = "a\\\r\nb",', "a\nb"],
+    ["backslash-LFCR", 'A = "a\\\n\rb",', "a\nb"],
     ["long string skips its first newline", "A = [[\nfirst]],", "first"],
     ["long string with a level", "A = [==[x]]y]==],", "x]]y"],
     ["single quotes", "A = 'it\\'s',", "it's"],
@@ -197,6 +199,23 @@ describe("validation", () => {
   it("counts only structural braces, even in a file that does not parse", () => {
     expect(countSandboxBraces('A = "{", B = [[}]] --[==[ { ]==] -- }\n{')).toEqual({ balanced: false, depth: 1 });
     expect(countSandboxBraces('A = "unfinished {\n}')).toEqual({ balanced: false, depth: -1 });
+  });
+
+  // "\" + CRLF continues a string in the game. The count used to skip only
+  // the CR, end the string at the LF and misread the rest of that line.
+  const continued = (eol, tail) =>
+    ["SandboxVars = {", "    VERSION = 6,", '    A = "a\\', 'b", B = {', "        C = 1,", "    },", ...tail, "}", ""].join(eol);
+
+  it.each([
+    ["LF", "\n"],
+    ["CRLF", "\r\n"],
+    ["LFCR", "\n\r"],
+  ])("a string continued over a %s line break is one string", (_label, eol) => {
+    const loads = continued(eol, ["    Zombies = 4,"]);
+    expect(validateSandboxLua(loads)).toEqual(expect.objectContaining({ valid: true, balanced: true, depth: 0 }));
+    // The #197 corruption below it: the count still has to be right.
+    const broken = continued(eol, ["    Explosives = 1", "        Key = 2,", "    },"]);
+    expect(countSandboxBraces(broken)).toEqual({ balanced: false, depth: -1 });
   });
 
   it("is valid only when the file parses and has a SandboxVars table", () => {

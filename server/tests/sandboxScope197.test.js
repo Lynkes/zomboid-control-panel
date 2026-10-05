@@ -371,3 +371,57 @@ describe("POST /sandbox/repair never writes a file that does not parse", () => {
     });
   });
 });
+
+describe("a string continued over a CRLF line break is not corruption", () => {
+  // "\" + CRLF continues a string in the game (A = "a\nb"). The brace count
+  // used to end the string at the LF, miss the "{" after it, and call the
+  // file corrupt: Checks & Fixes flagged it and template apply refused it.
+  const continued = [
+    "SandboxVars = {",
+    "    VERSION = 6,",
+    '    A = "a\\',
+    'b", B = {',
+    "        C = 1,",
+    "    },",
+    "    Zombies = 4,",
+    "}",
+    "",
+  ].join("\r\n");
+  let tmpDir;
+  let sandboxPath;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-sandbox-197-continued-"));
+    sandboxPath = path.join(tmpDir, "TestServer_SandboxVars.lua");
+    getActiveServer.mockReset();
+    getAllSettings.mockReset();
+    getAllSettings.mockResolvedValue({});
+    getActiveServer.mockResolvedValue({ serverConfigPath: tmpDir, serverName: "TestServer" });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("GET /sandbox/validate calls it valid", async () => {
+    fs.writeFileSync(sandboxPath, continued);
+    const res = await runHandler("/sandbox/validate", "get", {});
+    expect(res.json.mock.calls[0][0]).toEqual({ valid: true, braceDepth: 0 });
+  });
+
+  it("POST /templates/:id/apply applies a template saved from it", async () => {
+    fs.writeFileSync(sandboxPath, "SandboxVars = {\n    Zombies = 2,\n}\n");
+    fs.mkdirSync(path.join(tmpDir, "templates"));
+    fs.writeFileSync(
+      path.join(tmpDir, "templates", "continued.json"),
+      JSON.stringify({ name: "Continued", sandboxRaw: continued }),
+    );
+    const res = await runHandler("/templates/:id/apply", "post", {
+      params: { id: "continued" },
+      body: {},
+    });
+    expect(res.status).not.toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: true, applied: ["Sandbox"] }));
+    expect(fs.readFileSync(sandboxPath, "utf-8")).toBe(continued);
+  });
+});
