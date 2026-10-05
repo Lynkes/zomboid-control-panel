@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { describe, expect, it } from "vitest";
-import { VALID_ACTIONS } from "../routes/panelBridge.js";
+import { PANEL_ONLY_ACTIONS, VALID_ACTIONS } from "../routes/panelBridge.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -44,6 +44,8 @@ const SCAN_FILES = [
   // has no literal sendCommand() of its own, so the non-vacuous check below
   // would fail on it; characterSheet.js is where the action string lives.
   "server/services/characterSheet.js",
+  // saveWorld, for a world that already has a map_sand.bin (#197).
+  "server/services/worldSandboxSnapshot.js",
 ];
 
 // Matches `sendCommand("action", ...)` / `sendCommand('action', ...)` on
@@ -88,19 +90,27 @@ function extractLiteralActions(relativePath) {
   return found;
 }
 
+// PANEL_ONLY_ACTIONS (routes/panelBridge.js) are the ones the panel sends
+// itself but POST /command refuses; they are just as much a real action.
+const KNOWN_ACTIONS = new Set([...VALID_ACTIONS, ...PANEL_ONLY_ACTIONS]);
+
 describe("every literal sendCommand() action string is a real VALID_ACTIONS member", () => {
   for (const file of SCAN_FILES) {
     it(`${file}`, () => {
       const found = extractLiteralActions(file);
-      const unknown = [...found.entries()].filter(([action]) => !VALID_ACTIONS.has(action));
+      const unknown = [...found.entries()].filter(([action]) => !KNOWN_ACTIONS.has(action));
       expect(
         unknown,
         unknown
-          .map(([action, line]) => `"${action}" (${file}:${line}) is not in VALID_ACTIONS`)
+          .map(([action, line]) => `"${action}" (${file}:${line}) is not in VALID_ACTIONS or PANEL_ONLY_ACTIONS`)
           .join("; "),
       ).toEqual([]);
     });
   }
+
+  it("keeps the panel-only actions out of POST /command", () => {
+    for (const action of PANEL_ONLY_ACTIONS) expect(VALID_ACTIONS.has(action), action).toBe(false);
+  });
 
   it("the scan itself is not vacuous -- each file has at least one literal sendCommand call to check", () => {
     for (const file of SCAN_FILES) {

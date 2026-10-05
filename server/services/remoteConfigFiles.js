@@ -138,6 +138,18 @@ function withClient(config, handler) {
   return withSftpSession("RemoteConfigFiles", config, handler);
 }
 
+/**
+ * { path, mtime } when the remote world has a map_sand.bin, else null: the
+ * config pull's own check, on a session of its own, for a live sandbox
+ * change sent through PanelBridge (#197). It touches no mirror file, so it
+ * needs no mirror lock. A connection failure throws.
+ */
+export async function findRemoteWorldSandboxSnapshot(rawConfig, serverName) {
+  const config = validateRemoteConfigTransport(rawConfig);
+  if (!remoteWorldSandboxSnapshotPath(config, serverName)) return null;
+  return withClient(config, (client) => statWorldSandboxSnapshot(client, config, serverName));
+}
+
 // Only "no such file" means a config file is absent on the host. Any other
 // failure (a lost connection, a refused read) fails the pull: taken for
 // absent, it used to delete the mirror's copy and report the file missing.

@@ -25,6 +25,13 @@ import {
 import { sanitizeError, sanitizeErrorParams, isMaskedSecret } from "../utils/sanitize.js";
 import { getDataPaths } from "../utils/paths.js";
 import { persistSandboxValues } from "./serverFiles.js";
+import {
+  LIVE_SANDBOX_BRIDGE_ACTIONS,
+  findActiveWorldSandboxSnapshot,
+  refreshWorldSandboxSnapshotAfterSave,
+  withWorldSandboxSnapshotFlag,
+  worldSandboxAfterLiveChange,
+} from "../services/worldSandboxSnapshot.js";
 import { requirePermission, requireAnyPermission } from "../services/permissions.js";
 import { parseClampedInteger } from "../utils/queryNumbers.js";
 import {
@@ -230,6 +237,15 @@ export const VALID_ACTIONS = new Set([
   // have a matching VALID_ACTIONS entry.
   "debugItemScript",
 ]);
+
+// Actions only the panel's own code sends, which POST /command refuses.
+// saveWorld (#197): the panel's Save World runs RCON save, then this for a
+// world that already has a map_sand.bin, which it rewrites with the live
+// sandbox settings (services/worldSandboxSnapshot.js
+// refreshWorldSandboxSnapshotAfterSave). Through POST /command a caller
+// could have a PanelBridge 1.7.72 or older, which runs saveGame() for it
+// regardless, create the file on a world that has none.
+export const PANEL_ONLY_ACTIONS = new Set(["saveWorld"]);
 
 // POST /command is gated bridge.command alone -- deliberately, as the
 // generic passthrough for every action above, including the ~30 with no
@@ -1644,14 +1660,27 @@ router.post("/command", requireBridgeCommandUnlessGmToolsOnly, async (req, res) 
 
   const startTime = Date.now();
   try {
+    // A live sandbox change on a world with a map_sand.bin only lasts past
+    // the next start if the bridge rewrites that file too, which it does
+    // only when told the world has one (#197). The panel decides from what
+    // it finds, never from the caller's args.
+    let sendArgs = args || {};
+    let worldSandboxBefore = null;
+    if (LIVE_SANDBOX_BRIDGE_ACTIONS.has(action)) {
+      worldSandboxBefore = await findActiveWorldSandboxSnapshot();
+      sendArgs = withWorldSandboxSnapshotFlag(sendArgs, worldSandboxBefore);
+    }
     log.info(
-      `POST /command: action=${action} args=${JSON.stringify(args || {}).substring(0, 200)}`,
+      `POST /command: action=${action} args=${JSON.stringify(sendArgs).substring(0, 200)}`,
     );
-    const result = await bridge.sendCommand(action, args || {});
+    const result = await bridge.sendCommand(action, sendArgs);
     const durationMs = Date.now() - startTime;
     log.debug(`POST /command: action=${action} completed in ${durationMs}ms`);
-    logBridgeCommand(action, args, result, true, durationMs).catch(() => {});
-    res.json(result);
+    logBridgeCommand(action, sendArgs, result, true, durationMs).catch(() => {});
+    // { path, refreshed } when the world has a map_sand.bin: refreshed says
+    // the change is kept in it, and otherwise the next start undoes it.
+    const worldSandboxSnapshot = worldSandboxAfterLiveChange(action, result?.data, worldSandboxBefore);
+    res.json(worldSandboxSnapshot ? { ...result, worldSandboxSnapshot } : result);
   } catch (error) {
     const durationMs = Date.now() - startTime;
     const message = sanitizeError(error?.message || "Bridge command failed");
@@ -2356,10 +2385,22 @@ router.get("/world/stats", requirePermission("server.world_events"), async (req,
 // save, and it writes map_sand.bin, a copy of every sandbox option that
 // overrides SandboxVars.lua on every start. It now runs the server's own
 // `save` over RCON, like POST /server/save.
+// A world that already has a map_sand.bin gets it rewritten afterwards, as
+// the bridge's save did (refreshWorldSandboxSnapshotAfterSave): the response
+// then carries worldSandboxSnapshot { path, refreshed } and, when the
+// refresh failed, worldSandboxError.
 router.post("/world/save", requirePermission("server.control"), async (req, res) => {
   try {
     const result = await req.app.get("rconService").save();
-    res.json(result);
+    if (!result?.success) return res.json(result);
+    const { worldSandboxSnapshot, error } = await refreshWorldSandboxSnapshotAfterSave(bridge);
+    if (!worldSandboxSnapshot) return res.json(result);
+    if (error) log.warn(`World saved, but its map_sand.bin was not refreshed: ${error}`);
+    res.json({
+      ...result,
+      worldSandboxSnapshot,
+      ...(error ? { worldSandboxError: sanitizeError(error) } : {}),
+    });
   } catch (error) {
     res.status(500).json({ error: sanitizeError(error.message) });
   }
@@ -3508,7 +3549,15 @@ router.post("/sound/noise", requirePermission("players.endanger_or_impersonate")
 // into SandboxVars.lua or the next server start silently undoes the change.
 // 9 = "Disabled"/never shuts off, 1 = "Instant"; the modifier is what the game
 // actually compares world age against.
-async function persistUtilities(power, water, on) {
+//
+// `persisted` says the change lasts past the next start. A world with a
+// map_sand.bin loads that over SandboxVars.lua (#197), so there it is the
+// bridge's rewrite of the file that decides (worldSandboxSnapshot, from
+// worldSandboxAfterLiveChange); SandboxVars.lua is still written, for the
+// day the world drops the file. { path, refreshed } goes in the response so
+// the page can say the change is kept in the world's saved settings, or
+// that the next start undoes it.
+async function persistUtilities(power, water, on, worldSandboxSnapshot = null) {
   const values = {};
   if (power) {
     values.ElecShut = on ? 9 : 1;
@@ -3518,18 +3567,39 @@ async function persistUtilities(power, water, on) {
     values.WaterShut = on ? 9 : 1;
     values.WaterShutModifier = on ? 2147483647 : 0;
   }
+  let written;
   try {
     const { persisted, reason } = await persistSandboxValues(values);
     if (!persisted) {
       log.warn(`Utilities not persisted to SandboxVars.lua: ${reason}`);
     }
-    return { persisted, persistReason: reason };
+    written = { persisted, persistReason: reason };
   } catch (error) {
     log.error(
       `Failed to persist utilities to SandboxVars.lua: ${error.message}`,
     );
-    return { persisted: false, persistReason: sanitizeError(error.message) };
+    written = { persisted: false, persistReason: sanitizeError(error.message) };
   }
+  if (!worldSandboxSnapshot) return written;
+  if (worldSandboxSnapshot.refreshed) {
+    return {
+      persisted: true,
+      persistReason: written.persisted
+        ? written.persistReason
+        : `kept in the world's map_sand.bin, but SandboxVars.lua was not updated (${written.persistReason})`,
+      worldSandboxSnapshot,
+    };
+  }
+  log.warn(
+    `Utilities change not kept in the world's map_sand.bin (${worldSandboxSnapshot.path}); the next start undoes it`,
+  );
+  return {
+    persisted: false,
+    persistReason: written.persisted
+      ? "the world's map_sand.bin, which the game loads over SandboxVars.lua on every start, was not updated"
+      : written.persistReason,
+    worldSandboxSnapshot,
+  };
 }
 
 // Get utilities (power/water) status
@@ -3565,17 +3635,24 @@ router.post("/utilities/restore", requirePermission("server.world_events"), asyn
     `Restoring utilities - power: ${power !== false}, water: ${water !== false}`,
   );
   try {
-    const result = await bridge.sendCommand("restoreUtilities", {
-      power: power !== false,
-      water: water !== false,
-    });
+    // Rewrites the world's map_sand.bin too when it has one (#197).
+    const worldSandboxBefore = await findActiveWorldSandboxSnapshot();
+    const result = await bridge.sendCommand(
+      "restoreUtilities",
+      withWorldSandboxSnapshotFlag({ power: power !== false, water: water !== false }, worldSandboxBefore),
+    );
     log.info(
       `Utilities restored successfully`,
       result?.debug ? { debug: result.debug } : {},
     );
     res.json({
       ...result,
-      ...(await persistUtilities(power !== false, water !== false, true)),
+      ...(await persistUtilities(
+        power !== false,
+        water !== false,
+        true,
+        worldSandboxAfterLiveChange("restoreUtilities", result?.data, worldSandboxBefore),
+      )),
     });
   } catch (error) {
     log.error(`Failed to restore utilities: ${error.message}`);
@@ -3598,17 +3675,24 @@ router.post("/utilities/shutoff", requirePermission("server.world_events"), asyn
     `Shutting off utilities - power: ${power !== false}, water: ${water !== false}`,
   );
   try {
-    const result = await bridge.sendCommand("shutOffUtilities", {
-      power: power !== false,
-      water: water !== false,
-    });
+    // Rewrites the world's map_sand.bin too when it has one (#197).
+    const worldSandboxBefore = await findActiveWorldSandboxSnapshot();
+    const result = await bridge.sendCommand(
+      "shutOffUtilities",
+      withWorldSandboxSnapshotFlag({ power: power !== false, water: water !== false }, worldSandboxBefore),
+    );
     log.info(
       `Utilities shut off successfully`,
       result?.debug ? { debug: result.debug } : {},
     );
     res.json({
       ...result,
-      ...(await persistUtilities(power !== false, water !== false, false)),
+      ...(await persistUtilities(
+        power !== false,
+        water !== false,
+        false,
+        worldSandboxAfterLiveChange("shutOffUtilities", result?.data, worldSandboxBefore),
+      )),
     });
   } catch (error) {
     log.error(`Failed to shut off utilities: ${error.message}`);

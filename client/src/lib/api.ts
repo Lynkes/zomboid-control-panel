@@ -2132,16 +2132,28 @@ export interface WorldSandboxSnapshot {
   mtime: string;
 }
 
+// After a live sandbox change through PanelBridge (#197): the world has a
+// map_sand.bin, which the game loads over SandboxVars.lua on every start.
+// `refreshed` says the bridge rewrote it with the change, so the change is
+// kept in the world's saved settings; when false, the next start undoes it.
+// Absent when the world has no such file.
+export interface LiveWorldSandboxSnapshot {
+  path: string;
+  refreshed: boolean;
+}
+
 export interface UtilitiesChangeResult {
   message?: string;
   power?: boolean;
   water?: boolean;
   hydroPowerOn?: boolean;
   debug?: string[];
-  // false when the in-game change could not be mirrored into SandboxVars.lua,
-  // which means a server restart will undo it.
+  // false when a server restart will undo the change: SandboxVars.lua
+  // could not be updated, or the world's map_sand.bin (worldSandboxSnapshot)
+  // was not.
   persisted?: boolean;
   persistReason?: string | null;
+  worldSandboxSnapshot?: LiveWorldSandboxSnapshot;
 }
 
 // server-files/backups' own shape (config-file .bak backups made by the
@@ -2549,6 +2561,10 @@ export interface BridgeCommandResult<T = Record<string, unknown>> {
   success: boolean;
   data?: T & { verified?: "confirmed" | "unverifiable" };
   error?: string;
+  // Only for an action that changes sandbox options live (setSandboxOption,
+  // restoreUtilities, shutOffUtilities, runEventSequence) on a world with a
+  // map_sand.bin (#197).
+  worldSandboxSnapshot?: LiveWorldSandboxSnapshot;
 }
 
 // Server-side sendCommand() (server/services/panelBridge.js) gives up on a

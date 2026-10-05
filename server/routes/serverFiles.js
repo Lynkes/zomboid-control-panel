@@ -1789,7 +1789,9 @@ async function writeSandboxValues(entries, configPath, serverName) {
 
     const content = result.content;
     if (content === originalContent) {
-      reason = "values already match";
+      // SandboxVars.lua already holds these values: nothing to write, and
+      // nothing a restart undoes (PUT /sandbox-option says the same).
+      persisted = true;
       return;
     }
     const backupWarning = backupWarningFor(

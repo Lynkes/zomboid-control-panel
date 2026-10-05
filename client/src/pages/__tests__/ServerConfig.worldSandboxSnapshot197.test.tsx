@@ -26,8 +26,9 @@ vi.mock('@/contexts/AuthContext', () => ({
   }),
 }))
 
+const toastSpy = vi.hoisted(() => vi.fn())
 vi.mock('@/components/ui/use-toast', () => ({
-  useToast: () => ({ toast: vi.fn(), dismiss: vi.fn(), toasts: [] }),
+  useToast: () => ({ toast: toastSpy, dismiss: vi.fn(), toasts: [] }),
 }))
 
 vi.mock('@/contexts/SocketContext', () => ({
@@ -117,7 +118,8 @@ describe("ServerConfig.tsx: the world's own sandbox copy (#197)", () => {
     expect(await screen.findByText(TITLE)).toBeInTheDocument()
     const date = new Date(SNAPSHOT.mtime).toLocaleString('en')
     expect(screen.getByText(new RegExp(`map_sand\\.bin, last written ${date.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))).toBeInTheDocument()
-    expect(screen.getByText(/changes made here or in the in-game admin panel are undone/)).toBeInTheDocument()
+    expect(screen.getByText(/changes saved to SandboxVars\.lua, here or in the in-game admin panel, are undone/)).toBeInTheDocument()
+    expect(screen.getByText(/Live changes made through PanelBridge are written to it too/)).toBeInTheDocument()
   })
 
   it('shows it on the Mod Settings tab too, where live edits are made', async () => {
@@ -185,6 +187,81 @@ describe("ServerConfig.tsx: the world's own sandbox copy (#197)", () => {
     await waitFor(() => expect(getComposedStatus).toHaveBeenCalled())
     expect(screen.getByRole('button', { name: 'Use SandboxVars.lua' })).toBeDisabled()
     expect(screen.getByText('Stop the server first.')).toBeInTheDocument()
+  })
+
+  // On a world that already has the copy, a live edit lasts only if the
+  // bridge rewrote it; POST /command says whether it did.
+  async function liveEdit(worldSandboxSnapshot: { path: string; refreshed: boolean } | undefined, persisted = true) {
+    mockLoads({ snapshot: true, running: true })
+    vi.spyOn(serverFilesApi, 'saveSandboxOption').mockResolvedValue({
+      success: true,
+      persisted,
+      worldSandboxSnapshot: SNAPSHOT,
+    })
+    const sendCommand = vi.spyOn(panelBridgeApi, 'sendCommand').mockImplementation(async (action) => {
+      if (action === 'getAllSandboxOptions') {
+        return {
+          success: true,
+          data: {
+            options: { General: [{ name: 'General.TestOption', shortName: 'TestOption', tableName: 'General', type: 'boolean', value: false }] },
+            groups: [{ name: 'General', count: 1 }],
+            totalCount: 1,
+            enumerated: true,
+          },
+        } as never
+      }
+      return {
+        success: true,
+        data: { name: 'General.TestOption', value: true, type: 'boolean', verified: 'confirmed' },
+        ...(worldSandboxSnapshot ? { worldSandboxSnapshot } : {}),
+      } as never
+    })
+    renderTab('modsettings')
+    await waitFor(() => expect(sendCommand).toHaveBeenCalledWith('getAllSandboxOptions', {}, expect.anything()))
+    fireEvent.change(await screen.findByPlaceholderText(/search/i), { target: { value: 'TestOption' } })
+    const toggle = await screen.findByRole('switch')
+    await act(async () => {
+      fireEvent.click(toggle)
+    })
+    await waitFor(() => expect(sendCommand).toHaveBeenCalledWith('setSandboxOption', { name: 'General.TestOption', value: true }))
+    await waitFor(() => expect(serverFilesApi.saveSandboxOption).toHaveBeenCalled())
+  }
+
+  function toastDescriptions() {
+    return toastSpy.mock.calls.map(([arg]) => ({ description: String(arg?.description ?? ''), variant: arg?.variant }))
+  }
+
+  it("says a live edit is kept in the world's saved settings when the bridge rewrote them", async () => {
+    await liveEdit({ path: SNAPSHOT.path, refreshed: true })
+
+    await waitFor(() =>
+      expect(toastDescriptions()).toContainEqual({
+        description: "General.TestOption set, and kept in the world's saved settings (map_sand.bin), which the game loads on every start.",
+        variant: undefined,
+      }),
+    )
+    expect(toastDescriptions().some((call) => call.variant === 'destructive')).toBe(false)
+  })
+
+  it('warns that the next start undoes a live edit the bridge did not keep there', async () => {
+    await liveEdit({ path: SNAPSHOT.path, refreshed: false })
+
+    await waitFor(() =>
+      expect(toastDescriptions()).toContainEqual({
+        description: expect.stringMatching(/^General\.TestOption was applied, but the world's saved settings \(map_sand\.bin\).+were not updated, so the next start undoes it/),
+        variant: 'destructive',
+      }),
+    )
+  })
+
+  // SandboxVars.lua matters only once the world drops the copy, which has
+  // the edit.
+  it("doesn't claim a kept edit resets at restart when SandboxVars.lua lacks it", async () => {
+    await liveEdit({ path: SNAPSHOT.path, refreshed: true }, false)
+
+    await waitFor(() => expect(toastDescriptions().length).toBeGreaterThan(0))
+    await act(async () => {})
+    expect(toastDescriptions().some((call) => /will reset when the server restarts/.test(call.description))).toBe(false)
   })
 
   // A PanelBridge older than #197 writes map_sand.bin on every live edit,

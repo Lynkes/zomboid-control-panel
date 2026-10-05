@@ -101,7 +101,8 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { PageHeader } from '@/components/PageHeader'
 // DropdownMenu imports available if needed
-import { serverApi, serverFilesApi, serversApi, panelBridgeApi, ApiError, SpawnPointsByProfession, SpawnRegion, SandboxData, ConfigTemplate, WorldSandboxSnapshot, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
+import { serverApi, serverFilesApi, serversApi, panelBridgeApi, ApiError, SpawnPointsByProfession, SpawnRegion, SandboxData, ConfigTemplate, WorldSandboxSnapshot, LiveWorldSandboxSnapshot, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
+import { liveWorldSandboxOutcome } from '@/lib/worldSandbox'
 import { resolveServerRunning } from '@/lib/serverStatus'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { isDeliveryStatus, resolveLuaChecksumCallout, type LuaChecksumDelivery } from '@/lib/bridgeDeliveryView'
@@ -1881,6 +1882,7 @@ export default function ServerConfig() {
         success?: boolean
         data?: { name: string; value: unknown; type: string; verified?: unknown; persisted?: unknown; saveError?: unknown }
         error?: string
+        worldSandboxSnapshot?: LiveWorldSandboxSnapshot
       }
       if (response?.success && response.data) {
         const confirmedVal = response.data.value ?? newValue
@@ -1909,19 +1911,33 @@ export default function ServerConfig() {
         // updates. That's the correct signal either way: an un-migrated mod
         // genuinely IS an old bridge relative to this contract.
         const verifyState = getBridgeVerifiedState('setSandboxOption', response.data)
+        // #197: on a world with a map_sand.bin (loaded over SandboxVars.lua
+        // on every start) the edit lasts only if the bridge rewrote that
+        // file too, which the server asked it to.
+        const worldSandbox = liveWorldSandboxOutcome(response)
         toast(
           verifyState === 'unverifiable'
             ? { title: t('toasts.optionUpdatedTitle'), description: t('toasts.bridgeUnverifiedDesc', { action: optName }), variant: 'default' }
             : verifyState === 'old-bridge'
               ? { title: t('toasts.optionUpdatedTitle'), description: t('toasts.bridgeOldBridgeDesc', { action: optName }), variant: 'default' }
-              : { title: t('toasts.optionUpdatedTitle'), description: t('toasts.optionUpdatedDesc', { option: optName }) },
+              : worldSandbox === 'kept'
+                ? { title: t('toasts.optionUpdatedTitle'), description: t('toasts.optionKeptInWorldDesc', { option: optName }) }
+                : { title: t('toasts.optionUpdatedTitle'), description: t('toasts.optionUpdatedDesc', { option: optName }) },
         )
 
-        // Only an older bridge reports a world save; see isWorldSaveFailure()'s
-        // own comment for the persisted/saveError contract. That save is a
-        // DIFFERENT persistence layer from the SandboxVars.lua file write
-        // checked just below, so each can fail on its own.
-        if (isWorldSaveFailure(response.data)) {
+        if (worldSandbox === 'undone') {
+          toast({
+            title: t('toasts.appliedNotSavedTitle'),
+            description: t('toasts.worldSandboxNotKeptDesc', { option: optName }),
+            variant: 'destructive',
+          })
+        } else if (!worldSandbox && isWorldSaveFailure(response.data)) {
+          // Only an older bridge reports a world save; see
+          // isWorldSaveFailure()'s own comment for the persisted/saveError
+          // contract. That save is a DIFFERENT persistence layer from the
+          // SandboxVars.lua file write checked just below, so each can fail
+          // on its own. On a world that had a map_sand.bin it is the one
+          // worldSandbox above already reports.
           toast({
             title: t('toasts.appliedNotSavedTitle'),
             description: t('toasts.worldSaveFailedDesc', {
@@ -1942,7 +1958,9 @@ export default function ServerConfig() {
           // A bridge older than #197 has just written map_sand.bin for this
           // edit; the reply says whether the world has one now.
           setWorldSandboxSnapshot(saved.worldSandboxSnapshot ?? null)
-          if (!saved.persisted) {
+          // Kept in the world's map_sand.bin, the edit survives the next
+          // start whatever SandboxVars.lua says.
+          if (!saved.persisted && worldSandbox !== 'kept') {
             toast({
               title: t('toasts.appliedNotSavedTitle'),
               description: t('toasts.notPersistedDesc', { option: optName }),
@@ -3207,9 +3225,10 @@ export default function ServerConfig() {
           </Alert>
         )}
         {/* #197: the world save has a map_sand.bin, which the game applies
-            over SandboxVars.lua on every start, so sandbox edits made here,
-            in Raw mode, on the Mod Settings tab or in the in-game admin
-            panel are undone at the next restart. */}
+            over SandboxVars.lua on every start, so sandbox edits saved to
+            SandboxVars.lua (here, in Raw mode, or in the in-game admin
+            panel) are undone at the next restart. Live edits through
+            PanelBridge are written to it too (the toast says which). */}
         {(activeTab === 'sandbox' || activeTab === 'modsettings') && worldSandboxSnapshot && (
           <Alert className="mt-3 border-warning/40 bg-warning/10">
             <AlertTriangle className="h-4 w-4 text-warning" />

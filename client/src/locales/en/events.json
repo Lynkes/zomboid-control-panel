@@ -597,6 +597,8 @@
     "bridgeCommandFailedFallback": "Bridge command failed.",
     "notPersistedDesc": "Applied to the running world only — SandboxVars.lua was not updated ({{reason}}), so a server restart will undo this.",
     "notPersistedUnknownReason": "unknown reason",
+    "keptInWorldSandboxDesc": "Kept in the world's saved settings (map_sand.bin), so it lasts through a restart.",
+    "worldSandboxNotKeptDesc": "Applied to the running world, but the world's saved settings (map_sand.bin), which the game loads over SandboxVars.lua on every start, were not updated, so a restart undoes this. An older PanelBridge doesn't update them. With the server stopped, Server Config can switch this world to SandboxVars.lua.",
     "powerDidNotTakeEffectDesc": "The server reports power is still {{state}} — the change didn't take effect.",
     "noPlayersOnlineError": "No players online",
     "targetPlayerRequiredHorde": "Target player required for horde spawn",

@@ -792,6 +792,8 @@
     "bridgeCommandFailedFallback": "PanelBridge 命令失敗。",
     "notPersistedDesc": "僅套用於目前執行中的世界 — SandboxVars.lua 未更新（{{reason}}），因此伺服器重新啟動後此變更將被還原。",
     "notPersistedUnknownReason": "未知原因",
+    "keptInWorldSandboxDesc": "已保留在世界的已儲存設定（map_sand.bin）中，因此重新啟動後仍然有效。",
+    "worldSandboxNotKeptDesc": "已套用於執行中的世界，但世界的已儲存設定（map_sand.bin）未更新，而遊戲每次啟動時都會在 SandboxVars.lua 之上載入它，因此重新啟動會還原此變更。舊版 PanelBridge 不會更新它。伺服器停止後，可在伺服器設定中讓此世界改用 SandboxVars.lua。",
     "powerDidNotTakeEffectDesc": "伺服器報告電力狀態仍為{{state}} — 更改未生效。",
     "noPlayersOnlineError": "沒有線上玩家",
     "targetPlayerRequiredHorde": "生成屍群需要目標玩家",

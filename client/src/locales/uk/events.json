@@ -814,6 +814,8 @@
     "bridgeCommandFailedFallback": "Команду bridge не виконано.",
     "notPersistedDesc": "Застосовано лише до поточного світу — SandboxVars.lua не оновлено ({{reason}}), тому перезапуск сервера скасує цю зміну.",
     "notPersistedUnknownReason": "невідома причина",
+    "keptInWorldSandboxDesc": "Збережено в збережених налаштуваннях світу (map_sand.bin), тож зміна залишиться після перезапуску.",
+    "worldSandboxNotKeptDesc": "Застосовано до поточного світу, але збережені налаштування світу (map_sand.bin), які гра завантажує поверх SandboxVars.lua під час кожного запуску, не оновлено, тож перезапуск скасує цю зміну. Старіша версія PanelBridge їх не оновлює. Коли сервер зупинено, у Конфігурації сервера можна перевести цей світ на SandboxVars.lua.",
     "powerDidNotTakeEffectDesc": "Сервер повідомляє, що електрика досі {{state}} — зміну не застосовано.",
     "noPlayersOnlineError": "Немає гравців онлайн",
     "targetPlayerRequiredHorde": "Для створення орди потрібен гравець-ціль",

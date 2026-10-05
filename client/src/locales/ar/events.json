@@ -834,6 +834,8 @@
     "bridgeCommandFailedFallback": "فشل أمر الجسر.",
     "notPersistedDesc": "طُبِّق على العالم قيد التشغيل فقط — لم يُحدَّث SandboxVars.lua ({{reason}})، لذا ستُلغي إعادة تشغيل الخادم هذا التغيير.",
     "notPersistedUnknownReason": "سبب غير معروف",
+    "keptInWorldSandboxDesc": "حُفظ في الإعدادات المحفوظة للعالم (map_sand.bin)، لذا يبقى بعد إعادة التشغيل.",
+    "worldSandboxNotKeptDesc": "طُبِّق على العالم قيد التشغيل، لكن لم تُحدَّث الإعدادات المحفوظة للعالم (map_sand.bin)، التي تحمّلها اللعبة فوق SandboxVars.lua عند كل تشغيل، لذا ستُلغي إعادة التشغيل هذا التغيير. لا يحدّثها إصدار أقدم من PanelBridge. عندما يكون الخادم متوقفًا، يمكن لصفحة إعدادات الخادم أن تجعل هذا العالم يستخدم SandboxVars.lua.",
     "powerDidNotTakeEffectDesc": "يفيد الخادم بأن الكهرباء ما زالت {{state}} — لم يُطبَّق التغيير.",
     "noPlayersOnlineError": "لا يوجد لاعبون متصلون",
     "targetPlayerRequiredHorde": "يلزم لاعب هدف لاستدعاء الحشد",

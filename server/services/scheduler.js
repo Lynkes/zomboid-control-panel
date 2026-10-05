@@ -17,6 +17,12 @@ import { candidateIniPaths } from "../routes/server.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { waitForProcessExit } from "../utils/processScanRetry.js";
 import {
+  LIVE_SANDBOX_BRIDGE_ACTIONS,
+  findActiveWorldSandboxSnapshot,
+  refreshWorldSandboxSnapshotAfterSave,
+  withWorldSandboxSnapshotFlag,
+} from "./worldSandboxSnapshot.js";
+import {
   getScheduledTasks,
   updateTaskLastRun,
   logServerEvent,
@@ -91,7 +97,9 @@ const SCHEDULABLE_BRIDGE_ACTIONS = new Set([
 // bridge:saveWorld (a preset until #197) runs as a plain `save`: the
 // bridge's save was the game's single-player save path, which wrote
 // map_sand.bin and made the world override SandboxVars.lua on every start.
-// Existing tasks keep working and need the same server.control as before.
+// Existing tasks keep working and need the same server.control as before;
+// on a world that already has a map_sand.bin they also have the bridge
+// rewrite it afterwards, as their save did (executeTask).
 export function classifyScheduledCommand(command) {
   const commandLower = String(command ?? "").toLowerCase();
   if (commandLower === "restart") return "restart";
@@ -114,6 +122,11 @@ function parseBridgeActionName(rawCommand) {
   const body = rawCommand.slice("bridge:".length).trim();
   const firstSpace = body.indexOf(" ");
   return (firstSpace === -1 ? body : body.slice(0, firstSpace)).trim();
+}
+
+function isBridgeSaveWorldCommand(command) {
+  const raw = String(command ?? "");
+  return raw.toLowerCase().startsWith("bridge:") && parseBridgeActionName(raw) === "saveWorld";
 }
 
 // The single source of truth for which panel capability a scheduled command
@@ -771,6 +784,9 @@ export class Scheduler {
         if (!saved?.success) {
           throw new Error(`Save failed: ${saved?.error || "unknown error"}`);
         }
+        if (isBridgeSaveWorldCommand(task.command)) {
+          await this.refreshWorldSandboxAfterBridgeSave(task, cleanup);
+        }
       } else if (commandKind === "servermsg") {
         // Preserve original casing for the message text
         const message = task.command.substring(10);
@@ -991,6 +1007,30 @@ export class Scheduler {
     };
   }
 
+  // A stored bridge:saveWorld task was the bridge's save until #197, which
+  // also rewrote the world's map_sand.bin with the live sandbox settings.
+  // On a world that already has one (the game loads it over SandboxVars.lua
+  // on every start), live changes the panel didn't put there, such as the
+  // in-game admin panel's, lasted through a restart only because of that.
+  // So after the server's own save the bridge rewrites it, as before; a
+  // world without one never gets one. Not saved there = the task fails
+  // with the reason, in Schedule History. PanelBridge only reaches the
+  // active server, so a task pinned to another one saves it and stops.
+  async refreshWorldSandboxAfterBridgeSave(task, cleanup) {
+    if (cleanup) {
+      log.warn(
+        `Scheduled task "${task.name}" saved its server; its map_sand.bin, if any, is not refreshed: PanelBridge only reaches the active server`,
+      );
+      return;
+    }
+    const { worldSandboxSnapshot, error } = await refreshWorldSandboxSnapshotAfterSave(panelBridge);
+    if (worldSandboxSnapshot && !worldSandboxSnapshot.refreshed) {
+      throw new Error(
+        `World saved, but its map_sand.bin, which the game loads over SandboxVars.lua on every start, was not refreshed (${error || "PanelBridge did not rewrite it"}). Live sandbox changes not in it are undone at the next start.`,
+      );
+    }
+  }
+
   async executeBridgeAction(rawCommand) {
     // Strip the `bridge:` prefix, then split off optional JSON args.
     const body = rawCommand.slice("bridge:".length).trim();
@@ -1019,6 +1059,14 @@ export class Scheduler {
       } catch (err) {
         throw new Error(`invalid bridge args JSON: ${err.message}`);
       }
+    }
+
+    // restoreUtilities/shutOffUtilities change sandbox options: on a world
+    // with a map_sand.bin the bridge rewrites it too, so the change lasts
+    // past the next start (#197). Whether it does is the panel's call, not
+    // the task's stored args.
+    if (LIVE_SANDBOX_BRIDGE_ACTIONS.has(action)) {
+      args = withWorldSandboxSnapshotFlag(args, await findActiveWorldSandboxSnapshot());
     }
 
     // sendCommand()'s returned promise only ever resolves {success: true,

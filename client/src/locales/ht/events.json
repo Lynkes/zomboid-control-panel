@@ -601,6 +601,8 @@
     "commandFailedFallback": "Kòmand echwe",
     "notPersistedDesc": "Aplike sèlman sou mond k ap fonksyone a — SandboxVars.lua pa mete ajou ({{reason}}), kidonk yon redemaraj sèvè ap anile sa a.",
     "notPersistedUnknownReason": "rezon enkoni",
+    "keptInWorldSandboxDesc": "Li kenbe nan paramèt mond lan sove yo (map_sand.bin), kidonk l ap rete apre yon redemaraj.",
+    "worldSandboxNotKeptDesc": "Aplike sou mond k ap fonksyone a, men paramèt mond lan sove yo (map_sand.bin), jwèt la chaje sou SandboxVars.lua chak fwa li demare, pa t mete ajou, kidonk yon redemaraj ap anile sa a. Yon ansyen vèsyon PanelBridge pa mete yo ajou. Lè sèvè a sispann, Konfigirasyon Sèvè ka fè mond sa a itilize SandboxVars.lua.",
     "bridgeCommandFailedFallback": "Kòmand bridge echwe.",
     "powerDidNotTakeEffectDesc": "Sèvè a rapòte kouran an toujou {{state}} — chanjman an pa t pran efè.",
     "noPlayersOnlineError": "Pa gen jwè anliy",
