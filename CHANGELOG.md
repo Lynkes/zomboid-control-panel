@@ -18,7 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Stable installs the newest build:** installs and updates now ask Steam for the stable branch by name with fresh app info, so a folder once on the 42.19 or unstable branch no longer stays on it.
-- **Sandbox changes survive a restart:** live edits no longer write the world's `map_sand.bin`, and Server Config warns about one a world already has (local, or remote over SFTP) and can move it aside so SandboxVars.lua applies again (#197).
+- **SandboxVars corruption:** saving the Sandbox page no longer turns a mod table into a number, which stopped the server from starting (#197).
+- **Sandbox settings undone on restart:** PanelBridge no longer creates a world `map_sand.bin`, and Server Config warns about an existing one and can move it aside (#197).
 
 ## [1.4.5] - 2026-10-05
 
