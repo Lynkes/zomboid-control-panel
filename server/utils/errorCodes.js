@@ -857,7 +857,7 @@ export const ErrorCode = Object.freeze({
   /** server/routes/server.js -- POST /api/server/browse-folder, `initialPath`
    * contains a control character or a quote/backtick/`$` (defense-in-depth:
    * the value is passed to the picker out-of-band, never built into shell
-   * source, but a path can't legitimately contain these anyway). */
+   * source, and a start folder hardly ever contains these). */
   BROWSE_FOLDER_INVALID_PATH: "BROWSE_FOLDER_INVALID_PATH",
   /** server/routes/server.js -- POST /api/server/browse-folder (Linux), no
    * GUI file-picker (zenity/kdialog) available. */

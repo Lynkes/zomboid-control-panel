@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+### Security
 
-_No unreleased changes._
+- **Start commands are admin-only:** setting a server's start command or custom launcher now requires admin, is confined to the install folder, and is re-validated at launch; a non-admin with server-management rights could run any program on the host.
+- **Role deletion can't escalate:** deleting a role can no longer move its members onto a role with capabilities the caller lacks (a role manager could make themselves admin), and editing, renaming or deleting a role now disconnects affected users' live sockets.
+- **Windows folder picker:** the folder-picker endpoint no longer builds its PowerShell command from request text; a non-admin with install rights could run commands on a Windows host.
 
 ## [1.4.4] - 2026-10-04
 

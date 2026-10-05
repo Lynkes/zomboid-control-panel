@@ -342,21 +342,19 @@ function isInsideFolder(target, folder, { orSame = false } = {}) {
 }
 
 // The server's own install DIRECTORY -- the anchor the launch target is
-// confined to. The first of installPath/serverPath that is a directory
-// (not itself launcher-shaped) wins; when the only thing configured is the
-// launcher path itself, there is no separate directory and its own parent
-// is the best anchor (confinement is then vacuous for that launcher, and
-// the system-program/interpreter checks and the files.manage route gate are
-// what protect it). PZ_SERVER_PATH stands in when the record names nothing.
+// confined to. It is the folder the launch actually runs in, picked exactly
+// as ServerManager.loadConfig() picks this.serverPath (the cwd a relative
+// start command is resolved against in startServer()): a custom launcher's
+// own parent, else `serverPath || installPath`, else PZ_SERVER_PATH. It
+// used to prefer installPath, so a record whose serverPath named a different
+// folder had its relative start command checked against one folder and run
+// from the other (security sweep 2026-10-04 adversary pass). For a launcher
+// confinement is vacuous; the system-program/interpreter checks and the
+// files.manage route gate are what protect it.
 function installDirOf(server) {
-  for (const value of [server?.installPath, server?.serverPath]) {
-    if (value && resolveLaunchMode({ installPath: value }).mode !== "custom") {
-      return value;
-    }
-  }
   const launcher = resolveLaunchMode(server).launcherPath;
   if (launcher) return path.dirname(launcher);
-  return process.env.PZ_SERVER_PATH || "";
+  return server?.serverPath || server?.installPath || process.env.PZ_SERVER_PATH || "";
 }
 
 // What a server record launches, for findLaunchTargetRefusal(): its own
@@ -398,16 +396,18 @@ function isSystemOrInterpreter(real) {
 // mode that can legitimately live anywhere, so it is NOT folder-confined --
 // setting it is already admin-only (routes/servers.js), and here it only
 // has to not be an interpreter or a system program. Both reject interpreters
-// and system-dir programs.
+// and system-dir programs. A start command with no install folder to
+// confine it to is refused outright rather than left unconfined.
 export function findLaunchTargetRefusal({ installDir, startCommand, launcherPath } = {}) {
   const command = typeof startCommand === "string" ? startCommand.trim() : "";
   if (command) {
     const cmd = parseCustomStartCommand(command).cmd;
     if (!cmd) return null;
     const program = path.basename(cmd) || cmd;
-    const folder = installDir ? realpathOrNearest(installDir) : null;
-    const real = realpathOrNearest(path.resolve(installDir || ".", cmd));
-    if (folder && !isInsideFolder(real, folder, { orSame: true })) return { program };
+    if (!installDir) return { program };
+    const folder = realpathOrNearest(installDir);
+    const real = realpathOrNearest(path.resolve(installDir, cmd));
+    if (!isInsideFolder(real, folder, { orSame: true })) return { program };
     if (isSystemOrInterpreter(real)) return { program };
     return null;
   }

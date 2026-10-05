@@ -6124,8 +6124,10 @@ router.post("/browse-folder", requirePermission("server.install"), async (req, r
       return res.status(400).json({ error: "Invalid description parameter", code: ErrorCode.BROWSE_FOLDER_INVALID_DESCRIPTION });
     }
 
-    // Defense-in-depth: a real folder path never contains a control
-    // character, a quote, a backtick or `$`. The value is handed to the OS
+    // Defense-in-depth: a folder to open the picker at hardly ever contains
+    // a control character, a quote, a backtick or `$` (`$` only in an admin
+    // share like \\host\C$ or a hidden system folder, which then can't be
+    // the starting folder). The value is handed to the OS
     // picker out-of-band (an environment variable on Windows, a
     // single-quoted argv on Linux) and never built into shell/PowerShell
     // source, so this is a second line, not the primary guard -- but

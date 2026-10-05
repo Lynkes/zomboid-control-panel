@@ -159,6 +159,74 @@ describe("findLaunchTargetRefusal() -- confinement decision (RCE-STARTCMD)", () 
   });
 });
 
+// Adversary pass on the fix (2026-10-04): the confinement anchor preferred
+// installPath, but loadConfig() runs the server -- and startServer()
+// resolves a relative start command -- in `serverPath || installPath`. A
+// record whose serverPath named another folder had its start command
+// checked in one folder and run from the other. And with no folder at all
+// (no installPath, serverPath or PZ_SERVER_PATH) confinement was skipped,
+// so an absolute start command anywhere on the host passed.
+describe("findLaunchTargetRefusal() judges the folder the launch really runs in", () => {
+  const systemDir = isWindows
+    ? path.join(process.env.SystemRoot || "C:\\Windows", "System32")
+    : "/usr/bin";
+  const systemProgram = isWindows ? "whoami.exe" : "whoami";
+
+  it("anchors on serverPath when it differs from installPath (the folder loadConfig() spawns in)", () => {
+    expect(
+      launchTargetOf({ installPath: installDir, serverPath: outsideDir }).installDir,
+    ).toBe(outsideDir);
+  });
+
+  it("refuses a relative start command that, run from serverPath, is a system program", () => {
+    // Checked against installPath this looked like <install>/whoami.exe and
+    // passed; startServer() would have run <System32>/whoami.exe.
+    const refusal = findLaunchTargetRefusal(
+      launchTargetOf({
+        installPath: installDir,
+        serverPath: systemDir,
+        startCommand: systemProgram,
+      }),
+    );
+    expect(refusal).toEqual({ program: systemProgram });
+  });
+
+  it("refuses a start command when no install folder can be resolved", () => {
+    const previous = process.env.PZ_SERVER_PATH;
+    delete process.env.PZ_SERVER_PATH;
+    try {
+      const outside = path.join(outsideDir, isWindows ? "evil.bat" : "evil.sh");
+      fs.writeFileSync(outside, "");
+      const refusal = findLaunchTargetRefusal(
+        launchTargetOf({ installPath: "", serverPath: "", startCommand: outside }),
+      );
+      expect(refusal).toEqual({ program: path.basename(outside) });
+    } finally {
+      if (previous === undefined) delete process.env.PZ_SERVER_PATH;
+      else process.env.PZ_SERVER_PATH = previous;
+    }
+  });
+
+  it("matches ServerManager.loadConfig()'s launch folder for every record shape", async () => {
+    const launcher = (dir) => path.join(dir, isWindows ? "run.bat" : "run.sh");
+    const records = [
+      { installPath: installDir },
+      { serverPath: outsideDir },
+      { installPath: installDir, serverPath: outsideDir },
+      { installPath: installDir, serverPath: launcher(outsideDir) },
+      { installPath: launcher(installDir) },
+    ];
+    for (const record of records) {
+      getActiveServer.mockResolvedValue({ id: "shape", serverName: "Shape", ...record });
+      const manager = new ServerManager();
+      await manager.loadConfig();
+      expect(path.resolve(launchTargetOf(record).installDir)).toBe(
+        path.resolve(manager.serverPath),
+      );
+    }
+  });
+});
+
 describe("startServer() re-checks the launch target at launch (EXEC-1)", () => {
   it("refuses a stored interpreter start command without spawning anything", async () => {
     const pwsh = isWindows

@@ -145,6 +145,32 @@ describe("PUT /api/servers/:id -- startCommand is admin-only and confined (RCE-S
   });
 });
 
+// Adversary pass on the fix (2026-10-04): moving a managed server's
+// serverPath to a plain folder stays a servers.manage edit, but the folder
+// is where a relative start command runs. The save-time check judged it
+// against installPath instead, so an admin's later in-folder-looking
+// command could be made to run a program from wherever a technician had
+// pointed serverPath.
+describe("PUT /api/servers/:id -- a start command is judged in the folder it runs from", () => {
+  it("refuses an admin's relative start command that would run a system program from a pre-positioned serverPath (400)", async () => {
+    const id = await makeServer();
+    currentRole = "technician";
+    const systemDir = process.platform === "win32"
+      ? path.join(process.env.SystemRoot || "C:\\Windows", "System32")
+      : "/usr/bin";
+    const moved = await call("PUT", `/api/servers/${id}`, { serverPath: systemDir });
+    expect(moved.status).toBe(200);
+
+    currentRole = "admin";
+    const r = await call("PUT", `/api/servers/${id}`, {
+      startCommand: process.platform === "win32" ? "whoami.exe" : "whoami",
+    });
+    expect(r.status).toBe(400);
+    expect(r.json.code).toBe(ErrorCode.SERVER_LAUNCH_TARGET_REFUSED);
+    expect((await getServer(id)).startCommand).toBe("");
+  });
+});
+
 describe("POST /api/servers -- creating with a launcher install path is admin-only", () => {
   it("refuses a technician creating a server whose installPath is a launcher (403)", async () => {
     currentRole = "technician";
