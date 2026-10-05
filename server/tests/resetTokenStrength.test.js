@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import {
   RESET_TOKEN_MIN_DISTINCT_CHARS,
   RESET_TOKEN_MIN_UNPREDICTABLE_CHARS,
@@ -37,11 +38,34 @@ function sample(label, alphabet, length, count) {
   return tokens;
 }
 
+// Version 4 UUIDs, as uuidgen, New-Guid and Node's randomUUID write them.
+function sampleUuids(label, count) {
+  const bytes = seededBytes(label);
+  return Array.from({ length: count }, () => {
+    const b = Buffer.from(Array.from({ length: 16 }, () => bytes.next().value));
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    const hex = b.toString("hex");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  });
+}
+
 const HEX = "0123456789abcdef";
 const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 const ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const PRINTABLE = `${ALNUM}!@#$%^&*()-_=+[]{};:,.<>/?~`;
+
+// Whether this Node can decode the legacy Chinese, Japanese and Korean
+// encodings (a full-ICU build can; the packaged builds' can't).
+const canDecodeLegacy = (() => {
+  try {
+    for (const label of ["gb2312", "gbk", "big5", "euc-jp", "euc-kr"]) new TextDecoder(label);
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
 describe("reset-token strength", () => {
   it.each([
@@ -97,12 +121,16 @@ describe("reset-token strength", () => {
     expect(refused).toEqual([]);
   });
 
+  // Round 6 of the A2 verification: this drew 200 UUIDs and 400 tokens of
+  // 48 hex characters without a seed, and about 1 random UUID in 15,000 is
+  // refused, so release CI failed about one run in 70.
   it("accepts what the docs suggest and what the panel writes", () => {
-    for (let i = 0; i < 200; i++) {
-      expect(resetTokenWeakness(crypto.randomBytes(24).toString("hex"))).toBeNull();
-      expect(resetTokenWeakness(crypto.randomBytes(24).toString("hex").toUpperCase())).toBeNull();
-      expect(resetTokenWeakness(crypto.randomUUID())).toBeNull();
-    }
+    const tokens = [
+      ...sample("docs-hex48", HEX, 48, 200),
+      ...sample("docs-HEX48", HEX.toUpperCase(), 48, 200),
+      ...sampleUuids("docs-uuid", 200),
+    ];
+    expect(tokens.filter((token) => resetTokenWeakness(token) !== null)).toEqual([]);
   });
 
   it("counts a stretch seen before as predictable after its first two characters", () => {
@@ -174,7 +202,7 @@ describe("reset-token shape", () => {
   });
 
   it("reads hex in dash-separated groups, like a UUID, as its digits", () => {
-    const uuid = crypto.randomUUID();
+    const [uuid] = sampleUuids("dash-groups", 1);
     expect(resetTokenHexDigits(uuid)).toBe(uuid.replaceAll("-", ""));
     expect(resetTokenHexDigits(uuid.toUpperCase())).toBe(uuid.replaceAll("-", "").toUpperCase());
   });
@@ -189,14 +217,7 @@ describe("reset-token shape", () => {
   });
 
   it("accepts every one of 2000 seeded random UUIDs", () => {
-    const bytes = seededBytes("uuid");
-    const uuids = Array.from({ length: 2000 }, () => {
-      const b = Buffer.from(Array.from({ length: 16 }, () => bytes.next().value));
-      b[6] = (b[6] & 0x0f) | 0x40;
-      b[8] = (b[8] & 0x3f) | 0x80;
-      const hex = b.toString("hex");
-      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-    });
+    const uuids = sampleUuids("uuid", 2000);
     expect(uuids.filter((uuid) => resetTokenWeakness(uuid) !== null)).toEqual([]);
   });
 });
@@ -339,6 +360,104 @@ describe("reset-token: text written as hex", () => {
     expect(resetTokenWeakness(bytePairs(token))).toBe("hex-text");
   });
 
+  // Round 6: UTF-32 is four bytes a character, three of them zero for an
+  // ASCII one, so no reading saw text in it, and the docs' own example of a
+  // refused phrase passed as [BitConverter]::ToString(
+  // [Text.Encoding]::UTF32.GetBytes("zomboid-control-panel-reset-token")).
+  const utf32Hex = (text, littleEndian = true) =>
+    Buffer.concat(
+      Array.from(text, (char) => {
+        const unit = Buffer.alloc(4);
+        if (littleEndian) unit.writeUInt32LE(char.codePointAt(0));
+        else unit.writeUInt32BE(char.codePointAt(0));
+        return unit;
+      }),
+    ).toString("hex");
+  it.each([
+    ["the docs' example of a refused phrase", "zomboid-control-panel-reset-token"],
+    ["an English sentence", "reset the admin password please"],
+    ["a phrase with an emoji", "Zomboid reset 🔑"],
+  ])("refuses %s as UTF-32 hex, in either byte order, with a byte order mark and as BitConverter writes it", (_label, phrase) => {
+    const le = utf32Hex(phrase);
+    const be = utf32Hex(phrase, false);
+    for (const token of [le, be, le.toUpperCase(), `fffe0000${le}`, `0000feff${be}`, bytePairs(le.toUpperCase()), `7${le}`, le.slice(2)]) {
+      expect(resetTokenWeakness(token)).toBe("hex-text");
+    }
+  });
+
+  // Round 6: Chinese in the Windows code page of a Chinese Windows, GBK
+  // (cp936) or Big5 (cp950), which is what Windows PowerShell 5.1's
+  // [Text.Encoding]::Default writes there. The bytes are Python's gbk,
+  // big5 and euc-kr codecs'.
+  const DOUBLE_BYTE_PHRASES = [
+    ["GBK", "重置密码面板令牌", "gbk", "d6d8d6c3c3dcc2ebc3e6b0e5c1eec5c6"],
+    ["GBK", "僵尸毁灭工程控制面板", "gbk", "bda9caacbbd9c3f0b9a4b3ccbfd8d6c6c3e6b0e5"],
+    ["GBK", "我的僵尸毁灭工程服务器", "gbk", "ced2b5c4bda9caacbbd9c3f0b9a4b3ccb7fecef1c6f7"],
+    ["GBK", "2026 服务器，重置密码！", "gbk", "3230323620b7fecef1c6f7a3acd6d8d6c3c3dcc2eba3a1"],
+    ["Big5", "控制面板重設密碼", "big5", "b1b1a8eeadb1aa4fadabb35db14bbd58"],
+    ["Big5", "喪屍伺服器重設密碼", "big5", "b3e0abcda6f8aa41beb9adabb35db14bbd58"],
+    ["Big5", "2026 伺服器，重設密碼！", "big5", "3230323620a6f8aa41beb9a141adabb35db14bbd58a149"],
+    // Korean in EUC-KR (cp949) uses the bytes of GB 2312's level 1.
+    ["EUC-KR", "관리자 비밀번호 초기화", "euc-kr", "b0fcb8aec0da20baf1b9d0b9f8c8a320c3cab1e2c8ad"],
+  ];
+  it.each(DOUBLE_BYTE_PHRASES)("refuses %s hex of %s", (_encoding, _phrase, _label, hex) => {
+    for (const token of [hex, hex.toUpperCase(), bytePairs(hex.toUpperCase()), `a${hex}`, hex.slice(0, 32)]) {
+      expect(resetTokenWeakness(token)).toBe("hex-text");
+    }
+  });
+
+  it.skipIf(!canDecodeLegacy)("has the bytes of those phrases right", () => {
+    for (const [, phrase, label, hex] of DOUBLE_BYTE_PHRASES) {
+      expect(new TextDecoder(label, { fatal: true }).decode(Buffer.from(hex, "hex"))).toBe(phrase);
+    }
+  });
+
+  // Round 7: the code-page readings allowed no line break, so the one a
+  // tool adds at the end hid the text: `echo 重置密码面板令牌 | iconv -t gbk |
+  // xxd -p`, or Windows PowerShell 5.1's Set-Content or Out-File (GBK or Big5
+  // on a Chinese Windows, Windows-1251 on a Russian one) and then
+  // BitConverter, or cmd's `echo ... > file` (a space, then CRLF). A
+  // stranger who guessed the phrase reset the admin password.
+  const CODE_PAGE_PHRASES = [
+    ...DOUBLE_BYTE_PHRASES.map(([encoding, phrase, , hex]) => [`${encoding} ${phrase}`, hex]),
+    ["Russian in Windows-1251", singleByteHex("сброс пароля зомбоид", (c) => 0xc0 + c.charCodeAt(0) - 0x410)],
+    ["Ukrainian in Windows-1251", singleByteHex("скидання пароля панелі", (c) => CP1251_BEYOND_RUSSIAN[c] ?? 0xc0 + c.charCodeAt(0) - 0x410)],
+    ["Russian in KOI8-R", singleByteHex("сброс пароля панели", (c) => 0xc0 + KOI8_LETTERS.indexOf(c))],
+    // Python's cp1256 codec.
+    ["Arabic in Windows-1256", "c5dac7cfc920cadaedede420dfe1e3c920c7e1e3d1e6d1"],
+  ];
+  it.each(CODE_PAGE_PHRASES)("refuses %s as hex with the line break a tool adds at the end", (_label, hex) => {
+    for (const ending of ["0a", "0d0a", "200d0a", "0d0a0d0a"]) {
+      const withBreak = `${hex}${ending}`;
+      for (const token of [withBreak, withBreak.toUpperCase(), bytePairs(withBreak.toUpperCase()), `a${withBreak}`]) {
+        expect({ token, weakness: resetTokenWeakness(token) }).toEqual({ token, weakness: "hex-text" });
+      }
+    }
+  });
+
+  it("doesn't read random hex as text because it ends in a line break", () => {
+    const tokens = [...sample("text-hex44", HEX, 44, 5000), ...sample("text-hex28", HEX, 28, 5000)];
+    const readNow = tokens.flatMap((token) =>
+      ["0a", "0d0a"].filter((ending) => resetTokenReadsAsText(`${token}${ending}`) && !resetTokenReadsAsText(token)).map((ending) => `${token}${ending}`),
+    );
+    expect(readNow).toEqual([]);
+  });
+
+  // Round 6: the other emoji and symbols of the 16-bit range.
+  it.each([
+    ["stars", "zomboid⭐panel⭐reset"],
+    ["play and back", "▶▶▶ reset ◀◀◀"],
+    ["alarm clocks", "⏰reset⏰panel⏰"],
+    ["arrows", "↔zomboid↔reset↔"],
+    ["arrows and squares", "⬆⬆ zomboid ⬛⬛"],
+  ])("refuses a phrase with %s as UTF-16 hex", (_label, phrase) => {
+    const le = hexOf(phrase, "utf16le");
+    for (const token of [le, utf16be(phrase), bytePairs(le.toUpperCase())]) {
+      expect(token.replaceAll("-", "").length).toBeGreaterThanOrEqual(32);
+      expect(resetTokenWeakness(token)).toBe("hex-text");
+    }
+  });
+
   it("doesn't read random hex as text", () => {
     for (const token of [...sample("text-hex48", HEX, 48, 20000), ...sample("text-hex64", HEX, 64, 2000)]) {
       expect(resetTokenReadsAsText(token)).toBe(false);
@@ -403,6 +522,42 @@ describe("reset-token: the everyday Chinese, Japanese and Korean characters", ()
     // in none of the first levels.
     expect(isCommonCjkChar("殭".charCodeAt(0))).toBe(false);
     expect(isCommonCjkChar("a".charCodeAt(0))).toBe(false);
+  });
+
+  // Round 6: hex of GBK or Big5 text is read without a decoder, at the
+  // byte values of these same first levels and of their punctuation and
+  // full-width rows. Where this Node can decode them, check those bytes are
+  // these characters, and that every one of them is read as text.
+  it.skipIf(!canDecode)("are read as GBK and Big5 text at the bytes those code pages give them", () => {
+    const pairs = (leads, trails, first, last) =>
+      leads.flatMap((lead) => trails.map((trail) => [lead, trail])).filter(([lead, trail]) => {
+        const code = lead * 256 + trail;
+        return code >= first && code <= last;
+      });
+    const big5Trails = [...range(0x40, 0x7e), ...range(0xa1, 0xfe)];
+    const codePages = {
+      gbk: {
+        level1: pairs(range(0xb0, 0xd7), range(0xa1, 0xfe), 0xb0a1, 0xd7f9),
+        punctuation: [...pairs([0xa1], range(0xa1, 0xfe), 0, 0xffff), ...pairs([0xa3], range(0xa1, 0xfe), 0, 0xffff)],
+      },
+      big5: {
+        level1: pairs(range(0xa4, 0xc6), big5Trails, 0xa440, 0xc67e),
+        punctuation: pairs(range(0xa1, 0xa3), big5Trails, 0xa140, 0xa3bf),
+      },
+    };
+    expect(codePages.gbk.level1).toHaveLength(3755);
+    expect(codePages.big5.level1).toHaveLength(5401);
+    for (const [label, { level1, punctuation }] of Object.entries(codePages)) {
+      const decoder = new TextDecoder(label, { fatal: true });
+      const decode = ([lead, trail]) => decoder.decode(Uint8Array.from([lead, trail]));
+      expect(level1.map(decode).filter((char) => char.length !== 1 || !isCommonCjkChar(char.charCodeAt(0)))).toEqual([]);
+      expect(punctuation.map(decode).filter((char) => char.length !== 1)).toEqual([]);
+      const chars = [...level1, ...punctuation];
+      for (let i = 0; i < chars.length; i += 8) {
+        const token = Buffer.from(chars.slice(i, i + 8).flat()).toString("hex");
+        expect({ label, token, text: resetTokenReadsAsText(token) }).toEqual({ label, token, text: true });
+      }
+    }
   });
 });
 
@@ -589,4 +744,19 @@ describe("reading data/reset-token.txt", () => {
   ])("reads the token from a file with %s", (_label, bytes) => {
     expect(decodeResetTokenFile(bytes)).toBe(token);
   });
+});
+
+// Round 6 of the A2 verification: a test here drew 200 UUIDs and 400
+// tokens of 48 hex characters without a seed, and about 1 random UUID in
+// 15,000 is refused, so release CI failed about one run in 70. Every
+// random token in the reset-token suites comes from a fixed seed.
+describe("the reset-token suites", () => {
+  it.each(["resetTokenStrength.test.js", "resetTokenHardening.test.js", "resetTokenCheckWarmup.test.js"])(
+    "%s draws no random token without a seed",
+    (file) => {
+      const source = fs.readFileSync(new URL(file, import.meta.url), "utf8");
+      // (This line doesn't match itself: the backslashes are in the way.)
+      expect(source.match(/crypto\.random(?:Bytes|UUID|Int)\(|Math\.random\(|getRandomValues\(/g)).toBeNull();
+    },
+  );
 });
