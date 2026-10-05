@@ -85,6 +85,7 @@ describe("server-files router: unconfigured-server gate", () => {
     // server row always has both.
     getActiveServer.mockResolvedValue({
       serverName: "RealServer",
+      zomboidDataPath: "/srv/pz",
       serverConfigPath: "/srv/pz/Server",
     });
     const response = createResponse();
@@ -124,13 +125,16 @@ describe("server-files router: a configured server still resolves and reads real
 
   beforeEach(() => {
     getActiveServer.mockReset();
-    configDir = fs.mkdtempSync(path.join(os.tmpdir(), "serverfiles-configured-"));
+    // PATHS-2: a config folder is used only inside <data folder>/Server.
+    configDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "serverfiles-configured-")), "Server");
+    fs.mkdirSync(configDir);
     fs.writeFileSync(
       path.join(configDir, "RealServer_spawnpoints.lua"),
       "-- real file",
     );
     getActiveServer.mockResolvedValue({
       serverName: "RealServer",
+      zomboidDataPath: path.dirname(configDir),
       serverConfigPath: configDir,
     });
   });

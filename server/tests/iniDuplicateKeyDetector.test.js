@@ -133,6 +133,7 @@ describe("GET /server-files/ini and GET /mods/validate-config surface a real dup
     );
     getActiveServer.mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       isRemote: false,
@@ -166,6 +167,7 @@ describe("GET /server-files/ini and GET /mods/validate-config surface a real dup
     );
     getActiveServer.mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       isRemote: false,
@@ -197,6 +199,7 @@ describe("GET /server-files/ini and GET /mods/validate-config surface a real dup
     );
     getActiveServer.mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       isRemote: false,

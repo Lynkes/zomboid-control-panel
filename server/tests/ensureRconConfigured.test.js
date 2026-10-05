@@ -71,6 +71,10 @@ describe("ensureRconConfigured() -- INI path resolution", () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-rcon-"));
     const zomboidDataPath = path.join(root, "Zomboid");
     fs.mkdirSync(zomboidDataPath, { recursive: true });
+    // PATHS-1 verifier pass 2: the data folder is held to the data-folder
+    // rule wherever its config folder is resolved; one the game has run in
+    // has a Saves folder (and the root-level ini makes it fail otherwise).
+    fs.mkdirSync(path.join(zomboidDataPath, "Saves"));
     // Deliberately no Server/ subdirectory at all -- only the legacy path.
     const iniPath = path.join(zomboidDataPath, "servertest.ini");
     fs.writeFileSync(
@@ -100,6 +104,10 @@ describe("ensureRconConfigured() -- INI path resolution", () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-rcon-"));
     const zomboidDataPath = path.join(root, "Zomboid");
     fs.mkdirSync(zomboidDataPath, { recursive: true });
+    // PATHS-1 verifier pass 2: the data folder is held to the data-folder
+    // rule wherever its config folder is resolved; one the game has run in
+    // has a Saves folder (and the root-level ini makes it fail otherwise).
+    fs.mkdirSync(path.join(zomboidDataPath, "Saves"));
     const iniPath = path.join(zomboidDataPath, "serveroptions.ini");
     fs.writeFileSync(
       iniPath,
@@ -137,8 +145,14 @@ describe("ensureRconConfigured() -- INI path resolution", () => {
   it("an explicit serverConfigPath takes priority over the legacy fallbacks when an INI exists at both", async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-rcon-"));
     const zomboidDataPath = path.join(root, "Zomboid");
-    const explicitConfigPath = path.join(root, "CustomConfigDir");
+    // PATHS-2: a configured config folder is used only inside
+    // <zomboidDataPath>/Server, so the custom one sits there.
+    const explicitConfigPath = path.join(zomboidDataPath, "Server", "CustomConfigDir");
     fs.mkdirSync(zomboidDataPath, { recursive: true });
+    // PATHS-1 verifier pass 2: the data folder is held to the data-folder
+    // rule wherever its config folder is resolved; one the game has run in
+    // has a Saves folder (and the root-level ini makes it fail otherwise).
+    fs.mkdirSync(path.join(zomboidDataPath, "Saves"));
     fs.mkdirSync(explicitConfigPath, { recursive: true });
 
     const explicitIni = path.join(explicitConfigPath, "servertest.ini");

@@ -584,5 +584,8 @@
   "DISCORD_CONFIG_CAPABILITY_REQUIRED": "更改这些 Discord 设置会让他人能够使用需要 {{detail}} 的机器人命令，而您自己并不拥有这些权限项。",
   "HOST_NOT_ALLOWED": "面板登录关闭时，此面板只响应它自己的地址。请通过 IP 地址或 localhost 打开它，或在“设置 > 远程访问（CORS）”中添加此地址。",
   "SERVER_CONFIG_PATH_OUTSIDE_DATA": "服务器配置文件夹必须是此服务器 Zomboid 数据文件夹中的 Server 文件夹，或其中的某个文件夹。请先设置 Zomboid 数据文件夹，或将配置文件夹留空。",
-  "RESET_TOKEN_TOO_WEAK": "data/reset-token.txt 中的令牌可能被猜到。请换成生成器生成的随机十六进制字符串（0-9 和 a-f，如 openssl rand -hex 24 的输出）；单词、句子、数字序列以及重复或连续的字符会被拒绝。也可以在面板主机上使用找回按钮。"
+  "RESET_TOKEN_TOO_WEAK": "data/reset-token.txt 中的令牌可能被猜到。请换成生成器生成的随机十六进制字符串（0-9 和 a-f，如 openssl rand -hex 24 的输出）；单词、句子、数字序列以及重复或连续的字符会被拒绝。也可以在面板主机上使用找回按钮。",
+  "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "此 Zomboid 数据文件夹中有游戏不会放在数据文件夹里的文件，因此面板不会将其用作服务器的数据文件夹。请选择服务器自己的数据文件夹（含有 Saves 文件夹的那个）、一个空文件夹，或一个尚不存在的文件夹：游戏会在服务器首次启动时创建它。",
+  "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "远程服务器的控制台日志位于其自己的主机上，因此面板无法在此清除它。",
+  "WIPE_REMOTE_NOT_AVAILABLE": "远程服务器的世界位于其自己的主机上，因此面板无法在此清除它。"
 }

@@ -16,6 +16,11 @@ import { requirePermission, getRoleByName } from "../services/permissions.js";
 import { deleteVehiclesInBoxes } from "../utils/vehiclesDb.js";
 import { confineToRoots } from "../utils/browseRoots.js";
 import {
+  checkZomboidDataPath,
+  zomboidDataFolderHolds,
+  zomboidDataFolderRefusal,
+} from "../services/zomboidDataPath.js";
+import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
 } from "../services/lifecycleCoordinator.js";
@@ -829,6 +834,16 @@ router.post("/save-path", requirePermission("chunks.manage"), async (req, res) =
         error: "Path is empty after normalization.",
         code: ErrorCode.CHUNKS_SAVE_PATH_EMPTY,
       });
+    }
+    // SECURITY (2026-10-05, PATHS-1): resolveCustomOrDefaultDataPath()
+    // accepts any folder whose path merely says "zomboid" or "saves" (the
+    // panel's own folder, for one). What this saves is the server's data
+    // folder, so it follows the rule every data-folder setter shares
+    // (services/zomboidDataPath.js). `validated` is already expanded and
+    // resolved; the error never echoes it.
+    const dataPathCheck = checkZomboidDataPath(validated, { expand: false });
+    if (!dataPathCheck.ok) {
+      return res.status(400).json(dataPathCheck.body);
     }
 
     const activeServer = await getActiveServer();
@@ -2887,6 +2902,16 @@ router.get("/browse", requirePermission("chunks.manage"), async (req, res) => {
         error: "No Zomboid data path configured to browse",
         code: ErrorCode.BROWSE_CHUNKS_DATA_PATH_NOT_SET,
       });
+    }
+
+    // SECURITY (2026-10-05, PATHS-1): this lists every folder name under
+    // the data folder, so the folder is held to the data-folder rule
+    // (services/zomboidDataPath.js) again here, where it is used: one saved
+    // before the rule existed, or one that didn't exist when it was saved
+    // and has appeared since, is refused until it is fixed.
+    if (!zomboidDataFolderHolds(zomboidDataPath)) {
+      log.warn("Refusing chunk browse: the Zomboid data folder doesn't look like one");
+      return res.status(400).json(zomboidDataFolderRefusal());
     }
 
     const allowedRoots = [path.resolve(zomboidDataPath)];

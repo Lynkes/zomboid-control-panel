@@ -60,7 +60,13 @@ beforeAll(async () => {
   // A host folder nobody meant Server Files to reach.
   victimRoot = path.join(root, "victim-host-dir");
   victimServer = path.join(victimRoot, "Server");
-  for (const dir of [installDir, victimServer]) fs.mkdirSync(dir, { recursive: true });
+  // PATHS-1 (2026-10-05): a data folder must now look like one when it is
+  // saved and used -- POST /api/servers refuses a folder with these files and
+  // no Saves folder (dataFolderRule.test.js). With a Saves folder it does,
+  // and these files beside it are what FILES-2's roots still keep out.
+  for (const dir of [installDir, victimServer, path.join(victimRoot, "Saves")]) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
   fs.writeFileSync(path.join(victimRoot, "private-notes.txt"), "top secret\n");
   fs.writeFileSync(path.join(victimRoot, "credentials.env"), "AWS_SECRET=hunter2\n");
   fs.writeFileSync(path.join(victimRoot, "photo.png"), PNG);

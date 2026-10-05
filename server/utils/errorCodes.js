@@ -497,7 +497,9 @@ export const ErrorCode = Object.freeze({
   RCON_EXECUTE_DISCONNECTED: "RCON_EXECUTE_DISCONNECTED",
 
   /** server/routes/backup.js -- POST /api/backup/create, active server is
-   * remote (SFTP-managed), so there's no local filesystem to back up. */
+   * remote (SFTP-managed), so there's no local filesystem to back up. Also
+   * GET /download/:name, GET /:name/snapshot, DELETE /:name and POST
+   * /delete-older-than (PATHS-1, 2026-10-05). */
   BACKUP_REMOTE_NOT_AVAILABLE: "BACKUP_REMOTE_NOT_AVAILABLE",
   /** server/routes/backup.js -- GET /api/backup/download/:name,
    * getBackupsPath() returned nothing (no server configured yet). */
@@ -684,7 +686,9 @@ export const ErrorCode = Object.freeze({
    * bare no-path-separators check on the already-configured server name. */
   SERVER_NAME_FORMAT_INVALID: "SERVER_NAME_FORMAT_INVALID",
   /** server/routes/server.js (sites: /install, /quick-setup) -- optional
-   * zomboidDataPath fails isValidPath(). */
+   * zomboidDataPath fails isValidPath(). Also server/services/zomboidDataPath.js
+   * (every place a data folder is saved): not an absolute path, too long,
+   * control characters, or an existing file rather than a folder. */
   ZOMBOID_DATA_PATH_INVALID: "ZOMBOID_DATA_PATH_INVALID",
   /** server/routes/server.js (sites: /install, /quick-setup,
    * /configure-network) -- serverPort isn't an integer in [1024, 65535].
@@ -2484,6 +2488,26 @@ export const ErrorCode = Object.freeze({
    * the token itself has to be unguessable (security sweep 2026-10-05, A2). */
   RESET_TOKEN_TOO_WEAK: "RESET_TOKEN_TOO_WEAK",
   /* --- end security sweep W3: auth --- */
+  /* --- security sweep W3: server paths (sec/w3-paths) --- */
+  /** server/services/zomboidDataPath.js (400) -- a Zomboid data folder that
+   * exists but isn't one: no Saves or Multiplayer folder or save files in
+   * it, and something in it the game doesn't put in a data folder (or it is
+   * a server install folder). Sent when the folder is saved (POST/PUT
+   * /api/servers, /install, /quick-setup, create-from-discovery, chunks
+   * /save-path, PUT /config/app-settings) and when chunks /browse, Server
+   * Files or backups are about to use it (PATHS-1). */
+  ZOMBOID_DATA_PATH_NOT_DATA_FOLDER: "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER",
+  /** server/routes/server.js -- POST /api/server/console-log/clear (400):
+   * the active server is remote, so its server-console.txt is on its own
+   * host; its record's data folder isn't a folder on this computer
+   * (PATHS-1). */
+  SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE: "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE",
+  /** server/routes/server.js -- POST /api/server/wipe/preview and POST
+   * /wipe (400): the active server is remote, so its world is on its own
+   * host; its record's data folder isn't a folder on this computer
+   * (PATHS-1 verifier pass 2). */
+  WIPE_REMOTE_NOT_AVAILABLE: "WIPE_REMOTE_NOT_AVAILABLE",
+  /* --- end security sweep W3: server paths --- */
 });
 
 /**

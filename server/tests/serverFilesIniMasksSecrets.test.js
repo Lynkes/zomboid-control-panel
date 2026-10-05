@@ -103,17 +103,20 @@ function writeIni() {
 }
 
 beforeEach(() => {
-  configDir = fs.mkdtempSync(path.join(os.tmpdir(), "ini-mask-secrets-"));
+  // PATHS-2: a config folder is used only inside <data folder>/Server.
+  configDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ini-mask-secrets-")), "Server");
+  fs.mkdirSync(configDir);
   iniPath = path.join(configDir, `${SERVER_NAME}.ini`);
   writeIni();
   getActiveServer.mockReset().mockResolvedValue({
+    zomboidDataPath: path.dirname(configDir),
     serverConfigPath: configDir,
     serverName: SERVER_NAME,
   });
 });
 
 afterEach(() => {
-  fs.rmSync(configDir, { recursive: true, force: true });
+  fs.rmSync(path.dirname(configDir), { recursive: true, force: true });
 });
 
 function getIni() {

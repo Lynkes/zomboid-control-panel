@@ -88,6 +88,11 @@ describe("POST /batch-delete-disk-mods keeps Map= in sync with the deleted works
     configPath = path.join(dataRoot, "Server");
     serverPath = path.join(dataRoot, "game");
     fs.mkdirSync(configPath, { recursive: true });
+    // PATHS-1 verifier pass 2: the data folder is held to the data-folder
+    // rule wherever its config folder is resolved. This one also holds the
+    // test's game folder, which a real data folder doesn't; the Saves folder
+    // the game creates on first start makes it one.
+    fs.mkdirSync(path.join(dataRoot, "Saves"));
 
     // Workshop content: mods/<name>/mod.info (declares the mod id) and
     // mods/<name>/media/maps/<MAP_FOLDER>/ with real map tile data, exactly
@@ -115,6 +120,7 @@ describe("POST /batch-delete-disk-mods keeps Map= in sync with the deleted works
 
     getActiveServer.mockReset().mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       installPath: serverPath,

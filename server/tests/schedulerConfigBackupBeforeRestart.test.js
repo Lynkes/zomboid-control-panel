@@ -200,6 +200,10 @@ describe("Scheduler._backupConfigBeforeRestart()", () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-scheduler-backup-"));
     const zomboidDataPath = path.join(root, "Zomboid");
     fs.mkdirSync(zomboidDataPath, { recursive: true });
+    // PATHS-1 verifier pass 2: the data folder is held to the data-folder
+    // rule wherever its config folder is resolved; one the game has run in
+    // has a Saves folder (and the root-level ini makes it fail otherwise).
+    fs.mkdirSync(path.join(zomboidDataPath, "Saves"));
     // Deliberately no Server/ subdirectory -- only the legacy path, same
     // shape as the ensureRconConfigured() legacy-path regression test.
     fs.writeFileSync(
@@ -241,6 +245,10 @@ describe("Scheduler._backupConfigBeforeRestart()", () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-scheduler-backup-"));
     const zomboidDataPath = path.join(root, "Zomboid");
     fs.mkdirSync(zomboidDataPath, { recursive: true });
+    // PATHS-1 verifier pass 2: the data folder is held to the data-folder
+    // rule wherever its config folder is resolved; one the game has run in
+    // has a Saves folder (and the root-level ini makes it fail otherwise).
+    fs.mkdirSync(path.join(zomboidDataPath, "Saves"));
     fs.writeFileSync(
       path.join(zomboidDataPath, "serveroptions.ini"),
       "PVP=true\n",

@@ -85,7 +85,9 @@ const JOIN_PASSWORD = "s3cr3t-join-pass";
 let configDir;
 
 beforeEach(() => {
-  configDir = fs.mkdtempSync(path.join(os.tmpdir(), "tpl-save-secrets-"));
+  // PATHS-2: a config folder is used only inside <data folder>/Server.
+  configDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "tpl-save-secrets-")), "Server");
+  fs.mkdirSync(configDir);
   fs.writeFileSync(
     path.join(configDir, `${SERVER_NAME}.ini`),
     [
@@ -98,6 +100,7 @@ beforeEach(() => {
     ].join("\n"),
   );
   getActiveServer.mockReset().mockResolvedValue({
+    zomboidDataPath: path.dirname(configDir),
     serverConfigPath: configDir,
     serverName: SERVER_NAME,
   });
@@ -105,7 +108,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  fs.rmSync(configDir, { recursive: true, force: true });
+  fs.rmSync(path.dirname(configDir), { recursive: true, force: true });
 });
 
 function postSave(body = {}) {

@@ -8,6 +8,7 @@ import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 import { createLogger } from "../utils/logger.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { serverConfigDirOf, serverConfigDirRefusal } from "../utils/serverConfigPath.js";
 import { sanitizeErrorParams } from "../utils/sanitize.js";
 import { getServer, getSetting, setSetting } from "../database/init.js";
 import {
@@ -210,12 +211,17 @@ export async function importTemplate(json) {
   return { success: true, template: saved };
 }
 
+// SECURITY (2026-10-05, PATHS-2): applying a template writes the .ini and
+// SandboxVars.lua here, so a configured config folder is used only while it
+// is inside the server's own data folder (utils/serverConfigPath.js), and
+// only while that data folder meets the data-folder rule (PATHS-1 verifier
+// pass 2). Refused, this returns { refused: true, refusal } and the callers
+// answer with that refusal (SERVER_CONFIG_PATH_OUTSIDE_DATA or
+// ZOMBOID_DATA_PATH_NOT_DATA_FOLDER).
 function resolveServerPaths(server) {
-  const configDir = server?.serverConfigPath
-    ? server.serverConfigPath
-    : server?.zomboidDataPath
-      ? path.join(server.zomboidDataPath, "Server")
-      : null;
+  const config = serverConfigDirOf(server);
+  const configDir = config.dir;
+  if (config.refused) return { refused: true, refusal: serverConfigDirRefusal(config) };
   if (
     !configDir ||
     typeof server?.serverName !== "string" ||
@@ -264,6 +270,9 @@ export async function previewTemplate(templateId, serverId) {
   }
 
   const paths = resolveServerPaths(server);
+  if (paths?.refused) {
+    return { success: false, ...paths.refusal };
+  }
   if (!paths) {
     return {
       success: false,
@@ -370,6 +379,9 @@ export async function applyTemplate(templateId, serverId, options = {}) {
   }
 
   const paths = resolveServerPaths(server);
+  if (paths?.refused) {
+    return { success: false, ...paths.refusal };
+  }
   if (!paths) {
     return {
       success: false,

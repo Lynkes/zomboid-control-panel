@@ -86,6 +86,7 @@ describe("POST /write-to-ini: unresolved modId reporting", () => {
     // the Steam Workshop page lookup (fetch, mocked below) resolves modId.
     getActiveServer.mockReset().mockResolvedValue({
       id: "server-1",
+      zomboidDataPath: dataRoot,
       serverConfigPath: configPath,
       serverName: "TestServer",
       isRemote: false,

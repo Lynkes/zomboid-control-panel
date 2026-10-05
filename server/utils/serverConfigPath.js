@@ -1,5 +1,7 @@
 import fs from "fs";
 import path from "path";
+import { ErrorCode } from "./errorCodes.js";
+import { zomboidDataFolderHolds, zomboidDataFolderRefusal } from "../services/zomboidDataPath.js";
 
 // SECURITY (2026-10-04, FILES-2): serverConfigPath is the folder Server
 // Config reads and writes (<name>.ini, the .lua files, their .bak backups,
@@ -59,4 +61,89 @@ export function serverConfigPathIsConfined(value, zomboidDataPath) {
   }
   const anchor = resolveThroughLinks(path.join(path.resolve(zomboidDataPath), "Server"));
   return isSameOrInside(resolveThroughLinks(value), anchor);
+}
+
+// SECURITY (2026-10-05, PATHS-2): the save-time check above stops new
+// records from naming a config folder outside their data folder, but a
+// record saved before it -- or one with a config folder and no data folder,
+// or the legacy settings copy -- still reached every reader that took
+// serverConfigPath as it was: Server Files' gate held a record to the rule
+// only when it had both folders, and the other readers never did. Every
+// reader that reads or writes a server's .ini/.lua files now goes through
+// serverConfigDirOf() or activeServerConfigDir() below (or the check above,
+// directly), so they agree on which folder that is:
+//   - a config folder that is named is used only while it is inside
+//     <dataPath>/Server; otherwise it is refused, never swapped for another
+//     folder (the operator would be editing files they didn't pick);
+//   - with none named, <dataPath>/Server, as before.
+// `refused` tells a caller to answer serverConfigDirRefusal() below.
+//
+// SECURITY (2026-10-05, PATHS-1/PATHS-2 verifier pass 2): holding the
+// config folder to <dataPath>/Server protects nothing while the data folder
+// itself goes unjudged -- and a remote server's never is when it is saved
+// (its path names a folder on its own host), nor is the legacy settings
+// copy setActiveServer() made of one. So a technician saved a remote server
+// whose data folder was any folder here, and the mods routes,
+// /configure-rcon, /configure-network and the UPnP edit read and rewrote
+// <that folder>/Server/<name>.ini on this computer. The data folder in
+// effect is now held to the data-folder rule (services/zomboidDataPath.js)
+// here, where every one of those readers and writers resolves the folder:
+// refused (`reason: "data-folder"`), there is no config folder. A
+// same-host "remote" profile whose data folder is a real one keeps working,
+// and one on another host names a path that isn't here (nothing to judge).
+export function resolveServerConfigDir(configPath, dataPath) {
+  const hasDataPath = typeof dataPath === "string" && dataPath.trim() !== "";
+  if (hasDataPath && !zomboidDataFolderHolds(dataPath)) {
+    return { dir: null, refused: true, reason: "data-folder" };
+  }
+  if (configPath) {
+    return serverConfigPathIsConfined(configPath, dataPath)
+      ? { dir: configPath, refused: false, reason: null }
+      : { dir: null, refused: true, reason: "outside-data" };
+  }
+  return { dir: hasDataPath ? path.join(dataPath, "Server") : null, refused: false, reason: null };
+}
+
+const SERVER_CONFIG_PATH_OUTSIDE_DATA_MESSAGE =
+  "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.";
+
+// The response body for a config folder resolveServerConfigDir() refused:
+// SERVER_CONFIG_PATH_OUTSIDE_DATA, or ZOMBOID_DATA_PATH_NOT_DATA_FOLDER when
+// it was the data folder that failed.
+export function serverConfigDirRefusal(resolved) {
+  if (resolved?.reason === "data-folder") return zomboidDataFolderRefusal();
+  return {
+    error: SERVER_CONFIG_PATH_OUTSIDE_DATA_MESSAGE,
+    code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
+  };
+}
+
+// For log lines: why a config folder was refused.
+export function serverConfigDirRefusalReason(resolved) {
+  return resolved?.reason === "data-folder"
+    ? "the Zomboid data folder doesn't look like one"
+    : "the config folder is outside the Zomboid data folder";
+}
+
+// A server record's own config folder, held to its own data folder -- for
+// the services that act on a given server (start, scheduled restarts,
+// templates, PanelBridge delivery, backups), which may not be the active
+// one, so the legacy settings (a copy of the active server's) don't apply.
+export function serverConfigDirOf(server) {
+  return resolveServerConfigDir(server?.serverConfigPath || null, server?.zomboidDataPath || null);
+}
+
+// The active server's config folder, the legacy settings standing in for
+// what the record leaves empty -- the chain Server Files, mods and the
+// Discord presence read through (record's config folder, else
+// <record's data folder>/Server, else the legacy config folder, else
+// <legacy data folder>/Server). The config folder is held to the data
+// folder in effect: the record's, else the legacy one.
+export function activeServerConfigDir(activeServer, legacy = {}) {
+  const dataPath = activeServer?.zomboidDataPath || legacy?.zomboidDataPath || null;
+  const configPath =
+    activeServer?.serverConfigPath ||
+    (activeServer?.zomboidDataPath ? null : legacy?.serverConfigPath) ||
+    null;
+  return { ...resolveServerConfigDir(configPath, dataPath), dataPath };
 }
