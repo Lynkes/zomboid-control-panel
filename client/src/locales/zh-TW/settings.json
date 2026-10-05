@@ -486,6 +486,9 @@
     "syncIntervalLabel": "同步間隔（秒）",
     "trustNewHostKey": "信任新的主機金鑰",
     "hostKeyMismatchWarning": "SFTP 伺服器提供的主機金鑰與面板首次連線時儲存的不同。只有在你重建或重新安裝了伺服器並已向主機商確認此變更時，才應信任新金鑰——否則可能有人正在攔截連線。",
+    "hostKeySaved": "已儲存的金鑰",
+    "hostKeyPresented": "伺服器目前提供的金鑰",
+    "hostKeyCheckHint": "信任之前，請將伺服器目前提供的金鑰與主機商給你的 SHA256 指紋核對，或與 <code>ssh-keygen -lf</code> 對伺服器上 <code>/etc/ssh/ssh_host_*_key.pub</code> 檔案輸出的結果核對。",
     "verifyAndPrepare": "校驗並準備 SFTP",
     "startSftpBridge": "啟動 SFTP PanelBridge",
     "sftpRunning": "執行中",
@@ -1085,7 +1088,8 @@
     "sftpFoldersReady": {
       "title": "SFTP 資料夾已就緒"
     },
-    "sftpHostKeyForgotten": { "title": "已移除儲存的主機金鑰", "description": "面板將在下次連線時儲存伺服器目前的金鑰。" },
+    "sftpHostKeyTrusted": { "title": "已信任新的主機金鑰", "description": "面板現在只接受 {{host}} 的 {{fingerprint}}。" },
+    "sftpHostKeyTrustFailed": { "title": "未信任主機金鑰", "fallback": "無法信任新的主機金鑰。" },
     "sftpTestFailed": {
       "title": "SFTP 測試失敗",
       "fallback": "無法連線到 SFTP。"

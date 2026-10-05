@@ -486,6 +486,9 @@
     "syncIntervalLabel": "Intervalle de synchronisation (secondes)",
     "trustNewHostKey": "Faire confiance à la nouvelle clé d'hôte",
     "hostKeyMismatchWarning": "Le serveur SFTP a présenté une clé d'hôte différente de celle enregistrée par le panneau lors de sa première connexion. Ne faites confiance à la nouvelle clé que si vous avez reconstruit ou réinstallé le serveur et confirmé le changement auprès de votre hébergeur — sinon quelqu'un intercepte peut-être la connexion.",
+    "hostKeySaved": "Clé enregistrée",
+    "hostKeyPresented": "Clé présentée maintenant par le serveur",
+    "hostKeyCheckHint": "Avant de lui faire confiance, comparez la clé présentée par le serveur avec l'empreinte SHA256 fournie par votre hébergeur, ou avec ce qu'affiche <code>ssh-keygen -lf</code> pour les fichiers <code>/etc/ssh/ssh_host_*_key.pub</code> du serveur.",
     "verifyAndPrepare": "Vérifier et préparer SFTP",
     "startSftpBridge": "Démarrer le bridge SFTP",
     "sftpRunning": "en cours d'exécution",
@@ -1087,7 +1090,8 @@
     "sftpFoldersReady": {
       "title": "Dossiers SFTP prêts"
     },
-    "sftpHostKeyForgotten": { "title": "Clé d'hôte enregistrée supprimée", "description": "Le panneau enregistrera la clé actuelle du serveur à la prochaine connexion." },
+    "sftpHostKeyTrusted": { "title": "Nouvelle clé d'hôte approuvée", "description": "Le panneau n'accepte désormais que {{fingerprint}} de la part de {{host}}." },
+    "sftpHostKeyTrustFailed": { "title": "Clé d'hôte non approuvée", "fallback": "Impossible d'approuver la nouvelle clé d'hôte." },
     "sftpTestFailed": {
       "title": "Échec du test SFTP",
       "fallback": "Impossible de se connecter au SFTP."

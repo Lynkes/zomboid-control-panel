@@ -2550,10 +2550,26 @@ export interface BridgeCommandResult<T = Record<string, unknown>> {
 export const BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS = 75000;
 
 // Panel Bridge API (for direct Lua mod communication)
+// An SFTP host whose SSH host key the panel is refusing (server/services/
+// sftpHostKeys.js): the pinned key (null when the saved keys could not be
+// read) and the one the server presents now, both as SHA256:<base64>, the
+// form `ssh-keygen -lf` prints.
+export interface SftpHostKeyRefusal {
+  host: string;
+  port: number;
+  pinned: string | null;
+  presented: string;
+  reason: "mismatch" | "store-unreadable" | "store-unavailable";
+  firstSeenAt: string;
+  lastSeenAt: string;
+  attempts: number;
+}
+
 export const panelBridgeApi = {
   // Get bridge status
   getStatus: () =>
     apiGet("/panel-bridge/status") as Promise<{
+      hostKeyRefusals?: SftpHostKeyRefusal[];
       configured: boolean;
       bridgePath: string | null;
       isRunning: boolean;
@@ -2753,13 +2769,17 @@ export const panelBridgeApi = {
     nextStep: string;
   }>,
 
-  // Forget the pinned SSH host key for this host so the next connection
-  // trusts the key the server presents then ("Trust new host key").
-  forgetSftpHostKey: (target: { host: string; port: string }) =>
-    apiPost("/panel-bridge/sftp/forget-host-key", target) as Promise<{
+  // "Trust new host key": pin exactly `fingerprint` (the key the server was
+  // refused for, as the refusal reported it) for this host. The server
+  // refuses with SFTP_HOST_KEY_NOT_PRESENTED if the host presents another
+  // key by now.
+  trustSftpHostKey: (target: { host: string; port: number | string; fingerprint: string }) =>
+    apiPost("/panel-bridge/sftp/trust-host-key", target) as Promise<{
       success: boolean;
-      forgotten: boolean;
-      fingerprint: string | null;
+      host: string;
+      port: number;
+      fingerprint: string;
+      previous: string | null;
       storeReset?: boolean;
     }>,
 

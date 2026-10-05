@@ -48,6 +48,7 @@ import {
 } from "../services/configMutationGuard.js";
 import { requirePermission } from "../services/permissions.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { isHostKeyRefusal } from "../services/sftpHostKeys.js";
 
 const router = express.Router();
 
@@ -223,8 +224,14 @@ router.use(async (req, res, next) => {
   } catch (err) {
     release();
     log.error(`Remote config pull failed: ${err.message}`);
+    const error = `Could not read the remote server config folder: ${sanitizeError(err.message)}`;
+    // A refused host key gets the same code and guidance as the PanelBridge
+    // SFTP routes, which point to Settings > PanelBridge > SFTP.
     return res.status(502).json({
-      error: `Could not read the remote server config folder: ${sanitizeError(err.message)}`,
+      error,
+      ...(isHostKeyRefusal(err)
+        ? { code: ErrorCode.SFTP_HOST_KEY_MISMATCH, params: sanitizeErrorParams({ detail: error }) }
+        : {}),
     });
   }
 

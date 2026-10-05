@@ -402,6 +402,7 @@
   "SFTP_REMOTE_PATH_MISSING": "{{detail}} 修复方法：请确认远程桥接文件夹是指向 VPS 上 Lua/panelbridge/MyServer 的路径。上级路径正确后，面板会自动创建收件和发件文件夹。",
   "SFTP_PATH_OCCUPIED": "{{detail}} 修复方法：请删除或重命名占用该桥接文件路径的目录，然后重新运行“校验并准备 SFTP”。",
   "SFTP_HOST_KEY_MISMATCH": "{{detail}} 解决方法：此服务器的 SSH 主机密钥与面板首次连接时保存的不一致。如果你重建或重装了服务器，请先向服务商确认新密钥，然后在 设置 › PanelBridge › SFTP 中使用“信任新的主机密钥”。如果服务器没有任何变化，请不要信任它：可能有人正在拦截连接。",
+  "SFTP_HOST_KEY_NOT_PRESENTED": "该服务器已不再提供这个主机密钥，因此未信任任何密钥。请重新连接，然后在信任之前核对面板显示的密钥。",
   "SFTP_UNREACHABLE": "{{detail}} 修复方法：请检查 SFTP 主机、端口、防火墙设置，并确认托管服务商允许从此面板所在计算机访问 SFTP。",
   "SFTP_UNKNOWN": "{{detail}} 修复方法：请重新运行“校验并准备 SFTP”。如果仍然失败，请下载支持包并附上 sftp-diagnostics.json。",
   "UNEXPECTED_SERVER_ERROR": "{{detail}} 这是意外情况——如果问题持续出现，请下载支持包以便排查。",

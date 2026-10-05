@@ -486,6 +486,9 @@
     "syncIntervalLabel": "Intervalo de sincronización (segundos)",
     "trustNewHostKey": "Confiar en la nueva clave de host",
     "hostKeyMismatchWarning": "El servidor SFTP presentó una clave de host distinta de la que el panel guardó en su primera conexión. Confía en la nueva clave solo si reconstruiste o reinstalaste el servidor y confirmaste el cambio con tu proveedor; de lo contrario, alguien podría estar interceptando la conexión.",
+    "hostKeySaved": "Clave guardada",
+    "hostKeyPresented": "Clave que presenta ahora el servidor",
+    "hostKeyCheckHint": "Antes de confiar en ella, compara la clave que presenta ahora el servidor con la huella SHA256 que te da tu proveedor, o con lo que muestra <code>ssh-keygen -lf</code> para los archivos <code>/etc/ssh/ssh_host_*_key.pub</code> del servidor.",
     "verifyAndPrepare": "Verificar y preparar SFTP",
     "startSftpBridge": "Iniciar puente SFTP",
     "sftpRunning": "en ejecución",
@@ -1087,7 +1090,8 @@
     "sftpFoldersReady": {
       "title": "Carpetas SFTP listas"
     },
-    "sftpHostKeyForgotten": { "title": "Clave de host guardada eliminada", "description": "El panel guardará la clave actual del servidor en la próxima conexión." },
+    "sftpHostKeyTrusted": { "title": "Nueva clave de host de confianza", "description": "El panel ahora solo acepta {{fingerprint}} de {{host}}." },
+    "sftpHostKeyTrustFailed": { "title": "No se confió en la clave de host", "fallback": "No se pudo confiar en la nueva clave de host." },
     "sftpTestFailed": {
       "title": "Error en la prueba SFTP",
       "fallback": "No se pudo conectar por SFTP."

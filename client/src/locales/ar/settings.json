@@ -497,6 +497,9 @@
     "syncIntervalLabel": "فترة المزامنة (بالثواني)",
     "trustNewHostKey": "الوثوق بمفتاح المضيف الجديد",
     "hostKeyMismatchWarning": "قدّم خادم SFTP مفتاح مضيف مختلفًا عن المفتاح الذي حفظته اللوحة عند أول اتصال. لا تثق بالمفتاح الجديد إلا إذا أعدت بناء الخادم أو أعدت تثبيته وتأكدت من التغيير لدى مزوّد الاستضافة — وإلا فقد يكون هناك من يعترض الاتصال.",
+    "hostKeySaved": "المفتاح المحفوظ",
+    "hostKeyPresented": "المفتاح الذي يقدّمه الخادم الآن",
+    "hostKeyCheckHint": "قبل أن تثق به، قارن المفتاح الذي يقدّمه الخادم الآن ببصمة SHA256 التي يعطيك إياها مزوّد الاستضافة، أو بما يطبعه <code>ssh-keygen -lf</code> لملفات <code>/etc/ssh/ssh_host_*_key.pub</code> على الخادم.",
     "verifyAndPrepare": "التحقق وتهيئة SFTP",
     "startSftpBridge": "بدء جسر SFTP",
     "sftpRunning": "يعمل",
@@ -1103,7 +1106,8 @@
     "sftpFoldersReady": {
       "title": "مجلدات SFTP جاهزة"
     },
-    "sftpHostKeyForgotten": { "title": "تمت إزالة مفتاح المضيف المحفوظ", "description": "ستحفظ اللوحة المفتاح الحالي للخادم عند الاتصال التالي." },
+    "sftpHostKeyTrusted": { "title": "تم الوثوق بمفتاح المضيف الجديد", "description": "أصبحت اللوحة تقبل من {{host}} المفتاح {{fingerprint}} فقط." },
+    "sftpHostKeyTrustFailed": { "title": "لم يتم الوثوق بمفتاح المضيف", "fallback": "تعذّر الوثوق بمفتاح المضيف الجديد." },
     "sftpTestFailed": {
       "title": "فشل اختبار SFTP",
       "fallback": "تعذّر الاتصال بـ SFTP."

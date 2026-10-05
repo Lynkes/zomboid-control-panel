@@ -486,6 +486,9 @@
     "syncIntervalLabel": "同步间隔（秒）",
     "trustNewHostKey": "信任新的主机密钥",
     "hostKeyMismatchWarning": "SFTP 服务器提供的主机密钥与面板首次连接时保存的不同。只有在你重建或重装了服务器并已向服务商确认此变更时，才应信任新密钥——否则可能有人正在拦截连接。",
+    "hostKeySaved": "已保存的密钥",
+    "hostKeyPresented": "服务器当前提供的密钥",
+    "hostKeyCheckHint": "信任之前，请将服务器当前提供的密钥与服务商给你的 SHA256 指纹核对，或与 <code>ssh-keygen -lf</code> 对服务器上 <code>/etc/ssh/ssh_host_*_key.pub</code> 文件输出的结果核对。",
     "verifyAndPrepare": "校验并准备 SFTP",
     "startSftpBridge": "启动 SFTP 桥接",
     "sftpRunning": "运行中",
@@ -1085,7 +1088,8 @@
     "sftpFoldersReady": {
       "title": "SFTP 文件夹已就绪"
     },
-    "sftpHostKeyForgotten": { "title": "已删除保存的主机密钥", "description": "面板将在下次连接时保存服务器当前的密钥。" },
+    "sftpHostKeyTrusted": { "title": "已信任新的主机密钥", "description": "面板现在只接受 {{host}} 的 {{fingerprint}}。" },
+    "sftpHostKeyTrustFailed": { "title": "未信任主机密钥", "fallback": "无法信任新的主机密钥。" },
     "sftpTestFailed": {
       "title": "SFTP 测试失败",
       "fallback": "无法连接到 SFTP。"
