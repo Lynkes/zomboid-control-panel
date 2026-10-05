@@ -649,10 +649,18 @@ export class LogTailer extends EventEmitter {
   // unanchored match read that second half as Sacha's death -- a Discord
   // death notice and a player-history entry for someone who never died.
   // A bare `^\[[^\]]+\]` anchor isn't enough either, since `[` and `]` are
-  // legal in names; the strict ZLogger timestamp is enough, because a name
-  // can't contain its `.` (isValidUserName refuses that one). A name still
+  // legal in names, so the strict ZLogger timestamp is required. A name still
   // carrying a control character (a lone CR survives the line split) is
   // dropped outright rather than reported under a mangled name.
+  //
+  // That only stops an account name: isValidUserName refuses `.`, so one
+  // can't hold a whole line. A co-op (split-screen) player's name never
+  // goes through that check (ConnectCoopPacket only compares it with the
+  // names already connected), so it can carry complete, timestamped,
+  // '.'-terminated death lines for anyone, which no parsing here can tell
+  // from real ones. That is why index.js ignores these deaths while
+  // PanelBridge reports deaths itself (services/playerDeathEvents.js); this
+  // parser is the fallback when there is no bridge.
   processUserLogData(data) {
     const lines = this._splitLines(data, 'userRemainder');
     for (const line of lines) {

@@ -10,6 +10,11 @@ import { LogTailer } from "../services/logTailer.js";
 // second one read as Sacha's death: a Discord death notice and a "death"
 // entry in Sacha's player history, for someone who never died.
 //
+// This anchoring stops an ACCOUNT name only (isValidUserName refuses '.').
+// A co-op player's name skips that check and can carry whole, timestamped,
+// '.'-terminated lines -- see bridgeReportedDeathsCoopForgery.test.js for
+// that case and the PanelBridge-sourced deaths that close it.
+//
 // Every line below is built byte-for-byte the way the 42.x jar writes it:
 // IsoGameCharacter's "user " + username + " died at " +
 // LoggerManager.getPlayerCoords() ("(x,y,z)") + " (non pvp)", handed to

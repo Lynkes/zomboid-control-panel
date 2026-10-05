@@ -15,6 +15,16 @@
                     rows there and removes the old table. Global mod data
                     keeps only an opaque world id, so a wiped world still
                     starts a new leaderboard. getLeaderboard is unchanged.
+                    The move runs when the server starts, before anyone can
+                    join. Changes are saved at most once a minute, only the
+                    rows that changed are re-encoded, and the file is written
+                    to two copies in turn with an end marker, so a write cut
+                    short never replaces the last complete copy.
+                - Security: status.json lists the last player deaths
+                    (OnCharacterDeath, the event a dedicated server fires),
+                    so the panel takes deaths from the bridge instead of the
+                    game's user log, where a crafted co-op player name could
+                    forge another player's death line.
 
                 v1.7.72 Changes:
                 - Add: getCharacterSheet, a read-only command for the panel's
@@ -1514,10 +1524,18 @@ end
 -- starts a new leaderboard, as the ModData store did.
 local LEADERBOARD_LEGACY_MODDATA_KEY = "PanelBridgeLeaderboard"
 local LEADERBOARD_WORLD_MODDATA_KEY = "PanelBridgeLeaderboardWorld"
-local LEADERBOARD_FILE = "leaderboard.json"
+-- Written in turn (flushSeq odd: the first, even: the second), so a write cut
+-- short by a crash, a kill or a full disk only ever damages the copy being
+-- written; the load takes the newer complete one. Each copy ends with
+-- LEADERBOARD_END_MARKER, which a cut-short write lacks: json.decode is
+-- lenient enough to accept the front half of a file.
+local LEADERBOARD_FILES = { "leaderboard.json", "leaderboard.2.json" }
+local LEADERBOARD_END_MARKER = '"complete":true}'
 local LEADERBOARD_STORE_VERSION = 2
 -- Changes reach the file at most this often (at once after a migration).
-local LEADERBOARD_FLUSH_INTERVAL_MS = 10000
+-- Every zombie kill changes a row, so a busy server is always due; the
+-- flush re-encodes only the rows that changed since the last one.
+local LEADERBOARD_FLUSH_INTERVAL_MS = 60000
 
 local function leaderboardNow()
     if getTimestampMs then
@@ -1585,6 +1603,58 @@ local function importLegacyLeaderboard(store)
     return true
 end
 
+-- Each row's encoded text, kept with the row it was made from, so a flush
+-- re-encodes only rows ensureLeaderboardRecord() marked changed. Encoding the
+-- whole store every flush took about a second per 2000 players on the
+-- server's main thread.
+local leaderboardRowText = {}
+PanelBridge.leaderboardDirtyRows = PanelBridge.leaderboardDirtyRows or {}
+
+local function encodeLeaderboardStore(store)
+    local dirtyRows = PanelBridge.leaderboardDirtyRows or {}
+    local parts = {}
+    for key, record in pairs(store.players) do
+        if type(key) == "string" and type(record) == "table" then
+            local cached = leaderboardRowText[key]
+            if not cached or cached.record ~= record or dirtyRows[key] then
+                cached = { record = record, text = json.encode(key) .. ":" .. json.encode(record) }
+                leaderboardRowText[key] = cached
+            end
+            parts[#parts + 1] = cached.text
+        end
+    end
+    PanelBridge.leaderboardDirtyRows = {}
+    return '{"version":' .. json.encode(store.version)
+        .. ',"worldId":' .. json.encode(store.worldId)
+        .. ',"trackingStartedAt":' .. json.encode(store.trackingStartedAt)
+        .. ',"flushSeq":' .. json.encode(store.flushSeq)
+        .. ',"players":{' .. table.concat(parts, ",") .. "},"
+        .. LEADERBOARD_END_MARKER
+end
+
+-- One copy, or nil when it is missing, cut short or unreadable.
+local function readLeaderboardCopy(filename)
+    local readOk, content = pcall(PanelBridge.readFile, filename)
+    if not readOk or type(content) ~= "string" or content == "" then return nil end
+    if content:sub(-#LEADERBOARD_END_MARKER) ~= LEADERBOARD_END_MARKER then
+        PanelBridge.warn("Ignoring a leaderboard file that was not written to the end", { file = filename })
+        return nil
+    end
+    local decodeOk, decoded = pcall(json.decode, content)
+    if not decodeOk or type(decoded) ~= "table" or type(decoded.players) ~= "table" then return nil end
+    return decoded
+end
+
+local function readLeaderboardFile()
+    local first = readLeaderboardCopy(LEADERBOARD_FILES[1])
+    local second = readLeaderboardCopy(LEADERBOARD_FILES[2])
+    if first and second then
+        if (tonumber(second.flushSeq) or 0) > (tonumber(first.flushSeq) or 0) then return second end
+        return first
+    end
+    return first or second
+end
+
 -- Writes the store to the bridge folder when it changed, at most once per
 -- LEADERBOARD_FLUSH_INTERVAL_MS unless forced (a clock that went back counts
 -- as due), then removes the legacy ModData table it was migrated from.
@@ -1598,7 +1668,9 @@ function PanelBridge.flushLeaderboard(force)
     if not force and elapsed >= 0 and elapsed < LEADERBOARD_FLUSH_INTERVAL_MS then return true end
     PanelBridge.lastLeaderboardFlush = now
 
-    if not PanelBridge.writeJSON(LEADERBOARD_FILE, store) then return false end
+    store.flushSeq = (tonumber(store.flushSeq) or 0) + 1
+    local filename = LEADERBOARD_FILES[(store.flushSeq % 2 == 1) and 1 or 2]
+    if not PanelBridge.writeFile(filename, encodeLeaderboardStore(store)) then return false end
     PanelBridge.leaderboardDirty = false
     if PanelBridge.leaderboardLegacyPending then
         local removed = pcall(function() ModData.remove(LEADERBOARD_LEGACY_MODDATA_KEY) end)
@@ -1613,11 +1685,11 @@ local function getLeaderboardStore()
     end
 
     local worldId = leaderboardWorldId()
-    local readOk, saved = pcall(PanelBridge.readJSON, LEADERBOARD_FILE)
+    local saved = readLeaderboardFile()
     local store
-    if readOk and type(saved) == "table" and type(saved.players) == "table"
-        and (worldId == nil or saved.worldId == worldId) then
+    if type(saved) == "table" and (worldId == nil or saved.worldId == worldId) then
         store = saved
+        store.complete = nil
     else
         -- No file yet, or one a wiped world left behind: start over.
         store = { players = {}, trackingStartedAt = leaderboardNow() }
@@ -1682,6 +1754,7 @@ local function ensureLeaderboardRecord(store, player)
     if type(record.weaponKills) ~= "table" then record.weaponKills = {} end
     record.lastSeenAt = leaderboardNow()
     PanelBridge.leaderboardDirty = true
+    PanelBridge.leaderboardDirtyRows[key] = true
     return record, key
 end
 
@@ -1735,6 +1808,45 @@ local function recordPlayerDeath(player)
     local store = getLeaderboardStore()
     local record = ensureLeaderboardRecord(store, player)
     if record then record.deaths = record.deaths + 1 end
+end
+
+-- Player deaths for the panel (status.json's `deaths`). The panel used to
+-- read them from the game's user log only, and a co-op (split-screen) player
+-- name never goes through the server's username check: it can carry line
+-- breaks and whole fake "[timestamp] user X died at ..." lines, so a crafted
+-- name forged another player's death in the log (security sweep 2026-10-04,
+-- BRIDGE-1). Here the dead character itself is the source. A dedicated
+-- server fires OnCharacterDeath for players (IsoGameCharacter.OnDeath, just
+-- before the user log line is written); OnPlayerDeath only fires for a
+-- local player, which a server never has. The panel drops a name that
+-- carries a control character.
+local MAX_RECENT_DEATHS = 20
+PanelBridge.recentDeaths = PanelBridge.recentDeaths or {}
+PanelBridge.deathSeq = PanelBridge.deathSeq or 0
+
+function PanelBridge.onCharacterDeath(character)
+    if not character or type(instanceof) ~= "function" or not instanceof(character, "IsoPlayer") then
+        return
+    end
+    local username = PanelBridge.tryGet(character, "getUsername")
+    if type(username) ~= "string" or username == "" then return end
+    local attacker = PanelBridge.tryGet(character, "getAttackedBy")
+    local pvp = attacker ~= nil and attacker ~= character and instanceof(attacker, "IsoPlayer") or false
+    PanelBridge.deathSeq = PanelBridge.deathSeq + 1
+    table.insert(PanelBridge.recentDeaths, {
+        seq = PanelBridge.deathSeq,
+        username = username,
+        x = math.floor(tonumber(PanelBridge.tryGet(character, "getX")) or 0),
+        y = math.floor(tonumber(PanelBridge.tryGet(character, "getY")) or 0),
+        z = math.floor(tonumber(PanelBridge.tryGet(character, "getZ")) or 0),
+        pvp = pvp,
+        at = getTimestampMs(),
+    })
+    while #PanelBridge.recentDeaths > MAX_RECENT_DEATHS do
+        table.remove(PanelBridge.recentDeaths, 1)
+    end
+    -- Report it on the next tick rather than at the next 3-second status.
+    PanelBridge.lastStatusUpdate = 0
 end
 
 local function onLeaderboardZombieDead(zombie)
@@ -10383,7 +10495,11 @@ function PanelBridge.updateStatus()
             -- without comparing its clock with the game host's.
             startedAt = PanelBridge.stats.startTime,
             gameVersion = gameVersion,
-            delivery = PanelBridge.delivery
+            delivery = PanelBridge.delivery,
+            -- The last player deaths, oldest first (see onCharacterDeath).
+            -- Always sent, as [] when there are none: its presence tells
+            -- the panel this bridge reports deaths.
+            deaths = PanelBridge.recentDeaths
         }
 
         PanelBridge.writeJSON("status.json", status)
@@ -10395,6 +10511,15 @@ function PanelBridge.updateStatus()
 end
 
 function PanelBridge.onTick()
+    -- Save leaderboard changes (flushLeaderboard throttles itself). Before
+    -- the initialized check: a leaderboard moved out of global ModData at
+    -- startup keeps being retried even when the rest of the bridge didn't
+    -- come up, since the old table stays readable by players until then.
+    local leaderboardOk, leaderboardErr = pcall(PanelBridge.flushLeaderboard)
+    if not leaderboardOk then
+        PanelBridge.error("Tick error in flushLeaderboard", { error = tostring(leaderboardErr) })
+    end
+
     if not PanelBridge.initialized then return end
 
     local now = getTimestampMs()
@@ -10426,12 +10551,6 @@ function PanelBridge.onTick()
     if now - PanelBridge.lastStatusUpdate >= PanelBridge.STATUS_INTERVAL then
         PanelBridge.lastStatusUpdate = now
         pcall(PanelBridge.updateStatus)
-    end
-
-    -- Save leaderboard changes (flushLeaderboard throttles itself)
-    local leaderboardOk, leaderboardErr = pcall(PanelBridge.flushLeaderboard)
-    if not leaderboardOk then
-        PanelBridge.error("Tick error in flushLeaderboard", { error = tostring(leaderboardErr) })
     end
 end
 
@@ -10505,6 +10624,16 @@ function PanelBridge.onServerStarted()
     if not isServer() then
         print("[PanelBridge] Not running on server, disabling")
         return
+    end
+
+    -- Move a leaderboard an older bridge kept in global ModData into the
+    -- bridge folder now, before any player can join and request that table
+    -- (GlobalModData.receiveRequest answers any logged-in client). It used
+    -- to wait for the first zombie death or leaderboard read, so every
+    -- restart left it readable until then.
+    local leaderboardOk, leaderboardErr = pcall(getLeaderboardStore)
+    if not leaderboardOk then
+        PanelBridge.error("Could not load the leaderboard", { error = tostring(leaderboardErr) })
     end
 
     -- Initialize stats
@@ -10601,6 +10730,9 @@ Events.OnServerStarted.Add(PanelBridge.onServerStarted)
 Events.OnTickEvenPaused.Add(PanelBridge.onTick)
 if Events.OnPlayerDeath and Events.OnPlayerDeath.Add then
     Events.OnPlayerDeath.Add(recordPlayerDeath)
+end
+if Events.OnCharacterDeath and Events.OnCharacterDeath.Add then
+    Events.OnCharacterDeath.Add(PanelBridge.onCharacterDeath)
 end
 if Events.OnZombieDead and Events.OnZombieDead.Add then
     Events.OnZombieDead.Add(onLeaderboardZombieDead)

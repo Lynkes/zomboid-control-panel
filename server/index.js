@@ -81,6 +81,7 @@ import {
   recoverInterruptedUpdateBundle,
 } from "./services/updateBundle.js";
 import { LogTailer } from "./services/logTailer.js";
+import { createPlayerDeathRouter } from "./services/playerDeathEvents.js";
 import { DiskMonitor } from "./services/diskMonitor.js";
 import authService, { onSessionRevoked } from "./services/auth.js";
 import {
@@ -4072,9 +4073,11 @@ async function start() {
       broadcastChat(data, buildChatSocketPayload(data, `${Date.now()}-${chatMessageSeq++}`));
     });
 
-    // Player death events parsed from B42 user.txt — forward to Discord
-    // and persist as a player action so it shows up in player history.
-    logTailer.on("playerDeath", async (data) => {
+    // Player deaths -- forward to Discord and persist as a player action so
+    // they show up in player history. PanelBridge reports them when it can;
+    // the B42 user.txt lines are only the fallback, since a crafted co-op
+    // name can forge them (services/playerDeathEvents.js).
+    const handlePlayerDeath = async (data) => {
       try {
         const { logPlayerAction } = await import("./database/init.js");
         logPlayerAction(
@@ -4100,7 +4103,13 @@ async function start() {
           log.debug(`Discord playerDeath notification failed: ${err.message}`),
         );
       io.to("players").emit("player:death", data);
+    };
+    const playerDeaths = createPlayerDeathRouter({
+      bridge: panelBridge,
+      onDeath: handlePlayerDeath,
     });
+    logTailer.on("playerDeath", playerDeaths.fromUserLog);
+    panelBridge.on("playerDeath", playerDeaths.fromBridge);
 
     // Initialize scheduler first (needed by modChecker for auto-restart)
     await scheduler.init();

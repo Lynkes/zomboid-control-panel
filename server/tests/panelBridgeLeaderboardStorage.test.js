@@ -24,6 +24,8 @@ const LUA_PATH = path.join(
 );
 
 const LEADERBOARD_FILE = 'panelbridge/TestServer/leaderboard.json.txt';
+// The store is written to two copies in turn; the newest complete one wins.
+const LEADERBOARD_FILE_2 = 'panelbridge/TestServer/leaderboard.2.json.txt';
 const LEGACY_KEY = 'PanelBridgeLeaderboard';
 const WORLD_KEY = 'PanelBridgeLeaderboardWorld';
 
@@ -145,7 +147,11 @@ function modDataStores(bridge) {
 
 function leaderboardFile(bridge) {
   const files = bridge.getGlobal('FILES') ?? {};
-  return files[LEADERBOARD_FILE] ? JSON.parse(files[LEADERBOARD_FILE]) : null;
+  const copies = [LEADERBOARD_FILE, LEADERBOARD_FILE_2]
+    .filter((name) => files[name])
+    .map((name) => JSON.parse(files[name]));
+  if (copies.length === 0) return null;
+  return copies.reduce((newest, copy) => (copy.flushSeq > newest.flushSeq ? copy : newest));
 }
 
 function rowFor(result, username) {
@@ -184,6 +190,7 @@ describe('PanelBridge leaderboard storage', () => {
     }));
 
     const files = first.getGlobal('FILES');
+    expect(files[LEADERBOARD_FILE_2]).toBeUndefined();
     const second = loadPanelBridge(LUA_PATH, stubs(`
 FILES[${luaString(LEADERBOARD_FILE)}] = ${luaString(files[LEADERBOARD_FILE])}
 ModData.stores.${WORLD_KEY} = { id = ${luaString(worldId)} }
@@ -211,10 +218,10 @@ setOnline({})
 
     bridge.run('Alice.kills = 20');
     bridge.callHandler('getLeaderboard');
-    tick(bridge, 2005000);
+    tick(bridge, 2030000);
     expect(leaderboardFile(bridge).players['steam:76561198000000001'].allTimeKills).toBe(12);
 
-    tick(bridge, 2010000);
+    tick(bridge, 2060000);
     expect(leaderboardFile(bridge).players['steam:76561198000000001'].allTimeKills).toBe(20);
   });
 
@@ -270,7 +277,9 @@ setOnline({})
       version: 2,
       worldId: 'old-world',
       trackingStartedAt: 10,
+      flushSeq: 1,
       players: { 'steam:76561198000000004': { username: 'Dave', allTimeKills: 99 } },
+      complete: true,
     });
     const bridge = loadPanelBridge(LUA_PATH, stubs(`FILES[${luaString(LEADERBOARD_FILE)}] = ${luaString(oldFile)}`));
     const result = bridge.callHandler('getLeaderboard');
