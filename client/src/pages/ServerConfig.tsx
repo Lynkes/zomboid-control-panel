@@ -101,7 +101,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { PageHeader } from '@/components/PageHeader'
 // DropdownMenu imports available if needed
-import { serverApi, serverFilesApi, serversApi, panelBridgeApi, ApiError, SpawnPointsByProfession, SpawnRegion, SandboxData, ConfigTemplate, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
+import { serverApi, serverFilesApi, serversApi, panelBridgeApi, ApiError, SpawnPointsByProfession, SpawnRegion, SandboxData, ConfigTemplate, WorldSandboxSnapshot, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
 import { resolveServerRunning } from '@/lib/serverStatus'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { isDeliveryStatus, resolveLuaChecksumCallout, type LuaChecksumDelivery } from '@/lib/bridgeDeliveryView'
@@ -1178,6 +1178,11 @@ export default function ServerConfig() {
   // SandboxVars table, so the form comes back empty and the server refuses
   // structured saves (#197).
   const [sandboxParseError, setSandboxParseError] = useState<string | null>(null)
+  // GET /sandbox's worldSandboxSnapshot: the world save has a map_sand.bin,
+  // which the game applies over SandboxVars.lua on every start, so edits here
+  // are undone at the next restart until it is retired (#197).
+  const [worldSandboxSnapshot, setWorldSandboxSnapshot] = useState<WorldSandboxSnapshot | null>(null)
+  const [retiringWorldSandboxSnapshot, setRetiringWorldSandboxSnapshot] = useState(false)
   const [originalSandboxData, setOriginalSandboxData] = useState<SandboxData | null>(null)
   const [originalRawContent, setOriginalRawContent] = useState('')
 
@@ -1520,6 +1525,7 @@ export default function ServerConfig() {
       setSandboxData(sandboxRes.sandbox)
       setOriginalSandboxData(sandboxRes.sandbox)
       setSandboxParseError(('parseError' in sandboxRes && sandboxRes.parseError?.message) || null)
+      setWorldSandboxSnapshot(('worldSandboxSnapshot' in sandboxRes && sandboxRes.worldSandboxSnapshot) || null)
 
       if (paths.exists.spawnpoints) {
         const spawnRes = await serverFilesApi.getSpawnPoints(retries)
@@ -1610,6 +1616,7 @@ export default function ServerConfig() {
       const data = await serverFilesApi.getRaw(type)
       setRawContent(data.content)
       setOriginalRawContent(data.content)
+      if (type === 'sandbox') setWorldSandboxSnapshot(data.worldSandboxSnapshot ?? null)
     } catch (error) {
       toast({
         title: t('toasts.error'),
@@ -2183,6 +2190,7 @@ export default function ServerConfig() {
           setSandboxData(sandboxRes.sandbox)
           setOriginalSandboxData(sandboxRes.sandbox)
           setSandboxParseError(sandboxRes.parseError?.message || null)
+          setWorldSandboxSnapshot(sandboxRes.worldSandboxSnapshot ?? null)
         }
       } catch { /* silent refresh — local state is still valid */ }
     } catch (error) {
@@ -2426,6 +2434,46 @@ export default function ServerConfig() {
         description: getUserErrorMessage(error, t('toasts.restoreBackupFailed')),
         variant: 'destructive'
       })
+    }
+  }
+
+  // Move the world's map_sand.bin aside so the next start uses SandboxVars.lua
+  // (#197). The server refuses while the game runs; the button is disabled
+  // then too.
+  const handleRetireWorldSandboxSnapshot = async () => {
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.error'),
+        description: t('toasts.serverChangedSinceLoad'),
+        variant: 'destructive',
+      })
+      return
+    }
+    const ok = await confirm({
+      title: t('worldSandboxSnapshotBanner.confirmTitle'),
+      description: t('worldSandboxSnapshotBanner.confirmDesc'),
+      confirmLabel: t('worldSandboxSnapshotBanner.confirmLabel'),
+    })
+    if (!ok) return
+
+    setRetiringWorldSandboxSnapshot(true)
+    try {
+      const result = await serverFilesApi.retireWorldSandboxSnapshot()
+      if (result.retired && result.movedTo) {
+        toast({
+          title: t('toasts.worldSandboxSnapshotRetiredTitle'),
+          description: t('toasts.worldSandboxSnapshotRetiredDesc', { path: result.movedTo }),
+        })
+      }
+      setWorldSandboxSnapshot(null)
+    } catch (error) {
+      toast({
+        title: t('toasts.error'),
+        description: getUserErrorMessage(error, t('toasts.worldSandboxSnapshotRetireFailed')),
+        variant: 'destructive',
+      })
+    } finally {
+      setRetiringWorldSandboxSnapshot(false)
     }
   }
 
@@ -3147,6 +3195,34 @@ export default function ServerConfig() {
               <Button variant="outline" size="sm" onClick={loadModSettings} disabled={modSettingsLoading} className="shrink-0 gap-1.5">
                 <RefreshCw className="w-3.5 h-3.5" /> {t('modSettingsTab.retry')}
               </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+        {/* #197: the world save has a map_sand.bin, which the game applies
+            over SandboxVars.lua on every start, so sandbox edits made here,
+            in Raw mode, on the Mod Settings tab or in the in-game admin
+            panel are undone at the next restart. */}
+        {(activeTab === 'sandbox' || activeTab === 'modsettings') && worldSandboxSnapshot && (
+          <Alert className="mt-3 border-warning/40 bg-warning/10">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertTitle>{t('worldSandboxSnapshotBanner.title')}</AlertTitle>
+            <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span className="min-w-0">
+                {t('worldSandboxSnapshotBanner.desc', { date: new Date(worldSandboxSnapshot.mtime).toLocaleString(i18n.language) })}
+              </span>
+              <span className="flex shrink-0 flex-col items-start gap-1 sm:items-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRetireWorldSandboxSnapshot}
+                  disabled={serverMayBeRunning || retiringWorldSandboxSnapshot}
+                >
+                  {t('worldSandboxSnapshotBanner.action')}
+                </Button>
+                {serverMayBeRunning && (
+                  <span className="text-xs text-muted-foreground">{t('worldSandboxSnapshotBanner.stopFirst')}</span>
+                )}
+              </span>
             </AlertDescription>
           </Alert>
         )}

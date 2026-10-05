@@ -389,6 +389,9 @@
     "worldSaveFailedDesc": "{{option}} was applied, but the server's world save failed ({{reason}}), so it may not survive the next restart.",
     "notPersistedDesc": "{{option}} is not in SandboxVars.lua, so it will reset when the server restarts.",
     "willResetFallback": "{{option}} will reset when the server restarts.",
+    "worldSandboxSnapshotRetiredTitle": "map_sand.bin moved",
+    "worldSandboxSnapshotRetiredDesc": "Moved to {{path}}. The next start uses SandboxVars.lua.",
+    "worldSandboxSnapshotRetireFailed": "Could not move map_sand.bin.",
     "someSandboxKeysNotSavedTitle": "Some settings not saved",
     "someSandboxKeysNotSavedDesc": "The rest was saved, but these could not be written and will reset when the server restarts: {{keys}}",
     "failedToUpdateTitle": "Failed to Update",
@@ -4071,6 +4074,15 @@
   "sandboxParseErrorBanner": {
     "title": "SandboxVars.lua has a Lua error, so this form can't show it",
     "desc": "Fix it in Raw mode, run the repair under Checks & Fixes, or restore a backup. Saving from this form is blocked until then."
+  },
+  "worldSandboxSnapshotBanner": {
+    "title": "This world keeps its own copy of the sandbox settings",
+    "desc": "The world save holds a map_sand.bin, last written {{date}}. The game loads it after SandboxVars.lua on every start, so changes made here or in the in-game admin panel are undone. Stop the server and choose \"Use SandboxVars.lua\" to fix this.",
+    "action": "Use SandboxVars.lua",
+    "stopFirst": "Stop the server first.",
+    "confirmTitle": "Use SandboxVars.lua for this world?",
+    "confirmDesc": "From the next start, every sandbox setting, mod options included, comes from SandboxVars.lua. map_sand.bin is moved to the backups folder next to SandboxVars.lua, not deleted.",
+    "confirmLabel": "Use SandboxVars.lua"
   },
   "iniSecretCutAtEqualsWarning": "The game reads this value only up to the first \"=\" and ignores the rest. Use a value without \"=\".",
   "iniMisnamedKeyFileValue": "The line in the file says: {{value}}"

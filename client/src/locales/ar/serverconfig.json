@@ -495,6 +495,9 @@
     "worldSaveFailedDesc": "تم تطبيق {{option}}، لكن حفظ عالم الخادم فشل ({{reason}})، لذا قد لا يصمد بعد إعادة التشغيل التالية.",
     "notPersistedDesc": "{{option}} غير موجود في SandboxVars.lua، لذا ستُعاد قيمته الأصلية عند إعادة تشغيل الخادم.",
     "willResetFallback": "ستُعاد قيمة {{option}} الأصلية عند إعادة تشغيل الخادم.",
+    "worldSandboxSnapshotRetiredTitle": "تم نقل map_sand.bin",
+    "worldSandboxSnapshotRetiredDesc": "نُقل إلى {{path}}. سيستخدم التشغيل التالي SandboxVars.lua.",
+    "worldSandboxSnapshotRetireFailed": "تعذّر نقل map_sand.bin.",
     "someSandboxKeysNotSavedTitle": "بعض الإعدادات لم تُحفظ",
     "someSandboxKeysNotSavedDesc": "تم حفظ الباقي، لكن تعذّرت كتابة هذه الإعدادات وستُعاد قيمها الأصلية عند إعادة تشغيل الخادم: {{keys}}",
     "failedToUpdateTitle": "فشل التحديث",
@@ -4181,6 +4184,15 @@
   "sandboxParseErrorBanner": {
     "title": "يحتوي SandboxVars.lua على خطأ Lua، لذا لا يمكن لهذا النموذج عرضه",
     "desc": "أصلحه في وضع «خام»، أو شغّل الإصلاح من «الفحوصات والإصلاحات»، أو استعِد نسخة احتياطية. الحفظ من هذا النموذج محظور حتى ذلك الحين."
+  },
+  "worldSandboxSnapshotBanner": {
+    "title": "يحتفظ هذا العالم بنسخته الخاصة من إعدادات Sandbox",
+    "desc": "يحتوي حفظ العالم على ملف map_sand.bin، آخر كتابة له في {{date}}. تحمّله اللعبة بعد SandboxVars.lua عند كل تشغيل، لذا تُلغى التغييرات التي تجريها هنا أو في لوحة الإدارة داخل اللعبة. أوقف الخادم واختر «استخدام SandboxVars.lua» لإصلاح ذلك.",
+    "action": "استخدام SandboxVars.lua",
+    "stopFirst": "أوقف الخادم أولًا.",
+    "confirmTitle": "استخدام SandboxVars.lua لهذا العالم؟",
+    "confirmDesc": "بدءًا من التشغيل التالي، يأتي كل إعداد Sandbox، بما في ذلك خيارات المودات، من SandboxVars.lua. يُنقل map_sand.bin إلى مجلد النسخ الاحتياطية بجوار SandboxVars.lua، ولا يُحذف.",
+    "confirmLabel": "استخدام SandboxVars.lua"
   },
   "iniSecretCutAtEqualsWarning": "تقرأ اللعبة هذه القيمة حتى أول «=» فقط وتتجاهل الباقي. استخدم قيمة لا تحتوي على «=».",
   "iniMisnamedKeyFileValue": "محتوى السطر في الملف: {{value}}"

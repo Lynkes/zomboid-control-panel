@@ -44,6 +44,7 @@
   "SANDBOX_REPAIR_PATTERN_UNKNOWN": "Pa t kapab repare fichye sa a otomatikman — pwoblèm nan pa matche ak yon modèl konni. Retabli soti nan yon kopi sovgad oswa repare l manyèlman.",
   "SANDBOX_REPAIR_BACKUP_FAILED": "Pa t kapab fè yon kopi sovgad SandboxVars.lua anvan w repare l, kidonk anyen pa chanje: {{reason}}. Libere espas disk oswa repare pèmisyon dosye kopi sovgad la, oswa kopye fichye a apa ou menm, epi eseye ankò.",
   "SANDBOX_FILE_UNPARSEABLE": "Pa ka modifye SandboxVars.lua san danje ({{detail}}). Korije l nan editè brit la, lanse reparasyon an nan Verifikasyon ak Korije, oswa retabli yon kopi sovgad. Anyen pa t ekri.",
+  "WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE": "Sovgad mond sèvè sa a pa sou òdinatè sa a, kidonk panèl la pa ka jwenn map_sand.bin li.",
   "SPAWNPOINTS_FILE_NOT_FOUND": "Fichye pwen fè-parèt pa jwenn",
   "SPAWNPOINTS_OBJECT_REQUIRED": "Objè pwen fè-parèt obligatwa (klase pa metye)",
   "SPAWNREGIONS_FILE_NOT_FOUND": "Fichye rejyon fè-parèt pa jwenn",

@@ -44,6 +44,7 @@
   "SANDBOX_REPAIR_PATTERN_UNKNOWN": "Diese Datei konnte nicht automatisch repariert werden — die Beschädigung entspricht keinem bekannten Muster. Stelle sie aus einem Backup wieder her oder behebe das Problem manuell.",
   "SANDBOX_REPAIR_BACKUP_FAILED": "SandboxVars.lua konnte vor der Reparatur nicht gesichert werden, daher wurde nichts geändert: {{reason}}. Schaffe Speicherplatz, behebe die Berechtigungen des Backup-Ordners, oder kopiere die Datei selbst zur Seite, dann versuche es erneut.",
   "SANDBOX_FILE_UNPARSEABLE": "SandboxVars.lua kann nicht sicher bearbeitet werden ({{detail}}). Behebe den Fehler im Roh-Editor, starte die Reparatur unter „Prüfungen & Korrekturen“ oder stelle ein Backup wieder her. Es wurde nichts geschrieben.",
+  "WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE": "Der Spielstand dieses Servers liegt nicht auf diesem Computer, daher kommt das Panel nicht an seine map_sand.bin.",
   "SPAWNPOINTS_FILE_NOT_FOUND": "Spawnpunkte-Datei nicht gefunden",
   "SPAWNPOINTS_OBJECT_REQUIRED": "Spawnpunkte-Objekt erforderlich (nach Profession indiziert)",
   "SPAWNREGIONS_FILE_NOT_FOUND": "Spawnregionen-Datei nicht gefunden",

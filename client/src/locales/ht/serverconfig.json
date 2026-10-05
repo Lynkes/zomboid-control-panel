@@ -402,6 +402,9 @@
     "worldSaveFailedDesc": "{{option}} te aplike, men sovgad mond sèvè a echwe ({{reason}}), kidonk li ka pa siviv pwochen redemaraj la.",
     "notPersistedDesc": "{{option}} pa nan SandboxVars.lua, kidonk li ap reyinisyalize lè sèvè a redemare.",
     "willResetFallback": "{{option}} ap reyinisyalize lè sèvè a redemare.",
+    "worldSandboxSnapshotRetiredTitle": "map_sand.bin deplase",
+    "worldSandboxSnapshotRetiredDesc": "Deplase nan {{path}}. Pwochen demaraj la ap itilize SandboxVars.lua.",
+    "worldSandboxSnapshotRetireFailed": "Pa t kapab deplase map_sand.bin.",
     "someSandboxKeysNotSavedTitle": "Kèk paramèt pa anrejistre",
     "someSandboxKeysNotSavedDesc": "Rès la te anrejistre, men sa yo pa t kapab ekri e yo ap reyinisyalize lè sèvè a redemare: {{keys}}",
     "failedToUpdateTitle": "Pa T Kapab Mete Ajou",
@@ -4084,6 +4087,15 @@
   "sandboxParseErrorBanner": {
     "title": "SandboxVars.lua gen yon erè Lua, kidonk fòmilè sa a pa ka montre l",
     "desc": "Korije l nan mòd Bri, lanse reparasyon an nan Verifikasyon ak Korije, oswa retabli yon kopi sovgad. Jiskaske sa fèt, ou pa ka sove nan fòmilè sa a."
+  },
+  "worldSandboxSnapshotBanner": {
+    "title": "Mond sa a kenbe pwòp kopi pa l de paramèt sandbox yo",
+    "desc": "Sovgad mond lan gen yon map_sand.bin, dènye fwa li te ekri {{date}}. Jwèt la chaje l apre SandboxVars.lua chak fwa li demare, kidonk chanjman ou fè isit la oswa nan panèl administrasyon nan jwèt la ap anile. Sispann sèvè a epi chwazi \"Itilize SandboxVars.lua\" pou korije sa.",
+    "action": "Itilize SandboxVars.lua",
+    "stopFirst": "Sispann sèvè a anvan.",
+    "confirmTitle": "Itilize SandboxVars.lua pou mond sa a?",
+    "confirmDesc": "Apati pwochen demaraj la, chak paramèt sandbox, enkli opsyon mod yo, ap soti nan SandboxVars.lua. map_sand.bin ap deplase nan dosye kopi sovgad ki bò kote SandboxVars.lua, li pap efase.",
+    "confirmLabel": "Itilize SandboxVars.lua"
   },
   "iniSecretCutAtEqualsWarning": "Jwèt la li valè sa a sèlman jiska premye “=” a epi li inyore rès la. Sèvi ak yon valè ki pa gen “=”.",
   "iniMisnamedKeyFileValue": "Liy ki nan fichye a di: {{value}}"

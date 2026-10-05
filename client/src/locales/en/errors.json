@@ -44,6 +44,7 @@
   "SANDBOX_REPAIR_PATTERN_UNKNOWN": "Could not automatically repair this file — the corruption doesn't match a known pattern. Restore from a backup or fix it manually.",
   "SANDBOX_REPAIR_BACKUP_FAILED": "Could not back up SandboxVars.lua before repairing it, so nothing was changed: {{reason}}. Free up disk space or fix the backups folder's permissions, or copy the file aside yourself, then try again.",
   "SANDBOX_FILE_UNPARSEABLE": "SandboxVars.lua can't be edited safely ({{detail}}). Fix it in the raw editor, run the repair under Checks & Fixes, or restore a backup. Nothing was written.",
+  "WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE": "This server's world save is not on this computer, so the panel can't reach its map_sand.bin.",
   "SPAWNPOINTS_FILE_NOT_FOUND": "Spawn points file not found",
   "SPAWNPOINTS_OBJECT_REQUIRED": "Spawn points object required (keyed by profession)",
   "SPAWNREGIONS_FILE_NOT_FOUND": "Spawn regions file not found",

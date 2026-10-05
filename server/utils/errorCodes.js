@@ -211,6 +211,10 @@ export const ErrorCode = Object.freeze({
    * save refuses to edit it rather than write into a file the game already
    * rejects. Sends `{ detail }` (the parser's "line N: ..." message). #197. */
   SANDBOX_FILE_UNPARSEABLE: "SANDBOX_FILE_UNPARSEABLE",
+  /** server/routes/serverFiles.js -- POST /sandbox/world-snapshot/retire,
+   * the server is remote or has no data folder set, so the panel can't
+   * reach the world save's map_sand.bin. #197. */
+  WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE: "WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE",
   /** server/routes/serverFiles.js -- GET /spawnpoints, no
    * <serverName>_spawnpoints.lua at the resolved path. */
   SPAWNPOINTS_FILE_NOT_FOUND: "SPAWNPOINTS_FILE_NOT_FOUND",

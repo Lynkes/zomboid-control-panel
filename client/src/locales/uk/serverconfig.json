@@ -443,6 +443,9 @@
     "worldSaveFailedDesc": "{{option}} застосовано, але серверу не вдалося зберегти світ ({{reason}}), тож зміна може не пережити наступний перезапуск.",
     "notPersistedDesc": "{{option}} відсутнє у SandboxVars.lua, тож воно скинеться після перезапуску сервера.",
     "willResetFallback": "{{option}} скинеться після перезапуску сервера.",
+    "worldSandboxSnapshotRetiredTitle": "map_sand.bin переміщено",
+    "worldSandboxSnapshotRetiredDesc": "Переміщено до {{path}}. Наступний запуск використає SandboxVars.lua.",
+    "worldSandboxSnapshotRetireFailed": "Не вдалося перемістити map_sand.bin.",
     "someSandboxKeysNotSavedTitle": "Деякі налаштування не збережено",
     "someSandboxKeysNotSavedDesc": "Решту збережено, але ці не вдалося записати, і вони скинуться після перезапуску сервера: {{keys}}",
     "failedToUpdateTitle": "Не вдалося оновити",
@@ -4127,6 +4130,15 @@
   "sandboxParseErrorBanner": {
     "title": "У SandboxVars.lua є помилка Lua, тому ця форма не може його показати",
     "desc": "Виправте файл у режимі «Текст», запустіть відновлення в розділі «Перевірки та виправлення» або відновіть резервну копію. Доти збереження з цієї форми заблоковано."
+  },
+  "worldSandboxSnapshotBanner": {
+    "title": "Цей світ має власну копію налаштувань пісочниці",
+    "desc": "У збереженні світу є map_sand.bin, востаннє записаний {{date}}. Гра завантажує його після SandboxVars.lua під час кожного запуску, тож зміни, зроблені тут або в панелі адміністратора в грі, скасовуються. Зупиніть сервер і виберіть «Використовувати SandboxVars.lua», щоб це виправити.",
+    "action": "Використовувати SandboxVars.lua",
+    "stopFirst": "Спершу зупиніть сервер.",
+    "confirmTitle": "Використовувати SandboxVars.lua для цього світу?",
+    "confirmDesc": "Починаючи з наступного запуску, кожне налаштування пісочниці, зокрема параметри модів, братиметься з SandboxVars.lua. map_sand.bin буде переміщено до папки резервних копій поруч із SandboxVars.lua, а не видалено.",
+    "confirmLabel": "Використовувати SandboxVars.lua"
   },
   "iniSecretCutAtEqualsWarning": "Гра читає це значення лише до першого «=» і ігнорує решту. Використайте значення без «=».",
   "iniMisnamedKeyFileValue": "У рядку файлу записано: {{value}}"

@@ -2123,6 +2123,14 @@ export interface SandboxData {
   Debug?: Record<string, string | number | boolean>;
 }
 
+// The world save's map_sand.bin: its own copy of every sandbox option, which
+// the game applies over SandboxVars.lua on every start (#197). `mtime` is an
+// ISO timestamp.
+export interface WorldSandboxSnapshot {
+  path: string;
+  mtime: string;
+}
+
 export interface UtilitiesChangeResult {
   message?: string;
   power?: boolean;
@@ -2248,6 +2256,9 @@ export const serverFilesApi = {
       // Set when SandboxVars.lua does not parse or has no SandboxVars table;
       // `sandbox` is then empty.
       parseError?: { message: string; line: number; column: number };
+      // Set when the world save has a map_sand.bin, which the game applies
+      // over SandboxVars.lua on every start (#197). Local servers only.
+      worldSandboxSnapshot?: WorldSandboxSnapshot;
     }>,
   saveSandbox: (sandbox: SandboxData) =>
     apiPut("/server-files/sandbox", { sandbox }) as Promise<{
@@ -2257,6 +2268,16 @@ export const serverFilesApi = {
       path: string;
       unpersistedKeys?: string[];
       restartRequired?: boolean;
+      worldSandboxSnapshot?: WorldSandboxSnapshot;
+    }>,
+  // Moves the world's map_sand.bin into the config backups folder, so the
+  // next start uses SandboxVars.lua. 409 SERVER_RUNNING while it runs.
+  retireWorldSandboxSnapshot: () =>
+    apiPost("/server-files/sandbox/world-snapshot/retire") as Promise<{
+      success: boolean;
+      retired: boolean;
+      movedTo?: string;
+      message?: string;
     }>,
   validateSandbox: () =>
     apiGet("/server-files/sandbox/validate") as Promise<{
@@ -2299,6 +2320,8 @@ export const serverFilesApi = {
       content: string;
       path: string;
       filename: string;
+      // type "sandbox" only, same as getSandbox's.
+      worldSandboxSnapshot?: WorldSandboxSnapshot;
     }>,
   saveRaw: (
     type: "ini" | "sandbox" | "spawnpoints" | "spawnregions",

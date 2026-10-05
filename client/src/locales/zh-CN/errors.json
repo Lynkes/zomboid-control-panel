@@ -44,6 +44,7 @@
   "SANDBOX_REPAIR_PATTERN_UNKNOWN": "无法自动修复此文件——损坏情况不符合任何已知模式。请从备份还原，或手动修复。",
   "SANDBOX_REPAIR_BACKUP_FAILED": "修复前无法备份 SandboxVars.lua，因此未做任何更改：{{reason}}。请释放磁盘空间、修复备份文件夹的权限，或自行将文件复制到别处，然后重试。",
   "SANDBOX_FILE_UNPARSEABLE": "无法安全编辑 SandboxVars.lua（{{detail}}）。请在原始编辑器中修复，或在“检查与修复”中运行修复，或从备份还原。未写入任何内容。",
+  "WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE": "此服务器的世界存档不在这台计算机上，因此面板无法访问其 map_sand.bin。",
   "SPAWNPOINTS_FILE_NOT_FOUND": "未找到出生点文件",
   "SPAWNPOINTS_OBJECT_REQUIRED": "需要出生点对象（以职业为键）",
   "SPAWNREGIONS_FILE_NOT_FOUND": "未找到出生区域文件",

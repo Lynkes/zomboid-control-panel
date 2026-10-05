@@ -327,12 +327,17 @@ const LOCAL_CONFIG_MUTATIONS = new Set([
 // was trying to protect. Left gated (409 while running) deliberately,
 // pending its own evidence rather than inheriting the edit ruling by
 // assumption.
+// Retiring the world's map_sand.bin belongs here too: it swaps which copy of
+// every sandbox setting the next start uses, all at once (#197).
 // Both checks match the path the way Express's routing does (guardPathOf):
 // /RESTORE/x and /restore/x/ reach the same handler as /restore/x, so they
 // must meet the same gate (#193).
 function isLocalConfigOverwrite(req) {
   const routePath = guardPathOf(req);
   if (req.method === "POST" && /^\/templates\/[^/]+\/apply$/.test(routePath)) {
+    return true;
+  }
+  if (req.method === "POST" && routePath === "/sandbox/world-snapshot/retire") {
     return true;
   }
   return req.method === "POST" && /^\/restore\/[^/]+$/.test(routePath);
@@ -1407,6 +1412,31 @@ router.put("/ini", async (req, res) => {
   }
 });
 
+// The world save's own copy of the sandbox settings (#197). Build 42 loads
+// SandboxVars.lua, then SandboxOptions.load() reads map_sand.bin from the
+// save and applies every option in it on top, on every start. Only the
+// single-player save path (Lua saveGame()) writes it -- a vanilla dedicated
+// server never does, PanelBridge did on each live edit until #197 -- so once
+// it exists, edits to SandboxVars.lua (this editor, the in-game admin panel)
+// are undone at the next start. Without it the game falls back to
+// SandboxVars.lua. Local saves only: the SFTP mirror covers Server/, not Saves/.
+function worldSandboxSnapshotPath({ activeServer, serverName }) {
+  if (!activeServer || activeServer.isRemote || !activeServer.zomboidDataPath) return null;
+  return path.join(activeServer.zomboidDataPath, "Saves", "Multiplayer", serverName, "map_sand.bin");
+}
+
+// { path, mtime } when this world has a map_sand.bin, else null.
+async function findWorldSandboxSnapshot(context) {
+  const snapshotPath = worldSandboxSnapshotPath(context);
+  if (!snapshotPath) return null;
+  try {
+    const stats = await fs.promises.stat(snapshotPath);
+    return stats.isFile() ? { path: snapshotPath, mtime: stats.mtime.toISOString() } : null;
+  } catch {
+    return null;
+  }
+}
+
 // Get SandboxVars (parsed)
 router.get("/sandbox", async (req, res) => {
   try {
@@ -1425,12 +1455,14 @@ router.get("/sandbox", async (req, res) => {
     // empty sections plus `parseError`, so the page can still open (the INI
     // tab shares it) and PUT /sandbox refuses to edit it.
     const { sandbox, error: parseError } = sandboxSectionsFromLua(content);
+    const worldSandboxSnapshot = await findWorldSandboxSnapshot(req.activeServerContext);
 
     res.json({
       sandbox,
       path: filePath,
       serverName,
       ...(parseError ? { parseError } : {}),
+      ...(worldSandboxSnapshot ? { worldSandboxSnapshot } : {}),
     });
   } catch (error) {
     log.error("Failed to read SandboxVars:", error);
@@ -1556,6 +1588,8 @@ router.put("/sandbox", async (req, res) => {
       log.warn(`SandboxVars keys did not persist: ${unpersistedKeys.join(", ")}`);
     }
     log.info(`${fileExists ? "Saved" : "Created"} SandboxVars file`);
+    // The save landed, but a world with map_sand.bin will not use it.
+    const worldSandboxSnapshot = await findWorldSandboxSnapshot(req.activeServerContext);
     res.json({
       success: true,
       created: !fileExists,
@@ -1564,6 +1598,7 @@ router.put("/sandbox", async (req, res) => {
       ...(unpersistedKeys.length > 0 ? { unpersistedKeys } : {}),
       ...(backupWarning ? { backupWarning } : {}),
       ...(req.configEditRestartWarning ? { restartRequired: true } : {}),
+      ...(worldSandboxSnapshot ? { worldSandboxSnapshot } : {}),
     });
   } catch (error) {
     log.error("Failed to save SandboxVars:", error);
@@ -1877,6 +1912,61 @@ router.post("/sandbox/repair", async (req, res) => {
   }
 });
 
+// Move the world's map_sand.bin out of the save, so every start from now on
+// uses SandboxVars.lua (#197). Refused while the server runs
+// (isLocalConfigOverwrite). Nothing is deleted: the file goes to the config
+// backups folder under a name GET /backups doesn't list, since restoring it
+// from there would put it in Server/, where the game never reads it. With no
+// map_sand.bin, SandboxOptions.load() falls back to SandboxVars.lua, and
+// neither the server's save nor its quit writes the file again (42.21, live);
+// only Lua saveGame() does, e.g. a live edit through a pre-#197 PanelBridge.
+router.post("/sandbox/world-snapshot/retire", async (req, res) => {
+  try {
+    const { serverConfigPath: configPath, serverName } = req.activeServerContext;
+    const snapshotPath = worldSandboxSnapshotPath(req.activeServerContext);
+    if (!snapshotPath) {
+      return res.status(400).json({
+        error: "This server's world save is not on this computer, so the panel can't reach its map_sand.bin.",
+        code: ErrorCode.WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE,
+      });
+    }
+    if (!(await findWorldSandboxSnapshot(req.activeServerContext))) {
+      return res.json({
+        success: true,
+        retired: false,
+        message: "This world has no map_sand.bin, so it already uses SandboxVars.lua.",
+      });
+    }
+
+    const backupDir = await getBackupPath(configPath);
+    await fs.promises.mkdir(backupDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    let movedTo = path.join(backupDir, `${serverName}_map_sand.bin.${timestamp}.retired`);
+    for (let n = 2; fs.existsSync(movedTo); n++) {
+      movedTo = path.join(backupDir, `${serverName}_map_sand.bin.${timestamp}-${n}.retired`);
+    }
+    try {
+      await fs.promises.rename(snapshotPath, movedTo);
+    } catch (error) {
+      if (error.code !== "EXDEV") throw error;
+      // Saves/ and the config folder sit on different drives or mounts.
+      await fs.promises.copyFile(snapshotPath, movedTo, fs.constants.COPYFILE_EXCL);
+      await fs.promises.unlink(snapshotPath);
+    }
+
+    log.info(`Retired the world's sandbox copy: ${snapshotPath} -> ${movedTo}`);
+    res.json({
+      success: true,
+      retired: true,
+      movedTo,
+      message: "map_sand.bin was moved out of the world save. The next start uses SandboxVars.lua.",
+    });
+  } catch (error) {
+    log.error("Failed to retire map_sand.bin:", error);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
 // Get spawn points
 router.get("/spawnpoints", async (req, res) => {
   try {
@@ -2035,9 +2125,12 @@ router.get("/raw/:type", async (req, res) => {
     }
 
     const content = fs.readFileSync(filePath, "utf-8");
+    const worldSandboxSnapshot =
+      type === "sandbox" ? await findWorldSandboxSnapshot(req.activeServerContext) : null;
     res.json({
       content: type === "ini" ? maskSensitiveIniLines(content) : content,
       filename: fileMap[type],
+      ...(worldSandboxSnapshot ? { worldSandboxSnapshot } : {}),
     });
   } catch (error) {
     log.error("Failed to read raw file:", error);

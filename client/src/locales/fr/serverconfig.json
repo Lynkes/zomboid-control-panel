@@ -397,6 +397,9 @@
     "worldSaveFailedDesc": "{{option}} a été appliqué, mais la sauvegarde du monde du serveur a échoué ({{reason}}), elle pourrait donc ne pas survivre au prochain redémarrage.",
     "notPersistedDesc": "{{option}} n'est pas dans SandboxVars.lua, il sera donc réinitialisé au redémarrage du serveur.",
     "willResetFallback": "{{option}} sera réinitialisé au redémarrage du serveur.",
+    "worldSandboxSnapshotRetiredTitle": "map_sand.bin déplacé",
+    "worldSandboxSnapshotRetiredDesc": "Déplacé vers {{path}}. Le prochain démarrage utilise SandboxVars.lua.",
+    "worldSandboxSnapshotRetireFailed": "Impossible de déplacer map_sand.bin.",
     "someSandboxKeysNotSavedTitle": "Certains paramètres n'ont pas été enregistrés",
     "someSandboxKeysNotSavedDesc": "Le reste a été enregistré, mais ceux-ci n'ont pas pu être écrits et seront réinitialisés au redémarrage du serveur : {{keys}}",
     "failedToUpdateTitle": "Échec de la mise à jour",
@@ -4085,6 +4088,15 @@
   "sandboxParseErrorBanner": {
     "title": "SandboxVars.lua contient une erreur Lua, ce formulaire ne peut donc pas l'afficher",
     "desc": "Corrigez-le en mode Brut, lancez la réparation dans « Vérifications et corrections » ou restaurez une sauvegarde. D'ici là, l'enregistrement depuis ce formulaire est bloqué."
+  },
+  "worldSandboxSnapshotBanner": {
+    "title": "Ce monde garde sa propre copie des paramètres sandbox",
+    "desc": "La sauvegarde du monde contient un map_sand.bin, écrit pour la dernière fois le {{date}}. Le jeu le charge après SandboxVars.lua à chaque démarrage, donc les modifications faites ici ou dans le panneau d'administration en jeu sont annulées. Arrêtez le serveur et choisissez « Utiliser SandboxVars.lua » pour corriger cela.",
+    "action": "Utiliser SandboxVars.lua",
+    "stopFirst": "Arrêtez d'abord le serveur.",
+    "confirmTitle": "Utiliser SandboxVars.lua pour ce monde ?",
+    "confirmDesc": "À partir du prochain démarrage, chaque paramètre sandbox, options des mods comprises, vient de SandboxVars.lua. map_sand.bin est déplacé dans le dossier de sauvegardes à côté de SandboxVars.lua, pas supprimé.",
+    "confirmLabel": "Utiliser SandboxVars.lua"
   },
   "iniSecretCutAtEqualsWarning": "Le jeu ne lit cette valeur que jusqu'au premier « = » et ignore le reste. Utilisez une valeur sans « = ».",
   "iniMisnamedKeyFileValue": "La ligne du fichier contient : {{value}}"
