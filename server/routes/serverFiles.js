@@ -111,6 +111,19 @@ export class RemoteConfigNotConfiguredError extends Error {
 // the remote Server/ folder cannot stand in for them.
 const LOCAL_ONLY_PATHS = new Set(["/browse-files", "/image-preview"]);
 
+// The path the guards in this file compare, matched the way Express routes
+// it: case-insensitively and with or without a trailing slash (neither
+// caseSensitive nor strict routing is on). Comparing req.path exactly let
+// /RESTORE/x or /restore/x/ reach the restore handler without the "server
+// must be stopped" gate (#193).
+export function guardPathOf(req) {
+  return String(req.path || "").toLowerCase().replace(/\/+$/, "") || "/";
+}
+
+export function isLocalOnlyPath(req) {
+  return LOCAL_ONLY_PATHS.has(guardPathOf(req));
+}
+
 async function resolveRemoteConfigTransport() {
   const settings = await getAllSettings();
   if (!isRemoteConfigConfigured(settings)) return null;
@@ -179,7 +192,7 @@ router.use(async (req, res, next) => {
   const { activeServer, serverName } = req.activeServerContext;
   if (!activeServer?.isRemote) return next();
 
-  if (LOCAL_ONLY_PATHS.has(req.path.toLowerCase())) {
+  if (isLocalOnlyPath(req)) {
     return res.status(400).json({
       error:
         "Browsing the server filesystem is not available for remote servers.",
@@ -300,14 +313,15 @@ const LOCAL_CONFIG_MUTATIONS = new Set([
 // pending its own evidence rather than inheriting the edit ruling by
 // assumption.
 function isLocalConfigOverwrite(req) {
-  if (req.method === "POST" && /^\/templates\/[^/]+\/apply$/i.test(req.path)) {
+  const routePath = guardPathOf(req);
+  if (req.method === "POST" && /^\/templates\/[^/]+\/apply$/.test(routePath)) {
     return true;
   }
-  return req.method === "POST" && /^\/restore\/[^/]+$/i.test(req.path);
+  return req.method === "POST" && /^\/restore\/[^/]+$/.test(routePath);
 }
 
 function isLocalConfigEdit(req) {
-  return LOCAL_CONFIG_MUTATIONS.has(`${req.method} ${req.path.toLowerCase()}`);
+  return LOCAL_CONFIG_MUTATIONS.has(`${req.method} ${guardPathOf(req)}`);
 }
 
 export function isLocalConfigMutation(req) {
