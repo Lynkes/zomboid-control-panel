@@ -151,6 +151,25 @@ describe("the rule (services/zomboidDataPath.js)", () => {
     }
   });
 
+  // Verifier pass: inspectZomboidPath()'s hasSaveArtifacts also looks in
+  // every folder just inside, so a folder holding unrelated files and some
+  // project with a "map" folder in it passed. Save files count only directly
+  // in the folder (a world save folder); a data folder's are under Saves/.
+  it("counts save files directly in the folder, not in some folder inside it", () => {
+    const project = path.join(root, "projects-with-a-map");
+    fs.mkdirSync(path.join(project, "some-project", "map"), { recursive: true });
+    fs.writeFileSync(path.join(project, "unrelated.txt"), "x");
+    expect(checkZomboidDataPath(project).ok).toBe(false);
+    expect(checkZomboidDataPath(project).body.code).toBe(NOT_A_DATA_FOLDER);
+    expect(zomboidDataFolderHolds(project)).toBe(false);
+
+    const worldSave = path.join(root, "a-world-save");
+    fs.mkdirSync(path.join(worldSave, "map"), { recursive: true });
+    fs.writeFileSync(path.join(worldSave, "map_sand.bin"), "");
+    fs.writeFileSync(path.join(worldSave, "unrelated.txt"), "x");
+    expect(checkZomboidDataPath(worldSave).ok).toBe(true);
+  });
+
   it("refuses a server install folder, a file, a relative path and control characters", () => {
     const install = path.join(root, "ServerInstall");
     fs.mkdirSync(install, { recursive: true });

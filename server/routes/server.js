@@ -6472,10 +6472,22 @@ function filterConsoleLogLines(lines, filterLevel = "filtered") {
   });
 }
 
+// SECURITY (2026-10-05, PATHS-1): a remote server's server-console.txt is
+// on its own host. Its record's data folder names a path there, so no
+// save-time check holds it (services/zomboidDataPath.js leaves remote
+// records alone), yet the four console-log routes below read, polled and
+// truncated <that folder>/server-console.txt on this computer: servers.manage
+// could aim them at that file name in any folder here. The Console page
+// already shows a remote server's log as unavailable; the routes now agree
+// -- the readers report no file, and /clear refuses.
+
 // Get server console log content
 router.get("/console-log", requirePermission("server.world_events"), async (req, res) => {
   try {
     const activeServer = await getActiveServer();
+    if (activeServer?.isRemote) {
+      return res.json({ success: true, content: "", lines: [], exists: false });
+    }
     // server-console.txt is in zomboidDataPath (where Server/, Saves/, Logs/ are)
     const zomboidDataPath =
       activeServer?.zomboidDataPath ||
@@ -6567,6 +6579,10 @@ router.get("/console-log/error-count", requirePermission("server.world_events"),
     }
 
     const activeServer = await getActiveServer();
+    // PATHS-1: see the comment above GET /console-log.
+    if (activeServer?.isRemote) {
+      return res.json({ exists: false, count: 0, sinceStart: false });
+    }
     const zomboidDataPath =
       activeServer?.zomboidDataPath ||
       activeServer?.installPath ||
@@ -6854,6 +6870,10 @@ function consoleLogIdentityChanged(consoleLogPath, stats) {
 router.get("/console-log/stream", requirePermission("server.world_events"), async (req, res) => {
   try {
     const activeServer = await getActiveServer();
+    // PATHS-1: see the comment above GET /console-log.
+    if (activeServer?.isRemote) {
+      return res.json({ success: true, newLines: [], exists: false });
+    }
     // server-console.txt is in zomboidDataPath (where Server/, Saves/, Logs/ are)
     const zomboidDataPath =
       activeServer?.zomboidDataPath ||
@@ -6963,6 +6983,14 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
 router.post("/console-log/clear", requirePermission("server.configure"), async (req, res) => {
   try {
     const activeServer = await getActiveServer();
+    // PATHS-1: see the comment above GET /console-log.
+    if (activeServer?.isRemote) {
+      return res.status(400).json({
+        error:
+          "A remote server's console log is on its own host, so the panel can't clear it from here.",
+        code: ErrorCode.SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE,
+      });
+    }
     // server-console.txt is in zomboidDataPath (where Server/, Saves/, Logs/ are)
     const zomboidDataPath =
       activeServer?.zomboidDataPath ||

@@ -378,12 +378,26 @@ export const BACKUP_PROGRESS_ROOM = "backups";
 // (services/zomboidDataPath.js) again here, where it is used: one saved
 // before the rule existed, or one that didn't exist when it was saved and
 // has appeared since, is refused -- never swapped for the legacy setting's
-// or the panel's own folder. A remote server's folder is on another host.
+// or the panel's own folder.
+//
+// A remote server's data folder is on its own host, so none of it is here:
+// no saves or backups folder resolves for one (getSavesPath() and
+// _resolveServerDataBasePath() return null), not the legacy setting's or
+// the panel's own either. Remote records skip the save-time rule for that
+// reason, so passing them through here let servers.manage name any folder
+// on this computer as a remote server's data folder and have backups create
+// <folder>/backups and list, download and delete the .zip files in it.
 function dataFolderUsable(server, dataPath) {
-  if (server?.isRemote || zomboidDataFolderHolds(dataPath)) return true;
+  if (server?.isRemote) return false;
+  if (zomboidDataFolderHolds(dataPath)) return true;
   log.warn("Not using the Zomboid data folder for backups: it doesn't look like one");
   return false;
 }
+
+// The text routes/backup.js sends with BACKUP_REMOTE_NOT_AVAILABLE, for the
+// scheduled backup job, which reaches createBackup() without the route.
+const REMOTE_BACKUPS_MESSAGE =
+  "Backups are not available for remote servers. The server filesystem is not accessible from this panel.";
 
 export class BackupService {
   constructor() {
@@ -445,6 +459,9 @@ export class BackupService {
         activeServerOverride !== undefined
           ? activeServerOverride
           : await getActiveServer();
+
+      // PATHS-1: see dataFolderUsable() -- nothing of a remote server's is here.
+      if (activeServer?.isRemote) return null;
 
       if (activeServer?.zomboidDataPath && activeServer?.serverName) {
         if (!dataFolderUsable(activeServer, activeServer.zomboidDataPath)) return null;
@@ -521,6 +538,10 @@ export class BackupService {
       activeServerOverride !== undefined
         ? activeServerOverride
         : await getActiveServer();
+
+    // PATHS-1: see dataFolderUsable(). Also keeps a remote server from
+    // falling through to the legacy setting's folder or the panel's own.
+    if (activeServer?.isRemote) return null;
 
     if (activeServer?.zomboidDataPath) {
       return dataFolderUsable(activeServer, activeServer.zomboidDataPath)
@@ -849,6 +870,9 @@ export class BackupService {
     // duration, and /servers/:id/activate takes that same lock, so the
     // active server provably cannot change under restore already.
     const activeServer = await getActiveServer();
+    if (activeServer?.isRemote) {
+      throw new Error(REMOTE_BACKUPS_MESSAGE);
+    }
     const dataPath =
       activeServer?.zomboidDataPath || (await getSetting("zomboidDataPath"));
     if (dataPath && !dataFolderUsable(activeServer, dataPath)) {

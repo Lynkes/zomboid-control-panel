@@ -493,7 +493,9 @@ export const ErrorCode = Object.freeze({
   RCON_EXECUTE_DISCONNECTED: "RCON_EXECUTE_DISCONNECTED",
 
   /** server/routes/backup.js -- POST /api/backup/create, active server is
-   * remote (SFTP-managed), so there's no local filesystem to back up. */
+   * remote (SFTP-managed), so there's no local filesystem to back up. Also
+   * GET /download/:name, GET /:name/snapshot, DELETE /:name and POST
+   * /delete-older-than (PATHS-1, 2026-10-05). */
   BACKUP_REMOTE_NOT_AVAILABLE: "BACKUP_REMOTE_NOT_AVAILABLE",
   /** server/routes/backup.js -- GET /api/backup/download/:name,
    * getBackupsPath() returned nothing (no server configured yet). */
@@ -2484,6 +2486,11 @@ export const ErrorCode = Object.freeze({
    * /save-path, PUT /config/app-settings) and when chunks /browse, Server
    * Files or backups are about to use it (PATHS-1). */
   ZOMBOID_DATA_PATH_NOT_DATA_FOLDER: "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER",
+  /** server/routes/server.js -- POST /api/server/console-log/clear (400):
+   * the active server is remote, so its server-console.txt is on its own
+   * host; its record's data folder isn't a folder on this computer
+   * (PATHS-1). */
+  SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE: "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE",
   /* --- end security sweep W3: server paths --- */
 });
 

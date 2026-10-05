@@ -155,7 +155,10 @@ const SERVER_INSTALL_ARTIFACTS = [
   'steam_appid.txt',
 ];
 
-function looksLikeSaveDir(dir) {
+// Exported for services/zomboidDataPath.js, which asks about the folder
+// itself only -- not about every folder just inside it, as
+// inspectZomboidPath() below does.
+export function looksLikeSaveDir(dir) {
   try {
     return SAVE_ARTIFACTS.some(f => fs.existsSync(path.join(dir, f)));
   } catch { return false; }

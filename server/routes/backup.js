@@ -51,6 +51,24 @@ const requireAnyBackupCapability = requireAnyPermission(
   "backups.restore",
 );
 
+// SECURITY (2026-10-05, PATHS-1): a remote server's backups aren't on this
+// computer. /create, /restore and /upload refused one already, but the
+// routes below that read, download or delete a backup by name went on to
+// use the remote record's data folder here -- a folder no save-time check
+// holds (it names a path on the other host), so servers.manage could aim
+// them at any folder on this one. They refuse a remote server the same way
+// now, and backupService resolves no backups folder for one (its
+// dataFolderUsable()), so /list and /status show none.
+async function remoteServerBackupsRefusal() {
+  const activeServer = await getActiveServer();
+  if (!activeServer?.isRemote) return null;
+  return {
+    error:
+      "Backups are not available for remote servers. The server filesystem is not accessible from this panel.",
+    code: ErrorCode.BACKUP_REMOTE_NOT_AVAILABLE,
+  };
+}
+
 function parseBackupBoolean(value) {
   if (typeof value === "boolean") return value;
   if (value === 1 || value === "1" || value === "true") return true;
@@ -215,6 +233,8 @@ router.get("/history", requireAnyBackupCapability, async (req, res) => {
 
 router.get("/:name/snapshot", requirePermission("backups.manage"), async (req, res) => {
   try {
+    const remoteRefusal = await remoteServerBackupsRefusal();
+    if (remoteRefusal) return res.status(400).json(remoteRefusal);
     const backupService = req.app.get("backupService");
     const result = await backupService.getBackupSnapshot(req.params.name);
     if (result.success) return res.json(result);
@@ -409,6 +429,8 @@ router.post("/create", requirePermission("backups.manage"), async (req, res) => 
 router.delete("/:name", requirePermission("backups.manage"), async (req, res) => {
   try {
     log.info(`DELETE /${req.params.name}`);
+    const remoteRefusal = await remoteServerBackupsRefusal();
+    if (remoteRefusal) return res.status(400).json(remoteRefusal);
     const backupService = req.app.get("backupService");
     const result = await backupService.deleteBackup(req.params.name);
 
@@ -436,6 +458,8 @@ router.delete("/:name", requirePermission("backups.manage"), async (req, res) =>
 // filenames, then download.
 router.get("/download/:name", requirePermission("backups.download"), async (req, res) => {
   try {
+    const remoteRefusal = await remoteServerBackupsRefusal();
+    if (remoteRefusal) return res.status(400).json(remoteRefusal);
     const backupService = req.app.get("backupService");
     const backupsPath = await backupService.getBackupsPath();
 
@@ -607,6 +631,9 @@ router.post("/restore/:name", requirePermission("backups.restore"), async (req, 
 // Delete backups older than X days
 router.post("/delete-older-than", requirePermission("backups.manage"), async (req, res) => {
   try {
+    const remoteRefusal = await remoteServerBackupsRefusal();
+    if (remoteRefusal) return res.status(400).json(remoteRefusal);
+
     // continuous-bug-hunt round 23: same gap and same fix as POST
     // /settings above -- this bulk-deletes real backup files for
     // whichever server is currently active, with no way for the caller to

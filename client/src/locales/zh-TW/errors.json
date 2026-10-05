@@ -585,5 +585,6 @@
   "RESET_TOKEN_BURNED": "嘗試了太多錯誤的重設權杖，因此已刪除 data/reset-token.txt。請在伺服器上重新建立一個，然後再試一次。",
   "HOST_NOT_ALLOWED": "面板登入關閉時，此面板只回應它自己的位址。請透過 IP 位址或 localhost 開啟，或在「設定 > 允許連線來源（CORS）」中加入此位址。",
   "SERVER_CONFIG_PATH_OUTSIDE_DATA": "伺服器設定資料夾必須是此伺服器 Zomboid 資料資料夾中的 Server 資料夾，或其中的某個資料夾。請先設定 Zomboid 資料資料夾，或將設定資料夾留空。",
-  "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "此 Zomboid 資料資料夾中有遊戲不會放在資料資料夾裡的檔案，因此面板不會將其用作伺服器的資料資料夾。請選擇伺服器自己的資料資料夾（含有 Saves 資料夾的那個）、一個空資料夾，或一個尚不存在的資料夾：遊戲會在伺服器首次啟動時建立它。"
+  "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "此 Zomboid 資料資料夾中有遊戲不會放在資料資料夾裡的檔案，因此面板不會將其用作伺服器的資料資料夾。請選擇伺服器自己的資料資料夾（含有 Saves 資料夾的那個）、一個空資料夾，或一個尚不存在的資料夾：遊戲會在伺服器首次啟動時建立它。",
+  "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "遠端伺服器的主控台日誌位於其自己的主機上，因此面板無法在此清除它。"
 }

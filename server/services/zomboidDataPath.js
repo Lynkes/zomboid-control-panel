@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { ErrorCode } from "../utils/errorCodes.js";
-import { inspectZomboidPath, normalizeUserPath } from "../utils/zomboidPaths.js";
+import { inspectZomboidPath, looksLikeSaveDir, normalizeUserPath } from "../utils/zomboidPaths.js";
 
 // SECURITY (2026-10-05, PATHS-1): a server's Zomboid data folder (its
 // zomboidDataPath, the game's -cachedir) is the folder chunks /browse lists
@@ -17,14 +17,18 @@ import { inspectZomboidPath, normalizeUserPath } from "../utils/zomboidPaths.js"
 //   - an absolute path, at most 1024 characters, no control characters;
 //   - and nothing there yet (the game creates the folder on first start),
 //     or a folder that already is one: a Saves or Multiplayer folder or
-//     save files in it (inspectZomboidPath()'s on-disk checks -- not its
-//     name-only ones, which any folder whose path says "zomboid" or "saves"
-//     passes, the panel's own folder included), or nothing in it but what
-//     the game itself puts in a data folder (empty included).
+//     save files directly in it (inspectZomboidPath()'s on-disk checks --
+//     not its name-only ones, which any folder whose path says "zomboid" or
+//     "saves" passes, the panel's own folder included), or nothing in it
+//     but what the game itself puts in a data folder (empty included).
 // A server install folder is refused. The folder PZ_SAVE_PATH names comes
 // from the operator's own environment (the Docker images set it), not from
 // a request, and is taken as it is. Remote servers stay exempt at the
-// callers: their paths are on another host.
+// setters: their paths are on another host. So a remote record's data
+// folder is no folder of this computer's, and the features that use one
+// here either apply zomboidDataFolderHolds() to it (chunks /browse, Server
+// Files' image browser) or don't use a remote server's at all (backups, the
+// console-log routes).
 const ZOMBOID_DATA_PATH_MAX_LENGTH = 1024;
 const CONTROL_CHARACTERS = /[\x00-\x1f\x7f]/;
 
@@ -140,7 +144,12 @@ function judgeFolder(resolved) {
   }
   const verdict = inspectZomboidPath(resolved);
   if (verdict.reason === "install-folder") return { ok: false, reason: "install-folder" };
-  if (verdict.checks.hasSaveArtifacts) return { ok: true, missing: false };
+  // Save files directly in the folder (a world save folder), not its
+  // hasSaveArtifacts: that one also looks inside every folder just under
+  // this one, so any folder holding, say, some-project/map/ passed, whatever
+  // else it held (PATHS-1 verifier pass). A real data folder's save files
+  // sit under Saves/, which the check above already accepts.
+  if (looksLikeSaveDir(resolved)) return { ok: true, missing: false };
   let names;
   try {
     names = fs.readdirSync(resolved);

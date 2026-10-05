@@ -585,5 +585,6 @@
   "RESET_TOKEN_BURNED": "Too many wrong reset tokens were tried, so data/reset-token.txt was deleted. Create a new one on the server and try again.",
   "HOST_NOT_ALLOWED": "This panel only answers to its own addresses while panel logins are off. Open it by its IP address or localhost, or add this address under Settings > Remote Access (CORS).",
   "SERVER_CONFIG_PATH_OUTSIDE_DATA": "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
-  "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "This Zomboid data folder holds files the game doesn't keep in a data folder, so the panel won't use it as a server's data folder. Choose the server's own data folder (the one with a Saves folder), an empty folder, or a folder that doesn't exist yet: the game creates it when the server first starts."
+  "ZOMBOID_DATA_PATH_NOT_DATA_FOLDER": "This Zomboid data folder holds files the game doesn't keep in a data folder, so the panel won't use it as a server's data folder. Choose the server's own data folder (the one with a Saves folder), an empty folder, or a folder that doesn't exist yet: the game creates it when the server first starts.",
+  "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "A remote server's console log is on its own host, so the panel can't clear it from here."
 }
