@@ -340,6 +340,44 @@ describe("persistSandboxValues only writes real top-level keys", () => {
     expect(result.reason).toMatch(/ElecShut: not present in SandboxVars\.lua/);
     expect(fs.readFileSync(filePath, "utf-8")).toBe(content);
   });
+
+  // As Server Files' remote middleware does: a fresh pull into the panel's
+  // own mirror, the edit there, a push back. The local folder rule is for
+  // this computer's folders, and a remote record's never are.
+  it("writes a remote server's values in the mirror and pushes them, never in a local folder the record names", async () => {
+    const remoteConfig = await import("../services/remoteConfigFiles.js");
+    const transport = { host: "sftp.test", configPath: "/home/pz/Zomboid/Server" };
+    const mirrorDir = makeConfigDir("zcp-sandbox-197-mirror-");
+    const content = "SandboxVars = {\n    VERSION = 6,\n    WaterShut = 2,\n}\n";
+    const session = { mirrorDir };
+    fs.writeFileSync(path.join(mirrorDir, "TestServer_SandboxVars.lua"), content);
+    // No data folder: Server Files would refuse this one for a local server.
+    fs.writeFileSync(path.join(tmpDir, "TestServer_SandboxVars.lua"), content);
+    getActiveServer.mockResolvedValue({ serverName: "TestServer", serverConfigPath: tmpDir, zomboidDataPath: null, isRemote: true });
+    getAllSettings.mockResolvedValue({ panelBridgeSftpHost: "sftp.test", panelBridgeSftpConfigPath: transport.configPath });
+    vi.mocked(remoteConfig.isRemoteConfigConfigured).mockReturnValue(true);
+    vi.mocked(remoteConfig.validateRemoteConfigTransport).mockReturnValue(transport);
+    vi.mocked(remoteConfig.acquireMirrorLock).mockResolvedValue(() => {});
+    vi.mocked(remoteConfig.beginRemoteConfigSession).mockResolvedValue(session);
+    try {
+      const result = await persistSandboxValues({ WaterShut: 9 });
+
+      expect(result.persisted).toBe(true);
+      expect(remoteConfig.beginRemoteConfigSession).toHaveBeenCalledWith(transport, "TestServer", { fresh: true });
+      expect(fs.readFileSync(path.join(mirrorDir, "TestServer_SandboxVars.lua"), "utf-8")).toBe(
+        content.replace("WaterShut = 2", "WaterShut = 9"),
+      );
+      expect(remoteConfig.pushRemoteConfigFiles).toHaveBeenCalledWith(transport, "TestServer", session);
+      expect(fs.readFileSync(path.join(tmpDir, "TestServer_SandboxVars.lua"), "utf-8")).toBe(content);
+      expect(fs.existsSync(path.join(tmpDir, "backups"))).toBe(false);
+    } finally {
+      vi.mocked(remoteConfig.isRemoteConfigConfigured).mockReset().mockReturnValue(false);
+      for (const mocked of ["validateRemoteConfigTransport", "acquireMirrorLock", "beginRemoteConfigSession", "pushRemoteConfigFiles"]) {
+        vi.mocked(remoteConfig[mocked]).mockReset();
+      }
+      removeConfigDir(mirrorDir);
+    }
+  });
 });
 
 describe("GET /sandbox/validate checks what the game checks", () => {

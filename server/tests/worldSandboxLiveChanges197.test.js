@@ -439,6 +439,55 @@ describe("a server whose folders Server Config refuses (FILES-2, PATHS-1)", () =
     expect(sendCommand).toHaveBeenCalledWith("shutOffUtilities", { power: true, water: true });
     expect(body).not.toHaveProperty("worldSandboxSnapshot");
     expect(statsUnder(path.join(dataDir, "Saves"))).toEqual([]);
+    expect(body.persisted).toBe(false);
+    expect(readSandboxVars()).toBe(SANDBOX);
+  });
+
+  // SECURITY: Events > Power and water writes SandboxVars.lua through
+  // persistSandboxValues(), outside Server Files' router, so its gate never
+  // judged the folder: one Server Config refuses was written to anyway, with
+  // a backups folder made beside it. server.world_events is enough for these
+  // routes, and the seeded moderator has it.
+  it.each([
+    [
+      "/utilities/restore",
+      "a config folder outside its data folder",
+      /must be the Server folder inside this server's Zomboid data folder/,
+      () => {
+        const elsewhere = path.join(otherDir, "Server");
+        fs.mkdirSync(elsewhere);
+        fs.writeFileSync(path.join(elsewhere, "DoB_SandboxVars.lua"), SANDBOX);
+        state.activeServer = { ...state.activeServer, serverConfigPath: elsewhere };
+        return elsewhere;
+      },
+    ],
+    [
+      "/utilities/shutoff",
+      "a config folder with no data folder to anchor it",
+      /must be the Server folder inside this server's Zomboid data folder/,
+      () => {
+        state.activeServer = { ...state.activeServer, zomboidDataPath: null };
+        return configDir;
+      },
+    ],
+    [
+      "/utilities/shutoff",
+      "a data folder the data-folder rule refuses",
+      /holds files the game doesn't keep in a data folder/,
+      () => {
+        fs.writeFileSync(path.join(dataDir, "notes.txt"), "not the game's");
+        return configDir;
+      },
+    ],
+  ])("%s writes nothing to %s, and says why", async (route, _label, reason, setUp) => {
+    const folder = setUp();
+
+    const body = await post(route, { power: true, water: true }, "moderator");
+
+    expect(sendCommand).toHaveBeenCalledTimes(1);
+    expect(body).toMatchObject({ persisted: false, persistReason: expect.stringMatching(reason) });
+    expect(fs.readFileSync(path.join(folder, "DoB_SandboxVars.lua"), "utf8")).toBe(SANDBOX);
+    expect(fs.existsSync(path.join(folder, "backups"))).toBe(false);
   });
 
   it("a data folder the data-folder rule refuses", async () => {

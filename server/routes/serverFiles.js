@@ -42,7 +42,7 @@ import {
   readIniLineAsGame,
 } from "../utils/iniGameView.js";
 import { confineToRoots } from "../utils/browseRoots.js";
-import { serverConfigPathIsConfined } from "../utils/serverConfigPath.js";
+import { serverConfigDirRefusal, serverConfigPathIsConfined } from "../utils/serverConfigPath.js";
 import {
   describeRefusal,
   logRefusalOnce,
@@ -231,26 +231,33 @@ router.use(async (req, res, next) => {
   // folder, then at debug.
   const { activeServer, serverConfigPath, zomboidDataPath } = req.activeServerContext;
   if (!activeServer?.isRemote) {
-    if (!serverConfigPathIsConfined(serverConfigPath, zomboidDataPath)) {
-      const refusal = {
-        error:
-          "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
-        code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
-      };
+    const refusal = localServerFolderRefusal(req.activeServerContext);
+    if (refusal) {
       logRefusalOnce(
         log,
         `Refusing Server Files access to ${serverConfigPath || "the default config folder"} (Zomboid data folder: ${zomboidDataPath || "not set"}): ${describeRefusal(refusal)}`,
       );
       return res.status(400).json(refusal);
     }
-    if (!zomboidDataFolderHolds(zomboidDataPath)) {
-      const refusal = zomboidDataFolderRefusal();
-      logRefusalOnce(log, `Refusing Server Files access (Zomboid data folder: ${zomboidDataPath || "not set"}): ${describeRefusal(refusal)}`);
-      return res.status(400).json(refusal);
-    }
   }
   next();
 });
+
+// The folder rule above, for a local server's folders as
+// getActiveServerPaths() resolves them: the config folder inside the data
+// folder in effect's Server folder (FILES-2, PATHS-2), and that data folder
+// meeting the data-folder rule (PATHS-1). The refusal body, or null when
+// both are usable. persistSandboxValues() applies it too: PanelBridge's
+// writes never pass through this router.
+function localServerFolderRefusal({ serverConfigPath, zomboidDataPath }) {
+  if (!serverConfigPathIsConfined(serverConfigPath, zomboidDataPath)) {
+    return serverConfigDirRefusal({ reason: "outside-data" });
+  }
+  if (!zomboidDataFolderHolds(zomboidDataPath)) {
+    return zomboidDataFolderRefusal();
+  }
+  return null;
+}
 
 // A remote server has no local filesystem, but its Server/ folder is reachable
 // over the SFTP credentials PanelBridge already uses. Mirror it in before the
@@ -1795,7 +1802,9 @@ export async function persistSandboxValues(values) {
 
   const activeServer = await getActiveServer();
   // Called from the PanelBridge routes, outside the mirror middleware, so a
-  // remote server has to pull and push around its own write.
+  // remote server has to pull and push around its own write. As there, the
+  // write goes to the panel's own mirror of the remote Server/ folder; the
+  // local folders a remote record names are never used.
   if (activeServer?.isRemote) {
     const transport = await resolveRemoteConfigTransport();
     if (!transport) {
@@ -1820,8 +1829,20 @@ export async function persistSandboxValues(values) {
   }
 
   try {
-    const { serverConfigPath, serverName } = await getActiveServerPaths();
-    return await writeSandboxValues(entries, serverConfigPath, serverName);
+    const context = await getActiveServerPaths();
+    // SECURITY (2026-10-05, PR #200 review): the router's gate never sees
+    // this write (POST /panel-bridge/utilities/restore and /shutoff, under
+    // server.world_events), so it applies the gate's folder rule itself. A
+    // config folder Server Config refuses is neither written nor backed up.
+    const refusal = localServerFolderRefusal(context);
+    if (refusal) {
+      logRefusalOnce(
+        log,
+        `Not writing sandbox values to ${context.serverConfigPath} (Zomboid data folder: ${context.zomboidDataPath || "not set"}): ${describeRefusal(refusal)}`,
+      );
+      return { persisted: false, reason: refusal.error };
+    }
+    return await writeSandboxValues(entries, context.serverConfigPath, context.serverName);
   } catch (err) {
     if (err instanceof ServerNotConfiguredError) {
       return { persisted: false, reason: "no server configured" };
