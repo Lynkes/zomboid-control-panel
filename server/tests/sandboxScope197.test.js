@@ -425,3 +425,52 @@ describe("a string continued over a CRLF line break is not corruption", () => {
     expect(fs.readFileSync(sandboxPath, "utf-8")).toBe(continued);
   });
 });
+
+describe("PUT /sandbox with nothing to change writes nothing", () => {
+  let tmpDir;
+  let sandboxPath;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-sandbox-197-noop-"));
+    sandboxPath = path.join(tmpDir, "TestServer_SandboxVars.lua");
+    getActiveServer.mockReset();
+    getAllSettings.mockReset();
+    getAllSettings.mockResolvedValue({});
+    getActiveServer.mockResolvedValue({ serverConfigPath: tmpDir, serverName: "TestServer" });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const backups = () =>
+    fs.existsSync(path.join(tmpDir, "backups")) ? fs.readdirSync(path.join(tmpDir, "backups")) : [];
+
+  // A file saved from a cp1252 editor: "café" with a lone 0xE9 byte. Reading
+  // it as UTF-8 turns that byte into U+FFFD, so a rewrite used to change it
+  // on every save, and every save also took a backup.
+  it("takes no backup and keeps the bytes, even ones that are not valid UTF-8", async () => {
+    const bytes = Buffer.concat([
+      Buffer.from('SandboxVars = {\n    VERSION = 6,\n    ServerWelcome = "caf'),
+      Buffer.from([0xe9]),
+      Buffer.from('",\n    Zombies = 4,\n}\n'),
+    ]);
+    fs.writeFileSync(sandboxPath, bytes);
+
+    const got = await runHandler("/sandbox", "get", { body: {} });
+    const res = await runHandler("/sandbox", "put", { body: { sandbox: got.json.mock.calls[0][0].sandbox } });
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+    expect(res.json.mock.calls[0][0].unpersistedKeys).toBeUndefined();
+    expect(fs.readFileSync(sandboxPath).equals(bytes)).toBe(true);
+    expect(backups()).toEqual([]);
+  });
+
+  it("still backs up and writes when a value changes", async () => {
+    const content = "SandboxVars = {\n    VERSION = 6,\n    Zombies = 4,\n}\n";
+    fs.writeFileSync(sandboxPath, content);
+    const res = await runHandler("/sandbox", "put", { body: { sandbox: { settings: { Zombies: 2 } } } });
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+    expect(fs.readFileSync(sandboxPath, "utf-8")).toBe(content.replace("Zombies = 4", "Zombies = 2"));
+    expect(backups()).toHaveLength(1);
+  });
+});

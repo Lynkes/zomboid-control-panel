@@ -1498,8 +1498,10 @@ router.put("/sandbox", async (req, res) => {
     await withFileLock(filePath, async () => {
       fileExists = fs.existsSync(filePath);
       let newContent;
+      let unchanged = false;
       if (fileExists) {
-        const plan = planSandboxChanges(fs.readFileSync(filePath, "utf-8"), sandbox);
+        const originalContent = fs.readFileSync(filePath, "utf-8");
+        const plan = planSandboxChanges(originalContent, sandbox);
         if (!plan.ok) {
           parseError = plan.error;
           return;
@@ -1510,6 +1512,10 @@ router.put("/sandbox", async (req, res) => {
           );
         }
         newContent = plan.content;
+        // Nothing to change: no backup, no rewrite. A rewrite would also turn
+        // bytes that are not valid UTF-8 (a file saved from a cp1252 editor)
+        // into U+FFFD.
+        unchanged = newContent === originalContent;
       } else {
         newContent = createSandboxVars(sandbox);
         const check = validateSandboxLua(newContent);
@@ -1518,12 +1524,14 @@ router.put("/sandbox", async (req, res) => {
           return;
         }
       }
-      if (fileExists) {
-        backupWarning = backupWarningFor(
-          await createBackup(configPath, `${serverName}_SandboxVars.lua`),
-        );
+      if (!unchanged) {
+        if (fileExists) {
+          backupWarning = backupWarningFor(
+            await createBackup(configPath, `${serverName}_SandboxVars.lua`),
+          );
+        }
+        writeFileAtomic(filePath, newContent, "utf-8");
       }
-      writeFileAtomic(filePath, newContent, "utf-8");
 
       // Without this read-back, a key the writer couldn't place was silently
       // dropped and this route still reported success (this route's own PUT
