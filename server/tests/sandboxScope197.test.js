@@ -346,8 +346,6 @@ describe("GET /sandbox/validate checks what the game checks", () => {
 });
 
 describe("POST /sandbox/repair never writes a file that does not parse", () => {
-  // Today's repair heuristic is kept as it was; only its success check
-  // changed from "braces balance" to "the result parses".
   it("rejects a repair that balances the braces but still is not valid Lua", () => {
     const broken = [
       "SandboxVars = {",
@@ -361,14 +359,64 @@ describe("POST /sandbox/repair never writes a file that does not parse", () => {
     expect(repairSandboxSyntax(broken).fixed).toBe(false);
   });
 
-  it("still repairs the plain #197 corruption into a file that parses", () => {
-    const repaired = repairSandboxSyntax(corrupt(issue197File({ nestedFirst: true, eol: "\n" })));
+});
+
+// The repair used to wrap the damaged line in "_RepairedBlock1 = { ... }".
+// The file loaded, but the game found no Explosives table, so the mod's
+// options went back to their defaults; with a damaged root line the game
+// found no SandboxVars at all. It now puts the "{" back.
+describe("POST /sandbox/repair puts back the '{' the #197 bug overwrote", () => {
+  it.each(cases)("gives back the file as it was before the damage (%s)", (_label, shape) => {
+    const original = issue197File(shape);
+    const repaired = repairSandboxSyntax(corrupt(original));
     expect(repaired.fixed).toBe(true);
-    expect(parseSandboxVars(repaired.content)._RepairedBlock1).toEqual({
-      Explosives: 1,
-      VanillaBallisticsEnabled: false,
-      LootMultiplier: 1,
-    });
+    expect(repaired.content).toBe(original);
+    expect(repaired.changes).toEqual([expect.stringMatching(/^Line \d+: 'Explosives = 1'/)]);
+  });
+
+  it.each([
+    [
+      "a vanilla block",
+      ["SandboxVars = {", "    VERSION = 6,", "    ZombieLore = 2", "        Speed = 2,", "    },", "}", ""],
+      2,
+    ],
+    [
+      "the root line",
+      ["SandboxVars = 1", "    VERSION = 6,", "    ZombieLore = {", "        Speed = 2,", "    },", "}", ""],
+      0,
+    ],
+    [
+      "a line with a comment, keeping the comment",
+      ["SandboxVars = {", "    VERSION = 6,", '    ZombieLore = "x" -- zombies', "        Speed = 2,", "    },", "}", ""],
+      2,
+    ],
+  ])("restores %s", (_label, lines, at) => {
+    const original = [...lines];
+    original[at] = original[at].replace(/= (\d+|"x")/, "= {");
+    const repaired = repairSandboxSyntax(lines.join("\n"));
+    expect(repaired.fixed).toBe(true);
+    expect(repaired.content).toBe(original.join("\n"));
+    expect(parseSandboxVars(repaired.content)).toEqual(
+      expect.objectContaining({ VERSION: 6, ZombieLore: { Speed: 2 } }),
+    );
+  });
+
+  it("writes the restored file through the route, after a backup", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-sandbox-197-restore-"));
+    try {
+      const sandboxPath = path.join(tmpDir, "TestServer_SandboxVars.lua");
+      const original = issue197File({ nestedFirst: false, eol: "\r\n" });
+      fs.writeFileSync(sandboxPath, corrupt(original));
+      getActiveServer.mockResolvedValue({ serverConfigPath: tmpDir, serverName: "TestServer" });
+      getAllSettings.mockResolvedValue({});
+
+      const res = await runHandler("/sandbox/repair", "post", {});
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: true, repaired: true }));
+      expect(fs.readFileSync(sandboxPath, "utf-8")).toBe(original);
+      expect(fs.readdirSync(path.join(tmpDir, "backups"))).toHaveLength(1);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
 

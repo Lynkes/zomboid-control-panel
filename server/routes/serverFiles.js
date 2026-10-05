@@ -860,38 +860,41 @@ export function checkSandboxBraceBalance(content) {
   return countSandboxBraces(content);
 }
 
-// Attempt to auto-repair the most common SandboxVars.lua corruption pattern:
-// a nested block's "<Name> = {" header line (and the trailing comma on the
-// first entry) got dropped somewhere upstream (mod schema migration, manual
-// editing, etc.), leaving an orphaned scalar entry at a shallower indent
-// than its former siblings — with the original closing "}" still present
-// further down. That desyncs the whole file's brace count and makes PZ's
-// Lua loader refuse to parse the file at all.
+// Repair the damage #197 left in files: a table's opening line "<Name> = {"
+// with its "{" overwritten by a value ("Explosives = 1"). The table's
+// entries and its closing "}" are still below it, indented one level deeper,
+// so the file has one "}" too many and the game refuses to load it.
 //
-// Repair strategy: whenever a scalar "key = value" line (no trailing comma)
-// is immediately followed by a more-deeply-indented entry line, treat it as
-// an orphaned block opener. Add the missing comma and synthesize a wrapper
-// table around it so the existing (now-dangling) closing brace has
-// something to match again. This is deliberately conservative — it never
-// deletes or reinterprets existing content, only restores brace balance —
-// and every attempt has to parse cleanly before anything is written.
+// Repair: a "key = value" line with no trailing comma, followed by an entry
+// indented deeper than it, gets "{" back in place of its value. Nothing else
+// in the file changes, line endings included. The value is dropped: it is
+// what the old writer put over the "{", and the table under its real name
+// is what the game reads. (This used to wrap the line in a synthetic
+// "_RepairedBlockN = { ... }" table instead. The file then loaded, but the
+// game found no table under the real name, so every option in it went back
+// to its default and was dropped when the game next saved the file; a
+// damaged "SandboxVars = 1" root line ended up inside the wrapper.) Nothing
+// is written unless the result is a file the game loads.
 export function repairSandboxSyntax(content) {
   const before = checkSandboxBraceBalance(content);
   if (before.balanced) {
     return { content, fixed: false, changes: [] };
   }
 
-  const lines = content.split(/\r?\n/);
+  // Split after each "\n" so every line keeps its own line ending.
+  const lines = content.split(/(?<=\n)/);
+  const text = (line) => line.replace(/\r?\n$/, "");
   const changes = [];
+  // 1: everything up to the value, 2: indent, 3: key, 4: value, 5: the rest.
   const scalarLine =
-    /^(\s*)(\w+)\s*=\s*("(?:[^"\\]|\\.)*"|true|false|-?\d+(?:\.\d+)?)\s*(--.*)?$/;
+    /^((\s*)(\w+)\s*=\s*)("(?:[^"\\]|\\.)*"|true|false|-?\d+(?:\.\d+)?)(\s*(?:--.*)?)$/;
   const entryLine = /^(\s*)(\w+)\s*=\s*/;
-  let syntheticCounter = 0;
 
   for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(scalarLine);
+    const line = text(lines[i]);
+    const m = line.match(scalarLine);
     if (!m) continue;
-    const indent = m[1];
+    const indent = m[2];
 
     // Find the next non-blank, non-comment line.
     let j = i + 1;
@@ -907,15 +910,13 @@ export function repairSandboxSyntax(content) {
     if (!nextEntry) continue;
     if (nextEntry[1].length <= indent.length) continue; // normal sibling/closing — not orphaned
 
-    syntheticCounter += 1;
     changes.push(
-      `Line ${i + 1}: '${m[2]} = ${m[3]}' looked like an orphaned block entry (missing block header and comma) — wrapped it in a synthetic '_RepairedBlock${syntheticCounter}' table so the file parses again.`,
+      `Line ${i + 1}: '${m[3]} = ${m[4]}' stood where the opening of the '${m[3]}' table belongs — put its '{' back.`,
     );
-    lines[i] =
-      `${indent}_RepairedBlock${syntheticCounter} = {\n${indent}    ${m[2]} = ${m[3]},`;
+    lines[i] = `${m[1]}{${m[5]}${lines[i].slice(line.length)}`;
   }
 
-  const repaired = lines.join("\n");
+  const repaired = lines.join("");
   // Balanced braces are not enough to write it, and neither is parsing: the
   // result needs a SandboxVars table too. A file without one parses, but
   // the game finds nothing to load and exits on boot.
