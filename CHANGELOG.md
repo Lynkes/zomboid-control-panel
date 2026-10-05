@@ -14,6 +14,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Tokens in URLs:** `?token=` works only on the mod-conflict stream; other tools must send an Authorization header (#193, thanks @mrbean56).
 - **Panel updates:** checking for updates and reading the apply log need panel settings (admin by default) (#193, thanks @mrbean56).
 - **Hardening:** safer restore staging, owner-only `.bat` launch scripts, masked recovery codes, a stricter CORS private-network check, HS256-only tokens, server-files guards that match a trailing slash, and an optional `PANEL_DOCKER_UPDATE_SHA256` updater pin (#193, thanks @mrbean56).
+- **Server folders confined:** a server's config folder must be the Server folder inside its own data folder, and without file-manager rights the Server Config image browser reaches only that folder; a server-management role could read and write files anywhere on the host.
+- **Discord bot settings:** changing the bot's token, server, admin/moderator roles or command tiers needs the permissions of the bot commands the change unlocks; a Discord-integration role could give itself RCON and server control through the bot.
+- **Disk exhaustion:** the unauthenticated thumbnail and map-tile proxies no longer fetch or cache arbitrary items without bounds; anyone who could reach the panel could fill its disk.
+- **Sign-in pauses per address:** failed sign-ins pause only the address they come from, counted atomically, so a stranger can no longer lock an account or its SSO out; password recovery lifts any pause.
+- **Reset tokens:** a manual reset token must be at least 32 characters, and the token file is deleted after 5 wrong tries.
+- **Pre-setup connections:** live connections are refused until the first account exists, and creating the first admin drops any that got in.
+- **DNS rebinding:** with panel logins turned off, the API and live connection only answer requests addressed to the panel's own addresses.
+- **Host paths and credentials by role:** server details, app settings, disk readings and the active-server-changed event no longer send host folders, launch commands, credentials, SFTP details or account names to roles that can't change them.
+- **Masked secrets:** masked passwords and secrets no longer show their last 4 characters.
+- **Backup progress and disk alerts:** backup/restore progress and disk-space alerts reach only roles that can act on them, with host paths removed.
+- **Status scan flood:** the server-status endpoint shares one host process scan between calls, so a signed-in user can no longer start a flood of PowerShell processes.
+- **Player exports:** export folders are keyed by the exact player name, so players with similar names can't rotate out each other's exports.
+- **Linux service installer:** the installer refuses inputs the panel's account can modify or swap for a link, and the panel never tells root to run its own copies; that account could otherwise gain root.
+- **Setup token:** the first-run setup token is no longer written to world-readable log files.
+- **Log forging:** client-error reports can no longer inject forged lines into the panel log.
+- **Forged deaths:** player deaths now come from PanelBridge instead of the game's user log, where a crafted co-op player name could forge another player's death; without the bridge, the log parser is anchored to the game's own line format.
+- **PanelBridge leaderboard:** leaderboard data no longer sits in world-readable global mod data keyed by SteamID; it moves to a server-only file in the bridge folder when the server starts.
+- **Update PanelBridge:** the death and leaderboard fixes ship in the mod; Workshop servers get them once the updated item is published and the server restarts, and panel-installed copies update with the panel.
 
 ## [1.4.5] - 2026-10-05
 
