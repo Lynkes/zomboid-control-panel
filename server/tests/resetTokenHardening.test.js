@@ -399,6 +399,12 @@ describe("A2 round 3: hex a stranger can guess", () => {
     ["a simplified Chinese phrase in GBK as PowerShell's BitConverter writes it", "D6-D8-D6-C3-C3-DC-C2-EB-C3-E6-B0-E5-C1-EE-C5-C6"],
     ["a traditional Chinese phrase in Big5 as hex", "b3e0abcda6f8aa41beb9adabb35db14bbd58"],
     ["a phrase with stars as UTF-16LE hex", hexOf("zomboid⭐panel⭐reset", "utf16le")],
+    // Round 7: the same code-page text with the line break a tool adds at
+    // the end. A stranger who guessed the phrase reset the admin password
+    // with the first two.
+    ["a simplified Chinese phrase in GBK with Set-Content's CRLF, as BitConverter writes it", "D6-D8-D6-C3-C3-DC-C2-EB-C3-E6-B0-E5-C1-EE-C5-C6-0D-0A"],
+    ["a traditional Chinese phrase in Big5 with echo's line break (iconv -t big5 | xxd -p)", "b3e0abcda6f8aa41beb9adabb35db14bbd580a"],
+    ["a Russian phrase in Windows-1251 with echo's line break", `${Buffer.from(Array.from("сброс пароля зомбоид", (c) => (c === " " ? 0x20 : 0xc0 + c.charCodeAt(0) - 0x410))).toString("hex")}0a`],
   ])("refuses %s, even when it is typed correctly", async (_label, weak) => {
     expect(weak.replaceAll("-", "").length).toBeGreaterThanOrEqual(RESET_TOKEN_MIN_LENGTH);
     writeToken(weak);

@@ -66,8 +66,8 @@
  * and once in a few million for 48; the well-known values never come up by
  * chance. Rounds 4 to 6 of the verification found more of both that
  * passed (resetTokenReadsAsText(), isWellKnownResetToken()); all told, of
- * 21 million random tokens of each kind, about 1 in 13,000 of 32
- * characters is refused, 1 in 15,000 UUIDs and 1 in 2 million of 48.
+ * 41 million random tokens of each kind, about 1 in 13,000 of 32
+ * characters is refused, 1 in 15,000 UUIDs and 1 in 1.5 million of 48.
  * These checks catch the common mistakes, not every guessable value (see
  * resetTokenReadsAsText()), which is why the docs say the token must come
  * from one of the commands they give.
@@ -234,9 +234,9 @@ function hasGeneratorMix(hex) {
 //   - or nine in ten of them Chinese, Japanese or Korean in everyday use
 //     (isCjkTextUnit());
 //   - or a non-Latin alphabet in a single-byte code page all through
-//     (isCodePageText());
+//     (isCodePageText()), line breaks at the end aside;
 //   - or everyday Chinese in GBK or Big5 all through
-//     (isDoubleByteCodePageText());
+//     (isDoubleByteCodePageText()), line breaks at the end aside;
 //   - or nine in ten of their 32-bit units, in either byte order,
 //     characters (isMostlyUtf32Text()).
 // Random bytes are printable ASCII 98 times in 256, so of a million random
@@ -493,6 +493,32 @@ function isDoubleByteCodePageText(bytes, isEverydayChar) {
   return charBytes * 2 >= bytes.length;
 }
 
+// SECURITY (2026-10-05, A2): round 7 of the verification. The two
+// code-page readings above allow nothing but spaces, digits and everyday
+// punctuation beside the characters, so the line break a tool adds at the
+// end hid the text from them. `echo 重置密码面板令牌 | iconv -t gbk | xxd -p`
+// passed, and so did Windows PowerShell 5.1's Set-Content or Out-File (GBK
+// or Big5 on a Chinese Windows, Windows-1251 on a Russian one, CRLF at the
+// end) read back with [BitConverter]::ToString; a stranger who guessed the
+// phrase reset the admin password. The other readings count line breaks as
+// text, so these two now read the bytes without the ones at the end. Random
+// bytes seldom end in one: of 300 million random tokens of each kind, that
+// refused 4 more of 32 hex characters, 2 more UUIDs and none of 48.
+// Allowing line breaks and tabs anywhere, for a phrase on more than one
+// line, would have refused about one more in 1.3 million of 32 hex
+// characters.
+function withoutTrailingLineBreaks(bytes) {
+  let end = bytes.length;
+  while (end > 0 && (bytes[end - 1] === 0x0a || bytes[end - 1] === 0x0d)) end -= 1;
+  return bytes.subarray(0, end);
+}
+
+function isCodePageTextLine(bytes) {
+  const line = withoutTrailingLineBreaks(bytes);
+  if (line.length === 0) return false;
+  return isCodePageText(line) || DOUBLE_BYTE_CODE_PAGES.some((isEverydayChar) => isDoubleByteCodePageText(line, isEverydayChar));
+}
+
 // SECURITY (2026-10-05, A2): round 6 of the verification. UTF-32 (Python's
 // .encode('utf-32'), [Text.Encoding]::UTF32) takes four bytes a character,
 // three of them zero for an ASCII one, so none of the readings above saw
@@ -501,7 +527,10 @@ function isDoubleByteCodePageText(bytes, isEverydayChar) {
 // 32-bit units, in either byte order, are characters: printable ASCII or a
 // code point from U+00A0 to U+10FFFF that isn't half of a surrogate pair.
 // Random units are one about once in 3,900, so four in four never come up
-// (none in 172 million random tokens of each kind).
+// (none in 172 million random tokens of each kind). Round 7 of the
+// verification: a phrase in Chinese, Japanese or Korean with its first
+// byte or digit lost no longer reads as text, as in UTF-16; that's a typo
+// on top of an unusual encoding, and it's left.
 function isMostlyUtf32Text(bytes, littleEndian) {
   const units = Math.floor(bytes.length / 4);
   let text = 0;
@@ -519,8 +548,7 @@ export function resetTokenReadsAsText(token) {
     const end = hex.length - ((hex.length - start) % 2);
     const bytes = Buffer.from(hex.slice(start, end), "hex");
     if (bytes.length === 0) continue;
-    if (isMostlyAscii(bytes) || isUtf8Text(bytes) || isCodePageText(bytes)) return true;
-    if (DOUBLE_BYTE_CODE_PAGES.some((isEverydayChar) => isDoubleByteCodePageText(bytes, isEverydayChar))) return true;
+    if (isMostlyAscii(bytes) || isUtf8Text(bytes) || isCodePageTextLine(bytes)) return true;
     for (const littleEndian of [true, false]) {
       if (
         isMostlyUtf16Text(bytes, littleEndian, isUtf16TextUnit) ||

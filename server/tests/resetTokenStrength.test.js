@@ -412,6 +412,37 @@ describe("reset-token: text written as hex", () => {
     }
   });
 
+  // Round 7: the code-page readings allowed no line break, so the one a
+  // tool adds at the end hid the text: `echo 重置密码面板令牌 | iconv -t gbk |
+  // xxd -p`, or Windows PowerShell 5.1's Set-Content or Out-File (GBK or Big5
+  // on a Chinese Windows, Windows-1251 on a Russian one) and then
+  // BitConverter, or cmd's `echo ... > file` (a space, then CRLF). A
+  // stranger who guessed the phrase reset the admin password.
+  const CODE_PAGE_PHRASES = [
+    ...DOUBLE_BYTE_PHRASES.map(([encoding, phrase, , hex]) => [`${encoding} ${phrase}`, hex]),
+    ["Russian in Windows-1251", singleByteHex("сброс пароля зомбоид", (c) => 0xc0 + c.charCodeAt(0) - 0x410)],
+    ["Ukrainian in Windows-1251", singleByteHex("скидання пароля панелі", (c) => CP1251_BEYOND_RUSSIAN[c] ?? 0xc0 + c.charCodeAt(0) - 0x410)],
+    ["Russian in KOI8-R", singleByteHex("сброс пароля панели", (c) => 0xc0 + KOI8_LETTERS.indexOf(c))],
+    // Python's cp1256 codec.
+    ["Arabic in Windows-1256", "c5dac7cfc920cadaedede420dfe1e3c920c7e1e3d1e6d1"],
+  ];
+  it.each(CODE_PAGE_PHRASES)("refuses %s as hex with the line break a tool adds at the end", (_label, hex) => {
+    for (const ending of ["0a", "0d0a", "200d0a", "0d0a0d0a"]) {
+      const withBreak = `${hex}${ending}`;
+      for (const token of [withBreak, withBreak.toUpperCase(), bytePairs(withBreak.toUpperCase()), `a${withBreak}`]) {
+        expect({ token, weakness: resetTokenWeakness(token) }).toEqual({ token, weakness: "hex-text" });
+      }
+    }
+  });
+
+  it("doesn't read random hex as text because it ends in a line break", () => {
+    const tokens = [...sample("text-hex44", HEX, 44, 5000), ...sample("text-hex28", HEX, 28, 5000)];
+    const readNow = tokens.flatMap((token) =>
+      ["0a", "0d0a"].filter((ending) => resetTokenReadsAsText(`${token}${ending}`) && !resetTokenReadsAsText(token)).map((ending) => `${token}${ending}`),
+    );
+    expect(readNow).toEqual([]);
+  });
+
   // Round 6: the other emoji and symbols of the 16-bit range.
   it.each([
     ["stars", "zomboid⭐panel⭐reset"],
