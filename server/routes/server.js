@@ -7722,12 +7722,16 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
       // failure, same as the existing backup-or-abort posture below.
       const backupIncomplete =
         backupResult.success && (backupResult.skippedFiles?.length ?? 0) > 0;
+      // SECURITY (2026-10-05, HT2): the reason is path-redacted, like the
+      // partial-failure answer below. server.wipe can be a custom role
+      // without the host-path capabilities, and the backup's own message
+      // can quote the save or backups folder.
       if (!backupResult.success || backupIncomplete) {
         const reason = backupIncomplete
           ? `it could not include ${backupResult.skippedFiles.length} file(s) (${backupResult.skippedFiles.join(", ")}) -- an incomplete pre-wipe backup is not a safety net`
           : backupResult.message;
         return res.status(500).json({
-          error: `Wipe aborted: could not create a backup first (${reason}). Nothing was deleted.`,
+          error: `Wipe aborted: could not create a backup first (${sanitizeError(reason)}). Nothing was deleted.`,
           code: ErrorCode.WIPE_BACKUP_FAILED,
         });
       }
@@ -7757,8 +7761,9 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
             }
           }
         } catch (e) {
+          log.error(`Wipe aborted: accounts database backup failed: ${e.message}`);
           return res.status(500).json({
-            error: `Wipe aborted: could not back up the accounts database (${e.message}). Nothing was deleted.`,
+            error: `Wipe aborted: could not back up the accounts database (${sanitizeError(e.message)}). Nothing was deleted.`,
             code: ErrorCode.WIPE_BACKUP_FAILED,
           });
         }
