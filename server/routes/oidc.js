@@ -13,6 +13,7 @@ import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import authService, { requireRole } from "../services/auth.js";
 import { createLogger } from "../utils/logger.js";
+import { escapeLogText } from "../utils/logText.js";
 import { sanitizeError, isMaskedSecret } from "../utils/sanitize.js";
 import {
   getOidcSettings,
@@ -226,11 +227,16 @@ router.get("/callback", callbackRateLimiter, async (req, res) => {
   const queryIndex = req.url.indexOf("?");
   currentUrl.search = queryIndex === -1 ? "" : req.url.slice(queryIndex);
 
+  // SECURITY (2026-10-05, H2): everything below that reaches a log line can
+  // carry what the caller put in this URL (the query's error/state
+  // parameters end up in the client library's error text) or what the
+  // provider put in its token (`sub` is only refused for C0 controls), so
+  // it is escaped for the log (utils/logText.js).
   let claims;
   try {
     claims = await handleOidcCallback(currentUrl, flow);
   } catch (error) {
-    log.warn(`OIDC callback rejected: ${error.message}`);
+    log.warn(`OIDC callback rejected: ${escapeLogText(error.message)}`);
     return res.redirect("/?oidcError=invalid_token");
   }
 
@@ -254,7 +260,7 @@ router.get("/callback", callbackRateLimiter, async (req, res) => {
       log.info(`OIDC identity linked to local user ${pendingLink.userId}`);
       return res.redirect("/settings?tab=users&oidcSuccess=linked");
     } catch (error) {
-      log.warn(`OIDC identity link failed: ${error.message}`);
+      log.warn(`OIDC identity link failed: ${escapeLogText(error.message)}`);
       return res.redirect("/settings?tab=users&oidcError=link_failed");
     }
   }
@@ -273,7 +279,7 @@ router.get("/callback", callbackRateLimiter, async (req, res) => {
       true,
     );
   } catch (error) {
-    log.error(`OIDC session issuance failed: ${error.message}`);
+    log.error(`OIDC session issuance failed: ${escapeLogText(error.message)}`);
     return res.redirect("/?oidcError=session_failed");
   }
 
@@ -297,7 +303,7 @@ router.get("/callback", callbackRateLimiter, async (req, res) => {
   // created via the existing password-based /api/auth/setup route.
   if (!result.linked) {
     log.warn(
-      `OIDC identity not linked to any account (sub=${claims.sub}, canBootstrapAdmin=${result.canBootstrapAdmin})`,
+      `OIDC identity not linked to any account (sub=${escapeLogText(claims.sub)}, canBootstrapAdmin=${result.canBootstrapAdmin})`,
     );
     return res.redirect(
       result.canBootstrapAdmin ? "/?oidcError=setup_required" : "/?oidcError=refused",
@@ -305,7 +311,7 @@ router.get("/callback", callbackRateLimiter, async (req, res) => {
   }
 
   res.cookie("refreshToken", result.refreshToken, getRefreshCookieOptions(req));
-  log.info(`OIDC sign-in: ${result.user.username} (sub=${claims.sub})`);
+  log.info(`OIDC sign-in: ${result.user.username} (sub=${escapeLogText(claims.sub)})`);
   res.redirect("/");
 });
 

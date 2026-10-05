@@ -2,6 +2,7 @@ import winston from 'winston';
 import path from 'path';
 import fs from 'fs';
 import { getDataPaths } from './paths.js';
+import { escapeLogLineBreakers } from './logText.js';
 
 // Get paths from central config
 const paths = getDataPaths();
@@ -47,6 +48,14 @@ export function onLog(callback) {
   };
 }
 
+// SECURITY (2026-10-05, H2): every entry, whatever its source, has its C1
+// control characters (U+0085 NEL among them) and U+2028/U+2029 escaped
+// (utils/logText.js). Some log viewers break a line on them, nothing the
+// panel writes contains them, and a request header can: Node's HTTP parser
+// hands bytes 0x80-0xFF over as latin1. CR/LF are left to the call sites
+// that quote request input (escapeLogText), since the panel's own messages
+// and stack traces use them.
+
 // Custom transport to stream logs to callbacks
 class CallbackTransport extends winston.Transport {
   log(info, callback) {
@@ -55,7 +64,7 @@ class CallbackTransport extends winston.Transport {
         try {
           cb({
             level: info.level,
-            message: info.message,
+            message: escapeLogLineBreakers(info.message),
             timestamp: info.timestamp || new Date().toISOString(),
             source: info.source || 'server'
           });
@@ -81,7 +90,7 @@ const consolePrintf = winston.format.printf(({ level, message, timestamp, stack,
   const time = timestamp;                       // HH:mm:ss only
   const icon = levelIcons[level] || '•';
   const tag  = source ? `[${source}]` : '';
-  const msg  = stack || message;
+  const msg  = escapeLogLineBreakers(stack || message);
   // e.g.  12:34:56 ● [RCON] Connected on attempt 1
   return `${time} ${icon} ${tag}${tag ? ' ' : ''}${msg}`;
 });
@@ -96,7 +105,7 @@ const consoleFormat = winston.format.combine(
 // ── File format (full timestamp, structured, no colors) ──
 const filePrintf = winston.format.printf(({ level, message, timestamp, stack, source }) => {
   const tag = source ? `[${source}] ` : '';
-  return `${timestamp} [${level.toUpperCase()}] ${tag}${stack || message}`;
+  return `${timestamp} [${level.toUpperCase()}] ${tag}${escapeLogLineBreakers(stack || message)}`;
 });
 
 const fileFormat = winston.format.combine(

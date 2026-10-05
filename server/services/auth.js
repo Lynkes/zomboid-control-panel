@@ -54,6 +54,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { createLogger } from "../utils/logger.js";
+import { escapeLogText } from "../utils/logText.js";
 import { getSetting, setSetting, getDb, commitNow } from "../database/init.js";
 import { verifySetupToken, clearSetupToken } from "../utils/setupToken.js";
 import {
@@ -1051,8 +1052,10 @@ class AuthService {
     // was being checked still refuses it.
     if (!valid || attempt.lockedUntil > Date.now()) {
       if (settleLoginAttempt(throttleKey, attempt, false)) {
+        // SECURITY (2026-10-05, H2): behind TRUST_PROXY the address is the
+        // X-Forwarded-For value as sent, so it is escaped for the log line.
         log.warn(
-          `Sign-in to ${user.username} from ${clientKey || "an unknown address"} paused for ${
+          `Sign-in to ${user.username} from ${clientKey ? escapeLogText(clientKey) : "an unknown address"} paused for ${
             LOCKOUT_DURATION_MS / 60000
           } minutes after ${MAX_FAILED_LOGINS} failed attempts`,
         );
@@ -1076,7 +1079,11 @@ class AuthService {
       ? this.generateRefreshToken(user, refreshSession.id)
       : null;
 
-    log.info(`User logged in: ${username}`);
+    // The stored name (letters, digits, _ and - only), not the one typed,
+    // which only has to match it ignoring case -- U+212A KELVIN SIGN
+    // lower-cases to "k" -- so the log names the account exactly
+    // (SECURITY 2026-10-05, H2: no request text in log lines unescaped).
+    log.info(`User logged in: ${user.username}`);
     // UX-only field -- see getCapabilitiesForRole()'s doc comment.
     const capabilities = await getCapabilitiesForRole(user.role);
     return {
@@ -1302,7 +1309,7 @@ class AuthService {
 
       if (matches.length > 1) {
         log.error(
-          `Refusing OIDC login: identity ${issuer}/${subject} is linked to multiple accounts`,
+          `Refusing OIDC login: identity ${escapeLogText(issuer)}/${escapeLogText(subject)} is linked to multiple accounts`,
         );
         throw new Error("External identity is linked to multiple accounts");
       }

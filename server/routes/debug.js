@@ -9,6 +9,7 @@ import { execFile } from "child_process";
 import { fileURLToPath } from "url";
 import archiver from "archiver";
 import { createLogger } from "../utils/logger.js";
+import { escapeLogText } from "../utils/logText.js";
 import { getDiskFree } from "../utils/diskSpace.js";
 import {
   launchesPanelStartScript,
@@ -6791,20 +6792,11 @@ const CLIENT_ERROR_RATE_MAX_ENTRIES = 5000;
 // no login -- and lands in combined.log, which support bundles ship. A CR/LF
 // in `message`, `error` or `url` used to start a brand-new line in that file,
 // indistinguishable from a real panel entry (`2026-10-04 03:12:44 [INFO]
-// [Auth] Password reset successful for user: admin`). Every C0/C1 control
-// character, plus U+2028/U+2029 (which some log viewers also break lines on),
-// is escaped to a visible `\n` / `\uXXXX`, so one report is always exactly
-// one `[ClientError]` line while a real multi-line error stays readable.
-const CLIENT_ERROR_CONTROL_CHARS_RE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
-
-function escapeClientErrorText(text) {
-  return text.replace(CLIENT_ERROR_CONTROL_CHARS_RE, (ch) => {
-    if (ch === "\n") return "\\n";
-    if (ch === "\r") return "\\r";
-    if (ch === "\t") return "\\t";
-    return `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`;
-  });
-}
+// [Auth] Password reset successful for user: admin`). escapeLogText()
+// (utils/logText.js, which every log line quoting request input shares
+// since 2026-10-05) turns each control character into a visible escape, so
+// one report is always exactly one `[ClientError]` line while a real
+// multi-line error stays readable.
 
 // Deliberately unauthenticated -- no requirePermission gate at all, not
 // even "any logged-in role" (compare the file header above, which
@@ -6861,14 +6853,14 @@ router.post("/client-errors", (req, res) => {
     // renders.
     const errorPart =
       typeof errorDetail === "string" && errorDetail
-        ? ` -- ${escapeClientErrorText(errorDetail.slice(0, 300))}`
+        ? ` -- ${escapeLogText(errorDetail.slice(0, 300))}`
         : "";
     const urlPart =
       typeof url === "string" && url
-        ? ` (page: ${escapeClientErrorText(url.slice(0, 200))})`
+        ? ` (page: ${escapeLogText(url.slice(0, 200))})`
         : "";
     log.warn(
-      `[ClientError] ${escapeClientErrorText(message.slice(0, 500))}${errorPart}${urlPart}`,
+      `[ClientError] ${escapeLogText(message.slice(0, 500))}${errorPart}${urlPart}`,
     );
 
     res.json({ ok: true });

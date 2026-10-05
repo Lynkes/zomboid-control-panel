@@ -95,6 +95,7 @@ import authRoutes from "./routes/auth.js";
 import oidcRoutes from "./routes/oidc.js";
 import { loadOrCreateCerts } from "./utils/certs.js";
 import { sanitizeError, sanitizeErrorParams } from "./utils/sanitize.js";
+import { escapeLogText } from "./utils/logText.js";
 import { ErrorCode } from "./utils/errorCodes.js";
 import { getSftpCachePath } from "./services/panelBridgeSftp.js";
 import { reconcileBridge } from "./services/bridgeDelivery.js";
@@ -497,12 +498,21 @@ function isLikelyLanHostname(host) {
   return false;
 }
 
+// SECURITY (2026-10-05, H2): the Origin header is whatever the caller sent,
+// signed in or not. Node's HTTP parser keeps bytes 0x80-0xFF in a header as
+// latin1, so 0x85 arrives as U+0085 (NEL), a line break to some log viewers.
+// Both this record (shown in Settings > Remote Access and support bundles)
+// and the "CORS blocked" log line keep it escaped (utils/logText.js).
+function describeBlockedOrigin(origin) {
+  const normalizedOrigin = typeof origin === "string" ? origin.trim() : "";
+  return normalizedOrigin
+    ? escapeLogText(normalizedOrigin.slice(0, MAX_CORS_ORIGIN_LENGTH))
+    : "null";
+}
+
 function recordCorsBlock(origin, source) {
   if (!corsState.debug) return;
-  const normalizedOrigin = typeof origin === "string" ? origin.trim() : "";
-  const safeOrigin = normalizedOrigin
-    ? normalizedOrigin.slice(0, MAX_CORS_ORIGIN_LENGTH)
-    : "null";
+  const safeOrigin = describeBlockedOrigin(origin);
   const entry = {
     id: randomUUID(),
     origin: safeOrigin,
@@ -959,7 +969,7 @@ app.use(
         callback(null, true);
       } else {
         recordCorsBlock(origin, "http");
-        log.warn(`CORS blocked request from origin: ${origin}`);
+        log.warn(`CORS blocked request from origin: ${describeBlockedOrigin(origin)}`);
         callback(new Error(CORS_DENY_MESSAGE));
       }
     },
@@ -1021,7 +1031,9 @@ const loggedRefusedHosts = new Set();
 app.use(async (req, res, next) => {
   if (!req.path.toLowerCase().startsWith("/api")) return next();
   if (await isRequestHostAllowed(req.headers.host)) return next();
-  const host = String(req.headers.host || "").slice(0, 100);
+  // Escaped for the log line (utils/logText.js): the Host header is the
+  // caller's, and this runs before any sign-in.
+  const host = escapeLogText(String(req.headers.host || "").slice(0, 100));
   if (!loggedRefusedHosts.has(host) && loggedRefusedHosts.size < 50) {
     loggedRefusedHosts.add(host);
     log.warn(
@@ -2595,7 +2607,12 @@ export function describeErrorCause(err) {
 // Exported so server/tests/errorCodeReachability.test.js can assert the
 // allowlist both ways directly against the real handler, not a reimplementation.
 export function apiErrorHandler(err, req, res, next) {
-  log.error(`Unhandled API error on ${req.method} ${req.path}: ${err.message}`);
+  // Escaped (utils/logText.js): this also catches errors from before any
+  // sign-in -- a body the JSON parser rejects quotes that body in
+  // err.message -- and req.path keeps bytes 0x80-0xFF from the request line.
+  log.error(
+    `Unhandled API error on ${escapeLogText(req.method)} ${escapeLogText(req.path)}: ${escapeLogText(err.message)}`,
+  );
   const status = err.status || 500;
   const body = { error: sanitizeError(err.message) };
   const code = registeredErrorCode(err);
