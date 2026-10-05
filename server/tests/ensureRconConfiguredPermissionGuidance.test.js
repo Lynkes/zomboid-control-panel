@@ -60,9 +60,15 @@ afterEach(() => {
       // as root (e.g. an ad-hoc local check), the write silently succeeds
       // instead of throwing, which the test below verifies explicitly
       // rather than silently passing for the wrong reason.
-      const unwritableDir = fs.mkdtempSync(
+      // The config folder is the Server folder inside the server's data
+      // folder, as every setup flow saves it: one with no data folder to
+      // hold it to is refused before anything is written (FILES-2,
+      // 2026-10-05), which is not what this test is about.
+      const dataDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "pz-eacces-guidance-"),
       );
+      const unwritableDir = path.join(dataDir, "Server");
+      fs.mkdirSync(unwritableDir);
       fs.chmodSync(unwritableDir, 0o500); // r-x, no write, even for the owner
 
       const probePath = path.join(unwritableDir, ".write-probe");
@@ -77,6 +83,7 @@ afterEach(() => {
 
       getActiveServer.mockResolvedValue({
         serverName: "TestServer",
+        zomboidDataPath: dataDir,
         serverConfigPath: unwritableDir,
         rconPassword: "hunter2",
         rconPort: 27015,
@@ -90,7 +97,7 @@ afterEach(() => {
         // that positive-control fact explicitly instead of silently
         // passing an assertion that never ran for the intended reason.
         expect(result).toBe(true);
-        fs.rmSync(unwritableDir, { recursive: true, force: true });
+        fs.rmSync(dataDir, { recursive: true, force: true });
         return;
       }
 
@@ -105,16 +112,19 @@ afterEach(() => {
       expect(loggedError).toMatch(/chown|chmod/i);
 
       fs.chmodSync(unwritableDir, 0o700);
-      fs.rmSync(unwritableDir, { recursive: true, force: true });
+      fs.rmSync(dataDir, { recursive: true, force: true });
     });
 
     it("positive control: a genuinely writable serverConfigPath configures RCON normally with no guidance text logged", async () => {
-      const writableDir = fs.mkdtempSync(
+      const dataDir = fs.mkdtempSync(
         path.join(os.tmpdir(), "pz-eacces-guidance-ok-"),
       );
+      const writableDir = path.join(dataDir, "Server");
+      fs.mkdirSync(writableDir);
 
       getActiveServer.mockResolvedValue({
         serverName: "TestServer",
+        zomboidDataPath: dataDir,
         serverConfigPath: writableDir,
         rconPassword: "hunter2",
         rconPort: 27015,
@@ -128,7 +138,7 @@ afterEach(() => {
         .some((msg) => /chown|chmod/i.test(msg));
       expect(guidanceLogged).toBe(false);
 
-      fs.rmSync(writableDir, { recursive: true, force: true });
+      fs.rmSync(dataDir, { recursive: true, force: true });
     });
   },
 );
