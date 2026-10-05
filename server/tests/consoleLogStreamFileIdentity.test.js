@@ -61,19 +61,20 @@ function recreateFile(filePath, content) {
   fs.writeFileSync(filePath, content);
 }
 
-// Rewrites fs.statSync's answer for one file, once. The route stats other
-// paths first (the data folder, for the data-folder rule since 2026-10-05),
-// so a bare mockImplementationOnce() landed on the folder instead of the
-// log: the tmpfs case below then failed on Linux, and the ctime case passed
-// without testing anything.
-function stubStatOnceFor(targetPath, override) {
+// Rewrites fs.statSync's answer for one file, every time it is asked about
+// it, until the spy is restored (each test restores it right after its one
+// poll). The route stats other paths too, and the data-folder rule (since
+// 2026-10-05) also stats this very file while judging the folder, so a
+// one-shot stub -- bare mockImplementationOnce(), or "first stat of this
+// path" -- was used up before the route's own identity check: the tmpfs case
+// below then failed on Linux, and the ctime case passed without testing
+// anything. Every stat of the log in that poll sees the same faked file.
+function stubStatFor(targetPath, override) {
   const realStatSync = fs.statSync.bind(fs);
   const target = path.resolve(targetPath);
-  let used = false;
   return vi.spyOn(fs, "statSync").mockImplementation((p, ...rest) => {
     const real = realStatSync(p, ...rest);
-    if (used || !real || path.resolve(String(p)) !== target) return real;
-    used = true;
+    if (!real || path.resolve(String(p)) !== target) return real;
     return override(real);
   });
 }
@@ -174,7 +175,7 @@ describe("GET /console-log/stream: file identity survives a same-path recreate",
     );
     recreateFile(consoleLogPath, newSessionContent);
 
-    const statSpy = stubStatOnceFor(consoleLogPath, (real) => {
+    const statSpy = stubStatFor(consoleLogPath, (real) => {
       // Simulate the filesystem handing the just-freed inode straight back
       // to the recreated file, while birthtime -- genuinely different for a
       // new file created moments later -- is the only signal left that can
@@ -234,7 +235,7 @@ describe("GET /console-log/stream: file identity survives a same-path recreate",
     // with genuine creation-time tracking (nothing has touched the file's
     // metadata since creation yet), which would make an unmocked first poll
     // an unreliable way to force this specific filesystem shape.
-    let statSpy = stubStatOnceFor(consoleLogPath, (real) => {
+    let statSpy = stubStatFor(consoleLogPath, (real) => {
       // Same value for both -- exactly what a ctime-backed "birthtime"
       // looks like at any single moment, including right after creation.
       return Object.create(real, {
@@ -247,7 +248,7 @@ describe("GET /console-log/stream: file identity survives a same-path recreate",
 
     fs.appendFileSync(consoleLogPath, "Line 2\n");
 
-    statSpy = stubStatOnceFor(consoleLogPath, (real) => {
+    statSpy = stubStatFor(consoleLogPath, (real) => {
       // Same inode (it IS the same file, genuinely appended to) but
       // birthtimeMs forced equal to ctimeMs -- and both moved forward from
       // the first poll, exactly like a ctime-backed "birthtime" does after
