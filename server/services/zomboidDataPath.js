@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { holdsSaveFiles, inspectZomboidPath, normalizeUserPath } from "../utils/zomboidPaths.js";
+import { RENAME_TEMP_SUFFIX, TRASH_DIR_NAME, UPLOAD_TEMP_SUFFIX } from "./fileManagerContract.js";
 
 // SECURITY (2026-10-05, PATHS-1): a server's Zomboid data folder (its
 // zomboidDataPath, the game's -cachedir) is the folder chunks /browse lists
@@ -20,10 +21,11 @@ import { holdsSaveFiles, inspectZomboidPath, normalizeUserPath } from "../utils/
 //     Multiplayer) folder, or save files directly in it (on-disk checks --
 //     not inspectZomboidPath()'s name-only ones, which any folder whose
 //     path says "zomboid" or "saves" passes, the panel's own folder
-//     included), or nothing in it but what the game itself puts in a data
-//     folder (empty included), or nothing in it but world saves and what
-//     the game and the panel put there (a Saves/Multiplayer folder named
-//     directly, as Map Cleanup allows).
+//     included), or nothing in it but what the game itself (and the
+//     panel's File Manager) puts in a data folder (empty included), or
+//     nothing in it but world saves and what the game and the panel put
+//     there (a Saves/Multiplayer folder named directly, as Map Cleanup
+//     allows).
 // A server install folder is refused. The folder PZ_SAVE_PATH names comes
 // from the operator's own environment (the Docker images set it), not from
 // a request, and is taken as it is. Remote servers stay exempt at the
@@ -119,6 +121,89 @@ function isGameDataFileName(name) {
   return GAME_DATA_FILES.has(name) || GAME_DATA_FILE_PATTERNS.some((pattern) => pattern.test(name));
 }
 
+// SECURITY (2026-10-05, PT2 verifier round 2): what the panel's File
+// Manager leaves in a folder it works in. Its "data" root is the server's
+// data folder (fileManagerRoots.js, as in 1.4.5), and that root's Trash,
+// .zcp-trash, sits at the top of it: made by the first delete there, by
+// every edit or overwrite of a file there (the previous version is kept in
+// it) and by a replacing upload, and never removed. An upload or a save in
+// flight writes a temp file beside its target,
+// .<name>.<pid>.<8 hex>.zcpupload or .zcptmp (fileManagerLocalFs.js
+// createTempFile()), and a case-only rename moves the entry, a folder
+// included, through .<name>.case.<8 hex>.zcptmp; one an interrupted request
+// leaves stays until a later write into that folder sweeps it. So a 1.4.5
+// Saves/Multiplayer data folder the File Manager had ever deleted or edited
+// in, and a data folder with no world save yet, were refused everywhere.
+// Each is let through as the kind of entry the File Manager makes (the Trash
+// a folder, a temp a file, a case-rename temp either), by its exact name,
+// and none ever counts as a game mode, a world or a world save.
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const FILE_MANAGER_TEMP_NAME = new RegExp(
+  `^\\..+\\.(\\d+|case)\\.[0-9a-f]{8}(?:${escapeRegExp(UPLOAD_TEMP_SUFFIX)}|${escapeRegExp(RENAME_TEMP_SUFFIX)})$`,
+);
+
+function isFileManagerName(name) {
+  return name === TRASH_DIR_NAME || FILE_MANAGER_TEMP_NAME.test(name);
+}
+
+function isFileManagerEntry(name, stat) {
+  if (name === TRASH_DIR_NAME) return stat.isDirectory();
+  const temp = FILE_MANAGER_TEMP_NAME.exec(name);
+  if (!temp) return false;
+  return stat.isFile() || (temp[1] === "case" && stat.isDirectory());
+}
+
+// Links are followed, as everywhere in the rule; null when the entry can't
+// be looked at (a dangling link), which no check lets through.
+function statOf(entryPath) {
+  try {
+    return fs.statSync(entryPath);
+  } catch {
+    return null;
+  }
+}
+
+// SECURITY (2026-10-05, PT1 verifier round 2): "nothing in it but what the
+// game puts in a data folder" was judged by name alone, so a folder whose
+// entries merely carried the game's names passed whatever they were and
+// held -- another program's Saves/slot1/notes.txt, Logs/ and mods/, say.
+// Each entry is now the kind the game makes (one of its folders a folder,
+// one of its files a file), and a Saves folder holds what the game keeps
+// there: game mode folders, each holding world folders (what a world holds
+// is the world-save check's business). The panel's File Manager entries are
+// let through at each of those levels, as above.
+function holdsOnlyGameEntries(folder, names) {
+  return names.every((name) => {
+    if (OS_FOLDER_ENTRIES.has(name)) return true;
+    const stat = statOf(path.join(folder, name));
+    if (!stat) return false;
+    if (isFileManagerEntry(name, stat)) return true;
+    if (!stat.isDirectory()) return stat.isFile() && isGameDataFileName(name);
+    if (!GAME_DATA_FOLDERS.has(name)) return false;
+    return name !== "Saves" || holdsOnlyFolders(path.join(folder, name), 2);
+  });
+}
+
+// `depth` levels of nothing but folders (and the OS's and the File
+// Manager's own entries); an unreadable folder doesn't pass.
+function holdsOnlyFolders(folder, depth) {
+  let names;
+  try {
+    names = fs.readdirSync(folder);
+  } catch {
+    return false;
+  }
+  return names.every((name) => {
+    if (OS_FOLDER_ENTRIES.has(name)) return true;
+    const entry = path.join(folder, name);
+    const stat = statOf(entry);
+    if (!stat) return false;
+    if (isFileManagerEntry(name, stat)) return true;
+    if (!stat.isDirectory()) return false;
+    return depth <= 1 || holdsOnlyFolders(entry, depth - 1);
+  });
+}
+
 function hasPathShape(value) {
   return (
     typeof value === "string" &&
@@ -167,7 +252,7 @@ function judgeFolder(resolved) {
   // else it held (PATHS-1 verifier pass). A real data folder's save files
   // sit under Saves/, which the check above already accepts.
   if (holdsSaveFiles(resolved, names)) return { ok: true, missing: false };
-  if (names.every(isGameDataFolderEntry)) return { ok: true, missing: false };
+  if (holdsOnlyGameEntries(resolved, names)) return { ok: true, missing: false };
   // A Saves/Multiplayer folder named directly, as Map Cleanup's custom path
   // and "Save as default" allow (its hint names this shape, and
   // routes/chunks.js's resolveSavesPath() reads one): named as the game
@@ -208,7 +293,8 @@ function judgeFolder(resolved) {
 // folder. A real game mode or world is never named like one of the game's
 // own data-folder entries (modes are Sandbox, Apocalypse, Multiplayer ...;
 // a dedicated server's world is named after the server), so a folder named
-// like one never counts as either.
+// like one never counts as either. Nor does one the panel's File Manager
+// names (PT2 verifier round 2).
 function holdsWorldSave(folder, names) {
   if (names.includes("Saves")) {
     const saves = path.join(folder, "Saves");
@@ -226,7 +312,7 @@ function folderHoldsAWorld(folder) {
 }
 
 function isWorldOrModeName(name) {
-  return !isGameDataFolderEntry(name);
+  return !isGameDataFolderEntry(name) && !isFileManagerName(name);
 }
 
 function isWorldSaveFolder(folder, name) {
@@ -254,7 +340,15 @@ function isSavesMultiplayerFolder(resolved) {
 // ConnectToServerState names "<id>_<name>_player", the id a Java long the
 // server sends (read off the B42 jar). The OS's own entries are let through
 // as above.
-const MULTIPLAYER_PLAYER_CACHE_FOLDER = /^-?\d+_.+_player$/;
+//
+// PT2 verifier round 2: and the two other names the B42 jar gives a cache --
+// GameClient.doConnect()'s "<host>_<port>_<hash>" (the hash
+// ServerWorldDatabase.encrypt()'s lower-case MD5 hex, empty for an empty
+// input), the one real client caches carry, and CoopMaster's
+// "<server>_player" -- each also as IngameState's "<folder>_crash" copy.
+// A cache the game has saved into counts as a world save either way; these
+// only let one through before it has.
+const MULTIPLAYER_PLAYER_CACHE_FOLDERS = [/^.+_player(?:_crash)?$/, /^.+_\d{1,5}_(?:[0-9a-f]{32})?(?:_crash)?$/];
 
 // SECURITY (2026-10-05, PT2): what the panel itself creates in a
 // Saves/Multiplayer folder. Map Cleanup's "Save as default" stored one as a
@@ -299,16 +393,17 @@ const PANEL_MULTIPLAYER_FOLDER_ENTRIES = [
 // game with a server's data folder as its -cachedir, as 1.4.5 did, so once
 // it has started a server whose data folder is a Saves/Multiplayer folder,
 // the game's console.txt, server-console.txt, Logs/, db/ ... are in it too.
+//
+// SECURITY (2026-10-05, PT2 verifier round 2): and the File Manager's
+// Trash and temps (isFileManagerEntry()), looked at before anything else,
+// so neither ever counts as the world save.
 function multiplayerFolderHoldsOnlyWorlds(folder, names) {
   let worlds = 0;
   for (const name of names) {
     if (OS_FOLDER_ENTRIES.has(name)) continue;
-    let stat;
-    try {
-      stat = fs.statSync(path.join(folder, name));
-    } catch {
-      return false;
-    }
+    const stat = statOf(path.join(folder, name));
+    if (!stat) return false;
+    if (isFileManagerEntry(name, stat)) continue;
     if (!stat.isDirectory()) {
       if (stat.isFile() && isGameDataFileName(name)) continue;
       return false;
@@ -317,7 +412,7 @@ function multiplayerFolderHoldsOnlyWorlds(folder, names) {
     if (GAME_DATA_FOLDERS.has(name)) continue;
     if (isWorldSaveFolder(folder, name)) {
       worlds++;
-    } else if (!MULTIPLAYER_PLAYER_CACHE_FOLDER.test(name)) {
+    } else if (!MULTIPLAYER_PLAYER_CACHE_FOLDERS.some((pattern) => pattern.test(name))) {
       return false;
     }
   }

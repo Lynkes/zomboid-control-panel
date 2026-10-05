@@ -30,6 +30,13 @@ import path from "path";
 // folder 1.4.5 and 1.4.6 make there when none is set) or Lua/ (PanelBridge's
 // queue) was refused again.
 //
+// Verifier round 2: the File Manager's Trash (.zcp-trash, at the top of its
+// "data" root, the server's data folder, since 1.4.5) and its temp files
+// were none of those entries, so a 1.4.5 Saves/Multiplayer data folder the
+// File Manager had ever deleted or edited in -- and a data folder with no
+// world save yet -- were refused everywhere. And the "nothing but the game's
+// own entries" branch went by names alone.
+//
 // Real routers over the real, unmocked database layer (the suite's per-file
 // temp data dir keeps it isolated), with the signed-in role injected.
 const db = await import("../database/init.js");
@@ -41,6 +48,9 @@ const { default: serverFilesRouter } = await import("../routes/serverFiles.js");
 const { default: modsRouter } = await import("../routes/mods.js");
 const { BackupService } = await import("../services/backupService.js");
 const { checkZomboidDataPath, zomboidDataFolderHolds } = await import("../services/zomboidDataPath.js");
+const fileManagerTrash = await import("../services/fileManagerTrash.js");
+const fileManagerFs = await import("../services/fileManagerLocalFs.js");
+const { RENAME_TEMP_SUFFIX, TRASH_DIR_NAME, UPLOAD_TEMP_SUFFIX } = await import("../services/fileManagerContract.js");
 const { ErrorCode } = await import("../utils/errorCodes.js");
 
 const NOT_A_DATA_FOLDER = ErrorCode.ZOMBOID_DATA_PATH_NOT_DATA_FOLDER;
@@ -89,6 +99,26 @@ function privateFolder(name) {
   write(path.join(dir, "Documents", "secret-project", "plan.txt"), "private");
   write(path.join(dir, "notes.txt"), "private");
   return dir;
+}
+
+// What the File Manager does when the operator saves `relPath` in its "data"
+// root (writeBytesCas()): the previous version goes to the root's Trash.
+function fileManagerEdit(dataRoot, relPath) {
+  return fileManagerTrash.copyVersionToTrash(fs.realpathSync(dataRoot), {
+    name: path.basename(relPath),
+    buffer: Buffer.from("previous version"),
+    originalPath: relPath,
+    deletedBy: { userId: "u-admin", username: "admin" },
+    reason: "edited",
+  });
+}
+
+// A temp file an upload or a save in flight leaves beside its target when
+// the request is cut off, named as the File Manager names it.
+function fileManagerTemp(dir, nameHint, suffix) {
+  const temp = fileManagerFs.createTempFile(dir, nameHint, suffix);
+  fileManagerFs.closeFd(temp.fd);
+  return temp.name;
 }
 
 beforeAll(async () => {
@@ -345,11 +375,21 @@ describe("PT2: a 1.4.5 Saves/Multiplayer data folder with the panel's own entrie
   // the config folder the panel makes as <data folder>/Server when the
   // record has none -- templates/ from the Server Config Templates dialog,
   // <name>.ini from the RCON settings a start writes, backups/ from an
-  // edit -- and PanelBridge's queue in Lua/panelbridge/<server>/.
+  // edit -- and PanelBridge's queue in Lua/panelbridge/<server>/. And
+  // (verifier round 2) the File Manager's Trash, from an edit of
+  // Server/Victim.ini in its "data" root, an upload's temp file a cut-off
+  // request left, and client caches as the game names them, saved into or
+  // not yet.
   function build145Shape(name) {
     const multiplayer = path.join(root, name, "Zomboid", "Saves", "Multiplayer");
     writeWorld(path.join(multiplayer, "Victim"));
     fs.mkdirSync(path.join(multiplayer, "76561198000000000_Victim_player"), { recursive: true });
+    writeWorld(path.join(multiplayer, "192.168.2.5_16261_21232f297a57a5a743894a0e4a801fc3"));
+    writeWorld(path.join(multiplayer, "192.168.2.5_16261_21232f297a57a5a743894a0e4a801fc3_crash"));
+    fs.mkdirSync(path.join(multiplayer, "play.example.com_16262_ce5c82deca471f66ce07c96745e2eaee"), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(multiplayer, "Victim_player"), { recursive: true });
     write(path.join(multiplayer, "backups", "Victim_chunks_1759600000000-0a1b2c3d", "map_0_0.bin"), "chunk");
     write(path.join(multiplayer, "backups", "Victim_2026-10-01T10-00-00-000.zip"), "zip");
     fs.mkdirSync(path.join(multiplayer, ".restore-staging-1759600000000-4242"), { recursive: true });
@@ -361,6 +401,8 @@ describe("PT2: a 1.4.5 Saves/Multiplayer data folder with the panel's own entrie
     write(path.join(multiplayer, "Server", "backups", "Victim.ini.2026-10-01T10-00-00-000Z.bak"), "Mods=\n");
     fs.mkdirSync(path.join(multiplayer, "Lua", "panelbridge", "Victim", "inbox"), { recursive: true });
     fs.mkdirSync(path.join(multiplayer, "Lua", "panelbridge", "Victim", "outbox"), { recursive: true });
+    fileManagerEdit(multiplayer, "Server/Victim.ini");
+    fileManagerTemp(multiplayer, "Victim-world.zip", UPLOAD_TEMP_SUFFIX);
     return multiplayer;
   }
 
@@ -425,5 +467,135 @@ describe("PT2: a 1.4.5 Saves/Multiplayer data folder with the panel's own entrie
       fs.mkdirSync(path.join(onlyPanel, "76561198000000000_Victim_player"), { recursive: true });
       expect(zomboidDataFolderHolds(onlyPanel), entry).toBe(false);
     }
+  });
+
+  it("stays accepted through the File Manager: a stale cache deleted to its Trash, the Trash emptied, a case-only rename cut off", async () => {
+    const multiplayer = build145Shape("upgrade-145-file-manager");
+    const rootReal = fs.realpathSync(multiplayer);
+    const stale = path.join(multiplayer, "192.168.2.5_16261_21232f297a57a5a743894a0e4a801fc3");
+    const trashId = fileManagerTrash.moveToTrash(rootReal, stale, {
+      originalPath: path.basename(stale),
+      type: "folder",
+      bytes: 0,
+      files: 1,
+      deletedBy: { userId: "u-admin", username: "admin" },
+      reason: "deleted",
+      dev: null,
+    });
+    expect(zomboidDataFolderHolds(multiplayer)).toBe(true);
+    await fileManagerTrash.purgeTrashItem(rootReal, trashId);
+    expect(fs.readdirSync(path.join(multiplayer, TRASH_DIR_NAME))).not.toContain(trashId);
+    expect(zomboidDataFolderHolds(multiplayer)).toBe(true);
+    // A case-only rename moves the entry through .<name>.case.<hex>.zcptmp.
+    fs.renameSync(
+      path.join(multiplayer, "Victim_player"),
+      path.join(multiplayer, `.Victim_player.case.0a1b2c3d${RENAME_TEMP_SUFFIX}`),
+    );
+    fileManagerTemp(multiplayer, "Victim.ini", RENAME_TEMP_SUFFIX);
+    expect(zomboidDataFolderHolds(multiplayer)).toBe(true);
+    expect(checkZomboidDataPath(multiplayer).ok).toBe(true);
+
+    await db.updateServer(localId, { zomboidDataPath: multiplayer, serverConfigPath: null });
+    const browse = await call("GET", `/api/chunks/browse?path=${encodeURIComponent(multiplayer)}`);
+    expect(browse.status).toBe(200);
+    const list = await call("GET", "/api/backup/list");
+    expect(list.json.backups.map((b) => b.name)).toContain("Victim_2026-10-01T10-00-00-000.zip");
+    const mods = await call("GET", "/api/mods/current-config");
+    expect(mods.json.code).not.toBe(FOLDER_REFUSED);
+    const templates = await call("GET", "/api/server-files/templates");
+    expect(templates.status).toBe(200);
+  });
+
+  it("the File Manager's entries never count as the world save, and are let through only as what it makes", () => {
+    // A world in the Trash, or under a case-rename temp name, isn't one.
+    const noWorld = path.join(root, "fm-no-world", "Saves", "Multiplayer");
+    writeWorld(path.join(noWorld, TRASH_DIR_NAME, "Victim"));
+    writeWorld(path.join(noWorld, `.Victim.case.0a1b2c3d${RENAME_TEMP_SUFFIX}`));
+    fs.mkdirSync(path.join(noWorld, "76561198000000000_Victim_player"), { recursive: true });
+    expect(zomboidDataFolderHolds(noWorld)).toBe(false);
+
+    // The Trash is a folder; a temp is a file (a folder only as a
+    // case-rename's); and the names are the File Manager's exactly.
+    const withoutTrash = (dir) => fs.rmSync(path.join(dir, TRASH_DIR_NAME), { recursive: true });
+    const shapes = {
+      "a file named like the Trash": (dir) => {
+        withoutTrash(dir);
+        write(path.join(dir, TRASH_DIR_NAME), "x");
+      },
+      "the Trash's name in capitals": (dir) => {
+        withoutTrash(dir);
+        fs.mkdirSync(path.join(dir, TRASH_DIR_NAME.toUpperCase()));
+      },
+      "an upload temp that is a folder": (dir) =>
+        fs.mkdirSync(path.join(dir, `.notes.1234.0a1b2c3d${UPLOAD_TEMP_SUFFIX}`), { recursive: true }),
+      "a file ending like a temp, not named like one": (dir) => write(path.join(dir, `notes${UPLOAD_TEMP_SUFFIX}`)),
+    };
+    for (const [label, make] of Object.entries(shapes)) {
+      const dir = build145Shape(`upgrade-145-fm-${label.replace(/\W+/g, "-")}`);
+      make(dir);
+      expect(zomboidDataFolderHolds(dir), label).toBe(false);
+    }
+  });
+});
+
+describe("a data folder with no world save yet: the game's own entries, as the game makes them", () => {
+  function firstStart(name) {
+    const dir = path.join(root, name, "Zomboid");
+    write(path.join(dir, "Server", "Victim.ini"), "Mods=\n");
+    write(path.join(dir, "Logs", "2026-10-05_10-00_DebugLog-server.txt"));
+    write(path.join(dir, "server-console.txt"));
+    return dir;
+  }
+
+  it("is still accepted once the File Manager has edited in it or an upload was cut off there", () => {
+    const fresh = firstStart("fm-fresh");
+    expect(zomboidDataFolderHolds(fresh)).toBe(true);
+    fileManagerEdit(fresh, "Server/Victim.ini");
+    fileManagerTemp(fresh, "server-console.txt", UPLOAD_TEMP_SUFFIX);
+    fileManagerTemp(path.join(fresh, "Server"), "Victim.ini", RENAME_TEMP_SUFFIX);
+    expect(zomboidDataFolderHolds(fresh)).toBe(true);
+    expect(checkZomboidDataPath(fresh).ok).toBe(true);
+  });
+
+  it("accepts a world the game hasn't saved yet and the folders it keeps in Saves", () => {
+    const started = firstStart("fresh-saves");
+    fs.mkdirSync(path.join(started, "Saves", "Multiplayer", "Victim", "map"), { recursive: true });
+    write(path.join(started, "Saves", "Multiplayer", "Victim", "players.db"), "db");
+    fs.mkdirSync(path.join(started, "Saves", "Multiplayer", "Victim.replaced-1759600000000"), { recursive: true });
+    fs.mkdirSync(path.join(started, "Saves", "Sandbox"), { recursive: true });
+    write(path.join(started, "Saves", ".DS_Store"));
+    write(path.join(started, ".DS_Store"));
+    expect(zomboidDataFolderHolds(started)).toBe(true);
+    expect(checkZomboidDataPath(started).ok).toBe(true);
+  });
+
+  it("refuses entries that only carry the game's names, and a File Manager name never counts as a game mode or world", () => {
+    const shapes = {
+      // Another program's folder, every top-level name one of the game's.
+      "files directly in a Saves mode folder": (dir) => {
+        write(path.join(dir, "Saves", "slot1", "private-notes.txt"), "private");
+        write(path.join(dir, "Screenshots", "a.png"));
+        write(path.join(dir, "mods", "SomeMod", "readme.txt"));
+      },
+      "a file directly in Saves": (dir) => write(path.join(dir, "Saves", "profile.json"), "private"),
+      "a file named Saves": (dir) => write(path.join(dir, "Saves"), "private"),
+      "a folder named like a game file": (dir) =>
+        write(path.join(dir, "console.txt", "secret-project", "plan.txt"), "private"),
+    };
+    for (const [label, make] of Object.entries(shapes)) {
+      const dir = path.join(root, `names-only-${label.replace(/\W+/g, "-")}`);
+      write(path.join(dir, "Logs", "today.log"));
+      make(dir);
+      expect(zomboidDataFolderHolds(dir), label).toBe(false);
+      expect(checkZomboidDataPath(dir).ok, label).toBe(false);
+    }
+
+    // With the data folder at <folder>/Saves, the File Manager's Trash is
+    // <folder>/Saves/.zcp-trash: a world under it isn't a game mode's.
+    const victim = privateFolder("fm-trash-mode");
+    writeWorld(path.join(victim, "Saves", TRASH_DIR_NAME, "Victim"));
+    writeWorld(path.join(victim, "Saves", "Multiplayer", `.Victim.case.0a1b2c3d${RENAME_TEMP_SUFFIX}`));
+    expect(zomboidDataFolderHolds(victim)).toBe(false);
+    expect(checkZomboidDataPath(victim).ok).toBe(false);
   });
 });
