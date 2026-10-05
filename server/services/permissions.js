@@ -35,6 +35,10 @@ import {
 } from "../database/init.js";
 import { createLogger } from "../utils/logger.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+// Circular with auth.js (which imports withRoleMutex etc. from here) -- safe
+// because neither module calls the other at evaluation time, only from
+// inside functions.
+import { emitSessionRevoked } from "./auth.js";
 
 const log = createLogger("Permissions");
 
@@ -610,6 +614,29 @@ function makeError(code, message, status = 400, params) {
   return err;
 }
 
+// security sweep 2026-10-04 (AUTHN-2): a role edit that takes capabilities
+// away, a rename, or a delete changes what every member's live socket is
+// authorized for without touching their user row, so none of auth.js's own
+// per-user revocation paths fire. index.js's socketHasCapability() resolves
+// a socket by the role NAME cached at handshake (socket.user.role), and
+// rooms already joined are never re-checked -- a member stripped of
+// rcon.execute kept receiving rcon-live. Membership here is deliberately
+// wider than getUsersForRole(): roleId OR name, because the name is what a
+// socket is actually authorized against. Evicting one extra socket costs a
+// reconnect; missing one leaves a revoked feed streaming.
+async function getRoleMemberIds(role) {
+  const users = await getUsersForRoleAccounting();
+  return users
+    .filter((u) => String(u.roleId) === String(role.id) || u.role === role.name)
+    .map((u) => u.id);
+}
+
+function evictMemberSockets(userIds) {
+  for (const userId of userIds) {
+    if (userId) emitSessionRevoked({ scope: "user", userId });
+  }
+}
+
 // ============================================
 // Role CRUD -- lockout rules enforced here
 // ============================================
@@ -885,6 +912,16 @@ export async function updateRole(
     });
   }
 
+  // Resolved before the write: the rename propagation below rewrites the
+  // very role strings getRoleMemberIds() matches on. A pure addition needs
+  // no eviction -- subscribe:* re-checks capabilities live on every join.
+  const previousCapabilities = Array.isArray(existing.capabilities) ? existing.capabilities : [];
+  const narrowsMembers =
+    nextName !== existing.name ||
+    !Array.isArray(nextCapabilities) ||
+    previousCapabilities.some((capability) => !nextCapabilities.includes(capability));
+  const memberIdsToEvict = narrowsMembers ? await getRoleMemberIds(existing) : [];
+
   const updated = {
     ...existing,
     name: nextName,
@@ -923,6 +960,7 @@ export async function updateRole(
     if (changed) await commitNow();
   }
 
+  evictMemberSockets(memberIdsToEvict);
   return updated;
   });
 }
@@ -976,9 +1014,21 @@ export async function deleteRole(id, { reassignTo, actingUser } = {}) {
   let targetRole = null;
   if (reassignTo) {
     targetRole = await getRoleById(reassignTo);
-    if (!targetRole) {
+    // The role being deleted is no target at all: its members would be left
+    // pointing at a row that is about to vanish, and rule 1 below would see
+    // "no capability change" and wave through the last managers' lockout.
+    if (!targetRole || String(targetRole.id) === String(role.id)) {
       throw makeError(ErrorCode.ROLE_NOT_FOUND, "reassignTo role not found", 404);
     }
+
+    // security sweep 2026-10-04 (AUTHZ-1): reassigning members IS assigning
+    // them a role, so it gets the user-assignment door's rule
+    // (auth.js's assertNoCapabilityEscalation): the target's FULL capability
+    // list must be within the caller's own reach, not just the delta
+    // updateRole() checks. Without it, a roles.manage-only caller deleted
+    // their own role with ?reassignTo=<admin role id> and walked out as
+    // admin -- along with every other member of whichever role they picked.
+    await assertNoRoleEditEscalation(actingUser, [], targetRole.capabilities);
   }
 
   // Deleting this role removes its capabilities from every current member;
@@ -994,6 +1044,9 @@ export async function deleteRole(id, { reassignTo, actingUser } = {}) {
     });
   }
 
+  // Before the reassignment rewrites the role strings this matches on.
+  const memberIdsToEvict = await getRoleMemberIds(role);
+
   let reassigned = 0;
   if (targetRole) {
     reassigned = await reassignRoleMembers(role, targetRole);
@@ -1006,6 +1059,9 @@ export async function deleteRole(id, { reassignTo, actingUser } = {}) {
   // same id). Without checking this, the caller below would report the
   // delete as done even though this call removed nothing.
   const removed = await removeRoleById(id);
+  // Ahead of the !removed check: the members above have already been moved
+  // either way, and their sockets still carry the old role.
+  evictMemberSockets(memberIdsToEvict);
   if (!removed) {
     throw makeError(ErrorCode.ROLE_NOT_FOUND, "Role not found", 404);
   }

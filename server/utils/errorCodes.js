@@ -587,6 +587,27 @@ export const ErrorCode = Object.freeze({
    * {{port}} (the shared port) and {{name}} (the running server's profile
    * name). */
   SERVER_START_GAME_PORT_IN_USE: "SERVER_START_GAME_PORT_IN_USE",
+  /** server/services/serverManager.js -- startServer() via
+   * launchTargetRefusedError() (thrown, forwarded by POST /api/server/start
+   * and by a failed Restart's scheduler:action_result like
+   * SERVER_START_SCRIPT_MISSING above), and server/routes/servers.js -- POST
+   * / and PUT /:id (400) when a saved launch target fails the same check:
+   * the server's custom start command or launcher script isn't inside its
+   * own install folder, or is a system program or command interpreter
+   * (findLaunchTargetRefusal(), RCE-STARTCMD). Carries {{program}}, the file
+   * name only. */
+  SERVER_LAUNCH_TARGET_REFUSED: "SERVER_LAUNCH_TARGET_REFUSED",
+  /** server/services/serverManager.js -- assertNamedStartupScriptLaunchable()
+   * via launchTargetRestartRefusedError(): the refusal above, asked before a
+   * Restart stops anything, so the restart is called off and the server is
+   * left running. Same {{program}} param. */
+  SERVER_RESTART_LAUNCH_TARGET_REFUSED: "SERVER_RESTART_LAUNCH_TARGET_REFUSED",
+  /** server/routes/servers.js -- POST / and PUT /:id (403): the request sets
+   * or changes a server's launch target (its custom start command, or an
+   * install path naming a launcher script, or the install path of a server
+   * that has one) and the caller's role doesn't hold files.manage
+   * (RCE-STARTCMD). */
+  SERVER_LAUNCH_TARGET_ADMIN_ONLY: "SERVER_LAUNCH_TARGET_ADMIN_ONLY",
   /** server/services/scheduler.js -- performRestart()'s returned failure
    * when the pre-restart world save fails: the restart is called off and the
    * server is left running (forwarded by a failed Restart's
@@ -833,6 +854,11 @@ export const ErrorCode = Object.freeze({
   /** server/routes/server.js -- POST /api/server/browse-folder, `description`
    * fails its alphanumeric/punctuation format check. */
   BROWSE_FOLDER_INVALID_DESCRIPTION: "BROWSE_FOLDER_INVALID_DESCRIPTION",
+  /** server/routes/server.js -- POST /api/server/browse-folder, `initialPath`
+   * contains a control character or a quote/backtick/`$` (defense-in-depth:
+   * the value is passed to the picker out-of-band, never built into shell
+   * source, and a start folder hardly ever contains these). */
+  BROWSE_FOLDER_INVALID_PATH: "BROWSE_FOLDER_INVALID_PATH",
   /** server/routes/server.js -- POST /api/server/browse-folder (Linux), no
    * GUI file-picker (zenity/kdialog) available. */
   BROWSE_FOLDER_NO_DIALOG_AVAILABLE: "BROWSE_FOLDER_NO_DIALOG_AVAILABLE",

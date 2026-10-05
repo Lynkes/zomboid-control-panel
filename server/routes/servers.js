@@ -44,11 +44,15 @@ import {
 import { normalizeMemoryGb } from "../utils/memory.js";
 import { GAME_PORT_MAX, applyUpnpToIni } from "./server.js";
 import {
+  findLaunchTargetRefusal,
+  launchTargetOf,
+  launchTargetRefusedError,
   resolveLaunchMode,
   ServerManager,
   scanLeavesServerUnknown,
   scoreServerProcessOwnership,
 } from "../services/serverManager.js";
+import { ErrorCode } from "../utils/errorCodes.js";
 import {
   buildLifecycleTemplate,
   createLinuxServiceLifecycle,
@@ -135,6 +139,85 @@ async function requireCapabilityInline(capability, req, res) {
     passed = true;
   });
   return passed;
+}
+
+// SECURITY (2026-10-04, RCE-STARTCMD): a server's launch target -- its
+// custom start command, or an installPath/serverPath naming a launcher
+// script (resolveLaunchMode()) -- is a program the panel runs on this
+// computer as its own account at the next start. servers.manage was enough
+// to set either, so a technician could save `powershell.exe -enc <payload>`
+// and press Start (server.control). Changing one now takes files.manage,
+// the admin-only-by-default capability that can already change the game
+// files a server runs, so no new capability. The install path of a server
+// that has one (before or after the edit) counts too: a relative start
+// command is resolved against it, and replacing a launcher script replaces
+// what runs. Untouched values pass, since the edit dialog sends the whole
+// record back.
+function launchIsOperatorDefined(server) {
+  return (
+    Boolean(String(server?.startCommand ?? "").trim()) ||
+    resolveLaunchMode(server).mode === "custom"
+  );
+}
+
+function isLauncherShaped(value) {
+  return (
+    typeof value === "string" &&
+    resolveLaunchMode({ installPath: value }).mode === "custom"
+  );
+}
+
+export function changesLaunchTarget(stored, updates) {
+  const differs = (key) =>
+    updates[key] !== undefined &&
+    String(updates[key] ?? "") !== String(stored?.[key] ?? "");
+  if (differs("startCommand")) return true;
+  const after = { ...stored, ...updates };
+  return ["installPath", "serverPath"].some(
+    (key) =>
+      differs(key) &&
+      (isLauncherShaped(updates[key]) ||
+        launchIsOperatorDefined(stored) ||
+        launchIsOperatorDefined(after)),
+  );
+}
+
+// requirePermission() itself decides, so the role resolves the same
+// fail-closed way, but the refusal is this route's own coded one.
+async function holdsCapability(capability, req) {
+  let passed = false;
+  const probe = { status: () => probe, json: () => probe };
+  await requirePermission(capability)(req, probe, () => {
+    passed = true;
+  });
+  return passed;
+}
+
+// Sends the response and returns true when the launch target `server`
+// would end up with may not be saved by this caller: 403 without
+// files.manage, 400 when it would be refused at start anyway
+// (findLaunchTargetRefusal()). A remote profile is never launched here.
+async function refuseLaunchTargetChange(req, res, server) {
+  if (!(await holdsCapability("files.manage", req))) {
+    res.status(403).json({
+      error:
+        "Changing a server's start command or launcher script requires the files.manage permission, which this role doesn't have: whatever it names runs on this computer when the server starts. Ask an admin to make this change.",
+      code: ErrorCode.SERVER_LAUNCH_TARGET_ADMIN_ONLY,
+    });
+    return true;
+  }
+  const refusal = server.isRemote
+    ? null
+    : findLaunchTargetRefusal(launchTargetOf(server));
+  if (refusal) {
+    res.status(400).json({
+      error: launchTargetRefusedError(refusal).message,
+      code: ErrorCode.SERVER_LAUNCH_TARGET_REFUSED,
+      params: refusal,
+    });
+    return true;
+  }
+  return false;
 }
 
 async function mapWithConcurrency(items, limit, mapper) {
@@ -1113,6 +1196,11 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
       config.zomboidDataPath = resolvedImportData;
     }
 
+    // RCE-STARTCMD: a new profile whose install path names a launcher
+    // script is a launch target too (see changesLaunchTarget()). Judged on
+    // what the caller sent, before the env fallback below.
+    const requestsLauncher = isLauncherShaped(config.installPath);
+
     // Fall back to env-configured paths (docker-compose PZ_SERVER_PATH /
     // PZ_SAVE_PATH) when the request body doesn't set them explicitly.
     if (!config.installPath)
@@ -1141,6 +1229,16 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
       if (!installPathCheck.valid) {
         return res.status(400).json({ error: installPathCheck.error });
       }
+    }
+
+    if (
+      requestsLauncher &&
+      (await refuseLaunchTargetChange(req, res, {
+        installPath: config.installPath,
+        isRemote,
+      }))
+    ) {
+      return;
     }
 
     // Validate display name length
@@ -1518,6 +1616,26 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
         if (typeof updates[key] !== "boolean") {
           return res.status(400).json({ error: `${key} must be a boolean` });
         }
+      }
+    }
+
+    if (updates.startCommand === null) updates.startCommand = "";
+    if (
+      updates.startCommand !== undefined &&
+      typeof updates.startCommand !== "string"
+    ) {
+      return res.status(400).json({ error: "Invalid start command" });
+    }
+
+    // RCE-STARTCMD: see changesLaunchTarget().
+    if (["startCommand", "installPath", "serverPath"].some((key) => key in updates)) {
+      const stored = await getServer(serverId);
+      if (
+        stored &&
+        changesLaunchTarget(stored, updates) &&
+        (await refuseLaunchTargetChange(req, res, { ...stored, ...updates }))
+      ) {
+        return;
       }
     }
 

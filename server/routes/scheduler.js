@@ -57,12 +57,17 @@ export function emitActionResult(io, payload) {
 // (2026-10-01) -- and their copy names the way out (Force stop), so they're
 // taken from a failed result as well as a throw. So is
 // SERVER_RESTART_STOP_UNCONFIRMED, the returned failure when process
-// detection never confirmed the old server exited (GH #190). Any other
-// error adds nothing and keeps the bare message it always had.
+// detection never confirmed the old server exited (GH #190). And the
+// launch-target refusals (SERVER_LAUNCH_TARGET_REFUSED and its restart-time
+// counterpart, RCE-STARTCMD): a start command or launcher outside the
+// server's install folder. Any other error adds nothing and keeps the bare
+// message it always had.
 const CODED_ACTION_RESULT_CODES = new Set([
   ErrorCode.SERVER_START_SCRIPT_MISSING,
   ErrorCode.SERVER_RESTART_SCRIPT_MISSING,
   ErrorCode.SERVER_START_GAME_PORT_IN_USE,
+  ErrorCode.SERVER_LAUNCH_TARGET_REFUSED,
+  ErrorCode.SERVER_RESTART_LAUNCH_TARGET_REFUSED,
   ErrorCode.SERVER_RESTART_RCON_UNAVAILABLE,
   ErrorCode.SERVER_RESTART_SAVE_FAILED,
   ErrorCode.SERVER_RESTART_STOP_UNCONFIRMED,
