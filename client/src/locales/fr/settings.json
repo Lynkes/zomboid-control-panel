@@ -1160,5 +1160,8 @@
     "couldNotResetPassword": "Le panneau n'a pas pu réinitialiser votre mot de passe depuis ce serveur.",
     "never": "Jamais",
     "unknown": "Inconnu"
+  },
+  "hiddenByRole": {
+    "reason": "Masqué : afficher cette valeur nécessite la permission {{permission}}, que ce rôle n'a pas."
   }
 }

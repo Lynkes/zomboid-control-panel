@@ -248,6 +248,84 @@ const maskSensitiveSettings = maskSensitiveObject;
 // them, since they are not in VALID_SETTINGS_KEYS.
 const SERVER_MANAGED_SETTINGS = new Set([KNOWN_HOSTS_SETTING]);
 
+// SECURITY (2026-10-04, PR #193 review): GET /app-settings has no capability
+// gate -- the pages every role opens read a setting or two from it
+// (Dashboard's auto-start, Players' auto-export, Chat's quick messages, the
+// read-only view of Settings) -- and it returned the whole settings store:
+// host paths (HTTPS certificate and key, the legacy server folders, the
+// pre-update data backup), the SFTP host, account and folders, the Steam
+// account name, Discord and OIDC configuration, update bookkeeping. A role
+// without panel.settings now gets only:
+//   - APP_SETTINGS_ANY_ROLE_KEYS below: app behaviour, ports and toggles,
+//     no paths, hosts or account names;
+//   - each key SETTINGS_KEY_CAPABILITY maps to a capability the role holds,
+//     which it can see and change through that capability's own pages;
+//   - the masked placeholder of a secret Settings edits, which says only
+//     that one is set (the "Configured" badges read that).
+// Everything else is left out, so a setting added later stays hidden from
+// them until someone decides otherwise. A role that can't be resolved gets
+// the any-role keys alone.
+const APP_SETTINGS_ANY_ROLE_KEYS = new Set([
+  "serverName",
+  "minMemory",
+  "maxMemory",
+  "serverPort",
+  "modCheckInterval",
+  "modAutoRestart",
+  "modRestartDelay",
+  "serverAutoUpdate",
+  "serverAutoUpdateWarningMinutes",
+  "darkMode",
+  "autoReconnect",
+  "reconnectInterval",
+  "autoStartServer",
+  "panelPort",
+  "httpsEnabled",
+  "httpsPort",
+  "corsAllowAll",
+  "corsAllowPrivateNetworks",
+  "corsDebug",
+  "panelBridgeAutoUpdate",
+  "autoExportOnLogin",
+  "autoExportMaxPerPlayer",
+  "enablePublicIpLookup",
+  "workshopCollectionId",
+  "workshopCollectionAutoSync",
+  "chatPresets",
+  // Shown on the Dashboard to every role already.
+  "lanIpAddress",
+  "panelBridgeSftpEnabled",
+  "panelBridgeSftpPort",
+  "panelBridgeSftpPollIntervalSeconds",
+]);
+
+async function capabilitiesOf(user) {
+  if (!user) return new Set();
+  try {
+    const role = await getRoleByName(user.role);
+    return new Set(Array.isArray(role?.capabilities) ? role.capabilities : []);
+  } catch (error) {
+    log.warn(`Could not resolve the role for GET /app-settings: ${error.message}`);
+    return new Set();
+  }
+}
+
+export function appSettingsViewFor(settings, capabilities) {
+  if (capabilities.has("panel.settings")) return settings;
+  const view = {};
+  for (const [key, value] of Object.entries(settings)) {
+    const capability = SETTINGS_KEY_CAPABILITY[key];
+    if (
+      APP_SETTINGS_ANY_ROLE_KEYS.has(key) ||
+      (capability && capabilities.has(capability)) ||
+      (VALID_SETTINGS_KEYS.includes(key) && SENSITIVE_FIELD_RE.test(key))
+    ) {
+      view[key] = value;
+    }
+  }
+  return view;
+}
+
 // Get application settings
 router.get("/app-settings", async (req, res) => {
   try {
@@ -256,7 +334,8 @@ router.get("/app-settings", async (req, res) => {
         ([key]) => !SERVER_MANAGED_SETTINGS.has(key),
       ),
     );
-    res.json({ settings: maskSensitiveSettings(settings) });
+    const view = appSettingsViewFor(settings, await capabilitiesOf(req.user));
+    res.json({ settings: maskSensitiveSettings(view) });
   } catch (error) {
     log.error(`Failed to get app settings: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });

@@ -1158,5 +1158,8 @@
     "couldNotResetPassword": "面板無法從此伺服器重設您的密碼。",
     "never": "從未",
     "unknown": "未知"
+  },
+  "hiddenByRole": {
+    "reason": "已隱藏：檢視此值需要 {{permission}} 權限，此角色沒有該權限。"
   }
 }

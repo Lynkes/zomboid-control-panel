@@ -1158,5 +1158,8 @@
     "couldNotResetPassword": "Das Panel konnte dein Passwort nicht von diesem Server aus zurücksetzen.",
     "never": "Nie",
     "unknown": "Unbekannt"
+  },
+  "hiddenByRole": {
+    "reason": "Ausgeblendet: Um diesen Wert zu sehen, ist die Berechtigung {{permission}} erforderlich, die diese Rolle nicht hat."
   }
 }
