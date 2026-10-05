@@ -61,7 +61,7 @@
   "resetTokenCreated": "Jeton de récupération créé dans data/reset-token.txt. Collez-le ci-dessous pour continuer.",
   "repeatedFailureHint": {
     "title": "Toujours bloqué ?",
-    "body": "Après plusieurs tentatives infructueuses, un compte se verrouille automatiquement pendant 15 minutes par mesure de sécurité -- cet écran ne l'indiquera pas. Un code de récupération enregistré, ou démarrer le panneau avec <code>--reset-password</code> depuis le terminal du serveur, peut réinitialiser le mot de passe sans attendre."
+    "body": "Après plusieurs tentatives infructueuses, les connexions à ce compte depuis cette adresse sont suspendues pendant 15 minutes par mesure de sécurité -- cet écran ne l'indiquera pas. Un code de récupération enregistré, ou démarrer le panneau avec <code>--reset-password</code> depuis le terminal du serveur, réinitialise le mot de passe et lève la suspension."
   },
   "errors": {
     "loginFailed": "Échec de la connexion",

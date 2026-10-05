@@ -61,7 +61,7 @@
   "resetTokenCreated": "復原權杖已建立於 data/reset-token.txt。請在下方貼上以繼續。",
   "repeatedFailureHint": {
     "title": "仍然無法登入？",
-    "body": "多次登入失敗後，帳號會作為安全措施自動鎖定 15 分鐘——此介面不會顯示這一點。使用已儲存的復原碼，或在伺服器終端上以 <code>--reset-password</code> 啟動面板，均可立即重設密碼，無需等待。"
+    "body": "多次登入失敗後，作為安全措施，從此位址登入該帳號會暫停 15 分鐘——此介面不會顯示這一點。使用已儲存的復原碼，或在伺服器終端上以 <code>--reset-password</code> 啟動面板，均可重設密碼並解除暫停。"
   },
   "errors": {
     "loginFailed": "登入失敗",

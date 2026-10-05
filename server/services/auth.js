@@ -294,13 +294,24 @@ async function assertNoCapabilityEscalation(actingUserId, targetCapabilities) {
 // when it fails: checking a lock and then comparing for ~250ms let any
 // number of concurrent guesses all pass the check before the first failure
 // was written, so a burst got far more than MAX_FAILED_LOGINS tries.
-const MAX_LOGIN_THROTTLE_ENTRIES = 10000;
+let MAX_LOGIN_THROTTLE_ENTRIES = 10000;
 const loginThrottle = new Map();
 
 function loginThrottleKey(userId, clientKey) {
   return `${userId}\u0000${clientKey || "unknown"}`;
 }
 
+// Where a new address's attempts are counted once the table is full of
+// entries that still matter (see reserveLoginAttempt()). Not an address.
+const OVERFLOW_CLIENT_KEY = "\u0001overflow";
+
+// Drops only entries nothing depends on any more: nothing in flight, not
+// paused, no failure within the window. It used to drop the oldest other
+// entries too when that wasn't enough, paused ones included, so an attacker
+// with about MAX_LOGIN_THROTTLE_ENTRIES / (number of accounts) addresses
+// could cycle them and give each address a fresh count -- roughly
+// loginLimiter's 5 guesses a minute per address instead of
+// MAX_FAILED_LOGINS per window (security sweep 2026-10-04, adversary pass).
 function pruneLoginThrottle(now) {
   if (loginThrottle.size < MAX_LOGIN_THROTTLE_ENTRIES) return;
   for (const [key, entry] of loginThrottle) {
@@ -310,19 +321,25 @@ function pruneLoginThrottle(now) {
       now - entry.lastFailureAt > LOCKOUT_DURATION_MS;
     if (stale) loginThrottle.delete(key);
   }
-  // Still full: drop the oldest entries with nothing in flight.
-  for (const [key, entry] of loginThrottle) {
-    if (loginThrottle.size < MAX_LOGIN_THROTTLE_ENTRIES) break;
-    if (entry.inFlight === 0) loginThrottle.delete(key);
-  }
 }
 
-// Counts one attempt for this (account, client) and returns its entry, or
-// null when the client must not try this account right now.
-function reserveLoginAttempt(key, now = Date.now()) {
+// Counts one attempt for this (account, client) and returns { key, entry },
+// or null when the client must not try this account right now. When the
+// table is still full after pruning, a client with no entry of its own
+// shares the account's overflow entry: all such addresses together get
+// MAX_FAILED_LOGINS per window, and a client that already has an entry is
+// not affected.
+function reserveLoginAttempt(userId, clientKey, now = Date.now()) {
+  let key = loginThrottleKey(userId, clientKey);
   let entry = loginThrottle.get(key);
   if (!entry) {
     pruneLoginThrottle(now);
+    if (loginThrottle.size >= MAX_LOGIN_THROTTLE_ENTRIES) {
+      key = loginThrottleKey(userId, OVERFLOW_CLIENT_KEY);
+      entry = loginThrottle.get(key);
+    }
+  }
+  if (!entry) {
     entry = { failures: 0, inFlight: 0, lockedUntil: 0, lastFailureAt: 0 };
     loginThrottle.set(key, entry);
   }
@@ -333,7 +350,7 @@ function reserveLoginAttempt(key, now = Date.now()) {
   }
   if (entry.failures + entry.inFlight >= MAX_FAILED_LOGINS) return null;
   entry.inFlight += 1;
-  return entry;
+  return { key, entry };
 }
 
 // Records how a reserved attempt ended. Returns true when this failure
@@ -376,6 +393,12 @@ function clearLegacyAccountLock(user) {
 // For tests only.
 export function _resetLoginThrottleForTests() {
   loginThrottle.clear();
+  MAX_LOGIN_THROTTLE_ENTRIES = 10000;
+}
+
+// For tests only: a small table, so filling it doesn't take 10000 logins.
+export function _setLoginThrottleCapacityForTests(capacity) {
+  MAX_LOGIN_THROTTLE_ENTRIES = capacity;
 }
 
 // Session-revocation event bus. Socket.IO connections authenticate once at
@@ -1002,12 +1025,12 @@ class AuthService {
     // Paused: same generic error, and the dummy compare so a paused client
     // doesn't get a distinct, faster timing signature from a normal
     // wrong-password attempt.
-    const throttleKey = loginThrottleKey(user.id, clientKey);
-    const attempt = reserveLoginAttempt(throttleKey);
-    if (!attempt) {
+    const reserved = reserveLoginAttempt(user.id, clientKey);
+    if (!reserved) {
       await bcrypt.compare(password, DUMMY_BCRYPT_HASH);
       throw new Error("Invalid username or password");
     }
+    const { key: throttleKey, entry: attempt } = reserved;
 
     // OIDC-only accounts (bootstrapped via bootstrapAdminFromExternalIdentity)
     // have no local password hash. Still run the dummy compare so this

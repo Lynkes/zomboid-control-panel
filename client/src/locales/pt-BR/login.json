@@ -61,7 +61,7 @@
   "resetTokenCreated": "Token de recuperação criado em data/reset-token.txt. Cole-o abaixo para continuar.",
   "repeatedFailureHint": {
     "title": "Ainda não funciona?",
-    "body": "Após várias tentativas malsucedidas, a conta é bloqueada automaticamente por 15 minutos como precaução de segurança -- esta tela não avisa isso. Um código de recuperação salvo, ou iniciar o painel com <code>--reset-password</code> pelo terminal do servidor, pode redefinir a senha sem esperar."
+    "body": "Após várias tentativas malsucedidas, os logins nessa conta a partir deste endereço ficam pausados por 15 minutos como precaução de segurança -- esta tela não avisa isso. Um código de recuperação salvo, ou iniciar o painel com <code>--reset-password</code> pelo terminal do servidor, redefine a senha e remove a pausa."
   },
   "errors": {
     "loginFailed": "Falha no login",

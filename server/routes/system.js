@@ -9,6 +9,7 @@ import { getDiskStatusForPath } from "../services/diskMonitor.js";
 import { getCircuitBreakerStatus } from "../database/init.js";
 import { getRestartAssessment } from "../services/panelUpdateChecker.js";
 import { isContainerized } from "../utils/dockerDetect.js";
+import { getRoleByName } from "../services/permissions.js";
 
 const log = createLogger("API:System");
 const router = express.Router();
@@ -62,6 +63,29 @@ export function buildRuntimeInfo({
 // disk coming before it becomes their problem. Read-only, and error
 // messages already run through sanitizeError before leaving this file.
 
+// The folders behind those readings (the save volume and the panel's data
+// folder) go only to roles that can act on a full disk -- the same ones
+// index.js sends the disk:* events to (DISK_EVENT_CAPABILITIES). Every
+// other role gets the readings with `path: null`, which the banner never
+// reads (security sweep 2026-10-04, adversary pass: the disk:* events were
+// scoped, but these two routes still sent the paths to every role).
+const DISK_PATH_CAPABILITIES = ["diagnostics.manage", "backups.manage"];
+
+async function canSeeDiskPaths(user) {
+  if (!user) return false;
+  try {
+    const role = await getRoleByName(user.role);
+    const capabilities = Array.isArray(role?.capabilities) ? role.capabilities : [];
+    return DISK_PATH_CAPABILITIES.some((capability) => capabilities.includes(capability));
+  } catch {
+    return false;
+  }
+}
+
+function withoutPath(status) {
+  return status && typeof status === "object" ? { ...status, path: null } : status;
+}
+
 // Combined disk status for both the save volume (polled by DiskMonitor) and
 // the panel's own data directory (checked fresh — it's cheap, and its
 // disk isn't necessarily the same mount as the save volume).
@@ -69,7 +93,8 @@ async function buildDiskSpace(req) {
   const diskMonitor = req.app.get("diskMonitor");
   const saveVolume = diskMonitor ? diskMonitor.getDiskStatus() : null;
   const panelData = await getDiskStatusForPath(getDataPaths().dataDir);
-  return { saveVolume, panelData };
+  if (await canSeeDiskPaths(req.user)) return { saveVolume, panelData };
+  return { saveVolume: withoutPath(saveVolume), panelData: withoutPath(panelData) };
 }
 
 router.get("/disk-space", async (req, res) => {

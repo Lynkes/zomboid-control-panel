@@ -61,7 +61,7 @@
   "resetTokenCreated": "Wiederherstellungstoken unter data/reset-token.txt erstellt. Zum Fortfahren unten einfügen.",
   "repeatedFailureHint": {
     "title": "Funktioniert es immer noch nicht?",
-    "body": "Nach mehreren fehlgeschlagenen Versuchen wird ein Konto zur Sicherheit automatisch für 15 Minuten gesperrt -- dieser Bildschirm zeigt das nicht an. Ein gespeicherter Wiederherstellungscode oder das Starten des Panels mit <code>--reset-password</code> über das Server-Terminal kann das Passwort sofort zurücksetzen."
+    "body": "Nach mehreren fehlgeschlagenen Versuchen werden Anmeldungen bei diesem Konto von dieser Adresse aus zur Sicherheit für 15 Minuten pausiert -- dieser Bildschirm zeigt das nicht an. Ein gespeicherter Wiederherstellungscode oder das Starten des Panels mit <code>--reset-password</code> über das Server-Terminal setzt das Passwort zurück und hebt die Pause auf."
   },
   "errors": {
     "loginFailed": "Anmeldung fehlgeschlagen",

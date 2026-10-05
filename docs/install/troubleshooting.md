@@ -143,21 +143,33 @@ tab.
 **What you see:** `Invalid username or password` even though you're sure
 the password is right, or you simply never wrote it down.
 
-**What it means, first:** if you've mistyped the password 10 times, the
-account locks for 15 minutes — but the panel still shows the exact same
-`Invalid username or password` message during the lockout, not a distinct
-"account locked" message (this is deliberate: a message that changed when an
-account got locked would let someone confirm an account exists just by
-trying wrong passwords against it). If you were sure of the password and it
+**What it means, first:** if a password has been mistyped 10 times for an
+account from one address, sign-ins to that account from that address pause
+for 15 minutes. Other addresses are not affected, and SSO sign-in is never
+paused by wrong passwords. The panel still shows the exact same
+`Invalid username or password` message during the pause, not a distinct
+"account locked" message (this is deliberate: a message that changed when a
+pause started would let someone confirm an account exists just by trying
+wrong passwords against it). If you were sure of the password and it
 suddenly stops working for a while after several attempts, this is almost
 certainly why. Wait 15 minutes and try again with the correct password
-before assuming it's actually wrong.
+before assuming it's actually wrong — or reset it with one of the recovery
+paths below, which also lifts every pause on the account.
+
+The pause is per address, so it only protects you from strangers if the
+panel sees each visitor's real address. Behind a reverse proxy or tunnel
+(nginx, Caddy, cloudflared) every request arrives from the proxy's own
+address unless `TRUST_PROXY` is set (see [Linux](linux.md) and the Remote
+Access notes in the README), and inside Docker, IPv6 visitors can all
+arrive from the bridge gateway. In that setup everyone shares one address,
+so ten wrong passwords from anyone pause the account for everyone. Set
+`TRUST_PROXY` when the panel is only reachable through your proxy.
 
 After a few failed sign-in attempts from the same browser, the login page
 itself starts showing a **"Still not working?"** hint explaining this same
-15-minute lockout and pointing at recovery codes and `--reset-password` —
+15-minute pause and pointing at recovery codes and `--reset-password` —
 it appears the same way regardless of whether the account you're typing
-exists, is locked, or the password was simply wrong, so seeing it isn't
+exists, is paused, or the password was simply wrong, so seeing it isn't
 itself a sign anything is broken.
 
 Also check for `Too many login attempts. Please try again later.` — that's
@@ -187,10 +199,13 @@ can't verify a request came from the server itself. Create
 data/reset-token.txt on the host directly, or use a recovery code instead.`
 — the local-token flow can't confirm your browser request truly originated
 on the host once a proxy sits in front of it. Either create
-`data/reset-token.txt` yourself directly on the host — at least 8 characters
-after trimming whitespace, under 1KB, and less than 24 hours old when you use
-it, or the panel treats it the same as missing — or use a recovery code, or
-run `--reset-password` on the host instead.
+`data/reset-token.txt` yourself directly on the host — a random token of at
+least 32 characters after trimming whitespace (for example the output of
+`openssl rand -hex 24`), under 1KB, and less than 24 hours old when you use
+it, or the panel refuses it — or use a recovery code, or run
+`--reset-password` on the host instead. After 5 wrong tokens, from any mix
+of addresses, the panel deletes `data/reset-token.txt` and you need to
+create a new one.
 
 If you see `This recovery action is only available when the panel is opened
 from the server itself.` instead (no proxy mentioned), you're just not
