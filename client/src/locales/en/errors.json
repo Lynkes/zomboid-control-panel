@@ -589,5 +589,6 @@
   "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "A remote server's console log is on its own host, so the panel can't clear it from here.",
   "WIPE_REMOTE_NOT_AVAILABLE": "A remote server's world is on its own host, so the panel can't wipe it from here.",
   "ZOMBOID_DATA_FOLDER_REFUSED": "This server's Zomboid data folder holds files the game doesn't keep in a data folder, so the panel won't list or read it. On the My Servers page, edit the server and set its Zomboid Data Path to the game's own data folder: the one with a world save in its Saves folder.",
-  "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "This server has no Zomboid data folder set, and the game writes its console log there. On the My Servers page, edit the server and set its Zomboid Data Path."
+  "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "This server has no Zomboid data folder set, and the game writes its console log there. On the My Servers page, edit the server and set its Zomboid Data Path.",
+  "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "The chat relay posts what people type in its Discord channel in game, which needs {{detail}}. You don't hold it, so you can't turn the relay on or change the channel it listens in (the notification channel, while no relay channel is set)."
 }

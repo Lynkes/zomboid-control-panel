@@ -341,7 +341,7 @@
     "testMessageSent": "Mensaje de prueba enviado al canal de Discord",
     "testMessageFailedFallback": "No se pudo enviar el mensaje de prueba",
     "wipeConfirmTitle": "¿Borrar por completo la configuración del bot de Discord?",
-    "wipeConfirmDesc": "Esto elimina el token del bot guardado, los ID del servidor y del canal, los ID de rol, los ajustes de retransmisión de chat y la configuración de notificaciones de eventos de Discord, y devuelve el nivel de permiso de cada comando a su valor predeterminado. Un comando que requiere un permiso que no tienes en este panel conserva su nivel actual. El bot se detendrá y la página volverá a la configuración inicial.",
+    "wipeConfirmDesc": "Esto elimina el token del bot guardado, los ID del servidor y del canal, los ID de rol, el canal de retransmisión de chat y la configuración de notificaciones de eventos de Discord, y devuelve el nivel de permiso de cada comando a su valor predeterminado. Un comando que requiere un permiso que no tienes en este panel conserva su nivel actual. El inicio automático y la retransmisión de chat vuelven a su valor predeterminado, que es activado: en cuanto se configure un token nuevo, el bot se iniciará con el panel y retransmitirá todo el chat público en ambos sentidos por el canal de notificaciones. El bot se detendrá y la página volverá a la configuración inicial.",
     "wipeConfirmLabel": "Borrar configuración de Discord",
     "wipeSuccess": "Configuración del bot de Discord borrada por completo. Se puede empezar la configuración desde cero.",
     "wipeSuccessKeptTiers": "Configuración del bot de Discord borrada. Estos comandos conservaron su nivel de permiso porque requieren permisos que no tienes en este panel: {{commands}}",

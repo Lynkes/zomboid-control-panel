@@ -1500,10 +1500,9 @@ function toSpawnRegions(regions, serverName) {
 // folder. This route and the file routes below still answered with it. A
 // role without the host-path capabilities (utils/hostPathView.js) now gets
 // the config folder as the placeholder and each file by name, like GET
-// /raw/:type's `filename`. GET /browse-files keeps its folders: the image
-// picker writes the absolute path of the image it picks into the ini, and
-// it only lists the data folder's Server folder and ~/Zomboid
-// (getAllowedBrowseRoots()).
+// /raw/:type's `filename`. GET /browse-files and /image-preview name
+// folders the same way for that role since HT3: by a root id and the path
+// below it (browseRefFor() below).
 // Get server file paths info
 router.get("/paths", async (req, res) => {
   try {
@@ -3070,6 +3069,10 @@ async function holdsFilesManage(req) {
   }
 }
 
+// Each root with the id GET /browse-files and /image-preview name it by for
+// a role that doesn't see host folders (browseRefFor() below): "data" for
+// the active server's data folder, "settings" for the legacy setting's,
+// "zomboid" for ~/Zomboid. The first id for a folder wins.
 async function getAllowedBrowseRoots(req) {
   const roots = [];
   const { activeServer } = req.activeServerContext;
@@ -3082,15 +3085,92 @@ async function getAllowedBrowseRoots(req) {
   // rule (services/zomboidDataPath.js); the legacy setting's can differ from
   // the record's, so each is judged.
   if (activeServer?.zomboidDataPath && zomboidDataFolderHolds(activeServer.zomboidDataPath))
-    roots.push(dataFolderRoot(activeServer.zomboidDataPath));
+    roots.push({ id: "data", path: dataFolderRoot(activeServer.zomboidDataPath) });
   const settings = await getAllSettings();
   if (settings.zomboidDataPath && zomboidDataFolderHolds(settings.zomboidDataPath))
-    roots.push(dataFolderRoot(settings.zomboidDataPath));
+    roots.push({ id: "settings", path: dataFolderRoot(settings.zomboidDataPath) });
   // Always allow the default Zomboid config directory
   const defaultConfig = path.join(os.homedir(), "Zomboid");
-  roots.push(path.resolve(defaultConfig));
+  roots.push({ id: "zomboid", path: path.resolve(defaultConfig) });
   // De-duplicate
-  return [...new Set(roots)];
+  const seen = new Set();
+  return roots.filter((root) => !seen.has(root.path) && seen.add(root.path));
+}
+
+// SECURITY (2026-10-05, HT3): GET /browse-files answered with absolute
+// folders (currentPath, parent) to serverfiles.manage, the config folder
+// GET /paths gives a role without the host-path capabilities as the
+// placeholder (H4 round 3) among them. Round 3 kept them because the image
+// picker wrote the absolute path it picked into the ini. Nothing needs one
+// any more: the picker was for ServerImageLoginScreen/LoadingScreen/Icon,
+// which Build 42's ServerOptions no longer declares (nothing in the 42.21
+// jar or the game's Lua reads them) and Server Config hasn't offered since
+// 1.1.25, so no field saves a picked path. Such a role now names a folder
+// or image by a root id and the path below it ("data:/servertest/x.png"):
+// GET /browse-files answers in that form and both routes take it, and an
+// absolute path from it is refused like one outside the roots, so a guess
+// at a folder's name isn't confirmed either. The host-path roles keep
+// absolute paths and may send either form. A field that ever saves a
+// picked image again must map the reference back with resolveBrowseRef()
+// before writing it.
+const BROWSE_REF_RE = /^([a-z]+):(.*)$/s;
+
+// The path of `target` below `folder` ("" for the folder itself), or null
+// when it isn't inside it.
+function pathBelow(folder, target) {
+  const relative = path.relative(folder, target);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    return null;
+  }
+  return relative;
+}
+
+function realpathOrSelf(target) {
+  try {
+    return fs.realpathSync(target);
+  } catch {
+    return target;
+  }
+}
+
+// "<root id>:/<path below it>" for a folder or file inside a root -- the
+// innermost one holding it, links followed when the plain path doesn't
+// say -- or null when it is in none.
+function browseRefFor(target, roots) {
+  const resolved = path.resolve(target);
+  const innermostFirst = [...roots].sort((a, b) => b.path.length - a.path.length);
+  for (const [rootOf, targetPath] of [
+    [(root) => root.path, resolved],
+    [(root) => realpathOrSelf(root.path), realpathOrSelf(resolved)],
+  ]) {
+    for (const root of innermostFirst) {
+      const relative = pathBelow(rootOf(root), targetPath);
+      if (relative !== null) return `${root.id}:/${relative.split(path.sep).join("/")}`;
+    }
+  }
+  return null;
+}
+
+// The absolute folder or file a browse reference names, held to its root
+// (links followed, as confineToRoots() does); null for anything else. A
+// "." or ".." name, or one holding ':', is refused rather than resolved.
+function resolveBrowseRef(ref, roots) {
+  const match = typeof ref === "string" ? BROWSE_REF_RE.exec(ref) : null;
+  if (!match) return null;
+  const root = roots.find((entry) => entry.id === match[1]);
+  if (!root) return null;
+  const names = match[2].split(/[\\/]+/).filter(Boolean);
+  if (names.some((name) => name === "." || name === ".." || /[:\0]/.test(name))) return null;
+  return confineToRoots(path.join(root.path, ...names), [root.path]);
+}
+
+// What a request's `path` names: a browse reference from anyone, an
+// absolute path only from a role that sees host folders.
+function resolveBrowseTarget(requested, roots, view) {
+  const fromRef = resolveBrowseRef(requested, roots);
+  if (fromRef) return fromRef;
+  if (!view.full) return null;
+  return confineToRoots(requested, roots.map((root) => root.path));
 }
 
 // GET /browse-files - List directories and files at a given path
@@ -3107,27 +3187,26 @@ router.get("/browse-files", async (req, res) => {
           .filter((e) => IMAGE_EXTENSIONS.has(e))
       : null;
 
-    const allowedRoots = await getAllowedBrowseRoots(req);
+    const roots = await getAllowedBrowseRoots(req);
+    const allowedRoots = roots.map((root) => root.path);
+    // HT3: how this caller names folders (see browseRefFor()).
+    const view = await hostPathViewFor(req.user);
+    const shown = (folder) => (view.full ? folder : browseRefFor(folder, roots));
+    const accessDenied = () =>
+      res.status(403).json({
+        error: "Access denied: path is outside allowed server directories",
+        code: ErrorCode.BROWSE_ACCESS_DENIED,
+      });
     let targetPath;
     if (browsePath) {
-      targetPath = confineToRoots(browsePath, allowedRoots);
-      if (!targetPath) {
-        return res.status(403).json({
-          error: "Access denied: path is outside allowed server directories",
-          code: ErrorCode.BROWSE_ACCESS_DENIED,
-        });
-      }
+      targetPath = resolveBrowseTarget(browsePath, roots, view);
+      if (!targetPath) return accessDenied();
     } else {
       // Default to the server config directory -- held to the same roots as
       // a requested path, so a config folder saved before FILES-2's check
       // can't be listed through the default either.
       const { serverConfigPath: configPath } = req.activeServerContext;
-      if (configPath && !confineToRoots(configPath, allowedRoots)) {
-        return res.status(403).json({
-          error: "Access denied: path is outside allowed server directories",
-          code: ErrorCode.BROWSE_ACCESS_DENIED,
-        });
-      }
+      if (configPath && !confineToRoots(configPath, allowedRoots)) return accessDenied();
       targetPath = configPath || "";
     }
 
@@ -3137,6 +3216,9 @@ router.get("/browse-files", async (req, res) => {
         code: ErrorCode.BROWSE_NO_PATH,
       });
     }
+    // A folder this caller can't be shown by reference isn't listed.
+    const currentPath = shown(targetPath);
+    if (!currentPath) return accessDenied();
 
     if (!fs.existsSync(targetPath)) {
       return res.status(400).json({
@@ -3191,12 +3273,12 @@ router.get("/browse-files", async (req, res) => {
       a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
     );
 
+    const parentPath = path.dirname(targetPath);
     res.json({
-      currentPath: targetPath,
+      currentPath,
       parent:
-        path.dirname(targetPath) !== targetPath &&
-        confineToRoots(path.dirname(targetPath), allowedRoots)
-          ? path.dirname(targetPath)
+        parentPath !== targetPath && confineToRoots(parentPath, allowedRoots)
+          ? shown(parentPath)
           : null,
       directories,
       files,
@@ -3218,8 +3300,13 @@ router.get("/image-preview", async (req, res) => {
       });
     }
 
-    const allowedRoots = await getAllowedBrowseRoots(req);
-    const resolved = confineToRoots(filePath, allowedRoots);
+    // HT3: a browse reference, or an absolute path from a role that sees
+    // host folders (resolveBrowseTarget()).
+    const resolved = resolveBrowseTarget(
+      filePath,
+      await getAllowedBrowseRoots(req),
+      await hostPathViewFor(req.user),
+    );
     if (!resolved) {
       return res.status(403).json({
         error: "Access denied: path is outside allowed server directories",

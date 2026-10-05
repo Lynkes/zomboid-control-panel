@@ -135,6 +135,15 @@ async function listBackupsFor(backupDir, filename) {
 //     attempted (the source file exists) and did not happen -- disk full,
 //     backup dir unwritable, the copy itself failing. The safety net the
 //     caller may be about to rely on is NOT there.
+//
+// SECURITY (2026-10-05, HT2): `error` is path-redacted (sanitizeError()),
+// so it is safe in any response. It is a raw fs message otherwise
+// ("EACCES: ..., copyfile '<config>/x.ini' -> ..."), and the routes that
+// quoted it directly -- POST /api/server-files/sandbox/repair's 422 and
+// /restore/:filename's backupWarning -- answer serverfiles.manage, which
+// can't see the config folder elsewhere. Redacting it here covers every
+// caller, not only the ones backupWarningFor() below already covered. The
+// whole message is logged first.
 export async function createBackup(configPath, filename) {
   const backupDir = await getBackupPath(configPath);
   const filePath = path.join(configPath, filename);
@@ -197,7 +206,7 @@ export async function createBackup(configPath, filename) {
     return { backedUp: true, name: backupName };
   } catch (error) {
     log.error(`Backup creation failed: ${error.message}`);
-    return { backedUp: false, reason: "failed", error: error.message };
+    return { backedUp: false, reason: "failed", error: sanitizeError(error.message) };
   }
 }
 
@@ -268,7 +277,9 @@ export async function createBackupIfChanged(configPath, filename) {
 // the config folder ("EACCES: ..., copyfile '<config>/x.ini' -> ..."), and
 // this warning goes to mods.manage and serverfiles.manage, which can't see
 // that folder elsewhere. It is path-redacted like every route's error body;
-// createBackup() has already logged it whole.
+// createBackup() has already logged it whole. (Since HT2 createBackup()
+// returns it redacted; redacting again changes nothing and still covers a
+// result built anywhere else.)
 export function backupWarningFor(backup) {
   if (!backup || backup.backedUp || backup.reason === "no-source") return null;
   return `Could not back up the previous version before saving: ${sanitizeError(backup.error)}. Your change was saved, but there is no safety copy of what was there before.`;

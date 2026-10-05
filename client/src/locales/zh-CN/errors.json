@@ -589,5 +589,6 @@
   "SERVER_CONSOLE_LOG_REMOTE_NOT_AVAILABLE": "远程服务器的控制台日志位于其自己的主机上，因此面板无法在此清除它。",
   "WIPE_REMOTE_NOT_AVAILABLE": "远程服务器的世界位于其自己的主机上，因此面板无法在此清除它。",
   "ZOMBOID_DATA_FOLDER_REFUSED": "此服务器的 Zomboid 数据文件夹中有游戏不会放在数据文件夹里的文件，因此面板不会列出或读取它。请在「我的服务器」页面编辑该服务器，将其 Zomboid 数据路径设为游戏自己的数据文件夹：Saves 文件夹中有世界存档的那个。",
-  "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "此服务器未设置 Zomboid 数据文件夹，而游戏会把控制台日志写在那里。请在「我的服务器」页面编辑该服务器，设置其 Zomboid 数据路径。"
+  "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "此服务器未设置 Zomboid 数据文件夹，而游戏会把控制台日志写在那里。请在「我的服务器」页面编辑该服务器，设置其 Zomboid 数据路径。",
+  "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "聊天中继会把人们在其 Discord 频道中输入的内容发布到游戏中，这需要 {{detail}}。您没有该权限项，因此无法开启中继，也无法更改它监听的频道（未设置中继频道时即为通知频道）。"
 }

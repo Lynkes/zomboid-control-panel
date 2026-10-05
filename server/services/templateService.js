@@ -350,10 +350,16 @@ function applyTemplateLocked(template, paths, backup, options) {
     options.applySandbox === false ? null : prepareSandboxChange(template, paths, result),
   ].filter(Boolean);
 
+  // SECURITY (2026-10-05, HT1): each backup by file name, not by its full
+  // path. POST /api/templates/:id/apply answers templates.manage, which can
+  // be a custom role without the host-path capabilities, and the path named
+  // the config folder GET /api/servers gives that role as the placeholder.
+  // The page only counts them; the copies sit in the config folder's
+  // backups/ folder, where Server Config lists them by name too.
   if (backup) {
     for (const change of changes) {
       const backupPath = backupFile(change.filePath);
-      if (backupPath) result.backups.push(backupPath);
+      if (backupPath) result.backups.push(path.basename(backupPath));
     }
   }
   writeFilesTransaction(changes);

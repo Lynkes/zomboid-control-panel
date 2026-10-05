@@ -2360,7 +2360,10 @@ export const serverFilesApi = {
     apiPut(`/server-files/templates/${id}`, data),
   deleteTemplate: (id: string) => apiDelete(`/server-files/templates/${id}`),
 
-  // File browser (for image path fields)
+  // File browser (for image path fields). For a role without the host-path
+  // capabilities, currentPath and parent are root references
+  // ("data:/servertest") rather than absolute folders; both routes take
+  // them back as `path`, so pass them on as they came.
   browseFiles: (browsePath?: string, extensions?: string[]) => {
     const params = new URLSearchParams();
     if (browsePath) params.set("path", browsePath);
@@ -2437,6 +2440,8 @@ export interface SimTemplateApplyResult {
     | { applied: Array<{ section: string; key: string }>; skipped: Array<{ section: string; key: string }> }
     | { skipped: true; reason: string }
     | null;
+  // File names of the .bak copies made in the config folder's backups/
+  // folder (not their full paths since 1.4.6).
   backups: string[];
   error?: string;
 }

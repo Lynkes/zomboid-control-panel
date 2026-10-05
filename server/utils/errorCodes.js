@@ -2525,6 +2525,15 @@ export const ErrorCode = Object.freeze({
    * round 2). */
   SERVER_CONSOLE_LOG_NO_DATA_FOLDER: "SERVER_CONSOLE_LOG_NO_DATA_FOLDER",
   /* --- end security sweep W4: server paths --- */
+  /* --- security sweep W4: hardening (sec/w4-hardening) --- */
+  /** server/routes/discord.js -- PUT /config (403): the change turns the
+   * Discord-to-game chat relay on, or moves the channel it listens in (the
+   * relay channel, or the notification channel while none is set), and the
+   * caller doesn't hold server.world_events, which the panel's own
+   * in-game message route needs. `params.detail` names the capability
+   * (security sweep 2026-10-05, HT4b). */
+  DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED: "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED",
+  /* --- end security sweep W4: hardening --- */
 });
 
 /**
