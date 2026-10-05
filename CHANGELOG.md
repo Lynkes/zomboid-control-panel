@@ -33,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **PanelBridge leaderboard:** leaderboard data no longer sits in world-readable global mod data keyed by SteamID; it moves to a server-only file in the bridge folder when the server starts.
 - **Update PanelBridge:** the death and leaderboard fixes ship in the mod; Workshop servers get them once the updated item is published and the server restarts, and panel-installed copies update with the panel.
 
+### Fixed
+
+- **Leaderboard deaths:** the Deaths column now counts on dedicated servers; it stayed at 0 there.
+
 ## [1.4.5] - 2026-10-05
 
 ### Security

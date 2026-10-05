@@ -69,7 +69,6 @@ describe("PanelBridge.lua load guard", () => {
     expect(asList(bridge.getGlobal("EVENT_ADDS")).sort()).toEqual([
       "OnCharacterDeath",
       "OnClientCommand",
-      "OnPlayerDeath",
       "OnServerStarted",
       "OnTickEvenPaused",
       "OnZombieDead",

@@ -1847,6 +1847,9 @@ function PanelBridge.onCharacterDeath(character)
     end
     -- Report it on the next tick rather than at the next 3-second status.
     PanelBridge.lastStatusUpdate = 0
+    -- The leaderboard's deaths column counts here too: it used OnPlayerDeath,
+    -- so it never moved on a dedicated server.
+    pcall(recordPlayerDeath, character)
 end
 
 local function onLeaderboardZombieDead(zombie)
@@ -10728,9 +10731,8 @@ end
 Events.OnServerStarted.Add(PanelBridge.onServerStarted)
 -- Use OnTickEvenPaused so the bridge works even when no players are connected
 Events.OnTickEvenPaused.Add(PanelBridge.onTick)
-if Events.OnPlayerDeath and Events.OnPlayerDeath.Add then
-    Events.OnPlayerDeath.Add(recordPlayerDeath)
-end
+-- OnCharacterDeath also counts the leaderboard's deaths (OnPlayerDeath only
+-- fires for a local player, which a server never has).
 if Events.OnCharacterDeath and Events.OnCharacterDeath.Add then
     Events.OnCharacterDeath.Add(PanelBridge.onCharacterDeath)
 end

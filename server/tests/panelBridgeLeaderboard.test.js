@@ -25,7 +25,8 @@ function ModData.getOrCreate(key)
   return ModData.stores[key]
 end
 
-Events.OnPlayerDeath = { Add = function(fn) OnPlayerDeathHandler = fn end }
+Events.OnCharacterDeath = { Add = function(fn) OnCharacterDeathHandler = fn end }
+instanceof = function(obj, class) return class == "IsoPlayer" and (obj == Alice or obj == Bob) end
 Events.OnZombieDead = { Add = function(fn) OnZombieDeadHandler = fn end }
 
 Alice = { kills = 12, hours = 48 }
@@ -104,7 +105,7 @@ describe('PanelBridge leaderboard telemetry', () => {
   it('records deaths and favorite weapon through native event hooks', () => {
     const bridge = loadPanelBridge(LUA_PATH, STUBS);
     bridge.callHandler('getLeaderboard');
-    bridge.run(`OnPlayerDeathHandler(Alice); OnZombieDeadHandler(Zombie)`);
+    bridge.run(`OnCharacterDeathHandler(Alice); OnZombieDeadHandler(Zombie)`);
 
     const result = bridge.callHandler('getLeaderboard');
     const alice = rowFor(result, 'Alice');
