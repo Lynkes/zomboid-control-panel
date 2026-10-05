@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _No unreleased changes._
 
+## [1.4.4] - 2026-10-04
+
+### Security
+
+- **Authentication bypass fixed:** an API path spelled in another letter case (`/API/...`) skipped the login check; config restores and edits on such paths also skipped their "server must be stopped" check (#193, thanks @mrbean56).
+
 ## [1.4.3] - 2026-10-02
 
 ### Fixed

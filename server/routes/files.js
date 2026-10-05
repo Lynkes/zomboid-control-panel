@@ -81,7 +81,7 @@ function refuseUploadBody(req, res) {
 }
 
 function isUploadRequest(req) {
-  return req.method === "POST" && /\/upload$/.test(req.path);
+  return req.method === "POST" && /\/upload$/i.test(req.path);
 }
 
 // Server Files API (/api/files), spec §A10. The whole router needs
@@ -339,7 +339,7 @@ router.use((req, res, next) => {
     }
   }
   if (req.method === "POST" || req.method === "PUT") {
-    const isUpload = req.method === "POST" && /^\/profiles\/[^/]+\/upload$/.test(req.path);
+    const isUpload = req.method === "POST" && /^\/profiles\/[^/]+\/upload$/i.test(req.path);
     if (!isUpload) {
       if (!req.is("application/json")) return sendError(res, new FmError(ErrorCode.FM_UNSUPPORTED_MEDIA_TYPE));
       if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {

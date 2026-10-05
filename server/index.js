@@ -2347,7 +2347,7 @@ if (legacyClientMismatch) {
     `Packaged frontend does not match executable ${_buildMetadata.panelVersion}/${_buildMetadata.buildSha}; serving recovery page instead of mixed client/dist`,
   );
   app.use((req, res, next) => {
-    if (req.method !== "GET" || req.path.startsWith("/api")) return next();
+    if (req.method !== "GET" || req.path.toLowerCase().startsWith("/api")) return next();
     res.status(503).type("html").send(buildLegacyClientRecoveryPage());
   });
 }
@@ -2443,7 +2443,7 @@ app.use("/api", apiErrorHandler);
 // 404 handling, same as before).
 app.use((req, res, next) => {
   if (req.method !== "GET") return next();
-  if (req.path.startsWith("/api")) {
+  if (req.path.toLowerCase().startsWith("/api")) {
     res.status(404).json({ error: "API endpoint not found" });
   } else {
     sendClientIndex(res, clientDistPath, (err) => {
