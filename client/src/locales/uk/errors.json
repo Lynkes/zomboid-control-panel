@@ -198,6 +198,7 @@
   "DIRECTORY_READ_FAILED_WINDOWS": "Не вдається прочитати {{path}} ({{code}}). Запустіть панель від імені облікового запису, який може читати цю теку.",
   "DIRECTORY_READ_FAILED_POSIX": "Не вдається прочитати {{path}} ({{code}}). Службовому обліковому запису панелі потрібні права на читання та виконання для цієї теки й кожної батьківської теки.",
   "BROWSE_FOLDER_INVALID_DESCRIPTION": "Некоректний параметр опису",
+  "BROWSE_FOLDER_INVALID_PATH": "Некоректний параметр початкового шляху",
   "BROWSE_FOLDER_NO_DIALOG_AVAILABLE": "Немає доступного оглядача тек. Установіть zenity або kdialog чи введіть шлях вручну.",
   "BROWSE_FOLDER_OPEN_FAILED": "Не вдалося відкрити оглядач тек",
   "SERVER_DATA_PATH_NOT_CONFIGURED": "Шлях до даних сервера не налаштовано",

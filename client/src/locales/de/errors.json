@@ -198,6 +198,7 @@
   "DIRECTORY_READ_FAILED_WINDOWS": "{{path}} kann nicht gelesen werden ({{code}}). Führe das Panel unter einem Konto aus, das diesen Ordner lesen kann.",
   "DIRECTORY_READ_FAILED_POSIX": "{{path}} kann nicht gelesen werden ({{code}}). Das Servicekonto des Panels benötigt Lese- und Ausführungsrechte für diesen Ordner und alle übergeordneten Ordner.",
   "BROWSE_FOLDER_INVALID_DESCRIPTION": "Ungültiger description-Parameter",
+  "BROWSE_FOLDER_INVALID_PATH": "Ungültiger initial path-Parameter",
   "BROWSE_FOLDER_NO_DIALOG_AVAILABLE": "Kein Ordnerbrowser verfügbar. Installiere zenity oder kdialog, oder gib den Pfad manuell ein.",
   "BROWSE_FOLDER_OPEN_FAILED": "Ordnerbrowser konnte nicht geöffnet werden",
   "SERVER_DATA_PATH_NOT_CONFIGURED": "Server-Datenpfad nicht konfiguriert",

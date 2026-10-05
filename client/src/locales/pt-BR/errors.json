@@ -198,6 +198,7 @@
   "DIRECTORY_READ_FAILED_WINDOWS": "Não é possível ler {{path}} ({{code}}). Execute o painel com uma conta que possa ler esta pasta.",
   "DIRECTORY_READ_FAILED_POSIX": "Não é possível ler {{path}} ({{code}}). A conta de serviço do painel precisa de permissão de leitura e execução nesta pasta e em todas as pastas acima dela.",
   "BROWSE_FOLDER_INVALID_DESCRIPTION": "Parâmetro de descrição inválido",
+  "BROWSE_FOLDER_INVALID_PATH": "Parâmetro de caminho inicial inválido",
   "BROWSE_FOLDER_NO_DIALOG_AVAILABLE": "Nenhum seletor de pastas disponível. Instale o zenity ou o kdialog, ou digite o caminho manualmente.",
   "BROWSE_FOLDER_OPEN_FAILED": "Falha ao abrir o seletor de pastas",
   "SERVER_DATA_PATH_NOT_CONFIGURED": "Caminho de dados do servidor não configurado",

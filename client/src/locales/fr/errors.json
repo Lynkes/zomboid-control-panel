@@ -198,6 +198,7 @@
   "DIRECTORY_READ_FAILED_WINDOWS": "Impossible de lire {{path}} ({{code}}). Exécutez le panneau avec un compte pouvant lire ce dossier.",
   "DIRECTORY_READ_FAILED_POSIX": "Impossible de lire {{path}} ({{code}}). Le compte de service du panneau a besoin des permissions de lecture et d'exécution sur ce dossier et tous ses dossiers parents.",
   "BROWSE_FOLDER_INVALID_DESCRIPTION": "Paramètre de description invalide",
+  "BROWSE_FOLDER_INVALID_PATH": "Paramètre de chemin initial invalide",
   "BROWSE_FOLDER_NO_DIALOG_AVAILABLE": "Aucun sélecteur de dossier disponible. Installez zenity ou kdialog, ou saisissez le chemin manuellement.",
   "BROWSE_FOLDER_OPEN_FAILED": "Échec de l'ouverture du sélecteur de dossier",
   "SERVER_DATA_PATH_NOT_CONFIGURED": "Chemin de données du serveur non configuré",

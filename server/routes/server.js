@@ -6124,6 +6124,24 @@ router.post("/browse-folder", requirePermission("server.install"), async (req, r
       return res.status(400).json({ error: "Invalid description parameter", code: ErrorCode.BROWSE_FOLDER_INVALID_DESCRIPTION });
     }
 
+    // Defense-in-depth: a real folder path never contains a control
+    // character, a quote, a backtick or `$`. The value is handed to the OS
+    // picker out-of-band (an environment variable on Windows, a
+    // single-quoted argv on Linux) and never built into shell/PowerShell
+    // source, so this is a second line, not the primary guard -- but
+    // refusing it outright keeps a crafted value from ever reaching the
+    // interpreter at all. The typographic single-quote family U+2018-U+201B
+    // is included because PowerShell's parser treats those like an ASCII '.
+    if (
+      typeof initialPath === "string" &&
+      /[\u0000-\u001f\u007f'`$\u2018-\u201b]/.test(initialPath)
+    ) {
+      return res.status(400).json({
+        error: "Invalid initial path parameter",
+        code: ErrorCode.BROWSE_FOLDER_INVALID_PATH,
+      });
+    }
+
     if (!isWindows) {
       // Linux: try zenity, then kdialog, then return unsupported
       const execCb = exec;
@@ -6171,20 +6189,26 @@ router.post("/browse-folder", requirePermission("server.install"), async (req, r
       return;
     }
 
+    // The initial folder and the dialog title are passed to PowerShell
+    // OUT-OF-BAND, as environment variables, instead of being interpolated
+    // into the -Command source. The script reads them only as $env:... data,
+    // so nothing in `initialPath`/`description` is ever parsed as PowerShell
+    // -- this is the real fix (the character check above is only
+    // defense-in-depth). Same pattern as utils/browserCookies.js
+    // ($env:ZCP_SRC/ZCP_DST). -LiteralPath keeps Test-Path from treating the
+    // value as a wildcard, and an empty/undefined env var is falsy in the
+    // `-and` guard so no SelectedPath is set when there is no initial path.
     const safePath =
-      initialPath && isValidPath(initialPath)
-        ? initialPath.replace(/'/g, "''")
-        : "";
-    const safeDesc = description.replace(/'/g, "''");
+      initialPath && isValidPath(initialPath) ? initialPath : "";
 
     // Simple FolderBrowserDialog — needs -STA for COM, no RootFolder restriction
     const psScript = `
 Add-Type -AssemblyName System.Windows.Forms
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$dialog.Description = '${safeDesc}'
+$dialog.Description = $env:ZCP_FOLDER_DIALOG_DESC
 $dialog.UseDescriptionForTitle = $true
 $dialog.ShowNewFolderButton = $true
-${safePath ? `if (Test-Path '${safePath}') { $dialog.SelectedPath = '${safePath}' }` : ""}
+if ($env:ZCP_INITIAL_PATH -and (Test-Path -LiteralPath $env:ZCP_INITIAL_PATH)) { $dialog.SelectedPath = $env:ZCP_INITIAL_PATH }
 $result = $dialog.ShowDialog()
 if ($result -eq 'OK') { Write-Output $dialog.SelectedPath } else { Write-Output '' }
 `;
@@ -6194,6 +6218,11 @@ if ($result -eq 'OK') { Write-Output $dialog.SelectedPath } else { Write-Output 
       ["-NoProfile", "-STA", "-Command", psScript],
       {
         windowsHide: false,
+        env: {
+          ...process.env,
+          ZCP_INITIAL_PATH: safePath,
+          ZCP_FOLDER_DIALOG_DESC: description,
+        },
       },
     );
 

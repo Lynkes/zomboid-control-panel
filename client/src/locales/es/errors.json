@@ -198,6 +198,7 @@
   "DIRECTORY_READ_FAILED_WINDOWS": "No se puede leer {{path}} ({{code}}). Ejecuta el panel con una cuenta que pueda leer esta carpeta.",
   "DIRECTORY_READ_FAILED_POSIX": "No se puede leer {{path}} ({{code}}). La cuenta de servicio del panel necesita permisos de lectura y ejecución en esta carpeta y en todas las carpetas superiores.",
   "BROWSE_FOLDER_INVALID_DESCRIPTION": "Parámetro de descripción no válido",
+  "BROWSE_FOLDER_INVALID_PATH": "Parámetro de ruta inicial no válido",
   "BROWSE_FOLDER_NO_DIALOG_AVAILABLE": "No hay ningún explorador de carpetas disponible. Instala zenity o kdialog, o introduce la ruta manualmente.",
   "BROWSE_FOLDER_OPEN_FAILED": "No se pudo abrir el explorador de carpetas",
   "SERVER_DATA_PATH_NOT_CONFIGURED": "La ruta de datos del servidor no está configurada",

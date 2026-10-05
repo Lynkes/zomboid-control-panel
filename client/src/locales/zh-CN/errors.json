@@ -198,6 +198,7 @@
   "DIRECTORY_READ_FAILED_WINDOWS": "无法读取 {{path}}（{{code}}）。请以可读取此文件夹的账户运行面板。",
   "DIRECTORY_READ_FAILED_POSIX": "无法读取 {{path}}（{{code}}）。面板服务账户需要对此文件夹及其所有上级文件夹拥有读取和执行权限。",
   "BROWSE_FOLDER_INVALID_DESCRIPTION": "描述参数无效",
+  "BROWSE_FOLDER_INVALID_PATH": "初始路径参数无效",
   "BROWSE_FOLDER_NO_DIALOG_AVAILABLE": "没有可用的文件夹浏览器。请安装 zenity 或 kdialog，或手动输入路径。",
   "BROWSE_FOLDER_OPEN_FAILED": "打开文件夹浏览器失败",
   "SERVER_DATA_PATH_NOT_CONFIGURED": "未配置服务器数据路径",

@@ -198,6 +198,7 @@
   "DIRECTORY_READ_FAILED_WINDOWS": "無法讀取 {{path}}（{{code}}）。請以可讀取此資料夾的帳號執行面板。",
   "DIRECTORY_READ_FAILED_POSIX": "無法讀取 {{path}}（{{code}}）。面板服務帳號需要對此資料夾及其所有上級資料夾擁有讀取和執行權限。",
   "BROWSE_FOLDER_INVALID_DESCRIPTION": "描述引數無效",
+  "BROWSE_FOLDER_INVALID_PATH": "初始路徑引數無效",
   "BROWSE_FOLDER_NO_DIALOG_AVAILABLE": "沒有可用的資料夾瀏覽器。請安裝 zenity 或 kdialog，或手動輸入路徑。",
   "BROWSE_FOLDER_OPEN_FAILED": "開啟資料夾瀏覽器失敗",
   "SERVER_DATA_PATH_NOT_CONFIGURED": "尚未設定伺服器資料路徑",

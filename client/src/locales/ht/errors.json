@@ -198,6 +198,7 @@
   "DIRECTORY_READ_FAILED_WINDOWS": "Pa ka li {{path}} ({{code}}). Fè panèl la kouri ak yon kont ki ka li dosye sa a.",
   "DIRECTORY_READ_FAILED_POSIX": "Pa ka li {{path}} ({{code}}). Kont sèvis panèl la bezwen pèmisyon lekti ak egzekisyon sou dosye sa a ak tout dosye paran li yo.",
   "BROWSE_FOLDER_INVALID_DESCRIPTION": "Paramèt deskripsyon envalid",
+  "BROWSE_FOLDER_INVALID_PATH": "Paramèt chemen inisyal envalid",
   "BROWSE_FOLDER_NO_DIALOG_AVAILABLE": "Pa gen navigatè dosye disponib. Enstale zenity oswa kdialog, oswa antre chemen an manyèlman.",
   "BROWSE_FOLDER_OPEN_FAILED": "Louvri navigatè dosye a echwe",
   "SERVER_DATA_PATH_NOT_CONFIGURED": "Chemen done sèvè pa konfigire",

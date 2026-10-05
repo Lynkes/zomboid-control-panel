@@ -198,6 +198,7 @@
   "DIRECTORY_READ_FAILED_WINDOWS": "Cannot read {{path}} ({{code}}). Run the panel as an account that can read this folder.",
   "DIRECTORY_READ_FAILED_POSIX": "Cannot read {{path}} ({{code}}). The panel service account needs read and execute permission on this folder and every parent folder.",
   "BROWSE_FOLDER_INVALID_DESCRIPTION": "Invalid description parameter",
+  "BROWSE_FOLDER_INVALID_PATH": "Invalid initial path parameter",
   "BROWSE_FOLDER_NO_DIALOG_AVAILABLE": "No folder browser available. Install zenity or kdialog, or enter the path manually.",
   "BROWSE_FOLDER_OPEN_FAILED": "Failed to open folder browser",
   "SERVER_DATA_PATH_NOT_CONFIGURED": "Server data path not configured",

@@ -198,6 +198,7 @@
   "DIRECTORY_READ_FAILED_WINDOWS": "تعذّرت قراءة {{path}} ({{code}}). شغّل اللوحة بحساب يستطيع قراءة هذا المجلد.",
   "DIRECTORY_READ_FAILED_POSIX": "تعذّرت قراءة {{path}} ({{code}}). يحتاج حساب خدمة اللوحة إلى إذن القراءة والتنفيذ على هذا المجلد وعلى كل مجلد أصل له.",
   "BROWSE_FOLDER_INVALID_DESCRIPTION": "معامل الوصف غير صالح",
+  "BROWSE_FOLDER_INVALID_PATH": "معامل المسار الأولي غير صالح",
   "BROWSE_FOLDER_NO_DIALOG_AVAILABLE": "لا يتوفر متصفح مجلدات. ثبّت zenity أو kdialog، أو أدخل المسار يدويًا.",
   "BROWSE_FOLDER_OPEN_FAILED": "فشل فتح متصفح المجلدات",
   "SERVER_DATA_PATH_NOT_CONFIGURED": "لم يُضبط مسار بيانات الخادم",
