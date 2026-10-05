@@ -67,6 +67,7 @@ import { rehydrateActiveSteamOperationsFromDisk } from "./services/activeSteamOp
 import {
   PanelUpdateChecker,
   createUpdateDataBackup,
+  redactUpdateStatus,
   restorePreUpdateDataBackup,
 } from "./services/panelUpdateChecker.js";
 import {
@@ -80,7 +81,7 @@ import {
 import { LogTailer } from "./services/logTailer.js";
 import { DiskMonitor } from "./services/diskMonitor.js";
 import authService, { onSessionRevoked } from "./services/auth.js";
-import { getRoleByName, requirePermission } from "./services/permissions.js";
+import { getCapabilitiesForRole, getRoleByName, requirePermission } from "./services/permissions.js";
 import { requireRole } from "./services/auth.js";
 import authRoutes from "./routes/auth.js";
 import oidcRoutes from "./routes/oidc.js";
@@ -2090,14 +2091,23 @@ app.get("/api/panel/update-check", requirePermission("panel.settings"), async (r
   }
 });
 
-app.get("/api/panel/update-status", (req, res) => {
+// Login-only on purpose: Layout and Dashboard poll it for every role. The
+// helper log and host paths in it are panel.settings content (the same gate
+// as update-apply-log), so other roles get the status without them (#193).
+app.get("/api/panel/update-status", async (req, res) => {
   try {
     const checker = req.app.get("panelUpdateChecker");
     if (!checker)
       return res
         .status(500)
         .json({ error: "Panel update checker not available" });
-    res.json(checker.getStatus());
+    const status = checker.getStatus();
+    const capabilities = await getCapabilitiesForRole(req.user?.role);
+    res.json(
+      Array.isArray(capabilities) && capabilities.includes("panel.settings")
+        ? status
+        : redactUpdateStatus(status),
+    );
   } catch (error) {
     // The only inline update route with no try/catch, found by comparing it
     // against its three siblings (update-check, update-preflight,

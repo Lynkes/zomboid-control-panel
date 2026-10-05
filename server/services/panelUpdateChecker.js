@@ -222,6 +222,26 @@ export function validateReleaseManifest(
   return null;
 }
 
+// The parts of the update status that describe this host rather than the
+// update: the helper's apply log (it quotes install paths), the panel folder
+// and the staged binary's path. GET /api/panel/update-apply-log needs
+// panel.settings for exactly that content, so update-status (polled by every
+// role for the Dashboard and Layout badges) and the panel:updateApplyFailed
+// broadcast drop them for everyone else (#193). Pure; never mutates.
+export function redactApplyResult(result) {
+  if (!result || typeof result !== "object") return result ?? null;
+  const { helperLog: _helperLog, panelFolder: _panelFolder, ...rest } = result;
+  return rest;
+}
+
+export function redactUpdateStatus(status) {
+  if (!status || typeof status !== "object") return status;
+  const redacted = { ...status };
+  if (redacted.stagedUpdate) redacted.stagedUpdate = { version: redacted.stagedUpdate.version };
+  if (redacted.lastApplyResult) redacted.lastApplyResult = redactApplyResult(redacted.lastApplyResult);
+  return redacted;
+}
+
 export class PanelUpdateChecker {
   constructor(io) {
     this.io = io;
@@ -2728,7 +2748,9 @@ public static extern bool CloseHandle(System.IntPtr hObject);
     log.warn(
       `Panel update apply appears to have failed (pending v${pending}, running v${this.currentVersion}, cause: ${likelyCause})`,
     );
-    this.io?.emit("panel:updateApplyFailed", this.lastApplyResult);
+    // Every signed-in socket gets the event; the helper log and host path
+    // stay behind GET /api/panel/update-status for panel.settings holders.
+    this.io?.emit("panel:updateApplyFailed", redactApplyResult(this.lastApplyResult));
 
     // Don't clear pendingPanelUpdate — keep it so the user can retry apply
     // when the staged file is still on disk. If it isn't, the next successful

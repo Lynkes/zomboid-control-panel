@@ -942,8 +942,10 @@ export default function Settings() {
         setPanelUpdateReady(false);
       }
       // If a previous apply failed, surface the helper log right away so the
-      // user can see what happened without clicking anything.
-      if (status.lastApplyResult?.status === "failed") {
+      // user can see what happened without clicking anything. The log is
+      // panel.settings content (#193): other roles get the status without it
+      // and must not be sent to the gated log route.
+      if (status.lastApplyResult?.status === "failed" && canSavePanelSettings) {
         if (status.lastApplyResult.helperLog) {
           setPanelApplyLog(status.lastApplyResult.helperLog);
         } else {
@@ -961,7 +963,7 @@ export default function Settings() {
       setPanelUpdateStatusError(message);
       reportClientError("Failed to fetch panel update status.", error);
     }
-  }, [t]);
+  }, [t, canSavePanelSettings]);
 
   const fetchPanelUpdatePreflight = useCallback(async () => {
     try {
@@ -1018,13 +1020,15 @@ export default function Settings() {
 
   // Run preflight once status tells us we're in a packaged build and there is
   // anything actionable (either an available update or a staged file on disk).
+  // update-preflight needs panel.settings (#193), like Check for Updates.
   useEffect(() => {
-    if (!hasActionablePanelUpdate) return;
+    if (!hasActionablePanelUpdate || !canSavePanelSettings) return;
     fetchPanelUpdatePreflight();
   }, [
     hasActionablePanelUpdate,
     stagedPanelUpdatePath,
     fetchPanelUpdatePreflight,
+    canSavePanelSettings,
   ]);
 
   const normalizePort = (value: string): string => {
@@ -1343,6 +1347,8 @@ export default function Settings() {
   }, [pollForPanelReconnect]);
 
   const handleCheckPanelUpdate = async () => {
+    // GET /panel/update-check needs panel.settings (#193).
+    if (!canSavePanelSettings) return;
     setCheckingPanelUpdate(true);
     setPanelUpdateStatusError(null);
     try {
@@ -3833,28 +3839,32 @@ export default function Settings() {
                             >
                               {t("updates.dismiss")}
                             </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={async () => {
-                                try {
-                                  const { log: helperLog } =
-                                    await panelUpdateApi.getApplyLog();
-                                  setPanelApplyLog(
-                                    helperLog || "No helper log found.",
-                                  );
-                                } catch (error) {
-                                  toast({
-                                    title: t("updates.couldNotReadLog.title"),
-                                    description:
-                                      getUserErrorMessage(error, t("updates.couldNotReadLog.fallback")),
-                                    variant: "destructive",
-                                  });
-                                }
-                              }}
-                            >
-                              {t("updates.refreshLog")}
-                            </Button>
+                            <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={!canSavePanelSettings}
+                                onClick={async () => {
+                                  if (!canSavePanelSettings) return;
+                                  try {
+                                    const { log: helperLog } =
+                                      await panelUpdateApi.getApplyLog();
+                                    setPanelApplyLog(
+                                      helperLog || "No helper log found.",
+                                    );
+                                  } catch (error) {
+                                    toast({
+                                      title: t("updates.couldNotReadLog.title"),
+                                      description:
+                                        getUserErrorMessage(error, t("updates.couldNotReadLog.fallback")),
+                                      variant: "destructive",
+                                    });
+                                  }
+                                }}
+                              >
+                                {t("updates.refreshLog")}
+                              </Button>
+                            </DisabledReason>
                           </div>
                         </AlertDescription>
                       </Alert>
@@ -3910,25 +3920,28 @@ export default function Settings() {
                     )}
 
                   <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={handleCheckPanelUpdate}
-                      disabled={
-                        checkingPanelUpdate ||
-                        downloadingPanelUpdate ||
-                        restarting
-                      }
-                      className="gap-2"
-                    >
-                      {checkingPanelUpdate ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <RefreshCw className="w-4 h-4" />
-                      )}
-                      {checkingPanelUpdate
-                        ? t("updates.statusChecking")
-                        : t("updates.checkForUpdates")}
-                    </Button>
+                    <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
+                      <Button
+                        variant="outline"
+                        onClick={handleCheckPanelUpdate}
+                        disabled={
+                          checkingPanelUpdate ||
+                          downloadingPanelUpdate ||
+                          restarting ||
+                          !canSavePanelSettings
+                        }
+                        className="gap-2"
+                      >
+                        {checkingPanelUpdate ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-4 h-4" />
+                        )}
+                        {checkingPanelUpdate
+                          ? t("updates.statusChecking")
+                          : t("updates.checkForUpdates")}
+                      </Button>
+                    </DisabledReason>
 
                     {isDockerPanelUpdate ? (
                       <AlertDialog
