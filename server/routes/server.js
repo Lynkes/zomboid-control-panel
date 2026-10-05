@@ -1647,6 +1647,14 @@ export function writeStartupScriptsWithBackup(installPath, files) {
         }
         try {
           fs.copyFileSync(filePath, backupPath);
+          // The copy keeps the source's mode, and a script from before #193
+          // may still be world-readable -- the backup carries the same
+          // -adminpassword, so it is owner-only whatever the source was.
+          try {
+            fs.chmodSync(backupPath, 0o600);
+          } catch {
+            /* best effort: Windows has no POSIX modes to tighten */
+          }
           backupMessages.push(
             `${fileName} had content the panel didn't last write (a hand-edit, or an install from before this backup existed) -- your version was saved to ${path.basename(backupPath)} before regenerating.`,
           );
@@ -1659,10 +1667,15 @@ export function writeStartupScriptsWithBackup(installPath, files) {
     }
 
     try {
+      // Both scripts embed -adminpassword. An explicit mode also tightens a
+      // .bat written before #193 (writeFileAtomic otherwise keeps an existing
+      // file's mode), since every Start regenerates it here.
       writeFileAtomic(
         filePath,
         content,
-        filePath.endsWith(".sh") ? { encoding: "utf8", mode: 0o750 } : "utf8",
+        filePath.endsWith(".sh")
+          ? { encoding: "utf8", mode: 0o750 }
+          : { encoding: "utf8", mode: 0o600 },
       );
       fingerprints[fileName] = hashScriptContent(content);
     } catch (writeErr) {
