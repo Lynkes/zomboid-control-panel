@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Panel updates:** checking for updates and reading the apply log need panel settings (admin by default) (#193, thanks @mrbean56).
 - **Hardening:** safer restore staging, owner-only `.bat` launch scripts, masked recovery codes, a stricter CORS private-network check, HS256-only tokens, server-files guards that match a trailing slash, and an optional `PANEL_DOCKER_UPDATE_SHA256` updater pin (#193, thanks @mrbean56).
 
+### Fixed
+
+- **Stable installs the newest build:** installs and updates now ask Steam for the stable branch by name with fresh app info, so a folder once on the 42.19 or unstable branch no longer stays on it.
+
 ## [1.4.5] - 2026-10-05
 
 ### Security

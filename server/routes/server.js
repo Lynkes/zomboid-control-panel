@@ -671,6 +671,29 @@ function recoverMismatchedSteamBranchManifest(installPath, selectedBranch) {
   return { mountedBranch, targetBranch, backupPath };
 }
 
+// The branch SteamCMD actually mounted after an install or update: the
+// appmanifest's MountedConfig BetaKey, "public" without one, null when there
+// is no readable manifest. Logged when it isn't the branch that was asked
+// for, so "I picked Stable and got 42.19" has a server-side trace.
+function warnIfMountedSteamBranchDiffers(installPath, selectedBranch, operation) {
+  try {
+    const manifest = fs.readFileSync(
+      path.join(installPath, "steamapps", "appmanifest_380870.acf"),
+      "utf-8",
+    );
+    const mounted =
+      manifest.match(/"MountedConfig"\s*\{[\s\S]*?"BetaKey"\s*"([^"]+)"/)?.[1] || "public";
+    const target = normalizeSteamBranch(selectedBranch);
+    if (normalizeSteamBranch(mounted) !== target) {
+      log.warn(
+        `SteamCMD ${operation} finished on the "${mounted}" branch, not "${target}" as requested. Retry the ${operation}; if it persists, delete SteamCMD's appcache folder and steamapps/appmanifest_380870.acf in the server folder first.`,
+      );
+    }
+  } catch {
+    // No manifest to compare: nothing to report.
+  }
+}
+
 export function hasSteamManifestAccessDeniedState(manifest) {
   return /"StateFlags"\s*"6"/.test(manifest);
 }
@@ -3405,13 +3428,17 @@ function parseSteamBranches(output) {
   return branches;
 }
 
-// Helper to build Steam beta arguments as array
-function getBetaArgs(branch) {
-  if (!branch || branch === "stable" || branch === "public") return [];
+// Helper to build Steam beta arguments as array. Stable is asked for by
+// name too: with no -beta, SteamCMD keeps whatever branch the install's
+// appmanifest last asked for (its UserConfig BetaKey), so a folder that was
+// ever on "42.19" or "unstable" stayed there when Stable was picked. Since
+// Build 42 went stable, Steam keeps a "42.19" branch for servers that want
+// to stay on it, and operators reported getting 42.19 from Stable.
+export function getBetaArgs(branch) {
   // Backwards compatibility: treat boolean true as 'unstable'
   if (branch === true) return ["-beta", "unstable"];
   // Allow any branch name - Steam will validate it
-  return ["-beta", branch];
+  return ["-beta", normalizeSteamBranch(branch)];
 }
 
 export async function getSteamLoginArgs() {
@@ -3660,6 +3687,25 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     });
     activeOperationPath = normalizedPath;
 
+    // Reinstalling into a folder that still holds a game install: the same
+    // manifest recovery POST /steam-update runs, once this request owns the
+    // path (a branch mounted from an earlier install, or a manifest stuck in
+    // the access-denied state, otherwise survives the reinstall).
+    try {
+      const recovery = recoverMismatchedSteamBranchManifest(installPath, selectedBranch);
+      if (recovery) {
+        log.warn(
+          `Reset stale SteamCMD branch manifest (${recovery.mountedBranch} -> ${recovery.targetBranch}); backup: ${recovery.backupPath}`,
+        );
+      }
+      const blocked = recoverBlockedSteamManifest(installPath);
+      if (blocked) {
+        log.warn(`Reset SteamCMD manifest stuck in access-denied state 0x6; backup: ${blocked.backupPath}`);
+      }
+    } catch (error) {
+      log.warn(`Could not inspect SteamCMD branch manifest: ${error.message}`);
+    }
+
     const io = req.app.get("io");
 
     // install-events-cross-install-contamination, 2026-09-18: this route's
@@ -3716,6 +3762,10 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
           "+force_install_dir",
           installPath,
           ...loginArgs,
+          // Fresh app info first: otherwise SteamCMD installs the build its
+          // cached app info names for the branch, which can be weeks old.
+          "+app_info_update",
+          "1",
           "+app_update",
           "380870",
           ...betaArgs,
@@ -3834,6 +3884,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
             });
           } else if (code === 0) {
             log.info("PZ server installation completed successfully");
+            warnIfMountedSteamBranchDiffers(installPath, selectedBranch, "install");
 
             // The game files installed -- that part is done and expensive to
             // redo, so success:false is never used for a failure past this
@@ -5129,6 +5180,10 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
           "+force_install_dir",
           installPath,
           ...loginArgs,
+          // Fresh app info first: otherwise SteamCMD installs the build its
+          // cached app info names for the branch, which can be weeks old.
+          "+app_info_update",
+          "1",
           "+app_update",
           "380870",
           ...betaArgs,
@@ -5275,6 +5330,7 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
 
           // After successful update, re-check update status so banner clears
           if (success) {
+            warnIfMountedSteamBranchDiffers(installPath, selectedBranch, operation);
             try {
               const updateChecker = req.app.get("updateChecker");
               if (updateChecker) {
