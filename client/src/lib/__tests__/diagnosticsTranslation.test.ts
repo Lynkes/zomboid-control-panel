@@ -530,18 +530,19 @@ describe('translateDiagnosticCheck', () => {
     expect(translateDiagnosticCheck(check).message).toBe('some future scenario text')
   })
 
-  it('interpolates serverName for sandboxCorrupt/sandboxVars', () => {
+  it('interpolates serverName and the parser detail for sandboxCorrupt/sandboxVars', () => {
+    const detail = "line 3: '}' expected (to close '{' at line 1) near 'LootMultiplier'"
     const corrupt = translateDiagnosticCheck({
       id: 'server.sandboxCorrupt',
       status: 'fail',
       label: 'SandboxVars.lua is corrupt',
-      message: 'MyServer_SandboxVars.lua has mismatched braces and will fail to load — the dedicated server exits immediately on boot with a Lua syntax error.',
+      message: `The game can't load MyServer_SandboxVars.lua (${detail}), so the dedicated server exits on boot.`,
       hint: 'Use the automated repair below, or restore from a .bak backup in the same folder.',
-      params: { serverName: 'MyServer' },
+      params: { serverName: 'MyServer', detail },
     })
     expect(corrupt.message).toContain('MyServer_SandboxVars.lua')
     expect(corrupt.message).toBe(
-      'MyServer_SandboxVars.lua a des accolades mal équilibrées et ne se chargera pas — le serveur dédié se ferme immédiatement au démarrage avec une erreur de syntaxe Lua.',
+      `Le jeu ne peut pas charger MyServer_SandboxVars.lua (${detail}) : le serveur dédié se ferme donc au démarrage.`,
     )
   })
 

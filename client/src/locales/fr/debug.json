@@ -531,7 +531,7 @@
         "sandboxCorrupt": {
           "fail": {
             "label": "SandboxVars.lua est corrompu",
-            "message": "{{serverName}}_SandboxVars.lua a des accolades mal équilibrées et ne se chargera pas — le serveur dédié se ferme immédiatement au démarrage avec une erreur de syntaxe Lua.",
+            "message": "Le jeu ne peut pas charger {{serverName}}_SandboxVars.lua ({{detail}}) : le serveur dédié se ferme donc au démarrage.",
             "hint": "Utilisez la réparation automatique ci-dessous, ou restaurez depuis une sauvegarde .bak dans le même dossier."
           }
         },

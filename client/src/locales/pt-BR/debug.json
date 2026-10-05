@@ -531,7 +531,7 @@
         "sandboxCorrupt": {
           "fail": {
             "label": "SandboxVars.lua está corrompido",
-            "message": "{{serverName}}_SandboxVars.lua tem chaves desbalanceadas e não vai carregar — o servidor dedicado fecha imediatamente ao iniciar, com um erro de sintaxe Lua.",
+            "message": "O jogo não consegue carregar {{serverName}}_SandboxVars.lua ({{detail}}), então o servidor dedicado fecha ao iniciar.",
             "hint": "Use o reparo automático abaixo ou restaure um backup .bak da mesma pasta."
           }
         },
