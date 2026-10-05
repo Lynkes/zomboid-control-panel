@@ -95,7 +95,9 @@ const PINNED_VALID_ACTIONS = [
   "getUtilitiesStatus",
   "restoreUtilities",
   "shutOffUtilities",
-  "saveWorld",
+  // "saveWorld" removed (#197): the bridge's save wrote the world's
+  // map_sand.bin, which overrides SandboxVars.lua on every start. The panel
+  // saves over RCON instead.
   "getSandboxOptions",
   "getAllSandboxOptions",
   "setSandboxOption",

@@ -106,8 +106,8 @@ router.use(requirePermission('automation.manage'));
 //                                             routes) — except
 //                                             bridge:saveWorld, which
 //                                             matches server.control instead
-//                                             (PanelBridge's own equivalent
-//                                             of /server/save), and
+//                                             (it runs as a plain `save`
+//                                             since #197), and
 //                                             bridge:triggerGunshot/
 //                                             triggerAlarmSound/
 //                                             sendToAdminChat, which match

@@ -119,7 +119,6 @@ const PINNED_UNTEMPLATED_ACTIONS = [
   "removeVehiclesInArea",
   "resetClimateOverrides",
   "restoreUtilities",
-  "saveWorld",
   "sendToAdminChat",
   "sendToGeneralChat",
   "sendToServerChat",

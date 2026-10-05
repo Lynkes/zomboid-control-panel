@@ -169,7 +169,8 @@ export const VALID_ACTIONS = new Set([
   "getUtilitiesStatus",
   "restoreUtilities",
   "shutOffUtilities",
-  "saveWorld",
+  // No saveWorld (#197): the bridge's save wrote map_sand.bin, which
+  // overrides SandboxVars.lua on every start. POST /world/save uses RCON.
   "getSandboxOptions",
   "getAllSandboxOptions",
   "setSandboxOption",
@@ -2348,25 +2349,16 @@ router.get("/world/stats", requirePermission("server.world_events"), async (req,
 
 // Save world. admin+technician, matching /api/server/save -- an operational
 // action, not player-facing GM authority.
-// hunt-wave12-2026-08-30 UI-reachability audit: this dedicated route itself
-// is dead -- nothing in client/src calls POST /panel-bridge/world/save
-// directly. Two separate live paths exist instead: Scheduler.tsx's
-// schedulable 'bridge:saveWorld' preset (still this same action, via the
-// /panel-bridge/command passthrough, not this route); and Dashboard.tsx's
-// "Save world" button, which goes through serverApi.save (server.js's own
-// /servers/:id/save-world, over RCON) -- a completely different code path
-// for a similarly-named but independent feature, not a shadow of this one.
+// hunt-wave12-2026-08-30 UI-reachability audit: nothing in client/src calls
+// this route; Dashboard.tsx's "Save world" uses POST /server/save.
+// #197: this used to send the bridge's saveWorld, which ran saveGame() --
+// on a dedicated server the single-player save path, not the server's own
+// save, and it writes map_sand.bin, a copy of every sandbox option that
+// overrides SandboxVars.lua on every start. It now runs the server's own
+// `save` over RCON, like POST /server/save.
 router.post("/world/save", requirePermission("server.control"), async (req, res) => {
-  if (!bridge.isRunning) {
-    return res
-      .status(400)
-      .json({
-        error: "Bridge not running. Start it first.",
-        code: ErrorCode.BRIDGE_NOT_RUNNING,
-      });
-  }
   try {
-    const result = await bridge.saveWorld();
+    const result = await req.app.get("rconService").save();
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -2578,7 +2570,6 @@ router.get("/commands", (req, res) => {
         description: "Get server info and player list",
         args: {},
       },
-      { action: "saveWorld", description: "Trigger world save", args: {} },
 
       // === Weather ===
       {

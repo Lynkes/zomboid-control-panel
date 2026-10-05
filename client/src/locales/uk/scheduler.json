@@ -67,7 +67,6 @@
     "stopRain": "Зупинити дощ",
     "restoreUtilities": "Відновити електрику та воду",
     "shutOffUtilities": "Вимкнути електрику та воду",
-    "saveWorldBridge": "Зберегти світ (PanelBridge)",
     "broadcastServerChat": "Оголошення (чат сервера)"
   },
   "dialog": {

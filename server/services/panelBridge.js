@@ -2193,16 +2193,6 @@ class PanelBridge extends EventEmitter {
     return this.sendCommand('getSandboxOptions', {});
   }
 
-  /**
-   * Convenience method: save world
-   */
-  async saveWorld() {
-    if (!this.isRunning) {
-      throw new Error('Bridge not running');
-    }
-    return this.sendCommand('saveWorld', {});
-  }
-
   // =============================================
   // V1.2.0 SOUND/NOISE METHODS
   // =============================================

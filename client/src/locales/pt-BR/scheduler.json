@@ -53,7 +53,6 @@
     "stopRain": "Parar chuva",
     "restoreUtilities": "Restaurar energia e água",
     "shutOffUtilities": "Cortar energia e água",
-    "saveWorldBridge": "Salvar mundo (PanelBridge)",
     "broadcastServerChat": "Transmitir (chat do servidor)"
   },
   "dialog": {

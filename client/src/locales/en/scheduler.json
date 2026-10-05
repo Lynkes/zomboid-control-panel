@@ -32,7 +32,6 @@
     "stopRain": "Stop Rain",
     "restoreUtilities": "Restore Utilities",
     "shutOffUtilities": "Shut Off Utilities",
-    "saveWorldBridge": "Save World (PanelBridge)",
     "broadcastServerChat": "Broadcast (Server Chat)"
   },
   "dialog": {

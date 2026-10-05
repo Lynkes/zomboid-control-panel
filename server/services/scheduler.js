@@ -76,7 +76,6 @@ const SCHEDULABLE_BRIDGE_ACTIONS = new Set([
   "triggerAlarmSound",
   "restoreUtilities",
   "shutOffUtilities",
-  "saveWorld",
   "sendToServerChat",
   "sendToAdminChat",
 ]);
@@ -88,21 +87,29 @@ const SCHEDULABLE_BRIDGE_ACTIONS = new Set([
 // dispatch and routes/scheduler.js's write-time/run-time permission checks
 // both call this so the two can never silently drift apart on what counts
 // as "safe" -- see the scheduler permission audit.
+//
+// bridge:saveWorld (a preset until #197) runs as a plain `save`: the
+// bridge's save was the game's single-player save path, which wrote
+// map_sand.bin and made the world override SandboxVars.lua on every start.
+// Existing tasks keep working and need the same server.control as before.
 export function classifyScheduledCommand(command) {
   const commandLower = String(command ?? "").toLowerCase();
   if (commandLower === "restart") return "restart";
   if (commandLower === "save") return "save";
   if (commandLower.startsWith("servermsg ")) return "servermsg";
-  if (commandLower.startsWith("bridge:")) return "bridge";
+  if (commandLower.startsWith("bridge:")) {
+    return parseBridgeActionName(String(command)) === "saveWorld" ? "save" : "bridge";
+  }
   return "raw";
 }
 
 // Extracts the action name from a `bridge:<action>` scheduled command (the
 // part before any JSON args blob), preserving original casing since
 // PanelBridge action names are case-sensitive. Shared by executeBridgeAction
-// (which needs the name to dispatch) and requiredCapabilityForScheduledCommand
-// below (which needs it to tell saveWorld apart from every other bridge:
-// action) so the two can't parse it two different ways.
+// (which needs the name to dispatch), classifyScheduledCommand and
+// requiredCapabilityForScheduledCommand above and below (which need it to
+// single out bridge:saveWorld and the player-targeting actions) so they can't
+// parse it different ways.
 function parseBridgeActionName(rawCommand) {
   const body = rawCommand.slice("bridge:".length).trim();
   const firstSpace = body.indexOf(" ");
@@ -122,9 +129,9 @@ function parseBridgeActionName(rawCommand) {
 // silently drift on what a given command needs -- same reasoning as
 // classifyScheduledCommand's own header comment, extended.
 //
-// bridge:saveWorld is the one bridge: action that is NOT a world event: it's
-// PanelBridge's own equivalent of POST /server/save and POST
-// /panel-bridge/world/save, both gated server.control (panelBridge.js:2003).
+// bridge:saveWorld classifies as `save` there, so it keeps the
+// server.control that POST /server/save and POST /panel-bridge/world/save
+// require.
 //
 // 2026-08-27 (operator ruling on ranked-bug #5): server.world_events itself
 // split, and three more schedulable bridge: actions went with the targeted
@@ -156,7 +163,6 @@ export function requiredCapabilityForScheduledCommand(command) {
   if (kind === "servermsg") return "server.world_events";
   if (kind === "bridge") {
     const action = parseBridgeActionName(String(command ?? ""));
-    if (action === "saveWorld") return "server.control";
     if (ENDANGER_OR_IMPERSONATE_BRIDGE_ACTIONS.has(action)) {
       return "players.endanger_or_impersonate";
     }

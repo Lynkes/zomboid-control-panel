@@ -876,10 +876,9 @@ describe("server.world_events / server.control gate on curated scheduled command
     });
   });
 
-  // bridge:saveWorld is the one bridge: action that is NOT a world event --
-  // it's PanelBridge's own equivalent of POST /server/save, gated
-  // server.control everywhere else it's reachable, not server.world_events
-  // like the other 14 schedulable bridge actions.
+  // bridge:saveWorld is not a world event -- since #197 it runs as a plain
+  // `save` (POST /server/save's equivalent), gated server.control, not
+  // server.world_events like the schedulable bridge actions.
   describe("POST /api/scheduler/tasks -- bridge:saveWorld is server.control, not server.world_events", () => {
     it("refuses to create a bridge:saveWorld task for a role that only holds server.world_events", async () => {
       createScheduledTask.mockClear();
@@ -980,8 +979,11 @@ describe("server.world_events / server.control gate on curated scheduled command
       expect(result.success).toBe(true);
     });
 
-    it("Scheduler.runTaskNow() dispatches a bridge:saveWorld command with no capability check at all", async () => {
-      const { scheduler } = makeScheduler();
+    // #197: the bridge's saveWorld ran the game's single-player save, which
+    // wrote map_sand.bin and made the world override SandboxVars.lua on every
+    // start. A stored bridge:saveWorld task now runs the server's own save.
+    it("Scheduler.runTaskNow() runs a bridge:saveWorld task as RCON save, with no capability check at all", async () => {
+      const { scheduler, rconService } = makeScheduler();
       scheduler.executeBridgeAction = vi.fn().mockResolvedValue();
 
       const result = await scheduler.runTaskNow({
@@ -990,9 +992,8 @@ describe("server.world_events / server.control gate on curated scheduled command
         command: "bridge:saveWorld",
       });
 
-      expect(scheduler.executeBridgeAction).toHaveBeenCalledWith(
-        "bridge:saveWorld",
-      );
+      expect(rconService.save).toHaveBeenCalledWith({ skipLog: true });
+      expect(scheduler.executeBridgeAction).not.toHaveBeenCalled();
       expect(result.success).toBe(true);
     });
   });
