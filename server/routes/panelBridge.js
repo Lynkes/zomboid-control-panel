@@ -24,6 +24,7 @@ import {
 } from "../database/init.js";
 import { sanitizeError, sanitizeErrorParams, isMaskedSecret } from "../utils/sanitize.js";
 import { getDataPaths } from "../utils/paths.js";
+import { encodeExportFolderName, legacyExportFolderName } from "../utils/exportFolderName.js";
 import { persistSandboxValues } from "./serverFiles.js";
 import { requirePermission, requireAnyPermission } from "../services/permissions.js";
 import { parseClampedInteger } from "../utils/queryNumbers.js";
@@ -3722,9 +3723,15 @@ router.post("/character/import", requirePermission("players.gm_tools"), async (r
   try {
     const snapshot = await bridge.sendCommand("exportPlayerData", { username });
     const { dataDir } = getDataPaths();
-    const safeUsername = username.replace(/[^a-zA-Z0-9_-]/g, "_");
-    const exportDir = path.join(dataDir, "exports", safeUsername);
-    // codeql[js/path-injection] username is stripped to [a-zA-Z0-9_-] via safeUsername = username.replace(...) immediately above before being joined into this path.
+    const safeUsername = legacyExportFolderName(username);
+    // The player's own folder, never one shared with a similar name
+    // (utils/exportFolderName.js).
+    const exportFolder = encodeExportFolderName(username);
+    if (!exportFolder) {
+      throw new Error("This player name can't be used as an export folder");
+    }
+    const exportDir = path.join(dataDir, "exports", exportFolder);
+    // codeql[js/path-injection] exportFolder is "@" plus lowercase hex (encodeExportFolderName), so it can't leave the exports folder.
     fs.mkdirSync(exportDir, { recursive: true });
     // toISOString() is millisecond-resolution -- two imports for the same
     // player landing in the same millisecond (a double-submit before the
@@ -3745,7 +3752,7 @@ router.post("/character/import", requirePermission("players.gm_tools"), async (r
       );
     }
     fs.writeFileSync(
-      // codeql[js/path-injection] username is stripped to [a-zA-Z0-9_-] via safeUsername = username.replace(...) immediately above before being joined into this path.
+      // codeql[js/path-injection] the folder is "@" plus lowercase hex (encodeExportFolderName) and the file name is safeUsername, stripped to [a-zA-Z0-9_-], plus a timestamp.
       snapshotPath,
       JSON.stringify(snapshot.data ?? snapshot, null, 2),
     );

@@ -24,6 +24,7 @@ import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
 import os from "os";
+import { isIP } from "net";
 import readline from "readline";
 import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
@@ -61,7 +62,7 @@ import {
 import { ModChecker } from "./services/modChecker.js";
 import { Scheduler } from "./services/scheduler.js";
 import { DiscordBot } from "./services/discordBot.js";
-import { BackupService } from "./services/backupService.js";
+import { BackupService, BACKUP_PROGRESS_ROOM } from "./services/backupService.js";
 import { UpdateChecker } from "./services/updateChecker.js";
 import { rehydrateActiveSteamOperationsFromDisk } from "./services/activeSteamOperations.js";
 import {
@@ -643,6 +644,73 @@ function isAllowedOrigin(origin) {
   return false;
 }
 
+// DNS-rebinding guard. With authentication disabled (authEnabled: false in
+// db.json, a trusted-LAN setup), the API answers anyone who can reach it,
+// and CORS does not stop a same-origin GET: a web page on a domain whose DNS
+// the attacker then points at this panel's address IS same-origin with it,
+// and its GETs carry no Origin header. What it can't change is the Host
+// header, which still names the attacker's domain. So while auth is off,
+// /api and Socket.IO answer only requests addressed to one of the panel's
+// own names: any IP address (a page served from an IP address came from
+// this panel), localhost, a LAN-style host name when private networks are
+// allowed, or a host from the same origins list the CORS check uses
+// (Settings > Remote Access, CORS_ORIGINS, the HTTPS origin). "Allow every
+// origin" turns it off, the same as it turns off the CORS check: rebinding
+// gains nothing that setting doesn't already give every web page.
+export function isAllowedHostHeader(hostHeader) {
+  if (corsState.allowAll) return true;
+  if (typeof hostHeader !== "string" || !hostHeader || hostHeader.length > MAX_CORS_ORIGIN_LENGTH) {
+    return false;
+  }
+  let url;
+  try {
+    url = new URL(`http://${hostHeader}`);
+  } catch (_) {
+    return false;
+  }
+  // A bare host[:port] parses to exactly that; anything else (user info, a
+  // path, a query) is not a Host header a browser sends.
+  if (url.username || url.password || url.pathname !== "/" || url.search || url.hash) {
+    return false;
+  }
+  const hostname = url.hostname.toLowerCase();
+  if (isIP(hostname.replace(/^\[|\]$/g, ""))) return true;
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) return true;
+  if (corsState.allowPrivateNetworks && isLikelyLanHostname(hostname)) return true;
+  for (const origin of allowedOrigins) {
+    try {
+      if (new URL(origin).hostname.toLowerCase() === hostname) return true;
+    } catch (_) {
+      // Not a parseable origin: it can't name this host.
+    }
+  }
+  return false;
+}
+
+// Whether isAllowedHostHeader() applies right now: only while auth is
+// explicitly off. Before first-run setup every route but the setup ones is
+// already refused, and with auth on a rebinding page has no session to use
+// (the access token lives in the real origin's storage, and the refresh
+// cookie is only sent to the real host). Fails closed: if the auth state
+// can't be read, the check applies.
+async function hostCheckApplies() {
+  try {
+    if (await authService.needsSetup()) return false;
+    return !(await authService.isAuthEnabled());
+  } catch (error) {
+    log.warn(`Host check: could not read the auth state, checking the Host header: ${error.message}`);
+    return true;
+  }
+}
+
+export async function isRequestHostAllowed(hostHeader) {
+  if (!(await hostCheckApplies())) return true;
+  return isAllowedHostHeader(hostHeader);
+}
+
+const HOST_DENY_MESSAGE =
+  "This panel only answers to its own addresses while panel logins are off. Open it by its IP address or localhost, or add this address under Settings > Remote Access (CORS).";
+
 const io = new Server(httpServer, {
   cors: {
     origin: (origin, callback) => {
@@ -655,6 +723,15 @@ const io = new Server(httpServer, {
     },
     methods: ["GET", "POST"],
     credentials: true,
+  },
+  // Same Host-header guard as the /api middleware below (a rebinding page
+  // can open a socket to the panel too). Runs on every handshake, polling
+  // or WebSocket; io.attach() for HTTPS reuses these options.
+  allowRequest: (req, callback) => {
+    isRequestHostAllowed(req.headers.host).then(
+      (allowed) => callback(allowed ? null : HOST_DENY_MESSAGE, allowed),
+      () => callback(HOST_DENY_MESSAGE, false),
+    );
   },
 });
 
@@ -931,6 +1008,26 @@ const apiLimiter = rateLimit({
   message: { error: "Too many requests, please try again later." },
 });
 app.use("/api/", apiLimiter);
+
+// DNS-rebinding guard while auth is disabled -- see isAllowedHostHeader().
+// Before the auth middleware, which would otherwise hand this request the
+// auth-disabled admin identity. Case-insensitive like that middleware's own
+// /api prefix test (Express routes /API/... to the same handlers).
+// Logged once per host name, not once per request: a page that keeps
+// polling would otherwise fill the log.
+const loggedRefusedHosts = new Set();
+app.use(async (req, res, next) => {
+  if (!req.path.toLowerCase().startsWith("/api")) return next();
+  if (await isRequestHostAllowed(req.headers.host)) return next();
+  const host = String(req.headers.host || "").slice(0, 100);
+  if (!loggedRefusedHosts.has(host) && loggedRefusedHosts.size < 50) {
+    loggedRefusedHosts.add(host);
+    log.warn(
+      `Refused /api requests addressed to "${host}" while panel logins are off: not one of this panel's addresses. Add it under Settings > Remote Access if it should be.`,
+    );
+  }
+  return res.status(403).json({ error: HOST_DENY_MESSAGE, code: ErrorCode.HOST_NOT_ALLOWED });
+});
 
 // Auth middleware — protects all /api/ routes except /api/auth/*
 // SSE endpoints can't set custom headers, so we accept ?token= as a fallback —
@@ -1542,8 +1639,18 @@ app.set("panelUpdateChecker", panelUpdateChecker);
 
 // Disk-space monitor for the active server's save volume (P0: a full disk
 // during save corrupts worlds). Polls every 60s and emits disk:warning /
-// disk:critical / disk:normal over the same socket.
-const diskMonitor = new DiskMonitor(io);
+// disk:critical / disk:normal over the same socket -- only to roles that can
+// act on a full save disk (DISK_EVENT_CAPABILITIES), not every socket: the
+// payload carries the save volume's host path. Everyone else's health banner
+// still finds out from its own poll of /api/system/storage-health.
+export const DISK_EVENT_CAPABILITIES = Object.freeze(["diagnostics.manage", "backups.manage"]);
+const diskMonitor = new DiskMonitor({
+  emit: (event, payload) => {
+    emitToCapabilities(DISK_EVENT_CAPABILITIES, event, payload).catch((error) =>
+      log.warn(`Could not send ${event}: ${error.message}`),
+    );
+  },
+});
 app.set("diskMonitor", diskMonitor);
 
 // Auth routes (must be before other API routes)
@@ -2523,9 +2630,15 @@ app.use((req, res, next) => {
 // Socket.IO authentication middleware
 io.use(async (socket, next) => {
   try {
-    // Skip auth if no users exist (setup needed) or auth is disabled
+    // No account exists yet: refuse, same as every /api route but the setup
+    // ones (authService.middleware()'s SETUP_REQUIRED). This used to admit
+    // the socket with no identity at all, and nothing ever dropped it once
+    // setup locked the HTTP side, so it kept every broadcast afterwards. The
+    // setup page doesn't use a socket (client/src/App.tsx connects one only
+    // after setup), and createUser() drops every socket when the first
+    // account is made, in case one got in some other way.
     const needsSetup = await authService.needsSetup();
-    if (needsSetup) return next();
+    if (needsSetup) return next(new Error("First-run setup required"));
 
     const authEnabled = await authService.isAuthEnabled();
     if (!authEnabled) {
@@ -2594,7 +2707,28 @@ export const CAPABILITY_ROOMS = Object.freeze({
   logs: "diagnostics.manage",
   perf: "diagnostics.manage",
   "rcon-live": "rcon.execute",
+  // Backup/restore progress (backupService.js). Any one of these, like
+  // GET /api/backup/status, which any backup capability may read -- plus
+  // server.wipe, whose pre-wipe backup reports its progress in the wipe
+  // dialog.
+  [BACKUP_PROGRESS_ROOM]: Object.freeze([
+    "backups.manage",
+    "backups.download",
+    "backups.restore",
+    "server.wipe",
+  ]),
 });
+
+// Whether `socket` may be in `room`: its role holds the room's capability,
+// or one of them when the room lists several.
+export async function socketMayJoinRoom(socket, room) {
+  const required = CAPABILITY_ROOMS[room];
+  if (!required) return false;
+  for (const capability of [].concat(required)) {
+    if (await socketHasCapability(socket, capability)) return true;
+  }
+  return false;
+}
 
 // Remove the sockets of `roleName`'s members (every socket when null) from
 // each capability room their role no longer allows. Fail closed like the
@@ -2602,8 +2736,8 @@ export const CAPABILITY_ROOMS = Object.freeze({
 export async function recheckCapabilityRooms(roleName = null, server = io) {
   for (const s of [...server.sockets.sockets.values()]) {
     if (!s.user || (roleName && s.user.role !== roleName)) continue;
-    for (const [room, capability] of Object.entries(CAPABILITY_ROOMS)) {
-      if (s.rooms.has(room) && !(await socketHasCapability(s, capability))) {
+    for (const room of Object.keys(CAPABILITY_ROOMS)) {
+      if (s.rooms.has(room) && !(await socketMayJoinRoom(s, room))) {
         s.leave(room);
       }
     }
@@ -2654,10 +2788,11 @@ io.on("connection", (socket) => {
 
   // Membership for the per-user eviction room used by the
   // onSessionRevoked() subscription below (password change/reset, role
-  // change, user delete). Auth-disabled and no-setup-needed connections
-  // have no real userId (socket.user.userId is null, or socket.user is
-  // unset entirely) and are intentionally left out -- there is no DB user
-  // row for either to be revoked against.
+  // change, user delete). Auth-disabled connections have no real userId
+  // (socket.user.userId is null) and are intentionally left out -- there is
+  // no DB user row for them to be revoked against. (Connections from before
+  // first-run setup, which had no socket.user at all, are refused by io.use
+  // now.)
   if (socket.user?.userId) {
     socket.join(`user:${socket.user.userId}`);
   }
@@ -2670,6 +2805,9 @@ io.on("connection", (socket) => {
   // permission gate at all (deliberate -- every logged-in role, and the
   // dashboard itself, needs it), so this room is intentionally open too.
   socket.on("subscribe:status", () => {
+    // Signed in (or auth disabled) only; io.use above no longer admits a
+    // socket without a user, so this is the second lock on the same door.
+    if (!socket.user) return;
     socket.join("server-status");
   });
 
@@ -2744,6 +2882,16 @@ io.on("connection", (socket) => {
     if (!(await socketHasCapability(socket, CAPABILITY_ROOMS["rcon-live"]))) return;
     socket.join("rcon-live");
   });
+
+  // Subscribe to backup/restore progress (backup:progress, restore:progress,
+  // restore:finished). Those went to every socket whatever its role, with
+  // raw error text; the backup routes that start them, and GET
+  // /api/backup/status that reports them, are all gated on a backup
+  // capability.
+  socket.on("subscribe:backups", async () => {
+    if (!(await socketMayJoinRoom(socket, BACKUP_PROGRESS_ROOM))) return;
+    socket.join(BACKUP_PROGRESS_ROOM);
+  });
 });
 
 // Sockets authenticate once at handshake (io.use above) and are never
@@ -2776,6 +2924,7 @@ onLog((logEntry) => {
 // Auto-export player data on login
 // ============================================
 import { getDataPaths } from "./utils/paths.js";
+import { encodeExportFolderName, legacyExportFolderName } from "./utils/exportFolderName.js";
 
 // Exported so tests can call it directly against real fs/database state
 // without needing a live PanelBridge mod connection -- see
@@ -2798,12 +2947,16 @@ export async function autoExportPlayer(username) {
       return;
     }
 
+    // One folder per exact username (utils/exportFolderName.js): the
+    // rotation below deletes from this folder, so a folder shared with a
+    // differently-named player would rotate out THEIR exports.
+    const exportFolder = encodeExportFolderName(username);
+    if (!exportFolder) {
+      log.warn(`Auto-export skipped for ${username}: the name can't be used as an export folder`);
+      return;
+    }
     const { dataDir } = getDataPaths();
-    const exportDir = path.join(
-      dataDir,
-      "exports",
-      username.replace(/[^a-zA-Z0-9_-]/g, "_"),
-    );
+    const exportDir = path.join(dataDir, "exports", exportFolder);
     fs.mkdirSync(exportDir, { recursive: true });
 
     // Write timestamped export file. toISOString() is millisecond-resolution
@@ -2817,7 +2970,7 @@ export async function autoExportPlayer(username) {
     // file: an earlier draft of this fix appended "-<n>" after ".json" and
     // silently exempted every collided export from rotation forever.
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const safeUsername = username.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const safeUsername = legacyExportFolderName(username);
     const exportBaseName = `${safeUsername}_${timestamp}`;
     let exportPath = path.join(exportDir, `${exportBaseName}.json`);
     for (let collision = 2; fs.existsSync(exportPath); collision++) {

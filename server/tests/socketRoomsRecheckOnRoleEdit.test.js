@@ -115,6 +115,7 @@ describe("editing a role's capabilities re-checks its members' socket rooms", ()
       logs: "diagnostics.manage",
       perf: "diagnostics.manage",
       "rcon-live": "rcon.execute",
+      backups: ["backups.manage", "backups.download", "backups.restore", "server.wipe"],
     });
   });
 });

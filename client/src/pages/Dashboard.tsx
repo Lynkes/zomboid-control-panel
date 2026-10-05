@@ -474,8 +474,17 @@ export default function Dashboard() {
       if (!wipeLoading) return
       setWipeBackupProgress(data)
     }
+    // backup:progress goes only to sockets in the backups room (a role
+    // with server.wipe or a backup capability may join; server/index.js).
+    // Joined again on every reconnect.
+    const subscribeBackups = () => socket.emit('subscribe:backups')
+    if (socket.connected) subscribeBackups()
+    socket.on('connect', subscribeBackups)
     socket.on('backup:progress', handleBackupProgress)
-    return () => { socket.off('backup:progress', handleBackupProgress) }
+    return () => {
+      socket.off('connect', subscribeBackups)
+      socket.off('backup:progress', handleBackupProgress)
+    }
   }, [socket, wipeLoading])
 
   const copyToClipboard = async (text: string, label: string) => {

@@ -24,7 +24,7 @@
   "RESET_TOKEN_NOT_FOUND": "No reset token found. Create data/reset-token.txt on the server first.",
   "RESET_TOKEN_TOO_LARGE": "Reset token file is invalid (too large). Max 1KB.",
   "RESET_TOKEN_EXPIRED": "Reset token file is older than 24 hours. Recreate it on the server.",
-  "RESET_TOKEN_TOO_SHORT": "Reset token file is invalid. It must contain at least 8 characters.",
+  "RESET_TOKEN_TOO_SHORT": "Reset token file is invalid. It must contain a random token of at least 32 characters.",
   "RESET_TOKEN_INVALID": "Invalid reset token",
   "SERVER_NOT_CONFIGURED": "No active server configured",
   "REMOTE_CONFIG_NOT_CONFIGURED": "This server is remote. Add its SFTP details and the remote Server folder under Settings > PanelBridge to edit its configuration from here.",
@@ -580,5 +580,7 @@
   "FM_TOO_MANY_ENTRIES": "There are too many items to delete in one go (more than {{limit}}). What was already deleted stays deleted; run it again to finish.",
   "FM_SECRET_NAME_REQUIRED": "This file holds passwords the file manager keeps masked. Keep .ini in the new name so they stay masked.",
   "CHARACTER_INVALID_SECTIONS": "Unknown character section requested.",
-  "CHARACTER_SHEET_FAILED": "Couldn't read this character."
+  "CHARACTER_SHEET_FAILED": "Couldn't read this character.",
+  "RESET_TOKEN_BURNED": "Too many wrong reset tokens were tried, so data/reset-token.txt was deleted. Create a new one on the server and try again.",
+  "HOST_NOT_ALLOWED": "This panel only answers to its own addresses while panel logins are off. Open it by its IP address or localhost, or add this address under Settings > Remote Access (CORS)."
 }

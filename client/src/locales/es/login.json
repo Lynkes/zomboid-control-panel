@@ -50,7 +50,7 @@
     "recoverAccount": "Recuperar cuenta",
     "helpTitle": "Recuperación de cuenta",
     "helpLocal": "Este navegador se ejecuta en el host del panel. Crea un archivo de recuperación y usa después su token para restablecer la contraseña de administrador.",
-    "helpRemote1": "Crea data/reset-token.txt en el host del panel con cualquier token de al menos 8 caracteres.",
+    "helpRemote1": "Crea data/reset-token.txt en el host del panel con un token aleatorio de al menos 32 caracteres.",
     "helpRemote2": "También puedes iniciar el panel con <code>--reset-password</code> desde la terminal del servidor.",
     "createFile": "Crear archivo",
     "creatingFile": "Preparando…",

@@ -4,7 +4,7 @@
  */
 
 import { Router } from "express";
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
@@ -28,6 +28,16 @@ function isNonEmptyString(value) {
 
 const RESET_TOKEN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const RESET_TOKEN_MAX_BYTES = 1024;
+// A reset token stands in for the admin password, so it has to be one
+// nobody can guess: the local button writes 48 random hex characters, and
+// a hand-made one must be at least this long. The minimum used to be 8,
+// and the remote-recovery instructions said "any token", so a remote panel
+// could end up guarded by "changeme".
+export const RESET_TOKEN_MIN_LENGTH = 32;
+// Wrong tokens tried against one token file, from any address, before the
+// file is deleted. The per-address resetLimiter alone let an attacker with
+// many addresses keep guessing at the same file for its whole 24 hours.
+export const MAX_RESET_TOKEN_FAILURES = 5;
 const LOOPBACK_REMOTE_ADDRESSES = new Set([
   "127.0.0.1",
   "::1",
@@ -152,7 +162,7 @@ function getResetTokenState() {
   }
 
   const token = fs.readFileSync(tokenPath, "utf-8").trim();
-  if (!token || token.length < 8) {
+  if (!token || token.length < RESET_TOKEN_MIN_LENGTH) {
     return {
       tokenPath,
       available: false,
@@ -163,6 +173,35 @@ function getResetTokenState() {
   }
 
   return { tokenPath, available: true, reason: "ok", token, stat, ageMs };
+}
+
+// Which client a sign-in attempt came from, for authService.login()'s
+// per-(account, client) failure count: the address, with an IPv6 address
+// reduced to its /56 the same way express-rate-limit keys loginLimiter, so
+// one IPv6 network can't hand out a fresh count per address.
+function loginClientKey(req) {
+  const ip = typeof req.ip === "string" && req.ip ? req.ip : req.socket?.remoteAddress;
+  if (typeof ip !== "string" || !ip) return "unknown";
+  try {
+    return ipKeyGenerator(ip);
+  } catch {
+    return ip;
+  }
+}
+
+// Wrong tokens counted against the token file currently on disk. Keyed by
+// the file's identity, so a new file starts from zero. Every step from
+// reading the file to counting is synchronous, so concurrent requests
+// can't both slip under the limit.
+let resetTokenFailures = { fileKey: null, count: 0 };
+
+function resetTokenFileKey(stat) {
+  return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}`;
+}
+
+// For tests only.
+export function _resetResetTokenFailuresForTests() {
+  resetTokenFailures = { fileKey: null, count: 0 };
 }
 
 async function getAuthenticatedUser(req) {
@@ -266,6 +305,7 @@ router.post("/setup", setupLimiter, async (req, res) => {
       username,
       password,
       rememberMe === true,
+      { clientKey: loginClientKey(req) },
     );
 
     // Set refresh token as httpOnly cookie
@@ -306,6 +346,7 @@ router.post("/login", loginLimiter, async (req, res) => {
       username,
       password,
       rememberMe === true,
+      { clientKey: loginClientKey(req) },
     );
 
     // Set refresh token as httpOnly cookie for auto-login
@@ -900,7 +941,9 @@ router.post("/reset-token/local", localResetTokenLimiter, async (req, res) => {
  *
  * Security model: The caller must provide the exact token from data/reset-token.txt.
  * This proves they have filesystem access to the server machine.
- * The token file is deleted after a successful reset.
+ * The token file is deleted after a successful reset, and after
+ * MAX_RESET_TOKEN_FAILURES wrong tokens from any mix of addresses. A file
+ * holding fewer than RESET_TOKEN_MIN_LENGTH characters is refused outright.
  */
 router.post("/reset-password", resetLimiter, async (req, res) => {
   try {
@@ -962,11 +1005,10 @@ router.post("/reset-password", resetLimiter, async (req, res) => {
     }
 
     const storedToken = fs.readFileSync(tokenPath, "utf-8").trim();
-    if (!storedToken || storedToken.length < 8) {
+    if (!storedToken || storedToken.length < RESET_TOKEN_MIN_LENGTH) {
       log.warn("Password reset attempted with invalid token file (too short)");
       return res.status(403).json({
-        error:
-          "Reset token file is invalid. It must contain at least 8 characters.",
+        error: `Reset token file is invalid. It must contain a random token of at least ${RESET_TOKEN_MIN_LENGTH} characters.`,
         code: ErrorCode.RESET_TOKEN_TOO_SHORT,
       });
     }
@@ -982,6 +1024,27 @@ router.post("/reset-password", resetLimiter, async (req, res) => {
       .update(storedToken, "utf8")
       .digest();
     if (!crypto.timingSafeEqual(candidateDigest, storedDigest)) {
+      const fileKey = resetTokenFileKey(stat);
+      if (resetTokenFailures.fileKey !== fileKey) {
+        resetTokenFailures = { fileKey, count: 0 };
+      }
+      resetTokenFailures.count += 1;
+      if (resetTokenFailures.count >= MAX_RESET_TOKEN_FAILURES) {
+        resetTokenFailures = { fileKey: null, count: 0 };
+        try {
+          fs.unlinkSync(tokenPath);
+        } catch (error) {
+          log.warn(`Could not remove reset-token.txt after repeated wrong tokens: ${error.message}`);
+        }
+        log.warn(
+          `Password reset: ${MAX_RESET_TOKEN_FAILURES} wrong tokens were tried, so reset-token.txt was deleted. Create a new one to reset the password.`,
+        );
+        return res.status(403).json({
+          error:
+            "Too many wrong reset tokens were tried, so data/reset-token.txt was deleted. Create a new one on the server and try again.",
+          code: ErrorCode.RESET_TOKEN_BURNED,
+        });
+      }
       log.warn("Password reset attempted with incorrect token");
       return res.status(403).json({
         error: "Invalid reset token",
@@ -989,6 +1052,9 @@ router.post("/reset-password", resetLimiter, async (req, res) => {
       });
     }
 
+    // The right token: start the count over (the file itself is deleted
+    // below once the reset succeeds).
+    resetTokenFailures = { fileKey: null, count: 0 };
     const result = await authService.resetPassword(newPassword);
 
     // Delete the token file after successful reset

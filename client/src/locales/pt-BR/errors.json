@@ -24,7 +24,7 @@
   "RESET_TOKEN_NOT_FOUND": "Nenhum token de redefinição encontrado. Crie data/reset-token.txt no servidor primeiro.",
   "RESET_TOKEN_TOO_LARGE": "O arquivo do token de redefinição é inválido (grande demais). Máximo de 1KB.",
   "RESET_TOKEN_EXPIRED": "O arquivo do token de redefinição tem mais de 24 horas. Crie-o novamente no servidor.",
-  "RESET_TOKEN_TOO_SHORT": "O arquivo do token de redefinição é inválido. Ele deve conter pelo menos 8 caracteres.",
+  "RESET_TOKEN_TOO_SHORT": "O arquivo do token de redefinição é inválido. Ele deve conter um token aleatório de pelo menos 32 caracteres.",
   "RESET_TOKEN_INVALID": "Token de redefinição inválido",
   "SERVER_NOT_CONFIGURED": "Nenhum servidor ativo configurado",
   "REMOTE_CONFIG_NOT_CONFIGURED": "Este servidor é remoto. Para editar a configuração dele por aqui, adicione os dados de SFTP e a pasta Server remota em Configurações > PanelBridge.",
@@ -580,5 +580,7 @@
   "FM_TOO_MANY_ENTRIES": "Há itens demais para excluir de uma vez (mais de {{limit}}). O que já foi excluído continua excluído; execute de novo para terminar.",
   "FM_SECRET_NAME_REQUIRED": "Este arquivo contém senhas que o gerenciador de arquivos oculta. Mantenha .ini no novo nome para que continuem ocultas.",
   "CHARACTER_INVALID_SECTIONS": "Seção de personagem desconhecida solicitada.",
-  "CHARACTER_SHEET_FAILED": "Não foi possível ler este personagem."
+  "CHARACTER_SHEET_FAILED": "Não foi possível ler este personagem.",
+  "RESET_TOKEN_BURNED": "Foram tentados tokens de redefinição errados demais, então data/reset-token.txt foi excluído. Crie um novo no servidor e tente de novo.",
+  "HOST_NOT_ALLOWED": "Este painel só responde aos próprios endereços enquanto os logins do painel estão desativados. Abra-o pelo endereço IP ou por localhost, ou adicione este endereço em Configurações > Acesso remoto (CORS)."
 }
