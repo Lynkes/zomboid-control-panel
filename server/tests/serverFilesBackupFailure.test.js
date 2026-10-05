@@ -201,12 +201,14 @@ describe("POST /sandbox/repair (the ONE unrecoverable-operation site): refuses t
     // upstream. One closing brace with no matching opener: unbalanced,
     // depth goes negative -- checkSandboxBraceBalance() must reject this
     // as-is, and repairSandboxSyntax() must be able to fix it by
-    // synthesizing the missing wrapper table.
+    // synthesizing the missing wrapper table. Inside SandboxVars: a repair
+    // only counts when the game can load the result (#197).
     const content = [
-      "Vehicles = {",
+      "SandboxVars = {",
+      "    VERSION = 6,",
       "    OrphanKey = true",
       "        NestedKey = 5,",
-      "    }",
+      "    },",
       "}",
     ].join("\n");
     fs.writeFileSync(

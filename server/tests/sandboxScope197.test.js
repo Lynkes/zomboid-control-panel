@@ -372,6 +372,56 @@ describe("POST /sandbox/repair never writes a file that does not parse", () => {
   });
 });
 
+// A file that parses but has no SandboxVars table is not one the game loads:
+// it finds nothing to read and exits on boot ("Exiting due to errors
+// loading"). The repair used to stop at "parses".
+describe("POST /sandbox/repair only reports success for a file the game loads", () => {
+  let tmpDir;
+  let sandboxPath;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-sandbox-197-repair-"));
+    sandboxPath = path.join(tmpDir, "TestServer_SandboxVars.lua");
+    getActiveServer.mockReset();
+    getAllSettings.mockReset();
+    getAllSettings.mockResolvedValue({});
+    getActiveServer.mockResolvedValue({ serverConfigPath: tmpDir, serverName: "TestServer" });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const backups = () =>
+    fs.existsSync(path.join(tmpDir, "backups")) ? fs.readdirSync(path.join(tmpDir, "backups")) : [];
+
+  it("refuses a repair that parses but leaves no SandboxVars table, and writes nothing", async () => {
+    const broken = ["Settings = 1", "    Zombies = 4,", "}", ""].join("\n");
+    fs.writeFileSync(sandboxPath, broken);
+    expect(repairSandboxSyntax(broken).fixed).toBe(false);
+
+    const res = await runHandler("/sandbox/repair", "post", {});
+    expect(res.status).toHaveBeenCalledWith(422);
+    expect(res.json.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ success: false, code: "SANDBOX_REPAIR_PATTERN_UNKNOWN" }),
+    );
+    expect(fs.readFileSync(sandboxPath, "utf-8")).toBe(broken);
+    expect(backups()).toEqual([]);
+  });
+
+  it.each([
+    ["an empty file", ""],
+    ["SandboxVars = nil", "SandboxVars = nil\n"],
+    ["only other globals", "Other = { Zombies = 4 }\n"],
+  ])("does not call %s already valid", async (_label, content) => {
+    fs.writeFileSync(sandboxPath, content);
+    const res = await runHandler("/sandbox/repair", "post", {});
+    expect(res.json.mock.calls[0][0].alreadyValid).toBeUndefined();
+    expect(res.status).toHaveBeenCalledWith(422);
+    expect(fs.readFileSync(sandboxPath, "utf-8")).toBe(content);
+  });
+});
+
 describe("a string continued over a CRLF line break is not corruption", () => {
   // "\" + CRLF continues a string in the game (A = "a\nb"). The brace count
   // used to end the string at the LF, miss the "{" after it, and call the

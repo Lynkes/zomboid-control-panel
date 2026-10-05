@@ -916,12 +916,13 @@ export function repairSandboxSyntax(content) {
   }
 
   const repaired = lines.join("\n");
-  // Balanced braces are not enough to write it: the result has to tokenize
-  // and parse, through the same parser every editor uses.
+  // Balanced braces are not enough to write it, and neither is parsing: the
+  // result needs a SandboxVars table too. A file without one parses, but
+  // the game finds nothing to load and exits on boot.
   const after = validateSandboxLua(repaired);
   return {
     content: repaired,
-    fixed: after.parses && changes.length > 0,
+    fixed: after.valid && changes.length > 0,
     changes,
   };
 }
@@ -1782,10 +1783,11 @@ router.get("/sandbox/validate", async (req, res) => {
 });
 
 // Attempt to auto-repair SandboxVars.lua. Refuses to write anything unless
-// BOTH the repaired content parses cleanly AND a real backup of
-// the broken file was made first — if the corruption doesn't match a known
-// repair pattern, or the backup can't be created, nothing is written and
-// the caller is told exactly why and what to do about it. This route
+// BOTH the repaired content is a file the game loads (it parses and has a
+// SandboxVars table) AND a real backup of the broken file was made first —
+// if the corruption doesn't match a known repair pattern, or the backup
+// can't be created, nothing is written and the caller is told exactly why
+// and what to do about it. This route
 // rewrites an already-corrupted file with a heuristic the repair function
 // itself admits can miss (see repairSandboxSyntax's own comment) -- with no
 // backup, a wrong result has no way back, so this is the one call site in
@@ -1805,7 +1807,9 @@ router.post("/sandbox/repair", async (req, res) => {
 
     const result = await withFileLock(filePath, async () => {
       const originalContent = fs.readFileSync(filePath, "utf-8");
-      if (validateSandboxLua(originalContent).parses) {
+      // "Already valid" means the game loads it: it parses and has a
+      // SandboxVars table.
+      if (validateSandboxLua(originalContent).valid) {
         return { alreadyValid: true };
       }
 
