@@ -2433,6 +2433,8 @@ export interface SimTemplateApplyResult {
     | { applied: Array<{ section: string; key: string }>; skipped: Array<{ section: string; key: string }> }
     | { skipped: true; reason: string }
     | null;
+  // File names of the .bak copies made in the config folder's backups/
+  // folder (not their full paths since 1.4.6).
   backups: string[];
   error?: string;
 }
