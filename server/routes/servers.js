@@ -1643,26 +1643,29 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
       }
     }
 
-    // FILES-2: see serverConfigPathIsConfined(). Only a changed value is
-    // judged -- the edit dialog sends the whole record back -- and against
-    // the data folder the profile will have after this edit.
-    if (
-      updates.serverConfigPath !== undefined &&
-      updates.serverConfigPath !== null &&
-      updates.serverConfigPath !== ""
-    ) {
+    // FILES-2: see serverConfigPathIsConfined(). Judged against the data
+    // folder the profile will have after this edit, whenever either folder
+    // changes -- the edit dialog sends the whole record back, so an
+    // unchanged pair is left alone. Moving or clearing the data folder
+    // judges the stored config folder again: clearing it used to leave a
+    // config folder with nothing to hold it to, which Server Files then
+    // let through (FILES-2 adversary pass 2).
+    if (updates.serverConfigPath !== undefined || updates.zomboidDataPath !== undefined) {
       const stored = await getServer(serverId);
-      if (
-        stored &&
-        String(updates.serverConfigPath) !== String(stored.serverConfigPath ?? "") &&
-        !serverConfigPathIsConfined(
-          updates.serverConfigPath,
-          updates.zomboidDataPath !== undefined
-            ? updates.zomboidDataPath
-            : stored.zomboidDataPath,
-        )
-      ) {
-        return res.status(400).json(serverConfigPathRefusal());
+      if (stored) {
+        const changed = (key) =>
+          updates[key] !== undefined && String(updates[key] ?? "") !== String(stored[key] ?? "");
+        const nextConfigPath =
+          updates.serverConfigPath !== undefined ? updates.serverConfigPath : stored.serverConfigPath;
+        const nextDataPath =
+          updates.zomboidDataPath !== undefined ? updates.zomboidDataPath : stored.zomboidDataPath;
+        if (
+          nextConfigPath &&
+          (changed("serverConfigPath") || changed("zomboidDataPath")) &&
+          !serverConfigPathIsConfined(nextConfigPath, nextDataPath)
+        ) {
+          return res.status(400).json(serverConfigPathRefusal());
+        }
       }
     }
 

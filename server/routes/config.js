@@ -25,6 +25,7 @@ import {
   RCON_USER_ACTION_TIMEOUT_MS,
 } from "../services/rcon.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { serverConfigPathIsConfined } from "../utils/serverConfigPath.js";
 import {
   requireIntInRange,
   BIND_PORT_MIN,
@@ -881,6 +882,28 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
         params: sanitizeErrorParams({ detail }),
         missing: missingCapabilities,
       });
+    }
+
+    // FILES-2 (adversary pass 2): this legacy copy of the config folder is
+    // the one Server Files falls back to when the active server has none of
+    // its own, so it follows the same rule as a server's own
+    // (utils/serverConfigPath.js), judged against the data folder this save
+    // leaves. Only a changed value is judged: Settings sends its whole form
+    // back. serverConfigPath is a governed key, so currentSettings is loaded.
+    const configPathEntry = filtered.find(([key]) => key === "serverConfigPath");
+    if (
+      configPathEntry?.[1] &&
+      String(configPathEntry[1]) !== String(currentSettings.serverConfigPath ?? "")
+    ) {
+      const dataPathEntry = filtered.find(([key]) => key === "zomboidDataPath");
+      const dataPath = dataPathEntry ? dataPathEntry[1] : currentSettings.zomboidDataPath;
+      if (!serverConfigPathIsConfined(String(configPathEntry[1]), dataPath)) {
+        return res.status(400).json({
+          error:
+            "The server config folder must be the Server folder inside the Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
+          code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
+        });
+      }
     }
 
     const steamSessionIdEntry = filtered.find(

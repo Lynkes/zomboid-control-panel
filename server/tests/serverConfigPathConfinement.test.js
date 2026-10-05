@@ -229,6 +229,53 @@ describe("PUT /api/servers/:id -- serverConfigPath is confined to <zomboidDataPa
       await resetRecord();
     }
   });
+
+  // Adversary pass 2: Server Files only holds a config folder to the data
+  // folder when the record has one, so clearing the data folder used to let
+  // a refused (pre-check) config folder be read and written again.
+  it("judges the stored config folder again when the data folder is cleared or moved", async () => {
+    await db.updateServer(serverId, { serverConfigPath: outsideDir });
+    const otherData = path.join(root, "OtherZomboid");
+    fs.mkdirSync(path.join(otherData, "Server"), { recursive: true });
+    fs.mkdirSync(path.join(otherData, "Saves"), { recursive: true });
+    try {
+      currentRole = "technician";
+      for (const zomboidDataPath of ["", otherData]) {
+        const r = await call("PUT", `/api/servers/${serverId}`, { zomboidDataPath });
+        expect(r.status).toBe(400);
+        expect(r.json.code).toBe(ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA);
+        const stored = await db.getServer(serverId);
+        expect(stored.zomboidDataPath).toBe(dataDir);
+        expect(stored.serverConfigPath).toBe(outsideDir);
+      }
+      const raw = await call("GET", "/api/server-files/raw/ini");
+      expect(raw.status).toBe(400);
+      expect(raw.json.code).toBe(ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA);
+    } finally {
+      await resetRecord();
+    }
+  });
+
+  it("still clears both folders together, and moves the data folder with a config folder inside it", async () => {
+    await resetRecord();
+    const otherData = path.join(root, "OtherZomboid");
+    fs.mkdirSync(path.join(otherData, "Server"), { recursive: true });
+    fs.mkdirSync(path.join(otherData, "Saves"), { recursive: true });
+    try {
+      currentRole = "technician";
+      const cleared = await call("PUT", `/api/servers/${serverId}`, {
+        zomboidDataPath: "",
+        serverConfigPath: "",
+      });
+      expect(cleared.status).toBe(200);
+      await resetRecord();
+      await db.updateServer(serverId, { serverConfigPath: "" });
+      const moved = await call("PUT", `/api/servers/${serverId}`, { zomboidDataPath: otherData });
+      expect(moved.status).toBe(200);
+    } finally {
+      await resetRecord();
+    }
+  });
 });
 
 describe("POST /api/servers -- serverConfigPath is confined the same way (FILES-2)", () => {
