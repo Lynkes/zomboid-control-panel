@@ -308,6 +308,13 @@ function parseTokens(src, tokens) {
     const open = next();
     if (depth > MAX_TABLE_DEPTH) fail("tables nested too deeply", open);
     const fields = [];
+    // key -> the field the game ends up with (the last one), so a lookup
+    // does not rescan a table that has thousands of keys.
+    const last = new Map();
+    const add = (field) => {
+      fields.push(field);
+      last.set(field.key, field);
+    };
     for (;;) {
       const t = peek();
       if (t.type === "}") break;
@@ -322,16 +329,16 @@ function parseTokens(src, tokens) {
           keyNode.kind === "string" || keyNode.kind === "number" || keyNode.kind === "boolean"
             ? keyNode.value
             : null;
-        fields.push({ key, keyStart: t.start, value: parseValue(depth) });
+        add({ key, keyStart: t.start, value: parseValue(depth) });
       } else if (t.type === "name" && peek(1).type === "=") {
         if (RESERVED_WORDS.has(t.value)) {
           fail(`'${t.value}' is a reserved word and cannot be used as a key`, t);
         }
         next();
         next();
-        fields.push({ key: t.value, keyStart: t.start, value: parseValue(depth) });
+        add({ key: t.value, keyStart: t.start, value: parseValue(depth) });
       } else {
-        fields.push({ key: null, keyStart: t.start, value: parseValue(depth) });
+        add({ key: null, keyStart: t.start, value: parseValue(depth) });
       }
       const sep = peek();
       if (sep.type === "," || sep.type === ";") {
@@ -345,7 +352,7 @@ function parseTokens(src, tokens) {
       fail(`'}' expected (to close '{' at line ${line}) near '${describeToken(src, sep)}'`, sep);
     }
     const close = next();
-    return { kind: "table", fields, start: open.start, end: close.end };
+    return { kind: "table", fields, last, start: open.start, end: close.end };
   }
 
   const statements = [];
@@ -402,10 +409,7 @@ export function parseSandboxLua(content) {
 
 // The entry the game ends up with for `key`: the last one wins.
 function lastField(table, key) {
-  for (let i = table.fields.length - 1; i >= 0; i--) {
-    if (table.fields[i].key === key) return table.fields[i];
-  }
-  return undefined;
+  return table.last.get(key);
 }
 
 /**
@@ -520,10 +524,15 @@ export function editSandboxValues(content, edits) {
     statusByPath.set(pathKey, status);
   }
 
-  let next = content;
-  for (const r of replacements.sort((a, b) => b.start - a.start)) {
-    next = next.slice(0, r.start) + r.text + next.slice(r.end);
+  // Spans never overlap: each is one scalar literal.
+  const pieces = [];
+  let at = 0;
+  for (const r of replacements.sort((a, b) => a.start - b.start)) {
+    pieces.push(content.slice(at, r.start), r.text);
+    at = r.end;
   }
+  pieces.push(content.slice(at));
+  const next = pieces.join("");
 
   const results = edits.map((edit) => ({
     path: edit.path,

@@ -229,6 +229,34 @@ describe("sectionsToEdits", () => {
   });
 });
 
+// A mod table with tens of thousands of keys used to take tens of seconds to
+// read and to save (every key lookup rescanned the whole table), blocking the
+// server the whole time.
+describe("large files", () => {
+  it("reads and saves a table with 100,000 keys in linear time", () => {
+    const lines = ["SandboxVars = {", "    VERSION = 6,", "    BigMod = {"];
+    for (let k = 0; k < 100_000; k++) lines.push(`        -- option ${k} { }`, `        Key${k} = ${k}.0,`);
+    lines.push("    },", "}", "");
+    const content = lines.join("\r\n");
+
+    let started = performance.now();
+    const { sandbox } = sandboxSectionsFromLua(content);
+    const readMs = performance.now() - started;
+    expect(Object.keys(sandbox.BigMod)).toHaveLength(100_000);
+
+    sandbox.BigMod.Key99999 = 5;
+    started = performance.now();
+    const result = editSandboxValues(content, sectionsToEdits(sandbox));
+    const saveMs = performance.now() - started;
+    expect(result.content).toBe(content.replace("Key99999 = 99999.0,", "Key99999 = 5.0,"));
+
+    // Linear work is well under half a second here; the old quadratic lookup
+    // took about 20 s to read and 30 s to save.
+    expect(readMs).toBeLessThan(5000);
+    expect(saveMs).toBeLessThan(5000);
+  });
+});
+
 describe("validation", () => {
   it("counts only structural braces, even in a file that does not parse", () => {
     expect(countSandboxBraces('A = "{", B = [[}]] --[==[ { ]==] -- }\n{')).toEqual({ balanced: false, depth: 1 });
