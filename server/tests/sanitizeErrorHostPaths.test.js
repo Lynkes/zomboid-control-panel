@@ -119,6 +119,32 @@ describe("sanitizeError: round 2 of the generic patterns", () => {
   });
 });
 
+// Round 3 (verifier, info): the first path of a ';'-separated Windows list
+// ran on into the next drive letter ("system32;D") and left the rest of the
+// second path (":\Users\otheruser\...") as written; the pattern before this
+// batch redacted the whole list. And "FILE:///" was not a file URL.
+describe("sanitizeError: round 3 of the generic patterns", () => {
+  it("redacts every path of a ';' or ',' separated Windows list", () => {
+    const system = win("C:", "Windows", "system32");
+    const other = win("D:", "Users", "otheruser", "AppData", "Local", "bin");
+    expect(sanitizeError(`PATH=${system};${other}`)).toBe("PATH=[path];[path]");
+    expect(sanitizeError(`PATH=${other};${system};${other}`)).toBe("PATH=[path];[path];[path]");
+    expect(sanitizeError(`files: ${win("C:", "a", "b.txt")},${win("E:", "c", "d.txt")}`)).toBe(
+      "files: [path],[path]",
+    );
+    // A UNC path after it reads as more of the same path: still all redacted.
+    expect(sanitizeError(`PATH=${system};${BS}${BS}nas${BS}share${BS}otheruser`)).toBe("PATH=[path]");
+    expect(sanitizeError("PATH=C:/Windows/system32;D:/Users/otheruser/bin")).toBe("PATH=[path];[path]");
+    // A ';' that no drive follows stays part of the name.
+    expect(sanitizeError(`open ${win("C:", "pz", "a;b.txt")}`)).toBe("open [path]");
+  });
+
+  it("redacts the path of an upper-case FILE:/// URL", () => {
+    expect(sanitizeError("Cannot load FILE:///app/server/index.js")).toBe("Cannot load FILE://[path]");
+    expect(sanitizeError("Cannot load File:///Users/bob/Zomboid/x.lua")).toBe("Cannot load File://[path]");
+  });
+});
+
 describe("sanitizeError: the folders the panel is configured with", () => {
   const unregister = [];
 

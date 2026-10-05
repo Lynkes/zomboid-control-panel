@@ -121,6 +121,16 @@ export function sanitizeServerResponseList(servers) {
 // an apostrophe between letters ("O'Brien") belongs to the name, and API
 // routes ("/api/...") and Steam Web API methods ("/ISteamX/Method/v1"),
 // which are no host's folders, stay as written.
+// Round 3 (verifier, info): a path in a ';' or ',' list of Windows paths
+// ("PATH=C:\Windows\system32;D:\Users\x\bin") ends where the next drive or
+// UNC path starts, so the second one is redacted too, and "FILE:///" counts
+// like "file:///".
+// Known limits of layer 2, which layer 1 covers for every configured
+// folder: a space in any unquoted POSIX name ends the match there
+// ("/srv/pz servers/main" keeps " servers/main"), as does a space in the
+// last name of a quoted Windows path that also holds an apostrophe; a
+// file://host/share URL keeps its share path; and a host folder whose
+// first name is "api" reads as an API route.
 const PATH_PLACEHOLDER = "[path]";
 
 // An apostrophe inside a name ("O'Brien"): between two word characters.
@@ -136,15 +146,18 @@ const SPACED_NAME = `${NAME}(?: ${NAME})*`;
 // otherwise read as a folder "and 3" holding "4": a word after a space
 // can't start with a digit.
 const FWD_SPACED_NAME = String.raw`${NAME}(?: (?!\d)${NAME})*`;
+// Not the ';' or ',' between two paths of a list, where a drive or UNC
+// path follows ("C:\a;D:\b", "C:\a,\\server\share").
+const NOT_LIST_SEPARATOR = String.raw`(?![;,](?:[A-Za-z]:[\\/]|\\\\))`;
 // The last name of a path. It also stops at a closing bracket, since a
 // path is often written "(C:\...\file.txt)".
-const LAST_NAME = String.raw`(?:[^\s\\/'"<>|*?:)\]}]|${INNER_APOSTROPHE})*`;
+const LAST_NAME = String.raw`(?:${NOT_LIST_SEPARATOR}[^\s\\/'"<>|*?:)\]}]|${INNER_APOSTROPHE})*`;
 // The last name of a backslash path, which may hold forward slashes.
-const WIN_LAST_NAME = String.raw`(?:[^\s\\'"<>|*?:)\]}]|${INNER_APOSTROPHE})*`;
+const WIN_LAST_NAME = String.raw`(?:${NOT_LIST_SEPARATOR}[^\s\\'"<>|*?:)\]}]|${INNER_APOSTROPHE})*`;
 // Where a POSIX path can't start: right after the rest of a word, version,
-// time, ratio or relative path, or at a URL's "://" -- except a file URL's,
-// whose path is a host path.
-const POSIX_START_GUARD = String.raw`(?:(?<=file:\/\/)|(?<![\w.~/\\\])%-])(?!(?<=:)\/\/))`;
+// time, ratio or relative path, or at a URL's "://" -- except a file URL's
+// (in any case), whose path is a host path.
+const POSIX_START_GUARD = String.raw`(?:(?<=[Ff][Ii][Ll][Ee]:\/\/)|(?<![\w.~/\\\])%-])(?!(?<=:)\/\/))`;
 // Right after a POSIX path's first slash: not an API route or a Steam Web
 // API method.
 const NOT_HOST_ROUTE = String.raw`(?!api\/|I[A-Z]\w*\/\w+\/v\d)`;
