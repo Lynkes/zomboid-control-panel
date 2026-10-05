@@ -342,6 +342,14 @@ function listNames(folder) {
 // included) and the path leads to that same folder (carriesGameName()). On
 // a case-sensitive file system such a path leads to no folder, or to a
 // folder of its own, so matching stays exact there.
+//
+// SECURITY (2026-10-05, W5-P1 verifier round 1): and a name spelled as the
+// game spells it matched by its spelling alone, so on Windows and macOS a
+// folder listed as saves\multiplayer -- someone else's, the game names its
+// own Saves\Multiplayer -- still passed when the path spelled it the game's
+// way. The name a folder is listed under is what counts now, however the
+// path spells it. Only a folder that isn't there (or a parent that can't be
+// listed) still goes by the path's spelling: nothing in it to judge yet.
 export function isSavesMultiplayerFolder(folder) {
   const resolved = path.resolve(folder);
   return carriesGameName(resolved, "Multiplayer") && carriesGameName(path.dirname(resolved), "Saves");
@@ -349,8 +357,9 @@ export function isSavesMultiplayerFolder(folder) {
 
 export function carriesGameName(folder, gameName) {
   const given = path.basename(folder);
-  if (given === gameName) return true;
-  return given.toLowerCase() === gameName.toLowerCase() && onDiskName(folder) === gameName;
+  if (given.toLowerCase() !== gameName.toLowerCase()) return false;
+  const listed = onDiskName(folder);
+  return listed === null ? given === gameName : listed === gameName;
 }
 
 // The name `folder` is listed under in its parent folder: as spelled, or

@@ -39,7 +39,9 @@ const { default: chunksRouter } = await import("../routes/chunks.js");
 const { applyTemplate } = await import("../services/templateService.js");
 const { BackupService } = await import("../services/backupService.js");
 const { LogTailer } = await import("../services/logTailer.js");
-const { checkZomboidDataPath, zomboidDataFolderHolds } = await import("../services/zomboidDataPath.js");
+const { carriesGameName, checkZomboidDataPath, isSavesMultiplayerFolder, zomboidDataFolderHolds } = await import(
+  "../services/zomboidDataPath.js"
+);
 const { serverConfigDirOf, serverConfigPathIsConfined } = await import("../utils/serverConfigPath.js");
 const { ErrorCode } = await import("../utils/errorCodes.js");
 
@@ -329,6 +331,39 @@ describe("the shapes count only as the game makes them", () => {
     write(path.join(home, "Server", "Victim.ini"), INI);
     expect(zomboidDataFolderHolds(multiplayer)).toBe(false);
     expect(serverConfigPathIsConfined(path.join(home, "Server"), multiplayer)).toBe(false);
+  });
+
+  // W5 verifier round 1: the name the folder is listed under counts, not
+  // the path's spelling, even when the path spells it the game's way.
+  it.skipIf(!ignoresCase)("nor with the path spelling them Saves/Multiplayer", async () => {
+    const home = path.join(root, "lowercase-on-disk-game-spelling");
+    write(path.join(home, "saves", "multiplayer", "Victim", "map_t.bin"), "t");
+    write(path.join(home, "Server", "Victim.ini"), INI);
+    const spelled = path.join(home, "Saves", "Multiplayer");
+    expect(fs.existsSync(spelled)).toBe(true);
+    expect(isSavesMultiplayerFolder(spelled)).toBe(false);
+    expect(carriesGameName(path.join(home, "Saves"), "Saves")).toBe(false);
+    expect(zomboidDataFolderHolds(spelled)).toBe(false);
+    expect(checkZomboidDataPath(spelled).ok).toBe(false);
+    expect(serverConfigPathIsConfined(path.join(home, "Server"), spelled)).toBe(false);
+    const before = (await db.getServer(serverId)).zomboidDataPath;
+    const saved = await call("POST", "/api/chunks/save-path", { path: spelled });
+    expect(saved.status, saved.text).toBeGreaterThanOrEqual(400);
+    expect((await db.getServer(serverId)).zomboidDataPath).toBe(before);
+  });
+
+  it("a folder that isn't there yet goes by the path's spelling", () => {
+    const missing = path.join(root, "not-there-yet");
+    expect(isSavesMultiplayerFolder(path.join(missing, "Saves", "Multiplayer"))).toBe(true);
+    expect(isSavesMultiplayerFolder(path.join(missing, "saves", "multiplayer"))).toBe(false);
+    expect(carriesGameName(path.join(missing, "Saves"), "Saves")).toBe(true);
+  });
+
+  it("the game's own folders, listed as the game names them, in any spelling the file system takes", () => {
+    const { zomboid } = buildZomboid("listed-as-the-game-names-them");
+    expect(isSavesMultiplayerFolder(path.join(zomboid, "Saves", "Multiplayer"))).toBe(true);
+    expect(carriesGameName(path.join(zomboid, "Saves"), "Saves")).toBe(true);
+    expect(isSavesMultiplayerFolder(path.join(zomboid, "saves", "MULTIPLAYER"))).toBe(ignoresCase);
   });
 
   it("not a Saves folder whose Multiplayer folder holds no world save", () => {
