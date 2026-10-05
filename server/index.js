@@ -81,7 +81,12 @@ import {
 import { LogTailer } from "./services/logTailer.js";
 import { DiskMonitor } from "./services/diskMonitor.js";
 import authService, { onSessionRevoked } from "./services/auth.js";
-import { getCapabilitiesForRole, getRoleByName, requirePermission } from "./services/permissions.js";
+import {
+  getCapabilitiesForRole,
+  getRoleByName,
+  onRoleCapabilitiesChanged,
+  requirePermission,
+} from "./services/permissions.js";
 import { requireRole } from "./services/auth.js";
 import authRoutes from "./routes/auth.js";
 import oidcRoutes from "./routes/oidc.js";
@@ -2576,6 +2581,40 @@ export async function socketHasCapability(socket, capability) {
   }
 }
 
+// Socket.IO rooms that carry capability-gated broadcasts, and the capability
+// each subscribe:* handler below checks before joining. Membership is
+// decided once, at join time, so a role edit re-checks it
+// (recheckCapabilityRooms below): otherwise a member kept receiving install,
+// chunk-scan, log, perf, player and live-RCON events after the capability
+// was taken off their role, until they reconnected.
+export const CAPABILITY_ROOMS = Object.freeze({
+  players: "players.view",
+  install: "server.install",
+  chunkscan: "chunks.manage",
+  logs: "diagnostics.manage",
+  perf: "diagnostics.manage",
+  "rcon-live": "rcon.execute",
+});
+
+// Remove the sockets of `roleName`'s members (every socket when null) from
+// each capability room their role no longer allows. Fail closed like the
+// join checks: a role that no longer resolves leaves every gated room.
+export async function recheckCapabilityRooms(roleName = null, server = io) {
+  for (const s of [...server.sockets.sockets.values()]) {
+    if (!s.user || (roleName && s.user.role !== roleName)) continue;
+    for (const [room, capability] of Object.entries(CAPABILITY_ROOMS)) {
+      if (s.rooms.has(room) && !(await socketHasCapability(s, capability))) {
+        s.leave(room);
+      }
+    }
+  }
+}
+onRoleCapabilitiesChanged((roleName) => {
+  recheckCapabilityRooms(roleName).catch((error) =>
+    log.warn(`Could not re-check socket rooms after a role edit: ${error.message}`),
+  );
+});
+
 // Socket.IO connection handling
 // Emit an event only to sockets whose role holds one of `capabilities`.
 // Fail closed: a socket with no resolvable role receives nothing. Used for
@@ -2638,7 +2677,7 @@ io.on("connection", (socket) => {
   // which requires players.view -- this room carries the same data and
   // must not be reachable by a role that route refuses.
   socket.on("subscribe:players", async () => {
-    if (!(await socketHasCapability(socket, "players.view"))) return;
+    if (!(await socketHasCapability(socket, CAPABILITY_ROOMS.players))) return;
     socket.join("players");
   });
 
@@ -2647,14 +2686,14 @@ io.on("connection", (socket) => {
   // paths and raw SteamCMD output, so they must not reach every signed-in
   // role (security audit M1).
   socket.on("subscribe:install", async () => {
-    if (!(await socketHasCapability(socket, "server.install"))) return;
+    if (!(await socketHasCapability(socket, CAPABILITY_ROOMS.install))) return;
     socket.join("install");
   });
 
   // Subscribe to chunk-scan progress. Mirrors routes/chunks.js's
   // chunks.manage gate (security audit M1).
   socket.on("subscribe:chunkscan", async () => {
-    if (!(await socketHasCapability(socket, "chunks.manage"))) return;
+    if (!(await socketHasCapability(socket, CAPABILITY_ROOMS.chunkscan))) return;
     socket.join("chunkscan");
   });
 
@@ -2678,14 +2717,14 @@ io.on("connection", (socket) => {
   // (see /rcon/history's own header comment) and diagnostics.manage is a
   // different, broader capability that never mentions RCON at all.
   socket.on("subscribe:logs", async () => {
-    if (!(await socketHasCapability(socket, "diagnostics.manage"))) return;
+    if (!(await socketHasCapability(socket, CAPABILITY_ROOMS.logs))) return;
     socket.join("logs");
   });
 
   // Subscribe to performance snapshots. Mirrors POST
   // /api/debug/performance-snapshot (debug.js), also diagnostics.manage.
   socket.on("subscribe:perf", async () => {
-    if (!(await socketHasCapability(socket, "diagnostics.manage"))) return;
+    if (!(await socketHasCapability(socket, CAPABILITY_ROOMS.perf))) return;
     socket.join("perf");
   });
   socket.on("unsubscribe:perf", () => {
@@ -2702,7 +2741,7 @@ io.on("connection", (socket) => {
   // content class must not reopen that through a narrower-looking but
   // still-too-broad gate (2026-08-31 bug hunt).
   socket.on("subscribe:rcon", async () => {
-    if (!(await socketHasCapability(socket, "rcon.execute"))) return;
+    if (!(await socketHasCapability(socket, CAPABILITY_ROOMS["rcon-live"]))) return;
     socket.join("rcon-live");
   });
 });

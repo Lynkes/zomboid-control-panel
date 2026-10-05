@@ -814,6 +814,27 @@ async function checkLockoutRulesForCapabilityChange({
   }
 }
 
+// Told after a role's capabilities change, with the role's name before the
+// edit (the name its members' sessions carry). index.js re-checks the
+// capability-gated Socket.IO rooms those members joined. Listeners run after
+// the write, outside the role mutex, and a failing one is ignored.
+const roleCapabilityListeners = new Set();
+export function onRoleCapabilitiesChanged(listener) {
+  roleCapabilityListeners.add(listener);
+  return () => roleCapabilityListeners.delete(listener);
+}
+function notifyRoleCapabilitiesChanged(roleName) {
+  setImmediate(() => {
+    for (const listener of roleCapabilityListeners) {
+      try {
+        listener(roleName);
+      } catch {
+        /* a listener's failure must not affect the edit that already saved */
+      }
+    }
+  });
+}
+
 export async function updateRole(
   id,
   { name, capabilities },
@@ -921,6 +942,12 @@ export async function updateRole(
       }
     }
     if (changed) await commitNow();
+  }
+
+  const before = new Set(existing.capabilities || []);
+  const after = new Set(nextCapabilities);
+  if (after.size !== before.size || [...after].some((capability) => !before.has(capability))) {
+    notifyRoleCapabilitiesChanged(existing.name);
   }
 
   return updated;
