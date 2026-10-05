@@ -182,6 +182,32 @@ router.use(async (req, res, next) => {
     }
     return next(err);
   }
+  // SECURITY (2026-10-04, FILES-2 adversary pass): routes/servers.js only
+  // checks a server's own config folder when it is saved, so one saved
+  // before that check (or by any other door) was still read and written
+  // here. It must sit inside this caller's file-browser roots (see
+  // getAllowedBrowseRoots()), or every Server Files route refuses it until
+  // it is fixed in the server's settings. A remote server's folder is the
+  // panel's own SFTP mirror, and a folder that comes from the legacy
+  // settings (panel.settings) isn't the server record's, so neither is held
+  // to this.
+  const { activeServer, serverConfigPath } = req.activeServerContext;
+  if (activeServer && !activeServer.isRemote && activeServer.serverConfigPath) {
+    let confined;
+    try {
+      confined = confineToRoots(serverConfigPath, await getAllowedBrowseRoots(req));
+    } catch (err) {
+      return next(err);
+    }
+    if (!confined) {
+      log.warn("Refusing Server Files access: the active server's config folder is outside its Zomboid data folder");
+      return res.status(400).json({
+        error:
+          "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
+        code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
+      });
+    }
+  }
   next();
 });
 
@@ -2946,8 +2972,9 @@ const IMAGE_EXTENSIONS = new Set([
 
 /**
  * Build the list of directories the file browser is allowed to access.
- * Restricts browsing to the Zomboid data folder (which holds the server
- * config folder) and ~/Zomboid — prevents arbitrary filesystem traversal.
+ * Restricts browsing to the Zomboid data folder's Server folder (the whole
+ * data folder for a files.manage holder) and ~/Zomboid — prevents arbitrary
+ * filesystem traversal.
  *
  * Takes req (2026-09-08 quadruple-read sweep): used to independently
  * re-derive the active server via its own getActiveServer() call, which is
@@ -2967,14 +2994,40 @@ const IMAGE_EXTENSIONS = new Set([
  * folder's own root already covers; serverPath is no longer a root at all,
  * and neither is the legacy settings copy of the config folder.
  */
+// SECURITY (2026-10-04, FILES-2 adversary pass): the data folder itself is
+// as much a servers.manage edit as the config folder was, and POST
+// /api/servers, the install routes and chunks.js's /save-path all set it
+// to a folder of the caller's choosing. As a root it made that whole folder
+// browsable, so a technician named any folder on this computer as a
+// server's data folder and listed it and fetched its images here. A role
+// without files.manage now gets only the data folder's Server folder (where
+// the game keeps the files Server Config edits, and the config folder sits
+// in it): a folder the game creates, not one that was already there. A
+// files.manage holder, who can already reach the game's files through the
+// file manager, keeps the whole data folder.
+async function holdsFilesManage(req) {
+  if (!req.user) return false;
+  try {
+    const role = await getRoleByName(req.user.role);
+    return Array.isArray(role?.capabilities) && role.capabilities.includes("files.manage");
+  } catch {
+    return false;
+  }
+}
+
 async function getAllowedBrowseRoots(req) {
   const roots = [];
   const { activeServer } = req.activeServerContext;
+  const wholeDataFolder = await holdsFilesManage(req);
+  const dataFolderRoot = (dataPath) =>
+    wholeDataFolder
+      ? path.resolve(dataPath)
+      : path.join(path.resolve(dataPath), "Server");
   if (activeServer?.zomboidDataPath)
-    roots.push(path.resolve(activeServer.zomboidDataPath));
+    roots.push(dataFolderRoot(activeServer.zomboidDataPath));
   const settings = await getAllSettings();
   if (settings.zomboidDataPath)
-    roots.push(path.resolve(settings.zomboidDataPath));
+    roots.push(dataFolderRoot(settings.zomboidDataPath));
   // Always allow the default Zomboid config directory
   const defaultConfig = path.join(os.homedir(), "Zomboid");
   roots.push(path.resolve(defaultConfig));
@@ -2986,10 +3039,14 @@ async function getAllowedBrowseRoots(req) {
 router.get("/browse-files", async (req, res) => {
   try {
     const browsePath = req.query.path ? String(req.query.path) : null;
+    // Image files only, whatever the caller asks for: the browser picks
+    // image paths for the .ini, and listing every file name in a folder is
+    // more than that needs (FILES-2).
     const filterExts = req.query.extensions
       ? String(req.query.extensions)
           .split(",")
           .map((e) => e.toLowerCase().trim())
+          .filter((e) => IMAGE_EXTENSIONS.has(e))
       : null;
 
     const allowedRoots = await getAllowedBrowseRoots(req);

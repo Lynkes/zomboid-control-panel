@@ -47,6 +47,7 @@ import {
 import { normalizeMemoryGb } from "../utils/memory.js";
 import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
 import { requirePermission } from "../services/permissions.js";
+import { canSeeHostPaths, hideHostPaths } from "../utils/hostPathView.js";
 import { runManagedLifecycle } from "../services/managedContainer.js";
 import {
   acquireLifecycleLock,
@@ -1732,7 +1733,10 @@ router.get("/status", async (req, res) => {
     const rconStatus = rconService.getConfig();
 
     res.json({
-      ...status,
+      // The install folder only for a role that sets it up
+      // (utils/hostPathView.js); serverPathConfigured still says whether
+      // there is one.
+      ...((await canSeeHostPaths(req.user)) ? status : hideHostPaths(status)),
       rcon: rconStatus,
       // For the client to re-express startTime in its own clock -- see
       // routes/serverStatus.js, which sends the same field.

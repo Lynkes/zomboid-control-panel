@@ -53,6 +53,7 @@ import {
   scoreServerProcessOwnership,
 } from "../services/serverManager.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { canSeeHostPaths, hideHostPaths } from "../utils/hostPathView.js";
 import {
   buildLifecycleTemplate,
   createLinuxServiceLifecycle,
@@ -735,10 +736,15 @@ router.get("/", async (req, res) => {
   try {
     const servers = await getServers();
     const settings = await getAllSettings();
-    const withRemoteConfig = servers.map((server) => ({
-      ...server,
-      remoteConfigConfigured: computeRemoteConfigConfigured(server, settings),
-    }));
+    // Host folders only for a role that sets them up (utils/hostPathView.js).
+    const showPaths = await canSeeHostPaths(req.user);
+    const withRemoteConfig = servers.map((server) => {
+      const view = {
+        ...server,
+        remoteConfigConfigured: computeRemoteConfigConfigured(server, settings),
+      };
+      return showPaths ? view : hideHostPaths(view);
+    });
     res.json({
       servers: sanitizeServerResponseList(withRemoteConfig),
       lifecycleCapabilities: getLinuxLifecycleCapabilities(),
@@ -1027,8 +1033,11 @@ router.get("/active", async (req, res) => {
       server,
       await getAllSettings(),
     );
+    const view = { ...server, remoteConfigConfigured };
     res.json({
-      server: sanitizeServerResponse({ ...server, remoteConfigConfigured }),
+      server: sanitizeServerResponse(
+        (await canSeeHostPaths(req.user)) ? view : hideHostPaths(view),
+      ),
     });
   } catch (error) {
     log.error(`Failed to get active server: ${error.message}`);
@@ -1053,7 +1062,11 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ error: "Server not found" });
     }
 
-    res.json({ server: sanitizeServerResponse(server) });
+    res.json({
+      server: sanitizeServerResponse(
+        (await canSeeHostPaths(req.user)) ? server : hideHostPaths(server),
+      ),
+    });
   } catch (error) {
     log.error(`Failed to get server: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });

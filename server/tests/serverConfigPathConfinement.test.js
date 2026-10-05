@@ -290,34 +290,46 @@ describe("Server Files -- what the image browser may reach (FILES-2)", () => {
     await db.updateServer(serverId, { serverConfigPath: outsideDir });
     try {
       currentRole = "technician";
+      // Every Server Files route refuses the record outright now (adversary
+      // pass), not just the browser.
       const listed = await call(
         "GET",
         `/api/server-files/browse-files?path=${encodeURIComponent(outsideDir)}&extensions=.txt,.env`,
       );
-      expect(listed.status).toBe(403);
+      expect(listed.status).toBe(400);
+      expect(listed.json.code).toBe("SERVER_CONFIG_PATH_OUTSIDE_DATA");
       // ...nor through the default, which starts in the config folder.
       const byDefault = await call("GET", "/api/server-files/browse-files?extensions=.txt,.env");
-      expect(byDefault.status).toBe(403);
+      expect(byDefault.status).toBe(400);
       const image = await call(
         "GET",
         `/api/server-files/image-preview?path=${encodeURIComponent(path.join(outsideDir, "photo.png"))}`,
       );
-      expect(image.status).toBe(403);
+      expect(image.status).toBe(400);
     } finally {
       await resetRecord();
     }
   });
 
-  it("still browses the data folder and the config folder inside it", async () => {
+  it("still browses the config folder, and the data folder with files.manage", async () => {
     await resetRecord();
     fs.writeFileSync(path.join(configDir, "icon.png"), PNG);
     currentRole = "technician";
     const byDefault = await call("GET", "/api/server-files/browse-files");
     expect(byDefault.status).toBe(200);
     expect(byDefault.json.files.map((f) => f.name)).toContain("icon.png");
+    // The data folder itself is a root only for files.manage (adversary
+    // pass: a technician sets the data folder, so it can't be the root).
+    const technicianData = await call(
+      "GET",
+      `/api/server-files/browse-files?path=${encodeURIComponent(dataDir)}`,
+    );
+    expect(technicianData.status).toBe(403);
+    currentRole = "admin";
     const data = await call("GET", `/api/server-files/browse-files?path=${encodeURIComponent(dataDir)}`);
     expect(data.status).toBe(200);
     expect(data.json.directories).toContain("Server");
+    currentRole = "technician";
     const image = await call(
       "GET",
       `/api/server-files/image-preview?path=${encodeURIComponent(path.join(configDir, "icon.png"))}`,
