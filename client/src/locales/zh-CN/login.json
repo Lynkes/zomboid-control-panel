@@ -66,6 +66,7 @@
   "errors": {
     "loginFailed": "登录失败",
     "resetTokenTooShort": "重置令牌必须至少为 8 个字符",
+    "resetTokenFormat": "找回令牌是至少 32 个字符的随机十六进制字符（0-9 和 a-f），须与面板主机上 data/reset-token.txt 中的内容完全一致。",
     "passwordTooShort": "密码必须至少为 6 个字符",
     "passwordsDontMatch": "密码不一致",
     "resetFailed": "重置失败",

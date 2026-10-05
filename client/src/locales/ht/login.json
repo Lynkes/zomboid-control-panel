@@ -66,6 +66,7 @@
   "errors": {
     "loginFailed": "Koneksyon echwe",
     "resetTokenTooShort": "Jeton rekiperasyon an dwe gen omwen 8 karaktè",
+    "resetTokenFormat": "Yon jeton rekiperasyon se hex o aza (0-9 ak a-f) ki gen omwen 32 karaktè, egzakteman jan li ye nan data/reset-token.txt sou lame panèl la.",
     "passwordTooShort": "Modpas la dwe gen omwen 6 karaktè",
     "passwordsDontMatch": "Modpas yo pa menm",
     "resetFailed": "Reyinisyalizasyon echwe",

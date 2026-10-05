@@ -132,7 +132,7 @@ describe('Login.tsx: a remote user can always enter a reset token', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /^recovery token$/i }))
     expect(screen.getByLabelText(/^recovery token$/i)).toBeInTheDocument()
-    fillAndSubmit('a-token-the-operator-wrote-on-the-host-0123')
+    fillAndSubmit('3f9a0c7be15d42a8960e7d1fb4c2a95e0d63b8f1c7a24e59')
 
     await waitFor(() => expect(postedTo(fetchMock, '/api/auth/reset-password')).toBeTruthy())
     expect(postedTo(fetchMock, '/api/auth/recover-with-code')).toBeUndefined()
@@ -150,7 +150,7 @@ describe('Login.tsx: a reset keeps this browser trusted', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /recover account/i }))
     fireEvent.click(await screen.findByRole('button', { name: /enter a recovery token/i }))
-    fillAndSubmit('a-token-the-operator-wrote-on-the-host-0123')
+    fillAndSubmit('3f9a0c7be15d42a8960e7d1fb4c2a95e0d63b8f1c7a24e59')
 
     await waitFor(() => expect(getTrustedDeviceToken('admin')).toBe('device-after-token-reset'))
   })
@@ -164,5 +164,46 @@ describe('Login.tsx: a reset keeps this browser trusted', () => {
     fillAndSubmit('ABCDE-FGHIJ-KLMNO')
 
     await waitFor(() => expect(getTrustedDeviceToken('admin')).toBe('device-after-code-reset'))
+  })
+})
+
+// Round 3 of the A2 verification: this screen asked for 8 characters while
+// the server takes only hex digits, at least 32 of them, so it sent tokens
+// the server could only refuse. It now says what a token is before sending
+// one; recovery codes keep their own check (above).
+describe('Login.tsx: a recovery token has to be hex of 32 digits or more', () => {
+  async function openTokenForm() {
+    const fetchMock = stubServer({ recoveryCodesAvailable: false })
+    await renderSettled(fetchMock)
+    fireEvent.click(screen.getByRole('button', { name: /recover account/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /enter a recovery token/i }))
+    expect(screen.getByRole('button', { name: /^recovery token$/i })).toHaveAttribute('aria-pressed', 'true')
+    return fetchMock
+  }
+
+  it.each([
+    ['a phrase', 'a-token-the-operator-wrote-on-the-host-0123'],
+    ['too few hex digits', 'deadbeef12'],
+    ['31 hex digits in groups', '0123abcd-4567-89ab-cdef-0123456789a'],
+    ['base64', 'phb20kHwWx7/1dtNtaxPYs9WAnvC2tGm'],
+    ['hex with a space in it', '3f9a0c7be15d42a8960e7d1f b4c2a95e0d63b8f1c7a24e59'],
+  ])('refuses %s without sending it', async (_label, token) => {
+    const fetchMock = await openTokenForm()
+    fillAndSubmit(token)
+    expect(await screen.findByText(/random hex \(0-9 and a-f\) at least 32 characters long/i)).toBeInTheDocument()
+    expect(postedTo(fetchMock, '/api/auth/reset-password')).toBeUndefined()
+  })
+
+  it.each([
+    ['48 hex digits (openssl rand -hex 24)', '3f9a0c7be15d42a8960e7d1fb4c2a95e0d63b8f1c7a24e59'],
+    ['32 upper-case hex digits', '9C41E07B2DA85F36B1E40C7D92A3F58E'],
+    ['a UUID (New-Guid)', '1b4e28ba-2fa1-41d2-883f-0016d3cca427'],
+    ['hex with spaces around it, as copied from the file', '  3f9a0c7be15d42a8960e7d1fb4c2a95e0d63b8f1c7a24e59 '],
+  ])('sends %s', async (_label, token) => {
+    const fetchMock = await openTokenForm()
+    fillAndSubmit(token)
+    await waitFor(() => expect(postedTo(fetchMock, '/api/auth/reset-password')).toBeTruthy())
+    const body = JSON.parse(String(postedTo(fetchMock, '/api/auth/reset-password')?.[1]?.body))
+    expect(body.token).toBe(token)
   })
 })
