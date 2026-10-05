@@ -1816,6 +1816,13 @@ export async function getTrackedMods() {
   return db.data.tracked_mods.filter((m) => m.server_id === serverId);
 }
 
+// Every Workshop id some server tracks (legacy rows without a server_id
+// included) -- the ones whose thumbnails routes/mods.js keeps on disk.
+export async function getAllTrackedWorkshopIds() {
+  const db = await getDb();
+  return new Set((db.data.tracked_mods || []).map((m) => String(m.workshop_id)));
+}
+
 export async function addTrackedMod(workshopId, name = null) {
   const db = await getDb();
   const serverId = await getActiveServerId();

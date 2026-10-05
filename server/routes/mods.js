@@ -9031,6 +9031,14 @@ router.post("/resolve-orphan-workshop", async (req, res) => {
 // the placeholder with no network call and no disk write. An image already
 // on disk is still served as-is: reading it costs nothing and grows nothing.
 //
+// SECURITY (2026-10-05, H3): ...but only for a mod tracked on the active
+// server, checked before the disk cache too. Versions before the DISKFILL
+// fix cached thumbnails for any id an anonymous caller named, and those
+// files stayed on disk for good and kept being served. Files for ids no
+// server tracks are pruned (pruneModThumbnailCache()): at startup, and in
+// the background -- at most once per THUMB_PRUNE_INTERVAL_MS -- when a
+// thumbnail is written or a request finds one for an untracked id.
+//
 // A resolution FAILURE is never written to that disk cache (there is nothing
 // worth persisting), which used to mean a host where resolution is broken —
 // missing preview_url and an unreachable/failing Steam — re-ran the full
@@ -9062,6 +9070,81 @@ const THUMB_FAIL_CACHE_MAX = 1000;
 // mod and its preview is never fetched or cached.
 const THUMB_PZ_APP_ID = 108600;
 let _thumbLastFailure = null; // { workshopId, reason, at } — outlives any one entry's TTL, for diagnostics
+// Background prunes of the disk cache, after the startup one: at most one
+// per interval, however many writes or untracked hits ask for one.
+const THUMB_PRUNE_INTERVAL_MS = 10 * 60 * 1000;
+// A "<id>.img.tmp-<pid>-<ms>" this old is a write that never finished (the
+// process died between writeFile and rename); a younger one may be in flight.
+const THUMB_TMP_MAX_AGE_MS = 60 * 60 * 1000;
+const THUMB_CACHE_FILE_RE = /^(\d{1,15})\.img$/;
+const THUMB_CACHE_TMP_RE = /^\d{1,15}\.img\.tmp-/;
+let _thumbPrune = null; // the prune running now, if any
+let _thumbLastPruneAt = 0;
+
+function thumbnailCacheDir() {
+  return path.join(getDataPaths().dataDir, "mod-thumbnails");
+}
+
+/**
+ * Delete cached thumbnails of Workshop ids no server tracks (and abandoned
+ * temp files). Concurrent calls share one run. Resolves to { removed, kept }.
+ */
+export function pruneModThumbnailCache() {
+  if (_thumbPrune) return _thumbPrune;
+  _thumbLastPruneAt = Date.now();
+  _thumbPrune = (async () => {
+    const cacheDir = thumbnailCacheDir();
+    let names;
+    try {
+      names = await fsp.readdir(cacheDir);
+    } catch (err) {
+      if (err.code === "ENOENT") return { removed: 0, kept: 0 };
+      throw err;
+    }
+    // Read after the listing: every file in it was written for a mod that
+    // was tracked then, so one tracked since the listing is in this set too.
+    const { getAllTrackedWorkshopIds } = await import("../database/init.js");
+    const tracked = await getAllTrackedWorkshopIds();
+    let removed = 0;
+    let kept = 0;
+    for (const name of names) {
+      const cached = THUMB_CACHE_FILE_RE.exec(name);
+      const filePath = path.join(cacheDir, name);
+      try {
+        if (cached) {
+          if (tracked.has(cached[1])) {
+            kept++;
+            continue;
+          }
+        } else if (THUMB_CACHE_TMP_RE.test(name)) {
+          const st = await fsp.stat(filePath);
+          if (Date.now() - st.mtimeMs < THUMB_TMP_MAX_AGE_MS) continue;
+        } else {
+          continue; // not something this cache wrote
+        }
+        await fsp.unlink(filePath);
+        removed++;
+      } catch (err) {
+        if (err.code !== "ENOENT") log.debug(`Could not prune cached thumbnail ${name}: ${err.message}`);
+      }
+    }
+    if (removed > 0) {
+      log.info(`Removed ${removed} cached mod thumbnail file(s) for Workshop items no server tracks`);
+    }
+    return { removed, kept };
+  })().finally(() => {
+    _thumbPrune = null;
+  });
+  return _thumbPrune;
+}
+
+// A background prune unless one ran (or started) within the interval.
+function pruneModThumbnailCacheSoon() {
+  if (_thumbPrune || Date.now() - _thumbLastPruneAt < THUMB_PRUNE_INTERVAL_MS) return;
+  pruneModThumbnailCache().catch((err) =>
+    log.debug(`Mod thumbnail cache prune failed: ${err.message}`),
+  );
+}
 
 function recordThumbFailure(wsId, reason) {
   const failedAt = Date.now();
@@ -9185,13 +9268,28 @@ router.get("/thumbnail/:workshopId", async (req, res) => {
     return res.status(400).end();
   }
 
-  const dataDir = getDataPaths().dataDir;
-  const cacheDir = path.join(dataDir, "mod-thumbnails");
+  const cacheDir = thumbnailCacheDir();
   const cacheFile = path.join(cacheDir, `${wsId}.img`);
 
   // Defensive: confirm resolved path stays inside cacheDir.
   if (!cacheFile.startsWith(cacheDir + path.sep)) {
     return res.status(400).end();
+  }
+
+  // Only a mod tracked on the active server gets its thumbnail, from the
+  // disk cache or from Steam (see the header comment). Not a failure:
+  // nothing is recorded, and the placeholder is not cacheable, so the real
+  // image shows up as soon as the mod is tracked. A file left on disk for
+  // an untracked id is never served, and gets the cache pruned.
+  let mod = null;
+  try {
+    mod = (await getTrackedMods()).find((m) => m.workshop_id === wsId) || null;
+  } catch (err) {
+    log.debug(`Thumbnail tracked-mod lookup failed for ${wsId}: ${err.message}`);
+  }
+  if (!mod) {
+    fsp.stat(cacheFile).then(() => pruneModThumbnailCacheSoon(), () => {});
+    return sendEmptyThumbnail(res, "no-store");
   }
 
   try {
@@ -9227,20 +9325,6 @@ router.get("/thumbnail/:workshopId", async (req, res) => {
     return sendEmptyThumbnail(res);
   }
 
-  // Only a mod tracked on the active server may reach Steam or the disk
-  // cache (see the header comment). Not a failure: nothing is recorded, and
-  // the placeholder is not cacheable, so the real image shows up as soon as
-  // the mod is tracked.
-  let mod = null;
-  try {
-    mod = (await getTrackedMods()).find((m) => m.workshop_id === wsId) || null;
-  } catch (err) {
-    log.debug(`Thumbnail tracked-mod lookup failed for ${wsId}: ${err.message}`);
-  }
-  if (!mod) {
-    return sendEmptyThumbnail(res, "no-store");
-  }
-
   // Coalesce concurrent requests for the same mod.
   let pending = THUMB_INFLIGHT.get(wsId);
   if (!pending) {
@@ -9271,6 +9355,7 @@ router.get("/thumbnail/:workshopId", async (req, res) => {
       await fsp.writeFile(tmp, buf);
       await fsp.rename(tmp, cacheFile);
       clearThumbFailure(wsId);
+      pruneModThumbnailCacheSoon();
       return buf;
     })().finally(() => {
       THUMB_INFLIGHT.delete(wsId);

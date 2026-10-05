@@ -321,7 +321,7 @@ import playerRoutes from "./routes/players.js";
 import rconRoutes from "./routes/rcon.js";
 import configRoutes from "./routes/config.js";
 import schedulerRoutes from "./routes/scheduler.js";
-import modsRoutes from "./routes/mods.js";
+import modsRoutes, { pruneModThumbnailCache } from "./routes/mods.js";
 import chunksRoutes from "./routes/chunks.js";
 import discordRoutes from "./routes/discord.js";
 import debugRoutes, { addLogToBuffer } from "./routes/debug.js";
@@ -4133,6 +4133,13 @@ async function start() {
 
     // Initialize mod checker with scheduler, serverManager, and socket.io
     await modChecker.init(scheduler, serverManager, io);
+
+    // Thumbnails cached for Workshop items no server tracks -- older
+    // versions cached any id an anonymous caller named (routes/mods.js,
+    // SECURITY 2026-10-05, H3). In the background: startup doesn't wait.
+    pruneModThumbnailCache().catch((err) =>
+      log.warn(`Could not prune the mod thumbnail cache: ${err.message}`),
+    );
 
     // Start mod checker if workshop ACF file is found. Otherwise it starts
     // by itself once one appears: the server writes its own on its first
