@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Reset token file:** a token file written by PowerShell's `>` or `Out-File` now works, and the guide has a tested command per platform.
 - **Console log:** a server with no data folder of its own finds its log, or the Console page says what to set.
 - **Discord relay channel:** emptying the field now clears it.
+- **World Map vehicles:** Repair, Set Fuel, Set Battery and the siren work again on Build 42, and Repair is the game's own admin repair (#199).
+- **Vehicle alarm and hotwire:** Alarm On now leaves the alarm armed, and hotwiring unlocks the doors for connected players too.
 
 ## [1.4.5] - 2026-10-05
 

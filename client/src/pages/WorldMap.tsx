@@ -172,11 +172,17 @@ interface MapVehicle {
   scriptName?: string
   type?: string
   speedKmh?: number
+  // The game's own 0-1 battery charge (getVehiclesDetailed reads
+  // vehicle:getBatteryCharge()), unlike fuelPct, which is already 0-100.
   batteryCharge?: number
   fuelPct?: number
   alarmed?: boolean
   sirening?: boolean
   trunkLocked?: boolean
+}
+
+function batteryPercent(batteryCharge: number): number {
+  return Math.round(batteryCharge * 100)
 }
 
 interface MapSafehouse {
@@ -3826,11 +3832,11 @@ export default function WorldMap() {
                         <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/70 w-9">{t('contextMenu.batt')}</span>
                         <div className="flex-1 h-1.5 rounded-sm bg-muted/60 overflow-hidden ring-1 ring-black/20">
                           <div
-                            className={cn("h-full transition-all", contextMenu.vehicle.batteryCharge > 30 ? "bg-info/80" : contextMenu.vehicle.batteryCharge > 10 ? "bg-amber-400/80" : "bg-destructive/80")}
-                            style={{ width: `${Math.round(contextMenu.vehicle.batteryCharge)}%` }}
+                            className={cn("h-full transition-all", batteryPercent(contextMenu.vehicle.batteryCharge) > 30 ? "bg-info/80" : batteryPercent(contextMenu.vehicle.batteryCharge) > 10 ? "bg-amber-400/80" : "bg-destructive/80")}
+                            style={{ width: `${batteryPercent(contextMenu.vehicle.batteryCharge)}%` }}
                           />
                         </div>
-                        <span className="font-mono text-[10px] tabular-nums text-muted-foreground/80 w-8 text-end">{Math.round(contextMenu.vehicle.batteryCharge)}%</span>
+                        <span className="font-mono text-[10px] tabular-nums text-muted-foreground/80 w-8 text-end">{batteryPercent(contextMenu.vehicle.batteryCharge)}%</span>
                       </div>
                     )}
                     {contextMenu.vehicle.fuelPct == null && contextMenu.vehicle.batteryCharge == null && (
