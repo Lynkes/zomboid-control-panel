@@ -33,6 +33,9 @@ on:
       - server/routes/serverFiles.js
       - server/tests/dataFolderMapCleanupShapes.test.js
       - .github/workflows/macos-data-folder.yml
+  # Run by hand on any branch (Actions > Run workflow), e.g. a release branch
+  # that touched the rule before its pull request was opened.
+  workflow_dispatch:
 
 concurrency:
   group: macos-data-folder-${{ github.ref }}
