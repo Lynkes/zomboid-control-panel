@@ -334,7 +334,10 @@ function prepareSandboxChange(template, paths, result) {
     return null;
   }
   result.sandbox = { applied, skipped };
-  if (applied.length === 0) return null;
+  // Every value already matches: no backup, no rewrite. A rewrite would also
+  // turn bytes that are not valid UTF-8 (a file saved from a cp1252 editor)
+  // into U+FFFD.
+  if (applied.length === 0 || content === existing) return null;
   return {
     filePath: paths.sandboxPath,
     content,
