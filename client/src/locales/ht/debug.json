@@ -537,7 +537,7 @@
         "sandboxCorrupt": {
           "fail": {
             "label": "SandboxVars.lua kase",
-            "message": "{{serverName}}_SandboxVars.lua gen akolad ki pa koresponn epi li pa ap chaje — sèvè dedye a fèmen imedyatman lè l ap demare ak yon erè sentaks Lua.",
+            "message": "Jwèt la pa ka chaje {{serverName}}_SandboxVars.lua ({{detail}}), kidonk sèvè dedye a fèmen lè l ap demare.",
             "hint": "Itilize repara otomatik anba a, oswa retabli soti nan yon kopi sovgad .bak nan menm dosye a."
           }
         },

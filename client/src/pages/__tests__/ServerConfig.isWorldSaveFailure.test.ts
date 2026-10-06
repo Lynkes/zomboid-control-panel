@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { isWorldSaveFailure } from '../ServerConfig'
 
 // bug-hunt-2026-08-27 (Pam's sweep, closed here): PanelBridge.lua's
-// setSandboxOption handler calls world:saveWorld() to make a live sandbox
-// change durable and reports the outcome as `persisted`/`saveError`
+// setSandboxOption handler (1.7.72 and older; #197 removed the world save,
+// and the field with it) saved the world after a live sandbox change and
+// reported the outcome as `persisted`/`saveError`
 // (b376b2c) -- added specifically to stop a failed world save from
 // silently reporting success. Nothing on the client ever read those two
 // fields; handleOptionChange's own persistence check
@@ -25,7 +26,7 @@ describe('ServerConfig.tsx isWorldSaveFailure: reads PanelBridge.lua setSandboxO
     expect(isWorldSaveFailure({ persisted: true })).toBe(false)
   })
 
-  it('does NOT report a failure when persisted is absent (older bridge build that never sends the field)', () => {
+  it('does NOT report a failure when persisted is absent (a bridge that never sends the field, older or newer)', () => {
     expect(isWorldSaveFailure({})).toBe(false)
     expect(isWorldSaveFailure(undefined)).toBe(false)
     expect(isWorldSaveFailure(null)).toBe(false)

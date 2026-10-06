@@ -25,6 +25,22 @@
                     so the panel takes deaths from the bridge instead of the
                     game's user log, where a crafted co-op player name could
                     forge another player's death line.
+                - Fix: setSandboxOption and saveWorld no longer call
+                    saveGame() on every world. On a dedicated server it wrote
+                    map_sand.bin, a copy of every sandbox option that the game
+                    loads over SandboxVars.lua on every start, so
+                    SandboxVars.lua and in-game admin changes were undone at
+                    the next restart (#197). setSandboxOption changes the live
+                    value (the panel writes SandboxVars.lua) and no longer
+                    sends persisted/saveError; saveWorld without the flag
+                    below returns an error pointing to RCON save.
+                - Add: worldHasSandboxSnapshot. When the panel says the world
+                    already has a map_sand.bin, setSandboxOption,
+                    restoreUtilities, shutOffUtilities (also as
+                    runEventSequence steps) and saveWorld rewrite it with the
+                    live settings, as before, and answer worldSandboxSaved
+                    (plus worldSandboxSaveError). A world without one never
+                    gets one. Additive; the queue protocol is unchanged.
                 - Fix: vehicle Repair, Set Fuel, Set Battery and Hotwire work
                     again on Build 42 (GitHub #199). They asked
                     vehicle:getParts() for their parts, but its
@@ -6417,6 +6433,42 @@ handlers.getAllSandboxOptions = function(args)
     }
 end
 
+-- The world's own copy of the sandbox settings (#197). On a dedicated server
+-- saveGame() runs GameWindow.save, the single-player save path, which writes
+-- map_sand.bin into the world save; SandboxOptions.load() applies every
+-- option in it over SandboxVars.lua on every start, and a vanilla dedicated
+-- server never writes it. A world that already has one (live edits through
+-- a PanelBridge older than #197, or a save begun as a hosted game) undoes at
+-- its next start every change that reached SandboxVars.lua alone, so a live
+-- change there has to reach the copy too. The panel looks for the file and
+-- sends worldHasSandboxSnapshot = true only when it is there; only then is
+-- it rewritten (every live option, as before #197). A world without one
+-- never gets one, and a panel that never sends the flag never has it
+-- refreshed.
+-- Returns nil when not asked, true once the save ran, or false and the
+-- error. saveGame() logs a failed save instead of raising it, so true means
+-- the save ran.
+function PanelBridge.refreshWorldSandboxSnapshot(args)
+    if type(args) ~= "table" or args.worldHasSandboxSnapshot ~= true then
+        return nil
+    end
+    local ok, err = pcall(function() saveGame() end)
+    if ok then
+        return true
+    end
+    PanelBridge.error("Could not refresh the world's map_sand.bin", { error = tostring(err) })
+    return false, tostring(err)
+end
+
+-- Adds what refreshWorldSandboxSnapshot did to a handler's data: nothing
+-- when it wasn't asked, else worldSandboxSaved (and worldSandboxSaveError).
+function PanelBridge.withWorldSandboxResult(data, saved, saveErr)
+    if saved == nil then return data end
+    data.worldSandboxSaved = saved
+    if saveErr then data.worldSandboxSaveError = saveErr end
+    return data
+end
+
 -- Set a single sandbox option value
 handlers.setSandboxOption = function(args)
     local optName = args and args.name
@@ -6598,41 +6650,24 @@ handlers.setSandboxOption = function(args)
     -- SandboxVars table, which stays stale until toLua() rebuilds it.
     PanelBridge.invoke(sandbox, "toLua")
 
-    -- Trigger a world save so the changed option persists across restarts.
-    -- saveGame() is a bare global -- same LuaManager$GlobalObject binding
-    -- tier as getWorld()/getCell(), both already called elsewhere in this
-    -- file with identical bare-call syntax -- NOT a method on `world`.
-    -- world:saveWorld() does not exist anywhere in the jar (Kevin's audit,
-    -- 2026-08-30). The old `world.saveWorld` field-existence guard was
-    -- always false regardless of world's real state (a Java method can be
-    -- callable while the field reads nil, this file's own recurring lesson),
-    -- so every sandbox change reported a FALSE persistence failure ("World
-    -- not available") on top of a write that had genuinely already
-    -- succeeded. saveGame() returns void -- there is no return value to
-    -- check, so success can only come from the bare call not throwing.
-    local persisted = false
-    local saveErr = nil
-    local saveOk, saveErrMsg = pcall(function() saveGame() end)
-    if saveOk then
-        persisted = true
-    else
-        saveErr = tostring(saveErrMsg)
-    end
-    if not persisted then
-        PanelBridge.error("Sandbox option set but world save failed", { name = optName, error = saveErr })
-    end
+    -- No unconditional saveGame() here (#197): it wrote map_sand.bin, which
+    -- the game applies over SandboxVars.lua on every start, so one live edit
+    -- froze the whole sandbox into the world. The panel writes the new value
+    -- into SandboxVars.lua itself (PUT /sandbox-option), which is what a
+    -- vanilla server reads at start. Only a world that already has a
+    -- map_sand.bin gets it rewritten, when the panel says so. No `persisted`
+    -- field: a panel reads its absence as "nothing to warn about".
+    local snapshotSaved, snapshotSaveErr = PanelBridge.refreshWorldSandboxSnapshot(args)
 
     local verifiedStr = "unverifiable"
     if verified == true then verifiedStr = "confirmed" end
 
-    return true, {
+    return true, PanelBridge.withWorldSandboxResult({
         name = optName,
         value = confirmed,
         type = optType,
-        verified = verifiedStr,
-        persisted = persisted,
-        saveError = saveErr
-    }
+        verified = verifiedStr
+    }, snapshotSaved, snapshotSaveErr)
 end
 
 -- ============================================
@@ -6847,23 +6882,26 @@ handlers.getChatInfo = function(args)
     return true, info
 end
 
--- Force save the world
+-- Retired as a world save (#197). The only save Lua can reach is saveGame(),
+-- and on a dedicated server that runs GameWindow.save, the single-player save
+-- path. It is not the server's own save (ServerMap.QueueSaveAll, reached only
+-- through the `save` command), and it writes map_sand.bin, a copy of every
+-- sandbox option that the game applies over SandboxVars.lua on every start,
+-- so each call froze the sandbox into the world. The panel saves through
+-- RCON `save` instead. What remains: a panel whose Save World used to come
+-- here sends worldHasSandboxSnapshot = true after that save when the world
+-- already has a map_sand.bin, which this rewrites with the live settings,
+-- as before. Without the flag it refuses, so an older panel gets a reason.
 handlers.saveWorld = function(args)
-    -- saveGame() is a bare global (same LuaManager$GlobalObject binding tier
-    -- as getWorld()/getCell()), NOT a method on `world` -- world:saveWorld()
-    -- does not exist anywhere in the jar (Kevin's audit, 2026-08-30). The old
-    -- `world.saveWorld` field-existence guard was always false, so this
-    -- handler could never succeed regardless of the server's real state.
-    -- saveGame() returns void -- there is no return value to check, so
-    -- success can only come from the bare call not throwing.
-    local success, err = pcall(function()
-        saveGame()
-    end)
-    if success then
-        return true, { message = "World save triggered" }
-    else
-        return false, nil, "World save failed: " .. tostring(err)
+    local saved, saveErr = PanelBridge.refreshWorldSandboxSnapshot(args)
+    if saved == nil then
+        return false, nil, "saveWorld is retired: on a dedicated server it wrote map_sand.bin, " ..
+            "which overrides SandboxVars.lua on every start. Use the server's save command (RCON save)."
     end
+    if not saved then
+        return false, nil, "Could not refresh the world's map_sand.bin: " .. tostring(saveErr)
+    end
+    return true, { message = "map_sand.bin refreshed with the live sandbox settings", worldSandboxSaved = true }
 end
 
 -- ============================================
@@ -7490,13 +7528,21 @@ handlers.restoreUtilities = function(args, cmdId)
         if not verified then
             errMsg = "Power restore did not take effect (hydro power is still off)"
         end
-        return verified, {
+        -- ElecShut/WaterShut and their modifiers are sandbox options: on a
+        -- world with a map_sand.bin, only that copy keeps them past the next
+        -- start (see refreshWorldSandboxSnapshot). Not after a failure, when
+        -- the panel leaves SandboxVars.lua alone too.
+        local snapshotSaved, snapshotSaveErr
+        if verified then
+            snapshotSaved, snapshotSaveErr = PanelBridge.refreshWorldSandboxSnapshot(args)
+        end
+        return verified, PanelBridge.withWorldSandboxResult({
             message = verified and "Utilities restored" or errMsg,
             power = restorePower,
             water = restoreWater,
             hydroPowerOn = actualHydroPowerOn,
             debug = debugInfo
-        }, errMsg
+        }, snapshotSaved, snapshotSaveErr), errMsg
     end
 
     if not restorePower then
@@ -7647,13 +7693,19 @@ handlers.shutOffUtilities = function(args, cmdId)
         if not verified then
             errMsg = "Power shutoff did not take effect (hydro power is still on)"
         end
-        return verified, {
+        -- Same as restoreUtilities: a world with a map_sand.bin keeps the
+        -- shutoff past the next start only through that copy.
+        local snapshotSaved, snapshotSaveErr
+        if verified then
+            snapshotSaved, snapshotSaveErr = PanelBridge.refreshWorldSandboxSnapshot(args)
+        end
+        return verified, PanelBridge.withWorldSandboxResult({
             message = verified and "Utilities shut off" or errMsg,
             power = shutPower,
             water = shutWater,
             hydroPowerOn = actualHydroPowerOn,
             debug = debugInfo
-        }, errMsg
+        }, snapshotSaved, snapshotSaveErr), errMsg
     end
 
     if not shutPower then
@@ -10068,10 +10120,17 @@ handlers.runEventSequence = function(args)
                     end
                     return handlers.triggerStorm({ duration = step.duration })
                 elseif kind == "utilities" then
+                    -- The panel's word on the world's map_sand.bin covers
+                    -- every step (see refreshWorldSandboxSnapshot).
+                    local utilityArgs = {
+                        power = step.power,
+                        water = step.water,
+                        worldHasSandboxSnapshot = args.worldHasSandboxSnapshot
+                    }
                     if step.mode == "off" then
-                        return handlers.shutOffUtilities({ power = step.power, water = step.water })
+                        return handlers.shutOffUtilities(utilityArgs)
                     end
-                    return handlers.restoreUtilities({ power = step.power, water = step.water })
+                    return handlers.restoreUtilities(utilityArgs)
                 elseif kind == "noise" then
                     return handlers.createNoise(step)
                 else

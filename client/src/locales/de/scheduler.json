@@ -32,7 +32,6 @@
     "stopRain": "Regen stoppen",
     "restoreUtilities": "Versorgung wiederherstellen",
     "shutOffUtilities": "Versorgung abschalten",
-    "saveWorldBridge": "Welt speichern (PanelBridge)",
     "broadcastServerChat": "Broadcast (Server-Chat)"
   },
   "dialog": {

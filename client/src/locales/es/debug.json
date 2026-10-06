@@ -531,7 +531,7 @@
         "sandboxCorrupt": {
           "fail": {
             "label": "SandboxVars.lua está dañado",
-            "message": "{{serverName}}_SandboxVars.lua tiene llaves sin coincidencia y no podrá cargarse; el servidor dedicado se cierra inmediatamente al iniciar con un error de sintaxis de Lua.",
+            "message": "El juego no puede cargar {{serverName}}_SandboxVars.lua ({{detail}}), así que el servidor dedicado se cierra al iniciar.",
             "hint": "Usar la reparación automática que aparece abajo, o restaurar desde una copia de seguridad .bak en la misma carpeta."
           }
         },

@@ -53,7 +53,6 @@
     "stopRain": "Arrêter la pluie",
     "restoreUtilities": "Rétablir les réseaux (eau/électricité)",
     "shutOffUtilities": "Couper les réseaux (eau/électricité)",
-    "saveWorldBridge": "Sauvegarder le monde (PanelBridge)",
     "broadcastServerChat": "Diffuser (chat serveur)"
   },
   "dialog": {

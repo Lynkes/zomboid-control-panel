@@ -18,6 +18,12 @@ import { ErrorCode } from "../utils/errorCodes.js";
 import { serverConfigDirOf, serverConfigDirRefusalReason } from "../utils/serverConfigPath.js";
 import { waitForProcessExit } from "../utils/processScanRetry.js";
 import {
+  LIVE_SANDBOX_BRIDGE_ACTIONS,
+  findActiveWorldSandboxSnapshot,
+  refreshWorldSandboxSnapshotAfterSave,
+  withWorldSandboxSnapshotFlag,
+} from "./worldSandboxSnapshot.js";
+import {
   getScheduledTasks,
   updateTaskLastRun,
   logServerEvent,
@@ -77,7 +83,6 @@ const SCHEDULABLE_BRIDGE_ACTIONS = new Set([
   "triggerAlarmSound",
   "restoreUtilities",
   "shutOffUtilities",
-  "saveWorld",
   "sendToServerChat",
   "sendToAdminChat",
 ]);
@@ -89,25 +94,40 @@ const SCHEDULABLE_BRIDGE_ACTIONS = new Set([
 // dispatch and routes/scheduler.js's write-time/run-time permission checks
 // both call this so the two can never silently drift apart on what counts
 // as "safe" -- see the scheduler permission audit.
+//
+// bridge:saveWorld (a preset until #197) runs as a plain `save`: the
+// bridge's save was the game's single-player save path, which wrote
+// map_sand.bin and made the world override SandboxVars.lua on every start.
+// Existing tasks keep working and need the same server.control as before;
+// on a world that already has a map_sand.bin they also have the bridge
+// rewrite it afterwards, as their save did (executeTask).
 export function classifyScheduledCommand(command) {
   const commandLower = String(command ?? "").toLowerCase();
   if (commandLower === "restart") return "restart";
   if (commandLower === "save") return "save";
   if (commandLower.startsWith("servermsg ")) return "servermsg";
-  if (commandLower.startsWith("bridge:")) return "bridge";
+  if (commandLower.startsWith("bridge:")) {
+    return parseBridgeActionName(String(command)) === "saveWorld" ? "save" : "bridge";
+  }
   return "raw";
 }
 
 // Extracts the action name from a `bridge:<action>` scheduled command (the
 // part before any JSON args blob), preserving original casing since
 // PanelBridge action names are case-sensitive. Shared by executeBridgeAction
-// (which needs the name to dispatch) and requiredCapabilityForScheduledCommand
-// below (which needs it to tell saveWorld apart from every other bridge:
-// action) so the two can't parse it two different ways.
+// (which needs the name to dispatch), classifyScheduledCommand and
+// requiredCapabilityForScheduledCommand above and below (which need it to
+// single out bridge:saveWorld and the player-targeting actions) so they can't
+// parse it different ways.
 function parseBridgeActionName(rawCommand) {
   const body = rawCommand.slice("bridge:".length).trim();
   const firstSpace = body.indexOf(" ");
   return (firstSpace === -1 ? body : body.slice(0, firstSpace)).trim();
+}
+
+function isBridgeSaveWorldCommand(command) {
+  const raw = String(command ?? "");
+  return raw.toLowerCase().startsWith("bridge:") && parseBridgeActionName(raw) === "saveWorld";
 }
 
 // The single source of truth for which panel capability a scheduled command
@@ -123,9 +143,9 @@ function parseBridgeActionName(rawCommand) {
 // silently drift on what a given command needs -- same reasoning as
 // classifyScheduledCommand's own header comment, extended.
 //
-// bridge:saveWorld is the one bridge: action that is NOT a world event: it's
-// PanelBridge's own equivalent of POST /server/save and POST
-// /panel-bridge/world/save, both gated server.control (panelBridge.js:2003).
+// bridge:saveWorld classifies as `save` there, so it keeps the
+// server.control that POST /server/save and POST /panel-bridge/world/save
+// require.
 //
 // 2026-08-27 (operator ruling on ranked-bug #5): server.world_events itself
 // split, and three more schedulable bridge: actions went with the targeted
@@ -157,7 +177,6 @@ export function requiredCapabilityForScheduledCommand(command) {
   if (kind === "servermsg") return "server.world_events";
   if (kind === "bridge") {
     const action = parseBridgeActionName(String(command ?? ""));
-    if (action === "saveWorld") return "server.control";
     if (ENDANGER_OR_IMPERSONATE_BRIDGE_ACTIONS.has(action)) {
       return "players.endanger_or_impersonate";
     }
@@ -766,6 +785,9 @@ export class Scheduler {
         if (!saved?.success) {
           throw new Error(`Save failed: ${saved?.error || "unknown error"}`);
         }
+        if (isBridgeSaveWorldCommand(task.command)) {
+          await this.refreshWorldSandboxAfterBridgeSave(task, cleanup);
+        }
       } else if (commandKind === "servermsg") {
         // Preserve original casing for the message text
         const message = task.command.substring(10);
@@ -991,6 +1013,30 @@ export class Scheduler {
     };
   }
 
+  // A stored bridge:saveWorld task was the bridge's save until #197, which
+  // also rewrote the world's map_sand.bin with the live sandbox settings.
+  // On a world that already has one (the game loads it over SandboxVars.lua
+  // on every start), live changes the panel didn't put there, such as the
+  // in-game admin panel's, lasted through a restart only because of that.
+  // So after the server's own save the bridge rewrites it, as before; a
+  // world without one never gets one. Not saved there = the task fails
+  // with the reason, in Schedule History. PanelBridge only reaches the
+  // active server, so a task pinned to another one saves it and stops.
+  async refreshWorldSandboxAfterBridgeSave(task, cleanup) {
+    if (cleanup) {
+      log.warn(
+        `Scheduled task "${task.name}" saved its server; its map_sand.bin, if any, is not refreshed: PanelBridge only reaches the active server`,
+      );
+      return;
+    }
+    const { worldSandboxSnapshot, error } = await refreshWorldSandboxSnapshotAfterSave(panelBridge);
+    if (worldSandboxSnapshot && !worldSandboxSnapshot.refreshed) {
+      throw new Error(
+        `World saved, but its map_sand.bin, which the game loads over SandboxVars.lua on every start, was not refreshed (${error || "PanelBridge did not rewrite it"}). Live sandbox changes not in it are undone at the next start.`,
+      );
+    }
+  }
+
   async executeBridgeAction(rawCommand) {
     // Strip the `bridge:` prefix, then split off optional JSON args.
     const body = rawCommand.slice("bridge:".length).trim();
@@ -1019,6 +1065,14 @@ export class Scheduler {
       } catch (err) {
         throw new Error(`invalid bridge args JSON: ${err.message}`);
       }
+    }
+
+    // restoreUtilities/shutOffUtilities change sandbox options: on a world
+    // with a map_sand.bin the bridge rewrites it too, so the change lasts
+    // past the next start (#197). Whether it does is the panel's call, not
+    // the task's stored args.
+    if (LIVE_SANDBOX_BRIDGE_ACTIONS.has(action)) {
+      args = withWorldSandboxSnapshotFlag(args, await findActiveWorldSandboxSnapshot());
     }
 
     // sendCommand()'s returned promise only ever resolves {success: true,

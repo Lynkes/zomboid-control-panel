@@ -394,6 +394,7 @@
     "copyFailed": "Falha ao copiar o conteúdo para a área de transferência.",
     "optionUpdatedTitle": "Opção alterada",
     "optionUpdatedDesc": "Opção definida com sucesso: {{option}}",
+    "optionKeptInWorldDesc": "A opção {{option}} foi definida e mantida nas configurações salvas do mundo (map_sand.bin), que o jogo carrega a cada inicialização.",
     "enumLastChoiceRefusedTitle": "Atualize o PanelBridge primeiro",
     "enumLastChoiceRefusedDesc": "A opção {{option}} não foi alterada. A versão antiga do PanelBridge que este servidor executa salvaria a última escolha ({{max}}) como a anterior.",
     "bridgeUnverifiedDesc": "{{action}}: comando enviado, mas o mod não conseguiu confirmar se teve efeito.",
@@ -402,6 +403,10 @@
     "worldSaveFailedDesc": "A opção {{option}} foi aplicada, mas o salvamento do mundo no servidor falhou ({{reason}}), então ela pode ser perdida no próximo reinício.",
     "notPersistedDesc": "A opção {{option}} não está em SandboxVars.lua, então será redefinida quando o servidor reiniciar.",
     "willResetFallback": "A opção {{option}} será redefinida quando o servidor reiniciar.",
+    "worldSandboxNotKeptDesc": "A opção {{option}} foi aplicada, mas as configurações salvas do mundo (map_sand.bin), que o jogo carrega por cima do SandboxVars.lua a cada inicialização, não foram atualizadas, então a próxima inicialização vai desfazer isso. Pare o servidor e escolha \"Usar SandboxVars.lua\" para o jogo usar o SandboxVars.lua.",
+    "worldSandboxSnapshotRetiredTitle": "map_sand.bin movido",
+    "worldSandboxSnapshotRetiredDesc": "Movido para {{path}}. A próxima inicialização usa o SandboxVars.lua.",
+    "worldSandboxSnapshotRetireFailed": "Não foi possível mover o map_sand.bin.",
     "someSandboxKeysNotSavedTitle": "Algumas opções não foram salvas",
     "someSandboxKeysNotSavedDesc": "O restante foi salvo, mas estas não puderam ser gravadas e serão redefinidas quando o servidor reiniciar: {{keys}}",
     "failedToUpdateTitle": "Falha ao alterar",
@@ -4081,6 +4086,19 @@
     "desc_one": "A linha {{lines}} começa com \"=\" (ou é \"Version=\" sem número), e por isso o jogo rejeita o arquivo. Exclua ou corrija essa linha no modo Texto.",
     "desc_many": "As linhas {{lines}} começam com \"=\" (ou são \"Version=\" sem número), e por isso o jogo rejeita o arquivo. Exclua ou corrija essas linhas no modo Texto.",
     "desc_other": "As linhas {{lines}} começam com \"=\" (ou são \"Version=\" sem número), e por isso o jogo rejeita o arquivo. Exclua ou corrija essas linhas no modo Texto."
+  },
+  "sandboxParseErrorBanner": {
+    "title": "O SandboxVars.lua tem um erro de Lua, então este formulário não consegue exibi-lo",
+    "desc": "Corrija-o no modo Texto, execute o reparo em Verificações e correções ou restaure um backup. Até lá, salvar por este formulário fica bloqueado."
+  },
+  "worldSandboxSnapshotBanner": {
+    "title": "Este mundo guarda a própria cópia das opções do sandbox",
+    "desc": "O save do mundo tem um map_sand.bin, gravado pela última vez em {{date}}. O jogo o carrega depois do SandboxVars.lua a cada inicialização, então as alterações salvas no SandboxVars.lua, aqui ou no Painel Administrativo do jogo, são desfeitas. As alterações ao vivo feitas pelo PanelBridge também são gravadas nele. Pare o servidor e escolha \"Usar SandboxVars.lua\" para corrigir isso.",
+    "action": "Usar SandboxVars.lua",
+    "stopFirst": "Pare o servidor primeiro.",
+    "confirmTitle": "Usar SandboxVars.lua neste mundo?",
+    "confirmDesc": "A partir da próxima inicialização, todas as opções do sandbox, incluindo as dos mods, vêm do SandboxVars.lua. O map_sand.bin é movido para a pasta de backups ao lado do SandboxVars.lua, não excluído.",
+    "confirmLabel": "Usar SandboxVars.lua"
   },
   "iniSecretCutAtEqualsWarning": "O jogo lê este valor só até o primeiro \"=\" e ignora o resto. Use um valor sem \"=\".",
   "iniMisnamedKeyFileValue": "A linha no arquivo diz: {{value}}"

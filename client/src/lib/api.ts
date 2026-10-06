@@ -2119,6 +2119,10 @@ export interface SpawnRegion {
   isServerFile?: boolean;
 }
 
+// GET /server-files/sandbox's parse of SandboxVars.lua. Every other top-level
+// table in the file (mod option blocks) also comes back as a section of its
+// own name, holding that table's values; PUT /server-files/sandbox writes
+// each section back at that same path (#197).
 export interface SandboxData {
   VERSION: number;
   settings: Record<string, string | number | boolean>;
@@ -2131,16 +2135,38 @@ export interface SandboxData {
   Debug?: Record<string, string | number | boolean>;
 }
 
+// The world save's map_sand.bin: its own copy of every sandbox option, which
+// the game applies over SandboxVars.lua on every start (#197). `path` is on
+// the host the server runs on (a POSIX path over SFTP for a remote server),
+// or only the file name for a role that can't see host folders;
+// `mtime` is an ISO timestamp.
+export interface WorldSandboxSnapshot {
+  path: string;
+  mtime: string;
+}
+
+// After a live sandbox change through PanelBridge (#197): the world has a
+// map_sand.bin, which the game loads over SandboxVars.lua on every start.
+// `refreshed` says the bridge rewrote it with the change, so the change is
+// kept in the world's saved settings; when false, the next start undoes it.
+// Absent when the world has no such file.
+export interface LiveWorldSandboxSnapshot {
+  path: string;
+  refreshed: boolean;
+}
+
 export interface UtilitiesChangeResult {
   message?: string;
   power?: boolean;
   water?: boolean;
   hydroPowerOn?: boolean;
   debug?: string[];
-  // false when the in-game change could not be mirrored into SandboxVars.lua,
-  // which means a server restart will undo it.
+  // false when a server restart will undo the change: SandboxVars.lua
+  // could not be updated, or the world's map_sand.bin (worldSandboxSnapshot)
+  // was not.
   persisted?: boolean;
   persistReason?: string | null;
+  worldSandboxSnapshot?: LiveWorldSandboxSnapshot;
 }
 
 // server-files/backups' own shape (config-file .bak backups made by the
@@ -2253,6 +2279,12 @@ export const serverFilesApi = {
       sandbox: SandboxData;
       path: string;
       serverName: string;
+      // Set when SandboxVars.lua does not parse or has no SandboxVars table;
+      // `sandbox` is then empty.
+      parseError?: { message: string; line: number; column: number };
+      // Set when the world save has a map_sand.bin, which the game applies
+      // over SandboxVars.lua on every start (#197). Local servers only.
+      worldSandboxSnapshot?: WorldSandboxSnapshot;
     }>,
   saveSandbox: (sandbox: SandboxData) =>
     apiPut("/server-files/sandbox", { sandbox }) as Promise<{
@@ -2262,11 +2294,23 @@ export const serverFilesApi = {
       path: string;
       unpersistedKeys?: string[];
       restartRequired?: boolean;
+      worldSandboxSnapshot?: WorldSandboxSnapshot;
+    }>,
+  // Moves the world's map_sand.bin into the config backups folder (on the
+  // host, for a remote server), so the next start uses SandboxVars.lua. 409
+  // SERVER_RUNNING while it runs.
+  retireWorldSandboxSnapshot: () =>
+    apiPost("/server-files/sandbox/world-snapshot/retire") as Promise<{
+      success: boolean;
+      retired: boolean;
+      movedTo?: string;
+      message?: string;
     }>,
   validateSandbox: () =>
     apiGet("/server-files/sandbox/validate") as Promise<{
       valid: boolean;
       braceDepth: number;
+      parseError?: string;
     }>,
   repairSandbox: () =>
     apiPost("/server-files/sandbox/repair") as Promise<{
@@ -2303,6 +2347,8 @@ export const serverFilesApi = {
       content: string;
       path: string;
       filename: string;
+      // type "sandbox" only, same as getSandbox's.
+      worldSandboxSnapshot?: WorldSandboxSnapshot;
     }>,
   saveRaw: (
     type: "ini" | "sandbox" | "spawnpoints" | "spawnregions",
@@ -2324,8 +2370,14 @@ export const serverFilesApi = {
   saveSandboxOption: (
     name: string,
     value: string | number | boolean,
-  ): Promise<{ success: boolean; persisted: boolean }> =>
-    apiPut("/server-files/sandbox-option", { name, value }),
+  ): Promise<{
+    success: boolean;
+    persisted: boolean;
+    reason?: string;
+    // Whether the world has a map_sand.bin after this edit: a PanelBridge
+    // older than #197 writes one on every live edit.
+    worldSandboxSnapshot?: WorldSandboxSnapshot;
+  }> => apiPut("/server-files/sandbox-option", { name, value }),
 
   // Config Templates
   getTemplates: () =>
@@ -2527,6 +2579,10 @@ export interface BridgeCommandResult<T = Record<string, unknown>> {
   success: boolean;
   data?: T & { verified?: "confirmed" | "unverifiable" };
   error?: string;
+  // Only for an action that changes sandbox options live (setSandboxOption,
+  // restoreUtilities, shutOffUtilities, runEventSequence) on a world with a
+  // map_sand.bin (#197).
+  worldSandboxSnapshot?: LiveWorldSandboxSnapshot;
 }
 
 // Server-side sendCommand() (server/services/panelBridge.js) gives up on a

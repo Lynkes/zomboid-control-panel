@@ -27,8 +27,18 @@ const CONFIG_DIR = path.join(DATA_DIR, "Server");
 const INI = path.join(CONFIG_DIR, "servertest.ini");
 const SANDBOX = path.join(CONFIG_DIR, "servertest_SandboxVars.lua");
 const BACKUP_DIR = path.join(CONFIG_DIR, "backups");
-// Unbalanced, in a shape repairSandboxSyntax() knows how to fix.
-const BROKEN_SANDBOX = ["Vehicles = {", "    OrphanKey = true", "        NestedKey = 5,", "    }", "}"].join("\n");
+// Unbalanced, in a shape repairSandboxSyntax() knows how to fix: a table's
+// "{" overwritten by a value, the #197 damage, which it puts back. Since
+// #197 the repair also refuses, before any backup, a result the game can't
+// load (one with no SandboxVars table), so the file is a real one.
+const BROKEN_SANDBOX = [
+  "SandboxVars = {",
+  "    VERSION = 6,",
+  "    ZombieLore = 2",
+  "        Speed = 2,",
+  "    },",
+  "}",
+].join("\n");
 
 let baseUrl;
 let httpServer;

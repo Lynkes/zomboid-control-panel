@@ -591,6 +591,63 @@ describe("previewTemplate / applyTemplate", () => {
     });
   });
 
+  // #197: the old regex writers edited a file the game already rejects (the
+  // "Explosives = 1" shape), keeping it broken. Now it is left as it is.
+  it("skips the sandbox portion, without touching the file, when SandboxVars.lua does not parse", async () => {
+    const sandboxPath = path.join(dir, "TestServer_SandboxVars.lua");
+    const broken = fs.readFileSync(sandboxPath, "utf-8").replace("    ZombieLore = {", "    ZombieLore = 1");
+    fs.writeFileSync(sandboxPath, broken);
+
+    const result = await templateService.applyTemplate("first-week-friendly", "server-1");
+
+    expect(result.success).toBe(true);
+    expect(result.sandbox).toEqual({
+      skipped: true,
+      reason: expect.stringMatching(/does not parse \(line 6: '}' expected/),
+    });
+    expect(fs.readFileSync(sandboxPath, "utf-8")).toBe(broken);
+  });
+
+  // #197: PUT /sandbox stopped rewriting a file when nothing changed; a
+  // template whose values all match still took a backup and rewrote it,
+  // turning a byte that is not valid UTF-8 into U+FFFD.
+  it("takes no backup and keeps the bytes when every sandbox value already matches", async () => {
+    const sandboxPath = path.join(dir, "TestServer_SandboxVars.lua");
+    const bytes = Buffer.concat([
+      Buffer.from('SandboxVars = {\n    VERSION = 6,\n    ServerWelcome = "caf'),
+      Buffer.from([0xe9]),
+      Buffer.from('",\n    Zombies = 4,\n}\n'),
+    ]);
+    fs.writeFileSync(sandboxPath, bytes);
+    userTemplates.push({
+      schemaVersion: TEMPLATE_SCHEMA_VERSION,
+      meta: { id: "same", name: "Same" },
+      serverIni: {},
+      sandboxVars: { settings: { Zombies: 4 } },
+    });
+
+    const result = await templateService.applyTemplate("same", "server-1");
+
+    expect(result.success).toBe(true);
+    expect(result.sandbox.applied).toEqual([{ section: "settings", key: "Zombies" }]);
+    expect(result.backups).toEqual([]);
+    expect(fs.readFileSync(sandboxPath).equals(bytes)).toBe(true);
+    expect(fs.existsSync(path.join(dir, "backups"))).toBe(false);
+  });
+
+  it("skips the sandbox portion with the reason when SandboxVars.lua has no SandboxVars table", async () => {
+    const sandboxPath = path.join(dir, "TestServer_SandboxVars.lua");
+    fs.writeFileSync(sandboxPath, "SandboxVars = nil\n");
+
+    const result = await templateService.applyTemplate("first-week-friendly", "server-1");
+
+    expect(result.sandbox).toEqual({
+      skipped: true,
+      reason: expect.stringContaining("no 'SandboxVars = { ... }' table found"),
+    });
+    expect(fs.readFileSync(sandboxPath, "utf-8")).toBe("SandboxVars = nil\n");
+  });
+
   it("refuses to apply to a remote server", async () => {
     getServer.mockResolvedValue({
       id: "server-2",

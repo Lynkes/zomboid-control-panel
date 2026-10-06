@@ -44,6 +44,7 @@ function spellings(path) {
 const GUARDED = [
   { method: "POST", path: "/templates/abc/apply", guard: isLocalConfigOverwrite },
   { method: "POST", path: "/restore/servertest.ini.bak", guard: isLocalConfigOverwrite },
+  { method: "POST", path: "/sandbox/world-snapshot/retire", guard: isLocalConfigOverwrite },
   { method: "PUT", path: "/ini", guard: isLocalConfigEdit },
   { method: "PUT", path: "/raw/ini", guard: isLocalConfigEdit },
   { method: "PUT", path: "/sandbox", guard: isLocalConfigEdit },

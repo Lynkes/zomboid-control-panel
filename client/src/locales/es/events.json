@@ -796,6 +796,8 @@
     "commandFailedFallback": "Comando fallido",
     "notPersistedDesc": "Aplicado únicamente al mundo en ejecución — SandboxVars.lua no se actualizó ({{reason}}), por lo que un reinicio del servidor deshará este cambio.",
     "notPersistedUnknownReason": "motivo desconocido",
+    "keptInWorldSandboxDesc": "Guardado en la configuración guardada del mundo (map_sand.bin), así que se mantiene tras un reinicio.",
+    "worldSandboxNotKeptDesc": "Aplicado al mundo en ejecución, pero la configuración guardada del mundo (map_sand.bin), que el juego carga sobre SandboxVars.lua en cada inicio, no se actualizó, así que un reinicio lo deshará. Un PanelBridge más antiguo no la actualiza. Con el servidor detenido, Configuración del servidor puede hacer que este mundo use SandboxVars.lua.",
     "bridgeCommandFailedFallback": "Comando del bridge fallido.",
     "powerDidNotTakeEffectDesc": "El servidor indica que la energía sigue {{state}} — el cambio no surtió efecto.",
     "noPlayersOnlineError": "No hay jugadores en línea",

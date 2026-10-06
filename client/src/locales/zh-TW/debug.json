@@ -526,7 +526,7 @@
         "sandboxCorrupt": {
           "fail": {
             "label": "SandboxVars.lua 已損壞",
-            "message": "{{serverName}}_SandboxVars.lua 存在括號不匹配問題，將無法載入——專用伺服器會在啟動時因 Lua 語法錯誤而立即退出。",
+            "message": "遊戲無法載入 {{serverName}}_SandboxVars.lua（{{detail}}），因此專用伺服器會在啟動時退出。",
             "hint": "請使用下方的自動修復功能，或從同一資料夾中的 .bak 備份恢復。"
           }
         },

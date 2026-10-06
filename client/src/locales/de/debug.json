@@ -526,7 +526,7 @@
         "sandboxCorrupt": {
           "fail": {
             "label": "SandboxVars.lua ist beschädigt",
-            "message": "{{serverName}}_SandboxVars.lua enthält nicht übereinstimmende geschweifte Klammern und kann nicht geladen werden — der Dedicated Server beendet sich beim Start sofort mit einem Lua-Syntaxfehler.",
+            "message": "Das Spiel kann {{serverName}}_SandboxVars.lua nicht laden ({{detail}}), deshalb beendet sich der Dedicated Server beim Start.",
             "hint": "Automatische Reparatur unten verwenden oder aus einem .bak-Backup im selben Ordner wiederherstellen."
           }
         },

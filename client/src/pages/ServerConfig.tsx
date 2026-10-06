@@ -101,7 +101,8 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { PageHeader } from '@/components/PageHeader'
 // DropdownMenu imports available if needed
-import { serverApi, serverFilesApi, serversApi, panelBridgeApi, ApiError, SpawnPointsByProfession, SpawnRegion, SandboxData, ConfigTemplate, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
+import { serverApi, serverFilesApi, serversApi, panelBridgeApi, ApiError, SpawnPointsByProfession, SpawnRegion, SandboxData, ConfigTemplate, WorldSandboxSnapshot, LiveWorldSandboxSnapshot, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
+import { liveWorldSandboxOutcome } from '@/lib/worldSandbox'
 import { resolveServerRunning } from '@/lib/serverStatus'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { isDeliveryStatus, resolveLuaChecksumCallout, type LuaChecksumDelivery } from '@/lib/bridgeDeliveryView'
@@ -263,17 +264,16 @@ function createSandboxDefaults(): SandboxData {
   return sandbox
 }
 
-// PanelBridge.lua's setSandboxOption handler calls world:saveWorld() to make
-// a live sandbox-option change durable, and reports the result as
-// `persisted`/`saveError` (commit b376b2c) -- added specifically because a
-// bare pcall used to swallow a failed world save and report success either
-// way. persisted===false is a real failure the mod already detected and
-// logged server-side; `undefined` means an older bridge build that never
-// sends this field at all and must NOT be read as a failure -- same
-// old-bridge-safe contract as getBridgeVerifiedState (lib/bridgeVerify.ts)
-// applies to `verified`. Exported as a pure predicate so this exact
-// contract (only an explicit false warns) is unit-testable without
-// mounting the whole page.
+// PanelBridge 1.7.72 and older follow a live sandbox-option change with a
+// world save (saveGame()) and report it as `persisted`/`saveError` (commit
+// b376b2c). Newer bridges don't save at all and send neither field: on a
+// dedicated server that save wrote map_sand.bin, which the game loads over
+// SandboxVars.lua on every start (#197). persisted===false is a failure an
+// older bridge detected and logged; `undefined` must NOT be read as a
+// failure -- same old-bridge-safe contract as getBridgeVerifiedState
+// (lib/bridgeVerify.ts) applies to `verified`. Exported as a pure predicate
+// so this exact contract (only an explicit false warns) is unit-testable
+// without mounting the whole page.
 export function isWorldSaveFailure(data: { persisted?: unknown } | null | undefined): boolean {
   return data?.persisted === false
 }
@@ -1175,6 +1175,15 @@ export default function ServerConfig() {
   const [iniFatalLines, setIniFatalLines] = useState<readonly number[]>([])
   // GET /ini's maskedCutAtEqualsKeys: masked secrets the game cuts at an "=".
   const [iniMaskedCutAtEqualsKeys, setIniMaskedCutAtEqualsKeys] = useState<readonly string[]>([])
+  // GET /sandbox's parseError: SandboxVars.lua does not parse or has no
+  // SandboxVars table, so the form comes back empty and the server refuses
+  // structured saves (#197).
+  const [sandboxParseError, setSandboxParseError] = useState<string | null>(null)
+  // GET /sandbox's worldSandboxSnapshot: the world save has a map_sand.bin,
+  // which the game applies over SandboxVars.lua on every start, so edits here
+  // are undone at the next restart until it is retired (#197).
+  const [worldSandboxSnapshot, setWorldSandboxSnapshot] = useState<WorldSandboxSnapshot | null>(null)
+  const [retiringWorldSandboxSnapshot, setRetiringWorldSandboxSnapshot] = useState(false)
   const [originalSandboxData, setOriginalSandboxData] = useState<SandboxData | null>(null)
   const [originalRawContent, setOriginalRawContent] = useState('')
 
@@ -1516,6 +1525,8 @@ export default function ServerConfig() {
         : { sandbox: createSandboxDefaults() }
       setSandboxData(sandboxRes.sandbox)
       setOriginalSandboxData(sandboxRes.sandbox)
+      setSandboxParseError(('parseError' in sandboxRes && sandboxRes.parseError?.message) || null)
+      setWorldSandboxSnapshot(('worldSandboxSnapshot' in sandboxRes && sandboxRes.worldSandboxSnapshot) || null)
 
       if (paths.exists.spawnpoints) {
         const spawnRes = await serverFilesApi.getSpawnPoints(retries)
@@ -1589,6 +1600,11 @@ export default function ServerConfig() {
   // both must behave as "it might be running": unknown is the safe answer
   // here, never the permissive one.
   const serverMayBeRunning = serverRunning !== false
+  // Retiring map_sand.bin (#197) waits for a stopped server. A remote
+  // server's process is out of this panel's sight, so it never reads as
+  // confirmed stopped: there the action waits only while RCON or the bridge
+  // shows it running (the server refuses while RCON is connected).
+  const worldSandboxSnapshotRetireBlocked = activeServerRemote ? serverRunning === true : serverMayBeRunning
 
   useEffect(() => {
     void refreshServerState()
@@ -1606,6 +1622,7 @@ export default function ServerConfig() {
       const data = await serverFilesApi.getRaw(type)
       setRawContent(data.content)
       setOriginalRawContent(data.content)
+      if (type === 'sandbox') setWorldSandboxSnapshot(data.worldSandboxSnapshot ?? null)
     } catch (error) {
       toast({
         title: t('toasts.error'),
@@ -1865,6 +1882,7 @@ export default function ServerConfig() {
         success?: boolean
         data?: { name: string; value: unknown; type: string; verified?: unknown; persisted?: unknown; saveError?: unknown }
         error?: string
+        worldSandboxSnapshot?: LiveWorldSandboxSnapshot
       }
       if (response?.success && response.data) {
         const confirmedVal = response.data.value ?? newValue
@@ -1893,22 +1911,33 @@ export default function ServerConfig() {
         // updates. That's the correct signal either way: an un-migrated mod
         // genuinely IS an old bridge relative to this contract.
         const verifyState = getBridgeVerifiedState('setSandboxOption', response.data)
+        // #197: on a world with a map_sand.bin (loaded over SandboxVars.lua
+        // on every start) the edit lasts only if the bridge rewrote that
+        // file too, which the server asked it to.
+        const worldSandbox = liveWorldSandboxOutcome(response)
         toast(
           verifyState === 'unverifiable'
             ? { title: t('toasts.optionUpdatedTitle'), description: t('toasts.bridgeUnverifiedDesc', { action: optName }), variant: 'default' }
             : verifyState === 'old-bridge'
               ? { title: t('toasts.optionUpdatedTitle'), description: t('toasts.bridgeOldBridgeDesc', { action: optName }), variant: 'default' }
-              : { title: t('toasts.optionUpdatedTitle'), description: t('toasts.optionUpdatedDesc', { option: optName }) },
+              : worldSandbox === 'kept'
+                ? { title: t('toasts.optionUpdatedTitle'), description: t('toasts.optionKeptInWorldDesc', { option: optName }) }
+                : { title: t('toasts.optionUpdatedTitle'), description: t('toasts.optionUpdatedDesc', { option: optName }) },
         )
 
-        // See isWorldSaveFailure()'s own comment for the persisted/saveError
-        // contract. This is a DIFFERENT persistence layer from the
-        // SandboxVars.lua file write checked just below -- the two calls
-        // hit different processes and different failure modes (e.g. "world
-        // already saving" has nothing to do with whether the panel can
-        // write a text file), so either can fail independently of the
-        // other and each is worth telling the operator about on its own.
-        if (isWorldSaveFailure(response.data)) {
+        if (worldSandbox === 'undone') {
+          toast({
+            title: t('toasts.appliedNotSavedTitle'),
+            description: t('toasts.worldSandboxNotKeptDesc', { option: optName }),
+            variant: 'destructive',
+          })
+        } else if (!worldSandbox && isWorldSaveFailure(response.data)) {
+          // Only an older bridge reports a world save; see
+          // isWorldSaveFailure()'s own comment for the persisted/saveError
+          // contract. That save is a DIFFERENT persistence layer from the
+          // SandboxVars.lua file write checked just below, so each can fail
+          // on its own. On a world that had a map_sand.bin it is the one
+          // worldSandbox above already reports.
           toast({
             title: t('toasts.appliedNotSavedTitle'),
             description: t('toasts.worldSaveFailedDesc', {
@@ -1926,7 +1955,12 @@ export default function ServerConfig() {
             optName,
             confirmedVal as string | number | boolean,
           )
-          if (!saved.persisted) {
+          // A bridge older than #197 has just written map_sand.bin for this
+          // edit; the reply says whether the world has one now.
+          setWorldSandboxSnapshot(saved.worldSandboxSnapshot ?? null)
+          // Kept in the world's map_sand.bin, the edit survives the next
+          // start whatever SandboxVars.lua says.
+          if (!saved.persisted && worldSandbox !== 'kept') {
             toast({
               title: t('toasts.appliedNotSavedTitle'),
               description: t('toasts.notPersistedDesc', { option: optName }),
@@ -2181,6 +2215,8 @@ export default function ServerConfig() {
           const sandboxRes = await serverFilesApi.getSandbox()
           setSandboxData(sandboxRes.sandbox)
           setOriginalSandboxData(sandboxRes.sandbox)
+          setSandboxParseError(sandboxRes.parseError?.message || null)
+          setWorldSandboxSnapshot(sandboxRes.worldSandboxSnapshot ?? null)
         }
       } catch { /* silent refresh — local state is still valid */ }
     } catch (error) {
@@ -2424,6 +2460,46 @@ export default function ServerConfig() {
         description: getUserErrorMessage(error, t('toasts.restoreBackupFailed')),
         variant: 'destructive'
       })
+    }
+  }
+
+  // Move the world's map_sand.bin aside so the next start uses SandboxVars.lua
+  // (#197). The server refuses while the game runs; the button is disabled
+  // then too.
+  const handleRetireWorldSandboxSnapshot = async () => {
+    if (serverChangedSinceLoad) {
+      toast({
+        title: t('toasts.error'),
+        description: t('toasts.serverChangedSinceLoad'),
+        variant: 'destructive',
+      })
+      return
+    }
+    const ok = await confirm({
+      title: t('worldSandboxSnapshotBanner.confirmTitle'),
+      description: t('worldSandboxSnapshotBanner.confirmDesc'),
+      confirmLabel: t('worldSandboxSnapshotBanner.confirmLabel'),
+    })
+    if (!ok) return
+
+    setRetiringWorldSandboxSnapshot(true)
+    try {
+      const result = await serverFilesApi.retireWorldSandboxSnapshot()
+      if (result.retired && result.movedTo) {
+        toast({
+          title: t('toasts.worldSandboxSnapshotRetiredTitle'),
+          description: t('toasts.worldSandboxSnapshotRetiredDesc', { path: result.movedTo }),
+        })
+      }
+      setWorldSandboxSnapshot(null)
+    } catch (error) {
+      toast({
+        title: t('toasts.error'),
+        description: getUserErrorMessage(error, t('toasts.worldSandboxSnapshotRetireFailed')),
+        variant: 'destructive',
+      })
+    } finally {
+      setRetiringWorldSandboxSnapshot(false)
     }
   }
 
@@ -2851,6 +2927,22 @@ export default function ServerConfig() {
         </Alert>
       )}
 
+      {/* SandboxVars.lua the game can't load (the #197 "Explosives = 1"
+          corruption, a hand edit gone wrong, a file with no SandboxVars
+          table): the form has nothing to show and PUT /sandbox refuses to
+          edit it, so say why and where to fix it. The detail is the
+          parser's own message, the same wording the game logs. */}
+      {sandboxParseError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>{t('sandboxParseErrorBanner.title')}</AlertTitle>
+          <AlertDescription className="space-y-1">
+            <code className="block break-words font-mono text-xs" dir="ltr">{sandboxParseError}</code>
+            <span className="block">{t('sandboxParseErrorBanner.desc')}</span>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {serverChangedSinceLoad && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
@@ -3129,6 +3221,35 @@ export default function ServerConfig() {
               <Button variant="outline" size="sm" onClick={loadModSettings} disabled={modSettingsLoading} className="shrink-0 gap-1.5">
                 <RefreshCw className="w-3.5 h-3.5" /> {t('modSettingsTab.retry')}
               </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+        {/* #197: the world save has a map_sand.bin, which the game applies
+            over SandboxVars.lua on every start, so sandbox edits saved to
+            SandboxVars.lua (here, in Raw mode, or in the in-game admin
+            panel) are undone at the next restart. Live edits through
+            PanelBridge are written to it too (the toast says which). */}
+        {(activeTab === 'sandbox' || activeTab === 'modsettings') && worldSandboxSnapshot && (
+          <Alert className="mt-3 border-warning/40 bg-warning/10">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertTitle>{t('worldSandboxSnapshotBanner.title')}</AlertTitle>
+            <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span className="min-w-0">
+                {t('worldSandboxSnapshotBanner.desc', { date: new Date(worldSandboxSnapshot.mtime).toLocaleString(i18n.language) })}
+              </span>
+              <span className="flex shrink-0 flex-col items-start gap-1 sm:items-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRetireWorldSandboxSnapshot}
+                  disabled={worldSandboxSnapshotRetireBlocked || retiringWorldSandboxSnapshot}
+                >
+                  {t('worldSandboxSnapshotBanner.action')}
+                </Button>
+                {worldSandboxSnapshotRetireBlocked && (
+                  <span className="text-xs text-muted-foreground">{t('worldSandboxSnapshotBanner.stopFirst')}</span>
+                )}
+              </span>
             </AlertDescription>
           </Alert>
         )}

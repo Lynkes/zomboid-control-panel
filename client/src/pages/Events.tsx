@@ -63,6 +63,7 @@ import { Switch } from '@/components/ui/switch'
 import { useToast } from '@/components/ui/use-toast'
 import { rconApi, serverApi, playersApi, panelBridgeApi, ApiError, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
+import { liveWorldSandboxOutcome } from '@/lib/worldSandbox'
 import { bridgeDiagnosticParams } from '@/lib/bridgeDiagnostics'
 import { buildTeleportPlayerCommand, buildTeleportToCommand } from '@/lib/teleportCommands'
 import { Link } from 'react-router-dom'
@@ -1874,7 +1875,12 @@ export default function Events() {
       // below was dead code, and deleted it in 2d7cca63. It was live: a
       // false `persisted` here is a genuine "this will not survive a server
       // restart" signal on the wire today. Restored 2026-09-04.
+      //
+      // #197: on a world with a map_sand.bin, which the game loads over
+      // SandboxVars.lua on every start, the change lasts only if the bridge
+      // rewrote that file too (worldSandboxSnapshot): 'kept' or 'undone'.
       const powerMismatch = power && typeof result?.hydroPowerOn === 'boolean' && result.hydroPowerOn !== on
+      const worldSandbox = liveWorldSandboxOutcome(result)
       const notPersisted = result?.persisted === false
       toast({
         title: powerMismatch ? t('toasts.actionFailedTitle', { action }) : successCopy.title,
@@ -1882,10 +1888,14 @@ export default function Events() {
           ? t('toasts.powerDidNotTakeEffectDesc', {
               state: result.hydroPowerOn ? t('utilities.statusOnline') : t('utilities.statusOffline'),
             })
-          : notPersisted
-            ? t('toasts.notPersistedDesc', { reason: result.persistReason || t('toasts.notPersistedUnknownReason') })
-            : successCopy.description,
-        variant: powerMismatch ? 'destructive' : notPersisted ? 'default' : ('success' as const),
+          : worldSandbox === 'undone'
+            ? t('toasts.worldSandboxNotKeptDesc')
+            : notPersisted
+              ? t('toasts.notPersistedDesc', { reason: result.persistReason || t('toasts.notPersistedUnknownReason') })
+              : worldSandbox === 'kept'
+                ? t('toasts.keptInWorldSandboxDesc')
+                : successCopy.description,
+        variant: powerMismatch ? 'destructive' : notPersisted || worldSandbox === 'undone' ? 'default' : ('success' as const),
       })
       pushActivity(powerMismatch ? t('toasts.actionFailedTitle', { action }) : successCopy.title, !powerMismatch)
     } catch (error) {

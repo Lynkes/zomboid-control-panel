@@ -632,7 +632,7 @@
         "sandboxCorrupt": {
           "fail": {
             "label": "الملف SandboxVars.lua تالف",
-            "message": "يحتوي {{serverName}}_SandboxVars.lua على أقواس غير متطابقة وسيفشل تحميله — إذ يخرج الخادم المخصّص فورًا عند الإقلاع بخطأ في صياغة Lua.",
+            "message": "لا تستطيع اللعبة تحميل {{serverName}}_SandboxVars.lua ({{detail}})، لذا يخرج الخادم المخصّص عند الإقلاع.",
             "hint": "استخدم الإصلاح الآلي أدناه، أو استعِد نسخة .bak من المجلد نفسه."
           }
         },

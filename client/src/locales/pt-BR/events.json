@@ -797,6 +797,8 @@
     "bridgeCommandFailedFallback": "Falha no comando da ponte.",
     "notPersistedDesc": "Aplicado só ao mundo em execução — o SandboxVars.lua não foi alterado ({{reason}}), então reiniciar o servidor vai desfazer isso.",
     "notPersistedUnknownReason": "motivo desconhecido",
+    "keptInWorldSandboxDesc": "Mantido nas configurações salvas do mundo (map_sand.bin), então continua valendo depois de reiniciar.",
+    "worldSandboxNotKeptDesc": "Aplicado ao mundo em execução, mas as configurações salvas do mundo (map_sand.bin), que o jogo carrega por cima do SandboxVars.lua a cada inicialização, não foram atualizadas, então reiniciar vai desfazer isso. Um PanelBridge mais antigo não as atualiza. Com o servidor parado, a Configuração do servidor pode fazer este mundo usar o SandboxVars.lua.",
     "powerDidNotTakeEffectDesc": "O servidor informa que a energia continua {{state}} — a alteração não teve efeito.",
     "noPlayersOnlineError": "Nenhum jogador online",
     "targetPlayerRequiredHorde": "É preciso um jogador alvo para gerar a horda",

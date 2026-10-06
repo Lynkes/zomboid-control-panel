@@ -102,6 +102,21 @@ export async function hostPathViewFor(user, alsoCapabilities = []) {
   return (await canSeeHostPaths(user, alsoCapabilities)) ? FULL_VIEW : MASKED_VIEW;
 }
 
+// The world's map_sand.bin (services/worldSandboxSnapshot.js, #197) as a
+// caller may see it: for a role without host-path access its path is the
+// file name only, like every other host path in a response.
+export async function worldSandboxSnapshotView(user, snapshot) {
+  if (!snapshot || typeof snapshot.path !== "string" || !snapshot.path) return snapshot;
+  const view = await hostPathViewFor(user);
+  return view.full ? snapshot : { ...snapshot, path: view.file(snapshot.path) };
+}
+
+// The same for a response body that may carry worldSandboxSnapshot.
+export async function withWorldSandboxSnapshotView(user, body) {
+  if (!body || typeof body !== "object" || !body.worldSandboxSnapshot) return body;
+  return { ...body, worldSandboxSnapshot: await worldSandboxSnapshotView(user, body.worldSandboxSnapshot) };
+}
+
 export function hideHostPaths(record) {
   if (!record || typeof record !== "object") return record;
   const view = { ...record };

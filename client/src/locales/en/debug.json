@@ -526,7 +526,7 @@
         "sandboxCorrupt": {
           "fail": {
             "label": "SandboxVars.lua is corrupt",
-            "message": "{{serverName}}_SandboxVars.lua has mismatched braces and will fail to load — the dedicated server exits immediately on boot with a Lua syntax error.",
+            "message": "The game can't load {{serverName}}_SandboxVars.lua ({{detail}}), so the dedicated server exits on boot.",
             "hint": "Use the automated repair below, or restore from a .bak backup in the same folder."
           }
         },

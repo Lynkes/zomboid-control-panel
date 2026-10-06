@@ -199,20 +199,22 @@ describe("POST /sandbox/repair (the ONE unrecoverable-operation site): refuses t
   let tmpDir;
 
   function corruptSandbox() {
-    // Missing a nested block header -- the exact orphaned-scalar shape
-    // repairSandboxSyntax() knows how to fix (see its own header comment):
-    // a scalar "key = value" line (no trailing comma) immediately followed
-    // by a MORE-indented entry line, with a dangling extra "}" below --
-    // the shape produced when a "<Name> = {" header line got dropped
-    // upstream. One closing brace with no matching opener: unbalanced,
-    // depth goes negative -- checkSandboxBraceBalance() must reject this
-    // as-is, and repairSandboxSyntax() must be able to fix it by
-    // synthesizing the missing wrapper table.
+    // A nested block header with its "{" overwritten by a value -- the
+    // exact shape repairSandboxSyntax() knows how to fix (see its own header
+    // comment): a scalar "key = value" line (no trailing comma) immediately
+    // followed by a MORE-indented entry line, with a dangling extra "}"
+    // below -- the shape #197's writer left behind. One closing brace with
+    // no matching opener: unbalanced, depth goes negative --
+    // checkSandboxBraceBalance() must reject this as-is, and
+    // repairSandboxSyntax() must be able to fix it by putting the "{" back.
+    // Inside SandboxVars: a repair only counts when the game can load the
+    // result.
     const content = [
-      "Vehicles = {",
+      "SandboxVars = {",
+      "    VERSION = 6,",
       "    OrphanKey = true",
       "        NestedKey = 5,",
-      "    }",
+      "    },",
       "}",
     ].join("\n");
     fs.writeFileSync(

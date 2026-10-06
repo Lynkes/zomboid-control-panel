@@ -596,6 +596,8 @@
     "commandFailedFallback": "命令失败",
     "notPersistedDesc": "仅应用于当前运行中的世界 — SandboxVars.lua 未被更新（{{reason}}），因此服务器重启后此更改将被撤销。",
     "notPersistedUnknownReason": "未知原因",
+    "keptInWorldSandboxDesc": "已保留在世界的已保存设置（map_sand.bin）中，因此重启后仍然有效。",
+    "worldSandboxNotKeptDesc": "已应用于运行中的世界，但世界的已保存设置（map_sand.bin）未更新，而游戏每次启动时都会在 SandboxVars.lua 之上加载它，因此重启会撤销此更改。旧版 PanelBridge 不会更新它。服务器停止后，可在服务器配置中让此世界改用 SandboxVars.lua。",
     "bridgeCommandFailedFallback": "桥接命令失败。",
     "powerDidNotTakeEffectDesc": "服务器报告电力状态仍为{{state}} — 更改未生效。",
     "noPlayersOnlineError": "没有在线玩家",

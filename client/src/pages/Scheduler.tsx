@@ -128,7 +128,8 @@ function getCommonCommands(t: TFunction) {
     { label: t('commands.stopRain'), value: 'bridge:stopRain' },
     { label: t('commands.restoreUtilities'), value: 'bridge:restoreUtilities' },
     { label: t('commands.shutOffUtilities'), value: 'bridge:shutOffUtilities' },
-    { label: t('commands.saveWorldBridge'), value: 'bridge:saveWorld' },
+    // No bridge:saveWorld preset (#197): the bridge's save wrote the world's
+    // map_sand.bin. An existing bridge:saveWorld task runs as `save` above.
     { label: t('commands.broadcastServerChat'), value: 'bridge:sendToServerChat {"message":"Scheduled broadcast"}' },
   ]
 }

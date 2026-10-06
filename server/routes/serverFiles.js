@@ -22,7 +22,16 @@ import {
   writeIniWithBackup,
   parseAnyBackupFilename,
 } from "../utils/configBackup.js";
-import { escapeRegExp } from "../utils/regex.js";
+import {
+  countSandboxBraces,
+  editSandboxValues,
+  escapeLuaString,
+  findOverwrittenTableOpeners,
+  isLuaIdentifier,
+  sandboxSectionsFromLua,
+  sectionsToEdits,
+  validateSandboxLua,
+} from "../utils/sandboxLua.js";
 import { findDuplicateIniKeys } from "../utils/iniDuplicateKeys.js";
 import {
   findIniFatalLines,
@@ -33,7 +42,7 @@ import {
   readIniLineAsGame,
 } from "../utils/iniGameView.js";
 import { confineToRoots } from "../utils/browseRoots.js";
-import { serverConfigPathIsConfined } from "../utils/serverConfigPath.js";
+import { serverConfigDirRefusal, serverConfigPathIsConfined } from "../utils/serverConfigPath.js";
 import {
   describeRefusal,
   logRefusalOnce,
@@ -47,6 +56,7 @@ import {
   getMirrorPath,
   isRemoteConfigConfigured,
   pushRemoteConfigFiles,
+  retireRemoteWorldSandboxSnapshot,
   validateRemoteConfigTransport,
 } from "../services/remoteConfigFiles.js";
 import {
@@ -54,9 +64,15 @@ import {
   warnRunningForLocalConfigEdit,
 } from "../services/configMutationGuard.js";
 import { requirePermission } from "../services/permissions.js";
-import { hostPathViewFor } from "../utils/hostPathView.js";
+import { hostPathViewFor, worldSandboxSnapshotView } from "../utils/hostPathView.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { isHostKeyRefusal } from "../services/sftpHostKeys.js";
+import {
+  isServerFolderName,
+  localGameDataDir,
+  localWorldSandboxSnapshotPath,
+  statLocalWorldSandboxSnapshot,
+} from "../services/worldSandboxSnapshot.js";
 
 const router = express.Router();
 
@@ -215,26 +231,33 @@ router.use(async (req, res, next) => {
   // folder, then at debug.
   const { activeServer, serverConfigPath, zomboidDataPath } = req.activeServerContext;
   if (!activeServer?.isRemote) {
-    if (!serverConfigPathIsConfined(serverConfigPath, zomboidDataPath)) {
-      const refusal = {
-        error:
-          "The server config folder must be the Server folder inside this server's Zomboid data folder, or a folder inside it. Set the Zomboid data folder first, or leave the config folder empty.",
-        code: ErrorCode.SERVER_CONFIG_PATH_OUTSIDE_DATA,
-      };
+    const refusal = localServerFolderRefusal(req.activeServerContext);
+    if (refusal) {
       logRefusalOnce(
         log,
         `Refusing Server Files access to ${serverConfigPath || "the default config folder"} (Zomboid data folder: ${zomboidDataPath || "not set"}): ${describeRefusal(refusal)}`,
       );
       return res.status(400).json(refusal);
     }
-    if (!zomboidDataFolderHolds(zomboidDataPath)) {
-      const refusal = zomboidDataFolderRefusal();
-      logRefusalOnce(log, `Refusing Server Files access (Zomboid data folder: ${zomboidDataPath || "not set"}): ${describeRefusal(refusal)}`);
-      return res.status(400).json(refusal);
-    }
   }
   next();
 });
+
+// The folder rule above, for a local server's folders as
+// getActiveServerPaths() resolves them: the config folder inside the data
+// folder in effect's Server folder (FILES-2, PATHS-2), and that data folder
+// meeting the data-folder rule (PATHS-1). The refusal body, or null when
+// both are usable. persistSandboxValues() applies it too: PanelBridge's
+// writes never pass through this router.
+function localServerFolderRefusal({ serverConfigPath, zomboidDataPath }) {
+  if (!serverConfigPathIsConfined(serverConfigPath, zomboidDataPath)) {
+    return serverConfigDirRefusal({ reason: "outside-data" });
+  }
+  if (!zomboidDataFolderHolds(zomboidDataPath)) {
+    return zomboidDataFolderRefusal();
+  }
+  return null;
+}
 
 // A remote server has no local filesystem, but its Server/ folder is reachable
 // over the SFTP credentials PanelBridge already uses. Mirror it in before the
@@ -307,6 +330,10 @@ router.use(async (req, res, next) => {
   watchdog.unref?.();
   res.on("finish", finish);
   res.on("close", finish);
+  // For the handlers that reach past Server/: the session also says whether
+  // the world save has a map_sand.bin (#197).
+  req.remoteConfigTransport = transport;
+  req.remoteConfigSession = session;
   next();
 });
 
@@ -370,12 +397,21 @@ const LOCAL_CONFIG_MUTATIONS = new Set([
 // was trying to protect. Left gated (409 while running) deliberately,
 // pending its own evidence rather than inheriting the edit ruling by
 // assumption.
+// Retiring the world's map_sand.bin belongs here too: it swaps which copy of
+// every sandbox setting the next start uses, all at once (#197).
 // Both checks match the path the way Express's routing does (guardPathOf):
 // /RESTORE/x and /restore/x/ reach the same handler as /restore/x, so they
 // must meet the same gate (#193).
+function isWorldSandboxSnapshotRetire(req) {
+  return req.method === "POST" && guardPathOf(req) === "/sandbox/world-snapshot/retire";
+}
+
 function isLocalConfigOverwrite(req) {
   const routePath = guardPathOf(req);
   if (req.method === "POST" && /^\/templates\/[^/]+\/apply$/.test(routePath)) {
+    return true;
+  }
+  if (isWorldSandboxSnapshotRetire(req)) {
     return true;
   }
   return req.method === "POST" && /^\/restore\/[^/]+$/.test(routePath);
@@ -396,6 +432,13 @@ export {
 };
 router.use((req, res, next) => {
   if (isLocalConfigOverwrite(req)) {
+    // A remote server's map_sand.bin is on its host, reached over the
+    // mirror session above, and its handler refuses while the server's
+    // RCON answers. The local check scans this computer's processes and,
+    // for a remote profile whose local paths are set but absent here,
+    // answers SERVER_STATE_UNKNOWN about a server it was never going to
+    // see (#197).
+    if (req.remoteConfigSession && isWorldSandboxSnapshotRetire(req)) return next();
     return requireStoppedForLocalConfigMutation(req, res, next);
   }
   if (isLocalConfigEdit(req)) {
@@ -403,53 +446,6 @@ router.use((req, res, next) => {
   }
   return next();
 });
-
-// Escape strings for safe interpolation into Lua source code
-function escapeLuaString(str) {
-  return String(str).replace(/[\\"'\n\r\t\0\[\]]/g, (c) => {
-    const escapes = {
-      "\\": "\\\\",
-      '"': '\\"',
-      "'": "\\'",
-      "\n": "\\n",
-      "\r": "\\r",
-      "\t": "\\t",
-      "\0": "\\0",
-      "[": "\\[",
-      "]": "\\]",
-    };
-    return escapes[c] || c;
-  });
-}
-
-const LUA_UNESCAPES = {
-  "\\": "\\",
-  '"': '"',
-  "'": "'",
-  n: "\n",
-  r: "\r",
-  t: "\t",
-  0: "\0",
-  "[": "[",
-  "]": "]",
-};
-
-// Inverse of escapeLuaString. Parsing must undo what writing escaped, otherwise
-// every save re-escapes the same backslashes and doubles them until the file is
-// corrupt (seen in the wild: StreetlightGen.ExcludeSprites grew to 16k slashes).
-function unescapeLuaString(value) {
-  const str = String(value);
-  if (!/^"[\s\S]*"$|^'[\s\S]*'$/.test(str)) {
-    return str.replace(/^["']|["']$/g, "");
-  }
-  return str
-    .slice(1, -1)
-    .replace(/\\([\s\S])/g, (match, c) =>
-      Object.prototype.hasOwnProperty.call(LUA_UNESCAPES, c)
-        ? LUA_UNESCAPES[c]
-        : match,
-    );
-}
 
 // Get the server config directory path. Not exported -- see
 // getActiveServerPaths()'s own comment below; this exists only for that
@@ -530,11 +526,12 @@ async function getServerName() {
     throw new ServerNotConfiguredError();
   }
 
-  const safe = path.basename(raw);
-  if (safe !== raw || !safe) {
+  // "." and ".." pass the basename test but name a folder above or at the
+  // save's own (Saves/Multiplayer/<name>, #197).
+  if (!isServerFolderName(raw)) {
     throw new Error("Configured server name contains invalid path characters");
   }
-  return safe;
+  return raw;
 }
 
 // split-derivation sweep, 2026-09-07 (same class as /wipe's pre-fix bug,
@@ -565,19 +562,25 @@ async function getActiveServerPaths() {
   // to build the local SFTP mirror path, and every consolidated call site
   // needs both values together anyway.
   let serverName;
+  // A legacy setup with no profile row keeps its data folder in the flat
+  // settings: the world save (map_sand.bin, #197) is found under it.
+  let legacyDataPath = null;
   if (activeServer?.serverName) {
     serverName = activeServer.serverName;
   } else {
     const settings = await getAllSettings();
     serverName = settings.serverName;
+    if (!activeServer) legacyDataPath = settings.zomboidDataPath || null;
   }
   if (!serverName) {
     throw new ServerNotConfiguredError();
   }
-  const safeServerName = path.basename(serverName);
-  if (safeServerName !== serverName || !safeServerName) {
+  // "." and ".." pass a basename test but name a folder above or at the
+  // world save's own (Saves/Multiplayer/<name>).
+  if (!isServerFolderName(serverName)) {
     throw new Error("Configured server name contains invalid path characters");
   }
+  const safeServerName = serverName;
 
   let serverConfigPath;
   if (activeServer?.isRemote) {
@@ -613,7 +616,10 @@ async function getActiveServerPaths() {
     throw new ServerNotConfiguredError();
   }
 
-  return { activeServer, serverConfigPath, serverName: safeServerName, zomboidDataPath };
+  // zomboidDataPath: the data folder in effect (record, else legacy settings).
+  // legacyDataPath: the settings one, only for a setup with no profile row
+  // (services/worldSandboxSnapshot.js localGameDataDir()).
+  return { activeServer, serverConfigPath, serverName: safeServerName, zomboidDataPath, legacyDataPath };
 }
 
 // Exposed ONLY so the existing unit tests that already verify these three
@@ -893,422 +899,161 @@ export function toIni(obj, originalContent = "") {
     .join("\n");
 }
 
-// Parse SandboxVars.lua
+// Parse SandboxVars.lua into the Server Config page's shape: { VERSION,
+// settings: { top-level values }, ZombieLore: {...}, ..., <ModBlock>: {...} }.
+// Every key is reported under the table it really lives in. A mod table's
+// "Explosives = 1.0" used to come back as a top-level setting, and the page
+// then saved it as one over a same-named top-level table (#197).
 export function parseSandboxVars(content) {
-  const result = {
-    VERSION: 4,
-    settings: {},
-    ZombieLore: {},
-    ZombieConfig: {},
-    MultiplierConfig: {},
-    Map: {},
-    Basement: {},
-    Music: {},
-    Debug: {},
-  };
-
-  // Known nested blocks to skip when parsing top-level settings
-  const nestedBlocks = [
-    "ZombieLore",
-    "ZombieConfig",
-    "MultiplierConfig",
-    "Map",
-    "Basement",
-    "Music",
-    "Debug",
-  ];
-
-  try {
-    // Extract VERSION
-    const versionMatch = content.match(/VERSION\s*=\s*(\d+)/);
-    if (versionMatch) {
-      result.VERSION = parseInt(versionMatch[1], 10);
-    }
-
-    // Strip nested block regions from content so the top-level regex
-    // doesn't accidentally capture keys that belong inside ZombieLore,
-    // ZombieConfig, MultiplierConfig, Map, or Basement.
-    let topLevelContent = content;
-    for (const blockName of nestedBlocks) {
-      const blockPattern = new RegExp(
-        escapeRegExp(blockName) + "\\s*=\\s*\\{[\\s\\S]*?\\n\\s*\\}",
-        "m",
-      );
-      topLevelContent = topLevelContent.replace(blockPattern, "");
-    }
-
-    // Parse simple key=value pairs (top-level settings only).
-    // The value alternation tries a quoted string first so values like
-    // WorldItemRemovalList = "Base.Hat,Base.Glasses,..." aren't truncated
-    // at the first comma *inside* the quotes.
-    const simplePattern =
-      /^\s*(\w+)\s*=\s*("(?:[^"\\]|\\.)*"|[^,{}\n]+),?\s*(?:--.*)?$/gm;
-    let match;
-    while ((match = simplePattern.exec(topLevelContent)) !== null) {
-      const key = match[1];
-      let value = match[2].trim();
-
-      // Skip nested objects and VERSION
-      if (nestedBlocks.includes(key) || key === "VERSION") continue;
-
-      // Parse value type
-      if (value === "true") value = true;
-      else if (value === "false") value = false;
-      else if (!isNaN(parseFloat(value))) value = parseFloat(value);
-      else value = unescapeLuaString(value);
-
-      result.settings[key] = value;
-    }
-
-    // Helper function to parse a nested block
-    function parseNestedBlock(blockName) {
-      // Match nested blocks - handle both simple and complex nested structures
-      const blockPattern = new RegExp(
-        `${blockName}\\s*=\\s*\\{([\\s\\S]*?)\\n\\s*\\}`,
-        "m",
-      );
-      const blockMatch = content.match(blockPattern);
-
-      if (blockMatch) {
-        const blockContent = blockMatch[1];
-        // Strip Lua comment lines to avoid parsing comment text as keys
-        // (e.g. "-- 1 = Sprinters" or "-- Default = Random")
-        const strippedContent = blockContent.replace(/^\s*--.*$/gm, "");
-        const valuePattern = /(\w+)\s*=\s*("(?:[^"\\]|\\.)*"|[^,\n]+)/g;
-        let valueMatch;
-        while ((valueMatch = valuePattern.exec(strippedContent)) !== null) {
-          let value = valueMatch[2].trim();
-          // Remove trailing comma if present
-          value = value.replace(/,\s*$/, "");
-
-          if (value === "true") value = true;
-          else if (value === "false") value = false;
-          else if (!isNaN(parseFloat(value))) value = parseFloat(value);
-          else value = unescapeLuaString(value);
-
-          result[blockName][valueMatch[1]] = value;
-        }
-      }
-    }
-
-    // Parse all nested blocks
-    nestedBlocks.forEach(parseNestedBlock);
-  } catch (error) {
-    log.error("Failed to parse SandboxVars:", error);
+  const { sandbox, error } = sandboxSectionsFromLua(content);
+  if (error) {
+    log.warn(`SandboxVars.lua does not parse (${error.message}); returning empty sections`);
   }
-
-  return result;
+  return sandbox;
 }
 
-// Format a number for Lua, preserving the original file's decimal format
-function formatLuaNumber(newValue, originalValueStr) {
-  const trimmed = originalValueStr
-    ? originalValueStr.trim().replace(/,\s*$/, "")
-    : "";
-  // If the original value had a decimal point and the new value is a whole number, add .0
-  if (Number.isInteger(newValue) && trimmed.includes(".")) {
-    return newValue.toFixed(1);
+// Why an edit from editSandboxValues() was not written, for logs and API
+// responses.
+function describeSandboxEditStatus(status, error) {
+  switch (status) {
+    case "not-found":
+      return "not present in SandboxVars.lua";
+    case "table":
+      return "is a table in SandboxVars.lua, not a single value";
+    case "invalid-value":
+      return "value must be true/false, a finite number or text";
+    case "invalid-path":
+      return "not a valid option name";
+    default:
+      return `SandboxVars.lua does not parse (${error?.message || "unknown error"})`;
   }
-  return newValue.toString();
 }
 
-// Modify a single value in the SandboxVars file content in-place
-// Preserves all comments and file structure
+// Write one value into SandboxVars.lua in place. `nestedBlock` null means a
+// top-level key. Returns the content unchanged when the key is not in the
+// file, is a table, or the file does not parse (editSandboxValues() has the
+// rules); only the value's own characters ever change.
 export function modifySandboxValue(
   originalContent,
   key,
   newValue,
   nestedBlock = null,
 ) {
-  let content = originalContent;
-
-  // Validate key is a valid identifier (alphanumeric and underscore only)
-  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
-    log.warn(`Invalid sandbox key skipped: ${key}`);
-    return content;
-  }
-
-  // Format the value for Lua (base format, may be refined by context)
-  function formatValue(originalValueStr) {
-    if (typeof newValue === "boolean") {
-      return newValue.toString();
-    } else if (typeof newValue === "number") {
-      return formatLuaNumber(newValue, originalValueStr);
-    } else {
-      return `"${escapeLuaString(String(newValue))}"`;
-    }
-  }
-
-  // Escape key for use in regex (even though we validate, this is defense in depth)
-  const escapedKey = escapeRegExp(key);
-
-  if (nestedBlock) {
-    // For nested blocks (ZombieLore, ZombieConfig, etc.)
-    // Only match actual assignment lines (not comment lines starting with --)
-    const escapedBlock = escapeRegExp(nestedBlock);
-    const blockStartPattern = new RegExp(`${escapedBlock}\\s*=\\s*\\{`);
-    const blockStartMatch = content.match(blockStartPattern);
-    if (blockStartMatch) {
-      const blockStart = blockStartMatch.index;
-      const blockEnd = content.indexOf(
-        "}",
-        blockStart + blockStartMatch[0].length,
-      );
-      if (blockEnd !== -1) {
-        const before = content.substring(0, blockStart);
-        const blockSection = content.substring(blockStart, blockEnd + 1);
-        const after = content.substring(blockEnd + 1);
-        // Replace only on non-comment lines within the block.
-        // The value alternation matches a full quoted string first so
-        // values containing commas (e.g. comma-separated lists) aren't
-        // truncated mid-string, which would corrupt the Lua syntax.
-        //
-        // continuous-bug-hunt, 2026-09-18 (settings-truth round): the lazy
-        // `[^\n]*?` prefix crosses arbitrary identifier characters to reach
-        // its target, and without a boundary check on the LEFT side of the
-        // key it happily matches the key as a bare substring of an earlier,
-        // longer identifier on the same line -- e.g. requesting "Speed" in a
-        // block that also has "WalkSpeed" above it matches "...Walk|Speed"
-        // and silently rewrites WalkSpeed's value instead, while "Speed"
-        // itself never changes. Confirmed via a standalone regex repro, not
-        // theoretical. The `(?<![A-Za-z0-9_])` lookbehind rejects any match
-        // position immediately preceded by an identifier character, so the
-        // key can only match at a real identifier boundary -- exactly what
-        // the validated `^[a-zA-Z_][a-zA-Z0-9_]*$` key format already
-        // guarantees "the whole key" looks like. This is the sole source of
-        // the "silent success, wrong value" reports: PUT /sandbox-option and
-        // panelBridge's live in-game option persistence have no read-back at
-        // all and would report success unconditionally; PUT /sandbox's own
-        // read-back (findUnpersistedSandboxKeys) does catch the requested
-        // key never changing, but never reports the OTHER key it silently
-        // clobbered as a side effect. Fixing the match itself, not just
-        // detecting its wrong output after the fact, closes both.
-        const updatedBlock = blockSection.replace(
-          new RegExp(
-            `(^(?!\\s*--)[^\\n]*?)(?<![A-Za-z0-9_])(${escapedKey})(\\s*=\\s*)("(?:[^"\\\\]|\\\\.)*"|[^,\\n}]+)(,?)`,
-            "m",
-          ),
-          (_, prefix, k, eq, oldVal, comma) =>
-            `${prefix}${k}${eq}${formatValue(oldVal)}${comma}`,
-        );
-        content = before + updatedBlock + after;
-      }
-    }
-  } else {
-    // For top-level settings, only replace occurrences OUTSIDE nested blocks
-    // to avoid accidentally modifying keys that share a name with a nested key.
-    const knownBlocks = [
-      "ZombieLore",
-      "ZombieConfig",
-      "MultiplierConfig",
-      "Map",
-      "Basement",
-      "Music",
-      "Debug",
-    ];
-    const blockRanges = [];
-    for (const bn of knownBlocks) {
-      const bp = new RegExp(escapeRegExp(bn) + "\\s*=\\s*\\{");
-      const bm = content.match(bp);
-      if (bm) {
-        const start = bm.index;
-        const end = content.indexOf("}", start + bm[0].length);
-        if (end !== -1) blockRanges.push({ start, end: end + 1 });
-      }
-    }
-
-    // The value alternation matches a full quoted string first so values
-    // containing commas (e.g. comma-separated lists like
-    // WorldItemRemovalList) aren't truncated mid-string, which would
-    // corrupt the Lua syntax.
-    const pattern = new RegExp(
-      `(^\\s*)(${escapedKey})(\\s*=\\s*)("(?:[^"\\\\]|\\\\.)*"|[^,\\n}]+)(,?)(\\s*(?:--.*)?$)`,
-      "gm",
-    );
-    content = content.replace(
-      pattern,
-      (fullMatch, indent, k, eq, oldVal, comma, comment, offset) => {
-        // Skip matches inside nested blocks
-        for (const range of blockRanges) {
-          if (offset >= range.start && offset < range.end) return fullMatch;
-        }
-        return `${indent}${k}${eq}${formatValue(oldVal)}${comma}${comment}`;
-      },
+  const path = nestedBlock ? [nestedBlock, key] : [key];
+  const result = editSandboxValues(originalContent, [{ path, value: newValue }]);
+  const status = result.ok ? result.results[0].status : "unparseable";
+  if (status !== "changed" && status !== "unchanged") {
+    log.warn(
+      `Sandbox value ${path.join(".")} not written: ${describeSandboxEditStatus(status, result.error)}`,
     );
   }
-
-  return content;
+  return result.content;
 }
 
-// Count { / } in a SandboxVars.lua content string. A healthy file always has
-// an equal number of each with the running depth never going negative. This
-// is the cheapest possible syntax sanity check we can do without a real Lua
-// parser, but it happens to catch the exact class of corruption PZ's own
+// Count { / } in a SandboxVars.lua content string, skipping strings and
+// comments (a mod tooltip comment with a brace in it is not corruption). A
+// healthy file always has an equal number of each with the running depth
+// never going negative. This catches the exact class of corruption PZ's own
 // dedicated server crashes on: an orphaned/dropped block header that leaves
 // a dangling closing brace (see "Exiting due to errors loading ..." crashes
-// with a KahluaException "'}' expected").
+// with a KahluaException "'}' expected"). validateSandboxLua() is the full
+// check; this count still works on a file that does not parse.
 export function checkSandboxBraceBalance(content) {
-  let depth = 0;
-  let wentNegative = false;
-  for (const ch of content) {
-    if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth < 0) wentNegative = true;
-    }
-  }
-  return { balanced: depth === 0 && !wentNegative, depth };
+  return countSandboxBraces(content);
 }
 
-// Attempt to auto-repair the most common SandboxVars.lua corruption pattern:
-// a nested block's "<Name> = {" header line (and the trailing comma on the
-// first entry) got dropped somewhere upstream (mod schema migration, manual
-// editing, etc.), leaving an orphaned scalar entry at a shallower indent
-// than its former siblings — with the original closing "}" still present
-// further down. That desyncs the whole file's brace count and makes PZ's
-// Lua loader refuse to parse the file at all.
+// Repair the damage #197 left in files: a table's opening line "<Name> = {"
+// with its "{" overwritten by a value ("Explosives = 1"). The table's
+// entries and its closing "}" are still below it, indented one level deeper,
+// so the file has one "}" too many and the game refuses to load it.
 //
-// Repair strategy: whenever a scalar "key = value" line (no trailing comma)
-// is immediately followed by a more-deeply-indented entry line, treat it as
-// an orphaned block opener. Add the missing comma and synthesize a wrapper
-// table around it so the existing (now-dangling) closing brace has
-// something to match again. This is deliberately conservative — it never
-// deletes or reinterprets existing content, only restores brace balance —
-// and every attempt is re-validated for balance before anything is written.
+// Repair: a "key = value" line with no trailing comma, followed by an entry
+// indented deeper than it, gets "{" back in place of its value
+// (findOverwrittenTableOpeners() has the exact rule). Nothing else in the
+// file changes, line endings included. The value is dropped: it is what the
+// old writer put over the "{", and the table under its real name is what the
+// game reads. (This used to wrap the line in a synthetic
+// "_RepairedBlockN = { ... }" table instead. The file then loaded, but the
+// game found no table under the real name, so every option in it went back
+// to its default and was dropped when the game next saved the file; a
+// damaged "SandboxVars = 1" root line ended up inside the wrapper.)
+//
+// Lines are found on the tokenizer's tokens, not by matching text line by
+// line: a long string or a --[[ ]] comment can hold a line that reads like
+// "Speed = 2" above a deeper one, and putting a "{" there rewrote another
+// option's text while the file still loaded. Nothing is written unless the
+// result is a file the game loads (validateSandboxLua().valid).
 export function repairSandboxSyntax(content) {
   const before = checkSandboxBraceBalance(content);
   if (before.balanced) {
     return { content, fixed: false, changes: [] };
   }
 
-  const lines = content.split(/\r?\n/);
-  const changes = [];
-  const scalarLine =
-    /^(\s*)(\w+)\s*=\s*("(?:[^"\\]|\\.)*"|true|false|-?\d+(?:\.\d+)?)\s*(--.*)?$/;
-  const entryLine = /^(\s*)(\w+)\s*=\s*/;
-  let syntheticCounter = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(scalarLine);
-    if (!m) continue;
-    const indent = m[1];
-
-    // Find the next non-blank, non-comment line.
-    let j = i + 1;
-    while (
-      j < lines.length &&
-      (lines[j].trim() === "" || /^\s*--/.test(lines[j]))
-    ) {
-      j++;
-    }
-    if (j >= lines.length) continue;
-
-    const nextEntry = lines[j].match(entryLine);
-    if (!nextEntry) continue;
-    if (nextEntry[1].length <= indent.length) continue; // normal sibling/closing — not orphaned
-
-    syntheticCounter += 1;
-    changes.push(
-      `Line ${i + 1}: '${m[2]} = ${m[3]}' looked like an orphaned block entry (missing block header and comma) — wrapped it in a synthetic '_RepairedBlock${syntheticCounter}' table so the file parses again.`,
-    );
-    lines[i] =
-      `${indent}_RepairedBlock${syntheticCounter} = {\n${indent}    ${m[2]} = ${m[3]},`;
+  const openers = findOverwrittenTableOpeners(content);
+  const pieces = [];
+  let at = 0;
+  for (const { start, end } of openers) {
+    pieces.push(content.slice(at, start), "{");
+    at = end;
   }
+  pieces.push(content.slice(at));
+  const repaired = pieces.join("");
+  const changes = openers.map(
+    ({ line, key, value }) =>
+      `Line ${line}: '${key} = ${value}' stood where the opening of the '${key}' table belongs — put its '{' back.`,
+  );
 
-  const repaired = lines.join("\n");
-  const after = checkSandboxBraceBalance(repaired);
+  // Balanced braces are not enough to write it, and neither is parsing: the
+  // result needs a SandboxVars table too. A file without one parses, but
+  // the game finds nothing to load and exits on boot.
+  const after = validateSandboxLua(repaired);
   return {
     content: repaired,
-    fixed: after.balanced && changes.length > 0,
+    fixed: after.valid && changes.length > 0,
     changes,
   };
 }
 
-// Apply multiple sandbox changes to file content in-place
-export function applySandboxChanges(originalContent, changes) {
-  let content = originalContent;
-
-  // Apply settings changes
-  if (changes.settings) {
-    for (const [key, value] of Object.entries(changes.settings)) {
-      content = modifySandboxValue(content, key, value, null);
-    }
-  }
-
-  // Apply ZombieLore changes
-  if (changes.ZombieLore) {
-    for (const [key, value] of Object.entries(changes.ZombieLore)) {
-      content = modifySandboxValue(content, key, value, "ZombieLore");
-    }
-  }
-
-  // Apply ZombieConfig changes
-  if (changes.ZombieConfig) {
-    for (const [key, value] of Object.entries(changes.ZombieConfig)) {
-      content = modifySandboxValue(content, key, value, "ZombieConfig");
-    }
-  }
-
-  // Apply MultiplierConfig changes
-  if (changes.MultiplierConfig) {
-    for (const [key, value] of Object.entries(changes.MultiplierConfig)) {
-      content = modifySandboxValue(content, key, value, "MultiplierConfig");
-    }
-  }
-
-  // Apply Map changes
-  if (changes.Map) {
-    for (const [key, value] of Object.entries(changes.Map)) {
-      content = modifySandboxValue(content, key, value, "Map");
-    }
-  }
-
-  // Apply Basement changes
-  if (changes.Basement) {
-    for (const [key, value] of Object.entries(changes.Basement)) {
-      content = modifySandboxValue(content, key, value, "Basement");
-    }
-  }
-
-  return content;
+// Apply the Server Config page's sections ({ settings: {...}, <Block>: {...} })
+// to existing file content. Each value is written at its own path, only where
+// the file already has that entry, and only when it differs: saving an
+// untouched form leaves the file byte-for-byte as it was. `refused` lists the
+// entries that were not written and why.
+export function planSandboxChanges(originalContent, changes) {
+  const edits = sectionsToEdits(changes);
+  const result = editSandboxValues(originalContent, edits);
+  const refused = [];
+  result.results.forEach((r, i) => {
+    if (r.status === "changed" || r.status === "unchanged") return;
+    const { section, key } = edits[i];
+    refused.push({
+      name: section === "settings" ? key : `${section}.${key}`,
+      status: r.status,
+      reason: describeSandboxEditStatus(r.status),
+    });
+  });
+  return { ...result, refused };
 }
 
-// The 6 top-level shapes applySandboxChanges()/createSandboxVars() actually
-// know how to write. Music and Debug are parsed by parseSandboxVars() (read
-// path) but neither writer touches them, so they're deliberately excluded
-// here too -- checking them would report every Music/Debug key as
-// "unpersisted" even though no write was ever attempted for them.
-const SANDBOX_WRITABLE_SECTIONS = [
-  "settings",
-  "ZombieLore",
-  "ZombieConfig",
-  "MultiplierConfig",
-  "Map",
-  "Basement",
-];
+// Same as planSandboxChanges(), content only.
+export function applySandboxChanges(originalContent, changes) {
+  return planSandboxChanges(originalContent, changes).content;
+}
 
-// modifySandboxValue() (used by applySandboxChanges for an existing file)
-// silently returns its input unchanged when a submitted key's regex finds no
-// matching line to update -- key not present in this file, lives in a block
-// modifySandboxValue doesn't know about, unusual formatting, etc. Compares
-// `submitted` (the request body's `sandbox` object) against `persisted` (the
-// freshly re-parsed on-disk content, via parseSandboxVars) and returns the
-// list of keys that were requested but did not actually change, formatted as
-// "key" for top-level settings or "Section.key" for a nested block.
+// planSandboxChanges() writes only entries the file already has, and refuses
+// a value over a table. Compares `submitted` (the request body's `sandbox`
+// object) against `persisted` (the freshly re-parsed on-disk content, via
+// parseSandboxVars -- the same reader the writer uses) and returns the keys
+// that were requested but did not land, formatted as "key" for top-level
+// settings or "Section.key" for a block.
 export function findUnpersistedSandboxKeys(submitted, persisted) {
-  const unpersistedKeys = [];
-  for (const section of SANDBOX_WRITABLE_SECTIONS) {
-    const submittedSection = submitted[section];
-    if (!submittedSection || typeof submittedSection !== "object") continue;
-    const persistedSection =
-      section === "settings" ? persisted.settings : persisted[section];
-    for (const [key, value] of Object.entries(submittedSection)) {
-      if ((persistedSection || {})[key] !== value) {
-        unpersistedKeys.push(section === "settings" ? key : `${section}.${key}`);
-      }
-    }
-  }
-  return unpersistedKeys;
+  const own = (obj, key) =>
+    obj && typeof obj === "object" && Object.prototype.hasOwnProperty.call(obj, key)
+      ? obj[key]
+      : undefined;
+  return sectionsToEdits(submitted)
+    .filter(({ section, key, value }) => own(own(persisted, section), key) !== value)
+    .map(({ section, key }) => (section === "settings" ? key : `${section}.${key}`));
 }
 
 function createSandboxVars(sandbox) {
@@ -1336,7 +1081,7 @@ function createSandboxVars(sandbox) {
 
     if (sectionName === "settings") {
       for (const [key, value] of Object.entries(values)) {
-        if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
+        if (isLuaIdentifier(key)) {
           lines.push(`    ${key} = ${formatValue(value)},`);
         }
       }
@@ -1345,7 +1090,7 @@ function createSandboxVars(sandbox) {
 
     lines.push(`    ${sectionName} = {`);
     for (const [key, value] of Object.entries(values)) {
-      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
+      if (isLuaIdentifier(key)) {
         lines.push(`        ${key} = ${formatValue(value)},`);
       }
     }
@@ -1763,6 +1508,27 @@ router.put("/ini", async (req, res) => {
   }
 });
 
+// The world save's own copy of the sandbox settings (#197). Build 42 loads
+// SandboxVars.lua, then SandboxOptions.load() reads map_sand.bin from the
+// save and applies every option in it on top, on every start. Only the
+// single-player save path (Lua saveGame()) writes it -- a vanilla dedicated
+// server never does, PanelBridge did on each live edit until #197 -- so once
+// it exists, edits to SandboxVars.lua (this editor, the in-game admin panel)
+// are undone at the next start. Without it the game falls back to
+// SandboxVars.lua. The save is under the data folder the server starts with
+// (-cachedir); localWorldSandboxSnapshotPath() (services/worldSandboxSnapshot.js)
+// finds it the way the start does, default folder included, and only in a
+// folder that meets the data-folder rule (PATHS-1). A record whose folders
+// the gate above refuses never gets this far. A remote server's save is
+// checked over SFTP by the mirror session.
+// { path, mtime } when this world has a map_sand.bin, else null.
+async function findWorldSandboxSnapshot(req) {
+  if (req.activeServerContext.activeServer?.isRemote) {
+    return req.remoteConfigSession?.worldSandboxSnapshot ?? null;
+  }
+  return statLocalWorldSandboxSnapshot(localWorldSandboxSnapshotPath(req.activeServerContext));
+}
+
 // Get SandboxVars (parsed)
 router.get("/sandbox", async (req, res) => {
   try {
@@ -1777,9 +1543,19 @@ router.get("/sandbox", async (req, res) => {
     }
 
     const content = fs.readFileSync(filePath, "utf-8");
-    const parsed = parseSandboxVars(content);
+    // A file that does not parse, or has no SandboxVars table, comes back as
+    // empty sections plus `parseError`, so the page can still open (the INI
+    // tab shares it) and PUT /sandbox refuses to edit it.
+    const { sandbox, error: parseError } = sandboxSectionsFromLua(content);
+    const worldSandboxSnapshot = await findWorldSandboxSnapshot(req);
 
-    res.json({ sandbox: parsed, path: (await hostPathViewFor(req.user)).file(filePath), serverName });
+    res.json({
+      sandbox,
+      path: (await hostPathViewFor(req.user)).file(filePath),
+      serverName,
+      ...(parseError ? { parseError } : {}),
+      ...(worldSandboxSnapshot ? { worldSandboxSnapshot: await worldSandboxSnapshotView(req.user, worldSandboxSnapshot) } : {}),
+    });
   } catch (error) {
     log.error("Failed to read SandboxVars:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -1844,32 +1620,68 @@ router.put("/sandbox", async (req, res) => {
     let fileExists;
     let backupWarning = null;
     let unpersistedKeys = [];
+    let parseError = null;
     await withFileLock(filePath, async () => {
       fileExists = fs.existsSync(filePath);
-      const newContent = fileExists
-        ? applySandboxChanges(fs.readFileSync(filePath, "utf-8"), sandbox)
-        : createSandboxVars(sandbox);
+      let newContent;
+      let unchanged = false;
       if (fileExists) {
-        backupWarning = backupWarningFor(
-          await createBackup(configPath, `${serverName}_SandboxVars.lua`),
-        );
+        const originalContent = fs.readFileSync(filePath, "utf-8");
+        const plan = planSandboxChanges(originalContent, sandbox);
+        if (!plan.ok) {
+          parseError = plan.error;
+          return;
+        }
+        if (plan.refused.length > 0) {
+          log.warn(
+            `Sandbox values not written: ${plan.refused.map((r) => `${r.name} (${r.reason})`).join(", ")}`,
+          );
+        }
+        newContent = plan.content;
+        // Nothing to change: no backup, no rewrite. A rewrite would also turn
+        // bytes that are not valid UTF-8 (a file saved from a cp1252 editor)
+        // into U+FFFD.
+        unchanged = newContent === originalContent;
+      } else {
+        newContent = createSandboxVars(sandbox);
+        const check = validateSandboxLua(newContent);
+        if (!check.valid) {
+          parseError = check.error;
+          return;
+        }
       }
-      writeFileAtomic(filePath, newContent, "utf-8");
+      if (!unchanged) {
+        if (fileExists) {
+          backupWarning = backupWarningFor(
+            await createBackup(configPath, `${serverName}_SandboxVars.lua`),
+          );
+        }
+        writeFileAtomic(filePath, newContent, "utf-8");
+      }
 
-      // Without this read-back, a key modifySandboxValue() couldn't find a
-      // line for was silently dropped and this route still reported success
-      // (this route's own PUT /ini sibling already verifies its writes this
-      // way; this route did not).
+      // Without this read-back, a key the writer couldn't place was silently
+      // dropped and this route still reported success (this route's own PUT
+      // /ini sibling already verifies its writes this way; this route did
+      // not). Same reader as the writer, so a value refused over a table
+      // shows up here too.
       const persisted = parseSandboxVars(fs.readFileSync(filePath, "utf-8"));
       unpersistedKeys = findUnpersistedSandboxKeys(sandbox, persisted);
     });
 
+    if (parseError) {
+      log.warn(`PUT /sandbox refused, SandboxVars.lua does not parse: ${parseError.message}`);
+      return res.status(422).json({
+        error: `SandboxVars.lua can't be edited safely (${parseError.message}). Fix it in the raw editor, run the repair under Checks & Fixes, or restore a backup. Nothing was written.`,
+        code: ErrorCode.SANDBOX_FILE_UNPARSEABLE,
+        params: sanitizeErrorParams({ detail: parseError.message }),
+      });
+    }
     if (unpersistedKeys.length > 0) {
-      log.warn(
-        `SandboxVars keys did not persist (no matching entry found to update): ${unpersistedKeys.join(", ")}`,
-      );
+      log.warn(`SandboxVars keys did not persist: ${unpersistedKeys.join(", ")}`);
     }
     log.info(`${fileExists ? "Saved" : "Created"} SandboxVars file`);
+    // The save landed, but a world with map_sand.bin will not use it.
+    const worldSandboxSnapshot = await findWorldSandboxSnapshot(req);
     res.json({
       success: true,
       created: !fileExists,
@@ -1878,6 +1690,7 @@ router.put("/sandbox", async (req, res) => {
       ...(unpersistedKeys.length > 0 ? { unpersistedKeys } : {}),
       ...(backupWarning ? { backupWarning } : {}),
       ...(req.configEditRestartWarning ? { restartRequired: true } : {}),
+      ...(worldSandboxSnapshot ? { worldSandboxSnapshot: await worldSandboxSnapshotView(req.user, worldSandboxSnapshot) } : {}),
     });
   } catch (error) {
     log.error("Failed to save SandboxVars:", error);
@@ -1929,23 +1742,43 @@ router.put("/sandbox-option", async (req, res) => {
     }
 
     let persisted = false;
+    let reason = null;
     let backupWarning = null;
     await withFileLock(filePath, async () => {
       const originalContent = fs.readFileSync(filePath, "utf-8");
-      const newContent = modifySandboxValue(originalContent, key, value, block);
-      if (newContent === originalContent) return;
+      const result = editSandboxValues(originalContent, [
+        { path: block ? [block, key] : [key], value },
+      ]);
+      const status = result.ok ? result.results[0].status : "unparseable";
+      if (status === "unchanged") {
+        // Already what the file says; nothing to write, nothing lost.
+        persisted = true;
+        return;
+      }
+      if (status !== "changed") {
+        reason = describeSandboxEditStatus(status, result.error);
+        return;
+      }
       backupWarning = backupWarningFor(
         await createBackup(configPath, `${serverName}_SandboxVars.lua`),
       );
-      writeFileAtomic(filePath, newContent, "utf-8");
+      writeFileAtomic(filePath, result.content, "utf-8");
       persisted = true;
     });
 
-    log.info(`Sandbox option ${name} persisted: ${persisted}`);
+    log.info(
+      `Sandbox option ${name} persisted: ${persisted}${reason ? ` (${reason})` : ""}`,
+    );
+    // Mod Settings writes here after each live edit. A PanelBridge older
+    // than #197 has just written map_sand.bin for that edit (saveGame()),
+    // so say whether the world has one now, as PUT /sandbox does.
+    const worldSandboxSnapshot = await findWorldSandboxSnapshot(req);
     res.json({
       success: true,
       persisted,
+      ...(reason ? { reason } : {}),
       ...(backupWarning ? { backupWarning } : {}),
+      ...(worldSandboxSnapshot ? { worldSandboxSnapshot: await worldSandboxSnapshotView(req.user, worldSandboxSnapshot) } : {}),
     });
   } catch (error) {
     log.error("Failed to save sandbox option:", error);
@@ -1969,7 +1802,9 @@ export async function persistSandboxValues(values) {
 
   const activeServer = await getActiveServer();
   // Called from the PanelBridge routes, outside the mirror middleware, so a
-  // remote server has to pull and push around its own write.
+  // remote server has to pull and push around its own write. As there, the
+  // write goes to the panel's own mirror of the remote Server/ folder; the
+  // local folders a remote record names are never used.
   if (activeServer?.isRemote) {
     const transport = await resolveRemoteConfigTransport();
     if (!transport) {
@@ -1994,8 +1829,20 @@ export async function persistSandboxValues(values) {
   }
 
   try {
-    const { serverConfigPath, serverName } = await getActiveServerPaths();
-    return await writeSandboxValues(entries, serverConfigPath, serverName);
+    const context = await getActiveServerPaths();
+    // SECURITY (2026-10-05, PR #200 review): the router's gate never sees
+    // this write (POST /panel-bridge/utilities/restore and /shutoff, under
+    // server.world_events), so it applies the gate's folder rule itself. A
+    // config folder Server Config refuses is neither written nor backed up.
+    const refusal = localServerFolderRefusal(context);
+    if (refusal) {
+      logRefusalOnce(
+        log,
+        `Not writing sandbox values to ${context.serverConfigPath} (Zomboid data folder: ${context.zomboidDataPath || "not set"}): ${describeRefusal(refusal)}`,
+      );
+      return { persisted: false, reason: refusal.error };
+    }
+    return await writeSandboxValues(entries, context.serverConfigPath, context.serverName);
   } catch (err) {
     if (err instanceof ServerNotConfiguredError) {
       return { persisted: false, reason: "no server configured" };
@@ -2014,25 +1861,36 @@ async function writeSandboxValues(entries, configPath, serverName) {
   let reason = null;
   await withFileLock(filePath, async () => {
     const originalContent = fs.readFileSync(filePath, "utf-8");
-    let content = originalContent;
-
-    // modifySandboxValue only rewrites existing assignments, so a key that
-    // isn't in the file would no-op and look like "already correct".
-    const missing = entries
-      .map(([key]) => key)
-      .filter(
-        (key) => !new RegExp(`^\\s*${escapeRegExp(key)}\\s*=`, "m").test(content),
-      );
-    if (missing.length > 0) {
-      reason = `not present in SandboxVars.lua: ${missing.join(", ")}`;
+    const result = editSandboxValues(
+      originalContent,
+      entries.map(([key, value]) => ({ path: [key], value })),
+    );
+    if (!result.ok) {
+      reason = describeSandboxEditStatus("unparseable", result.error);
       return;
     }
 
-    for (const [key, value] of entries) {
-      content = modifySandboxValue(content, key, value, null);
+    // Only existing top-level entries are rewritten, so a key that isn't in
+    // the file (or only exists inside some block) would no-op and look like
+    // "already correct". All or nothing: a partial utilities write would
+    // leave power and its modifier disagreeing.
+    const refused = new Map();
+    for (const r of result.results) {
+      if (r.status === "changed" || r.status === "unchanged") continue;
+      refused.set(r.status, [...(refused.get(r.status) || []), r.path.join(".")]);
     }
+    if (refused.size > 0) {
+      reason = [...refused]
+        .map(([status, keys]) => `${keys.join(", ")}: ${describeSandboxEditStatus(status)}`)
+        .join("; ");
+      return;
+    }
+
+    const content = result.content;
     if (content === originalContent) {
-      reason = "values already match";
+      // SandboxVars.lua already holds these values: nothing to write, and
+      // nothing a restart undoes (PUT /sandbox-option says the same).
+      persisted = true;
       return;
     }
     const backupWarning = backupWarningFor(
@@ -2048,9 +1906,10 @@ async function writeSandboxValues(entries, configPath, serverName) {
   return { persisted, reason };
 }
 
-// Check whether SandboxVars.lua is syntactically well-formed (brace balance
-// only — we don't have a real Lua parser). A corrupt file here is a classic
-// cause of "server won't boot, no obvious reason" reports.
+// Check whether the game can load SandboxVars.lua: it has to parse (the same
+// tokenizer every editor here uses) and its braces have to balance. A corrupt
+// file here is a classic cause of "server won't boot, no obvious reason"
+// reports.
 router.get("/sandbox/validate", async (req, res) => {
   try {
     const { serverConfigPath: configPath, serverName } = req.activeServerContext;
@@ -2064,8 +1923,8 @@ router.get("/sandbox/validate", async (req, res) => {
     }
 
     const content = fs.readFileSync(filePath, "utf-8");
-    const { balanced, depth } = checkSandboxBraceBalance(content);
-    res.json({ valid: balanced, braceDepth: depth });
+    const { valid, depth, error } = validateSandboxLua(content);
+    res.json({ valid, braceDepth: depth, ...(error ? { parseError: error.message } : {}) });
   } catch (error) {
     log.error("Failed to validate SandboxVars:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -2073,10 +1932,11 @@ router.get("/sandbox/validate", async (req, res) => {
 });
 
 // Attempt to auto-repair SandboxVars.lua. Refuses to write anything unless
-// BOTH the repaired content is verified brace-balanced AND a real backup of
-// the broken file was made first — if the corruption doesn't match a known
-// repair pattern, or the backup can't be created, nothing is written and
-// the caller is told exactly why and what to do about it. This route
+// BOTH the repaired content is a file the game loads (it parses and has a
+// SandboxVars table) AND a real backup of the broken file was made first —
+// if the corruption doesn't match a known repair pattern, or the backup
+// can't be created, nothing is written and the caller is told exactly why
+// and what to do about it. This route
 // rewrites an already-corrupted file with a heuristic the repair function
 // itself admits can miss (see repairSandboxSyntax's own comment) -- with no
 // backup, a wrong result has no way back, so this is the one call site in
@@ -2096,8 +1956,9 @@ router.post("/sandbox/repair", async (req, res) => {
 
     const result = await withFileLock(filePath, async () => {
       const originalContent = fs.readFileSync(filePath, "utf-8");
-      const before = checkSandboxBraceBalance(originalContent);
-      if (before.balanced) {
+      // "Already valid" means the game loads it: it parses and has a
+      // SandboxVars table.
+      if (validateSandboxLua(originalContent).valid) {
         return { alreadyValid: true };
       }
 
@@ -2160,6 +2021,104 @@ router.post("/sandbox/repair", async (req, res) => {
     });
   } catch (error) {
     log.error("Failed to repair SandboxVars:", error);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Move the world's map_sand.bin out of the save, so every start from now on
+// uses SandboxVars.lua (#197). Refused while the server runs
+// (isLocalConfigOverwrite). Nothing is deleted: the file goes to the config
+// backups folder under a name GET /backups doesn't list, since restoring it
+// from there would put it in Server/, where the game never reads it. With no
+// map_sand.bin, SandboxOptions.load() falls back to SandboxVars.lua, and
+// neither the server's save nor its quit writes the file again (42.21, live);
+// only Lua saveGame() does, e.g. a live edit through a pre-#197 PanelBridge.
+// A remote server's file moves the same way over SFTP, into the backups
+// folder of its Server/ folder on the host.
+const WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE_BODY = {
+  error:
+    "The panel can't tell where this server's world save is, so it can't reach its map_sand.bin. Set the server's data folder. For a remote server, the remote Server folder under Settings > PanelBridge must be the game's Server folder.",
+  code: ErrorCode.WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE,
+};
+const NO_WORLD_SANDBOX_SNAPSHOT_BODY = {
+  success: true,
+  retired: false,
+  message: "This world has no map_sand.bin, so it already uses SandboxVars.lua.",
+};
+const WORLD_SANDBOX_SNAPSHOT_RETIRED_MESSAGE =
+  "map_sand.bin was moved out of the world save. The next start uses SandboxVars.lua.";
+
+async function retireRemoteWorldSandboxSnapshotRoute(req, res) {
+  // The local stopped check (requireStoppedForLocalConfigMutation) can't
+  // scan a remote host's processes, so the router's gate leaves this to
+  // the server itself: a connected RCON is that server answering, so it is
+  // running. Refuse as for a local one.
+  if (req.app?.get?.("rconService")?.connected) {
+    return res.status(409).json({
+      code: ErrorCode.SERVER_RUNNING,
+      error: "Stop the server before editing configuration.",
+    });
+  }
+  const result = await retireRemoteWorldSandboxSnapshot(
+    req.remoteConfigTransport,
+    req.activeServerContext.serverName,
+  );
+  if (!result.available) return res.status(400).json(WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE_BODY);
+  if (!result.retired) return res.json(NO_WORLD_SANDBOX_SNAPSHOT_BODY);
+  log.info(`Retired the remote world's sandbox copy -> ${result.movedTo}`);
+  return res.json({
+    success: true,
+    retired: true,
+    // A folder on the server's host, shown like the local one below.
+    movedTo: (await hostPathViewFor(req.user)).file(result.movedTo),
+    message: WORLD_SANDBOX_SNAPSHOT_RETIRED_MESSAGE,
+  });
+}
+
+router.post("/sandbox/world-snapshot/retire", async (req, res) => {
+  try {
+    if (req.activeServerContext.activeServer?.isRemote) {
+      return await retireRemoteWorldSandboxSnapshotRoute(req, res);
+    }
+    const { serverConfigPath: configPath, serverName } = req.activeServerContext;
+    const snapshotPath = localWorldSandboxSnapshotPath(req.activeServerContext);
+    if (!snapshotPath) {
+      // A folder the save would be in that the data-folder rule refuses
+      // (the game's default one, say, which the gate above never judged)
+      // gets that refusal; nothing under it is touched.
+      return res
+        .status(400)
+        .json(localGameDataDir(req.activeServerContext) ? zomboidDataFolderRefusal() : WORLD_SANDBOX_SNAPSHOT_UNAVAILABLE_BODY);
+    }
+    if (!(await findWorldSandboxSnapshot(req))) {
+      return res.json(NO_WORLD_SANDBOX_SNAPSHOT_BODY);
+    }
+
+    const backupDir = await getBackupPath(configPath);
+    await fs.promises.mkdir(backupDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    let movedTo = path.join(backupDir, `${serverName}_map_sand.bin.${timestamp}.retired`);
+    for (let n = 2; fs.existsSync(movedTo); n++) {
+      movedTo = path.join(backupDir, `${serverName}_map_sand.bin.${timestamp}-${n}.retired`);
+    }
+    try {
+      await fs.promises.rename(snapshotPath, movedTo);
+    } catch (error) {
+      if (error.code !== "EXDEV") throw error;
+      // Saves/ and the config folder sit on different drives or mounts.
+      await fs.promises.copyFile(snapshotPath, movedTo, fs.constants.COPYFILE_EXCL);
+      await fs.promises.unlink(snapshotPath);
+    }
+
+    log.info(`Retired the world's sandbox copy: ${snapshotPath} -> ${movedTo}`);
+    res.json({
+      success: true,
+      retired: true,
+      movedTo: (await hostPathViewFor(req.user)).file(movedTo),
+      message: WORLD_SANDBOX_SNAPSHOT_RETIRED_MESSAGE,
+    });
+  } catch (error) {
+    log.error("Failed to retire map_sand.bin:", error);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
@@ -2322,9 +2281,12 @@ router.get("/raw/:type", async (req, res) => {
     }
 
     const content = fs.readFileSync(filePath, "utf-8");
+    const worldSandboxSnapshot =
+      type === "sandbox" ? await findWorldSandboxSnapshot(req) : null;
     res.json({
       content: type === "ini" ? maskSensitiveIniLines(content) : content,
       filename: fileMap[type],
+      ...(worldSandboxSnapshot ? { worldSandboxSnapshot: await worldSandboxSnapshotView(req.user, worldSandboxSnapshot) } : {}),
     });
   } catch (error) {
     log.error("Failed to read raw file:", error);
@@ -2872,6 +2834,22 @@ router.post("/templates/:id/apply", async (req, res) => {
 
     const template = JSON.parse(fs.readFileSync(templateFile, "utf-8"));
     const { serverConfigPath: configPath, serverName } = req.activeServerContext;
+
+    // A template stores the whole SandboxVars.lua as it was when saved, so
+    // one saved from a corrupted file would put the corruption straight back.
+    // Checked before anything is written, INI included.
+    if (applySandbox && template.sandboxRaw) {
+      const check = validateSandboxLua(template.sandboxRaw);
+      if (!check.valid) {
+        const detail = check.error?.message || "unbalanced braces";
+        log.warn(`Template ${safeId} not applied: its SandboxVars.lua does not parse (${detail})`);
+        return res.status(422).json({
+          error: `This template's saved SandboxVars.lua is not valid Lua (${detail}), so nothing was applied. Apply its INI settings only, or save a new template from a working configuration.`,
+          code: ErrorCode.TEMPLATE_SANDBOX_UNPARSEABLE,
+          params: sanitizeErrorParams({ detail }),
+        });
+      }
+    }
 
     const backupWarnings = [];
 

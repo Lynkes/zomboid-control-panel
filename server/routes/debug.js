@@ -53,6 +53,7 @@ import { sanitizeError, sanitizeErrorParams, SENSITIVE_FIELD_RE } from "../utils
 import { ErrorCode } from "../utils/errorCodes.js";
 import { serverConfigDirOf } from "../utils/serverConfigPath.js";
 import { checkSandboxBraceBalance } from "./serverFiles.js";
+import { validateSandboxLua } from "../utils/sandboxLua.js";
 import panelBridgeService from "../services/panelBridge.js";
 import authService from "../services/auth.js";
 import { listBackupRecords } from "../services/backupRecords.js";
@@ -1046,6 +1047,10 @@ async function buildServerConfigSummary(activeServer) {
       bytes: Buffer.byteLength(sandboxContent),
       sha256: crypto.createHash("sha256").update(sandboxContent).digest("hex"),
       braceBalance: braces,
+      // The editors' own parser verdict, in the game's wording ("line N:
+      // '}' expected ... near 'X'"), so a bundle shows where a file broke
+      // without anyone sending the file itself (#197).
+      syntaxError: validateSandboxLua(sandboxContent).error?.message ?? null,
     };
   } catch (error) {
     result.sandbox.error = error.message;
@@ -4420,57 +4425,12 @@ router.get("/diagnostics", requirePermission("diagnostics.manage"), async (req, 
         // Server boots without it (uses built-in defaults), which silently
         // ignores any tuning the user thought they applied.
         if (zPath && activeServer.serverName) {
-          const sbxPath = path.join(
-            zPath,
-            "Server",
-            `${activeServer.serverName}_SandboxVars.lua`,
+          checks.push(
+            await buildSandboxVarsCheck(
+              activeServer.serverName,
+              path.join(zPath, "Server", `${activeServer.serverName}_SandboxVars.lua`),
+            ),
           );
-          if (await safePathExists(sbxPath)) {
-            let braceCheck = null;
-            try {
-              const sbxContent = await fs.promises.readFile(sbxPath, "utf-8");
-              braceCheck = checkSandboxBraceBalance(sbxContent);
-            } catch {
-              braceCheck = null;
-            }
-
-            if (braceCheck && !braceCheck.balanced) {
-              checks.push(
-                diagFail(
-                  "server.sandboxCorrupt",
-                  "SandboxVars.lua is corrupt",
-                  `${activeServer.serverName}_SandboxVars.lua has mismatched braces and will fail to load — the dedicated server exits immediately on boot with a Lua syntax error.`,
-                  {
-                    category: "server",
-                    hint: "Use the automated repair below, or restore from a .bak backup in the same folder.",
-                    params: { serverName: activeServer.serverName },
-                  },
-                ),
-              );
-            } else {
-              checks.push(
-                diagOk(
-                  "server.sandboxVars",
-                  "SandboxVars present",
-                  `${activeServer.serverName}_SandboxVars.lua is in place.`,
-                  { category: "server", params: { serverName: activeServer.serverName } },
-                ),
-              );
-            }
-          } else {
-            checks.push(
-              diagWarn(
-                "server.sandboxVars",
-                "SandboxVars missing",
-                `${activeServer.serverName}_SandboxVars.lua not found. Server will boot with built-in defaults; any custom sandbox tuning will be ignored.`,
-                {
-                  category: "server",
-                  hint: "Open Server Config → Sandbox to generate one, or copy from another server.",
-                  params: { serverName: activeServer.serverName },
-                },
-              ),
-            );
-          }
         }
 
         // Stale .lock files in the save folder — these block PZ from
@@ -5550,6 +5510,55 @@ export function buildUpdateRollbackNoticeCheck(installDir, currentVersion) {
       hint: "This build likely has a real problem, not a one-off -- check logs/supervisor.log from around the time of the revert before retrying the same version. Delete .update-rollback-notice.json from the install folder to dismiss this notice.",
       params: { version: failedVersion, currentVersion: resolvedCurrentVersion },
     },
+  );
+}
+
+// server.sandboxCorrupt / server.sandboxVars. Corrupt means the game can't
+// load the file: it does not parse, or it has no SandboxVars table
+// (validateSandboxLua().valid, the same check as GET /sandbox/validate).
+// Either way the dedicated server exits on boot. This used to count braces
+// only, so a missing comma, an empty file or "SandboxVars = nil" showed as
+// "SandboxVars present" (#197). `detail` is the parser's own message.
+// Exported so it can be tested without the whole handler.
+export async function buildSandboxVarsCheck(serverName, sbxPath) {
+  if (!(await safePathExists(sbxPath))) {
+    return diagWarn(
+      "server.sandboxVars",
+      "SandboxVars missing",
+      `${serverName}_SandboxVars.lua not found. Server will boot with built-in defaults; any custom sandbox tuning will be ignored.`,
+      {
+        category: "server",
+        hint: "Open Server Config → Sandbox to generate one, or copy from another server.",
+        params: { serverName },
+      },
+    );
+  }
+
+  let check = null;
+  try {
+    check = validateSandboxLua(await fs.promises.readFile(sbxPath, "utf-8"));
+  } catch {
+    check = null;
+  }
+
+  if (check && !check.valid) {
+    const detail = check.error?.message || "unbalanced braces";
+    return diagFail(
+      "server.sandboxCorrupt",
+      "SandboxVars.lua is corrupt",
+      `The game can't load ${serverName}_SandboxVars.lua (${detail}), so the dedicated server exits on boot.`,
+      {
+        category: "server",
+        hint: "Use the automated repair below, or restore from a .bak backup in the same folder.",
+        params: { serverName, detail },
+      },
+    );
+  }
+  return diagOk(
+    "server.sandboxVars",
+    "SandboxVars present",
+    `${serverName}_SandboxVars.lua is in place.`,
+    { category: "server", params: { serverName } },
   );
 }
 

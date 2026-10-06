@@ -100,7 +100,6 @@ const CANNOT_VERIFY_OR_EQUIVALENT = {
   airdrop: 'Counts real per-item placement success into `itemCount`/`failed` -- honest count, not a boolean.',
   killPlayer: 'Already gates the returned `ok` itself on isDead() -- the read-back IS the ok value (this file\'s own gold-standard pattern), no separate field needed.',
   setGameTime: 'Already gates on setAndVerify\'s own read-back-vs-expected comparison per field, failing immediately on a real mismatch (this file\'s other gold-standard pattern).',
-  saveWorld: 'Already gates ok directly on the real pcall result of the bare saveGame() global (not world:saveWorld(), which does not exist -- fixed 2026-08-30) -- this IS the original b376b2c fix, no separate flag needed.',
 
   // Genuinely no read-back exists -- confirmed against the real B42 jar,
   // not assumed. This is an API LIMIT: the method is real, it just returns
@@ -129,6 +128,7 @@ const CANNOT_VERIFY_OR_EQUIVALENT = {
   // is nothing for a verified field to describe.
   spawnVehicleAt: 'Always returns false (RCON handles vehicle spawning on B42) -- never claims success, nothing to verify.',
   setTimeSpeed: 'Always returns false (RCON handles the dedicated server clock multiplier) -- never claims success, nothing to verify.',
+  saveWorld: 'Always returns false (#197: saveGame() wrote map_sand.bin, which overrides SandboxVars.lua at every start; RCON save is the server\'s own save) -- never claims success, nothing to verify.',
 
   // Genuine pcall-ceiling: no observable state exists to confirm the
   // real-world effect happened (a zombie heard a sound, a message was

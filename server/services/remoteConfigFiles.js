@@ -101,11 +101,53 @@ export function mirroredFileNames(serverName) {
   ].map(assertConfigFileName);
 }
 
+// The world save's map_sand.bin on the host, which the game applies over
+// SandboxVars.lua on every start (#197). The game keeps <cachedir>/Server and
+// <cachedir>/Saves side by side, so the save sits next to the configured
+// Server folder. null when that folder isn't named Server: the save's place
+// can't be told then.
+export function remoteWorldSandboxSnapshotPath(rawConfig, serverName) {
+  const configPath = safeRemoteDir(rawConfig?.configPath);
+  const name = String(serverName || "");
+  if (path.posix.basename(configPath).toLowerCase() !== "server" || !CONFIG_NAME_PATTERN.test(name)) {
+    return null;
+  }
+  return path.posix.join(path.posix.dirname(configPath), "Saves", "Multiplayer", name, "map_sand.bin");
+}
+
+// { path, mtime } when the remote world has a map_sand.bin, else null. Only
+// a warning hangs on it, so a host that hides Saves/ from this SFTP user
+// reads as "none" instead of failing the config pull.
+async function statWorldSandboxSnapshot(client, config, serverName) {
+  const snapshotPath = remoteWorldSandboxSnapshotPath(config, serverName);
+  if (!snapshotPath) return null;
+  try {
+    const stats = await client.stat(snapshotPath);
+    if (!stats?.isFile) return null;
+    return { path: snapshotPath, mtime: new Date(stats.modifyTime).toISOString() };
+  } catch (error) {
+    if (!isNoSuchFile(error)) log.debug(`Could not check ${snapshotPath}: ${error.message}`);
+    return null;
+  }
+}
+
 // A session whose SFTP channel closes (the host's sftp-server went) or
 // that stops answering fails instead of waiting forever: callers hold the
 // mirror lock, which Server Files' config writes wait on too.
 function withClient(config, handler) {
   return withSftpSession("RemoteConfigFiles", config, handler);
+}
+
+/**
+ * { path, mtime } when the remote world has a map_sand.bin, else null: the
+ * config pull's own check, on a session of its own, for a live sandbox
+ * change sent through PanelBridge (#197). It touches no mirror file, so it
+ * needs no mirror lock. A connection failure throws.
+ */
+export async function findRemoteWorldSandboxSnapshot(rawConfig, serverName) {
+  const config = validateRemoteConfigTransport(rawConfig);
+  if (!remoteWorldSandboxSnapshotPath(config, serverName)) return null;
+  return withClient(config, (client) => statWorldSandboxSnapshot(client, config, serverName));
 }
 
 // Only "no such file" means a config file is absent on the host. Any other
@@ -170,6 +212,7 @@ export async function pullRemoteConfigFiles(rawConfig, serverName) {
   }
 
   const manifest = {};
+  let worldSandboxSnapshot = null;
   await withClient(config, async (client) => {
     for (const name of names) {
       const remotePath = `${config.configPath}/${name}`;
@@ -208,8 +251,52 @@ export async function pullRemoteConfigFiles(rawConfig, serverName) {
       }
       manifest[name] = hashFile(localPath);
     }
+    worldSandboxSnapshot = await statWorldSandboxSnapshot(client, config, serverName);
   });
-  return { mirrorDir, manifest, pulledAt: Date.now() };
+  return { mirrorDir, manifest, pulledAt: Date.now(), worldSandboxSnapshot };
+}
+
+/**
+ * Move the remote world's map_sand.bin into the remote Server/backups folder
+ * as <server>_map_sand.bin.<timestamp>.retired, so every start from then on
+ * uses SandboxVars.lua (#197). Never deletes it: when Saves/ and Server/ are
+ * on different mounts (a rename fails there), it is copied and only then
+ * removed. Returns { available: false } when the save's place can't be told,
+ * { retired: false } when there is no map_sand.bin, else { retired: true,
+ * movedTo }.
+ */
+export async function retireRemoteWorldSandboxSnapshot(rawConfig, serverName) {
+  const config = validateRemoteConfigTransport(rawConfig);
+  const snapshotPath = remoteWorldSandboxSnapshotPath(config, serverName);
+  if (!snapshotPath) return { available: false, retired: false };
+  const result = await withClient(config, async (client) => {
+    // stat, as the game reads it: a link to a file counts (the link is what
+    // moves).
+    const stats = await client.stat(snapshotPath).catch((error) => {
+      if (isNoSuchFile(error)) return null;
+      throw error;
+    });
+    if (!stats?.isFile) return { available: true, retired: false };
+
+    const backupDir = `${config.configPath}/backups`;
+    await client.mkdir(backupDir, true);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    let movedTo = `${backupDir}/${serverName}_map_sand.bin.${timestamp}.retired`;
+    for (let n = 2; await client.exists(movedTo); n++) {
+      movedTo = `${backupDir}/${serverName}_map_sand.bin.${timestamp}-${n}.retired`;
+    }
+    try {
+      await client.rename(snapshotPath, movedTo);
+    } catch (renameError) {
+      if (Number(stats.size) > MAX_CONFIG_BYTES) throw renameError;
+      await client.put(await client.get(snapshotPath), movedTo);
+      await client.delete(snapshotPath);
+    }
+    return { available: true, retired: true, movedTo };
+  });
+  // The cached mirror session still names the file; the next read re-pulls.
+  if (result.retired) resetRemoteConfigSession();
+  return result;
 }
 
 /**

@@ -32,7 +32,6 @@
     "stopRain": "停止降雨",
     "restoreUtilities": "恢复水电",
     "shutOffUtilities": "关闭水电",
-    "saveWorldBridge": "保存世界（PanelBridge）",
     "broadcastServerChat": "广播（服务器聊天）"
   },
   "dialog": {

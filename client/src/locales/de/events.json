@@ -596,6 +596,8 @@
     "commandFailedFallback": "Befehl fehlgeschlagen",
     "notPersistedDesc": "Nur auf die laufende Welt angewendet — SandboxVars.lua wurde nicht aktualisiert ({{reason}}), daher macht ein Serverneustart dies rückgängig.",
     "notPersistedUnknownReason": "unbekannter Grund",
+    "keptInWorldSandboxDesc": "In die gespeicherten Einstellungen der Welt (map_sand.bin) übernommen, bleibt also nach einem Neustart erhalten.",
+    "worldSandboxNotKeptDesc": "Auf die laufende Welt angewendet, aber die gespeicherten Einstellungen der Welt (map_sand.bin), die das Spiel bei jedem Start über SandboxVars.lua lädt, wurden nicht aktualisiert, daher macht ein Neustart dies rückgängig. Eine ältere PanelBridge aktualisiert sie nicht. Bei gestopptem Server kann die Serverkonfiguration diese Welt auf SandboxVars.lua umstellen.",
     "bridgeCommandFailedFallback": "Brücken-Befehl fehlgeschlagen.",
     "powerDidNotTakeEffectDesc": "Der Server meldet, dass der Strom weiterhin {{state}} ist — die Änderung wurde nicht wirksam.",
     "noPlayersOnlineError": "Keine Spieler online",

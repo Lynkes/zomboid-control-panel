@@ -37,3 +37,9 @@ pz-mod/**/mod.info text eol=lf
 pz-mod/**/*.json text eol=lf
 pz-mod/**/*.txt text eol=lf
 pz-mod/**/*.png binary
+
+# server/__fixtures__/pzVanillaB42SandboxVars.lua is SandboxVars.lua exactly as
+# game build 42.21 writes it on Windows (SandboxOptions.writeLuaFile, CRLF).
+# The #197 round-trip tests compare it byte for byte, so git must not
+# normalize its line endings on any checkout.
+server/__fixtures__/*.lua -text

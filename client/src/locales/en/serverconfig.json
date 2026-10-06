@@ -381,6 +381,7 @@
     "copyFailed": "Failed to copy content to clipboard.",
     "optionUpdatedTitle": "Option Updated",
     "optionUpdatedDesc": "{{option}} set successfully",
+    "optionKeptInWorldDesc": "{{option}} set, and kept in the world's saved settings (map_sand.bin), which the game loads on every start.",
     "enumLastChoiceRefusedTitle": "Update PanelBridge first",
     "enumLastChoiceRefusedDesc": "{{option}} wasn't changed. The older PanelBridge this server runs would save the last choice ({{max}}) as the one before it.",
     "bridgeUnverifiedDesc": "{{action}} was sent, but the mod could not confirm it took effect.",
@@ -389,6 +390,10 @@
     "worldSaveFailedDesc": "{{option}} was applied, but the server's world save failed ({{reason}}), so it may not survive the next restart.",
     "notPersistedDesc": "{{option}} is not in SandboxVars.lua, so it will reset when the server restarts.",
     "willResetFallback": "{{option}} will reset when the server restarts.",
+    "worldSandboxNotKeptDesc": "{{option}} was applied, but the world's saved settings (map_sand.bin), which the game loads over SandboxVars.lua on every start, were not updated, so the next start undoes it. Stop the server and choose \"Use SandboxVars.lua\" to have the game use SandboxVars.lua.",
+    "worldSandboxSnapshotRetiredTitle": "map_sand.bin moved",
+    "worldSandboxSnapshotRetiredDesc": "Moved to {{path}}. The next start uses SandboxVars.lua.",
+    "worldSandboxSnapshotRetireFailed": "Could not move map_sand.bin.",
     "someSandboxKeysNotSavedTitle": "Some settings not saved",
     "someSandboxKeysNotSavedDesc": "The rest was saved, but these could not be written and will reset when the server restarts: {{keys}}",
     "failedToUpdateTitle": "Failed to Update",
@@ -4067,6 +4072,19 @@
     "title": "The game ignores this whole file and runs on the default of every setting",
     "desc_one": "Line {{lines}} starts with \"=\" (or is \"Version=\" with no number), and the game rejects the file because of it. Delete or fix that line in Raw mode.",
     "desc_other": "Lines {{lines}} start with \"=\" (or are \"Version=\" with no number), and the game rejects the file because of them. Delete or fix those lines in Raw mode."
+  },
+  "sandboxParseErrorBanner": {
+    "title": "SandboxVars.lua has a Lua error, so this form can't show it",
+    "desc": "Fix it in Raw mode, run the repair under Checks & Fixes, or restore a backup. Saving from this form is blocked until then."
+  },
+  "worldSandboxSnapshotBanner": {
+    "title": "This world keeps its own copy of the sandbox settings",
+    "desc": "The world save holds a map_sand.bin, last written {{date}}. The game loads it after SandboxVars.lua on every start, so changes saved to SandboxVars.lua, here or in the in-game admin panel, are undone. Live changes made through PanelBridge are written to it too. Stop the server and choose \"Use SandboxVars.lua\" to fix this.",
+    "action": "Use SandboxVars.lua",
+    "stopFirst": "Stop the server first.",
+    "confirmTitle": "Use SandboxVars.lua for this world?",
+    "confirmDesc": "From the next start, every sandbox setting, mod options included, comes from SandboxVars.lua. map_sand.bin is moved to the backups folder next to SandboxVars.lua, not deleted.",
+    "confirmLabel": "Use SandboxVars.lua"
   },
   "iniSecretCutAtEqualsWarning": "The game reads this value only up to the first \"=\" and ignores the rest. Use a value without \"=\".",
   "iniMisnamedKeyFileValue": "The line in the file says: {{value}}"

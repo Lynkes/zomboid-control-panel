@@ -332,9 +332,21 @@ function prepareSandboxChange(template, paths, result) {
   }
 
   const existing = fs.readFileSync(paths.sandboxPath, "utf-8");
-  const { content, applied, skipped } = mergeSandboxSections(existing, template.sandboxVars);
+  const { content, applied, skipped, error } = mergeSandboxSections(existing, template.sandboxVars);
+  if (error) {
+    // Never write into a file the game already rejects. Reported like a
+    // missing file: skipped, with the parser's reason.
+    result.sandbox = {
+      skipped: true,
+      reason: `SandboxVars.lua does not parse (${error.message}) — fix it before applying a template.`,
+    };
+    return null;
+  }
   result.sandbox = { applied, skipped };
-  if (applied.length === 0) return null;
+  // Every value already matches: no backup, no rewrite. A rewrite would also
+  // turn bytes that are not valid UTF-8 (a file saved from a cp1252 editor)
+  // into U+FFFD.
+  if (applied.length === 0 || content === existing) return null;
   return {
     filePath: paths.sandboxPath,
     content,

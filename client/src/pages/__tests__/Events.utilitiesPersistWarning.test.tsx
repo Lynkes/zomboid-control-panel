@@ -210,3 +210,54 @@ describe('Events -- the utilities persist-failure warning (restored, was wrongly
     })
   })
 })
+
+// #197: on a world with a map_sand.bin, which the game loads over
+// SandboxVars.lua on every start, the route says whether the bridge kept the
+// change in it (worldSandboxSnapshot.refreshed) and sets persisted from that.
+describe("Events -- power and water on a world with its own saved settings (#197)", () => {
+  it("says the change is kept in the world's saved settings when the bridge rewrote them", async () => {
+    shutOffUtilities.mockResolvedValue({
+      success: true,
+      message: 'Utilities shut off',
+      power: true,
+      water: false,
+      hydroPowerOn: false,
+      persisted: true,
+      persistReason: null,
+      worldSandboxSnapshot: { path: '/z/Saves/Multiplayer/DoB/map_sand.bin', refreshed: true },
+    } as never)
+
+    renderEvents()
+    await openUtilitiesSection()
+    await toggleFirstSwitch()
+
+    await waitFor(() => {
+      const call = toastSpy.mock.calls.at(-1)
+      expect(call?.[0].variant).toBe('success')
+      expect(call?.[0].description).toBe("Kept in the world's saved settings (map_sand.bin), so it lasts through a restart.")
+    })
+  })
+
+  it('warns that a restart undoes it when the bridge did not', async () => {
+    shutOffUtilities.mockResolvedValue({
+      success: true,
+      message: 'Utilities shut off',
+      power: true,
+      water: false,
+      hydroPowerOn: false,
+      persisted: false,
+      persistReason: "the world's map_sand.bin, which the game loads over SandboxVars.lua on every start, was not updated",
+      worldSandboxSnapshot: { path: '/z/Saves/Multiplayer/DoB/map_sand.bin', refreshed: false },
+    } as never)
+
+    renderEvents()
+    await openUtilitiesSection()
+    await toggleFirstSwitch()
+
+    await waitFor(() => {
+      const call = toastSpy.mock.calls.at(-1)
+      expect(call?.[0].variant).toBe('default')
+      expect(call?.[0].description).toMatch(/^Applied to the running world, but the world's saved settings \(map_sand\.bin\).+so a restart undoes this\. An older PanelBridge doesn't update them/)
+    })
+  })
+})

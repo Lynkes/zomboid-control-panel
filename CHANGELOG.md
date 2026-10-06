@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Forged deaths:** player deaths come from PanelBridge instead of the game log, which a crafted co-op name could forge.
 - **PanelBridge leaderboard:** no longer kept in world-readable mod data keyed by SteamID.
 - **Smaller fixes:** no status-scan process flood, no player-export collisions, no setup token in logs, no forged log lines, and backup or disk alerts only for roles that can act on them.
+- **Power and water writes:** Events › Power and water writes SandboxVars.lua only into a config folder Server Config allows; a moderator could write into a refused one.
 - **Update PanelBridge:** the bridge fixes ship in the mod; Workshop servers get them once the item is updated and the server restarts.
 
 ### Fixed
@@ -36,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discord relay channel:** emptying the field now clears it.
 - **World Map vehicles:** Repair, Set Fuel, Set Battery and the siren work again on Build 42, and Repair is the game's own admin repair (#199).
 - **Vehicle alarm and hotwire:** Alarm On now leaves the alarm armed, and hotwiring unlocks the doors for connected players too.
+- **SandboxVars corruption:** saving the Sandbox page no longer turns a mod table into a number, which stopped the server from starting (#197).
+- **Sandbox settings undone on restart:** PanelBridge no longer creates a world `map_sand.bin`, and Server Config warns about an existing one and can move it aside (#197).
 
 ## [1.4.5] - 2026-10-05
 
