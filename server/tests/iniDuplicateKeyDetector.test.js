@@ -3,6 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { findDuplicateIniKeys } from "../utils/iniDuplicateKeys.js";
+import { runServerFilesRoute } from "./helpers/serverFilesRoute.js";
 
 // 2026-08-27: found investigating an operator's corrupted servertest.ini
 // (two config blocks concatenated). On a file with a key duplicated as two
@@ -97,19 +98,15 @@ function createResponse() {
   return response;
 }
 
-// 2026-09-08 quadruple-read sweep: serverFiles.js's handlers now read
-// req.activeServerContext instead of re-deriving it, populated once by that
-// router's own gate (a non-route layer this function's own route-lookup
-// never reaches) -- mods.js has no such gate/context, so only run it when
-// present (i.e. only for a serverFiles.js router passed in).
+// For mods.js, which has no gate or req.activeServerContext. serverFiles.js's
+// GET /ini runs behind that router's own gate instead, which fails the test
+// if it refuses the request (helpers/serverFilesRoute.js).
 async function invokeLastHandler(router, routePath, method, req) {
   const layer = router.stack.find(
     (entry) => entry.route?.path === routePath && entry.route.methods[method],
   );
   if (!layer) throw new Error(`No ${method.toUpperCase()} ${routePath} route registered`);
   const res = createResponse();
-  const gate = router.stack.filter((entry) => !entry.route)[1]?.handle;
-  if (gate) await gate(req, res, () => {});
   await layer.route.stack[layer.route.stack.length - 1].handle(req, res);
   return res;
 }
@@ -140,7 +137,7 @@ describe("GET /server-files/ini and GET /mods/validate-config surface a real dup
     });
 
     const { default: router } = await import("../routes/serverFiles.js");
-    const res = await invokeLastHandler(router, "/ini", "get", {});
+    const res = await runServerFilesRoute(router, "/ini", "get", {}, createResponse());
 
     expect(res.getStatusCode()).toBe(200);
     const body = res.getBody();

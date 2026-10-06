@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { passServerFilesGate } from "./helpers/serverFilesRoute.js";
 
 // conv-mods-thumbnails follow-up (the "one-gate-per-router blindness" card):
 // routeRoleSweep.test.js's runFirstUseLayer() (and every router.stack.find()
@@ -117,15 +118,22 @@ describe("serverFiles.js router.use layers beyond the requirePermission gate", (
     // instead of calling getActiveServer() itself -- populated once by layer[1]
     // (the unconfigured-server gate, now also the single per-request read
     // point). Run layer[1] first, on the SAME req, exactly as Express's real
-    // chain would, rather than hand-building the context here.
+    // chain would, rather than hand-building the context here. Layer[2] runs
+    // only if layer[1] lets the request through (helpers/serverFilesRoute.js).
     async function runLayer1Then2(req) {
-      const [, layer1, layer2] = getUseLayers();
-      await layer1(req, createResponse(), () => {});
+      const [, , layer2] = getUseLayers();
+      await passServerFilesGate(router, req, createResponse(), `${req.method} ${req.path}`);
       return runLayer(layer2, req);
     }
 
     it("a local active server -- passes straight through, no SFTP anything touched", async () => {
-      getActiveServer.mockResolvedValue({ isRemote: false, serverName: "S", serverConfigPath: "/srv/S" });
+      // PATHS-2: a local config folder is used only inside <data folder>/Server.
+      getActiveServer.mockResolvedValue({
+        isRemote: false,
+        serverName: "S",
+        zomboidDataPath: "/srv/pz",
+        serverConfigPath: "/srv/pz/Server",
+      });
       const { nextCalledWith } = await runLayer1Then2(fakeReq());
       expect(nextCalledWith).toBe("called");
     });

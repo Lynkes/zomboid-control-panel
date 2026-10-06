@@ -3,6 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { parseAnyBackupFilename } from "../utils/configBackup.js";
+import { runServerFilesRoute } from "./helpers/serverFilesRoute.js";
 
 // display-order-tie-breaks-nine-sites-cosmetic, 2026-09-09: GET /backups
 // (server/routes/serverFiles.js) used to sort by fs birthtime alone --
@@ -71,22 +72,8 @@ function createResponse() {
   return response;
 }
 
-function getHandler(routePath, method) {
-  const layer = router.stack.find(
-    (entry) => entry.route?.path === routePath && entry.route.methods[method],
-  );
-  return layer.route.stack[layer.route.stack.length - 1].handle;
-}
-
-function getGateMiddleware() {
-  return router.stack.filter((entry) => !entry.route)[1].handle;
-}
-
-async function runHandler(routePath, method, req) {
-  const res = createResponse();
-  await getGateMiddleware()(req, res, () => {});
-  await getHandler(routePath, method)(req, res, () => {});
-  return res;
+function runHandler(routePath, method, req) {
+  return runServerFilesRoute(router, routePath, method, req, createResponse());
 }
 
 describe("GET /backups: orders by each backup's own embedded timestamp, not fs birthtime", () => {
