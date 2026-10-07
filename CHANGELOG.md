@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Automatic minimum memory:** a server's minimum memory can be 0, which starts it without `-Xms`; the JVM starts small and gives back memory it isn't using, where it never goes below a set minimum. A 0 saved before was read as 4 GB.
+
 ### Security
 
 - **Live updates by role:** install progress, scans, PanelBridge status, deaths, the player list and chat reach only roles allowed to see them (#193, thanks @mrbean56).

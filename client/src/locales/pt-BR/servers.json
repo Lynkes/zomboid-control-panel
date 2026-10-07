@@ -64,6 +64,7 @@
     "rcon": "RCON",
     "gamePort": "Porta do jogo",
     "memory": "Memória",
+    "memoryAuto": "auto",
     "statusHost": "Host",
     "statusProcess": "Processo",
     "statusContainer": "Contêiner",
@@ -192,6 +193,7 @@
     "passwordSet": "Senha definida",
     "passwordWillImport": "Importada automaticamente de {{iniName}}.ini — deixe em branco para usá-la ou digite uma nova para substituí-la.",
     "minMemoryLabel": "Memória mínima (GB)",
+    "minMemoryHint": "0 = automático: o servidor começa pequeno e devolve a memória que não está usando.",
     "maxMemoryLabel": "Memória máxima (GB)",
     "discoverNoPermission": "Detectar ou escanear servidores requer a permissão servers.discover, que este cargo não tem.",
     "foundServers_many": "{{count}} servidores encontrados. Clique para selecionar:"
@@ -255,6 +257,7 @@
     "adminPasswordAria": "senha de admin",
     "gamePortLabel": "Porta do jogo",
     "minMemoryLabel": "Memória mínima (GB)",
+    "minMemoryHint": "0 = automático: o servidor começa pequeno e devolve a memória que não está usando.",
     "maxMemoryLabel": "Memória máxima (GB)",
     "cancel": "Cancelar",
     "saving": "Salvando...",
