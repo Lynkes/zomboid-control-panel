@@ -16,6 +16,8 @@ Project Zomboid is a zombie survival game; playing it with friends means running
 [**💬 Discord**](https://discord.gg/jHsWJDNmSg) ·
 [**📖 Setup**](#quick-start)
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/X8X01YPOV2)
+
 </div>
 
 <br />

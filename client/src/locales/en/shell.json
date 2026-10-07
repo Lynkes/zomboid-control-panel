@@ -82,8 +82,8 @@
   },
   "footer": {
     "signOut": "Sign out",
-    "supportKofi": "Support on Ko-fi (opens in new tab)",
-    "buyMeCoffee": "Buy me a coffee",
+    "opensInNewTab": "(opens in new tab)",
+    "supportMeKofi": "Support me on Ko-fi",
     "githubRepo": "GitHub repository (opens in new tab)",
     "keyboardShortcuts": "Keyboard shortcuts",
     "keyboardShortcutsTitle": "Keyboard shortcuts (?)",
