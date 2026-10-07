@@ -486,6 +486,9 @@ jobs:
       - name: Build packaged Windows executable
         run: node build.js --windows
 
+      - name: Verify sql.js wasm is embedded
+        run: node scripts/verify-embedded-sqljs.mjs
+
       - name: Verify packaged updater artifacts
         shell: pwsh
         run: |

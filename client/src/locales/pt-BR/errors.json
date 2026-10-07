@@ -229,6 +229,7 @@
   "CHUNKS_DATA_PATH_NOT_SET": "Caminho de dados do Zomboid não definido",
   "DELETE_CHUNKS_FIELDS_REQUIRED": "Nome do save e array de chunks são obrigatórios",
   "DELETE_CHUNKS_TOO_MANY": "Chunks demais ({{count}}). O máximo é 100.000 por solicitação — divida em lotes menores.",
+  "SQLITE_ENGINE_UNAVAILABLE": "O mecanismo SQLite do painel não pôde iniciar, então o vehicles.db não pode ser limpo. Nenhum arquivo foi excluído. Atualize ou reinstale o painel e reinicie-o.",
   "DELETE_CHUNKS_INVALID_FILE_NAME": "Nome de arquivo de chunk inválido",
   "DELETE_CHUNKS_INVALID_FILE_PATH": "Caminho de arquivo de chunk inválido",
   "DELETE_CHUNKS_INVALID_X": "Coordenada x do chunk inválida — deve ser um número inteiro",

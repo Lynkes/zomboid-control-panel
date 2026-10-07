@@ -229,6 +229,7 @@
   "CHUNKS_DATA_PATH_NOT_SET": "未設定 Zomboid 資料路徑",
   "DELETE_CHUNKS_FIELDS_REQUIRED": "存檔名稱和區塊陣列均為必填項",
   "DELETE_CHUNKS_TOO_MANY": "區塊數量過多（{{count}}）。每次請求最多 100,000 個——請拆分為更小的批次。",
+  "SQLITE_ENGINE_UNAVAILABLE": "面板的 SQLite 引擎無法啟動，因此無法清理 vehicles.db。未刪除任何檔案。請更新或重新安裝面板，然後重新啟動。",
   "DELETE_CHUNKS_INVALID_FILE_NAME": "區塊檔名無效",
   "DELETE_CHUNKS_INVALID_FILE_PATH": "區塊檔案路徑無效",
   "DELETE_CHUNKS_INVALID_X": "區塊 x 座標無效——必須為整數",

@@ -89,6 +89,19 @@ export function readPublishedWorkshopJson(filePath = "./pz-mod/workshop/publishe
   return text;
 }
 
+// sql.js's WebAssembly binary, inlined into server.cjs as SQL_WASM_B64 (read
+// by server/utils/sqlJs.js), so the exe never looks for sql-wasm.wasm on disk.
+// It used to ship as a loose file beside the exe, which the raw-exe download
+// and the in-app updater never brought along; without it sql.js aborted and
+// the panel closed (2026-10-07).
+export function readSqlWasmBase64(wasmPath = "./node_modules/sql.js/dist/sql-wasm.wasm") {
+  const bytes = fs.readFileSync(wasmPath);
+  if (!WebAssembly.validate(bytes)) {
+    throw new Error(`${wasmPath} is not a valid WebAssembly module`);
+  }
+  return bytes.toString("base64");
+}
+
 export function createEmbeddedClientBundle(clientDist, expectedMetadata) {
   const files = {};
   const walk = (directory, relativeDirectory = "") => {
@@ -1675,6 +1688,16 @@ async function main() {
     process.exit(1);
   }
 
+  // Also before the client build: without the wasm every SQLite feature
+  // (whitelist, access levels, vehicle cleanup, cookie import) is dead.
+  let sqlWasmB64;
+  try {
+    sqlWasmB64 = readSqlWasmBase64();
+  } catch (error) {
+    console.error(`Cannot embed sql.js's WebAssembly: ${error.message}. Run \`npm install\` first.`);
+    process.exit(1);
+  }
+
   await cleanDir(distDir);
   if (!fs.existsSync(distDir)) {
     fs.mkdirSync(distDir, { recursive: true });
@@ -1759,6 +1782,7 @@ async function main() {
       PANEL_BRIDGE_LUA_B64: JSON.stringify(panelBridgeLuaB64),
       PANEL_BRIDGE_WORKSHOP_JSON: JSON.stringify(publishedWorkshopJson),
       PANEL_CLIENT_DIST_B64: JSON.stringify(embeddedClientDistB64),
+      SQL_WASM_B64: JSON.stringify(sqlWasmB64),
     },
     banner: {
       js: "const import_meta_url = require('url').pathToFileURL(__filename).href;",
@@ -1967,19 +1991,6 @@ Recommended safe-upgrade commands:
         console.warn("Could not build browser-extension zip:", err.message);
       }
     }
-  }
-
-  // Ship the sql.js WASM blob next to the executable. vehiclesDb.js loads it
-  // at runtime to delete rows from the save's vehicles.db. The file is tiny
-  // (~660 KB) and pkg can't introspect sql.js's dynamic require, so we copy
-  // it manually.
-  const wasmSrc = "./node_modules/sql.js/dist/sql-wasm.wasm";
-  if (fs.existsSync(wasmSrc)) {
-    fs.copyFileSync(wasmSrc, "./release/sql-wasm.wasm");
-  } else {
-    console.warn(
-      "sql-wasm.wasm not found in node_modules/sql.js/dist — vehicle cleanup will fail at runtime. Run `npm install` first.",
-    );
   }
 
   if (fs.existsSync("./zomboid-panel.service")) {

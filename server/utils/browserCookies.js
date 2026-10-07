@@ -27,9 +27,8 @@ import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
 import { spawn } from 'child_process';
-import { fileURLToPath } from 'url';
-import initSqlJs from 'sql.js';
 import { createLogger } from './logger.js';
+import { getSqlJs } from './sqlJs.js';
 
 const log = createLogger('BrowserCookies');
 const STEAM_HOSTS = ['steamcommunity.com', '.steamcommunity.com', 'store.steampowered.com', '.steampowered.com'];
@@ -111,39 +110,10 @@ function cookieFreshness(cookie) {
   return Number(cookie.lastAccessedAt || cookie.createdAt || 0);
 }
 
-let sqlPromise = null;
 // In-memory cache: master key per browser id. The key never changes for a
 // given Windows user account, so we can avoid re-spawning PowerShell every
 // extraction within the panel's lifetime. Cleared on process exit.
 const masterKeyCache = new Map();
-
-function locateWasm() {
-  const candidates = [];
-  if (process.pkg) {
-    const execDir = path.dirname(process.execPath);
-    candidates.push(path.join(execDir, 'sql-wasm.wasm'));
-    candidates.push(path.join(execDir, 'assets', 'sql-wasm.wasm'));
-  }
-  try {
-    const here = path.dirname(fileURLToPath(import.meta.url));
-    candidates.push(path.resolve(here, '../../node_modules/sql.js/dist/sql-wasm.wasm'));
-  } catch { /* ignore */ }
-  candidates.push(path.resolve(process.cwd(), 'node_modules/sql.js/dist/sql-wasm.wasm'));
-  candidates.push(path.resolve(process.cwd(), 'sql-wasm.wasm'));
-  for (const p of candidates) {
-    try { if (fs.existsSync(p)) return p; } catch { /* ignore */ }
-  }
-  return null;
-}
-
-async function getSQL() {
-  if (!sqlPromise) {
-    sqlPromise = initSqlJs({
-      locateFile: () => locateWasm() || 'sql-wasm.wasm',
-    });
-  }
-  return sqlPromise;
-}
 
 function defaultProfileRoots() {
   const home = os.homedir();
@@ -375,7 +345,7 @@ async function readChromiumCookies(cookiesPath) {
     return { ok: false, error: `Could not read cookies file (${err.code || 'locked'}). Try closing the browser and retry, or use the browser extension.` };
   }
   try {
-    const SQL = await getSQL();
+    const SQL = await getSqlJs();
     const buf = fs.readFileSync(tmpPath);
     const db = new SQL.Database(new Uint8Array(buf));
     const hostList = STEAM_HOSTS.map((h) => `'${h.replace(/'/g, "''")}'`).join(',');
@@ -403,7 +373,7 @@ async function readFirefoxCookies(cookiesPath) {
     return { ok: false, error: `Could not read cookies file (${err.code || 'locked'}). Try closing Firefox and retry, or use the browser extension.` };
   }
   try {
-    const SQL = await getSQL();
+    const SQL = await getSqlJs();
     const buf = fs.readFileSync(tmpPath);
     const db = new SQL.Database(new Uint8Array(buf));
     const hostList = STEAM_HOSTS.map((h) => `'${h.replace(/'/g, "''")}'`).join(',');

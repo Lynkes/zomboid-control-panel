@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { createRequire } from "module";
 import {
   createEmbeddedClientBundle,
   getClientDistFileHashes,
+  readSqlWasmBase64,
   resolveApiContractVersion,
   resolveBuildSha,
 } from "../../build.js";
@@ -61,6 +63,28 @@ describe("standalone build metadata", () => {
       ]);
     } finally {
       fs.rmSync(clientDist, { recursive: true, force: true });
+    }
+  });
+});
+
+// The exe carries sql.js's wasm inline (SQL_WASM_B64, see server/utils/sqlJs.js)
+// instead of as a loose file the updater never shipped (2026-10-07 crash).
+describe("embedded sql.js WebAssembly", () => {
+  it("embeds exactly the installed sql.js package's wasm", () => {
+    const wasmPath = createRequire(import.meta.url).resolve("sql.js/dist/sql-wasm.wasm");
+    const embedded = Buffer.from(readSqlWasmBase64(), "base64");
+    expect(embedded.equals(fs.readFileSync(wasmPath))).toBe(true);
+  });
+
+  it("fails the build rather than embed something that isn't WebAssembly", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "zcp-build-wasm-"));
+    try {
+      const notWasm = path.join(dir, "sql-wasm.wasm");
+      fs.writeFileSync(notWasm, "not wasm");
+      expect(() => readSqlWasmBase64(notWasm)).toThrow(/is not a valid WebAssembly module/);
+      expect(() => readSqlWasmBase64(path.join(dir, "missing.wasm"))).toThrow(/ENOENT/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });

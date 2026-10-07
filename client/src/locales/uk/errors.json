@@ -229,6 +229,7 @@
   "CHUNKS_DATA_PATH_NOT_SET": "Шлях до даних Zomboid не задано",
   "DELETE_CHUNKS_FIELDS_REQUIRED": "Потрібні назва збереження та масив чанків",
   "DELETE_CHUNKS_TOO_MANY": "Забагато чанків ({{count}}). Максимум 100 000 на запит — розділіть на менші пакети.",
+  "SQLITE_ENGINE_UNAVAILABLE": "Не вдалося запустити рушій SQLite панелі, тому vehicles.db неможливо очистити. Жодного файлу не видалено. Оновіть або перевстановіть панель, а потім перезапустіть її.",
   "DELETE_CHUNKS_INVALID_FILE_NAME": "Некоректна назва файлу чанка",
   "DELETE_CHUNKS_INVALID_FILE_PATH": "Некоректний шлях до файлу чанка",
   "DELETE_CHUNKS_INVALID_X": "Некоректна координата x чанка — має бути цілим числом",
