@@ -4,6 +4,12 @@ import fs from "fs";
 const readRepoFile = (relativePath) =>
   fs.readFileSync(new URL(`../../${relativePath}`, import.meta.url), "utf8");
 
+// The Lynkes fork keeps only the all-in-one Docker workflow, so the release
+// workflow these read may not be there.
+const hasReleaseWorkflow = fs.existsSync(
+  new URL("../../.github/workflows/release-artifacts.yml", import.meta.url),
+);
+
 describe("Docker deployment guidance", () => {
   it("uses the all-in-one installer as the primary local-server path", () => {
     const readme = readRepoFile("README.md");
@@ -68,20 +74,20 @@ describe("Docker deployment guidance", () => {
     expect(workflow.match(/flavor: latest=false/g) || []).toHaveLength(2);
   });
 
-  it("uploads the Linux archive from the release tree created by build.js", () => {
+  it.skipIf(!hasReleaseWorkflow)("uploads the Linux archive from the release tree created by build.js", () => {
     const workflow = readRepoFile(".github/workflows/release-artifacts.yml");
 
     expect(workflow).toContain("archive_path: release/ZomboidControlPanel-linux.tar.gz");
     expect(workflow).toContain("path: ${{ matrix.archive_path }}");
   });
 
-  it("uploads the Windows archive from the root path created by Compress-Archive", () => {
+  it.skipIf(!hasReleaseWorkflow)("uploads the Windows archive from the root path created by Compress-Archive", () => {
     const workflow = readRepoFile(".github/workflows/release-artifacts.yml");
 
     expect(workflow).toContain("archive_path: ZomboidControlPanel-windows.zip");
   });
 
-  it("verifies all release versions before tag publication", () => {
+  it.skipIf(!hasReleaseWorkflow)("verifies all release versions before tag publication", () => {
     const workflow = readRepoFile(".github/workflows/release-artifacts.yml");
     const verifier = readRepoFile("scripts/verify-release-version.mjs");
 
