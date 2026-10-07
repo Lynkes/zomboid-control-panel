@@ -84,7 +84,7 @@
   },
   "footer": {
     "signOut": "Se déconnecter",
-    "supportKofi": "Soutenir sur Ko-fi (ouvre un nouvel onglet)",
+    "opensInNewTab": "(ouvre un nouvel onglet)",
     "supportMeKofi": "Soutenez-moi sur Ko-fi",
     "githubRepo": "Dépôt GitHub (ouvre un nouvel onglet)",
     "keyboardShortcuts": "Raccourcis clavier",

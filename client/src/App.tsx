@@ -465,8 +465,9 @@ function AppContent() {
         disposeRecovery?.()
         disposeRecovery = null
         setConnectionStatus(prev => {
-          // Show toast only on reconnect, not initial connect
-          if (prev.reconnecting || prev.reconnectAttempt > 0) {
+          // Show toast only on reconnect, not initial connect. error covers
+          // a manual Retry after the automatic loop gave up.
+          if (prev.reconnecting || prev.reconnectAttempt > 0 || prev.error) {
             handleReconnectSuccess()
           }
           return {

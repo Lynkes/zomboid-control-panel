@@ -100,7 +100,7 @@
   },
   "footer": {
     "signOut": "تسجيل الخروج",
-    "supportKofi": "ادعمنا على Ko-fi (يفتح في تبويب جديد)",
+    "opensInNewTab": "(يُفتح في تبويب جديد)",
     "supportMeKofi": "ادعمني على Ko-fi",
     "githubRepo": "مستودع GitHub (يفتح في تبويب جديد)",
     "keyboardShortcuts": "اختصارات لوحة المفاتيح",

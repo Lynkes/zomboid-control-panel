@@ -3,7 +3,8 @@ import { Languages } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
@@ -16,11 +17,12 @@ import { getCurrentLanguage, setLanguage, OFFERED_LANGUAGES } from '@/i18n'
 // are each language's OWN native name (Deutsch, not German), read straight
 // from the registry rather than through t() — see languages.ts for why.
 // Usable pre-login (Login/Setup) and from the app shell footer.
-// `compact` shows the language code (EN, PT-BR) instead of the native name,
-// for the sidebar footer's toolbar row, where names like "Kreyòl ayisyen"
-// would crowd out the icons beside it. The menu still lists native names.
+// `compact` is icon-only, for the sidebar footer's toolbar and icon rail,
+// where every control is the same square; the caller passes that box via
+// className. The accessible name and the title still carry the native name,
+// and the menu lists native names either way.
 export function LanguageSwitcher({ className, compact = false }: { className?: string; compact?: boolean }) {
-  const { t, i18n } = useTranslation('shell')
+  const { t } = useTranslation('shell')
   const current = getCurrentLanguage()
   const currentLanguage = OFFERED_LANGUAGES.find((l) => l.code === current) ?? OFFERED_LANGUAGES[0]
 
@@ -30,30 +32,26 @@ export function LanguageSwitcher({ className, compact = false }: { className?: s
         <button
           type="button"
           className={cn(
-            'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-            compact && 'h-7 gap-1 px-1.5 font-mono text-[10px] tracking-wider',
+            !compact && 'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
             className,
           )}
-          aria-label={t('languageSwitcher.label')}
+          aria-label={`${t('languageSwitcher.label')}: ${currentLanguage.nativeName}`}
           title={compact ? currentLanguage.nativeName : undefined}
         >
           <Languages className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>{compact ? currentLanguage.code.toUpperCase() : currentLanguage.nativeName}</span>
+          {!compact && <span>{currentLanguage.nativeName}</span>}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        {OFFERED_LANGUAGES.map((lang) => (
-          <DropdownMenuItem
-            key={lang.code}
-            onClick={() => {
-              setLanguage(lang.code)
-            }}
-            className={cn(lang.code === current && 'font-medium text-foreground')}
-          >
-            {lang.nativeName}
-            {lang.code === i18n.language ? ' ✓' : ''}
-          </DropdownMenuItem>
-        ))}
+        {/* Radio items, so a screen reader says "checked" for the active
+            language; lang= so each native name is read in its own voice. */}
+        <DropdownMenuRadioGroup value={current} onValueChange={setLanguage}>
+          {OFFERED_LANGUAGES.map((lang) => (
+            <DropdownMenuRadioItem key={lang.code} value={lang.code}>
+              <span lang={lang.code}>{lang.nativeName}</span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   )
