@@ -28,3 +28,17 @@ export function normalizeMemoryGb(value, fallback) {
   }
   return parsed;
 }
+
+/**
+ * A server's minimum memory, where 0 is a value of its own: no -Xms at all,
+ * so the JVM picks a small initial heap and ZGC can hand back everything the
+ * server isn't using (it never uncommits below -Xms). Anything else is read
+ * like normalizeMemoryGb() -- which turns 0 into `fallback`, so a 0 saved
+ * through it used to come back as a 4 GB minimum.
+ */
+export function normalizeMinMemoryGb(value, fallback) {
+  if (value === 0 || (typeof value === "string" && /^\+?0+$/.test(value.trim()))) {
+    return 0;
+  }
+  return normalizeMemoryGb(value, fallback);
+}

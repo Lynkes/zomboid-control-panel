@@ -64,6 +64,7 @@
     "rcon": "RCON",
     "gamePort": "Game Port",
     "memory": "Memory",
+    "memoryAuto": "auto",
     "statusHost": "Host",
     "statusProcess": "Process",
     "statusContainer": "Container",
@@ -192,6 +193,7 @@
     "passwordSet": "Password set",
     "passwordWillImport": "Imported automatically from {{iniName}}.ini — leave blank to use it, or type a new one to override.",
     "minMemoryLabel": "Min Memory (GB)",
+    "minMemoryHint": "0 = automatic: the server starts small and gives back memory it isn't using.",
     "maxMemoryLabel": "Max Memory (GB)",
     "discoverNoPermission": "Detecting or scanning for servers requires the servers.discover permission, which this role doesn't have."
   },
@@ -254,6 +256,7 @@
     "adminPasswordAria": "admin password",
     "gamePortLabel": "Game Port",
     "minMemoryLabel": "Min Memory (GB)",
+    "minMemoryHint": "0 = automatic: the server starts small and gives back memory it isn't using.",
     "maxMemoryLabel": "Max Memory (GB)",
     "cancel": "Cancel",
     "saving": "Saving...",

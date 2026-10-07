@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Automatic minimum memory:** a server's minimum memory can be 0, which starts it without `-Xms`; the JVM starts small and gives back memory it isn't using, where it never goes below a set minimum. A 0 saved before was read as 4 GB.
+
 ### Security
 
 - **Delegated account managers:** a role allowed to manage users or roles can no longer demote, delete or sign out an account, or narrow or delete a role, that holds more than it does; a helper could depose every admin.
