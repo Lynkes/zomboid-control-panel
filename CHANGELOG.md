@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.6] - 2026-10-06
+
 ### Security
 
 - **Live updates by role:** install progress, scans, PanelBridge status, deaths, the player list and chat reach only roles allowed to see them (#193, thanks @mrbean56).
