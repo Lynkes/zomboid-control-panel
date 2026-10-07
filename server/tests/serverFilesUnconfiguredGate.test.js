@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { getServerFilesGate, runServerFilesRoute } from "./helpers/serverFilesRoute.js";
 
 const { getActiveServer } = vi.hoisted(() => ({
   getActiveServer: vi.fn(),
@@ -43,15 +44,7 @@ function createResponse() {
 // middleware, so an unconfigured panel never reaches a handler that could
 // invent data.
 function getGateMiddleware() {
-  const nonRouteLayers = router.stack.filter((entry) => !entry.route);
-  return nonRouteLayers[1].handle;
-}
-
-function getRouteHandler(method, routePath) {
-  const layer = router.stack.find(
-    (entry) => entry.route?.path === routePath && entry.route.methods[method],
-  );
-  return layer.route.stack[layer.route.stack.length - 1].handle;
+  return getServerFilesGate(router);
 }
 
 // End-to-end reproduction of Angela's finding: with the database genuinely
@@ -143,14 +136,13 @@ describe("server-files router: a configured server still resolves and reads real
   });
 
   it("GET /paths reports the real configured server's real paths, not an invented one", async () => {
-    const response = createResponse();
     // 2026-09-08 quadruple-read sweep: every handler now reads
     // req.activeServerContext instead of re-deriving it -- run the real gate
     // first, on the same req, exactly as Express's own middleware chain
-    // would, rather than hand-building the context here.
+    // would, rather than hand-building the context here. The handler runs
+    // only if the gate lets the request through (helpers/serverFilesRoute.js).
     const req = { path: "/paths", method: "GET", user: { role: "technician" } };
-    await getGateMiddleware()(req, response, () => {});
-    await getRouteHandler("get", "/paths")(req, response);
+    const response = await runServerFilesRoute(router, "/paths", "get", req, createResponse());
 
     expect(response.json).toHaveBeenCalledWith(
       expect.objectContaining({

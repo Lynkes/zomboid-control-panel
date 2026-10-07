@@ -3,6 +3,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
+import { runServerFilesRoute } from "./helpers/serverFilesRoute.js";
 
 // bughunt-2026-08-31-c: POST /restore/:filename's primary `filename` var IS
 // safe -- path.basename() + a mandatory ".bak" extension check, and neither
@@ -52,34 +53,11 @@ function createResponse() {
   return response;
 }
 
-function getRouteHandlers(routePath, method) {
-  const layer = router.stack.find(
-    (entry) => entry.route?.path === routePath && entry.route.methods[method],
-  );
-  if (!layer) throw new Error(`No ${method.toUpperCase()} ${routePath} route registered`);
-  return layer.route.stack.map((s) => s.handle);
-}
-
-// 2026-09-08 quadruple-read sweep: every handler now reads
-// req.activeServerContext instead of re-deriving it, populated once by the
-// router's own gate (a non-route layer getRouteHandlers() above never
-// reaches). Run it first, on the same req.
-function getGateMiddleware() {
-  return router.stack.filter((entry) => !entry.route)[1].handle;
-}
-
-async function runRoute(routePath, method, req) {
-  const handlers = getRouteHandlers(routePath, method);
-  const res = createResponse();
-  await getGateMiddleware()(req, res, () => {});
-  let idx = -1;
-  const next = async (err) => {
-    idx++;
-    if (err) throw err;
-    if (idx < handlers.length) await handlers[idx](req, res, next);
-  };
-  await next();
-  return res;
+// Runs the route behind the router's own gate, which sets
+// req.activeServerContext and fails the test if it refuses the request
+// (helpers/serverFilesRoute.js).
+function runRoute(routePath, method, req) {
+  return runServerFilesRoute(router, routePath, method, req, createResponse());
 }
 
 function postRestore(filename) {
