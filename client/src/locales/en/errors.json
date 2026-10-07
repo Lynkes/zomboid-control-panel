@@ -229,6 +229,7 @@
   "CHUNKS_DATA_PATH_NOT_SET": "Zomboid data path not set",
   "DELETE_CHUNKS_FIELDS_REQUIRED": "Save name and chunks array required",
   "DELETE_CHUNKS_TOO_MANY": "Too many chunks ({{count}}). Maximum is 100,000 per request — split into smaller batches.",
+  "SQLITE_ENGINE_UNAVAILABLE": "The panel's SQLite engine could not start, so vehicles.db can't be cleaned. No files were deleted. Update or reinstall the panel, then restart it.",
   "DELETE_CHUNKS_INVALID_FILE_NAME": "Invalid chunk file name",
   "DELETE_CHUNKS_INVALID_FILE_PATH": "Invalid chunk file path",
   "DELETE_CHUNKS_INVALID_X": "Invalid chunk x coordinate — must be an integer",

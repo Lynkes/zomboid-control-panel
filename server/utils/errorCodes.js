@@ -994,6 +994,11 @@ export const ErrorCode = Object.freeze({
   /** server/routes/chunks.js -- POST /delete-chunks, `chunks.length` exceeds
    * the 100,000 request cap. Sends `{ count: chunks.length }`. */
   DELETE_CHUNKS_TOO_MANY: "DELETE_CHUNKS_TOO_MANY",
+  /** server/routes/chunks.js -- POST /delete-chunks and POST /delete-region
+   * with deleteVehicles, when the panel's sql.js engine (utils/sqlJs.js) can't
+   * start. Refused before anything is deleted: the chunks would go but their
+   * vehicles would stay in vehicles.db and come back. */
+  SQLITE_ENGINE_UNAVAILABLE: "SQLITE_ENGINE_UNAVAILABLE",
   /** server/routes/chunks.js -- POST /delete-chunks, a chunk entry has no
    * `file`. */
   DELETE_CHUNKS_INVALID_FILE_NAME: "DELETE_CHUNKS_INVALID_FILE_NAME",
