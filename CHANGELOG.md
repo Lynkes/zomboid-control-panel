@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.7] - 2026-10-07
+
 ### Fixed
 
 - **Online Players closed the panel:** the exe now carries the SQLite engine inside it instead of a `sql-wasm.wasm` file the updater never shipped, and a SQLite engine that can't start no longer closes the panel.
