@@ -14,7 +14,7 @@
     "corsDebugLogging": "CORS-Debug-Protokollierung aktivieren",
     "enableHttps": "HTTPS aktivieren",
     "autoReconnectRcon": "RCON bei Verbindungsabbruch automatisch neu verbinden",
-    "startServerOnPanelStart": "Spielserver beim Start des Panels starten",
+    "startServerOnPanelStart": "Spielserver starten, wenn das Panel startet",
     "autoUpdateBridgeMod": "PanelBridge-Mod automatisch aktualisieren",
     "autoRestartOnModUpdate": "Server bei Mod-Updates automatisch neu starten",
     "autoUpdateGameServer": "Server automatisch aktualisieren, wenn ein neuer Build erkannt wird",
@@ -365,9 +365,14 @@
     "step2": "Klicke bei deinem Server auf <b>Bearbeiten</b>",
     "step3": "Konfiguriere dort Host, Port und Passwort für RCON",
     "startupCardTitle": "Serverstart",
-    "startupCardDesc": "Ob das Panel den Spielserver für dich startet.",
+    "startupCardDesc": "Welche Spielserver das Panel für dich startet.",
     "autoStartLabel": "Spielserver starten, wenn das Panel startet",
-    "autoStartDesc": "Wird automatisch übersprungen, wenn der RCON-Port bereits belegt ist, damit ein bereits laufender Server nie doppelt gestartet wird. Erfordert einen lokalen Installationspfad; von einem Anbieter gehostete Server werden vom Anbieter gestartet."
+    "autoStartDesc": "Wird automatisch übersprungen, wenn der RCON-Port bereits belegt ist, damit ein bereits laufender Server nie doppelt gestartet wird. Erfordert einen lokalen Installationspfad; von einem Anbieter gehostete Server werden vom Anbieter gestartet.",
+    "autoStartServersLabel": "Zu startende Server",
+    "autoStartServersDesc": "Die markierten Server starten nacheinander, wenn das Panel startet. Ein Server, der bereits läuft, bleibt unberührt.",
+    "autoStartActiveBadge": "Aktiv",
+    "autoStartNoServers": "Noch kein Server auf diesem Computer. Füge einen unter Meine Server hinzu.",
+    "autoStartNoneChosen": "Kein Server ist markiert, daher startet keiner."
   },
   "bridge": {
     "checksLabels": {
@@ -935,6 +940,8 @@
     },
     "autoStartEnabled": { "title": "Autostart aktiviert", "description": "Server startet automatisch, wenn das Panel gestartet wird" },
     "autoStartDisabled": { "title": "Autostart deaktiviert", "description": "Server startet nicht automatisch" },
+    "autoStartServerChosen": { "title": "Autostart aktualisiert", "description": "{{name}} startet, wenn das Panel startet" },
+    "autoStartServerRemoved": { "title": "Autostart aktualisiert", "description": "{{name}} startet nicht mehr mit dem Panel" },
     "autoStartSaveFailed": { "title": "Autostart-Einstellung konnte nicht gespeichert werden", "fallback": "Das Panel konnte die Autostart-Einstellung nicht speichern. Versuche es erneut." },
     "corsReloaded": {
       "title": "CORS-Regeln neu geladen",

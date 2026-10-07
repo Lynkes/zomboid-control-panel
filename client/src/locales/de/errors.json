@@ -490,6 +490,7 @@
   "CONFIG_CHAT_PRESETS_NOT_ARRAY": "Chat-Vorlagen müssen eine Liste sein",
   "CONFIG_CHAT_PRESETS_TOO_MANY": "Chat-Vorlagen unterstützen bis zu 50 Einträge",
   "CONFIG_CHAT_PRESETS_INVALID_ENTRY": "Chat-Vorlageneinträge müssen Text mit bis zu 500 Zeichen sein",
+  "CONFIG_AUTO_START_SERVER_IDS_INVALID": "Die automatisch zu startenden Server müssen eine Liste von höchstens {{max}} Servern sein",
   "CONFIG_CORS_DIAGNOSTICS_UNAVAILABLE": "CORS-Diagnose ist nicht verfügbar",
   "CONFIG_CORS_RELOAD_UNAVAILABLE": "Das Neuladen der CORS-Konfiguration ist nicht verfügbar",
   "DISCORD_BOT_NOT_INITIALIZED": "Discord-Bot nicht initialisiert",

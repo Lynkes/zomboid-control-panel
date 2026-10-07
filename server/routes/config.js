@@ -68,6 +68,8 @@ const MOD_RESTART_DELAY_MIN = 0;
 const MOD_RESTART_DELAY_MAX = 30;
 const SERVER_AUTO_UPDATE_WARNING_MINUTES_MIN = 0;
 const SERVER_AUTO_UPDATE_WARNING_MINUTES_MAX = 60;
+// A bound on what one save can store, far above any real list of servers.
+const AUTO_START_SERVER_IDS_MAX = 100;
 
 const router = express.Router();
 
@@ -105,6 +107,9 @@ const VALID_SETTINGS_KEYS = [
   // capabilities of those commands for that change; this second door asked
   // only for integrations.manage. Nothing in the client writes it here.
   "autoStartServer",
+  // The servers autoStartServer starts, by id (see selectAutoStartServers()
+  // in server/index.js).
+  "autoStartServerIds",
   "panelPort",
   "httpsEnabled",
   "httpsPort",
@@ -285,6 +290,7 @@ const APP_SETTINGS_ANY_ROLE_KEYS = new Set([
   "autoReconnect",
   "reconnectInterval",
   "autoStartServer",
+  "autoStartServerIds",
   "panelPort",
   "httpsEnabled",
   "httpsPort",
@@ -788,6 +794,31 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
             params: sanitizeErrorParams({ message }),
           });
         }
+      }
+
+      // Server ids, stored as unique strings. An id with no server behind
+      // it is kept, not refused: Settings.tsx's Save resends the whole
+      // settings object, and a server deleted since the page loaded must not
+      // block an unrelated save. The boot auto-start skips it, and
+      // deleteServer() takes it out of the stored list.
+      if (key === "autoStartServerIds") {
+        if (
+          !Array.isArray(value) ||
+          value.length > AUTO_START_SERVER_IDS_MAX ||
+          !value.every(
+            (id) =>
+              (typeof id === "string" && id.trim() !== "" && id.length <= 100) ||
+              Number.isSafeInteger(id),
+          )
+        ) {
+          return res.status(400).json({
+            error: `autoStartServerIds must be a list of up to ${AUTO_START_SERVER_IDS_MAX} server ids`,
+            code: ErrorCode.CONFIG_AUTO_START_SERVER_IDS_INVALID,
+            params: sanitizeErrorParams({ max: AUTO_START_SERVER_IDS_MAX }),
+          });
+        }
+        validEntries.push([key, [...new Set(value.map((id) => String(id).trim()))]]);
+        continue;
       }
 
       if (key === "chatPresets") {

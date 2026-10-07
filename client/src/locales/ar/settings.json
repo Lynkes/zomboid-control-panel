@@ -24,7 +24,7 @@
     "corsDebugLogging": "تفعيل تسجيل تصحيح أخطاء CORS",
     "enableHttps": "تفعيل HTTPS",
     "autoReconnectRcon": "إعادة الاتصال تلقائيًا بـ RCON عند انقطاعه",
-    "startServerOnPanelStart": "تشغيل خادم اللعبة عند بدء اللوحة",
+    "startServerOnPanelStart": "تشغيل خوادم اللعبة عند بدء اللوحة",
     "autoUpdateBridgeMod": "التحديث التلقائي لمود PanelBridge",
     "autoRestartOnModUpdate": "إعادة تشغيل الخادم تلقائيًا عند تحديث المودات",
     "autoUpdateGameServer": "تحديث الخادم تلقائيًا عند اكتشاف إصدار جديد",
@@ -375,9 +375,14 @@
     "step2": "انقر على <b>تعديل</b> عند خادمك",
     "step3": "اضبط مضيف RCON والمنفذ وكلمة المرور هناك",
     "startupCardTitle": "بدء تشغيل الخادم",
-    "startupCardDesc": "ما إذا كانت اللوحة تشغّل خادم اللعبة نيابة عنك.",
-    "autoStartLabel": "تشغيل خادم اللعبة عند بدء اللوحة",
-    "autoStartDesc": "يُتخطى هذا تلقائيًا عندما يكون منفذ RCON مستخدمًا بالفعل، فلا يتكرر خادم يعمل أصلًا. ويتطلب مسار تثبيت محلي؛ أما الخوادم المستضافة لدى مزوّد فيشغّلها المزوّد."
+    "startupCardDesc": "خوادم اللعبة التي تشغّلها اللوحة نيابة عنك.",
+    "autoStartLabel": "تشغيل خوادم اللعبة عند بدء اللوحة",
+    "autoStartDesc": "يُتخطى هذا تلقائيًا عندما يكون منفذ RCON مستخدمًا بالفعل، فلا يتكرر خادم يعمل أصلًا. ويتطلب مسار تثبيت محلي؛ أما الخوادم المستضافة لدى مزوّد فيشغّلها المزوّد.",
+    "autoStartServersLabel": "الخوادم المراد تشغيلها",
+    "autoStartServersDesc": "تبدأ الخوادم المحددة واحدًا تلو الآخر عند بدء اللوحة. ولا يُمسّ الخادم الذي يعمل بالفعل.",
+    "autoStartActiveBadge": "نشط",
+    "autoStartNoServers": "لا يوجد خادم على هذا الكمبيوتر بعد. أضف واحدًا من صفحة خوادمي.",
+    "autoStartNoneChosen": "لم يُحدَّد أي خادم، لذا لن يبدأ أي منها."
   },
   "bridge": {
     "checksLabels": {
@@ -953,6 +958,8 @@
     },
     "autoStartEnabled": { "title": "تم تفعيل التشغيل التلقائي", "description": "سيبدأ الخادم تلقائيًا عند تشغيل اللوحة" },
     "autoStartDisabled": { "title": "تم تعطيل التشغيل التلقائي", "description": "لن يبدأ الخادم تلقائيًا" },
+    "autoStartServerChosen": { "title": "تم تحديث التشغيل التلقائي", "description": "سيبدأ {{name}} عند بدء اللوحة" },
+    "autoStartServerRemoved": { "title": "تم تحديث التشغيل التلقائي", "description": "لن يبدأ {{name}} مع اللوحة بعد الآن" },
     "autoStartSaveFailed": { "title": "فشل حفظ إعداد التشغيل التلقائي", "fallback": "تعذّر على اللوحة حفظ إعداد التشغيل التلقائي. حاول من جديد." },
     "corsReloaded": {
       "title": "أُعيد تحميل قواعد CORS",

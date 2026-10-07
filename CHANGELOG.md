@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Choose which servers start with the panel:** Settings › Connection lists each local server under the auto-start switch, and the Dashboard's checkbox adds or removes the active one. It used to start only whichever server was active; a setting saved before keeps doing that until you choose.
+
 ### Security
 
 - **Delegated account managers:** a role allowed to manage users or roles can no longer demote, delete or sign out an account, or narrow or delete a role, that holds more than it does; a helper could depose every admin.
