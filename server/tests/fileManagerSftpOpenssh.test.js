@@ -742,7 +742,11 @@ suite("real OpenSSH: through the service", () => {
     const trashMeta = { deletedBy: { userId: "u1", username: "kate" }, reason: "edited" };
     seed("Server/versions.txt", "start\n");
     vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-09-30T12:00:00.500Z"));
+    // Now, at .500 of the current second. A fixed date aged past the 7-day
+    // Trash retention and every version vanished (CI, from 2026-10-07).
+    const now = new Date();
+    now.setUTCMilliseconds(500);
+    vi.setSystemTime(now);
     try {
       for (let i = 0; i < 23; i++) {
         const current = srv.fs.readFile("Zomboid/Server/versions.txt");
