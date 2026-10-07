@@ -1,8 +1,7 @@
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
-import initSqlJs from "sql.js";
 import { createLogger } from "./logger.js";
+import { getSqlJs, SqlJsUnavailableError } from "./sqlJs.js";
 
 const log = createLogger("WhitelistDB");
 const ROLE_NAMES = new Map([
@@ -14,35 +13,10 @@ const ROLE_NAMES = new Map([
   [6, "moderator"],
   [7, "admin"],
 ]);
-
-let sqlPromise;
-
-function locateWasm() {
-  const candidates = [];
-  if (process.pkg) {
-    const execDir = path.dirname(process.execPath);
-    candidates.push(path.join(execDir, "sql-wasm.wasm"));
-    candidates.push(path.join(execDir, "assets", "sql-wasm.wasm"));
-  }
-  try {
-    const here = path.dirname(fileURLToPath(import.meta.url));
-    candidates.push(path.resolve(here, "../../node_modules/sql.js/dist/sql-wasm.wasm"));
-  } catch {
-    // Fall through to the working-directory candidates.
-  }
-  candidates.push(path.resolve(process.cwd(), "node_modules/sql.js/dist/sql-wasm.wasm"));
-  candidates.push(path.resolve(process.cwd(), "sql-wasm.wasm"));
-  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
-}
-
-async function getSql() {
-  if (!sqlPromise) {
-    sqlPromise = initSqlJs({
-      locateFile: (file) => locateWasm() || file,
-    });
-  }
-  return sqlPromise;
-}
+// The panel's own SQLite engine could not start (see sqlJs.js), as opposed to
+// this server's database being unreadable.
+const SQLITE_UNAVAILABLE_REASON =
+  "The panel's SQLite engine could not start. Update or reinstall the panel, then restart it.";
 
 export function getWhitelistDatabasePath(zomboidDataPath, serverName) {
   if (
@@ -86,7 +60,7 @@ export async function listWhitelistAccounts(zomboidDataPath, serverName) {
   }
 
   try {
-    const SQL = await getSql();
+    const SQL = await getSqlJs();
     const db = new SQL.Database(await fs.promises.readFile(dbPath));
     try {
       const accounts = [];
@@ -130,6 +104,10 @@ export async function listWhitelistAccounts(zomboidDataPath, serverName) {
       db.close();
     }
   } catch (error) {
+    if (error instanceof SqlJsUnavailableError) {
+      log.error(error.message);
+      return { available: false, accounts: [], reason: SQLITE_UNAVAILABLE_REASON };
+    }
     log.warn(`Could not read whitelist database ${dbPath}: ${error.message}`);
     return { available: false, accounts: [], reason: "Whitelist database could not be read" };
   }
@@ -155,7 +133,7 @@ export async function listServerRoleNames(zomboidDataPath, serverName) {
   }
 
   try {
-    const SQL = await getSql();
+    const SQL = await getSqlJs();
     const db = new SQL.Database(await fs.promises.readFile(dbPath));
     try {
       const roles = loadRoleMap(db);
@@ -164,6 +142,10 @@ export async function listServerRoleNames(zomboidDataPath, serverName) {
       db.close();
     }
   } catch (error) {
+    if (error instanceof SqlJsUnavailableError) {
+      log.error(error.message);
+      return { available: false, roleNames: [], reason: SQLITE_UNAVAILABLE_REASON };
+    }
     log.warn(`Could not read role table from ${dbPath}: ${error.message}`);
     return { available: false, roleNames: [], reason: "Server database could not be read" };
   }

@@ -16,63 +16,15 @@
 // actively streamed by any player stay untouched in vehicles.db and re-materialize
 // as soon as a player re-enters the cell — even if map/X/Y.bin was deleted.
 //
-// Uses sql.js (pure-JS WASM SQLite) so it works inside pkg binaries without
-// any native build toolchain or per-platform prebuilds.
+// Uses sql.js (pure-JS WASM SQLite, started by sqlJs.js) so it works inside pkg
+// binaries without any native build toolchain or per-platform prebuilds.
 
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import initSqlJs from 'sql.js';
 import { createLogger } from './logger.js';
+import { getSqlJs } from './sqlJs.js';
 
 const log = createLogger('VehiclesDB');
-
-let sqlPromise = null;
-
-// Resolve the sql-wasm.wasm file. In dev it sits inside node_modules; inside a
-// pkg binary the wasm must be shipped next to the executable (see build.js).
-function locateWasm() {
-  const candidates = [];
-
-  // 1. Alongside the current executable (pkg build)
-  if (process.pkg) {
-    const execDir = path.dirname(process.execPath);
-    candidates.push(path.join(execDir, 'sql-wasm.wasm'));
-    candidates.push(path.join(execDir, 'assets', 'sql-wasm.wasm'));
-  }
-
-  // 2. Next to this file (dev mode — node_modules resolved)
-  try {
-    const here = path.dirname(fileURLToPath(import.meta.url));
-    // server/utils → ../../node_modules/sql.js/dist/sql-wasm.wasm
-    candidates.push(path.resolve(here, '../../node_modules/sql.js/dist/sql-wasm.wasm'));
-  } catch { /* ignore */ }
-
-  // 3. CWD fallback
-  candidates.push(path.resolve(process.cwd(), 'node_modules/sql.js/dist/sql-wasm.wasm'));
-  candidates.push(path.resolve(process.cwd(), 'sql-wasm.wasm'));
-
-  for (const p of candidates) {
-    try {
-      if (fs.existsSync(p)) return p;
-    } catch { /* ignore */ }
-  }
-  return null;
-}
-
-async function getSQL() {
-  if (!sqlPromise) {
-    sqlPromise = initSqlJs({
-      locateFile: (file) => {
-        const wasmPath = locateWasm();
-        if (wasmPath) return wasmPath;
-        // Fall back to relative; initSqlJs will fail with a useful error
-        return file;
-      },
-    });
-  }
-  return sqlPromise;
-}
 
 /**
  * Open a vehicles.db file, run a user-supplied function, and persist changes.
@@ -83,7 +35,7 @@ async function getSQL() {
  * @returns {Promise<any>} Whatever fn returned
  */
 async function withDatabase(dbPath, fn) {
-  const SQL = await getSQL();
+  const SQL = await getSqlJs();
   const buffer = await fs.promises.readFile(dbPath);
   const db = new SQL.Database(buffer);
   try {
@@ -100,7 +52,7 @@ async function withDatabase(dbPath, fn) {
 }
 
 async function withReadOnlyDatabase(dbPath, fn) {
-  const SQL = await getSQL();
+  const SQL = await getSqlJs();
   const buffer = await fs.promises.readFile(dbPath);
   const db = new SQL.Database(buffer);
   try {
