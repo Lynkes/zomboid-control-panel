@@ -32,6 +32,7 @@ import { scheduledAttemptMessage, scheduledBackupHealth } from '@/lib/scheduledB
 import { useRuntimeInfo } from '@/hooks/useRuntimeInfo'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { isStatusEventForServer, resolveClientProvider, deriveDashboardStatus, waitForServerState } from '@/lib/serverStatus'
+import { autoStartEnabled, autoStartServerIds, withAutoStartServer, type AutoStartSettings } from '@/lib/autoStartServers'
 import { ServerUptime } from '@/components/ServerUptime'
 import { useSocket } from '@/contexts/SocketContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -296,7 +297,7 @@ export default function Dashboard() {
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [, setTick] = useState(0)
-  const [autoStartServer, setAutoStartServer] = useState<boolean>(false)
+  const [autoStartSettings, setAutoStartSettings] = useState<AutoStartSettings>({})
   const [panelInfo, setPanelInfo] = useState<{ localIp: string; port: number; url: string } | null>(null)
   const [activeServer, setActiveServer] = useState<ServerInstance | null>(null)
   // Critical problems in the active server's mod list (GET /mods/health),
@@ -623,8 +624,11 @@ export default function Dashboard() {
   const fetchAutoStartSetting = useCallback(async () => {
     try {
       const r = await configApi.getAppSettings()
-      if (r?.settings?.autoStartServer !== undefined) {
-        setAutoStartServer(r.settings.autoStartServer === true || r.settings.autoStartServer === 'true')
+      if (r?.settings) {
+        setAutoStartSettings({
+          autoStartServer: r.settings.autoStartServer,
+          autoStartServerIds: r.settings.autoStartServerIds,
+        })
       }
     } catch {
       // Ignore settings fetch failures and keep the current fallback value.
@@ -671,17 +675,34 @@ export default function Dashboard() {
     }))
   }, [])
 
+  // The checkbox is the active server's place in the list of servers the
+  // panel starts (Settings › Connection lists them all); it used to be the
+  // switch itself, which only ever started whichever server was active.
+  // Checking it also turns the switch on. Unchecking takes this server out
+  // and leaves the switch, and any other chosen server, alone.
+  const activeServerId = activeServer ? String(activeServer.id) : null
+  const autoStartThisServer = autoStartEnabled(autoStartSettings) && (activeServerId === null
+    ? !Array.isArray(autoStartSettings.autoStartServerIds)
+    : autoStartServerIds(autoStartSettings, activeServerId).includes(activeServerId))
   const handleAutoStartChange = async (checked: boolean) => {
     if (!canChangePanelSettings) return
-    setAutoStartServer(checked)
+    const previous = autoStartSettings
+    // No server record (a settings-only install): the switch alone, as before.
+    const update: AutoStartSettings = activeServerId === null
+      ? { autoStartServer: checked }
+      : {
+          ...(checked ? { autoStartServer: true } : {}),
+          autoStartServerIds: withAutoStartServer(autoStartServerIds(previous, activeServerId), activeServerId, checked),
+        }
+    setAutoStartSettings({ ...previous, ...update })
     try {
-      await configApi.updateAppSettings({ autoStartServer: checked })
+      await configApi.updateAppSettings(update)
       toast({
         title: checked ? t('toasts.autoStartEnabledTitle') : t('toasts.autoStartDisabledTitle'),
         description: checked ? t('toasts.autoStartEnabledDesc') : t('toasts.autoStartDisabledDesc'),
       })
     } catch (error) {
-      setAutoStartServer(!checked)
+      setAutoStartSettings(previous)
       toast({ title: t('toasts.errorTitle'), description: getUserErrorMessage(error, t('toasts.autoStartSaveFailed')), variant: 'destructive' })
     }
   }
@@ -735,7 +756,8 @@ export default function Dashboard() {
   // server is known or changes, then every 5 minutes while visible. A failure
   // only hides the row; a reply for a server no longer active is dropped.
   const canManageMods = can('mods.manage')
-  const activeServerId = activeServer?.id ?? null
+  // activeServerId: the active server's id as a string, declared with the
+  // auto-start checkbox above.
   const modHealthGuard = useRequestGuard()
   useEffect(() => {
     if (activeServerId === null || !canManageMods) {
@@ -2128,7 +2150,7 @@ export default function Dashboard() {
                 <DisabledReason reason={!canChangePanelSettings ? t('actions.noPermissionAutoStart') : null}>
                   <Switch
                     id="autoStartServer"
-                    checked={autoStartServer}
+                    checked={autoStartThisServer}
                     disabled={!canChangePanelSettings}
                     onCheckedChange={(checked) => handleAutoStartChange(checked === true)}
                   />
