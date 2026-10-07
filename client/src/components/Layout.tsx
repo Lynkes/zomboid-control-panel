@@ -30,7 +30,6 @@ import {
   AlertCircle,
   RefreshCw,
   Github,
-  Coffee,
   PanelLeftClose,
   PanelLeft,
   LogOut,
@@ -62,6 +61,8 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { KeyboardShortcutsHelp } from './KeyboardShortcutsHelp'
 import { preloadRouteModule } from '@/lib/routePreload'
 import { LanguageSwitcher } from './LanguageSwitcher'
+import { KofiCup } from './KofiCup'
+import { KOFI_URL } from '@/lib/supportLinks'
 
 // Standalone top-level nav item (not collapsible). `labelKey` resolves
 // against the `shell` namespace; kept separate from `label` (English,
@@ -224,25 +225,41 @@ const sectionToneStyles = {
 } as const
 
 // Auth footer — shows logged-in user and logout button
+// One size for every icon control in the sidebar footer, so the account row
+// and the toolbar row line up and each target stays comfortably tappable.
+const FOOTER_ICON_BUTTON =
+  'grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground/70 transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70'
+
 function AuthFooter() {
   const { t } = useTranslation('shell')
   const { user, authEnabled, logout } = useAuth()
 
   if (!authEnabled || !user) return null
 
+  // The footer's account row: who is signed in, and the way out at the far
+  // edge. The monogram anchors the row; the name truncates before the
+  // button does.
   return (
-    <span className="inline-flex min-w-0 items-center gap-1.5 text-xs">
-      <span className="min-w-0 truncate text-foreground/85 font-medium" title={user.username}>{user.username}</span>
-      <span className="shrink-0 text-muted-foreground/50">·</span>
+    <div className="flex h-7 items-center gap-2">
+      <span
+        aria-hidden="true"
+        className="grid h-6 w-6 shrink-0 place-items-center rounded-md border border-border/40 bg-muted/40 font-mono text-[11px] font-semibold uppercase text-foreground/80"
+      >
+        {user.username.slice(0, 1)}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground/85" title={user.username}>
+        {user.username}
+      </span>
       <button
         type="button"
         onClick={logout}
-        className="shrink-0 text-muted-foreground/70 hover:text-foreground transition-colors"
+        className={FOOTER_ICON_BUTTON}
+        aria-label={t('footer.signOut')}
         title={t('footer.signOut')}
       >
-        <LogOut className="h-3 w-3" />
+        <LogOut className="h-3.5 w-3.5" />
       </button>
-    </span>
+    </div>
   )
 }
 
@@ -1167,88 +1184,110 @@ export default function Layout({ children }: LayoutProps) {
           })}
         </nav>
 
-        {/* Footer */}
-        <div className={cn('border-t border-border/30', sidebarCollapsed ? 'p-2 space-y-1.5' : 'px-3 py-2 space-y-1')}>
+        {/* Footer: who is signed in, the Ko-fi button, then one toolbar row
+            (version and update on the left; language, GitHub, shortcuts and
+            the collapse toggle on the right). */}
+        <div className={cn('border-t border-border/30', sidebarCollapsed ? 'p-2' : 'px-3 pt-2.5 pb-2')}>
           {!sidebarCollapsed ? (
-            <>
-              <div className="flex items-center gap-2 text-[11px]">
-                <ConnectionStatus />
-                <AuthFooter />
-                <LanguageSwitcher className="ms-auto" />
-              </div>
-              <div className="flex items-center gap-2 text-[11px]">
-                <span className="flex items-center gap-2">
-                  {panelUpdateAvailable && (
-                    <NavLink
-                      to="/settings?tab=updates"
-                      onClick={() => setMobileMenuOpen(false)}
-                      className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wider text-warning hover:bg-warning/20 transition-colors"
-                      title={panelUpdateAvailable.version
-                        ? t('panelUpdateBadge.titleWithVersionOpenSettings', { version: panelUpdateAvailable.version })
-                        : t('panelUpdateBadge.titleNoVersionOpenSettings')}
-                    >
-                      <span className="h-1.5 w-1.5 rounded-full bg-warning motion-safe:animate-pulse" />
-                      {t('panelUpdateBadge.update')}
-                    </NavLink>
-                  )}
-                  <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/55">
-                    v{panelVersion || '—'}
-                  </span>
-                  <span className="h-3 w-px bg-border/40" aria-hidden />
-                  <a
-                    href="https://ko-fi.com/fpsacha"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-muted-foreground/70 hover:text-[#FF5E5B] transition-colors"
-                    aria-label={t('footer.supportKofi')}
-                    title={t('footer.buyMeCoffee')}
+            <div className="space-y-2.5">
+              {/* Only rendered while live updates are down; full width with
+                  its label, so it reads as a state, not a stray icon. */}
+              <ConnectionStatus showLabel className="px-2 py-1" />
+              <AuthFooter />
+              {/* Ko-fi's own "Support me on Ko-fi" button, drawn here rather
+                  than with its widget script (see KofiCup). Dark text: white
+                  on Ko-fi's blue is only about 2.5:1. */}
+              <a
+                href={KOFI_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-[#72a4f2] px-2 text-xs font-semibold text-[#0f2340] shadow-sm transition-[filter] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                aria-label={t('footer.supportKofi')}
+              >
+                <KofiCup className="h-4 w-4 shrink-0" />
+                {t('footer.supportMeKofi')}
+              </a>
+              <div className="flex items-center gap-1.5">
+                {panelUpdateAvailable && (
+                  <NavLink
+                    to="/settings?tab=updates"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wider text-warning hover:bg-warning/20 transition-colors"
+                    title={panelUpdateAvailable.version
+                      ? t('panelUpdateBadge.titleWithVersionOpenSettings', { version: panelUpdateAvailable.version })
+                      : t('panelUpdateBadge.titleNoVersionOpenSettings')}
                   >
-                    <Coffee className="h-3.5 w-3.5" />
-                  </a>
+                    <span className="h-1.5 w-1.5 rounded-full bg-warning motion-safe:animate-pulse" />
+                    {t('panelUpdateBadge.update')}
+                  </NavLink>
+                )}
+                <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground/55">
+                  v{panelVersion || '—'}
+                </span>
+                <span className="ms-auto flex items-center">
+                  <LanguageSwitcher compact />
                   <a
                     href="https://github.com/fpsacha/zomboid-control-panel"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-muted-foreground/70 hover:text-foreground transition-colors"
+                    className={FOOTER_ICON_BUTTON}
                     aria-label={t('footer.githubRepo')}
+                    title={t('footer.githubRepo')}
                   >
                     <Github className="h-3.5 w-3.5" />
                   </a>
                   <button
+                    type="button"
                     onClick={() => setHelpOpen(true)}
-                    className="text-muted-foreground/70 hover:text-foreground transition-colors"
+                    className={FOOTER_ICON_BUTTON}
                     aria-label={t('footer.keyboardShortcuts')}
                     title={t('footer.keyboardShortcutsTitle')}
                   >
-                    <kbd className="inline-flex h-4 w-4 items-center justify-center rounded border border-border/40 text-[10px] font-mono leading-none">?</kbd>
+                    <kbd className="inline-flex h-4 w-4 items-center justify-center rounded border border-border/50 text-[10px] font-mono leading-none">?</kbd>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleSidebar}
+                    className={cn(FOOTER_ICON_BUTTON, 'hidden lg:grid')}
+                    aria-label={t('footer.collapseSidebar')}
+                    title={t('footer.collapseSidebar')}
+                  >
+                    <PanelLeftClose className="h-3.5 w-3.5" />
                   </button>
                 </span>
               </div>
-            </>
+            </div>
           ) : (
             <div className="flex flex-col items-center gap-1.5">
               <ConnectionStatus className="justify-center" />
-              <LanguageSwitcher />
+              <LanguageSwitcher compact />
+              <a
+                href={KOFI_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="grid h-7 w-7 place-items-center rounded-md bg-[#72a4f2] shadow-sm transition-[filter] hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+                aria-label={t('footer.supportKofi')}
+                title={t('footer.supportMeKofi')}
+              >
+                <KofiCup className="h-4 w-4" />
+              </a>
+              <div className="hidden lg:block">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={toggleSidebar}
+                      className={FOOTER_ICON_BUTTON}
+                      aria-label={t('footer.expandSidebar')}
+                    >
+                      <PanelLeft className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">{t('footer.expandSidebar')}</TooltipContent>
+                </Tooltip>
+              </div>
             </div>
           )}
-          {/* Collapse toggle */}
-          <div className="hidden lg:block">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={toggleSidebar}
-                  className={cn(
-                    'flex h-5 w-full items-center justify-center rounded text-muted-foreground/35 hover:text-muted-foreground transition-colors',
-                    sidebarCollapsed && 'mx-auto w-8'
-                  )}
-                  aria-label={sidebarCollapsed ? t('footer.expandSidebar') : t('footer.collapseSidebar')}
-                >
-                  {sidebarCollapsed ? <PanelLeft className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
-                </button>
-              </TooltipTrigger>
-              {sidebarCollapsed && <TooltipContent side="right">{t('footer.expandSidebar')}</TooltipContent>}
-            </Tooltip>
-          </div>
         </div>
       </TooltipProvider>
       </aside>

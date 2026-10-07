@@ -49,6 +49,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { KOFI_URL } from "@/lib/supportLinks";
 import { reportClientError } from "@/lib/client-errors";
 import {
   Card,
@@ -6926,7 +6927,7 @@ export default function Settings() {
                     </div>
                   </div>
                   <a
-                    href="https://ko-fi.com/fpsacha"
+                    href={KOFI_URL}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#FF5E5B] px-4 py-2 text-sm font-medium text-white hover:bg-[#FF4541] transition-colors shrink-0 shadow-sm"

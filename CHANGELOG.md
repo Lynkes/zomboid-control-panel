@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Sidebar footer:** a tidier layout with a "Support me on Ko-fi" button, and the language picker shows a short code (EN).
+
 ## [1.4.6] - 2026-10-06
 
 ### Security

@@ -16,7 +16,10 @@ import { getCurrentLanguage, setLanguage, OFFERED_LANGUAGES } from '@/i18n'
 // are each language's OWN native name (Deutsch, not German), read straight
 // from the registry rather than through t() — see languages.ts for why.
 // Usable pre-login (Login/Setup) and from the app shell footer.
-export function LanguageSwitcher({ className }: { className?: string }) {
+// `compact` shows the language code (EN, PT-BR) instead of the native name,
+// for the sidebar footer's toolbar row, where names like "Kreyòl ayisyen"
+// would crowd out the icons beside it. The menu still lists native names.
+export function LanguageSwitcher({ className, compact = false }: { className?: string; compact?: boolean }) {
   const { t, i18n } = useTranslation('shell')
   const current = getCurrentLanguage()
   const currentLanguage = OFFERED_LANGUAGES.find((l) => l.code === current) ?? OFFERED_LANGUAGES[0]
@@ -28,12 +31,14 @@ export function LanguageSwitcher({ className }: { className?: string }) {
           type="button"
           className={cn(
             'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+            compact && 'h-7 gap-1 px-1.5 font-mono text-[10px] tracking-wider',
             className,
           )}
           aria-label={t('languageSwitcher.label')}
+          title={compact ? currentLanguage.nativeName : undefined}
         >
           <Languages className="h-3.5 w-3.5" aria-hidden="true" />
-          <span>{currentLanguage.nativeName}</span>
+          <span>{compact ? currentLanguage.code.toUpperCase() : currentLanguage.nativeName}</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
