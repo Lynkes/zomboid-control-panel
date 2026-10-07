@@ -45,7 +45,12 @@ import {
   parseBoundedInteger,
   parseClampedInteger,
 } from "../utils/queryNumbers.js";
-import { memoryMinExceedsMax, memoryMinExceedsMaxFields, normalizeMemoryGb } from "../utils/memory.js";
+import {
+  memoryMinExceedsMax,
+  memoryMinExceedsMaxFields,
+  normalizeMemoryGb,
+  normalizeMinMemoryGb,
+} from "../utils/memory.js";
 import { GAME_PORT_MAX, applyUpnpToIni } from "./server.js";
 import {
   findLaunchTargetRefusal,
@@ -1531,7 +1536,7 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
     // -Xms above -Xmx makes the JVM refuse to start, so refuse the pair here
     // instead of saving a server that can never launch. A remote server's
     // memory is never used by this panel.
-    const newMinMemory = normalizeMemoryGb(config.minMemory, 4);
+    const newMinMemory = normalizeMinMemoryGb(config.minMemory, 4);
     const newMaxMemory = normalizeMemoryGb(config.maxMemory, 8);
     if (!isRemote && memoryMinExceedsMax(newMinMemory, newMaxMemory)) {
       return res.status(400).json({
@@ -1869,7 +1874,8 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
 
     // Parse numeric fields
     if (updates.minMemory !== undefined) {
-      updates.minMemory = normalizeMemoryGb(updates.minMemory, 4);
+      // 0 = no -Xms (normalizeMinMemoryGb()).
+      updates.minMemory = normalizeMinMemoryGb(updates.minMemory, 4);
     }
     if (updates.maxMemory !== undefined) {
       updates.maxMemory = normalizeMemoryGb(updates.maxMemory, 8);
