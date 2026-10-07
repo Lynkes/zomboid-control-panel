@@ -486,6 +486,7 @@
   "CONFIG_CHAT_PRESETS_NOT_ARRAY": "聊天預設必須是一個列表",
   "CONFIG_CHAT_PRESETS_TOO_MANY": "聊天預設最多支援 50 個條目",
   "CONFIG_CHAT_PRESETS_INVALID_ENTRY": "聊天預設條目必須是最多 500 個字元的文本",
+  "CONFIG_AUTO_START_SERVER_IDS_INVALID": "自動啟動的伺服器必須是最多 {{max}} 個伺服器的清單",
   "CONFIG_CORS_DIAGNOSTICS_UNAVAILABLE": "CORS 診斷無法使用",
   "CONFIG_CORS_RELOAD_UNAVAILABLE": "CORS 設定重新載入無法使用",
   "DISCORD_BOT_NOT_INITIALIZED": "Discord 機器人未初始化",

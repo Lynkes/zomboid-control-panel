@@ -486,6 +486,7 @@
   "CONFIG_CHAT_PRESETS_NOT_ARRAY": "يجب أن تكون الإعدادات المسبقة للدردشة قائمة",
   "CONFIG_CHAT_PRESETS_TOO_MANY": "تدعم الإعدادات المسبقة للدردشة حتى 50 مدخلًا",
   "CONFIG_CHAT_PRESETS_INVALID_ENTRY": "يجب أن تكون مدخلات الإعدادات المسبقة للدردشة نصًا لا يتجاوز 500 حرف",
+  "CONFIG_AUTO_START_SERVER_IDS_INVALID": "يجب أن تكون الخوادم المراد تشغيلها تلقائيًا قائمة من {{max}} خادم كحد أقصى",
   "CONFIG_CORS_DIAGNOSTICS_UNAVAILABLE": "تشخيصات CORS غير متاحة",
   "CONFIG_CORS_RELOAD_UNAVAILABLE": "إعادة تحميل إعدادات CORS غير متاحة",
   "DISCORD_BOT_NOT_INITIALIZED": "بوت Discord غير مُهيّأ",

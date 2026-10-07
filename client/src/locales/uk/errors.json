@@ -486,6 +486,7 @@
   "CONFIG_CHAT_PRESETS_NOT_ARRAY": "Пресети чату мають бути списком",
   "CONFIG_CHAT_PRESETS_TOO_MANY": "Пресети чату підтримують щонайбільше 50 записів",
   "CONFIG_CHAT_PRESETS_INVALID_ENTRY": "Записи пресетів чату мають бути текстом до 500 символів",
+  "CONFIG_AUTO_START_SERVER_IDS_INVALID": "Сервери для автозапуску мають бути списком не більше ніж із {{max}} серверів",
   "CONFIG_CORS_DIAGNOSTICS_UNAVAILABLE": "Діагностика CORS недоступна",
   "CONFIG_CORS_RELOAD_UNAVAILABLE": "Перезавантаження конфігурації CORS недоступне",
   "DISCORD_BOT_NOT_INITIALIZED": "Бот Discord не ініціалізовано",

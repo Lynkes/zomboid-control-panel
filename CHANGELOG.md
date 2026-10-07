@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Choose which servers start with the panel:** Settings › Connection lists each local server under the auto-start switch, and the Dashboard's checkbox adds or removes the active one. It used to start only whichever server was active; a setting saved before keeps doing that until you choose.
+
 ### Security
 
 - **Live updates by role:** install progress, scans, PanelBridge status, deaths, the player list and chat reach only roles allowed to see them (#193, thanks @mrbean56).
