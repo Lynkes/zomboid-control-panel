@@ -2442,7 +2442,7 @@ export default function Servers() {
                             reversed in a real render (a 2-4 GB server showed
                             "4-2") -- bdi isolates the min-max pair regardless
                             of locale. */}
-                        <p className="font-mono text-xs text-foreground/90 tabular-nums"><bdi>{server.minMemory}–{server.maxMemory} GB</bdi></p>
+                        <p className="font-mono text-xs text-foreground/90 tabular-nums"><bdi>{server.minMemory === 0 ? t('card.memoryAuto') : server.minMemory}–{server.maxMemory} GB</bdi></p>
                       </div>
                     </div>
                   )}
@@ -3043,14 +3043,17 @@ export default function Servers() {
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
                             <div className="space-y-2">
                               <Label>{t('localForm.minMemoryLabel')}</Label>
+                              {/* 0 = no -Xms: the JVM starts small and can give
+                                  back what it isn't using (server/utils/memory.js). */}
                               <NumberInput
-                                min={1}
+                                min={0}
                                 max={64}
                                 value={newServer.minMemory}
                                 className="bg-background"
-                                clamp={n => Math.max(1, n)}
+                                clamp={n => Math.max(0, n)}
                                 onChange={minMemory => setNewServer({ ...newServer, minMemory })}
                               />
+                              <p className="text-xs text-muted-foreground">{t('localForm.minMemoryHint')}</p>
                             </div>
                             <div className="space-y-2">
                               <Label>{t('localForm.maxMemoryLabel')}</Label>
@@ -3472,12 +3475,13 @@ export default function Servers() {
                 <div className="space-y-2">
                   <Label>{t('editDialog.minMemoryLabel')}</Label>
                   <NumberInput
-                    min={1}
+                    min={0}
                     max={64}
                     value={editingServer.minMemory}
-                    clamp={n => Math.max(1, n)}
+                    clamp={n => Math.max(0, n)}
                     onChange={minMemory => setEditingServer({ ...editingServer, minMemory })}
                   />
+                  <p className="text-xs text-muted-foreground">{t('editDialog.minMemoryHint')}</p>
                 </div>
                 <div className="space-y-2">
                   <Label>{t('editDialog.maxMemoryLabel')}</Label>
