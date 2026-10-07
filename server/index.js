@@ -3790,6 +3790,119 @@ export function describeAutoStartFailure(failure) {
   return String(detail || "").trim() || "no reason was given";
 }
 
+// Which servers the boot auto-start launches. autoStartServer is the switch
+// and autoStartServerIds names the servers (Settings › Connection, or the
+// Dashboard's checkbox for the active one). It used to be the active server
+// alone, so running several meant starting all but one by hand after every
+// panel restart. A setting saved before servers could be chosen has no list
+// and still starts the active server, whichever that is. `active` says
+// whether the active server is one of them -- it keeps its own path, which
+// also connects RCON -- and `others` lists the rest in My Servers order.
+// Exported for testing.
+export function selectAutoStartServers({
+  enabled,
+  serverIds,
+  servers = [],
+  activeServer = null,
+}) {
+  if (enabled !== true && enabled !== "true") {
+    return { active: false, others: [] };
+  }
+  if (!Array.isArray(serverIds)) return { active: true, others: [] };
+  const chosen = new Set(serverIds.map((id) => String(id)));
+  const activeId =
+    activeServer?.id !== null && activeServer?.id !== undefined
+      ? String(activeServer.id)
+      : null;
+  return {
+    active: activeId !== null && chosen.has(activeId),
+    others: servers.filter(
+      (server) =>
+        server &&
+        chosen.has(String(server.id)) &&
+        String(server.id) !== activeId,
+    ),
+  };
+}
+
+async function loadServerManagerFor(serverId) {
+  const manager = new ServerManager();
+  await manager.loadConfig(serverId);
+  return manager;
+}
+
+// The boot auto-start for the chosen servers other than the active one, one
+// at a time: the active server's launch (startServerForAutoStart()), each
+// through a ServerManager of its own so the shared one keeps following the
+// active server -- how the scheduler reaches another server too. No RCON
+// here: the panel's connection is the active server's. A server already
+// running, or one the process scan can't answer for, is left alone, the same
+// as the active server, and a remote one is started by its own host.
+// Resolves to one { serverId, outcome } per server, outcome being started,
+// alreadyRunning, remote, unknown, busy or failed. Exported for testing,
+// with its collaborators injectable.
+export async function autoStartOtherServers(
+  servers,
+  {
+    createManager = loadServerManagerFor,
+    start = startServerForAutoStart,
+    acquireLock = acquireLifecycleLock,
+  } = {},
+) {
+  const results = [];
+  for (const server of servers) {
+    const name = server.name || server.serverName || String(server.id);
+    const record = (outcome) => results.push({ serverId: server.id, outcome });
+    if (server.isRemote) {
+      log.info(`Auto-start: ${name} is a remote server, started by its own host - skipped`);
+      record("remote");
+      continue;
+    }
+    let lock = null;
+    try {
+      const manager = await createManager(server.id);
+      const state = classifyStartupProcessState(
+        await manager.getServerProcessDetails(),
+      );
+      if (state.unknown) {
+        log.warn(`Auto-start: could not tell whether ${name} is already running - not starting it`);
+        record("unknown");
+        continue;
+      }
+      if (state.running) {
+        log.info(`Auto-start: ${name} is already running`);
+        record("alreadyRunning");
+        continue;
+      }
+      lock = acquireLock("startup-auto-start", server.id);
+      if (!lock) {
+        log.warn(`Auto-start: ${name} skipped because another lifecycle operation is in progress`);
+        record("busy");
+        continue;
+      }
+      log.info(`Auto-start: starting ${name}...`);
+      const startResult = await start(server, { serverManagerInstance: manager });
+      if (startResult?.success) {
+        log.info(
+          startResult.alreadyRunning
+            ? `Auto-start: ${name}'s container was already running`
+            : `Auto-start: ${name} started`,
+        );
+        record(startResult.alreadyRunning ? "alreadyRunning" : "started");
+      } else {
+        log.error(`Failed to auto-start ${name}: ${describeAutoStartFailure(startResult)}`);
+        record("failed");
+      }
+    } catch (e) {
+      log.error(`Error during auto-start of ${name}: ${describeAutoStartFailure(e)}`);
+      record("failed");
+    } finally {
+      lock?.release();
+    }
+  }
+  return results;
+}
+
 // Every /api/* route (except /api/auth/*, /api/health, and the two <img>-tag
 // proxy allowlists) is unauthenticated while first-run setup is pending —
 // see authService.middleware(). That's necessary so the setup wizard can run
@@ -4203,6 +4316,17 @@ async function start() {
         // STEP 2: Check if PZ server is running and connect RCON
         const timeoutMs = 15000;
         const activeServer = await getActiveServer();
+        const autoStart = selectAutoStartServers({
+          enabled: await getSetting("autoStartServer"),
+          serverIds: await getSetting("autoStartServerIds"),
+          servers: await getServers(),
+          activeServer,
+        });
+        // The other chosen servers go first: the active server's auto-start
+        // below holds the lifecycle lock until RCON answers, up to 5 minutes.
+        if (autoStart.others.length > 0) {
+          await autoStartOtherServers(autoStart.others);
+        }
         const processState = await Promise.race([
           activeServer?.isRemote
             ? Promise.resolve({
@@ -4274,9 +4398,8 @@ async function start() {
             timeoutMs,
           );
 
-          // Check if auto-start is enabled
-          const autoStartServer = await getSetting("autoStartServer");
-          if (autoStartServer === true || autoStartServer === "true") {
+          // Check if auto-start is enabled for the active server
+          if (autoStart.active) {
             // SAFETY: Do NOT auto-start if the RCON port is occupied.
             // Something is already listening on it (likely the PZ server that process
             // detection missed). Starting a duplicate would crash on port conflict.

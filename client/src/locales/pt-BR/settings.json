@@ -14,7 +14,7 @@
     "corsDebugLogging": "Ativar log de depuração de CORS",
     "enableHttps": "Ativar HTTPS",
     "autoReconnectRcon": "Reconectar o RCON automaticamente ao desconectar",
-    "startServerOnPanelStart": "Iniciar o servidor do jogo quando o painel iniciar",
+    "startServerOnPanelStart": "Iniciar servidores do jogo quando o painel iniciar",
     "autoUpdateBridgeMod": "Atualizar o mod PanelBridge automaticamente",
     "autoRestartOnModUpdate": "Reiniciar o servidor automaticamente quando mods forem atualizados",
     "autoUpdateGameServer": "Atualizar o servidor automaticamente quando uma nova build for detectada",
@@ -357,9 +357,14 @@
     "step2": "Clique em <b>Editar</b> no seu servidor",
     "step3": "Configure ali o host, a porta e a senha RCON",
     "startupCardTitle": "Inicialização do servidor",
-    "startupCardDesc": "Se o painel inicia o servidor do jogo para você.",
-    "autoStartLabel": "Iniciar o servidor do jogo quando o painel iniciar",
-    "autoStartDesc": "Ignorado automaticamente quando a porta RCON já está em uso, para nunca duplicar um servidor que já está em execução. Requer um caminho de instalação local; servidores de provedores de hospedagem são iniciados pelo próprio provedor."
+    "startupCardDesc": "Quais servidores do jogo o painel inicia para você.",
+    "autoStartLabel": "Iniciar servidores do jogo quando o painel iniciar",
+    "autoStartDesc": "Ignorado automaticamente quando a porta RCON já está em uso, para nunca duplicar um servidor que já está em execução. Requer um caminho de instalação local; servidores de provedores de hospedagem são iniciados pelo próprio provedor.",
+    "autoStartServersLabel": "Servidores a iniciar",
+    "autoStartServersDesc": "Os servidores marcados iniciam um após o outro quando o painel inicia. Um servidor que já está em execução fica como está.",
+    "autoStartActiveBadge": "Ativo",
+    "autoStartNoServers": "Ainda não há servidor neste computador. Adicione um em Meus servidores.",
+    "autoStartNoneChosen": "Nenhum servidor está marcado, então nenhum vai iniciar."
   },
   "bridge": {
     "checksLabels": {
@@ -924,6 +929,14 @@
     "autoStartDisabled": {
       "title": "Início automático desativado",
       "description": "O servidor não será iniciado automaticamente"
+    },
+    "autoStartServerChosen": {
+      "title": "Início automático atualizado",
+      "description": "{{name}} vai iniciar quando o painel iniciar"
+    },
+    "autoStartServerRemoved": {
+      "title": "Início automático atualizado",
+      "description": "{{name}} não vai mais iniciar junto com o painel"
     },
     "autoStartSaveFailed": {
       "title": "Falha ao salvar a configuração de início automático",

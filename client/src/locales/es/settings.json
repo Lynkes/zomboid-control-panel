@@ -14,7 +14,7 @@
     "corsDebugLogging": "Activar el registro de depuración de CORS",
     "enableHttps": "Activar HTTPS",
     "autoReconnectRcon": "Reconexión automática de RCON al desconectarse",
-    "startServerOnPanelStart": "Iniciar el servidor del juego cuando se inicia el panel",
+    "startServerOnPanelStart": "Iniciar servidores del juego cuando se inicia el panel",
     "autoUpdateBridgeMod": "Actualizar automáticamente el mod PanelBridge",
     "autoRestartOnModUpdate": "Reiniciar automáticamente el servidor cuando se actualizan los mods",
     "autoUpdateGameServer": "Actualizar automáticamente el servidor cuando se detecta una nueva compilación",
@@ -357,9 +357,14 @@
     "step2": "Haz clic en <b>Editar</b> en tu servidor",
     "step3": "Configura ahí el host, el puerto y la contraseña de RCON",
     "startupCardTitle": "Inicio del servidor",
-    "startupCardDesc": "Si el panel inicia el servidor del juego por ti.",
-    "autoStartLabel": "Iniciar el servidor del juego cuando se inicia el panel",
-    "autoStartDesc": "Se omite automáticamente cuando el puerto RCON ya está en uso, de modo que un servidor que ya se está ejecutando nunca se duplica. Necesita una ruta de instalación local; los servidores alojados por un proveedor los inicia el proveedor."
+    "startupCardDesc": "Qué servidores del juego inicia el panel por ti.",
+    "autoStartLabel": "Iniciar servidores del juego cuando se inicia el panel",
+    "autoStartDesc": "Se omite automáticamente cuando el puerto RCON ya está en uso, de modo que un servidor que ya se está ejecutando nunca se duplica. Necesita una ruta de instalación local; los servidores alojados por un proveedor los inicia el proveedor.",
+    "autoStartServersLabel": "Servidores que se inician",
+    "autoStartServersDesc": "Los servidores marcados se inician uno tras otro cuando se inicia el panel. Un servidor que ya se está ejecutando no se toca.",
+    "autoStartActiveBadge": "Activo",
+    "autoStartNoServers": "Aún no hay ningún servidor en este equipo. Añade uno en Mis servidores.",
+    "autoStartNoneChosen": "No hay ningún servidor marcado, así que no se iniciará ninguno."
   },
   "bridge": {
     "checksLabels": {
@@ -916,6 +921,8 @@
     },
     "autoStartEnabled": { "title": "Inicio automático activado", "description": "El servidor se iniciará automáticamente cuando se inicie el panel" },
     "autoStartDisabled": { "title": "Inicio automático desactivado", "description": "El servidor no se iniciará automáticamente" },
+    "autoStartServerChosen": { "title": "Inicio automático actualizado", "description": "{{name}} se iniciará cuando se inicie el panel" },
+    "autoStartServerRemoved": { "title": "Inicio automático actualizado", "description": "{{name}} ya no se iniciará con el panel" },
     "autoStartSaveFailed": { "title": "No se pudo guardar el ajuste de inicio automático", "fallback": "El panel no pudo guardar el ajuste de inicio automático. Inténtalo de nuevo." },
     "corsReloaded": {
       "title": "Reglas de CORS recargadas",

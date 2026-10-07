@@ -2343,6 +2343,14 @@ export async function deleteServer(id) {
   // otherwise — nothing else ever removes it.
   deleteServerSecret(serverId);
 
+  // Nor would the boot auto-start's list of servers to start.
+  const autoStartIds = db.data.settings?.autoStartServerIds;
+  if (Array.isArray(autoStartIds)) {
+    db.data.settings.autoStartServerIds = autoStartIds.filter(
+      (id) => String(id) !== serverId,
+    );
+  }
+
   scheduleWrite();
   return true;
 }
