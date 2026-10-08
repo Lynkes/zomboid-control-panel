@@ -250,6 +250,8 @@
     "historyClearFailedFallback": "歷史記錄清除失敗",
     "restartSucceededTitle": "重新啟動已完成",
     "restartResultFailedTitle": "重新啟動失敗",
+    "serverRestartSucceededTitle": "{{name}} 已重新啟動",
+    "serverRestartFailedTitle": "{{name}} 未能重新啟動",
     "taskSucceededTitle": "“{{name}}”已完成",
     "taskResultFailedTitle": "“{{name}}”失敗"
   },

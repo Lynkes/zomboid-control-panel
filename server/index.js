@@ -62,6 +62,7 @@ import {
 } from "./services/managedContainer.js";
 import { ModChecker } from "./services/modChecker.js";
 import { Scheduler } from "./services/scheduler.js";
+import { ServerWatch } from "./services/serverWatch.js";
 import { DiscordBot } from "./services/discordBot.js";
 import { BackupService, BACKUP_PROGRESS_ROOM } from "./services/backupService.js";
 import { UpdateChecker } from "./services/updateChecker.js";
@@ -260,6 +261,9 @@ async function gracefulShutdown(signal) {
       diskMonitor.stop();
     }
 
+    // Stop the server watch
+    serverWatch.stop();
+
     // Stop the Server Files janitor and the character and leaderboard
     // samplers, and close the file manager's SFTP connections (not awaited: a
     // remote host that stopped answering must not hold up shutdown)
@@ -318,7 +322,7 @@ import serverRoutes, {
   refreshLaunchTargetForLaunch,
 } from "./routes/server.js";
 import discoveryRoutes from "./routes/discovery.js";
-import serversRoutes from "./routes/servers.js";
+import serversRoutes, { readServerStatuses } from "./routes/servers.js";
 import serverStatusRoutes from "./routes/serverStatus.js";
 import serverFilesRoutes from "./routes/serverFiles.js";
 import playerRoutes from "./routes/players.js";
@@ -3537,6 +3541,10 @@ function stopPerfPolling() {
 // ============================================
 let statusWatchdogInterval = null;
 let lastKnownRunning = null;
+// The server lastKnownRunning was observed on (the shared ServerManager's
+// record), so a switch of active server is never taken for that server
+// stopping -- see the server watch's hand-off below.
+let lastKnownServerId = null;
 let lastKnownPhase = null;
 // Distinct from `lastKnownRunning === null` (which also means "never
 // observed anything yet"). See checkServerStatusNow()'s own comment on the
@@ -3658,6 +3666,7 @@ export function classifyStopReason(serverManager, rconService) {
 export async function checkServerStatusNow(detectionReason = "watchdog") {
   try {
     const running = await getObservedServerRunning();
+    const observedServerId = serverManager._serverRecord?.id ?? null;
     if (running === null) {
       // round-6 bug hunt: this used to return here unconditionally, with no
       // emit and no state mutation at all. Fine the FIRST time this watchdog
@@ -3765,6 +3774,19 @@ export async function checkServerStatusNow(detectionReason = "watchdog") {
               `Discord serverStop notification failed: ${err.message}`,
             ),
           );
+        // A server chosen to restart when it goes down is started again
+        // (services/serverWatch.js) -- only when the server seen stopped is
+        // the one last seen running: switching the active server from a
+        // running one to a stopped one reads as running -> stopped here.
+        if (
+          observedServerId !== null &&
+          String(observedServerId) === String(lastKnownServerId)
+        ) {
+          void serverWatch.onActiveServerStopped({
+            serverId: observedServerId,
+            reason: stopReason.reason,
+          });
+        }
       } else if (runningChanged) {
         discordBot
           .sendEventNotification("serverStart", {})
@@ -3777,6 +3799,7 @@ export async function checkServerStatusNow(detectionReason = "watchdog") {
     }
     lastKnownRunning = running;
     lastKnownPhase = phase;
+    lastKnownServerId = observedServerId;
   } catch (err) {
     log.debug(`Status watchdog error: ${err.message}`);
   }
@@ -3788,6 +3811,70 @@ function startStatusWatchdog() {
   if (statusWatchdogInterval.unref) statusWatchdogInterval.unref();
   log.info("Server status watchdog started (10s interval)");
 }
+
+// ============================================
+// Server watch — the servers other than the active one, and restarting
+// any server that goes down without the panel asking (services/serverWatch.js)
+// ============================================
+
+// Whether the server is the active one NOW: the watch's restart waits a few
+// seconds, and the shared RCON and ServerManager follow whichever server is
+// active by then.
+async function isActiveServerId(serverId) {
+  const active = await getActiveServer();
+  return active?.id !== null && active?.id !== undefined && String(active.id) === String(serverId);
+}
+
+// true (down), false (up) or null (the panel can't tell).
+async function isServerStopped(server) {
+  if (await isActiveServerId(server.id)) {
+    const running = await getObservedServerRunning();
+    return running === null ? null : !running;
+  }
+  const { statuses } = await readServerStatuses(serverManager);
+  const row = statuses.find((candidate) => String(candidate.id) === String(server.id));
+  if (!row || row.stateUnknown) return null;
+  return !row.running;
+}
+
+// The way the scheduler restarts a server it finds offline: performRestart()
+// starts it, checks that it came up and writes the outcome to Schedule
+// History. Another server gets connections of its own, as a scheduled task
+// pinned to it does, so the shared ones keep following the active server.
+async function restartServerAfterCrash(server) {
+  const label = "Restart after going down";
+  if (await isActiveServerId(server.id)) {
+    return scheduler.performRestart(0, { label });
+  }
+  const tempRcon = new RconService();
+  const tempManager = new ServerManager();
+  await tempRcon.loadConfig(server.id);
+  await tempManager.loadConfig(server.id);
+  try {
+    return await scheduler.performRestart(0, {
+      rconService: tempRcon,
+      serverManager: tempManager,
+      label,
+    });
+  } finally {
+    if (tempRcon.connected) await tempRcon.disconnect().catch(() => {});
+  }
+}
+
+// Each database read through a wrapper, looked up when called: a test that
+// mocks database/init.js with a few exports must still be able to load this
+// file.
+const serverWatch = new ServerWatch({
+  readStatuses: async () => (await readServerStatuses(serverManager)).statuses,
+  getServers: () => getServers(),
+  getActiveServer: () => getActiveServer(),
+  getSetting: (key) => getSetting(key),
+  restartServer: restartServerAfterCrash,
+  isStopped: isServerStopped,
+  logEvent: (type, message, serverId) => logServerEvent(type, message, { serverId }),
+  // The Dashboard's list of servers refreshes on it.
+  emit: (payload) => io.emit("servers:status", payload),
+});
 
 // Process detection can fail with wrappers (WinGSM) or restricted permissions.
 // When that happens on startup, probe the RCON port directly as a fallback so we
@@ -4644,6 +4731,9 @@ async function start() {
 
     // Start status watchdog (detects unexpected server exits)
     startStatusWatchdog();
+
+    // And the watch over the other servers (see serverWatch above)
+    serverWatch.start();
 
     // Start update checker for server updates
     updateChecker.start();

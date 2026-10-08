@@ -272,6 +272,8 @@
     "historyClearFailedFallback": "No se pudo borrar el historial",
     "restartSucceededTitle": "Reinicio completado",
     "restartResultFailedTitle": "Error al reiniciar",
+    "serverRestartSucceededTitle": "{{name}} reiniciado",
+    "serverRestartFailedTitle": "{{name}} no se reinició",
     "taskSucceededTitle": "\"{{name}}\" completada",
     "taskResultFailedTitle": "\"{{name}}\" fallida",
     "restartInitiatedWithWarningsDesc_many": "El servidor se reiniciará en {{minutes}} minutos con avisos de cuenta regresiva"

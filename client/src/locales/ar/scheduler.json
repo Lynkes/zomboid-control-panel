@@ -304,6 +304,8 @@
     "historyClearFailedFallback": "فشل مسح السجل",
     "restartSucceededTitle": "اكتملت إعادة التشغيل",
     "restartResultFailedTitle": "فشلت إعادة التشغيل",
+    "serverRestartSucceededTitle": "أُعيد تشغيل {{name}}",
+    "serverRestartFailedTitle": "لم يُعَد تشغيل {{name}}",
     "taskSucceededTitle": "اكتملت \"{{name}}\"",
     "taskResultFailedTitle": "فشلت \"{{name}}\"",
     "restartInitiatedWithWarningsDesc_zero": "سيُعاد تشغيل الخادم بعد {{minutes}} من الدقائق مع تحذيرات العد التنازلي",

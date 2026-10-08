@@ -249,6 +249,8 @@
     "historyClearFailedFallback": "历史记录清除失败",
     "restartSucceededTitle": "重启已完成",
     "restartResultFailedTitle": "重启失败",
+    "serverRestartSucceededTitle": "{{name}} 已重启",
+    "serverRestartFailedTitle": "{{name}} 未能重启",
     "taskSucceededTitle": "“{{name}}”已完成",
     "taskResultFailedTitle": "“{{name}}”失败"
   }

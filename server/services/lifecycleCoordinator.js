@@ -7,6 +7,9 @@ export const LIFECYCLE_IN_PROGRESS_CODE = "SERVER_LIFECYCLE_IN_PROGRESS";
 let activeLock = null;
 let nextLockId = 0;
 let resolveServerDisplayName = null;
+// When the last lock naming each server was released ("" for a lock that
+// named none) -- see lifecycleActivityCovers().
+const lastReleasedAt = new Map();
 
 // Injected, not statically imported from database/init.js, on purpose:
 // dozens of test files mock that module with only the exports THEY need
@@ -217,8 +220,28 @@ export function acquireLifecycleLock(operation = "lifecycle", serverId = null) {
       if (released) return;
       released = true;
       if (activeLock === token) activeLock = null;
+      lastReleasedAt.set(token.serverId ?? "", Date.now());
     },
   };
+}
+
+// Whether a panel lifecycle operation could account for this server going
+// down: one is under way for it, or for no server in particular (boot
+// auto-start, an automatic update, /delete-files), or one ended within
+// `withinMs`. A Docker or service stop confirms before its lock is released,
+// but the watch that notices the process gone can tick a little later. The
+// server watch (services/serverWatch.js) reads it so a stop the panel made --
+// Stop, Restart, a wipe, a restore, an update -- is never taken for a crash.
+export function lifecycleActivityCovers(serverId, withinMs, now = Date.now()) {
+  const id =
+    serverId !== null && serverId !== undefined ? String(serverId).trim() : "";
+  if (activeLock && (!activeLock.serverId || activeLock.serverId === id)) {
+    return true;
+  }
+  return [id, ""].some((key) => {
+    const at = lastReleasedAt.get(key);
+    return at !== undefined && now - at <= withinMs;
+  });
 }
 
 // Reads the CURRENT holder off `activeLock` directly rather than taking a

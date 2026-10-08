@@ -884,8 +884,16 @@ export default function Settings() {
       const data = await configApi.getAppSettings();
       setSettingsLoadError(null);
       if (data.settings) {
-        const { autoStartServerIds: loadedAutoStartServerIds, ...incoming } =
-          data.settings as Partial<AppSettings> & { autoStartServerIds?: unknown };
+        // restartOnCrashServerIds is the Dashboard's alone, and stays out of
+        // `settings` for the same reason (Save would put back a stale list).
+        const {
+          autoStartServerIds: loadedAutoStartServerIds,
+          restartOnCrashServerIds: _restartOnCrashServerIds,
+          ...incoming
+        } = data.settings as Partial<AppSettings> & {
+          autoStartServerIds?: unknown;
+          restartOnCrashServerIds?: unknown;
+        };
         setStoredAutoStartServerIds(loadedAutoStartServerIds);
         // Use functional update to get current state and merge with loaded settings
         setSettings((prevSettings) => {

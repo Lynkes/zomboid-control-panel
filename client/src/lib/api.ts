@@ -2237,6 +2237,26 @@ export const serversApi = {
       server: ServerInstance;
       message: string;
     }>,
+  // A server other than the active one, from the Dashboard's list of servers
+  // (the active one's are serverApi.start/stop/restart).
+  start: (id: string | number) =>
+    apiPost(`/servers/${id}/start`) as Promise<{
+      success: boolean;
+      alreadyRunning?: boolean;
+      message?: string;
+    }>,
+  stop: (id: string | number) =>
+    apiPost(`/servers/${id}/stop`) as Promise<{
+      success: boolean;
+      alreadyStopped?: boolean;
+      confirmed?: boolean;
+      message?: string;
+    }>,
+  restart: (id: string | number, warningMinutes?: number) =>
+    apiPost(`/servers/${id}/restart`, { warningMinutes }) as Promise<{
+      success: boolean;
+      message?: string;
+    }>,
   steamUpdate: (
     steamcmdPath: string,
     installPath: string,

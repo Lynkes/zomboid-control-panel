@@ -43,6 +43,13 @@ import {
 import { normalizeMemoryGb } from "../utils/memory.js";
 import { GAME_PORT_MAX, applyUpnpToIni } from "./server.js";
 import {
+  resolveOtherServer,
+  restartOtherServer,
+  startOtherServer,
+  stopOtherServer,
+} from "../services/otherServerLifecycle.js";
+import { codedActionResultFields, emitActionResult } from "./scheduler.js";
+import {
   findLaunchTargetRefusal,
   launchTargetOf,
   launchTargetRefusedError,
@@ -762,169 +769,178 @@ export function sharedStatusScan(owner, key, run) {
 // server (-servername/-cachedir first, install path only as a fallback).
 // Servers with no matching process are reported as not running -- or as
 // unknown when Windows also lists processes the panel can't read.
+// The rows behind GET /status, and the server watch's view of every server
+// (services/serverWatch.js reads them on its own timer, sharing the scan
+// with any page polling this route at the same moment).
+export async function readServerStatuses(serverManager) {
+  const servers = await getServers();
+  const activeServer = await getActiveServer();
+  const activeId = activeServer?.id || null;
+
+  // A throwaway instance, not the shared `serverManager` singleton:
+  // scanHostForServerProcesses() (via the private scan it wraps) writes
+  // `this.isRunning` as a side effect, and that value means something
+  // different here -- "some PZ process exists somewhere on the host" --
+  // than what the shared instance's cached isRunning is supposed to mean
+  // ("MY configured server is running"), which server.js's start/stop
+  // polling and the fallback below both still read.
+  let matched = [];
+  let hostScan = null;
+  let detectionError = null;
+  try {
+    const scan = await sharedStatusScan(serverManager, "host", () =>
+      new ServerManager().scanHostForServerProcesses(),
+    );
+    hostScan = scan;
+    matched = Array.isArray(scan?.matched) ? scan.matched : [];
+    if (scan?.scanFailed) {
+      detectionError = scan.error || "Process detection failed";
+    }
+  } catch (err) {
+    detectionError = err.message;
+    log.debug(`Per-server status detection failed: ${err.message}`);
+  }
+
+  // Each running row's start time for the process that row was attributed
+  // (for a managed lifecycle, systemd's MainPID or OpenRC's supervised
+  // child -- see LinuxServiceLifecycle.status()) -- through the same
+  // serverManager.startTimeOf() the active server's resolveStartTime()
+  // uses, so a card and the dashboard can't disagree: on Windows it rides
+  // on the scan row above, elsewhere it is two /proc reads. ISO string, or
+  // null when unknown (stopped, unverifiable, or the OS couldn't say).
+  const startedAtFor = async (entry, running) => {
+    if (!running || !entry?.pid || typeof serverManager?.startTimeOf !== "function") {
+      return null;
+    }
+    const startedMs = await serverManager.startTimeOf(entry);
+    return startedMs === null ? null : new Date(startedMs).toISOString();
+  };
+
+  const statuses = await Promise.all(servers.map(async (server) => {
+    if (isManagedLifecycleProvider(server.lifecycleProvider)) {
+      try {
+        const status = await createLinuxServiceLifecycle(
+          server,
+          server.lifecycleProvider,
+        ).status();
+        const known = status.running && !status.scanFailed;
+        return {
+          id: server.id,
+          name: server.name,
+          running: status.running,
+          pid: null,
+          isActive: server.id === activeId,
+          provider: server.lifecycleProvider,
+          stateUnknown: Boolean(status.scanFailed),
+          startedAt: await startedAtFor({ pid: status.mainPid }, known),
+        };
+      } catch (error) {
+        return {
+          id: server.id,
+          name: server.name,
+          running: false,
+          pid: null,
+          isActive: server.id === activeId,
+          provider: server.lifecycleProvider,
+          stateUnknown: true,
+          startedAt: null,
+          error: sanitizeError(error.message),
+        };
+      }
+    }
+    // Same ownership scorer serverManager.js uses for the active server's
+    // own detection (-servername/-cachedir first, install-path substring
+    // only as a fallback for a stock launch with no identifying args) --
+    // using a second, weaker, ad-hoc match here would let this list and
+    // the active server's own status disagree about the same process.
+    const descriptor = {
+      serverName: server.serverName,
+      savePath: server.zomboidDataPath,
+      serverPath: server.serverPath || server.installPath,
+    };
+    let running = false;
+    let pid;
+    let attributed = null;
+    for (const m of matched) {
+      if (scoreServerProcessOwnership(m.cmd, descriptor) > 0) {
+        running = true;
+        pid = m.pid;
+        attributed = m;
+        break;
+      }
+    }
+    // Fallback: the active server's running state is authoritative even
+    // when nothing in the host-wide scan above can be attributed to it
+    // (e.g. when the process was started outside the panel and uses a
+    // different working directory, with no -servername/-cachedir either).
+    //
+    // is-running-enumeration sweep, 2026-09-08: this used to read
+    // serverManager.isRunning directly -- a cached field with no bound on
+    // its own age, refreshed only as a SIDE EFFECT of something unrelated
+    // elsewhere happening to call getServerProcessDetails() on the shared
+    // instance. Convention A (getServerProcessDetails() itself) exposes
+    // scanFailed precisely so a caller never mistakes "haven't checked
+    // recently" for "confirmed" -- this fallback had no such capability.
+    // Servers.tsx's waitForActionState() polls exactly this endpoint to
+    // confirm both Start and Stop, so a stale-true cached flag broke both
+    // directions: STOP could never see running:false and burned its full
+    // timeout reporting "not confirmed" on a server that HAD actually
+    // stopped, and START could report success off a flag startServer()
+    // sets synchronously at spawn time, before anything had actually
+    // observed the process. Calling getServerProcessDetails() fresh here
+    // -- the same call every other convention-A site already makes --
+    // keeps the grace window (its JVM-shape/zomboid-adjacent matching is
+    // deliberately more permissive than scoreServerProcessOwnership's
+    // descriptor-based scoring above, which is what let it catch a stock,
+    // argument-less launch in the first place) while replacing an
+    // unbounded-age field read with an actual observation, and gives this
+    // row the same "don't know yet" signal every other site already has
+    // instead of forcing a confident guess.
+    let activeFallbackUnknown = false;
+    let fallbackEntry = null;
+    if (!running && server.id === activeId && typeof serverManager?.getServerProcessDetails === "function") {
+      try {
+        const activeDetails = await sharedStatusScan(
+          serverManager,
+          `active:${activeId}`,
+          () => serverManager.getServerProcessDetails(),
+        );
+        if (activeDetails.scanFailed) {
+          activeFallbackUnknown = true;
+        } else if (activeDetails.running) {
+          running = true;
+          fallbackEntry = activeDetails.matched?.[0] || null;
+        }
+      } catch (err) {
+        activeFallbackUnknown = true;
+        log.debug(`Active-server fallback detection failed: ${err.message}`);
+      }
+    }
+    // Windows may also list processes the panel can't read; for a row
+    // none of the readable ones belongs to, one of those may be it.
+    const stateUnknown =
+      Boolean(detectionError) ||
+      activeFallbackUnknown ||
+      scanLeavesServerUnknown(hostScan, running);
+    return {
+      id: server.id,
+      name: server.name,
+      running,
+      pid: pid || null,
+      isActive: server.id === activeId,
+      provider: "direct",
+      stateUnknown,
+      startedAt: await startedAtFor(attributed || fallbackEntry, running && !stateUnknown),
+    };
+  }));
+  return { statuses, matched, detectionError };
+}
+
 router.get("/status", async (req, res) => {
   try {
-    const serverManager = req.app.get("serverManager");
-    const servers = await getServers();
-    const activeServer = await getActiveServer();
-    const activeId = activeServer?.id || null;
-
-    // A throwaway instance, not the shared `serverManager` singleton:
-    // scanHostForServerProcesses() (via the private scan it wraps) writes
-    // `this.isRunning` as a side effect, and that value means something
-    // different here -- "some PZ process exists somewhere on the host" --
-    // than what the shared instance's cached isRunning is supposed to mean
-    // ("MY configured server is running"), which server.js's start/stop
-    // polling and the fallback below both still read.
-    let matched = [];
-    let hostScan = null;
-    let detectionError = null;
-    try {
-      const scan = await sharedStatusScan(serverManager, "host", () =>
-        new ServerManager().scanHostForServerProcesses(),
-      );
-      hostScan = scan;
-      matched = Array.isArray(scan?.matched) ? scan.matched : [];
-      if (scan?.scanFailed) {
-        detectionError = scan.error || "Process detection failed";
-      }
-    } catch (err) {
-      detectionError = err.message;
-      log.debug(`Per-server status detection failed: ${err.message}`);
-    }
-
-    // Each running row's start time for the process that row was attributed
-    // (for a managed lifecycle, systemd's MainPID or OpenRC's supervised
-    // child -- see LinuxServiceLifecycle.status()) -- through the same
-    // serverManager.startTimeOf() the active server's resolveStartTime()
-    // uses, so a card and the dashboard can't disagree: on Windows it rides
-    // on the scan row above, elsewhere it is two /proc reads. ISO string, or
-    // null when unknown (stopped, unverifiable, or the OS couldn't say).
-    const startedAtFor = async (entry, running) => {
-      if (!running || !entry?.pid || typeof serverManager?.startTimeOf !== "function") {
-        return null;
-      }
-      const startedMs = await serverManager.startTimeOf(entry);
-      return startedMs === null ? null : new Date(startedMs).toISOString();
-    };
-
-    const statuses = await Promise.all(servers.map(async (server) => {
-      if (isManagedLifecycleProvider(server.lifecycleProvider)) {
-        try {
-          const status = await createLinuxServiceLifecycle(
-            server,
-            server.lifecycleProvider,
-          ).status();
-          const known = status.running && !status.scanFailed;
-          return {
-            id: server.id,
-            name: server.name,
-            running: status.running,
-            pid: null,
-            isActive: server.id === activeId,
-            provider: server.lifecycleProvider,
-            stateUnknown: Boolean(status.scanFailed),
-            startedAt: await startedAtFor({ pid: status.mainPid }, known),
-          };
-        } catch (error) {
-          return {
-            id: server.id,
-            name: server.name,
-            running: false,
-            pid: null,
-            isActive: server.id === activeId,
-            provider: server.lifecycleProvider,
-            stateUnknown: true,
-            startedAt: null,
-            error: sanitizeError(error.message),
-          };
-        }
-      }
-      // Same ownership scorer serverManager.js uses for the active server's
-      // own detection (-servername/-cachedir first, install-path substring
-      // only as a fallback for a stock launch with no identifying args) --
-      // using a second, weaker, ad-hoc match here would let this list and
-      // the active server's own status disagree about the same process.
-      const descriptor = {
-        serverName: server.serverName,
-        savePath: server.zomboidDataPath,
-        serverPath: server.serverPath || server.installPath,
-      };
-      let running = false;
-      let pid;
-      let attributed = null;
-      for (const m of matched) {
-        if (scoreServerProcessOwnership(m.cmd, descriptor) > 0) {
-          running = true;
-          pid = m.pid;
-          attributed = m;
-          break;
-        }
-      }
-      // Fallback: the active server's running state is authoritative even
-      // when nothing in the host-wide scan above can be attributed to it
-      // (e.g. when the process was started outside the panel and uses a
-      // different working directory, with no -servername/-cachedir either).
-      //
-      // is-running-enumeration sweep, 2026-09-08: this used to read
-      // serverManager.isRunning directly -- a cached field with no bound on
-      // its own age, refreshed only as a SIDE EFFECT of something unrelated
-      // elsewhere happening to call getServerProcessDetails() on the shared
-      // instance. Convention A (getServerProcessDetails() itself) exposes
-      // scanFailed precisely so a caller never mistakes "haven't checked
-      // recently" for "confirmed" -- this fallback had no such capability.
-      // Servers.tsx's waitForActionState() polls exactly this endpoint to
-      // confirm both Start and Stop, so a stale-true cached flag broke both
-      // directions: STOP could never see running:false and burned its full
-      // timeout reporting "not confirmed" on a server that HAD actually
-      // stopped, and START could report success off a flag startServer()
-      // sets synchronously at spawn time, before anything had actually
-      // observed the process. Calling getServerProcessDetails() fresh here
-      // -- the same call every other convention-A site already makes --
-      // keeps the grace window (its JVM-shape/zomboid-adjacent matching is
-      // deliberately more permissive than scoreServerProcessOwnership's
-      // descriptor-based scoring above, which is what let it catch a stock,
-      // argument-less launch in the first place) while replacing an
-      // unbounded-age field read with an actual observation, and gives this
-      // row the same "don't know yet" signal every other site already has
-      // instead of forcing a confident guess.
-      let activeFallbackUnknown = false;
-      let fallbackEntry = null;
-      if (!running && server.id === activeId && typeof serverManager?.getServerProcessDetails === "function") {
-        try {
-          const activeDetails = await sharedStatusScan(
-            serverManager,
-            `active:${activeId}`,
-            () => serverManager.getServerProcessDetails(),
-          );
-          if (activeDetails.scanFailed) {
-            activeFallbackUnknown = true;
-          } else if (activeDetails.running) {
-            running = true;
-            fallbackEntry = activeDetails.matched?.[0] || null;
-          }
-        } catch (err) {
-          activeFallbackUnknown = true;
-          log.debug(`Active-server fallback detection failed: ${err.message}`);
-        }
-      }
-      // Windows may also list processes the panel can't read; for a row
-      // none of the readable ones belongs to, one of those may be it.
-      const stateUnknown =
-        Boolean(detectionError) ||
-        activeFallbackUnknown ||
-        scanLeavesServerUnknown(hostScan, running);
-      return {
-        id: server.id,
-        name: server.name,
-        running,
-        pid: pid || null,
-        isActive: server.id === activeId,
-        provider: "direct",
-        stateUnknown,
-        startedAt: await startedAtFor(attributed || fallbackEntry, running && !stateUnknown),
-      };
-    }));
+    const { statuses, matched, detectionError } = await readServerStatuses(
+      req.app.get("serverManager"),
+    );
 
     res.json({
       servers: statuses,
@@ -2201,5 +2217,66 @@ router.post("/:id/activate", requirePermission("servers.manage"), async (req, re
     lifecycleLock.release();
   }
 });
+
+// Start, stop or restart a server other than the active one, from the
+// Dashboard's list of servers -- see services/otherServerLifecycle.js. The
+// capability of the Dashboard's own Start/Stop/Restart. Each settles with a
+// `servers:status` push, as the server watch sends when it sees a server
+// start or stop, so every open Dashboard's list follows.
+async function runOtherServerAction(req, res, verb, action) {
+  try {
+    const { server, refused } = await resolveOtherServer(parseServerId(req.params.id));
+    if (refused) return res.status(refused.status).json(refused.body);
+    const io = req.app.get("io");
+    const onSettled = () => io?.emit("servers:status", { serverId: server.id });
+    const outcome = await action(server, { io, onSettled });
+    res.status(outcome.status).json(outcome.body);
+  } catch (error) {
+    log.error(`Failed to ${verb} server ${req.params.id}: ${error.message}`);
+    // startServer()'s coded refusals (SERVER_START_SCRIPT_MISSING,
+    // SERVER_START_GAME_PORT_IN_USE...) keep their code, as on the Dashboard.
+    res.status(500).json({
+      error: sanitizeError(error.message),
+      ...codedActionResultFields(error),
+    });
+  }
+}
+
+router.post("/:id/start", requirePermission("server.control"), (req, res) =>
+  runOtherServerAction(req, res, "start", (server, { onSettled }) =>
+    startOtherServer(server, { onSettled }),
+  ),
+);
+
+router.post("/:id/stop", requirePermission("server.control"), (req, res) =>
+  runOtherServerAction(req, res, "stop", (server, { onSettled }) =>
+    stopOtherServer(server, { onSettled }),
+  ),
+);
+
+// warningMinutes as POST /api/server/restart takes it: 0-60, 5 by default.
+// The outcome reaches every client as the Dashboard's restart's does
+// (scheduler:action_result), with the server's name.
+router.post("/:id/restart", requirePermission("server.control"), (req, res) =>
+  runOtherServerAction(req, res, "restart", (server, { io, onSettled }) =>
+    restartOtherServer(server, {
+      scheduler: req.app.get("scheduler"),
+      warningMinutes: Math.min(
+        parseBoundedInteger(req.body?.warningMinutes, 5, 0, Number.MAX_SAFE_INTEGER),
+        60,
+      ),
+      onResult: (result) => {
+        emitActionResult(io, {
+          kind: "restart",
+          serverName: server.name || server.serverName,
+          success: !!result?.success,
+          message: result?.message || (result?.success ? "Restart completed" : "Restart failed"),
+          ...(result?.success ? {} : codedActionResultFields(result)),
+        });
+        onSettled();
+      },
+    }),
+  ),
+);
 
 export default router;

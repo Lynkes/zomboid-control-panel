@@ -252,6 +252,8 @@
     "historyClearFailedFallback": "Echwe pou efase istorik",
     "restartSucceededTitle": "Redemaraj fini",
     "restartResultFailedTitle": "Redemaraj echwe",
+    "serverRestartSucceededTitle": "{{name}} redemare",
+    "serverRestartFailedTitle": "{{name}} pa t redemare",
     "taskSucceededTitle": "\"{{name}}\" fini",
     "taskResultFailedTitle": "\"{{name}}\" echwe"
   }

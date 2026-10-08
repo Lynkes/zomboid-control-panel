@@ -249,6 +249,8 @@
     "historyClearFailedFallback": "Failed to clear history",
     "restartSucceededTitle": "Restart completed",
     "restartResultFailedTitle": "Restart failed",
+    "serverRestartSucceededTitle": "{{name}} restarted",
+    "serverRestartFailedTitle": "{{name}} wasn't restarted",
     "taskSucceededTitle": "\"{{name}}\" completed",
     "taskResultFailedTitle": "\"{{name}}\" failed"
   }

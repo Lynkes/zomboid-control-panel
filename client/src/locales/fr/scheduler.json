@@ -272,6 +272,8 @@
     "historyClearFailedFallback": "Échec de l'effacement de l'historique",
     "restartSucceededTitle": "Redémarrage terminé",
     "restartResultFailedTitle": "Échec du redémarrage",
+    "serverRestartSucceededTitle": "{{name}} redémarré",
+    "serverRestartFailedTitle": "{{name}} n'a pas été redémarré",
     "taskSucceededTitle": "\"{{name}}\" terminée",
     "taskResultFailedTitle": "\"{{name}}\" échouée",
     "restartInitiatedWithWarningsDesc_many": "Le serveur redémarrera dans {{minutes}} minutes avec avertissements de compte à rebours"

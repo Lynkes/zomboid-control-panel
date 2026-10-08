@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Choose which servers start with the panel:** Settings › Connection lists each local server under the auto-start switch, and the Dashboard's checkbox adds or removes the active one. It used to start only whichever server was active; a setting saved before keeps doing that until you choose.
 - **Every server on the Dashboard:** with two servers or more, installed or linked, a Servers list shows each one's state, uptime, players and game port, with its auto-start checkbox and a button to show it on the Dashboard, without switching first. It scrolls when there are many, the active server first.
+- **Start, stop and restart any server from the Dashboard's list:** the servers other than the active one get Start, or Stop and Restart, in their row, with the Dashboard's own rules: the world is saved before a stop, a stop that never finishes is forced after a minute, and a restart warns players 5 minutes ahead. The active server keeps its own controls.
+- **Restart if it goes down:** a checkbox per server (on the Dashboard's list, or beside auto-start with one server) has the panel start that server again when it stops without the panel asking, such as a crash or `/quit` in the game. It waits 15 seconds, and leaves a server down after 3 restarts in 30 minutes.
+- **The panel watches every server, not only the active one:** a server other than the active one that stops on its own is recorded in its server events, and the Dashboard's list updates at once when any server starts or stops.
 
 ### Security
 
