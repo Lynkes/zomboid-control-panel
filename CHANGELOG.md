@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Leaderboard missed players:** kills and days are now read for everyone online, not only while the Leaderboard page is open, and a death no longer loses kills.
 
+### Security
+
+- **Sign-out has to reach the panel:** if it doesn't, the tab stays signed in and offers Retry; on a shared PC the next person could open the panel as you.
+- **Sign-out reaches every tab:** the browser's other panel tabs sign out too; they stayed usable for up to 15 minutes.
+- **No silent account switch:** a tab whose session refresh comes back as another account reloads; it went on acting as that account under the old name.
+- **Several tabs at once:** tabs refreshing together take turns, and a passing refresh failure no longer leaves a tab that looks signed in while every action fails.
+- **Sign-in check at load:** an error from the panel or a proxy shows a Retry card; it showed the panel as if logins were off.
+
 ## [1.4.8] - 2026-10-07
 
 ### Changed
