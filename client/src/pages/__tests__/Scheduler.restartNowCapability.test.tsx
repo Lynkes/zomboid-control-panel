@@ -99,17 +99,18 @@ describe('Scheduler.tsx: Restart Now buttons gate on server.control, not just pa
 
     renderScheduler()
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Restart in 15m' })).toBeInTheDocument())
+    // One countdown choice and one restart action (2026-10 layout): the
+    // choice is disabled along with the action, so no length can be
+    // picked and nothing can fire.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Restart in 5m' })).toBeInTheDocument())
 
-    const buttonNames = ['Restart in 15m', 'Restart in 10m', 'Restart in 5m', 'Restart in 1m', 'Restart Now']
-    const buttons = buttonNames.map((name) => screen.getByRole('button', { name }))
-    for (const button of buttons) {
-      expect(button).toBeDisabled()
+    const restartButton = screen.getByRole('button', { name: 'Restart in 5m' })
+    expect(restartButton).toBeDisabled()
+    for (const name of ['15m', '10m', '5m', '1m', 'Custom']) {
+      expect(screen.getByRole('radio', { name })).toBeDisabled()
     }
 
-    for (const button of buttons) {
-      fireEvent.click(button)
-    }
+    fireEvent.click(restartButton)
 
     expect(restartNow).not.toHaveBeenCalled()
   })
@@ -120,12 +121,14 @@ describe('Scheduler.tsx: Restart Now buttons gate on server.control, not just pa
 
     renderScheduler()
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Restart in 15m' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Restart in 5m' })).not.toBeDisabled())
 
-    const buttonNames = ['Restart in 15m', 'Restart in 10m', 'Restart in 5m', 'Restart in 1m', 'Restart Now']
-    for (const name of buttonNames) {
-      expect(screen.getByRole('button', { name })).not.toBeDisabled()
+    for (const minutes of [15, 10, 5, 1]) {
+      fireEvent.click(screen.getByRole('radio', { name: `${minutes}m` }))
+      expect(screen.getByRole('button', { name: `Restart in ${minutes}m` })).not.toBeDisabled()
     }
+    fireEvent.click(screen.getByRole('radio', { name: 'Custom' }))
+    expect(screen.getByRole('spinbutton')).not.toBeDisabled()
   })
 
   // bug-hunt-2026-08-27 (Players.tsx follow-up): "not disabled" only proves
@@ -144,12 +147,13 @@ describe('Scheduler.tsx: Restart Now buttons gate on server.control, not just pa
 
     renderScheduler()
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Restart in 1m' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('radio', { name: '1m' })).not.toBeDisabled())
+    fireEvent.click(screen.getByRole('radio', { name: '1m' }))
     fireEvent.click(screen.getByRole('button', { name: 'Restart in 1m' }))
 
     // Confirms the dialog actually opened (unique title text, unlike the
     // button label which the trigger and confirm action share).
-    await screen.findByText('Restart server in 1 minute?')
+    await screen.findByText('Restart in 1 minute?')
 
     // Trigger and confirm action share the identical label ("Restart in 1m"),
     // but Radix hides the background (including the trigger) behind the open
@@ -165,13 +169,16 @@ describe('Scheduler.tsx: Restart Now buttons gate on server.control, not just pa
 
     renderScheduler()
 
-    await waitFor(() => expect(screen.getByRole('spinbutton')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Custom' })).not.toBeDisabled())
+    fireEvent.click(screen.getByRole('radio', { name: 'Custom' }))
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '2' } })
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Restart Now' })).not.toBeDisabled())
-    fireEvent.click(screen.getByRole('button', { name: 'Restart Now' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Restart in 2m' })).not.toBeDisabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Restart in 2m' }))
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Restart in 2m' }))
+    // The trigger is now hidden behind the modal: this is the confirm action.
+    await screen.findByText('Restart in 2 minutes?')
+    fireEvent.click(screen.getByRole('button', { name: 'Restart in 2m' }))
 
     await waitFor(() => expect(restartNow).toHaveBeenCalledWith(2))
   })

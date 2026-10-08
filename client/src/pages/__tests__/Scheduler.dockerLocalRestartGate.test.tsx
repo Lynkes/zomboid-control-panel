@@ -112,7 +112,7 @@ describe('Scheduler.tsx: Manual Restart / Quick Broadcasts gate on the provider-
     // Wait for the condition itself, or this races the very transition
     // the test is about.
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Restart in 15m' })).toBeEnabled()
+      expect(screen.getByRole('button', { name: 'Restart in 5m' })).toBeEnabled()
     })
     expect(screen.getByRole('button', { name: 'Maintenance Start' })).toBeEnabled()
   })
@@ -138,7 +138,7 @@ describe('Scheduler.tsx: Manual Restart / Quick Broadcasts gate on the provider-
     // confirms stopped. Wait for the settled condition, not just the
     // element's existence.
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Restart in 15m' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Restart in 5m' })).toBeDisabled()
     })
     expect(screen.getByRole('button', { name: 'Maintenance Start' })).toBeDisabled()
   })
