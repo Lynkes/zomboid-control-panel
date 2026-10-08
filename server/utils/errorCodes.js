@@ -2561,6 +2561,15 @@ export const ErrorCode = Object.freeze({
    * (security sweep 2026-10-05, M2). */
   DISCORD_CHANNEL_OUTSIDE_GUILD: "DISCORD_CHANNEL_OUTSIDE_GUILD",
   /* --- end security sweep W5: hardening --- */
+  /* --- auth audit 2026-10-08: account security (sec/auth-core) --- */
+  /** server/services/auth.js (changeUserRoleById, deleteUser) and
+   * server/services/permissions.js (updateRole narrowing a role, deleteRole
+   * of a role with members) (403): the account or role being changed holds
+   * capabilities the caller doesn't, so the caller can't take them away.
+   * `params.detail` lists them. The built-in admin role counts as holding
+   * every capability (#3, #5). */
+  ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES: "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES",
+  /* --- end auth audit 2026-10-08: account security --- */
 });
 
 /**

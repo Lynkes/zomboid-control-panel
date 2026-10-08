@@ -306,6 +306,21 @@ export function listCapabilitiesGrouped() {
 // edit through its own UI.
 const RECOVERY_CAPABILITIES = ["roles.manage", "users.manage"];
 
+// SECURITY (2026-10-08, #5): what a role may hand out or take away from
+// others. The built-in admin role counts as holding every capability: it is
+// meant to (DEFAULT_ROLE_CAPABILITIES.admin), and checking it against its own
+// row meant a capability unticked in its column could never be granted again
+// by anyone -- the only repair was editing db.json by hand. Every other role
+// is limited to what it holds.
+const BUILTIN_ADMIN_ROLE_ID = "role-admin";
+
+export function delegableCapabilities(role) {
+  if (role?.isSeeded && role.id === BUILTIN_ADMIN_ROLE_ID) {
+    return CAPABILITIES.map((c) => c.key);
+  }
+  return Array.isArray(role?.capabilities) ? role.capabilities : [];
+}
+
 // ============================================
 // Default role seed (migration snapshot -- see file header)
 // ============================================
@@ -761,9 +776,18 @@ export async function createRole({ name, capabilities }, { actingUser } = {}) {
 // renaming, or leaving that role's existing over-reach untouched must
 // stay legal for anyone holding roles.manage, or role management itself
 // breaks for every non-admin roles.manage holder.
+// The capabilities actingUser may hand out or take away (delegableCapabilities()).
+async function getActingCapabilities(actingUser) {
+  try {
+    return delegableCapabilities(await getRoleByName(actingUser.role));
+  } catch {
+    return [];
+  }
+}
+
 async function assertNoRoleEditEscalation(actingUser, existingCapabilities, nextCapabilities) {
   if (!actingUser) return; // no caller context (e.g. first-user setup) -- nothing to compare against
-  const actingCapabilities = (await getCapabilitiesForRole(actingUser.role)) || [];
+  const actingCapabilities = await getActingCapabilities(actingUser);
   const existing = new Set(existingCapabilities || []);
   const added = (nextCapabilities || []).filter((capability) => !existing.has(capability));
   const missing = added.filter((capability) => !actingCapabilities.includes(capability));
@@ -772,6 +796,31 @@ async function assertNoRoleEditEscalation(actingUser, existingCapabilities, next
   throw makeError(
     ErrorCode.ROLE_GRANT_EXCEEDS_CALLER_CAPABILITIES,
     `Cannot add ${detail} to a role without already holding ${
+      missing.length === 1 ? "it" : "them"
+    } yourself.`,
+    403,
+    { detail, missing },
+  );
+}
+
+// SECURITY (2026-10-08, #3): the other half of the rule above. That one only
+// limits what an edit ADDS, so a roles.manage delegate could strip the
+// built-in admin role down to nothing, or delete a role wider than their own
+// with its members moved elsewhere. Narrowing a role, or deleting one that
+// has members, takes power away from everyone in it, so the caller must hold
+// everything the role holds. services/auth.js applies the same rule to
+// demoting, deleting or signing out one account.
+async function assertCallerCoversRole(actingUser, roleCapabilities) {
+  if (!actingUser) return;
+  const actingCapabilities = await getActingCapabilities(actingUser);
+  const missing = (roleCapabilities || []).filter(
+    (capability) => !actingCapabilities.includes(capability),
+  );
+  if (missing.length === 0) return;
+  const detail = missing.join(", ");
+  throw makeError(
+    ErrorCode.ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES,
+    `Cannot narrow or remove a role that holds ${detail} without holding ${
       missing.length === 1 ? "it" : "them"
     } yourself.`,
     403,
@@ -923,6 +972,9 @@ export async function updateRole(
     nextCapabilities = [...new Set(capabilities)];
 
     await assertNoRoleEditEscalation(actingUser, existing.capabilities, nextCapabilities);
+    if ((existing.capabilities || []).some((capability) => !nextCapabilities.includes(capability))) {
+      await assertCallerCoversRole(actingUser, existing.capabilities);
+    }
 
     await checkLockoutRulesForCapabilityChange({
       roleId: id,
@@ -1040,7 +1092,6 @@ export async function deleteRole(id, { reassignTo, actingUser } = {}) {
       { count: members.length },
     );
   }
-
   let targetRole = null;
   if (reassignTo) {
     targetRole = await getRoleById(reassignTo);
@@ -1059,6 +1110,10 @@ export async function deleteRole(id, { reassignTo, actingUser } = {}) {
     // their own role with ?reassignTo=<admin role id> and walked out as
     // admin -- along with every other member of whichever role they picked.
     await assertNoRoleEditEscalation(actingUser, [], targetRole.capabilities);
+  }
+
+  if (members.length > 0) {
+    await assertCallerCoversRole(actingUser, role.capabilities);
   }
 
   // Deleting this role removes its capabilities from every current member;

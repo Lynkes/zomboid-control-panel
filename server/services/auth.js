@@ -65,6 +65,7 @@ import {
 import { readSecret } from "../utils/secrets.js";
 import { getCapabilitiesForRole, withRoleMutex } from "./permissions.js";
 import {
+  delegableCapabilities,
   getRoleById,
   getRoleByName,
   getRoles,
@@ -210,6 +211,22 @@ async function assertNoRecoveryLockout(userId, currentCapabilities, nextCapabili
   }
 }
 
+// What the acting user may hand out or take away: their role's capabilities,
+// or every capability for the built-in admin role (permissions.js's
+// delegableCapabilities()). Null when there is no caller context to compare
+// against.
+async function getActingCapabilities(actingUserId) {
+  if (!actingUserId) return null; // no caller context (e.g. first-user setup bootstrap) -- nothing to compare against, nothing to guard
+  const db = await getDb();
+  const users = db.data.users || [];
+  const actingUser = users.find((u) => String(u.id) === String(actingUserId));
+  if (!actingUser) return null; // acting user's own row not found -- not this check's job to invent a refusal for that
+  const actingRole = actingUser.roleId
+    ? await getRoleById(actingUser.roleId)
+    : await getRoleByName(actingUser.role);
+  return delegableCapabilities(actingRole);
+}
+
 // Per-capability "no escalation through a second door" rule. Same policy
 // this codebase already enforces for Discord's own authorization tiers
 // (ErrorCode.DISCORD_PERMISSIONS_CAPABILITY_REQUIRED, routes/discord.js's
@@ -237,16 +254,12 @@ async function assertNoRecoveryLockout(userId, currentCapabilities, nextCapabili
 // inventing a second shape, and re-reads the acting user's role fresh from
 // the DB itself rather than trusting whatever the caller passed in, same
 // discipline as every other capability check in this file.
+//
+// SECURITY (2026-10-08, #5): the built-in admin role counts as holding every
+// capability here (getActingCapabilities() above).
 async function assertNoCapabilityEscalation(actingUserId, targetCapabilities) {
-  if (!actingUserId) return; // no caller context (e.g. first-user setup bootstrap) -- nothing to compare against, nothing to guard
-  const db = await getDb();
-  const users = db.data.users || [];
-  const actingUser = users.find((u) => String(u.id) === String(actingUserId));
-  if (!actingUser) return; // acting user's own row not found -- not this check's job to invent a refusal for that
-  const actingRole = actingUser.roleId
-    ? await getRoleById(actingUser.roleId)
-    : await getRoleByName(actingUser.role);
-  const actingCapabilities = actingRole?.capabilities || [];
+  const actingCapabilities = await getActingCapabilities(actingUserId);
+  if (!actingCapabilities) return;
   const missing = (targetCapabilities || []).filter(
     (capability) => !actingCapabilities.includes(capability),
   );
@@ -272,6 +285,30 @@ async function assertNoCapabilityEscalation(actingUserId, targetCapabilities) {
       { detail, missing },
     );
   }
+}
+
+// SECURITY (2026-10-08, #3): the ceiling on the TARGET. The check above only
+// limits what a caller hands out, so a users.manage delegate could demote or
+// delete every admin (and, with roles.manage, strip the admin role too) and
+// end up the only account manager left. Demoting, deleting or signing out an
+// account takes power away from it, so the caller must hold everything that
+// account's current role holds. An admin acting on another admin passes.
+async function assertCallerCoversTarget(actingUserId, targetCurrentCapabilities) {
+  const actingCapabilities = await getActingCapabilities(actingUserId);
+  if (!actingCapabilities) return;
+  const missing = (targetCurrentCapabilities || []).filter(
+    (capability) => !actingCapabilities.includes(capability),
+  );
+  if (missing.length === 0) return;
+  const detail = missing.join(", ");
+  throw makeRoleError(
+    ErrorCode.ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES,
+    `Cannot change, sign out or remove an account whose role holds ${detail} without holding ${
+      missing.length === 1 ? "it" : "them"
+    } yourself.`,
+    403,
+    { detail, missing },
+  );
 }
 
 // Failed password sign-ins, counted per (account, client address) -- not
@@ -972,6 +1009,9 @@ class AuthService {
    * (assertNoCapabilityEscalation above). This is the check that stops a
    * users.manage-only caller promoting a DIFFERENT account to admin, which
    * the self-change block above has nothing to say about.
+   *
+   * Ceiling: refuses moving anyone whose CURRENT role holds more than the
+   * caller does (assertCallerCoversTarget above, 2026-10-08 #3).
    */
   async changeUserRoleById(userId, roleId, { actingUserId } = {}) {
     // continuous-bug-hunt, 2026-09-18: nested inside permissions.js's
@@ -1015,6 +1055,7 @@ class AuthService {
 
       await assertNoRecoveryLockout(userId, currentCapabilities, nextCapabilities);
       await assertNoCapabilityEscalation(actingUserId, nextCapabilities);
+      await assertCallerCoversTarget(actingUserId, currentCapabilities);
 
       user.role = targetRole.name;
       user.roleId = targetRole.id;
@@ -1052,7 +1093,8 @@ class AuthService {
    * nextCapabilities: [] case (a user who is deleted keeps none of their
    * former role's capabilities, same as one moved to a role that grants
    * neither roles.manage nor users.manage). Refuses to delete the last
-   * user able to manage roles or manage users.
+   * user able to manage roles or manage users, and (2026-10-08 #3) anyone
+   * whose role holds more than the caller does.
    *
    * Sessions: deleting the row is the whole mechanism for HTTP — no
    * separate tokenGen bump is needed. Both authenticateAccessToken (every
@@ -1092,6 +1134,7 @@ class AuthService {
         : await getRoleByName(user.role);
       const currentCapabilities = currentRole?.capabilities || [];
 
+      await assertCallerCoversTarget(actingUserId, currentCapabilities);
       await assertNoRecoveryLockout(userId, currentCapabilities, []);
 
       db.data.users = users.filter((u) => u.id !== userId);

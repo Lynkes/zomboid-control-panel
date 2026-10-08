@@ -50,9 +50,34 @@ vi.mock("../database/init.js", () => ({
     db.data.users.filter(
       (u) => u.roleId === role.id || (role.isSeeded && u.role === role.name),
     ),
+  getUsersForRoleAccounting: async () =>
+    db.data.users.map((u) => ({ id: u.id, username: u.username, role: u.role, roleId: u.roleId })),
+  replaceRoleById: async (id, role) => {
+    const index = db.data.roles.findIndex((r) => String(r.id) === String(id));
+    if (index === -1) return null;
+    db.data.roles[index] = role;
+    return role;
+  },
+  removeRoleById: async (id) => {
+    const before = db.data.roles.length;
+    db.data.roles = db.data.roles.filter((r) => String(r.id) !== String(id));
+    return db.data.roles.length !== before;
+  },
+  reassignRoleMembers: async (fromRole, toRole) => {
+    let count = 0;
+    for (const u of db.data.users) {
+      if (u.roleId === fromRole.id || (fromRole.isSeeded && u.role === fromRole.name)) {
+        u.roleId = toRole.id;
+        u.role = toRole.name;
+        count++;
+      }
+    }
+    return count;
+  },
 }));
 
 const { default: authService } = await import("../services/auth.js");
+const { updateRole, deleteRole } = await import("../services/permissions.js");
 
 const ADMIN_ROLE = {
   id: "role-admin",
@@ -82,6 +107,8 @@ const SUPPORT_ROLE = {
   name: "support",
   capabilities: ["users.manage", "players.moderate"],
 };
+// A role that grants nothing: what a delegate may move an account out of.
+const MEMBER_ROLE = { id: "role-member", name: "member", capabilities: [] };
 
 function resetWith({ roles = [], users = [] }) {
   settings.clear();
@@ -145,11 +172,12 @@ describe("createUser() -- refuses creating a user in a role that exceeds the cal
 describe("changeUserRoleById() -- self-change refusal and escalation guard", () => {
   beforeEach(() => {
     resetWith({
-      roles: [ADMIN_ROLE, TECHNICIAN_ROLE, MODERATOR_ROLE, SUPPORT_ROLE],
+      roles: [ADMIN_ROLE, TECHNICIAN_ROLE, MODERATOR_ROLE, SUPPORT_ROLE, MEMBER_ROLE],
       users: [
         { id: "u-admin", username: "realadmin", role: "admin", roleId: "role-admin" },
         { id: "u-support", username: "support1", role: "support", roleId: "role-support" },
         { id: "u-target", username: "target", role: "technician", roleId: "role-technician" },
+        { id: "u-member", username: "member1", role: "member", roleId: "role-member" },
       ],
     });
   });
@@ -180,7 +208,10 @@ describe("changeUserRoleById() -- self-change refusal and escalation guard", () 
   });
 
   it("allows a users.manage-only (support) caller reassigning a DIFFERENT user to MODERATOR -- a subset of support's own capabilities", async () => {
-    const user = await authService.changeUserRoleById("u-target", "role-moderator", {
+    // From a role support covers too: since 2026-10-08 (#3) the user's
+    // CURRENT role has to be within support's reach as well (see the
+    // ceiling tests below).
+    const user = await authService.changeUserRoleById("u-member", "role-moderator", {
       actingUserId: "u-support",
     });
     expect(user.role).toBe("moderator");
@@ -217,5 +248,106 @@ describe("changeUserRole() (legacy fixed-name wrapper) threads actingUserId thro
       code: ErrorCode.ROLE_GRANT_EXCEEDS_CALLER_CAPABILITIES,
       status: 403,
     });
+  });
+});
+
+// Auth audit 2026-10-08 (#3): every check above limits what a caller HANDS
+// OUT, none what they TAKE AWAY. A helper given [roles.manage, users.manage]
+// could strip the built-in admin role, move the co-admin into an empty role
+// and delete the owner -- each step passed, and the helper ended up the only
+// account manager. Now the account or role being narrowed, demoted, deleted
+// (or signed out) must hold nothing the caller doesn't.
+describe("ceiling on the target: a delegate can't take power from accounts or roles wider than its own", () => {
+  const DELEGATE_ROLE = {
+    id: "role-delegate",
+    name: "delegate",
+    capabilities: ["roles.manage", "users.manage"],
+  };
+  const WIDE_ROLE = {
+    id: "role-wide",
+    name: "wide",
+    capabilities: ["roles.manage", "users.manage", "server.control"],
+  };
+  const delegate = { userId: "u-delegate", role: "delegate" };
+  const owner = { userId: "u-owner", role: "admin" };
+
+  beforeEach(() => {
+    resetWith({
+      roles: [ADMIN_ROLE, DELEGATE_ROLE, WIDE_ROLE, MEMBER_ROLE],
+      users: [
+        { id: "u-owner", username: "owner", role: "admin", roleId: "role-admin" },
+        { id: "u-coadmin", username: "coadmin", role: "admin", roleId: "role-admin" },
+        { id: "u-delegate", username: "helper", role: "delegate", roleId: "role-delegate" },
+        { id: "u-wide", username: "wide1", role: "wide", roleId: "role-wide" },
+        { id: "u-member", username: "member1", role: "member", roleId: "role-member" },
+      ],
+    });
+  });
+
+  it("refuses the delegate narrowing the built-in admin role", async () => {
+    await expect(
+      updateRole("role-admin", { capabilities: ["users.manage"] }, { actingUser: delegate }),
+    ).rejects.toMatchObject({
+      code: ErrorCode.ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES,
+      status: 403,
+      params: { detail: "server.control, rcon.execute" },
+    });
+    expect(db.data.roles.find((r) => r.id === "role-admin").capabilities).toEqual(
+      ADMIN_ROLE.capabilities,
+    );
+  });
+
+  it("refuses the delegate demoting an admin", async () => {
+    await expect(
+      authService.changeUserRoleById("u-coadmin", "role-member", { actingUserId: "u-delegate" }),
+    ).rejects.toMatchObject({ code: ErrorCode.ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES, status: 403 });
+    expect(db.data.users.find((u) => u.id === "u-coadmin").role).toBe("admin");
+  });
+
+  it("refuses the delegate deleting an admin", async () => {
+    await expect(
+      authService.deleteUser("u-owner", { actingUserId: "u-delegate" }),
+    ).rejects.toMatchObject({ code: ErrorCode.ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES, status: 403 });
+    expect(db.data.users.some((u) => u.id === "u-owner")).toBe(true);
+  });
+
+  it("refuses the delegate deleting a role wider than its own that still has members", async () => {
+    await expect(
+      deleteRole("role-wide", { reassignTo: "role-member", actingUser: delegate }),
+    ).rejects.toMatchObject({
+      code: ErrorCode.ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES,
+      params: { detail: "server.control" },
+    });
+    expect(db.data.roles.some((r) => r.id === "role-wide")).toBe(true);
+    expect(db.data.users.find((u) => u.id === "u-wide").role).toBe("wide");
+  });
+
+  it("still lets the delegate act on accounts and roles within its reach", async () => {
+    const moved = await authService.changeUserRoleById("u-member", "role-delegate", {
+      actingUserId: "u-delegate",
+    });
+    expect(moved.role).toBe("delegate");
+    await expect(
+      authService.deleteUser("u-member", { actingUserId: "u-delegate" }),
+    ).resolves.toMatchObject({ id: "u-member" });
+  });
+
+  it("a real admin can still do all four", async () => {
+    await expect(
+      updateRole(
+        "role-admin",
+        { capabilities: ["users.manage", "roles.manage"] },
+        { actingUser: owner },
+      ),
+    ).resolves.toMatchObject({ capabilities: ["users.manage", "roles.manage"] });
+    await expect(
+      authService.changeUserRoleById("u-coadmin", "role-member", { actingUserId: "u-owner" }),
+    ).resolves.toMatchObject({ role: "member" });
+    await expect(
+      deleteRole("role-wide", { reassignTo: "role-member", actingUser: owner }),
+    ).resolves.toMatchObject({ deleted: true, reassigned: 1 });
+    await expect(
+      authService.deleteUser("u-wide", { actingUserId: "u-owner" }),
+    ).resolves.toMatchObject({ id: "u-wide" });
   });
 });

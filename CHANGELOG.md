@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Delegated account managers:** a role allowed to manage users or roles can no longer demote or delete an account, or narrow or delete a role, that holds more than it does; a helper could depose every admin.
+- **Admin role:** a capability unticked in the built-in admin role can be ticked again; until now only a hand edit of db.json brought it back.
+
 ### Added
 
 - **Date format:** pick day/month/year, month/day/year or year-month-day in Settings › General › Appearance, for every date in the panel; Automatic now follows your browser's region too.
