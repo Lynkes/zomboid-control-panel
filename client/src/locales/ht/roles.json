@@ -267,7 +267,7 @@
     "panel": {
       "settings": {
         "label": "Jere paramèt panèl la an antye",
-        "description": "Chanje politik CORS, entèval verifikasyon mod ak lòt paramèt nivo aplikasyon — ki gen ladan mete koneksyon HTTPS panèl la sou nenpòt fichye sètifika/kle sou lame a — epi konfigire koneksyon SSO/OIDC (ki gen ladan sekrè kliyan an)."
+        "description": "Chanje politik CORS, entèval verifikasyon mod ak lòt paramèt nivo aplikasyon — ki gen ladan mete koneksyon HTTPS panèl la sou nenpòt fichye sètifika/kle sou lame a — ansanm ak non ak scope bouton koneksyon SSO/OIDC la. Chwa founisè idantite ki konekte moun yo (founisè, ID ak sekrè kliyan, URI redireksyon) rete pou administratè sèlman."
       }
     }
   }

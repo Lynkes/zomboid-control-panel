@@ -28,8 +28,13 @@ afterAll(() => {
 
 const settingsStore = new Map();
 
+// A custom role holding panel.settings and nothing else -- the delegate the
+// provider fields are now closed to (SECURITY 2026-10-08, #2).
 vi.mock("../database/init.js", () => ({
-  getRoleByName: mockGetRoleByName,
+  getRoleByName: async (name) =>
+    name === "settings-only"
+      ? { id: "role-settings-only", name: "settings-only", capabilities: ["panel.settings"], isSeeded: false }
+      : mockGetRoleByName(name),
   getSetting: async (key) => settingsStore.get(key) ?? null,
   setSetting: async (key, value) => {
     settingsStore.set(key, value);
@@ -59,6 +64,12 @@ const ENV_KEYS = [
 ];
 function clearOidcEnv() {
   for (const key of ENV_KEYS) delete process.env[key];
+}
+// The secret lives in its own file, not settingsStore; a secret left over
+// from an earlier test now changes what PUT and test-connection allow.
+function clearSavedSettings() {
+  settingsStore.clear();
+  fs.rmSync(path.join(tmpDir, "oidcClientSecret.secret"), { force: true });
 }
 
 function getLayer(routePath, method) {
@@ -93,7 +104,7 @@ function makeReq({ body = {}, user = { role: "admin" }, protocol = "https", host
 
 describe("gate: requirePermission('panel.settings'), both directions", () => {
   beforeEach(() => {
-    settingsStore.clear();
+    clearSavedSettings();
     clearOidcEnv();
     resetOidcConfigCache();
   });
@@ -129,7 +140,7 @@ describe("gate: requirePermission('panel.settings'), both directions", () => {
 
 describe("GET /settings: clientSecret is never echoed back, not even masked", () => {
   beforeEach(() => {
-    settingsStore.clear();
+    clearSavedSettings();
     clearOidcEnv();
     resetOidcConfigCache();
   });
@@ -178,7 +189,7 @@ describe("GET /settings: clientSecret is never echoed back, not even masked", ()
 
 describe("PUT /settings: validation", () => {
   beforeEach(() => {
-    settingsStore.clear();
+    clearSavedSettings();
     clearOidcEnv();
     resetOidcConfigCache();
   });
@@ -339,7 +350,7 @@ describe("PUT /settings: a successful save actually takes effect without a resta
   let providerB;
 
   beforeEach(async () => {
-    settingsStore.clear();
+    clearSavedSettings();
     clearOidcEnv();
     resetOidcConfigCache();
     providerA = await startMockOidcProvider({ clientId: "client-a" });
@@ -397,7 +408,7 @@ describe("POST /test-connection", () => {
   let provider;
 
   beforeEach(async () => {
-    settingsStore.clear();
+    clearSavedSettings();
     clearOidcEnv();
     resetOidcConfigCache();
     provider = await startMockOidcProvider({ clientId: "test-client" });
@@ -452,10 +463,19 @@ describe("POST /test-connection", () => {
   });
 
   it("uses the already-saved clientSecret when the request omits it -- testing a partial edit doesn't require retyping the secret", async () => {
+    // The saved secret is only ever sent to the saved issuer as the saved
+    // client (SECURITY 2026-10-08, #12), so save those alongside it.
     await runRoute(
       "/settings",
       "put",
-      makeReq({ body: { clientSecret: "already-saved-secret" } }),
+      makeReq({
+        body: {
+          issuerUrl: provider.baseUrl,
+          clientId: "test-client",
+          clientSecret: "already-saved-secret",
+          allowInsecureHttp: true,
+        },
+      }),
     );
 
     const res = await runRoute(
@@ -463,9 +483,7 @@ describe("POST /test-connection", () => {
       "post",
       makeReq({
         body: {
-          issuerUrl: provider.baseUrl,
-          clientId: "test-client",
-          allowInsecureHttp: true,
+          scope: "openid email",
           // clientSecret deliberately omitted
         },
       }),
@@ -490,7 +508,7 @@ describe("POST /test-connection -- credential check (strictAuth mock)", () => {
   let provider;
 
   beforeEach(async () => {
-    settingsStore.clear();
+    clearSavedSettings();
     clearOidcEnv();
     resetOidcConfigCache();
     provider = await startMockOidcProvider({
@@ -610,5 +628,188 @@ describe("POST /test-connection -- credential check (strictAuth mock)", () => {
     const payload = res.json.mock.calls[0][0];
     expect(payload.success).toBe(false);
     expect(payload.code).toBe("OIDC_CREDENTIALS_REJECTED");
+  });
+});
+
+// SECURITY (2026-10-08, #2): whoever sets the issuer, client or redirect URI
+// decides which provider vouches for sign-ins, and so can sign in as any
+// linked account. panel.settings alone keeps the display name and scope.
+describe("provider fields are admin-only", () => {
+  const settingsOnly = { role: "settings-only", userId: "delegate-1" };
+
+  beforeEach(() => {
+    clearSavedSettings();
+    clearOidcEnv();
+    resetOidcConfigCache();
+  });
+
+  it("a panel.settings-only role cannot change the issuer, client, secret, redirect URI or plain-HTTP switch", async () => {
+    for (const body of [
+      { issuerUrl: "https://evil.example/.well-known/openid-configuration" },
+      { clientId: "attacker-client" },
+      { clientSecret: "attacker-secret" },
+      { redirectUri: "https://evil.example/api/auth/oidc/callback" },
+      { allowInsecureHttp: true },
+    ]) {
+      const res = await runRoute("/settings", "put", makeReq({ user: settingsOnly, body }));
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "OIDC_PROVIDER_FIELDS_ADMIN_ONLY" }),
+      );
+    }
+    expect(settingsStore.size).toBe(0);
+  });
+
+  it("the same role can still change the display name and scope, and resend unchanged fields", async () => {
+    const res = await runRoute(
+      "/settings",
+      "put",
+      makeReq({
+        user: settingsOnly,
+        // What the form posts back untouched: empty provider fields and an
+        // empty secret box while no secret is saved.
+        body: { providerName: "Company SSO", scope: "openid email", issuerUrl: "", clientSecret: "" },
+      }),
+    );
+    expect(res.status).not.toHaveBeenCalledWith(403);
+    expect(settingsStore.get("oidcProviderName")).toBe("Company SSO");
+    expect(settingsStore.get("oidcScope")).toBe("openid email");
+  });
+
+  it("the same role cannot test against another provider", async () => {
+    const res = await runRoute(
+      "/test-connection",
+      "post",
+      makeReq({ user: settingsOnly, body: { issuerUrl: "https://evil.example" } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+
+  it("GET tells the screen which callers may edit the provider fields", async () => {
+    const delegate = (await runRoute("/settings", "get", makeReq({ user: settingsOnly }))).json.mock.calls[0][0];
+    expect(delegate.providerFieldsEditable).toBe(false);
+    const admin = (await runRoute("/settings", "get", makeReq())).json.mock.calls[0][0];
+    expect(admin.providerFieldsEditable).toBe(true);
+  });
+});
+
+// SECURITY (2026-10-08, #12): test-connection used to send the stored (or
+// env) client secret to whatever issuer the request named.
+describe("the saved client secret stays with the saved provider", () => {
+  let saved;
+  let other;
+
+  beforeEach(async () => {
+    clearSavedSettings();
+    clearOidcEnv();
+    resetOidcConfigCache();
+    saved = await startMockOidcProvider({ clientId: "real-client" });
+    other = await startMockOidcProvider({ clientId: "real-client" });
+    await runRoute(
+      "/settings",
+      "put",
+      makeReq({
+        body: {
+          issuerUrl: saved.baseUrl,
+          clientId: "real-client",
+          clientSecret: "real-secret",
+          allowInsecureHttp: true,
+        },
+      }),
+    );
+  });
+
+  afterEach(async () => {
+    clearOidcEnv();
+    await saved.close();
+    await other.close();
+  });
+
+  it("testing a different issuer without a secret returns 400 and sends no token request", async () => {
+    const res = await runRoute(
+      "/test-connection",
+      "post",
+      makeReq({ body: { issuerUrl: other.baseUrl } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "OIDC_CLIENT_SECRET_REQUIRED" }),
+    );
+    expect(other.tokenRequests).toBe(0);
+  });
+
+  it("testing a different client ID without a secret returns 400 too", async () => {
+    const res = await runRoute(
+      "/test-connection",
+      "post",
+      makeReq({ body: { clientId: "another-client" } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(saved.tokenRequests).toBe(0);
+  });
+
+  it("a different issuer with its own secret is tested normally", async () => {
+    const res = await runRoute(
+      "/test-connection",
+      "post",
+      makeReq({ body: { issuerUrl: other.baseUrl, clientSecret: "other-secret" } }),
+    );
+    expect(res.json.mock.calls[0][0].success).toBe(true);
+    expect(other.tokenRequests).toBe(1);
+  });
+
+  it("a request cannot turn plain HTTP on past an environment pin", async () => {
+    process.env.PANEL_OIDC_ALLOW_INSECURE_HTTP = "false";
+    const res = await runRoute(
+      "/test-connection",
+      "post",
+      makeReq({ body: { issuerUrl: other.baseUrl, clientSecret: "other-secret", allowInsecureHttp: true } }),
+    );
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(other.tokenRequests).toBe(0);
+  });
+
+  it("saving a new issuer without a new secret is refused, and works with one", async () => {
+    const refused = await runRoute(
+      "/settings",
+      "put",
+      makeReq({ body: { issuerUrl: other.baseUrl } }),
+    );
+    expect(refused.status).toHaveBeenCalledWith(400);
+    expect(refused.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "OIDC_CLIENT_SECRET_REQUIRED" }),
+    );
+    expect(settingsStore.get("oidcIssuerUrl")).toBe(saved.baseUrl);
+
+    const accepted = await runRoute(
+      "/settings",
+      "put",
+      makeReq({ body: { issuerUrl: other.baseUrl, clientSecret: "other-secret" } }),
+    );
+    expect(accepted.status).not.toHaveBeenCalledWith(400);
+    expect(settingsStore.get("oidcIssuerUrl")).toBe(other.baseUrl);
+  });
+
+  // Review of #12: the form locks an env-pinned secret, so test and save
+  // must agree that a new issuer needs none; sign-in uses the env one.
+  it("with the secret pinned by the environment, a new issuer can be tested as well as saved", async () => {
+    process.env.PANEL_OIDC_CLIENT_SECRET = "env-secret";
+
+    const tested = await runRoute(
+      "/test-connection",
+      "post",
+      makeReq({ body: { issuerUrl: other.baseUrl } }),
+    );
+    expect(tested.status).not.toHaveBeenCalledWith(400);
+    expect(tested.json.mock.calls[0][0].success).toBe(true);
+    expect(other.tokenRequests).toBe(1);
+
+    const savedRes = await runRoute(
+      "/settings",
+      "put",
+      makeReq({ body: { issuerUrl: other.baseUrl } }),
+    );
+    expect(savedRes.status).not.toHaveBeenCalledWith(400);
+    expect(settingsStore.get("oidcIssuerUrl")).toBe(other.baseUrl);
   });
 });

@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Several tabs at once:** a tab that loses a refresh race to another one no longer clears the sign-in cookie they share, which could sign every tab out.
 - **Keep me signed in unticked:** you stay signed in while the browser is open, for up to 12 hours, instead of being signed out 15 minutes after sign-in.
 - **Recovery behind a same-host proxy:** a request carrying a proxy's headers no longer counts as coming from the panel host, so strangers can't see whether a reset-token file exists when `TRUST_PROXY` is unset.
+- **SSO provider settings:** only admins can change the issuer, client, secret, redirect URI or plain-HTTP switch, and a discovery URL naming another issuer is refused; a settings-only role could sign in as an admin.
+- **SSO links:** a link callback must come from the browser that started it, and linking asks the provider for a fresh sign-in; a leaked link URL or the admin's own provider session could link the wrong identity.
+- **SSO client secret:** Test Connection and a new issuer need that provider's own secret; the saved one could be sent to any issuer.
+- **Linked SSO identities:** Users lists each account's links with an Unlink button that also signs the account out, and a new link names the address it linked.
+- **SSO rate limits:** sign-in and linking have their own budgets and unknown callbacks stop before reaching the provider; one stranger could block SSO behind a shared address.
+- **SSO discovery URLs:** if your issuer URL contains `/.well-known/`, run Test Connection after upgrading; one on a different host from the issuer it names is now refused, so enter the provider's issuer URL instead.
 
 ### Added
 

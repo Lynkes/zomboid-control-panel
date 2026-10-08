@@ -4272,6 +4272,15 @@ export const permissionsApi = {
 // own export rather than folded into authApi in place -- this whole block
 // was appended at end-of-file so it can't collide with concurrent edits
 // elsewhere in authApi.
+// One linked SSO identity, as GET /auth/users lists it. The server masks the
+// subject (at most its last four characters show).
+export interface ManagedUserIdentity {
+  issuer: string;
+  subject: string;
+  email: string | null;
+  linkedAt: string | null;
+}
+
 export interface ManagedUserAccount {
   id: string;
   username: string;
@@ -4279,6 +4288,7 @@ export interface ManagedUserAccount {
   roleId: string | null;
   createdAt: string;
   lastLogin: string | null;
+  externalIdentities?: ManagedUserIdentity[];
 }
 
 export const usersApi = {
@@ -4293,6 +4303,13 @@ export const usersApi = {
 
   startExternalIdentityLink: (userId: string): Promise<{ authorizationUrl: string }> =>
     apiPost("/auth/oidc/link", { userId }),
+
+  // Removes every SSO identity linked to the account and signs it out
+  // everywhere (admin only).
+  unlinkExternalIdentities: (
+    userId: string,
+  ): Promise<{ success: boolean; user: { id: string; username: string }; removed: number }> =>
+    apiDelete(`/auth/users/${encodeURIComponent(userId)}/identities`),
 
   assignRole: (
     userId: string,
@@ -4330,6 +4347,9 @@ export interface OidcSettings extends OidcSettingsFields {
 export interface OidcSettingsWithEnv extends OidcSettings {
   envOverrides: Record<keyof OidcSettingsFields | "clientSecret", boolean>;
   suggestedRedirectUri: string;
+  // false for a non-admin with panel.settings: the issuer, client, secret,
+  // redirect URI and plain-HTTP switch are admin-only.
+  providerFieldsEditable?: boolean;
 }
 
 export type OidcSettingsUpdate = Partial<OidcSettingsFields> & { clientSecret?: string };

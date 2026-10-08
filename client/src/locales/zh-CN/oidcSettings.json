@@ -19,6 +19,7 @@
     "notConfiguredHint": "填写下方的提供方信息并保存即可启用。"
   },
   "envPinnedNote": "此安装通过环境变量设置——请在那里修改，而非此处。",
+  "providerAdminOnlyNote": "只有管理员可以更改提供方、客户端和重定向字段。你可以更改显示名称和作用域。",
   "sections": {
     "provider": "提供方",
     "providerDescription": "本面板如何连接身份提供方，以及需要在其中注册的内容。",

@@ -19,6 +19,7 @@
     "notConfiguredHint": "Trage unten die Provider-Details ein und speichere, um es zu aktivieren."
   },
   "envPinnedNote": "Über eine Umgebungsvariable auf dieser Installation festgelegt — dort bearbeiten, nicht hier.",
+  "providerAdminOnlyNote": "Nur ein Administrator kann Anbieter-, Client- und Redirect-Felder ändern. Anzeigename und Scope können Sie ändern.",
   "sections": {
     "provider": "Provider",
     "providerDescription": "Wie dieses Panel sich mit deinem Identity-Provider verbindet und was dort zu registrieren ist.",

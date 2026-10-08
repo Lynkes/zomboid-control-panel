@@ -34,17 +34,28 @@ vi.mock("../database/init.js", () => ({
   peekServerDisplayName: () => null,
 }));
 
-vi.mock("../services/oidc.js", async (importOriginal) => ({
-  ...(await importOriginal()),
-  getOidcSettings: async () => ({
-    issuerUrl: "https://idp.example",
-    clientId: "panel",
-    clientSecret: "secret",
-    redirectUri: "https://panel.example/api/auth/oidc/callback",
-  }),
-  isOidcConfigured: () => true,
-  handleOidcCallback: vi.fn(),
-}));
+vi.mock("../services/oidc.js", async (importOriginal) => {
+  let issuedStates = 0;
+  return {
+    ...(await importOriginal()),
+    getOidcSettings: async () => ({
+      issuerUrl: "https://idp.example",
+      clientId: "panel",
+      clientSecret: "secret",
+      redirectUri: "https://panel.example/api/auth/oidc/callback",
+    }),
+    isOidcConfigured: () => true,
+    handleOidcCallback: vi.fn(),
+    // routes/oidc.js only honours a callback for a flow it issued, once, so
+    // the callback tests below each start their own through GET /login.
+    buildOidcAuthorizationRequest: async () => ({
+      authorizationUrl: "https://idp.example/authorize",
+      state: `s-${++issuedStates}`,
+      nonce: "n",
+      codeVerifier: "v",
+    }),
+  };
+});
 
 const { escapeLogText } = await import("../utils/logText.js");
 const { onLog } = await import("../utils/logger.js");
@@ -184,10 +195,12 @@ describe("unauthenticated input in log lines", () => {
     return layer.route.stack[layer.route.stack.length - 1].handle;
   }
 
-  function callbackReq() {
+  // Replays exactly the flow cookie GET /login set.
+  function callbackReq(flowCookie) {
+    const { state } = JSON.parse(flowCookie);
     return {
-      cookies: { oidcFlow: JSON.stringify({ flowType: "login", state: "s", nonce: "n", codeVerifier: "v" }) },
-      url: "/callback?code=c&state=s",
+      cookies: { oidcFlow: flowCookie },
+      url: `/callback?code=c&state=${encodeURIComponent(state)}`,
       headers: {},
       secure: false,
     };
@@ -201,12 +214,27 @@ describe("unauthenticated input in log lines", () => {
     };
   }
 
+  async function issueFlow() {
+    const layer = oidcRoutes.stack.find((l) => l.route?.path === "/login" && l.route.methods.get);
+    let flowCookie;
+    const res = {
+      ...callbackRes(),
+      cookie(name, value) {
+        if (name === "oidcFlow") flowCookie = value;
+        return this;
+      },
+    };
+    await layer.route.stack[layer.route.stack.length - 1].handle({ headers: {}, secure: false }, res);
+    return flowCookie;
+  }
+
   it("keeps the OIDC callback's rejection reason on one line", async () => {
     const marker = `oidc-${Date.now()}`;
     oidcService.handleOidcCallback.mockRejectedValueOnce(
       new Error(`unexpected "state" ${marker}${CRLF}${forgedEntry("OIDC sign-in: admin")}`),
     );
-    await callbackHandler()(callbackReq(), callbackRes());
+    const flowCookie = await issueFlow();
+    await callbackHandler()(callbackReq(flowCookie), callbackRes());
 
     const line = await logLine(marker);
     expect(line).toContain("OIDC callback rejected:");
@@ -222,7 +250,8 @@ describe("unauthenticated input in log lines", () => {
     const spy = vi
       .spyOn(authService, "loginWithExternalIdentity")
       .mockResolvedValueOnce({ linked: false, canBootstrapAdmin: false });
-    await callbackHandler()(callbackReq(), callbackRes());
+    const flowCookie = await issueFlow();
+    await callbackHandler()(callbackReq(flowCookie), callbackRes());
     spy.mockRestore();
 
     const line = await logLine(marker);

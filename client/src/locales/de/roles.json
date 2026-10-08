@@ -264,7 +264,7 @@
     "panel": {
       "settings": {
         "label": "Panelweite Einstellungen verwalten",
-        "description": "CORS-Richtlinie, Mod-Prüfintervall und andere App-weite Einstellungen ändern — einschließlich der Möglichkeit, den HTTPS-Listener des Panels auf eine beliebige Zertifikats-/Schlüsseldatei auf dem Host zu verweisen — sowie SSO/OIDC-Anmeldung konfigurieren (einschließlich Client-Secret)."
+        "description": "CORS-Richtlinie, Mod-Prüfintervall und andere App-weite Einstellungen ändern — einschließlich der Möglichkeit, den HTTPS-Listener des Panels auf eine beliebige Zertifikats-/Schlüsseldatei auf dem Host zu verweisen — sowie Namen und Scope der SSO/OIDC-Anmeldeschaltfläche. Welcher Identitätsanbieter Personen anmeldet (Issuer, Client-ID und -Secret, Redirect-URI), bleibt Administratoren vorbehalten."
       }
     }
   }

@@ -275,7 +275,7 @@ export const CAPABILITIES = [
     group: "Panel Diagnostics & Settings",
     label: "Manage panel-wide settings",
     description:
-      "Change CORS policy, mod-check interval and other app-level settings -- including pointing the panel's HTTPS listener at any certificate/key file on the host -- and configure SSO/OIDC login (client secret included).",
+      "Change CORS policy, mod-check interval and other app-level settings -- including pointing the panel's HTTPS listener at any certificate/key file on the host -- and the SSO/OIDC sign-in button's name and scope. Which identity provider signs people in (issuer, client ID and secret, redirect URI) stays admin-only.",
   },
 ];
 

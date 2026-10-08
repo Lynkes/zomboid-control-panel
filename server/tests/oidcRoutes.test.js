@@ -1,9 +1,11 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import express from 'express';
 import jwt from 'jsonwebtoken';
 import authService from '../services/auth.js';
 import * as dbModule from '../database/init.js';
 import { _resetOidcConfigCacheForTests } from '../services/oidc.js';
-import oidcRoutes from '../routes/oidc.js';
+import oidcRoutes, { _resetIssuedOidcFlowsForTests } from '../routes/oidc.js';
+import authRoutes from '../routes/auth.js';
 import { startMockOidcProvider } from './helpers/mockOidcProvider.js';
 import { acquireOidcTestLock } from './helpers/oidcTestLock.js';
 
@@ -26,6 +28,7 @@ const ENV_KEYS = [
 function clearOidcEnv() {
   for (const key of ENV_KEYS) delete process.env[key];
   _resetOidcConfigCacheForTests();
+  _resetIssuedOidcFlowsForTests();
 }
 
 // Finds a route's handler function directly on the Express Router, the same
@@ -47,9 +50,24 @@ function makeReq({
   headers = {},
   secure = false,
   body = {},
+  params = {},
   user = { userId: 'admin-1', role: 'admin' },
 } = {}) {
-  return { cookies, url, headers, secure, body, user };
+  return { cookies, url, headers, secure, body, params, user };
+}
+
+// Runs every handler on a route (gates included), the way Express would.
+async function runRouteChain(router, method, path, req, res) {
+  const layer = router.stack.find((l) => l.route?.path === path && l.route.methods[method]);
+  if (!layer) throw new Error(`No ${method.toUpperCase()} ${path} route registered`);
+  for (const { handle } of layer.route.stack) {
+    let advanced = false;
+    await handle(req, res, () => {
+      advanced = true;
+    });
+    if (!advanced) break;
+  }
+  return res;
 }
 
 function makeRes() {
@@ -210,19 +228,35 @@ describe('routes/oidc.js: /callback', () => {
     vi.restoreAllMocks();
   });
 
-  function callbackReq({
-    state = 'flow-state',
-    nonce = 'flow-nonce',
-    flowType = 'login',
-    missingCookie = false,
-  } = {}) {
-    const flow = { state, nonce, codeVerifier: 'flow-code-verifier' };
-    if (flowType !== null) flow.flowType = flowType;
+  // SECURITY (2026-10-08, #6/#22): a callback is only honoured for a flow
+  // this process issued, proved by the cookie's PKCE verifier, so tests
+  // start real flows and replay exactly the cookie that call set.
+  async function startLoginFlow() {
+    const res = makeRes();
+    await getHandler('get', '/login')(makeReq(), res);
+    return JSON.parse(res.cookies.find((cookie) => cookie.name === 'oidcFlow').value);
+  }
+
+  async function startLinkFlow(userId) {
+    const res = makeRes();
+    await getHandler('post', '/link')(makeReq({ body: { userId } }), res);
+    expect(res.statusCode).toBe(200);
+    return JSON.parse(res.cookies.find((cookie) => cookie.name === 'oidcFlow').value);
+  }
+
+  const UNISSUED_FLOW = {
+    state: 'flow-state',
+    nonce: 'flow-nonce',
+    codeVerifier: 'flow-code-verifier',
+    flowType: 'login',
+  };
+
+  function callbackReq({ flow = UNISSUED_FLOW, state = flow.state, missingCookie = false } = {}) {
     return makeReq({
       cookies: missingCookie
         ? {}
         : { oidcFlow: JSON.stringify(flow) },
-      url: `${REDIRECT_URI_PATH}?code=test-code&state=${state}`,
+      url: `${REDIRECT_URI_PATH}?code=test-code&state=${encodeURIComponent(state)}`,
     });
   }
 
@@ -250,9 +284,10 @@ describe('routes/oidc.js: /callback', () => {
   it('rejects a missing or unknown flow type before identity resolution', async () => {
     const getDbSpy = vi.spyOn(dbModule, 'getDb');
 
-    for (const flowType of [null, 'unexpected']) {
+    const { flowType: _omitted, ...untyped } = UNISSUED_FLOW;
+    for (const flow of [untyped, { ...UNISSUED_FLOW, flowType: 'unexpected' }]) {
       const res = makeRes();
-      await getHandler('get', '/callback')(callbackReq({ flowType }), res);
+      await getHandler('get', '/callback')(callbackReq({ flow }), res);
       expect(res.redirectedTo).toBe('/?oidcError=expired_flow');
       expect(res.cookies.find((cookie) => cookie.name === 'refreshToken')).toBeUndefined();
     }
@@ -261,11 +296,12 @@ describe('routes/oidc.js: /callback', () => {
   });
 
   it('redirects with invalid_token when the ID token fails validation, and never reaches user resolution', async () => {
+    const flow = await startLoginFlow();
     provider.setNextIdToken({ claims: { nonce: 'wrong-nonce-entirely' } });
     const getDbSpy = vi.spyOn(dbModule, 'getDb');
 
     const res = makeRes();
-    await getHandler('get', '/callback')(callbackReq(), res);
+    await getHandler('get', '/callback')(callbackReq({ flow }), res);
 
     expect(res.redirectedTo).toBe('/?oidcError=invalid_token');
     // authService.loginWithExternalIdentity's first move is db.data.users --
@@ -274,7 +310,8 @@ describe('routes/oidc.js: /callback', () => {
   });
 
   it('redirects with refused when the identity is not linked to any account on an already-initialized panel', async () => {
-    provider.setNextIdToken({ claims: { nonce: 'flow-nonce' } });
+    const flow = await startLoginFlow();
+    provider.setNextIdToken({ claims: { nonce: flow.nonce } });
     vi.spyOn(dbModule, 'getDb').mockResolvedValue({
       data: {
         users: [
@@ -284,18 +321,19 @@ describe('routes/oidc.js: /callback', () => {
     });
 
     const res = makeRes();
-    await getHandler('get', '/callback')(callbackReq(), res);
+    await getHandler('get', '/callback')(callbackReq({ flow }), res);
 
     expect(res.redirectedTo).toBe('/?oidcError=refused');
     expect(res.cookies.find((c) => c.name === 'refreshToken')).toBeUndefined();
   });
 
   it('redirects with setup_required (not an auto-created account) when the identity is unlinked on a brand new panel', async () => {
-    provider.setNextIdToken({ claims: { nonce: 'flow-nonce' } });
+    const flow = await startLoginFlow();
+    provider.setNextIdToken({ claims: { nonce: flow.nonce } });
     vi.spyOn(dbModule, 'getDb').mockResolvedValue({ data: { users: [] } });
 
     const res = makeRes();
-    await getHandler('get', '/callback')(callbackReq(), res);
+    await getHandler('get', '/callback')(callbackReq({ flow }), res);
 
     expect(res.redirectedTo).toBe('/?oidcError=setup_required');
     expect(res.cookies.find((c) => c.name === 'refreshToken')).toBeUndefined();
@@ -307,7 +345,8 @@ describe('routes/oidc.js: /callback', () => {
   // not a password guess: an old account-wide lock no longer refuses it,
   // and signing in clears it.
   it('signs in a linked account that an old account-wide password lock still marks as locked, and clears that lock', async () => {
-    provider.setNextIdToken({ claims: { nonce: 'flow-nonce' } });
+    const flow = await startLoginFlow();
+    provider.setNextIdToken({ claims: { nonce: flow.nonce } });
     authService.jwtSecret = 'test-oidc-route-secret';
     vi.spyOn(dbModule, 'commitNow').mockResolvedValue(undefined);
     const user = {
@@ -323,7 +362,7 @@ describe('routes/oidc.js: /callback', () => {
     vi.spyOn(dbModule, 'getDb').mockResolvedValue({ data: { users: [user] } });
 
     const res = makeRes();
-    await getHandler('get', '/callback')(callbackReq(), res);
+    await getHandler('get', '/callback')(callbackReq({ flow }), res);
 
     expect(res.redirectedTo).toBe('/');
     expect(res.cookies.find((c) => c.name === 'refreshToken')).toBeTruthy();
@@ -362,16 +401,9 @@ describe('routes/oidc.js: /callback', () => {
     provider.setNextIdToken({ claims: { nonce: flow.nonce, email: 'alice@example.com' } });
 
     const callbackRes = makeRes();
-    await getHandler('get', '/callback')(
-      callbackReq({
-        state: flow.state,
-        nonce: flow.nonce,
-        flowType: flow.flowType,
-      }),
-      callbackRes,
-    );
+    await getHandler('get', '/callback')(callbackReq({ flow }), callbackRes);
 
-    expect(callbackRes.redirectedTo).toBe('/settings?tab=users&oidcSuccess=linked');
+    expect(callbackRes.redirectedTo).toBe('/settings?tab=users&oidcSuccess=linked&linkedUser=user-42');
     expect(callbackRes.cookies.find((cookie) => cookie.name === 'refreshToken')).toBeUndefined();
     expect(user.externalIdentities).toEqual([
       expect.objectContaining({
@@ -407,7 +439,7 @@ describe('routes/oidc.js: /callback', () => {
 
     const res = makeRes();
     await getHandler('get', '/callback')(
-      callbackReq({ state: 'missing-link-state', flowType: 'link' }),
+      callbackReq({ flow: { ...UNISSUED_FLOW, state: 'missing-link-state', flowType: 'link' } }),
       res,
     );
 
@@ -450,17 +482,15 @@ describe('routes/oidc.js: /callback', () => {
     });
 
     const res = makeRes();
-    await getHandler('get', '/callback')(
-      callbackReq({ state: flow.state, nonce: flow.nonce, flowType: flow.flowType }),
-      res,
-    );
+    await getHandler('get', '/callback')(callbackReq({ flow }), res);
 
     expect(res.redirectedTo).toBe('/settings?tab=users&oidcError=link_failed');
     expect(target.externalIdentities).toEqual([]);
   });
 
   it('on success: issues a session cookie identical in shape to local login and redirects to /', async () => {
-    provider.setNextIdToken({ claims: { nonce: 'flow-nonce' } });
+    const flow = await startLoginFlow();
+    provider.setNextIdToken({ claims: { nonce: flow.nonce } });
     authService.jwtSecret = 'test-oidc-route-secret';
     vi.spyOn(dbModule, 'commitNow').mockResolvedValue(undefined);
     vi.spyOn(dbModule, 'getDb').mockResolvedValue({
@@ -479,7 +509,7 @@ describe('routes/oidc.js: /callback', () => {
     });
 
     const res = makeRes();
-    await getHandler('get', '/callback')(callbackReq(), res);
+    await getHandler('get', '/callback')(callbackReq({ flow }), res);
 
     expect(res.redirectedTo).toBe('/');
     const refreshCookie = res.cookies.find((c) => c.name === 'refreshToken');
@@ -497,5 +527,252 @@ describe('routes/oidc.js: /callback', () => {
     const decoded = jwt.verify(refreshCookie.value, authService.jwtSecret);
     expect(decoded.type).toBe('refresh');
     expect(decoded.userId).toBe('user-42');
+
+    // Single use: replaying the same callback ends before the provider.
+    const tokenRequestsAfterSignIn = provider.tokenRequests;
+    const replay = makeRes();
+    await getHandler('get', '/callback')(callbackReq({ flow }), replay);
+    expect(replay.redirectedTo).toBe('/?oidcError=expired_flow');
+    expect(provider.tokenRequests).toBe(tokenRequestsAfterSignIn);
+  });
+
+  // SECURITY (2026-10-08, #22): an unknown state used to reach the token
+  // endpoint before anything checked it.
+  it('refuses a state this panel never issued before any token request', async () => {
+    const before = provider.tokenRequests;
+    const res = makeRes();
+    await getHandler('get', '/callback')(callbackReq(), res);
+    expect(res.redirectedTo).toBe('/?oidcError=expired_flow');
+    expect(provider.tokenRequests).toBe(before);
+  });
+
+  it('a callback naming another state leaves the issued flow usable', async () => {
+    const flow = await startLoginFlow();
+    const stray = makeRes();
+    await getHandler('get', '/callback')(callbackReq({ flow, state: 'some-other-state' }), stray);
+    expect(stray.redirectedTo).toBe('/?oidcError=expired_flow');
+
+    provider.setNextIdToken({ claims: { nonce: flow.nonce } });
+    vi.spyOn(dbModule, 'getDb').mockResolvedValue({ data: { users: [{ id: 'a', username: 'a', role: 'admin' }] } });
+    const res = makeRes();
+    await getHandler('get', '/callback')(callbackReq({ flow }), res);
+    expect(res.redirectedTo).toBe('/?oidcError=refused');
+  });
+
+  // SECURITY (2026-10-08, #6): the state of a failed or cancelled link sits
+  // in URLs (provider and proxy logs, history). Knowing it must not be enough
+  // to link your own identity to the admin's chosen account, and trying must
+  // not cancel the admin's own flow either.
+  it("a leaked link state with another verifier links nothing, and the admin's own callback still links", async () => {
+    const target = { id: 'user-42', username: 'alice', role: 'moderator', externalIdentities: [] };
+    vi.spyOn(dbModule, 'getDb').mockResolvedValue({
+      data: { users: [{ id: 'admin-1', username: 'admin', role: 'admin' }, target] },
+    });
+    vi.spyOn(dbModule, 'commitNow').mockResolvedValue(undefined);
+
+    const flow = await startLinkFlow('user-42');
+
+    const forged = {
+      state: flow.state,
+      nonce: 'attacker-nonce',
+      codeVerifier: 'attacker-verifier',
+      flowType: 'link',
+    };
+    provider.setNextIdToken({ claims: { nonce: 'attacker-nonce', sub: 'attacker-sub' } });
+    const forgedRes = makeRes();
+    await getHandler('get', '/callback')(callbackReq({ flow: forged }), forgedRes);
+    expect(forgedRes.redirectedTo).toBe('/settings?tab=users&oidcError=link_expired');
+    expect(target.externalIdentities).toEqual([]);
+
+    provider.setNextIdToken({ claims: { nonce: flow.nonce, sub: 'alice-sub' } });
+    const ownRes = makeRes();
+    await getHandler('get', '/callback')(callbackReq({ flow }), ownRes);
+    expect(ownRes.redirectedTo).toBe('/settings?tab=users&oidcSuccess=linked&linkedUser=user-42');
+    expect(target.externalIdentities).toEqual([
+      expect.objectContaining({ issuer: provider.baseUrl, subject: 'alice-sub' }),
+    ]);
+  });
+
+  it("a login state paired with another verifier or a later expiry is refused, and the real flow still signs in", async () => {
+    const flow = await startLoginFlow();
+    const before = provider.tokenRequests;
+    for (const forged of [
+      { ...flow, codeVerifier: 'attacker-verifier' },
+      { ...flow, expiresAt: flow.expiresAt + 60_000 },
+      { ...flow, tag: undefined },
+    ]) {
+      const res = makeRes();
+      await getHandler('get', '/callback')(callbackReq({ flow: forged }), res);
+      expect(res.redirectedTo).toBe('/?oidcError=expired_flow');
+    }
+    expect(provider.tokenRequests).toBe(before);
+
+    provider.setNextIdToken({ claims: { nonce: flow.nonce } });
+    vi.spyOn(dbModule, 'getDb').mockResolvedValue({ data: { users: [{ id: 'a', username: 'a', role: 'admin' }] } });
+    const res = makeRes();
+    await getHandler('get', '/callback')(callbackReq({ flow }), res);
+    expect(res.redirectedTo).toBe('/?oidcError=refused');
+  });
+
+  // Review of #22: one shared, capped map of issued flows let a /login flood
+  // push other people's sign-ins and an admin's link flow out of it.
+  it('a flood of /login requests ends neither an admin link flow nor a sign-in already under way', async () => {
+    const target = { id: 'user-42', username: 'alice', role: 'moderator', externalIdentities: [] };
+    vi.spyOn(dbModule, 'getDb').mockResolvedValue({
+      data: { users: [{ id: 'admin-1', username: 'admin', role: 'admin' }, target] },
+    });
+    vi.spyOn(dbModule, 'commitNow').mockResolvedValue(undefined);
+
+    const linkFlow = await startLinkFlow('user-42');
+    const loginFlow = await startLoginFlow();
+    const loginHandler = getHandler('get', '/login');
+    for (let i = 0; i < 2100; i++) {
+      await loginHandler(makeReq({ user: undefined }), makeRes());
+    }
+
+    provider.setNextIdToken({ claims: { nonce: linkFlow.nonce, sub: 'alice-sub' } });
+    const linked = makeRes();
+    await getHandler('get', '/callback')(callbackReq({ flow: linkFlow }), linked);
+    expect(linked.redirectedTo).toBe('/settings?tab=users&oidcSuccess=linked&linkedUser=user-42');
+
+    provider.setNextIdToken({ claims: { nonce: loginFlow.nonce, sub: 'someone-else' } });
+    const signIn = makeRes();
+    await getHandler('get', '/callback')(callbackReq({ flow: loginFlow }), signIn);
+    // Reached the provider and came back verified; only the account lookup refused it.
+    expect(signIn.redirectedTo).toBe('/?oidcError=refused');
+  }, 30_000);
+
+  // SECURITY (2026-10-08, #13): a wrong or hijacked link could only be
+  // removed by deleting the account.
+  it('an admin can unlink an identity, which ends its sessions and its SSO sign-in', async () => {
+    authService.jwtSecret = 'test-oidc-route-secret';
+    vi.spyOn(dbModule, 'commitNow').mockResolvedValue(undefined);
+    const user = {
+      id: 'user-42',
+      username: 'sso.alice',
+      role: 'moderator',
+      tokenGen: 0,
+      refreshSessions: [{ id: 'session-1', expiresAt: new Date(Date.now() + 60_000).toISOString() }],
+      externalIdentities: [
+        { issuer: provider.baseUrl, subject: SUBJECT, email: 'alice@example.com', linkedAt: '2026-10-01T00:00:00.000Z' },
+      ],
+    };
+    vi.spyOn(dbModule, 'getDb').mockResolvedValue({
+      data: { users: [{ id: 'admin-1', username: 'admin', role: 'admin' }, user] },
+    });
+
+    // The users list shows the link, never the full subject.
+    const listed = (await authService.getUsers()).find((u) => u.id === 'user-42');
+    expect(listed.externalIdentities).toEqual([
+      { issuer: provider.baseUrl, subject: '••••', email: 'alice@example.com', linkedAt: '2026-10-01T00:00:00.000Z' },
+    ]);
+
+    const refused = await runRouteChain(
+      authRoutes,
+      'delete',
+      '/users/:id/identities',
+      makeReq({ params: { id: 'user-42' }, user: { userId: 'tech-1', role: 'technician' } }),
+      makeRes(),
+    );
+    expect(refused.statusCode).toBe(403);
+    expect(user.externalIdentities).toHaveLength(1);
+
+    const res = await runRouteChain(
+      authRoutes,
+      'delete',
+      '/users/:id/identities',
+      makeReq({ params: { id: 'user-42' } }),
+      makeRes(),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.jsonBody).toEqual({
+      success: true,
+      user: { id: 'user-42', username: 'sso.alice' },
+      removed: 1,
+    });
+    expect(user.externalIdentities).toEqual([]);
+    expect(user.tokenGen).toBe(1);
+    expect(user.refreshSessions).toEqual([]);
+
+    const flow = await startLoginFlow();
+    provider.setNextIdToken({ claims: { nonce: flow.nonce } });
+    const signIn = makeRes();
+    await getHandler('get', '/callback')(callbackReq({ flow }), signIn);
+    expect(signIn.redirectedTo).toBe('/?oidcError=refused');
+    expect(signIn.cookies.find((c) => c.name === 'refreshToken')).toBeUndefined();
+  });
+
+  it('masks all but the last four characters of a long subject in the users list', async () => {
+    vi.spyOn(dbModule, 'getDb').mockResolvedValue({
+      data: {
+        users: [
+          {
+            id: 'user-42',
+            username: 'alice',
+            role: 'moderator',
+            externalIdentities: [{ issuer: provider.baseUrl, subject: '109876543210987654321', email: null }],
+          },
+        ],
+      },
+    });
+    const [listed] = await authService.getUsers();
+    expect(listed.externalIdentities[0].subject).toBe('••••4321');
+  });
+});
+
+// SECURITY (2026-10-08, #22): through a real Express stack, so the gates and
+// limiters run in their real order. /login and /link used to share one
+// address-keyed budget of 5 a minute that ran before the admin check.
+describe('routes/oidc.js: rate limits', () => {
+  let server;
+  let baseUrl;
+
+  beforeAll(async () => {
+    const app = express();
+    app.use(express.json());
+    app.use((req, _res, next) => {
+      const userId = req.get('x-test-user');
+      if (userId) req.user = { userId, role: 'admin' };
+      next();
+    });
+    app.use('/api/auth/oidc', oidcRoutes);
+    await new Promise((resolve) => {
+      server = app.listen(0, '127.0.0.1', resolve);
+    });
+    baseUrl = `http://127.0.0.1:${server.address().port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  beforeEach(clearOidcEnv);
+  afterEach(clearOidcEnv);
+
+  async function postLink(asUser) {
+    const res = await fetch(`${baseUrl}/api/auth/oidc/link`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...(asUser ? { 'x-test-user': asUser } : {}) },
+      body: JSON.stringify({ userId: 'user-42' }),
+    });
+    return res.status;
+  }
+
+  it("strangers never spend an admin's /link budget, and each admin has their own", async () => {
+    for (let i = 0; i < 6; i++) {
+      expect(await postLink(null)).toBe(401);
+    }
+    // OIDC is not configured here, so a request past the limiter gets 404.
+    expect(await postLink('admin-1')).toBe(404);
+    for (let i = 0; i < 9; i++) await postLink('admin-1');
+    expect(await postLink('admin-1')).toBe(429);
+    expect(await postLink('admin-2')).toBe(404);
+  });
+
+  it('/login has its own, wider budget', async () => {
+    for (let i = 0; i < 10; i++) {
+      const res = await fetch(`${baseUrl}/api/auth/oidc/login`, { redirect: 'manual' });
+      expect(res.status).toBe(404);
+    }
   });
 });

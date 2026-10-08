@@ -609,6 +609,14 @@ function clearLegacyAccountLock(user) {
   delete user.lockedUntil;
 }
 
+// The last four characters of a provider subject: enough to tell two linked
+// identities apart, not enough to put in a forged ID token. A short subject
+// is masked whole, since four characters would be most of it.
+function maskExternalSubject(subject) {
+  if (typeof subject !== "string" || subject.length < 12) return "••••";
+  return `••••${subject.slice(-4)}`;
+}
+
 // For tests only.
 export function _resetLoginThrottleForTests() {
   loginThrottle.clear();
@@ -1870,6 +1878,18 @@ class AuthService {
       roleId: u.roleId || null,
       createdAt: u.createdAt,
       lastLogin: u.lastLogin,
+      // SECURITY (2026-10-08, #13): linked SSO identities, so a wrong or
+      // unexpected link can be seen and removed. The subject is masked:
+      // issuer + subject is what a forged ID token would need to sign in
+      // as this account, and users.manage alone can read this list.
+      externalIdentities: (Array.isArray(u.externalIdentities) ? u.externalIdentities : []).map(
+        (ext) => ({
+          issuer: ext.issuer,
+          subject: maskExternalSubject(ext.subject),
+          email: typeof ext.email === "string" ? ext.email : null,
+          linkedAt: ext.linkedAt || null,
+        }),
+      ),
     }));
   }
 
@@ -2112,6 +2132,37 @@ class AuthService {
 
       log.info(`Linked external identity to user: ${user.username}`);
       return { id: user.id, username: user.username, role: user.role };
+    });
+  }
+
+  /**
+   * Remove every external identity linked to an account (SECURITY
+   * 2026-10-08, #13): before this, a wrong or hijacked link could only be
+   * undone by deleting the account. The route enforces admin-only, like
+   * linking. Ends the account's sessions too: one may have been started
+   * with the identity being removed, and nothing records which.
+   */
+  async unlinkExternalIdentities(userId) {
+    return this._withMutex(async () => {
+      const db = await getDb();
+      const users = db.data.users || [];
+      const user = users.find((u) => u.id === userId);
+      if (!user) {
+        throw new Error("User not found");
+      }
+
+      const removed = Array.isArray(user.externalIdentities)
+        ? user.externalIdentities.length
+        : 0;
+      if (removed > 0) {
+        user.externalIdentities = [];
+        user.tokenGen = (user.tokenGen || 0) + 1;
+        user.refreshSessions = [];
+        await commitNow();
+        log.info(`Unlinked ${removed} external identit${removed === 1 ? "y" : "ies"} from user: ${user.username}`);
+        emitSessionRevoked({ scope: "user", userId: user.id });
+      }
+      return { id: user.id, username: user.username, removed };
     });
   }
 

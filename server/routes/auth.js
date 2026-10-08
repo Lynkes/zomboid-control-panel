@@ -925,6 +925,37 @@ router.post(
 );
 
 /**
+ * DELETE /api/auth/users/:id/identities
+ * Remove every SSO identity linked to an account and end its sessions
+ * (SECURITY 2026-10-08, #13). Admin-only and refused while logins are off,
+ * the same bar as POST /api/auth/oidc/link: linking and unlinking decide
+ * who can sign in as the account.
+ */
+router.delete("/users/:id/identities", requireRole("admin"), async (req, res) => {
+  if (req.user?.authDisabled || !req.user?.userId) {
+    return res.status(403).json({
+      error: "SSO unlinking requires an authenticated administrator",
+    });
+  }
+  try {
+    const result = await authService.unlinkExternalIdentities(req.params.id);
+    log.info(
+      `SSO identities unlinked by ${req.user.username || "admin"}: ${result.username} (${result.removed})`,
+    );
+    res.json({
+      success: true,
+      user: { id: result.id, username: result.username },
+      removed: result.removed,
+    });
+  } catch (error) {
+    log.warn(`SSO unlink failed: ${error.message}`);
+    res
+      .status(error.message === "User not found" ? 404 : 400)
+      .json({ error: sanitizeError(error.message) });
+  }
+});
+
+/**
  * POST /api/auth/regenerate-jwt-secret
  * Deliberately still requireRole("admin"), not requirePermission — the one
  * survivor of the users.manage sweep left as a CHOICE, not an oversight.
