@@ -217,7 +217,12 @@ recovery screen says `This panel is running behind a reverse proxy, so it
 can't verify a request came from the server itself. Create
 data/reset-token.txt on the host directly, or use a recovery code instead.`
 — the local-token flow can't confirm your browser request truly originated
-on the host once a proxy sits in front of it. Either create
+on the host once a proxy sits in front of it. The panel also answers this
+way, and logs once that `TRUST_PROXY` looks missing, when `TRUST_PROXY` isn't
+set but the request carries a proxy's headers (`X-Forwarded-For`,
+`Forwarded`, `X-Real-IP` and the like). A proxy that adds none of them, such
+as a bare nginx `proxy_pass`, still looks like the host itself, so set
+`TRUST_PROXY` whenever a proxy or tunnel runs on the same machine. Either create
 `data/reset-token.txt` yourself directly on the host and then choose
 **Enter a recovery token** on the login screen (or switch the recovery form
 to **Recovery token**) — or use a recovery code, or run `--reset-password`

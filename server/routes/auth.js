@@ -121,8 +121,42 @@ export function isPanelBehindTrustProxy(req) {
   return Boolean(req.app?.get?.("trust proxy"));
 }
 
+// SECURITY (2026-10-08, #17): headers a reverse proxy or tunnel adds and a
+// browser talking to the panel directly never sends. Behind a proxy on the
+// same machine with TRUST_PROXY unset, every visitor arrives from 127.0.0.1,
+// so the socket address alone counted the whole internet as "on the panel
+// host" -- undoing the 1.4.6 hiding of whether a reset-token file exists.
+// Best effort: a bare nginx proxy_pass adds none of these, which is why the
+// warning below points at TRUST_PROXY. A caller who adds one itself only
+// makes itself non-local.
+const PROXY_HEADERS = [
+  "x-forwarded-for",
+  "x-forwarded-host",
+  "x-forwarded-proto",
+  "forwarded",
+  "x-real-ip",
+  "cf-connecting-ip",
+];
+let warnedProxyWithoutTrustProxy = false;
+
+export function requestCameThroughProxy(req) {
+  return PROXY_HEADERS.some((header) => req.headers?.[header] !== undefined);
+}
+
 export function isLocalPanelRequest(req) {
   if (isPanelBehindTrustProxy(req)) {
+    return false;
+  }
+
+  if (requestCameThroughProxy(req)) {
+    if (!warnedProxyWithoutTrustProxy) {
+      warnedProxyWithoutTrustProxy = true;
+      log.warn(
+        "A request reached the panel through a reverse proxy or tunnel (it carries X-Forwarded-For or a similar header), " +
+          "but TRUST_PROXY isn't set. Recovery that only works on the panel host is off for proxied requests; " +
+          "set TRUST_PROXY to the proxy's address (for example TRUST_PROXY=loopback) so sign-in limits tell visitors apart.",
+      );
+    }
     return false;
   }
 
@@ -1109,7 +1143,7 @@ router.post("/recover-with-code", resetLimiter, async (req, res) => {
 router.post("/reset-token/local", localResetTokenLimiter, async (req, res) => {
   try {
     if (!isLocalPanelRequest(req)) {
-      if (isPanelBehindTrustProxy(req)) {
+      if (isPanelBehindTrustProxy(req) || requestCameThroughProxy(req)) {
         return res.status(403).json({
           error:
             "This panel is running behind a reverse proxy, so it can't verify a request came from the server itself. Create data/reset-token.txt on the host directly, or use a recovery code instead.",
