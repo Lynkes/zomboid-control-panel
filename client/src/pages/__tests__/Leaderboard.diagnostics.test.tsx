@@ -31,13 +31,19 @@ const ROWS = [
     currentKills: 0, allTimeKills: 0, currentDays: 0, bestDays: 0, deaths: 2,
     favoriteWeapon: 'Bat', favoriteWeaponKills: 4, lastSeenAt: 1759800000000,
   },
+  // Read before the update, by a bridge that kept no read time.
+  {
+    id: 'steam:76561198000000003', username: 'Carol', displayName: 'Carol', online: false,
+    currentKills: 300, allTimeKills: 300, currentDays: 12, bestDays: 12, deaths: 0,
+    favoriteWeapon: 'Axe', favoriteWeaponKills: 90, lastSeenAt: 1759700000000, everRead: true,
+  },
 ]
 
-function answer(withDiagnostics: boolean): LeaderboardAnswer {
+function answer(withDiagnostics: boolean, players = ROWS): LeaderboardAnswer {
   return {
     success: true,
     data: {
-      players: ROWS,
+      players,
       generatedAt: 1759900005000,
       trackingStartedAt: 1759000000000,
       ...(withDiagnostics
@@ -58,8 +64,8 @@ function answer(withDiagnostics: boolean): LeaderboardAnswer {
   }
 }
 
-function renderPage(withDiagnostics: boolean) {
-  vi.spyOn(panelBridgeApi, 'getLeaderboard').mockResolvedValue(answer(withDiagnostics))
+function renderPage(withDiagnostics: boolean, players = ROWS) {
+  vi.spyOn(panelBridgeApi, 'getLeaderboard').mockResolvedValue(answer(withDiagnostics, players))
   vi.spyOn(panelBridgeApi, 'getStatus').mockResolvedValue({ isRunning: true, modConnected: true } as never)
   return render(
     <MemoryRouter>
@@ -89,6 +95,9 @@ describe('Leaderboard > rows the bridge has not read', () => {
     expect(within(rowOf('ejspinn')).getByText('Not read yet')).toBeInTheDocument()
     expect(within(rowOf('Alice')).queryByText('Not read yet')).toBeNull()
     expect(within(rowOf('Alice')).getByText('Alice', { selector: 'span' }).getAttribute('title')).toMatch(/^Last read /)
+    // It used to say "Not read yet" next to 300 kills.
+    expect(within(rowOf('Carol')).queryByText('Not read yet')).toBeNull()
+    expect(within(rowOf('Carol')).getByText('Carol', { selector: 'span' }).getAttribute('title')).toBeNull()
 
     expect(screen.getByText('PanelBridge 1.7.74')).toBeInTheDocument()
     expect(screen.getByText(/^Last sweep /)).toBeInTheDocument()
@@ -102,6 +111,17 @@ describe('Leaderboard > rows the bridge has not read', () => {
     expect(screen.queryByText('Not read yet')).toBeNull()
     expect(screen.getByText(/reads kills only when asked/)).toBeInTheDocument()
     expect(screen.queryByText(/^Resets:/)).toBeNull()
+  })
+
+  it('keeps the bridge details and Copy diagnostics under an empty board', async () => {
+    // A reset (a world wipe, an unreadable file) leaves the board empty,
+    // and the reset count is what explains it.
+    renderPage(true, [])
+    await screen.findByText('No survivors ranked yet')
+
+    expect(screen.getByText('PanelBridge 1.7.74')).toBeInTheDocument()
+    expect(screen.getByText('Resets: 1')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /copy diagnostics/i })).toBeInTheDocument()
   })
 })
 
@@ -123,6 +143,7 @@ describe('Leaderboard > Copy diagnostics', () => {
     expect(copied.players).toEqual(expect.arrayContaining([
       expect.objectContaining({ username: 'Alice', read: true, aliasCount: 1, lastSampleSource: 'sweep', allTimeKills: 80 }),
       expect.objectContaining({ username: 'ejspinn', read: false, lastSampledAt: null, deaths: 2 }),
+      expect.objectContaining({ username: 'Carol', read: true, lastSampledAt: null, allTimeKills: 300 }),
     ]))
   })
 })

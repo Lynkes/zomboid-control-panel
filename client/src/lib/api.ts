@@ -3081,9 +3081,11 @@ export const panelBridgeApi = {
           favoriteWeaponKills: number;
           lastSeenAt?: number;
           // Bridges after 1.7.73: when kills and days were last read, and by
-          // what; other names seen on the row; waiting for the next life.
+          // what; whether they ever were (older bridges kept no read time);
+          // other names seen on the row; waiting for the next life.
           lastSampledAt?: number;
           lastSampleSource?: string;
+          everRead?: boolean;
           aliases?: string[];
           awaitingNewLife?: boolean;
         }>;

@@ -233,6 +233,21 @@ describe("support bundle: leaderboard diagnostics", () => {
     ]);
   });
 
+  it("counts a row an older bridge read as read, though it has no read time", async () => {
+    // Right after the update every offline row 1.7.73 had read used to count
+    // as never read, burying the rows that really were.
+    connectBridge(async () => ({
+      success: true,
+      data: {
+        ...LEADERBOARD.data,
+        players: [{ id: "steam:76561198000000003", username: "Carol", online: false, allTimeKills: 300, bestDays: 12, everRead: true }],
+      },
+    }));
+    const result = await buildLeaderboardDiagnostics();
+    expect(result.notReadCount).toBe(0);
+    expect(result.players).toEqual([expect.objectContaining({ username: "Carol", read: true, lastSampledAt: null })]);
+  });
+
   it("is in the bundle, with no steam: key anywhere", async () => {
     mockExecFile.mockImplementation((cmd, args, opts, cb) => cb(null, "curl 8.4.0", ""));
     connectBridge(async () => LEADERBOARD);

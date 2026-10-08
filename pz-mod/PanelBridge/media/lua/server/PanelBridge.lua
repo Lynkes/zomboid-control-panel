@@ -18,7 +18,7 @@
                     before the death is counted, and the next life's kills
                     are all added at its first read. The body, which the
                     server keeps listing until the player respawns, is never
-                    read again.
+                    read again, and is let go once its owner leaves.
                 - Fix: an animal (IsoAnimal extends IsoPlayer) no longer gets
                     a leaderboard row, its death no longer reaches
                     status.json's deaths, and a player an animal kills is no
@@ -29,8 +29,10 @@
                     A new leaderboard that replaces a saved one logs a WARN
                     with the reason and is kept in the store's last 5 resets.
                 - Add: getLeaderboard rows carry lastSampledAt,
-                    lastSampleSource, aliases (other names seen on the row)
-                    and awaitingNewLife, and the answer a diagnostics block
+                    lastSampleSource, everRead (also true for a row an older
+                    bridge read, which kept no read time), aliases (other
+                    names seen on the row) and awaitingNewLife, and the
+                    answer a diagnostics block
                     (bridge version, sweep interval, last sweep, sweep count,
                     loaded file, flushSeq, resets). args.source names who
                     asked (page, character, sampler, bundle). Additive; the
@@ -1938,6 +1940,8 @@ end
 -- owner respawns (a new object), and its counters belong to a life that is
 -- already counted. IsoGameCharacter.DoDeath fires OnCharacterDeath before
 -- anything else, so isDead() alone may not cover that event's own window.
+-- Cleared by a live read on the key, or by the sweep once nobody on the key
+-- is listed.
 PanelBridge.leaderboardDeadPlayers = PanelBridge.leaderboardDeadPlayers or {}
 
 -- Reads one player's kills and days into their row: the one way every path
@@ -1979,6 +1983,22 @@ function PanelBridge.sweepLeaderboard()
 
     local onlinePlayers = getOnlinePlayers and getOnlinePlayers()
     local playerList = onlinePlayers and collectJavaCollection(onlinePlayers, "Online player list")
+    -- A counted body whose owner left is never listed again (a reconnect
+    -- loads a new IsoPlayer, dead until the respawn), so its entry would
+    -- only keep that character in memory until a restart. Only on a list
+    -- that was read; keys are collected first, then cleared.
+    if playerList then
+        local listed = {}
+        for _, player in ipairs(playerList) do
+            local key = leaderboardIdentity(player)
+            if key then listed[key] = true end
+        end
+        local gone = {}
+        for key in pairs(PanelBridge.leaderboardDeadPlayers) do
+            if not listed[key] then gone[#gone + 1] = key end
+        end
+        for _, key in ipairs(gone) do PanelBridge.leaderboardDeadPlayers[key] = nil end
+    end
     -- Nobody online: nothing to read, and no reason to load the store.
     if not playerList or #playerList == 0 then return true end
     local store = getLeaderboardStore()
@@ -4867,10 +4887,13 @@ handlers.getLeaderboard = function(args)
                 favoriteWeaponKills = record.favoriteWeaponKills,
                 lastSeenAt = record.lastSeenAt,
                 -- When kills and days were last read, and by what (sweep,
-                -- kill, death, page, ...). Absent: never read, so the row
-                -- holds only weapon stats or deaths.
+                -- kill, death, page, ...). Absent: not read by this bridge.
                 lastSampledAt = record.lastSampledAt,
                 lastSampleSource = record.lastSampleSource,
+                -- Whether kills were ever read. Bridges up to 1.7.73 kept
+                -- no read time but set lastObservedKills on every read;
+                -- false means the row holds only weapon stats or deaths.
+                everRead = record.lastSampledAt ~= nil or tonumber(record.lastObservedKills) ~= nil,
                 aliases = record.aliases,
                 awaitingNewLife = record.awaitingNewLife == true,
             })

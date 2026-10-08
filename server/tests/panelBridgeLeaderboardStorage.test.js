@@ -378,6 +378,35 @@ setOnline({})
     expect(warnings(bridge)).toEqual([]);
   });
 
+  it('counts a row an older bridge read as read, though it has no read time', () => {
+    // 1.7.73 set lastObservedKills on every read but kept no read time, so
+    // after the update every offline row it had read looked never read.
+    const saved = JSON.stringify({
+      version: 2, worldId: 'this-world', trackingStartedAt: 900000, flushSeq: 3,
+      players: {
+        'steam:76561198000000009': {
+          username: 'Carol', currentKills: 300, allTimeKills: 300, lastObservedKills: 300, bestDays: 12, weaponKills: {},
+        },
+        'steam:76561198000000004': {
+          username: 'Dave', allTimeKills: 0, deaths: 2, favoriteWeapon: 'Bat', favoriteWeaponKills: 4, weaponKills: { Bat: 4 },
+        },
+      },
+      complete: true,
+    });
+    const bridge = loadPanelBridge(LUA_PATH, stubs(`
+ModData.stores.${WORLD_KEY} = { id = "this-world" }
+FILES[${luaString(LEADERBOARD_FILE)}] = ${luaString(saved)}
+setOnline({})
+`));
+    const result = bridge.callHandler('getLeaderboard');
+    expect(result.data.diagnostics.loadedFrom).toBe('leaderboard.json');
+    const carol = rowFor(result, 'Carol');
+    expect(carol.lastSampledAt ?? null).toBeNull();
+    expect(carol).toEqual(expect.objectContaining({ allTimeKills: 300, everRead: true }));
+    // Weapon stats and deaths only: kills were never read.
+    expect(rowFor(result, 'Dave').everRead).toBe(false);
+  });
+
   it('says why when both copies are unreadable, and starts quietly when there is no file', () => {
     const torn = '{"version":2,"worldId":"x","players":{"steam:1":{"username":"A"';
     const bridge = loadPanelBridge(LUA_PATH, stubs(`

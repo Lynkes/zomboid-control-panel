@@ -101,6 +101,30 @@ describe("leaderboardSampler", () => {
     expect(getLeaderboardSamplerStatus().bridgeSweeps).toBe(false);
   });
 
+  it("asks a bridge without getLeaderboard (before 1.7.69) once, until the mod is updated or restarted", async () => {
+    // Every ask logged a WARN in the PZ log and the panel's, and counted a
+    // failed command, for as long as players were online.
+    bridge.modStatus = { alive: true, version: "1.7.68", startedAt: 100, players: ["Alice"] };
+    bridge.getLeaderboard.mockRejectedValue(new Error("Unknown command: getLeaderboard"));
+    await vi.advanceTimersByTimeAsync(LEADERBOARD_SAMPLER_INTERVAL_MS * 5);
+    expect(bridge.getLeaderboard).toHaveBeenCalledTimes(1);
+    expect(logged.warn).toEqual([]);
+    expect(logged.info).toEqual([expect.stringMatching(/^PanelBridge 1\.7\.68 has no getLeaderboard/)]);
+    expect(getLeaderboardSamplerStatus()).toEqual(expect.objectContaining({ bridgeLacksLeaderboard: true }));
+
+    // A restart of the same version is asked again, once.
+    bridge.modStatus = { ...bridge.modStatus, startedAt: 200 };
+    await vi.advanceTimersByTimeAsync(LEADERBOARD_SAMPLER_INTERVAL_MS * 3);
+    expect(bridge.getLeaderboard).toHaveBeenCalledTimes(2);
+
+    // An update that has it is asked every time.
+    bridge.modStatus = { ...bridge.modStatus, version: "1.7.73", startedAt: 300 };
+    bridge.getLeaderboard.mockResolvedValue(OLD_BRIDGE_ANSWER);
+    await vi.advanceTimersByTimeAsync(LEADERBOARD_SAMPLER_INTERVAL_MS * 2);
+    expect(bridge.getLeaderboard).toHaveBeenCalledTimes(4);
+    expect(getLeaderboardSamplerStatus().bridgeLacksLeaderboard).toBe(false);
+  });
+
   it("never throws, keeps one read in flight, and warns about failures at most every 10 minutes", async () => {
     bridge.getLeaderboard.mockRejectedValue(new Error("Mod is not responding"));
     for (let i = 0; i < 4; i += 1) await vi.advanceTimersByTimeAsync(LEADERBOARD_SAMPLER_INTERVAL_MS);

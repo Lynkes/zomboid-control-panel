@@ -13,9 +13,15 @@ const log = createLogger("LeaderboardSampler");
 // A newer bridge reads every player itself and says so with
 // diagnostics.lastSweepAt; from then on this stays idle while that bridge
 // version is connected, and picks up again for any other version (a server
-// switch, a downgrade). One read in flight at most; nothing here throws.
+// switch, a downgrade). A bridge without getLeaderboard (before 1.7.69) is
+// asked once per mod session. One read in flight at most; nothing here
+// throws.
 
 export const LEADERBOARD_SAMPLER_INTERVAL_MS = 2 * 60 * 1000;
+
+// getLeaderboard came with PanelBridge 1.7.69. An older bridge answers this,
+// logs a WARN on both sides and counts a failed command, every time.
+const UNKNOWN_COMMAND_RE = /^Unknown command: getLeaderboard/;
 
 let state = null;
 
@@ -39,11 +45,21 @@ function bridgeVersion(bridge) {
   return typeof version === "string" && version.length > 0 ? version : null;
 }
 
+// status.json's version and the mod's start time, as characterSheet.js keys
+// its own unsupported bridges: an updated or restarted mod is asked again.
+function bridgeSession(bridge) {
+  const status = bridge?.modStatus;
+  return `${status?.version ?? ""}|${status?.startedAt ?? ""}`;
+}
+
 async function sample(current) {
   if (current.inFlight || !bridgeConnected(current.bridge) || !hasOnlinePlayers(current.bridge)) return;
   const version = bridgeVersion(current.bridge);
   if (current.bridgeSweeps && current.bridgeSweepsVersion === version) return;
+  const session = bridgeSession(current.bridge);
+  if (current.unsupportedSession === session) return;
   current.bridgeSweeps = false;
+  current.unsupportedSession = null;
   current.inFlight = true;
   try {
     const result = await current.bridge.getLeaderboard({ source: "sampler" });
@@ -55,6 +71,13 @@ async function sample(current) {
       log.info(`PanelBridge ${version ?? "(unknown version)"} reads the leaderboard itself; the panel stops asking`);
     }
   } catch (error) {
+    if (UNKNOWN_COMMAND_RE.test(String(error?.message ?? ""))) {
+      current.unsupportedSession = session;
+      log.info(
+        `PanelBridge ${version ?? "(unknown version)"} has no getLeaderboard; the panel stops asking until the mod is updated or restarted`,
+      );
+      return;
+    }
     warnLeaderboardReadFailed(log, "the leaderboard sampler", error);
   } finally {
     current.inFlight = false;
@@ -69,6 +92,7 @@ export function startLeaderboardSampler(panelBridge) {
     inFlight: false,
     bridgeSweeps: false,
     bridgeSweepsVersion: null,
+    unsupportedSession: null,
     lastSampleAt: null,
     timer: null,
   };
@@ -93,6 +117,7 @@ export function getLeaderboardSamplerStatus() {
     intervalMs: LEADERBOARD_SAMPLER_INTERVAL_MS,
     bridgeSweeps: state.bridgeSweeps,
     bridgeSweepsVersion: state.bridgeSweeps ? state.bridgeSweepsVersion : null,
+    bridgeLacksLeaderboard: state.unsupportedSession !== null,
     lastSampleAt: state.lastSampleAt,
   };
 }

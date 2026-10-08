@@ -220,6 +220,7 @@ describe('PanelBridge leaderboard sweep (players nobody is watching)', () => {
     expect(rowFor(after, 'Alice')).toEqual(expect.objectContaining({
       lastSampledAt: 65000,
       lastSampleSource: 'page',
+      everRead: true,
       awaitingNewLife: false,
     }));
   });
@@ -297,6 +298,40 @@ AliceAgain = makePlayer("Alice", "76561198000000001", 5, 1)
 setOnline({ AliceAgain })
 `);
     expect(rowFor(bridge.callHandler('getLeaderboard'), 'Alice').allTimeKills).toBe(33);
+  });
+
+  it('lets go of a counted body once its owner has left, and a dead reconnect is still not read', () => {
+    // The body was kept until a restart for a player who quit at the death
+    // screen and never came back.
+    const bridge = loadPanelBridge(LUA_PATH, STUBS);
+    const keepsBody = () => {
+      bridge.run(`KEEPS_BODY = PanelBridgeModule.leaderboardDeadPlayers[${JSON.stringify(ALICE_KEY)}] ~= nil`);
+      return bridge.getGlobal('KEEPS_BODY');
+    };
+    bridge.callHandler('getLeaderboard');
+    bridge.run('Alice.kills = 28; OnCharacterDeathHandler(Alice); Alice.dead = true');
+    tickAt(bridge, 70000);
+    expect(keepsBody()).toBe(true);
+
+    bridge.run('setOnline({ Bob })');
+    tickAt(bridge, 140000);
+    expect(keepsBody()).toBe(false);
+
+    // A reconnect loads a new IsoPlayer, dead until the respawn.
+    bridge.run(`
+AliceBack = makePlayer("Alice", "76561198000000001", 0, 0)
+AliceBack.dead = true
+setOnline({ AliceBack, Bob })
+`);
+    tickAt(bridge, 210000);
+    expect(rowFor(bridge.callHandler('getLeaderboard'), 'Alice')).toEqual(expect.objectContaining({
+      allTimeKills: 28, deaths: 1, awaitingNewLife: true, online: true, lastSampleSource: 'death',
+    }));
+
+    bridge.run('AliceBack.dead = false; AliceBack.kills = 4');
+    expect(rowFor(bridge.callHandler('getLeaderboard'), 'Alice')).toEqual(expect.objectContaining({
+      allTimeKills: 32, deaths: 1, awaitingNewLife: false,
+    }));
   });
 
   it('never reads a listed player whose character is dead', () => {

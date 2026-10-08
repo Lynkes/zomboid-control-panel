@@ -33,6 +33,7 @@ interface LeaderboardRowInput {
   deaths?: number
   lastSampledAt?: number
   lastSampleSource?: string
+  everRead?: boolean
   aliases?: string[]
   awaitingNewLife?: boolean
 }
@@ -49,13 +50,17 @@ const finiteOrNull = (value: unknown): number | null =>
 const shortText = (value: unknown, max = 64): string | null =>
   typeof value === 'string' ? value.slice(0, max) : null
 
-/** Whether the bridge has read this row's kills and days (null: it doesn't say). */
+/**
+ * Whether the bridge has read this row's kills and days (null: it doesn't
+ * say). everRead also covers a row read before the update, by a bridge that
+ * kept no read time; lastSampledAt alone would call it never read.
+ */
 export function leaderboardRowRead(
-  row: Pick<LeaderboardRowInput, 'lastSampledAt'>,
+  row: Pick<LeaderboardRowInput, 'lastSampledAt' | 'everRead'>,
   diagnostics: LeaderboardDiagnostics | null | undefined,
 ): boolean | null {
   if (!diagnostics) return null
-  return finiteOrNull(row.lastSampledAt) !== null
+  return row.everRead === true || finiteOrNull(row.lastSampledAt) !== null
 }
 
 export function redactLeaderboardDiagnostics(data: LeaderboardDataInput) {

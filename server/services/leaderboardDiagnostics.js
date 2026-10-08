@@ -41,8 +41,8 @@ function redactResets(resets) {
 /**
  * The redacted summary of a getLeaderboard answer (`data`). `bridge` is null
  * when the bridge sends no diagnostics (1.7.73 and older, which read kills
- * only when the panel asks); `read` is then null too, since those rows carry
- * no read time.
+ * only when the panel asks); `read` is then null too, since those rows say
+ * nothing about reads.
  */
 export function redactLeaderboardDiagnostics(data) {
   const players = Array.isArray(data?.players) ? data.players.filter((p) => p && typeof p === "object") : [];
@@ -62,7 +62,8 @@ export function redactLeaderboardDiagnostics(data) {
   const rows = players.map((player) => ({
     username: shortText(player.username, 128),
     aliasCount: Array.isArray(player.aliases) ? player.aliases.length : 0,
-    read: bridge ? finiteOrNull(player.lastSampledAt) !== null : null,
+    // everRead: a row read before the update, by a bridge that kept no read time.
+    read: bridge ? player.everRead === true || finiteOrNull(player.lastSampledAt) !== null : null,
     lastSampledAt: finiteOrNull(player.lastSampledAt),
     lastSampleSource: shortText(player.lastSampleSource),
     online: player.online === true,

@@ -38,6 +38,7 @@ export interface LeaderboardPlayer {
   // when kills and days were actually read.
   lastSampledAt?: number
   lastSampleSource?: string
+  everRead?: boolean
   aliases?: string[]
   awaitingNewLife?: boolean
 }
@@ -249,6 +250,33 @@ export default function Leaderboard() {
   const lastSweepDate = formatDate(diagnostics?.lastSweepAt, language)
   const resetCount = Array.isArray(diagnostics?.resets) ? diagnostics.resets.length : 0
   const hasStaleData = Boolean(error && players.length > 0)
+  // Shown under an empty board too: a reset (a world wipe, an unreadable
+  // file) leaves it empty, and the reset count is what explains it.
+  const diagnosticsFooter = (
+    <>
+      {diagnostics?.bridgeVersion && <span>{t('footer.bridgeVersion', { version: diagnostics.bridgeVersion })}</span>}
+      {lastSweepDate && <span>{t('footer.lastSweep', { date: lastSweepDate })}</span>}
+      {diagnostics && <span title={t('footer.resetsTitle')}>{t('footer.resets', { total: resetCount })}</span>}
+      {!diagnostics && <span>{t('footer.oldBridge')}</span>}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => void copyDiagnostics()}
+        title={t('actions.copyDiagnosticsTitle')}
+        className="h-7 gap-1.5 px-2 text-xs"
+      >
+        {copyState === 'copied'
+          ? <Check className="h-3 w-3" aria-hidden="true" />
+          : <Copy className="h-3 w-3" aria-hidden="true" />}
+        {copyState === 'copied'
+          ? t('actions.copied')
+          : copyState === 'failed'
+            ? t('actions.copyFailed')
+            : t('actions.copyDiagnostics')}
+      </Button>
+    </>
+  )
   const metricOptions: Array<{ value: LeaderboardMetric; label: string }> = [
     { value: 'bestDays', label: t('metrics.days') },
     { value: 'currentKills', label: t('metrics.currentKills') },
@@ -308,12 +336,17 @@ export default function Leaderboard() {
           {[1, 2, 3, 4].map((item) => <div key={item} className="h-28 animate-pulse rounded-lg border border-border/40 bg-card/40" />)}
         </div>
       ) : players.length === 0 && !error ? (
-        <EmptyState
-          type="noPlayers"
-          title={t('empty.title')}
-          description={t('empty.description')}
-          action={{ label: t('actions.refresh'), onClick: () => void refresh() }}
-        />
+        <>
+          <EmptyState
+            type="noPlayers"
+            title={t('empty.title')}
+            description={t('empty.description')}
+            action={{ label: t('actions.refresh'), onClick: () => void refresh() }}
+          />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            {diagnosticsFooter}
+          </div>
+        </>
       ) : players.length > 0 ? (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -428,27 +461,7 @@ export default function Leaderboard() {
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1.5"><Clock3 className="h-3 w-3" aria-hidden="true" />{t('footer.refreshRate')}</span>
             <span>{t('footer.historyNote')}</span>
-            {diagnostics?.bridgeVersion && <span>{t('footer.bridgeVersion', { version: diagnostics.bridgeVersion })}</span>}
-            {lastSweepDate && <span>{t('footer.lastSweep', { date: lastSweepDate })}</span>}
-            {diagnostics && <span title={t('footer.resetsTitle')}>{t('footer.resets', { total: resetCount })}</span>}
-            {!diagnostics && <span>{t('footer.oldBridge')}</span>}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => void copyDiagnostics()}
-              title={t('actions.copyDiagnosticsTitle')}
-              className="h-7 gap-1.5 px-2 text-xs"
-            >
-              {copyState === 'copied'
-                ? <Check className="h-3 w-3" aria-hidden="true" />
-                : <Copy className="h-3 w-3" aria-hidden="true" />}
-              {copyState === 'copied'
-                ? t('actions.copied')
-                : copyState === 'failed'
-                  ? t('actions.copyFailed')
-                  : t('actions.copyDiagnostics')}
-            </Button>
+            {diagnosticsFooter}
           </div>
         </>
       ) : null}
