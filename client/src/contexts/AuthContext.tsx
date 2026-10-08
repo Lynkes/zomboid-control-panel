@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { clearAccessToken, getAccessToken, setAccessToken } from '../lib/authToken'
-import { ApiError, apiFetch, handleResponse } from '../lib/api'
+import { ApiError, apiFetch, handleResponse, refreshSession } from '../lib/api'
 import { getUserErrorMessage } from '../lib/errorMessage'
 import { getTrustedDeviceToken, rememberTrustedDeviceToken } from '../lib/trustedDevice'
 
@@ -23,12 +23,17 @@ interface AuthState {
   isLoading: boolean
   needsSetup: boolean
   authEnabled: boolean
+  // GET /api/auth/status gave no usable answer (a 429, a 5xx, a proxy's
+  // page, a network error), so whether logins are on is unknown. App shows
+  // an error card with Retry rather than guess.
+  statusCheckFailed: boolean
 }
 
 interface AuthContextType extends AuthState {
   login: (username: string, password: string, rememberMe?: boolean) => Promise<void>
   setup: (username: string, password: string, rememberMe?: boolean, panelPort?: string, setupToken?: string) => Promise<void>
   logout: () => Promise<void>
+  retryAuthCheck: () => void
   getToken: () => string | null
   // Fails OPEN: unknown capabilities (null, or no user yet) return true.
   // Hiding a UI control from a real administrator because a field failed to
@@ -102,6 +107,19 @@ export function getLoginErrorMessage(error: unknown): string {
   return LOGIN_FAILED_MESSAGE
 }
 
+type AuthStatus = { needsSetup?: unknown; authEnabled?: unknown }
+
+async function fetchAuthStatus(): Promise<AuthStatus | null> {
+  try {
+    const res = await fetch('/api/auth/status')
+    if (!res.ok) return null
+    const body: unknown = await res.json()
+    return body && typeof body === 'object' ? (body as AuthStatus) : null
+  } catch {
+    return null
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({
     user: null,
@@ -109,6 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading: true,
     needsSetup: false,
     authEnabled: true,
+    statusCheckFailed: false,
   })
 
   // Get stored token
@@ -118,36 +137,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Check auth status and try auto-login
   const checkAuth = useCallback(async () => {
+    // Step 1: Check if auth is needed. SECURITY (2026-10-08, audit #23):
+    // only a real JSON answer saying so turns logins off. Any failure used
+    // to, rendering the whole panel with no sign-out and no way to the
+    // sign-in form, every call refused.
+    const status = await fetchAuthStatus()
+    if (!status) {
+      setState(prev => ({
+        ...prev,
+        isLoading: false,
+        isAuthenticated: false,
+        authEnabled: true,
+        statusCheckFailed: true,
+      }))
+      return
+    }
+
+    if (status.needsSetup === true) {
+      setState(prev => ({
+        ...prev,
+        isLoading: false,
+        needsSetup: true,
+        authEnabled: false,
+        statusCheckFailed: false,
+      }))
+      return
+    }
+
+    if (status.authEnabled === false) {
+      setState(prev => ({
+        ...prev,
+        isLoading: false,
+        isAuthenticated: true,
+        authEnabled: false,
+        statusCheckFailed: false,
+      }))
+      return
+    }
+
     try {
-      // Step 1: Check if auth is needed
-      const statusRes = await fetch('/api/auth/status')
-      if (!statusRes.ok) {
-        // Server might not have auth routes yet — allow access
-        setState(prev => ({ ...prev, isLoading: false, authEnabled: false }))
-        return
-      }
-      const status = await statusRes.json()
-
-      if (status.needsSetup) {
-        setState(prev => ({
-          ...prev,
-          isLoading: false,
-          needsSetup: true,
-          authEnabled: false,
-        }))
-        return
-      }
-
-      if (!status.authEnabled) {
-        setState(prev => ({
-          ...prev,
-          isLoading: false,
-          isAuthenticated: true,
-          authEnabled: false,
-        }))
-        return
-      }
-
       // Step 2: Try existing token
       const token = getToken()
       if (token) {
@@ -162,6 +190,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             isLoading: false,
             needsSetup: false,
             authEnabled: true,
+            statusCheckFailed: false,
           })
           return
         }
@@ -169,39 +198,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearAccessToken()
       }
 
-      // Step 3: Try refresh token (httpOnly cookie sent automatically)
-      const refreshRes = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
-      if (refreshRes.ok) {
-        const data = await refreshRes.json()
-        setAccessToken(data.accessToken)
-        // Also where a browser back from SSO first gets one (see
-        // lib/trustedDevice.ts).
-        rememberTrustedDeviceToken(data.user?.username, data.deviceToken)
+      // Step 3: Try refresh token (httpOnly cookie sent automatically).
+      // The shared refresh, so it waits its turn behind other tabs and
+      // retries a REFRESH_RACE (audit #19).
+      const refreshed = await refreshSession()
+      if (refreshed.ok) {
         setState({
-          user: data.user,
+          user: refreshed.user,
           isAuthenticated: true,
           isLoading: false,
           needsSetup: false,
           authEnabled: true,
+          statusCheckFailed: false,
         })
         return
       }
-
-      // Not authenticated
-      setState(prev => ({
-        ...prev,
-        isLoading: false,
-        isAuthenticated: false,
-        authEnabled: true,
-      }))
     } catch {
-      // Network error — assume no auth needed (server might be starting)
-      setState(prev => ({ ...prev, isLoading: false, authEnabled: false }))
+      // Fall through to the sign-in screen.
     }
+
+    // Not authenticated
+    setState(prev => ({
+      ...prev,
+      isLoading: false,
+      isAuthenticated: false,
+      authEnabled: true,
+      statusCheckFailed: false,
+    }))
   }, [getToken])
 
   useEffect(() => {
     checkAuth()
+  }, [checkAuth])
+
+  const retryAuthCheck = useCallback(() => {
+    setState(prev => ({ ...prev, isLoading: true, statusCheckFailed: false }))
+    void checkAuth()
   }, [checkAuth])
 
   const login = useCallback(async (username: string, password: string, rememberMe = true) => {
@@ -232,6 +264,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading: false,
         needsSetup: false,
         authEnabled: true,
+        statusCheckFailed: false,
       })
     } catch (error) {
       throw new ApiError(getLoginErrorMessage(error), {
@@ -275,6 +308,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading: false,
       needsSetup: false,
       authEnabled: true,
+      statusCheckFailed: false,
     })
   }, [])
 
@@ -302,7 +336,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   return (
-    <AuthContext.Provider value={useMemo(() => ({ ...state, login, setup, logout, getToken, can }), [state, login, setup, logout, getToken, can])}>
+    <AuthContext.Provider value={useMemo(() => ({ ...state, login, setup, logout, retryAuthCheck, getToken, can }), [state, login, setup, logout, retryAuthCheck, getToken, can])}>
       {children}
     </AuthContext.Provider>
   )

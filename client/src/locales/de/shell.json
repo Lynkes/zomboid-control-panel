@@ -111,5 +111,10 @@
   },
   "languageSwitcher": {
     "label": "Sprache"
+  },
+  "authSession": {
+    "statusCheckFailedTitle": "Anmeldestatus konnte nicht geprüft werden",
+    "statusCheckFailedDescription": "Das Panel oder ein vorgeschalteter Proxy hat auf die Anmeldeprüfung nicht geantwortet. Warte einen Moment und versuche es dann erneut.",
+    "retry": "Erneut versuchen"
   }
 }

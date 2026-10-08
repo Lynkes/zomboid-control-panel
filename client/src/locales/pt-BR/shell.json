@@ -113,5 +113,10 @@
   },
   "languageSwitcher": {
     "label": "Idioma"
+  },
+  "authSession": {
+    "statusCheckFailedTitle": "Não foi possível verificar o login",
+    "statusCheckFailedDescription": "O painel, ou um proxy na frente dele, não respondeu à verificação de login. Aguarde um momento e tente novamente.",
+    "retry": "Tentar novamente"
   }
 }

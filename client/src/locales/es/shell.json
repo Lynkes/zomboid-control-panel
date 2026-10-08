@@ -113,5 +113,10 @@
   },
   "languageSwitcher": {
     "label": "Idioma"
+  },
+  "authSession": {
+    "statusCheckFailedTitle": "No se pudo comprobar el inicio de sesión",
+    "statusCheckFailedDescription": "El panel, o un proxy delante de él, no respondió a la comprobación de inicio de sesión. Espera un momento e inténtalo de nuevo.",
+    "retry": "Reintentar"
   }
 }

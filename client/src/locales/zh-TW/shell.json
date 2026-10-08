@@ -111,5 +111,10 @@
   },
   "languageSwitcher": {
     "label": "語言"
+  },
+  "authSession": {
+    "statusCheckFailedTitle": "無法檢查登入狀態",
+    "statusCheckFailedDescription": "面板或其前方的代理伺服器未回應登入檢查。請稍候，然後重試。",
+    "retry": "重試"
   }
 }

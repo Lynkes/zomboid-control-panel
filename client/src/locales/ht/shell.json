@@ -113,5 +113,10 @@
   },
   "languageSwitcher": {
     "label": "Lang"
+  },
+  "authSession": {
+    "statusCheckFailedTitle": "Pa t kapab verifye si ou konekte",
+    "statusCheckFailedDescription": "Panèl la, oswa yon proxy ki devan l, pa t reponn verifikasyon koneksyon an. Tann yon ti moman, epi eseye ankò.",
+    "retry": "Eseye ankò"
   }
 }

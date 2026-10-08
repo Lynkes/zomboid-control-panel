@@ -121,5 +121,10 @@
   },
   "languageSwitcher": {
     "label": "Мова"
+  },
+  "authSession": {
+    "statusCheckFailedTitle": "Не вдалося перевірити вхід",
+    "statusCheckFailedDescription": "Панель або проксі перед нею не відповіли на перевірку входу. Зачекайте трохи й спробуйте ще раз.",
+    "retry": "Повторити"
   }
 }
