@@ -90,6 +90,14 @@ const PRESET_CRONS = new Set<string>(SCHEDULE_PRESETS.map(([cron]) => cron))
 // real cron expression.
 const CUSTOM_SCHEDULE_VALUE = 'custom'
 
+// The saved schedule GET /status sent, '' when it sent none. A partial
+// answer (the demo build's catch-all reply had no schedule at all) put
+// undefined into the form's string state, and customCron.trim() then took
+// the whole page down. '' leaves the frequency menu on its placeholder.
+function savedScheduleOf(status: BackupStatus): string {
+  return typeof status.schedule === 'string' ? status.schedule : ''
+}
+
 interface BackupProgress {
   phase: 'preparing' | 'archiving' | 'finalizing' | 'complete' | 'error'
   percent: number
@@ -334,12 +342,13 @@ export default function Backups() {
       if (seq < appliedStatusReadSeqRef.current) return
       appliedStatusReadSeqRef.current = seq
       setBackupStatus(status)
-      if (loadedScheduleRef.current !== status.schedule) {
-        loadedScheduleRef.current = status.schedule
-        setBackupSchedule(status.schedule)
-        const isPreset = PRESET_CRONS.has(status.schedule)
-        setCustomSchedule(!isPreset)
-        setCustomCron(isPreset ? '' : status.schedule)
+      const schedule = savedScheduleOf(status)
+      if (loadedScheduleRef.current !== schedule) {
+        loadedScheduleRef.current = schedule
+        setBackupSchedule(schedule)
+        const isPreset = PRESET_CRONS.has(schedule)
+        setCustomSchedule(schedule !== '' && !isPreset)
+        setCustomCron(isPreset ? '' : schedule)
       }
       if (loadedMaxBackupsRef.current !== status.maxBackups) {
         loadedMaxBackupsRef.current = status.maxBackups
@@ -1183,6 +1192,7 @@ export default function Backups() {
   // backups toggle), so a fast, uneventful mount still shows the plain
   // "on schedule" copy rather than flashing "couldn't check" for a moment.
   const statusUnknown = !backupStatus && backupStatusLoadError
+  const savedSchedule = backupStatus ? savedScheduleOf(backupStatus) : ''
 
   // Translate the cron presets we expose into a human label. Anything else
   // is a custom expression, shown as one ("on a custom schedule (…)") rather
@@ -1409,9 +1419,9 @@ export default function Backups() {
                   })}
                 </p>
               ) : (
-                <p className="text-[11px] text-muted-foreground/80 truncate" title={backupStatus?.schedule || ''}>
+                <p className="text-[11px] text-muted-foreground/80 truncate" title={savedSchedule}>
                   {backupStatus?.enabled
-                    ? t('statusCards.runsSchedule', { schedule: describeSchedule(backupStatus?.schedule), count: backupStatus?.maxBackups ?? '?' })
+                    ? t('statusCards.runsSchedule', { schedule: describeSchedule(savedSchedule), count: backupStatus?.maxBackups ?? '?' })
                     : t('statusCards.noScheduled')}
                 </p>
               )}
