@@ -598,5 +598,6 @@
   "DISCORD_CHANNEL_OUTSIDE_GUILD": "Chanèl notifikasyon an pa nan sèvè Discord ki konfigire isit la, kidonk bot la p ap poste ladan l. Itilize yon chanèl nan sèvè ki gen ID Sèvè (Guild) a, oswa korije ID sa a.",
   "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES": "Ou pa ka chanje, dekonekte oswa retire yon kont oswa yon wòl ki gen {{detail}}, paske ou pa gen kapasite sa a ou menm.",
   "CURRENT_PASSWORD_INCORRECT": "Modpas aktyèl la pa bon. Apre 10 move tantativ, verifikasyon modpas la kanpe pandan 15 minit, menm ak bon modpas la.",
-  "RECOVERY_CODES_PASSWORD_REQUIRED": "Antre modpas aktyèl ou pou jenere kòd rekiperasyon."
+  "RECOVERY_CODES_PASSWORD_REQUIRED": "Antre modpas aktyèl ou pou jenere kòd rekiperasyon.",
+  "REFRESH_RACE": "Yo fèk renouvle sesyon sa a nan yon lòt onglè. Eseye ankò."
 }

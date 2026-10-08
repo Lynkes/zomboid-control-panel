@@ -598,5 +598,6 @@
   "DISCORD_CHANNEL_OUTSIDE_GUILD": "通知頻道不屬於此處設定的 Discord 伺服器，因此機器人不會在其中傳送訊息。請使用已填寫伺服器（Guild）ID 的那個伺服器中的頻道，或更正該 ID。",
   "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES": "無法變更、登出或刪除擁有 {{detail}} 的帳戶或角色，因為你自己沒有該權限。",
   "CURRENT_PASSWORD_INCORRECT": "目前密碼不正確。輸錯 10 次後，密碼驗證會暫停 15 分鐘，即使輸入正確的密碼也一樣。",
-  "RECOVERY_CODES_PASSWORD_REQUIRED": "請輸入當前密碼以產生復原碼。"
+  "RECOVERY_CODES_PASSWORD_REQUIRED": "請輸入當前密碼以產生復原碼。",
+  "REFRESH_RACE": "此工作階段剛剛在另一個分頁中重新整理。請再試一次。"
 }

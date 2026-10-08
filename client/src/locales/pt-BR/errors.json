@@ -598,5 +598,6 @@
   "DISCORD_CHANNEL_OUTSIDE_GUILD": "O canal de notificações não pertence ao servidor do Discord configurado aqui, então o bot não vai postar nele. Use um canal do servidor cujo ID do servidor (Guild) está definido, ou corrija esse ID.",
   "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES": "Você não pode alterar, desconectar nem remover uma conta ou um cargo que tem {{detail}}, porque você mesmo não tem essa permissão.",
   "CURRENT_PASSWORD_INCORRECT": "A senha atual está incorreta. Depois de 10 tentativas erradas, as verificações de senha ficam pausadas por 15 minutos, mesmo com a senha certa.",
-  "RECOVERY_CODES_PASSWORD_REQUIRED": "Digite sua senha atual para gerar códigos de recuperação."
+  "RECOVERY_CODES_PASSWORD_REQUIRED": "Digite sua senha atual para gerar códigos de recuperação.",
+  "REFRESH_RACE": "Esta sessão acabou de ser renovada em outra aba. Tente de novo."
 }

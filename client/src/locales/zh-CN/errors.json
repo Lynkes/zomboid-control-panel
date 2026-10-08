@@ -598,5 +598,6 @@
   "DISCORD_CHANNEL_OUTSIDE_GUILD": "通知频道不属于此处设置的 Discord 服务器，因此机器人不会在其中发送消息。请使用已填写服务器（Guild）ID 的那个服务器中的频道，或更正该 ID。",
   "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES": "无法更改、退出登录或删除拥有 {{detail}} 的账户或角色，因为你自己没有该权限。",
   "CURRENT_PASSWORD_INCORRECT": "当前密码不正确。输错 10 次后，密码验证会暂停 15 分钟，即使输入正确的密码也不行。",
-  "RECOVERY_CODES_PASSWORD_REQUIRED": "请输入当前密码以生成找回代码。"
+  "RECOVERY_CODES_PASSWORD_REQUIRED": "请输入当前密码以生成找回代码。",
+  "REFRESH_RACE": "此会话刚刚在另一个标签页中刷新。请重试。"
 }

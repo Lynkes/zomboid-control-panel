@@ -598,5 +598,6 @@
   "DISCORD_CHANNEL_OUTSIDE_GUILD": "Le salon de notification n'appartient pas au serveur Discord configuré ici, donc le bot n'y publiera pas. Choisissez un salon du serveur dont l'ID du serveur (Guild) est renseigné, ou corrigez cet ID.",
   "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES": "Vous ne pouvez pas modifier, déconnecter ou supprimer un compte ou un rôle qui détient {{detail}}, car vous ne détenez pas vous-même cette capacité.",
   "CURRENT_PASSWORD_INCORRECT": "Le mot de passe actuel est incorrect. Après 10 essais erronés, les vérifications du mot de passe sont suspendues pendant 15 minutes, même avec le bon mot de passe.",
-  "RECOVERY_CODES_PASSWORD_REQUIRED": "Saisissez votre mot de passe actuel pour générer des codes de récupération."
+  "RECOVERY_CODES_PASSWORD_REQUIRED": "Saisissez votre mot de passe actuel pour générer des codes de récupération.",
+  "REFRESH_RACE": "Cette session vient d'être actualisée dans un autre onglet. Réessayez."
 }

@@ -9,11 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **Delegated account managers:** a role allowed to manage users or roles can no longer demote or delete an account, or narrow or delete a role, that holds more than it does; a helper could depose every admin.
+- **Delegated account managers:** a role allowed to manage users or roles can no longer demote, delete or sign out an account, or narrow or delete a role, that holds more than it does; a helper could depose every admin.
 - **Admin role:** a capability unticked in the built-in admin role can be ticked again; until now only a hand edit of db.json brought it back.
 - **Recovery codes per admin:** a code now resets only the admin who generated it, and generating asks for the current password; older codes stop working, so generate new ones in Settings › Security.
 - **Change password:** wrong current passwords now count like sign-in failures, 10 per 15 minutes; anyone holding a session could guess it about 3 times a second.
 - **Sign-in during a password change:** a sign-in or refresh still in progress when the password is changed or reset no longer gets a session that survives it.
+- **Sessions end:** a kept-signed-in session now ends 30 days after sign-in however often it is used, and a replaced refresh token used again signs that account out everywhere; a copied cookie used to work forever.
+- **Sign out everywhere:** `POST /api/auth/sessions/revoke-all` ends every session of your own account, and `POST /api/auth/users/:id/sessions/revoke` another account's, for roles that manage users.
+- **Several tabs at once:** a tab that loses a refresh race to another one no longer clears the sign-in cookie they share, which could sign every tab out.
+- **Keep me signed in unticked:** you stay signed in while the browser is open, for up to 12 hours, instead of being signed out 15 minutes after sign-in.
 
 ### Added
 

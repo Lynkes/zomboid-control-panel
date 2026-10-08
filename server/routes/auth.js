@@ -308,6 +308,22 @@ async function freshDeviceToken(userId) {
   }
 }
 
+// The refresh cookie for a session authService just created or rotated
+// (auth audit 2026-10-08): a browser-session cookie when "Keep me signed in"
+// was unticked (#21), otherwise one that ends when the session does (#10).
+function setRefreshCookie(req, res, result) {
+  const expiresAt = Date.parse(result.refreshExpiresAt || "");
+  res.cookie(
+    "refreshToken",
+    result.refreshToken,
+    getRefreshCookieOptions(
+      req,
+      result.refreshPersistent !== false,
+      Number.isNaN(expiresAt) ? undefined : expiresAt - Date.now(),
+    ),
+  );
+}
+
 async function getAuthenticatedUser(req) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -431,11 +447,7 @@ router.post("/setup", setupLimiter, async (req, res) => {
 
     // Set refresh token as httpOnly cookie
     if (result.refreshToken) {
-      res.cookie(
-        "refreshToken",
-        result.refreshToken,
-        getRefreshCookieOptions(req),
-      );
+      setRefreshCookie(req, res, result);
     }
 
     log.info(`Setup complete — admin account created: ${username}`);
@@ -475,11 +487,7 @@ router.post("/login", loginLimiter, async (req, res) => {
 
     // Set refresh token as httpOnly cookie for auto-login
     if (result.refreshToken) {
-      res.cookie(
-        "refreshToken",
-        result.refreshToken,
-        getRefreshCookieOptions(req),
-      );
+      setRefreshCookie(req, res, result);
     }
 
     res.json({
@@ -525,6 +533,18 @@ router.post("/refresh", async (req, res) => {
     // here -- `!result.accessToken` catches BOTH shapes, so a
     // capacity-evicted refresh gets today's generic 401 rather than a
     // broken 200 with an undefined accessToken.
+    //
+    // SECURITY (2026-10-08, #19): another request (another tab) refreshed
+    // with this same cookie a moment ago and won. The browser's cookie jar
+    // already holds the winner's token, so the cookie is left alone -- a
+    // late clear could wipe it and sign every tab out -- and the client
+    // retries once.
+    if (result?.refreshFailureReason === "race") {
+      return res.status(401).json({
+        error: "This session was just refreshed by another tab. Try again.",
+        code: ErrorCode.REFRESH_RACE,
+      });
+    }
     if (!result || !result.accessToken) {
       // Clear invalid cookie
       res.clearCookie("refreshToken", getRefreshCookieOptions(req, false));
@@ -538,11 +558,7 @@ router.post("/refresh", async (req, res) => {
 
     // Rotate the refresh token — set updated cookie
     if (result.refreshToken) {
-      res.cookie(
-        "refreshToken",
-        result.refreshToken,
-        getRefreshCookieOptions(req),
-      );
+      setRefreshCookie(req, res, result);
     }
 
     res.json({
@@ -574,6 +590,31 @@ router.post("/logout", async (req, res) => {
   await authService.logout(req.cookies?.refreshToken);
   res.clearCookie("refreshToken", getRefreshCookieOptions(req, false));
   res.json({ success: true });
+});
+
+/**
+ * POST /api/auth/sessions/revoke-all
+ * Sign the caller's own account out everywhere: every kept-signed-in
+ * browser, this one included, and every live connection (auth audit
+ * 2026-10-08, #10). Before this, the only ways were changing the password,
+ * deleting the account, or rotating the JWT secret for everyone.
+ */
+router.post("/sessions/revoke-all", async (req, res) => {
+  try {
+    const user = await getAuthenticatedUser(req);
+    if (!user) {
+      return res.status(401).json({
+        error: "Not authenticated",
+        code: ErrorCode.NOT_AUTHENTICATED,
+      });
+    }
+    await authService.revokeAllSessions(user.userId);
+    res.clearCookie("refreshToken", getRefreshCookieOptions(req, false));
+    res.json({ success: true });
+  } catch (error) {
+    log.warn(`Sign-out everywhere failed: ${error.message}`);
+    res.status(400).json({ error: sanitizeError(error.message) });
+  }
 });
 
 /**
@@ -821,6 +862,33 @@ router.delete("/users/:id", requirePermission("users.manage"), async (req, res) 
     res.status(error.status || 400).json(body);
   }
 });
+
+/**
+ * POST /api/auth/users/:id/sessions/revoke
+ * Sign another account out everywhere without deleting it or changing its
+ * password (auth audit 2026-10-08, #10). Gated on users.manage like the
+ * routes beside it, and refused for an account whose role holds more than
+ * the caller's (ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES, #3).
+ */
+router.post(
+  "/users/:id/sessions/revoke",
+  requirePermission("users.manage"),
+  async (req, res) => {
+    try {
+      const user = await authService.revokeAllSessions(req.params.id, {
+        actingUserId: req.user?.userId,
+      });
+      log.info(`Every session of ${user.username} signed out by ${req.user?.username || "an admin"}`);
+      res.json({ success: true, user: { id: user.id, username: user.username } });
+    } catch (error) {
+      log.warn(`Signing a user out failed: ${error.message}`);
+      const body = { error: sanitizeError(error.message) };
+      if (error.code) body.code = error.code;
+      if (error.params) body.params = sanitizeErrorParams(error.params);
+      res.status(error.status || 400).json(body);
+    }
+  },
+);
 
 /**
  * POST /api/auth/regenerate-jwt-secret

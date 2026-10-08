@@ -2578,6 +2578,11 @@ export const ErrorCode = Object.freeze({
    * currentPassword in the body. Generating codes asks for it, since the
    * codes reset this admin's password without the old one (#1). */
   RECOVERY_CODES_PASSWORD_REQUIRED: "RECOVERY_CODES_PASSWORD_REQUIRED",
+  /** server/routes/auth.js -- POST /api/auth/refresh (401): another request
+   * refreshed with the same cookie within the last 30 seconds and got the
+   * new one (two tabs at once). The cookie is not cleared and this doesn't
+   * count as token reuse; the client retries once (#19). */
+  REFRESH_RACE: "REFRESH_RACE",
   /* --- end auth audit 2026-10-08: account security --- */
 });
 

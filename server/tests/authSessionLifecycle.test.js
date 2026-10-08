@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import bcrypt from "bcryptjs";
 
 // sweep-round3 (2026-09-06, dwight): auth-session lens beyond sockets. Two
 // questions god asked to be proven empirically rather than settled by
@@ -90,7 +91,10 @@ describe("Refresh-token replay: redeeming a token must invalidate it, proven emp
     // at no longer exists (it was revoked and replaced during the first
     // redemption above).
     const replay = await authService.refreshAccessToken(originalRefreshToken);
-    expect(replay).toBeNull();
+    // Refused either way: within REFRESH_RACE_GRACE_MS as a lost race
+    // between two tabs (2026-10-08, #19), later as reuse (#10, below).
+    expect(replay?.accessToken).toBeUndefined();
+    expect(replay).toEqual({ refreshFailureReason: "race" });
   });
 
   it("the NEW token issued by rotation keeps working where the old one is dead -- proves rotation issues a real, usable replacement, not just revocation", async () => {
@@ -116,8 +120,8 @@ describe("Refresh-token replay: redeeming a token must invalidate it, proven emp
     ]);
 
     const results = [a, b];
-    const succeeded = results.filter((r) => r !== null);
-    const failed = results.filter((r) => r === null);
+    const succeeded = results.filter((r) => r?.accessToken);
+    const failed = results.filter((r) => !r?.accessToken);
     expect(succeeded).toHaveLength(1);
     expect(failed).toHaveLength(1);
   });
@@ -268,5 +272,245 @@ describe("MAX_REFRESH_SESSIONS capacity eviction: a tombstone, not a guess", () 
     const reason = authService.findCapacityEvictionReason(user, tombstone.id);
     expect(reason).toBeNull();
     expect(user.evictedRefreshSessions).toHaveLength(0);
+  });
+});
+
+// Auth audit 2026-10-08 (#10, #19, #21): refresh sessions slid forever (each
+// rotation started a fresh 30 days), a replaced token sent again was just
+// refused with no reuse detection, two tabs refreshing at once signed the
+// loser out (and its cookie clear could wipe the winner's), nothing could
+// sign one user out everywhere, and "Keep me signed in" unticked meant no
+// refresh session at all -- a hard sign-out 15 minutes after sign-in.
+const DAY = 24 * 60 * 60 * 1000;
+const PASSWORD = "lifecycle-pass-1";
+let passwordHash;
+
+function route(routePath) {
+  return async (req) => {
+    const { default: router } = await import("../routes/auth.js");
+    const layer = router.stack.find(
+      (entry) => entry.route?.path === routePath && entry.route.methods.post,
+    );
+    const handler = layer.route.stack[layer.route.stack.length - 1].handle;
+    const res = { statusCode: 200, body: null, cookies: [], cleared: [] };
+    res.status = (code) => {
+      res.statusCode = code;
+      return res;
+    };
+    res.json = (payload) => {
+      res.body = payload;
+      return res;
+    };
+    res.cookie = (name, value, options) => {
+      res.cookies.push({ name, value, options });
+      return res;
+    };
+    res.clearCookie = (name, options) => {
+      res.cleared.push({ name, options });
+      return res;
+    };
+    await handler({ headers: {}, cookies: {}, body: {}, socket: {}, ...req }, res);
+    return res;
+  };
+}
+
+describe("refresh session lifecycle (#10, #19, #21)", () => {
+  beforeAll(async () => {
+    passwordHash = await bcrypt.hash(PASSWORD, 4);
+  });
+
+  beforeEach(() => {
+    resetWith({
+      roles: [TECHNICIAN_ROLE],
+      users: [
+        { id: "u-tech", username: "tech", role: "technician", roleId: "role-technician", password: passwordHash, tokenGen: 0 },
+      ],
+    });
+    authService.jwtSecret = "test-lifecycle-secret";
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("#10: a session refreshed again and again still ends 30 days after sign-in", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const start = Date.now();
+    const signedIn = await authService.login("tech", PASSWORD, true);
+
+    let token = signedIn.refreshToken;
+    for (const day of [10, 20, 29]) {
+      vi.setSystemTime(start + day * DAY);
+      const refreshed = await authService.refreshAccessToken(token);
+      expect(refreshed?.accessToken).toBeTruthy();
+      token = refreshed.refreshToken;
+    }
+
+    vi.setSystemTime(start + 31 * DAY);
+    expect(await authService.refreshAccessToken(token)).toBeNull();
+  });
+
+  it("#10: the refresh cookie ends with the session, not 30 days after each refresh", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const start = Date.now();
+    const signedIn = await authService.login("tech", PASSWORD, true);
+
+    vi.setSystemTime(start + 25 * DAY);
+    const res = await route("/refresh")({ cookies: { refreshToken: signedIn.refreshToken } });
+
+    expect(res.statusCode).toBe(200);
+    const [cookie] = res.cookies;
+    expect(cookie.options.maxAge).toBeGreaterThan(4 * DAY);
+    expect(cookie.options.maxAge).toBeLessThanOrEqual(5 * DAY);
+  });
+
+  it("#10: a replaced token sent again after the grace window signs the account out everywhere", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const user = db.data.users[0];
+    const deviceA = await authService.login("tech", PASSWORD, true);
+    const deviceB = await authService.login("tech", PASSWORD, true);
+    const rotatedA = await authService.refreshAccessToken(deviceA.refreshToken);
+    expect(rotatedA?.accessToken).toBeTruthy();
+
+    vi.setSystemTime(Date.now() + 31 * 1000);
+    const events = [];
+    const unsubscribe = onSessionRevoked((event) => events.push(event));
+    try {
+      expect(await authService.refreshAccessToken(deviceA.refreshToken)).toBeNull();
+    } finally {
+      unsubscribe();
+    }
+
+    expect(events).toEqual([{ scope: "user", userId: "u-tech" }]);
+    expect(user.refreshSessions).toEqual([]);
+    expect(user.tokenGen).toBe(1);
+    expect(await authService.refreshAccessToken(rotatedA.refreshToken)).toBeNull();
+    expect(await authService.refreshAccessToken(deviceB.refreshToken)).toBeNull();
+    expect(await authService.authenticateAccessToken(deviceB.accessToken)).toBeNull();
+  });
+
+  it("#19: two refreshes with one cookie give one 200 and one REFRESH_RACE that leaves the cookie alone", async () => {
+    const signedIn = await authService.login("tech", PASSWORD, true);
+    const refresh = route("/refresh");
+
+    const [a, b] = await Promise.all([
+      refresh({ cookies: { refreshToken: signedIn.refreshToken } }),
+      refresh({ cookies: { refreshToken: signedIn.refreshToken } }),
+    ]);
+
+    const winner = [a, b].find((res) => res.statusCode === 200);
+    const loser = [a, b].find((res) => res.statusCode !== 200);
+    expect(winner.body.accessToken).toBeTruthy();
+    expect(winner.cookies).toHaveLength(1);
+    expect(loser.statusCode).toBe(401);
+    expect(loser.body.code).toBe("REFRESH_RACE");
+    expect(loser.cleared).toEqual([]);
+    expect(loser.cookies).toEqual([]);
+    // Not counted as reuse: the winner's new token still works.
+    expect((await authService.refreshAccessToken(winner.cookies[0].value))?.accessToken).toBeTruthy();
+    expect(db.data.users[0].tokenGen).toBe(0);
+  });
+
+  it("#21: signing in without Keep me signed in sets a browser-session cookie, and /refresh works", async () => {
+    const signedIn = await route("/login")({ body: { username: "tech", password: PASSWORD, rememberMe: false } });
+
+    expect(signedIn.statusCode).toBe(200);
+    expect(signedIn.cookies).toHaveLength(1);
+    expect(signedIn.cookies[0].options).not.toHaveProperty("maxAge");
+
+    const refreshed = await route("/refresh")({ cookies: { refreshToken: signedIn.cookies[0].value } });
+    expect(refreshed.statusCode).toBe(200);
+    expect(refreshed.body.accessToken).toBeTruthy();
+    expect(refreshed.cookies[0].options).not.toHaveProperty("maxAge");
+  });
+
+  it("#21: a browser session ends 12 hours after sign-in", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const start = Date.now();
+    const signedIn = await authService.login("tech", PASSWORD, false);
+
+    vi.setSystemTime(start + 11 * 60 * 60 * 1000);
+    const refreshed = await authService.refreshAccessToken(signedIn.refreshToken);
+    expect(refreshed?.accessToken).toBeTruthy();
+
+    vi.setSystemTime(start + 13 * 60 * 60 * 1000);
+    expect(await authService.refreshAccessToken(refreshed.refreshToken)).toBeNull();
+  });
+
+  it("#21: browser sessions are evicted before remembered devices", async () => {
+    const user = db.data.users[0];
+    const browserOnly = await authService.login("tech", PASSWORD, false);
+    const remembered = [];
+    for (let i = 0; i < 5; i += 1) {
+      remembered.push(await authService.login("tech", PASSWORD, true));
+    }
+
+    expect(user.refreshSessions).toHaveLength(5);
+    expect(user.refreshSessions.every((session) => session.persistent)).toBe(true);
+    expect(await authService.refreshAccessToken(browserOnly.refreshToken)).toEqual({
+      refreshFailureReason: "capacity",
+    });
+    expect((await authService.refreshAccessToken(remembered[0].refreshToken))?.accessToken).toBeTruthy();
+  });
+});
+
+describe("signing an account out everywhere (#10)", () => {
+  const ADMIN_ROLE = {
+    id: "role-admin",
+    name: "admin",
+    capabilities: ["users.manage", "roles.manage", "server.control", "rcon.execute"],
+    isSeeded: true,
+  };
+  const SUPPORT_ROLE = { id: "role-support", name: "support", capabilities: ["users.manage"] };
+
+  beforeEach(() => {
+    resetWith({
+      roles: [ADMIN_ROLE, TECHNICIAN_ROLE, SUPPORT_ROLE],
+      users: [
+        { id: "u-admin", username: "admin", role: "admin", roleId: "role-admin", tokenGen: 0 },
+        { id: "u-tech", username: "tech", role: "technician", roleId: "role-technician", tokenGen: 0 },
+        { id: "u-support", username: "support", role: "support", roleId: "role-support", tokenGen: 0 },
+      ],
+    });
+    authService.jwtSecret = "test-revoke-all-secret";
+  });
+
+  it("POST /sessions/revoke-all ends every session of the caller's account and clears the cookie", async () => {
+    const user = db.data.users.find((u) => u.id === "u-tech");
+    const session = authService.createRefreshSession(user);
+    const refreshToken = authService.generateRefreshToken(user, session.id);
+    const accessToken = authService.generateAccessToken(user);
+    const events = [];
+    const unsubscribe = onSessionRevoked((event) => events.push(event));
+    let res;
+    try {
+      res = await route("/sessions/revoke-all")({ headers: { authorization: `Bearer ${accessToken}` } });
+    } finally {
+      unsubscribe();
+    }
+
+    expect(res.statusCode).toBe(200);
+    expect(res.cleared.map((c) => c.name)).toEqual(["refreshToken"]);
+    expect(events).toEqual([{ scope: "user", userId: "u-tech" }]);
+    expect(await authService.refreshAccessToken(refreshToken)).toBeNull();
+    expect(await authService.authenticateAccessToken(accessToken)).toBeNull();
+  });
+
+  it("an admin can sign another account out", async () => {
+    const tech = db.data.users.find((u) => u.id === "u-tech");
+    const session = authService.createRefreshSession(tech);
+    const refreshToken = authService.generateRefreshToken(tech, session.id);
+
+    await authService.revokeAllSessions("u-tech", { actingUserId: "u-admin" });
+
+    expect(await authService.refreshAccessToken(refreshToken)).toBeNull();
+    expect(tech.tokenGen).toBe(1);
+  });
+
+  it("a users.manage delegate can't sign out an account that holds more than it does", async () => {
+    await expect(
+      authService.revokeAllSessions("u-admin", { actingUserId: "u-support" }),
+    ).rejects.toMatchObject({ code: "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES", status: 403 });
+    expect(db.data.users.find((u) => u.id === "u-admin").tokenGen).toBe(0);
   });
 });

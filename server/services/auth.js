@@ -131,8 +131,23 @@ const BCRYPT_ROUNDS = 12;
 // decoding a generated token's exp-minus-iat to infer it -- see this
 // file's own top-of-file comment for why 15m, not 24h.
 export const ACCESS_TOKEN_EXPIRY = "15m";
-const REFRESH_TOKEN_EXPIRY = "30d";
 const REFRESH_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
+// SECURITY (2026-10-08, #10): how long a kept-signed-in session lasts from
+// sign-in, however often it is refreshed. Each rotation used to start a fresh
+// 30 days, so a copied refresh cookie kept working for as long as someone
+// used it at least once a month, and an account disabled at the SSO provider
+// kept its panel access the same way.
+export const REFRESH_SESSION_ABSOLUTE_LIFETIME_MS = REFRESH_TOKEN_LIFETIME_MS;
+// #21: a sign-in with "Keep me signed in" unticked gets a browser-session
+// cookie and at most this long. It used to get no refresh session at all,
+// which since access tokens last 15 minutes meant a hard sign-out 15 minutes
+// after sign-in however active the user was.
+export const BROWSER_SESSION_ABSOLUTE_LIFETIME_MS = 12 * 60 * 60 * 1000;
+// #19: how long a session id replaced by a refresh still answers
+// REFRESH_RACE (another tab got there first; retry with the new cookie)
+// instead of counting as the reuse of a stolen token.
+export const REFRESH_RACE_GRACE_MS = 30 * 1000;
+const MAX_ROTATION_RECORDS = 5;
 const MAX_REFRESH_SESSIONS = 5;
 export const MAX_FAILED_LOGINS = 10;
 export const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
@@ -161,6 +176,16 @@ function assertResetPasswordPolicy(newPassword) {
   if (newPassword.length > 128) {
     throw new Error("Password must be 128 characters or fewer");
   }
+}
+
+// What routes/auth.js needs to set the refresh cookie for `session`: a
+// browser-session cookie when it isn't kept (#21), otherwise one that ends
+// when the session does (#10).
+function refreshCookieFields(session) {
+  return {
+    refreshPersistent: session.persistent !== false,
+    refreshExpiresAt: session.expiresAt,
+  };
 }
 
 // One account's recovery codes ({hash, usedAt} entries), stored on its own
@@ -685,17 +710,44 @@ class AuthService {
   // collect a fresh failed-sign-in budget per refresh -- up to the
   // per-account device table's size -- and fill that table with paused
   // entries.
-  createRefreshSession(user, { deviceId } = {}) {
+  //
+  // SECURITY (2026-10-08): the rest is carried through rotation the same way.
+  // - persistent (#21): false for a sign-in with "Keep me signed in"
+  //   unticked: a browser-session cookie and BROWSER_SESSION_ABSOLUTE_LIFETIME_MS.
+  // - absoluteExpiresAt (#10): when the session ends however often it is
+  //   refreshed, set at sign-in. expiresAt (and the refresh JWT and cookie)
+  //   never run past it.
+  // - familyId (#10): one id for the chain of sessions a sign-in rotates
+  //   through, also carried in the refresh JWT, so a replaced token presented
+  //   again is recognised as reuse (findReplacedSession()).
+  // - rotatedFrom (#19): the ids this session replaced in the last
+  //   REFRESH_RACE_GRACE_MS, for another tab's refresh that lost the race.
+  createRefreshSession(
+    user,
+    { deviceId, persistent = true, absoluteExpiresAt, familyId, rotatedFrom } = {},
+  ) {
     this.ensureUserAuthState(user);
 
-    const timestamp = new Date().toISOString();
+    const now = Date.now();
+    const keep = persistent !== false;
+    const givenAbsolute = Date.parse(absoluteExpiresAt || "");
+    const absolute = Number.isNaN(givenAbsolute)
+      ? now + (keep ? REFRESH_SESSION_ABSOLUTE_LIFETIME_MS : BROWSER_SESSION_ABSOLUTE_LIFETIME_MS)
+      : givenAbsolute;
+    const timestamp = new Date(now).toISOString();
     const session = {
       id: crypto.randomUUID(),
       createdAt: timestamp,
       lastUsedAt: timestamp,
-      expiresAt: new Date(Date.now() + REFRESH_TOKEN_LIFETIME_MS).toISOString(),
+      expiresAt: new Date(Math.min(now + REFRESH_TOKEN_LIFETIME_MS, absolute)).toISOString(),
+      absoluteExpiresAt: new Date(absolute).toISOString(),
+      persistent: keep,
+      familyId: typeof familyId === "string" && familyId ? familyId : crypto.randomUUID(),
       deviceId: isDeviceId(deviceId) ? deviceId : newDeviceId(),
     };
+    if (Array.isArray(rotatedFrom) && rotatedFrom.length > 0) {
+      session.rotatedFrom = rotatedFrom;
+    }
 
     user.refreshSessions.push(session);
     if (user.refreshSessions.length > MAX_REFRESH_SESSIONS) {
@@ -706,8 +758,17 @@ class AuthService {
       // this single site rather than let a caller downstream guess it: a
       // guess can be wrong, and a false "just capacity" told to a genuinely
       // compromised user is strictly worse than today's silence.
+      //
+      // #21: browser-session sign-ins go first, oldest first, so a shared
+      // PC's sign-ins don't push out a user's remembered devices; never the
+      // session just created.
       const overflow = user.refreshSessions.length - MAX_REFRESH_SESSIONS;
-      const evicted = user.refreshSessions.splice(0, overflow);
+      const older = user.refreshSessions.filter((s) => s !== session);
+      const evicted = [
+        ...older.filter((s) => s.persistent === false),
+        ...older.filter((s) => s.persistent !== false),
+      ].slice(0, overflow);
+      user.refreshSessions = user.refreshSessions.filter((s) => !evicted.includes(s));
       user.evictedRefreshSessions.push(
         ...evicted.map((evictedSession) => ({
           id: evictedSession.id,
@@ -753,6 +814,37 @@ class AuthService {
       (session) => session.id !== sessionId,
     );
     return user.refreshSessions.length !== initialLength;
+  }
+
+  // For a refresh token whose session is gone (#10, #19): "race" when a live
+  // session replaced it within REFRESH_RACE_GRACE_MS -- another tab refreshed
+  // first with the same cookie, and a retry sends the new one; "reuse" when
+  // its sign-in's chain has moved on longer ago than that, so whoever sends
+  // it holds a token its owner (or a thief) already exchanged; null for every
+  // other reason (signed out, expired, evicted, forged).
+  findReplacedSession(user, payload, now = Date.now()) {
+    this.ensureUserAuthState(user);
+    for (const session of user.refreshSessions) {
+      const rotation = (session.rotatedFrom || []).find((entry) => entry.id === payload.sessionId);
+      if (rotation) {
+        return now - Date.parse(rotation.at) <= REFRESH_RACE_GRACE_MS ? "race" : "reuse";
+      }
+    }
+    if (
+      typeof payload.fam === "string" &&
+      user.refreshSessions.some((session) => session.familyId === payload.fam)
+    ) {
+      return "reuse";
+    }
+    return null;
+  }
+
+  // Ends every session the account has: the tokenGen bump retires its access
+  // and refresh tokens alike, and the sessions themselves go.
+  endAllSessions(user) {
+    this.ensureUserAuthState(user);
+    user.tokenGen = (user.tokenGen || 0) + 1;
+    user.refreshSessions = [];
   }
 
   async authenticateAccessToken(token) {
@@ -1425,15 +1517,15 @@ class AuthService {
 
     // Update last login
     user.lastLogin = new Date().toISOString();
-    const refreshSession = rememberMe ? this.createRefreshSession(user) : null;
+    // Unticked "Keep me signed in" still gets a session, a browser-session
+    // one (#21); without it the sign-in ended when the access token did.
+    const refreshSession = this.createRefreshSession(user, { persistent: rememberMe !== false });
 
     // Signed before the write below (#9): a change or reset landing during
     // it bumps tokenGen, and these then fail like every older token.
     const accessToken = this.generateAccessToken(user);
-    const refreshToken = refreshSession
-      ? this.generateRefreshToken(user, refreshSession.id)
-      : null;
-    const newDeviceToken = this.issueDeviceToken(user, refreshSession?.deviceId);
+    const refreshToken = this.generateRefreshToken(user, refreshSession.id);
+    const newDeviceToken = this.issueDeviceToken(user, refreshSession.deviceId);
     await commitNow();
 
     // The stored name (letters, digits, _ and - only), not the one typed,
@@ -1448,6 +1540,7 @@ class AuthService {
       accessToken,
       refreshToken,
       deviceToken: newDeviceToken,
+      ...refreshCookieFields(refreshSession),
     };
   }
 
@@ -1472,15 +1565,24 @@ class AuthService {
    * Includes tokenGen counter so tokens can be invalidated by incrementing the counter.
    */
   generateRefreshToken(user, sessionId) {
+    // Expires with its session, never past the session's absolute limit
+    // (#10), and names its sign-in's chain of sessions (`fam`) so a replaced
+    // token sent again is recognised (findReplacedSession()).
+    const session = (user.refreshSessions || []).find((entry) => entry.id === sessionId);
+    const expiresAt = Date.parse(session?.expiresAt || "");
+    const expiresIn = Number.isNaN(expiresAt)
+      ? Math.floor(REFRESH_TOKEN_LIFETIME_MS / 1000)
+      : Math.max(1, Math.ceil((expiresAt - Date.now()) / 1000));
     return jwt.sign(
       {
         userId: user.id,
         type: "refresh",
         tokenGen: user.tokenGen || 0,
         sessionId,
+        ...(session?.familyId ? { fam: session.familyId } : {}),
       },
       this.jwtSecret,
-      { algorithm: "HS256", expiresIn: REFRESH_TOKEN_EXPIRY },
+      { algorithm: "HS256", expiresIn },
     );
   }
 
@@ -1519,7 +1621,8 @@ class AuthService {
 
       this.ensureUserAuthState(user);
 
-      // Validate tokenGen — reject tokens from before a password change or logout-all
+      // Validate tokenGen — reject tokens from before a password change,
+      // reset, or sign-out everywhere (revokeAllSessions())
       const currentGen = user.tokenGen || 0;
       const tokenGen = payload.tokenGen ?? 0;
       if (tokenGen !== currentGen) {
@@ -1530,6 +1633,7 @@ class AuthService {
         throw new Error("Refresh token session is missing");
       }
 
+      const now = Date.now();
       const session = this.findRefreshSession(user, payload.sessionId);
       if (!session) {
         // sweep-round4: distinguish "kicked for capacity" from every other
@@ -1542,14 +1646,57 @@ class AuthService {
           capacityError.refreshFailureReason = "capacity";
           throw capacityError;
         }
+        const replaced = this.findReplacedSession(user, payload, now);
+        if (replaced === "race") {
+          // #19: not reuse, and the browser's cookie jar already holds the
+          // winner's token -- the route answers REFRESH_RACE and leaves the
+          // cookie alone.
+          const raceError = new Error("Refresh token was just replaced by another request");
+          raceError.refreshFailureReason = "race";
+          throw raceError;
+        }
+        if (replaced === "reuse") {
+          // #10: a token already exchanged, sent again after the grace
+          // window: either its owner or a thief holds a copy. Nothing tells
+          // which, so every session of the account ends.
+          this.endAllSessions(user);
+          await commitNow();
+          emitSessionRevoked({ scope: "user", userId: user.id });
+          log.warn(
+            `A refresh token for ${user.username} that had already been replaced was used again; every session of that account was signed out.`,
+          );
+        }
         throw new Error("Refresh token session is no longer active");
+      }
+
+      // #10: the session ends at its absolute limit however often it is
+      // refreshed. One stored before sessions had a limit gets one from now.
+      const absoluteExpiresAt = Date.parse(session.absoluteExpiresAt || "");
+      if (!Number.isNaN(absoluteExpiresAt) && absoluteExpiresAt <= now) {
+        this.revokeRefreshSession(user, payload.sessionId);
+        await commitNow();
+        throw new Error("Refresh token session reached its absolute limit");
       }
 
       this.revokeRefreshSession(user, payload.sessionId);
       // The same trusted-device id as the session it replaces (see
       // createRefreshSession()); a session stored before sessions had one
-      // gets a new one here and keeps it from then on.
-      const newSession = this.createRefreshSession(user, { deviceId: session.deviceId });
+      // gets a new one here and keeps it from then on. The same goes for its
+      // persistence, absolute limit and chain of sessions (#10, #21), and it
+      // remembers the id it replaced for REFRESH_RACE_GRACE_MS (#19).
+      const rotatedFrom = [
+        ...(session.rotatedFrom || []).filter(
+          (entry) => now - Date.parse(entry.at) <= REFRESH_RACE_GRACE_MS,
+        ),
+        { id: session.id, at: new Date(now).toISOString() },
+      ].slice(-MAX_ROTATION_RECORDS);
+      const newSession = this.createRefreshSession(user, {
+        deviceId: session.deviceId,
+        persistent: session.persistent !== false,
+        absoluteExpiresAt: Number.isNaN(absoluteExpiresAt) ? undefined : session.absoluteExpiresAt,
+        familyId: session.familyId,
+        rotatedFrom,
+      });
 
       // Signed before the write, as in login() (#9): a password change or
       // reset landing during it must not leave these valid.
@@ -1570,18 +1717,49 @@ class AuthService {
         accessToken,
         refreshToken: newRefreshToken,
         deviceToken: newDeviceToken,
+        ...refreshCookieFields(newSession),
       };
     } catch (error) {
       // Every failure returns null (the pre-existing, deliberately
       // uninformative contract for the security cases) EXCEPT a capacity
       // eviction, which is a product fact, not a security one -- see
-      // createRefreshSession()'s tombstone comment. Only that one reason is
-      // allowed to leave this method distinguishable from the rest.
-      if (error.refreshFailureReason === "capacity") {
-        return { refreshFailureReason: "capacity" };
+      // createRefreshSession()'s tombstone comment -- and a lost race between
+      // two refreshes with the same cookie (#19), which only ever tells the
+      // holder of a token just replaced that it was just replaced.
+      if (error.refreshFailureReason === "capacity" || error.refreshFailureReason === "race") {
+        return { refreshFailureReason: error.refreshFailureReason };
       }
       return null;
     }
+  }
+
+  /**
+   * Sign one account out everywhere (#10): POST /api/auth/sessions/revoke-all
+   * for the caller's own account, and the users.manage "sign out" action for
+   * another one. Ends every refresh session and, through tokenGen, every
+   * access token; live sockets are evicted. Signing out someone else is held
+   * to the same ceiling as demoting them (assertCallerCoversTarget).
+   */
+  async revokeAllSessions(userId, { actingUserId } = {}) {
+    return this._withMutex(async () => {
+      const db = await getDb();
+      const user = (db.data.users || []).find((u) => u.id === userId);
+      if (!user) {
+        throw new Error("User not found");
+      }
+      if (actingUserId && String(actingUserId) !== String(userId)) {
+        const role = user.roleId ? await getRoleById(user.roleId) : await getRoleByName(user.role);
+        await assertCallerCoversTarget(actingUserId, role?.capabilities || []);
+      }
+
+      this.ensureUserAuthState(user);
+      const sessions = user.refreshSessions.length;
+      this.endAllSessions(user);
+      await commitNow();
+      emitSessionRevoked({ scope: "user", userId: user.id });
+      log.info(`Signed out every session of ${user.username}`);
+      return { id: user.id, username: user.username, sessions };
+    });
   }
 
   /**

@@ -598,5 +598,6 @@
   "DISCORD_CHANNEL_OUTSIDE_GUILD": "Der Benachrichtigungskanal gehört nicht zu dem hier eingerichteten Discord-Server, daher postet der Bot dort nicht. Nimm einen Kanal des Servers, dessen Guild-ID eingetragen ist, oder korrigiere die Guild-ID.",
   "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES": "Du kannst ein Konto oder eine Rolle mit {{detail}} weder ändern noch abmelden oder entfernen, weil du das selbst nicht besitzt.",
   "CURRENT_PASSWORD_INCORRECT": "Das aktuelle Passwort ist falsch. Nach 10 Fehlversuchen werden Passwortprüfungen für 15 Minuten ausgesetzt, auch mit dem richtigen Passwort.",
-  "RECOVERY_CODES_PASSWORD_REQUIRED": "Gib dein aktuelles Passwort ein, um Wiederherstellungscodes zu erzeugen."
+  "RECOVERY_CODES_PASSWORD_REQUIRED": "Gib dein aktuelles Passwort ein, um Wiederherstellungscodes zu erzeugen.",
+  "REFRESH_RACE": "Diese Sitzung wurde gerade in einem anderen Tab erneuert. Versuche es noch einmal."
 }
