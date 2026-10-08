@@ -154,6 +154,7 @@ const UNGATED_BY_DESIGN = new Map([
   ["auth.js POST /logout", "pre-session: clears a cookie, no capability model applies to ending your own session"],
   ["auth.js GET /me", "self-scoped via getAuthenticatedUser(req) -- never a caller-supplied id"],
   ["auth.js POST /change-password", "self-scoped via getAuthenticatedUser(req) -- never a caller-supplied id"],
+  ["auth.js POST /sessions/revoke-all", "self-scoped via getAuthenticatedUser(req) -- never a caller-supplied id"],
   ["auth.js GET /reset-status", "pre-session: part of the no-admin-account recovery flow"],
   ["auth.js GET /recovery-status", "pre-session: same recovery flow"],
   ["auth.js POST /recover-with-code", "pre-session: same recovery flow, rate-limited"],
