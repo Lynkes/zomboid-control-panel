@@ -109,17 +109,21 @@ describe("Steam Sync extension: trusted-device token", () => {
 
 // Auth review 2026-10-08: with the panel's origin granted, a fetch in the
 // default credentials mode stored the refresh cookie a sign-in sets in the
-// browser's shared jar, replacing the panel tab's own sign-in. The extension
-// keeps only the access token, so it neither sends nor stores cookies.
-describe("Steam Sync extension: no panel cookies", () => {
-  it("signs in and pushes with credentials omitted", async () => {
+// browser's shared jar, replacing the panel tab's own sign-in. The panel now
+// sets no cookie for an extension Origin (authSessionLifecycle.test.js).
+// The popup briefly omitted credentials as well, which also stripped what an
+// authenticating proxy in front of the panel needs (its cookie, Basic auth
+// or a client certificate), so the extension could no longer sign in or push
+// there. Both requests keep the default mode.
+describe("Steam Sync extension: credentials for a proxy in front of the panel", () => {
+  it("signs in and pushes in the default credentials mode", async () => {
     popup.respondWith({ accessToken: "access-1" });
     await popup.login("http://garage:3001", "admin");
     popup.respondWith({ ok: true });
     await popup.push("http://garage:3001", "access-1");
 
-    expect(popup.fetchOptions(0).credentials).toBe("omit");
-    expect(popup.fetchOptions(1).credentials).toBe("omit");
+    expect(popup.fetchOptions(0)).not.toHaveProperty("credentials");
+    expect(popup.fetchOptions(1)).not.toHaveProperty("credentials");
     expect(popup.fetchOptions(1).headers.Authorization).toBe("Bearer access-1");
   });
 });
