@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Date format:** pick day/month/year, month/day/year or year-month-day in Settings › General › Appearance, for every date in the panel; Automatic now follows your browser's region too.
 
+### Changed
+
+- **Scheduler:** restart and broadcasts sit at the top, with one countdown choice and a preview of each message, the schedule right below, and the timezone and warning text together in one settings card.
+
 ## [1.4.8] - 2026-10-07
 
 ### Changed

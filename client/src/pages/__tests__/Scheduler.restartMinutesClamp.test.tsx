@@ -91,7 +91,7 @@ async function setUpRunningServer() {
 }
 
 describe('Scheduler.tsx: the custom restart-warning time reports the real, possibly-clamped value', () => {
-  it('typing 500 into the custom-time field (past the decorative max={30}) and clicking Restart Now surfaces the server-clamped value, not the typed one', async () => {
+  it('typing 500 into the custom-time field (past the decorative max={30}) and restarting surfaces the server-clamped value, not the typed one', async () => {
     mockCan = () => true
     await setUpRunningServer()
     // The server's real 60-minute cap, reported back honestly.
@@ -99,10 +99,12 @@ describe('Scheduler.tsx: the custom restart-warning time reports the real, possi
 
     renderScheduler()
 
+    // The custom length is one of the countdown choices (2026-10 layout).
+    fireEvent.click(await screen.findByRole('radio', { name: 'Custom' }))
     await waitFor(() => expect(screen.getByRole('spinbutton')).toBeInTheDocument())
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '500' } })
 
-    const restartNowButton = await screen.findByRole('button', { name: 'Restart Now' })
+    const restartNowButton = await screen.findByRole('button', { name: 'Restart in 500m' })
     await waitFor(() => expect(restartNowButton).not.toBeDisabled())
     fireEvent.click(restartNowButton)
 
@@ -122,17 +124,19 @@ describe('Scheduler.tsx: the custom restart-warning time reports the real, possi
     )
   })
 
-  it('typing 20 (under the 60-minute cap) and clicking Restart Now shows the plain success toast, no clamp warning', async () => {
+  it('typing 20 (under the 60-minute cap) and restarting shows the plain success toast, no clamp warning', async () => {
     mockCan = () => true
     await setUpRunningServer()
     restartNow.mockResolvedValue({ success: true, message: 'Restart initiated', warningMinutes: 20 })
 
     renderScheduler()
 
+    // The custom length is one of the countdown choices (2026-10 layout).
+    fireEvent.click(await screen.findByRole('radio', { name: 'Custom' }))
     await waitFor(() => expect(screen.getByRole('spinbutton')).toBeInTheDocument())
     fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '20' } })
 
-    const restartNowButton = await screen.findByRole('button', { name: 'Restart Now' })
+    const restartNowButton = await screen.findByRole('button', { name: 'Restart in 20m' })
     await waitFor(() => expect(restartNowButton).not.toBeDisabled())
     fireEvent.click(restartNowButton)
 
