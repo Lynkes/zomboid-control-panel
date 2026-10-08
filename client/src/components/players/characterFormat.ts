@@ -1,4 +1,5 @@
 import type { TFunction } from 'i18next'
+import { formatDateTime, formatTime as formatClockTime } from '@/lib/dateFormat'
 
 // Locale-aware number and time formatting shared by the Character tab's
 // sections. Every function returns '' for a missing or unparseable value so a
@@ -13,43 +14,19 @@ export function formatNumber(value: number | undefined | null, language: string,
   }
 }
 
-function toDate(iso: string | number | undefined | null): Date | null {
-  if (iso === undefined || iso === null) return null
-  const date = new Date(iso)
-  return Number.isNaN(date.getTime()) ? null : date
-}
-
 /** HH:MM:SS in the viewer's locale. */
 export function formatTime(iso: string | number | undefined | null, language: string): string {
-  const date = toDate(iso)
-  if (!date) return ''
-  try {
-    return date.toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-  } catch {
-    return date.toLocaleTimeString()
-  }
+  return formatClockTime(iso, { language, seconds: true, pad: true })
 }
 
 /** HH:MM, for "since" chips. */
 export function formatShortTime(iso: string | number | undefined | null, language: string): string {
-  const date = toDate(iso)
-  if (!date) return ''
-  try {
-    return date.toLocaleTimeString(language, { hour: '2-digit', minute: '2-digit' })
-  } catch {
-    return date.toLocaleTimeString()
-  }
+  return formatClockTime(iso, { language, pad: true })
 }
 
-/** A date and time, for "saved {{when}}". */
+/** A date and time in the saved date format, for "saved {{when}}". */
 export function formatWhen(iso: string | number | undefined | null, language: string): string {
-  const date = toDate(iso)
-  if (!date) return ''
-  try {
-    return date.toLocaleString(language, { dateStyle: 'medium', timeStyle: 'short' })
-  } catch {
-    return date.toLocaleString()
-  }
+  return formatDateTime(iso, { language, style: 'medium' })
 }
 
 /** Real hours this life has lasted, estimated from in-game time. */

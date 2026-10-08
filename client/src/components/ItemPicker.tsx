@@ -12,6 +12,7 @@ import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { panelBridgeApi } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useDateFormat } from '@/lib/dateFormat'
 import { useToast } from '@/components/ui/use-toast'
 
 export interface CatalogItem {
@@ -96,6 +97,7 @@ const MAX_VISIBLE = 150
 
 export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPickerProps) {
   const { t, i18n } = useTranslation('itemPicker')
+  const { formatDate } = useDateFormat()
   const resolvedPlaceholder = placeholder ?? t('searchItemsPlaceholder')
   const [items, setItems] = useState<CatalogItem[]>([])
   const [initialLoad, setInitialLoad] = useState(true)
@@ -586,7 +588,7 @@ export function ItemPicker({ value, onChange, disabled, placeholder }: ItemPicke
             </div>
             {scannedAt && (
               <span className="text-end opacity-40 tabular-nums">
-                {new Date(scannedAt).toLocaleDateString(i18n.language)}
+                {formatDate(scannedAt)}
               </span>
             )}
           </div>

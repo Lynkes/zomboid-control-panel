@@ -72,6 +72,7 @@ import { DisabledReason } from '@/components/DisabledReason'
 import { HelpTip } from '@/components/HelpTip'
 import { cn } from '@/lib/utils'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useDateFormat } from '@/lib/dateFormat'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { percentToBridgeRainIntensity, percentToRconFraction, percentToUnitInterval } from '@/lib/weatherUnits'
 import { useConfirm } from '@/contexts/ConfirmContext'
@@ -405,6 +406,7 @@ interface BridgeResultData {
   success: boolean
   data: unknown
   error?: string
+  // ISO, formatted at render so it follows the date format setting.
   timestamp: string
 }
 
@@ -620,17 +622,6 @@ export function getBridgeOperationGroups(t: TFunction) {
   ] as const
 }
 
-const formatPanelTimestamp = (date: Date, locale?: string): string => {
-  try {
-    return new Intl.DateTimeFormat(locale, {
-      dateStyle: 'medium',
-      timeStyle: 'medium',
-    }).format(date)
-  } catch {
-    return date.toLocaleString(locale)
-  }
-}
-
 // ============================================
 // STRUCTURED RESULT DISPLAY
 // ============================================
@@ -728,10 +719,12 @@ function EventSequenceResult({ data, timestamp }: { data: EventSequenceResultDat
 
 function BridgeResultDisplay({ result, loading, onInlineAction, players }: BridgeResultDisplayProps) {
   const { t } = useTranslation('events')
+  const { formatDateTime } = useDateFormat()
   const bridgeOperationTemplates = useMemo(() => getBridgeOperationTemplates(t), [t])
   const [showRaw, setShowRaw] = useState(false)
   const [safehouseAddSelection, setSafehouseAddSelection] = useState<Record<string, string>>({})
-  const { operation, success, data, error, timestamp } = result
+  const { operation, success, data, error } = result
+  const timestamp = formatDateTime(result.timestamp, { style: 'medium', seconds: true })
   const isLoading = loading !== null
 
   // Checked before the generic !success gate below: a partial failure is
@@ -1093,11 +1086,12 @@ interface ActivityEntry {
   key: number
   label: string
   ok: boolean
-  at: string
+  at: number
 }
 
 export default function Events() {
   const { t, i18n } = useTranslation('events')
+  const { formatDateTime } = useDateFormat()
   const { can } = useAuth()
   // bug-hunt-2026-09-18 (round 19, client-vs-server permission gate sweep):
   // this page had NO capability checks at all -- server.js's lightning/
@@ -1698,7 +1692,7 @@ export default function Events() {
         }
 
         if (updatedAnySource) {
-          setBridgeOptionsLastUpdated(formatPanelTimestamp(new Date(), i18n.language))
+          setBridgeOptionsLastUpdated(new Date().toISOString())
         }
       } catch {
         if (!active) return
@@ -1722,10 +1716,10 @@ export default function Events() {
 
   const pushActivity = useCallback((label: string, ok: boolean) => {
     setActivity((prev) => [
-      { key: Date.now() + Math.random(), label, ok, at: formatPanelTimestamp(new Date(), i18n.language) },
+      { key: Date.now() + Math.random(), label, ok, at: Date.now() },
       ...prev,
     ].slice(0, 6))
-  }, [i18n.language])
+  }, [])
 
   // Bridge weather commands
   // onSettled: same additive, opt-in shape as handleAction's own -- see its
@@ -2184,7 +2178,7 @@ export default function Events() {
             operation: bridgeResultData.operation,
             success: true,
             data: payload,
-            timestamp: formatPanelTimestamp(new Date(), i18n.language),
+            timestamp: new Date().toISOString(),
           })
         } catch { /* ignore refresh failure */ }
       }
@@ -2268,9 +2262,9 @@ export default function Events() {
         operation: bridgeOperation,
         success: true,
         data: payload,
-        timestamp: formatPanelTimestamp(new Date(), i18n.language),
+        timestamp: new Date().toISOString(),
       })
-      setBridgeLastRunAt(formatPanelTimestamp(new Date(), i18n.language))
+      setBridgeLastRunAt(new Date().toISOString())
       // Refresh combo options for list operations
       if (['getSafehouses', 'getFactions', 'getVehiclesDetailed'].includes(bridgeOperation)) {
         setBridgeOptionsRefreshTick((prev) => prev + 1)
@@ -2317,9 +2311,9 @@ export default function Events() {
         success: false,
         data,
         error: message,
-        timestamp: formatPanelTimestamp(new Date(), i18n.language),
+        timestamp: new Date().toISOString(),
       })
-      setBridgeLastRunAt(formatPanelTimestamp(new Date(), i18n.language))
+      setBridgeLastRunAt(new Date().toISOString())
       toast({
         title: t('toasts.bridgeOperationFailedTitle'),
         description: message,
@@ -2556,7 +2550,7 @@ export default function Events() {
                       ? <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" />
                       : <X className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />}
                     <span className="min-w-0 flex-1 truncate text-xs text-foreground/85">{entry.label}</span>
-                    <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{entry.at}</span>
+                    <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{formatDateTime(entry.at, { style: 'medium', seconds: true })}</span>
                   </li>
                 ))}
               </ul>
@@ -3663,7 +3657,7 @@ export default function Events() {
                     <span className="font-mono text-[10px] tracking-[0.14em] text-primary/75">{bridgeActiveGroup.label}</span>
                   )}
                   <span className="text-xs font-medium text-muted-foreground/70">
-                    {bridgeLastRunAt ? t('bridgeOps.lastRunPrefix', { time: bridgeLastRunAt }) : t('bridgeOps.neverRun')}
+                    {bridgeLastRunAt ? t('bridgeOps.lastRunPrefix', { time: formatDateTime(bridgeLastRunAt, { style: 'medium', seconds: true }) }) : t('bridgeOps.neverRun')}
                   </span>
                 </>
               }
@@ -3957,7 +3951,7 @@ export default function Events() {
                                   : bridgeOptionsError
                                     ? bridgeOptionsError
                                     : bridgeOptionsLastUpdated
-                                      ? t('bridgeOps.bridgeListsUpdated', { time: bridgeOptionsLastUpdated })
+                                      ? t('bridgeOps.bridgeListsUpdated', { time: formatDateTime(bridgeOptionsLastUpdated, { style: 'medium', seconds: true }) })
                                       : t('bridgeOps.bridgeListsNotLoaded')}
                               </p>
                               <Button
@@ -3986,7 +3980,7 @@ export default function Events() {
                             {t('bridgeOps.fieldsPrefilledNote')}
                           </p>
                           <span className="text-xs text-muted-foreground">
-                            {bridgeLastRunAt ? t('bridgeOps.lastRun', { time: bridgeLastRunAt }) : t('bridgeOps.notRunYet')}
+                            {bridgeLastRunAt ? t('bridgeOps.lastRun', { time: formatDateTime(bridgeLastRunAt, { style: 'medium', seconds: true }) }) : t('bridgeOps.notRunYet')}
                           </span>
                         </div>
                       {bridgeConnectionSummary && (

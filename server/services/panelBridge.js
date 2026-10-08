@@ -2243,11 +2243,16 @@ class PanelBridge extends EventEmitter {
     return this.sendCommand('getAllPlayerDetails', {});
   }
 
-  async getLeaderboard() {
+  /**
+   * The leaderboard. `source` says who asked (page, character, sampler,
+   * bundle); bridges after 1.7.73 record it on each row they read, older
+   * ones ignore it.
+   */
+  async getLeaderboard({ source } = {}) {
     if (!this.isRunning) {
       throw new Error('Bridge not running');
     }
-    return this.sendCommand('getLeaderboard', {});
+    return this.sendCommand('getLeaderboard', source ? { source } : {});
   }
 
   /**

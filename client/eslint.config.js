@@ -8,6 +8,7 @@ import noDuplicateInterfaceName from '../eslint-rules/no-duplicate-interface-nam
 import noDeadDisabledTitle from '../eslint-rules/no-dead-disabled-title.js'
 import noUnguardedCapabilityMenuItem from '../eslint-rules/no-unguarded-capability-menu-item.js'
 import noOrphanTranslationDefault from '../eslint-rules/no-orphan-translation-default.js'
+import noRawDateFormat from '../eslint-rules/no-raw-date-format.js'
 
 export default tseslint.config(
   {
@@ -30,6 +31,7 @@ export default tseslint.config(
           'no-dead-disabled-title': noDeadDisabledTitle,
           'no-unguarded-capability-menu-item': noUnguardedCapabilityMenuItem,
           'no-orphan-translation-default': noOrphanTranslationDefault,
+          'no-raw-date-format': noRawDateFormat,
         },
       },
     },
@@ -94,6 +96,21 @@ export default tseslint.config(
       // grandfather population to triage -- same reasoning that kept
       // no-raw-error-message and no-duplicate-interface-name at `error`.
       'local/no-orphan-translation-default': 'error',
+
+      // 2026-10-08 date format preference: every date goes through
+      // src/lib/dateFormat.ts so the order picked in Settings > General >
+      // Appearance applies everywhere and one date never shows two ways.
+      // See eslint-rules/no-raw-date-format.js. `error`: every site was
+      // migrated in the same change.
+      'local/no-raw-date-format': 'error',
+    },
+  },
+  {
+    // The formatter itself, and tests that build expected strings with raw
+    // Intl on purpose.
+    files: ['src/lib/dateFormat.ts', '**/__tests__/**', '**/*.test.{ts,tsx}'],
+    rules: {
+      'local/no-raw-date-format': 'off',
     },
   },
 )

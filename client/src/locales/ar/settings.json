@@ -142,6 +142,12 @@
     "survival": "Survival (داكن)",
     "light": "فاتح"
   },
+  "dateFormatSelect": {
+    "auto": "تلقائي ({{example}})",
+    "dmy": "يوم/شهر/سنة ({{example}})",
+    "mdy": "شهر/يوم/سنة ({{example}})",
+    "ymd": "سنة-شهر-يوم ({{example}})"
+  },
   "general": {
     "cardTitle": "إعدادات اللوحة",
     "cardDescription": "المنفذ الذي تستمع عليه هذه اللوحة، وشكلها.",
@@ -159,9 +165,11 @@
     "restartGameServerUnknown": "تعذّر على اللوحة تحديد ما إذا كانت خوادم Project Zomboid العاملة ستصمد بعد إعادة التشغيل هذه.",
     "confirmRestartRisk": "أفهم أن خوادم اللعبة العاملة قد تتوقف.",
     "appearanceTitle": "المظهر",
-    "appearanceDesc": "سمة اللوحة والنمط البصري.",
+    "appearanceDesc": "سمة اللوحة وتنسيق التاريخ والنمط البصري.",
     "themeLabel": "السمة",
     "themeDesc": "اختر بين مظهر البقاء الخشن أو سمة فاتحة نظيفة.",
+    "dateFormatLabel": "تنسيق التاريخ",
+    "dateFormatDesc": "طريقة عرض التواريخ في اللوحة على هذا المتصفح. يتبع الخيار «تلقائي» لغتك ومنطقة متصفحك.",
     "sandboxRangeOverrideTitle": "Setting Value Ranges",
     "sandboxRangeOverrideDesc": "Controls whether the Server Settings and Sandbox tabs' Save buttons block a value outside its known minimum/maximum.",
     "sandboxRangeOverrideLabel": "Allow values outside the known range",

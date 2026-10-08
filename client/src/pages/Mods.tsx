@@ -76,6 +76,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { reportClientError, reportClientWarning } from '@/lib/client-errors'
 import { getUserErrorMessage, getResultErrorMessage } from '@/lib/errorMessage'
+import { useDateFormat } from '@/lib/dateFormat'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
 import {
   Dialog,
@@ -245,6 +246,7 @@ function modsFallback(key: string, fallback: string): string {
 
 export default function Mods() {
   const { t, i18n } = useTranslation('mods')
+  const { formatDate } = useDateFormat()
   const MODS_NAV = useMemo(() => getModsNav(t), [t])
   const [searchParams] = useSearchParams()
   const reviewUnresolved = searchParams.get('review') === 'unresolved'
@@ -2544,7 +2546,7 @@ export default function Mods() {
               onCopied={(id) => toast({ title: t('installedTab.copiedTitle'), description: t('installedTab.copiedWorkshopId', { id }) })}
             />
             {mod.last_checked ? (
-              <span>{t('installedTab.checkedOn', { date: new Date(mod.last_checked).toLocaleDateString(i18n.language) })}</span>
+              <span>{t('installedTab.checkedOn', { date: formatDate(mod.last_checked) })}</span>
             ) : (
               <span className="inline-flex items-center gap-1 rounded border border-dashed border-muted-foreground/30 bg-muted/20 px-1.5 py-0 text-[10px] uppercase tracking-wider text-muted-foreground/80">
                 <span className="inline-block h-1 w-1 rounded-full bg-muted-foreground/60" aria-hidden="true" />
@@ -2575,7 +2577,7 @@ export default function Mods() {
         }
       />
     )
-  }, [demoMode, selectedMods, configuredWorkshopIds, loading, toggleModSelect, toast, t, i18n.language])
+  }, [demoMode, selectedMods, configuredWorkshopIds, loading, toggleModSelect, toast, t, formatDate])
 
   // ── Virtualized tracked mods list ──
   type ModGroup = 'update' | 'neverChecked' | 'upToDate' | 'deactivated'
@@ -3034,7 +3036,7 @@ export default function Mods() {
                     if (secs < 60) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.secondsAgo', { count: secs }) })
                     else if (secs < 3600) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.minutesAgo', { count: Math.floor(secs / 60) }) })
                     else if (secs < 86400) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.hoursAgo', { count: Math.floor(secs / 3600) }) })
-                    else when = new Date(status.lastCheck).toLocaleDateString(i18n.language)
+                    else when = formatDate(status.lastCheck)
                     return <span>{t('statusBar.lastCheckedOn', { when })}</span>
                   })() : <span>{t('statusBar.neverChecked')}</span>}
                 </TooltipContent>
@@ -5963,7 +5965,7 @@ export default function Mods() {
                                 {t('presetsTab.modsCount', { count: preset.workshop_ids?.length || 0 })} &bull; {preset.description || t('presetsTab.noDescription')}
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                {t('presetsTab.savedOn', { date: new Date(preset.created_at).toLocaleDateString(i18n.language) })}
+                                {t('presetsTab.savedOn', { date: formatDate(preset.created_at) })}
                               </div>
                             </div>
                             <div className="flex items-center gap-2 self-start sm:self-auto">
@@ -6410,7 +6412,7 @@ export default function Mods() {
                                   <span>{mod.workshop_id}</span>
                                 </button>
                                 {mod.last_checked && (
-                                  <span>{t('deactivatedTab.checkedOn', { date: new Date(mod.last_checked).toLocaleDateString(i18n.language) })}</span>
+                                  <span>{t('deactivatedTab.checkedOn', { date: formatDate(mod.last_checked) })}</span>
                                 )}
                               </div>
                             </div>

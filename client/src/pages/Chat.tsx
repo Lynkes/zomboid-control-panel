@@ -31,6 +31,7 @@ import { HelpTip } from '@/components/HelpTip'
 import { cn } from '@/lib/utils'
 import { reportClientError } from '@/lib/client-errors'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { formatTime } from '@/lib/dateFormat'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
 
 interface ChatMessage {
@@ -518,7 +519,7 @@ export default function Chat() {
                               </span>
                             </div>
                             <time dateTime={msg.timestamp.toISOString()} className="font-mono text-[10px] tabular-nums text-muted-foreground/60">
-                              {msg.timestamp.toLocaleTimeString(i18n.language)}
+                              {formatTime(msg.timestamp, { seconds: true })}
                             </time>
                           </div>
                           <p className="text-sm text-foreground/90 [overflow-wrap:anywhere]">{msg.message}</p>

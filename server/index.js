@@ -258,11 +258,12 @@ async function gracefulShutdown(signal) {
       diskMonitor.stop();
     }
 
-    // Stop the Server Files janitor and the character snapshot sampler, and
-    // close the file manager's SFTP connections (not awaited: a remote host
-    // that stopped answering must not hold up shutdown)
+    // Stop the Server Files janitor and the character and leaderboard
+    // samplers, and close the file manager's SFTP connections (not awaited: a
+    // remote host that stopped answering must not hold up shutdown)
     stopFileManagerJanitor();
     stopCharacterSnapshotSampler();
+    stopLeaderboardSampler();
     closeFileManagerSftpPool().catch(() => {});
 
     // Stop PanelBridge
@@ -350,6 +351,7 @@ import {
   startCharacterSnapshotSampler,
   stopCharacterSnapshotSampler,
 } from "./services/characterSnapshotSampler.js";
+import { startLeaderboardSampler, stopLeaderboardSampler } from "./services/leaderboardSampler.js";
 import { pruneCharacterStore } from "./services/characterStore.js";
 import { waitForProcessExit } from "./utils/processScanRetry.js";
 
@@ -1637,6 +1639,9 @@ panelBridge.on("playerDisconnect", (playerName) => {
 // Skill snapshots for the Players page's Character tab: one shortly after
 // each login, then a slow periodic pass over whoever is online.
 startCharacterSnapshotSampler(panelBridge);
+// Leaderboard reads while players are online, for bridges (1.7.73 and older)
+// that only read kills when asked; idle once the bridge sweeps by itself.
+startLeaderboardSampler(panelBridge);
 
 // Make services available to routes
 app.set("rconService", rconService);

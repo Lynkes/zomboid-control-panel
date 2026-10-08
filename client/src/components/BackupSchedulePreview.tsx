@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import type { BackupScheduleValidation } from '@/lib/api'
 import { backupScheduleErrorText } from '@/hooks/useBackupScheduleCheck'
 import { cn } from '@/lib/utils'
+import { useDateFormat } from '@/lib/dateFormat'
 
 // What useBackupScheduleCheck() found, drawn the same way under both
 // backup-schedule editors (the Backups page's custom cron field and
@@ -59,7 +60,8 @@ export function BackupScheduleNextRun({
   backupsEnabled: boolean | undefined
   className?: string
 }) {
-  const { t, i18n } = useTranslation('backups')
+  const { t } = useTranslation('backups')
+  const { formatDateTime } = useDateFormat()
   if (!check?.valid) return null
 
   // Next run in the scheduler's own timezone -- the zone the cron fields
@@ -68,25 +70,10 @@ export function BackupScheduleNextRun({
   // panel. Labelled with that zone: every other time on these pages (Last
   // Backup, "due since", attempt times) is in the browser's zone, and a UTC
   // container behind a local browser would otherwise put two unmarked
-  // times hours apart side by side. Spelled out field by field because
-  // Intl refuses timeZoneName alongside dateStyle/timeStyle (a TypeError
-  // that the catch below would quietly turn into an unlabelled time).
-  const formatInZone = (iso: string, timeZone: string): string => {
-    try {
-      return new Date(iso).toLocaleString(i18n.language, {
-        timeZone,
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        timeZoneName: 'short',
-      })
-    } catch {
-      const date = new Date(iso)
-      return date.toLocaleDateString(i18n.language) + ' ' + date.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })
-    }
-  }
+  // times hours apart side by side. A zone this browser doesn't know falls
+  // back to the browser's own time, unlabelled.
+  const formatInZone = (iso: string, timeZone: string): string =>
+    formatDateTime(iso, { style: 'medium', timeZone, timeZoneName: 'short' })
 
   return (
     <div

@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Date format:** pick day/month/year, month/day/year or year-month-day in Settings › General › Appearance, for every date in the panel; Automatic now follows your browser's region too.
+
 ### Changed
 
 - **Scheduler:** restart and broadcasts sit at the top, with one countdown choice and a preview of each message, the schedule right below, and the timezone and warning text together in one settings card.
+
+### Fixed
+
+- **Leaderboard missed players:** kills and days are now read for everyone online, not only while the Leaderboard page is open, and a death no longer loses kills.
 
 ## [1.4.8] - 2026-10-07
 

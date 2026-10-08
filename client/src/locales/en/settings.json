@@ -77,6 +77,7 @@
     "noChanges": "No Unsaved Changes"
   },
   "themeSelect": { "survival": "Survival (Dark)", "light": "Light" },
+  "dateFormatSelect": { "auto": "Automatic ({{example}})", "dmy": "Day/Month/Year ({{example}})", "mdy": "Month/Day/Year ({{example}})", "ymd": "Year-Month-Day ({{example}})" },
 
   "general": {
     "cardTitle": "Panel Settings",
@@ -95,9 +96,11 @@
     "restartGameServerUnknown": "The panel could not determine whether running Project Zomboid servers will survive this restart.",
     "confirmRestartRisk": "I understand that running game servers may be stopped.",
     "appearanceTitle": "Appearance",
-    "appearanceDesc": "Panel theme and visual style.",
+    "appearanceDesc": "Panel theme, date format and visual style.",
     "themeLabel": "Theme",
     "themeDesc": "Choose between the gritty survival look or a clean light theme.",
+    "dateFormatLabel": "Date format",
+    "dateFormatDesc": "How dates appear across the panel in this browser. “Automatic” follows your language and your browser's region.",
     "sandboxRangeOverrideTitle": "Setting Value Ranges",
     "sandboxRangeOverrideDesc": "Controls whether the Server Settings and Sandbox tabs' Save buttons block a value outside its known minimum/maximum.",
     "sandboxRangeOverrideLabel": "Allow values outside the known range",

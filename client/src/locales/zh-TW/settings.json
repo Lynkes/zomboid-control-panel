@@ -132,6 +132,12 @@
     "survival": "生存（暗色）",
     "light": "淺色"
   },
+  "dateFormatSelect": {
+    "auto": "自動（{{example}}）",
+    "dmy": "日/月/年（{{example}}）",
+    "mdy": "月/日/年（{{example}}）",
+    "ymd": "年-月-日（{{example}}）"
+  },
   "general": {
     "cardTitle": "面板設定",
     "cardDescription": "本面板監聽的埠，以及外觀樣式。",
@@ -144,9 +150,11 @@
     "saveBeforeRestart": "重新啟動前請先儲存設定",
     "restartToastDesc": "面板正在埠 {{port}} 上重新啟動，正在重新連線…",
     "appearanceTitle": "外觀",
-    "appearanceDesc": "面板主題與視覺樣式。",
+    "appearanceDesc": "面板主題、日期格式與視覺樣式。",
     "themeLabel": "主題",
     "themeDesc": "在寫實生存風格與簡潔淺色主題之間選擇。",
+    "dateFormatLabel": "日期格式",
+    "dateFormatDesc": "此瀏覽器中面板顯示日期的方式。「自動」會依照你的語言與瀏覽器所在地區決定。",
     "confirmRestartTitle": "重新啟動面板？",
     "restartGameServerPreserved": "檢測到的啟動器會將面板重新啟動與遊戲隔離。正在執行的 Project Zomboid 伺服器將保持線上。",
     "restartGameServerRisk": "此安裝未使用受保護的 Linux 啟動器。重新啟動面板可能會停止正在執行的 Project Zomboid 伺服器程序。",

@@ -66,6 +66,7 @@ import { scheduledAttemptMessage, scheduledBackupHealth } from '@/lib/scheduledB
 import { isolateLtrForRtl } from '@/lib/paramTranslation'
 import { useBackupScheduleCheck, precheckBackupSchedule, backupScheduleErrorText } from '@/hooks/useBackupScheduleCheck'
 import { BackupScheduleNextRun, BackupScheduleValidity } from '@/components/BackupSchedulePreview'
+import { useDateFormat } from '@/lib/dateFormat'
 
 // The Backup Frequency presets, in menu order -- one list for the <Select>
 // and describeSchedule() so the two can't disagree about which expressions
@@ -137,7 +138,8 @@ export default function Backups() {
   // below) -- Settings.tsx's own scheduled-backups toggle already shipped
   // that exact "couldn't check, disabled until it loads" string in all 9
   // locales; reusing it here needed no new translation.
-  const { t, i18n } = useTranslation(['backups', 'settings'])
+  const { t } = useTranslation(['backups', 'settings'])
+  const { formatDateTime } = useDateFormat()
   const { toast } = useToast()
   const socket = useSocket()
   const { can } = useAuth()
@@ -1144,10 +1146,7 @@ export default function Backups() {
     return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB'
   }
 
-  const formatDate = (dateStr: string): string => {
-    const date = new Date(dateStr)
-    return date.toLocaleDateString(i18n.language) + ' ' + date.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })
-  }
+  const formatDate = (dateStr: string): string => formatDateTime(dateStr)
 
   // "Auto-Backup: On" alone can't tell an operator the scheduler is actually
   // succeeding -- lastBackup only updates on a SUCCESSFUL run, so a run of
@@ -1930,7 +1929,7 @@ export default function Backups() {
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
                 <span>{t('snapshotDialog.serverLabel')}</span><span className="text-foreground [overflow-wrap:anywhere]">{snapshotDialog.snapshot.server.name}</span>
                 <span>{t('snapshotDialog.providerLabel')}</span><span className="text-foreground [overflow-wrap:anywhere]">{snapshotDialog.snapshot.server.provider}</span>
-                <span>{t('snapshotDialog.capturedLabel')}</span><span className="text-foreground">{new Date(snapshotDialog.snapshot.createdAt).toLocaleString(i18n.language)}</span>
+                <span>{t('snapshotDialog.capturedLabel')}</span><span className="text-foreground">{formatDateTime(snapshotDialog.snapshot.createdAt, { seconds: true })}</span>
               </div>
               <div>
                 <p className="mb-1 text-xs font-medium text-muted-foreground">{t('snapshotDialog.serverIniLabel')}</p>

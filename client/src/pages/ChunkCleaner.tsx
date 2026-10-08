@@ -72,6 +72,7 @@ import { useSocket } from "@/contexts/SocketContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { DisabledReason } from "@/components/DisabledReason";
 import { platformTranslationKey, useRuntimeInfo } from "@/hooks/useRuntimeInfo";
+import { useDateFormat } from "@/lib/dateFormat";
 
 interface SaveInfo {
   name: string;
@@ -317,6 +318,7 @@ function findLastRenderableChunkIndex(
 
 export default function ChunkCleaner() {
   const { t, i18n } = useTranslation("chunkCleaner");
+  const { formatDate } = useDateFormat();
   const runtimeInfo = useRuntimeInfo();
   const { theme } = useTheme();
   const socket = useSocket();
@@ -2418,7 +2420,7 @@ export default function ChunkCleaner() {
                             modifiedLabel = t("save.modifiedDaysAgo", {
                               count: Math.floor(ageDays),
                             });
-                          else modifiedLabel = d.toLocaleDateString(i18n.language);
+                          else modifiedLabel = formatDate(d);
                         } catch {
                           /* leave empty */
                         }

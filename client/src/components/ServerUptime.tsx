@@ -4,6 +4,7 @@ import { Clock } from 'lucide-react'
 import { HelpTip } from '@/components/HelpTip'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatElapsed } from '@/lib/durationText'
+import { useDateFormat } from '@/lib/dateFormat'
 import { cn } from '@/lib/utils'
 
 // A start time further ahead of this browser's clock than this is a clock
@@ -49,7 +50,8 @@ interface ServerUptimeProps {
  * ticking every second is motion that pulls the eye for no information.
  */
 export function ServerUptime({ startedAt, showUnknown = false, className }: ServerUptimeProps) {
-  const { t, i18n } = useTranslation('serverUptime')
+  const { t } = useTranslation('serverUptime')
+  const { formatDateTime } = useDateFormat()
   const [, rerender] = useReducer((count: number) => count + 1, 0)
   const [startedOpen, setStartedOpen] = useState(false)
 
@@ -125,7 +127,7 @@ export function ServerUptime({ startedAt, showUnknown = false, className }: Serv
       </TooltipTrigger>
       <TooltipContent className="text-xs">
         {t('startedAt', {
-          time: started.toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }),
+          time: formatDateTime(started, { style: 'medium' }),
         })}
       </TooltipContent>
     </Tooltip>

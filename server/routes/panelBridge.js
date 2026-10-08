@@ -44,6 +44,7 @@ import {
 } from "../services/panelBridgeInstaller.js";
 import { getEffectiveMethod, reconcileBridge } from "../services/bridgeDelivery.js";
 import { createLogger } from "../utils/logger.js";
+import { warnLeaderboardReadFailed } from "../services/leaderboardDiagnostics.js";
 import {
   getSftpCachePath,
   testSftpBridge,
@@ -2491,9 +2492,10 @@ router.get("/leaderboard", requirePermission("players.view"), async (req, res) =
       });
   }
   try {
-    const result = await bridge.getLeaderboard();
+    const result = await bridge.getLeaderboard({ source: "page" });
     res.json(result);
   } catch (error) {
+    warnLeaderboardReadFailed(log, "the Leaderboard page", error);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
@@ -2831,7 +2833,7 @@ router.get("/commands", (req, res) => {
       {
         action: "getLeaderboard",
         description: "Get persisted player leaderboard statistics",
-        args: {},
+        args: { source: "string (optional: page, character, sampler or bundle)" },
       },
       {
         action: "getPlayerDetails",

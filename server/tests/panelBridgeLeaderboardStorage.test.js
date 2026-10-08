@@ -155,6 +155,12 @@ function leaderboardFile(bridge) {
   return copies.reduce((newest, copy) => (copy.flushSeq > newest.flushSeq ? copy : newest));
 }
 
+// The bridge's own WARN entries (PanelBridge.debugLog).
+function warnings(bridge) {
+  bridge.run('DEBUG_LOG = PanelBridgeModule.debugLog');
+  return (bridge.getGlobal('DEBUG_LOG') ?? []).filter((entry) => entry.level === 'WARN');
+}
+
 function rowFor(result, username) {
   expect(result.ok).toBe(true);
   return result.data.players.find((player) => player.username === username);
@@ -315,5 +321,105 @@ setOnline({})
     expect(saved.worldId).toBe(modDataStores(bridge)[WORLD_KEY].id);
     expect(saved.worldId).not.toBe('old-world');
     expect(saved.players['steam:76561198000000004']).toBeUndefined();
+
+    // It used to start over without a word.
+    expect(warnings(bridge)).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining('Starting a new leaderboard'),
+        context: expect.objectContaining({ reason: 'world changed', file: 'leaderboard.json' }),
+      }),
+    ]);
+    expect(saved.resets).toEqual([{ at: 1000000, reason: 'world changed' }]);
+    expect(result.data.diagnostics).toEqual(expect.objectContaining({
+      loadedFrom: 'new',
+      resets: [{ at: 1000000, reason: 'world changed' }],
+    }));
+  });
+
+  it('keeps the last five resets, carried over from the store it replaces', () => {
+    const earlier = [1, 2, 3, 4, 5].map((at) => ({ at, reason: 'unreadable' }));
+    const oldFile = JSON.stringify({
+      version: 2, worldId: 'old-world', trackingStartedAt: 10, flushSeq: 1, resets: earlier, players: {}, complete: true,
+    });
+    const bridge = loadPanelBridge(LUA_PATH, stubs(`FILES[${luaString(LEADERBOARD_FILE)}] = ${luaString(oldFile)}`));
+    const result = bridge.callHandler('getLeaderboard');
+    expect(result.data.diagnostics.resets).toEqual([
+      ...earlier.slice(1),
+      { at: 1000000, reason: 'world changed' },
+    ]);
+  });
+
+  it('loads the copy of this world over a newer copy another world left behind', () => {
+    // A wiped world writes its first save to the first file; the second
+    // still holds the old world, with the higher flushSeq. A restart then
+    // used to load the old world's copy and start the new one over.
+    const current = JSON.stringify({
+      version: 2, worldId: 'this-world', trackingStartedAt: 900000, flushSeq: 1,
+      players: { 'steam:76561198000000004': { username: 'Dave', allTimeKills: 10, weaponKills: {} } },
+      complete: true,
+    });
+    const stale = JSON.stringify({
+      version: 2, worldId: 'old-world', trackingStartedAt: 10, flushSeq: 8,
+      players: { 'steam:76561198000000005': { username: 'Eve', allTimeKills: 99, weaponKills: {} } },
+      complete: true,
+    });
+    const bridge = loadPanelBridge(LUA_PATH, stubs(`
+ModData.stores.${WORLD_KEY} = { id = "this-world" }
+FILES[${luaString(LEADERBOARD_FILE)}] = ${luaString(current)}
+FILES[${luaString(LEADERBOARD_FILE_2)}] = ${luaString(stale)}
+setOnline({})
+`));
+    const result = bridge.callHandler('getLeaderboard');
+    expect(rowFor(result, 'Dave').allTimeKills).toBe(10);
+    expect(rowFor(result, 'Eve')).toBeUndefined();
+    expect(result.data.trackingStartedAt).toBe(900000);
+    expect(result.data.diagnostics).toEqual(expect.objectContaining({ loadedFrom: 'leaderboard.json', flushSeq: 1 }));
+    expect(result.data.diagnostics.resets ?? []).toEqual([]);
+    expect(warnings(bridge)).toEqual([]);
+  });
+
+  it('counts a row an older bridge read as read, though it has no read time', () => {
+    // 1.7.73 set lastObservedKills on every read but kept no read time, so
+    // after the update every offline row it had read looked never read.
+    const saved = JSON.stringify({
+      version: 2, worldId: 'this-world', trackingStartedAt: 900000, flushSeq: 3,
+      players: {
+        'steam:76561198000000009': {
+          username: 'Carol', currentKills: 300, allTimeKills: 300, lastObservedKills: 300, bestDays: 12, weaponKills: {},
+        },
+        'steam:76561198000000004': {
+          username: 'Dave', allTimeKills: 0, deaths: 2, favoriteWeapon: 'Bat', favoriteWeaponKills: 4, weaponKills: { Bat: 4 },
+        },
+      },
+      complete: true,
+    });
+    const bridge = loadPanelBridge(LUA_PATH, stubs(`
+ModData.stores.${WORLD_KEY} = { id = "this-world" }
+FILES[${luaString(LEADERBOARD_FILE)}] = ${luaString(saved)}
+setOnline({})
+`));
+    const result = bridge.callHandler('getLeaderboard');
+    expect(result.data.diagnostics.loadedFrom).toBe('leaderboard.json');
+    const carol = rowFor(result, 'Carol');
+    expect(carol.lastSampledAt ?? null).toBeNull();
+    expect(carol).toEqual(expect.objectContaining({ allTimeKills: 300, everRead: true }));
+    // Weapon stats and deaths only: kills were never read.
+    expect(rowFor(result, 'Dave').everRead).toBe(false);
+  });
+
+  it('says why when both copies are unreadable, and starts quietly when there is no file', () => {
+    const torn = '{"version":2,"worldId":"x","players":{"steam:1":{"username":"A"';
+    const bridge = loadPanelBridge(LUA_PATH, stubs(`
+FILES[${luaString(LEADERBOARD_FILE)}] = ${luaString(torn)}
+FILES[${luaString(LEADERBOARD_FILE_2)}] = ${luaString(torn)}
+`));
+    const result = bridge.callHandler('getLeaderboard');
+    expect(result.data.diagnostics.resets).toEqual([{ at: 1000000, reason: 'unreadable' }]);
+    expect(warnings(bridge).at(-1).context).toEqual(expect.objectContaining({ reason: 'unreadable' }));
+
+    const fresh = loadPanelBridge(LUA_PATH, stubs());
+    const first = fresh.callHandler('getLeaderboard');
+    expect(first.data.diagnostics.resets ?? []).toEqual([]);
+    expect(warnings(fresh)).toEqual([]);
   });
 });

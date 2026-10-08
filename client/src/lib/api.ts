@@ -4,6 +4,7 @@ import { toast } from "@/components/ui/use-toast";
 import i18n from "@/i18n";
 import { hostTimeToLocal } from "./hostClock";
 import { rememberTrustedDeviceFrom } from "./trustedDevice";
+import type { LeaderboardDiagnostics } from "./leaderboardDiagnostics";
 
 const API_BASE = "/api";
 
@@ -3079,9 +3080,18 @@ export const panelBridgeApi = {
           favoriteWeapon?: string | null;
           favoriteWeaponKills: number;
           lastSeenAt?: number;
+          // Bridges after 1.7.73: when kills and days were last read, and by
+          // what; whether they ever were (older bridges kept no read time);
+          // other names seen on the row; waiting for the next life.
+          lastSampledAt?: number;
+          lastSampleSource?: string;
+          everRead?: boolean;
+          aliases?: string[];
+          awaitingNewLife?: boolean;
         }>;
         generatedAt?: number;
         trackingStartedAt?: number;
+        diagnostics?: LeaderboardDiagnostics;
       };
     }>,
   getPlayerDetails: (username: string) =>

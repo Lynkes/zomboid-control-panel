@@ -20,11 +20,13 @@ const {
   buildDbWriteHealth,
   buildBackupsSummary,
   buildDiscordBotStatus,
+  buildLeaderboardDiagnostics,
   buildDockerContainerLogsText,
   buildManagedServiceLogsText,
   collectBundleFilesFromDir,
 } = await import("../routes/debug.js");
 const { setDockerClient } = await import("../services/managedContainer.js");
+const { default: panelBridgeService } = await import("../services/panelBridge.js");
 
 function fakeReq(services = {}, headers = {}) {
   return { app: { get: (key) => services[key] }, headers };
@@ -174,6 +176,101 @@ describe("support bundle: backups summary", () => {
     };
     const result = await buildBackupsSummary(req);
     expect(result._error).toContain("boom-backup-service");
+  });
+});
+
+// A leaderboard row's id is steam:<SteamID64>. The bundle (like the page's
+// "Copy diagnostics") keeps usernames and read times, never the id, and
+// only counts the other names a row was seen under.
+describe("support bundle: leaderboard diagnostics", () => {
+  const LEADERBOARD = {
+    success: true,
+    data: {
+      generatedAt: 1759900005000,
+      trackingStartedAt: 1759000000000,
+      players: [
+        {
+          id: "steam:76561198000000001", username: "Alice", online: true, currentKills: 40, allTimeKills: 80,
+          currentDays: 3, bestDays: 5, deaths: 1, lastSampledAt: 1759900000000, lastSampleSource: "sweep",
+          aliases: ["alice_alt"], awaitingNewLife: false,
+        },
+        { id: "steam:76561198000000002", username: "ejspinn", online: false, allTimeKills: 0, deaths: 2 },
+      ],
+      diagnostics: {
+        bridgeVersion: "1.7.74", sweepIntervalMs: 60000, lastSweepAt: 1759900000000, sweepCount: 42,
+        loadedFrom: "leaderboard.2.json", flushSeq: 17, resets: [{ at: 1759100000000, reason: "world changed" }],
+      },
+    },
+  };
+
+  const wasRunning = panelBridgeService.isRunning;
+  afterEach(() => {
+    panelBridgeService.isRunning = wasRunning;
+    vi.restoreAllMocks();
+  });
+
+  function connectBridge(getLeaderboard) {
+    panelBridgeService.isRunning = true;
+    vi.spyOn(panelBridgeService, "isModConnected").mockReturnValue(true);
+    return vi.spyOn(panelBridgeService, "getLeaderboard").mockImplementation(getLeaderboard);
+  }
+
+  it("summarizes the board without any SteamID or alias name", async () => {
+    const getLeaderboard = connectBridge(async () => LEADERBOARD);
+    const result = await buildLeaderboardDiagnostics();
+
+    expect(getLeaderboard).toHaveBeenCalledWith({ source: "bundle" });
+    expect(JSON.stringify(result)).not.toMatch(/steam:|7656119|alice_alt/);
+    expect(result).toEqual(expect.objectContaining({
+      available: true,
+      notReadCount: 1,
+      bridge: expect.objectContaining({ version: "1.7.74", sweepCount: 42, resets: [{ at: 1759100000000, reason: "world changed" }] }),
+      panelSampler: expect.any(Object),
+    }));
+    expect(result.players).toEqual([
+      expect.objectContaining({ username: "Alice", read: true, aliasCount: 1, lastSampleSource: "sweep", allTimeKills: 80 }),
+      expect.objectContaining({ username: "ejspinn", read: false, lastSampledAt: null, deaths: 2 }),
+    ]);
+  });
+
+  it("counts a row an older bridge read as read, though it has no read time", async () => {
+    // Right after the update every offline row 1.7.73 had read used to count
+    // as never read, burying the rows that really were.
+    connectBridge(async () => ({
+      success: true,
+      data: {
+        ...LEADERBOARD.data,
+        players: [{ id: "steam:76561198000000003", username: "Carol", online: false, allTimeKills: 300, bestDays: 12, everRead: true }],
+      },
+    }));
+    const result = await buildLeaderboardDiagnostics();
+    expect(result.notReadCount).toBe(0);
+    expect(result.players).toEqual([expect.objectContaining({ username: "Carol", read: true, lastSampledAt: null })]);
+  });
+
+  it("is in the bundle, with no steam: key anywhere", async () => {
+    mockExecFile.mockImplementation((cmd, args, opts, cb) => cb(null, "curl 8.4.0", ""));
+    connectBridge(async () => LEADERBOARD);
+    const files = await buildBundleDiagnostics(null, fakeReq({}));
+    const byName = Object.fromEntries(files.map((f) => [f.name, f.content]));
+    expect(byName["leaderboard-diagnostics.json"]).toBeDefined();
+    expect(byName["leaderboard-diagnostics.json"]).not.toMatch(/steam:/);
+    expect(JSON.parse(byName["leaderboard-diagnostics.json"]).players.map((p) => p.username)).toEqual(["Alice", "ejspinn"]);
+    expect(byName["README.md"]).toContain("leaderboard-diagnostics.json");
+  });
+
+  it("says why when the bridge is not connected or the read fails", async () => {
+    panelBridgeService.isRunning = false;
+    expect(await buildLeaderboardDiagnostics()).toEqual(expect.objectContaining({
+      available: false, reason: "PanelBridge is not connected",
+    }));
+
+    connectBridge(async () => {
+      throw new Error("Mod is not responding");
+    });
+    expect(await buildLeaderboardDiagnostics()).toEqual(expect.objectContaining({
+      available: false, reason: expect.stringContaining("Mod is not responding"),
+    }));
   });
 });
 
