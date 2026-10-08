@@ -188,15 +188,62 @@ describe('Dashboard.tsx: Auto-start sends a boolean setting', () => {
     expect(checkbox).toBeInTheDocument()
     fireEvent.click(checkbox!)
 
+    // Checking turns the switch on and adds this server to the ones it
+    // starts; unchecking takes it back out and leaves the switch alone.
     await waitFor(() => {
-      expect(updateAppSettings).toHaveBeenCalledWith({ autoStartServer: true })
+      expect(updateAppSettings).toHaveBeenCalledWith({ autoStartServer: true, autoStartServerIds: ['1'] })
     }, { timeout: 500 })
 
     fireEvent.click(checkbox!)
 
     await waitFor(() => {
-      expect(updateAppSettings).toHaveBeenLastCalledWith({ autoStartServer: false })
+      expect(updateAppSettings).toHaveBeenLastCalledWith({ autoStartServerIds: [] })
     }, { timeout: 500 })
+  })
+
+  it('adds and removes the active server only, keeping the other servers chosen in Settings', async () => {
+    await setUpCommon()
+    getAppSettings.mockResolvedValue({ settings: { autoStartServer: true, autoStartServerIds: ['9'] } })
+    getResolvedActive.mockResolvedValue({ server: makeServer() })
+    getStatus.mockResolvedValue({
+      running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
+    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+    updateAppSettings.mockResolvedValue({ success: true })
+
+    renderDashboard()
+
+    await screen.findAllByRole('button', { name: 'Start' })
+    const checkbox = document.getElementById('autoStartServer')
+    // On, but for another server: not this one.
+    await waitFor(() => expect(checkbox).not.toBeChecked())
+    fireEvent.click(checkbox!)
+
+    await waitFor(() => {
+      expect(updateAppSettings).toHaveBeenCalledWith({ autoStartServer: true, autoStartServerIds: ['9', '1'] })
+    }, { timeout: 500 })
+    expect(checkbox).toBeChecked()
+
+    fireEvent.click(checkbox!)
+
+    await waitFor(() => {
+      expect(updateAppSettings).toHaveBeenLastCalledWith({ autoStartServerIds: ['9'] })
+    }, { timeout: 500 })
+  })
+
+  it('shows this server checked for a setting saved before servers could be chosen', async () => {
+    await setUpCommon()
+    getAppSettings.mockResolvedValue({ settings: { autoStartServer: true } })
+    getResolvedActive.mockResolvedValue({ server: makeServer() })
+    getStatus.mockResolvedValue({
+      running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
+    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+
+    renderDashboard()
+
+    await screen.findAllByRole('button', { name: 'Start' })
+    await waitFor(() => expect(document.getElementById('autoStartServer')).toBeChecked())
   })
 })
 

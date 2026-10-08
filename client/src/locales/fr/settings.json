@@ -14,7 +14,7 @@
     "corsDebugLogging": "Activer la journalisation de débogage CORS",
     "enableHttps": "Activer HTTPS",
     "autoReconnectRcon": "Reconnexion automatique du RCON en cas de déconnexion",
-    "startServerOnPanelStart": "Démarrer le serveur de jeu au démarrage du panneau",
+    "startServerOnPanelStart": "Démarrer des serveurs de jeu au démarrage du panneau",
     "autoUpdateBridgeMod": "Mise à jour automatique du mod PanelBridge",
     "autoRestartOnModUpdate": "Redémarrage automatique du serveur lors des mises à jour de mods",
     "autoUpdateGameServer": "Mettre à jour automatiquement le serveur lorsqu'une nouvelle version est détectée",
@@ -365,9 +365,14 @@
     "step2": "Cliquez sur <b>Modifier</b> sur votre serveur",
     "step3": "Configurez l'hôte, le port et le mot de passe RCON là-bas",
     "startupCardTitle": "Démarrage du serveur",
-    "startupCardDesc": "Si le panneau lance le serveur de jeu pour vous.",
-    "autoStartLabel": "Démarrer le serveur de jeu au démarrage du panneau",
-    "autoStartDesc": "Ignoré automatiquement lorsque le port RCON est déjà utilisé, pour qu'un serveur déjà en cours d'exécution ne soit jamais dupliqué. Nécessite un chemin d'installation local ; les serveurs hébergés par un fournisseur sont démarrés par le fournisseur."
+    "startupCardDesc": "Les serveurs de jeu que le panneau démarre pour vous.",
+    "autoStartLabel": "Démarrer des serveurs de jeu au démarrage du panneau",
+    "autoStartDesc": "Ignoré automatiquement lorsque le port RCON est déjà utilisé, pour qu'un serveur déjà en cours d'exécution ne soit jamais dupliqué. Nécessite un chemin d'installation local ; les serveurs hébergés par un fournisseur sont démarrés par le fournisseur.",
+    "autoStartServersLabel": "Serveurs à démarrer",
+    "autoStartServersDesc": "Les serveurs cochés démarrent l'un après l'autre au démarrage du panneau. Un serveur déjà en cours d'exécution n'est pas touché.",
+    "autoStartActiveBadge": "Actif",
+    "autoStartNoServers": "Aucun serveur sur cet ordinateur pour l'instant. Ajoutez-en un dans Mes serveurs.",
+    "autoStartNoneChosen": "Aucun serveur n'est coché, donc aucun ne démarrera."
   },
   "bridge": {
     "checksLabels": {
@@ -937,6 +942,8 @@
     },
     "autoStartEnabled": { "title": "Démarrage automatique activé", "description": "Le serveur démarrera automatiquement au lancement du panneau" },
     "autoStartDisabled": { "title": "Démarrage automatique désactivé", "description": "Le serveur ne démarrera pas automatiquement" },
+    "autoStartServerChosen": { "title": "Démarrage automatique mis à jour", "description": "{{name}} démarrera au démarrage du panneau" },
+    "autoStartServerRemoved": { "title": "Démarrage automatique mis à jour", "description": "{{name}} ne démarrera plus avec le panneau" },
     "autoStartSaveFailed": { "title": "Échec de l'enregistrement du paramètre de démarrage automatique", "fallback": "Le panneau n'a pas pu enregistrer le paramètre de démarrage automatique. Réessayez." },
     "corsReloaded": {
       "title": "Règles CORS rechargées",

@@ -123,6 +123,7 @@ import {
   restoreBackupAndConfirm,
 } from "@/lib/restoreOutcome";
 import { resolveRegisteredTranslation } from "@/lib/paramTranslation";
+import { autoStartServerIds, withAutoStartServer } from "@/lib/autoStartServers";
 import {
   getAllowOutOfRangeSandboxValues,
   setAllowOutOfRangeSandboxValues,
@@ -630,6 +631,13 @@ export default function Settings() {
 
   // Server list for install dropdown
   const [servers, setServers] = useState<ServerInstance[]>([]);
+  // The stored autoStartServerIds, as loaded (no list at all for a setting
+  // saved before servers could be chosen -- see lib/autoStartServers.ts).
+  // Kept out of `settings`: each checkbox saves it on its own, and the
+  // General tab's Save, which resends `settings` whole, must not put back a
+  // list changed elsewhere since this page loaded (the Dashboard's checkbox).
+  const [storedAutoStartServerIds, setStoredAutoStartServerIds] =
+    useState<unknown>(undefined);
   const [serversLoadError, setServersLoadError] = useState(false);
   const [selectedInstallServerId, setSelectedInstallServerId] =
     useState<string>("");
@@ -876,9 +884,11 @@ export default function Settings() {
       const data = await configApi.getAppSettings();
       setSettingsLoadError(null);
       if (data.settings) {
+        const { autoStartServerIds: loadedAutoStartServerIds, ...incoming } =
+          data.settings as Partial<AppSettings> & { autoStartServerIds?: unknown };
+        setStoredAutoStartServerIds(loadedAutoStartServerIds);
         // Use functional update to get current state and merge with loaded settings
         setSettings((prevSettings) => {
-          const incoming = data.settings as Partial<AppSettings>;
           const loadedSettings: AppSettings = {
             ...prevSettings,
             ...incoming,
@@ -2656,6 +2666,56 @@ export default function Settings() {
       setOriginalSettings((prev) =>
         prev ? { ...prev, autoStartServer: previous } : prev,
       );
+      toast({
+        title: t("toasts.autoStartSaveFailed.title"),
+        description: getUserErrorMessage(
+          error,
+          t("toasts.autoStartSaveFailed.fallback"),
+        ),
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Which servers the switch above starts, one checkbox each, saved the
+  // same way: at once, on its own. Remote servers aren't listed -- their
+  // host starts them.
+  const activeServerIdForAutoStart =
+    servers.find((server) => server.isActive)?.id ?? servers[0]?.id ?? null;
+  const chosenAutoStartServerIds = autoStartServerIds(
+    {
+      autoStartServer: settings.autoStartServer,
+      autoStartServerIds: storedAutoStartServerIds,
+    },
+    activeServerIdForAutoStart,
+  );
+  const autoStartCandidates = servers.filter((server) => !server.isRemote);
+  const handleAutoStartServerToggle = async (
+    server: ServerInstance,
+    chosen: boolean,
+  ) => {
+    if (!canSavePanelSettings) return;
+    const previous = storedAutoStartServerIds;
+    const next = withAutoStartServer(chosenAutoStartServerIds, server.id, chosen);
+    setStoredAutoStartServerIds(next);
+    try {
+      await configApi.updateAppSettings({ autoStartServerIds: next });
+      toast({
+        title: t(
+          chosen
+            ? "toasts.autoStartServerChosen.title"
+            : "toasts.autoStartServerRemoved.title",
+        ),
+        description: t(
+          chosen
+            ? "toasts.autoStartServerChosen.description"
+            : "toasts.autoStartServerRemoved.description",
+          { name: server.name || server.serverName },
+        ),
+        variant: "success" as const,
+      });
+    } catch (error) {
+      setStoredAutoStartServerIds(previous);
       toast({
         title: t("toasts.autoStartSaveFailed.title"),
         description: getUserErrorMessage(
@@ -4610,6 +4670,66 @@ export default function Settings() {
                       aria-label={t("ariaLabels.startServerOnPanelStart")}
                     />
                   </DisabledReason>
+                </div>
+                <div
+                  className={cn(
+                    "mt-4 space-y-2",
+                    !settings.autoStartServer && "opacity-60",
+                  )}
+                >
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">
+                      {t("connection.autoStartServersLabel")}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t("connection.autoStartServersDesc")}
+                    </p>
+                  </div>
+                  {autoStartCandidates.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t("connection.autoStartNoServers")}
+                    </p>
+                  ) : (
+                    <ul className="divide-y divide-border/60 rounded-lg border border-border/60">
+                      {autoStartCandidates.map((server) => {
+                        const checkboxId = `auto-start-server-${server.id}`;
+                        return (
+                          <li key={server.id} className="flex items-center gap-3 px-3 py-2">
+                            <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
+                              <Checkbox
+                                id={checkboxId}
+                                checked={chosenAutoStartServerIds.includes(String(server.id))}
+                                disabled={!canSavePanelSettings || !settings.autoStartServer}
+                                onCheckedChange={(checked) =>
+                                  handleAutoStartServerToggle(server, checked === true)
+                                }
+                              />
+                            </DisabledReason>
+                            <Label
+                              htmlFor={checkboxId}
+                              className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm"
+                            >
+                              <span className="truncate">{server.name || server.serverName}</span>
+                              {server.isActive && (
+                                <span className="inline-flex shrink-0 items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                                  {t("connection.autoStartActiveBadge")}
+                                </span>
+                              )}
+                            </Label>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                  {settings.autoStartServer &&
+                    autoStartCandidates.length > 0 &&
+                    !autoStartCandidates.some((server) =>
+                      chosenAutoStartServerIds.includes(String(server.id)),
+                    ) && (
+                      <p className="text-xs text-warning">
+                        {t("connection.autoStartNoneChosen")}
+                      </p>
+                    )}
                 </div>
               </CardContent>
             </Card>

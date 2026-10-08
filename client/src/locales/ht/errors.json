@@ -490,6 +490,7 @@
   "CONFIG_CHAT_PRESETS_NOT_ARRAY": "Prezèt chat yo dwe yon lis",
   "CONFIG_CHAT_PRESETS_TOO_MANY": "Prezèt chat yo sipòte jiska 50 antre",
   "CONFIG_CHAT_PRESETS_INVALID_ENTRY": "Antre prezèt chat yo dwe tèks ki gen jiska 500 karaktè",
+  "CONFIG_AUTO_START_SERVER_IDS_INVALID": "Sèvè pou demare otomatikman yo dwe yon lis ki gen {{max}} sèvè pou pi plis",
   "CONFIG_CORS_DIAGNOSTICS_UNAVAILABLE": "Dyagnostik CORS pa disponib",
   "CONFIG_CORS_RELOAD_UNAVAILABLE": "Rechajman konfigirasyon CORS pa disponib",
   "DISCORD_BOT_NOT_INITIALIZED": "Bot Discord pa inisyalize",

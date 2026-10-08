@@ -113,6 +113,11 @@ A Docker update from the Settings page saves and stops only the active
 server, so it refuses to start while another server is running. Stop the
 others first.
 
+To bring them all back after the container restarts, turn on **Settings ›
+Connection › Start game servers when the panel starts** and check each
+server under it. They start one after another; one that is already running
+is left alone.
+
 The update controller has Docker socket access, but it is not exposed on a
 host port. The panel can reach it only over the Compose network using the
 token in `.env`.

@@ -513,7 +513,8 @@ start-server_<name>.sh is missing from this server's install folder`
 (`StartServer_<name>.bat` on Windows). The Scheduler page's Execution
 History and the panel log show the same refusal as `Startup script
 start-server_<name>.sh is missing from <folder>`. For the panel's auto-start,
-the log line begins with `Error during auto-start:`.
+the log line begins with `Error during auto-start`, followed by the server's
+name when it isn't the active one.
 
 A Restart of a running server (Dashboard, Discord, a scheduled or
 mod-update restart) checks this before it warns players, saves or stops

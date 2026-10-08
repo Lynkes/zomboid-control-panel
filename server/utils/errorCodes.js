@@ -2144,6 +2144,10 @@ export const ErrorCode = Object.freeze({
   /** server/routes/config.js -- PUT /app-settings, a `chatPresets` entry
    * isn't a string or exceeds 500 characters. */
   CONFIG_CHAT_PRESETS_INVALID_ENTRY: "CONFIG_CHAT_PRESETS_INVALID_ENTRY",
+  /** server/routes/config.js -- PUT /app-settings, `autoStartServerIds` is
+   * not a list, has more than `max` entries, or holds something that isn't
+   * a server id. */
+  CONFIG_AUTO_START_SERVER_IDS_INVALID: "CONFIG_AUTO_START_SERVER_IDS_INVALID",
   /** server/routes/config.js (sites: GET /cors-debug, DELETE
    * /cors-debug/blocked) -- the CORS diagnostics hooks were never
    * registered on the app (req.app.get returns a non-function). Identical

@@ -14,7 +14,7 @@
     "corsDebugLogging": "啟用 CORS 除錯日誌",
     "enableHttps": "啟用 HTTPS",
     "autoReconnectRcon": "斷開連線時自動重新連線 RCON",
-    "startServerOnPanelStart": "面板啟動時啟動遊戲伺服器",
+    "startServerOnPanelStart": "面板啟動時同時啟動遊戲伺服器",
     "autoUpdateBridgeMod": "自動更新 PanelBridge 模組",
     "autoRestartOnModUpdate": "模組更新時自動重新啟動伺服器",
     "autoUpdateGameServer": "檢測到新版本時自動更新伺服器",
@@ -365,9 +365,14 @@
     "step2": "點選伺服器上的<b>編輯</b>",
     "step3": "在該處設定 RCON 主機、埠和密碼",
     "startupCardTitle": "伺服器啟動",
-    "startupCardDesc": "面板是否為您啟動遊戲伺服器。",
+    "startupCardDesc": "面板為您啟動哪些遊戲伺服器。",
     "autoStartLabel": "面板啟動時同時啟動遊戲伺服器",
-    "autoStartDesc": "當 RCON 埠已被佔用時會自動跳過，因此已在執行的伺服器不會被重複啟動。需要本地安裝路徑；由託管服務商託管的伺服器由服務商負責啟動。"
+    "autoStartDesc": "當 RCON 埠已被佔用時會自動跳過，因此已在執行的伺服器不會被重複啟動。需要本地安裝路徑；由託管服務商託管的伺服器由服務商負責啟動。",
+    "autoStartServersLabel": "要啟動的伺服器",
+    "autoStartServersDesc": "面板啟動時，已勾選的伺服器會依序啟動。已在執行的伺服器不受影響。",
+    "autoStartActiveBadge": "活動",
+    "autoStartNoServers": "此電腦上還沒有伺服器。請在「我的伺服器」中新增。",
+    "autoStartNoneChosen": "未勾選任何伺服器，因此不會啟動任何伺服器。"
   },
   "bridge": {
     "checksLabels": {
@@ -935,6 +940,8 @@
     },
     "autoStartEnabled": { "title": "已啟用自動啟動", "description": "面板啟動時伺服器將自動啟動" },
     "autoStartDisabled": { "title": "已停用自動啟動", "description": "伺服器將不會自動啟動" },
+    "autoStartServerChosen": { "title": "自動啟動已更新", "description": "{{name}} 將在面板啟動時啟動" },
+    "autoStartServerRemoved": { "title": "自動啟動已更新", "description": "{{name}} 將不再隨面板啟動" },
     "autoStartSaveFailed": { "title": "儲存自動啟動設定失敗", "fallback": "面板無法儲存自動啟動設定，請重試。" },
     "corsReloaded": {
       "title": "CORS 規則已重新載入",

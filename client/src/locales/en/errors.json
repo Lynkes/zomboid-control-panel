@@ -490,6 +490,7 @@
   "CONFIG_CHAT_PRESETS_NOT_ARRAY": "Chat presets must be a list",
   "CONFIG_CHAT_PRESETS_TOO_MANY": "Chat presets supports up to 50 entries",
   "CONFIG_CHAT_PRESETS_INVALID_ENTRY": "Chat preset entries must be text up to 500 characters",
+  "CONFIG_AUTO_START_SERVER_IDS_INVALID": "The servers to auto-start must be a list of up to {{max}} servers",
   "CONFIG_CORS_DIAGNOSTICS_UNAVAILABLE": "CORS diagnostics are not available",
   "CONFIG_CORS_RELOAD_UNAVAILABLE": "CORS configuration reload is not available",
   "DISCORD_BOT_NOT_INITIALIZED": "Discord bot not initialized",

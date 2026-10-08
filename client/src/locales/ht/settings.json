@@ -14,7 +14,7 @@
     "corsDebugLogging": "Aktive jounal debogaj CORS",
     "enableHttps": "Aktive HTTPS",
     "autoReconnectRcon": "Rekonekte RCON otomatikman lè li dekonekte",
-    "startServerOnPanelStart": "Demare sèvè jwèt la lè panèl la demare",
+    "startServerOnPanelStart": "Demare sèvè jwèt yo lè panèl la demare",
     "autoUpdateBridgeMod": "Mete mod PanelBridge a ajou otomatikman",
     "autoRestartOnModUpdate": "Redemare sèvè a otomatikman lè mod yo mete ajou",
     "autoUpdateGameServer": "Mete sèvè a ajou otomatikman lè yo detekte yon nouvo vèsyon",
@@ -307,9 +307,14 @@
     "step2": "Klike sou <b>Modifye</b> sou sèvè ou a",
     "step3": "Konfigire lame RCON, pò, ak modpas la",
     "startupCardTitle": "Demaraj Sèvè",
-    "startupCardDesc": "Si panèl la lanse sèvè jwèt la pou ou.",
-    "autoStartLabel": "Demare sèvè jwèt la lè panèl la demare",
-    "autoStartDesc": "Sote otomatikman lè pò RCON la deja an itilizasyon, kidonk yon sèvè ki deja ap fonksyone pa janm double. Bezwen yon chemen enstalasyon lokal; sèvè ki lame pa yon founisè demare pa founisè a."
+    "startupCardDesc": "Ki sèvè jwèt panèl la demare pou ou.",
+    "autoStartLabel": "Demare sèvè jwèt yo lè panèl la demare",
+    "autoStartDesc": "Sote otomatikman lè pò RCON la deja an itilizasyon, kidonk yon sèvè ki deja ap fonksyone pa janm double. Bezwen yon chemen enstalasyon lokal; sèvè ki lame pa yon founisè demare pa founisè a.",
+    "autoStartServersLabel": "Sèvè pou demare",
+    "autoStartServersDesc": "Sèvè ki koche yo demare youn apre lòt lè panèl la demare. Yon sèvè ki deja ap fonksyone rete jan l ye a.",
+    "autoStartActiveBadge": "Aktif",
+    "autoStartNoServers": "Poko gen sèvè sou òdinatè sa a. Ajoute youn nan Sèvè m yo.",
+    "autoStartNoneChosen": "Pa gen okenn sèvè ki koche, kidonk okenn p ap demare."
   },
 
   "bridge": {
@@ -823,6 +828,8 @@
     "settingsSaveFailed": { "title": "Pa t Kapab Sove Paramèt", "fallback": "Panèl la pa t kapab sove paramèt ou yo. Eseye ankò." },
     "autoStartEnabled": { "title": "Demaraj otomatik aktive", "description": "Sèvè a ap demare otomatikman lè panèl la lanse" },
     "autoStartDisabled": { "title": "Demaraj otomatik dezaktive", "description": "Sèvè a pap demare otomatikman" },
+    "autoStartServerChosen": { "title": "Demaraj otomatik mete ajou", "description": "{{name}} ap demare lè panèl la demare" },
+    "autoStartServerRemoved": { "title": "Demaraj otomatik mete ajou", "description": "{{name}} p ap demare ak panèl la ankò" },
     "autoStartSaveFailed": { "title": "Sove paramèt demaraj otomatik la echwe", "fallback": "Panèl la pa t kapab sove paramèt demaraj otomatik la. Eseye ankò." },
     "corsReloaded": { "title": "Règ CORS Rechaje", "description": "Backend la rechaje paramèt CORS nan baz done a." },
     "corsReloadFailed": { "title": "Pa t Kapab Rechaje Règ CORS", "fallback": "Echwe pou rechaje règ CORS." },

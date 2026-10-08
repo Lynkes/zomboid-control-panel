@@ -14,7 +14,7 @@
     "corsDebugLogging": "Enable CORS debug logging",
     "enableHttps": "Enable HTTPS",
     "autoReconnectRcon": "Auto-reconnect RCON on disconnect",
-    "startServerOnPanelStart": "Start the game server when the panel starts",
+    "startServerOnPanelStart": "Start game servers when the panel starts",
     "autoUpdateBridgeMod": "Auto-update PanelBridge mod",
     "autoRestartOnModUpdate": "Auto-restart server when mods update",
     "autoUpdateGameServer": "Automatically update the server when a new build is detected",
@@ -307,9 +307,14 @@
     "step2": "Click <b>Edit</b> on your server",
     "step3": "Configure RCON host, port, and password there",
     "startupCardTitle": "Server Startup",
-    "startupCardDesc": "Whether the panel launches the game server for you.",
-    "autoStartLabel": "Start the game server when the panel starts",
-    "autoStartDesc": "Skipped automatically when the RCON port is already in use, so a server that is already running is never duplicated. Needs a local install path; servers hosted by a provider are started by the provider."
+    "startupCardDesc": "Which game servers the panel starts for you.",
+    "autoStartLabel": "Start game servers when the panel starts",
+    "autoStartDesc": "Skipped automatically when the RCON port is already in use, so a server that is already running is never duplicated. Needs a local install path; servers hosted by a provider are started by the provider.",
+    "autoStartServersLabel": "Servers to start",
+    "autoStartServersDesc": "The checked servers start one after another when the panel starts. A server that is already running is left alone.",
+    "autoStartActiveBadge": "Active",
+    "autoStartNoServers": "No server on this computer yet. Add one in My Servers.",
+    "autoStartNoneChosen": "No server is checked, so none will start."
   },
 
   "bridge": {
@@ -821,6 +826,8 @@
     "settingsSaveFailed": { "title": "Could Not Save Settings", "fallback": "The panel could not save your settings. Try again." },
     "autoStartEnabled": { "title": "Auto-start enabled", "description": "Server will start automatically when the panel launches" },
     "autoStartDisabled": { "title": "Auto-start disabled", "description": "Server will not start automatically" },
+    "autoStartServerChosen": { "title": "Auto-start updated", "description": "{{name}} will start when the panel starts" },
+    "autoStartServerRemoved": { "title": "Auto-start updated", "description": "{{name}} will no longer start with the panel" },
     "autoStartSaveFailed": { "title": "Failed to save auto-start setting", "fallback": "The panel could not save the auto-start setting. Try again." },
     "corsReloaded": { "title": "CORS Rules Reloaded", "description": "The backend reloaded CORS settings from the database." },
     "corsReloadFailed": { "title": "Could Not Reload CORS Rules", "fallback": "Failed to reload CORS rules." },

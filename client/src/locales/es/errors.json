@@ -490,6 +490,7 @@
   "CONFIG_CHAT_PRESETS_NOT_ARRAY": "Los mensajes rápidos de chat deben ser una lista",
   "CONFIG_CHAT_PRESETS_TOO_MANY": "Los mensajes rápidos de chat admiten hasta 50 entradas",
   "CONFIG_CHAT_PRESETS_INVALID_ENTRY": "Las entradas de mensajes rápidos de chat deben ser texto de hasta 500 caracteres",
+  "CONFIG_AUTO_START_SERVER_IDS_INVALID": "Los servidores de inicio automático deben ser una lista de hasta {{max}} servidores",
   "CONFIG_CORS_DIAGNOSTICS_UNAVAILABLE": "El diagnóstico de CORS no está disponible",
   "CONFIG_CORS_RELOAD_UNAVAILABLE": "La recarga de la configuración de CORS no está disponible",
   "DISCORD_BOT_NOT_INITIALIZED": "Bot de Discord no inicializado",
