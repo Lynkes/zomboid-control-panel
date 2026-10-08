@@ -5,7 +5,7 @@
 // upload progress and abort) that carries the bearer header the same way;
 // downloads are fetch -> blob -> object URL, like downloadBackup. The token
 // never goes into a URL.
-import { ApiError, apiFetch, buildResponseError, handleResponse, tryRefreshToken } from './api'
+import { ApiError, apiFetch, buildResponseError, handleResponse, isRefreshableAuthFailure, tryRefreshToken } from './api'
 import { getAccessToken } from './authToken'
 import {
   UPLOAD_HEADERS,
@@ -485,7 +485,8 @@ function sendUploadOnce(
 /**
  * One file upload. Rejects with an ApiError (a 429 carries
  * retryAfterSeconds; `code: UPLOAD_ABORTED` after abort()). An expired
- * access token is refreshed and the upload replayed once, like apiFetch.
+ * access token is refreshed and the upload replayed once, like apiFetch,
+ * and a failed refresh reloads the page, also like apiFetch.
  */
 export function uploadFile(request: UploadRequest, onProgress: (loaded: number, total: number) => void): UploadHandle {
   let current: XMLHttpRequest | null = null
@@ -494,12 +495,15 @@ export function uploadFile(request: UploadRequest, onProgress: (loaded: number, 
     current = xhr
   }
   const promise = (async () => {
-    let { xhr, payload } = await sendUploadOnce(request, getAccessToken(), onProgress, register)
+    const firstToken = getAccessToken()
+    let { xhr, payload } = await sendUploadOnce(request, firstToken, onProgress, register)
     const code = payload && typeof payload === 'object' ? (payload as { code?: unknown }).code : undefined
-    if (xhr.status === 401 && code === 'TOKEN_EXPIRED' && !aborted) {
+    if (isRefreshableAuthFailure(xhr.status, code, firstToken !== null) && !aborted) {
       if (await tryRefreshToken()) {
         if (aborted) throw new ApiError('Upload cancelled.', { code: UPLOAD_ABORTED })
         ;({ xhr, payload } = await sendUploadOnce(request, getAccessToken(), onProgress, register))
+      } else {
+        window.location.reload()
       }
     }
     if (xhr.status >= 200 && xhr.status < 300 && payload && typeof payload === 'object') {

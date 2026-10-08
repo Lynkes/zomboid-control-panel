@@ -233,6 +233,26 @@ describe('uploadFile (XHR)', () => {
     expect(getAccessToken()).toBe('fresh-token')
   })
 
+  // Auth audit 2026-10-08, #20: a failed refresh here used to leave a tab
+  // that looked signed in while every later call failed, until F5.
+  it('reloads the page when the refresh before the replay fails', async () => {
+    const originalLocation = window.location
+    const reload = vi.fn()
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...originalLocation, reload } })
+    try {
+      respond = (request) => request.xhr.finish(401, { error: 'expired', code: 'TOKEN_EXPIRED' })
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(401, { error: 'Invalid refresh token', code: 'INVALID_REFRESH_TOKEN' })))
+
+      const error = await uploadFile(uploadRequest(), () => {}).promise.catch((err: unknown) => err)
+
+      expect(error).toMatchObject({ status: 401 })
+      expect(sent).toHaveLength(1)
+      expect(reload).toHaveBeenCalledTimes(1)
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
+    }
+  })
+
   it('rejects a 429 with the Retry-After seconds, without retrying on its own', async () => {
     respond = (request) => request.xhr.finish(429, { error: 'Too many', code: 'FM_RATE_LIMITED' }, { 'Retry-After': '7' })
     const error = await uploadFile(uploadRequest(), () => {}).promise.catch((err: unknown) => err)

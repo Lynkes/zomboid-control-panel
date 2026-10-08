@@ -457,7 +457,7 @@ function AppContent() {
         autoConnect: false,
       })
       createdSocket = newSocket
-      newSocket.auth = createSocketAuthProvider(getToken)
+      newSocket.auth = createSocketAuthProvider(getToken, authEnabled)
       newSocket.connect()
 
       // Connection established
