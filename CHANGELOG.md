@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.8] - 2026-10-07
+
 ### Changed
 
 - **Sidebar footer:** a tidier layout with a "Support me on Ko-fi" button; a pending panel update now shows as an amber version tag, and the live-updates notice opens its details and Retry on tap or keyboard.
