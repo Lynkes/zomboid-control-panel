@@ -42,6 +42,9 @@ export async function startMockOidcProvider({
   // setNextGrantError to simulate a third OAuth error code, for testing the
   // "undetermined" outcome that isn't invalid_client or invalid_grant.
   let nextGrantError = null;
+  // How many POST /token requests arrived, so a test can prove the panel
+  // refused something before contacting the provider at all.
+  let tokenRequests = 0;
 
   function readBody(req) {
     return new Promise((resolve, reject) => {
@@ -99,6 +102,7 @@ export async function startMockOidcProvider({
     }
 
     if (req.method === "POST" && url.pathname === "/token") {
+      tokenRequests += 1;
       if (strictAuth) {
         // openid-client's default here is actually client_secret_post (the
         // credentials go in the form body), not client_secret_basic --
@@ -177,6 +181,9 @@ export async function startMockOidcProvider({
   return {
     baseUrl,
     validKey,
+    get tokenRequests() {
+      return tokenRequests;
+    },
     /** Set the claims/signing key the NEXT /token response will use. Pass `{}` to reset to the default happy-path claims. */
     setNextIdToken({ claims = null, signingKey = null } = {}) {
       nextIdTokenClaims = claims;

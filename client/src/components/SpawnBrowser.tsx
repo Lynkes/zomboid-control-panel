@@ -12,6 +12,7 @@ import { NumberInput } from '@/components/NumberInput'
 import { cn } from '@/lib/utils'
 import { panelBridgeApi } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useDateFormat } from '@/lib/dateFormat'
 import { useToast } from '@/components/ui/use-toast'
 import {
   getItemGroup, GROUP_META, VEHICLE_CATEGORIES, fmtWeight,
@@ -80,6 +81,7 @@ function clearRecent(mode: SpawnMode) {
 export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: SpawnBrowserProps) {
   const isItems = mode === 'items'
   const { t, i18n } = useTranslation(['spawnBrowser', 'itemPicker', 'vehiclePicker'])
+  const { formatDate } = useDateFormat()
   const { toast } = useToast()
 
   // Catalog state
@@ -403,7 +405,7 @@ export function SpawnBrowser({ mode, open, onOpenChange, playerName, onSpawn }: 
               </span>
               {scannedAt && (
                 <span className="ms-auto text-[11px] text-muted-foreground/50 tabular-nums shrink-0 hidden sm:inline">
-                  {t('scannedOn', { date: new Date(scannedAt).toLocaleDateString(i18n.language) })}
+                  {t('scannedOn', { date: formatDate(scannedAt) })}
                 </span>
               )}
             </DialogDescription>

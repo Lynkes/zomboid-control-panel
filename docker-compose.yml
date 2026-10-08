@@ -56,7 +56,11 @@ services:
     container_name: zomboid-panel
     restart: unless-stopped
     ports:
-      - "3001:3001"
+      # Every host address by default. Docker publishes past UFW, so behind a
+      # reverse proxy on this host set PANEL_BIND_ADDRESS=127.0.0.1 in .env
+      # (with TRUST_PROXY), and only the proxy can reach the panel. A proxy in
+      # another container: see docs/install/docker.md first.
+      - "${PANEL_BIND_ADDRESS:-}:3001:3001"
     # On Linux, add `host.docker.internal` so the panel can reach PZ RCON on the host
     extra_hosts:
       - "host.docker.internal:host-gateway"

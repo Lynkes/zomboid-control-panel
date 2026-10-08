@@ -132,6 +132,12 @@
     "survival": "Survival (Sombre)",
     "light": "Clair"
   },
+  "dateFormatSelect": {
+    "auto": "Automatique ({{example}})",
+    "dmy": "Jour/Mois/Année ({{example}})",
+    "mdy": "Mois/Jour/Année ({{example}})",
+    "ymd": "Année-Mois-Jour ({{example}})"
+  },
   "general": {
     "cardTitle": "Paramètres du panneau",
     "cardDescription": "Port sur lequel ce panneau écoute, et son apparence.",
@@ -144,9 +150,11 @@
     "saveBeforeRestart": "Enregistrez les paramètres avant de redémarrer",
     "restartToastDesc": "Le panneau redémarre sur le port {{port}}. Reconnexion...",
     "appearanceTitle": "Apparence",
-    "appearanceDesc": "Thème et style visuel du panneau.",
+    "appearanceDesc": "Thème, format de date et style visuel du panneau.",
     "themeLabel": "Thème",
     "themeDesc": "Choisissez entre le look survival sombre ou un thème clair et épuré.",
+    "dateFormatLabel": "Format de date",
+    "dateFormatDesc": "Comment les dates s'affichent dans le panneau sur ce navigateur. « Automatique » suit votre langue et la région de votre navigateur.",
     "confirmRestartTitle": "Restart the panel?",
     "restartGameServerPreserved": "Le launcher détecté isole les redémarrages du panneau. Les serveurs Project Zomboid en cours d'exécution resteront en ligne.",
     "restartGameServerRisk": "Cette installation n'utilise pas le launcher Linux protégé. Redémarrer le panneau peut arrêter les processus de serveur Project Zomboid en cours d'exécution.",
@@ -655,6 +663,19 @@
     "tipsAdminDesc": "Soyez prudent avec les commandes d'administration. Certaines actions comme bannir ou expulser des joueurs ne peuvent pas être facilement annulées.",
     "tipsAuthTitle": "Authentification :",
     "tipsAuthDesc": "L'authentification n'est pas configurée. Créez un compte via l'assistant de configuration au premier lancement pour protéger l'accès à ce panneau.",
+    "signOutEverywhere": {
+      "cardTitle": "Se déconnecter partout",
+      "cardDesc": "Met fin à toutes les sessions de votre compte, dans ce navigateur et tous les autres. À utiliser si un appareil a été perdu ou si quelqu'un d'autre a peut-être votre connexion.",
+      "button": "Se déconnecter partout",
+      "confirmTitle": "Se déconnecter de tous les navigateurs ?",
+      "confirmDesc": "Tous les navigateurs et appareils connectés à votre compte sont déconnectés, celui-ci compris. Vous devrez vous reconnecter.",
+      "cancel": "Annuler",
+      "confirm": "Se déconnecter partout",
+      "resultTitle": "Déconnecté partout",
+      "resultDescription": "Toutes les sessions de votre compte sont terminées. Redirection vers la connexion…",
+      "failedTitle": "Échec de la déconnexion",
+      "failedFallback": "Le panneau n'a pas pu mettre fin à vos sessions."
+    },
     "regenerateJwt": {
       "cardTitle": "Régénérer le secret JWT",
       "button": "Régénérer le secret JWT",

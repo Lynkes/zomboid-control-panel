@@ -996,8 +996,14 @@ input[type="number"] {
      on coarse-pointer (touch) devices. The Button *component* was already
      fine (mobile-first h-11); this only affects hand-rolled controls. Scoped
      separately (not merged into the rule above) so we don't also force
-     min-width onto every input/select. */
-  button,
+     min-width onto every input/select.
+     Switches and checkboxes are <button>s too (Radix), but stretching them
+     turned the Switch pill into a 44px circle and the Checkbox into a 44px
+     square, so they're skipped here and get an invisible 44px ::before hit
+     area instead (components/ui/touch-target.ts). The :where() keeps this
+     selector as weak as a bare `button`, so utilities like min-w-0 still
+     override it. */
+  button:not(:where([role="switch"], [role="checkbox"])),
   a[aria-label] {
     min-height: 44px;
     min-width: 44px;

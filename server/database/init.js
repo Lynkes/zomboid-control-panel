@@ -1757,7 +1757,7 @@ export async function getPlayerLogs(playerName = null, limit = 100, serverId = u
 // Server Events
 // ============================================
 
-export async function logServerEvent(eventType, message = null) {
+export async function logServerEvent(eventType, message = null, { serverId = null } = {}) {
   // Several callers fire this without awaiting; an unhandled rejection here
   // reaches process.on("unhandledRejection") and kills the panel.
   try {
@@ -1768,8 +1768,9 @@ export async function logServerEvent(eventType, message = null) {
       // global store): same fix as command_history/player_logs -- tagged
       // with getActiveServerId() at write time so GET /debug/activity can
       // scope this feed to the currently active server instead of showing
-      // every managed server's events mixed together.
-      server_id: await getActiveServerId(),
+      // every managed server's events mixed together. An event about
+      // another server (the server watch's) names that one instead.
+      server_id: serverId ?? (await getActiveServerId()),
       event_type: eventType,
       message,
       created_at: new Date().toISOString(),
@@ -2343,12 +2344,13 @@ export async function deleteServer(id) {
   // otherwise — nothing else ever removes it.
   deleteServerSecret(serverId);
 
-  // Nor would the boot auto-start's list of servers to start.
-  const autoStartIds = db.data.settings?.autoStartServerIds;
-  if (Array.isArray(autoStartIds)) {
-    db.data.settings.autoStartServerIds = autoStartIds.filter(
-      (id) => String(id) !== serverId,
-    );
+  // Nor would the boot auto-start's list of servers to start, or the
+  // server watch's list of servers to restart when they go down.
+  for (const key of ["autoStartServerIds", "restartOnCrashServerIds"]) {
+    const ids = db.data.settings?.[key];
+    if (Array.isArray(ids)) {
+      db.data.settings[key] = ids.filter((id) => String(id) !== serverId);
+    }
   }
 
   scheduleWrite();

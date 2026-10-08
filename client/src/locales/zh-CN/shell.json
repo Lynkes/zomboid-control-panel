@@ -82,8 +82,8 @@
   },
   "footer": {
     "signOut": "退出登录",
-    "supportKofi": "在 Ko-fi 上支持（在新标签页打开）",
-    "buyMeCoffee": "请我喝杯咖啡",
+    "opensInNewTab": "（在新标签页中打开）",
+    "supportMeKofi": "在 Ko-fi 上支持我",
     "githubRepo": "GitHub 仓库（在新标签页打开）",
     "keyboardShortcuts": "键盘快捷键",
     "keyboardShortcutsTitle": "键盘快捷键（?）",
@@ -111,5 +111,12 @@
   },
   "languageSwitcher": {
     "label": "语言"
+  },
+  "authSession": {
+    "signOutFailedTitle": "退出登录请求未送达面板",
+    "signOutFailedDescription": "您在此浏览器中仍处于登录状态。请检查与面板的连接，然后重试。",
+    "statusCheckFailedTitle": "无法检查登录状态",
+    "statusCheckFailedDescription": "面板或其前方的代理未响应登录检查。请稍候，然后重试。",
+    "retry": "重试"
   }
 }

@@ -44,6 +44,15 @@ describe("getRefreshCookieOptions — the one definition routes/auth.js and rout
     expect(opts).not.toHaveProperty("maxAge");
   });
 
+  // Auth audit 2026-10-08 (#10): a session ends at a fixed limit from sign-in,
+  // so a cookie set by a late refresh must not outlive it.
+  it("caps maxAge to the time the session has left, never past 30 days", () => {
+    expect(getRefreshCookieOptions(makeReq(), true, 5000).maxAge).toBe(5000);
+    expect(getRefreshCookieOptions(makeReq(), true, -1).maxAge).toBe(0);
+    expect(getRefreshCookieOptions(makeReq(), true, 90 * 24 * 60 * 60 * 1000).maxAge).toBe(30 * 24 * 60 * 60 * 1000);
+    expect(getRefreshCookieOptions(makeReq(), true, Number.NaN).maxAge).toBe(30 * 24 * 60 * 60 * 1000);
+  });
+
   it("secure is false for a plain HTTP request with no override", () => {
     const opts = getRefreshCookieOptions(makeReq({ secure: false }));
     expect(opts.secure).toBe(false);

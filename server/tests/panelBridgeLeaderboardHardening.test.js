@@ -106,6 +106,8 @@ Events = {
   OnZombieDead = { Add = function(fn) ZOMBIE_DEAD = fn end },
 }
 
+-- The leaderboard only counts a player's character (IsoPlayer, not IsoAnimal).
+instanceof = function(obj, class) return class == "IsoPlayer" and obj == Alice end
 Alice = { kills = 1 }
 function Alice:getUsername() return "Alice" end
 function Alice:getDisplayName() return "Alice" end

@@ -55,6 +55,8 @@ import { serverConfigDirOf } from "../utils/serverConfigPath.js";
 import { checkSandboxBraceBalance } from "./serverFiles.js";
 import { validateSandboxLua } from "../utils/sandboxLua.js";
 import panelBridgeService from "../services/panelBridge.js";
+import { redactLeaderboardDiagnostics } from "../services/leaderboardDiagnostics.js";
+import { getLeaderboardSamplerStatus } from "../services/leaderboardSampler.js";
 import authService from "../services/auth.js";
 import { listBackupRecords } from "../services/backupRecords.js";
 import {
@@ -1304,6 +1306,35 @@ function buildBridgeStatus() {
   }
 }
 
+// The leaderboard as the bridge reports it, redacted like the page's "Copy
+// diagnostics" (usernames, read times and counts; never the row id, which
+// carries the SteamID), plus whether the panel is still asking for it
+// itself. A support bundle must not wait on a hung bridge for long.
+const LEADERBOARD_BUNDLE_TIMEOUT_MS = 10000;
+
+async function buildLeaderboardDiagnostics() {
+  const panelSampler = getLeaderboardSamplerStatus();
+  try {
+    if (!panelBridgeService?.isRunning || !panelBridgeService.isModConnected?.()) {
+      return { available: false, reason: "PanelBridge is not connected", panelSampler };
+    }
+    const timedOut = { error: `No answer from PanelBridge within ${LEADERBOARD_BUNDLE_TIMEOUT_MS / 1000} s` };
+    const result = await raceWithFallback(
+      panelBridgeService
+        .getLeaderboard({ source: "bundle" })
+        .catch((error) => ({ error: error?.message || String(error) })),
+      LEADERBOARD_BUNDLE_TIMEOUT_MS,
+      timedOut,
+    );
+    if (!result?.success || !result.data) {
+      return { available: false, reason: sanitizeError(result?.error || "Unexpected answer"), panelSampler };
+    }
+    return { available: true, ...redactLeaderboardDiagnostics(result.data), panelSampler };
+  } catch (e) {
+    return { _error: e.message, panelSampler };
+  }
+}
+
 async function buildSftpDiagnostics() {
   try {
     const settings = await getAllSettings();
@@ -1654,6 +1685,7 @@ function buildBundleReadme() {
     "19. `db-write-health.json` — db.json's write circuit-breaker state and retry count. Does NOT cover config-file (INI/Lua) writes — see the file's own notes for why.",
     "20. `backups-summary.json` — the last 20 backup runs. Only successful runs are recorded; a failed scheduled backup shows up in `admin-panel/error.log` instead, not here.",
     "21. `discord-bot-status.json` — connected or not, which guild/channel/mod-role it's wired to, and the last start failure if any (token presence only, never the value).",
+    "22. `leaderboard-diagnostics.json` — the PanelBridge leaderboard: bridge version, last sweep, store resets, and per player the username, when kills were last read and by what, kills, days and deaths. Never the row id (it carries the SteamID); other names a row was seen under are only counted. `panelSampler` says whether the panel still asks for it itself (bridges up to 1.7.73), and `bridgeLacksLeaderboard` when the bridge predates getLeaderboard (before 1.7.69).",
     "",
     "## Then the raw logs",
     "",
@@ -1710,6 +1742,7 @@ async function buildBundleDiagnostics(activeServer, req, knownSecrets) {
     wrap("performance-history.json", () => buildPerformanceHistory()),
     wrap("db-stats.json", () => buildDbStats()),
     wrap("bridge-status.json", async () => buildBridgeStatus()),
+    wrap("leaderboard-diagnostics.json", () => buildLeaderboardDiagnostics()),
     wrap("sftp-diagnostics.json", () => buildSftpDiagnostics()),
     wrap("process.json", () => buildProcessSnapshot()),
     wrap("network-interfaces.json", () => buildNetworkInterfaces()),
@@ -7145,6 +7178,7 @@ export {
   buildDbWriteHealth,
   buildBackupsSummary,
   buildDiscordBotStatus,
+  buildLeaderboardDiagnostics,
   buildDockerContainerLogsText,
   buildManagedServiceLogsText,
   buildPzBuildInfo,

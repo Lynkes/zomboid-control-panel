@@ -84,8 +84,8 @@
   },
   "footer": {
     "signOut": "Cerrar sesión",
-    "supportKofi": "Apoya en Ko-fi (se abre en una pestaña nueva)",
-    "buyMeCoffee": "Invítame a un café",
+    "opensInNewTab": "(se abre en una pestaña nueva)",
+    "supportMeKofi": "Apóyame en Ko-fi",
     "githubRepo": "Repositorio de GitHub (se abre en una pestaña nueva)",
     "keyboardShortcuts": "Atajos de teclado",
     "keyboardShortcutsTitle": "Atajos de teclado (?)",
@@ -113,5 +113,12 @@
   },
   "languageSwitcher": {
     "label": "Idioma"
+  },
+  "authSession": {
+    "signOutFailedTitle": "El cierre de sesión no llegó al panel",
+    "signOutFailedDescription": "Sigues con la sesión iniciada en este navegador. Comprueba la conexión con el panel e inténtalo de nuevo.",
+    "statusCheckFailedTitle": "No se pudo comprobar el inicio de sesión",
+    "statusCheckFailedDescription": "El panel, o un proxy delante de él, no respondió a la comprobación de inicio de sesión. Espera un momento e inténtalo de nuevo.",
+    "retry": "Reintentar"
   }
 }

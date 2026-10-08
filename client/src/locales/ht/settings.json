@@ -77,6 +77,7 @@
     "noChanges": "Pa Gen Chanjman ki Pa Sove"
   },
   "themeSelect": { "survival": "Siviv (Fonse)", "light": "Klè" },
+  "dateFormatSelect": { "auto": "Otomatik ({{example}})", "dmy": "Jou/Mwa/Ane ({{example}})", "mdy": "Mwa/Jou/Ane ({{example}})", "ymd": "Ane-Mwa-Jou ({{example}})" },
 
   "general": {
     "cardTitle": "Paramèt Panèl",
@@ -90,9 +91,11 @@
     "saveBeforeRestart": "Sove paramèt anvan w redemare",
     "restartToastDesc": "Panèl la ap redemare sou pò {{port}}. N ap rekonekte...",
     "appearanceTitle": "Aparans",
-    "appearanceDesc": "Tèm panèl la ak style vizyèl.",
+    "appearanceDesc": "Tèm panèl la, fòma dat yo ak style vizyèl.",
     "themeLabel": "Tèm",
     "themeDesc": "Chwazi ant aparans siviv brital la oswa yon tèm klè pwòp.",
+    "dateFormatLabel": "Fòma dat",
+    "dateFormatDesc": "Kijan dat yo parèt nan panèl la nan navigatè sa a. “Otomatik” swiv lang ou ak rejyon navigatè ou.",
     "confirmRestartTitle": "Restart the panel?",
     "restartGameServerPreserved": "Lansè yo detekte a izole redemaraj panèl yo. Sèvè Project Zomboid k ap kouri yo ap rete anliy.",
     "restartGameServerRisk": "Enstalasyon sa a pa itilize lansè Linux ki pwoteje a. Redemare panèl la ka sispann pwosesis sèvè Project Zomboid k ap kouri yo.",
@@ -602,6 +605,19 @@
     "resetAndSignOutButton": "Reyinisyalize Modpas epi Dekonekte",
     "recoveryRemoteIntro1": "Panèl la pa ka montre modpas ki egziste yo. Si ou toujou gen aksè sistèm fichye nan lame panèl la, dekonekte epi swa kreye <code>data/reset-token.txt</code> oswa demare panèl la ak <code>--reset-password</code>.",
     "recoveryRemoteIntro2": "Mete yon jeton hex o aza ki gen omwen 32 karaktè, ki soti nan yon jeneratè tankou openssl rand -hex 24, nan fichye sa a (yo refize mo, fraz ak suit chif), epi louvri rekiperasyon kont sou ekran koneksyon an epi antre l kòm jeton rekiperasyon pou mete yon nouvo modpas administratè san ou pa konnen ansyen an.",
+    "signOutEverywhere": {
+      "cardTitle": "Dekonekte toupatou",
+      "cardDesc": "Fini tout sesyon kont ou, nan navigatè sa a ak tout lòt yo. Sèvi ak li si yon aparèy pèdi oswa si yon lòt moun ka genyen koneksyon ou.",
+      "button": "Dekonekte toupatou",
+      "confirmTitle": "Dekonekte nan tout navigatè?",
+      "confirmDesc": "Tout navigatè ak aparèy ki konekte ak kont ou ap dekonekte, sa a tou. Ou pral bezwen konekte ankò.",
+      "cancel": "Anile",
+      "confirm": "Dekonekte toupatou",
+      "resultTitle": "Dekonekte toupatou",
+      "resultDescription": "Tout sesyon kont ou fini. N ap voye w nan koneksyon…",
+      "failedTitle": "Dekoneksyon an echwe",
+      "failedFallback": "Panèl la pa t ka fini sesyon ou yo."
+    },
     "regenerateJwt": {
       "cardTitle": "Rejenere sekrè JWT",
       "cardDesc": "Dekonekte imedyatman chak itilizatè sou chak aparèy, ou menm ladan — jeton aksè ak rafrechisman pou chak sesyon aktyèl sispann fonksyone tousuit. Itilize sa a sèlman si yon kopi sovgad ki gen ansyen kle siyati a ka fuit; se pa yon aksyon woutin epi pa gen rotasyon otomatik.",

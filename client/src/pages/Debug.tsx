@@ -66,6 +66,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { reportClientError } from "@/lib/client-errors";
 import { getUserErrorMessage, getResultErrorMessage } from "@/lib/errorMessage";
+import { formatTime, useDateFormat } from "@/lib/dateFormat";
 import { translateDiagnosticCheck } from "@/lib/diagnosticsTranslation";
 import { useRequestGuard } from "@/hooks/useRequestGuard";
 import { Label } from "@/components/ui/label";
@@ -1004,6 +1005,7 @@ export function getHealthHeadline(
 
 export default function Debug() {
   const { t, i18n } = useTranslation("debug");
+  const { formatDateTime } = useDateFormat();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   // True once fetchSystemInfo() has settled with no usable data (a failed
@@ -2205,7 +2207,7 @@ export default function Debug() {
             ...h,
             memoryMB: Math.round(h.memoryUsed / (1024 * 1024)),
             cpuLoad: h.cpuUsage,
-            time: new Date(h.timestamp).toLocaleTimeString(i18n.language),
+            time: formatTime(h.timestamp, { language: i18n.language, seconds: true }),
             hostMemGB: h.hostMemTotal
               ? +(h.hostMemTotal / (1024 * 1024 * 1024)).toFixed(1)
               : undefined,
@@ -2732,14 +2734,14 @@ export default function Debug() {
           return t("common.daysAgo", { count: Math.floor(diff / 86400000) });
         }
         case "time":
-          return date.toLocaleTimeString(i18n.language);
+          return formatTime(date, { language: i18n.language, seconds: true });
         case "datetime":
-          return date.toLocaleString(i18n.language);
+          return formatDateTime(date, { seconds: true });
         default:
-          return date.toLocaleTimeString(i18n.language);
+          return formatTime(date, { language: i18n.language, seconds: true });
       }
     },
-    [timeFormat, t, i18n.language],
+    [timeFormat, t, i18n.language, formatDateTime],
   );
 
   const formatFileSize = (bytes: number) => {
@@ -5171,7 +5173,7 @@ export default function Debug() {
                     >
                       {activityPaused ? t("activityTab.pausedPrefix") : ""}
                       {t("activityTab.lastRefresh", {
-                        time: activityLastLoaded.toLocaleTimeString(i18n.language),
+                        time: formatTime(activityLastLoaded, { seconds: true }),
                       })}
                     </span>
                   )}
@@ -5240,9 +5242,9 @@ export default function Debug() {
                           >
                             <span
                               className="text-muted-foreground shrink-0 w-[65px]"
-                              title={new Date(entry.timestamp).toLocaleString(i18n.language)}
+                              title={formatDateTime(entry.timestamp, { seconds: true })}
                             >
-                              {new Date(entry.timestamp).toLocaleTimeString(i18n.language)}
+                              {formatTime(entry.timestamp, { seconds: true })}
                             </span>
                             <Badge
                               variant="outline"
@@ -5844,7 +5846,7 @@ export default function Debug() {
                               <span className="mx-1.5 text-muted-foreground/50">
                                 ·
                               </span>
-                              {new Date(file.modified).toLocaleString(i18n.language)}
+                              {formatDateTime(file.modified, { seconds: true })}
                             </p>
                           </div>
                         </div>
@@ -5966,9 +5968,7 @@ export default function Debug() {
                                 <span>{formatFileSize(log.size)}</span>
                                 <span>•</span>
                                 <span
-                                  title={new Date(
-                                    log.modified,
-                                  ).toLocaleString(i18n.language)}
+                                  title={formatDateTime(log.modified, { seconds: true })}
                                 >
                                   {formatTimestamp(new Date(log.modified))}
                                 </span>
@@ -6454,9 +6454,7 @@ export default function Debug() {
                     <p className="text-sm text-muted-foreground">
                       {healthStatus?.timestamp ? (
                         <span
-                          title={new Date(
-                            healthStatus.timestamp,
-                          ).toLocaleString(i18n.language)}
+                          title={formatDateTime(healthStatus.timestamp, { seconds: true })}
                         >
                           {t("healthTab.lastChecked", {
                             time: formatTimestamp(new Date(healthStatus.timestamp)),
@@ -6699,9 +6697,7 @@ export default function Debug() {
               <p className="text-sm text-muted-foreground mt-1">
                 {healthStatus &&
                   t("healthTab.since", {
-                    date: new Date(
-                      Date.now() - healthStatus.uptime * 1000,
-                    ).toLocaleString(i18n.language),
+                    date: formatDateTime(Date.now() - healthStatus.uptime * 1000, { seconds: true }),
                   })}
                 {!healthStatus && "-"}
               </p>
@@ -7494,9 +7490,7 @@ export default function Debug() {
                                           {logEntry.level}
                                         </Badge>
                                         <span className="text-muted-foreground shrink-0">
-                                          {logEntry.timestamp
-                                            ? new Date(logEntry.timestamp).toLocaleTimeString()
-                                            : ""}
+                                          {formatTime(logEntry.timestamp, { seconds: true })}
                                         </span>
                                         <span className="break-all">{logEntry.message}</span>
                                       </div>

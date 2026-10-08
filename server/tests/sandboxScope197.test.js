@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { runServerFilesRoute } from "./helpers/serverFilesRoute.js";
 
 // #197: a SandboxVars.lua with a numeric "Explosives = 1.0" inside one table
 // and a separate top-level mod table "Explosives = { ... }". The panel kept
@@ -97,38 +98,10 @@ function createResponse() {
   return response;
 }
 
-function getHandler(routePath, method) {
-  const layer = router.stack.find(
-    (entry) => entry.route?.path === routePath && entry.route.methods[method],
-  );
-  return layer.route.stack[layer.route.stack.length - 1].handle;
-}
-
-// Every handler reads req.activeServerContext, set by the router's own gate
-// (the second non-route layer); the other middleware is covered elsewhere.
-function getGateMiddleware() {
-  return router.stack.filter((entry) => !entry.route)[1].handle;
-}
-
-// As in Express, the handler runs only when the gate calls next(). Every
-// test here expects its route to run, so a gate that answers the request
-// itself (a folder refusal, say) or passes an error on fails the test,
-// instead of the handler running anyway and hiding what production does.
-async function runHandler(routePath, method, req) {
-  const res = createResponse();
-  let passed = false;
-  await getGateMiddleware()(req, res, (error) => {
-    if (error) throw error;
-    passed = true;
-  });
-  if (!passed) {
-    throw new Error(
-      `The Server Files gate answered ${method.toUpperCase()} ${routePath} itself: ` +
-        `${res.status.mock.calls[0]?.[0] ?? 200} ${JSON.stringify(res.json.mock.calls[0]?.[0])}`,
-    );
-  }
-  await getHandler(routePath, method)(req, res, () => {});
-  return res;
+// Every test here expects its route to run, so a gate refusal fails it
+// (helpers/serverFilesRoute.js).
+function runHandler(routePath, method, req) {
+  return runServerFilesRoute(router, routePath, method, req, createResponse());
 }
 
 const cases = [

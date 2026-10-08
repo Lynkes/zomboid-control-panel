@@ -6,7 +6,6 @@ import {
   Plus,
   Trash2,
   RotateCcw,
-  Calendar,
   History,
   CheckCircle2,
   XCircle,
@@ -19,7 +18,8 @@ import {
   ChevronDown,
   HelpCircle,
   Search,
-  SearchX
+  SearchX,
+  Send
 } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -42,6 +42,7 @@ import {
 } from '@/components/ui/dialog'
 import { reportClientError } from '@/lib/client-errors'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useDateFormat } from '@/lib/dateFormat'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
 import {
   AlertDialog,
@@ -76,6 +77,10 @@ import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
 
 const RESTART_WARNING_LOCALES = ['en', 'zh-CN', 'fr', 'de', 'es', 'ht', 'pt-BR'] as const
+// Manual restart countdowns, in minutes, plus a custom length.
+const RESTART_PRESETS = [15, 10, 5, 1, 'custom'] as const
+type RestartPreset = typeof RESTART_PRESETS[number]
+const QUICK_BROADCASTS = ['maintenanceStart', 'maintenanceEnd', 'saveWarning', 'welcome'] as const
 
 interface ScheduledTask {
   id: number
@@ -393,7 +398,8 @@ function TimezonePicker({ id, value, onChange, disabled }: TimezonePickerProps) 
 }
 
 export default function Scheduler() {
-  const { t, i18n } = useTranslation('scheduler')
+  const { t } = useTranslation('scheduler')
+  const { formatDateTime } = useDateFormat()
   const weekDays = useMemo(() => getWeekDays(t), [t])
   const commonCommands = useMemo(() => getCommonCommands(t), [t])
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
@@ -489,6 +495,7 @@ export default function Scheduler() {
 
   // Restart form
   const [restartMinutes, setRestartMinutes] = useState(5)
+  const [restartPreset, setRestartPreset] = useState<RestartPreset>(5)
   const [serverRunning, setServerRunning] = useState<boolean>(false)
 
   // 2026-09-08 (retry-stacking sweep): `manual` distinguishes a human
@@ -969,56 +976,29 @@ export default function Scheduler() {
     }
   }
 
-  const handleRestartNow = async () => {
+  // One path for every countdown, preset or custom. The custom field's
+  // min/max are only native <input> attributes and the server caps the
+  // countdown at 60, so the toast reports the countdown the server actually
+  // applied, not the one asked for.
+  const handleRestart = async (minutes: number) => {
     setLoading(true)
     try {
-      const result = await schedulerApi.restartNow(restartMinutes)
+      const result = await schedulerApi.restartNow(minutes)
       const applied = result.warningMinutes
-      // The NumberInput's min/max are decorative (native <input> attrs
-      // only, no client-side clamp function passed) -- an operator can type
-      // past them, and the server silently caps at 60. Compare what was
-      // requested against what the server actually used instead of just
-      // echoing back the client's own state, which used to say e.g. "500
-      // minutes" when the real countdown was 60.
-      if (applied !== restartMinutes) {
+      if (applied !== minutes) {
         toast({
           title: t('toasts.restartInitiatedTitle'),
-          description: t('toasts.restartMinutesClampedDesc', { requested: restartMinutes, applied }),
+          description: t('toasts.restartMinutesClampedDesc', { requested: minutes, applied }),
           variant: 'warning' as const,
         })
       } else {
         toast({
           title: t('toasts.restartInitiatedTitle'),
-          // Pre-existing bug, caught while touching this code (2026-08-27):
-          // restartInitiatedDesc/_WithWarningsDesc are pluralized keys
-          // (_one/_other), which i18next only resolves via a `count` param
-          // -- passing `minutes` alone silently returned the raw key
-          // string, invisible until something actually asserted on the
-          // rendered toast text.
-          description: t('toasts.restartInitiatedDesc', { count: applied, minutes: applied }),
+          // Pluralized key: i18next resolves _one/_other only from `count`.
+          description: t('toasts.restartInitiatedWithWarningsDesc', { count: applied, minutes: applied }),
           variant: 'success' as const,
         })
       }
-    } catch (error) {
-      toast({
-        title: t('toasts.errorTitle'),
-        description: getUserErrorMessage(error, t('toasts.restartFailedFallback')),
-        variant: 'destructive',
-      })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleRestartWithWarning = async (minutes: number) => {
-    setLoading(true)
-    try {
-      const result = await schedulerApi.restartNow(minutes)
-      toast({
-        title: t('toasts.restartInitiatedTitle'),
-        description: t('toasts.restartInitiatedWithWarningsDesc', { count: result.warningMinutes, minutes: result.warningMinutes }),
-        variant: 'success' as const,
-      })
     } catch (error) {
       toast({
         title: t('toasts.errorTitle'),
@@ -1079,6 +1059,22 @@ export default function Scheduler() {
         <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
       </div>
     )
+  }
+
+  const restartCountdown = restartPreset === 'custom' ? restartMinutes : restartPreset
+  const restartBlocked = loading || !serverRunning || !canRestartNow
+  // An emptied custom field is NaN until it's filled in again.
+  const restartButtonLabel = Number.isFinite(restartCountdown)
+    ? t('manualRestart.confirmShortRestart', { count: restartCountdown })
+    : t('manualRestart.customCountdownLabel')
+  const activeTaskCount = tasks.filter((task) => task.enabled).length
+  // The restart card's "Edit the warning message" link: the template lives
+  // in the settings card further down.
+  const focusRestartWarningTemplate = () => {
+    const field = document.getElementById('restart-warning-template')
+    if (!field) return
+    field.scrollIntoView({ block: 'center' })
+    field.focus({ preventScroll: true })
   }
 
   return (
@@ -1380,817 +1376,738 @@ export default function Scheduler() {
           </DialogContent>
       </Dialog>
 
-      {/* Timezone-picker card (2026-08-29, hunt-wave5 follow-up): the
-          install-wide zone EVERY schedule below (user tasks, the backup
-          job, AUTO_RESTART_CRON) runs in. Migrated automatically on
-          upgrade to whatever was already effective, so this section shows
-          a real, already-correct value even for an operator who never
-          opens it -- it only needs to be touched to CHANGE the zone. */}
-      <Card>
-        <CardHeader className="p-4 pb-3">
-          <div className="flex items-center gap-1.5">
-            <CardTitle className="text-base">{t('timezone.title')}</CardTitle>
-            <HelpTip label={t('timezone.title')}>{t('timezone.description')}</HelpTip>
-          </div>
-        </CardHeader>
-        <CardContent className="p-4 pt-0 space-y-2">
-          {status?.timezoneFallback && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>{t('timezone.fallbackTitle')}</AlertTitle>
-              <AlertDescription>
-                {t('timezone.fallbackDesc', {
-                  configured: status.timezoneFallback.configured,
-                  effective: status.timezoneFallback.effective,
-                })}
-              </AlertDescription>
-            </Alert>
-          )}
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <div className="flex-1 space-y-1.5">
-              <Label htmlFor="scheduler-timezone-input">{t('timezone.inputLabel')}</Label>
-              <TimezonePicker
-                id="scheduler-timezone-input"
-                value={timezoneInput}
-                onChange={setTimezoneInput}
-                disabled={timezoneSaving}
-              />
-            </div>
-            <Button
-              onClick={handleSaveTimezone}
-              disabled={timezoneSaving || !timezoneInput.trim() || timezoneInput.trim() === status?.configuredTimezone}
-            >
-              {timezoneSaving ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
-              {t('timezone.saveButton')}
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {t('timezone.currentlyEffective', { tz: status?.timezone || '...' })}
-          </p>
-          {/* autoRestartEnabled/backupScheduleEnabled were already fetched
-              into `status` but never rendered anywhere on this page -- an
-              operator with AUTO_RESTART_ENABLED set in the environment, or
-              whose automatic backup schedule stopped running, had no way to
-              tell from the Scheduler page itself, even though the card
-              above already claims both run in this timezone. Gated on
-              `status` being loaded so a fetch failure shows nothing here
-              rather than a misleading "off". */}
-          {status && (
-            <p className="text-xs text-muted-foreground">
-              {t('timezone.systemSchedules', {
-                backup: status.backupScheduleEnabled ? t('timezone.backupScheduleOn') : t('timezone.backupScheduleOff'),
-                autoRestart: status.autoRestartEnabled ? t('timezone.autoRestartOn') : t('timezone.autoRestartOff'),
-              })}
-            </p>
-          )}
-          {/* continuous-bug-hunt round 28 (ux-proposals-need-backend-data):
-              backupScheduleEnabled (above) only ever said on/off -- an
-              operator couldn't tell from THIS page whether the schedule was
-              actually succeeding, when it last tried, or when it will try
-              next (Dashboard/Backups already surface last-attempt failure,
-              but not here, and neither page had a next-run time at all
-              until this round). Gated on backups being enabled: an off
-              schedule has no next run and no recent attempt worth showing. */}
-          {status?.backupScheduleEnabled && (
-            <div className="mt-2 space-y-1 rounded-md border border-border/50 bg-muted/20 px-3 py-2">
-              <p className="text-xs font-medium text-foreground/80">{t('timezone.backupHealthTitle')}</p>
-              {backupStatus?.lastScheduledBackupAttempt ? (() => {
-                const attempt = backupStatus.lastScheduledBackupAttempt
-                const date = new Date(attempt.executedAt).toLocaleString(i18n.language)
-                // Colour from scheduledBackupHealth(), the same verdict the
-                // Dashboard and Backups page use, so the three can't
-                // disagree: a restart skip (panels up to v1.3.8 dropped a
-                // backup that landed on a restart) is amber, a real failure
-                // red -- and either one is muted once any backup has
-                // succeeded since (recoveredAt), which is exactly what the
-                // Dashboard tells the operator to do. The line itself stays:
-                // it's still this schedule's history, just not a live problem,
-                // and the line under it says why.
-                const health = scheduledBackupHealth(true, attempt)
-                const recoveredAt = attempt.success ? null : attempt.recoveredAt ?? null
-                const text = attempt.success
-                  ? t('timezone.backupLastAttemptOk', { date })
-                  : attempt.skipReason === 'restart'
-                    ? t('timezone.backupLastAttemptSkippedForRestart', { date })
-                    : t('timezone.backupLastAttemptFailed', {
-                        date,
-                        reason: scheduledAttemptMessage(attempt.message, attempt.messageKey, attempt.messageParams)
-                          || t('scheduledTasks.lastRunFailedUnknownReason'),
-                      })
-                return (
-                  <>
-                    <p className={cn(
-                      'flex items-center gap-1 text-xs',
-                      health === 'skippedForRestart'
-                        ? 'text-amber-600 dark:text-amber-400'
-                        : health === 'failing'
-                          ? 'text-destructive'
-                          : 'text-muted-foreground',
-                    )}>
-                      {attempt.success ? (
-                        <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
-                      ) : attempt.skipReason === 'restart' ? (
-                        <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
-                      ) : (
-                        <XCircle className="w-3 h-3 shrink-0" aria-hidden="true" />
-                      )}
-                      <span className="truncate" title={text}>{text}</span>
-                    </p>
-                    {/* Its own line rather than a suffix: the failure line
-                        above truncates, and a long reason would cut this off. */}
-                    {recoveredAt && (
-                      <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
-                        <span className="truncate">
-                          {t('timezone.backupRecoveredSince', { date: new Date(recoveredAt).toLocaleString(i18n.language) })}
-                        </span>
-                      </p>
-                    )}
-                  </>
-                )
-              })() : (
-                <p className="text-xs text-muted-foreground">{t('timezone.backupNoAttemptYet')}</p>
-              )}
-              {status.backupNextRun && (
-                <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Clock className="w-3 h-3 shrink-0" aria-hidden="true" />
-                  <span className="truncate">{t('timezone.backupNextRun', { date: new Date(status.backupNextRun).toLocaleString(i18n.language) })}</span>
-                </p>
-              )}
-              {/* This page is where restarts get scheduled, so it's where an
-                  operator stacking one on top of the backup schedule needs to
-                  hear that those backups will wait for it and run late.
-                  No timezone line of its own: this card is the timezone
-                  card, and says which zone is in effect just above. */}
-              <BackupRestartOverlapNotice overlaps={backupStatus?.restartOverlaps} hideTimeZone className="mt-2" />
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="p-4 pb-3">
-          <div className="flex items-center gap-1.5">
-            <CardTitle className="text-base">{t('restartWarning.title')}</CardTitle>
-            <HelpTip label={t('restartWarning.title')}>{t('restartWarning.description')}</HelpTip>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3 p-4 pt-0">
-          <div className="grid gap-3 sm:grid-cols-[12rem_minmax(0,1fr)]">
-            <div className="space-y-1.5">
-              <Label htmlFor="restart-warning-language">{t('restartWarning.languageLabel')}</Label>
-              <Select
-                value={restartWarningLocale}
-                onValueChange={(locale: typeof RESTART_WARNING_LOCALES[number]) => selectRestartWarningLocale(locale)}
-                disabled={restartWarningSaving}
-              >
-                <SelectTrigger id="restart-warning-language">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {RESTART_WARNING_LOCALES.map((locale) => (
-                    <SelectItem key={locale} value={locale}>
-                      {t(`restartWarning.languages.${locale}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="restart-warning-template">{t('restartWarning.templateLabel')}</Label>
-              <Textarea
-                id="restart-warning-template"
-                value={restartWarningTemplate}
-                onChange={(event) => {
-                  restartWarningDirtyRef.current = true
-                  setRestartWarningTemplate(event.target.value)
-                }}
-                maxLength={300}
-                disabled={restartWarningSaving}
-              />
-              <p className="text-xs text-muted-foreground">{t('restartWarning.templateHint')}</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              onClick={resetRestartWarningTemplate}
-              disabled={restartWarningSaving || !status?.restartWarningPresets?.[restartWarningLocale]}
-            >
-              {t('restartWarning.presetButton')}
-            </Button>
-            <Button
-              onClick={handleSaveRestartWarning}
-              disabled={restartWarningSaving || !restartWarningTemplate.trim()}
-            >
-              {restartWarningSaving ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}
-              {t('restartWarning.saveButton')}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Status Cards — only when tasks exist */}
-      {tasks.length > 0 && (() => {
-        const activeCount = tasks.filter(t => t.enabled).length
-        const totalCount = tasks.length
-        const restartCount = tasks.filter(t => t.command.toLowerCase() === 'restart').length
-        const restartActive = tasks.filter(t => t.enabled && t.command.toLowerCase() === 'restart').length > 0
-        const modRestartPending = !!status?.modUpdateRestartPending
-        const tiles = [
-          {
-            icon: <Clock className="w-4 h-4" />,
-            label: t('statusTiles.activeTasks'),
-            value: String(activeCount),
-            sub: t('statusTiles.totalTasksSub', { count: totalCount }),
-            tone: activeCount > 0 ? 'primary' : 'muted',
-          },
-          {
-            icon: <RotateCcw className="w-4 h-4" />,
-            label: t('statusTiles.restartTasks'),
-            value: restartActive ? t('statusTiles.restartScheduled') : t('statusTiles.restartNone'),
-            sub: t('statusTiles.restartTasksSub', { count: restartCount }),
-            tone: restartActive ? 'primary' : 'muted',
-          },
-          {
-            icon: <Calendar className="w-4 h-4" />,
-            label: t('statusTiles.modUpdateRestart'),
-            value: modRestartPending ? t('statusTiles.modUpdatePending') : t('statusTiles.modUpdateNone'),
-            sub: t('statusTiles.modUpdateSub'),
-            tone: modRestartPending ? 'warning' : 'muted',
-          },
-        ] as const
-        const toneClasses = {
-          primary: { tile: 'border-primary/30 bg-primary/[0.06] text-primary', value: 'text-foreground' },
-          warning: { tile: 'border-warning/40 bg-warning/10 text-warning', value: 'text-warning' },
-          muted: { tile: 'border-border/55 bg-muted/30 text-muted-foreground', value: 'text-muted-foreground' },
-        }
-        return (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {tiles.map(tile => {
-              const cls = toneClasses[tile.tone]
-              return (
-                <Card key={tile.label} className="overflow-hidden">
-                  <CardContent className="flex items-center gap-3 p-4">
-                    <div className={`grid place-items-center w-10 h-10 rounded-md border ${cls.tile}`} aria-hidden="true">
-                      {tile.icon}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{tile.label}</p>
-                      <p className={`text-xl font-semibold leading-tight mt-0.5 ${cls.value}`}>{tile.value}</p>
-                      <p className="text-[11px] text-muted-foreground/80 mt-0.5 truncate">{tile.sub}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              )
-            })}
-          </div>
-        )
-      })()}
-
-      {/* Quick Actions — 2-col grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Manual Restart */}
+      {/* Act now: the two things an operator does here mid-session sit
+          above the schedule, so a restart is one choice and one click. */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <Card>
-        <CardHeader className="p-4 pb-3">
-          <CardTitle>{t('manualRestart.title')}</CardTitle>
-          <CardDescription>
-            {serverRunning
-              ? t('manualRestart.descRunning')
-              : t('manualRestart.descOffline')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-4 pt-0 space-y-3">
-          {/* Quick Restart Buttons — each triggers an immediate restart with that warning length */}
-          <div className="flex flex-wrap gap-2">
-            <DisabledReason reason={!canRestartNow ? t('manualRestart.noPermission') : null}>
-              <Button
-                onClick={() => handleRestartWithWarning(15)}
-                disabled={loading || !serverRunning || !canRestartNow}
-                variant="outline"
-                size="sm"
-                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Restart in 15 minutes with countdown warnings"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
-                title={t('manualRestart.restartIn15Title')}
-              >
-                <Clock className="w-4 h-4 me-2" />
-                {t('manualRestart.restartIn15')}
-              </Button>
-            </DisabledReason>
-            <DisabledReason reason={!canRestartNow ? t('manualRestart.noPermission') : null}>
-              <Button
-                onClick={() => handleRestartWithWarning(10)}
-                disabled={loading || !serverRunning || !canRestartNow}
-                variant="outline"
-                size="sm"
-                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Restart in 10 minutes with countdown warnings"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
-                title={t('manualRestart.restartIn10Title')}
-              >
-                <Clock className="w-4 h-4 me-2" />
-                {t('manualRestart.restartIn10')}
-              </Button>
-            </DisabledReason>
-            <DisabledReason reason={!canRestartNow ? t('manualRestart.noPermission') : null}>
-              <Button
-                onClick={() => handleRestartWithWarning(5)}
-                disabled={loading || !serverRunning || !canRestartNow}
-                variant="outline"
-                size="sm"
-                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Restart in 5 minutes with countdown warnings"); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
-                title={t('manualRestart.restartIn5Title')}
-              >
-                <Clock className="w-4 h-4 me-2" />
-                {t('manualRestart.restartIn5')}
-              </Button>
-            </DisabledReason>
-            <DisabledReason reason={!canRestartNow ? t('manualRestart.noPermission') : null}>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  disabled={loading || !serverRunning || !canRestartNow}
-                  variant="warning"
-                  size="sm"
-                  // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Restart in 1 minute — short warning, requires confirmation", describing the action's own confirm-dialog behavior, not why it's disabled); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
-                  title={t('manualRestart.restartIn1Title')}
-                >
-                  <Clock className="w-4 h-4 me-2" />
-                  {t('manualRestart.restartIn1')}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>{t('manualRestart.restartIn1DialogTitle')}</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {t('manualRestart.restartIn1DialogDesc')}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>{t('manualRestart.cancel')}</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => handleRestartWithWarning(1)}
-                    className="bg-warning text-warning-foreground hover:bg-warning/90"
+          <CardHeader className="p-4 pb-3">
+            <CardTitle className="text-base">{t('manualRestart.title')}</CardTitle>
+            <CardDescription>
+              {serverRunning
+                ? t('manualRestart.descRunning')
+                : t('manualRestart.descOffline')}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 p-4 pt-0">
+            {/* One countdown choice instead of four buttons that each
+                restarted on click: picking a length no longer fires a
+                restart, and the single action below is the only amber
+                control on the page. */}
+            <fieldset className="space-y-2" disabled={restartBlocked}>
+              <legend className="text-sm font-medium">{t('manualRestart.countdownLabel')}</legend>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex flex-wrap rounded-lg border border-border/60 bg-muted/25 p-0.5">
+                  {RESTART_PRESETS.map((preset) => (
+                    <label key={preset} className="relative">
+                      <input
+                        type="radio"
+                        name="restart-countdown"
+                        value={preset}
+                        checked={restartPreset === preset}
+                        onChange={() => setRestartPreset(preset)}
+                        className="peer sr-only"
+                      />
+                      <span className="inline-flex h-8 min-w-[3.25rem] cursor-pointer items-center justify-center rounded-md px-3 text-sm text-muted-foreground transition-colors hover:text-foreground peer-checked:bg-background peer-checked:font-medium peer-checked:text-foreground peer-checked:shadow-sm peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-disabled:cursor-not-allowed peer-disabled:opacity-60 peer-disabled:hover:text-muted-foreground [@media(pointer:coarse)]:h-11">
+                        {preset === 'custom'
+                          ? t('manualRestart.customOption')
+                          : t('manualRestart.minutesShort', { count: preset })}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {restartPreset === 'custom' && (
+                  <NumberInput
+                    id="restart-custom-minutes"
+                    aria-label={t('manualRestart.customCountdownLabel')}
+                    value={restartMinutes}
+                    onChange={setRestartMinutes}
+                    min={1}
+                    max={30}
+                    className="w-24"
+                    onWheel={(e) => e.currentTarget.blur()}
+                  />
+                )}
+              </div>
+            </fieldset>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <DisabledReason reason={!canRestartNow ? t('manualRestart.noPermission') : null}>
+                {Number.isFinite(restartCountdown) && restartCountdown < 5 ? (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="warning" disabled={restartBlocked}>
+                        <RotateCcw className="w-4 h-4 me-2" />
+                        {restartButtonLabel}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>{t('manualRestart.shortCountdownDialogTitle', { count: restartCountdown })}</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          {t('manualRestart.shortCountdownDialogDesc')}
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>{t('manualRestart.cancel')}</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => handleRestart(restartCountdown)}
+                          className="bg-warning text-warning-foreground hover:bg-warning/90"
+                        >
+                          {t('manualRestart.confirmShortRestart', { count: restartCountdown })}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                ) : (
+                  <Button
+                    variant="warning"
+                    onClick={() => handleRestart(restartCountdown)}
+                    disabled={restartBlocked || !Number.isFinite(restartCountdown)}
                   >
-                    {t('manualRestart.restartIn1')}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-            </DisabledReason>
-          </div>
-
-          {/* Custom Time */}
-          <div className="flex items-end gap-4">
-            <div className="flex-1 max-w-xs">
-              <Label>{t('manualRestart.customCountdownLabel')}</Label>
-              <NumberInput
-                value={restartMinutes}
-                onChange={setRestartMinutes}
-                min={1}
-                max={30}
-              />
-            </div>
-            {restartMinutes < 5 ? (
-              <DisabledReason reason={!canRestartNow ? t('manualRestart.noPermission') : null}>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button disabled={loading || !serverRunning || !Number.isFinite(restartMinutes) || !canRestartNow} variant="warning">
                     <RotateCcw className="w-4 h-4 me-2" />
-                    {t('manualRestart.restartNow')}
+                    {restartButtonLabel}
                   </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>{t('manualRestart.shortCountdownDialogTitle', { count: restartMinutes })}</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      {t('manualRestart.shortCountdownDialogDesc')}
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>{t('manualRestart.cancel')}</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleRestartNow} className="bg-warning text-warning-foreground hover:bg-warning/90">
-                      {t('manualRestart.confirmShortRestart', { count: restartMinutes })}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+                )}
               </DisabledReason>
-            ) : (
-              <DisabledReason reason={!canRestartNow ? t('manualRestart.noPermission') : null}>
-                <Button
-                  onClick={handleRestartNow}
-                  disabled={loading || !serverRunning || !Number.isFinite(restartMinutes) || !canRestartNow}
-                  variant="warning"
+              <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+                {t('manualRestart.countdownWarningsNote')}{' '}
+                <button
+                  type="button"
+                  onClick={focusRestartWarningTemplate}
+                  className="font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
                 >
-                  <RotateCcw className="w-4 h-4 me-2" />
-                  {t('manualRestart.restartNow')}
-                </Button>
-              </DisabledReason>
-            )}
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {t('manualRestart.countdownWarningsNote')}
-          </p>
-        </CardContent>
-      </Card>
+                  {t('manualRestart.editWarningMessage')}
+                </button>
+              </p>
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* Maintenance Mode */}
-      <Card>
-        <CardHeader className="p-4 pb-3">
-          <CardTitle>{t('quickBroadcasts.title')}</CardTitle>
-          <CardDescription>
-            {serverRunning
-              ? t('quickBroadcasts.descRunning')
-              : t('quickBroadcasts.descOffline')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-4 pt-0">
-          <div className="flex flex-wrap gap-2">
-            <Button
-              onClick={() => handleBroadcast('maintenanceStart', t('broadcastMessages.maintenanceStart'))}
-              variant="outline"
-              size="sm"
-              disabled={broadcastingKey !== null || loading || !serverRunning}
-              className="gap-2"
-            >
-              {broadcastingKey === 'maintenanceStart' && <Loader2 className="w-4 h-4 animate-spin" />}
-              {t('quickBroadcasts.maintenanceStart')}
-            </Button>
-            <Button
-              onClick={() => handleBroadcast('maintenanceEnd', t('broadcastMessages.maintenanceEnd'))}
-              variant="outline"
-              size="sm"
-              disabled={broadcastingKey !== null || loading || !serverRunning}
-              className="gap-2"
-            >
-              {broadcastingKey === 'maintenanceEnd' && <Loader2 className="w-4 h-4 animate-spin" />}
-              {t('quickBroadcasts.maintenanceEnd')}
-            </Button>
-            <Button
-              onClick={() => handleBroadcast('saveWarning', t('broadcastMessages.saveWarning'))}
-              variant="outline"
-              size="sm"
-              disabled={broadcastingKey !== null || loading || !serverRunning}
-              className="gap-2"
-            >
-              {broadcastingKey === 'saveWarning' && <Loader2 className="w-4 h-4 animate-spin" />}
-              {t('quickBroadcasts.saveWarning')}
-            </Button>
-            <Button
-              onClick={() => handleBroadcast('welcome', t('broadcastMessages.welcome'))}
-              variant="outline"
-              size="sm"
-              disabled={broadcastingKey !== null || loading || !serverRunning}
-              className="gap-2"
-            >
-              {broadcastingKey === 'welcome' && <Loader2 className="w-4 h-4 animate-spin" />}
-              {t('quickBroadcasts.welcome')}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+        <Card>
+          <CardHeader className="p-4 pb-3">
+            <CardTitle className="text-base">{t('quickBroadcasts.title')}</CardTitle>
+            <CardDescription>
+              {serverRunning
+                ? t('quickBroadcasts.descRunning')
+                : t('quickBroadcasts.descOffline')}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-4 pt-0">
+            {/* Each row shows the message players will actually read, so
+                the operator never sends one blind. The name stays the
+                button's label; the message is its description. */}
+            <ul className="space-y-2">
+              {QUICK_BROADCASTS.map((key) => (
+                <li key={key}>
+                  <button
+                    type="button"
+                    onClick={() => handleBroadcast(key, t(`broadcastMessages.${key}`))}
+                    disabled={broadcastingKey !== null || loading || !serverRunning}
+                    aria-labelledby={`broadcast-${key}-label`}
+                    aria-describedby={`broadcast-${key}-message`}
+                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint: the full message, which the row truncates. Why it's disabled (server offline) is the card's own description, and a send in flight shows its spinner.
+                    title={t(`broadcastMessages.${key}`)}
+                    className="group flex w-full items-center gap-3 rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-start transition-colors hover:border-primary/40 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-border/60 disabled:hover:bg-muted/25"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span id={`broadcast-${key}-label`} className="block text-sm font-medium text-foreground">
+                        {t(`quickBroadcasts.${key}`)}
+                      </span>
+                      <span id={`broadcast-${key}-message`} className="block truncate text-xs text-muted-foreground" dir="auto">
+                        {t(`broadcastMessages.${key}`)}
+                      </span>
+                    </span>
+                    {broadcastingKey === key ? (
+                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
+                    ) : (
+                      <Send className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary group-disabled:text-muted-foreground rtl:-scale-x-100" aria-hidden="true" />
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Scheduled Tasks */}
+      {/* Scheduled Tasks: the page's own subject, right under the actions.
+          The summary that used to be three stat tiles is a line of chips in
+          its header, next to the list it summarises. */}
       <Card>
         <CardHeader className="p-4 pb-3">
-          <CardTitle>{t('scheduledTasks.title')}</CardTitle>
-          <CardDescription>
-            {t('scheduledTasks.description')}
-          </CardDescription>
+          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+            <div className="min-w-0">
+              <CardTitle className="text-base">{t('scheduledTasks.title')}</CardTitle>
+              <CardDescription>
+                {t('scheduledTasks.description')}
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {status?.timezone && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-muted/30 px-2 py-0.5 text-xs text-muted-foreground"
+                  title={`${t('timezone.title')}: ${status.timezone}`}
+                >
+                  <Clock className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  <span aria-hidden="true">{status.timezone}</span>
+                  <span className="sr-only">{`${t('timezone.title')}: ${status.timezone}`}</span>
+                </span>
+              )}
+              {tasks.length > 0 && (
+                <span className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/[0.06] px-2 py-0.5 text-xs text-foreground">
+                  <span className="font-semibold tabular-nums">{activeTaskCount}/{tasks.length}</span>
+                  <span className="text-muted-foreground">{t('statusTiles.activeTasks')}</span>
+                </span>
+              )}
+              {status?.modUpdateRestartPending && (
+                <span className="inline-flex items-center gap-1 rounded-md border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs text-warning">
+                  <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
+                  {t('statusTiles.modUpdateRestart')}: {t('statusTiles.modUpdatePending')}
+                </span>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-4 pt-0">
-          <ScrollArea className="h-[300px] sm:h-[400px]">
-            {tasks.length === 0 ? (
-              <EmptyState
-                type="noSchedule"
-                title={t('scheduledTasks.emptyTitle')}
-                description={t('scheduledTasks.emptyDesc')}
-                action={{ label: t('scheduledTasks.emptyActionLabel'), onClick: () => { resetTaskForm(); setDialogOpen(true) } }}
-              />
-            ) : (
-              <div className="space-y-3">
-                {tasks.map((task) => (
-                  <div
-                    key={task.id}
-                    className={`group relative flex flex-col gap-3 p-4 rounded-lg border transition-colors sm:flex-row sm:items-center ${
-                      task.enabled
-                        ? 'bg-card border-border/60 hover:border-primary/40'
-                        : 'bg-muted/30 border-border/40 text-muted-foreground'
-                    }`}
-                  >
-                    <div className="flex flex-1 min-w-0 items-center gap-3">
-                      {/* Leading status pip — solid + ping when active, hollow when disabled */}
-                      <div className="shrink-0 self-stretch flex items-center" aria-hidden="true">
-                        {task.enabled ? (
-                          <span className="relative inline-flex">
-                            <span className="absolute inset-0 rounded-full bg-primary/40 animate-ping motion-reduce:hidden" />
-                            <span className="relative w-2 h-2 rounded-full bg-primary" />
+          {tasks.length === 0 ? (
+            <EmptyState
+              type="noSchedule"
+              title={t('scheduledTasks.emptyTitle')}
+              description={t('scheduledTasks.emptyDesc')}
+              action={{ label: t('scheduledTasks.emptyActionLabel'), onClick: () => { resetTaskForm(); setDialogOpen(true) } }}
+            />
+          ) : (
+            <div className="space-y-3">
+              {tasks.map((task) => (
+                <div
+                  key={task.id}
+                  className={`group relative flex flex-col gap-3 p-4 rounded-lg border transition-colors sm:flex-row sm:items-center ${
+                    task.enabled
+                      ? 'bg-card border-border/60 hover:border-primary/40'
+                      : 'bg-muted/30 border-border/40 text-muted-foreground'
+                  }`}
+                >
+                  <div className="flex flex-1 min-w-0 items-center gap-3">
+                    {/* Leading status pip — solid + ping when active, hollow when disabled */}
+                    <div className="shrink-0 self-stretch flex items-center" aria-hidden="true">
+                      {task.enabled ? (
+                        <span className="relative inline-flex">
+                          <span className="absolute inset-0 rounded-full bg-primary/40 animate-ping motion-reduce:hidden" />
+                          <span className="relative w-2 h-2 rounded-full bg-primary" />
+                        </span>
+                      ) : (
+                        <span className="w-2 h-2 rounded-full border border-muted-foreground/50" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <h3 className="font-medium truncate text-foreground">{task.name}</h3>
+                        {getServerLabel(task.server_id) && (
+                          <span
+                            className="shrink-0 text-[11px] font-medium bg-primary/10 border border-primary/30 px-1.5 py-0.5 rounded text-primary truncate max-w-[140px]"
+                            title={t('scheduledTasks.targetServerTitle', { server: getServerLabel(task.server_id) })}
+                          >
+                            {getServerLabel(task.server_id)}
                           </span>
-                        ) : (
-                          <span className="w-2 h-2 rounded-full border border-muted-foreground/50" />
                         )}
+                        <code className="shrink-0 text-[11px] font-mono bg-muted/70 border border-border/50 px-1.5 py-0.5 rounded text-muted-foreground truncate max-w-[180px]" title={task.cron_expression}>
+                          {task.cron_expression}
+                        </code>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <h3 className="font-medium truncate text-foreground">{task.name}</h3>
-                          {getServerLabel(task.server_id) && (
-                            <span
-                              className="shrink-0 text-[11px] font-medium bg-primary/10 border border-primary/30 px-1.5 py-0.5 rounded text-primary truncate max-w-[140px]"
-                              title={t('scheduledTasks.targetServerTitle', { server: getServerLabel(task.server_id) })}
+                      <p className="text-sm text-muted-foreground mt-1 truncate">
+                        <code className="text-primary/90 font-mono text-xs">{task.command}</code>
+                      </p>
+                      {(() => {
+                        const latestRun = latestRunByTaskId.get(task.id)
+                        if (latestRun) {
+                          return (
+                            <p
+                              className={`flex items-center gap-1 text-[11px] mt-1 ${
+                                latestRun.success ? 'text-muted-foreground/70' : 'text-destructive'
+                              }`}
                             >
-                              {getServerLabel(task.server_id)}
-                            </span>
-                          )}
-                          <code className="shrink-0 text-[11px] font-mono bg-muted/70 border border-border/50 px-1.5 py-0.5 rounded text-muted-foreground truncate max-w-[180px]" title={task.cron_expression}>
-                            {task.cron_expression}
-                          </code>
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-1 truncate">
-                          <code className="text-primary/90 font-mono text-xs">{task.command}</code>
+                              {latestRun.success ? (
+                                <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
+                              ) : (
+                                <XCircle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                              )}
+                              <span className="truncate">
+                                {latestRun.success
+                                  ? t('scheduledTasks.lastRun', { date: formatDateTime(latestRun.executed_at, { seconds: true }) })
+                                  : t('scheduledTasks.lastRunFailed', {
+                                      date: formatDateTime(latestRun.executed_at, { seconds: true }),
+                                      reason: latestRun.message || t('scheduledTasks.lastRunFailedUnknownReason'),
+                                    })}
+                              </span>
+                            </p>
+                          )
+                        }
+                        if (task.last_run) {
+                          return (
+                            <p className="text-[11px] text-muted-foreground/70 mt-1">
+                              {t('scheduledTasks.lastRun', { date: formatDateTime(task.last_run, { seconds: true }) })}
+                            </p>
+                          )
+                        }
+                        return null
+                      })()}
+                      {/* continuous-bug-hunt round 28 (ux-proposals-need-
+                          backend-data): GET /scheduler/tasks now computes
+                          next_run server-side (scheduler.getTaskNextRun) --
+                          naturally absent for a disabled task, which is
+                          exactly when there's nothing upcoming to show. */}
+                      {task.next_run && (
+                        <p className="flex items-center gap-1 text-[11px] text-muted-foreground/70 mt-1">
+                          <Clock className="w-3 h-3 shrink-0" aria-hidden="true" />
+                          <span className="truncate">
+                            {t('scheduledTasks.nextRun', { date: formatDateTime(task.next_run, { seconds: true }) })}
+                          </span>
                         </p>
-                        {(() => {
-                          const latestRun = latestRunByTaskId.get(task.id)
-                          if (latestRun) {
-                            return (
-                              <p
-                                className={`flex items-center gap-1 text-[11px] mt-1 ${
-                                  latestRun.success ? 'text-muted-foreground/70' : 'text-destructive'
-                                }`}
-                              >
-                                {latestRun.success ? (
-                                  <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
-                                ) : (
-                                  <XCircle className="w-3 h-3 shrink-0" aria-hidden="true" />
-                                )}
-                                <span className="truncate">
-                                  {latestRun.success
-                                    ? t('scheduledTasks.lastRun', { date: new Date(latestRun.executed_at).toLocaleString(i18n.language) })
-                                    : t('scheduledTasks.lastRunFailed', {
-                                        date: new Date(latestRun.executed_at).toLocaleString(i18n.language),
-                                        reason: latestRun.message || t('scheduledTasks.lastRunFailedUnknownReason'),
-                                      })}
-                                </span>
-                              </p>
-                            )
-                          }
-                          if (task.last_run) {
-                            return (
-                              <p className="text-[11px] text-muted-foreground/70 mt-1">
-                                {t('scheduledTasks.lastRun', { date: new Date(task.last_run).toLocaleString(i18n.language) })}
-                              </p>
-                            )
-                          }
-                          return null
-                        })()}
-                        {/* continuous-bug-hunt round 28 (ux-proposals-need-
-                            backend-data): GET /scheduler/tasks now computes
-                            next_run server-side (scheduler.getTaskNextRun) --
-                            naturally absent for a disabled task, which is
-                            exactly when there's nothing upcoming to show. */}
-                        {task.next_run && (
-                          <p className="flex items-center gap-1 text-[11px] text-muted-foreground/70 mt-1">
-                            <Clock className="w-3 h-3 shrink-0" aria-hidden="true" />
-                            <span className="truncate">
-                              {t('scheduledTasks.nextRun', { date: new Date(task.next_run).toLocaleString(i18n.language) })}
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 self-end sm:self-auto">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleRunNow(task)}
+                      disabled={loading || runningTaskId !== null}
+                      // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Run task now"); disables only on transient UI state (a page-wide loading flag, or another task already running), not a permission gate -- no DisabledReason-worthy reason to lose. Triaged 2026-08-27.
+                      title={t('scheduledTasks.runNowTitle')}
+                      aria-label={t('scheduledTasks.runNowAria', { name: task.name })}
+                    >
+                      {runningTaskId === task.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Play className="w-4 h-4" />
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleEditTask(task)}
+                      disabled={loading}
+                      // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Edit task"); disables only on the page-wide loading flag, not a permission gate -- no DisabledReason-worthy reason to lose. Triaged 2026-08-27.
+                      title={t('scheduledTasks.editTitle')}
+                      aria-label={t('scheduledTasks.editAria', { name: task.name })}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Switch
+                      checked={!!task.enabled}
+                      onCheckedChange={() => handleToggleTask(task)}
+                      disabled={loading}
+                      aria-label={t('scheduledTasks.toggleAria', { name: task.name })}
+                    />
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          disabled={loading}
+                          // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Delete task"), matching Run Now/Edit's own title+aria-label split above; disables only on the page-wide loading flag, not a permission gate.
+                          title={t('scheduledTasks.deleteTitle')}
+                          aria-label={t('scheduledTasks.deleteAria', { name: task.name })}
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>{t('scheduledTasks.deleteDialogTitle')}</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            {t('scheduledTasks.deleteDialogDesc', { name: task.name })}
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>{t('manualRestart.cancel')}</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => handleDeleteTask(task.id)}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          >
+                            {t('scheduledTasks.deleteConfirm')}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* History beside the settings that shape it: both are looked at
+          less often than the schedule, and side by side on wide screens. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:items-start">
+        {/* Execution History */}
+        <Card>
+          <CardHeader className="p-4 pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <History className="w-5 h-5" />
+                  {t('executionHistory.title')}
+                </CardTitle>
+                <CardDescription>
+                  {t('executionHistory.description')}
+                  {history.length >= EXECUTION_HISTORY_FETCH_LIMIT && (
+                    <span className="block text-xs text-muted-foreground/80">
+                      {t('executionHistory.truncatedHint', { count: history.length })}
+                    </span>
+                  )}
+                </CardDescription>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fetchData({ manual: true })}
+                  disabled={loading}
+                >
+                  <RefreshCw className="w-4 h-4 me-1" />
+                  {t('executionHistory.refresh')}
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={loading || history.length === 0}
+                    >
+                      <Trash2 className="w-4 h-4 me-1" />
+                      {t('executionHistory.clear')}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>{t('executionHistory.clearDialogTitle')}</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        {t('executionHistory.clearDialogDesc', { count: history.length })}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>{t('manualRestart.cancel')}</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={handleClearHistory}
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      >
+                        {t('executionHistory.clearAllConfirm')}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-4 pt-0">
+            {/* A cap, not a height: a short history no longer leaves a
+                block of empty card beside the settings. */}
+            <ScrollArea className="max-h-[300px] sm:max-h-[400px]">
+              {history.length === 0 ? (
+                <EmptyState type="noSchedule" title={t('executionHistory.emptyTitle')} description={t('executionHistory.emptyDesc')} />
+              ) : (
+                <div className="space-y-2">
+                  {history.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className={`p-3 rounded-lg border border-border/40 ${
+                        entry.success ? 'bg-card' : 'bg-destructive/[0.06]'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          {entry.success ? (
+                            <CheckCircle2 className="w-4 h-4 text-primary flex-shrink-0" aria-hidden="true" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-destructive flex-shrink-0" aria-hidden="true" />
+                          )}
+                          <span className="sr-only">{entry.success ? t('executionHistory.succeeded') : t('executionHistory.failed')}</span>
+                          <div>
+                            <span className="font-medium">
+                              {entry.task_name_key
+                                ? t(`executionHistory.systemTasks.${entry.task_name_key}`, { defaultValue: entry.task_name })
+                                : entry.task_name}
                             </span>
+                            <code className="ms-2 text-xs bg-muted px-1.5 py-0.5 rounded">
+                              {entry.command}
+                            </code>
+                          </div>
+                        </div>
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          {formatDateTime(entry.executed_at, { seconds: true })}
+                        </span>
+                      </div>
+                      <div className="mt-1 ms-6 text-sm">
+                        {entry.message && (
+                          <p className={entry.success ? 'text-muted-foreground' : 'text-destructive'}>
+                            {/* Translated where the panel wrote the message
+                                itself (message_key); a raw error as is. */}
+                            {scheduledAttemptMessage(entry.message, entry.message_key, entry.message_params)}
+                          </p>
+                        )}
+                        {entry.duration !== null && (
+                          <p className="text-xs text-muted-foreground">
+                            {t('executionHistory.duration', { seconds: (entry.duration / 1000).toFixed(1) })}
                           </p>
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 self-end sm:self-auto">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleRunNow(task)}
-                        disabled={loading || runningTaskId !== null}
-                        // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Run task now"); disables only on transient UI state (a page-wide loading flag, or another task already running), not a permission gate -- no DisabledReason-worthy reason to lose. Triaged 2026-08-27.
-                        title={t('scheduledTasks.runNowTitle')}
-                        aria-label={t('scheduledTasks.runNowAria', { name: task.name })}
-                      >
-                        {runningTaskId === task.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Play className="w-4 h-4" />
-                        )}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleEditTask(task)}
-                        disabled={loading}
-                        // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Edit task"); disables only on the page-wide loading flag, not a permission gate -- no DisabledReason-worthy reason to lose. Triaged 2026-08-27.
-                        title={t('scheduledTasks.editTitle')}
-                        aria-label={t('scheduledTasks.editAria', { name: task.name })}
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </Button>
-                      <Switch
-                        checked={!!task.enabled}
-                        onCheckedChange={() => handleToggleTask(task)}
-                        disabled={loading}
-                        aria-label={t('scheduledTasks.toggleAria', { name: task.name })}
-                      />
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            disabled={loading}
-                            // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Delete task"), matching Run Now/Edit's own title+aria-label split above; disables only on the page-wide loading flag, not a permission gate.
-                            title={t('scheduledTasks.deleteTitle')}
-                            aria-label={t('scheduledTasks.deleteAria', { name: task.name })}
-                          >
-                            <Trash2 className="w-4 h-4 text-destructive" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>{t('scheduledTasks.deleteDialogTitle')}</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              {t('scheduledTasks.deleteDialogDesc', { name: task.name })}
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>{t('manualRestart.cancel')}</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={() => handleDeleteTask(task.id)}
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            >
-                              {t('scheduledTasks.deleteConfirm')}
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </ScrollArea>
-        </CardContent>
-      </Card>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+          </CardContent>
+        </Card>
 
-      {/* Execution History */}
-      <Card>
-        <CardHeader className="p-4 pb-3">
-          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <History className="w-5 h-5" />
-                {t('executionHistory.title')}
-              </CardTitle>
-              <CardDescription>
-                {t('executionHistory.description')}
-                {history.length >= EXECUTION_HISTORY_FETCH_LIMIT && (
-                  <span className="block text-xs text-muted-foreground/80">
-                    {t('executionHistory.truncatedHint', { count: history.length })}
-                  </span>
-                )}
-              </CardDescription>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => fetchData({ manual: true })}
-                disabled={loading}
-              >
-                <RefreshCw className="w-4 h-4 me-1" />
-                {t('executionHistory.refresh')}
-              </Button>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
+        <div className="space-y-4">
+          {/* Schedule settings: the install-wide timezone and the restart
+              warning text, one card with a divider (2026-08-29 timezone
+              card notes: migrated automatically on upgrade, so it shows a
+              real, already-correct value and only needs touching to
+              CHANGE the zone). */}
+          <Card>
+            <CardContent className="space-y-2 p-4">
+              <div className="flex items-center gap-1.5">
+                <h3 className="text-sm font-medium">{t('timezone.title')}</h3>
+                <HelpTip label={t('timezone.title')}>{t('timezone.description')}</HelpTip>
+              </div>
+              {status?.timezoneFallback && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>{t('timezone.fallbackTitle')}</AlertTitle>
+                  <AlertDescription>
+                    {t('timezone.fallbackDesc', {
+                      configured: status.timezoneFallback.configured,
+                      effective: status.timezoneFallback.effective,
+                    })}
+                  </AlertDescription>
+                </Alert>
+              )}
+              <div className="flex items-end gap-2">
+                <div className="flex-1 space-y-1.5">
+                  <Label htmlFor="scheduler-timezone-input">{t('timezone.inputLabel')}</Label>
+                  <TimezonePicker
+                    id="scheduler-timezone-input"
+                    value={timezoneInput}
+                    onChange={setTimezoneInput}
+                    disabled={timezoneSaving}
+                  />
+                </div>
+                <Button
+                  onClick={handleSaveTimezone}
+                  disabled={timezoneSaving || !timezoneInput.trim() || timezoneInput.trim() === status?.configuredTimezone}
+                >
+                  {timezoneSaving ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
+                  {t('timezone.saveButton')}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t('timezone.currentlyEffective', { tz: status?.timezone || '...' })}
+              </p>
+              {/* autoRestartEnabled/backupScheduleEnabled were already fetched
+                  into `status` but never rendered anywhere on this page -- an
+                  operator with AUTO_RESTART_ENABLED set in the environment, or
+                  whose automatic backup schedule stopped running, had no way to
+                  tell from the Scheduler page itself, even though the card
+                  above already claims both run in this timezone. Gated on
+                  `status` being loaded so a fetch failure shows nothing here
+                  rather than a misleading "off". */}
+              {status && (
+                <p className="text-xs text-muted-foreground">
+                  {t('timezone.systemSchedules', {
+                    backup: status.backupScheduleEnabled ? t('timezone.backupScheduleOn') : t('timezone.backupScheduleOff'),
+                    autoRestart: status.autoRestartEnabled ? t('timezone.autoRestartOn') : t('timezone.autoRestartOff'),
+                  })}
+                </p>
+              )}
+              {/* continuous-bug-hunt round 28 (ux-proposals-need-backend-data):
+                  backupScheduleEnabled (above) only ever said on/off -- an
+                  operator couldn't tell from THIS page whether the schedule was
+                  actually succeeding, when it last tried, or when it will try
+                  next (Dashboard/Backups already surface last-attempt failure,
+                  but not here, and neither page had a next-run time at all
+                  until this round). Gated on backups being enabled: an off
+                  schedule has no next run and no recent attempt worth showing. */}
+              {status?.backupScheduleEnabled && (
+                <div className="mt-2 space-y-1 rounded-md border border-border/50 bg-muted/20 px-3 py-2">
+                  <p className="text-xs font-medium text-foreground/80">{t('timezone.backupHealthTitle')}</p>
+                  {backupStatus?.lastScheduledBackupAttempt ? (() => {
+                    const attempt = backupStatus.lastScheduledBackupAttempt
+                    const date = formatDateTime(attempt.executedAt, { seconds: true })
+                    // Colour from scheduledBackupHealth(), the same verdict the
+                    // Dashboard and Backups page use, so the three can't
+                    // disagree: a restart skip (panels up to v1.3.8 dropped a
+                    // backup that landed on a restart) is amber, a real failure
+                    // red -- and either one is muted once any backup has
+                    // succeeded since (recoveredAt), which is exactly what the
+                    // Dashboard tells the operator to do. The line itself stays:
+                    // it's still this schedule's history, just not a live problem,
+                    // and the line under it says why.
+                    const health = scheduledBackupHealth(true, attempt)
+                    const recoveredAt = attempt.success ? null : attempt.recoveredAt ?? null
+                    const text = attempt.success
+                      ? t('timezone.backupLastAttemptOk', { date })
+                      : attempt.skipReason === 'restart'
+                        ? t('timezone.backupLastAttemptSkippedForRestart', { date })
+                        : t('timezone.backupLastAttemptFailed', {
+                            date,
+                            reason: scheduledAttemptMessage(attempt.message, attempt.messageKey, attempt.messageParams)
+                              || t('scheduledTasks.lastRunFailedUnknownReason'),
+                          })
+                    return (
+                      <>
+                        <p className={cn(
+                          'flex items-center gap-1 text-xs',
+                          health === 'skippedForRestart'
+                            ? 'text-amber-600 dark:text-amber-400'
+                            : health === 'failing'
+                              ? 'text-destructive'
+                              : 'text-muted-foreground',
+                        )}>
+                          {attempt.success ? (
+                            <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
+                          ) : attempt.skipReason === 'restart' ? (
+                            <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                          ) : (
+                            <XCircle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                          )}
+                          <span className="truncate" title={text}>{text}</span>
+                        </p>
+                        {/* Its own line rather than a suffix: the failure line
+                            above truncates, and a long reason would cut this off. */}
+                        {recoveredAt && (
+                          <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
+                            <span className="truncate">
+                              {t('timezone.backupRecoveredSince', { date: formatDateTime(recoveredAt, { seconds: true }) })}
+                            </span>
+                          </p>
+                        )}
+                      </>
+                    )
+                  })() : (
+                    <p className="text-xs text-muted-foreground">{t('timezone.backupNoAttemptYet')}</p>
+                  )}
+                  {status.backupNextRun && (
+                    <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Clock className="w-3 h-3 shrink-0" aria-hidden="true" />
+                      <span className="truncate">{t('timezone.backupNextRun', { date: formatDateTime(status.backupNextRun, { seconds: true }) })}</span>
+                    </p>
+                  )}
+                  {/* This page is where restarts get scheduled, so it's where an
+                      operator stacking one on top of the backup schedule needs to
+                      hear that those backups will wait for it and run late.
+                      No timezone line of its own: this card is the timezone
+                      card, and says which zone is in effect just above. */}
+                  <BackupRestartOverlapNotice overlaps={backupStatus?.restartOverlaps} hideTimeZone className="mt-2" />
+                </div>
+              )}
+
+              <div className="mt-4 space-y-3 border-t border-border/40 pt-4">
+                <div className="flex items-center gap-1.5">
+                  <h3 className="text-sm font-medium">{t('restartWarning.title')}</h3>
+                  <HelpTip label={t('restartWarning.title')}>{t('restartWarning.description')}</HelpTip>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="restart-warning-language">{t('restartWarning.languageLabel')}</Label>
+                  <Select
+                    value={restartWarningLocale}
+                    onValueChange={(locale: typeof RESTART_WARNING_LOCALES[number]) => selectRestartWarningLocale(locale)}
+                    disabled={restartWarningSaving}
+                  >
+                    <SelectTrigger id="restart-warning-language">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {RESTART_WARNING_LOCALES.map((locale) => (
+                        <SelectItem key={locale} value={locale}>
+                          {t(`restartWarning.languages.${locale}`)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="restart-warning-template">{t('restartWarning.templateLabel')}</Label>
+                  <Textarea
+                    id="restart-warning-template"
+                    value={restartWarningTemplate}
+                    onChange={(event) => {
+                      restartWarningDirtyRef.current = true
+                      setRestartWarningTemplate(event.target.value)
+                    }}
+                    maxLength={300}
+                    disabled={restartWarningSaving}
+                  />
+                  <p className="text-xs text-muted-foreground">{t('restartWarning.templateHint')}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
                   <Button
                     variant="outline"
-                    size="sm"
-                    disabled={loading || history.length === 0}
+                    onClick={resetRestartWarningTemplate}
+                    disabled={restartWarningSaving || !status?.restartWarningPresets?.[restartWarningLocale]}
                   >
-                    <Trash2 className="w-4 h-4 me-1" />
-                    {t('executionHistory.clear')}
+                    {t('restartWarning.presetButton')}
                   </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>{t('executionHistory.clearDialogTitle')}</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      {t('executionHistory.clearDialogDesc', { count: history.length })}
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>{t('manualRestart.cancel')}</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={handleClearHistory}
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    >
-                      {t('executionHistory.clearAllConfirm')}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="p-4 pt-0">
-          <ScrollArea className="h-[300px] sm:h-[400px]">
-            {history.length === 0 ? (
-              <EmptyState type="noSchedule" title={t('executionHistory.emptyTitle')} description={t('executionHistory.emptyDesc')} />
-            ) : (
-              <div className="space-y-2">
-                {history.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className={`p-3 rounded-lg border border-border/40 ${
-                      entry.success ? 'bg-card' : 'bg-destructive/[0.06]'
-                    }`}
+                  <Button
+                    onClick={handleSaveRestartWarning}
+                    disabled={restartWarningSaving || !restartWarningTemplate.trim()}
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-2">
-                        {entry.success ? (
-                          <CheckCircle2 className="w-4 h-4 text-primary flex-shrink-0" aria-hidden="true" />
-                        ) : (
-                          <XCircle className="w-4 h-4 text-destructive flex-shrink-0" aria-hidden="true" />
-                        )}
-                        <span className="sr-only">{entry.success ? t('executionHistory.succeeded') : t('executionHistory.failed')}</span>
-                        <div>
-                          <span className="font-medium">
-                            {entry.task_name_key
-                              ? t(`executionHistory.systemTasks.${entry.task_name_key}`, { defaultValue: entry.task_name })
-                              : entry.task_name}
-                          </span>
-                          <code className="ms-2 text-xs bg-muted px-1.5 py-0.5 rounded">
-                            {entry.command}
-                          </code>
-                        </div>
-                      </div>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {new Date(entry.executed_at).toLocaleString(i18n.language)}
-                      </span>
+                    {restartWarningSaving ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}
+                    {t('restartWarning.saveButton')}
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Cron Help — collapsible reference */}
+          <Collapsible>
+            <div className="rounded-xl border border-border/40 bg-card/40">
+              <CollapsibleTrigger className="flex w-full items-center justify-between px-5 py-3 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                <span className="flex items-center gap-2">
+                  <HelpCircle className="w-4 h-4" />
+                  {t('cronHelp.title')}
+                </span>
+                <ChevronDown className="w-4 h-4 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="px-5 pb-4 pt-0">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-sm">
+                    <div>
+                      <p className="font-medium">{t('cronHelp.minuteLabel')}</p>
+                      <p className="text-muted-foreground">{t('cronHelp.minuteRange')}</p>
                     </div>
-                    <div className="mt-1 ms-6 text-sm">
-                      {entry.message && (
-                        <p className={entry.success ? 'text-muted-foreground' : 'text-destructive'}>
-                          {/* Translated where the panel wrote the message
-                              itself (message_key); a raw error as is. */}
-                          {scheduledAttemptMessage(entry.message, entry.message_key, entry.message_params)}
-                        </p>
-                      )}
-                      {entry.duration !== null && (
-                        <p className="text-xs text-muted-foreground">
-                          {t('executionHistory.duration', { seconds: (entry.duration / 1000).toFixed(1) })}
-                        </p>
-                      )}
+                    <div>
+                      <p className="font-medium">{t('cronHelp.hourLabel')}</p>
+                      <p className="text-muted-foreground">{t('cronHelp.hourRange')}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium">{t('cronHelp.dayLabel')}</p>
+                      <p className="text-muted-foreground">{t('cronHelp.dayRange')}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium">{t('cronHelp.monthLabel')}</p>
+                      <p className="text-muted-foreground">{t('cronHelp.monthRange')}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium">{t('cronHelp.weekdayLabel')}</p>
+                      <p className="text-muted-foreground">{t('cronHelp.weekdayRange')}</p>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </ScrollArea>
-        </CardContent>
-      </Card>
-
-      {/* Cron Help — collapsible reference */}
-      <Collapsible>
-        <div className="rounded-xl border border-border/40 bg-card/40">
-          <CollapsibleTrigger className="flex w-full items-center justify-between px-5 py-3 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-            <span className="flex items-center gap-2">
-              <HelpCircle className="w-4 h-4" />
-              {t('cronHelp.title')}
-            </span>
-            <ChevronDown className="w-4 h-4 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="px-5 pb-4 pt-0">
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-sm">
-                <div>
-                  <p className="font-medium">{t('cronHelp.minuteLabel')}</p>
-                  <p className="text-muted-foreground">{t('cronHelp.minuteRange')}</p>
+                  <div className="mt-4 space-y-2 text-sm">
+                    <p><Trans i18nKey="cronHelp.anyValue" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} /></p>
+                    <p><Trans i18nKey="cronHelp.everyNUnits" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} /></p>
+                    <p><Trans i18nKey="cronHelp.every2HoursExample" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} /></p>
+                    <p><Trans i18nKey="cronHelp.daily6amExample" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} /></p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-medium">{t('cronHelp.hourLabel')}</p>
-                  <p className="text-muted-foreground">{t('cronHelp.hourRange')}</p>
-                </div>
-                <div>
-                  <p className="font-medium">{t('cronHelp.dayLabel')}</p>
-                  <p className="text-muted-foreground">{t('cronHelp.dayRange')}</p>
-                </div>
-                <div>
-                  <p className="font-medium">{t('cronHelp.monthLabel')}</p>
-                  <p className="text-muted-foreground">{t('cronHelp.monthRange')}</p>
-                </div>
-                <div>
-                  <p className="font-medium">{t('cronHelp.weekdayLabel')}</p>
-                  <p className="text-muted-foreground">{t('cronHelp.weekdayRange')}</p>
-                </div>
-              </div>
-              <div className="mt-4 space-y-2 text-sm">
-                <p><Trans i18nKey="cronHelp.anyValue" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} /></p>
-                <p><Trans i18nKey="cronHelp.everyNUnits" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} /></p>
-                <p><Trans i18nKey="cronHelp.every2HoursExample" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} /></p>
-                <p><Trans i18nKey="cronHelp.daily6amExample" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} /></p>
-              </div>
+              </CollapsibleContent>
             </div>
-          </CollapsibleContent>
+          </Collapsible>
         </div>
-      </Collapsible>
+      </div>
     </div>
   )
 }

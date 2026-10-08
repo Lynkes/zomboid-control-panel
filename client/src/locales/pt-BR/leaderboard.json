@@ -5,11 +5,15 @@
     "eyebrow": "// AO VIVO · RANKING DE SOBREVIVÊNCIA"
   },
   "bridge": {
-    "summary": "Lê o placar do PanelBridge armazenado no save do mundo."
+    "summary": "Lê o placar do PanelBridge mantido no servidor."
   },
   "actions": {
     "refresh": "Recarregar",
-    "retry": "Tentar novamente"
+    "retry": "Tentar novamente",
+    "copyDiagnostics": "Copiar diagnóstico",
+    "copyDiagnosticsTitle": "Copia um resumo para um pedido de suporte: nomes de usuário, horários de leitura, abates, dias e mortes. Sem SteamIDs.",
+    "copied": "Copiado",
+    "copyFailed": "Falha ao copiar"
   },
   "metrics": {
     "ariaLabel": "Métrica do placar",
@@ -50,14 +54,22 @@
     "offline": "Offline",
     "currentDaysTitle": "Vida atual: {{value}} dias",
     "noMatchesTitle": "Nenhum sobrevivente encontrado",
-    "noMatchesDescription": "Tente outro nome ou arma."
+    "noMatchesDescription": "Tente outro nome ou arma.",
+    "notReadYet": "Ainda não lido",
+    "notReadYetTitle": "O PanelBridge ainda não leu os abates e os dias deste jogador. Ele lê todos os jogadores online uma vez por minuto.",
+    "lastRead": "Última leitura: {{date}}"
   },
   "stale": {
     "title": "Mostrando o último placar conhecido"
   },
   "footer": {
-    "refreshRate": "Recarrega a cada 30 segundos",
-    "historyNote": "A contagem acumulada começa quando o PanelBridge passa a coletar dados."
+    "refreshRate": "Recarrega a cada 30 segundos enquanto esta página estiver visível",
+    "historyNote": "Os totais acumulados começam na primeira leitura de cada jogador; vidas que terminaram antes não são contadas.",
+    "bridgeVersion": "PanelBridge {{version}}",
+    "lastSweep": "Última varredura: {{date}}",
+    "resets": "Redefinições: {{total}}",
+    "resetsTitle": "Quantas vezes um placar novo substituiu o salvo, por exemplo depois de apagar o mundo",
+    "oldBridge": "Este PanelBridge só lê os abates quando solicitado, então o painel solicita a cada 2 minutos enquanto houver jogadores online. Atualize o PanelBridge para que ele leia cada jogador sozinho."
   },
   "errors": {
     "title": "Placar indisponível",
@@ -66,7 +78,7 @@
   },
   "empty": {
     "title": "Nenhum sobrevivente no ranking ainda",
-    "description": "Conecte um jogador para iniciar o placar. O PanelBridge mantém o registro no save do mundo."
+    "description": "Conecte um jogador para iniciar o placar. O PanelBridge o mantém no servidor, um por mundo."
   },
   "loading": "Carregando placar"
 }

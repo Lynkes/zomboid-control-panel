@@ -7,6 +7,7 @@ import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { panelBridgeApi } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useDateFormat } from '@/lib/dateFormat'
 import { useToast } from '@/components/ui/use-toast'
 
 export interface CatalogVehicle {
@@ -86,7 +87,8 @@ export const TYPE_ICON: Record<string, LucideIcon> = {
 const MAX_VISIBLE = 100
 
 export function VehiclePicker({ value, onChange, disabled, placeholder }: VehiclePickerProps) {
-  const { t, i18n } = useTranslation('vehiclePicker')
+  const { t } = useTranslation('vehiclePicker')
+  const { formatDate } = useDateFormat()
   const resolvedPlaceholder = placeholder ?? t('searchVehiclesPlaceholder')
   const [vehicles, setVehicles] = useState<CatalogVehicle[]>([])
   const [initialLoad, setInitialLoad] = useState(true)
@@ -494,7 +496,7 @@ export function VehiclePicker({ value, onChange, disabled, placeholder }: Vehicl
             </div>
             {scannedAt && (
               <span className="truncate text-end opacity-50">
-                {new Date(scannedAt).toLocaleDateString(i18n.language)}
+                {formatDate(scannedAt)}
               </span>
             )}
           </div>

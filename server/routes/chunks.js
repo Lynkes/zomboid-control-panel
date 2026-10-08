@@ -14,6 +14,7 @@ import {
 import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import { requirePermission, getRoleByName } from "../services/permissions.js";
 import { deleteVehiclesInBoxes } from "../utils/vehiclesDb.js";
+import { getSqlJs } from "../utils/sqlJs.js";
 import { confineToRoots } from "../utils/browseRoots.js";
 import {
   carriesGameName,
@@ -40,6 +41,25 @@ import { ErrorCode } from "../utils/errorCodes.js";
 export { normalizeUserPath, getCandidateZomboidPaths, invalidateMapFolderScan };
 
 const router = express.Router();
+
+// The vehicles.db pass (Pass 3) needs sql.js, so with deleteVehicles both
+// delete routes check it before anything is deleted: otherwise the chunks
+// would go and their vehicles would stay in vehicles.db and come back. True
+// when it has already answered the request.
+async function refusedWithoutSqlite(res, route) {
+  try {
+    await getSqlJs();
+    return false;
+  } catch (error) {
+    log.error(`${route} refused: ${error.message}`);
+    res.status(503).json({
+      error:
+        "The panel's SQLite engine could not start, so vehicles.db can't be cleaned. No files were deleted. Update or reinstall the panel, then restart it.",
+      code: ErrorCode.SQLITE_ENGINE_UNAVAILABLE,
+    });
+    return true;
+  }
+}
 
 // Run `worker` over `items` with at most `limit` in flight at once. Used for
 // directory-tree walks where the item count can run into the hundreds or
@@ -1339,6 +1359,11 @@ router.post("/delete-chunks", requirePermission("chunks.manage"), async (req, re
       }
     }
 
+    // Before the running-server check: force can't fix this, so the
+    // operator is never asked to override a running server only to be
+    // refused here.
+    if (deleteVehicles && (await refusedWithoutSqlite(res, "delete-chunks"))) return;
+
     // Refuse to mutate save files while the server is running — it will write
     // them back on shutdown and corrupt the save, or hold vehicles.db open
     // on Windows and cause the DB write to fail mid-flight.
@@ -1852,6 +1877,11 @@ router.post("/delete-region", requirePermission("chunks.manage"), async (req, re
         });
       }
     }
+
+    // Before the running-server check: force can't fix this, so the
+    // operator is never asked to override a running server only to be
+    // refused here.
+    if (deleteVehicles && (await refusedWithoutSqlite(res, "delete-region"))) return;
 
     // Refuse to mutate save files while the server is running. See the
     // delete-chunks handler above for the full rationale and `force` escape

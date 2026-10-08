@@ -41,6 +41,7 @@ import { Label } from '@/components/ui/label'
 import { useToast } from '@/components/ui/use-toast'
 import { reportClientError, reportClientWarning } from '@/lib/client-errors'
 import { getResultErrorMessage, getUserErrorMessage } from '@/lib/errorMessage'
+import { useDateFormat } from '@/lib/dateFormat'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -302,7 +303,8 @@ export function shouldShowDockerCardActions<T>(
 }
 
 export default function Servers() {
-  const { t, i18n } = useTranslation('servers')
+  const { t } = useTranslation('servers')
+  const { formatDate, formatDateTime } = useDateFormat()
   const runtimeInfo = useRuntimeInfo()
   const confirm = useConfirm()
   const { can } = useAuth()
@@ -2595,7 +2597,7 @@ export default function Servers() {
                 {/* Created date */}
                 {server.createdAt && (
                   <p className="text-[11px] text-muted-foreground/60 pt-1">
-                    {t('card.added', { date: new Date(server.createdAt).toLocaleDateString(i18n.language) })}
+                    {t('card.added', { date: formatDate(server.createdAt) })}
                   </p>
                 )}
               </CardContent>
@@ -3721,7 +3723,7 @@ export default function Servers() {
                   if (!selected) return t('steamDialog.branchHintDefault')
                   const details = [t(`steamDialog.branchDescriptions.${selected.name}`, { defaultValue: selected.description })]
                   if (selected.buildId) details.push(t('steamDialog.buildPrefix', { buildId: selected.buildId }))
-                  if (selected.timeUpdated) details.push(t('steamDialog.updatedPrefix', { date: new Date(selected.timeUpdated).toLocaleString(i18n.language) }))
+                  if (selected.timeUpdated) details.push(t('steamDialog.updatedPrefix', { date: formatDateTime(selected.timeUpdated, { seconds: true }) }))
                   return details.join(' - ')
                 })()}
               </p>

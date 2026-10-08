@@ -18,6 +18,7 @@ import {
 import { readCharacterRecord, recordCharacterSheet } from "../services/characterStore.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { createLogger } from "../utils/logger.js";
+import { warnLeaderboardReadFailed } from "../services/leaderboardDiagnostics.js";
 import { BRIDGE_USERNAME_REGEX } from "./panelBridge.js";
 
 const log = createLogger("API:PlayerCharacter");
@@ -105,12 +106,12 @@ async function leaderboardRecord(serverId, username, now) {
   if (!bridge.isRunning || !bridge.isModConnected()) return null;
   try {
     if (!leaderboardCache || leaderboardCache.serverId !== serverId || now - leaderboardCache.at > LEADERBOARD_CACHE_MS) {
-      const result = await bridge.getLeaderboard();
+      const result = await bridge.getLeaderboard({ source: "character" });
       leaderboardCache = { serverId, at: now, players: result?.data?.players ?? [] };
     }
     return pickRecord(leaderboardCache.players, username);
   } catch (error) {
-    log.debug(`Leaderboard read for the character sheet failed: ${String(error?.message ?? "").slice(0, 200)}`);
+    warnLeaderboardReadFailed(log, "the character sheet", error);
     return null;
   }
 }

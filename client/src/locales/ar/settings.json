@@ -142,6 +142,12 @@
     "survival": "Survival (داكن)",
     "light": "فاتح"
   },
+  "dateFormatSelect": {
+    "auto": "تلقائي ({{example}})",
+    "dmy": "يوم/شهر/سنة ({{example}})",
+    "mdy": "شهر/يوم/سنة ({{example}})",
+    "ymd": "سنة-شهر-يوم ({{example}})"
+  },
   "general": {
     "cardTitle": "إعدادات اللوحة",
     "cardDescription": "المنفذ الذي تستمع عليه هذه اللوحة، وشكلها.",
@@ -159,9 +165,11 @@
     "restartGameServerUnknown": "تعذّر على اللوحة تحديد ما إذا كانت خوادم Project Zomboid العاملة ستصمد بعد إعادة التشغيل هذه.",
     "confirmRestartRisk": "أفهم أن خوادم اللعبة العاملة قد تتوقف.",
     "appearanceTitle": "المظهر",
-    "appearanceDesc": "سمة اللوحة والنمط البصري.",
+    "appearanceDesc": "سمة اللوحة وتنسيق التاريخ والنمط البصري.",
     "themeLabel": "السمة",
     "themeDesc": "اختر بين مظهر البقاء الخشن أو سمة فاتحة نظيفة.",
+    "dateFormatLabel": "تنسيق التاريخ",
+    "dateFormatDesc": "طريقة عرض التواريخ في اللوحة على هذا المتصفح. يتبع الخيار «تلقائي» لغتك ومنطقة متصفحك.",
     "sandboxRangeOverrideTitle": "Setting Value Ranges",
     "sandboxRangeOverrideDesc": "Controls whether the Server Settings and Sandbox tabs' Save buttons block a value outside its known minimum/maximum.",
     "sandboxRangeOverrideLabel": "Allow values outside the known range",
@@ -664,6 +672,19 @@
     "resetAndSignOutButton": "إعادة تعيين كلمة المرور وتسجيل الخروج",
     "recoveryRemoteIntro1": "لا تستطيع اللوحة عرض كلمات المرور الحالية. وإذا كان لديك وصول إلى نظام ملفات مضيف اللوحة، فسجّل الخروج ثم أنشئ <code>data/reset-token.txt</code> أو شغّل اللوحة بالخيار <code>--reset-password</code>.",
     "recoveryRemoteIntro2": "ضع في ذلك الملف رمزًا سداسيًا عشريًا عشوائيًا طوله 32 حرفًا على الأقل يُنشئه مولّد مثل openssl rand -hex 24 (تُرفض الكلمات والجمل وتسلسلات الأرقام)، ثم افتح استرداد الحساب من شاشة الدخول وأدخله بوصفه الرمز المميز للاسترداد لتعيين كلمة مرور مسؤول جديدة دون معرفة القديمة.",
+    "signOutEverywhere": {
+      "cardTitle": "تسجيل الخروج من كل مكان",
+      "cardDesc": "ينهي كل جلسات حسابك، في هذا المتصفح وجميع المتصفحات الأخرى. استخدمه إذا فُقد جهاز أو ربما حصل شخص آخر على تسجيل دخولك.",
+      "button": "تسجيل الخروج من كل مكان",
+      "confirmTitle": "تسجيل الخروج من كل المتصفحات؟",
+      "confirmDesc": "يُسجَّل خروج كل متصفح وجهاز مسجّل الدخول بحسابك، بما فيه هذا. ستحتاج إلى تسجيل الدخول مجددًا.",
+      "cancel": "إلغاء",
+      "confirm": "تسجيل الخروج من كل مكان",
+      "resultTitle": "تم تسجيل الخروج من كل مكان",
+      "resultDescription": "انتهت كل جلسات حسابك. جارٍ التحويل إلى تسجيل الدخول…",
+      "failedTitle": "فشل تسجيل الخروج",
+      "failedFallback": "تعذّر على اللوحة إنهاء جلساتك."
+    },
     "regenerateJwt": {
       "cardTitle": "إعادة توليد مفتاح JWT السري",
       "cardDesc": "يسجّل خروج كل مستخدم على كل جهاز فورًا، بمن فيهم أنت — إذ تتوقف رموز الوصول والتحديث لكل جلسة حالية دفعة واحدة. استخدم هذا فقط إذا احتُمل تسريب نسخة احتياطية تحتوي على مفتاح التوقيع القديم؛ فهو ليس إجراءً روتينيًا، ولا يوجد تدوير تلقائي له.",

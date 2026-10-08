@@ -14,7 +14,12 @@
 const forceSecureCookies =
   process.env.HTTPS === "true" || process.env.FORCE_HSTS === "true";
 
-export function getRefreshCookieOptions(req, includeMaxAge = true) {
+const REFRESH_COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+// includeMaxAge false: a browser-session cookie (a sign-in without "Keep me
+// signed in"), and the shape every clearCookie call uses. maxAgeMs: when the
+// session ends sooner than 30 days from now (auth audit 2026-10-08, #10).
+export function getRefreshCookieOptions(req, includeMaxAge = true, maxAgeMs = REFRESH_COOKIE_MAX_AGE_MS) {
   // Decide `secure` from THIS request's own protocol, not a shared global
   // latch. The latch previously flipped on permanently the first time ANY
   // client was seen over HTTPS, after which every plain-HTTP LAN client
@@ -29,6 +34,16 @@ export function getRefreshCookieOptions(req, includeMaxAge = true) {
     secure: forceSecureCookies || requestIsSecure,
     sameSite: "strict",
     path: "/api/auth",
-    ...(includeMaxAge ? { maxAge: 30 * 24 * 60 * 60 * 1000 } : {}),
+    ...(includeMaxAge
+      ? {
+          maxAge: Math.max(
+            0,
+            Math.min(
+              REFRESH_COOKIE_MAX_AGE_MS,
+              Number.isFinite(maxAgeMs) ? maxAgeMs : REFRESH_COOKIE_MAX_AGE_MS,
+            ),
+          ),
+        }
+      : {}),
   };
 }

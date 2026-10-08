@@ -63,6 +63,19 @@ hostname still needs its own origin added: set `CORS_ORIGINS` (and
 `.env` file (`<state dir>/build/ctx/.env`) and rerun the script to apply the
 change — it won't touch an `.env` that already exists.
 
+Port `3001` is published on every host address, and Docker's published
+ports bypass UFW. With a reverse proxy on this host, also set
+`PANEL_BIND_ADDRESS=127.0.0.1` in that `.env` whenever you set
+`TRUST_PROXY`: otherwise anyone who reaches `3001` directly can forge the
+forwarded address the panel's sign-in limits count by. A proxy installed
+on the host still reaches the panel at `http://127.0.0.1:3001`; a proxy in
+another container (Nginx Proxy Manager, SWAG, cloudflared) can't, so join it
+to the panel's Docker network first, as
+[A proxy in its own container](../../docs/install/docker.md#a-proxy-in-its-own-container)
+describes. Set it in `.env`, not in the copied `docker-compose.yml`, which
+the installer replaces on every run. See
+[Behind a reverse proxy](../../docs/install/docker.md#behind-a-reverse-proxy-panel_bind_address-with-trust_proxy).
+
 The stack uses Docker named volumes for panel state, logs, the PZ
 installation, and Zomboid save data. This keeps a default install
 independent of a particular NAS or host filesystem layout, and means you
@@ -104,6 +117,11 @@ To bring them all back after the container restarts, turn on **Settings ›
 Connection › Start game servers when the panel starts** and check each
 server under it. They start one after another; one that is already running
 is left alone.
+
+With two servers or more, the Dashboard lists them all: start, stop or
+restart any of them there without switching the active server, and tick
+**Restart if it goes down** for each one the panel should start again when
+it stops without the panel asking (a crash, or `/quit` in the game).
 
 The update controller has Docker socket access, but it is not exposed on a
 host port. The panel can reach it only over the Compose network using the

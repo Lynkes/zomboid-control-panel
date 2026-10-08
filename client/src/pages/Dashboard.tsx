@@ -29,7 +29,7 @@ import { useRuntimeInfo } from '@/hooks/useRuntimeInfo'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
 import { resolveClientProvider, deriveDashboardStatus, waitForServerState } from '@/lib/serverStatus'
-import { autoStartEnabled, autoStartServerIds, withAutoStartServer, type AutoStartSettings } from '@/lib/autoStartServers'
+import { autoStartEnabled, autoStartServerIds, restartOnCrashServerIds, withAutoStartServer, type AutoStartSettings } from '@/lib/autoStartServers'
 import { ServersOverview } from '@/components/dashboard/ServersOverview'
 import { ServerUptime } from '@/components/ServerUptime'
 import { useSocket } from '@/contexts/SocketContext'
@@ -43,6 +43,7 @@ import { DisabledReason } from '@/components/DisabledReason'
 import { AutoUpdateResultBanner } from '@/components/AutoUpdateResultBanner'
 import { cn, copyText } from '@/lib/utils'
 import { getResultErrorMessage, getUserErrorMessage, getRecoveryUrl } from '@/lib/errorMessage'
+import { formatTime } from '@/lib/dateFormat'
 import { VerdictBand, WorkList } from '@/components/dashboard/DashboardVerdict'
 import type { Verdict, WorkItem } from '@/components/dashboard/DashboardVerdict'
 
@@ -590,7 +591,7 @@ export default function Dashboard() {
       const data = await debugApi.getPerformanceHistory(60)
       if (data.history) {
         setPerformanceHistory(data.history.map((h: Record<string, unknown>) => ({
-          time: new Date(h.timestamp as string).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }),
+          time: formatTime(h.timestamp as string, { language: i18n.language }),
           timestamp: h.timestamp as string,
           playerCount: (h.playerCount as number) || 0,
           memoryMB: Math.round(((h.memoryUsed as number) || 0) / (1024 * 1024)),
@@ -619,6 +620,7 @@ export default function Dashboard() {
         setAutoStartSettings({
           autoStartServer: r.settings.autoStartServer,
           autoStartServerIds: r.settings.autoStartServerIds,
+          restartOnCrashServerIds: r.settings.restartOnCrashServerIds,
         })
       }
     } catch {
@@ -700,6 +702,30 @@ export default function Dashboard() {
     } catch (error) {
       setAutoStartSettings(previous)
       toast({ title: t('toasts.errorTitle'), description: getUserErrorMessage(error, t('toasts.autoStartSaveFailed')), variant: 'destructive' })
+    }
+  }
+
+  // Whether the panel starts a server again when it goes down without being
+  // asked (server/services/serverWatch.js). `server`: a row of the servers
+  // overview; none means the active one.
+  const restartOnCrashThisServer = activeServerId !== null && restartOnCrashServerIds(autoStartSettings).includes(activeServerId)
+  const handleRestartOnCrashChange = async (checked: boolean, server?: ServerInstance) => {
+    if (!canChangePanelSettings) return
+    const target = server ?? activeServer
+    if (!target) return
+    const previous = autoStartSettings
+    const next = withAutoStartServer(restartOnCrashServerIds(previous), target.id, checked)
+    setAutoStartSettings({ ...previous, restartOnCrashServerIds: next })
+    try {
+      await configApi.updateAppSettings({ restartOnCrashServerIds: next })
+      const name = target.name || target.serverName
+      toast({
+        title: t(checked ? 'serversOverview.restartOnCrashOnTitle' : 'serversOverview.restartOnCrashOffTitle'),
+        description: t(checked ? 'serversOverview.restartOnCrashOnDesc' : 'serversOverview.restartOnCrashOffDesc', { name }),
+      })
+    } catch (error) {
+      setAutoStartSettings(previous)
+      toast({ title: t('toasts.errorTitle'), description: getUserErrorMessage(error, t('serversOverview.restartOnCrashSaveFailed')), variant: 'destructive' })
     }
   }
 
@@ -879,7 +905,7 @@ export default function Dashboard() {
         return
       }
       const point: PerformancePoint = {
-        time: new Date().toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }),
+        time: formatTime(new Date(), { language: i18n.language }),
         timestamp: new Date().toISOString(),
         playerCount: (snap.playerCount as number) || 0,
         memoryMB: Math.round(((snap.memoryUsed as number) || 0) / (1024 * 1024)),
@@ -2105,6 +2131,7 @@ export default function Dashboard() {
         autoStartSettings={autoStartSettings}
         canChangeAutoStart={canChangePanelSettings}
         onAutoStartChange={(server, chosen) => handleAutoStartChange(chosen, server)}
+        onRestartOnCrashChange={(server, chosen) => handleRestartOnCrashChange(chosen, server)}
         onShownChange={setServersOverviewShown}
       />
 
@@ -2152,7 +2179,7 @@ export default function Dashboard() {
                   return (
                     <li key={a.id} className="group grid grid-cols-[3.25rem_1rem_minmax(0,8rem)_minmax(0,1fr)] items-center gap-2 px-3 py-[3px] transition-colors hover:bg-muted/20">
                       <time className="font-mono text-[10px] tabular-nums text-muted-foreground/50">
-                        {new Date(a.logged_at).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}
+                        {formatTime(a.logged_at, { pad: true })}
                       </time>
                       <span className={cn('flex justify-center', s.tone)} aria-hidden="true">{s.icon}</span>
                       <span className="truncate text-[11px] font-medium text-foreground/85" dir="auto" title={a.player_name}>
@@ -2276,7 +2303,7 @@ export default function Dashboard() {
                   <RefreshCw className={cn('h-3 w-3', loading ? 'animate-spin' : '')} />
                   {t('maintenance.refreshStatus')}
                   <span className="ms-auto font-mono text-[10px] text-muted-foreground/65">
-                    {lastUpdated ? lastUpdated.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }) : '—'}
+                    {lastUpdated ? formatTime(lastUpdated) : '—'}
                   </span>
                 </Button>
                 <DisabledReason
@@ -2340,6 +2367,22 @@ export default function Dashboard() {
                     </DisabledReason>
                     <Label htmlFor="autoStartServer" className="cursor-pointer text-[11px] text-muted-foreground">
                       {t('maintenance.autoStartLabel')}
+                    </Label>
+                  </label>
+                )}
+                {/* With the servers overview on screen, each row has its own. */}
+                {!serversOverviewShown && activeServer && !activeServer.isRemote && (
+                  <label className="flex cursor-pointer items-center gap-2 px-1" title={t('serversOverview.restartOnCrashHint')}>
+                    <DisabledReason reason={!canChangePanelSettings ? t('actions.noPermissionAutoStart') : null}>
+                      <Checkbox
+                        id="restartOnCrash"
+                        checked={restartOnCrashThisServer}
+                        disabled={!canChangePanelSettings}
+                        onCheckedChange={(checked) => handleRestartOnCrashChange(checked === true)}
+                      />
+                    </DisabledReason>
+                    <Label htmlFor="restartOnCrash" className="cursor-pointer text-[11px] text-muted-foreground">
+                      {t('serversOverview.restartOnCrashLabel')}
                     </Label>
                   </label>
                 )}

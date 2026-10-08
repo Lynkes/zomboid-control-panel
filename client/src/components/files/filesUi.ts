@@ -9,6 +9,7 @@ import { getResultErrorMessage, getUserErrorMessage } from '@/lib/errorMessage'
 import { FM_LIMITS, type FileEntry, type RootDescriptor, type RootId, type RootUnavailableReason } from '@/types/files'
 import { joinPath } from '@/lib/filesApi'
 import { formatBytes } from '@/lib/formatBytes'
+import { formatDateTime } from '@/lib/dateFormat'
 
 // ---- What an entry is and what it allows ----
 
@@ -101,22 +102,8 @@ export function fullDisplayPath(root: RootDescriptor | null | undefined, path: s
   return base.endsWith(sep) ? `${base}${rel}` : `${base}${sep}${rel}`
 }
 
-const dateFormatters = new Map<string, Intl.DateTimeFormat>()
-
 export function formatFileDate(iso: string | null | undefined, language: string): string {
-  if (!iso) return ''
-  const time = Date.parse(iso)
-  if (Number.isNaN(time)) return ''
-  let formatter = dateFormatters.get(language)
-  if (!formatter) {
-    try {
-      formatter = new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' })
-    } catch {
-      formatter = new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' })
-    }
-    dateFormatters.set(language, formatter)
-  }
-  return formatter.format(new Date(time))
+  return formatDateTime(iso, { language, style: 'medium' })
 }
 
 // ---- Errors ----

@@ -78,6 +78,7 @@ import { DisabledReason } from '@/components/DisabledReason'
 import { modsApi } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { cn, copyText } from '@/lib/utils'
+import { formatTime } from '@/lib/dateFormat'
 
 type DiffResponse = Awaited<ReturnType<typeof modsApi.collectionDiff>>
 type DiffItem = DiffResponse['items'][number]
@@ -102,7 +103,7 @@ function formatAgo(date: Date | null, t: TFn, locale?: string): string {
   if (seconds < 5) return t('justNow')
   if (seconds < 60) return t('secondsAgo', { count: seconds })
   if (seconds < 3600) return t('minutesAgo', { count: Math.floor(seconds / 60) })
-  return date.toLocaleTimeString(locale)
+  return formatTime(date, { language: locale, seconds: true })
 }
 
 function parseSteamCookieBlob(raw: string, t: TFn): { sessionid?: string; steamLoginSecure?: string; error?: string } {

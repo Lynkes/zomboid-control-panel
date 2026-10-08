@@ -132,6 +132,12 @@
     "survival": "Survival (Dunkel)",
     "light": "Hell"
   },
+  "dateFormatSelect": {
+    "auto": "Automatisch ({{example}})",
+    "dmy": "Tag/Monat/Jahr ({{example}})",
+    "mdy": "Monat/Tag/Jahr ({{example}})",
+    "ymd": "Jahr-Monat-Tag ({{example}})"
+  },
   "general": {
     "cardTitle": "Panel-Einstellungen",
     "cardDescription": "Port, auf dem dieses Panel lauscht, und wie es aussieht.",
@@ -144,9 +150,11 @@
     "saveBeforeRestart": "Einstellungen vor dem Neustart speichern",
     "restartToastDesc": "Panel startet auf Port {{port}} neu. Verbindung wird wiederhergestellt...",
     "appearanceTitle": "Erscheinungsbild",
-    "appearanceDesc": "Design und visueller Stil des Panels.",
+    "appearanceDesc": "Design, Datumsformat und visueller Stil des Panels.",
     "themeLabel": "Design",
     "themeDesc": "Wähle zwischen dem düsteren Survival-Look oder einem klaren, hellen Design.",
+    "dateFormatLabel": "Datumsformat",
+    "dateFormatDesc": "Wie Datumsangaben im Panel in diesem Browser erscheinen. „Automatisch“ richtet sich nach deiner Sprache und der Region deines Browsers.",
     "confirmRestartTitle": "Restart the panel?",
     "restartGameServerPreserved": "Der erkannte Launcher isoliert Panel-Neustarts. Laufende Project-Zomboid-Server bleiben online.",
     "restartGameServerRisk": "Diese Installation verwendet nicht den geschützten Linux-Launcher. Ein Neustart des Panels kann laufende Project-Zomboid-Serverprozesse stoppen.",
@@ -654,6 +662,19 @@
     "tipsAdminDesc": "Sei vorsichtig mit Admin-Befehlen. Manche Aktionen wie das Bannen oder Kicken von Spielern lassen sich nicht ohne Weiteres rückgängig machen.",
     "tipsAuthTitle": "Authentifizierung:",
     "tipsAuthDesc": "Authentifizierung ist nicht konfiguriert. Lege beim ersten Start über den Einrichtungsassistenten ein Konto an, um den Zugriff auf dieses Panel zu schützen.",
+    "signOutEverywhere": {
+      "cardTitle": "Überall abmelden",
+      "cardDesc": "Beendet jede Sitzung deines Kontos, in diesem Browser und allen anderen. Nutze das, wenn ein Gerät verloren ging oder jemand anderes deine Anmeldung haben könnte.",
+      "button": "Überall abmelden",
+      "confirmTitle": "Von allen Browsern abmelden?",
+      "confirmDesc": "Jeder Browser und jedes Gerät, auf dem du angemeldet bist, wird abgemeldet, auch dieses. Du musst dich danach neu anmelden.",
+      "cancel": "Abbrechen",
+      "confirm": "Überall abmelden",
+      "resultTitle": "Überall abgemeldet",
+      "resultDescription": "Alle Sitzungen deines Kontos wurden beendet. Weiterleitung zur Anmeldung…",
+      "failedTitle": "Abmelden fehlgeschlagen",
+      "failedFallback": "Das Panel konnte deine Sitzungen nicht beenden."
+    },
     "regenerateJwt": {
       "cardTitle": "JWT-Secret neu erzeugen",
       "button": "JWT-Secret neu erzeugen",

@@ -19,6 +19,7 @@
     "notConfiguredHint": "Ranpli detay founisè a anba a epi sove pou aktive li."
   },
   "envPinnedNote": "Defini via yon varyab anviwònman sou enstalasyon sa a — modifye li la, pa isit la.",
+  "providerAdminOnlyNote": "Se sèlman yon administratè ki ka chanje chan founisè, kliyan ak redireksyon yo. Ou ka chanje non ki parèt la ak scope la.",
   "sections": {
     "provider": "Founisè",
     "providerDescription": "Kijan panèl sa a konekte ak founisè idantite ou a, ak sa pou anrejistre la.",

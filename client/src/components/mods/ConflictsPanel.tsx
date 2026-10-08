@@ -5,6 +5,7 @@ import type { ConflictScanResult, ScanStreamConflictFound } from '@/types'
 import { modsApi } from '@/lib/api'
 import { reportClientError } from '@/lib/client-errors'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useDateFormat } from '@/lib/dateFormat'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -58,6 +59,7 @@ export function ConflictsPanel({
   depAdding, setDepAdding, depAddResults, setDepAddResults,
 }: ConflictsPanelProps) {
   const { t, i18n } = useTranslation('conflictsPanel')
+  const { formatTime } = useDateFormat()
   const [openPairs, setOpenPairs] = useState<string[]>([])
   const [conflictSubTab, setConflictSubTab] = useLocalStorageState<'network' | 'dependencies'>('zcp:mods:conflicts:subTab', 'network')
   const [pairSeverityFilter, setPairSeverityFilter] = useLocalStorageState<'all' | 'real' | 'high' | 'medium' | 'low'>('zcp:mods:conflicts:severity', 'real')
@@ -266,7 +268,7 @@ export function ConflictsPanel({
             <div className="flex items-center gap-2 shrink-0">
               {lastScanTime && (
                 <span className="text-[11px] tabular-nums text-muted-foreground/70 hidden sm:inline">
-                  {t('lastScan', { time: new Date(lastScanTime).toLocaleTimeString(i18n.language) })}
+                  {t('lastScan', { time: formatTime(lastScanTime, { seconds: true }) })}
                 </span>
               )}
               <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={scanConflicts} disabled={conflictsLoading}>

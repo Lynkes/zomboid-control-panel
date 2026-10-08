@@ -132,6 +132,12 @@
     "survival": "Sobrevivência (escuro)",
     "light": "Claro"
   },
+  "dateFormatSelect": {
+    "auto": "Automático ({{example}})",
+    "dmy": "Dia/Mês/Ano ({{example}})",
+    "mdy": "Mês/Dia/Ano ({{example}})",
+    "ymd": "Ano-Mês-Dia ({{example}})"
+  },
   "general": {
     "cardTitle": "Configurações do painel",
     "cardDescription": "Porta em que este painel escuta e sua aparência.",
@@ -149,9 +155,11 @@
     "restartGameServerUnknown": "O painel não conseguiu determinar se os servidores de Project Zomboid em execução sobreviverão a este reinício.",
     "confirmRestartRisk": "Entendo que os servidores de jogo em execução podem ser parados.",
     "appearanceTitle": "Aparência",
-    "appearanceDesc": "Tema e estilo visual do painel.",
+    "appearanceDesc": "Tema, formato de data e estilo visual do painel.",
     "themeLabel": "Tema",
     "themeDesc": "Escolha entre o visual rústico de sobrevivência ou um tema claro e limpo.",
+    "dateFormatLabel": "Formato de data",
+    "dateFormatDesc": "Como as datas aparecem no painel neste navegador. “Automático” segue o seu idioma e a região do seu navegador.",
     "sandboxRangeOverrideTitle": "Intervalos de valores das opções",
     "sandboxRangeOverrideDesc": "Controla se o botão Salvar das abas Opções do servidor e Sandbox bloqueia um valor fora do mínimo/máximo conhecido.",
     "sandboxRangeOverrideLabel": "Permitir valores fora do intervalo conhecido",
@@ -651,6 +659,19 @@
     "resetAndSignOutButton": "Redefinir senha e sair",
     "recoveryRemoteIntro1": "O painel não consegue mostrar senhas existentes. Se você ainda tem acesso ao sistema de arquivos do host do painel, saia e crie <code>data/reset-token.txt</code> ou inicie o painel com <code>--reset-password</code>.",
     "recoveryRemoteIntro2": "Coloque nesse arquivo um token hexadecimal aleatório de pelo menos 32 caracteres feito por um gerador como o openssl rand -hex 24 (palavras, frases e sequências de números são recusadas); depois abra a recuperação de conta na tela de login e insira-o como token de recuperação para definir uma nova senha de admin sem saber a antiga.",
+    "signOutEverywhere": {
+      "cardTitle": "Sair de todos os lugares",
+      "cardDesc": "Encerra todas as sessões da sua conta, neste navegador e em todos os outros. Use se um dispositivo foi perdido ou se outra pessoa pode ter o seu acesso.",
+      "button": "Sair de todos os lugares",
+      "confirmTitle": "Sair de todos os navegadores?",
+      "confirmDesc": "Todos os navegadores e dispositivos conectados à sua conta são desconectados, incluindo este. Você precisará entrar de novo.",
+      "cancel": "Cancelar",
+      "confirm": "Sair de todos os lugares",
+      "resultTitle": "Sessões encerradas",
+      "resultDescription": "Todas as sessões da sua conta foram encerradas. Redirecionando para o login…",
+      "failedTitle": "Falha ao sair",
+      "failedFallback": "O painel não conseguiu encerrar suas sessões."
+    },
     "regenerateJwt": {
       "cardTitle": "Regenerar segredo JWT",
       "cardDesc": "Encerra imediatamente a sessão de todos os usuários em todos os dispositivos, inclusive a sua — os tokens de acesso e de renovação de todas as sessões atuais param de funcionar na hora. Use isto somente se um backup com a chave de assinatura antiga puder ter vazado; não é uma ação de rotina e não há rotação automática.",

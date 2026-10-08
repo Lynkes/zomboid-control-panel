@@ -84,8 +84,8 @@
   },
   "footer": {
     "signOut": "Sair",
-    "supportKofi": "Apoiar no Ko-fi (abre em nova aba)",
-    "buyMeCoffee": "Me pague um café",
+    "opensInNewTab": "(abre em nova aba)",
+    "supportMeKofi": "Me apoie no Ko-fi",
     "githubRepo": "Repositório no GitHub (abre em nova aba)",
     "keyboardShortcuts": "Atalhos de teclado",
     "keyboardShortcutsTitle": "Atalhos de teclado (?)",
@@ -113,5 +113,12 @@
   },
   "languageSwitcher": {
     "label": "Idioma"
+  },
+  "authSession": {
+    "signOutFailedTitle": "O pedido de saída não chegou ao painel",
+    "signOutFailedDescription": "Você continua conectado neste navegador. Verifique a conexão com o painel e tente novamente.",
+    "statusCheckFailedTitle": "Não foi possível verificar o login",
+    "statusCheckFailedDescription": "O painel, ou um proxy na frente dele, não respondeu à verificação de login. Aguarde um momento e tente novamente.",
+    "retry": "Tentar novamente"
   }
 }

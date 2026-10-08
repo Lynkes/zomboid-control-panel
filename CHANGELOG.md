@@ -9,14 +9,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Choose which servers start with the panel:** Settings › Connection lists each local server under the auto-start switch, and the Dashboard's checkbox adds or removes the active one. It used to start only whichever server was active; a setting saved before keeps doing that until you choose.
+- **Automatic minimum memory:** a server's minimum memory can be 0, which starts it without `-Xms`; the JVM starts small and gives back memory it isn't using, where it never goes below a set minimum. A 0 saved before was read as 4 GB.
 - **Every server on the Dashboard:** with two servers or more, installed or linked, a Servers list shows each one's state, uptime, players and game port, with its auto-start checkbox and a button to show it on the Dashboard, without switching first. It scrolls when there are many, the active server first.
+- **Start, stop and restart any server from the Dashboard's list:** the servers other than the active one get Start, or Stop and Restart, in their row, with the Dashboard's own rules: the world is saved before a stop, a stop that never finishes is forced after a minute, and a restart warns players 5 minutes ahead. The active server keeps its own controls.
+- **Restart if it goes down:** a checkbox per server (on the Dashboard's list, or beside auto-start with one server) has the panel start that server again when it stops without the panel asking, such as a crash or `/quit` in the game. It waits 15 seconds, and leaves a server down after 3 restarts in 30 minutes.
+- **The panel watches every server, not only the active one:** a server other than the active one that stops on its own is recorded in its server events, and the Dashboard's list updates at once when any server starts or stops.
 
-## [1.4.6] - 2026-10-07
+### Security
+
+- **Delegated account managers:** a role allowed to manage users or roles can no longer demote, delete or sign out an account, or narrow or delete a role, that holds more than it does; a helper could depose every admin.
+- **Admin role:** a capability unticked in the built-in admin role can be ticked again; until now only a hand edit of db.json brought it back.
+- **Recovery codes per admin:** a code now resets only the admin who generated it, and generating asks for the current password; older codes stop working, so generate new ones in Settings › Security.
+- **Change password:** wrong current passwords now count like sign-in failures, 10 per 15 minutes, until you sign in again with your password; anyone holding a session could guess it about 3 times a second.
+- **Sign-in during a password change:** a sign-in or refresh still in progress when the password is changed or reset no longer gets a session that survives it.
+- **Sessions end:** a kept-signed-in session now ends 30 days after sign-in however often it is used, and a replaced refresh token used again signs that account out everywhere; a copied cookie used to work forever.
+- **Sign out everywhere:** Settings › Security ends every session of your own account, and the Users page can sign another account out everywhere; before, only a password change or a new JWT secret could.
+- **Several tabs at once:** tabs refreshing together take turns, and one that loses the race no longer clears the sign-in cookie they share, which could sign every tab out; a passing refresh failure no longer leaves a tab that looks signed in while every action fails.
+- **Keep me signed in unticked:** you stay signed in while the browser is open, for up to 12 hours, instead of being signed out 15 minutes after sign-in.
+- **Sign-out has to reach the panel:** if it doesn't, the tab stays signed in and offers Retry; on a shared PC the next person could open the panel as you.
+- **Sign-out reaches every tab:** the browser's other panel tabs sign out too; they stayed usable for up to 15 minutes.
+- **No silent account switch:** a tab whose session refresh comes back as another account reloads; it went on acting as that account under the old name.
+- **Sign-in check at load:** an error from the panel or a proxy shows a Retry card, or the reason when the panel refuses this address; it showed the panel as if logins were off.
+- **Recovery behind a same-host proxy:** a request carrying a proxy's headers no longer counts as coming from the panel host, so strangers can't see whether a reset-token file exists when `TRUST_PROXY` is unset.
+- **SSO provider settings:** only admins can change the issuer, client, secret, redirect URI or plain-HTTP switch, and a discovery URL naming another issuer is refused; a settings-only role could sign in as an admin.
+- **SSO links:** a link callback must come from the browser that started it, before that admin is signed out everywhere, and linking asks the provider for a fresh sign-in; a leaked link URL or the admin's own provider session could link the wrong identity.
+- **SSO client secret:** Test Connection and a new issuer need that provider's own secret; the saved one could be sent to any issuer.
+- **Linked SSO identities:** Users lists each account's links with an Unlink button that also signs the account out, and a new link names the address it linked.
+- **SSO rate limits:** sign-in and linking have their own budgets and unknown callbacks stop before reaching the provider; one stranger could block SSO behind a shared address.
+- **SSO discovery URLs:** if your issuer URL contains `/.well-known/`, run Test Connection after upgrading; one on a different host from the issuer it names is now refused, so enter the provider's issuer URL instead.
+- **Sign-in cookie on other ports:** pages on another port of the panel's host or another LAN address no longer get cookie access to the API, so they can't read a sign-in token; origins in Remote Access or `CORS_ORIGINS` keep it.
+- **Log flooding:** refused origins and unreadable request bodies count toward the rate limit, log once or not at all, and long paths and error messages are cut; strangers could push the sign-in history out of the logs.
+- **Docker behind a proxy:** new `PANEL_BIND_ADDRESS` publishes port 3001 on one address (set `127.0.0.1` with `TRUST_PROXY`; a proxy in its own container joins the panel's Docker network first), and a hop-count `TRUST_PROXY` now warns at startup; Docker bypasses UFW, so anyone reaching 3001 could forge their address past the sign-in limits.
+- **Live updates expire with the sign-in:** a live connection now closes when its 15-minute token runs out and the panel quietly reconnects with a fresh one; a stolen token kept the feed open until a restart.
+- **No stack traces:** errors outside the API answer with a plain status text; the exe and script installs showed install paths to anyone.
 
 ### Added
 
-- **Choose which servers start with the panel:** Settings › Connection lists each local server under the auto-start switch, and the Dashboard's checkbox adds or removes the active one. It used to start only whichever server was active; a setting saved before keeps doing that until you choose.
-- **Automatic minimum memory:** a server's minimum memory can be 0, which starts it without `-Xms`; the JVM starts small and gives back memory it isn't using, where it never goes below a set minimum. A 0 saved before was read as 4 GB.
+- **Date format:** pick day/month/year, month/day/year or year-month-day in Settings › General › Appearance, for every date in the panel; Automatic now follows your browser's region too.
+
+### Changed
+
+- **Scheduler:** restart and broadcasts sit at the top, with one countdown choice and a preview of each message, the schedule right below, and the timezone and warning text together in one settings card.
+
+### Fixed
+
+- **Leaderboard missed players:** kills and days are now read for everyone online, not only while the Leaderboard page is open, and a death no longer loses kills.
+- **Toggles on phones and tablets:** switches are pills again instead of big circles, and checkboxes keep their size, both still easy to tap.
+
+## [1.4.8] - 2026-10-07
+
+### Changed
+
+- **Sidebar footer:** a tidier layout with a "Support me on Ko-fi" button; a pending panel update now shows as an amber version tag, and the live-updates notice opens its details and Retry on tap or keyboard.
+- **Phones and tablets:** collapsing the sidebar on desktop no longer leaves the mobile menu stuck as an icon rail.
+
+## [1.4.7] - 2026-10-07
+
+### Fixed
+
+- **Online Players closed the panel:** the exe now carries the SQLite engine inside it instead of a `sql-wasm.wasm` file the updater never shipped, and a SQLite engine that can't start no longer closes the panel.
+
+## [1.4.6] - 2026-10-06
 
 ### Security
 

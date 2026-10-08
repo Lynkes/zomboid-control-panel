@@ -24,12 +24,21 @@
     "never": "Nunca",
     "actions": "Acciones",
     "removeTooltip": "Eliminar a {{username}}",
-    "linkSsoTooltip": "Vincular SSO a {{username}}"
+    "linkSsoTooltip": "Vincular SSO a {{username}}",
+    "unlinkSsoTooltip": "Desvincular SSO de {{username}}",
+    "ssoIdentity": "SSO: {{identity}}",
+    "signOutTooltip": "Cerrar la sesión de {{username}} en todas partes"
   },
   "deleteDialog": {
     "title": "¿Eliminar a {{username}}?",
     "description": "Perderá el acceso a este panel de inmediato, en su próxima solicitud — no eventualmente. Esta acción no se puede deshacer.",
     "confirm": "Eliminar cuenta",
+    "cancel": "Cancelar"
+  },
+  "unlinkDialog": {
+    "title": "¿Desvincular SSO de {{username}}?",
+    "description": "Se quitan todas las identidades SSO vinculadas a esta cuenta y se cierra su sesión en todas partes. Podrá seguir iniciando sesión con su contraseña, y puede volver a vincular SSO.",
+    "confirm": "Desvincular SSO",
     "cancel": "Cancelar"
   },
   "manageRolesLink": "Administrar roles y permisos",
@@ -64,6 +73,17 @@
     "ssoLinkedTitle": "SSO vinculado",
     "ssoLinkedDescription": "La identidad externa ya está vinculada a esta cuenta.",
     "ssoLinkExpired": "La sesión de vinculación SSO caducó. Vuelve a iniciarla.",
-    "ssoLinkFailed": "No se pudo vincular la identidad SSO a esta cuenta."
+    "ssoLinkFailed": "No se pudo vincular la identidad SSO a esta cuenta.",
+    "ssoLinkedDescriptionWithEmail": "{{email}} ya está vinculado a {{username}}. Si no es su dirección, desvincúlelo.",
+    "ssoUnlinkedTitle": "SSO desvinculado",
+    "ssoUnlinkedDescription": "{{username}} ya no puede iniciar sesión con SSO y se ha cerrado su sesión en todas partes.",
+    "signedOutTitle": "Sesión cerrada en todas partes",
+    "signedOutDescription": "Se cerró la sesión de {{username}} en todos los navegadores y dispositivos."
+  },
+  "signOutDialog": {
+    "title": "¿Cerrar la sesión de {{username}} en todas partes?",
+    "description": "Se cierra la sesión en todos los navegadores y dispositivos con esta cuenta. Su contraseña y su rol no cambian.",
+    "confirm": "Cerrar sesión en todas partes",
+    "cancel": "Cancelar"
   }
 }

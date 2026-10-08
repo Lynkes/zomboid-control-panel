@@ -1,6 +1,6 @@
 {
   "name": "pz-server-manager",
-  "version": "1.4.6",
+  "version": "1.4.8",
   "description": "Project Zomboid Server Manager - Web-based admin panel",
   "main": "server/index.js",
   "type": "module",
@@ -59,7 +59,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
-    "@yao-pkg/pkg": "^6.22.0",
+    "@yao-pkg/pkg": "^6.23.0",
     "concurrently": "^9.1.0",
     "esbuild": "^0.28.2",
     "eslint": "^9.39.5",
@@ -72,6 +72,7 @@
   },
   "overrides": {
     "esbuild": "$esbuild",
+    "shell-quote": "^1.11.0",
     "anymatch": {
       "picomatch": "2.3.2"
     },

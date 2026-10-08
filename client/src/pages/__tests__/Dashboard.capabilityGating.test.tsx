@@ -274,6 +274,64 @@ describe('Dashboard.tsx: Auto-start sends a boolean setting', () => {
   })
 })
 
+describe('Dashboard.tsx: Restart if it goes down', () => {
+  it('adds and removes the active server, keeping the others chosen', async () => {
+    await setUpCommon()
+    getAppSettings.mockResolvedValue({ settings: { restartOnCrashServerIds: ['9'] } })
+    getResolvedActive.mockResolvedValue({ server: makeServer() })
+    getStatus.mockResolvedValue({
+      running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
+    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+    updateAppSettings.mockResolvedValue({ success: true })
+
+    renderDashboard()
+
+    await screen.findAllByRole('button', { name: 'Start' })
+    const checkbox = await waitFor(() => {
+      const found = document.getElementById('restartOnCrash')
+      expect(found).toBeInTheDocument()
+      return found!
+    })
+    expect(checkbox).not.toBeChecked()
+    fireEvent.click(checkbox)
+
+    await waitFor(() => {
+      expect(updateAppSettings).toHaveBeenCalledWith({ restartOnCrashServerIds: ['9', '1'] })
+    }, { timeout: 500 })
+    expect(checkbox).toBeChecked()
+
+    fireEvent.click(checkbox)
+    await waitFor(() => {
+      expect(updateAppSettings).toHaveBeenLastCalledWith({ restartOnCrashServerIds: ['9'] })
+    }, { timeout: 500 })
+  })
+
+  it('with two servers, is chosen per row of the servers overview', async () => {
+    await setUpCommon()
+    getAppSettings.mockResolvedValue({ settings: {} })
+    const active = makeServer()
+    const other = makeServer({ id: 2, name: 'Riverside', serverName: 'Riverside', isActive: false })
+    getResolvedActive.mockResolvedValue({ server: active })
+    vi.mocked(serversApi.getAll).mockResolvedValue({ servers: [active, other] } as never)
+    getStatus.mockResolvedValue({
+      running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
+    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+    updateAppSettings.mockResolvedValue({ success: true })
+
+    renderDashboard()
+
+    const row = (await screen.findByText('Riverside')).closest('li') as HTMLElement
+    await waitFor(() => expect(document.getElementById('restartOnCrash')).not.toBeInTheDocument())
+    fireEvent.click(within(row).getByRole('checkbox', { name: 'Restart if it goes down' }))
+
+    await waitFor(() => {
+      expect(updateAppSettings).toHaveBeenCalledWith({ restartOnCrashServerIds: ['2'] })
+    }, { timeout: 500 })
+  })
+})
+
 async function openMoreActionsMenu() {
   // Radix's DropdownMenuTrigger opens on pointerdown, not click (same
   // family of quirk as Tabs switching on mousedown -- see
@@ -321,6 +379,10 @@ describe('Dashboard.tsx: Auto-start on launch is gated on panel.settings', () =>
     expect(checkbox).toBeDisabled()
 
     fireEvent.click(checkbox!)
+    // Restart if it goes down is the same kind of panel setting.
+    const restartBox = document.getElementById('restartOnCrash')
+    expect(restartBox).toBeDisabled()
+    fireEvent.click(restartBox!)
     await new Promise((r) => setTimeout(r, 0))
     expect(updateAppSettings).not.toHaveBeenCalled()
   })

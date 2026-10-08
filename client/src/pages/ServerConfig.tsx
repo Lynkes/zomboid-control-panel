@@ -107,6 +107,7 @@ import { resolveServerRunning } from '@/lib/serverStatus'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { isDeliveryStatus, resolveLuaChecksumCallout, type LuaChecksumDelivery } from '@/lib/bridgeDeliveryView'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useDateFormat } from '@/lib/dateFormat'
 import { formatModSettingDescription, formatModSettingLabel } from '@/lib/modSettingsLabels'
 import {
   buildIniSavePayload,
@@ -1046,6 +1047,7 @@ export function resolveServerConfigDeepLink(searchParams: URLSearchParams) {
 
 export default function ServerConfig() {
   const { t, i18n } = useTranslation('serverconfig')
+  const { formatDate, formatDateTime, formatTime } = useDateFormat()
   const searchLocale = i18n.resolvedLanguage || i18n.language
   const [searchParams] = useSearchParams()
   const initialDeepLink = resolveServerConfigDeepLink(searchParams)
@@ -3235,7 +3237,7 @@ export default function ServerConfig() {
             <AlertTitle>{t('worldSandboxSnapshotBanner.title')}</AlertTitle>
             <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <span className="min-w-0">
-                {t('worldSandboxSnapshotBanner.desc', { date: new Date(worldSandboxSnapshot.mtime).toLocaleString(i18n.language) })}
+                {t('worldSandboxSnapshotBanner.desc', { date: formatDateTime(worldSandboxSnapshot.mtime, { seconds: true }) })}
               </span>
               <span className="flex shrink-0 flex-col items-start gap-1 sm:items-end">
                 <Button
@@ -4613,7 +4615,7 @@ export default function ServerConfig() {
                     )}
                     {modSettingsLastLoaded && (
                       <span className="text-xs text-muted-foreground/60 ms-auto">
-                        {t('modSettingsTab.loadedAt', { time: modSettingsLastLoaded.toLocaleTimeString(i18n.language) })}
+                        {t('modSettingsTab.loadedAt', { time: formatTime(modSettingsLastLoaded, { seconds: true }) })}
                       </span>
                     )}
                   </div>
@@ -5061,7 +5063,7 @@ export default function ServerConfig() {
                           <div className="min-w-0">
                             <p className="break-all text-sm font-medium font-mono" dir="auto" title={backup.filename}>{backup.filename}</p>
                             <p className="text-xs text-muted-foreground">
-                              {new Date(backup.created).toLocaleString(i18n.language)} • {t('backupsDialog.sizeKb', { size: Math.round(backup.size / 1024) })}
+                              {formatDateTime(backup.created, { seconds: true })} • {t('backupsDialog.sizeKb', { size: Math.round(backup.size / 1024) })}
                             </p>
                           </div>
                         </div>
@@ -5165,7 +5167,7 @@ export default function ServerConfig() {
                           <p className="mt-1 break-words text-sm text-muted-foreground" dir="auto" title={template.description}>{template.description}</p>
                         )}
                         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                          <span>{t('templatesDialog.createdLabel', { date: new Date(template.created).toLocaleDateString(i18n.language) })}</span>
+                          <span>{t('templatesDialog.createdLabel', { date: formatDate(template.created) })}</span>
                           <span>•</span>
                           <span className="flex items-center gap-1">
                             {template.hasIni && <CheckCircle className="w-3 h-3 text-primary" />}

@@ -267,7 +267,7 @@
     "panel": {
       "settings": {
         "label": "Gérer les paramètres du panneau",
-        "description": "Changer la politique CORS, l'intervalle de vérification des mods et d'autres paramètres de l'application — y compris faire pointer le serveur HTTPS du panneau vers n'importe quel fichier de certificat/clé de l'hôte — et configurer la connexion SSO/OIDC (secret client compris)."
+        "description": "Changer la politique CORS, l'intervalle de vérification des mods et d'autres paramètres de l'application — y compris faire pointer le serveur HTTPS du panneau vers n'importe quel fichier de certificat/clé de l'hôte — ainsi que le nom et le scope du bouton de connexion SSO/OIDC. Le choix du fournisseur d'identité qui connecte les utilisateurs (émetteur, ID et secret client, URI de redirection) reste réservé aux administrateurs."
       }
     }
   }

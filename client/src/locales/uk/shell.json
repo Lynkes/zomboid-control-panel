@@ -92,8 +92,8 @@
   },
   "footer": {
     "signOut": "Вийти",
-    "supportKofi": "Підтримати на Ko-fi (відкриється в новій вкладці)",
-    "buyMeCoffee": "Пригостити кавою",
+    "opensInNewTab": "(відкриється в новій вкладці)",
+    "supportMeKofi": "Підтримайте мене на Ko-fi",
     "githubRepo": "Репозиторій GitHub (відкриється в новій вкладці)",
     "keyboardShortcuts": "Комбінації клавіш",
     "keyboardShortcutsTitle": "Комбінації клавіш (?)",
@@ -121,5 +121,12 @@
   },
   "languageSwitcher": {
     "label": "Мова"
+  },
+  "authSession": {
+    "signOutFailedTitle": "Запит на вихід не дійшов до панелі",
+    "signOutFailedDescription": "Ви все ще в системі в цьому браузері. Перевірте з’єднання з панеллю й спробуйте ще раз.",
+    "statusCheckFailedTitle": "Не вдалося перевірити вхід",
+    "statusCheckFailedDescription": "Панель або проксі перед нею не відповіли на перевірку входу. Зачекайте трохи й спробуйте ще раз.",
+    "retry": "Повторити"
   }
 }

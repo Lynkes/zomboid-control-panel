@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { runServerFilesRoute } from "./helpers/serverFilesRoute.js";
 
 // Regression coverage for the createBackup() fix (route-hunt Finding 2,
 // authorised and ruled on by god): createBackup() used to return
@@ -46,32 +47,15 @@ function createResponse() {
   return response;
 }
 
-// Grabs the route's final handler, skipping every middleware ahead of it
-// (the permission gate, the "server must be stopped" guard) -- this file is
-// only exercising createBackup()'s own contract and how each handler reacts
-// to it, which the gate tests elsewhere already cover independently.
-function getHandler(routePath, method) {
-  const layer = router.stack.find(
-    (entry) => entry.route?.path === routePath && entry.route.methods[method],
-  );
-  return layer.route.stack[layer.route.stack.length - 1].handle;
-}
-
-// 2026-09-08 quadruple-read sweep: every handler now reads
-// req.activeServerContext instead of re-deriving it, populated once by the
-// router's own gate -- one of the middleware layers this file's getHandler()
-// deliberately skips. Run that ONE gate first, on the same req, since every
-// handler below now depends on it; still skip everything else ahead of the
-// handler, matching this file's own stated scope.
-function getGateMiddleware() {
-  return router.stack.filter((entry) => !entry.route)[1].handle;
-}
-
-async function runHandler(routePath, method, req) {
-  const res = createResponse();
-  await getGateMiddleware()(req, res, () => {});
-  await getHandler(routePath, method)(req, res, () => {});
-  return res;
+// Runs the route behind the router's own gate, which sets
+// req.activeServerContext and fails the test if it refuses the request
+// (helpers/serverFilesRoute.js). Every other middleware ahead of the route
+// (the permission gate, the "server must be stopped" guard) is skipped --
+// this file is only exercising createBackup()'s own contract and how each
+// handler reacts to it, which the gate tests elsewhere already cover
+// independently.
+function runHandler(routePath, method, req) {
+  return runServerFilesRoute(router, routePath, method, req, createResponse());
 }
 
 /** Break the backup dir a specific way: a plain file sits where the backup

@@ -20,6 +20,7 @@ import {
   XCircle,
   Download,
   RefreshCw,
+  LogOut,
   Archive,
   Info,
   Trash2,
@@ -49,6 +50,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { KOFI_URL } from "@/lib/supportLinks";
 import { reportClientError } from "@/lib/client-errors";
 import {
   Card,
@@ -92,6 +94,8 @@ import { ToastAction } from "@/components/ui/toast";
 import { EmptyState } from "@/components/EmptyState";
 import { DisabledReason } from "@/components/DisabledReason";
 import {
+  apiFetch,
+  handleResponse,
   configApi,
   panelBridgeApi,
   backupApi,
@@ -133,6 +137,8 @@ import {
 import { useSocket } from "@/contexts/SocketContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme, type ThemeName } from "@/contexts/ThemeContext";
+import { DateFormatSelect } from "@/components/DateFormatSelect";
+import { useDateFormat } from "@/lib/dateFormat";
 import { platformTranslationKey, useRuntimeInfo } from "@/hooks/useRuntimeInfo";
 import { useRequestGuard } from "@/hooks/useRequestGuard";
 import { BridgeStatusBadge } from "@/components/BridgeStatusBadge";
@@ -342,7 +348,8 @@ function ThemeSelect() {
 }
 
 export default function Settings() {
-  const { t, i18n } = useTranslation("settings");
+  const { t } = useTranslation("settings");
+  const { formatDateTime, formatTime } = useDateFormat();
   const runtimeInfo = useRuntimeInfo();
   const socket = useSocket();
   const [settings, setSettings] = useState<AppSettings>({
@@ -483,6 +490,8 @@ export default function Settings() {
   const [changingPassword, setChangingPassword] = useState(false);
   const [regenerateJwtDialogOpen, setRegenerateJwtDialogOpen] = useState(false);
   const [regeneratingJwtSecret, setRegeneratingJwtSecret] = useState(false);
+  const [signOutEverywhereDialogOpen, setSignOutEverywhereDialogOpen] = useState(false);
+  const [signingOutEverywhere, setSigningOutEverywhere] = useState(false);
   const [recoveryCodeStatus, setRecoveryCodeStatus] = useState<{
     configured: boolean;
     remaining: number;
@@ -490,6 +499,7 @@ export default function Settings() {
   } | null>(null);
   const [generatedRecoveryCodes, setGeneratedRecoveryCodes] = useState<string[]>([]);
   const [generatingRecoveryCodes, setGeneratingRecoveryCodes] = useState(false);
+  const [recoveryCodesPassword, setRecoveryCodesPassword] = useState("");
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [localPasswordResetSupported, setLocalPasswordResetSupported] =
@@ -874,8 +884,16 @@ export default function Settings() {
       const data = await configApi.getAppSettings();
       setSettingsLoadError(null);
       if (data.settings) {
-        const { autoStartServerIds: loadedAutoStartServerIds, ...incoming } =
-          data.settings as Partial<AppSettings> & { autoStartServerIds?: unknown };
+        // restartOnCrashServerIds is the Dashboard's alone, and stays out of
+        // `settings` for the same reason (Save would put back a stale list).
+        const {
+          autoStartServerIds: loadedAutoStartServerIds,
+          restartOnCrashServerIds: _restartOnCrashServerIds,
+          ...incoming
+        } = data.settings as Partial<AppSettings> & {
+          autoStartServerIds?: unknown;
+          restartOnCrashServerIds?: unknown;
+        };
         setStoredAutoStartServerIds(loadedAutoStartServerIds);
         // Use functional update to get current state and merge with loaded settings
         setSettings((prevSettings) => {
@@ -1117,9 +1135,19 @@ export default function Settings() {
   }, [fetchRecoveryCodeStatus]);
 
   const handleGenerateRecoveryCodes = async () => {
+    if (!recoveryCodesPassword) return;
     setGeneratingRecoveryCodes(true);
     try {
-      const result = await authApi.generateRecoveryCodes();
+      // The codes reset this account's password without the old one, so the
+      // server asks for the current password first.
+      const result = await handleResponse<{ codes?: string[] }>(
+        await apiFetch("/auth/recovery-codes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ currentPassword: recoveryCodesPassword }),
+        }),
+      );
+      setRecoveryCodesPassword("");
       setGeneratedRecoveryCodes(result.codes || []);
       await fetchRecoveryCodeStatus();
       toast({
@@ -1505,10 +1533,7 @@ export default function Settings() {
     if (!value) return t("errors.never");
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return t("errors.unknown");
-    return new Intl.DateTimeFormat(i18n.language, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(date);
+    return formatDateTime(date, { style: "medium" });
   };
 
   useEffect(() => {
@@ -2845,6 +2870,30 @@ export default function Settings() {
     }
   };
 
+  // Ends every session of this account, this browser included (a lost
+  // device, a sign-in someone else may have), then signs out here.
+  const handleSignOutEverywhere = async () => {
+    setSigningOutEverywhere(true);
+    try {
+      await authApi.revokeAllSessions();
+      setSignOutEverywhereDialogOpen(false);
+      toast({
+        title: t("security.signOutEverywhere.resultTitle"),
+        description: t("security.signOutEverywhere.resultDescription"),
+      });
+      await logout();
+    } catch (error) {
+      toast({
+        title: t("security.signOutEverywhere.failedTitle"),
+        description:
+          getUserErrorMessage(error, t("security.signOutEverywhere.failedFallback")),
+        variant: "destructive",
+      });
+    } finally {
+      setSigningOutEverywhere(false);
+    }
+  };
+
   const handlePrepareLocalPasswordReset = async () => {
     setPreparingLocalPasswordReset(true);
     try {
@@ -3309,6 +3358,16 @@ export default function Settings() {
                       </p>
                     </div>
                     <ThemeSelect />
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3">
+                    <div className="min-w-0 flex-1 basis-60">
+                      <Label htmlFor="settings-date-format" className="text-sm font-medium">{t("general.dateFormatLabel")}</Label>
+                      <p className="text-xs text-muted-foreground">
+                        {t("general.dateFormatDesc")}
+                      </p>
+                    </div>
+                    <DateFormatSelect id="settings-date-format" />
                   </div>
                 </div>
 
@@ -4537,7 +4596,7 @@ export default function Settings() {
                       {rconTestResult.ok
                         ? t("connection.testResultOk")
                         : t("connection.testResultFailed")}{" "}
-                      {new Date(rconTestResult.at).toLocaleTimeString(i18n.language)}
+                      {formatTime(rconTestResult.at, { seconds: true })}
                     </span>
                   )}
                   <div className="flex items-center gap-2">
@@ -6017,7 +6076,7 @@ export default function Settings() {
                       <Clock className="w-4 h-4 text-muted-foreground" />
                       <span className="text-sm">
                         {backupStatus.lastBackup
-                          ? t("backups.lastBackup", { date: new Date(backupStatus.lastBackup.created).toLocaleString(i18n.language) })
+                          ? t("backups.lastBackup", { date: formatDateTime(backupStatus.lastBackup.created, { seconds: true }) })
                           : t("backups.noBackupsYet")}
                       </span>
                     </div>
@@ -6164,7 +6223,7 @@ export default function Settings() {
                                 </p>
                                 <p className="text-xs text-muted-foreground">
                                   {formatBytes(backup.size)} •{" "}
-                                  {new Date(backup.created).toLocaleString(i18n.language)}
+                                  {formatDateTime(backup.created, { seconds: true })}
                                 </p>
                               </div>
                             </div>
@@ -6532,12 +6591,27 @@ export default function Settings() {
                         <Key className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-3">
+                      <form
+                        className="flex flex-wrap items-center gap-3"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!generatingRecoveryCodes) void handleGenerateRecoveryCodes();
+                        }}
+                      >
+                        <Input
+                          type="password"
+                          value={recoveryCodesPassword}
+                          onChange={(e) => setRecoveryCodesPassword(e.target.value)}
+                          placeholder={t("security.currentPasswordPlaceholder")}
+                          className="h-10 w-full sm:w-56"
+                          maxLength={128}
+                          autoComplete="current-password"
+                          aria-label={t("ariaLabels.currentPassword")}
+                        />
                         <Button
-                          type="button"
+                          type="submit"
                           variant="outline"
-                          onClick={() => void handleGenerateRecoveryCodes()}
-                          disabled={generatingRecoveryCodes}
+                          disabled={generatingRecoveryCodes || !recoveryCodesPassword}
                         >
                           {generatingRecoveryCodes ? (
                             <Loader2 className="me-2 h-4 w-4 animate-spin" />
@@ -6555,7 +6629,7 @@ export default function Settings() {
                               : t("security.noCodesYet")}
                           </span>
                         )}
-                      </div>
+                      </form>
 
                       {recoveryCodeStatus?.configured && (
                         <p className="text-xs text-muted-foreground">
@@ -6815,6 +6889,51 @@ export default function Settings() {
                       </div>
                     </div>
 
+                    {user && (
+                      <div className="max-w-2xl rounded-xl border border-border/70 bg-background/40 p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">
+                              {t("security.signOutEverywhere.cardTitle")}
+                            </p>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {t("security.signOutEverywhere.cardDesc")}
+                            </p>
+                          </div>
+                          <LogOut className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground rtl:-scale-x-100" />
+                        </div>
+                        <AlertDialog open={signOutEverywhereDialogOpen} onOpenChange={setSignOutEverywhereDialogOpen}>
+                          <AlertDialogTrigger asChild>
+                            <Button type="button" variant="outline">
+                              <LogOut className="me-2 h-4 w-4 rtl:-scale-x-100" />
+                              {t("security.signOutEverywhere.button")}
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>{t("security.signOutEverywhere.confirmTitle")}</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                {t("security.signOutEverywhere.confirmDesc")}
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel disabled={signingOutEverywhere}>{t("security.signOutEverywhere.cancel")}</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  void handleSignOutEverywhere();
+                                }}
+                                disabled={signingOutEverywhere}
+                              >
+                                {signingOutEverywhere && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
+                                {t("security.signOutEverywhere.confirm")}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    )}
+
                     {user?.role === "admin" && (
                       <div className="max-w-2xl rounded-xl border border-destructive/40 bg-destructive/5 p-4 space-y-3">
                         <div className="flex items-start justify-between gap-3">
@@ -7046,7 +7165,7 @@ export default function Settings() {
                     </div>
                   </div>
                   <a
-                    href="https://ko-fi.com/fpsacha"
+                    href={KOFI_URL}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#FF5E5B] px-4 py-2 text-sm font-medium text-white hover:bg-[#FF4541] transition-colors shrink-0 shadow-sm"
@@ -7173,7 +7292,8 @@ function WorkshopCollectionSyncCard({
   // (POST /mods/collection/extract-cookies is gated mods.manage, not
   // panel.settings like the rest of this card) rather than duplicating
   // the same English sentence into settings.json's own permissions section.
-  const { t, i18n } = useTranslation(["settings", "mods"]);
+  const { t } = useTranslation(["settings", "mods"]);
+  const { formatTime } = useDateFormat();
   const { toast } = useToast();
   // pz-pam-r23 (remaining client-side capability gates): persistCookies
   // (below) is a thin wrapper around configApi.updateAppSettings(), same
@@ -8044,7 +8164,7 @@ function WorkshopCollectionSyncCard({
           </div>
           {diffCheckedAt && (
             <p className="text-[11px] text-muted-foreground/70">
-              {t("workshopSync.lastChecked", { time: diffCheckedAt.toLocaleTimeString(i18n.language) })}
+              {t("workshopSync.lastChecked", { time: formatTime(diffCheckedAt, { seconds: true }) })}
               {diff?.title && (
                 <>
                   {" "}

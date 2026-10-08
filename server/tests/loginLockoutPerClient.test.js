@@ -141,7 +141,7 @@ describe("LOCKOUT: strangers' failed sign-ins don't lock the owner out", () => {
   });
 
   it("recovering the password lifts every pause on the account, so the new password works", async () => {
-    const { codes } = await authService.generateRecoveryCodes(2);
+    const { codes } = await authService.generateRecoveryCodes("u-admin", PASSWORD, 2);
     for (let i = 0; i < MAX_FAILED_LOGINS; i++) {
       await expect(authService.login("admin", `wrong${i}`, false, { clientKey: "127.0.0.5" })).rejects.toThrow();
     }
@@ -197,5 +197,88 @@ describe("AUTHN-4: concurrent guesses can't get past the limit", () => {
     }
     const results = await Promise.allSettled(attempts);
     expect(results[MAX_FAILED_LOGINS - 1].status).toBe("fulfilled");
+  });
+});
+
+// Auth audit 2026-10-08 (#8): POST /change-password compared the current
+// password with no limit but the 300-a-minute API limiter, so anyone holding
+// a session could guess it about 3 times a second (and confirm a hit by
+// sending the guess as the new password too). The check now counts against
+// the account's own allowance, the same MAX_FAILED_LOGINS per window as
+// sign-in, without touching sign-in from anywhere.
+describe("#8: change-password goes through the login pause", () => {
+  it("after MAX_FAILED_LOGINS wrong current passwords the right one is refused too, and sign-in is unaffected", async () => {
+    for (let i = 0; i < MAX_FAILED_LOGINS; i++) {
+      await expect(authService.changePassword("u-admin", `wrong${i}`, "brand-new-pass-1")).rejects.toThrow(
+        "Current password is incorrect",
+      );
+    }
+    await expect(authService.changePassword("u-admin", PASSWORD, "brand-new-pass-1")).rejects.toMatchObject({
+      code: "CURRENT_PASSWORD_INCORRECT",
+    });
+    expect(db.data.users[0].password).toBe(passwordHash);
+
+    await expect(authService.login("admin", PASSWORD, false, { clientKey: "203.0.113.20" })).resolves.toMatchObject({
+      user: { username: "admin" },
+    });
+  });
+
+  it("concurrent guesses can't get past the limit either", async () => {
+    const compare = vi.spyOn(bcrypt, "compare");
+    const attempts = [];
+    for (let i = 0; i < 30; i++) {
+      attempts.push(authService.changePassword("u-admin", `wrong${i}`, "brand-new-pass-1"));
+    }
+    await Promise.allSettled(attempts);
+    expect(compare.mock.calls.filter(([, hash]) => hash === passwordHash)).toHaveLength(MAX_FAILED_LOGINS);
+  });
+
+  it("a recovery lifts the pause", async () => {
+    for (let i = 0; i < MAX_FAILED_LOGINS; i++) {
+      await expect(authService.changePassword("u-admin", `wrong${i}`, "brand-new-pass-1")).rejects.toThrow();
+    }
+    await authService.resetPassword("recovered-pass-1");
+    await expect(authService.changePassword("u-admin", "recovered-pass-1", "brand-new-pass-2")).resolves.toBe(true);
+  });
+
+  // Review of #8: the pause is one per account, so anyone holding a session
+  // could keep it up and stop the owner changing the password to evict them.
+  // Signing in with the right password lifts it. Signing out everywhere
+  // doesn't: an SSO sign-in mints a new session without the password, so
+  // whoever holds a linked identity could spend the allowance, sign out
+  // everywhere and guess again.
+  async function spendAllowance() {
+    for (let i = 0; i < MAX_FAILED_LOGINS; i++) {
+      await expect(authService.changePassword("u-admin", `wrong${i}`, "brand-new-pass-1")).rejects.toThrow();
+    }
+  }
+
+  it("a sign-in with the right password lifts the pause; without one it stays", async () => {
+    await spendAllowance();
+    await expect(authService.changePassword("u-admin", PASSWORD, "brand-new-pass-1")).rejects.toMatchObject({
+      code: "CURRENT_PASSWORD_INCORRECT",
+    });
+
+    await authService.login("admin", PASSWORD, false, { clientKey: "203.0.113.21" });
+    await expect(authService.changePassword("u-admin", PASSWORD, "brand-new-pass-1")).resolves.toBe(true);
+  });
+
+  it("a failed sign-in doesn't lift it", async () => {
+    await spendAllowance();
+    await expect(authService.login("admin", "not-it", false, { clientKey: "203.0.113.22" })).rejects.toThrow();
+    await expect(authService.changePassword("u-admin", PASSWORD, "brand-new-pass-1")).rejects.toMatchObject({
+      code: "CURRENT_PASSWORD_INCORRECT",
+    });
+  });
+
+  it("signing out everywhere doesn't lift it; the next sign-in with the password does", async () => {
+    await spendAllowance();
+    await authService.revokeAllSessions("u-admin");
+    await expect(authService.changePassword("u-admin", PASSWORD, "brand-new-pass-1")).rejects.toMatchObject({
+      code: "CURRENT_PASSWORD_INCORRECT",
+    });
+
+    await authService.login("admin", PASSWORD, false, { clientKey: "203.0.113.23" });
+    await expect(authService.changePassword("u-admin", PASSWORD, "brand-new-pass-1")).resolves.toBe(true);
   });
 });

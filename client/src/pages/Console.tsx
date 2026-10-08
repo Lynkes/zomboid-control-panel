@@ -20,6 +20,7 @@ import { DisabledReason } from '@/components/DisabledReason'
 import { HelpTip } from '@/components/HelpTip'
 import { cn } from '@/lib/utils'
 import { getUserErrorMessage, getResultErrorMessage } from '@/lib/errorMessage'
+import { formatTime, useDateFormat } from '@/lib/dateFormat'
 import { usePageShortcut } from '@/hooks/useKeyboardShortcuts'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
 
@@ -301,7 +302,8 @@ const SERVERMSG_REJECTED_PATTERN = /Use:\s*\/servermsg/i
 const COMMAND_HISTORY_FETCH_LIMIT = 50
 
 export default function Console() {
-  const { t, i18n } = useTranslation('console')
+  const { t } = useTranslation('console')
+  const { formatDateTime } = useDateFormat()
   const chatChannels = useMemo(() => getChatChannels(t), [t])
   const quickCommands = useMemo(() => getQuickCommands(t), [t])
   const quickBroadcasts = useMemo(() => getQuickBroadcasts(t), [t])
@@ -1552,7 +1554,7 @@ export default function Console() {
                       <span className="text-primary shrink-0">$</span>
                       <span className="text-foreground/90 break-all min-w-0 grow">{entry.command}</span>
                       <span className="text-muted-foreground/60 text-[10px] ms-auto shrink-0 tabular-nums font-mono">
-                        {new Date(entry.timestamp).toLocaleTimeString(i18n.language)}
+                        {formatTime(entry.timestamp, { seconds: true })}
                       </span>
                     </div>
                     <div className={cn('ms-4 mt-0.5 text-xs border-s-2 ps-2 break-words', entry.success ? 'border-primary/30 text-foreground/85' : 'border-destructive/50 text-destructive')}>
@@ -1797,7 +1799,7 @@ export default function Console() {
                           <div className="flex items-center justify-between gap-2">
                             <code className="text-sm font-mono text-primary truncate min-w-0 flex-1">{entry.command}</code>
                             <span className="text-xs text-muted-foreground shrink-0">
-                              {new Date(entry.executed_at).toLocaleString(i18n.language)}
+                              {formatDateTime(entry.executed_at, { seconds: true })}
                             </span>
                           </div>
                           {entry.response && (

@@ -17,6 +17,7 @@ import { getDataPaths } from "../utils/paths.js";
 import { setSetting } from "../database/init.js";
 import { verifySetupToken, clearSetupToken } from "../utils/setupToken.js";
 import { getRefreshCookieOptions } from "../utils/refreshCookie.js";
+import { isExtensionOrigin } from "../utils/extensionOrigin.js";
 import { requirePermission, getCapabilitiesForRole } from "../services/permissions.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import {
@@ -121,8 +122,42 @@ export function isPanelBehindTrustProxy(req) {
   return Boolean(req.app?.get?.("trust proxy"));
 }
 
+// SECURITY (2026-10-08, #17): headers a reverse proxy or tunnel adds and a
+// browser talking to the panel directly never sends. Behind a proxy on the
+// same machine with TRUST_PROXY unset, every visitor arrives from 127.0.0.1,
+// so the socket address alone counted the whole internet as "on the panel
+// host" -- undoing the 1.4.6 hiding of whether a reset-token file exists.
+// Best effort: a bare nginx proxy_pass adds none of these, which is why the
+// warning below points at TRUST_PROXY. A caller who adds one itself only
+// makes itself non-local.
+const PROXY_HEADERS = [
+  "x-forwarded-for",
+  "x-forwarded-host",
+  "x-forwarded-proto",
+  "forwarded",
+  "x-real-ip",
+  "cf-connecting-ip",
+];
+let warnedProxyWithoutTrustProxy = false;
+
+export function requestCameThroughProxy(req) {
+  return PROXY_HEADERS.some((header) => req.headers?.[header] !== undefined);
+}
+
 export function isLocalPanelRequest(req) {
   if (isPanelBehindTrustProxy(req)) {
+    return false;
+  }
+
+  if (requestCameThroughProxy(req)) {
+    if (!warnedProxyWithoutTrustProxy) {
+      warnedProxyWithoutTrustProxy = true;
+      log.warn(
+        "A request reached the panel through a reverse proxy or tunnel (it carries X-Forwarded-For or a similar header), " +
+          "but TRUST_PROXY isn't set. Recovery that only works on the panel host is off for proxied requests; " +
+          "set TRUST_PROXY to the proxy's address (for example TRUST_PROXY=loopback) so sign-in limits tell visitors apart.",
+      );
+    }
     return false;
   }
 
@@ -308,6 +343,22 @@ async function freshDeviceToken(userId) {
   }
 }
 
+// The refresh cookie for a session authService just created or rotated
+// (auth audit 2026-10-08): a browser-session cookie when "Keep me signed in"
+// was unticked (#21), otherwise one that ends when the session does (#10).
+function setRefreshCookie(req, res, result) {
+  const expiresAt = Date.parse(result.refreshExpiresAt || "");
+  res.cookie(
+    "refreshToken",
+    result.refreshToken,
+    getRefreshCookieOptions(
+      req,
+      result.refreshPersistent !== false,
+      Number.isNaN(expiresAt) ? undefined : expiresAt - Date.now(),
+    ),
+  );
+}
+
 async function getAuthenticatedUser(req) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -431,11 +482,7 @@ router.post("/setup", setupLimiter, async (req, res) => {
 
     // Set refresh token as httpOnly cookie
     if (result.refreshToken) {
-      res.cookie(
-        "refreshToken",
-        result.refreshToken,
-        getRefreshCookieOptions(req),
-      );
+      setRefreshCookie(req, res, result);
     }
 
     log.info(`Setup complete — admin account created: ${username}`);
@@ -466,20 +513,24 @@ router.post("/login", loginLimiter, async (req, res) => {
     }
     // deviceToken: what this browser got back from its last successful
     // sign-in on this account (see authService.login()).
+    // The browser extension keeps only the access token. A refresh cookie
+    // set for its sign-in would land in the browser's shared jar and replace
+    // the panel tab's own (a remembered session cut to 12 hours, or the tab
+    // switched to the extension's account), so it gets no session at all.
     const result = await authService.login(
       username,
       password,
       rememberMe === true,
-      { clientKey: loginClientKey(req), deviceToken },
+      {
+        clientKey: loginClientKey(req),
+        deviceToken,
+        refreshSession: !isExtensionOrigin(req.headers.origin),
+      },
     );
 
     // Set refresh token as httpOnly cookie for auto-login
     if (result.refreshToken) {
-      res.cookie(
-        "refreshToken",
-        result.refreshToken,
-        getRefreshCookieOptions(req),
-      );
+      setRefreshCookie(req, res, result);
     }
 
     res.json({
@@ -496,12 +547,26 @@ router.post("/login", loginLimiter, async (req, res) => {
   }
 });
 
+// SECURITY (2026-10-08, auth audit #4): a page on another port of the
+// panel's host is same-site, so SameSite=Strict still sends it the refresh
+// cookie. Browsers label its requests Sec-Fetch-Site: same-site (cross-site
+// for anything further); only the panel's own page (same-origin) or a typed
+// URL (none) may spend the cookie. A client that sends no such header is not
+// a browser page and has no cookie to steal.
+function refuseCrossSiteCookieUse(req, res, next) {
+  const site = req.headers["sec-fetch-site"];
+  if (site && site !== "same-origin" && site !== "none") {
+    return res.status(403).json({ error: "Cross-origin request refused" });
+  }
+  return next();
+}
+
 /**
  * POST /api/auth/refresh
  * Refresh access token using refresh token cookie.
  * This is how auto-login works — the browser sends the httpOnly cookie automatically.
  */
-router.post("/refresh", async (req, res) => {
+router.post("/refresh", refuseCrossSiteCookieUse, async (req, res) => {
   try {
     const refreshToken = req.cookies?.refreshToken;
     if (!refreshToken) {
@@ -525,6 +590,18 @@ router.post("/refresh", async (req, res) => {
     // here -- `!result.accessToken` catches BOTH shapes, so a
     // capacity-evicted refresh gets today's generic 401 rather than a
     // broken 200 with an undefined accessToken.
+    //
+    // SECURITY (2026-10-08, #19): another request (another tab) refreshed
+    // with this same cookie a moment ago and won. The browser's cookie jar
+    // already holds the winner's token, so the cookie is left alone -- a
+    // late clear could wipe it and sign every tab out -- and the client
+    // retries once.
+    if (result?.refreshFailureReason === "race") {
+      return res.status(401).json({
+        error: "This session was just refreshed by another tab. Try again.",
+        code: ErrorCode.REFRESH_RACE,
+      });
+    }
     if (!result || !result.accessToken) {
       // Clear invalid cookie
       res.clearCookie("refreshToken", getRefreshCookieOptions(req, false));
@@ -538,11 +615,7 @@ router.post("/refresh", async (req, res) => {
 
     // Rotate the refresh token — set updated cookie
     if (result.refreshToken) {
-      res.cookie(
-        "refreshToken",
-        result.refreshToken,
-        getRefreshCookieOptions(req),
-      );
+      setRefreshCookie(req, res, result);
     }
 
     res.json({
@@ -570,10 +643,35 @@ router.post("/refresh", async (req, res) => {
  * POST /api/auth/logout
  * Clear refresh token cookie.
  */
-router.post("/logout", async (req, res) => {
+router.post("/logout", refuseCrossSiteCookieUse, async (req, res) => {
   await authService.logout(req.cookies?.refreshToken);
   res.clearCookie("refreshToken", getRefreshCookieOptions(req, false));
   res.json({ success: true });
+});
+
+/**
+ * POST /api/auth/sessions/revoke-all
+ * Sign the caller's own account out everywhere: every kept-signed-in
+ * browser, this one included, and every live connection (auth audit
+ * 2026-10-08, #10). Before this, the only ways were changing the password,
+ * deleting the account, or rotating the JWT secret for everyone.
+ */
+router.post("/sessions/revoke-all", async (req, res) => {
+  try {
+    const user = await getAuthenticatedUser(req);
+    if (!user) {
+      return res.status(401).json({
+        error: "Not authenticated",
+        code: ErrorCode.NOT_AUTHENTICATED,
+      });
+    }
+    await authService.revokeAllSessions(user.userId);
+    res.clearCookie("refreshToken", getRefreshCookieOptions(req, false));
+    res.json({ success: true });
+  } catch (error) {
+    log.warn(`Sign-out everywhere failed: ${error.message}`);
+    res.status(400).json({ error: sanitizeError(error.message) });
+  }
 });
 
 /**
@@ -661,7 +759,9 @@ router.post("/change-password", async (req, res) => {
       deviceToken: await freshDeviceToken(user.userId),
     });
   } catch (error) {
-    res.status(400).json({ error: sanitizeError(error.message) });
+    const body = { error: sanitizeError(error.message) };
+    if (error.code) body.code = error.code;
+    res.status(error.status || 400).json(body);
   }
 });
 
@@ -821,6 +921,64 @@ router.delete("/users/:id", requirePermission("users.manage"), async (req, res) 
 });
 
 /**
+ * POST /api/auth/users/:id/sessions/revoke
+ * Sign another account out everywhere without deleting it or changing its
+ * password (auth audit 2026-10-08, #10). Gated on users.manage like the
+ * routes beside it, and refused for an account whose role holds more than
+ * the caller's (ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES, #3).
+ */
+router.post(
+  "/users/:id/sessions/revoke",
+  requirePermission("users.manage"),
+  async (req, res) => {
+    try {
+      const user = await authService.revokeAllSessions(req.params.id, {
+        actingUserId: req.user?.userId,
+      });
+      log.info(`Every session of ${user.username} signed out by ${req.user?.username || "an admin"}`);
+      res.json({ success: true, user: { id: user.id, username: user.username } });
+    } catch (error) {
+      log.warn(`Signing a user out failed: ${error.message}`);
+      const body = { error: sanitizeError(error.message) };
+      if (error.code) body.code = error.code;
+      if (error.params) body.params = sanitizeErrorParams(error.params);
+      res.status(error.status || 400).json(body);
+    }
+  },
+);
+
+/**
+ * DELETE /api/auth/users/:id/identities
+ * Remove every SSO identity linked to an account and end its sessions
+ * (SECURITY 2026-10-08, #13). Admin-only and refused while logins are off,
+ * the same bar as POST /api/auth/oidc/link: linking and unlinking decide
+ * who can sign in as the account.
+ */
+router.delete("/users/:id/identities", requireRole("admin"), async (req, res) => {
+  if (req.user?.authDisabled || !req.user?.userId) {
+    return res.status(403).json({
+      error: "SSO unlinking requires an authenticated administrator",
+    });
+  }
+  try {
+    const result = await authService.unlinkExternalIdentities(req.params.id);
+    log.info(
+      `SSO identities unlinked by ${req.user.username || "admin"}: ${result.username} (${result.removed})`,
+    );
+    res.json({
+      success: true,
+      user: { id: result.id, username: result.username },
+      removed: result.removed,
+    });
+  } catch (error) {
+    log.warn(`SSO unlink failed: ${error.message}`);
+    res
+      .status(error.message === "User not found" ? 404 : 400)
+      .json({ error: sanitizeError(error.message) });
+  }
+});
+
+/**
  * POST /api/auth/regenerate-jwt-secret
  * Deliberately still requireRole("admin"), not requirePermission — the one
  * survivor of the users.manage sweep left as a CHOICE, not an oversight.
@@ -930,11 +1088,14 @@ const localResetTokenLimiter = rateLimit({
  * Generated while signed in, redeemable from the login screen. Only hashes are
  * stored, and each code works exactly once.
  *
- * requireRole("admin") on both routes below, added deliberately: unlike
- * every other per-account action in this file, generateRecoveryCodes()/
- * getRecoveryCodeStatus()/resetPassword() (services/auth.js) do NOT operate
- * on the calling user's own account — they always target "the" admin
- * account (`users.find(u => u.role === "admin") || users[0]`), full stop.
+ * SECURITY (2026-10-08, #1): each admin's codes now belong to their own
+ * account and reset only that account, while it is still admin; generating
+ * them asks for the current password (see generateRecoveryCodes()).
+ *
+ * requireRole("admin") on both routes below, added deliberately: the codes
+ * reset an admin password from the login screen without the old one. They
+ * used to target "the" admin account
+ * (`users.find(u => u.role === "admin") || users[0]`) whoever generated them.
  * Before this, POST here only checked "is this a valid token for ANY
  * account" (getAuthenticatedUser, below) — so a moderator or technician,
  * using nothing but their own ordinary login, could call it directly,
@@ -959,7 +1120,7 @@ router.get("/recovery-codes", requireRole("admin"), async (req, res) => {
         error: "Not authenticated",
         code: ErrorCode.NOT_AUTHENTICATED,
       });
-    res.json(await authService.getRecoveryCodeStatus());
+    res.json(await authService.getRecoveryCodeStatus(user.userId));
   } catch (error) {
     res.status(500).json({ error: sanitizeError(error.message) });
   }
@@ -973,18 +1134,28 @@ router.post("/recovery-codes", requireRole("admin"), async (req, res) => {
         error: "Not authenticated",
         code: ErrorCode.NOT_AUTHENTICATED,
       });
-    const result = await authService.generateRecoveryCodes(10);
-    log.info("New recovery codes generated");
+    const { currentPassword } = req.body || {};
+    if (!isNonEmptyString(currentPassword)) {
+      return res.status(400).json({
+        error: "Enter your current password to generate recovery codes.",
+        code: ErrorCode.RECOVERY_CODES_PASSWORD_REQUIRED,
+      });
+    }
+    const result = await authService.generateRecoveryCodes(user.userId, currentPassword);
+    log.info(`New recovery codes generated for ${user.username}`);
     res.json({ success: true, ...result });
   } catch (error) {
-    res.status(400).json({ error: sanitizeError(error.message) });
+    const body = { error: sanitizeError(error.message) };
+    if (error.code) body.code = error.code;
+    res.status(error.status || 400).json(body);
   }
 });
 
+// Whether any admin has an unused code: the login screen offers recovery
+// with a code only then.
 router.get("/recovery-status", async (req, res) => {
   try {
-    const status = await authService.getRecoveryCodeStatus();
-    res.json({ recoveryCodesAvailable: status.remaining > 0 });
+    res.json({ recoveryCodesAvailable: await authService.hasUsableRecoveryCodes() });
   } catch {
     res.json({ recoveryCodesAvailable: false });
   }
@@ -1026,7 +1197,7 @@ router.post("/recover-with-code", resetLimiter, async (req, res) => {
 router.post("/reset-token/local", localResetTokenLimiter, async (req, res) => {
   try {
     if (!isLocalPanelRequest(req)) {
-      if (isPanelBehindTrustProxy(req)) {
+      if (isPanelBehindTrustProxy(req) || requestCameThroughProxy(req)) {
         return res.status(403).json({
           error:
             "This panel is running behind a reverse proxy, so it can't verify a request came from the server itself. Create data/reset-token.txt on the host directly, or use a recovery code instead.",

@@ -204,6 +204,11 @@ async function loginToPanel(panelUrl, username, password) {
   const deviceToken = await getDeviceToken(panelUrl, username);
   const res = await fetch(panelUrl + '/api/auth/login', {
     method: 'POST',
+    // Default credentials mode on purpose: a proxy in front of the panel that
+    // signs people in itself (Basic auth, Cloudflare Access, Authelia, a
+    // client certificate) needs the browser's credentials for this request.
+    // The panel sets no refresh cookie for an extension Origin, so this
+    // sign-in can't replace the panel tab's own.
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password, rememberMe: false, deviceToken }),
   });
@@ -242,6 +247,7 @@ async function readSteamCookies() {
 async function pushCookies(panelUrl, token, sessionid, steamLoginSecure) {
   const res = await fetch(panelUrl + '/api/mods/collection/extension-push', {
     method: 'POST',
+    // Default credentials mode for an authenticating proxy; see loginToPanel().
     headers: {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer ' + token,

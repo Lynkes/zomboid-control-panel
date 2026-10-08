@@ -267,7 +267,7 @@
     "panel": {
       "settings": {
         "label": "Gerenciar configurações gerais do painel",
-        "description": "Alterar a política de CORS, o intervalo de verificação de mods e outras configurações do aplicativo — inclusive apontar o listener HTTPS do painel para qualquer arquivo de certificado/chave do host — e configurar o login SSO/OIDC (incluindo o segredo do cliente)."
+        "description": "Alterar a política de CORS, o intervalo de verificação de mods e outras configurações do aplicativo — inclusive apontar o listener HTTPS do painel para qualquer arquivo de certificado/chave do host — e o nome e o escopo do botão de login SSO/OIDC. A escolha do provedor de identidade que faz o login das pessoas (emissor, ID e segredo do cliente, URI de redirecionamento) continua restrita a administradores."
       }
     }
   }

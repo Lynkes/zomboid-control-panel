@@ -15,11 +15,12 @@ import rateLimit from "express-rate-limit";
 import { permissionsPolicy } from "./middleware/permissionsPolicy.js";
 import { logSetupTokenIfNeeded } from "./utils/setupToken.js";
 import { computeInlineScriptCspHash } from "./utils/cspScriptHash.js";
-import { parseTrustProxySetting } from "./utils/trustProxy.js";
+import { parseTrustProxySetting, trustProxyHopCountWarning } from "./utils/trustProxy.js";
 import { isUncompressedBinaryProxyPath, isEventStreamResponse } from "./utils/compressionFilter.js";
-import { createServer } from "http";
+import { createServer, STATUS_CODES } from "http";
 import { createServer as createHttpsServer } from "https";
 import { Server } from "socket.io";
+import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
@@ -61,6 +62,7 @@ import {
 } from "./services/managedContainer.js";
 import { ModChecker } from "./services/modChecker.js";
 import { Scheduler } from "./services/scheduler.js";
+import { ServerWatch } from "./services/serverWatch.js";
 import { DiscordBot } from "./services/discordBot.js";
 import { BackupService, BACKUP_PROGRESS_ROOM } from "./services/backupService.js";
 import { UpdateChecker } from "./services/updateChecker.js";
@@ -96,6 +98,7 @@ import oidcRoutes from "./routes/oidc.js";
 import { loadOrCreateCerts } from "./utils/certs.js";
 import { sanitizeError, sanitizeErrorParams } from "./utils/sanitize.js";
 import { escapeLogText } from "./utils/logText.js";
+import { isExtensionOrigin } from "./utils/extensionOrigin.js";
 import { ErrorCode } from "./utils/errorCodes.js";
 import { getSftpCachePath } from "./services/panelBridgeSftp.js";
 import { reconcileBridge } from "./services/bridgeDelivery.js";
@@ -258,11 +261,15 @@ async function gracefulShutdown(signal) {
       diskMonitor.stop();
     }
 
-    // Stop the Server Files janitor and the character snapshot sampler, and
-    // close the file manager's SFTP connections (not awaited: a remote host
-    // that stopped answering must not hold up shutdown)
+    // Stop the server watch
+    serverWatch.stop();
+
+    // Stop the Server Files janitor and the character and leaderboard
+    // samplers, and close the file manager's SFTP connections (not awaited: a
+    // remote host that stopped answering must not hold up shutdown)
     stopFileManagerJanitor();
     stopCharacterSnapshotSampler();
+    stopLeaderboardSampler();
     closeFileManagerSftpPool().catch(() => {});
 
     // Stop PanelBridge
@@ -315,7 +322,7 @@ import serverRoutes, {
   refreshLaunchTargetForLaunch,
 } from "./routes/server.js";
 import discoveryRoutes from "./routes/discovery.js";
-import serversRoutes from "./routes/servers.js";
+import serversRoutes, { readServerStatuses } from "./routes/servers.js";
 import serverStatusRoutes from "./routes/serverStatus.js";
 import serverFilesRoutes from "./routes/serverFiles.js";
 import playerRoutes from "./routes/players.js";
@@ -350,6 +357,7 @@ import {
   startCharacterSnapshotSampler,
   stopCharacterSnapshotSampler,
 } from "./services/characterSnapshotSampler.js";
+import { startLeaderboardSampler, stopLeaderboardSampler } from "./services/leaderboardSampler.js";
 import { pruneCharacterStore } from "./services/characterStore.js";
 import { waitForProcessExit } from "./utils/processScanRetry.js";
 
@@ -384,6 +392,8 @@ if (trustProxySetting) {
   log.info(
     `trust proxy enabled (${configuredProxy}) via TRUST_PROXY env var`,
   );
+  const hopCountWarning = trustProxyHopCountWarning(trustProxyEnv);
+  if (hopCountWarning) log.warn(hopCountWarning);
 }
 // Every request gets Node's 5 minutes to arrive, per request rather than
 // Node's one server-wide requestTimeout, so that a Server Files upload
@@ -432,6 +442,14 @@ const defaultAllowedOrigins = [
   "http://localhost:3001",
 ];
 const allowedOrigins = new Set(defaultAllowedOrigins);
+// SECURITY (2026-10-08, auth audit #4): the origins the operator named
+// (Settings > Remote Access, CORS_ORIGINS). Of the cross-origin callers,
+// only these (plus allow-all and the browser extension) get credentialed
+// CORS. A page on another port of the panel's host is same-site, so
+// SameSite=Strict still sends it the refresh cookie; credentialed CORS for
+// every private-network origin let such a page read an access token from
+// /api/auth/refresh.
+const credentialedOrigins = new Set();
 const MAX_CORS_BLOCK_EVENTS = 50;
 const MAX_CORS_CUSTOM_ORIGINS = 100;
 const MAX_CORS_ORIGIN_LENGTH = 256;
@@ -540,9 +558,8 @@ function recordCorsBlock(origin, source) {
 }
 
 // Allow dynamic HTTPS origins (will be populated at startup if HTTPS is enabled)
-// Capped: this is memoisation of the private-network check, and the Origin
-// header is caller-supplied, so an unbounded Set would grow forever. Refusing
-// to memoise does not refuse the request.
+// Capped as a backstop: every entry comes from settings or the environment,
+// which are themselves capped (MAX_CORS_CUSTOM_ORIGINS).
 const MAX_ALLOWED_ORIGINS = 200;
 function addAllowedOrigin(origin) {
   const normalized = normalizeOrigin(origin);
@@ -558,6 +575,7 @@ function addAllowedOrigin(origin) {
 
 function rebuildAllowedOriginsFromSettings(settings = {}) {
   allowedOrigins.clear();
+  credentialedOrigins.clear();
   for (const origin of defaultAllowedOrigins) {
     addAllowedOrigin(origin);
   }
@@ -566,6 +584,7 @@ function rebuildAllowedOriginsFromSettings(settings = {}) {
   corsState.customOrigins = new Set(customOrigins);
   for (const origin of customOrigins) {
     addAllowedOrigin(origin);
+    credentialedOrigins.add(origin);
   }
 
   const httpsEnabled = settings.httpsEnabled === true;
@@ -583,6 +602,7 @@ function rebuildAllowedOriginsFromSettings(settings = {}) {
     const parsed = parseOriginList(envOrigins);
     for (const origin of parsed) {
       addAllowedOrigin(origin);
+      credentialedOrigins.add(origin);
     }
   }
 }
@@ -619,55 +639,58 @@ async function refreshCorsConfig() {
   return getCorsDebugSnapshot();
 }
 
-// CORS origin checker — shared between Express and Socket.IO
-// Allows localhost + any private/LAN IP (192.168.x, 10.x, 100.x Tailscale, 172.16-31.x)
-function isAllowedOrigin(origin) {
-  if (!origin) return true;
-  if (corsState.allowAll) return true;
-
-  // Browser extension popups (chrome-extension://, moz-extension://,
-  // safari-web-extension://) must be checked BEFORE normalizeOrigin, because
-  // Node's URL.origin returns the literal string "null" for non-special
-  // schemes, which would otherwise drop these origins on the floor.
-  if (typeof origin === "string") {
-    const lower = origin.toLowerCase();
-    if (
-      lower.startsWith("chrome-extension://") ||
-      lower.startsWith("moz-extension://") ||
-      lower.startsWith("safari-web-extension://")
-    ) {
-      return true;
-    }
-  }
+// CORS origin checker, shared between Express and Socket.IO. "credentialed":
+// no Origin, allow-all, the extension or an origin the operator named.
+// "uncredentialed": the built-in localhost origins, or a private/LAN address
+// (192.168.x, 10.x, 100.x Tailscale, 172.16-31.x, LAN-style names) found by
+// shape. Those are no longer remembered in allowedOrigins, which made them
+// look operator-named. null: refused.
+function classifyOrigin(origin) {
+  if (!origin) return "credentialed";
+  if (corsState.allowAll) return "credentialed";
+  if (isExtensionOrigin(origin)) return "credentialed";
 
   const normalized = normalizeOrigin(origin);
-  if (!normalized) return false;
-  if (allowedOrigins.has(normalized)) return true;
+  if (!normalized) return null;
+  if (credentialedOrigins.has(normalized)) return "credentialed";
+  if (allowedOrigins.has(normalized)) return "uncredentialed";
 
   try {
     const url = new URL(normalized);
-    // Browser extensions (popup pages) call the panel from origins like
-    // chrome-extension://<id> or moz-extension://<id>. We trust these
-    // because the request still has to carry a valid JWT to do anything.
-    if (
-      url.protocol === "chrome-extension:" ||
-      url.protocol === "moz-extension:" ||
-      url.protocol === "safari-web-extension:"
-    ) {
-      return true;
-    }
     if (
       corsState.allowPrivateNetworks &&
       (isPrivateNetworkHost(url.hostname) || isLikelyLanHostname(url.hostname))
     ) {
-      addAllowedOrigin(normalized);
-      return true;
+      return "uncredentialed";
     }
   } catch (_) {
     // Unparseable origin: fall through and deny.
   }
 
-  return false;
+  return null;
+}
+
+function isAllowedOrigin(origin) {
+  return classifyOrigin(origin) !== null;
+}
+
+// The panel's own page: the browser says so (Sec-Fetch-Site, which no page
+// can set), or the Origin names the scheme and host the request was sent
+// to. Browsers ignore CORS headers on same-origin requests anyway; this
+// keeps the answer honest for older browsers and the Vite dev proxy.
+function isSameOriginRequest(req, origin) {
+  if (req.headers["sec-fetch-site"] === "same-origin") return true;
+  const host = req.headers.host;
+  if (typeof origin !== "string" || typeof host !== "string") return false;
+  try {
+    const originUrl = new URL(origin);
+    return (
+      originUrl.protocol === `${req.protocol}:` &&
+      originUrl.host === new URL(`${originUrl.protocol}//${host}`).host
+    );
+  } catch (_) {
+    return false;
+  }
 }
 
 // DNS-rebinding guard. With authentication disabled (authEnabled: false in
@@ -976,19 +999,50 @@ app.use(
 );
 app.use(permissionsPolicy());
 
+// Rate limiting — applied before auth to protect against unauthenticated floods.
+// Also before cors() and the body parsers (auth audit #18): a refused
+// Origin or a body that doesn't parse skips every middleware after the
+// one that refused it, limiters included.
+const apiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 300, // 300 requests per minute per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." },
+});
+app.use("/api/", apiLimiter);
+
+// A refused Origin is logged once per origin, like the Host refusals below,
+// and answered 403: anyone can send one, so a log line per request let a
+// stranger rotate the panel's sign-in history out of the log files.
+const loggedCorsRefusals = new Set();
+function corsRefusal(origin) {
+  const shown = describeBlockedOrigin(origin);
+  if (!loggedCorsRefusals.has(shown) && loggedCorsRefusals.size < 50) {
+    loggedCorsRefusals.add(shown);
+    log.warn(`CORS blocked request from origin: ${shown}`);
+  }
+  return Object.assign(new Error(CORS_DENY_MESSAGE), { status: 403, corsRefused: true });
+}
+
+// Delegate form: whether credentials are allowed depends on the request
+// (classifyOrigin, isSameOriginRequest), not only on the Origin. Without
+// Access-Control-Allow-Credentials the browser keeps a credentialed
+// response from the calling page.
 app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (isAllowedOrigin(origin)) {
-        callback(null, true);
-      } else {
-        recordCorsBlock(origin, "http");
-        log.warn(`CORS blocked request from origin: ${describeBlockedOrigin(origin)}`);
-        callback(new Error(CORS_DENY_MESSAGE));
-      }
-    },
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true,
+  cors((req, callback) => {
+    const origin = req.headers.origin;
+    const access = classifyOrigin(origin);
+    if (!access) {
+      recordCorsBlock(origin, "http");
+      callback(corsRefusal(origin));
+      return;
+    }
+    callback(null, {
+      origin: true,
+      methods: ["GET", "POST", "PUT", "DELETE"],
+      credentials: access === "credentialed" || isSameOriginRequest(req, origin),
+    });
   }),
 );
 
@@ -1024,16 +1078,6 @@ app.use(
     },
   }),
 );
-
-// Rate limiting — applied before auth to protect against unauthenticated floods
-const apiLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 300, // 300 requests per minute per IP
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests, please try again later." },
-});
-app.use("/api/", apiLimiter);
 
 // DNS-rebinding guard while auth is disabled -- see isAllowedHostHeader().
 // Before the auth middleware, which would otherwise hand this request the
@@ -1637,6 +1681,9 @@ panelBridge.on("playerDisconnect", (playerName) => {
 // Skill snapshots for the Players page's Character tab: one shortly after
 // each login, then a slow periodic pass over whoever is online.
 startCharacterSnapshotSampler(panelBridge);
+// Leaderboard reads while players are online, for bridges (1.7.73 and older)
+// that only read kills when asked; idle once the bridge sweeps by itself.
+startLeaderboardSampler(panelBridge);
 
 // Make services available to routes
 app.set("rconService", rconService);
@@ -2620,15 +2667,44 @@ export function describeErrorCause(err) {
   if (!err?.cause) return "";
   return ` (cause: ${err.cause.code || "no code"}: ${err.cause.message})`;
 }
+// Longest piece of caller text a log line quotes (auth audit #18). The path
+// is the caller's, up to Node's 16 KB header limit, and so is an error
+// message that quotes it (the router's "Failed to decode param '<segment>'");
+// errors from before any sign-in reach the log on every request.
+const MAX_LOGGED_TEXT_LENGTH = 200;
+function loggedText(value) {
+  const text = String(value ?? "");
+  return text.length > MAX_LOGGED_TEXT_LENGTH
+    ? `${escapeLogText(text.slice(0, MAX_LOGGED_TEXT_LENGTH))}...`
+    : escapeLogText(text);
+}
+export function loggedRequestPath(req) {
+  return loggedText(req.path);
+}
+
+// A request the parsers refused (bad JSON, too large, unknown charset, a
+// path segment that is not valid percent-encoding): the caller's mistake,
+// answered with its 4xx, nothing for the operator to fix.
+function isRefusedRequestBody(err) {
+  return (typeof err?.type === "string" || err instanceof URIError) && err.status >= 400 && err.status < 500;
+}
+
 // Exported so server/tests/errorCodeReachability.test.js can assert the
 // allowlist both ways directly against the real handler, not a reimplementation.
 export function apiErrorHandler(err, req, res, next) {
   // Escaped (utils/logText.js): this also catches errors from before any
   // sign-in -- a body the JSON parser rejects quotes that body in
   // err.message -- and req.path keeps bytes 0x80-0xFF from the request line.
-  log.error(
-    `Unhandled API error on ${escapeLogText(req.method)} ${escapeLogText(req.path)}: ${escapeLogText(err.message)}`,
-  );
+  // A refused Origin was logged once already (corsRefusal()), and a refused
+  // body only at debug level: anyone can send either, as often as they like.
+  if (!err?.corsRefused) {
+    const line = `Unhandled API error on ${escapeLogText(req.method)} ${loggedRequestPath(req)}: ${loggedText(err.message)}`;
+    if (isRefusedRequestBody(err)) {
+      log.debug(line);
+    } else {
+      log.error(line);
+    }
+  }
   const status = err.status || 500;
   const body = { error: sanitizeError(err.message) };
   const code = registeredErrorCode(err);
@@ -2660,6 +2736,22 @@ app.use((req, res, next) => {
       }
     });
   }
+});
+
+// Last stop for errors outside /api (auth audit #24): a refused Origin or an
+// unreadable body reaches every path, not only /api. Express's own handler
+// answers with the stack trace, absolute install paths included, unless
+// NODE_ENV is "production", which only the Docker images set.
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  const status =
+    Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 500;
+  if (status >= 500) {
+    log.error(
+      `Request error on ${escapeLogText(req.method)} ${loggedRequestPath(req)}: ${loggedText(err?.message)}`,
+    );
+  }
+  res.status(status).type("text/plain").send(STATUS_CODES[status] || "Error");
 });
 
 // Socket.IO authentication middleware
@@ -2705,6 +2797,8 @@ io.use(async (socket, next) => {
     }
 
     socket.user = payload;
+    // Signature already checked just above; decode only reads its expiry.
+    socket.data.accessTokenExp = jwt.decode(token)?.exp;
     next();
   } catch (error) {
     next(new Error("Authentication error"));
@@ -2817,10 +2911,33 @@ export async function emitToCapabilities(capabilities, event, payload, server = 
   }
 }
 
+// SECURITY (2026-10-08, auth audit #11): a socket's token is checked once,
+// at connect, so a 15-minute token (a ?token= from a proxy log, one copied
+// before sign-out) kept a live feed (rcon-live, logs, players) until a
+// revocation or a restart. At the token's expiry the transport is closed
+// rather than the socket disconnected: the panel's own client then
+// reconnects by itself and its auth provider refreshes the token first
+// (client/src/lib/socketAuth.ts), while io.use refuses a stolen one.
+// auth:token-expired goes out first so the client can treat that reconnect
+// as routine (client/src/App.tsx shows no "Reconnected" toast for it).
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+function closeSocketAtTokenExpiry(socket, expSeconds) {
+  if (!Number.isFinite(expSeconds)) return;
+  const delay = Math.min(Math.max(0, expSeconds * 1000 - Date.now()), MAX_TIMER_DELAY_MS);
+  const timer = setTimeout(() => {
+    socket.emit("auth:token-expired");
+    socket.conn.close();
+  }, delay);
+  timer.unref?.();
+  socket.once("disconnect", () => clearTimeout(timer));
+}
+
 io.on("connection", (socket) => {
   log.debug(
     `Client connected: ${socket.id}${socket.user ? ` (${socket.user.username})` : ""}`,
   );
+
+  closeSocketAtTokenExpiry(socket, socket.data?.accessTokenExp);
 
   // Membership for the per-user eviction room used by the
   // onSessionRevoked() subscription below (password change/reset, role
@@ -2936,7 +3053,9 @@ io.on("connection", (socket) => {
 // revocation paths in services/auth.js) would all be no-ops for any socket
 // that connected before the change -- e.g. a revoked user's already-open
 // socket would keep receiving the rcon-live room's whitelist passwords
-// indefinitely. disconnectSockets(true) forces a reconnect, which re-runs
+// indefinitely. disconnectSockets(true) closes them, and socket.io-client
+// does not reconnect by itself after a server-side disconnect; the next
+// connect (Retry in the client's connection status, or a reload) re-runs
 // io.use and picks up the new state (or fails closed if the user is gone).
 // Exported (not an inline closure) so tests can call it directly against
 // the real `io` instance and assert the disconnect calls it makes, without
@@ -3422,6 +3541,10 @@ function stopPerfPolling() {
 // ============================================
 let statusWatchdogInterval = null;
 let lastKnownRunning = null;
+// The server lastKnownRunning was observed on (the shared ServerManager's
+// record), so a switch of active server is never taken for that server
+// stopping -- see the server watch's hand-off below.
+let lastKnownServerId = null;
 let lastKnownPhase = null;
 // Distinct from `lastKnownRunning === null` (which also means "never
 // observed anything yet"). See checkServerStatusNow()'s own comment on the
@@ -3543,6 +3666,7 @@ export function classifyStopReason(serverManager, rconService) {
 export async function checkServerStatusNow(detectionReason = "watchdog") {
   try {
     const running = await getObservedServerRunning();
+    const observedServerId = serverManager._serverRecord?.id ?? null;
     if (running === null) {
       // round-6 bug hunt: this used to return here unconditionally, with no
       // emit and no state mutation at all. Fine the FIRST time this watchdog
@@ -3650,6 +3774,19 @@ export async function checkServerStatusNow(detectionReason = "watchdog") {
               `Discord serverStop notification failed: ${err.message}`,
             ),
           );
+        // A server chosen to restart when it goes down is started again
+        // (services/serverWatch.js) -- only when the server seen stopped is
+        // the one last seen running: switching the active server from a
+        // running one to a stopped one reads as running -> stopped here.
+        if (
+          observedServerId !== null &&
+          String(observedServerId) === String(lastKnownServerId)
+        ) {
+          void serverWatch.onActiveServerStopped({
+            serverId: observedServerId,
+            reason: stopReason.reason,
+          });
+        }
       } else if (runningChanged) {
         discordBot
           .sendEventNotification("serverStart", {})
@@ -3662,6 +3799,7 @@ export async function checkServerStatusNow(detectionReason = "watchdog") {
     }
     lastKnownRunning = running;
     lastKnownPhase = phase;
+    lastKnownServerId = observedServerId;
   } catch (err) {
     log.debug(`Status watchdog error: ${err.message}`);
   }
@@ -3673,6 +3811,70 @@ function startStatusWatchdog() {
   if (statusWatchdogInterval.unref) statusWatchdogInterval.unref();
   log.info("Server status watchdog started (10s interval)");
 }
+
+// ============================================
+// Server watch — the servers other than the active one, and restarting
+// any server that goes down without the panel asking (services/serverWatch.js)
+// ============================================
+
+// Whether the server is the active one NOW: the watch's restart waits a few
+// seconds, and the shared RCON and ServerManager follow whichever server is
+// active by then.
+async function isActiveServerId(serverId) {
+  const active = await getActiveServer();
+  return active?.id !== null && active?.id !== undefined && String(active.id) === String(serverId);
+}
+
+// true (down), false (up) or null (the panel can't tell).
+async function isServerStopped(server) {
+  if (await isActiveServerId(server.id)) {
+    const running = await getObservedServerRunning();
+    return running === null ? null : !running;
+  }
+  const { statuses } = await readServerStatuses(serverManager);
+  const row = statuses.find((candidate) => String(candidate.id) === String(server.id));
+  if (!row || row.stateUnknown) return null;
+  return !row.running;
+}
+
+// The way the scheduler restarts a server it finds offline: performRestart()
+// starts it, checks that it came up and writes the outcome to Schedule
+// History. Another server gets connections of its own, as a scheduled task
+// pinned to it does, so the shared ones keep following the active server.
+async function restartServerAfterCrash(server) {
+  const label = "Restart after going down";
+  if (await isActiveServerId(server.id)) {
+    return scheduler.performRestart(0, { label });
+  }
+  const tempRcon = new RconService();
+  const tempManager = new ServerManager();
+  await tempRcon.loadConfig(server.id);
+  await tempManager.loadConfig(server.id);
+  try {
+    return await scheduler.performRestart(0, {
+      rconService: tempRcon,
+      serverManager: tempManager,
+      label,
+    });
+  } finally {
+    if (tempRcon.connected) await tempRcon.disconnect().catch(() => {});
+  }
+}
+
+// Each database read through a wrapper, looked up when called: a test that
+// mocks database/init.js with a few exports must still be able to load this
+// file.
+const serverWatch = new ServerWatch({
+  readStatuses: async () => (await readServerStatuses(serverManager)).statuses,
+  getServers: () => getServers(),
+  getActiveServer: () => getActiveServer(),
+  getSetting: (key) => getSetting(key),
+  restartServer: restartServerAfterCrash,
+  isStopped: isServerStopped,
+  logEvent: (type, message, serverId) => logServerEvent(type, message, { serverId }),
+  // The Dashboard's list of servers refreshes on it.
+  emit: (payload) => io.emit("servers:status", payload),
+});
 
 // Process detection can fail with wrappers (WinGSM) or restricted permissions.
 // When that happens on startup, probe the RCON port directly as a fallback so we
@@ -4529,6 +4731,9 @@ async function start() {
 
     // Start status watchdog (detects unexpected server exits)
     startStatusWatchdog();
+
+    // And the watch over the other servers (see serverWatch above)
+    serverWatch.start();
 
     // Start update checker for server updates
     updateChecker.start();

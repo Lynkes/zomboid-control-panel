@@ -132,6 +132,12 @@
     "survival": "Supervivencia (oscuro)",
     "light": "Claro"
   },
+  "dateFormatSelect": {
+    "auto": "Automático ({{example}})",
+    "dmy": "Día/Mes/Año ({{example}})",
+    "mdy": "Mes/Día/Año ({{example}})",
+    "ymd": "Año-Mes-Día ({{example}})"
+  },
   "general": {
     "cardTitle": "Ajustes del panel",
     "cardDescription": "Puerto en el que escucha este panel, y su aspecto.",
@@ -144,9 +150,11 @@
     "saveBeforeRestart": "Guardar los ajustes antes de reiniciar",
     "restartToastDesc": "El panel se está reiniciando en el puerto {{port}}. Reconectando…",
     "appearanceTitle": "Apariencia",
-    "appearanceDesc": "Tema y estilo visual del panel.",
+    "appearanceDesc": "Tema, formato de fecha y estilo visual del panel.",
     "themeLabel": "Tema",
     "themeDesc": "Elige entre el aspecto crudo de supervivencia o un tema claro y limpio.",
+    "dateFormatLabel": "Formato de fecha",
+    "dateFormatDesc": "Cómo se muestran las fechas en el panel en este navegador. «Automático» sigue tu idioma y la región de tu navegador.",
     "confirmRestartTitle": "Restart the panel?",
     "restartGameServerPreserved": "El launcher detectado aísla los reinicios del panel. Los servidores de Project Zomboid en ejecución seguirán en línea.",
     "restartGameServerRisk": "Esta instalación no está usando el launcher protegido de Linux. Reiniciar el panel puede detener los procesos del servidor de Project Zomboid en ejecución.",
@@ -655,6 +663,19 @@
     "tipsAdminDesc": "Ten cuidado con los comandos de administración. Algunas acciones, como banear o expulsar jugadores, no se pueden deshacer fácilmente.",
     "tipsAuthTitle": "Autenticación:",
     "tipsAuthDesc": "La autenticación no está configurada. Crea una cuenta mediante el asistente de configuración en el primer inicio para proteger el acceso a este panel.",
+    "signOutEverywhere": {
+      "cardTitle": "Cerrar sesión en todas partes",
+      "cardDesc": "Termina todas las sesiones de tu cuenta, en este navegador y en todos los demás. Úsalo si perdiste un dispositivo o alguien más podría tener tu inicio de sesión.",
+      "button": "Cerrar sesión en todas partes",
+      "confirmTitle": "¿Cerrar sesión en todos los navegadores?",
+      "confirmDesc": "Se cierra la sesión en todos los navegadores y dispositivos con tu cuenta, incluido este. Tendrás que volver a iniciar sesión.",
+      "cancel": "Cancelar",
+      "confirm": "Cerrar sesión en todas partes",
+      "resultTitle": "Sesión cerrada en todas partes",
+      "resultDescription": "Todas las sesiones de tu cuenta terminaron. Redirigiendo al inicio de sesión…",
+      "failedTitle": "No se pudo cerrar la sesión",
+      "failedFallback": "El panel no pudo terminar tus sesiones."
+    },
     "regenerateJwt": {
       "cardTitle": "Regenerar el secreto JWT",
       "button": "Regenerar el secreto JWT",

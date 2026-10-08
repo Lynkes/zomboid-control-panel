@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import { Users as UsersIcon, UserPlus, ShieldAlert, Loader2, ArrowRight, Trash2, Link2 } from 'lucide-react'
+import { Users as UsersIcon, UserPlus, ShieldAlert, Loader2, ArrowRight, Trash2, Link2, Unlink, LogOut } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { PageHeader } from '@/components/PageHeader'
@@ -38,6 +38,7 @@ import {
   type RoleInfo,
 } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useDateFormat } from '@/lib/dateFormat'
 
 // POST /api/auth/users only accepts one of these three legacy names -- it
 // has no roleId param, so it can't assign a custom role at creation time
@@ -61,13 +62,22 @@ function recoveryActionKeyForRole(role: RoleInfo | undefined): 'lockout.actionMa
   return null
 }
 
+// The address of the account's most recently linked SSO identity, for the
+// "linked" toast: it shows the admin whose identity was actually linked.
+function newestIdentityEmail(user: ManagedUserAccount | undefined): string | null {
+  const identities = [...(user?.externalIdentities ?? [])]
+  identities.sort((a, b) => (a.linkedAt ?? '').localeCompare(b.linkedAt ?? ''))
+  return identities.pop()?.email ?? null
+}
+
 // `embedded`: rendered inside a Settings tab panel instead of as its own
 // route. The tab trigger already carries the page's name/icon, so the full
 // PageHeader (eyebrow/title/description) would be a second, redundant
 // header stacked on top of Settings' own -- only the action button carries
 // over, in a slim row instead.
 export default function Users({ embedded = false }: { embedded?: boolean }) {
-  const { t, i18n } = useTranslation(['users', 'errors'])
+  const { t } = useTranslation(['users', 'errors'])
+  const { formatDateTime } = useDateFormat()
   const { toast } = useToast()
   const { user: currentUser } = useAuth()
   const confirm = useConfirm()
@@ -89,6 +99,11 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
 
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
   const [linkingUserId, setLinkingUserId] = useState<string | null>(null)
+  const [unlinkingUserId, setUnlinkingUserId] = useState<string | null>(null)
+  const [signingOutUserId, setSigningOutUserId] = useState<string | null>(null)
+  // Set from ?oidcSuccess=linked&linkedUser=<id>; toasted once the list has
+  // loaded, so the toast can name the address that was linked.
+  const [linkedUserId, setLinkedUserId] = useState<string | null>(null)
 
   // Focus-restore-after-delete pattern (Pam found the shape; see the block
   // comment above the effect below for the full writeup) -- REPLICATE THIS
@@ -165,8 +180,10 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
         usersApi.list(),
         permissionsApi.getRoles(),
       ])
-      setUsers(list)
-      setRoles(roleList)
+      // A reply without the list (the demo build's catch-all answer had
+      // neither) reads as an empty one, not undefined for roles.map() below.
+      setUsers(Array.isArray(list) ? list : [])
+      setRoles(Array.isArray(roleList) ? roleList : [])
     } catch (error) {
       if (error instanceof ApiError && error.status === 403) {
         setPermissionDenied(true)
@@ -189,11 +206,7 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
     if (!success && !error) return
 
     if (success === 'linked') {
-      toast({
-        title: t('toasts.ssoLinkedTitle'),
-        description: t('toasts.ssoLinkedDescription'),
-        variant: 'success',
-      })
+      setLinkedUserId(params.get('linkedUser') ?? '')
     } else if (error === 'link_expired') {
       toast({
         title: t('toasts.actionFailedTitle'),
@@ -210,9 +223,25 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
 
     params.delete('oidcSuccess')
     params.delete('oidcError')
+    params.delete('linkedUser')
     const query = params.toString()
     window.history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : '') + window.location.hash)
   }, [t, toast])
+
+  useEffect(() => {
+    if (linkedUserId === null || loading) return
+    const user = users?.find((u) => u.id === linkedUserId)
+    const email = newestIdentityEmail(user)
+    toast({
+      title: t('toasts.ssoLinkedTitle'),
+      description:
+        user && email
+          ? t('toasts.ssoLinkedDescriptionWithEmail', { email, username: user.username })
+          : t('toasts.ssoLinkedDescription'),
+      variant: 'success',
+    })
+    setLinkedUserId(null)
+  }, [linkedUserId, loading, users, t, toast])
 
   function openCreateDialog() {
     setUsername('')
@@ -309,6 +338,69 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
         variant: 'destructive',
       })
       setLinkingUserId(null)
+    }
+  }
+
+  // Ends every session of another account (a lost device, a shared
+  // password) without changing its password or role. The server refuses an
+  // account whose role holds more than the caller's.
+  async function handleSignOutUser(user: ManagedUserAccount) {
+    const ok = await confirm({
+      title: t('signOutDialog.title', { username: user.username }),
+      description: t('signOutDialog.description'),
+      confirmLabel: t('signOutDialog.confirm'),
+      cancelLabel: t('signOutDialog.cancel'),
+    })
+    if (!ok) return
+
+    setSigningOutUserId(user.id)
+    try {
+      await usersApi.revokeSessions(user.id)
+      toast({
+        title: t('toasts.signedOutTitle'),
+        description: t('toasts.signedOutDescription', { username: user.username }),
+        variant: 'success',
+      })
+    } catch (error) {
+      toast({
+        title: t('toasts.actionFailedTitle'),
+        description: getUserErrorMessage(error, t('toasts.unknownError')),
+        variant: 'destructive',
+      })
+    } finally {
+      setSigningOutUserId(null)
+    }
+  }
+
+  async function handleUnlinkSso(user: ManagedUserAccount) {
+    const ok = await confirm({
+      title: t('unlinkDialog.title', { username: user.username }),
+      description: t('unlinkDialog.description'),
+      confirmLabel: t('unlinkDialog.confirm'),
+      cancelLabel: t('unlinkDialog.cancel'),
+      destructive: true,
+    })
+    if (!ok) return
+
+    setUnlinkingUserId(user.id)
+    try {
+      await usersApi.unlinkExternalIdentities(user.id)
+      setUsers((prev) =>
+        prev ? prev.map((u) => (u.id === user.id ? { ...u, externalIdentities: [] } : u)) : prev,
+      )
+      toast({
+        title: t('toasts.ssoUnlinkedTitle'),
+        description: t('toasts.ssoUnlinkedDescription', { username: user.username }),
+        variant: 'success',
+      })
+    } catch (error) {
+      toast({
+        title: t('toasts.actionFailedTitle'),
+        description: getUserErrorMessage(error, t('toasts.unknownError')),
+        variant: 'destructive',
+      })
+    } finally {
+      setUnlinkingUserId(null)
     }
   }
 
@@ -455,17 +547,29 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
                   {(users || []).map((user) => {
                     const isSelf = user.id === currentUser?.id
                     const deleting = deletingIds.has(user.id)
+                    const identities = user.externalIdentities ?? []
                     return (
                       <tr key={user.id} className="border-b border-border/30 last:border-0">
-                        <td className="px-4 py-2.5 font-medium">{user.username}</td>
+                        <td className="px-4 py-2.5 font-medium">
+                          {user.username}
+                          {identities.map((identity, index) => (
+                            <div
+                              key={`${identity.issuer}-${identity.subject}-${index}`}
+                              className="text-xs font-normal text-muted-foreground [overflow-wrap:anywhere]"
+                              title={identity.issuer}
+                            >
+                              {t('table.ssoIdentity', { identity: identity.email || identity.subject })}
+                            </div>
+                          ))}
+                        </td>
                         <td className="px-4 py-2.5">
                           <Badge variant="outline">{user.role}</Badge>
                         </td>
                         <td className="px-4 py-2.5 text-muted-foreground">
-                          {new Date(user.createdAt).toLocaleString(i18n.language)}
+                          {formatDateTime(user.createdAt, { seconds: true })}
                         </td>
                         <td className="px-4 py-2.5 text-muted-foreground">
-                          {user.lastLogin ? new Date(user.lastLogin).toLocaleString(i18n.language) : t('table.never')}
+                          {user.lastLogin ? formatDateTime(user.lastLogin, { seconds: true }) : t('table.never')}
                         </td>
                         <td className="px-4 py-2.5 text-end">
                           <div className="flex justify-end gap-1">
@@ -479,11 +583,43 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
                                 title={t('table.linkSsoTooltip', { username: user.username })}
                                 aria-label={t('table.linkSsoTooltip', { username: user.username })}
                                 onClick={() => handleLinkSso(user)}
-                                disabled={linkingUserId !== null || deleting}
+                                disabled={linkingUserId !== null || unlinkingUserId !== null || deleting}
                               >
                                 <Link2 className="h-4 w-4" />
                               </Button>
                             ) : null}
+                            {canLinkSso && identities.length > 0 && (unlinkingUserId === user.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint naming the action (same text as aria-label); disabled only while another link, unlink or delete is in flight, not for a reason worth a DisabledReason.
+                                title={t('table.unlinkSsoTooltip', { username: user.username })}
+                                aria-label={t('table.unlinkSsoTooltip', { username: user.username })}
+                                onClick={() => handleUnlinkSso(user)}
+                                disabled={linkingUserId !== null || unlinkingUserId !== null || deleting}
+                              >
+                                <Unlink className="h-4 w-4" />
+                              </Button>
+                            ))}
+                            {!isSelf && (signingOutUserId === user.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint naming the action (same text as aria-label); disabled only while another sign-out or a delete is in flight.
+                                title={t('table.signOutTooltip', { username: user.username })}
+                                aria-label={t('table.signOutTooltip', { username: user.username })}
+                                onClick={() => handleSignOutUser(user)}
+                                disabled={signingOutUserId !== null || deleting}
+                              >
+                                <LogOut className="h-4 w-4 rtl:-scale-x-100" />
+                              </Button>
+                            ))}
                             {!isSelf && (deleting ? (
                               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                             ) : (

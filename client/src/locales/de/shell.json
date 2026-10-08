@@ -82,8 +82,8 @@
   },
   "footer": {
     "signOut": "Abmelden",
-    "supportKofi": "Auf Ko-fi unterstützen (öffnet neuen Tab)",
-    "buyMeCoffee": "Spendier mir einen Kaffee",
+    "opensInNewTab": "(öffnet in neuem Tab)",
+    "supportMeKofi": "Unterstütze mich auf Ko-fi",
     "githubRepo": "GitHub-Repository (öffnet neuen Tab)",
     "keyboardShortcuts": "Tastenkürzel",
     "keyboardShortcutsTitle": "Tastenkürzel (?)",
@@ -111,5 +111,12 @@
   },
   "languageSwitcher": {
     "label": "Sprache"
+  },
+  "authSession": {
+    "signOutFailedTitle": "Die Abmeldung hat das Panel nicht erreicht",
+    "signOutFailedDescription": "Du bist in diesem Browser weiterhin angemeldet. Prüfe die Verbindung zum Panel und versuche es dann erneut.",
+    "statusCheckFailedTitle": "Anmeldestatus konnte nicht geprüft werden",
+    "statusCheckFailedDescription": "Das Panel oder ein vorgeschalteter Proxy hat auf die Anmeldeprüfung nicht geantwortet. Warte einen Moment und versuche es dann erneut.",
+    "retry": "Erneut versuchen"
   }
 }

@@ -39,6 +39,77 @@ describe("Docker deployment guidance", () => {
     expect(compose).toContain("PZ_PUBLISHED_GAME_PORTS: ${PZ_GAME_PORTS:-16261-16270}");
   });
 
+  // Auth audit 2026-10-08, #7: every Compose file published "3001:3001" on
+  // all host addresses, Docker's published ports bypass UFW, and the docs
+  // told reverse-proxy users to set TRUST_PROXY. Anyone reaching 3001
+  // directly then forged X-Forwarded-For for a fresh sign-in lockout budget
+  // per attempt. bootstrap.sh copies the all-in-one file over again on every
+  // run, so the bind address has to be a variable kept in .env. Its default
+  // stays blank, not 0.0.0.0: no host IP publishes on IPv4 and IPv6, an
+  // explicit 0.0.0.0 on IPv4 only.
+  it("publishes the panel port on PANEL_BIND_ADDRESS in every Compose file", () => {
+    for (const file of [
+      "docker-compose.yml",
+      "docker/all-in-one/docker-compose.yml",
+      "docker-compose.install.yml",
+    ]) {
+      const panelPortLines = readRepoFile(file)
+        .split(/\r?\n/)
+        .filter((line) => !line.trim().startsWith("#") && line.includes(":3001"));
+
+      expect(panelPortLines.length, file).toBeGreaterThan(0);
+      for (const line of panelPortLines) {
+        expect(line.trim(), file).toBe('- "${PANEL_BIND_ADDRESS:-}:3001:3001"');
+      }
+    }
+  });
+
+  it("keeps PANEL_BIND_ADDRESS in the all-in-one .env and leaves TRUST_PROXY off by default", () => {
+    const bootstrap = readRepoFile("docker/all-in-one/bootstrap.sh");
+    const compose = readRepoFile("docker/all-in-one/docker-compose.yml");
+
+    expect(bootstrap).toContain("PANEL_BIND_ADDRESS=${PANEL_BIND_ADDRESS:-}");
+    expect(bootstrap).toContain("if ! grep -q '^PANEL_BIND_ADDRESS=' \"$CONTEXT_DIR/.env\"; then");
+    expect(compose).toContain("TRUST_PROXY: ${TRUST_PROXY:-false}");
+  });
+
+  it("tells reverse-proxy users to bind the port to 127.0.0.1, because Docker bypasses UFW", () => {
+    for (const file of ["docs/install/docker.md", "docker/all-in-one/README.md"]) {
+      const docs = readRepoFile(file);
+      expect(docs, file).toContain("PANEL_BIND_ADDRESS=127.0.0.1");
+      expect(docs, file).toContain("UFW");
+    }
+  });
+
+  // Auth review 2026-10-08 (oidc-transport-1): a proxy in its own container
+  // that forwards to the host's LAN IP, host.docker.internal or 172.17.0.1
+  // can't reach a port published on 127.0.0.1, so following the bare advice
+  // turned every page and sign-in into a 502. Each place that gives the
+  // advice points that proxy at docs/install/docker.md, which says to join
+  // the panel's Docker network first. docker/all-in-one/.env.example, the
+  // reference for Path A's .env, was missed once.
+  it("points a proxy in another container at docs/install/docker.md wherever it advises 127.0.0.1", () => {
+    for (const file of [
+      ".env.example",
+      "docker/all-in-one/.env.example",
+      "docker-compose.yml",
+      "docker-compose.install.yml",
+      "docker/all-in-one/docker-compose.yml",
+      "docker/all-in-one/README.md",
+      "docker/all-in-one/bootstrap.sh",
+      "server/utils/trustProxy.js",
+    ]) {
+      // Join comment lines and string pieces into one run of words.
+      const text = readRepoFile(file)
+        .replace(/["'+]/g, " ")
+        .replace(/\s*\r?\n\s*(#\s*)?/g, " ")
+        .replace(/\s+/g, " ");
+      expect(text, file).toMatch(/proxy in (another|its own) container/i);
+      expect(text, file).toContain("docs/install/docker.md");
+    }
+    expect(readRepoFile("docs/install/docker.md")).toContain("#### A proxy in its own container");
+  });
+
   it("keeps extra all-in-one servers on their own volume", () => {
     const compose = readRepoFile("docker/all-in-one/docker-compose.yml");
     const dockerfile = readRepoFile("docker/all-in-one/Dockerfile");

@@ -97,6 +97,29 @@ describe('uploadBackup: TOKEN_EXPIRED triggers exactly one refresh-and-replay', 
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  // Auth audit 2026-10-08, #20: a failed refresh here used to leave a tab
+  // that looked signed in while every later call failed, until F5.
+  it('reloads the page when the refresh before the replay fails', async () => {
+    const originalLocation = window.location
+    const reload = vi.fn()
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...originalLocation, reload } })
+    try {
+      vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(401, { error: 'Invalid refresh token', code: 'INVALID_REFRESH_TOKEN' })))
+
+      const uploadPromise = backupApi.uploadBackup(new File(['zip-bytes'], 'save.zip'))
+      const assertion = expect(uploadPromise).rejects.toThrow('expired')
+      await Promise.resolve()
+      await Promise.resolve()
+      FakeXhr.instances[0].respond(401, { code: 'TOKEN_EXPIRED', error: 'expired' })
+
+      await assertion
+      expect(FakeXhr.instances).toHaveLength(1)
+      expect(reload).toHaveBeenCalledTimes(1)
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
+    }
+  })
+
   it('does not attempt a refresh for a non-TOKEN_EXPIRED failure (unrelated 401 or 4xx)', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)

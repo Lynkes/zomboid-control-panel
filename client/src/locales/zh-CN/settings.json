@@ -132,6 +132,12 @@
     "survival": "生存（暗色）",
     "light": "浅色"
   },
+  "dateFormatSelect": {
+    "auto": "自动（{{example}}）",
+    "dmy": "日/月/年（{{example}}）",
+    "mdy": "月/日/年（{{example}}）",
+    "ymd": "年-月-日（{{example}}）"
+  },
   "general": {
     "cardTitle": "面板设置",
     "cardDescription": "本面板监听的端口，以及外观样式。",
@@ -144,9 +150,11 @@
     "saveBeforeRestart": "重启前请先保存设置",
     "restartToastDesc": "面板正在端口 {{port}} 上重启，正在重新连接…",
     "appearanceTitle": "外观",
-    "appearanceDesc": "面板主题与视觉样式。",
+    "appearanceDesc": "面板主题、日期格式与视觉样式。",
     "themeLabel": "主题",
     "themeDesc": "在写实生存风格与简洁浅色主题之间选择。",
+    "dateFormatLabel": "日期格式",
+    "dateFormatDesc": "此浏览器中面板显示日期的方式。“自动”会根据你的语言和浏览器所在地区决定。",
     "confirmRestartTitle": "Restart the panel?",
     "restartGameServerPreserved": "检测到的启动器会将面板重启与游戏隔离。正在运行的 Project Zomboid 服务器将保持在线。",
     "restartGameServerRisk": "此安装未使用受保护的 Linux 启动器。重启面板可能会停止正在运行的 Project Zomboid 服务器进程。",
@@ -654,6 +662,19 @@
     "tipsAdminDesc": "使用管理员命令时请务必谨慎。封禁或踢出玩家等操作难以轻易撤销。",
     "tipsAuthTitle": "身份验证：",
     "tipsAuthDesc": "尚未配置身份验证。请在首次启动时通过设置向导创建账户，以保护此面板的访问安全。",
+    "signOutEverywhere": {
+      "cardTitle": "在所有设备上退出",
+      "cardDesc": "结束你账户的所有会话，包括此浏览器和其他所有浏览器。如果设备丢失或他人可能获得了你的登录信息，请使用此功能。",
+      "button": "在所有设备上退出",
+      "confirmTitle": "退出所有浏览器？",
+      "confirmDesc": "所有登录你账户的浏览器和设备都会退出，包括当前这个。你需要重新登录。",
+      "cancel": "取消",
+      "confirm": "在所有设备上退出",
+      "resultTitle": "已在所有设备上退出",
+      "resultDescription": "你账户的所有会话已结束。正在跳转到登录页…",
+      "failedTitle": "退出失败",
+      "failedFallback": "面板无法结束你的会话。"
+    },
     "regenerateJwt": {
       "cardTitle": "重新生成 JWT 密钥",
       "button": "重新生成 JWT 密钥",
