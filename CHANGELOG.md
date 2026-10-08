@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Every server on the Dashboard:** with two servers or more, installed or linked, a Servers list shows each one's state, uptime, players and game port, with its auto-start checkbox and a button to show it on the Dashboard, without switching first. It scrolls when there are many, the active server first.
+
 ## [1.4.6] - 2026-10-07
 
 ### Added

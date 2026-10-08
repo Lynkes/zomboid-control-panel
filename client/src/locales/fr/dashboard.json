@@ -306,6 +306,26 @@
     "pending": "en attente",
     "offline": "hors ligne"
   },
+  "serversOverview": {
+    "heading": "Serveurs",
+    "runningCount": "{{running}} sur {{total}} en marche",
+    "activeBadge": "Actif",
+    "state": {
+      "running": "En marche",
+      "stopped": "Arrêté",
+      "unknown": "Inconnu"
+    },
+    "playersTitle": "Joueurs en ligne : {{players}}",
+    "playersUnknown": "Joueurs : inconnu (RCON ne répond pas)",
+    "gamePortTitle": "Port du jeu",
+    "autoStartLabel": "Démarrer avec le panneau",
+    "autoStartOnDesc": "{{name}} démarrera au démarrage du panneau",
+    "autoStartOffDesc": "{{name}} ne démarrera plus avec le panneau",
+    "show": "Afficher",
+    "showAria": "Afficher {{name}} dans le Tableau de bord",
+    "noPermissionSwitch": "Votre rôle ne peut pas changer le serveur actif.",
+    "switchFailed": "Impossible de passer à {{name}}"
+  },
   "maintenance": {
     "heading": "Maintenance",
     "refreshStatus": "Actualiser l'état",

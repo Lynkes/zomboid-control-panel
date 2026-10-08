@@ -262,6 +262,26 @@
     "pending": "an atant",
     "offline": "òfliy"
   },
+  "serversOverview": {
+    "heading": "Sèvè",
+    "runningCount": "{{running}} sou {{total}} ap mache",
+    "activeBadge": "Aktif",
+    "state": {
+      "running": "Ap mache",
+      "stopped": "Kanpe",
+      "unknown": "Enkoni"
+    },
+    "playersTitle": "Jwè sou liy: {{players}}",
+    "playersUnknown": "Jwè: enkoni (RCON pa reponn)",
+    "gamePortTitle": "Pò jwèt",
+    "autoStartLabel": "Demare ak panèl la",
+    "autoStartOnDesc": "{{name}} ap demare lè panèl la demare",
+    "autoStartOffDesc": "{{name}} p ap demare ak panèl la ankò",
+    "show": "Montre",
+    "showAria": "Montre {{name}} sou Tablo a",
+    "noPermissionSwitch": "Wòl ou pa ka chanje sèvè aktif la.",
+    "switchFailed": "Pa t ka chanje pou {{name}}"
+  },
   "maintenance": {
     "heading": "Antretyen",
     "refreshStatus": "Rafrechi estati",
