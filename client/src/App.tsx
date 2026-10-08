@@ -21,6 +21,7 @@ import { AuthStatusError } from './components/AuthStatusError'
 import { isDemoMode } from './lib/demo'
 import { getUserErrorMessage } from './lib/errorMessage'
 import { createSocketAuthProvider } from './lib/socketAuth'
+import { createSocketAuthRetry, isSocketAuthRefusal } from './lib/socketAuthRetry'
 import { registerReconnectRecovery } from './lib/socketRecovery'
 import { isRTL } from './i18n'
 
@@ -444,6 +445,8 @@ function AppContent() {
     // (the manual Retry button) doesn't leave a stale visibilitychange/
     // online listener registered for the rest of the session.
     let disposeRecovery: (() => void) | null = null
+    // Retries a handshake the server refused for its token (connect_error).
+    let authRetry: ReturnType<typeof createSocketAuthRetry> | null = null
 
     const setupSocket = async () => {
       const { io } = await import('socket.io-client')
@@ -468,6 +471,10 @@ function AppContent() {
       // then refreshes first whatever this browser's clock says about the
       // token: the server's clock decided it expired.
       let tokenExpiredByServer = false
+      const socketAuthRetry = createSocketAuthRetry(() => {
+        if (!cancelled) newSocket.connect()
+      })
+      authRetry = socketAuthRetry
       newSocket.auth = createSocketAuthProvider(getToken, authEnabled, () => tokenExpiredByServer)
       newSocket.connect()
 
@@ -483,6 +490,7 @@ function AppContent() {
         const routineReconnect = tokenExpiryReconnect
         tokenExpiryReconnect = false
         tokenExpiredByServer = false
+        socketAuthRetry.reset()
         setConnectionStatus(prev => {
           // Show toast only on reconnect, not initial connect. error covers
           // a manual Retry after the automatic loop gave up.
@@ -516,6 +524,15 @@ function AppContent() {
       // Connection error with detailed logging (from Socket.IO best practices)
       newSocket.on('connect_error', (err) => {
         tokenExpiryReconnect = false // the routine reconnect failed: show it
+        // The server refused the token, which socket.io never retries
+        // (lib/socketAuthRetry.ts): try again a few times, each one
+        // refreshing first, before the error and Retry show.
+        if (!newSocket.active && authEnabled && isSocketAuthRefusal(err.message)
+          && socketAuthRetry.schedule()) {
+          tokenExpiredByServer = true
+          setConnectionStatus(prev => ({ ...prev, connected: false, reconnecting: true }))
+          return
+        }
         if (newSocket.active) {
           // Temporary failure, socket will automatically reconnect
           setConnectionStatus(prev => ({
@@ -589,6 +606,7 @@ function AppContent() {
     return () => {
       cancelled = true
       disposeRecovery?.()
+      authRetry?.dispose()
       createdSocket?.close()
     }
   }, [toast, handleReconnectSuccess, isLoading, isAuthenticated, authEnabled, needsSetup, getToken, demoMode])
