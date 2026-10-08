@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertCircle, Clock3, Crown, Flame, RefreshCw, Search, Skull, Trophy, Users, WifiOff } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AlertCircle, Check, Clock3, Copy, Crown, Flame, RefreshCw, Search, Skull, Trophy, Users, WifiOff } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
 import { BridgeStatusBadge } from '@/components/BridgeStatusBadge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -10,7 +11,12 @@ import { Input } from '@/components/ui/input'
 import { PageHeader } from '@/components/PageHeader'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { panelBridgeApi } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import {
+  leaderboardRowRead,
+  redactLeaderboardDiagnostics,
+  type LeaderboardDiagnostics,
+} from '@/lib/leaderboardDiagnostics'
+import { cn, copyText } from '@/lib/utils'
 
 type LeaderboardMetric = 'bestDays' | 'currentKills' | 'allTimeKills' | 'deaths' | 'favoriteWeapon'
 
@@ -27,6 +33,13 @@ export interface LeaderboardPlayer {
   favoriteWeapon?: string | null
   favoriteWeaponKills: number
   lastSeenAt?: number
+  // From bridges after 1.7.73 (see LeaderboardDiagnostics). lastSeenAt moves
+  // on any touch, a zombie kill's weapon count included; lastSampledAt only
+  // when kills and days were actually read.
+  lastSampledAt?: number
+  lastSampleSource?: string
+  aliases?: string[]
+  awaitingNewLife?: boolean
 }
 
 export function rankLeaderboard(
@@ -132,6 +145,28 @@ function PodiumPlace({ player, place, metric, language }: {
   )
 }
 
+// The username line of a table row: the last read time as its tooltip, and
+// a "Not read yet" badge for a row the bridge has never read (only bridges
+// that report reads, after 1.7.73, can say so).
+function PlayerNameLine({ player, diagnostics, language }: {
+  player: LeaderboardPlayer
+  diagnostics: LeaderboardDiagnostics | null
+  language: string
+}) {
+  const { t } = useTranslation('leaderboard')
+  const readDate = formatDate(player.lastSampledAt, language)
+  return (
+    <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+      <span className="truncate" title={readDate ? t('table.lastRead', { date: readDate }) : undefined}>{player.username}</span>
+      {leaderboardRowRead(player, diagnostics) === false && (
+        <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[10px] font-medium" title={t('table.notReadYetTitle')}>
+          {t('table.notReadYet')}
+        </Badge>
+      )}
+    </div>
+  )
+}
+
 export default function Leaderboard() {
   const { t, i18n } = useTranslation('leaderboard')
   const language = i18n.language || 'en'
@@ -147,6 +182,9 @@ export default function Leaderboard() {
   const [bridgeConnected, setBridgeConnected] = useState(false)
   const [bridgeRunning, setBridgeRunning] = useState(false)
   const [bridgeStatusLoading, setBridgeStatusLoading] = useState(true)
+  const [diagnostics, setDiagnostics] = useState<LeaderboardDiagnostics | null>(null)
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const copyResetTimer = useRef<number | undefined>(undefined)
 
   const refresh = useCallback(async () => {
     setRefreshing(true)
@@ -169,6 +207,7 @@ export default function Leaderboard() {
       setPlayers(data.players || [])
       setTrackingStartedAt(data.trackingStartedAt)
       setGeneratedAt(data.generatedAt)
+      setDiagnostics(data.diagnostics && typeof data.diagnostics === 'object' ? data.diagnostics : null)
       setLastUpdated(Date.now())
       setError(null)
     } else {
@@ -190,6 +229,16 @@ export default function Leaderboard() {
     return () => window.clearInterval(interval)
   }, [refresh])
 
+  useEffect(() => () => window.clearTimeout(copyResetTimer.current), [])
+
+  const copyDiagnostics = useCallback(async () => {
+    const summary = redactLeaderboardDiagnostics({ players, generatedAt, trackingStartedAt, diagnostics })
+    const ok = await copyText(JSON.stringify(summary, null, 2))
+    setCopyState(ok ? 'copied' : 'failed')
+    window.clearTimeout(copyResetTimer.current)
+    copyResetTimer.current = window.setTimeout(() => setCopyState('idle'), 2500)
+  }, [players, generatedAt, trackingStartedAt, diagnostics])
+
   const rankedPlayers = useMemo(() => rankLeaderboard(players, metric, query), [players, metric, query])
   const onlineCount = players.filter((player) => player.online).length
   const totalKills = players.reduce((sum, player) => sum + player.allTimeKills, 0)
@@ -197,6 +246,8 @@ export default function Leaderboard() {
   const leader = rankedPlayers[0]
   const trackingDate = formatDate(trackingStartedAt, language)
   const dataDate = formatDate(generatedAt || lastUpdated, language)
+  const lastSweepDate = formatDate(diagnostics?.lastSweepAt, language)
+  const resetCount = Array.isArray(diagnostics?.resets) ? diagnostics.resets.length : 0
   const hasStaleData = Boolean(error && players.length > 0)
   const metricOptions: Array<{ value: LeaderboardMetric; label: string }> = [
     { value: 'bestDays', label: t('metrics.days') },
@@ -345,7 +396,7 @@ export default function Leaderboard() {
                               <span className={cn('h-2 w-2 shrink-0 rounded-full', player.online ? 'bg-emerald-400' : 'bg-muted-foreground/35')} aria-label={player.online ? t('table.online') : t('table.offline')} title={player.online ? t('table.online') : t('table.offline')} />
                               <div className="min-w-0">
                                 <div className="truncate font-medium text-foreground" title={player.displayName}>{player.displayName}</div>
-                                <div className="truncate text-xs text-muted-foreground">{player.username}</div>
+                                <PlayerNameLine player={player} diagnostics={diagnostics} language={language} />
                               </div>
                             </div>
                           </td>
@@ -377,6 +428,27 @@ export default function Leaderboard() {
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1.5"><Clock3 className="h-3 w-3" aria-hidden="true" />{t('footer.refreshRate')}</span>
             <span>{t('footer.historyNote')}</span>
+            {diagnostics?.bridgeVersion && <span>{t('footer.bridgeVersion', { version: diagnostics.bridgeVersion })}</span>}
+            {lastSweepDate && <span>{t('footer.lastSweep', { date: lastSweepDate })}</span>}
+            {diagnostics && <span title={t('footer.resetsTitle')}>{t('footer.resets', { total: resetCount })}</span>}
+            {!diagnostics && <span>{t('footer.oldBridge')}</span>}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => void copyDiagnostics()}
+              title={t('actions.copyDiagnosticsTitle')}
+              className="h-7 gap-1.5 px-2 text-xs"
+            >
+              {copyState === 'copied'
+                ? <Check className="h-3 w-3" aria-hidden="true" />
+                : <Copy className="h-3 w-3" aria-hidden="true" />}
+              {copyState === 'copied'
+                ? t('actions.copied')
+                : copyState === 'failed'
+                  ? t('actions.copyFailed')
+                  : t('actions.copyDiagnostics')}
+            </Button>
           </div>
         </>
       ) : null}

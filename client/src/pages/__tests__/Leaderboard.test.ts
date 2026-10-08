@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { rankLeaderboard, type LeaderboardPlayer } from '../Leaderboard'
+import { redactLeaderboardDiagnostics } from '@/lib/leaderboardDiagnostics'
 
 const players: LeaderboardPlayer[] = [
   {
@@ -30,5 +31,36 @@ describe('leaderboard ranking', () => {
       .toEqual(['Cara', 'Alice'])
     expect(rankLeaderboard(players, 'allTimeKills', 'bob').map((player) => player.username))
       .toEqual(['Bob'])
+  })
+})
+
+describe('leaderboard diagnostics redaction (Copy diagnostics)', () => {
+  const rows = [
+    { ...players[0], id: 'steam:76561198000000001', aliases: ['alice_alt'], lastSampledAt: 1000, lastSampleSource: 'sweep' },
+    { ...players[1], id: 'steam:76561198000000002' },
+  ]
+
+  it('keeps usernames, read times and counts, never a row id or an alias name', () => {
+    const summary = redactLeaderboardDiagnostics({
+      players: rows,
+      generatedAt: 2000,
+      trackingStartedAt: 500,
+      diagnostics: { bridgeVersion: '1.7.74', lastSweepAt: 1000, sweepCount: 3, resets: [{ at: 400, reason: 'world changed' }] },
+    })
+    const text = JSON.stringify(summary)
+    expect(text).not.toMatch(/steam:|7656119|alice_alt/)
+    expect(summary.notReadCount).toBe(1)
+    expect(summary.bridge?.resets).toEqual([{ at: 400, reason: 'world changed' }])
+    expect(summary.players.map(({ username, read, aliasCount }) => ({ username, read, aliasCount }))).toEqual([
+      { username: 'Alice', read: true, aliasCount: 1 },
+      { username: 'Bob', read: false, aliasCount: 0 },
+    ])
+  })
+
+  it('reports reads as unknown for a bridge that sends no diagnostics', () => {
+    const summary = redactLeaderboardDiagnostics({ players: rows })
+    expect(summary.bridge).toBeNull()
+    expect(summary.notReadCount).toBeNull()
+    expect(summary.players.every((row) => row.read === null)).toBe(true)
   })
 })
