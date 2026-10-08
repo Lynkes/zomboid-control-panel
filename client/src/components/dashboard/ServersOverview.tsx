@@ -1,16 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowRightLeft, Loader2, Users } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { AlertTriangle, ArrowRightLeft, Loader2, Play, RotateCcw, Square, Users } from 'lucide-react'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { DisabledReason } from '@/components/DisabledReason'
 import { ServerUptime } from '@/components/ServerUptime'
 import { useToast } from '@/components/ui/use-toast'
 import { useSocket } from '@/contexts/SocketContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { serversApi, type ServerInstance } from '@/lib/api'
-import { autoStartEnabled, autoStartServerIds, type AutoStartSettings } from '@/lib/autoStartServers'
+import {
+  autoStartEnabled, autoStartServerIds, restartOnCrashServerIds, type AutoStartSettings,
+} from '@/lib/autoStartServers'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { cn } from '@/lib/utils'
 
@@ -18,21 +24,29 @@ import { cn } from '@/lib/utils'
 // switching between them to see which are up: state and uptime from the
 // per-server process scan (GET /servers/status), players from a one-off RCON
 // count per server (GET /servers/rcon-status?players=1) -- the panel's own
-// RCON connection reaches the active server only -- and each one's place in
-// the auto-start list. Shown only with two servers or more; with one, the
-// rest of the Dashboard already is that server.
+// RCON connection reaches the active server only -- each one's place in the
+// auto-start list and the restart-if-it-goes-down list, and Start, Stop and
+// Restart for the servers other than the active one (POST
+// /servers/:id/start|stop|restart; the active one's are the Dashboard's own,
+// below). Shown only with two servers or more; with one, the rest of the
+// Dashboard already is that server. The server watch pushes servers:status
+// when one of them starts or stops, and the list refreshes on it.
 
 const POLL_MS = 15_000
+// The Dashboard's own Restart warns players this long first.
+const RESTART_WARNING_MINUTES = 5
 
 type StatusRow = Awaited<ReturnType<typeof serversApi.getStatus>>['servers'][number]
 type RconRow = Awaited<ReturnType<typeof serversApi.getRconStatuses>>['servers'][number]
 type RowState = 'running' | 'stopped' | 'unknown'
+type ServerAction = 'start' | 'stop' | 'restart'
 
 interface ServersOverviewProps {
   activeServerId: string | null
   autoStartSettings: AutoStartSettings
   canChangeAutoStart: boolean
   onAutoStartChange: (server: ServerInstance, chosen: boolean) => void
+  onRestartOnCrashChange: (server: ServerInstance, chosen: boolean) => void
   /** Whether the overview is on screen (two servers or more). */
   onShownChange?: (shown: boolean) => void
 }
@@ -46,17 +60,21 @@ function rowState(server: ServerInstance, status: StatusRow | undefined, rcon: R
 }
 
 export function ServersOverview({
-  activeServerId, autoStartSettings, canChangeAutoStart, onAutoStartChange, onShownChange,
+  activeServerId, autoStartSettings, canChangeAutoStart, onAutoStartChange, onRestartOnCrashChange, onShownChange,
 }: ServersOverviewProps) {
   const { t } = useTranslation('dashboard')
   const { toast } = useToast()
   const socket = useSocket()
   const { can } = useAuth()
   const canSwitch = can('servers.manage')
+  const canControl = can('server.control')
   const [servers, setServers] = useState<ServerInstance[]>([])
   const [statuses, setStatuses] = useState<Record<string, StatusRow>>({})
   const [rcon, setRcon] = useState<Record<string, RconRow>>({})
   const [switching, setSwitching] = useState<string | null>(null)
+  // One action at a time, like the panel's lifecycle lock.
+  const [pending, setPending] = useState<{ id: string; action: ServerAction } | null>(null)
+  const [toConfirm, setToConfirm] = useState<{ server: ServerInstance; action: 'stop' | 'restart' } | null>(null)
   const requestSeq = useRef(0)
 
   const refresh = useCallback(async () => {
@@ -90,7 +108,11 @@ export function ServersOverview({
     if (!socket) return
     const onChange = () => { void refresh() }
     socket.on('activeServerChanged', onChange)
-    return () => { socket.off('activeServerChanged', onChange) }
+    socket.on('servers:status', onChange)
+    return () => {
+      socket.off('activeServerChanged', onChange)
+      socket.off('servers:status', onChange)
+    }
   }, [socket, refresh])
 
   const shown = servers.length > 1
@@ -113,15 +135,75 @@ export function ServersOverview({
     }
   }
 
+  const runAction = async (server: ServerInstance, action: ServerAction) => {
+    if (!canControl || pending) return
+    const name = server.name || server.serverName
+    setPending({ id: String(server.id), action })
+    try {
+      if (action === 'start') {
+        const result = await serversApi.start(server.id)
+        toast({ title: t(result?.alreadyRunning ? 'serversOverview.alreadyRunningTitle' : 'serversOverview.startedTitle', { name }) })
+      } else if (action === 'stop') {
+        const result = await serversApi.stop(server.id)
+        toast(result?.alreadyStopped
+          ? { title: t('serversOverview.alreadyStoppedTitle', { name }) }
+          : { title: t('serversOverview.stopRequestedTitle', { name }), description: t('serversOverview.stopRequestedDesc') })
+      } else {
+        await serversApi.restart(server.id, RESTART_WARNING_MINUTES)
+        // The outcome comes later, as the Dashboard's own Restart's does.
+        toast({ title: t('serversOverview.restartRequestedTitle', { name }), description: t('serversOverview.restartRequestedDesc', { minutes: RESTART_WARNING_MINUTES }) })
+      }
+    } catch (error) {
+      toast({
+        title: t(`serversOverview.${action}Failed`, { name }),
+        description: getUserErrorMessage(error, t('toasts.errorTitle')),
+        variant: 'destructive',
+      })
+    } finally {
+      setPending(null)
+      void refresh()
+    }
+  }
+
   if (!shown) return null
 
   const autoStartOn = autoStartEnabled(autoStartSettings)
   const chosen = autoStartServerIds(autoStartSettings, activeServerId)
+  const restartChosen = restartOnCrashServerIds(autoStartSettings)
   const isActiveServer = (server: ServerInstance) =>
     activeServerId !== null ? String(server.id) === activeServerId : server.isActive
   // The active server first -- with many servers the list scrolls, and the
   // one the rest of the Dashboard shows stays in view -- then My Servers order.
   const ordered = [...servers.filter(isActiveServer), ...servers.filter((server) => !isActiveServer(server))]
+  const confirmName = toConfirm ? toConfirm.server.name || toConfirm.server.serverName : ''
+
+  const actionButton = (server: ServerInstance, action: ServerAction) => {
+    const id = String(server.id)
+    const name = server.name || server.serverName
+    const Icon = action === 'start' ? Play : action === 'stop' ? Square : RotateCcw
+    return (
+      <DisabledReason key={action} reason={!canControl ? t('actions.noPermissionControl') : null}>
+        <Button
+          size="sm"
+          variant="outline"
+          className={cn(
+            'h-7 gap-1.5 px-2 text-xs',
+            action === 'start' && 'border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300',
+            action === 'stop' && 'border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300',
+            action === 'restart' && 'border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300',
+          )}
+          disabled={!canControl || pending !== null}
+          onClick={() => (action === 'start' ? runAction(server, action) : setToConfirm({ server, action }))}
+          aria-label={t(`serversOverview.${action}Aria`, { name })}
+        >
+          {pending?.id === id && pending.action === action
+            ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+            : <Icon className="h-3 w-3" aria-hidden="true" />}
+          {t(`actions.${action}`)}
+        </Button>
+      </DisabledReason>
+    )
+  }
 
   return (
     <section
@@ -156,6 +238,12 @@ export function ServersOverview({
           const players = rconRow?.status === 'connected' ? rconRow.players ?? null : null
           const name = server.name || server.serverName
           const checkboxId = `servers-overview-autostart-${id}`
+          const restartCheckboxId = `servers-overview-restart-${id}`
+          // The active server's Start/Stop/Restart are the Dashboard's own; a
+          // remote one is run by its host; an unknown state offers neither.
+          const actions: ServerAction[] = isActive || server.isRemote || state === 'unknown'
+            ? []
+            : state === 'running' ? ['stop', 'restart'] : ['start']
           return (
             <li key={id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
               <div className="flex min-w-0 flex-1 basis-48 items-center gap-2.5">
@@ -190,20 +278,40 @@ export function ServersOverview({
                 </span>
                 <span className="font-mono tabular-nums" title={t('serversOverview.gamePortTitle')}>:{server.serverPort}</span>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 {!server.isRemote && (
+                  <>
+                    <div className="flex items-center gap-1.5">
+                      <DisabledReason reason={!canChangeAutoStart ? t('actions.noPermissionAutoStart') : null}>
+                        <Checkbox
+                          id={checkboxId}
+                          checked={autoStartOn && chosen.includes(id)}
+                          disabled={!canChangeAutoStart}
+                          onCheckedChange={(checked) => onAutoStartChange(server, checked === true)}
+                        />
+                      </DisabledReason>
+                      <Label htmlFor={checkboxId} className="cursor-pointer text-[11px] text-muted-foreground">
+                        {t('serversOverview.autoStartLabel')}
+                      </Label>
+                    </div>
+                    <div className="flex items-center gap-1.5" title={t('serversOverview.restartOnCrashHint')}>
+                      <DisabledReason reason={!canChangeAutoStart ? t('actions.noPermissionAutoStart') : null}>
+                        <Checkbox
+                          id={restartCheckboxId}
+                          checked={restartChosen.includes(id)}
+                          disabled={!canChangeAutoStart}
+                          onCheckedChange={(checked) => onRestartOnCrashChange(server, checked === true)}
+                        />
+                      </DisabledReason>
+                      <Label htmlFor={restartCheckboxId} className="cursor-pointer text-[11px] text-muted-foreground">
+                        {t('serversOverview.restartOnCrashLabel')}
+                      </Label>
+                    </div>
+                  </>
+                )}
+                {actions.length > 0 && (
                   <div className="flex items-center gap-1.5">
-                    <DisabledReason reason={!canChangeAutoStart ? t('actions.noPermissionAutoStart') : null}>
-                      <Checkbox
-                        id={checkboxId}
-                        checked={autoStartOn && chosen.includes(id)}
-                        disabled={!canChangeAutoStart}
-                        onCheckedChange={(checked) => onAutoStartChange(server, checked === true)}
-                      />
-                    </DisabledReason>
-                    <Label htmlFor={checkboxId} className="cursor-pointer text-[11px] text-muted-foreground">
-                      {t('serversOverview.autoStartLabel')}
-                    </Label>
+                    {actions.map((action) => actionButton(server, action))}
                   </div>
                 )}
                 {!isActive && (
@@ -228,6 +336,35 @@ export function ServersOverview({
           )
         })}
       </ul>
+
+      <AlertDialog open={toConfirm !== null} onOpenChange={(open) => !open && setToConfirm(null)}>
+        <AlertDialogContent className="glass border-border/50">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-3 text-xl">
+              <AlertTriangle className="h-5 w-5 text-warning" aria-hidden="true" />
+              {toConfirm?.action === 'restart'
+                ? t('serversOverview.confirmRestartTitle', { name: confirmName })
+                : t('serversOverview.confirmStopTitle', { name: confirmName })}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-base">
+              {toConfirm?.action === 'restart' ? t('confirm.restartServer.description') : t('confirm.stopServer.description')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel className="mt-0">{t('confirm.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className={cn(buttonVariants({ variant: 'warning' }))}
+              onClick={() => {
+                const target = toConfirm
+                setToConfirm(null)
+                if (target) void runAction(target.server, target.action)
+              }}
+            >
+              {toConfirm?.action === 'restart' ? t('actions.restart') : t('actions.stop')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   )
 }

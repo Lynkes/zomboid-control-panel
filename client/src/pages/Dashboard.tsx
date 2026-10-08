@@ -32,7 +32,7 @@ import { scheduledAttemptMessage, scheduledBackupHealth } from '@/lib/scheduledB
 import { useRuntimeInfo } from '@/hooks/useRuntimeInfo'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { isStatusEventForServer, resolveClientProvider, deriveDashboardStatus, waitForServerState } from '@/lib/serverStatus'
-import { autoStartEnabled, autoStartServerIds, withAutoStartServer, type AutoStartSettings } from '@/lib/autoStartServers'
+import { autoStartEnabled, autoStartServerIds, restartOnCrashServerIds, withAutoStartServer, type AutoStartSettings } from '@/lib/autoStartServers'
 import { ServersOverview } from '@/components/dashboard/ServersOverview'
 import { ServerUptime } from '@/components/ServerUptime'
 import { useSocket } from '@/contexts/SocketContext'
@@ -632,6 +632,7 @@ export default function Dashboard() {
         setAutoStartSettings({
           autoStartServer: r.settings.autoStartServer,
           autoStartServerIds: r.settings.autoStartServerIds,
+          restartOnCrashServerIds: r.settings.restartOnCrashServerIds,
         })
       }
     } catch {
@@ -713,6 +714,30 @@ export default function Dashboard() {
     } catch (error) {
       setAutoStartSettings(previous)
       toast({ title: t('toasts.errorTitle'), description: getUserErrorMessage(error, t('toasts.autoStartSaveFailed')), variant: 'destructive' })
+    }
+  }
+
+  // Whether the panel starts a server again when it goes down without being
+  // asked (server/services/serverWatch.js). `server`: a row of the servers
+  // overview; none means the active one.
+  const restartOnCrashThisServer = activeServerId !== null && restartOnCrashServerIds(autoStartSettings).includes(activeServerId)
+  const handleRestartOnCrashChange = async (checked: boolean, server?: ServerInstance) => {
+    if (!canChangePanelSettings) return
+    const target = server ?? activeServer
+    if (!target) return
+    const previous = autoStartSettings
+    const next = withAutoStartServer(restartOnCrashServerIds(previous), target.id, checked)
+    setAutoStartSettings({ ...previous, restartOnCrashServerIds: next })
+    try {
+      await configApi.updateAppSettings({ restartOnCrashServerIds: next })
+      const name = target.name || target.serverName
+      toast({
+        title: t(checked ? 'serversOverview.restartOnCrashOnTitle' : 'serversOverview.restartOnCrashOffTitle'),
+        description: t(checked ? 'serversOverview.restartOnCrashOnDesc' : 'serversOverview.restartOnCrashOffDesc', { name }),
+      })
+    } catch (error) {
+      setAutoStartSettings(previous)
+      toast({ title: t('toasts.errorTitle'), description: getUserErrorMessage(error, t('serversOverview.restartOnCrashSaveFailed')), variant: 'destructive' })
     }
   }
 
@@ -2018,6 +2043,7 @@ export default function Dashboard() {
         autoStartSettings={autoStartSettings}
         canChangeAutoStart={canChangePanelSettings}
         onAutoStartChange={(server, chosen) => handleAutoStartChange(chosen, server)}
+        onRestartOnCrashChange={(server, chosen) => handleRestartOnCrashChange(chosen, server)}
         onShownChange={setServersOverviewShown}
       />
 
@@ -2172,6 +2198,24 @@ export default function Dashboard() {
                     checked={autoStartThisServer}
                     disabled={!canChangePanelSettings}
                     onCheckedChange={(checked) => handleAutoStartChange(checked === true)}
+                  />
+                </DisabledReason>
+              </div>
+              )}
+              {!serversOverviewShown && activeServer && !activeServer.isRemote && (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3">
+                <div className="min-w-0">
+                  <Label htmlFor="restartOnCrash" className="text-sm font-medium">
+                    {t('serversOverview.restartOnCrashLabel')}
+                  </Label>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{t('serversOverview.restartOnCrashHint')}</p>
+                </div>
+                <DisabledReason reason={!canChangePanelSettings ? t('actions.noPermissionAutoStart') : null}>
+                  <Switch
+                    id="restartOnCrash"
+                    checked={restartOnCrashThisServer}
+                    disabled={!canChangePanelSettings}
+                    onCheckedChange={(checked) => handleRestartOnCrashChange(checked === true)}
                   />
                 </DisabledReason>
               </div>

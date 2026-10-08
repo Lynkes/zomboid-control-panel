@@ -7,7 +7,16 @@
 export type AutoStartSettings = {
   autoStartServer?: unknown;
   autoStartServerIds?: unknown;
+  // The servers the panel starts again when they go down without it asking
+  // (server/services/serverWatch.js). No switch: no list means none.
+  restartOnCrashServerIds?: unknown;
 };
+
+export function restartOnCrashServerIds(settings: AutoStartSettings | null | undefined): string[] {
+  return Array.isArray(settings?.restartOnCrashServerIds)
+    ? settings.restartOnCrashServerIds.map((id) => String(id))
+    : [];
+}
 
 export function autoStartEnabled(settings: AutoStartSettings | null | undefined): boolean {
   return settings?.autoStartServer === true || settings?.autoStartServer === "true";
