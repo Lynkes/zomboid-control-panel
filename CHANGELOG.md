@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Admin role:** a capability unticked in the built-in admin role can be ticked again; until now only a hand edit of db.json brought it back.
 - **Recovery codes per admin:** a code now resets only the admin who generated it, and generating asks for the current password; older codes stop working, so generate new ones in Settings › Security.
 - **Change password:** wrong current passwords now count like sign-in failures, 10 per 15 minutes; anyone holding a session could guess it about 3 times a second.
+- **Sign-in during a password change:** a sign-in or refresh still in progress when the password is changed or reset no longer gets a session that survives it.
 
 ### Added
 

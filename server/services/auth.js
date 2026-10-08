@@ -1373,6 +1373,15 @@ class AuthService {
     }
     const attempt = reserved.entry;
 
+    // SECURITY (2026-10-08, #9): the compare below takes ~250ms and checks
+    // the hash as it was when it started. A password change or reset that
+    // lands meanwhile (new hash, tokenGen bumped, sessions cleared) used to
+    // be followed by this sign-in minting a session under the NEW tokenGen,
+    // so someone signing in with a leaked password could outlive the very
+    // change meant to shut them out.
+    const hashAtStart = user.password;
+    const genAtStart = user.tokenGen || 0;
+
     // OIDC-only accounts (bootstrapped via bootstrapAdminFromExternalIdentity)
     // have no local password hash. Still run the dummy compare so this
     // branch costs the same as a real wrong-password attempt.
@@ -1389,8 +1398,13 @@ class AuthService {
       throw error;
     }
     // Re-checked after the compare: a pause that began while this attempt
-    // was being checked still refuses it.
-    if (!valid || attempt.lockedUntil > Date.now()) {
+    // was being checked still refuses it, and so does a password change or
+    // reset, or the account's deletion (#9).
+    const changedMeanwhile =
+      user.password !== hashAtStart ||
+      (user.tokenGen || 0) !== genAtStart ||
+      !(db.data.users || []).includes(user);
+    if (!valid || changedMeanwhile || attempt.lockedUntil > Date.now()) {
       if (settleLoginAttempt(reserved, false)) {
         // SECURITY (2026-10-05, H2): behind TRUST_PROXY the address is the
         // X-Forwarded-For value as sent, so it is escaped for the log line.
@@ -1412,13 +1426,15 @@ class AuthService {
     // Update last login
     user.lastLogin = new Date().toISOString();
     const refreshSession = rememberMe ? this.createRefreshSession(user) : null;
-    await commitNow();
 
-    // Generate tokens
+    // Signed before the write below (#9): a change or reset landing during
+    // it bumps tokenGen, and these then fail like every older token.
     const accessToken = this.generateAccessToken(user);
     const refreshToken = refreshSession
       ? this.generateRefreshToken(user, refreshSession.id)
       : null;
+    const newDeviceToken = this.issueDeviceToken(user, refreshSession?.deviceId);
+    await commitNow();
 
     // The stored name (letters, digits, _ and - only), not the one typed,
     // which only has to match it ignoring case -- U+212A KELVIN SIGN
@@ -1431,7 +1447,7 @@ class AuthService {
       user: { id: user.id, username: user.username, role: user.role, capabilities },
       accessToken,
       refreshToken,
-      deviceToken: this.issueDeviceToken(user, refreshSession?.deviceId),
+      deviceToken: newDeviceToken,
     };
   }
 
@@ -1534,22 +1550,26 @@ class AuthService {
       // createRefreshSession()); a session stored before sessions had one
       // gets a new one here and keeps it from then on.
       const newSession = this.createRefreshSession(user, { deviceId: session.deviceId });
-      await commitNow();
 
+      // Signed before the write, as in login() (#9): a password change or
+      // reset landing during it must not leave these valid.
       const accessToken = this.generateAccessToken(user);
       const newRefreshToken = this.generateRefreshToken(user, newSession.id);
+      // SECURITY (2026-10-05, A1): a kept-signed-in browser, and one that
+      // just came back from SSO (oidc.js's callback can only redirect, so
+      // the client's first refresh is where it gets one), keeps a current
+      // device token for when it next has to type the password -- always
+      // with its session's device id.
+      const newDeviceToken = this.issueDeviceToken(user, newSession.deviceId);
+      await commitNow();
+
       // UX-only field -- see getCapabilitiesForRole()'s doc comment.
       const capabilities = await getCapabilitiesForRole(user.role);
       return {
         user: { id: user.id, username: user.username, role: user.role, capabilities },
         accessToken,
         refreshToken: newRefreshToken,
-        // SECURITY (2026-10-05, A1): a kept-signed-in browser, and one that
-        // just came back from SSO (oidc.js's callback can only redirect, so
-        // the client's first refresh is where it gets one), keeps a current
-        // device token for when it next has to type the password -- always
-        // with its session's device id.
-        deviceToken: this.issueDeviceToken(user, newSession.deviceId),
+        deviceToken: newDeviceToken,
       };
     } catch (error) {
       // Every failure returns null (the pre-existing, deliberately
