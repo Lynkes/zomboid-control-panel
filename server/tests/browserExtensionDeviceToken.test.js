@@ -53,6 +53,8 @@ function loadPopup() {
   vm.runInContext(fs.readFileSync(POPUP, "utf8"), context, { filename: POPUP });
   return {
     login: (panelUrl, username) => context.loginToPanel(panelUrl, username, "panel-password"),
+    push: (panelUrl, token) => context.pushCookies(panelUrl, token, "steam-session", "steam-login"),
+    fetchOptions: (call) => fetch.mock.calls[call][1],
     respondWith: (body) => responses.push(body),
     sentDeviceToken: (call) => JSON.parse(fetch.mock.calls[call][1].body).deviceToken,
     storage,
@@ -102,5 +104,22 @@ describe("Steam Sync extension: trusted-device token", () => {
     popup.respondWith({ accessToken: "access-again" });
     await popup.login("http://panel-10:3001", "admin");
     expect(popup.sentDeviceToken(12)).toBe("device-10");
+  });
+});
+
+// Auth review 2026-10-08: with the panel's origin granted, a fetch in the
+// default credentials mode stored the refresh cookie a sign-in sets in the
+// browser's shared jar, replacing the panel tab's own sign-in. The extension
+// keeps only the access token, so it neither sends nor stores cookies.
+describe("Steam Sync extension: no panel cookies", () => {
+  it("signs in and pushes with credentials omitted", async () => {
+    popup.respondWith({ accessToken: "access-1" });
+    await popup.login("http://garage:3001", "admin");
+    popup.respondWith({ ok: true });
+    await popup.push("http://garage:3001", "access-1");
+
+    expect(popup.fetchOptions(0).credentials).toBe("omit");
+    expect(popup.fetchOptions(1).credentials).toBe("omit");
+    expect(popup.fetchOptions(1).headers.Authorization).toBe("Bearer access-1");
   });
 });

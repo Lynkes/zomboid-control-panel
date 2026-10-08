@@ -97,6 +97,7 @@ import oidcRoutes from "./routes/oidc.js";
 import { loadOrCreateCerts } from "./utils/certs.js";
 import { sanitizeError, sanitizeErrorParams } from "./utils/sanitize.js";
 import { escapeLogText } from "./utils/logText.js";
+import { isExtensionOrigin } from "./utils/extensionOrigin.js";
 import { ErrorCode } from "./utils/errorCodes.js";
 import { getSftpCachePath } from "./services/panelBridgeSftp.js";
 import { reconcileBridge } from "./services/bridgeDelivery.js";
@@ -632,19 +633,6 @@ async function refreshCorsConfig() {
   );
 
   return getCorsDebugSnapshot();
-}
-
-// Browser extension popups call the panel from chrome-extension://<id> and
-// the like, with a Bearer token rather than the cookie. Checked on the raw
-// string: Node's URL.origin is the literal "null" for these schemes.
-function isExtensionOrigin(origin) {
-  if (typeof origin !== "string") return false;
-  const lower = origin.toLowerCase();
-  return (
-    lower.startsWith("chrome-extension://") ||
-    lower.startsWith("moz-extension://") ||
-    lower.startsWith("safari-web-extension://")
-  );
 }
 
 // CORS origin checker, shared between Express and Socket.IO. "credentialed":

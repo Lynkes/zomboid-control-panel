@@ -204,6 +204,12 @@ async function loginToPanel(panelUrl, username, password) {
   const deviceToken = await getDeviceToken(panelUrl, username);
   const res = await fetch(panelUrl + '/api/auth/login', {
     method: 'POST',
+    // The extension keeps only the access token. With the panel's origin
+    // granted, a default-credentials fetch from here would store the
+    // panel's refresh cookie in the browser's shared jar, replacing the
+    // panel tab's own sign-in (the panel also skips the cookie for an
+    // extension origin, but not every browser sends Origin).
+    credentials: 'omit',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password, rememberMe: false, deviceToken }),
   });
@@ -242,6 +248,8 @@ async function readSteamCookies() {
 async function pushCookies(panelUrl, token, sessionid, steamLoginSecure) {
   const res = await fetch(panelUrl + '/api/mods/collection/extension-push', {
     method: 'POST',
+    // Signed in by the Bearer token alone; see loginToPanel().
+    credentials: 'omit',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': 'Bearer ' + token,

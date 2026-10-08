@@ -1453,9 +1453,17 @@ class AuthService {
    * that pass none share one "unknown" client. deviceToken is the one this
    * browser got from an earlier successful sign-in, if any: a valid one
    * counts the attempt under that device instead of the address. The result
-   * carries a fresh deviceToken for the browser to keep.
+   * carries a fresh deviceToken for the browser to keep. refreshSession:
+   * false (the browser extension, which keeps only the access token) creates
+   * no refresh session, so the result has no refreshToken and the route sets
+   * no cookie.
    */
-  async login(username, password, rememberMe = true, { clientKey, deviceToken } = {}) {
+  async login(
+    username,
+    password,
+    rememberMe = true,
+    { clientKey, deviceToken, refreshSession: wantRefreshSession = true } = {},
+  ) {
     if (!username || !password) {
       throw new Error("Username and password are required");
     }
@@ -1548,13 +1556,15 @@ class AuthService {
     user.lastLogin = new Date().toISOString();
     // Unticked "Keep me signed in" still gets a session, a browser-session
     // one (#21); without it the sign-in ended when the access token did.
-    const refreshSession = this.createRefreshSession(user, { persistent: rememberMe !== false });
+    const refreshSession = wantRefreshSession
+      ? this.createRefreshSession(user, { persistent: rememberMe !== false })
+      : null;
 
     // Signed before the write below (#9): a change or reset landing during
     // it bumps tokenGen, and these then fail like every older token.
     const accessToken = this.generateAccessToken(user);
-    const refreshToken = this.generateRefreshToken(user, refreshSession.id);
-    const newDeviceToken = this.issueDeviceToken(user, refreshSession.deviceId);
+    const refreshToken = refreshSession ? this.generateRefreshToken(user, refreshSession.id) : null;
+    const newDeviceToken = this.issueDeviceToken(user, refreshSession?.deviceId);
     await commitNow();
 
     // The stored name (letters, digits, _ and - only), not the one typed,
@@ -1569,7 +1579,7 @@ class AuthService {
       accessToken,
       refreshToken,
       deviceToken: newDeviceToken,
-      ...refreshCookieFields(refreshSession),
+      ...(refreshSession ? refreshCookieFields(refreshSession) : {}),
     };
   }
 

@@ -426,6 +426,36 @@ describe("refresh session lifecycle (#10, #19, #21)", () => {
     expect(refreshed.cookies[0].options).not.toHaveProperty("maxAge");
   });
 
+  // The Steam Sync extension signs in with rememberMe:false and keeps only
+  // the access token. A cookie set for it lands in the browser's shared jar
+  // and replaces the panel tab's own: a remembered session cut to 12 hours,
+  // or the tab switched to the extension's account.
+  it("#21: a sign-in from the browser extension creates no session and sets no cookie", async () => {
+    for (const origin of [
+      "chrome-extension://abcdefghijklmnopabcdefghijklmnop",
+      "moz-extension://0b1d2c3e-4f50-4a6b-8c7d-9e0f1a2b3c4d",
+    ]) {
+      const signedIn = await route("/login")({
+        headers: { origin },
+        body: { username: "tech", password: PASSWORD, rememberMe: false },
+      });
+
+      expect(signedIn.statusCode).toBe(200);
+      expect(signedIn.body.accessToken).toBeTruthy();
+      expect(signedIn.body.deviceToken).toBeTruthy();
+      expect(signedIn.cookies).toEqual([]);
+    }
+    expect(db.data.users[0].refreshSessions ?? []).toEqual([]);
+
+    // The panel's own page still gets its session.
+    const fromPanel = await route("/login")({
+      headers: { origin: "http://192.168.1.20:3001" },
+      body: { username: "tech", password: PASSWORD, rememberMe: false },
+    });
+    expect(fromPanel.cookies).toHaveLength(1);
+    expect(db.data.users[0].refreshSessions).toHaveLength(1);
+  });
+
   it("#21: a browser session ends 12 hours after sign-in", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const start = Date.now();

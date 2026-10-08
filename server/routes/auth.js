@@ -17,6 +17,7 @@ import { getDataPaths } from "../utils/paths.js";
 import { setSetting } from "../database/init.js";
 import { verifySetupToken, clearSetupToken } from "../utils/setupToken.js";
 import { getRefreshCookieOptions } from "../utils/refreshCookie.js";
+import { isExtensionOrigin } from "../utils/extensionOrigin.js";
 import { requirePermission, getCapabilitiesForRole } from "../services/permissions.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import {
@@ -512,11 +513,19 @@ router.post("/login", loginLimiter, async (req, res) => {
     }
     // deviceToken: what this browser got back from its last successful
     // sign-in on this account (see authService.login()).
+    // The browser extension keeps only the access token. A refresh cookie
+    // set for its sign-in would land in the browser's shared jar and replace
+    // the panel tab's own (a remembered session cut to 12 hours, or the tab
+    // switched to the extension's account), so it gets no session at all.
     const result = await authService.login(
       username,
       password,
       rememberMe === true,
-      { clientKey: loginClientKey(req), deviceToken },
+      {
+        clientKey: loginClientKey(req),
+        deviceToken,
+        refreshSession: !isExtensionOrigin(req.headers.origin),
+      },
     );
 
     // Set refresh token as httpOnly cookie for auto-login
