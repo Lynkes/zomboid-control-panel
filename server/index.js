@@ -2675,21 +2675,26 @@ export function describeErrorCause(err) {
   if (!err?.cause) return "";
   return ` (cause: ${err.cause.code || "no code"}: ${err.cause.message})`;
 }
-// Longest request path a log line quotes (auth audit #18). The path is the
-// caller's, up to Node's 16 KB header limit, and errors from before any
-// sign-in reach the log without passing a limiter's quota of lines.
-const MAX_LOGGED_PATH_LENGTH = 200;
+// Longest piece of caller text a log line quotes (auth audit #18). The path
+// is the caller's, up to Node's 16 KB header limit, and so is an error
+// message that quotes it (the router's "Failed to decode param '<segment>'");
+// errors from before any sign-in reach the log on every request.
+const MAX_LOGGED_TEXT_LENGTH = 200;
+function loggedText(value) {
+  const text = String(value ?? "");
+  return text.length > MAX_LOGGED_TEXT_LENGTH
+    ? `${escapeLogText(text.slice(0, MAX_LOGGED_TEXT_LENGTH))}...`
+    : escapeLogText(text);
+}
 export function loggedRequestPath(req) {
-  const requestPath = String(req.path ?? "");
-  return requestPath.length > MAX_LOGGED_PATH_LENGTH
-    ? `${escapeLogText(requestPath.slice(0, MAX_LOGGED_PATH_LENGTH))}...`
-    : escapeLogText(requestPath);
+  return loggedText(req.path);
 }
 
-// A body the parsers refused (bad JSON, too large, unknown charset): the
-// caller's mistake, answered with its 4xx, nothing for the operator to fix.
+// A request the parsers refused (bad JSON, too large, unknown charset, a
+// path segment that is not valid percent-encoding): the caller's mistake,
+// answered with its 4xx, nothing for the operator to fix.
 function isRefusedRequestBody(err) {
-  return typeof err?.type === "string" && err.status >= 400 && err.status < 500;
+  return (typeof err?.type === "string" || err instanceof URIError) && err.status >= 400 && err.status < 500;
 }
 
 // Exported so server/tests/errorCodeReachability.test.js can assert the
@@ -2701,7 +2706,7 @@ export function apiErrorHandler(err, req, res, next) {
   // A refused Origin was logged once already (corsRefusal()), and a refused
   // body only at debug level: anyone can send either, as often as they like.
   if (!err?.corsRefused) {
-    const line = `Unhandled API error on ${escapeLogText(req.method)} ${loggedRequestPath(req)}: ${escapeLogText(err.message)}`;
+    const line = `Unhandled API error on ${escapeLogText(req.method)} ${loggedRequestPath(req)}: ${loggedText(err.message)}`;
     if (isRefusedRequestBody(err)) {
       log.debug(line);
     } else {
@@ -2751,7 +2756,7 @@ app.use((err, req, res, next) => {
     Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 500;
   if (status >= 500) {
     log.error(
-      `Request error on ${escapeLogText(req.method)} ${loggedRequestPath(req)}: ${escapeLogText(err?.message || "")}`,
+      `Request error on ${escapeLogText(req.method)} ${loggedRequestPath(req)}: ${loggedText(err?.message)}`,
     );
   }
   res.status(status).type("text/plain").send(STATUS_CODES[status] || "Error");

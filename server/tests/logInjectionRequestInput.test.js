@@ -288,4 +288,27 @@ describe("log volume from requests nobody signed in for", () => {
     expect(res.status).toBe(400);
     expect(logged.slice(before).filter((e) => e.level === "error")).toEqual([]);
   });
+
+  // The router's "Failed to decode param '<segment>'" quotes the whole raw
+  // segment in err.message, so cutting req.path alone left it at 15 KB a line.
+  it("does not log a malformed path parameter at error level, nor more than 200 characters of it", async () => {
+    const before = logged.length;
+    const res = await send("GET", `/api/mods/thumbnail/%ZZ${"a".repeat(5000)}`);
+    await settle();
+
+    expect(res.status).toBe(400);
+    const entries = logged.slice(before);
+    expect(entries.filter((e) => e.level === "error")).toEqual([]);
+    expect(entries.some((e) => e.message.includes("a".repeat(201)))).toBe(false);
+  });
+
+  it("cuts a long error message to 200 characters", async () => {
+    const marker = `longmessage-${Date.now()}`;
+    const res = { status() { return this; }, json() { return this; } };
+    apiErrorHandler(new Error(`${marker} ${"m".repeat(5000)}`), { method: "GET", path: "/api/x" }, res, () => {});
+
+    const line = await logLine(marker);
+    expect(line.includes("m".repeat(201))).toBe(false);
+    expect(line.length).toBeLessThan(300);
+  });
 });
