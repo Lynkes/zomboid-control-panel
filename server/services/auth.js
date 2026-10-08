@@ -1512,6 +1512,10 @@ class AuthService {
 
     settleLoginAttempt(reserved, true);
     clearLegacyAccountLock(user);
+    // The right password at sign-in proves what verifyCurrentPassword()
+    // checks, which someone holding only a session can't: their wrong guesses
+    // mustn't keep the owner from changing it afterwards.
+    currentPasswordThrottle.delete(user.id);
 
     this.ensureUserAuthState(user);
 
@@ -1755,6 +1759,9 @@ class AuthService {
       this.ensureUserAuthState(user);
       const sessions = user.refreshSessions.length;
       this.endAllSessions(user);
+      // Every session that could have spent the current-password allowance
+      // is gone, so its pause goes too.
+      currentPasswordThrottle.delete(user.id);
       await commitNow();
       emitSessionRevoked({ scope: "user", userId: user.id });
       log.info(`Signed out every session of ${user.username}`);

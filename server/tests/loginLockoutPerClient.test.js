@@ -240,4 +240,37 @@ describe("#8: change-password goes through the login pause", () => {
     await authService.resetPassword("recovered-pass-1");
     await expect(authService.changePassword("u-admin", "recovered-pass-1", "brand-new-pass-2")).resolves.toBe(true);
   });
+
+  // Review of #8: the pause is one per account, so anyone holding a session
+  // could keep it up and stop the owner changing the password to evict them.
+  // Signing in with the right password, or signing out everywhere, lifts it.
+  async function spendAllowance() {
+    for (let i = 0; i < MAX_FAILED_LOGINS; i++) {
+      await expect(authService.changePassword("u-admin", `wrong${i}`, "brand-new-pass-1")).rejects.toThrow();
+    }
+  }
+
+  it("a sign-in with the right password lifts the pause; without one it stays", async () => {
+    await spendAllowance();
+    await expect(authService.changePassword("u-admin", PASSWORD, "brand-new-pass-1")).rejects.toMatchObject({
+      code: "CURRENT_PASSWORD_INCORRECT",
+    });
+
+    await authService.login("admin", PASSWORD, false, { clientKey: "203.0.113.21" });
+    await expect(authService.changePassword("u-admin", PASSWORD, "brand-new-pass-1")).resolves.toBe(true);
+  });
+
+  it("a failed sign-in doesn't lift it", async () => {
+    await spendAllowance();
+    await expect(authService.login("admin", "not-it", false, { clientKey: "203.0.113.22" })).rejects.toThrow();
+    await expect(authService.changePassword("u-admin", PASSWORD, "brand-new-pass-1")).rejects.toMatchObject({
+      code: "CURRENT_PASSWORD_INCORRECT",
+    });
+  });
+
+  it("signing out everywhere lifts it", async () => {
+    await spendAllowance();
+    await authService.revokeAllSessions("u-admin");
+    await expect(authService.changePassword("u-admin", PASSWORD, "brand-new-pass-1")).resolves.toBe(true);
+  });
 });
