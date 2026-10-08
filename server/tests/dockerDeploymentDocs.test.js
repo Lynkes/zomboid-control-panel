@@ -33,6 +33,46 @@ describe("Docker deployment guidance", () => {
     expect(compose).toContain("PZ_PUBLISHED_GAME_PORTS: ${PZ_GAME_PORTS:-16261-16270}");
   });
 
+  // Auth audit 2026-10-08, #7: every Compose file published "3001:3001" on
+  // all host addresses, Docker's published ports bypass UFW, and the docs
+  // told reverse-proxy users to set TRUST_PROXY. Anyone reaching 3001
+  // directly then forged X-Forwarded-For for a fresh sign-in lockout budget
+  // per attempt. bootstrap.sh copies the all-in-one file over again on every
+  // run, so the bind address has to be a variable kept in .env.
+  it("publishes the panel port on PANEL_BIND_ADDRESS in every Compose file", () => {
+    for (const file of [
+      "docker-compose.yml",
+      "docker/all-in-one/docker-compose.yml",
+      "docker-compose.install.yml",
+    ]) {
+      const panelPortLines = readRepoFile(file)
+        .split(/\r?\n/)
+        .filter((line) => !line.trim().startsWith("#") && line.includes(":3001"));
+
+      expect(panelPortLines.length, file).toBeGreaterThan(0);
+      for (const line of panelPortLines) {
+        expect(line.trim(), file).toBe('- "${PANEL_BIND_ADDRESS:-0.0.0.0}:3001:3001"');
+      }
+    }
+  });
+
+  it("keeps PANEL_BIND_ADDRESS in the all-in-one .env and leaves TRUST_PROXY off by default", () => {
+    const bootstrap = readRepoFile("docker/all-in-one/bootstrap.sh");
+    const compose = readRepoFile("docker/all-in-one/docker-compose.yml");
+
+    expect(bootstrap).toContain("PANEL_BIND_ADDRESS=${PANEL_BIND_ADDRESS:-}");
+    expect(bootstrap).toContain("if ! grep -q '^PANEL_BIND_ADDRESS=' \"$CONTEXT_DIR/.env\"; then");
+    expect(compose).toContain("TRUST_PROXY: ${TRUST_PROXY:-false}");
+  });
+
+  it("tells reverse-proxy users to bind the port to 127.0.0.1, because Docker bypasses UFW", () => {
+    for (const file of ["docs/install/docker.md", "docker/all-in-one/README.md"]) {
+      const docs = readRepoFile(file);
+      expect(docs, file).toContain("PANEL_BIND_ADDRESS=127.0.0.1");
+      expect(docs, file).toContain("UFW");
+    }
+  });
+
   it("keeps extra all-in-one servers on their own volume", () => {
     const compose = readRepoFile("docker/all-in-one/docker-compose.yml");
     const dockerfile = readRepoFile("docker/all-in-one/Dockerfile");

@@ -15,7 +15,7 @@ import rateLimit from "express-rate-limit";
 import { permissionsPolicy } from "./middleware/permissionsPolicy.js";
 import { logSetupTokenIfNeeded } from "./utils/setupToken.js";
 import { computeInlineScriptCspHash } from "./utils/cspScriptHash.js";
-import { parseTrustProxySetting } from "./utils/trustProxy.js";
+import { parseTrustProxySetting, trustProxyHopCountWarning } from "./utils/trustProxy.js";
 import { isUncompressedBinaryProxyPath, isEventStreamResponse } from "./utils/compressionFilter.js";
 import { createServer, STATUS_CODES } from "http";
 import { createServer as createHttpsServer } from "https";
@@ -386,6 +386,8 @@ if (trustProxySetting) {
   log.info(
     `trust proxy enabled (${configuredProxy}) via TRUST_PROXY env var`,
   );
+  const hopCountWarning = trustProxyHopCountWarning(trustProxyEnv);
+  if (hopCountWarning) log.warn(hopCountWarning);
 }
 // Every request gets Node's 5 minutes to arrive, per request rather than
 // Node's one server-wide requestTimeout, so that a Server Files upload

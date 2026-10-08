@@ -22,7 +22,10 @@ services:
     container_name: zomboid-panel
     restart: unless-stopped
     ports:
-      - "3001:3001"
+      # Every host address by default. Docker publishes past UFW, so behind a
+      # reverse proxy on this host set PANEL_BIND_ADDRESS=127.0.0.1 (with
+      # TRUST_PROXY) in a .env file next to this one.
+      - "${PANEL_BIND_ADDRESS:-0.0.0.0}:3001:3001"
     environment:
       NODE_ENV: production
       TRUST_PROXY: ${TRUST_PROXY:-false}
