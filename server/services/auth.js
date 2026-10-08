@@ -152,6 +152,24 @@ function makeRoleError(code, message, status = 400, params) {
   return err;
 }
 
+// The rules every password set without the old one follows (reset token,
+// recovery code, --reset-password).
+function assertResetPasswordPolicy(newPassword) {
+  if (!newPassword || typeof newPassword !== "string" || newPassword.length < 6) {
+    throw new Error("Password must be at least 6 characters");
+  }
+  if (newPassword.length > 128) {
+    throw new Error("Password must be 128 characters or fewer");
+  }
+}
+
+// One account's recovery codes ({hash, usedAt} entries), stored on its own
+// row since 2026-10-08 (#1); [] when it has none.
+function recoveryCodeEntries(user) {
+  const codes = user?.recoveryCodes?.codes;
+  return Array.isArray(codes) ? codes : [];
+}
+
 // How many users OTHER than excludingUserId currently hold `capability`
 // via their role (roleId if set, else the legacy name — same resolution
 // order as everywhere else in this file). Deliberately per-USER, not
@@ -809,6 +827,20 @@ class AuthService {
         log.info("Generated new JWT secret");
       }
 
+      // SECURITY (2026-10-08, #1): the one global recovery-code set older
+      // versions kept, aimed at the first admin whoever made it. Nobody can
+      // tell who holds those codes, so they are retired rather than moved to
+      // an account; redeemRecoveryCode() never read them anyway.
+      if (await getSetting("authRecoveryCodes")) {
+        await setSetting("authRecoveryCodes", null);
+        await setSetting("authRecoveryCodesCreatedAt", null);
+        await commitNow();
+        log.warn(
+          "Recovery codes made before this version no longer work. Each admin can " +
+            "generate codes for their own account in Settings > Security.",
+        );
+      }
+
       log.info("Auth service initialized");
     } catch (error) {
       log.error(`Failed to initialize auth service: ${error.message}`);
@@ -1090,6 +1122,9 @@ class AuthService {
 
       user.role = targetRole.name;
       user.roleId = targetRole.id;
+      // Recovery codes reset an admin's password from the login screen; an
+      // account leaving the admin role takes its set with it (#1).
+      if (user.role !== "admin") delete user.recoveryCodes;
       await commitNow();
 
       log.info(
@@ -1940,16 +1975,7 @@ class AuthService {
    * Caller must verify the reset token before calling this.
    */
   async resetPassword(newPassword) {
-    if (
-      !newPassword ||
-      typeof newPassword !== "string" ||
-      newPassword.length < 6
-    ) {
-      throw new Error("Password must be at least 6 characters");
-    }
-    if (newPassword.length > 128) {
-      throw new Error("Password must be 128 characters or fewer");
-    }
+    assertResetPasswordPolicy(newPassword);
 
     const db = await getDb();
     const users = db.data.users || [];
@@ -1959,6 +1985,16 @@ class AuthService {
 
     // Reset the first admin account
     const user = users.find((u) => u.role === "admin") || users[0];
+    return this.resetPasswordForUser(user, newPassword);
+  }
+
+  /**
+   * Set `user`'s password without the old one: the reset token and
+   * --reset-password reach it through resetPassword() above, a recovery code
+   * for the account it belongs to (redeemRecoveryCode() below).
+   */
+  async resetPasswordForUser(user, newPassword) {
+    assertResetPasswordPolicy(newPassword);
     user.password = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     user.tokenGen = (user.tokenGen || 0) + 1;
     user.refreshSessions = [];
@@ -1980,76 +2016,107 @@ class AuthService {
   }
 
   /**
-   * Generate single-use recovery codes for the admin account.
+   * Generate single-use recovery codes for the signed-in admin's own account.
    *
    * Only the hashes are stored, so a database copy cannot be turned back into
    * usable codes. The plaintext is returned once and never recoverable after.
+   *
+   * SECURITY (2026-10-08, #1): codes used to be one global set aimed at the
+   * first admin, whoever generated them, and nothing ever cleared them. A
+   * co-admin, or anyone holding an admin's access token for a few minutes,
+   * could mint a set, silently replacing the owner's own, and after being
+   * deleted or demoted reset the owner's password from the login screen. A
+   * set now belongs to the account that generated it (user.recoveryCodes),
+   * resets only that account, works only while it is still admin, and goes
+   * with the account when it is deleted or leaves the admin role. Asking for
+   * the current password first means a stolen access token alone can't mint
+   * a set either.
    */
-  async generateRecoveryCodes(count = 10) {
-    const db = await getDb();
-    const users = db.data.users || [];
-    const user = users.find((u) => u.role === "admin") || users[0];
-    if (!user) throw new Error("No user accounts exist. Use setup instead.");
-
-    const codes = [];
-    const hashes = [];
-    for (let i = 0; i < count; i++) {
-      const raw = crypto.randomBytes(15).toString("base64url").slice(0, 20).toUpperCase();
-      const code = `${raw.slice(0, 5)}-${raw.slice(5, 10)}-${raw.slice(10, 15)}`;
-      codes.push(code);
-      hashes.push({
-        hash: crypto.createHash("sha256").update(code, "utf8").digest("hex"),
-        usedAt: null,
-      });
+  async generateRecoveryCodes(userId, currentPassword, count = 10) {
+    if (!userId) {
+      throw new Error("Recovery codes belong to an account; sign in to generate them.");
     }
+    const db = await getDb();
+    const caller = (db.data.users || []).find((u) => u.id === userId);
+    if (!caller) throw new Error("User not found");
+    await this.verifyCurrentPassword(caller, currentPassword);
 
-    await setSetting("authRecoveryCodes", JSON.stringify(hashes));
-    await setSetting("authRecoveryCodesCreatedAt", new Date().toISOString());
-    log.info(`Generated ${count} recovery codes for user: ${user.username}`);
-    return { codes, createdAt: new Date().toISOString() };
+    return this._withMutex(async () => {
+      // Re-read inside the mutex: a demotion or delete that landed after the
+      // password check must not be followed by a fresh set for the account.
+      const user = (db.data.users || []).find((u) => u.id === userId);
+      if (!user || user.role !== "admin") {
+        throw new Error("Only an administrator can generate recovery codes.");
+      }
+
+      const codes = [];
+      const entries = [];
+      for (let i = 0; i < count; i++) {
+        const raw = crypto.randomBytes(15).toString("base64url").slice(0, 20).toUpperCase();
+        const code = `${raw.slice(0, 5)}-${raw.slice(5, 10)}-${raw.slice(10, 15)}`;
+        codes.push(code);
+        entries.push({
+          hash: crypto.createHash("sha256").update(code, "utf8").digest("hex"),
+          usedAt: null,
+        });
+      }
+
+      const createdAt = new Date().toISOString();
+      user.recoveryCodes = { createdAt, codes: entries };
+      await commitNow();
+      log.info(`Generated ${count} recovery codes for user: ${user.username}`);
+      return { codes, createdAt };
+    });
   }
 
-  async getRecoveryCodeStatus() {
-    const stored = await getSetting("authRecoveryCodes");
-    const createdAt = await getSetting("authRecoveryCodesCreatedAt");
-    let entries = [];
-    try {
-      entries = stored ? JSON.parse(stored) : [];
-    } catch {
-      entries = [];
-    }
+  /** The signed-in account's own set: how many codes are left and when it was made. */
+  async getRecoveryCodeStatus(userId) {
+    const db = await getDb();
+    const user = (db.data.users || []).find((u) => u.id === userId);
+    const entries = recoveryCodeEntries(user);
     const remaining = entries.filter((entry) => !entry.usedAt).length;
-    return { configured: entries.length > 0, remaining, total: entries.length, createdAt: createdAt || null };
+    return {
+      configured: entries.length > 0,
+      remaining,
+      total: entries.length,
+      createdAt: entries.length > 0 ? user.recoveryCodes.createdAt || null : null,
+    };
+  }
+
+  /** Whether any admin has an unused code, for the login screen's recovery choice. */
+  async hasUsableRecoveryCodes() {
+    const db = await getDb();
+    return (db.data.users || []).some(
+      (user) => user.role === "admin" && recoveryCodeEntries(user).some((entry) => !entry.usedAt),
+    );
   }
 
   /**
-   * Consume a recovery code and set a new password. The code is burned whether
-   * or not the caller knows the old password, so each one works exactly once.
+   * Consume a recovery code and set a new password for the account it
+   * belongs to. The code is burned whether or not the caller knows the old
+   * password, so each one works exactly once. Refused with the same message
+   * as a wrong code when that account is no longer an admin; the global set
+   * older versions kept (settings.authRecoveryCodes) is never read, so it
+   * redeems nothing (#1).
    *
    * Wrapped in _withMutex for the same reason createUser/changeUserRoleById/
    * deleteUser/bootstrapAdminFromExternalIdentity are: this is a check-then-
    * write (is this code still unused? -> mark it used) with an await
-   * (resetPassword's real bcrypt.hash, ~150-300ms) between the check and the
-   * write. Without serializing, two concurrent redemptions of the SAME code
-   * each read their own independent JSON.parse of the stored entries, so
-   * neither sees the other's not-yet-persisted usedAt mark -- both pass
-   * validation and both successfully reset the password, defeating "each
-   * code works exactly once" on an unauthenticated, admin-password-reset
-   * endpoint. Reproduced in server/tests/recoveryCodeRedeemRace.test.js.
+   * (resetPasswordForUser's real bcrypt.hash, ~150-300ms) between the check
+   * and the write. Without serializing, two concurrent redemptions of the
+   * SAME code both pass validation and both successfully reset the password,
+   * defeating "each code works exactly once" on an unauthenticated,
+   * admin-password-reset endpoint. Reproduced in
+   * server/tests/recoveryCodeRedeemRace.test.js.
    */
   async redeemRecoveryCode(code, newPassword) {
     return this._withMutex(async () => {
       if (typeof code !== "string" || !code.trim()) {
         throw new Error("A recovery code is required");
       }
-      const stored = await getSetting("authRecoveryCodes");
-      let entries = [];
-      try {
-        entries = stored ? JSON.parse(stored) : [];
-      } catch {
-        entries = [];
-      }
-      if (entries.length === 0) {
+      const db = await getDb();
+      const admins = (db.data.users || []).filter((user) => user.role === "admin");
+      if (!admins.some((user) => recoveryCodeEntries(user).length > 0)) {
         throw new Error("No recovery codes have been generated for this panel.");
       }
 
@@ -2057,20 +2124,28 @@ class AuthService {
         .createHash("sha256")
         .update(code.trim().toUpperCase(), "utf8")
         .digest();
-      const match = entries.find((entry) => {
-        if (entry.usedAt) return false;
-        const storedDigest = Buffer.from(entry.hash, "hex");
-        if (storedDigest.length !== candidate.length) return false;
-        return crypto.timingSafeEqual(storedDigest, candidate);
-      });
+      let owner = null;
+      let match = null;
+      for (const user of admins) {
+        match = recoveryCodeEntries(user).find((entry) => {
+          if (entry.usedAt || typeof entry.hash !== "string") return false;
+          const storedDigest = Buffer.from(entry.hash, "hex");
+          if (storedDigest.length !== candidate.length) return false;
+          return crypto.timingSafeEqual(storedDigest, candidate);
+        });
+        if (match) {
+          owner = user;
+          break;
+        }
+      }
       if (!match) {
         throw new Error("That recovery code is not valid or has already been used.");
       }
 
-      const result = await this.resetPassword(newPassword);
+      const result = await this.resetPasswordForUser(owner, newPassword);
       match.usedAt = new Date().toISOString();
-      await setSetting("authRecoveryCodes", JSON.stringify(entries));
-      const remaining = entries.filter((entry) => !entry.usedAt).length;
+      await commitNow();
+      const remaining = recoveryCodeEntries(owner).filter((entry) => !entry.usedAt).length;
       log.info(`Recovery code redeemed for ${result.username}; ${remaining} remaining`);
       return { ...result, remaining };
     });

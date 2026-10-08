@@ -597,5 +597,6 @@
   "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "The chat relay posts what people type in its Discord channel in game, which needs {{detail}}. You don't hold it, so you can't turn the relay on or change the channel it listens in (the notification channel, while no relay channel is set).",
   "DISCORD_CHANNEL_OUTSIDE_GUILD": "The notification channel isn't in the Discord server set up here, so the bot won't post in it. Use a channel of the server whose Guild ID is set, or correct the Guild ID.",
   "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES": "You can't change, sign out or remove an account or role that holds {{detail}}, because you don't hold it yourself.",
-  "CURRENT_PASSWORD_INCORRECT": "The current password is incorrect. After 10 wrong attempts, password checks pause for 15 minutes, even with the right password."
+  "CURRENT_PASSWORD_INCORRECT": "The current password is incorrect. After 10 wrong attempts, password checks pause for 15 minutes, even with the right password.",
+  "RECOVERY_CODES_PASSWORD_REQUIRED": "Enter your current password to generate recovery codes."
 }

@@ -141,7 +141,7 @@ describe("LOCKOUT: strangers' failed sign-ins don't lock the owner out", () => {
   });
 
   it("recovering the password lifts every pause on the account, so the new password works", async () => {
-    const { codes } = await authService.generateRecoveryCodes(2);
+    const { codes } = await authService.generateRecoveryCodes("u-admin", PASSWORD, 2);
     for (let i = 0; i < MAX_FAILED_LOGINS; i++) {
       await expect(authService.login("admin", `wrong${i}`, false, { clientKey: "127.0.0.5" })).rejects.toThrow();
     }

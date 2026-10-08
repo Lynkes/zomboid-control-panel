@@ -199,7 +199,9 @@ paths, in order of convenience:
 
 1. **A recovery code** — if you generated single-use recovery codes in
    advance (**Settings → Security**), use one on the login screen's "Recover
-   account" flow. Each code works once.
+   account" flow. Each code works once, and resets the password of the admin
+   who generated it, while that account is still an admin. Codes made by a
+   panel older than this rule no longer work: generate new ones.
 2. **A local recovery token** — only works when you open the panel directly
    on the machine it's running on (loopback or one of the host's own IPs).
    The login screen's recovery flow creates `data/reset-token.txt` on the

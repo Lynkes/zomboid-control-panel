@@ -597,5 +597,6 @@
   "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "La retransmisión de chat publica en el juego lo que la gente escribe en su canal de Discord, y eso requiere {{detail}}. No lo tienes, así que no puedes activar la retransmisión ni cambiar el canal que escucha (el canal de notificaciones, mientras no haya un canal de retransmisión).",
   "DISCORD_CHANNEL_OUTSIDE_GUILD": "El canal de notificaciones no pertenece al servidor de Discord configurado aquí, así que el bot no publicará en él. Usa un canal del servidor cuyo ID del servidor (Guild) está configurado, o corrige ese ID.",
   "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES": "No puedes cambiar, cerrar la sesión ni eliminar una cuenta o un rol que tiene {{detail}}, porque tú no tienes esa capacidad.",
-  "CURRENT_PASSWORD_INCORRECT": "La contraseña actual es incorrecta. Tras 10 intentos fallidos, las comprobaciones de contraseña se pausan durante 15 minutos, incluso con la contraseña correcta."
+  "CURRENT_PASSWORD_INCORRECT": "La contraseña actual es incorrecta. Tras 10 intentos fallidos, las comprobaciones de contraseña se pausan durante 15 minutos, incluso con la contraseña correcta.",
+  "RECOVERY_CODES_PASSWORD_REQUIRED": "Introduce tu contraseña actual para generar códigos de recuperación."
 }

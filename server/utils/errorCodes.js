@@ -2574,6 +2574,10 @@ export const ErrorCode = Object.freeze({
    * password is wrong, or this account's password checks are paused after
    * MAX_FAILED_LOGINS wrong ones (the same answer for both, #8). */
   CURRENT_PASSWORD_INCORRECT: "CURRENT_PASSWORD_INCORRECT",
+  /** server/routes/auth.js -- POST /api/auth/recovery-codes (400): no
+   * currentPassword in the body. Generating codes asks for it, since the
+   * codes reset this admin's password without the old one (#1). */
+  RECOVERY_CODES_PASSWORD_REQUIRED: "RECOVERY_CODES_PASSWORD_REQUIRED",
   /* --- end auth audit 2026-10-08: account security --- */
 });
 

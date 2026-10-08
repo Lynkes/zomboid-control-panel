@@ -597,5 +597,6 @@
   "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "Das Chat-Relay stellt ins Spiel, was Leute in seinem Discord-Kanal schreiben, und braucht dafür {{detail}}. Du besitzt das nicht, darum kannst du das Relay weder einschalten noch den Kanal ändern, in dem es mitliest (den Benachrichtigungskanal, solange kein Relay-Kanal festgelegt ist).",
   "DISCORD_CHANNEL_OUTSIDE_GUILD": "Der Benachrichtigungskanal gehört nicht zu dem hier eingerichteten Discord-Server, daher postet der Bot dort nicht. Nimm einen Kanal des Servers, dessen Guild-ID eingetragen ist, oder korrigiere die Guild-ID.",
   "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES": "Du kannst ein Konto oder eine Rolle mit {{detail}} weder ändern noch abmelden oder entfernen, weil du das selbst nicht besitzt.",
-  "CURRENT_PASSWORD_INCORRECT": "Das aktuelle Passwort ist falsch. Nach 10 Fehlversuchen werden Passwortprüfungen für 15 Minuten ausgesetzt, auch mit dem richtigen Passwort."
+  "CURRENT_PASSWORD_INCORRECT": "Das aktuelle Passwort ist falsch. Nach 10 Fehlversuchen werden Passwortprüfungen für 15 Minuten ausgesetzt, auch mit dem richtigen Passwort.",
+  "RECOVERY_CODES_PASSWORD_REQUIRED": "Gib dein aktuelles Passwort ein, um Wiederherstellungscodes zu erzeugen."
 }

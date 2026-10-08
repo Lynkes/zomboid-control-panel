@@ -343,7 +343,7 @@ describe("A1: setting the password from a browser keeps that browser trusted", (
   });
 
   it("a recovery code (and a reset token, which shares resetPassword()) hands back one too", async () => {
-    const { codes } = await authService.generateRecoveryCodes(1);
+    const { codes } = await authService.generateRecoveryCodes("u-admin", PASSWORD, 1);
     const recovered = await post(
       "/api/auth/recover-with-code",
       { code: codes[0], newPassword: "recovered-pass-1" },

@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
+import bcrypt from "bcryptjs";
 
 // In-memory stand-ins so the real service logic (including bcrypt) runs
 // without touching the panel database. Mirrors recoveryCodes.test.js's setup.
@@ -15,6 +16,13 @@ vi.mock("../database/init.js", () => ({
 }));
 
 const { default: authService } = await import("../services/auth.js");
+
+const PASSWORD = "admin-pass-1";
+let passwordHash;
+
+beforeAll(async () => {
+  passwordHash = await bcrypt.hash(PASSWORD, 4);
+});
 
 // redeemRecoveryCode() reads the stored code list, finds an unused match,
 // resets the password (a real bcrypt.hash — genuinely slow, ~150-300ms at
@@ -39,7 +47,7 @@ describe("redeemRecoveryCode: concurrent redemption of the same code", () => {
         id: 1,
         username: "admin",
         role: "admin",
-        password: "unset",
+        password: passwordHash,
         tokenGen: 0,
         refreshSessions: [],
       },
@@ -47,7 +55,7 @@ describe("redeemRecoveryCode: concurrent redemption of the same code", () => {
   });
 
   it("only lets ONE of two simultaneous redemptions of the same code succeed", async () => {
-    const { codes } = await authService.generateRecoveryCodes(1);
+    const { codes } = await authService.generateRecoveryCodes(1, PASSWORD, 1);
     const code = codes[0];
 
     const [a, b] = await Promise.allSettled([
@@ -62,7 +70,7 @@ describe("redeemRecoveryCode: concurrent redemption of the same code", () => {
     expect(failed).toHaveLength(1);
     expect(failed[0].reason.message).toMatch(/not valid or has already been used/);
 
-    const status = await authService.getRecoveryCodeStatus();
+    const status = await authService.getRecoveryCodeStatus(1);
     expect(status.remaining).toBe(0);
   });
 });

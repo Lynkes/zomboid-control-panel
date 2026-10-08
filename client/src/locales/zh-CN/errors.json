@@ -597,5 +597,6 @@
   "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "聊天中继会把人们在其 Discord 频道中输入的内容发布到游戏中，这需要 {{detail}}。您没有该权限项，因此无法开启中继，也无法更改它监听的频道（未设置中继频道时即为通知频道）。",
   "DISCORD_CHANNEL_OUTSIDE_GUILD": "通知频道不属于此处设置的 Discord 服务器，因此机器人不会在其中发送消息。请使用已填写服务器（Guild）ID 的那个服务器中的频道，或更正该 ID。",
   "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES": "无法更改、退出登录或删除拥有 {{detail}} 的账户或角色，因为你自己没有该权限。",
-  "CURRENT_PASSWORD_INCORRECT": "当前密码不正确。输错 10 次后，密码验证会暂停 15 分钟，即使输入正确的密码也不行。"
+  "CURRENT_PASSWORD_INCORRECT": "当前密码不正确。输错 10 次后，密码验证会暂停 15 分钟，即使输入正确的密码也不行。",
+  "RECOVERY_CODES_PASSWORD_REQUIRED": "请输入当前密码以生成找回代码。"
 }

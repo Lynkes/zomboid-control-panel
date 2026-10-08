@@ -932,11 +932,14 @@ const localResetTokenLimiter = rateLimit({
  * Generated while signed in, redeemable from the login screen. Only hashes are
  * stored, and each code works exactly once.
  *
- * requireRole("admin") on both routes below, added deliberately: unlike
- * every other per-account action in this file, generateRecoveryCodes()/
- * getRecoveryCodeStatus()/resetPassword() (services/auth.js) do NOT operate
- * on the calling user's own account — they always target "the" admin
- * account (`users.find(u => u.role === "admin") || users[0]`), full stop.
+ * SECURITY (2026-10-08, #1): each admin's codes now belong to their own
+ * account and reset only that account, while it is still admin; generating
+ * them asks for the current password (see generateRecoveryCodes()).
+ *
+ * requireRole("admin") on both routes below, added deliberately: the codes
+ * reset an admin password from the login screen without the old one. They
+ * used to target "the" admin account
+ * (`users.find(u => u.role === "admin") || users[0]`) whoever generated them.
  * Before this, POST here only checked "is this a valid token for ANY
  * account" (getAuthenticatedUser, below) — so a moderator or technician,
  * using nothing but their own ordinary login, could call it directly,
@@ -961,7 +964,7 @@ router.get("/recovery-codes", requireRole("admin"), async (req, res) => {
         error: "Not authenticated",
         code: ErrorCode.NOT_AUTHENTICATED,
       });
-    res.json(await authService.getRecoveryCodeStatus());
+    res.json(await authService.getRecoveryCodeStatus(user.userId));
   } catch (error) {
     res.status(500).json({ error: sanitizeError(error.message) });
   }
@@ -975,18 +978,28 @@ router.post("/recovery-codes", requireRole("admin"), async (req, res) => {
         error: "Not authenticated",
         code: ErrorCode.NOT_AUTHENTICATED,
       });
-    const result = await authService.generateRecoveryCodes(10);
-    log.info("New recovery codes generated");
+    const { currentPassword } = req.body || {};
+    if (!isNonEmptyString(currentPassword)) {
+      return res.status(400).json({
+        error: "Enter your current password to generate recovery codes.",
+        code: ErrorCode.RECOVERY_CODES_PASSWORD_REQUIRED,
+      });
+    }
+    const result = await authService.generateRecoveryCodes(user.userId, currentPassword);
+    log.info(`New recovery codes generated for ${user.username}`);
     res.json({ success: true, ...result });
   } catch (error) {
-    res.status(400).json({ error: sanitizeError(error.message) });
+    const body = { error: sanitizeError(error.message) };
+    if (error.code) body.code = error.code;
+    res.status(error.status || 400).json(body);
   }
 });
 
+// Whether any admin has an unused code: the login screen offers recovery
+// with a code only then.
 router.get("/recovery-status", async (req, res) => {
   try {
-    const status = await authService.getRecoveryCodeStatus();
-    res.json({ recoveryCodesAvailable: status.remaining > 0 });
+    res.json({ recoveryCodesAvailable: await authService.hasUsableRecoveryCodes() });
   } catch {
     res.json({ recoveryCodesAvailable: false });
   }

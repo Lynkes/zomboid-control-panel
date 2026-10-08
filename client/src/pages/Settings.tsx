@@ -93,6 +93,8 @@ import { ToastAction } from "@/components/ui/toast";
 import { EmptyState } from "@/components/EmptyState";
 import { DisabledReason } from "@/components/DisabledReason";
 import {
+  apiFetch,
+  handleResponse,
   configApi,
   panelBridgeApi,
   backupApi,
@@ -493,6 +495,7 @@ export default function Settings() {
   } | null>(null);
   const [generatedRecoveryCodes, setGeneratedRecoveryCodes] = useState<string[]>([]);
   const [generatingRecoveryCodes, setGeneratingRecoveryCodes] = useState(false);
+  const [recoveryCodesPassword, setRecoveryCodesPassword] = useState("");
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [localPasswordResetSupported, setLocalPasswordResetSupported] =
@@ -1111,9 +1114,19 @@ export default function Settings() {
   }, [fetchRecoveryCodeStatus]);
 
   const handleGenerateRecoveryCodes = async () => {
+    if (!recoveryCodesPassword) return;
     setGeneratingRecoveryCodes(true);
     try {
-      const result = await authApi.generateRecoveryCodes();
+      // The codes reset this account's password without the old one, so the
+      // server asks for the current password first.
+      const result = await handleResponse<{ codes?: string[] }>(
+        await apiFetch("/auth/recovery-codes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ currentPassword: recoveryCodesPassword }),
+        }),
+      );
+      setRecoveryCodesPassword("");
       setGeneratedRecoveryCodes(result.codes || []);
       await fetchRecoveryCodeStatus();
       toast({
@@ -6423,12 +6436,27 @@ export default function Settings() {
                         <Key className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-3">
+                      <form
+                        className="flex flex-wrap items-center gap-3"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!generatingRecoveryCodes) void handleGenerateRecoveryCodes();
+                        }}
+                      >
+                        <Input
+                          type="password"
+                          value={recoveryCodesPassword}
+                          onChange={(e) => setRecoveryCodesPassword(e.target.value)}
+                          placeholder={t("security.currentPasswordPlaceholder")}
+                          className="h-10 w-full sm:w-56"
+                          maxLength={128}
+                          autoComplete="current-password"
+                          aria-label={t("ariaLabels.currentPassword")}
+                        />
                         <Button
-                          type="button"
+                          type="submit"
                           variant="outline"
-                          onClick={() => void handleGenerateRecoveryCodes()}
-                          disabled={generatingRecoveryCodes}
+                          disabled={generatingRecoveryCodes || !recoveryCodesPassword}
                         >
                           {generatingRecoveryCodes ? (
                             <Loader2 className="me-2 h-4 w-4 animate-spin" />
@@ -6446,7 +6474,7 @@ export default function Settings() {
                               : t("security.noCodesYet")}
                           </span>
                         )}
-                      </div>
+                      </form>
 
                       {recoveryCodeStatus?.configured && (
                         <p className="text-xs text-muted-foreground">
