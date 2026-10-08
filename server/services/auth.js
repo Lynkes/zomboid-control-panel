@@ -2081,12 +2081,15 @@ class AuthService {
    * Link an external identity to an EXISTING local account. This is the
    * data operation only — the route that calls this is responsible for
    * enforcing it's admin-only, the same way the requireRole("admin")
-   * routes elsewhere in this app do.
+   * routes elsewhere in this app do. actingTokenGen: the initiator's
+   * tokenGen when the flow started; a flow outlives neither that admin being
+   * signed out everywhere nor a password change, reset or reuse detection,
+   * so a stolen session can't land a link after its owner was revoked.
    */
   async linkExternalIdentity(
     userId,
     { issuer, subject, email } = {},
-    { actingUserId } = {},
+    { actingUserId, actingTokenGen } = {},
   ) {
     if (
       typeof issuer !== "string" ||
@@ -2108,6 +2111,9 @@ class AuthService {
         const actingUser = users.find((candidate) => candidate.id === actingUserId);
         if (actingUser?.role !== "admin") {
           throw new Error("The initiating administrator is no longer authorized");
+        }
+        if (actingTokenGen !== undefined && (actingUser.tokenGen || 0) !== actingTokenGen) {
+          throw new Error("The initiating administrator's session has ended");
         }
       }
 

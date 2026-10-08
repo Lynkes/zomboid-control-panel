@@ -488,6 +488,39 @@ describe('routes/oidc.js: /callback', () => {
     expect(target.externalIdentities).toEqual([]);
   });
 
+  // A link flow started from a stolen admin session must end with that
+  // session: once the owner signs that admin out everywhere (or the password
+  // changes), the attacker's callback can't land the link afterwards.
+  it('refuses a link when the initiating admin is signed out everywhere before callback', async () => {
+    const admin = { id: 'admin-1', username: 'admin', role: 'admin', tokenGen: 3 };
+    const target = {
+      id: 'user-42',
+      username: 'alice',
+      role: 'moderator',
+      externalIdentities: [],
+    };
+    vi.spyOn(dbModule, 'getDb').mockResolvedValue({ data: { users: [admin, target] } });
+    vi.spyOn(dbModule, 'commitNow').mockResolvedValue(undefined);
+
+    const startRes = makeRes();
+    await getHandler('post', '/link')(
+      makeReq({ body: { userId: 'user-42' }, user: { userId: 'admin-1', role: 'admin', tokenGen: 3 } }),
+      startRes,
+    );
+    expect(startRes.statusCode).toBe(200);
+    const flow = JSON.parse(startRes.cookies[0].value);
+    provider.setNextIdToken({ claims: { nonce: flow.nonce } });
+
+    await authService.revokeAllSessions('admin-1');
+    expect(admin.tokenGen).toBe(4);
+
+    const res = makeRes();
+    await getHandler('get', '/callback')(callbackReq({ flow }), res);
+
+    expect(res.redirectedTo).toBe('/settings?tab=users&oidcError=link_failed');
+    expect(target.externalIdentities).toEqual([]);
+  });
+
   it('on success: issues a session cookie identical in shape to local login and redirects to /', async () => {
     const flow = await startLoginFlow();
     provider.setNextIdToken({ claims: { nonce: flow.nonce } });

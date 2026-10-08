@@ -276,7 +276,13 @@ router.post("/link", requireRole("admin"), linkRateLimiter, async (req, res) => 
     // linked is whoever signs in now, not the admin's own provider session.
     const { authorizationUrl, state, nonce, codeVerifier } =
       await buildOidcAuthorizationRequest({ forceLogin: true });
-    rememberLinkFlow(state, codeVerifier, { userId, initiatorUserId });
+    // initiatorTokenGen: signing that admin out everywhere (or a password
+    // change) ends the flows their sessions started too.
+    rememberLinkFlow(state, codeVerifier, {
+      userId,
+      initiatorUserId,
+      initiatorTokenGen: req.user.tokenGen ?? 0,
+    });
     res.cookie(
       FLOW_COOKIE_NAME,
       JSON.stringify({ state, nonce, codeVerifier, flowType: "link" }),
@@ -364,6 +370,7 @@ router.get("/callback", async (req, res) => {
         email: claims.email,
       }, {
         actingUserId: issuedFlow.initiatorUserId,
+        actingTokenGen: issuedFlow.initiatorTokenGen,
       });
       log.info(`OIDC identity linked to local user ${issuedFlow.userId}`);
       // The account id, not the email: the Users screen reads the linked
