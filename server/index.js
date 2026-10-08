@@ -2924,9 +2924,9 @@ export async function emitToCapabilities(capabilities, event, payload, server = 
 // auth:token-expired goes out first so the client can treat that reconnect
 // as routine (client/src/App.tsx shows no "Reconnected" toast for it).
 const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
-export function closeSocketAtTokenExpiry(socket, expSeconds, now = Date.now()) {
+function closeSocketAtTokenExpiry(socket, expSeconds) {
   if (!Number.isFinite(expSeconds)) return;
-  const delay = Math.min(Math.max(0, expSeconds * 1000 - now), MAX_TIMER_DELAY_MS);
+  const delay = Math.min(Math.max(0, expSeconds * 1000 - Date.now()), MAX_TIMER_DELAY_MS);
   const timer = setTimeout(() => {
     socket.emit("auth:token-expired");
     socket.conn.close();
