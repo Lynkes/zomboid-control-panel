@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const tryRefreshToken = vi.fn()
 vi.mock('./api', () => ({ tryRefreshToken: (...args: unknown[]) => tryRefreshToken(...args) }))
@@ -12,9 +12,23 @@ function makeToken(expiresInSeconds: number): string {
   return `${base64url({ alg: 'HS256', typ: 'JWT' })}.${base64url(payload)}.sig`
 }
 
+// jsdom's window.location.reload is non-configurable; redefining `location`
+// itself is the workaround lib/__tests__/apiRetry401Then5xx.test.ts uses.
+const originalLocation = window.location
+let reloadSpy: ReturnType<typeof vi.fn>
+
 describe('createSocketAuthProvider', () => {
   beforeEach(() => {
     tryRefreshToken.mockReset()
+    reloadSpy = vi.fn()
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...originalLocation, reload: reloadSpy },
+    })
+  })
+
+  afterEach(() => {
+    Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
   })
 
   it('does not call tryRefreshToken and hands back the current token when it is still comfortably valid', async () => {
@@ -22,7 +36,7 @@ describe('createSocketAuthProvider', () => {
     const getToken = vi.fn(() => token)
     const callback = vi.fn()
 
-    createSocketAuthProvider(getToken)(callback)
+    createSocketAuthProvider(getToken, true)(callback)
     await Promise.resolve()
     await Promise.resolve()
 
@@ -41,7 +55,7 @@ describe('createSocketAuthProvider', () => {
     const getToken = vi.fn(() => currentToken)
     const callback = vi.fn()
 
-    createSocketAuthProvider(getToken)(callback)
+    createSocketAuthProvider(getToken, true)(callback)
     await Promise.resolve()
     await Promise.resolve()
     await Promise.resolve()
@@ -56,7 +70,7 @@ describe('createSocketAuthProvider', () => {
     const getToken = vi.fn(() => nearExpiryToken)
     const callback = vi.fn()
 
-    createSocketAuthProvider(getToken)(callback)
+    createSocketAuthProvider(getToken, true)(callback)
     await Promise.resolve()
     await Promise.resolve()
     await Promise.resolve()
@@ -76,7 +90,7 @@ describe('createSocketAuthProvider', () => {
     })
     const callback = vi.fn()
 
-    createSocketAuthProvider(() => currentToken, () => true)(callback)
+    createSocketAuthProvider(() => currentToken, true, () => true)(callback)
     await Promise.resolve()
     await Promise.resolve()
     await Promise.resolve()
@@ -85,33 +99,73 @@ describe('createSocketAuthProvider', () => {
     expect(callback).toHaveBeenCalledWith({ token: freshToken })
   })
 
-  it('hands back an empty payload without ever calling refresh when there is no token at all', async () => {
+  it('with logins off, hands back an empty payload without ever calling refresh', async () => {
     const getToken = vi.fn(() => null)
     const callback = vi.fn()
 
-    createSocketAuthProvider(getToken)(callback)
+    createSocketAuthProvider(getToken, false)(callback)
     await Promise.resolve()
     await Promise.resolve()
 
     expect(tryRefreshToken).not.toHaveBeenCalled()
     expect(callback).toHaveBeenCalledWith({})
+    expect(reloadSpy).not.toHaveBeenCalled()
   })
 
-  it('still hands back an empty payload if refresh fails and leaves no token behind', async () => {
+  // Audit #20: a token dropped by an earlier failed refresh used to leave a
+  // socket the server refused forever, because a null token never refreshed.
+  it('signed in with no token, refreshes first and hands back the new token', async () => {
+    const freshToken = makeToken(15 * 60)
+    let currentToken: string | null = null
+    tryRefreshToken.mockImplementation(async () => {
+      currentToken = freshToken
+      return true
+    })
+    const callback = vi.fn()
+
+    createSocketAuthProvider(() => currentToken, true)(callback)
+    await vi.waitFor(() => expect(callback).toHaveBeenCalled())
+
+    expect(tryRefreshToken).toHaveBeenCalledTimes(1)
+    expect(callback).toHaveBeenCalledWith({ token: freshToken })
+    expect(reloadSpy).not.toHaveBeenCalled()
+  })
+
+  it('signed in with no token and a refresh that fails, reloads instead of connecting without one', async () => {
+    tryRefreshToken.mockResolvedValue(false)
+    const callback = vi.fn()
+
+    createSocketAuthProvider(() => null, true)(callback)
+    await vi.waitFor(() => expect(reloadSpy).toHaveBeenCalledTimes(1))
+
+    expect(tryRefreshToken).toHaveBeenCalledTimes(1)
+    expect(callback).not.toHaveBeenCalled()
+  })
+
+  it('reloads when the refresh of an expired token is refused and leaves no token behind', async () => {
     const staleToken = makeToken(-60)
     let currentToken: string | null = staleToken
     tryRefreshToken.mockImplementation(async () => {
-      currentToken = null // refresh failed -- token store cleared
+      currentToken = null // the panel refused the cookie -- token store cleared
       return false
     })
-    const getToken = vi.fn(() => currentToken)
     const callback = vi.fn()
 
-    createSocketAuthProvider(getToken)(callback)
-    await Promise.resolve()
-    await Promise.resolve()
-    await Promise.resolve()
+    createSocketAuthProvider(() => currentToken, true)(callback)
+    await vi.waitFor(() => expect(reloadSpy).toHaveBeenCalledTimes(1))
 
-    expect(callback).toHaveBeenCalledWith({})
+    expect(callback).not.toHaveBeenCalled()
+  })
+
+  it('keeps going with the token it has when a refresh fails but leaves it in place (a 503)', async () => {
+    const nearExpiryToken = makeToken(30)
+    tryRefreshToken.mockResolvedValue(false)
+    const callback = vi.fn()
+
+    createSocketAuthProvider(() => nearExpiryToken, true)(callback)
+    await vi.waitFor(() => expect(callback).toHaveBeenCalled())
+
+    expect(callback).toHaveBeenCalledWith({ token: nearExpiryToken })
+    expect(reloadSpy).not.toHaveBeenCalled()
   })
 })

@@ -111,5 +111,12 @@
   },
   "languageSwitcher": {
     "label": "語言"
+  },
+  "authSession": {
+    "signOutFailedTitle": "登出要求未送達面板",
+    "signOutFailedDescription": "您在此瀏覽器中仍為登入狀態。請檢查與面板的連線，然後重試。",
+    "statusCheckFailedTitle": "無法檢查登入狀態",
+    "statusCheckFailedDescription": "面板或其前方的代理伺服器未回應登入檢查。請稍候，然後重試。",
+    "retry": "重試"
   }
 }

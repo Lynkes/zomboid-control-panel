@@ -113,5 +113,12 @@
   },
   "languageSwitcher": {
     "label": "Lang"
+  },
+  "authSession": {
+    "signOutFailedTitle": "Dekoneksyon an pa t rive jwenn panèl la",
+    "signOutFailedDescription": "Ou toujou konekte nan navigatè sa a. Tcheke koneksyon ou ak panèl la, epi eseye ankò.",
+    "statusCheckFailedTitle": "Pa t kapab verifye si ou konekte",
+    "statusCheckFailedDescription": "Panèl la, oswa yon proxy ki devan l, pa t reponn verifikasyon koneksyon an. Tann yon ti moman, epi eseye ankò.",
+    "retry": "Eseye ankò"
   }
 }

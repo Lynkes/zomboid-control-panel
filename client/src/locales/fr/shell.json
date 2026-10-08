@@ -113,5 +113,12 @@
   },
   "languageSwitcher": {
     "label": "Langue"
+  },
+  "authSession": {
+    "signOutFailedTitle": "La déconnexion n'a pas atteint le panneau",
+    "signOutFailedDescription": "Vous êtes toujours connecté sur ce navigateur. Vérifiez que le panneau est joignable, puis réessayez.",
+    "statusCheckFailedTitle": "Impossible de vérifier l'état de connexion",
+    "statusCheckFailedDescription": "Le panneau, ou un proxy placé devant lui, n'a pas répondu à la vérification de connexion. Patientez un instant, puis réessayez.",
+    "retry": "Réessayer"
   }
 }

@@ -3061,7 +3061,9 @@ io.on("connection", (socket) => {
 // revocation paths in services/auth.js) would all be no-ops for any socket
 // that connected before the change -- e.g. a revoked user's already-open
 // socket would keep receiving the rcon-live room's whitelist passwords
-// indefinitely. disconnectSockets(true) forces a reconnect, which re-runs
+// indefinitely. disconnectSockets(true) closes them, and socket.io-client
+// does not reconnect by itself after a server-side disconnect; the next
+// connect (Retry in the client's connection status, or a reload) re-runs
 // io.use and picks up the new state (or fails closed if the user is gone).
 // Exported (not an inline closure) so tests can call it directly against
 // the real `io` instance and assert the disconnect calls it makes, without

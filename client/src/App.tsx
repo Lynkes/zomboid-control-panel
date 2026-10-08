@@ -17,6 +17,7 @@ import { TooltipProvider } from './components/ui/tooltip'
 import { useToast } from './components/ui/use-toast'
 import { PageSkeleton } from './components/PageSkeleton'
 import { ScrollToTop } from './components/ScrollToTop'
+import { AuthStatusError } from './components/AuthStatusError'
 import { isDemoMode } from './lib/demo'
 import { getUserErrorMessage } from './lib/errorMessage'
 import { createSocketAuthProvider } from './lib/socketAuth'
@@ -415,7 +416,7 @@ function AppContent() {
     error: null,
   })
   const { toast } = useToast()
-  const { isAuthenticated, isLoading, needsSetup, authEnabled, getToken } = useAuth()
+  const { isAuthenticated, isLoading, needsSetup, authEnabled, statusCheckFailed, statusCheckCode, retryAuthCheck, getToken } = useAuth()
 
   const handleReconnectSuccess = useCallback(() => {
     toast({
@@ -467,7 +468,7 @@ function AppContent() {
       // then refreshes first whatever this browser's clock says about the
       // token: the server's clock decided it expired.
       let tokenExpiredByServer = false
-      newSocket.auth = createSocketAuthProvider(getToken, () => tokenExpiredByServer)
+      newSocket.auth = createSocketAuthProvider(getToken, authEnabled, () => tokenExpiredByServer)
       newSocket.connect()
 
       newSocket.on('auth:token-expired', () => {
@@ -595,6 +596,10 @@ function AppContent() {
   // Auth gate — show loading, setup, or login screens before main app
   if (isLoading) {
     return <AuthScreenLoader />
+  }
+
+  if (statusCheckFailed) {
+    return <AuthStatusError code={statusCheckCode} onRetry={retryAuthCheck} />
   }
 
   if (needsSetup) {

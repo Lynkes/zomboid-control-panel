@@ -113,5 +113,12 @@
   },
   "languageSwitcher": {
     "label": "Idioma"
+  },
+  "authSession": {
+    "signOutFailedTitle": "El cierre de sesión no llegó al panel",
+    "signOutFailedDescription": "Sigues con la sesión iniciada en este navegador. Comprueba la conexión con el panel e inténtalo de nuevo.",
+    "statusCheckFailedTitle": "No se pudo comprobar el inicio de sesión",
+    "statusCheckFailedDescription": "El panel, o un proxy delante de él, no respondió a la comprobación de inicio de sesión. Espera un momento e inténtalo de nuevo.",
+    "retry": "Reintentar"
   }
 }
