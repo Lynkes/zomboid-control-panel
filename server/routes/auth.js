@@ -538,12 +538,26 @@ router.post("/login", loginLimiter, async (req, res) => {
   }
 });
 
+// SECURITY (2026-10-08, auth audit #4): a page on another port of the
+// panel's host is same-site, so SameSite=Strict still sends it the refresh
+// cookie. Browsers label its requests Sec-Fetch-Site: same-site (cross-site
+// for anything further); only the panel's own page (same-origin) or a typed
+// URL (none) may spend the cookie. A client that sends no such header is not
+// a browser page and has no cookie to steal.
+function refuseCrossSiteCookieUse(req, res, next) {
+  const site = req.headers["sec-fetch-site"];
+  if (site && site !== "same-origin" && site !== "none") {
+    return res.status(403).json({ error: "Cross-origin request refused" });
+  }
+  return next();
+}
+
 /**
  * POST /api/auth/refresh
  * Refresh access token using refresh token cookie.
  * This is how auto-login works — the browser sends the httpOnly cookie automatically.
  */
-router.post("/refresh", async (req, res) => {
+router.post("/refresh", refuseCrossSiteCookieUse, async (req, res) => {
   try {
     const refreshToken = req.cookies?.refreshToken;
     if (!refreshToken) {
@@ -620,7 +634,7 @@ router.post("/refresh", async (req, res) => {
  * POST /api/auth/logout
  * Clear refresh token cookie.
  */
-router.post("/logout", async (req, res) => {
+router.post("/logout", refuseCrossSiteCookieUse, async (req, res) => {
   await authService.logout(req.cookies?.refreshToken);
   res.clearCookie("refreshToken", getRefreshCookieOptions(req, false));
   res.json({ success: true });

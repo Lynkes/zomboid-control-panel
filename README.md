@@ -360,10 +360,10 @@ server {
 Then set these before first launch (see [linux.md Phase 10](docs/install/linux.md) for the systemd equivalent):
 
 ```bash
-TRUST_PROXY=1 HTTPS=true ./start.sh
+TRUST_PROXY=loopback HTTPS=true ./start.sh
 ```
 
-`TRUST_PROXY=1` tells the panel to trust the `X-Forwarded-*` headers above for one proxy hop (IP-based rate limiting and login all key off this) — only set it if the panel is genuinely reachable exclusively through your proxy, never if port 3001 is also exposed directly. `HTTPS=true` makes the panel emit HSTS and treat the connection as secure for cookies even though it's speaking plain HTTP to nginx.
+`TRUST_PROXY=loopback` tells the panel to trust the `X-Forwarded-*` headers above only from nginx on this machine (IP-based rate limiting and login all key off this). A hop count such as `TRUST_PROXY=1` trusts them from whatever connects, so the panel warns about it at startup: only use one if the panel is genuinely reachable exclusively through your proxy, never if port 3001 is also exposed directly. In Docker, see [Behind a reverse proxy](docs/install/docker.md#behind-a-reverse-proxy-panel_bind_address-with-trust_proxy). `HTTPS=true` makes the panel emit HSTS and treat the connection as secure for cookies even though it's speaking plain HTTP to nginx.
 
 If you instead terminate TLS at nginx *and* run the panel's own HTTPS listener behind it (double TLS termination — only needed if something else on the same host also talks to the panel directly over HTTPS), point `proxy_pass` at `https://127.0.0.1:<your HTTPS port>` instead and add `proxy_ssl_verify off;` if you're using the panel's self-signed certificate. The `Upgrade`/`Connection` headers above are still required either way — they're about forwarding the client's upgrade request, not about which protocol nginx uses to reach the panel.
 

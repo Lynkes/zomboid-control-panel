@@ -13,13 +13,18 @@ import { isTokenExpiredOrNearExpiry } from './jwt'
  *
  * Reads OUR OWN token purely to decide whether calling /api/auth/refresh
  * first is worth it; the server remains the only real authority on
- * whether the token it's handed is actually valid.
+ * whether the token it's handed is actually valid. `mustRefresh` overrides
+ * that guess when the server has already said the token expired: a browser
+ * clock running behind the server's would otherwise keep sending it.
  */
-export function createSocketAuthProvider(getToken: () => string | null) {
+export function createSocketAuthProvider(
+  getToken: () => string | null,
+  mustRefresh: () => boolean = () => false,
+) {
   return (callback: (data: Record<string, string>) => void) => {
     void (async () => {
       let token = getToken()
-      if (token && isTokenExpiredOrNearExpiry(token)) {
+      if (token && (mustRefresh() || isTokenExpiredOrNearExpiry(token))) {
         await tryRefreshToken()
         token = getToken()
       }

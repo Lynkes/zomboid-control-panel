@@ -54,6 +54,7 @@ if [ ! -f "$CONTEXT_DIR/.env" ]; then
   cat > "$CONTEXT_DIR/.env" <<EOF
 CORS_ORIGINS=${CORS_ORIGINS:-$default_origins}
 TRUST_PROXY=${TRUST_PROXY:-false}
+PANEL_BIND_ADDRESS=${PANEL_BIND_ADDRESS:-}
 PANEL_DOCKER_UPDATER_TOKEN=$TOKEN
 PANEL_BUILD_DIR=$BUILD_ROOT
 PANEL_LAN_IP=$detected_lan_ip
@@ -73,6 +74,12 @@ else
   fi
   if ! grep -q '^TRUST_PROXY=' "$CONTEXT_DIR/.env"; then
     printf 'TRUST_PROXY=false\n' >> "$CONTEXT_DIR/.env"
+  fi
+  # The compose file is copied over again below on every run, so a hand
+  # edit to its port line is lost; the bind address lives here instead.
+  # Blank publishes port 3001 on every host address, as before.
+  if ! grep -q '^PANEL_BIND_ADDRESS=' "$CONTEXT_DIR/.env"; then
+    printf 'PANEL_BIND_ADDRESS=%s\n' "${PANEL_BIND_ADDRESS:-}" >> "$CONTEXT_DIR/.env"
   fi
   if ! grep -q '^PANEL_LAN_IP=' "$CONTEXT_DIR/.env"; then
     printf 'PANEL_LAN_IP=%s\n' "$detected_lan_ip" >> "$CONTEXT_DIR/.env"
@@ -179,5 +186,9 @@ if [ "$health" != "healthy" ]; then
 fi
 
 echo "All-in-one installation is ready."
-echo "Panel: http://${detected_lan_ip:-localhost}:3001"
+bind_address="$(sed -n 's/^PANEL_BIND_ADDRESS=//p' "$CONTEXT_DIR/.env" | tail -n 1)"
+case "$bind_address" in
+  '' | 0.0.0.0) echo "Panel: http://${detected_lan_ip:-localhost}:3001" ;;
+  *) echo "Panel: published on $bind_address:3001 only (PANEL_BIND_ADDRESS); open it through your reverse proxy" ;;
+esac
 echo "PZ ports: $game_ports/udp (published automatically; each server uses two in a row)"

@@ -7,7 +7,10 @@ services:
     container_name: zomboid-panel
     restart: unless-stopped
     ports:
-      - "3001:3001"
+      # Every host address by default. Docker publishes past UFW, so behind a
+      # reverse proxy on this host set PANEL_BIND_ADDRESS=127.0.0.1 in .env
+      # (with TRUST_PROXY), then rerun bootstrap.sh.
+      - "${PANEL_BIND_ADDRESS:-}:3001:3001"
       # PZ DefaultPort and UDPPort (UDP). Every server in this container
       # uses two ports in a row, so the default range fits five servers:
       # 16261-16262 for the first, 16263-16264 for the second, and so on.
@@ -25,7 +28,7 @@ services:
       RCON_HOST: 127.0.0.1
       RCON_PORT: 27015
       CORS_ORIGINS: ${CORS_ORIGINS:?Set CORS_ORIGINS in .env}
-      TRUST_PROXY: ${TRUST_PROXY:-1}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
       PANEL_LAN_IP: ${PANEL_LAN_IP:-}
       PANEL_WAN_IP: ${PANEL_WAN_IP:-}
       PANEL_DOCKER_UPDATER_URL: http://zomboid-panel-updater:3100

@@ -63,6 +63,15 @@ hostname still needs its own origin added: set `CORS_ORIGINS` (and
 `.env` file (`<state dir>/build/ctx/.env`) and rerun the script to apply the
 change — it won't touch an `.env` that already exists.
 
+Port `3001` is published on every host address, and Docker's published
+ports bypass UFW. With a reverse proxy on this host, also set
+`PANEL_BIND_ADDRESS=127.0.0.1` in that `.env` whenever you set
+`TRUST_PROXY`: otherwise anyone who reaches `3001` directly can forge the
+forwarded address the panel's sign-in limits count by. The proxy still
+reaches the panel at `http://127.0.0.1:3001`. Set it in `.env`, not in the
+copied `docker-compose.yml`, which the installer replaces on every run. See
+[Behind a reverse proxy](../../docs/install/docker.md#behind-a-reverse-proxy-panel_bind_address-with-trust_proxy).
+
 The stack uses Docker named volumes for panel state, logs, the PZ
 installation, and Zomboid save data. This keeps a default install
 independent of a particular NAS or host filesystem layout, and means you

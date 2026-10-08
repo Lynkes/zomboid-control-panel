@@ -174,7 +174,10 @@ source and image automatically — you don't need to intervene.
   by default). The installer sets `CORS_ORIGINS` there itself on first run —
   `http://localhost:3001` plus your detected LAN address — so LAN access
   usually needs no extra configuration. For a reverse proxy or public
-  hostname, edit `CORS_ORIGINS` (and `TRUST_PROXY`) in that file, then
+  hostname, edit `CORS_ORIGINS` (and `TRUST_PROXY`, with
+  `PANEL_BIND_ADDRESS=127.0.0.1` — see
+  [Behind a reverse proxy](#behind-a-reverse-proxy-panel_bind_address-with-trust_proxy))
+  in that file, then
   re-run the curl command from step 3 — it reapplies the stack but never
   overwrites an `.env` that already exists, so your edit sticks.
 
@@ -223,7 +226,8 @@ container as the panel.
 7. If the panel will be reached from anywhere other than `localhost` (a
    reverse proxy, a domain name), also see
    [CORS_ORIGINS](#cors_origins-when-accessed-from-anywhere-other-than-localhost)
-   below before continuing.
+   below before continuing, and for a reverse proxy
+   [Behind a reverse proxy](#behind-a-reverse-proxy-panel_bind_address-with-trust_proxy).
 
 ### Optional: let the panel control a PZ container
 
@@ -608,6 +612,57 @@ retype. When it genuinely can't find the files either way, the same error
 now names exactly which folders this container can see instead of just
 "not found," so you know what to point Docker's bind mount at rather than
 guessing.
+
+### Behind a reverse proxy: PANEL_BIND_ADDRESS with TRUST_PROXY
+
+This applies to **Path A**, **Path B** and **Path C** whenever nginx, Caddy
+or another reverse proxy on this host forwards to the panel.
+
+Docker publishes port `3001` on every host address by default, and
+Docker's published ports bypass UFW and firewalld: `ufw deny 3001` does not
+close it. Once `TRUST_PROXY` is set, the panel believes the
+`X-Forwarded-For` header of whatever connects to that port. Anyone who
+reaches `3001` directly, without going through the proxy, can then name a
+new address on every sign-in attempt and never runs into the per-address
+sign-in pause or the rate limits.
+
+Fix it — set both, in the `.env` your path reads:
+
+```sh
+PANEL_BIND_ADDRESS=127.0.0.1
+TRUST_PROXY=1
+```
+
+`PANEL_BIND_ADDRESS=127.0.0.1` publishes `3001` on the host's loopback
+address only: the proxy on this host still reaches the panel at
+`http://127.0.0.1:3001`, and nothing outside the host can. A proxy running
+in a container on the panel's Docker network reaches it by service name and
+doesn't use the published port at all, so `127.0.0.1` is right there too.
+
+The panel logs a warning at startup for a hop count such as
+`TRUST_PROXY=1`. It is a reminder of exactly this: with the port bound to
+`127.0.0.1` it's taken care of. Naming the proxy's address instead
+(`TRUST_PROXY=loopback`, the better choice for a panel installed without
+Docker) doesn't help inside Docker, because the proxy reaches the container
+from Docker's bridge gateway, the same address every client Docker relays
+arrives from.
+
+Where to set them:
+
+- **Path A (all-in-one):** `<state dir>/build/ctx/.env`. The installer
+  writes a blank `PANEL_BIND_ADDRESS=` line there; fill it in, then re-run
+  the bootstrap command. Don't edit the `ports:` line of the copied
+  `docker-compose.yml`: the installer copies that file over again on every
+  run.
+- **Path B (docker-compose.yml):** the `.env` next to `docker-compose.yml`,
+  then `docker compose up -d`.
+- **Path C (docker-compose.install.yml):** a `.env` file next to
+  `docker-compose.install.yml`, then
+  `docker compose -f docker-compose.install.yml up -d`.
+
+Leave `PANEL_BIND_ADDRESS` blank (every address, IPv4 and IPv6, the
+default) when browsers open the panel directly on port `3001`, with no proxy
+in front. An IPv6 address goes in brackets: `PANEL_BIND_ADDRESS=[::1]`.
 
 ### CORS_ORIGINS when accessed from anywhere other than localhost
 

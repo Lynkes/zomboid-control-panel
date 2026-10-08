@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Linked SSO identities:** Users lists each account's links with an Unlink button that also signs the account out, and a new link names the address it linked.
 - **SSO rate limits:** sign-in and linking have their own budgets and unknown callbacks stop before reaching the provider; one stranger could block SSO behind a shared address.
 - **SSO discovery URLs:** if your issuer URL contains `/.well-known/`, run Test Connection after upgrading; one on a different host from the issuer it names is now refused, so enter the provider's issuer URL instead.
+- **Sign-in cookie on other ports:** pages on another port of the panel's host or another LAN address no longer get cookie access to the API, so they can't read a sign-in token; origins in Remote Access or `CORS_ORIGINS` keep it.
+- **Log flooding:** refused origins and unreadable request bodies count toward the rate limit, log once or not at all, and long paths and error messages are cut; strangers could push the sign-in history out of the logs.
+- **Docker behind a proxy:** new `PANEL_BIND_ADDRESS` publishes port 3001 on one address (set `127.0.0.1` with `TRUST_PROXY`), and a hop-count `TRUST_PROXY` now warns at startup; Docker bypasses UFW, so anyone reaching 3001 could forge their address past the sign-in limits.
+- **Live updates expire with the sign-in:** a live connection now closes when its 15-minute token runs out and the panel quietly reconnects with a fresh one; a stolen token kept the feed open until a restart.
+- **No stack traces:** errors outside the API answer with a plain status text; the exe and script installs showed install paths to anyone.
 
 ### Added
 
