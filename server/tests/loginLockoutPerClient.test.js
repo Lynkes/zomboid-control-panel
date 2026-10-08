@@ -243,7 +243,10 @@ describe("#8: change-password goes through the login pause", () => {
 
   // Review of #8: the pause is one per account, so anyone holding a session
   // could keep it up and stop the owner changing the password to evict them.
-  // Signing in with the right password, or signing out everywhere, lifts it.
+  // Signing in with the right password lifts it. Signing out everywhere
+  // doesn't: an SSO sign-in mints a new session without the password, so
+  // whoever holds a linked identity could spend the allowance, sign out
+  // everywhere and guess again.
   async function spendAllowance() {
     for (let i = 0; i < MAX_FAILED_LOGINS; i++) {
       await expect(authService.changePassword("u-admin", `wrong${i}`, "brand-new-pass-1")).rejects.toThrow();
@@ -268,9 +271,14 @@ describe("#8: change-password goes through the login pause", () => {
     });
   });
 
-  it("signing out everywhere lifts it", async () => {
+  it("signing out everywhere doesn't lift it; the next sign-in with the password does", async () => {
     await spendAllowance();
     await authService.revokeAllSessions("u-admin");
+    await expect(authService.changePassword("u-admin", PASSWORD, "brand-new-pass-1")).rejects.toMatchObject({
+      code: "CURRENT_PASSWORD_INCORRECT",
+    });
+
+    await authService.login("admin", PASSWORD, false, { clientKey: "203.0.113.23" });
     await expect(authService.changePassword("u-admin", PASSWORD, "brand-new-pass-1")).resolves.toBe(true);
   });
 });

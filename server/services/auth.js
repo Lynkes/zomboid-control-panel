@@ -1794,9 +1794,10 @@ class AuthService {
       this.ensureUserAuthState(user);
       const sessions = user.refreshSessions.length;
       this.endAllSessions(user);
-      // Every session that could have spent the current-password allowance
-      // is gone, so its pause goes too.
-      currentPasswordThrottle.delete(user.id);
+      // The current-password pause (#8) stays: an SSO sign-in mints a fresh
+      // session without the password, so whoever holds a linked identity
+      // could otherwise spend the allowance, sign out everywhere and start
+      // again. The owner's next sign-in with the password lifts it (login()).
       await commitNow();
       emitSessionRevoked({ scope: "user", userId: user.id });
       log.info(`Signed out every session of ${user.username}`);
