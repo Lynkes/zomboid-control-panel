@@ -306,6 +306,26 @@
     "pending": "pendente",
     "offline": "offline"
   },
+  "serversOverview": {
+    "heading": "Servidores",
+    "runningCount": "{{running}} de {{total}} rodando",
+    "activeBadge": "Ativo",
+    "state": {
+      "running": "Rodando",
+      "stopped": "Parado",
+      "unknown": "Desconhecido"
+    },
+    "playersTitle": "Jogadores online: {{players}}",
+    "playersUnknown": "Jogadores: desconhecido (o RCON não responde)",
+    "gamePortTitle": "Porta do jogo",
+    "autoStartLabel": "Iniciar junto",
+    "autoStartOnDesc": "{{name}} vai iniciar quando o painel iniciar",
+    "autoStartOffDesc": "{{name}} não vai mais iniciar junto com o painel",
+    "show": "Ver",
+    "showAria": "Mostrar {{name}} no Dashboard",
+    "noPermissionSwitch": "Seu cargo não pode trocar o servidor ativo.",
+    "switchFailed": "Não foi possível trocar para {{name}}"
+  },
   "maintenance": {
     "heading": "Manutenção",
     "refreshStatus": "Recarregar status",

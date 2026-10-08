@@ -345,6 +345,26 @@
     "pending": "очікується",
     "offline": "офлайн"
   },
+  "serversOverview": {
+    "heading": "Сервери",
+    "runningCount": "Запущено {{running}} з {{total}}",
+    "activeBadge": "Активний",
+    "state": {
+      "running": "Працює",
+      "stopped": "Зупинено",
+      "unknown": "Невідомо"
+    },
+    "playersTitle": "Гравців онлайн: {{players}}",
+    "playersUnknown": "Гравці: невідомо (RCON не відповідає)",
+    "gamePortTitle": "Ігровий порт",
+    "autoStartLabel": "Запускати з панеллю",
+    "autoStartOnDesc": "{{name}} запускатиметься разом із панеллю",
+    "autoStartOffDesc": "{{name}} більше не запускатиметься разом із панеллю",
+    "show": "Показати",
+    "showAria": "Показати {{name}} на інформаційній панелі",
+    "noPermissionSwitch": "Ваша роль не може змінювати активний сервер.",
+    "switchFailed": "Не вдалося перемкнутися на {{name}}"
+  },
   "maintenance": {
     "heading": "Обслуговування",
     "refreshStatus": "Оновити стан",

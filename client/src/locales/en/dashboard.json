@@ -259,6 +259,26 @@
     "pending": "pending",
     "offline": "offline"
   },
+  "serversOverview": {
+    "heading": "Servers",
+    "runningCount": "{{running}} of {{total}} running",
+    "activeBadge": "Active",
+    "state": {
+      "running": "Running",
+      "stopped": "Stopped",
+      "unknown": "Unknown"
+    },
+    "playersTitle": "Players online: {{players}}",
+    "playersUnknown": "Players: unknown (RCON isn't answering)",
+    "gamePortTitle": "Game port",
+    "autoStartLabel": "Start with the panel",
+    "autoStartOnDesc": "{{name}} will start when the panel starts",
+    "autoStartOffDesc": "{{name}} will no longer start with the panel",
+    "show": "Show",
+    "showAria": "Show {{name}} on the Dashboard",
+    "noPermissionSwitch": "Your role can't change the active server.",
+    "switchFailed": "Could not switch to {{name}}"
+  },
   "maintenance": {
     "heading": "Maintenance",
     "refreshStatus": "Refresh status",

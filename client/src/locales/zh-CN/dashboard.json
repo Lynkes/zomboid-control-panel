@@ -259,6 +259,26 @@
     "pending": "等待中",
     "offline": "离线"
   },
+  "serversOverview": {
+    "heading": "服务器",
+    "runningCount": "{{running}}/{{total}} 运行中",
+    "activeBadge": "活动",
+    "state": {
+      "running": "运行中",
+      "stopped": "已停止",
+      "unknown": "未知"
+    },
+    "playersTitle": "在线玩家：{{players}}",
+    "playersUnknown": "玩家：未知（RCON 无响应）",
+    "gamePortTitle": "游戏端口",
+    "autoStartLabel": "随面板启动",
+    "autoStartOnDesc": "{{name}} 将在面板启动时启动",
+    "autoStartOffDesc": "{{name}} 将不再随面板启动",
+    "show": "查看",
+    "showAria": "在仪表盘上显示 {{name}}",
+    "noPermissionSwitch": "您的角色无法切换活动服务器。",
+    "switchFailed": "无法切换到 {{name}}"
+  },
   "maintenance": {
     "heading": "维护",
     "refreshStatus": "刷新状态",

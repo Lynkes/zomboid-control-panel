@@ -385,6 +385,26 @@
     "pending": "قيد الانتظار",
     "offline": "غير متصل"
   },
+  "serversOverview": {
+    "heading": "الخوادم",
+    "runningCount": "{{running}} من {{total}} قيد التشغيل",
+    "activeBadge": "نشط",
+    "state": {
+      "running": "قيد التشغيل",
+      "stopped": "متوقف",
+      "unknown": "غير معروف"
+    },
+    "playersTitle": "اللاعبون المتصلون: {{players}}",
+    "playersUnknown": "اللاعبون: غير معروف (RCON لا يستجيب)",
+    "gamePortTitle": "منفذ اللعبة",
+    "autoStartLabel": "التشغيل مع اللوحة",
+    "autoStartOnDesc": "سيبدأ {{name}} عند بدء اللوحة",
+    "autoStartOffDesc": "لن يبدأ {{name}} مع اللوحة بعد الآن",
+    "show": "عرض",
+    "showAria": "عرض {{name}} في لوحة المعلومات",
+    "noPermissionSwitch": "لا يمكن لدورك تغيير الخادم النشط.",
+    "switchFailed": "تعذّر التبديل إلى {{name}}"
+  },
   "maintenance": {
     "heading": "الصيانة",
     "refreshStatus": "تحديث الحالة",

@@ -30,6 +30,7 @@ import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
 import { resolveClientProvider, deriveDashboardStatus, waitForServerState } from '@/lib/serverStatus'
 import { autoStartEnabled, autoStartServerIds, withAutoStartServer, type AutoStartSettings } from '@/lib/autoStartServers'
+import { ServersOverview } from '@/components/dashboard/ServersOverview'
 import { ServerUptime } from '@/components/ServerUptime'
 import { useSocket } from '@/contexts/SocketContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -298,6 +299,9 @@ export default function Dashboard() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [, setTick] = useState(0)
   const [autoStartSettings, setAutoStartSettings] = useState<AutoStartSettings>({})
+  // With two servers or more, the servers overview holds every auto-start
+  // checkbox, the active server's included, so Maintenance drops its own.
+  const [serversOverviewShown, setServersOverviewShown] = useState(false)
   const [panelInfo, setPanelInfo] = useState<{ localIp: string; port: number; url: string } | null>(null)
   const [activeServer, setActiveServer] = useState<ServerInstance | null>(null)
   const [showPerformanceCharts, setShowPerformanceCharts] = useState(false)
@@ -672,22 +676,27 @@ export default function Dashboard() {
   const autoStartThisServer = autoStartEnabled(autoStartSettings) && (activeServerId === null
     ? !Array.isArray(autoStartSettings.autoStartServerIds)
     : autoStartServerIds(autoStartSettings, activeServerId).includes(activeServerId))
-  const handleAutoStartChange = async (checked: boolean) => {
+  // `server`: a row of the servers overview below; none means the active one.
+  const handleAutoStartChange = async (checked: boolean, server?: ServerInstance) => {
     if (!canChangePanelSettings) return
     const previous = autoStartSettings
+    const serverId = server ? String(server.id) : activeServerId
     // No server record (a settings-only install): the switch alone, as before.
-    const update: AutoStartSettings = activeServerId === null
+    const update: AutoStartSettings = serverId === null
       ? { autoStartServer: checked }
       : {
           ...(checked ? { autoStartServer: true } : {}),
-          autoStartServerIds: withAutoStartServer(autoStartServerIds(previous, activeServerId), activeServerId, checked),
+          autoStartServerIds: withAutoStartServer(autoStartServerIds(previous, activeServerId), serverId, checked),
         }
     setAutoStartSettings({ ...previous, ...update })
     try {
       await configApi.updateAppSettings(update)
+      const name = server ? server.name || server.serverName : null
       toast({
         title: checked ? t('toasts.autoStartEnabledTitle') : t('toasts.autoStartDisabledTitle'),
-        description: checked ? t('toasts.autoStartEnabledDesc') : t('toasts.autoStartDisabledDesc'),
+        description: name
+          ? t(checked ? 'serversOverview.autoStartOnDesc' : 'serversOverview.autoStartOffDesc', { name })
+          : checked ? t('toasts.autoStartEnabledDesc') : t('toasts.autoStartDisabledDesc'),
       })
     } catch (error) {
       setAutoStartSettings(previous)
@@ -2091,6 +2100,15 @@ export default function Dashboard() {
         stale={staleLink}
       />
 
+      {/* ─── EVERY SERVER (two or more) ───────────────────────────────────── */}
+      <ServersOverview
+        activeServerId={activeServerId}
+        autoStartSettings={autoStartSettings}
+        canChangeAutoStart={canChangePanelSettings}
+        onAutoStartChange={(server, chosen) => handleAutoStartChange(chosen, server)}
+        onShownChange={setServersOverviewShown}
+      />
+
       {/* ─── EVIDENCE AND WORK ──────────────────────────────────────────── */}
       <div className="mt-6 grid content-start gap-6 xl:grid-cols-[minmax(0,1fr)_19rem] xl:items-start">
 
@@ -2311,19 +2329,21 @@ export default function Dashboard() {
                     {t('maintenance.wipeServer')}
                   </Button>
                 </DisabledReason>
-                <label className="mt-1 flex cursor-pointer items-center gap-2 border-t border-border/30 px-1 pt-2">
-                  <DisabledReason reason={!canChangePanelSettings ? t('actions.noPermissionAutoStart') : null}>
-                    <Checkbox
-                      id="autoStartServer"
-                      checked={autoStartThisServer}
-                      disabled={!canChangePanelSettings}
-                      onCheckedChange={(checked) => handleAutoStartChange(checked === true)}
-                    />
-                  </DisabledReason>
-                  <Label htmlFor="autoStartServer" className="cursor-pointer text-[11px] text-muted-foreground">
-                    {t('maintenance.autoStartLabel')}
-                  </Label>
-                </label>
+                {!serversOverviewShown && (
+                  <label className="mt-1 flex cursor-pointer items-center gap-2 border-t border-border/30 px-1 pt-2">
+                    <DisabledReason reason={!canChangePanelSettings ? t('actions.noPermissionAutoStart') : null}>
+                      <Checkbox
+                        id="autoStartServer"
+                        checked={autoStartThisServer}
+                        disabled={!canChangePanelSettings}
+                        onCheckedChange={(checked) => handleAutoStartChange(checked === true)}
+                      />
+                    </DisabledReason>
+                    <Label htmlFor="autoStartServer" className="cursor-pointer text-[11px] text-muted-foreground">
+                      {t('maintenance.autoStartLabel')}
+                    </Label>
+                  </label>
+                )}
               </div>
             </section>
           )}

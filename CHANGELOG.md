@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Choose which servers start with the panel:** Settings › Connection lists each local server under the auto-start switch, and the Dashboard's checkbox adds or removes the active one. It used to start only whichever server was active; a setting saved before keeps doing that until you choose.
 - **Automatic minimum memory:** a server's minimum memory can be 0, which starts it without `-Xms`; the JVM starts small and gives back memory it isn't using, where it never goes below a set minimum. A 0 saved before was read as 4 GB.
+- **Every server on the Dashboard:** with two servers or more, installed or linked, a Servers list shows each one's state, uptime, players and game port, with its auto-start checkbox and a button to show it on the Dashboard, without switching first. It scrolls when there are many, the active server first.
 
 ### Security
 
