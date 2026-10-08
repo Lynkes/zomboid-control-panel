@@ -24,7 +24,8 @@ services:
     ports:
       # Every host address by default. Docker publishes past UFW, so behind a
       # reverse proxy on this host set PANEL_BIND_ADDRESS=127.0.0.1 (with
-      # TRUST_PROXY) in a .env file next to this one.
+      # TRUST_PROXY) in a .env file next to this one. A proxy in another
+      # container: see docs/install/docker.md first.
       - "${PANEL_BIND_ADDRESS:-}:3001:3001"
     environment:
       NODE_ENV: production

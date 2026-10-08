@@ -616,7 +616,9 @@ guessing.
 ### Behind a reverse proxy: PANEL_BIND_ADDRESS with TRUST_PROXY
 
 This applies to **Path A**, **Path B** and **Path C** whenever nginx, Caddy
-or another reverse proxy on this host forwards to the panel.
+or another reverse proxy on this host forwards to the panel. If the proxy
+runs in a container of its own (Nginx Proxy Manager, SWAG, cloudflared and
+the like), read [the note below](#a-proxy-in-its-own-container) first.
 
 Docker publishes port `3001` on every host address by default, and
 Docker's published ports bypass UFW and firewalld: `ufw deny 3001` does not
@@ -634,10 +636,8 @@ TRUST_PROXY=1
 ```
 
 `PANEL_BIND_ADDRESS=127.0.0.1` publishes `3001` on the host's loopback
-address only: the proxy on this host still reaches the panel at
-`http://127.0.0.1:3001`, and nothing outside the host can. A proxy running
-in a container on the panel's Docker network reaches it by service name and
-doesn't use the published port at all, so `127.0.0.1` is right there too.
+address only: a proxy installed on the host itself still reaches the panel
+at `http://127.0.0.1:3001`, and nothing outside the host can.
 
 The panel logs a warning at startup for a hop count such as
 `TRUST_PROXY=1`. It is a reminder of exactly this: with the port bound to
@@ -663,6 +663,26 @@ Where to set them:
 Leave `PANEL_BIND_ADDRESS` blank (every address, IPv4 and IPv6, the
 default) when browsers open the panel directly on port `3001`, with no proxy
 in front. An IPv6 address goes in brackets: `PANEL_BIND_ADDRESS=[::1]`.
+
+#### A proxy in its own container
+
+A proxy container that forwards to the host's LAN IP,
+`host.docker.internal` or `172.17.0.1` can't reach a port published on
+`127.0.0.1`: once you set `PANEL_BIND_ADDRESS`, every page and every
+sign-in, SSO included, gets a 502. Before setting it, put the proxy on the
+panel's Docker network and point it at the panel by name:
+
+```sh
+# The panel's network (for example ctx_default for Path A)
+docker inspect zomboid-panel --format '{{range $name, $net := .NetworkSettings.Networks}}{{$name}} {{end}}'
+docker network connect <that network> <proxy container>
+```
+
+Then change the proxy's upstream to `http://zomboid-panel:3001` and check
+that the panel still loads through it. To keep the link when the proxy's
+container is recreated, add that network to the proxy's own Compose file
+under `networks:` with `external: true`. A proxy on the panel's network
+doesn't use the published port at all, so `127.0.0.1` is right for it too.
 
 ### CORS_ORIGINS when accessed from anywhere other than localhost
 

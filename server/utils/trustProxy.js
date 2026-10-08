@@ -31,7 +31,8 @@ export function trustProxyHopCountWarning(value) {
   const shown = String(value ?? "").trim();
   return (
     `TRUST_PROXY=${shown} trusts X-Forwarded-For from anyone who reaches the panel's port directly. ` +
-    "Make sure only the proxy can reach it (in Docker, set PANEL_BIND_ADDRESS=127.0.0.1), " +
+    "Make sure only the proxy can reach it (in Docker, set PANEL_BIND_ADDRESS=127.0.0.1; " +
+    "a proxy in another container must join the panel's Docker network first, see docs/install/docker.md), " +
     "or name the proxy's address instead, for example TRUST_PROXY=loopback for a proxy on this machine outside Docker."
   );
 }
