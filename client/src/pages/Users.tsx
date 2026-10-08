@@ -593,6 +593,7 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8"
+                                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint naming the action (same text as aria-label); disabled only while another link, unlink or delete is in flight, not for a reason worth a DisabledReason.
                                 title={t('table.unlinkSsoTooltip', { username: user.username })}
                                 aria-label={t('table.unlinkSsoTooltip', { username: user.username })}
                                 onClick={() => handleUnlinkSso(user)}
@@ -608,6 +609,7 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8"
+                                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint naming the action (same text as aria-label); disabled only while another sign-out or a delete is in flight.
                                 title={t('table.signOutTooltip', { username: user.username })}
                                 aria-label={t('table.signOutTooltip', { username: user.username })}
                                 onClick={() => handleSignOutUser(user)}
