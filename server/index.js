@@ -1004,6 +1004,32 @@ app.use(
 );
 app.use(permissionsPolicy());
 
+// Rate limiting — applied before auth to protect against unauthenticated floods.
+// Also before cors() and the body parsers (auth audit #18): a refused
+// Origin or a body that doesn't parse skips every middleware after the
+// one that refused it, limiters included.
+const apiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 300, // 300 requests per minute per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests, please try again later." },
+});
+app.use("/api/", apiLimiter);
+
+// A refused Origin is logged once per origin, like the Host refusals below,
+// and answered 403: anyone can send one, so a log line per request let a
+// stranger rotate the panel's sign-in history out of the log files.
+const loggedCorsRefusals = new Set();
+function corsRefusal(origin) {
+  const shown = describeBlockedOrigin(origin);
+  if (!loggedCorsRefusals.has(shown) && loggedCorsRefusals.size < 50) {
+    loggedCorsRefusals.add(shown);
+    log.warn(`CORS blocked request from origin: ${shown}`);
+  }
+  return Object.assign(new Error(CORS_DENY_MESSAGE), { status: 403, corsRefused: true });
+}
+
 // Delegate form: whether credentials are allowed depends on the request
 // (classifyOrigin, isSameOriginRequest), not only on the Origin. Without
 // Access-Control-Allow-Credentials the browser keeps a credentialed
@@ -1014,8 +1040,7 @@ app.use(
     const access = classifyOrigin(origin);
     if (!access) {
       recordCorsBlock(origin, "http");
-      log.warn(`CORS blocked request from origin: ${describeBlockedOrigin(origin)}`);
-      callback(new Error(CORS_DENY_MESSAGE));
+      callback(corsRefusal(origin));
       return;
     }
     callback(null, {
@@ -1058,16 +1083,6 @@ app.use(
     },
   }),
 );
-
-// Rate limiting — applied before auth to protect against unauthenticated floods
-const apiLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 300, // 300 requests per minute per IP
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests, please try again later." },
-});
-app.use("/api/", apiLimiter);
 
 // DNS-rebinding guard while auth is disabled -- see isAllowedHostHeader().
 // Before the auth middleware, which would otherwise hand this request the
@@ -2657,15 +2672,39 @@ export function describeErrorCause(err) {
   if (!err?.cause) return "";
   return ` (cause: ${err.cause.code || "no code"}: ${err.cause.message})`;
 }
+// Longest request path a log line quotes (auth audit #18). The path is the
+// caller's, up to Node's 16 KB header limit, and errors from before any
+// sign-in reach the log without passing a limiter's quota of lines.
+const MAX_LOGGED_PATH_LENGTH = 200;
+export function loggedRequestPath(req) {
+  const requestPath = String(req.path ?? "");
+  return requestPath.length > MAX_LOGGED_PATH_LENGTH
+    ? `${escapeLogText(requestPath.slice(0, MAX_LOGGED_PATH_LENGTH))}...`
+    : escapeLogText(requestPath);
+}
+
+// A body the parsers refused (bad JSON, too large, unknown charset): the
+// caller's mistake, answered with its 4xx, nothing for the operator to fix.
+function isRefusedRequestBody(err) {
+  return typeof err?.type === "string" && err.status >= 400 && err.status < 500;
+}
+
 // Exported so server/tests/errorCodeReachability.test.js can assert the
 // allowlist both ways directly against the real handler, not a reimplementation.
 export function apiErrorHandler(err, req, res, next) {
   // Escaped (utils/logText.js): this also catches errors from before any
   // sign-in -- a body the JSON parser rejects quotes that body in
   // err.message -- and req.path keeps bytes 0x80-0xFF from the request line.
-  log.error(
-    `Unhandled API error on ${escapeLogText(req.method)} ${escapeLogText(req.path)}: ${escapeLogText(err.message)}`,
-  );
+  // A refused Origin was logged once already (corsRefusal()), and a refused
+  // body only at debug level: anyone can send either, as often as they like.
+  if (!err?.corsRefused) {
+    const line = `Unhandled API error on ${escapeLogText(req.method)} ${loggedRequestPath(req)}: ${escapeLogText(err.message)}`;
+    if (isRefusedRequestBody(err)) {
+      log.debug(line);
+    } else {
+      log.error(line);
+    }
+  }
   const status = err.status || 500;
   const body = { error: sanitizeError(err.message) };
   const code = registeredErrorCode(err);
