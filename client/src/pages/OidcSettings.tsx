@@ -164,7 +164,9 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
     if (allowInsecureHttp !== settings.allowInsecureHttp) {
       updates.allowInsecureHttp = allowInsecureHttp
     }
-    if (clientSecret !== MASKED_SECRET_SENTINEL) {
+    // An untouched secret field (the sentinel, or empty when none is saved)
+    // is left out: the server reads any sent secret as an admin-only change.
+    if (clientSecret !== (settings.clientSecretConfigured ? MASKED_SECRET_SENTINEL : '')) {
       updates.clientSecret = clientSecret
     }
     return updates
@@ -257,6 +259,9 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
   }
 
   const envOverrides = settings?.envOverrides
+  // Which provider vouches for sign-ins is admin-only (server/routes/oidc.js);
+  // panel.settings alone keeps the display name and scope.
+  const providerLocked = settings?.providerFieldsEditable === false
 
   return (
     <div className={embedded ? 'space-y-4' : 'space-y-6 page-transition'}>
@@ -313,11 +318,14 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
               <div className="space-y-1">
                 <p className="text-sm font-medium text-foreground">{t('sections.provider')}</p>
                 <p className="text-xs text-muted-foreground">{t('sections.providerDescription')}</p>
+                {providerLocked && (
+                  <p className="text-xs text-muted-foreground">{t('providerAdminOnlyNote')}</p>
+                )}
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="oidc-provider-preset">{t('providerPresets.label')}</Label>
-                  <Select value={selectedPreset} onValueChange={handlePresetChange}>
+                  <Select value={selectedPreset} onValueChange={handlePresetChange} disabled={providerLocked}>
                     <SelectTrigger id="oidc-provider-preset">
                       <SelectValue />
                     </SelectTrigger>
@@ -358,7 +366,7 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
                     setDiscoveryResult(null)
                   }}
                   placeholder={t('fields.issuerUrlPlaceholder')}
-                  disabled={envOverrides?.issuerUrl}
+                  disabled={envOverrides?.issuerUrl || providerLocked}
                 />
                 <p className="text-xs text-muted-foreground">
                   {envOverrides?.issuerUrl ? t('envPinnedNote') : t('fields.issuerUrlHelp')}
@@ -374,11 +382,11 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
                     setForm((prev) => ({ ...prev, redirectUri: e.target.value }))
                     setDiscoveryResult(null)
                   }}
-                  disabled={envOverrides?.redirectUri}
+                  disabled={envOverrides?.redirectUri || providerLocked}
                 />
                 {envOverrides?.redirectUri ? (
                   <p className="text-xs text-muted-foreground">{t('envPinnedNote')}</p>
-                ) : (
+                ) : providerLocked ? null : (
                   <>
                     <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-primary/[0.04] px-2.5 py-2 text-xs">
                       <span className="text-muted-foreground">{t('fields.redirectUriHelp')}</span>
@@ -414,7 +422,7 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
                       setForm((prev) => ({ ...prev, clientId: e.target.value }))
                       setDiscoveryResult(null)
                     }}
-                    disabled={envOverrides?.clientId}
+                    disabled={envOverrides?.clientId || providerLocked}
                   />
                   {envOverrides?.clientId && (
                     <p className="text-xs text-muted-foreground">{t('envPinnedNote')}</p>
@@ -436,7 +444,7 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
                         ? t('fields.clientSecretPlaceholderConfigured')
                         : t('fields.clientSecretPlaceholderEmpty')
                     }
-                    disabled={envOverrides?.clientSecret}
+                    disabled={envOverrides?.clientSecret || providerLocked}
                   />
                   {envOverrides?.clientSecret ? (
                     <p className="text-xs text-muted-foreground">{t('envPinnedNote')}</p>
@@ -480,7 +488,7 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
                   id="oidc-allow-insecure-http"
                   checked={allowInsecureHttp}
                   onCheckedChange={setAllowInsecureHttp}
-                  disabled={envOverrides?.allowInsecureHttp}
+                  disabled={envOverrides?.allowInsecureHttp || providerLocked}
                 />
               </div>
             </div>

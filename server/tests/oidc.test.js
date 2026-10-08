@@ -6,6 +6,8 @@ import {
   getOidcConfig,
   buildOidcAuthorizationRequest,
   handleOidcCallback,
+  testOidcDiscovery,
+  wellKnownUrlMatchesIssuer,
   _resetOidcConfigCacheForTests,
 } from '../services/oidc.js';
 import { makeSigningKey, startMockOidcProvider } from './helpers/mockOidcProvider.js';
@@ -253,6 +255,105 @@ describe('OIDC: discovery failure does not stick around forever', () => {
       expect(config.timeout).toBe(15);
     } finally {
       await provider.close();
+    }
+  });
+});
+
+// SECURITY (2026-10-08, #2): openid-client fetches a URL containing
+// "/.well-known/" as given and skips its own issuer-match check, so a
+// document hosted anywhere could claim the real provider's issuer while
+// pointing token_endpoint and jwks_uri at whoever wrote it.
+describe('OIDC: a /.well-known/ issuer URL must belong to the issuer it names', () => {
+  beforeEach(clearOidcEnv);
+  afterEach(clearOidcEnv);
+
+  async function startForgedDiscovery(claimedIssuer) {
+    let tokenRequests = 0;
+    const server = http.createServer((req, res) => {
+      if (req.url === '/token') tokenRequests += 1;
+      const base = `http://127.0.0.1:${server.address().port}`;
+      res.setHeader('content-type', 'application/json');
+      res.end(
+        JSON.stringify({
+          issuer: claimedIssuer,
+          authorization_endpoint: 'https://real-idp.example/authorize',
+          token_endpoint: `${base}/token`,
+          jwks_uri: `${base}/jwks`,
+          response_types_supported: ['code'],
+          subject_types_supported: ['public'],
+          id_token_signing_alg_values_supported: ['RS256'],
+        }),
+      );
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    return {
+      wellKnownUrl: `http://127.0.0.1:${server.address().port}/.well-known/openid-configuration`,
+      get tokenRequests() {
+        return tokenRequests;
+      },
+      close: () => new Promise((resolve) => server.close(resolve)),
+    };
+  }
+
+  it('rejects a discovery document that claims a different issuer', async () => {
+    const forged = await startForgedDiscovery('https://real-idp.example/application/o/zomboid/');
+    try {
+      process.env.PANEL_OIDC_ISSUER_URL = forged.wellKnownUrl;
+      process.env.PANEL_OIDC_CLIENT_ID = 'panel';
+      process.env.PANEL_OIDC_CLIENT_SECRET = 'panel-secret';
+      process.env.PANEL_OIDC_REDIRECT_URI = 'https://panel.example.com/api/auth/oidc/callback';
+      process.env.PANEL_OIDC_ALLOW_INSECURE_HTTP = 'true';
+      _resetOidcConfigCacheForTests();
+
+      await expect(getOidcConfig()).rejects.toMatchObject({ code: 'OIDC_ISSUER_MISMATCH' });
+
+      const result = await testOidcDiscovery({
+        issuerUrl: forged.wellKnownUrl,
+        clientId: 'panel',
+        clientSecret: 'panel-secret',
+        allowInsecureHttp: true,
+      });
+      expect(result).toMatchObject({ success: false, code: 'OIDC_ISSUER_MISMATCH' });
+      // The credential check never ran, so the secret went nowhere.
+      expect(forged.tokenRequests).toBe(0);
+    } finally {
+      await forged.close();
+    }
+  });
+
+  it("still accepts the provider's own discovery URL", async () => {
+    const provider = await startMockOidcProvider({ clientId: 'panel' });
+    try {
+      process.env.PANEL_OIDC_ISSUER_URL = `${provider.baseUrl}/.well-known/openid-configuration`;
+      process.env.PANEL_OIDC_CLIENT_ID = 'panel';
+      process.env.PANEL_OIDC_CLIENT_SECRET = 'panel-secret';
+      process.env.PANEL_OIDC_REDIRECT_URI = `${provider.baseUrl}/api/auth/oidc/callback`;
+      process.env.PANEL_OIDC_ALLOW_INSECURE_HTTP = 'true';
+      _resetOidcConfigCacheForTests();
+
+      const config = await getOidcConfig();
+      expect(config.serverMetadata().issuer).toBe(provider.baseUrl);
+    } finally {
+      await provider.close();
+    }
+  });
+
+  it('matches both well-known placements for an issuer with a path', () => {
+    const issuer = 'https://sso.example.com/application/o/zomboid/';
+    for (const url of [
+      'https://sso.example.com/application/o/zomboid/.well-known/openid-configuration',
+      'https://sso.example.com/.well-known/openid-configuration/application/o/zomboid',
+      'https://sso.example.com/.well-known/oauth-authorization-server/application/o/zomboid',
+      'https://sso.example.com/application/o/zomboid/',
+    ]) {
+      expect(wellKnownUrlMatchesIssuer(url, issuer)).toBe(true);
+    }
+    for (const url of [
+      'https://evil.example/.well-known/openid-configuration',
+      'https://sso.example.com/application/o/other/.well-known/openid-configuration',
+      'https://sso.example.com/.well-known/openid-configuration',
+    ]) {
+      expect(wellKnownUrlMatchesIssuer(url, issuer)).toBe(false);
     }
   });
 });

@@ -15,6 +15,7 @@ import authService, { requireRole } from "../services/auth.js";
 import { createLogger } from "../utils/logger.js";
 import { escapeLogText } from "../utils/logText.js";
 import { sanitizeError, isMaskedSecret } from "../utils/sanitize.js";
+import { ErrorCode } from "../utils/errorCodes.js";
 import {
   getOidcSettings,
   getOidcEnvOverrides,
@@ -318,6 +319,12 @@ router.get("/callback", callbackRateLimiter, async (req, res) => {
 // ---------------------------------------------------------------------------
 // Settings (Settings screen) — gated on panel.settings, the capability that
 // already owns every other panel-wide setting. Not a new capability.
+// SECURITY (2026-10-08, #2): the fields that decide WHICH provider vouches
+// for sign-ins (issuer, client, secret, redirect URI, plain HTTP) are
+// admin-only, the same bar as POST /link. Whoever controls them can have
+// that provider assert any identity, which signs them in as any linked
+// account, admins included. panel.settings alone keeps the display name and
+// scope, and can test the saved provider.
 // ---------------------------------------------------------------------------
 
 const MAX_SCOPE_LENGTH = 500;
@@ -329,6 +336,49 @@ function readOptionalBoolean(body, field) {
   }
   return { ok: true, value: body[field] };
 }
+
+function isPanelAdmin(req) {
+  return req.user?.role === "admin";
+}
+
+// Provider fields this body would change. A field resent unchanged (the
+// form posts what GET showed it) does not count. Any secret other than the
+// masked placeholder counts, even the saved one, so the answer never says
+// whether a guess matched.
+function changedProviderFields(body, current) {
+  const changed = [];
+  for (const field of ["issuerUrl", "clientId", "redirectUri"]) {
+    if (body[field] !== undefined && String(body[field]).trim() !== current[field]) {
+      changed.push(field);
+    }
+  }
+  if (
+    body.clientSecret !== undefined &&
+    !isMaskedSecret(body.clientSecret) &&
+    (String(body.clientSecret) !== "" || Boolean(current.clientSecret))
+  ) {
+    changed.push("clientSecret");
+  }
+  if (body.allowInsecureHttp !== undefined && body.allowInsecureHttp !== current.allowInsecureHttp) {
+    changed.push("allowInsecureHttp");
+  }
+  return changed;
+}
+
+function refuseProviderFieldsForNonAdmin(req, res, body, current) {
+  if (isPanelAdmin(req)) return false;
+  const changed = changedProviderFields(body, current);
+  if (changed.length === 0) return false;
+  res.status(403).json({
+    error:
+      "Only an administrator can change the issuer URL, client ID, client secret, redirect URI or plain-HTTP setting.",
+    code: ErrorCode.OIDC_PROVIDER_FIELDS_ADMIN_ONLY,
+  });
+  return true;
+}
+
+const SECRET_REQUIRED_MESSAGE =
+  "Enter the client secret for this provider. The saved secret is only used with the saved issuer URL and client ID.";
 
 function publicSettingsShape(settings) {
   return {
@@ -359,6 +409,8 @@ router.get("/settings", requirePermission("panel.settings"), async (req, res) =>
     // browsing the panel through right now (reverse proxy, port-forward,
     // custom domain, whatever), for pasting into the identity provider.
     suggestedRedirectUri: `${req.protocol}://${req.get("host")}/api/auth/oidc/callback`,
+    // Lets the screen lock the provider fields instead of failing the save.
+    providerFieldsEditable: isPanelAdmin(req),
   });
 });
 
@@ -368,6 +420,8 @@ router.put("/settings", requirePermission("panel.settings"), async (req, res) =>
   try {
     const body = req.body || {};
     const current = await getOidcSettings();
+    if (refuseProviderFieldsForNonAdmin(req, res, body, current)) return;
+    const envOverrides = getOidcEnvOverrides();
     const updates = {};
     const allowInsecureHttp = readOptionalBoolean(body, "allowInsecureHttp");
     if (!allowInsecureHttp.ok) {
@@ -377,8 +431,9 @@ router.put("/settings", requirePermission("panel.settings"), async (req, res) =>
     if (body.issuerUrl !== undefined) {
       const value = String(body.issuerUrl).trim();
       if (value) {
+        // An env-pinned switch wins at runtime, so validate against it.
         const allowHttp =
-          allowInsecureHttp.value !== undefined
+          allowInsecureHttp.value !== undefined && !envOverrides.allowInsecureHttp
             ? allowInsecureHttp.value
             : current.allowInsecureHttp;
         if (!isValidOidcIssuerUrl(value, allowHttp)) {
@@ -443,6 +498,24 @@ router.put("/settings", requirePermission("panel.settings"), async (req, res) =>
       updates.allowInsecureHttp = allowInsecureHttp.value;
     }
 
+    // SECURITY (2026-10-08, #12): the saved secret was issued by the saved
+    // provider; moving to another issuer without entering that provider's
+    // secret would send the old one there on the next sign-in. Skipped when
+    // env pins either value: a UI edit cannot change what is used then.
+    if (
+      updates.issuerUrl &&
+      updates.issuerUrl !== current.issuerUrl &&
+      updates.clientSecret === undefined &&
+      current.clientSecret &&
+      !envOverrides.issuerUrl &&
+      !envOverrides.clientSecret
+    ) {
+      return res.status(400).json({
+        error: SECRET_REQUIRED_MESSAGE,
+        code: ErrorCode.OIDC_CLIENT_SECRET_REQUIRED,
+      });
+    }
+
     await setOidcSettings(updates);
 
     // THE TRAP: getOidcConfig() memoizes discovery process-wide and only a
@@ -472,24 +545,44 @@ router.put("/settings", requirePermission("panel.settings"), async (req, res) =>
 router.post("/test-connection", requirePermission("panel.settings"), async (req, res) => {
   const body = req.body || {};
   const current = await getOidcSettings();
+  if (refuseProviderFieldsForNonAdmin(req, res, body, current)) return;
   const allowInsecureHttp = readOptionalBoolean(body, "allowInsecureHttp");
   if (!allowInsecureHttp.ok) {
     return res.status(400).json({ error: allowInsecureHttp.error });
   }
 
-  const clientSecret =
-    body.clientSecret !== undefined && !isMaskedSecret(body.clientSecret)
-      ? String(body.clientSecret)
-      : current.clientSecret;
-
   const candidateIssuerUrl =
     body.issuerUrl !== undefined ? String(body.issuerUrl).trim() : current.issuerUrl;
+  const candidateClientId =
+    body.clientId !== undefined ? String(body.clientId).trim() : current.clientId;
   const candidateRedirectUri =
     body.redirectUri !== undefined ? String(body.redirectUri).trim() : current.redirectUri;
+  // SECURITY (2026-10-08, #12): an env-pinned switch is what sign-in will
+  // use, so a test cannot turn plain HTTP on past it.
   const candidateAllowInsecureHttp =
-    allowInsecureHttp.value !== undefined
+    allowInsecureHttp.value !== undefined && !getOidcEnvOverrides().allowInsecureHttp
       ? allowInsecureHttp.value
       : current.allowInsecureHttp;
+
+  // SECURITY (2026-10-08, #12): the saved (or env) secret goes only to the
+  // saved issuer as the saved client. A test against anything else must
+  // bring its own secret, or the panel would post the real one to whatever
+  // token endpoint the chosen issuer names, without saving or logging it.
+  let clientSecret;
+  if (body.clientSecret !== undefined && !isMaskedSecret(body.clientSecret)) {
+    clientSecret = String(body.clientSecret);
+  } else {
+    if (
+      current.clientSecret &&
+      (candidateIssuerUrl !== current.issuerUrl || candidateClientId !== current.clientId)
+    ) {
+      return res.status(400).json({
+        error: SECRET_REQUIRED_MESSAGE,
+        code: ErrorCode.OIDC_CLIENT_SECRET_REQUIRED,
+      });
+    }
+    clientSecret = current.clientSecret;
+  }
   const candidateScope =
     body.scope !== undefined ? String(body.scope).trim() : current.scope;
   if (candidateScope && !hasOpenIdScope(candidateScope)) {
@@ -510,8 +603,7 @@ router.post("/test-connection", requirePermission("panel.settings"), async (req,
 
   const result = await testOidcDiscovery({
     issuerUrl: candidateIssuerUrl,
-    clientId:
-      body.clientId !== undefined ? String(body.clientId).trim() : current.clientId,
+    clientId: candidateClientId,
     clientSecret,
     redirectUri: candidateRedirectUri,
     allowInsecureHttp: candidateAllowInsecureHttp,

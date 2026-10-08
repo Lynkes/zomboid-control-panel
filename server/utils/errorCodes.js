@@ -1807,6 +1807,21 @@ export const ErrorCode = Object.freeze({
    * false "connection successful". Carries `{{reason}}` (the underlying
    * OAuth error code or failure message, sanitizeError()'d). */
   OIDC_TEST_UNDETERMINED: "OIDC_TEST_UNDETERMINED",
+  /** server/services/oidc.js -- getOidcConfig() and testOidcDiscovery(): the
+   * configured issuer URL is a /.well-known/ document whose issuer is not the
+   * provider that would publish it there, so openid-client's own issuer
+   * check was skipped (security sweep 2026-10-08, #2). params: issuer. */
+  OIDC_ISSUER_MISMATCH: "OIDC_ISSUER_MISMATCH",
+  /** server/routes/oidc.js -- PUT /settings and POST /test-connection (403):
+   * the request changes the issuer URL, client ID, client secret, redirect
+   * URI or plain-HTTP switch and the caller is not an admin. panel.settings
+   * alone keeps the display name and scope (security sweep 2026-10-08, #2). */
+  OIDC_PROVIDER_FIELDS_ADMIN_ONLY: "OIDC_PROVIDER_FIELDS_ADMIN_ONLY",
+  /** server/routes/oidc.js -- PUT /settings and POST /test-connection (400):
+   * the issuer URL (or, for a test, the client ID) differs from the saved
+   * one and no new client secret was entered, so the saved secret would go
+   * to a provider it was never issued for (security sweep 2026-10-08, #12). */
+  OIDC_CLIENT_SECRET_REQUIRED: "OIDC_CLIENT_SECRET_REQUIRED",
 
   // --- server/routes/players.js -- never adopted this registry at all
   // until now (2026-08-26 bug hunt round 2, Angela's find): every

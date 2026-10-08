@@ -4330,6 +4330,9 @@ export interface OidcSettings extends OidcSettingsFields {
 export interface OidcSettingsWithEnv extends OidcSettings {
   envOverrides: Record<keyof OidcSettingsFields | "clientSecret", boolean>;
   suggestedRedirectUri: string;
+  // false for a non-admin with panel.settings: the issuer, client, secret,
+  // redirect URI and plain-HTTP switch are admin-only.
+  providerFieldsEditable?: boolean;
 }
 
 export type OidcSettingsUpdate = Partial<OidcSettingsFields> & { clientSecret?: string };
