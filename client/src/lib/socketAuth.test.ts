@@ -64,6 +64,27 @@ describe('createSocketAuthProvider', () => {
     expect(tryRefreshToken).toHaveBeenCalledTimes(1)
   })
 
+  // The server closes the socket at the token's exp by ITS clock; a browser
+  // clock running behind still sees minutes left and would resend it.
+  it('refreshes a token this clock still thinks is valid when mustRefresh says the server expired it', async () => {
+    const staleToken = makeToken(10 * 60)
+    const freshToken = makeToken(15 * 60)
+    let currentToken = staleToken
+    tryRefreshToken.mockImplementation(async () => {
+      currentToken = freshToken
+      return true
+    })
+    const callback = vi.fn()
+
+    createSocketAuthProvider(() => currentToken, () => true)(callback)
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(tryRefreshToken).toHaveBeenCalledTimes(1)
+    expect(callback).toHaveBeenCalledWith({ token: freshToken })
+  })
+
   it('hands back an empty payload without ever calling refresh when there is no token at all', async () => {
     const getToken = vi.fn(() => null)
     const callback = vi.fn()
