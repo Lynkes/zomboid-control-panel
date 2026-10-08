@@ -1,8 +1,11 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { clearAccessToken, getAccessToken, setAccessToken } from '../lib/authToken'
-import { ApiError, apiFetch, handleResponse, refreshSession } from '../lib/api'
+import { ApiError, apiFetch, endServerSession, handleResponse, refreshSession } from '../lib/api'
 import { getUserErrorMessage } from '../lib/errorMessage'
 import { getTrustedDeviceToken, rememberTrustedDeviceToken } from '../lib/trustedDevice'
+import { toast } from '../components/ui/use-toast'
+import { ToastAction } from '../components/ui/toast'
+import i18n from '../i18n'
 
 interface User {
   id: string
@@ -32,6 +35,8 @@ interface AuthState {
 interface AuthContextType extends AuthState {
   login: (username: string, password: string, rememberMe?: boolean) => Promise<void>
   setup: (username: string, password: string, rememberMe?: boolean, panelPort?: string, setupToken?: string) => Promise<void>
+  // Resolves either way. When the panel never confirmed the sign-out, this
+  // tab stays signed in and a toast offers Retry.
   logout: () => Promise<void>
   retryAuthCheck: () => void
   getToken: () => string | null
@@ -118,6 +123,24 @@ async function fetchAuthStatus(): Promise<AuthStatus | null> {
   } catch {
     return null
   }
+}
+
+function showSignOutFailed(retry: () => void) {
+  const retryLabel = i18n.t('authSession.retry', { ns: 'shell' })
+  toast({
+    variant: 'destructive',
+    layout: 'stacked',
+    title: i18n.t('authSession.signOutFailedTitle', { ns: 'shell' }),
+    description: i18n.t('authSession.signOutFailedDescription', { ns: 'shell' }),
+    // A minute, not the usual few seconds: whoever clicked Sign out has
+    // likely turned away already, believing it done.
+    duration: 60_000,
+    action: (
+      <ToastAction altText={retryLabel} onClick={retry}>
+        {retryLabel}
+      </ToastAction>
+    ),
+  })
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -313,17 +336,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
-    } catch {
-      // Ignore logout errors
+    const attempt = async (): Promise<void> => {
+      // SECURITY (2026-10-08, audit #14): a sign-out that never reached the
+      // panel (a 502 while it restarts, a 429, a dropped connection) leaves
+      // the 30-day refresh cookie working. Showing the sign-in screen then
+      // would sign the next person at this browser in as this user, so the
+      // tab stays signed in and says so instead.
+      if (!(await endServerSession())) {
+        showSignOutFailed(() => { void attempt() })
+        return
+      }
+      clearAccessToken()
+      setState(prev => ({
+        ...prev,
+        user: null,
+        isAuthenticated: false,
+      }))
     }
-    clearAccessToken()
-    setState(prev => ({
-      ...prev,
-      user: null,
-      isAuthenticated: false,
-    }))
+    await attempt()
   }, [])
 
   const can = useCallback(

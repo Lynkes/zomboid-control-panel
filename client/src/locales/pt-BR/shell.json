@@ -115,6 +115,8 @@
     "label": "Idioma"
   },
   "authSession": {
+    "signOutFailedTitle": "O pedido de saída não chegou ao painel",
+    "signOutFailedDescription": "Você continua conectado neste navegador. Verifique a conexão com o painel e tente novamente.",
     "statusCheckFailedTitle": "Não foi possível verificar o login",
     "statusCheckFailedDescription": "O painel, ou um proxy na frente dele, não respondeu à verificação de login. Aguarde um momento e tente novamente.",
     "retry": "Tentar novamente"

@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { AuthProvider, useAuth } from '../AuthContext'
 import { Toaster } from '../../components/ui/toaster'
-import { clearAccessToken } from '../../lib/authToken'
+import { clearAccessToken, getAccessToken } from '../../lib/authToken'
 
-// Auth audit 2026-10-08, client session items: the boot check (#23) and
-// the shared boot refresh (#19).
+// Auth audit 2026-10-08, client session items: the boot check (#23), the
+// shared boot refresh (#19) and sign-out that must reach the panel (#14).
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -148,5 +148,34 @@ describe('boot refresh goes through the shared refresh (#19)', () => {
     await waitFor(() => expect(view()).toBe('panel'))
     expect(screen.getByTestId('user').textContent).toBe('admin')
     expect(callsTo(fetchMock, '/api/auth/refresh')).toBe(2)
+  })
+})
+
+// Last: the failure toast stays a minute in the toast store every Toaster
+// in this file shares.
+describe('sign-out has to reach the panel (#14)', () => {
+  it('a 502 from /logout keeps the session and shows the error with Retry, which then signs out', async () => {
+    const fetchMock = stubFetch({
+      ...signedInRoutes,
+      '/api/auth/logout': [
+        () => jsonResponse(502, { error: 'Bad gateway' }),
+        () => jsonResponse(200, { success: true }),
+      ],
+    })
+    renderApp()
+    await waitFor(() => expect(view()).toBe('panel'))
+
+    fireEvent.click(screen.getByText('sign out'))
+
+    expect(await screen.findByText('Sign-out did not reach the panel')).toBeInTheDocument()
+    expect(view()).toBe('panel')
+    expect(screen.getByTestId('user').textContent).toBe('admin')
+    expect(getAccessToken()).not.toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    await waitFor(() => expect(view()).toBe('login'))
+    expect(callsTo(fetchMock, '/api/auth/logout')).toBe(2)
+    expect(getAccessToken()).toBeNull()
   })
 })

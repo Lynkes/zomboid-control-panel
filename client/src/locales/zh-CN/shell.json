@@ -113,6 +113,8 @@
     "label": "语言"
   },
   "authSession": {
+    "signOutFailedTitle": "退出登录请求未送达面板",
+    "signOutFailedDescription": "您在此浏览器中仍处于登录状态。请检查与面板的连接，然后重试。",
     "statusCheckFailedTitle": "无法检查登录状态",
     "statusCheckFailedDescription": "面板或其前方的代理未响应登录检查。请稍候，然后重试。",
     "retry": "重试"
