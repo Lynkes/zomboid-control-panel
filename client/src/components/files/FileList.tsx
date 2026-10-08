@@ -43,9 +43,8 @@ const MOBILE_ROW_HEIGHT = 60
 const DESKTOP_GRID = 'grid-cols-[2.5rem_1.75rem_minmax(0,1fr)_5.5rem_10.5rem_2.5rem_2.75rem]'
 const MOBILE_GRID = 'grid-cols-[2.75rem_1.75rem_minmax(0,1fr)_auto_2.75rem]'
 
-// The box stays checkbox-sized (the app's coarse-pointer rule would stretch
-// any button to 44px); the label around it is the 44px touch target.
-const CHECKBOX_BOX = 'h-5 w-5 !min-h-0 !min-w-0 sm:h-4 sm:w-4'
+// The label around the box is the touch target: 44px on phones, 32px from sm up.
+const CHECKBOX_BOX = 'h-5 w-5 sm:h-4 sm:w-4'
 const CHECKBOX_HIT_AREA = 'flex h-11 w-11 cursor-pointer items-center justify-center sm:h-8 sm:w-8'
 
 function protectionLink(area: ProtectedArea): { to: string; labelKey: string } | null {

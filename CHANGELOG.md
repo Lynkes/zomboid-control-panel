@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Leaderboard missed players:** kills and days are now read for everyone online, not only while the Leaderboard page is open, and a death no longer loses kills.
+- **Toggles on phones and tablets:** switches are pills again instead of big circles, and checkboxes keep their size, both still easy to tap.
 
 ## [1.4.8] - 2026-10-07
 

@@ -163,7 +163,7 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
   const fetchUsers = useCallback(async () => {
     try {
       const { users: list } = await usersApi.list()
-      setUsers(list)
+      setUsers(Array.isArray(list) ? list : [])
       setUsersDenied(false)
       setUsersLoadError(null)
     } catch (error) {
@@ -184,8 +184,10 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
         permissionsApi.getCapabilities(),
         permissionsApi.getRoles(),
       ])
-      setGroups(g)
-      setRoles(r)
+      // A reply without these lists (the demo build's catch-all answer had
+      // neither) reads as empty ones, not undefined for roles.length below.
+      setGroups(Array.isArray(g) ? g : [])
+      setRoles(Array.isArray(r) ? r : [])
       // users.manage is a separate capability from roles.manage -- fetch it
       // independently so a 403 here doesn't block rendering the matrix itself.
       fetchUsers()

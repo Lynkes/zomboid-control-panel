@@ -623,6 +623,228 @@ function demoComposedStatus() {
   }
 }
 
+// ---- World Backups: scheduled backups every 6 hours, ten kept, the last run
+// fine. GET /backup/status is backupService.getStatus() plus the route's own
+// fields (server/routes/backup.js); the catch-all reply this replaced had no
+// schedule, and the Backups page crashed on it.
+
+const DEMO_BACKUP_SCHEDULE = '0 */6 * * *'
+const DEMO_SAVES_PATH = '/home/pz/Zomboid/Saves/Multiplayer/DoomerZDemo'
+const DEMO_BACKUPS_PATH = '/home/pz/Zomboid/backups'
+
+// Newest first, as backupService.listBackups() sorts them; named the way
+// createBackup() names them.
+const demoBackupFiles: Array<[created: string, size: number]> = [
+  ['2026-06-24T00:00:00.000Z', 412_381_204],
+  ['2026-06-23T19:42:17.000Z', 411_906_552],
+  ['2026-06-23T18:00:00.000Z', 411_772_918],
+  ['2026-06-23T12:00:00.000Z', 409_315_066],
+  ['2026-06-23T06:00:00.000Z', 406_840_311],
+]
+const demoBackups = demoBackupFiles.map(([created, size]) => {
+  const name = `DoomerZDemo_${created.replace(/[:.]/g, '-').slice(0, 23)}.zip`
+  return { name, path: `${DEMO_BACKUPS_PATH}/${name}`, size, created }
+})
+
+// Matches '*', '*/n', 'a-b', 'n' and comma lists of them -- every preset on
+// the Backups page and the usual custom expressions.
+function cronFieldMatches(field: string, value: number): boolean {
+  return field.split(',').some((part) => {
+    if (part === '*') return true
+    const step = /^\*\/(\d+)$/.exec(part)
+    if (step) return value % Number(step[1]) === 0
+    const range = /^(\d+)-(\d+)$/.exec(part)
+    if (range) return value >= Number(range[1]) && value <= Number(range[2])
+    return /^\d+$/.test(part) && Number(part) === value
+  })
+}
+
+// The next time a five-field cron fires, in UTC, looked for minute by minute
+// over the coming week; null when it doesn't fire in that time (or isn't a
+// five-field cron).
+function demoNextRun(cron: string): string | null {
+  const fields = cron.trim().split(/\s+/)
+  if (fields.length !== 5) return null
+  const [minute, hour, day, month, weekday] = fields
+  const first = Math.floor(Date.now() / 60_000) + 1
+  for (let at = first; at < first + 7 * 24 * 60; at++) {
+    const date = new Date(at * 60_000)
+    if (
+      cronFieldMatches(minute, date.getUTCMinutes()) &&
+      cronFieldMatches(hour, date.getUTCHours()) &&
+      cronFieldMatches(day, date.getUTCDate()) &&
+      cronFieldMatches(month, date.getUTCMonth() + 1) &&
+      cronFieldMatches(weekday, date.getUTCDay())
+    ) {
+      return date.toISOString()
+    }
+  }
+  return null
+}
+
+export function getDemoBackupStatus() {
+  return {
+    enabled: true,
+    schedule: DEMO_BACKUP_SCHEDULE,
+    maxBackups: 10,
+    includeDb: true,
+    backupInProgress: false,
+    restoreInProgress: false,
+    currentRestore: null,
+    lastRestore: null,
+    lastBackup: demoBackups[0],
+    backupCount: demoBackups.length,
+    savesPath: DEMO_SAVES_PATH,
+    backupsPath: DEMO_BACKUPS_PATH,
+    savesExists: true,
+    lastScheduledBackupAttempt: {
+      success: true,
+      message: null,
+      messageKey: null,
+      messageParams: null,
+      executedAt: '2026-06-24T00:00:00.000Z',
+      skipReason: null,
+      recoveredAt: null,
+    },
+    backupNextRun: demoNextRun(DEMO_BACKUP_SCHEDULE),
+    restartOverlaps: [],
+    backupDeferredSince: null,
+  }
+}
+
+export function getDemoBackupList() {
+  return { backups: demoBackups }
+}
+
+function demoBackupHistory() {
+  const server = demoServer()
+  return {
+    records: demoBackups.map((backup, index) => ({
+      id: `demo-backup-${index + 1}`,
+      fileName: backup.name,
+      createdAt: backup.created,
+      size: backup.size,
+      serverId: server.id,
+      serverName: server.name,
+    })),
+  }
+}
+
+function demoBackupSnapshot(name: string) {
+  const backup = demoBackups.find((item) => item.name === name)
+  if (!backup) return null
+  // A snapshot never carries passwords (backupService's safe snapshot).
+  const serverIni = Object.fromEntries(Object.entries(demoIniSettings()).filter(([key]) => !/password/i.test(key)))
+  return {
+    success: true,
+    snapshot: {
+      schemaVersion: 1,
+      createdAt: backup.created,
+      server: { id: 'demo-server', name: 'Demo Server', provider: 'native' },
+      serverIni,
+      sandboxVars: { 'ZombieLore.Speed': 2, 'ZombieLore.Strength': 2, WaterShut: 2, ElecShut: 2, StartMonth: 7 },
+    },
+  }
+}
+
+// POST /backup/validate-schedule: the next run in UTC for anything the demo
+// can follow, otherwise the server's own "invalid" verdict.
+function demoValidateBackupSchedule(schedule: unknown) {
+  const nextRun = typeof schedule === 'string' ? demoNextRun(schedule) : null
+  if (!nextRun) {
+    return { valid: false, error: 'Invalid cron expression format', code: 'SCHEDULER_INVALID_CRON_EXPRESSION' }
+  }
+  return { valid: true, nextRun, bothDayFieldsRestricted: false, timezone: 'UTC', restartOverlaps: [] }
+}
+
+// ---- Settings > Users and Roles & Permissions: the three seeded roles
+// (server/database/init.js) and an account in each. The catch-all reply had
+// no lists, and both tabs crashed on it. The capability catalogue mirrors
+// server/services/permissions.js; the pages show each one's translated
+// label by key, so the English here is only their fallback.
+
+const demoCapabilityGroups: Array<[string, Array<[string, string]>]> = [
+  ['Users & Roles', [['users.manage', 'Manage user accounts'], ['roles.manage', 'Manage roles & permissions']]],
+  ['Backups', [['backups.manage', 'Create, delete & configure backups'], ['backups.download', 'Download a backup archive'], ['backups.restore', 'Restore a backup']]],
+  ['Server Lifecycle', [
+    ['server.control', 'Start, stop, restart & save the server'],
+    ['server.install', 'Install & update the server'],
+    ['server.configure', 'Edit server configuration'],
+    ['server.wipe', 'Wipe the world'],
+    ['server.world_events', 'Run world events'],
+  ]],
+  ['RCON', [['rcon.execute', 'Run RCON commands']]],
+  ['Server Setup & Fleet', [
+    ['servers.manage', 'Add, edit & remove configured servers'],
+    ['servers.discover', 'Auto-discover servers on this machine'],
+    ['templates.manage', 'Manage server templates'],
+  ]],
+  ['PanelBridge Integration', [
+    ['bridge.setup', 'Connect & configure PanelBridge'],
+    ['bridge.diagnostics', 'PanelBridge diagnostics'],
+    ['bridge.command', 'Run any PanelBridge action'],
+  ]],
+  ['Player Authority', [
+    ['players.moderate', 'Discipline players'],
+    ['players.gm_tools', 'Game-master tools'],
+    ['players.view', 'View player info'],
+    ['players.endanger_or_impersonate', 'Endanger or impersonate a player'],
+  ]],
+  ['Mods', [['mods.manage', 'Manage mods']]],
+  ['Automation', [['automation.manage', 'Manage scheduled tasks']]],
+  ['Integrations', [['integrations.manage', 'Manage integrations']]],
+  ['Infrastructure', [
+    ['docker.manage', 'Manage the Docker container'],
+    ['chunks.manage', 'Manage map chunks'],
+    ['serverfiles.manage', 'Edit server config files'],
+    ['files.manage', 'Manage server files'],
+  ]],
+  ['Panel Diagnostics & Settings', [['diagnostics.manage', 'View panel diagnostics'], ['panel.settings', 'Manage panel-wide settings']]],
+]
+
+function demoCapabilities() {
+  return {
+    groups: demoCapabilityGroups.map(([group, capabilities]) => ({
+      group,
+      capabilities: capabilities.map(([key, label]) => ({ key, label, description: label })),
+    })),
+  }
+}
+
+const DEMO_MODERATOR_CAPABILITIES = ['players.moderate', 'players.gm_tools', 'players.view', 'server.world_events']
+const DEMO_TECHNICIAN_CAPABILITIES = [
+  'backups.manage', 'backups.download', 'server.control', 'server.install', 'server.configure', 'server.world_events',
+  'rcon.execute', 'servers.manage', 'templates.manage', 'bridge.setup', 'bridge.diagnostics', 'players.moderate',
+  'players.gm_tools', 'players.view', 'mods.manage', 'automation.manage', 'integrations.manage', 'docker.manage',
+  'chunks.manage', 'serverfiles.manage',
+]
+
+const demoUsers = [
+  { id: 'demo-user-1', username: 'admin', role: 'admin', roleId: 'role-admin', createdAt: '2026-05-18T11:55:00.000Z', lastLogin: demoTimestamp },
+  { id: 'demo-user-2', username: 'tech_rosa', role: 'technician', roleId: 'role-technician', createdAt: '2026-05-20T09:30:00.000Z', lastLogin: '2026-06-23T21:12:00.000Z' },
+  { id: 'demo-user-3', username: 'mod_kenji', role: 'moderator', roleId: 'role-moderator', createdAt: '2026-06-02T17:45:00.000Z', lastLogin: '2026-06-22T19:03:00.000Z' },
+  { id: 'demo-user-4', username: 'mod_alex', role: 'moderator', roleId: 'role-moderator', createdAt: '2026-06-11T14:20:00.000Z', lastLogin: null },
+]
+
+function demoRoles() {
+  const allCapabilities = demoCapabilityGroups.flatMap(([, capabilities]) => capabilities.map(([key]) => key))
+  const seeded: Array<[id: string, name: string, capabilities: string[]]> = [
+    ['role-admin', 'admin', allCapabilities],
+    ['role-technician', 'technician', DEMO_TECHNICIAN_CAPABILITIES],
+    ['role-moderator', 'moderator', DEMO_MODERATOR_CAPABILITIES],
+  ]
+  return {
+    roles: seeded.map(([id, name, capabilities]) => ({
+      id,
+      name,
+      capabilities,
+      isSeeded: true,
+      createdAt: '2026-05-18T11:55:00.000Z',
+      memberCount: demoUsers.filter((user) => user.roleId === id).length,
+    })),
+  }
+}
+
 // ---- Server Files (spec §A14.6): one local profile, its Zomboid folder's
 // top level, the Server folder and one .ini. Every change is refused with
 // FM_PATH_PROTECTED, so the demo shows the real refusal path.
@@ -882,6 +1104,34 @@ export function installDemoFetchShim(): void {
         intervalMinutes: 30,
         isChecking: false,
       })
+    }
+
+    if (path === '/api/backup/status') {
+      return jsonResponse(getDemoBackupStatus())
+    }
+    if (path === '/api/backup/list') {
+      return jsonResponse(getDemoBackupList())
+    }
+    if (path === '/api/backup/history') {
+      return jsonResponse(demoBackupHistory())
+    }
+    if (path === '/api/backup/validate-schedule' && method === 'POST') {
+      const body = await readJsonBody(init)
+      return jsonResponse(demoValidateBackupSchedule(body.schedule))
+    }
+    if (path.startsWith('/api/backup/') && path.endsWith('/snapshot')) {
+      const name = decodeURIComponent(path.slice('/api/backup/'.length, -'/snapshot'.length))
+      const snapshot = demoBackupSnapshot(name)
+      return snapshot ? jsonResponse(snapshot) : jsonResponse({ success: false, message: 'Backup not found' }, 404)
+    }
+    if (path === '/api/auth/users' && method === 'GET') {
+      return jsonResponse({ users: demoUsers })
+    }
+    if (path === '/api/permissions/roles' && method === 'GET') {
+      return jsonResponse(demoRoles())
+    }
+    if (path === '/api/permissions/capabilities') {
+      return jsonResponse(demoCapabilities())
     }
 
     if (path.startsWith('/api/files/')) {
