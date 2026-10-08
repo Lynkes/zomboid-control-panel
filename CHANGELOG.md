@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Sign-in cookie on other ports:** pages on another port of the panel's host or another LAN address no longer get cookie access to the API, so they can't read a sign-in token; origins in Remote Access or `CORS_ORIGINS` keep it.
 - **Log flooding:** refused origins and unreadable request bodies count toward the rate limit, log once or not at all, and long paths are cut; strangers could push the sign-in history out of the logs.
+- **No stack traces:** errors outside the API answer with a plain status text; the exe and script installs showed install paths to anyone.
 
 ### Added
 

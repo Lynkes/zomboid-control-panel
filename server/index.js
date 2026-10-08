@@ -17,7 +17,7 @@ import { logSetupTokenIfNeeded } from "./utils/setupToken.js";
 import { computeInlineScriptCspHash } from "./utils/cspScriptHash.js";
 import { parseTrustProxySetting } from "./utils/trustProxy.js";
 import { isUncompressedBinaryProxyPath, isEventStreamResponse } from "./utils/compressionFilter.js";
-import { createServer } from "http";
+import { createServer, STATUS_CODES } from "http";
 import { createServer as createHttpsServer } from "https";
 import { Server } from "socket.io";
 import dotenv from "dotenv";
@@ -2736,6 +2736,22 @@ app.use((req, res, next) => {
       }
     });
   }
+});
+
+// Last stop for errors outside /api (auth audit #24): a refused Origin or an
+// unreadable body reaches every path, not only /api. Express's own handler
+// answers with the stack trace, absolute install paths included, unless
+// NODE_ENV is "production", which only the Docker images set.
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  const status =
+    Number.isInteger(err?.status) && err.status >= 400 && err.status < 600 ? err.status : 500;
+  if (status >= 500) {
+    log.error(
+      `Request error on ${escapeLogText(req.method)} ${loggedRequestPath(req)}: ${escapeLogText(err?.message || "")}`,
+    );
+  }
+  res.status(status).type("text/plain").send(STATUS_CODES[status] || "Error");
 });
 
 // Socket.IO authentication middleware
