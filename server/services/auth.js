@@ -505,6 +505,35 @@ function settleLoginAttempt({ entry, forget }, succeeded, now = Date.now()) {
   return false;
 }
 
+// SECURITY (2026-10-08, #8): POST /change-password compared the current
+// password with no limit but the panel-wide 300 requests a minute, so anyone
+// holding a session could guess it at bcrypt speed (about 3 a second, against
+// MAX_FAILED_LOGINS per window at sign-in) and confirm a guess by sending it
+// as the new password too. Checks of the signed-in account's own password
+// (verifyCurrentPassword()) now count the same way sign-in does, in one entry
+// per account: only someone signed in as that account can spend it, so it
+// needs no address, and it is kept apart from loginThrottle so a table full
+// of strangers' addresses can't push it into the shared overflow entry.
+const currentPasswordThrottle = new Map(); // userId -> entry
+
+function reserveCurrentPasswordAttempt(userId, now = Date.now()) {
+  for (const [key, candidate] of currentPasswordThrottle) {
+    if (isStaleThrottleEntry(candidate, now)) currentPasswordThrottle.delete(key);
+  }
+  let entry = currentPasswordThrottle.get(userId);
+  if (!entry) {
+    entry = newThrottleEntry();
+    currentPasswordThrottle.set(userId, entry);
+  }
+  if (!admitLoginAttempt(entry, now)) return null;
+  return {
+    entry,
+    forget: () => {
+      if (currentPasswordThrottle.get(userId) === entry) currentPasswordThrottle.delete(userId);
+    },
+  };
+}
+
 // Every pause on one account, whichever address it was for: setting a new
 // password through reset/recovery is the documented way back in, so it has
 // to clear the pause its owner may have caused themselves by forgetting it.
@@ -514,6 +543,7 @@ function clearLoginThrottleForUser(userId) {
     if (key.startsWith(prefix)) loginThrottle.delete(key);
   }
   deviceLoginThrottle.delete(userId);
+  currentPasswordThrottle.delete(userId);
 }
 
 // Account-wide lock fields from before the throttle above. Never read now;
@@ -527,6 +557,7 @@ function clearLegacyAccountLock(user) {
 export function _resetLoginThrottleForTests() {
   loginThrottle.clear();
   deviceLoginThrottle.clear();
+  currentPasswordThrottle.clear();
   MAX_LOGIN_THROTTLE_ENTRIES = 10000;
   MAX_DEVICE_THROTTLE_ENTRIES_PER_ACCOUNT = 100;
 }
@@ -1499,6 +1530,42 @@ class AuthService {
   }
 
   /**
+   * Checks the signed-in account's own password before an action that asks
+   * for it (changing it, generating recovery codes). Counted against the
+   * account's own allowance (currentPasswordThrottle, #8): a wrong password
+   * and a paused account get the same CURRENT_PASSWORD_INCORRECT, the paused
+   * one after a dummy compare so it takes as long.
+   */
+  async verifyCurrentPassword(user, currentPassword) {
+    const incorrect = () =>
+      makeRoleError(ErrorCode.CURRENT_PASSWORD_INCORRECT, "Current password is incorrect", 400);
+    const guess = typeof currentPassword === "string" ? currentPassword : "";
+    const reserved = reserveCurrentPasswordAttempt(user.id);
+    if (!reserved) {
+      await bcrypt.compare(guess, DUMMY_BCRYPT_HASH);
+      throw incorrect();
+    }
+    let valid;
+    try {
+      valid = Boolean(user.password) && (await bcrypt.compare(guess, user.password));
+    } catch (error) {
+      settleLoginAttempt(reserved, false);
+      throw error;
+    }
+    if (!valid || reserved.entry.lockedUntil > Date.now()) {
+      if (settleLoginAttempt(reserved, false)) {
+        log.warn(
+          `Password checks for ${user.username} (changing it, generating recovery codes) paused for ${
+            LOCKOUT_DURATION_MS / 60000
+          } minutes after ${MAX_FAILED_LOGINS} wrong current passwords`,
+        );
+      }
+      throw incorrect();
+    }
+    settleLoginAttempt(reserved, true);
+  }
+
+  /**
    * Change user password
    */
   async changePassword(userId, currentPassword, newPassword) {
@@ -1520,10 +1587,7 @@ class AuthService {
       );
     }
 
-    const valid = await bcrypt.compare(currentPassword, user.password);
-    if (!valid) {
-      throw new Error("Current password is incorrect");
-    }
+    await this.verifyCurrentPassword(user, currentPassword);
 
     user.password = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     // Bump tokenGen to invalidate all existing refresh tokens

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Delegated account managers:** a role allowed to manage users or roles can no longer demote or delete an account, or narrow or delete a role, that holds more than it does; a helper could depose every admin.
 - **Admin role:** a capability unticked in the built-in admin role can be ticked again; until now only a hand edit of db.json brought it back.
+- **Change password:** wrong current passwords now count like sign-in failures, 10 per 15 minutes; anyone holding a session could guess it about 3 times a second.
 
 ### Added
 

@@ -661,7 +661,9 @@ router.post("/change-password", async (req, res) => {
       deviceToken: await freshDeviceToken(user.userId),
     });
   } catch (error) {
-    res.status(400).json({ error: sanitizeError(error.message) });
+    const body = { error: sanitizeError(error.message) };
+    if (error.code) body.code = error.code;
+    res.status(error.status || 400).json(body);
   }
 });
 

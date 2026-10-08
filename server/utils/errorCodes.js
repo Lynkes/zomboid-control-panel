@@ -2569,6 +2569,11 @@ export const ErrorCode = Object.freeze({
    * `params.detail` lists them. The built-in admin role counts as holding
    * every capability (#3, #5). */
   ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES: "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES",
+  /** server/services/auth.js verifyCurrentPassword() -- POST
+   * /api/auth/change-password and POST /recovery-codes (400): the current
+   * password is wrong, or this account's password checks are paused after
+   * MAX_FAILED_LOGINS wrong ones (the same answer for both, #8). */
+  CURRENT_PASSWORD_INCORRECT: "CURRENT_PASSWORD_INCORRECT",
   /* --- end auth audit 2026-10-08: account security --- */
 });
 
