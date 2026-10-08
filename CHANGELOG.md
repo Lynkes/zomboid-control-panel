@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Date format:** pick day/month/year, month/day/year or year-month-day in Settings › General › Appearance, for every date in the panel; Automatic now follows your browser's region too.
+
 ## [1.4.8] - 2026-10-07
 
 ### Changed

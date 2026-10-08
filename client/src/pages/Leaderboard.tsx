@@ -9,6 +9,7 @@ import { EmptyState } from '@/components/EmptyState'
 import { Input } from '@/components/ui/input'
 import { PageHeader } from '@/components/PageHeader'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { formatDateTime } from '@/lib/dateFormat'
 import { panelBridgeApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -66,7 +67,7 @@ function formatDays(value: number, language: string): string {
 
 function formatDate(value: number | undefined, language: string): string | null {
   if (!Number.isFinite(value) || !value || value < 100000000000) return null
-  return new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  return formatDateTime(value, { language, style: 'medium' })
 }
 
 function metricValue(player: LeaderboardPlayer, metric: LeaderboardMetric, language: string): string {

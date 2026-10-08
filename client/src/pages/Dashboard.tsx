@@ -41,6 +41,7 @@ import { DisabledReason } from '@/components/DisabledReason'
 import { AutoUpdateResultBanner } from '@/components/AutoUpdateResultBanner'
 import { cn, copyText } from '@/lib/utils'
 import { getResultErrorMessage, getUserErrorMessage, getRecoveryUrl } from '@/lib/errorMessage'
+import { formatTime } from '@/lib/dateFormat'
 import { VerdictBand, WorkList } from '@/components/dashboard/DashboardVerdict'
 import type { Verdict, WorkItem } from '@/components/dashboard/DashboardVerdict'
 
@@ -585,7 +586,7 @@ export default function Dashboard() {
       const data = await debugApi.getPerformanceHistory(60)
       if (data.history) {
         setPerformanceHistory(data.history.map((h: Record<string, unknown>) => ({
-          time: new Date(h.timestamp as string).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }),
+          time: formatTime(h.timestamp as string, { language: i18n.language }),
           timestamp: h.timestamp as string,
           playerCount: (h.playerCount as number) || 0,
           memoryMB: Math.round(((h.memoryUsed as number) || 0) / (1024 * 1024)),
@@ -849,7 +850,7 @@ export default function Dashboard() {
         return
       }
       const point: PerformancePoint = {
-        time: new Date().toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }),
+        time: formatTime(new Date(), { language: i18n.language }),
         timestamp: new Date().toISOString(),
         playerCount: (snap.playerCount as number) || 0,
         memoryMB: Math.round(((snap.memoryUsed as number) || 0) / (1024 * 1024)),
@@ -2113,7 +2114,7 @@ export default function Dashboard() {
                   return (
                     <li key={a.id} className="group grid grid-cols-[3.25rem_1rem_minmax(0,8rem)_minmax(0,1fr)] items-center gap-2 px-3 py-[3px] transition-colors hover:bg-muted/20">
                       <time className="font-mono text-[10px] tabular-nums text-muted-foreground/50">
-                        {new Date(a.logged_at).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}
+                        {formatTime(a.logged_at)}
                       </time>
                       <span className={cn('flex justify-center', s.tone)} aria-hidden="true">{s.icon}</span>
                       <span className="truncate text-[11px] font-medium text-foreground/85" dir="auto" title={a.player_name}>
@@ -2237,7 +2238,7 @@ export default function Dashboard() {
                   <RefreshCw className={cn('h-3 w-3', loading ? 'animate-spin' : '')} />
                   {t('maintenance.refreshStatus')}
                   <span className="ms-auto font-mono text-[10px] text-muted-foreground/65">
-                    {lastUpdated ? lastUpdated.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }) : '—'}
+                    {lastUpdated ? formatTime(lastUpdated) : '—'}
                   </span>
                 </Button>
                 <DisabledReason

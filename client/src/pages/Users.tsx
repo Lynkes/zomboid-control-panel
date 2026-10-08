@@ -38,6 +38,7 @@ import {
   type RoleInfo,
 } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useDateFormat } from '@/lib/dateFormat'
 
 // POST /api/auth/users only accepts one of these three legacy names -- it
 // has no roleId param, so it can't assign a custom role at creation time
@@ -67,7 +68,8 @@ function recoveryActionKeyForRole(role: RoleInfo | undefined): 'lockout.actionMa
 // header stacked on top of Settings' own -- only the action button carries
 // over, in a slim row instead.
 export default function Users({ embedded = false }: { embedded?: boolean }) {
-  const { t, i18n } = useTranslation(['users', 'errors'])
+  const { t } = useTranslation(['users', 'errors'])
+  const { formatDateTime } = useDateFormat()
   const { toast } = useToast()
   const { user: currentUser } = useAuth()
   const confirm = useConfirm()
@@ -462,10 +464,10 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
                           <Badge variant="outline">{user.role}</Badge>
                         </td>
                         <td className="px-4 py-2.5 text-muted-foreground">
-                          {new Date(user.createdAt).toLocaleString(i18n.language)}
+                          {formatDateTime(user.createdAt, { seconds: true })}
                         </td>
                         <td className="px-4 py-2.5 text-muted-foreground">
-                          {user.lastLogin ? new Date(user.lastLogin).toLocaleString(i18n.language) : t('table.never')}
+                          {user.lastLogin ? formatDateTime(user.lastLogin, { seconds: true }) : t('table.never')}
                         </td>
                         <td className="px-4 py-2.5 text-end">
                           <div className="flex justify-end gap-1">

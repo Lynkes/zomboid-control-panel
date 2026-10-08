@@ -133,6 +133,8 @@ import {
 import { useSocket } from "@/contexts/SocketContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme, type ThemeName } from "@/contexts/ThemeContext";
+import { DateFormatSelect } from "@/components/DateFormatSelect";
+import { useDateFormat } from "@/lib/dateFormat";
 import { platformTranslationKey, useRuntimeInfo } from "@/hooks/useRuntimeInfo";
 import { useRequestGuard } from "@/hooks/useRequestGuard";
 import { BridgeStatusBadge } from "@/components/BridgeStatusBadge";
@@ -342,7 +344,8 @@ function ThemeSelect() {
 }
 
 export default function Settings() {
-  const { t, i18n } = useTranslation("settings");
+  const { t } = useTranslation("settings");
+  const { formatDateTime, formatTime } = useDateFormat();
   const runtimeInfo = useRuntimeInfo();
   const socket = useSocket();
   const [settings, setSettings] = useState<AppSettings>({
@@ -1496,10 +1499,7 @@ export default function Settings() {
     if (!value) return t("errors.never");
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return t("errors.unknown");
-    return new Intl.DateTimeFormat(i18n.language, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(date);
+    return formatDateTime(date, { style: "medium" });
   };
 
   useEffect(() => {
@@ -3251,6 +3251,16 @@ export default function Settings() {
                     </div>
                     <ThemeSelect />
                   </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3">
+                    <div className="min-w-0 flex-1 basis-60">
+                      <Label htmlFor="settings-date-format" className="text-sm font-medium">{t("general.dateFormatLabel")}</Label>
+                      <p className="text-xs text-muted-foreground">
+                        {t("general.dateFormatDesc")}
+                      </p>
+                    </div>
+                    <DateFormatSelect id="settings-date-format" />
+                  </div>
                 </div>
 
                 <div className="rounded-xl border border-border/70 bg-background/40 p-4 space-y-4">
@@ -4478,7 +4488,7 @@ export default function Settings() {
                       {rconTestResult.ok
                         ? t("connection.testResultOk")
                         : t("connection.testResultFailed")}{" "}
-                      {new Date(rconTestResult.at).toLocaleTimeString(i18n.language)}
+                      {formatTime(rconTestResult.at, { seconds: true })}
                     </span>
                   )}
                   <div className="flex items-center gap-2">
@@ -5898,7 +5908,7 @@ export default function Settings() {
                       <Clock className="w-4 h-4 text-muted-foreground" />
                       <span className="text-sm">
                         {backupStatus.lastBackup
-                          ? t("backups.lastBackup", { date: new Date(backupStatus.lastBackup.created).toLocaleString(i18n.language) })
+                          ? t("backups.lastBackup", { date: formatDateTime(backupStatus.lastBackup.created, { seconds: true }) })
                           : t("backups.noBackupsYet")}
                       </span>
                     </div>
@@ -6045,7 +6055,7 @@ export default function Settings() {
                                 </p>
                                 <p className="text-xs text-muted-foreground">
                                   {formatBytes(backup.size)} •{" "}
-                                  {new Date(backup.created).toLocaleString(i18n.language)}
+                                  {formatDateTime(backup.created, { seconds: true })}
                                 </p>
                               </div>
                             </div>
@@ -7054,7 +7064,8 @@ function WorkshopCollectionSyncCard({
   // (POST /mods/collection/extract-cookies is gated mods.manage, not
   // panel.settings like the rest of this card) rather than duplicating
   // the same English sentence into settings.json's own permissions section.
-  const { t, i18n } = useTranslation(["settings", "mods"]);
+  const { t } = useTranslation(["settings", "mods"]);
+  const { formatTime } = useDateFormat();
   const { toast } = useToast();
   // pz-pam-r23 (remaining client-side capability gates): persistCookies
   // (below) is a thin wrapper around configApi.updateAppSettings(), same
@@ -7925,7 +7936,7 @@ function WorkshopCollectionSyncCard({
           </div>
           {diffCheckedAt && (
             <p className="text-[11px] text-muted-foreground/70">
-              {t("workshopSync.lastChecked", { time: diffCheckedAt.toLocaleTimeString(i18n.language) })}
+              {t("workshopSync.lastChecked", { time: formatTime(diffCheckedAt, { seconds: true }) })}
               {diff?.title && (
                 <>
                   {" "}

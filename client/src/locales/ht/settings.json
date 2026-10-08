@@ -77,6 +77,7 @@
     "noChanges": "Pa Gen Chanjman ki Pa Sove"
   },
   "themeSelect": { "survival": "Siviv (Fonse)", "light": "Klè" },
+  "dateFormatSelect": { "auto": "Otomatik ({{example}})", "dmy": "Jou/Mwa/Ane ({{example}})", "mdy": "Mwa/Jou/Ane ({{example}})", "ymd": "Ane-Mwa-Jou ({{example}})" },
 
   "general": {
     "cardTitle": "Paramèt Panèl",
@@ -90,9 +91,11 @@
     "saveBeforeRestart": "Sove paramèt anvan w redemare",
     "restartToastDesc": "Panèl la ap redemare sou pò {{port}}. N ap rekonekte...",
     "appearanceTitle": "Aparans",
-    "appearanceDesc": "Tèm panèl la ak style vizyèl.",
+    "appearanceDesc": "Tèm panèl la, fòma dat yo ak style vizyèl.",
     "themeLabel": "Tèm",
     "themeDesc": "Chwazi ant aparans siviv brital la oswa yon tèm klè pwòp.",
+    "dateFormatLabel": "Fòma dat",
+    "dateFormatDesc": "Kijan dat yo parèt nan panèl la nan navigatè sa a. “Otomatik” swiv lang ou ak rejyon navigatè ou.",
     "confirmRestartTitle": "Restart the panel?",
     "restartGameServerPreserved": "Lansè yo detekte a izole redemaraj panèl yo. Sèvè Project Zomboid k ap kouri yo ap rete anliy.",
     "restartGameServerRisk": "Enstalasyon sa a pa itilize lansè Linux ki pwoteje a. Redemare panèl la ka sispann pwosesis sèvè Project Zomboid k ap kouri yo.",

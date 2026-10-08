@@ -42,6 +42,7 @@ import {
 } from '@/components/ui/dialog'
 import { reportClientError } from '@/lib/client-errors'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useDateFormat } from '@/lib/dateFormat'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
 import {
   AlertDialog,
@@ -393,7 +394,8 @@ function TimezonePicker({ id, value, onChange, disabled }: TimezonePickerProps) 
 }
 
 export default function Scheduler() {
-  const { t, i18n } = useTranslation('scheduler')
+  const { t } = useTranslation('scheduler')
+  const { formatDateTime } = useDateFormat()
   const weekDays = useMemo(() => getWeekDays(t), [t])
   const commonCommands = useMemo(() => getCommonCommands(t), [t])
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
@@ -1456,7 +1458,7 @@ export default function Scheduler() {
               <p className="text-xs font-medium text-foreground/80">{t('timezone.backupHealthTitle')}</p>
               {backupStatus?.lastScheduledBackupAttempt ? (() => {
                 const attempt = backupStatus.lastScheduledBackupAttempt
-                const date = new Date(attempt.executedAt).toLocaleString(i18n.language)
+                const date = formatDateTime(attempt.executedAt, { seconds: true })
                 // Colour from scheduledBackupHealth(), the same verdict the
                 // Dashboard and Backups page use, so the three can't
                 // disagree: a restart skip (panels up to v1.3.8 dropped a
@@ -1502,7 +1504,7 @@ export default function Scheduler() {
                       <p className="flex items-center gap-1 text-xs text-muted-foreground">
                         <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
                         <span className="truncate">
-                          {t('timezone.backupRecoveredSince', { date: new Date(recoveredAt).toLocaleString(i18n.language) })}
+                          {t('timezone.backupRecoveredSince', { date: formatDateTime(recoveredAt, { seconds: true }) })}
                         </span>
                       </p>
                     )}
@@ -1514,7 +1516,7 @@ export default function Scheduler() {
               {status.backupNextRun && (
                 <p className="flex items-center gap-1 text-xs text-muted-foreground">
                   <Clock className="w-3 h-3 shrink-0" aria-hidden="true" />
-                  <span className="truncate">{t('timezone.backupNextRun', { date: new Date(status.backupNextRun).toLocaleString(i18n.language) })}</span>
+                  <span className="truncate">{t('timezone.backupNextRun', { date: formatDateTime(status.backupNextRun, { seconds: true }) })}</span>
                 </p>
               )}
               {/* This page is where restarts get scheduled, so it's where an
@@ -1923,9 +1925,9 @@ export default function Scheduler() {
                                 )}
                                 <span className="truncate">
                                   {latestRun.success
-                                    ? t('scheduledTasks.lastRun', { date: new Date(latestRun.executed_at).toLocaleString(i18n.language) })
+                                    ? t('scheduledTasks.lastRun', { date: formatDateTime(latestRun.executed_at, { seconds: true }) })
                                     : t('scheduledTasks.lastRunFailed', {
-                                        date: new Date(latestRun.executed_at).toLocaleString(i18n.language),
+                                        date: formatDateTime(latestRun.executed_at, { seconds: true }),
                                         reason: latestRun.message || t('scheduledTasks.lastRunFailedUnknownReason'),
                                       })}
                                 </span>
@@ -1935,7 +1937,7 @@ export default function Scheduler() {
                           if (task.last_run) {
                             return (
                               <p className="text-[11px] text-muted-foreground/70 mt-1">
-                                {t('scheduledTasks.lastRun', { date: new Date(task.last_run).toLocaleString(i18n.language) })}
+                                {t('scheduledTasks.lastRun', { date: formatDateTime(task.last_run, { seconds: true }) })}
                               </p>
                             )
                           }
@@ -1950,7 +1952,7 @@ export default function Scheduler() {
                           <p className="flex items-center gap-1 text-[11px] text-muted-foreground/70 mt-1">
                             <Clock className="w-3 h-3 shrink-0" aria-hidden="true" />
                             <span className="truncate">
-                              {t('scheduledTasks.nextRun', { date: new Date(task.next_run).toLocaleString(i18n.language) })}
+                              {t('scheduledTasks.nextRun', { date: formatDateTime(task.next_run, { seconds: true }) })}
                             </span>
                           </p>
                         )}
@@ -2122,7 +2124,7 @@ export default function Scheduler() {
                         </div>
                       </div>
                       <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {new Date(entry.executed_at).toLocaleString(i18n.language)}
+                        {formatDateTime(entry.executed_at, { seconds: true })}
                       </span>
                     </div>
                     <div className="mt-1 ms-6 text-sm">

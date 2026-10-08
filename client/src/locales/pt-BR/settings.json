@@ -132,6 +132,12 @@
     "survival": "Sobrevivência (escuro)",
     "light": "Claro"
   },
+  "dateFormatSelect": {
+    "auto": "Automático ({{example}})",
+    "dmy": "Dia/Mês/Ano ({{example}})",
+    "mdy": "Mês/Dia/Ano ({{example}})",
+    "ymd": "Ano-Mês-Dia ({{example}})"
+  },
   "general": {
     "cardTitle": "Configurações do painel",
     "cardDescription": "Porta em que este painel escuta e sua aparência.",
@@ -149,9 +155,11 @@
     "restartGameServerUnknown": "O painel não conseguiu determinar se os servidores de Project Zomboid em execução sobreviverão a este reinício.",
     "confirmRestartRisk": "Entendo que os servidores de jogo em execução podem ser parados.",
     "appearanceTitle": "Aparência",
-    "appearanceDesc": "Tema e estilo visual do painel.",
+    "appearanceDesc": "Tema, formato de data e estilo visual do painel.",
     "themeLabel": "Tema",
     "themeDesc": "Escolha entre o visual rústico de sobrevivência ou um tema claro e limpo.",
+    "dateFormatLabel": "Formato de data",
+    "dateFormatDesc": "Como as datas aparecem no painel neste navegador. “Automático” segue o seu idioma e a região do seu navegador.",
     "sandboxRangeOverrideTitle": "Intervalos de valores das opções",
     "sandboxRangeOverrideDesc": "Controla se o botão Salvar das abas Opções do servidor e Sandbox bloqueia um valor fora do mínimo/máximo conhecido.",
     "sandboxRangeOverrideLabel": "Permitir valores fora do intervalo conhecido",

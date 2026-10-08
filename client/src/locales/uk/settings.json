@@ -138,6 +138,12 @@
     "survival": "Survival (темна)",
     "light": "Світла"
   },
+  "dateFormatSelect": {
+    "auto": "Автоматично ({{example}})",
+    "dmy": "День/місяць/рік ({{example}})",
+    "mdy": "Місяць/день/рік ({{example}})",
+    "ymd": "Рік-місяць-день ({{example}})"
+  },
   "general": {
     "cardTitle": "Налаштування панелі",
     "cardDescription": "Порт, який слухає ця панель, і її вигляд.",
@@ -155,9 +161,11 @@
     "restartGameServerUnknown": "Панель не змогла визначити, чи переживуть цей перезапуск запущені сервери Project Zomboid.",
     "confirmRestartRisk": "Я розумію, що запущені ігрові сервери може бути зупинено.",
     "appearanceTitle": "Вигляд",
-    "appearanceDesc": "Тема та візуальний стиль панелі.",
+    "appearanceDesc": "Тема, формат дати та візуальний стиль панелі.",
     "themeLabel": "Тема",
     "themeDesc": "Оберіть похмурий survival-стиль або чисту світлу тему.",
+    "dateFormatLabel": "Формат дати",
+    "dateFormatDesc": "Як дати відображаються в панелі в цьому браузері. «Автоматично» враховує вашу мову та регіон браузера.",
     "sandboxRangeOverrideTitle": "Setting Value Ranges",
     "sandboxRangeOverrideDesc": "Controls whether the Server Settings and Sandbox tabs' Save buttons block a value outside its known minimum/maximum.",
     "sandboxRangeOverrideLabel": "Allow values outside the known range",
