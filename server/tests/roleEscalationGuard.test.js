@@ -77,7 +77,7 @@ vi.mock("../database/init.js", () => ({
 }));
 
 const { default: authService } = await import("../services/auth.js");
-const { updateRole, deleteRole } = await import("../services/permissions.js");
+const { updateRole, deleteRole, CAPABILITIES } = await import("../services/permissions.js");
 
 const ADMIN_ROLE = {
   id: "role-admin",
@@ -129,15 +129,16 @@ describe("createUser() -- refuses creating a user in a role that exceeds the cal
 
   it("params.detail is JUST the joined capability list, not a full sentence -- the shape a future locale template's {{detail}} will interpolate, matching DISCORD_PERMISSIONS_CAPABILITY_REQUIRED's own params.detail precedent", async () => {
     await expect(
-      authService.createUser("newadmin2", "password123", "admin", {
+      authService.createUser("newtech", "password123", "technician", {
         actingUserId: "u-support",
       }),
     ).rejects.toMatchObject({
       code: ErrorCode.ROLE_GRANT_EXCEEDS_CALLER_CAPABILITIES,
-      // admin holds users.manage, roles.manage, server.control, rcon.execute;
-      // support holds users.manage, players.moderate -- everything admin has
-      // that support doesn't, in order, comma-joined, nothing else.
-      params: { detail: "roles.manage, server.control, rcon.execute" },
+      // technician holds server.control, rcon.execute; support holds
+      // users.manage, players.moderate -- everything technician has that
+      // support doesn't, in order, comma-joined, nothing else. (Not the admin
+      // role: since 2026-10-08 (#5) joining it is worth the whole catalogue.)
+      params: { detail: "server.control, rcon.execute" },
     });
   });
 
@@ -290,7 +291,9 @@ describe("ceiling on the target: a delegate can't take power from accounts or ro
     ).rejects.toMatchObject({
       code: ErrorCode.ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES,
       status: 403,
-      params: { detail: "server.control, rcon.execute" },
+      // The whole catalogue but the delegate's two: the admin role is worth
+      // every capability (#5), not just its stored row.
+      params: { missing: expect.arrayContaining(["server.control", "rcon.execute", "server.wipe"]) },
     });
     expect(db.data.roles.find((r) => r.id === "role-admin").capabilities).toEqual(
       ADMIN_ROLE.capabilities,
@@ -349,5 +352,99 @@ describe("ceiling on the target: a delegate can't take power from accounts or ro
     await expect(
       authService.deleteUser("u-wide", { actingUserId: "u-owner" }),
     ).resolves.toMatchObject({ id: "u-wide" });
+  });
+});
+
+// Review of #5: the admin role counts as every capability for the CALLER,
+// so it has to count as every capability for the TARGET too. With one box
+// unticked in the admin column (the state #5 exists for) and a custom role
+// holding everything left in that row, comparing against the stored row let
+// that role demote, delete or sign out admins and mint new ones -- and a new
+// admin can grant what nobody held.
+describe("the admin role is worth every capability on the target side too", () => {
+  const ALL_BUT_WIPE = CAPABILITIES.map((c) => c.key).filter((key) => key !== "server.wipe");
+  const NARROWED_ADMIN_ROLE = { ...ADMIN_ROLE, capabilities: ALL_BUT_WIPE };
+  const HEAD_ROLE = { id: "role-head", name: "head", capabilities: ALL_BUT_WIPE };
+  const head = { userId: "u-head", role: "head" };
+  const owner = { userId: "u-owner", role: "admin" };
+  const exceedsGrant = {
+    code: ErrorCode.ROLE_GRANT_EXCEEDS_CALLER_CAPABILITIES,
+    status: 403,
+    params: { missing: ["server.wipe"] },
+  };
+  const exceedsTarget = {
+    code: ErrorCode.ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES,
+    status: 403,
+    params: { missing: ["server.wipe"] },
+  };
+
+  beforeEach(() => {
+    resetWith({
+      roles: [NARROWED_ADMIN_ROLE, HEAD_ROLE, MEMBER_ROLE],
+      users: [
+        { id: "u-owner", username: "owner", role: "admin", roleId: "role-admin" },
+        { id: "u-coadmin", username: "coadmin", role: "admin", roleId: "role-admin" },
+        { id: "u-head", username: "head1", role: "head", roleId: "role-head" },
+        { id: "u-member", username: "member1", role: "member", roleId: "role-member" },
+      ],
+    });
+  });
+
+  it("refuses the head role minting an admin", async () => {
+    await expect(
+      authService.createUser("puppet", "password123", "admin", { actingUserId: "u-head" }),
+    ).rejects.toMatchObject(exceedsGrant);
+    await expect(
+      authService.changeUserRoleById("u-member", "role-admin", { actingUserId: "u-head" }),
+    ).rejects.toMatchObject(exceedsGrant);
+    await expect(
+      deleteRole("role-head", { reassignTo: "role-admin", actingUser: head }),
+    ).rejects.toMatchObject(exceedsGrant);
+    expect(db.data.users.filter((u) => u.role === "admin").map((u) => u.id)).toEqual([
+      "u-owner",
+      "u-coadmin",
+    ]);
+    expect(db.data.roles.some((r) => r.id === "role-head")).toBe(true);
+  });
+
+  it("refuses the head role demoting, deleting or signing out an admin", async () => {
+    await expect(
+      authService.changeUserRoleById("u-coadmin", "role-member", { actingUserId: "u-head" }),
+    ).rejects.toMatchObject(exceedsTarget);
+    await expect(
+      authService.deleteUser("u-coadmin", { actingUserId: "u-head" }),
+    ).rejects.toMatchObject(exceedsTarget);
+    await expect(
+      authService.revokeAllSessions("u-coadmin", { actingUserId: "u-head" }),
+    ).rejects.toMatchObject(exceedsTarget);
+    await expect(
+      updateRole("role-admin", { capabilities: ["users.manage", "roles.manage"] }, { actingUser: head }),
+    ).rejects.toMatchObject(exceedsTarget);
+    expect(db.data.users.find((u) => u.id === "u-coadmin").role).toBe("admin");
+    expect(db.data.roles.find((r) => r.id === "role-admin").capabilities).toEqual(ALL_BUT_WIPE);
+  });
+
+  it("a real admin still does all of it", async () => {
+    await expect(
+      authService.createUser("newadmin", "password123", "admin", { actingUserId: "u-owner" }),
+    ).resolves.toMatchObject({ role: "admin" });
+    await expect(
+      authService.changeUserRoleById("u-member", "role-admin", { actingUserId: "u-owner" }),
+    ).resolves.toMatchObject({ role: "admin" });
+    await expect(
+      authService.revokeAllSessions("u-coadmin", { actingUserId: "u-owner" }),
+    ).resolves.toMatchObject({ id: "u-coadmin" });
+    await expect(
+      authService.changeUserRoleById("u-coadmin", "role-member", { actingUserId: "u-owner" }),
+    ).resolves.toMatchObject({ role: "member" });
+    await expect(
+      authService.deleteUser("u-coadmin", { actingUserId: "u-owner" }),
+    ).resolves.toMatchObject({ id: "u-coadmin" });
+    await expect(
+      deleteRole("role-head", { reassignTo: "role-admin", actingUser: owner }),
+    ).resolves.toMatchObject({ deleted: true, reassigned: 1 });
+    await expect(
+      updateRole("role-admin", { capabilities: ["users.manage", "roles.manage"] }, { actingUser: owner }),
+    ).resolves.toMatchObject({ capabilities: ["users.manage", "roles.manage"] });
   });
 });

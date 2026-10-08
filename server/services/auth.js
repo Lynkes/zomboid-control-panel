@@ -299,7 +299,11 @@ async function getActingCapabilities(actingUserId) {
 // discipline as every other capability check in this file.
 //
 // SECURITY (2026-10-08, #5): the built-in admin role counts as holding every
-// capability here (getActingCapabilities() above).
+// capability here (getActingCapabilities() above). So callers pass a target
+// role through delegableCapabilities() as well: joining or leaving that role
+// is worth every capability, whatever its stored row (which an admin may have
+// narrowed) says, and comparing against the row let a role covering it mint
+// or depose admins.
 async function assertNoCapabilityEscalation(actingUserId, targetCapabilities) {
   const actingCapabilities = await getActingCapabilities(actingUserId);
   if (!actingCapabilities) return;
@@ -1047,7 +1051,7 @@ class AuthService {
       // returns early on that alone regardless).
       if (!isFirstUser) {
         const targetRole = await getRoleByName(resolvedRole);
-        await assertNoCapabilityEscalation(actingUserId, targetRole?.capabilities || []);
+        await assertNoCapabilityEscalation(actingUserId, delegableCapabilities(targetRole));
       }
 
       // Check for duplicate username
@@ -1205,12 +1209,15 @@ class AuthService {
       const currentRole = user.roleId
         ? await getRoleById(user.roleId)
         : await getRoleByName(user.role);
-      const currentCapabilities = currentRole?.capabilities || [];
-      const nextCapabilities = targetRole.capabilities || [];
-
-      await assertNoRecoveryLockout(userId, currentCapabilities, nextCapabilities);
-      await assertNoCapabilityEscalation(actingUserId, nextCapabilities);
-      await assertCallerCoversTarget(actingUserId, currentCapabilities);
+      // The lockout headcount reads what the roles actually grant; the two
+      // caller checks read what they are worth (delegableCapabilities()).
+      await assertNoRecoveryLockout(
+        userId,
+        currentRole?.capabilities || [],
+        targetRole.capabilities || [],
+      );
+      await assertNoCapabilityEscalation(actingUserId, delegableCapabilities(targetRole));
+      await assertCallerCoversTarget(actingUserId, delegableCapabilities(currentRole));
 
       user.role = targetRole.name;
       user.roleId = targetRole.id;
@@ -1290,10 +1297,8 @@ class AuthService {
       const currentRole = user.roleId
         ? await getRoleById(user.roleId)
         : await getRoleByName(user.role);
-      const currentCapabilities = currentRole?.capabilities || [];
-
-      await assertCallerCoversTarget(actingUserId, currentCapabilities);
-      await assertNoRecoveryLockout(userId, currentCapabilities, []);
+      await assertCallerCoversTarget(actingUserId, delegableCapabilities(currentRole));
+      await assertNoRecoveryLockout(userId, currentRole?.capabilities || [], []);
 
       db.data.users = users.filter((u) => u.id !== userId);
       await commitNow();
@@ -1753,7 +1758,7 @@ class AuthService {
       }
       if (actingUserId && String(actingUserId) !== String(userId)) {
         const role = user.roleId ? await getRoleById(user.roleId) : await getRoleByName(user.role);
-        await assertCallerCoversTarget(actingUserId, role?.capabilities || []);
+        await assertCallerCoversTarget(actingUserId, delegableCapabilities(role));
       }
 
       this.ensureUserAuthState(user);

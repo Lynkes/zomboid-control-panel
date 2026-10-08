@@ -809,7 +809,9 @@ async function assertNoRoleEditEscalation(actingUser, existingCapabilities, next
 // with its members moved elsewhere. Narrowing a role, or deleting one that
 // has members, takes power away from everyone in it, so the caller must hold
 // everything the role holds. services/auth.js applies the same rule to
-// demoting, deleting or signing out one account.
+// demoting, deleting or signing out one account. Callers pass the role
+// through delegableCapabilities(), so only someone holding every capability
+// can narrow the built-in admin role, which is worth all of them (#5).
 async function assertCallerCoversRole(actingUser, roleCapabilities) {
   if (!actingUser) return;
   const actingCapabilities = await getActingCapabilities(actingUser);
@@ -973,7 +975,7 @@ export async function updateRole(
 
     await assertNoRoleEditEscalation(actingUser, existing.capabilities, nextCapabilities);
     if ((existing.capabilities || []).some((capability) => !nextCapabilities.includes(capability))) {
-      await assertCallerCoversRole(actingUser, existing.capabilities);
+      await assertCallerCoversRole(actingUser, delegableCapabilities(existing));
     }
 
     await checkLockoutRulesForCapabilityChange({
@@ -1110,11 +1112,15 @@ export async function deleteRole(id, { reassignTo, actingUser } = {}) {
     // updateRole() checks. Without it, a roles.manage-only caller deleted
     // their own role with ?reassignTo=<admin role id> and walked out as
     // admin -- along with every other member of whichever role they picked.
-    await assertNoRoleEditEscalation(actingUser, [], targetRole.capabilities);
+    //
+    // What membership is worth, not the stored row (2026-10-08, #5 review):
+    // moving members into the built-in admin role hands them every
+    // capability, however narrowed its row is.
+    await assertNoRoleEditEscalation(actingUser, [], delegableCapabilities(targetRole));
   }
 
   if (members.length > 0) {
-    await assertCallerCoversRole(actingUser, role.capabilities);
+    await assertCallerCoversRole(actingUser, delegableCapabilities(role));
   }
 
   // Deleting this role removes its capabilities from every current member;
