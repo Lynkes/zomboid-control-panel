@@ -251,8 +251,10 @@ describe("MAX_REFRESH_SESSIONS capacity eviction: a tombstone, not a guess", () 
     const user = db.data.users[0];
     for (let i = 0; i < 20; i += 1) {
       authService.createRefreshSession(user);
+      authService.createRefreshSession(user, { persistent: false });
     }
-    expect(user.evictedRefreshSessions.length).toBeLessThanOrEqual(5);
+    // One cap's worth per kind (#21).
+    expect(user.evictedRefreshSessions.length).toBeLessThanOrEqual(10);
   });
 
   it("a tombstone does not outlive the token it describes -- it is pruned once that token's own expiresAt has passed", async () => {
@@ -437,20 +439,68 @@ describe("refresh session lifecycle (#10, #19, #21)", () => {
     expect(await authService.refreshAccessToken(refreshed.refreshToken)).toBeNull();
   });
 
-  it("#21: browser sessions are evicted before remembered devices", async () => {
-    const user = db.data.users[0];
-    const browserOnly = await authService.login("tech", PASSWORD, false);
-    const remembered = [];
-    for (let i = 0; i < 5; i += 1) {
-      remembered.push(await authService.login("tech", PASSWORD, true));
+  // Each kind has its own MAX_REFRESH_SESSIONS (5). A shared cap let a
+  // single browser-session sign-in -- and the browser extension signs in that
+  // way every time its access token runs out -- push out the oldest
+  // remembered device once the account had five.
+  async function signIn(count, rememberMe) {
+    const results = [];
+    for (let i = 0; i < count; i += 1) {
+      results.push(await authService.login("tech", PASSWORD, rememberMe));
     }
+    return results;
+  }
+  const refreshes = async (signedIn) => Boolean((await authService.refreshAccessToken(signedIn.refreshToken))?.accessToken);
 
-    expect(user.refreshSessions).toHaveLength(5);
-    expect(user.refreshSessions.every((session) => session.persistent)).toBe(true);
-    expect(await authService.refreshAccessToken(browserOnly.refreshToken)).toEqual({
+  it("#21: a browser sign-in doesn't evict any of five remembered devices", async () => {
+    const remembered = await signIn(5, true);
+    const [browserOnly] = await signIn(1, false);
+
+    expect(db.data.users[0].refreshSessions).toHaveLength(6);
+    expect(db.data.users[0].evictedRefreshSessions).toEqual([]);
+    for (const signedIn of [...remembered, browserOnly]) {
+      expect(await refreshes(signedIn)).toBe(true);
+    }
+  });
+
+  it("#21: remembered sign-ins don't evict a browser session", async () => {
+    const [browserOnly] = await signIn(1, false);
+    const remembered = await signIn(6, true);
+
+    expect(await refreshes(browserOnly)).toBe(true);
+    expect(await authService.refreshAccessToken(remembered[0].refreshToken)).toEqual({
       refreshFailureReason: "capacity",
     });
-    expect((await authService.refreshAccessToken(remembered[0].refreshToken))?.accessToken).toBeTruthy();
+  });
+
+  it("#21: a sixth browser sign-in evicts only the oldest browser session", async () => {
+    const [rememberedDevice] = await signIn(1, true);
+    const browserOnly = await signIn(6, false);
+
+    const sessions = db.data.users[0].refreshSessions;
+    expect(sessions.filter((session) => session.persistent)).toHaveLength(1);
+    expect(sessions.filter((session) => !session.persistent)).toHaveLength(5);
+    expect(await authService.refreshAccessToken(browserOnly[0].refreshToken)).toEqual({
+      refreshFailureReason: "capacity",
+    });
+    expect(await refreshes(browserOnly[1])).toBe(true);
+    expect(await refreshes(rememberedDevice)).toBe(true);
+  });
+
+  it("#21: a stored list over the cap is trimmed per kind, newest kept, order unchanged", () => {
+    const user = db.data.users[0];
+    const expiresAt = new Date(Date.now() + DAY).toISOString();
+    user.refreshSessions = Array.from({ length: 14 }, (_, i) => ({
+      id: `s${i}`,
+      expiresAt,
+      persistent: i % 2 === 0,
+    }));
+
+    authService.ensureUserAuthState(user);
+
+    expect(user.refreshSessions.map((session) => session.id)).toEqual([
+      "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s12", "s13",
+    ]);
   });
 });
 

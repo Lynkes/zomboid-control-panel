@@ -148,7 +148,10 @@ export const BROWSER_SESSION_ABSOLUTE_LIFETIME_MS = 12 * 60 * 60 * 1000;
 // instead of counting as the reuse of a stolen token.
 export const REFRESH_RACE_GRACE_MS = 30 * 1000;
 const MAX_ROTATION_RECORDS = 5;
+// Per kind (#21): up to this many remembered sessions AND this many browser
+// sessions, so neither kind's sign-ins push out the other's.
 const MAX_REFRESH_SESSIONS = 5;
+const MAX_EVICTION_TOMBSTONES = 2 * MAX_REFRESH_SESSIONS;
 export const MAX_FAILED_LOGINS = 10;
 export const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 // Fixed dummy hash used to keep the "user not found" branch of login() at the
@@ -178,12 +181,18 @@ function assertResetPasswordPolicy(newPassword) {
   }
 }
 
+// Kept across browser restarts ("Keep me signed in"); a session stored
+// before #21 has no flag and was one.
+function isPersistentSession(session) {
+  return session.persistent !== false;
+}
+
 // What routes/auth.js needs to set the refresh cookie for `session`: a
 // browser-session cookie when it isn't kept (#21), otherwise one that ends
 // when the session does (#10).
 function refreshCookieFields(session) {
   return {
-    refreshPersistent: session.persistent !== false,
+    refreshPersistent: isPersistentSession(session),
     refreshExpiresAt: session.expiresAt,
   };
 }
@@ -679,13 +688,17 @@ class AuthService {
     }
 
     const now = Date.now();
-    user.refreshSessions = user.refreshSessions
+    const live = user.refreshSessions
       .filter((session) => session && typeof session.id === "string")
       .filter((session) => {
         const expiresAt = Date.parse(session.expiresAt || "");
         return Number.isNaN(expiresAt) || expiresAt > now;
-      })
-      .slice(-MAX_REFRESH_SESSIONS);
+      });
+    // The newest MAX_REFRESH_SESSIONS of each kind (#21), in stored order.
+    const newestOfKind = (persistent) =>
+      live.filter((session) => isPersistentSession(session) === persistent).slice(-MAX_REFRESH_SESSIONS);
+    const kept = new Set([...newestOfKind(true), ...newestOfKind(false)]);
+    user.refreshSessions = live.filter((session) => kept.has(session));
 
     // sweep-round4 (2026-09-07): tombstones for sessions dropped by
     // createRefreshSession() to stay under MAX_REFRESH_SESSIONS -- see that
@@ -693,8 +706,9 @@ class AuthService {
     // "capacity", never the security reasons. Bounded and expired the same
     // way refreshSessions itself is, immediately above: a tombstone that
     // outlives the token it describes is a leak, not a record, so it is
-    // capped at MAX_REFRESH_SESSIONS entries and pruned the instant the
-    // session it describes would itself have expired -- never later.
+    // capped at MAX_EVICTION_TOMBSTONES entries (one kind's worth each) and
+    // pruned the instant the session it describes would itself have
+    // expired -- never later.
     if (!Array.isArray(user.evictedRefreshSessions)) {
       user.evictedRefreshSessions = [];
     }
@@ -704,7 +718,7 @@ class AuthService {
         const expiresAt = Date.parse(tombstone.expiresAt || "");
         return Number.isNaN(expiresAt) || expiresAt > now;
       })
-      .slice(-MAX_REFRESH_SESSIONS);
+      .slice(-MAX_EVICTION_TOMBSTONES);
   }
 
   // deviceId: SECURITY (2026-10-05, A1), the trusted-device id this session
@@ -754,7 +768,12 @@ class AuthService {
     }
 
     user.refreshSessions.push(session);
-    if (user.refreshSessions.length > MAX_REFRESH_SESSIONS) {
+    // #21: each kind is capped on its own, oldest first and never the
+    // session just created, so a shared PC's sign-ins (or the browser
+    // extension's, which never keep one) can't push out a user's remembered
+    // devices, and remembered sign-ins can't push out a browser session.
+    const sameKind = user.refreshSessions.filter((s) => isPersistentSession(s) === keep);
+    if (sameKind.length > MAX_REFRESH_SESSIONS) {
       // A capacity eviction is the one case where the thing doing the
       // dropping (here) is also the only thing that will ever know *why* --
       // findRefreshSession() later sees nothing but a missing id, same as it
@@ -762,16 +781,9 @@ class AuthService {
       // this single site rather than let a caller downstream guess it: a
       // guess can be wrong, and a false "just capacity" told to a genuinely
       // compromised user is strictly worse than today's silence.
-      //
-      // #21: browser-session sign-ins go first, oldest first, so a shared
-      // PC's sign-ins don't push out a user's remembered devices; never the
-      // session just created.
-      const overflow = user.refreshSessions.length - MAX_REFRESH_SESSIONS;
-      const older = user.refreshSessions.filter((s) => s !== session);
-      const evicted = [
-        ...older.filter((s) => s.persistent === false),
-        ...older.filter((s) => s.persistent !== false),
-      ].slice(0, overflow);
+      const evicted = sameKind
+        .filter((s) => s !== session)
+        .slice(0, sameKind.length - MAX_REFRESH_SESSIONS);
       user.refreshSessions = user.refreshSessions.filter((s) => !evicted.includes(s));
       user.evictedRefreshSessions.push(
         ...evicted.map((evictedSession) => ({
@@ -780,9 +792,9 @@ class AuthService {
           expiresAt: evictedSession.expiresAt,
         })),
       );
-      if (user.evictedRefreshSessions.length > MAX_REFRESH_SESSIONS) {
+      if (user.evictedRefreshSessions.length > MAX_EVICTION_TOMBSTONES) {
         user.evictedRefreshSessions =
-          user.evictedRefreshSessions.slice(-MAX_REFRESH_SESSIONS);
+          user.evictedRefreshSessions.slice(-MAX_EVICTION_TOMBSTONES);
       }
     }
 
