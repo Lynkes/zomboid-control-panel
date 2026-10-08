@@ -356,6 +356,44 @@ describe('OIDC: a /.well-known/ issuer URL must belong to the issuer it names', 
       expect(wellKnownUrlMatchesIssuer(url, issuer)).toBe(false);
     }
   });
+
+  // Review of #2: these discovery URLs worked before the check existed, and
+  // their documents name an issuer that differs from the URL.
+  it("accepts Entra, B2C and Okta discovery URLs whose issuer differs from the URL", () => {
+    const tenant = '72f988bf-86f1-41af-91ab-2d7cd011db47';
+    for (const [url, issuer] of [
+      [
+        'https://login.microsoftonline.com/contoso.onmicrosoft.com/v2.0/.well-known/openid-configuration',
+        `https://login.microsoftonline.com/${tenant}/v2.0`,
+      ],
+      [
+        'https://login.microsoftonline.com/contoso.onmicrosoft.com/.well-known/openid-configuration',
+        `https://sts.windows.net/${tenant}/`,
+      ],
+      [
+        'https://contoso.b2clogin.com/contoso.onmicrosoft.com/B2C_1_signin/v2.0/.well-known/openid-configuration',
+        `https://contoso.b2clogin.com/${tenant}/v2.0/`,
+      ],
+      [
+        'https://x.okta.com/oauth2/default/.well-known/oauth-authorization-server',
+        'https://x.okta.com/oauth2/default',
+      ],
+    ]) {
+      expect(wellKnownUrlMatchesIssuer(url, issuer)).toBe(true);
+    }
+  });
+
+  it("refuses a document on another host claiming a real provider's issuer", () => {
+    for (const url of [
+      'https://evil.example/.well-known/openid-configuration',
+      'https://evil.example/accounts/.well-known/openid-configuration',
+      // Only Microsoft's own hosts are exempt, and only over https.
+      'https://contoso.b2clogin.com.evil.example/.well-known/openid-configuration',
+      'http://contoso.b2clogin.com/.well-known/openid-configuration',
+    ]) {
+      expect(wellKnownUrlMatchesIssuer(url, 'https://accounts.google.com')).toBe(false);
+    }
+  });
 });
 
 // SECURITY (2026-10-08, #13): linking must make the provider ask who is

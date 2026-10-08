@@ -194,6 +194,12 @@ export function wellKnownUrlMatchesIssuer(configuredUrl, discoveredIssuer) {
     return false;
   }
   if (!configured.href.includes("/.well-known/")) return true;
+  // Microsoft writes every document on these hosts, and its issuer never
+  // repeats the URL: Entra names the tenant GUID where the URL has the
+  // tenant's domain (or sts.windows.net for v1), B2C drops the policy.
+  // openid-client accepts the same mismatch for these hosts when it resolves
+  // the discovery URL itself (handleEntraId, handleB2Clogin).
+  if (isMicrosoftDiscoveryHost(configured)) return true;
   if (configured.origin !== issuer.origin) return false;
 
   const issuerPath = trimTrailingSlash(issuer.pathname);
@@ -202,8 +208,17 @@ export function wellKnownUrlMatchesIssuer(configuredUrl, discoveredIssuer) {
     `${suffix}/.well-known/openid-configuration`,
     `/.well-known/openid-configuration${suffix}`,
     `/.well-known/oauth-authorization-server${suffix}`,
+    // Okta's custom authorization servers publish this appended form too.
+    `${suffix}/.well-known/oauth-authorization-server`,
   ];
   return candidates.includes(trimTrailingSlash(configured.pathname));
+}
+
+function isMicrosoftDiscoveryHost(url) {
+  return (
+    url.protocol === "https:" &&
+    (url.hostname === "login.microsoftonline.com" || url.hostname.endsWith(".b2clogin.com"))
+  );
 }
 
 function issuerMismatchMessage(issuer) {
