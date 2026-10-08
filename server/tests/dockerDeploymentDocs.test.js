@@ -75,6 +75,35 @@ describe("Docker deployment guidance", () => {
     }
   });
 
+  // Auth review 2026-10-08 (oidc-transport-1): a proxy in its own container
+  // that forwards to the host's LAN IP, host.docker.internal or 172.17.0.1
+  // can't reach a port published on 127.0.0.1, so following the bare advice
+  // turned every page and sign-in into a 502. Each place that gives the
+  // advice points that proxy at docs/install/docker.md, which says to join
+  // the panel's Docker network first. docker/all-in-one/.env.example, the
+  // reference for Path A's .env, was missed once.
+  it("points a proxy in another container at docs/install/docker.md wherever it advises 127.0.0.1", () => {
+    for (const file of [
+      ".env.example",
+      "docker/all-in-one/.env.example",
+      "docker-compose.yml",
+      "docker-compose.install.yml",
+      "docker/all-in-one/docker-compose.yml",
+      "docker/all-in-one/README.md",
+      "docker/all-in-one/bootstrap.sh",
+      "server/utils/trustProxy.js",
+    ]) {
+      // Join comment lines and string pieces into one run of words.
+      const text = readRepoFile(file)
+        .replace(/["'+]/g, " ")
+        .replace(/\s*\r?\n\s*(#\s*)?/g, " ")
+        .replace(/\s+/g, " ");
+      expect(text, file).toMatch(/proxy in (another|its own) container/i);
+      expect(text, file).toContain("docs/install/docker.md");
+    }
+    expect(readRepoFile("docs/install/docker.md")).toContain("#### A proxy in its own container");
+  });
+
   it("keeps extra all-in-one servers on their own volume", () => {
     const compose = readRepoFile("docker/all-in-one/docker-compose.yml");
     const dockerfile = readRepoFile("docker/all-in-one/Dockerfile");

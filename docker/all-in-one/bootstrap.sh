@@ -189,6 +189,9 @@ echo "All-in-one installation is ready."
 bind_address="$(sed -n 's/^PANEL_BIND_ADDRESS=//p' "$CONTEXT_DIR/.env" | tail -n 1)"
 case "$bind_address" in
   '' | 0.0.0.0) echo "Panel: http://${detected_lan_ip:-localhost}:3001" ;;
-  *) echo "Panel: published on $bind_address:3001 only (PANEL_BIND_ADDRESS); open it through your reverse proxy" ;;
+  *)
+    echo "Panel: published on $bind_address:3001 only (PANEL_BIND_ADDRESS); open it through your reverse proxy"
+    echo "A proxy in another container: see docs/install/docker.md (it joins the panel's Docker network)"
+    ;;
 esac
 echo "PZ ports: $game_ports/udp (published automatically; each server uses two in a row)"
