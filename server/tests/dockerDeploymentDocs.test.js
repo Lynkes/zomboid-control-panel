@@ -38,7 +38,9 @@ describe("Docker deployment guidance", () => {
   // told reverse-proxy users to set TRUST_PROXY. Anyone reaching 3001
   // directly then forged X-Forwarded-For for a fresh sign-in lockout budget
   // per attempt. bootstrap.sh copies the all-in-one file over again on every
-  // run, so the bind address has to be a variable kept in .env.
+  // run, so the bind address has to be a variable kept in .env. Its default
+  // stays blank, not 0.0.0.0: no host IP publishes on IPv4 and IPv6, an
+  // explicit 0.0.0.0 on IPv4 only.
   it("publishes the panel port on PANEL_BIND_ADDRESS in every Compose file", () => {
     for (const file of [
       "docker-compose.yml",
@@ -51,7 +53,7 @@ describe("Docker deployment guidance", () => {
 
       expect(panelPortLines.length, file).toBeGreaterThan(0);
       for (const line of panelPortLines) {
-        expect(line.trim(), file).toBe('- "${PANEL_BIND_ADDRESS:-0.0.0.0}:3001:3001"');
+        expect(line.trim(), file).toBe('- "${PANEL_BIND_ADDRESS:-}:3001:3001"');
       }
     }
   });

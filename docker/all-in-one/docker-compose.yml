@@ -10,7 +10,7 @@ services:
       # Every host address by default. Docker publishes past UFW, so behind a
       # reverse proxy on this host set PANEL_BIND_ADDRESS=127.0.0.1 in .env
       # (with TRUST_PROXY), then rerun bootstrap.sh.
-      - "${PANEL_BIND_ADDRESS:-0.0.0.0}:3001:3001"
+      - "${PANEL_BIND_ADDRESS:-}:3001:3001"
       # PZ DefaultPort and UDPPort (UDP). Every server in this container
       # uses two ports in a row, so the default range fits five servers:
       # 16261-16262 for the first, 16263-16264 for the second, and so on.

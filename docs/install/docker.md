@@ -660,8 +660,9 @@ Where to set them:
   `docker-compose.install.yml`, then
   `docker compose -f docker-compose.install.yml up -d`.
 
-Leave `PANEL_BIND_ADDRESS` blank (every address, the default) when
-browsers open the panel directly on port `3001`, with no proxy in front.
+Leave `PANEL_BIND_ADDRESS` blank (every address, IPv4 and IPv6, the
+default) when browsers open the panel directly on port `3001`, with no proxy
+in front. An IPv6 address goes in brackets: `PANEL_BIND_ADDRESS=[::1]`.
 
 ### CORS_ORIGINS when accessed from anywhere other than localhost
 
