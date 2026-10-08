@@ -288,6 +288,8 @@
     "historyClearFailedFallback": "Не вдалося очистити історію",
     "restartSucceededTitle": "Перезапуск завершено",
     "restartResultFailedTitle": "Перезапуск не вдався",
+    "serverRestartSucceededTitle": "{{name}} перезапущено",
+    "serverRestartFailedTitle": "{{name}} не перезапущено",
     "taskSucceededTitle": "«{{name}}» завершено",
     "taskResultFailedTitle": "«{{name}}» не вдалося",
     "restartInitiatedWithWarningsDesc_few": "Сервер перезапуститься через {{minutes}} хвилин з попередженнями відліку",

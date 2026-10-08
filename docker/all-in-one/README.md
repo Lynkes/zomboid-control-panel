@@ -118,6 +118,11 @@ Connection › Start game servers when the panel starts** and check each
 server under it. They start one after another; one that is already running
 is left alone.
 
+With two servers or more, the Dashboard lists them all: start, stop or
+restart any of them there without switching the active server, and tick
+**Restart if it goes down** for each one the panel should start again when
+it stops without the panel asking (a crash, or `/quit` in the game).
+
 The update controller has Docker socket access, but it is not exposed on a
 host port. The panel can reach it only over the Compose network using the
 token in `.env`.

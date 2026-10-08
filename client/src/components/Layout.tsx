@@ -434,12 +434,16 @@ export default function Layout({ children }: LayoutProps) {
   // message is the fallback.
   useEffect(() => {
     if (!socket) return
-    const onActionResult = (data?: { kind?: 'restart' | 'task'; taskName?: string; success?: boolean; message?: string; code?: string; params?: unknown }) => {
+    // serverName: a restart of a server other than the active one, from the
+    // Dashboard's list of servers (POST /servers/:id/restart).
+    const onActionResult = (data?: { kind?: 'restart' | 'task'; taskName?: string; serverName?: string; success?: boolean; message?: string; code?: string; params?: unknown }) => {
       if (!data) return
       const isRestart = data.kind === 'restart'
-      const title = data.success
-        ? (isRestart ? tScheduler('toasts.restartSucceededTitle') : tScheduler('toasts.taskSucceededTitle', { name: data.taskName }))
-        : (isRestart ? tScheduler('toasts.restartResultFailedTitle') : tScheduler('toasts.taskResultFailedTitle', { name: data.taskName }))
+      const title = isRestart && data.serverName
+        ? tScheduler(data.success ? 'toasts.serverRestartSucceededTitle' : 'toasts.serverRestartFailedTitle', { name: data.serverName })
+        : data.success
+          ? (isRestart ? tScheduler('toasts.restartSucceededTitle') : tScheduler('toasts.taskSucceededTitle', { name: data.taskName }))
+          : (isRestart ? tScheduler('toasts.restartResultFailedTitle') : tScheduler('toasts.taskResultFailedTitle', { name: data.taskName }))
       toast({
         title,
         description: !data.success && data.code

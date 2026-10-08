@@ -249,6 +249,8 @@
     "historyClearFailedFallback": "Verlauf konnte nicht gelöscht werden",
     "restartSucceededTitle": "Neustart abgeschlossen",
     "restartResultFailedTitle": "Neustart fehlgeschlagen",
+    "serverRestartSucceededTitle": "{{name}} neu gestartet",
+    "serverRestartFailedTitle": "{{name}} wurde nicht neu gestartet",
     "taskSucceededTitle": "\"{{name}}\" abgeschlossen",
     "taskResultFailedTitle": "\"{{name}}\" fehlgeschlagen"
   }

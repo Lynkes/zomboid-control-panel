@@ -272,6 +272,8 @@
     "historyClearFailedFallback": "Falha ao limpar o histórico",
     "restartSucceededTitle": "Reinício concluído",
     "restartResultFailedTitle": "Falha no reinício",
+    "serverRestartSucceededTitle": "{{name}} reiniciado",
+    "serverRestartFailedTitle": "{{name}} não foi reiniciado",
     "taskSucceededTitle": "Tarefa \"{{name}}\" concluída",
     "taskResultFailedTitle": "Tarefa \"{{name}}\" falhou",
     "restartInitiatedWithWarningsDesc_many": "O servidor será reiniciado em {{minutes}} minutos, com avisos de contagem regressiva"
