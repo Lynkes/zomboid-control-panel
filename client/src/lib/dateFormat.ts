@@ -37,32 +37,35 @@ export interface DateTimeOptions extends DateOptions {
 export interface TimeOptions extends BaseOptions {
   seconds?: boolean
   timeZoneName?: 'short' | 'long'
+  /** A two-digit hour ('09:07'), for fixed-width columns. */
+  pad?: boolean
 }
 
 function isDateFormatPref(value: unknown): value is DateFormatPref {
   return typeof value === 'string' && (DATE_FORMAT_PREFS as readonly string[]).includes(value)
 }
 
-// Used only when this browser refuses storage, so the choice still holds
-// for the session.
-let fallbackPref: DateFormatPref = 'auto'
+// A choice this browser refused to save (storage blocked, or full while
+// reads still work): it wins over storage until reload.
+let unsavedPref: DateFormatPref | null = null
 const listeners = new Set<() => void>()
 
 export function getDateFormatPref(): DateFormatPref {
+  if (unsavedPref) return unsavedPref
   try {
     const stored = localStorage.getItem(DATE_FORMAT_STORAGE_KEY)
     return isDateFormatPref(stored) ? stored : 'auto'
   } catch {
-    return fallbackPref
+    return 'auto'
   }
 }
 
 export function setDateFormatPref(pref: DateFormatPref): void {
-  fallbackPref = pref
   try {
     localStorage.setItem(DATE_FORMAT_STORAGE_KEY, pref)
+    unsavedPref = null
   } catch {
-    // storage unavailable: applies until reload
+    unsavedPref = pref
   }
   for (const listener of [...listeners]) listener()
 }
@@ -82,7 +85,10 @@ const localeCache = new Map<string, string>()
  * The locale Automatic formats in: the UI language plus the region of the
  * browser's first preferred language (English UI + en-GB browser → en-GB,
  * day/month/year; + en-US → unchanged). UI codes that already name a region
- * (zh-CN, zh-TW, pt-BR) keep it.
+ * (zh-CN, zh-TW, pt-BR) keep it. The region brings the order and the hour
+ * cycle, but the digits stay those of the panel's numbers, which use the UI
+ * language alone: ar-EG on its own would print an Arabic UI's dates in
+ * Arabic-Indic digits beside Latin counts and sizes.
  */
 export function getFormattingLocale(uiLanguage: string = i18n.language || 'en'): string {
   const region = browserRegion()
@@ -91,7 +97,13 @@ export function getFormattingLocale(uiLanguage: string = i18n.language || 'en'):
   if (locale === undefined) {
     locale = uiLanguage
     try {
-      if (region && !new Intl.Locale(uiLanguage).region) locale = new Intl.Locale(uiLanguage, { region }).toString()
+      if (region && !new Intl.Locale(uiLanguage).region) {
+        locale = new Intl.Locale(uiLanguage, { region }).toString()
+        const digits = new Intl.NumberFormat(uiLanguage).resolvedOptions().numberingSystem
+        if (new Intl.DateTimeFormat(locale).resolvedOptions().numberingSystem !== digits) {
+          locale = new Intl.Locale(uiLanguage, { region, numberingSystem: digits }).toString()
+        }
+      }
     } catch {
       // not a well-formed tag: Intl falls back on its own
     }
@@ -137,22 +149,27 @@ function toDate(value: DateInput): Date | null {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
+// Arabic puts a right-to-left mark before each separator so the date reads
+// in the right order inside RTL text.
+const RLM = String.fromCharCode(0x200f)
+
 // The explicit orders: the parts come from the formatting locale, so the
-// digits match the time printed next to them (Arabic-Indic for ar-EG).
+// digits match the time printed next to them.
 function orderedDate(date: Date, locale: string, pref: Exclude<DateFormatPref, 'auto'>, timeZone?: string): string {
   const parts = formatter(locale, { year: 'numeric', month: '2-digit', day: '2-digit', timeZone }).formatToParts(date)
   const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? ''
   const day = part('day')
   const month = part('month')
   const year = part('year')
-  if (pref === 'dmy') return `${day}/${month}/${year}`
-  if (pref === 'mdy') return `${month}/${day}/${year}`
-  return `${year}-${month}-${day}`
+  const mark = parts.some((p) => p.type === 'literal' && p.value.includes(RLM)) ? RLM : ''
+  if (pref === 'dmy') return `${day}${mark}/${month}${mark}/${year}`
+  if (pref === 'mdy') return `${month}${mark}/${day}${mark}/${year}`
+  return `${year}${mark}-${month}${mark}-${day}`
 }
 
 function timeOptions(options: TimeOptions): Intl.DateTimeFormatOptions {
   return {
-    hour: 'numeric',
+    hour: options.pad ? '2-digit' : 'numeric',
     minute: '2-digit',
     ...(options.seconds ? { second: '2-digit' } : {}),
     timeZone: options.timeZone,

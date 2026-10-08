@@ -2114,7 +2114,7 @@ export default function Dashboard() {
                   return (
                     <li key={a.id} className="group grid grid-cols-[3.25rem_1rem_minmax(0,8rem)_minmax(0,1fr)] items-center gap-2 px-3 py-[3px] transition-colors hover:bg-muted/20">
                       <time className="font-mono text-[10px] tabular-nums text-muted-foreground/50">
-                        {formatTime(a.logged_at)}
+                        {formatTime(a.logged_at, { pad: true })}
                       </time>
                       <span className={cn('flex justify-center', s.tone)} aria-hidden="true">{s.icon}</span>
                       <span className="truncate text-[11px] font-medium text-foreground/85" dir="auto" title={a.player_name}>

@@ -16,12 +16,12 @@ export function formatNumber(value: number | undefined | null, language: string,
 
 /** HH:MM:SS in the viewer's locale. */
 export function formatTime(iso: string | number | undefined | null, language: string): string {
-  return formatClockTime(iso, { language, seconds: true })
+  return formatClockTime(iso, { language, seconds: true, pad: true })
 }
 
 /** HH:MM, for "since" chips. */
 export function formatShortTime(iso: string | number | undefined | null, language: string): string {
-  return formatClockTime(iso, { language })
+  return formatClockTime(iso, { language, pad: true })
 }
 
 /** A date and time in the saved date format, for "saved {{when}}". */

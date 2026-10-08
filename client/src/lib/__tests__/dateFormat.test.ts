@@ -20,9 +20,13 @@ function browserLanguages(languages: string[]) {
   vi.spyOn(navigator, 'languages', 'get').mockReturnValue(languages)
 }
 
-// '04/03' -> '٠٤/٠٣': the Arabic-Indic digits ar-EG formats with.
-function arabicIndic(text: string): string {
-  return text.replace(/[0-9]/g, (d) => String.fromCharCode(0x0660 + Number(d)))
+// The right-to-left mark Arabic puts before each date separator.
+const RLM = String.fromCharCode(0x200f)
+
+// '04/03' in the digits the panel prints its counts and sizes with for a UI
+// language.
+function panelDigits(text: string, language: string): string {
+  return text.replace(/[0-9]/g, (d) => Number(d).toLocaleString(language))
 }
 
 afterEach(async () => {
@@ -51,6 +55,20 @@ describe('the date format preference', () => {
     })
     expect(getDateFormatPref()).toBe('auto')
     expect(formatDate(MARCH_4, { language: 'en' })).not.toBe('')
+  })
+
+  it('keeps a choice for the session when storage reads but will not save', () => {
+    localStorage.setItem(DATE_FORMAT_STORAGE_KEY, 'mdy')
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError')
+    })
+    setDateFormatPref('ymd')
+    expect(getDateFormatPref()).toBe('ymd')
+    vi.restoreAllMocks()
+    // a later save that works hands the choice back to storage
+    setDateFormatPref('dmy')
+    localStorage.setItem(DATE_FORMAT_STORAGE_KEY, 'mdy')
+    expect(getDateFormatPref()).toBe('mdy')
   })
 
   it('keeps a choice for the session when storage refuses it', () => {
@@ -87,12 +105,22 @@ describe('explicit orders', () => {
     expect(formatDateTime(MARCH_4, { language: 'de', pref: 'mdy' })).toBe('03/04/2026 10:07')
   })
 
-  it('keep Arabic-Indic digits consistent between the date and the time', () => {
+  it("use the panel's digits for an Arabic UI, whatever the browser's region", () => {
     browserLanguages(['ar-EG'])
+    expect(getFormattingLocale('ar')).toBe('ar-EG-u-nu-latn')
     const text = formatDateTime(MARCH_4, { language: 'ar', pref: 'dmy' })
-    expect(text.startsWith(arabicIndic('04/03/2026 '))).toBe(true)
-    expect(text).toContain(arabicIndic('10:07'))
-    expect(text).not.toMatch(/[0-9]/)
+    expect(text.startsWith(panelDigits(`04${RLM}/03${RLM}/2026 `, 'ar'))).toBe(true)
+    expect(text).toContain(panelDigits('10:07', 'ar'))
+    expect(formatDate(MARCH_4, { language: 'ar' })).toContain(panelDigits('2026', 'ar'))
+  })
+
+  it("keep Arabic's right-to-left marks so the date reads in order in RTL text", () => {
+    browserLanguages(['ar'])
+    expect(formatDate(MARCH_4, { language: 'ar', pref: 'dmy' })).toBe(panelDigits(`04${RLM}/03${RLM}/2026`, 'ar'))
+    expect(formatDate(MARCH_4, { language: 'ar', pref: 'mdy' })).toBe(panelDigits(`03${RLM}/04${RLM}/2026`, 'ar'))
+    expect(formatDate(MARCH_4, { language: 'ar', pref: 'ymd' })).toBe(panelDigits(`2026${RLM}-03${RLM}-04`, 'ar'))
+    expect(formatDate(MARCH_4, { language: 'en', pref: 'dmy' })).not.toContain(RLM)
+    expect(formatDate(MARCH_4, { language: 'en', pref: 'ymd' })).not.toContain(RLM)
   })
 })
 
@@ -161,6 +189,16 @@ describe('times', () => {
     expect(formatTime(MARCH_4, { seconds: true })).toBe('10:07:05 AM')
     browserLanguages(['en-GB'])
     expect(formatTime(MARCH_4, { language: 'en' })).toBe('10:07')
+  })
+
+  it('pad the hour to two digits for a fixed-width column', () => {
+    const MORNING = new Date(2026, 2, 4, 9, 7, 5)
+    browserLanguages(['en-US'])
+    expect(formatTime(MORNING)).toBe('9:07 AM')
+    expect(formatTime(MORNING, { pad: true })).toBe('09:07 AM')
+    expect(formatTime(MORNING, { pad: true, seconds: true })).toBe('09:07:05 AM')
+    browserLanguages(['en-GB'])
+    expect(formatTime(MORNING, { language: 'en', pad: true })).toBe('09:07')
   })
 })
 
