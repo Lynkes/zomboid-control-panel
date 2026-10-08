@@ -9,7 +9,6 @@ import {
   FeatureErrorBoundary,
 } from './components/FeatureErrorBoundary'
 import { Toaster } from './components/ui/toaster'
-import { Button } from './components/ui/button'
 import { SocketContext, ConnectionStatus, ConnectionStatusContext } from './contexts/SocketContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -18,6 +17,7 @@ import { TooltipProvider } from './components/ui/tooltip'
 import { useToast } from './components/ui/use-toast'
 import { PageSkeleton } from './components/PageSkeleton'
 import { ScrollToTop } from './components/ScrollToTop'
+import { AuthStatusError } from './components/AuthStatusError'
 import { isDemoMode } from './lib/demo'
 import { getUserErrorMessage } from './lib/errorMessage'
 import { createSocketAuthProvider } from './lib/socketAuth'
@@ -384,25 +384,6 @@ function AuthScreenLoader() {
   )
 }
 
-// The boot sign-in check got no usable answer (AuthContext's
-// statusCheckFailed). Whether logins are on is unknown, so neither the panel
-// nor a sign-in form fits; a 429 or a restarting panel usually clears on a
-// retry.
-function AuthStatusError({ onRetry }: { onRetry: () => void }) {
-  const { t } = useTranslation('shell')
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
-      <div role="alert" className="w-full max-w-md rounded-xl border border-border/70 bg-card/70 p-6">
-        <h1 className="text-lg font-semibold tracking-tight">{t('authSession.statusCheckFailedTitle')}</h1>
-        <p className="mt-2 text-sm text-muted-foreground">{t('authSession.statusCheckFailedDescription')}</p>
-        <div className="mt-5">
-          <Button type="button" onClick={onRetry}>{t('authSession.retry')}</Button>
-        </div>
-      </div>
-    </main>
-  )
-}
-
 function NotFoundRoute() {
   return (
     <div className="space-y-6 page-transition">
@@ -435,7 +416,7 @@ function AppContent() {
     error: null,
   })
   const { toast } = useToast()
-  const { isAuthenticated, isLoading, needsSetup, authEnabled, statusCheckFailed, retryAuthCheck, getToken } = useAuth()
+  const { isAuthenticated, isLoading, needsSetup, authEnabled, statusCheckFailed, statusCheckCode, retryAuthCheck, getToken } = useAuth()
 
   const handleReconnectSuccess = useCallback(() => {
     toast({
@@ -596,7 +577,7 @@ function AppContent() {
   }
 
   if (statusCheckFailed) {
-    return <AuthStatusError onRetry={retryAuthCheck} />
+    return <AuthStatusError code={statusCheckCode} onRetry={retryAuthCheck} />
   }
 
   if (needsSetup) {

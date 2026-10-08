@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { apiFetch, endServerSession, refreshSession, tryRefreshToken } from './api'
-import { clearAccessToken, getAccessToken, setAccessToken } from './authToken'
+import { apiFetch, bumpAuthGeneration, endServerSession, refreshSession, signedOutInAnotherTab, tryRefreshToken } from './api'
+import { clearAccessToken, forgetSessionUser, getAccessToken, setAccessToken } from './authToken'
 import { createSocketAuthProvider } from './socketAuth'
 
 // Auth audit 2026-10-08, client session items: one shared refresh path
@@ -70,6 +70,7 @@ afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
   clearAccessToken()
+  forgetSessionUser()
   localStorage.clear()
 })
 
@@ -226,6 +227,57 @@ describe('a refresh never switches the tab to another account (#15)', () => {
     expect(reloadSpy).toHaveBeenCalledTimes(1)
   })
 
+  // Review 1-02: a request or socket that refreshes from no token at all
+  // (#20) must not take the other account either, once the reload that
+  // should have followed was cancelled (a "Reload site?" prompt over
+  // unsaved edits).
+  it('after a cancelled reload, a token-less request is not replayed as the other account', async () => {
+    const bob = makeToken('bob')
+    const seen: Array<string | null> = []
+    const fetchMock = stubFetch({
+      '/api/auth/refresh': () => jsonResponse(200, { accessToken: bob, user: user('bob') }),
+      '/api/config': (init) => {
+        seen.push(new Headers(init?.headers).get('Authorization'))
+        return jsonResponse(401, { error: 'Authentication required', code: 'AUTH_REQUIRED' })
+      },
+    })
+    setAccessToken(makeToken('alice', 10))
+
+    await expect(tryRefreshToken()).resolves.toBe(false)
+    expect(reloadSpy).toHaveBeenCalledTimes(1)
+
+    const response = await apiFetch('/config', { method: 'PUT', body: '{}' })
+
+    expect(response.status).toBe(401)
+    expect(seen).toEqual([null])
+    expect(getAccessToken()).toBeNull()
+    expect(callsTo(fetchMock, '/api/auth/refresh')).toBe(2)
+    expect(reloadSpy.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it('after a cancelled reload, the socket is not handed the other account either', async () => {
+    stubFetch({ '/api/auth/refresh': () => jsonResponse(200, { accessToken: makeToken('bob'), user: user('bob') }) })
+    setAccessToken(makeToken('alice', 10))
+    await expect(tryRefreshToken()).resolves.toBe(false)
+
+    const callback = vi.fn()
+    createSocketAuthProvider(getAccessToken, true)(callback)
+    await vi.waitFor(() => expect(reloadSpy.mock.calls.length).toBeGreaterThan(1))
+
+    expect(callback).not.toHaveBeenCalled()
+    expect(getAccessToken()).toBeNull()
+  })
+
+  it('a tab that signed out takes whoever signs in next', async () => {
+    stubFetch({ '/api/auth/refresh': () => jsonResponse(200, { accessToken: makeToken('bob'), user: user('bob') }) })
+    setAccessToken(makeToken('alice', 10))
+    clearAccessToken()
+    forgetSessionUser()
+
+    await expect(tryRefreshToken()).resolves.toBe(true)
+    expect(reloadSpy).not.toHaveBeenCalled()
+  })
+
   it('the same user refreshes as usual', async () => {
     const fresh = makeToken('alice')
     stubFetch({ '/api/auth/refresh': () => jsonResponse(200, { accessToken: fresh, user: user('alice') }) })
@@ -292,6 +344,24 @@ describe('sign-out and a refresh in flight (#14)', () => {
     await expect(endServerSession()).resolves.toBe(false)
   })
 
+  // Review 0-2: a proxy's maintenance page or a captive portal answers 200
+  // without the panel ever clearing the cookie.
+  it("a 200 that is not the panel's own { success: true } is not a sign-out", async () => {
+    stubFetch({
+      '/api/auth/logout': () => new Response('<html><body>Down for maintenance</body></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    })
+    await expect(endServerSession()).resolves.toBe(false)
+
+    stubFetch({ '/api/auth/logout': () => jsonResponse(200, {}) })
+    await expect(endServerSession()).resolves.toBe(false)
+
+    stubFetch({ '/api/auth/logout': () => jsonResponse(200, { success: true }) })
+    await expect(endServerSession()).resolves.toBe(true)
+  })
+
   it('when the sign-out fails, the refresh it overtook still counts: the session stands', async () => {
     const refreshAnswer = deferred<Response>()
     const fresh = makeToken('u1')
@@ -308,5 +378,79 @@ describe('sign-out and a refresh in flight (#14)', () => {
     await expect(signOut).resolves.toBe(false)
     await expect(refresh).resolves.toBe(true)
     expect(getAccessToken()).toBe(fresh)
+  })
+})
+
+// Review 0-1: on plain HTTP there is no navigator.locks, so another tab's
+// logout and this tab's refresh, both sent with the same cookie, can land
+// in either order: this tab's Set-Cookie arriving after that clear leaves a
+// working 30-day cookie behind a tab that shows the sign-in screen.
+describe("another tab's sign-out and this tab's refresh (#16)", () => {
+  it('a refresh in flight when another tab signs out ends the session it put back', async () => {
+    const refreshAnswer = deferred<Response>()
+    const fetchMock = stubFetch({
+      '/api/auth/refresh': () => refreshAnswer.promise,
+      '/api/auth/logout': () => jsonResponse(200, { success: true }),
+    })
+    setAccessToken(makeToken('alice', 10))
+
+    const refresh = tryRefreshToken()
+    await Promise.resolve()
+    // What AuthContext's signedOutElsewhere does first; clearing the token
+    // is its next step.
+    bumpAuthGeneration()
+    clearAccessToken()
+    refreshAnswer.resolve(jsonResponse(200, { accessToken: makeToken('alice'), user: user('alice') }))
+
+    await expect(refresh).resolves.toBe(false)
+    expect(getAccessToken()).toBeNull()
+    await vi.waitFor(() => expect(callsTo(fetchMock, '/api/auth/logout')).toBe(1))
+  })
+
+  it('a refresh the panel refused needs no sign-out of its own', async () => {
+    const refreshAnswer = deferred<Response>()
+    const fetchMock = stubFetch({
+      '/api/auth/refresh': () => refreshAnswer.promise,
+      '/api/auth/logout': () => jsonResponse(200, { success: true }),
+    })
+    setAccessToken(makeToken('alice', 10))
+
+    const refresh = tryRefreshToken()
+    await Promise.resolve()
+    bumpAuthGeneration()
+    refreshAnswer.resolve(jsonResponse(401, { error: 'Invalid refresh token', code: 'INVALID_REFRESH_TOKEN' }))
+
+    await expect(refresh).resolves.toBe(false)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(callsTo(fetchMock, '/api/auth/logout')).toBe(0)
+  })
+
+  it('hearing it right after this tab rotated the cookie, signs that session out too', async () => {
+    const fetchMock = stubFetch({
+      '/api/auth/refresh': () => jsonResponse(200, { accessToken: makeToken('alice'), user: user('alice') }),
+      '/api/auth/logout': () => jsonResponse(200, { success: true }),
+    })
+    await expect(tryRefreshToken()).resolves.toBe(true)
+
+    signedOutInAnotherTab()
+
+    expect(getAccessToken()).toBeNull()
+    await vi.waitFor(() => expect(callsTo(fetchMock, '/api/auth/logout')).toBe(1))
+  })
+
+  it('hearing it long after its last refresh (a frozen tab), leaves a newer sign-in alone', async () => {
+    const fetchMock = stubFetch({
+      '/api/auth/refresh': () => jsonResponse(200, { accessToken: makeToken('alice'), user: user('alice') }),
+      '/api/auth/logout': () => jsonResponse(200, { success: true }),
+    })
+    await expect(tryRefreshToken()).resolves.toBe(true)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.now() + 60_000)
+
+    signedOutInAnotherTab()
+
+    expect(getAccessToken()).toBeNull()
+    await Promise.resolve()
+    expect(callsTo(fetchMock, '/api/auth/logout')).toBe(0)
   })
 })

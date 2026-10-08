@@ -1,5 +1,5 @@
 import { reportClientWarning } from "./client-errors";
-import { clearAccessToken, getAccessToken, setAccessToken } from "./authToken";
+import { clearAccessToken, forgetSessionUser, getAccessToken, getSessionUserId, setAccessToken } from "./authToken";
 import { toast } from "@/components/ui/use-toast";
 import i18n from "@/i18n";
 import { hostTimeToLocal } from "./hostClock";
@@ -96,6 +96,9 @@ let refreshRequest: Promise<RefreshAnswer> | null = null;
 // session back in this tab.
 let authGeneration = 0;
 let signOutPromise: Promise<boolean> | null = null;
+// When this tab last had the refresh cookie rotated (see
+// signedOutInAnotherTab).
+let lastRotatedAt = Number.NEGATIVE_INFINITY;
 
 export function bumpAuthGeneration(): void {
   authGeneration += 1;
@@ -104,6 +107,7 @@ export function bumpAuthGeneration(): void {
 const AUTH_LOCK_NAME = "pz-auth-refresh";
 const REFRESH_RACE_RETRY_MS = 300;
 const AUTH_REQUEST_TIMEOUT_MS = 15000;
+const RECENT_ROTATION_MS = 5000;
 
 // Every tab shares one refresh cookie and the server rotates it on each use,
 // so two tabs refreshing at once used to sign one of them out (audit #19).
@@ -167,26 +171,41 @@ async function runRefresh(): Promise<RefreshOutcome> {
   if (signOutPromise && (await signOutPromise)) return { ok: false };
 
   const generation = authGeneration;
-  const previousUserId = decodeJwtUserId(getAccessToken());
+  // The token may already be gone (a failed refresh dropped it): the account
+  // this tab showed still decides (audit #15, review 1-02).
+  const previousUserId = decodeJwtUserId(getAccessToken()) ?? getSessionUserId();
   const request = withAuthLock(refreshWithRaceRetry);
   refreshRequest = request;
   const answer = await request;
   if (refreshRequest === request) refreshRequest = null;
-
-  if (generation !== authGeneration) {
-    // Signed out while this was in flight. Only a sign-out from this tab
-    // that failed leaves the session, and so this answer, standing.
-    const signOut = signOutPromise;
-    if (!signOut || (await signOut)) return { ok: false };
-  }
-
   const data = answer.payload as {
     accessToken?: unknown;
     user?: SessionUser | null;
     deviceToken?: unknown;
   } | null;
-  if (answer.status >= 200 && answer.status < 300 && typeof data?.accessToken === "string") {
-    const userId = typeof data.user?.id === "string" ? data.user.id : null;
+  // Set only by the panel's own answer, which also set a new refresh cookie.
+  const newToken = answer.status >= 200 && answer.status < 300 && typeof data?.accessToken === "string"
+    ? data.accessToken
+    : null;
+  if (newToken) lastRotatedAt = Date.now();
+
+  if (generation !== authGeneration) {
+    // Signed out while this was in flight. Only a sign-out from this tab
+    // that failed leaves the session, and so this answer, standing.
+    const signOut = signOutPromise;
+    if (!signOut) {
+      // Another tab signed out. Without navigator.locks (plain HTTP) this
+      // refresh's Set-Cookie can land after that tab's clear and leave a
+      // working 30-day cookie: end the session it put back. With no cookie
+      // left, the panel answers 200 and does nothing.
+      if (newToken) void withAuthLock(() => postAuth("/api/auth/logout"));
+      return { ok: false };
+    }
+    if (await signOut) return { ok: false };
+  }
+
+  if (newToken) {
+    const userId = typeof data?.user?.id === "string" ? data.user.id : null;
     if (previousUserId && userId && userId !== previousUserId) {
       // SECURITY (2026-10-08, audit #15): the shared cookie now belongs to
       // another account (someone signed in as them in another tab). Going on
@@ -196,11 +215,11 @@ async function runRefresh(): Promise<RefreshOutcome> {
       window.location.reload();
       return { ok: false };
     }
-    setAccessToken(data.accessToken);
+    setAccessToken(newToken);
     // Also where a browser back from SSO first gets one (see
     // lib/trustedDevice.ts).
-    rememberTrustedDeviceToken(data.user?.username, data.deviceToken);
-    return { ok: true, user: data.user ?? null };
+    rememberTrustedDeviceToken(data?.user?.username, data?.deviceToken);
+    return { ok: true, user: data?.user ?? null };
   }
 
   // Only the panel refusing the cookie ends the session (audit #20). A
@@ -243,7 +262,11 @@ export function endServerSession(): Promise<boolean> {
       // jar. The lock does the same for another tab's refresh.
       await pendingRefresh;
       const answer = await withAuthLock(() => postAuth("/api/auth/logout"));
-      return answer.status >= 200 && answer.status < 300;
+      // Only the panel's own { success: true } confirms the cookie was
+      // cleared: a proxy's maintenance page or a captive portal can answer
+      // 200 too, without the panel ever seeing the sign-out.
+      return answer.status >= 200 && answer.status < 300
+        && (answer.payload as { success?: unknown } | null)?.success === true;
     } catch {
       return false;
     }
@@ -253,6 +276,24 @@ export function endServerSession(): Promise<boolean> {
     if (signOutPromise === attempt) signOutPromise = null;
   });
   return attempt;
+}
+
+/**
+ * Another tab of this browser signed out (AuthContext hears it on the
+ * pz-auth channel). Drops this tab's session and any refresh it has in
+ * flight. If this tab's refresh rotated the cookie a moment ago, its
+ * Set-Cookie may have landed after the other tab's clear (plain HTTP has no
+ * navigator.locks to order them), so the session it put back is ended too.
+ * Only then: a tab that was frozen and hears this late must not end a newer
+ * sign-in.
+ */
+export function signedOutInAnotherTab(): void {
+  bumpAuthGeneration();
+  clearAccessToken();
+  forgetSessionUser();
+  if (Date.now() - lastRotatedAt < RECENT_ROTATION_MS) {
+    void withAuthLock(() => postAuth("/api/auth/logout"));
+  }
 }
 
 // The 401s worth one refresh and replay: an expired token, or a request

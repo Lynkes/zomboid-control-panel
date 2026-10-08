@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { AuthProvider, useAuth } from '../AuthContext'
 import { Toaster } from '../../components/ui/toaster'
-import { clearAccessToken, getAccessToken } from '../../lib/authToken'
+import { AuthStatusError } from '../../components/AuthStatusError'
+import { clearAccessToken, forgetSessionUser, getAccessToken, getSessionUserId } from '../../lib/authToken'
+import enErrors from '../../locales/en/errors.json'
+import enShell from '../../locales/en/shell.json'
 
 // Auth audit 2026-10-08, client session items: the boot check (#23), the
 // shared boot refresh (#19), sign-out that must reach the panel (#14) and
@@ -52,7 +55,7 @@ const signedInRoutes = {
 
 // The same gate App.tsx renders from this state.
 function Screen() {
-  const { isLoading, statusCheckFailed, needsSetup, authEnabled, isAuthenticated, user, logout, retryAuthCheck } = useAuth()
+  const { isLoading, statusCheckFailed, statusCheckCode, needsSetup, authEnabled, isAuthenticated, user, logout, retryAuthCheck } = useAuth()
   let view = 'panel'
   if (isLoading) view = 'loading'
   else if (statusCheckFailed) view = 'status-error'
@@ -64,6 +67,7 @@ function Screen() {
       <div data-testid="user">{user?.username ?? ''}</div>
       <button onClick={() => { void logout() }}>sign out</button>
       <button onClick={retryAuthCheck}>retry check</button>
+      {view === 'status-error' && <AuthStatusError code={statusCheckCode} onRetry={retryAuthCheck} />}
     </div>
   )
 }
@@ -109,6 +113,7 @@ afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   clearAccessToken()
+  forgetSessionUser()
   localStorage.clear()
 })
 
@@ -117,6 +122,29 @@ describe('boot check: only a real answer turns logins off (#23)', () => {
     stubFetch({ '/api/auth/status': () => jsonResponse(503, { error: 'Service unavailable' }) })
     renderApp()
     await waitFor(() => expect(view()).toBe('status-error'))
+    expect(screen.getByText(enShell.authSession.statusCheckFailedDescription)).toBeInTheDocument()
+  })
+
+  // Review 1-01: with logins off, the panel refuses an address it does not
+  // answer to on every /api path, this check included. A retry never
+  // clears that, and the refusal's own text says what does.
+  it('a HOST_NOT_ALLOWED refusal shows its own reason, not "wait and retry"', async () => {
+    stubFetch({
+      '/api/auth/status': () => jsonResponse(403, { error: 'Host not allowed', code: 'HOST_NOT_ALLOWED' }),
+    })
+    renderApp()
+    await waitFor(() => expect(view()).toBe('status-error'))
+    expect(screen.getByText(enErrors.HOST_NOT_ALLOWED)).toBeInTheDocument()
+    expect(screen.queryByText(enShell.authSession.statusCheckFailedDescription)).toBeNull()
+  })
+
+  it("the panel's own AUTH_STATUS_CHECK_FAILED keeps the wait-and-retry text", async () => {
+    stubFetch({
+      '/api/auth/status': () => jsonResponse(500, { error: 'Failed to get auth status', code: 'AUTH_STATUS_CHECK_FAILED' }),
+    })
+    renderApp()
+    await waitFor(() => expect(view()).toBe('status-error'))
+    expect(screen.getByText(enShell.authSession.statusCheckFailedDescription)).toBeInTheDocument()
   })
 
   it("a proxy's HTML page shows the error card, not the panel", async () => {
@@ -180,7 +208,7 @@ describe('boot refresh goes through the shared refresh (#19)', () => {
 
 describe('sign-out reaches every tab of this browser (#16)', () => {
   it('a logout message on the channel shows the sign-in screen and drops the token', async () => {
-    stubFetch(signedInRoutes)
+    const fetchMock = stubFetch({ ...signedInRoutes, '/api/auth/logout': () => jsonResponse(200, { success: true }) })
     renderApp()
     await waitFor(() => expect(view()).toBe('panel'))
     expect(getAccessToken()).not.toBeNull()
@@ -191,6 +219,10 @@ describe('sign-out reaches every tab of this browser (#16)', () => {
 
     expect(view()).toBe('login')
     expect(getAccessToken()).toBeNull()
+    expect(getSessionUserId()).toBeNull()
+    // The boot refresh rotated the cookie a moment ago; on plain HTTP its
+    // Set-Cookie may have landed after the other tab's clear (review 0-1).
+    await waitFor(() => expect(callsTo(fetchMock, '/api/auth/logout')).toBe(1))
   })
 
   it('signing out tells the other tabs on the pz-auth channel', async () => {
@@ -205,6 +237,7 @@ describe('sign-out reaches every tab of this browser (#16)', () => {
 
     await waitFor(() => expect(view()).toBe('login'))
     expect(received).toEqual([{ type: 'logout' }])
+    expect(getSessionUserId()).toBeNull()
   })
 
   it('without BroadcastChannel, localStorage carries it both ways', async () => {
@@ -230,6 +263,33 @@ describe('sign-out reaches every tab of this browser (#16)', () => {
 // Last: the failure toast stays a minute in the toast store every Toaster
 // in this file shares.
 describe('sign-out has to reach the panel (#14)', () => {
+  // Review 0-2: a proxy's maintenance page answers 200 without the panel
+  // ever clearing the cookie. Retry closes the toast before the next test.
+  it("a 200 page that is not the panel's answer keeps the session and shows the error", async () => {
+    stubFetch({
+      ...signedInRoutes,
+      '/api/auth/logout': [
+        () => new Response('<html><body>Down for maintenance</body></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+        () => jsonResponse(200, { success: true }),
+      ],
+    })
+    renderApp()
+    await waitFor(() => expect(view()).toBe('panel'))
+
+    fireEvent.click(screen.getByText('sign out'))
+
+    expect(await screen.findByText('Sign-out did not reach the panel')).toBeInTheDocument()
+    expect(view()).toBe('panel')
+    expect(getAccessToken()).not.toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(view()).toBe('login'))
+    await waitFor(() => expect(screen.queryByText('Sign-out did not reach the panel')).toBeNull())
+  })
+
   it('a 502 from /logout keeps the session and shows the error with Retry, which then signs out', async () => {
     const fetchMock = stubFetch({
       ...signedInRoutes,

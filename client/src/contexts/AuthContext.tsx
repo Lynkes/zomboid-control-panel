@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
-import { clearAccessToken, getAccessToken, setAccessToken } from '../lib/authToken'
-import { ApiError, apiFetch, bumpAuthGeneration, endServerSession, handleResponse, refreshSession } from '../lib/api'
+import { clearAccessToken, forgetSessionUser, getAccessToken, setAccessToken } from '../lib/authToken'
+import { ApiError, apiFetch, endServerSession, handleResponse, refreshSession, signedOutInAnotherTab } from '../lib/api'
 import { getUserErrorMessage } from '../lib/errorMessage'
 import { getTrustedDeviceToken, rememberTrustedDeviceToken } from '../lib/trustedDevice'
 import { toast } from '../components/ui/use-toast'
@@ -30,6 +30,10 @@ interface AuthState {
   // page, a network error), so whether logins are on is unknown. App shows
   // an error card with Retry rather than guess.
   statusCheckFailed: boolean
+  // The code the panel itself refused that check with, when it sent one
+  // (HOST_NOT_ALLOWED: opened by an address it does not answer to). The
+  // card shows that reason rather than "wait and retry".
+  statusCheckCode: string | null
 }
 
 interface AuthContextType extends AuthState {
@@ -121,14 +125,23 @@ const SIGN_OUT_STORAGE_KEY = 'pz-auth-signed-out'
 
 type AuthStatus = { needsSetup?: unknown; authEnabled?: unknown }
 
-async function fetchAuthStatus(): Promise<AuthStatus | null> {
+async function fetchAuthStatus(): Promise<{ status: AuthStatus | null; code: string | null }> {
   try {
     const res = await fetch('/api/auth/status')
-    if (!res.ok) return null
+    if (!res.ok) {
+      let code: string | null = null
+      try {
+        const body = (await res.json()) as { code?: unknown } | null
+        code = typeof body?.code === 'string' ? body.code : null
+      } catch {
+        // Not JSON (a proxy's page): no reason to show.
+      }
+      return { status: null, code }
+    }
     const body: unknown = await res.json()
-    return body && typeof body === 'object' ? (body as AuthStatus) : null
+    return { status: body && typeof body === 'object' ? (body as AuthStatus) : null, code: null }
   } catch {
-    return null
+    return { status: null, code: null }
   }
 }
 
@@ -174,6 +187,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     needsSetup: false,
     authEnabled: true,
     statusCheckFailed: false,
+    statusCheckCode: null,
   })
   const channelRef = useRef<BroadcastChannel | null>(null)
 
@@ -188,7 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // only a real JSON answer saying so turns logins off. Any failure used
     // to, rendering the whole panel with no sign-out and no way to the
     // sign-in form, every call refused.
-    const status = await fetchAuthStatus()
+    const { status, code } = await fetchAuthStatus()
     if (!status) {
       setState(prev => ({
         ...prev,
@@ -196,6 +210,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: false,
         authEnabled: true,
         statusCheckFailed: true,
+        statusCheckCode: code,
       }))
       return
     }
@@ -207,6 +222,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         needsSetup: true,
         authEnabled: false,
         statusCheckFailed: false,
+        statusCheckCode: null,
       }))
       return
     }
@@ -218,6 +234,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: true,
         authEnabled: false,
         statusCheckFailed: false,
+        statusCheckCode: null,
       }))
       return
     }
@@ -238,6 +255,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             needsSetup: false,
             authEnabled: true,
             statusCheckFailed: false,
+            statusCheckCode: null,
           })
           return
         }
@@ -257,6 +275,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           needsSetup: false,
           authEnabled: true,
           statusCheckFailed: false,
+          statusCheckCode: null,
         })
         return
       }
@@ -271,6 +290,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: false,
       authEnabled: true,
       statusCheckFailed: false,
+      statusCheckCode: null,
     }))
   }, [getToken])
 
@@ -279,15 +299,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [checkAuth])
 
   const retryAuthCheck = useCallback(() => {
-    setState(prev => ({ ...prev, isLoading: true, statusCheckFailed: false }))
+    setState(prev => ({ ...prev, isLoading: true, statusCheckFailed: false, statusCheckCode: null }))
     void checkAuth()
   }, [checkAuth])
 
   useEffect(() => {
     const signedOutElsewhere = () => {
-      // Drops a refresh this tab has in flight, too.
-      bumpAuthGeneration()
-      clearAccessToken()
+      // Drops this tab's token and a refresh it has in flight, too.
+      signedOutInAnotherTab()
       setState(prev => (prev.authEnabled && prev.isAuthenticated
         ? { ...prev, user: null, isAuthenticated: false }
         : prev))
@@ -342,6 +361,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         needsSetup: false,
         authEnabled: true,
         statusCheckFailed: false,
+        statusCheckCode: null,
       })
     } catch (error) {
       throw new ApiError(getLoginErrorMessage(error), {
@@ -386,6 +406,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       needsSetup: false,
       authEnabled: true,
       statusCheckFailed: false,
+      statusCheckCode: null,
     })
   }, [])
 
@@ -401,6 +422,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return
       }
       clearAccessToken()
+      // The next sign-in here may be anyone (see lib/authToken.ts).
+      forgetSessionUser()
       announceSignOut(channelRef.current)
       setState(prev => ({
         ...prev,
