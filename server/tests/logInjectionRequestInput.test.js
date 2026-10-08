@@ -44,6 +44,14 @@ vi.mock("../services/oidc.js", async (importOriginal) => ({
   }),
   isOidcConfigured: () => true,
   handleOidcCallback: vi.fn(),
+  // routes/oidc.js only honours a callback for a flow it issued, so the
+  // callback tests below first start one through GET /login with these.
+  buildOidcAuthorizationRequest: async () => ({
+    authorizationUrl: "https://idp.example/authorize",
+    state: "s",
+    nonce: "n",
+    codeVerifier: "v",
+  }),
 }));
 
 const { escapeLogText } = await import("../utils/logText.js");
@@ -201,11 +209,17 @@ describe("unauthenticated input in log lines", () => {
     };
   }
 
+  async function issueFlow() {
+    const layer = oidcRoutes.stack.find((l) => l.route?.path === "/login" && l.route.methods.get);
+    await layer.route.stack[layer.route.stack.length - 1].handle({ headers: {}, secure: false }, callbackRes());
+  }
+
   it("keeps the OIDC callback's rejection reason on one line", async () => {
     const marker = `oidc-${Date.now()}`;
     oidcService.handleOidcCallback.mockRejectedValueOnce(
       new Error(`unexpected "state" ${marker}${CRLF}${forgedEntry("OIDC sign-in: admin")}`),
     );
+    await issueFlow();
     await callbackHandler()(callbackReq(), callbackRes());
 
     const line = await logLine(marker);
@@ -222,6 +236,7 @@ describe("unauthenticated input in log lines", () => {
     const spy = vi
       .spyOn(authService, "loginWithExternalIdentity")
       .mockResolvedValueOnce({ linked: false, canBootstrapAdmin: false });
+    await issueFlow();
     await callbackHandler()(callbackReq(), callbackRes());
     spy.mockRestore();
 

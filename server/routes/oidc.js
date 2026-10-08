@@ -9,6 +9,7 @@
 // resolution — once a token is validated, /callback hands the (already
 // verified) issuer+subject straight to authService.loginWithExternalIdentity(),
 // which is Jim's auth.js work and decides find-vs-refuse/role policy.
+import crypto from "crypto";
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import authService, { requireRole } from "../services/auth.js";
@@ -35,40 +36,91 @@ import { requirePermission } from "../services/permissions.js";
 const log = createLogger("OIDC");
 const router = Router();
 
-// Mirrors routes/auth.js's own loginLimiter (5/min) — same reasoning
-// applies here: both routes below do real work (a redirect build, a full
-// token exchange + DB lookup) that's worth protecting from abuse, same as
-// the local login route already is. Separate instances (not one shared
-// limiter) so a legitimate user's normal login→callback round trip doesn't
-// spend a single shared budget twice per attempt.
-function makeOidcLimiter() {
-  return rateLimit({
-    windowMs: 1 * 60 * 1000,
-    max: 5,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { error: "Too many sign-in attempts. Please try again later." },
-  });
-}
-const loginRateLimiter = makeOidcLimiter();
-const callbackRateLimiter = makeOidcLimiter();
+// SECURITY (2026-10-08, #22): one budget per route. /login and /link used
+// to share 5 a minute keyed by address, so one stranger on an address
+// everyone shares (a proxy without TRUST_PROXY) could refuse every SSO
+// sign-in and every admin's link. Building the redirect is cheap; 30 a
+// minute still caps how many flows one address can start.
+const loginRateLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many sign-in attempts. Please try again later." },
+});
+// Runs after the admin check and counts per admin account, so requests from
+// anyone else never spend an admin's budget.
+const linkRateLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => !req.user?.userId,
+  keyGenerator: (req) => `user:${req.user.userId}`,
+  message: { error: "Too many SSO link attempts. Please try again later." },
+});
+// /callback has no address-keyed limiter any more (same finding): five junk
+// callbacks a minute used to refuse every sign-in behind a shared address.
+// A callback whose state this process did not issue is now refused before
+// any request to the provider, and an issued state is single-use and needs
+// the browser's own PKCE verifier, so token exchanges are bounded by the two
+// limiters above. The global /api limiter still caps raw request volume.
 
 const FLOW_COOKIE_NAME = "oidcFlow";
 const FLOW_COOKIE_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes — enough for an IdP login + MFA, short enough to limit exposure.
-const pendingIdentityLinks = new Map();
 
-function prunePendingIdentityLinks(now = Date.now()) {
-  for (const [state, entry] of pendingIdentityLinks) {
-    if (entry.expiresAt <= now) pendingIdentityLinks.delete(state);
-  }
+// SECURITY (2026-10-08, #6 and #22): every state /login and /link hand out,
+// with a SHA-256 of that flow's PKCE verifier (and, for /link, the account
+// being linked). The state travels in URLs (provider and proxy logs, browser
+// history) and the flow cookie is unsigned, so the state alone proves
+// nothing: a callback is honoured only when its cookie's verifier hashes to
+// the recorded one, and only that callback consumes the entry. Consuming it
+// on any request that names the state would let a stranger cancel someone
+// else's flow. Lost on restart, which reads as an expired flow.
+const issuedFlows = new Map();
+const MAX_ISSUED_FLOWS = 2000;
+
+function hashCodeVerifier(codeVerifier) {
+  return crypto.createHash("sha256").update(codeVerifier).digest();
 }
 
-function rememberPendingIdentityLink(state, entry) {
-  pendingIdentityLinks.set(state, entry);
-  const cleanup = setTimeout(() => {
-    pendingIdentityLinks.delete(state);
-  }, Math.max(0, entry.expiresAt - Date.now()));
-  cleanup.unref?.();
+function rememberIssuedFlow(state, codeVerifier, entry, now = Date.now()) {
+  for (const [key, value] of issuedFlows) {
+    if (value.expiresAt <= now) issuedFlows.delete(key);
+  }
+  // Oldest first (a Map keeps insertion order); only reached when this many
+  // flows were started inside one cookie lifetime.
+  while (issuedFlows.size >= MAX_ISSUED_FLOWS) {
+    issuedFlows.delete(issuedFlows.keys().next().value);
+  }
+  issuedFlows.set(state, {
+    ...entry,
+    verifierHash: hashCodeVerifier(codeVerifier),
+    expiresAt: now + FLOW_COOKIE_MAX_AGE_MS,
+  });
+}
+
+// The issued entry for this cookie, removed from the map, or null (and the
+// entry left alone) when the cookie does not prove it started that flow.
+function takeIssuedFlow(flow, now = Date.now()) {
+  if (typeof flow.state !== "string" || typeof flow.codeVerifier !== "string") return null;
+  const entry = issuedFlows.get(flow.state);
+  if (!entry) return null;
+  if (entry.expiresAt <= now) {
+    issuedFlows.delete(flow.state);
+    return null;
+  }
+  if (entry.flowType !== flow.flowType) return null;
+  if (!crypto.timingSafeEqual(hashCodeVerifier(flow.codeVerifier), entry.verifierHash)) {
+    return null;
+  }
+  issuedFlows.delete(flow.state);
+  return entry;
+}
+
+// For tests: forget every issued flow between cases.
+export function _resetIssuedOidcFlowsForTests() {
+  issuedFlows.clear();
 }
 
 // The state/nonce/PKCE cookie deliberately uses SameSite=Lax, not Strict:
@@ -77,10 +129,9 @@ function rememberPendingIdentityLink(state, entry) {
 // back on /api/auth/oidc/callback via a top-level cross-site GET redirect
 // FROM the identity provider's domain — SameSite=Strict cookies are not
 // sent on that navigation and the flow would break on every provider.
-// Unsigned is fine: it carries no secret, only values the IdP is separately
-// asked to echo back — any tampering just fails the state/nonce/PKCE
-// comparison inside openid-client and the sign-in is refused, same as if
-// the cookie were absent.
+// Unsigned: tampering with the state, nonce or verifier fails either the
+// issued-flow check above or openid-client's own comparisons, and the
+// sign-in is refused, same as if the cookie were absent.
 function getFlowCookieOptions(req) {
   const forceSecureCookies =
     process.env.HTTPS === "true" || process.env.FORCE_HSTS === "true";
@@ -115,6 +166,7 @@ router.get("/login", loginRateLimiter, async (req, res) => {
   try {
     const { authorizationUrl, state, nonce, codeVerifier } =
       await buildOidcAuthorizationRequest();
+    rememberIssuedFlow(state, codeVerifier, { flowType: "login" });
 
     res.cookie(
       FLOW_COOKIE_NAME,
@@ -136,7 +188,7 @@ router.get("/login", loginRateLimiter, async (req, res) => {
 // existing local account. The selected user id lives server-side, keyed by
 // the random OIDC state, rather than in the unsigned browser cookie; changing
 // a cookie cannot redirect a verified Google identity onto another account.
-router.post("/link", loginRateLimiter, requireRole("admin"), async (req, res) => {
+router.post("/link", requireRole("admin"), linkRateLimiter, async (req, res) => {
   if (req.user?.authDisabled) {
     return res.status(403).json({
       error: "SSO linking requires an authenticated administrator",
@@ -172,11 +224,10 @@ router.post("/link", loginRateLimiter, requireRole("admin"), async (req, res) =>
   try {
     const { authorizationUrl, state, nonce, codeVerifier } =
       await buildOidcAuthorizationRequest();
-    prunePendingIdentityLinks();
-    rememberPendingIdentityLink(state, {
+    rememberIssuedFlow(state, codeVerifier, {
+      flowType: "link",
       userId,
       initiatorUserId,
-      expiresAt: Date.now() + FLOW_COOKIE_MAX_AGE_MS,
     });
     res.cookie(
       FLOW_COOKIE_NAME,
@@ -203,7 +254,7 @@ router.post("/link", loginRateLimiter, requireRole("admin"), async (req, res) =>
 // pick up a session set here. Failures redirect with a short, generic
 // reason code only — never a raw error message — for whichever future UI
 // work wants to surface it.
-router.get("/callback", callbackRateLimiter, async (req, res) => {
+router.get("/callback", async (req, res) => {
   const settings = await getOidcSettings();
   if (!isOidcConfigured(settings)) {
     return res.redirect("/?oidcError=not_configured");
@@ -228,6 +279,20 @@ router.get("/callback", callbackRateLimiter, async (req, res) => {
   const queryIndex = req.url.indexOf("?");
   currentUrl.search = queryIndex === -1 ? "" : req.url.slice(queryIndex);
 
+  // Before any request to the provider: the flow must be one this process
+  // started, proved by the cookie's verifier, and the provider must have
+  // sent back that same state, so only the flow's own callback can end it.
+  // A link flow never falls back to ordinary sign-in.
+  const isLinkFlow = flow.flowType === "link";
+  const issuedFlow =
+    currentUrl.searchParams.get("state") === flow.state ? takeIssuedFlow(flow) : null;
+  if (!issuedFlow) {
+    log.warn("OIDC callback for a flow this panel did not start, or one that already ended");
+    return res.redirect(
+      isLinkFlow ? "/settings?tab=users&oidcError=link_expired" : "/?oidcError=expired_flow",
+    );
+  }
+
   // SECURITY (2026-10-05, H2): everything below that reaches a log line can
   // carry what the caller put in this URL (the query's error/state
   // parameters end up in the client library's error text) or what the
@@ -241,24 +306,16 @@ router.get("/callback", callbackRateLimiter, async (req, res) => {
     return res.redirect("/?oidcError=invalid_token");
   }
 
-  if (flow.flowType === "link") {
-    const pendingLink = pendingIdentityLinks.get(flow.state);
-    if (!pendingLink) {
-      return res.redirect("/settings?tab=users&oidcError=link_expired");
-    }
-    pendingIdentityLinks.delete(flow.state);
-    if (pendingLink.expiresAt <= Date.now()) {
-      return res.redirect("/settings?tab=users&oidcError=link_expired");
-    }
+  if (isLinkFlow) {
     try {
-      await authService.linkExternalIdentity(pendingLink.userId, {
+      await authService.linkExternalIdentity(issuedFlow.userId, {
         issuer: claims.iss,
         subject: claims.sub,
         email: claims.email,
       }, {
-        actingUserId: pendingLink.initiatorUserId,
+        actingUserId: issuedFlow.initiatorUserId,
       });
-      log.info(`OIDC identity linked to local user ${pendingLink.userId}`);
+      log.info(`OIDC identity linked to local user ${issuedFlow.userId}`);
       return res.redirect("/settings?tab=users&oidcSuccess=linked");
     } catch (error) {
       log.warn(`OIDC identity link failed: ${escapeLogText(error.message)}`);
