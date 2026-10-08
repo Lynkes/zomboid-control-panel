@@ -167,8 +167,10 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
         usersApi.list(),
         permissionsApi.getRoles(),
       ])
-      setUsers(list)
-      setRoles(roleList)
+      // A reply without the list (the demo build's catch-all answer had
+      // neither) reads as an empty one, not undefined for roles.map() below.
+      setUsers(Array.isArray(list) ? list : [])
+      setRoles(Array.isArray(roleList) ? roleList : [])
     } catch (error) {
       if (error instanceof ApiError && error.status === 403) {
         setPermissionDenied(true)
