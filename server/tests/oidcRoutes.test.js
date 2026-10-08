@@ -593,6 +593,55 @@ describe('routes/oidc.js: /callback', () => {
     ]);
   });
 
+  it("a login state paired with another verifier or a later expiry is refused, and the real flow still signs in", async () => {
+    const flow = await startLoginFlow();
+    const before = provider.tokenRequests;
+    for (const forged of [
+      { ...flow, codeVerifier: 'attacker-verifier' },
+      { ...flow, expiresAt: flow.expiresAt + 60_000 },
+      { ...flow, tag: undefined },
+    ]) {
+      const res = makeRes();
+      await getHandler('get', '/callback')(callbackReq({ flow: forged }), res);
+      expect(res.redirectedTo).toBe('/?oidcError=expired_flow');
+    }
+    expect(provider.tokenRequests).toBe(before);
+
+    provider.setNextIdToken({ claims: { nonce: flow.nonce } });
+    vi.spyOn(dbModule, 'getDb').mockResolvedValue({ data: { users: [{ id: 'a', username: 'a', role: 'admin' }] } });
+    const res = makeRes();
+    await getHandler('get', '/callback')(callbackReq({ flow }), res);
+    expect(res.redirectedTo).toBe('/?oidcError=refused');
+  });
+
+  // Review of #22: one shared, capped map of issued flows let a /login flood
+  // push other people's sign-ins and an admin's link flow out of it.
+  it('a flood of /login requests ends neither an admin link flow nor a sign-in already under way', async () => {
+    const target = { id: 'user-42', username: 'alice', role: 'moderator', externalIdentities: [] };
+    vi.spyOn(dbModule, 'getDb').mockResolvedValue({
+      data: { users: [{ id: 'admin-1', username: 'admin', role: 'admin' }, target] },
+    });
+    vi.spyOn(dbModule, 'commitNow').mockResolvedValue(undefined);
+
+    const linkFlow = await startLinkFlow('user-42');
+    const loginFlow = await startLoginFlow();
+    const loginHandler = getHandler('get', '/login');
+    for (let i = 0; i < 2100; i++) {
+      await loginHandler(makeReq({ user: undefined }), makeRes());
+    }
+
+    provider.setNextIdToken({ claims: { nonce: linkFlow.nonce, sub: 'alice-sub' } });
+    const linked = makeRes();
+    await getHandler('get', '/callback')(callbackReq({ flow: linkFlow }), linked);
+    expect(linked.redirectedTo).toBe('/settings?tab=users&oidcSuccess=linked&linkedUser=user-42');
+
+    provider.setNextIdToken({ claims: { nonce: loginFlow.nonce, sub: 'someone-else' } });
+    const signIn = makeRes();
+    await getHandler('get', '/callback')(callbackReq({ flow: loginFlow }), signIn);
+    // Reached the provider and came back verified; only the account lookup refused it.
+    expect(signIn.redirectedTo).toBe('/?oidcError=refused');
+  }, 30_000);
+
   // SECURITY (2026-10-08, #13): a wrong or hijacked link could only be
   // removed by deleting the account.
   it('an admin can unlink an identity, which ends its sessions and its SSO sign-in', async () => {

@@ -69,58 +69,108 @@ const linkRateLimiter = rateLimit({
 const FLOW_COOKIE_NAME = "oidcFlow";
 const FLOW_COOKIE_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes — enough for an IdP login + MFA, short enough to limit exposure.
 
-// SECURITY (2026-10-08, #6 and #22): every state /login and /link hand out,
-// with a SHA-256 of that flow's PKCE verifier (and, for /link, the account
-// being linked). The state travels in URLs (provider and proxy logs, browser
-// history) and the flow cookie is unsigned, so the state alone proves
-// nothing: a callback is honoured only when its cookie's verifier hashes to
-// the recorded one, and only that callback consumes the entry. Consuming it
-// on any request that names the state would let a stranger cancel someone
-// else's flow. Lost on restart, which reads as an expired flow.
-const issuedFlows = new Map();
-const MAX_ISSUED_FLOWS = 2000;
-
+// SECURITY (2026-10-08, #6 and #22): a callback is honoured only for a flow
+// this process started, proved by the cookie's PKCE verifier, and only that
+// callback ends it. The state travels in URLs (provider and proxy logs,
+// browser history), so the state alone proves nothing, and ending a flow on
+// any request that names its state would let a stranger cancel someone
+// else's. Lost on restart, which reads as an expired flow.
+//
+// Login and link flows are kept apart. One shared, capped map let anyone who
+// can reach /login push other people's sign-ins and admins' link flows out of
+// it by starting enough flows of their own (review of #22).
 function hashCodeVerifier(codeVerifier) {
   return crypto.createHash("sha256").update(codeVerifier).digest();
 }
 
-function rememberIssuedFlow(state, codeVerifier, entry, now = Date.now()) {
-  for (const [key, value] of issuedFlows) {
-    if (value.expiresAt <= now) issuedFlows.delete(key);
+// Link flows: the account being linked has to live server-side. Written only
+// by POST /link, which is admin-only and limited per admin, so it needs no
+// cap and nobody else can crowd it.
+const issuedLinkFlows = new Map();
+
+function rememberLinkFlow(state, codeVerifier, entry, now = Date.now()) {
+  for (const [key, value] of issuedLinkFlows) {
+    if (value.expiresAt <= now) issuedLinkFlows.delete(key);
   }
-  // Oldest first (a Map keeps insertion order); only reached when this many
-  // flows were started inside one cookie lifetime.
-  while (issuedFlows.size >= MAX_ISSUED_FLOWS) {
-    issuedFlows.delete(issuedFlows.keys().next().value);
-  }
-  issuedFlows.set(state, {
+  issuedLinkFlows.set(state, {
     ...entry,
     verifierHash: hashCodeVerifier(codeVerifier),
     expiresAt: now + FLOW_COOKIE_MAX_AGE_MS,
   });
 }
 
-// The issued entry for this cookie, removed from the map, or null (and the
+// The link entry for this cookie, removed from the map, or null (and the
 // entry left alone) when the cookie does not prove it started that flow.
-function takeIssuedFlow(flow, now = Date.now()) {
+function takeLinkFlow(flow, now = Date.now()) {
   if (typeof flow.state !== "string" || typeof flow.codeVerifier !== "string") return null;
-  const entry = issuedFlows.get(flow.state);
+  const entry = issuedLinkFlows.get(flow.state);
   if (!entry) return null;
   if (entry.expiresAt <= now) {
-    issuedFlows.delete(flow.state);
+    issuedLinkFlows.delete(flow.state);
     return null;
   }
-  if (entry.flowType !== flow.flowType) return null;
   if (!crypto.timingSafeEqual(hashCodeVerifier(flow.codeVerifier), entry.verifierHash)) {
     return null;
   }
-  issuedFlows.delete(flow.state);
+  issuedLinkFlows.delete(flow.state);
   return entry;
+}
+
+// Login flows keep nothing per flow until their callback: the cookie carries
+// an HMAC, under a key that never leaves this process, over the state, its
+// expiry and the verifier's hash. A state this process never issued, or one
+// paired with another verifier, fails it before any request to the provider.
+let loginFlowKey = crypto.randomBytes(32);
+
+function loginFlowTag(state, codeVerifier, expiresAt) {
+  return crypto
+    .createHmac("sha256", loginFlowKey)
+    .update(JSON.stringify(["login", state, expiresAt, hashCodeVerifier(codeVerifier).toString("hex")]))
+    .digest();
+}
+
+// Callbacks that already used their state, so each sign-in reaches the
+// token endpoint once. Only a callback that passed the tag check lands here,
+// so filling it means finishing real flows, and evicting the oldest only
+// lets that one state be tried once more; it never ends anyone's flow.
+const usedLoginStates = new Map();
+const MAX_USED_LOGIN_STATES = 2000;
+
+function issueLoginFlow(state, codeVerifier, now = Date.now()) {
+  const expiresAt = now + FLOW_COOKIE_MAX_AGE_MS;
+  return { expiresAt, tag: loginFlowTag(state, codeVerifier, expiresAt).toString("base64url") };
+}
+
+function takeLoginFlow(flow, now = Date.now()) {
+  if (
+    typeof flow.state !== "string" ||
+    typeof flow.codeVerifier !== "string" ||
+    typeof flow.tag !== "string" ||
+    !Number.isSafeInteger(flow.expiresAt) ||
+    flow.expiresAt <= now
+  ) {
+    return null;
+  }
+  const expected = loginFlowTag(flow.state, flow.codeVerifier, flow.expiresAt);
+  const given = Buffer.from(flow.tag, "base64url");
+  if (given.length !== expected.length || !crypto.timingSafeEqual(given, expected)) return null;
+
+  for (const [key, expiresAt] of usedLoginStates) {
+    if (expiresAt <= now) usedLoginStates.delete(key);
+  }
+  if (usedLoginStates.has(flow.state)) return null;
+  while (usedLoginStates.size >= MAX_USED_LOGIN_STATES) {
+    usedLoginStates.delete(usedLoginStates.keys().next().value);
+  }
+  usedLoginStates.set(flow.state, flow.expiresAt);
+  return { flowType: "login" };
 }
 
 // For tests: forget every issued flow between cases.
 export function _resetIssuedOidcFlowsForTests() {
-  issuedFlows.clear();
+  issuedLinkFlows.clear();
+  usedLoginStates.clear();
+  loginFlowKey = crypto.randomBytes(32);
 }
 
 // The state/nonce/PKCE cookie deliberately uses SameSite=Lax, not Strict:
@@ -129,9 +179,9 @@ export function _resetIssuedOidcFlowsForTests() {
 // back on /api/auth/oidc/callback via a top-level cross-site GET redirect
 // FROM the identity provider's domain — SameSite=Strict cookies are not
 // sent on that navigation and the flow would break on every provider.
-// Unsigned: tampering with the state, nonce or verifier fails either the
-// issued-flow check above or openid-client's own comparisons, and the
-// sign-in is refused, same as if the cookie were absent.
+// Not signed as a whole: tampering with the state, verifier or expiry fails
+// the issued-flow checks above, a changed nonce fails openid-client's own
+// comparison, and the sign-in is refused, same as if the cookie were absent.
 function getFlowCookieOptions(req) {
   const forceSecureCookies =
     process.env.HTTPS === "true" || process.env.FORCE_HSTS === "true";
@@ -166,11 +216,11 @@ router.get("/login", loginRateLimiter, async (req, res) => {
   try {
     const { authorizationUrl, state, nonce, codeVerifier } =
       await buildOidcAuthorizationRequest();
-    rememberIssuedFlow(state, codeVerifier, { flowType: "login" });
+    const { expiresAt, tag } = issueLoginFlow(state, codeVerifier);
 
     res.cookie(
       FLOW_COOKIE_NAME,
-      JSON.stringify({ state, nonce, codeVerifier, flowType: "login" }),
+      JSON.stringify({ state, nonce, codeVerifier, flowType: "login", expiresAt, tag }),
       getFlowCookieOptions(req),
     );
     res.redirect(authorizationUrl);
@@ -226,11 +276,7 @@ router.post("/link", requireRole("admin"), linkRateLimiter, async (req, res) => 
     // linked is whoever signs in now, not the admin's own provider session.
     const { authorizationUrl, state, nonce, codeVerifier } =
       await buildOidcAuthorizationRequest({ forceLogin: true });
-    rememberIssuedFlow(state, codeVerifier, {
-      flowType: "link",
-      userId,
-      initiatorUserId,
-    });
+    rememberLinkFlow(state, codeVerifier, { userId, initiatorUserId });
     res.cookie(
       FLOW_COOKIE_NAME,
       JSON.stringify({ state, nonce, codeVerifier, flowType: "link" }),
@@ -286,8 +332,10 @@ router.get("/callback", async (req, res) => {
   // sent back that same state, so only the flow's own callback can end it.
   // A link flow never falls back to ordinary sign-in.
   const isLinkFlow = flow.flowType === "link";
-  const issuedFlow =
-    currentUrl.searchParams.get("state") === flow.state ? takeIssuedFlow(flow) : null;
+  let issuedFlow = null;
+  if (currentUrl.searchParams.get("state") === flow.state) {
+    issuedFlow = isLinkFlow ? takeLinkFlow(flow) : takeLoginFlow(flow);
+  }
   if (!issuedFlow) {
     log.warn("OIDC callback for a flow this panel did not start, or one that already ended");
     return res.redirect(
