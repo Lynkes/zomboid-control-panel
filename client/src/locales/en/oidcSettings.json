@@ -19,6 +19,7 @@
     "notConfiguredHint": "Fill in the provider details below and save to turn it on."
   },
   "envPinnedNote": "Set via an environment variable on this install — edit it there, not here.",
+  "providerAdminOnlyNote": "Only an administrator can change the provider, client and redirect fields. You can change the display name and scope.",
   "sections": {
     "provider": "Provider",
     "providerDescription": "How this panel connects to your identity provider, and what to register there.",

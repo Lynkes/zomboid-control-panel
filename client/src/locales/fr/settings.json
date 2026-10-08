@@ -658,6 +658,19 @@
     "tipsAdminDesc": "Soyez prudent avec les commandes d'administration. Certaines actions comme bannir ou expulser des joueurs ne peuvent pas être facilement annulées.",
     "tipsAuthTitle": "Authentification :",
     "tipsAuthDesc": "L'authentification n'est pas configurée. Créez un compte via l'assistant de configuration au premier lancement pour protéger l'accès à ce panneau.",
+    "signOutEverywhere": {
+      "cardTitle": "Se déconnecter partout",
+      "cardDesc": "Met fin à toutes les sessions de votre compte, dans ce navigateur et tous les autres. À utiliser si un appareil a été perdu ou si quelqu'un d'autre a peut-être votre connexion.",
+      "button": "Se déconnecter partout",
+      "confirmTitle": "Se déconnecter de tous les navigateurs ?",
+      "confirmDesc": "Tous les navigateurs et appareils connectés à votre compte sont déconnectés, celui-ci compris. Vous devrez vous reconnecter.",
+      "cancel": "Annuler",
+      "confirm": "Se déconnecter partout",
+      "resultTitle": "Déconnecté partout",
+      "resultDescription": "Toutes les sessions de votre compte sont terminées. Redirection vers la connexion…",
+      "failedTitle": "Échec de la déconnexion",
+      "failedFallback": "Le panneau n'a pas pu mettre fin à vos sessions."
+    },
     "regenerateJwt": {
       "cardTitle": "Régénérer le secret JWT",
       "button": "Régénérer le secret JWT",

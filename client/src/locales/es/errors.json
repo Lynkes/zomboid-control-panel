@@ -416,6 +416,9 @@
   "UNEXPECTED_SERVER_ERROR": "{{detail}} Esto no se esperaba; si sigue ocurriendo, descarga un paquete de soporte para que pueda investigarse.",
   "OIDC_CREDENTIALS_REJECTED": "El proveedor ha rechazado el ID de cliente o el secreto de cliente. Compruebe ambos en la pantalla de administración de su proveedor de identidad.",
   "OIDC_TEST_UNDETERMINED": "Se puede acceder al emisor, pero esto no ha confirmado si las credenciales son válidas: {{reason}}. Inicie sesión para obtener una respuesta definitiva.",
+  "OIDC_ISSUER_MISMATCH": "El documento de descubrimiento de esta URL indica otro emisor ({{issuer}}). Introduzca la URL del emisor del propio proveedor, o la URL de descubrimiento que publica ese emisor.",
+  "OIDC_PROVIDER_FIELDS_ADMIN_ONLY": "Solo un administrador puede cambiar la URL del emisor, el ID de cliente, el secreto de cliente, la URI de redirección o el ajuste de HTTP sin cifrar. Aún puede cambiar el nombre para mostrar y el alcance.",
+  "OIDC_CLIENT_SECRET_REQUIRED": "Introduzca el secreto de cliente de este proveedor. El secreto guardado solo se usa con la URL del emisor y el ID de cliente guardados.",
   "PLAYERS_USERNAME_REQUIRED": "Se requiere el nombre de usuario",
   "PLAYERS_INVALID_USERNAME": "Formato de nombre de usuario no válido",
   "PLAYERS_INVALID_REASON": "Formato de motivo no válido",
@@ -595,5 +598,9 @@
   "ZOMBOID_DATA_FOLDER_REFUSED": "La carpeta de datos de Zomboid de este servidor contiene archivos que el juego no guarda en una carpeta de datos, así que el panel no la listará ni la leerá. En la página Mis servidores, edita el servidor y pon como su ruta de datos de Zomboid la carpeta de datos propia del juego: la que tiene una partida guardada en su carpeta Saves.",
   "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "Este servidor no tiene definida una carpeta de datos de Zomboid, y es ahí donde el juego escribe su registro de consola. En la página Mis servidores, edita el servidor y define su ruta de datos de Zomboid.",
   "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "La retransmisión de chat publica en el juego lo que la gente escribe en su canal de Discord, y eso requiere {{detail}}. No lo tienes, así que no puedes activar la retransmisión ni cambiar el canal que escucha (el canal de notificaciones, mientras no haya un canal de retransmisión).",
-  "DISCORD_CHANNEL_OUTSIDE_GUILD": "El canal de notificaciones no pertenece al servidor de Discord configurado aquí, así que el bot no publicará en él. Usa un canal del servidor cuyo ID del servidor (Guild) está configurado, o corrige ese ID."
+  "DISCORD_CHANNEL_OUTSIDE_GUILD": "El canal de notificaciones no pertenece al servidor de Discord configurado aquí, así que el bot no publicará en él. Usa un canal del servidor cuyo ID del servidor (Guild) está configurado, o corrige ese ID.",
+  "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES": "No puedes cambiar, cerrar la sesión ni eliminar una cuenta o un rol que tiene {{detail}}, porque tú no tienes esa capacidad.",
+  "CURRENT_PASSWORD_INCORRECT": "La contraseña actual es incorrecta. Tras 10 intentos fallidos, las comprobaciones de contraseña se pausan durante 15 minutos, incluso con la contraseña correcta.",
+  "RECOVERY_CODES_PASSWORD_REQUIRED": "Introduce tu contraseña actual para generar códigos de recuperación.",
+  "REFRESH_RACE": "Esta sesión se acaba de renovar en otra pestaña. Vuelve a intentarlo."
 }

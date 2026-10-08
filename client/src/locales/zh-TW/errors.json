@@ -416,6 +416,9 @@
   "UNEXPECTED_SERVER_ERROR": "{{detail}} 發生非預期的伺服器錯誤——若問題持續發生，請下載支援包以利除錯分析。",
   "OIDC_CREDENTIALS_REJECTED": "提供商拒絕了客戶端 ID 或客戶端金鑰。請在身份提供商的管理介面中核對這兩項。",
   "OIDC_TEST_UNDETERMINED": "頒發者可以訪問，但本次檢測無法確認憑證是否有效：{{reason}}。請嘗試登入以獲得確定的結果。",
+  "OIDC_ISSUER_MISMATCH": "此 URL 上的探索文件指向另一個頒發者（{{issuer}}）。請輸入提供方本身的頒發者 URL，或該頒發者發布的探索 URL。",
+  "OIDC_PROVIDER_FIELDS_ADMIN_ONLY": "只有管理員可以變更頒發者 URL、客戶端 ID、客戶端金鑰、重新導向 URI 或明文 HTTP 設定。你仍可以變更顯示名稱和作用域。",
+  "OIDC_CLIENT_SECRET_REQUIRED": "請輸入此提供方的客戶端金鑰。已儲存的金鑰只會與已儲存的頒發者 URL 和客戶端 ID 一起使用。",
   "PLAYERS_USERNAME_REQUIRED": "使用者名稱為必填項",
   "PLAYERS_INVALID_USERNAME": "使用者名稱格式無效",
   "PLAYERS_INVALID_REASON": "原因格式無效",
@@ -595,5 +598,9 @@
   "ZOMBOID_DATA_FOLDER_REFUSED": "此伺服器的 Zomboid 資料資料夾中有遊戲不會放在資料資料夾裡的檔案，因此面板不會列出或讀取它。請在「我的伺服器」頁面編輯該伺服器，將其 Zomboid 資料路徑設為遊戲自己的資料資料夾：Saves 資料夾中有世界存檔的那個。",
   "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "此伺服器未設定 Zomboid 資料資料夾，而遊戲會把主控台日誌寫在那裡。請在「我的伺服器」頁面編輯該伺服器，設定其 Zomboid 資料路徑。",
   "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "聊天中繼會把人們在其 Discord 頻道中輸入的內容發布到遊戲中，這需要 {{detail}}。您並未擁有該權限項目，因此無法開啟中繼，也無法變更它監聽的頻道（未設定中繼頻道時即為通知頻道）。",
-  "DISCORD_CHANNEL_OUTSIDE_GUILD": "通知頻道不屬於此處設定的 Discord 伺服器，因此機器人不會在其中傳送訊息。請使用已填寫伺服器（Guild）ID 的那個伺服器中的頻道，或更正該 ID。"
+  "DISCORD_CHANNEL_OUTSIDE_GUILD": "通知頻道不屬於此處設定的 Discord 伺服器，因此機器人不會在其中傳送訊息。請使用已填寫伺服器（Guild）ID 的那個伺服器中的頻道，或更正該 ID。",
+  "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES": "無法變更、登出或刪除擁有 {{detail}} 的帳戶或角色，因為你自己沒有該權限。",
+  "CURRENT_PASSWORD_INCORRECT": "目前密碼不正確。輸錯 10 次後，密碼驗證會暫停 15 分鐘，即使輸入正確的密碼也一樣。",
+  "RECOVERY_CODES_PASSWORD_REQUIRED": "請輸入當前密碼以產生復原碼。",
+  "REFRESH_RACE": "此工作階段剛剛在另一個分頁中重新整理。請再試一次。"
 }

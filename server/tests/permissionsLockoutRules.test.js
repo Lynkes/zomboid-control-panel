@@ -57,7 +57,7 @@ vi.mock("../database/init.js", () => ({
   },
 }));
 
-const { createRole, updateRole, deleteRole } = await import("../services/permissions.js");
+const { createRole, updateRole, deleteRole, CAPABILITIES } = await import("../services/permissions.js");
 
 beforeEach(() => {
   rolesById.clear();
@@ -450,5 +450,57 @@ describe("updateRole -- renaming a role", () => {
     await updateRole("role-custom", { name: "Same Name", capabilities: ["players.view", "players.gm_tools"] });
 
     expect(users[0].role).toBe("Same Name");
+  });
+});
+
+// Auth audit 2026-10-08 (#5): the escalation guard compared a grant against
+// the caller's own role, so a capability unticked in the built-in admin
+// column could never be ticked again -- no admin held it any more, turning
+// logins off resolved to the same row, and the only repair was editing
+// db.json. The built-in admin role now counts as holding every capability.
+describe("updateRole -- the built-in admin role can always grant a capability again", () => {
+  const ALL = CAPABILITIES.map((c) => c.key);
+  const WITHOUT_FILES = ALL.filter((c) => c !== "files.manage");
+
+  it("an admin removes files.manage from role-admin and adds it back", async () => {
+    seedBuiltinRole("role-admin", "admin", ALL);
+    users = [{ id: "u1", role: "admin", roleId: "role-admin" }];
+    const admin = { actingUser: { userId: "u1", role: "admin" } };
+
+    await updateRole("role-admin", { capabilities: WITHOUT_FILES }, admin);
+    const restored = await updateRole("role-admin", { capabilities: ALL }, admin);
+    expect(restored.capabilities).toContain("files.manage");
+  });
+
+  it("works the same with logins turned off", async () => {
+    seedBuiltinRole("role-admin", "admin", WITHOUT_FILES);
+    users = [{ id: "u1", role: "admin", roleId: "role-admin" }];
+
+    const restored = await updateRole(
+      "role-admin",
+      { capabilities: ALL },
+      { actingUser: { userId: null, role: "admin", authDisabled: true } },
+    );
+    expect(restored.capabilities).toContain("files.manage");
+  });
+
+  it("a roles.manage delegate outside the admin role is still refused", async () => {
+    seedBuiltinRole("role-admin", "admin", WITHOUT_FILES);
+    seedRole("role-delegate", "delegate", ["roles.manage", "users.manage"]);
+    users = [
+      { id: "u1", role: "admin", roleId: "role-admin" },
+      { id: "u2", role: "delegate", roleId: "role-delegate" },
+    ];
+
+    await expect(
+      updateRole(
+        "role-admin",
+        { capabilities: ALL },
+        { actingUser: { userId: "u2", role: "delegate" } },
+      ),
+    ).rejects.toMatchObject({
+      code: "ROLE_GRANT_EXCEEDS_CALLER_CAPABILITIES",
+      params: { missing: ["files.manage"] },
+    });
   });
 });

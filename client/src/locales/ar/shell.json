@@ -129,5 +129,12 @@
   },
   "languageSwitcher": {
     "label": "اللغة"
+  },
+  "authSession": {
+    "signOutFailedTitle": "لم يصل طلب تسجيل الخروج إلى اللوحة",
+    "signOutFailedDescription": "ما زلت مسجَّل الدخول في هذا المتصفح. تحقّق من الاتصال باللوحة ثم أعد المحاولة.",
+    "statusCheckFailedTitle": "تعذّر التحقق من تسجيل الدخول",
+    "statusCheckFailedDescription": "لم تستجب اللوحة، أو وكيل أمامها، لفحص تسجيل الدخول. انتظر قليلًا ثم أعد المحاولة.",
+    "retry": "إعادة المحاولة"
   }
 }

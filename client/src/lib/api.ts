@@ -1,9 +1,10 @@
 import { reportClientWarning } from "./client-errors";
-import { clearAccessToken, getAccessToken, setAccessToken } from "./authToken";
+import { clearAccessToken, forgetSessionUser, getAccessToken, getSessionUserId, setAccessToken } from "./authToken";
 import { toast } from "@/components/ui/use-toast";
 import i18n from "@/i18n";
 import { hostTimeToLocal } from "./hostClock";
-import { rememberTrustedDeviceFrom } from "./trustedDevice";
+import { rememberTrustedDeviceFrom, rememberTrustedDeviceToken } from "./trustedDevice";
+import { decodeJwtUserId } from "./jwt";
 import type { LeaderboardDiagnostics } from "./leaderboardDiagnostics";
 
 const API_BASE = "/api";
@@ -70,42 +71,260 @@ function withAuth(options?: RequestInit): RequestInit {
   return { ...options, headers };
 }
 
+// The user a refresh hands back (server/routes/auth.js POST /refresh).
+export interface SessionUser {
+  id: string;
+  username: string;
+  role: string;
+  capabilities: string[] | null;
+}
+
+export type RefreshOutcome = { ok: true; user: SessionUser | null } | { ok: false };
+
+type RefreshAnswer = { status: number; payload: unknown }; // status 0: never reached the panel
+
 // Handle 401 responses — try to refresh the token once
-let isRefreshing = false;
-let refreshPromise: Promise<boolean> | null = null;
+let refreshPromise: Promise<RefreshOutcome> | null = null;
+// The POST itself, apart from refreshPromise, so a sign-out can wait for its
+// Set-Cookie to land without waiting on the refresh's own wait for that
+// sign-out.
+let refreshRequest: Promise<RefreshAnswer> | null = null;
 
-// Exported so callers outside the 401-retry path below (App.tsx's socket
-// auth, ahead of a reconnect attempt) can reuse the exact same
-// isRefreshing/refreshPromise dedupe instead of racing a second,
-// independent refresh call against this one.
-export async function tryRefreshToken(): Promise<boolean> {
-  if (isRefreshing && refreshPromise) return refreshPromise;
+// SECURITY (2026-10-08, auth audit #14/#16): bumped when this tab signs out
+// or hears that another tab did. A refresh that started under an older
+// generation must not set its token, or it would bring the signed-out
+// session back in this tab.
+let authGeneration = 0;
+let signOutPromise: Promise<boolean> | null = null;
+// When this tab last had the refresh cookie rotated (see
+// signedOutInAnotherTab).
+let lastRotatedAt = Number.NEGATIVE_INFINITY;
 
-  isRefreshing = true;
-  refreshPromise = (async () => {
+export function bumpAuthGeneration(): void {
+  authGeneration += 1;
+}
+
+const AUTH_LOCK_NAME = "pz-auth-refresh";
+// REFRESH_RACE retries: up to 4, each after a random 150-900 ms, all well
+// inside the panel's 30 s grace. A fixed delay sent the losing tabs back
+// together, so with 3 or more tabs one lost again and ran out of retries.
+const REFRESH_RACE_RETRIES = 4;
+const REFRESH_RACE_RETRY_MIN_MS = 150;
+const REFRESH_RACE_RETRY_SPREAD_MS = 750;
+const AUTH_REQUEST_TIMEOUT_MS = 15000;
+// A refresh is never cut at 15 s: the panel still rotates the cookie when
+// the answer comes late, and a browser that never stored that Set-Cookie
+// sends the replaced one next, which the panel takes for a stolen token
+// and signs the account out everywhere. Sign-out keeps the 15 s limit (an
+// aborted one is reported as failed).
+const REFRESH_REQUEST_TIMEOUT_MS = 120000;
+const RECENT_ROTATION_MS = 5000;
+
+// Every tab shares one refresh cookie and the server rotates it on each use,
+// so two tabs refreshing at once used to sign one of them out (audit #19).
+// navigator.locks (HTTPS and localhost only) runs them one after another,
+// each sending the cookie the last one set; on plain HTTP the server's
+// REFRESH_RACE answer covers it instead (refreshWithRaceRetry below).
+async function withAuthLock<T>(task: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+  if (!locks || typeof locks.request !== "function") return task();
+  try {
+    return await locks.request(AUTH_LOCK_NAME, () => task());
+  } catch {
+    // The lock manager refused (a page being torn down). The tasks here
+    // never throw themselves, so this is the lock failing: run unserialized
+    // rather than leave a caller (the socket's auth callback) waiting.
+    return task();
+  }
+}
+
+function payloadCode(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== "object") return undefined;
+  const code = (payload as { code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+}
+
+async function postAuth(path: string, timeoutMs = AUTH_REQUEST_TIMEOUT_MS): Promise<RefreshAnswer> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(path, {
+      method: "POST",
+      credentials: "include",
+      signal: controller.signal,
+    });
+    let payload: unknown = null;
     try {
-      const res = await fetch("/api/auth/refresh", {
-        method: "POST",
-        credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setAccessToken(data.accessToken);
-        return true;
-      }
-      // Refresh failed — clear token and redirect to login
-      clearAccessToken();
-      return false;
+      payload = await res.json();
     } catch {
+      // Not JSON (a proxy's error page): the status alone decides.
+    }
+    return { status: res.status, payload };
+  } catch {
+    return { status: 0, payload: null };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function refreshWithRaceRetry(): Promise<RefreshAnswer> {
+  const generation = authGeneration;
+  // A sign-out started meanwhile stops the retries: it is waiting for this
+  // refresh, and has no use for its answer.
+  const signingOut = () => generation !== authGeneration;
+  let answer = await postAuth("/api/auth/refresh", REFRESH_REQUEST_TIMEOUT_MS);
+  for (let retry = 0; retry < REFRESH_RACE_RETRIES; retry += 1) {
+    if (answer.status !== 401 || payloadCode(answer.payload) !== "REFRESH_RACE" || signingOut()) break;
+    // Another tab rotated the cookie a moment ago; by now this browser
+    // holds the new one, so another try normally succeeds.
+    const delay = REFRESH_RACE_RETRY_MIN_MS + Math.random() * REFRESH_RACE_RETRY_SPREAD_MS;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    if (signingOut()) break;
+    answer = await postAuth("/api/auth/refresh", REFRESH_REQUEST_TIMEOUT_MS);
+  }
+  return answer;
+}
+
+async function runRefresh(): Promise<RefreshOutcome> {
+  // A sign-out in progress decides first: once it lands there is no session
+  // left to refresh.
+  if (signOutPromise && (await signOutPromise)) return { ok: false };
+
+  const generation = authGeneration;
+  // The token may already be gone (a failed refresh dropped it): the account
+  // this tab showed still decides (audit #15, review 1-02).
+  const previousUserId = decodeJwtUserId(getAccessToken()) ?? getSessionUserId();
+  const request = withAuthLock(refreshWithRaceRetry);
+  refreshRequest = request;
+  const answer = await request;
+  if (refreshRequest === request) refreshRequest = null;
+  const data = answer.payload as {
+    accessToken?: unknown;
+    user?: SessionUser | null;
+    deviceToken?: unknown;
+  } | null;
+  // Set only by the panel's own answer, which also set a new refresh cookie.
+  const newToken = answer.status >= 200 && answer.status < 300 && typeof data?.accessToken === "string"
+    ? data.accessToken
+    : null;
+  if (newToken) lastRotatedAt = Date.now();
+
+  if (generation !== authGeneration) {
+    // Signed out while this was in flight. Only a sign-out from this tab
+    // that failed leaves the session, and so this answer, standing.
+    const signOut = signOutPromise;
+    if (!signOut) {
+      // Another tab signed out. Without navigator.locks (plain HTTP) this
+      // refresh's Set-Cookie can land after that tab's clear and leave a
+      // working 30-day cookie: end the session it put back. With no cookie
+      // left, the panel answers 200 and does nothing.
+      if (newToken) void withAuthLock(() => postAuth("/api/auth/logout"));
+      return { ok: false };
+    }
+    if (await signOut) return { ok: false };
+  }
+
+  if (newToken) {
+    const userId = typeof data?.user?.id === "string" ? data.user.id : null;
+    if (previousUserId && userId && userId !== previousUserId) {
+      // SECURITY (2026-10-08, audit #15): the shared cookie now belongs to
+      // another account (someone signed in as them in another tab). Going on
+      // as them while this tab still shows the old name would run, and log,
+      // every action under the wrong account. Reload to show who it is.
       clearAccessToken();
+      window.location.reload();
+      return { ok: false };
+    }
+    setAccessToken(newToken);
+    // Also where a browser back from SSO first gets one (see
+    // lib/trustedDevice.ts).
+    rememberTrustedDeviceToken(data?.user?.username, data?.deviceToken);
+    return { ok: true, user: data?.user ?? null };
+  }
+
+  // Only the panel refusing the cookie ends the session (audit #20). A
+  // network error, 429 or 5xx, or a REFRESH_RACE that outlasted its retry,
+  // left the cookie as it was, so the token stays for the next try.
+  if (answer.status === 401 && payloadCode(answer.payload) !== "REFRESH_RACE") {
+    clearAccessToken();
+  }
+  return { ok: false };
+}
+
+// One refresh at a time per tab; every caller (checkAuth, the 401 replay
+// below, the socket auth provider, the upload replays) shares it.
+export function refreshSession(): Promise<RefreshOutcome> {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = runRefresh().finally(() => {
+    refreshPromise = null;
+  });
+  return refreshPromise;
+}
+
+export async function tryRefreshToken(): Promise<boolean> {
+  return (await refreshSession()).ok;
+}
+
+/**
+ * Ends this browser's session on the panel. Resolves true only when the
+ * panel confirmed it; false means the refresh cookie may still work, so the
+ * caller must not show this tab as signed out (audit #14: on a shared PC the
+ * next person to open the panel would be signed in as this user).
+ */
+export function endServerSession(): Promise<boolean> {
+  if (signOutPromise) return signOutPromise;
+  bumpAuthGeneration();
+  const pendingRefresh = refreshRequest;
+  const attempt = (async () => {
+    try {
+      // A refresh already on the wire lands first: its Set-Cookie arriving
+      // after the logout's clear would leave a live session in the cookie
+      // jar. The lock does the same for another tab's refresh.
+      await pendingRefresh;
+      const answer = await withAuthLock(() => postAuth("/api/auth/logout"));
+      // Only the panel's own { success: true } confirms the cookie was
+      // cleared: a proxy's maintenance page or a captive portal can answer
+      // 200 too, without the panel ever seeing the sign-out.
+      return answer.status >= 200 && answer.status < 300
+        && (answer.payload as { success?: unknown } | null)?.success === true;
+    } catch {
       return false;
-    } finally {
-      isRefreshing = false;
-      refreshPromise = null;
     }
   })();
+  signOutPromise = attempt;
+  void attempt.finally(() => {
+    if (signOutPromise === attempt) signOutPromise = null;
+  });
+  return attempt;
+}
 
-  return refreshPromise;
+/**
+ * Another tab of this browser signed out (AuthContext hears it on the
+ * pz-auth channel). Drops this tab's session and any refresh it has in
+ * flight. If this tab's refresh rotated the cookie a moment ago, its
+ * Set-Cookie may have landed after the other tab's clear (plain HTTP has no
+ * navigator.locks to order them), so the session it put back is ended too.
+ * Only then: a tab that was frozen and hears this late must not end a newer
+ * sign-in.
+ */
+export function signedOutInAnotherTab(): void {
+  bumpAuthGeneration();
+  clearAccessToken();
+  forgetSessionUser();
+  if (Date.now() - lastRotatedAt < RECENT_ROTATION_MS) {
+    void withAuthLock(() => postAuth("/api/auth/logout"));
+  }
+}
+
+// The 401s worth one refresh and replay: an expired token, or a request
+// sent with no token at all (one dropped after a failed refresh) that the
+// panel answered AUTH_REQUIRED (audit #20). When that refresh fails, every
+// caller reloads: checkAuth then shows the sign-in screen, or signs back in
+// if the failure was passing, instead of leaving a tab that looks signed in
+// while every call fails.
+export function isRefreshableAuthFailure(status: number, code: unknown, sentToken: boolean): boolean {
+  if (status !== 401) return false;
+  return code === "TOKEN_EXPIRED" || (!sentToken && code === "AUTH_REQUIRED");
 }
 
 // Retry configuration
@@ -322,21 +541,11 @@ export function buildResponseError(response: Response, payload?: unknown): ApiEr
   });
 }
 
-async function responseHasCode(
-  response: Response,
-  expectedCode: string,
-): Promise<boolean> {
-  if (response.status !== 401) return false;
+async function responseCode(response: Response): Promise<string | undefined> {
   try {
-    const payload = await response.clone().json();
-    return (
-      payload !== null &&
-      typeof payload === "object" &&
-      "code" in payload &&
-      payload.code === expectedCode
-    );
+    return payloadCode(await response.clone().json());
   } catch {
-    return false;
+    return undefined;
   }
 }
 
@@ -372,6 +581,7 @@ async function fetchWithRetry(
       }
 
       try {
+        const sentToken = getAuthToken() !== null;
         const response = await fetch(url, {
           ...withAuth(options),
           signal: controller.signal,
@@ -380,13 +590,14 @@ async function fetchWithRetry(
 
         // Authentication replay is separate from transport retries. It is
         // allowed once, and only when the server explicitly says the access
-        // token expired. This remains safe for mutations because the server
-        // rejected the original request before performing it.
+        // token expired, or that it got none (isRefreshableAuthFailure).
+        // This remains safe for mutations because the server rejected the
+        // original request before performing it.
         if (
           response.status === 401 &&
           !authenticationReplayUsed &&
           !url.includes("/api/auth/") &&
-          (await responseHasCode(response, "TOKEN_EXPIRED"))
+          isRefreshableAuthFailure(401, await responseCode(response), sentToken)
         ) {
           authenticationReplayUsed = true;
           const refreshed = await tryRefreshToken();
@@ -3809,11 +4020,14 @@ export const backupApi = {
         xhr.send(file);
       });
 
-    let { status, payload } = await sendOnce(getAuthToken());
-    if (status === 401 && payload?.code === "TOKEN_EXPIRED") {
+    const firstToken = getAuthToken();
+    let { status, payload } = await sendOnce(firstToken);
+    if (isRefreshableAuthFailure(status, payload?.code, firstToken !== null)) {
       const refreshed = await tryRefreshToken();
       if (refreshed) {
         ({ status, payload } = await sendOnce(getAuthToken()));
+      } else {
+        window.location.reload();
       }
     }
 
@@ -3899,6 +4113,10 @@ export const authApi = {
     rememberTrustedDeviceFrom(result);
     return result;
   },
+
+  // Ends every session of the caller's own account, this browser included.
+  revokeAllSessions: (): Promise<{ success: boolean }> =>
+    apiPost("/auth/sessions/revoke-all", {}),
 };
 
 // Servers detection API helpers (added to serversApi)
@@ -4272,6 +4490,15 @@ export const permissionsApi = {
 // own export rather than folded into authApi in place -- this whole block
 // was appended at end-of-file so it can't collide with concurrent edits
 // elsewhere in authApi.
+// One linked SSO identity, as GET /auth/users lists it. The server masks the
+// subject (at most its last four characters show).
+export interface ManagedUserIdentity {
+  issuer: string;
+  subject: string;
+  email: string | null;
+  linkedAt: string | null;
+}
+
 export interface ManagedUserAccount {
   id: string;
   username: string;
@@ -4279,6 +4506,7 @@ export interface ManagedUserAccount {
   roleId: string | null;
   createdAt: string;
   lastLogin: string | null;
+  externalIdentities?: ManagedUserIdentity[];
 }
 
 export const usersApi = {
@@ -4294,6 +4522,13 @@ export const usersApi = {
   startExternalIdentityLink: (userId: string): Promise<{ authorizationUrl: string }> =>
     apiPost("/auth/oidc/link", { userId }),
 
+  // Removes every SSO identity linked to the account and signs it out
+  // everywhere (admin only).
+  unlinkExternalIdentities: (
+    userId: string,
+  ): Promise<{ success: boolean; user: { id: string; username: string }; removed: number }> =>
+    apiDelete(`/auth/users/${encodeURIComponent(userId)}/identities`),
+
   assignRole: (
     userId: string,
     roleId: string,
@@ -4308,6 +4543,13 @@ export const usersApi = {
     userId: string,
   ): Promise<{ success: boolean; user: { id: string; username: string } }> =>
     apiDelete(`/auth/users/${encodeURIComponent(userId)}`),
+
+  // Signs another account out of every browser and device, without touching
+  // its password or role (users.manage).
+  revokeSessions: (
+    userId: string,
+  ): Promise<{ success: boolean; user: { id: string; username: string } }> =>
+    apiPost(`/auth/users/${encodeURIComponent(userId)}/sessions/revoke`, {}),
 };
 
 // OIDC settings (server/routes/oidc.js "Settings" section, gated on
@@ -4330,6 +4572,9 @@ export interface OidcSettings extends OidcSettingsFields {
 export interface OidcSettingsWithEnv extends OidcSettings {
   envOverrides: Record<keyof OidcSettingsFields | "clientSecret", boolean>;
   suggestedRedirectUri: string;
+  // false for a non-admin with panel.settings: the issuer, client, secret,
+  // redirect URI and plain-HTTP switch are admin-only.
+  providerFieldsEditable?: boolean;
 }
 
 export type OidcSettingsUpdate = Partial<OidcSettingsFields> & { clientSecret?: string };

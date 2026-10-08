@@ -65,6 +65,7 @@ import {
 import { readSecret } from "../utils/secrets.js";
 import { getCapabilitiesForRole, withRoleMutex } from "./permissions.js";
 import {
+  delegableCapabilities,
   getRoleById,
   getRoleByName,
   getRoles,
@@ -130,9 +131,27 @@ const BCRYPT_ROUNDS = 12;
 // decoding a generated token's exp-minus-iat to infer it -- see this
 // file's own top-of-file comment for why 15m, not 24h.
 export const ACCESS_TOKEN_EXPIRY = "15m";
-const REFRESH_TOKEN_EXPIRY = "30d";
 const REFRESH_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
+// SECURITY (2026-10-08, #10): how long a kept-signed-in session lasts from
+// sign-in, however often it is refreshed. Each rotation used to start a fresh
+// 30 days, so a copied refresh cookie kept working for as long as someone
+// used it at least once a month, and an account disabled at the SSO provider
+// kept its panel access the same way.
+export const REFRESH_SESSION_ABSOLUTE_LIFETIME_MS = REFRESH_TOKEN_LIFETIME_MS;
+// #21: a sign-in with "Keep me signed in" unticked gets a browser-session
+// cookie and at most this long. It used to get no refresh session at all,
+// which since access tokens last 15 minutes meant a hard sign-out 15 minutes
+// after sign-in however active the user was.
+export const BROWSER_SESSION_ABSOLUTE_LIFETIME_MS = 12 * 60 * 60 * 1000;
+// #19: how long a session id replaced by a refresh still answers
+// REFRESH_RACE (another tab got there first; retry with the new cookie)
+// instead of counting as the reuse of a stolen token.
+export const REFRESH_RACE_GRACE_MS = 30 * 1000;
+const MAX_ROTATION_RECORDS = 5;
+// Per kind (#21): up to this many remembered sessions AND this many browser
+// sessions, so neither kind's sign-ins push out the other's.
 const MAX_REFRESH_SESSIONS = 5;
+const MAX_EVICTION_TOMBSTONES = 2 * MAX_REFRESH_SESSIONS;
 export const MAX_FAILED_LOGINS = 10;
 export const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 // Fixed dummy hash used to keep the "user not found" branch of login() at the
@@ -149,6 +168,40 @@ function makeRoleError(code, message, status = 400, params) {
   err.status = status;
   if (params) err.params = params;
   return err;
+}
+
+// The rules every password set without the old one follows (reset token,
+// recovery code, --reset-password).
+function assertResetPasswordPolicy(newPassword) {
+  if (!newPassword || typeof newPassword !== "string" || newPassword.length < 6) {
+    throw new Error("Password must be at least 6 characters");
+  }
+  if (newPassword.length > 128) {
+    throw new Error("Password must be 128 characters or fewer");
+  }
+}
+
+// Kept across browser restarts ("Keep me signed in"); a session stored
+// before #21 has no flag and was one.
+function isPersistentSession(session) {
+  return session.persistent !== false;
+}
+
+// What routes/auth.js needs to set the refresh cookie for `session`: a
+// browser-session cookie when it isn't kept (#21), otherwise one that ends
+// when the session does (#10).
+function refreshCookieFields(session) {
+  return {
+    refreshPersistent: isPersistentSession(session),
+    refreshExpiresAt: session.expiresAt,
+  };
+}
+
+// One account's recovery codes ({hash, usedAt} entries), stored on its own
+// row since 2026-10-08 (#1); [] when it has none.
+function recoveryCodeEntries(user) {
+  const codes = user?.recoveryCodes?.codes;
+  return Array.isArray(codes) ? codes : [];
 }
 
 // How many users OTHER than excludingUserId currently hold `capability`
@@ -210,6 +263,22 @@ async function assertNoRecoveryLockout(userId, currentCapabilities, nextCapabili
   }
 }
 
+// What the acting user may hand out or take away: their role's capabilities,
+// or every capability for the built-in admin role (permissions.js's
+// delegableCapabilities()). Null when there is no caller context to compare
+// against.
+async function getActingCapabilities(actingUserId) {
+  if (!actingUserId) return null; // no caller context (e.g. first-user setup bootstrap) -- nothing to compare against, nothing to guard
+  const db = await getDb();
+  const users = db.data.users || [];
+  const actingUser = users.find((u) => String(u.id) === String(actingUserId));
+  if (!actingUser) return null; // acting user's own row not found -- not this check's job to invent a refusal for that
+  const actingRole = actingUser.roleId
+    ? await getRoleById(actingUser.roleId)
+    : await getRoleByName(actingUser.role);
+  return delegableCapabilities(actingRole);
+}
+
 // Per-capability "no escalation through a second door" rule. Same policy
 // this codebase already enforces for Discord's own authorization tiers
 // (ErrorCode.DISCORD_PERMISSIONS_CAPABILITY_REQUIRED, routes/discord.js's
@@ -237,16 +306,16 @@ async function assertNoRecoveryLockout(userId, currentCapabilities, nextCapabili
 // inventing a second shape, and re-reads the acting user's role fresh from
 // the DB itself rather than trusting whatever the caller passed in, same
 // discipline as every other capability check in this file.
+//
+// SECURITY (2026-10-08, #5): the built-in admin role counts as holding every
+// capability here (getActingCapabilities() above). So callers pass a target
+// role through delegableCapabilities() as well: joining or leaving that role
+// is worth every capability, whatever its stored row (which an admin may have
+// narrowed) says, and comparing against the row let a role covering it mint
+// or depose admins.
 async function assertNoCapabilityEscalation(actingUserId, targetCapabilities) {
-  if (!actingUserId) return; // no caller context (e.g. first-user setup bootstrap) -- nothing to compare against, nothing to guard
-  const db = await getDb();
-  const users = db.data.users || [];
-  const actingUser = users.find((u) => String(u.id) === String(actingUserId));
-  if (!actingUser) return; // acting user's own row not found -- not this check's job to invent a refusal for that
-  const actingRole = actingUser.roleId
-    ? await getRoleById(actingUser.roleId)
-    : await getRoleByName(actingUser.role);
-  const actingCapabilities = actingRole?.capabilities || [];
+  const actingCapabilities = await getActingCapabilities(actingUserId);
+  if (!actingCapabilities) return;
   const missing = (targetCapabilities || []).filter(
     (capability) => !actingCapabilities.includes(capability),
   );
@@ -272,6 +341,30 @@ async function assertNoCapabilityEscalation(actingUserId, targetCapabilities) {
       { detail, missing },
     );
   }
+}
+
+// SECURITY (2026-10-08, #3): the ceiling on the TARGET. The check above only
+// limits what a caller hands out, so a users.manage delegate could demote or
+// delete every admin (and, with roles.manage, strip the admin role too) and
+// end up the only account manager left. Demoting, deleting or signing out an
+// account takes power away from it, so the caller must hold everything that
+// account's current role holds. An admin acting on another admin passes.
+async function assertCallerCoversTarget(actingUserId, targetCurrentCapabilities) {
+  const actingCapabilities = await getActingCapabilities(actingUserId);
+  if (!actingCapabilities) return;
+  const missing = (targetCurrentCapabilities || []).filter(
+    (capability) => !actingCapabilities.includes(capability),
+  );
+  if (missing.length === 0) return;
+  const detail = missing.join(", ");
+  throw makeRoleError(
+    ErrorCode.ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES,
+    `Cannot change, sign out or remove an account whose role holds ${detail} without holding ${
+      missing.length === 1 ? "it" : "them"
+    } yourself.`,
+    403,
+    { detail, missing },
+  );
 }
 
 // Failed password sign-ins, counted per (account, client address) -- not
@@ -468,6 +561,35 @@ function settleLoginAttempt({ entry, forget }, succeeded, now = Date.now()) {
   return false;
 }
 
+// SECURITY (2026-10-08, #8): POST /change-password compared the current
+// password with no limit but the panel-wide 300 requests a minute, so anyone
+// holding a session could guess it at bcrypt speed (about 3 a second, against
+// MAX_FAILED_LOGINS per window at sign-in) and confirm a guess by sending it
+// as the new password too. Checks of the signed-in account's own password
+// (verifyCurrentPassword()) now count the same way sign-in does, in one entry
+// per account: only someone signed in as that account can spend it, so it
+// needs no address, and it is kept apart from loginThrottle so a table full
+// of strangers' addresses can't push it into the shared overflow entry.
+const currentPasswordThrottle = new Map(); // userId -> entry
+
+function reserveCurrentPasswordAttempt(userId, now = Date.now()) {
+  for (const [key, candidate] of currentPasswordThrottle) {
+    if (isStaleThrottleEntry(candidate, now)) currentPasswordThrottle.delete(key);
+  }
+  let entry = currentPasswordThrottle.get(userId);
+  if (!entry) {
+    entry = newThrottleEntry();
+    currentPasswordThrottle.set(userId, entry);
+  }
+  if (!admitLoginAttempt(entry, now)) return null;
+  return {
+    entry,
+    forget: () => {
+      if (currentPasswordThrottle.get(userId) === entry) currentPasswordThrottle.delete(userId);
+    },
+  };
+}
+
 // Every pause on one account, whichever address it was for: setting a new
 // password through reset/recovery is the documented way back in, so it has
 // to clear the pause its owner may have caused themselves by forgetting it.
@@ -477,6 +599,7 @@ function clearLoginThrottleForUser(userId) {
     if (key.startsWith(prefix)) loginThrottle.delete(key);
   }
   deviceLoginThrottle.delete(userId);
+  currentPasswordThrottle.delete(userId);
 }
 
 // Account-wide lock fields from before the throttle above. Never read now;
@@ -486,10 +609,19 @@ function clearLegacyAccountLock(user) {
   delete user.lockedUntil;
 }
 
+// The last four characters of a provider subject: enough to tell two linked
+// identities apart, not enough to put in a forged ID token. A short subject
+// is masked whole, since four characters would be most of it.
+function maskExternalSubject(subject) {
+  if (typeof subject !== "string" || subject.length < 12) return "••••";
+  return `••••${subject.slice(-4)}`;
+}
+
 // For tests only.
 export function _resetLoginThrottleForTests() {
   loginThrottle.clear();
   deviceLoginThrottle.clear();
+  currentPasswordThrottle.clear();
   MAX_LOGIN_THROTTLE_ENTRIES = 10000;
   MAX_DEVICE_THROTTLE_ENTRIES_PER_ACCOUNT = 100;
 }
@@ -564,13 +696,17 @@ class AuthService {
     }
 
     const now = Date.now();
-    user.refreshSessions = user.refreshSessions
+    const live = user.refreshSessions
       .filter((session) => session && typeof session.id === "string")
       .filter((session) => {
         const expiresAt = Date.parse(session.expiresAt || "");
         return Number.isNaN(expiresAt) || expiresAt > now;
-      })
-      .slice(-MAX_REFRESH_SESSIONS);
+      });
+    // The newest MAX_REFRESH_SESSIONS of each kind (#21), in stored order.
+    const newestOfKind = (persistent) =>
+      live.filter((session) => isPersistentSession(session) === persistent).slice(-MAX_REFRESH_SESSIONS);
+    const kept = new Set([...newestOfKind(true), ...newestOfKind(false)]);
+    user.refreshSessions = live.filter((session) => kept.has(session));
 
     // sweep-round4 (2026-09-07): tombstones for sessions dropped by
     // createRefreshSession() to stay under MAX_REFRESH_SESSIONS -- see that
@@ -578,8 +714,9 @@ class AuthService {
     // "capacity", never the security reasons. Bounded and expired the same
     // way refreshSessions itself is, immediately above: a tombstone that
     // outlives the token it describes is a leak, not a record, so it is
-    // capped at MAX_REFRESH_SESSIONS entries and pruned the instant the
-    // session it describes would itself have expired -- never later.
+    // capped at MAX_EVICTION_TOMBSTONES entries (one kind's worth each) and
+    // pruned the instant the session it describes would itself have
+    // expired -- never later.
     if (!Array.isArray(user.evictedRefreshSessions)) {
       user.evictedRefreshSessions = [];
     }
@@ -589,7 +726,7 @@ class AuthService {
         const expiresAt = Date.parse(tombstone.expiresAt || "");
         return Number.isNaN(expiresAt) || expiresAt > now;
       })
-      .slice(-MAX_REFRESH_SESSIONS);
+      .slice(-MAX_EVICTION_TOMBSTONES);
   }
 
   // deviceId: SECURITY (2026-10-05, A1), the trusted-device id this session
@@ -599,20 +736,52 @@ class AuthService {
   // collect a fresh failed-sign-in budget per refresh -- up to the
   // per-account device table's size -- and fill that table with paused
   // entries.
-  createRefreshSession(user, { deviceId } = {}) {
+  //
+  // SECURITY (2026-10-08): the rest is carried through rotation the same way.
+  // - persistent (#21): false for a sign-in with "Keep me signed in"
+  //   unticked: a browser-session cookie and BROWSER_SESSION_ABSOLUTE_LIFETIME_MS.
+  // - absoluteExpiresAt (#10): when the session ends however often it is
+  //   refreshed, set at sign-in. expiresAt (and the refresh JWT and cookie)
+  //   never run past it.
+  // - familyId (#10): one id for the chain of sessions a sign-in rotates
+  //   through, also carried in the refresh JWT, so a replaced token presented
+  //   again is recognised as reuse (findReplacedSession()).
+  // - rotatedFrom (#19): the ids this session replaced in the last
+  //   REFRESH_RACE_GRACE_MS, for another tab's refresh that lost the race.
+  createRefreshSession(
+    user,
+    { deviceId, persistent = true, absoluteExpiresAt, familyId, rotatedFrom } = {},
+  ) {
     this.ensureUserAuthState(user);
 
-    const timestamp = new Date().toISOString();
+    const now = Date.now();
+    const keep = persistent !== false;
+    const givenAbsolute = Date.parse(absoluteExpiresAt || "");
+    const absolute = Number.isNaN(givenAbsolute)
+      ? now + (keep ? REFRESH_SESSION_ABSOLUTE_LIFETIME_MS : BROWSER_SESSION_ABSOLUTE_LIFETIME_MS)
+      : givenAbsolute;
+    const timestamp = new Date(now).toISOString();
     const session = {
       id: crypto.randomUUID(),
       createdAt: timestamp,
       lastUsedAt: timestamp,
-      expiresAt: new Date(Date.now() + REFRESH_TOKEN_LIFETIME_MS).toISOString(),
+      expiresAt: new Date(Math.min(now + REFRESH_TOKEN_LIFETIME_MS, absolute)).toISOString(),
+      absoluteExpiresAt: new Date(absolute).toISOString(),
+      persistent: keep,
+      familyId: typeof familyId === "string" && familyId ? familyId : crypto.randomUUID(),
       deviceId: isDeviceId(deviceId) ? deviceId : newDeviceId(),
     };
+    if (Array.isArray(rotatedFrom) && rotatedFrom.length > 0) {
+      session.rotatedFrom = rotatedFrom;
+    }
 
     user.refreshSessions.push(session);
-    if (user.refreshSessions.length > MAX_REFRESH_SESSIONS) {
+    // #21: each kind is capped on its own, oldest first and never the
+    // session just created, so a shared PC's sign-ins (or the browser
+    // extension's, which never keep one) can't push out a user's remembered
+    // devices, and remembered sign-ins can't push out a browser session.
+    const sameKind = user.refreshSessions.filter((s) => isPersistentSession(s) === keep);
+    if (sameKind.length > MAX_REFRESH_SESSIONS) {
       // A capacity eviction is the one case where the thing doing the
       // dropping (here) is also the only thing that will ever know *why* --
       // findRefreshSession() later sees nothing but a missing id, same as it
@@ -620,8 +789,10 @@ class AuthService {
       // this single site rather than let a caller downstream guess it: a
       // guess can be wrong, and a false "just capacity" told to a genuinely
       // compromised user is strictly worse than today's silence.
-      const overflow = user.refreshSessions.length - MAX_REFRESH_SESSIONS;
-      const evicted = user.refreshSessions.splice(0, overflow);
+      const evicted = sameKind
+        .filter((s) => s !== session)
+        .slice(0, sameKind.length - MAX_REFRESH_SESSIONS);
+      user.refreshSessions = user.refreshSessions.filter((s) => !evicted.includes(s));
       user.evictedRefreshSessions.push(
         ...evicted.map((evictedSession) => ({
           id: evictedSession.id,
@@ -629,9 +800,9 @@ class AuthService {
           expiresAt: evictedSession.expiresAt,
         })),
       );
-      if (user.evictedRefreshSessions.length > MAX_REFRESH_SESSIONS) {
+      if (user.evictedRefreshSessions.length > MAX_EVICTION_TOMBSTONES) {
         user.evictedRefreshSessions =
-          user.evictedRefreshSessions.slice(-MAX_REFRESH_SESSIONS);
+          user.evictedRefreshSessions.slice(-MAX_EVICTION_TOMBSTONES);
       }
     }
 
@@ -667,6 +838,37 @@ class AuthService {
       (session) => session.id !== sessionId,
     );
     return user.refreshSessions.length !== initialLength;
+  }
+
+  // For a refresh token whose session is gone (#10, #19): "race" when a live
+  // session replaced it within REFRESH_RACE_GRACE_MS -- another tab refreshed
+  // first with the same cookie, and a retry sends the new one; "reuse" when
+  // its sign-in's chain has moved on longer ago than that, so whoever sends
+  // it holds a token its owner (or a thief) already exchanged; null for every
+  // other reason (signed out, expired, evicted, forged).
+  findReplacedSession(user, payload, now = Date.now()) {
+    this.ensureUserAuthState(user);
+    for (const session of user.refreshSessions) {
+      const rotation = (session.rotatedFrom || []).find((entry) => entry.id === payload.sessionId);
+      if (rotation) {
+        return now - Date.parse(rotation.at) <= REFRESH_RACE_GRACE_MS ? "race" : "reuse";
+      }
+    }
+    if (
+      typeof payload.fam === "string" &&
+      user.refreshSessions.some((session) => session.familyId === payload.fam)
+    ) {
+      return "reuse";
+    }
+    return null;
+  }
+
+  // Ends every session the account has: the tokenGen bump retires its access
+  // and refresh tokens alike, and the sessions themselves go.
+  endAllSessions(user) {
+    this.ensureUserAuthState(user);
+    user.tokenGen = (user.tokenGen || 0) + 1;
+    user.refreshSessions = [];
   }
 
   async authenticateAccessToken(token) {
@@ -739,6 +941,20 @@ class AuthService {
         }
       } else if (source === "generated") {
         log.info("Generated new JWT secret");
+      }
+
+      // SECURITY (2026-10-08, #1): the one global recovery-code set older
+      // versions kept, aimed at the first admin whoever made it. Nobody can
+      // tell who holds those codes, so they are retired rather than moved to
+      // an account; redeemRecoveryCode() never read them anyway.
+      if (await getSetting("authRecoveryCodes")) {
+        await setSetting("authRecoveryCodes", null);
+        await setSetting("authRecoveryCodesCreatedAt", null);
+        await commitNow();
+        log.warn(
+          "Recovery codes made before this version no longer work. Each admin can " +
+            "generate codes for their own account in Settings > Security.",
+        );
       }
 
       log.info("Auth service initialized");
@@ -855,7 +1071,7 @@ class AuthService {
       // returns early on that alone regardless).
       if (!isFirstUser) {
         const targetRole = await getRoleByName(resolvedRole);
-        await assertNoCapabilityEscalation(actingUserId, targetRole?.capabilities || []);
+        await assertNoCapabilityEscalation(actingUserId, delegableCapabilities(targetRole));
       }
 
       // Check for duplicate username
@@ -972,6 +1188,9 @@ class AuthService {
    * (assertNoCapabilityEscalation above). This is the check that stops a
    * users.manage-only caller promoting a DIFFERENT account to admin, which
    * the self-change block above has nothing to say about.
+   *
+   * Ceiling: refuses moving anyone whose CURRENT role holds more than the
+   * caller does (assertCallerCoversTarget above, 2026-10-08 #3).
    */
   async changeUserRoleById(userId, roleId, { actingUserId } = {}) {
     // continuous-bug-hunt, 2026-09-18: nested inside permissions.js's
@@ -1010,14 +1229,21 @@ class AuthService {
       const currentRole = user.roleId
         ? await getRoleById(user.roleId)
         : await getRoleByName(user.role);
-      const currentCapabilities = currentRole?.capabilities || [];
-      const nextCapabilities = targetRole.capabilities || [];
-
-      await assertNoRecoveryLockout(userId, currentCapabilities, nextCapabilities);
-      await assertNoCapabilityEscalation(actingUserId, nextCapabilities);
+      // The lockout headcount reads what the roles actually grant; the two
+      // caller checks read what they are worth (delegableCapabilities()).
+      await assertNoRecoveryLockout(
+        userId,
+        currentRole?.capabilities || [],
+        targetRole.capabilities || [],
+      );
+      await assertNoCapabilityEscalation(actingUserId, delegableCapabilities(targetRole));
+      await assertCallerCoversTarget(actingUserId, delegableCapabilities(currentRole));
 
       user.role = targetRole.name;
       user.roleId = targetRole.id;
+      // Recovery codes reset an admin's password from the login screen; an
+      // account leaving the admin role takes its set with it (#1).
+      if (user.role !== "admin") delete user.recoveryCodes;
       await commitNow();
 
       log.info(
@@ -1052,7 +1278,8 @@ class AuthService {
    * nextCapabilities: [] case (a user who is deleted keeps none of their
    * former role's capabilities, same as one moved to a role that grants
    * neither roles.manage nor users.manage). Refuses to delete the last
-   * user able to manage roles or manage users.
+   * user able to manage roles or manage users, and (2026-10-08 #3) anyone
+   * whose role holds more than the caller does.
    *
    * Sessions: deleting the row is the whole mechanism for HTTP — no
    * separate tokenGen bump is needed. Both authenticateAccessToken (every
@@ -1090,9 +1317,8 @@ class AuthService {
       const currentRole = user.roleId
         ? await getRoleById(user.roleId)
         : await getRoleByName(user.role);
-      const currentCapabilities = currentRole?.capabilities || [];
-
-      await assertNoRecoveryLockout(userId, currentCapabilities, []);
+      await assertCallerCoversTarget(actingUserId, delegableCapabilities(currentRole));
+      await assertNoRecoveryLockout(userId, currentRole?.capabilities || [], []);
 
       db.data.users = users.filter((u) => u.id !== userId);
       await commitNow();
@@ -1227,9 +1453,17 @@ class AuthService {
    * that pass none share one "unknown" client. deviceToken is the one this
    * browser got from an earlier successful sign-in, if any: a valid one
    * counts the attempt under that device instead of the address. The result
-   * carries a fresh deviceToken for the browser to keep.
+   * carries a fresh deviceToken for the browser to keep. refreshSession:
+   * false (the browser extension, which keeps only the access token) creates
+   * no refresh session, so the result has no refreshToken and the route sets
+   * no cookie.
    */
-  async login(username, password, rememberMe = true, { clientKey, deviceToken } = {}) {
+  async login(
+    username,
+    password,
+    rememberMe = true,
+    { clientKey, deviceToken, refreshSession: wantRefreshSession = true } = {},
+  ) {
     if (!username || !password) {
       throw new Error("Username and password are required");
     }
@@ -1264,6 +1498,15 @@ class AuthService {
     }
     const attempt = reserved.entry;
 
+    // SECURITY (2026-10-08, #9): the compare below takes ~250ms and checks
+    // the hash as it was when it started. A password change or reset that
+    // lands meanwhile (new hash, tokenGen bumped, sessions cleared) used to
+    // be followed by this sign-in minting a session under the NEW tokenGen,
+    // so someone signing in with a leaked password could outlive the very
+    // change meant to shut them out.
+    const hashAtStart = user.password;
+    const genAtStart = user.tokenGen || 0;
+
     // OIDC-only accounts (bootstrapped via bootstrapAdminFromExternalIdentity)
     // have no local password hash. Still run the dummy compare so this
     // branch costs the same as a real wrong-password attempt.
@@ -1280,8 +1523,13 @@ class AuthService {
       throw error;
     }
     // Re-checked after the compare: a pause that began while this attempt
-    // was being checked still refuses it.
-    if (!valid || attempt.lockedUntil > Date.now()) {
+    // was being checked still refuses it, and so does a password change or
+    // reset, or the account's deletion (#9).
+    const changedMeanwhile =
+      user.password !== hashAtStart ||
+      (user.tokenGen || 0) !== genAtStart ||
+      !(db.data.users || []).includes(user);
+    if (!valid || changedMeanwhile || attempt.lockedUntil > Date.now()) {
       if (settleLoginAttempt(reserved, false)) {
         // SECURITY (2026-10-05, H2): behind TRUST_PROXY the address is the
         // X-Forwarded-For value as sent, so it is escaped for the log line.
@@ -1297,19 +1545,27 @@ class AuthService {
 
     settleLoginAttempt(reserved, true);
     clearLegacyAccountLock(user);
+    // The right password at sign-in proves what verifyCurrentPassword()
+    // checks, which someone holding only a session can't: their wrong guesses
+    // mustn't keep the owner from changing it afterwards.
+    currentPasswordThrottle.delete(user.id);
 
     this.ensureUserAuthState(user);
 
     // Update last login
     user.lastLogin = new Date().toISOString();
-    const refreshSession = rememberMe ? this.createRefreshSession(user) : null;
-    await commitNow();
-
-    // Generate tokens
-    const accessToken = this.generateAccessToken(user);
-    const refreshToken = refreshSession
-      ? this.generateRefreshToken(user, refreshSession.id)
+    // Unticked "Keep me signed in" still gets a session, a browser-session
+    // one (#21); without it the sign-in ended when the access token did.
+    const refreshSession = wantRefreshSession
+      ? this.createRefreshSession(user, { persistent: rememberMe !== false })
       : null;
+
+    // Signed before the write below (#9): a change or reset landing during
+    // it bumps tokenGen, and these then fail like every older token.
+    const accessToken = this.generateAccessToken(user);
+    const refreshToken = refreshSession ? this.generateRefreshToken(user, refreshSession.id) : null;
+    const newDeviceToken = this.issueDeviceToken(user, refreshSession?.deviceId);
+    await commitNow();
 
     // The stored name (letters, digits, _ and - only), not the one typed,
     // which only has to match it ignoring case -- U+212A KELVIN SIGN
@@ -1322,7 +1578,8 @@ class AuthService {
       user: { id: user.id, username: user.username, role: user.role, capabilities },
       accessToken,
       refreshToken,
-      deviceToken: this.issueDeviceToken(user, refreshSession?.deviceId),
+      deviceToken: newDeviceToken,
+      ...(refreshSession ? refreshCookieFields(refreshSession) : {}),
     };
   }
 
@@ -1347,15 +1604,24 @@ class AuthService {
    * Includes tokenGen counter so tokens can be invalidated by incrementing the counter.
    */
   generateRefreshToken(user, sessionId) {
+    // Expires with its session, never past the session's absolute limit
+    // (#10), and names its sign-in's chain of sessions (`fam`) so a replaced
+    // token sent again is recognised (findReplacedSession()).
+    const session = (user.refreshSessions || []).find((entry) => entry.id === sessionId);
+    const expiresAt = Date.parse(session?.expiresAt || "");
+    const expiresIn = Number.isNaN(expiresAt)
+      ? Math.floor(REFRESH_TOKEN_LIFETIME_MS / 1000)
+      : Math.max(1, Math.ceil((expiresAt - Date.now()) / 1000));
     return jwt.sign(
       {
         userId: user.id,
         type: "refresh",
         tokenGen: user.tokenGen || 0,
         sessionId,
+        ...(session?.familyId ? { fam: session.familyId } : {}),
       },
       this.jwtSecret,
-      { algorithm: "HS256", expiresIn: REFRESH_TOKEN_EXPIRY },
+      { algorithm: "HS256", expiresIn },
     );
   }
 
@@ -1394,7 +1660,8 @@ class AuthService {
 
       this.ensureUserAuthState(user);
 
-      // Validate tokenGen — reject tokens from before a password change or logout-all
+      // Validate tokenGen — reject tokens from before a password change,
+      // reset, or sign-out everywhere (revokeAllSessions())
       const currentGen = user.tokenGen || 0;
       const tokenGen = payload.tokenGen ?? 0;
       if (tokenGen !== currentGen) {
@@ -1405,6 +1672,7 @@ class AuthService {
         throw new Error("Refresh token session is missing");
       }
 
+      const now = Date.now();
       const session = this.findRefreshSession(user, payload.sessionId);
       if (!session) {
         // sweep-round4: distinguish "kicked for capacity" from every other
@@ -1417,42 +1685,160 @@ class AuthService {
           capacityError.refreshFailureReason = "capacity";
           throw capacityError;
         }
+        const replaced = this.findReplacedSession(user, payload, now);
+        if (replaced === "race") {
+          // #19: not reuse, and the browser's cookie jar already holds the
+          // winner's token -- the route answers REFRESH_RACE and leaves the
+          // cookie alone.
+          const raceError = new Error("Refresh token was just replaced by another request");
+          raceError.refreshFailureReason = "race";
+          throw raceError;
+        }
+        if (replaced === "reuse") {
+          // #10: a token already exchanged, sent again after the grace
+          // window: either its owner or a thief holds a copy. Nothing tells
+          // which, so every session of the account ends.
+          this.endAllSessions(user);
+          await commitNow();
+          emitSessionRevoked({ scope: "user", userId: user.id });
+          log.warn(
+            `A refresh token for ${user.username} that had already been replaced was used again; every session of that account was signed out.`,
+          );
+        }
         throw new Error("Refresh token session is no longer active");
+      }
+
+      // #10: the session ends at its absolute limit however often it is
+      // refreshed. One stored before sessions had a limit gets one from now.
+      const absoluteExpiresAt = Date.parse(session.absoluteExpiresAt || "");
+      if (!Number.isNaN(absoluteExpiresAt) && absoluteExpiresAt <= now) {
+        this.revokeRefreshSession(user, payload.sessionId);
+        await commitNow();
+        throw new Error("Refresh token session reached its absolute limit");
       }
 
       this.revokeRefreshSession(user, payload.sessionId);
       // The same trusted-device id as the session it replaces (see
       // createRefreshSession()); a session stored before sessions had one
-      // gets a new one here and keeps it from then on.
-      const newSession = this.createRefreshSession(user, { deviceId: session.deviceId });
-      await commitNow();
+      // gets a new one here and keeps it from then on. The same goes for its
+      // persistence, absolute limit and chain of sessions (#10, #21), and it
+      // remembers the id it replaced for REFRESH_RACE_GRACE_MS (#19).
+      const rotatedFrom = [
+        ...(session.rotatedFrom || []).filter(
+          (entry) => now - Date.parse(entry.at) <= REFRESH_RACE_GRACE_MS,
+        ),
+        { id: session.id, at: new Date(now).toISOString() },
+      ].slice(-MAX_ROTATION_RECORDS);
+      const newSession = this.createRefreshSession(user, {
+        deviceId: session.deviceId,
+        persistent: session.persistent !== false,
+        absoluteExpiresAt: Number.isNaN(absoluteExpiresAt) ? undefined : session.absoluteExpiresAt,
+        familyId: session.familyId,
+        rotatedFrom,
+      });
 
+      // Signed before the write, as in login() (#9): a password change or
+      // reset landing during it must not leave these valid.
       const accessToken = this.generateAccessToken(user);
       const newRefreshToken = this.generateRefreshToken(user, newSession.id);
+      // SECURITY (2026-10-05, A1): a kept-signed-in browser, and one that
+      // just came back from SSO (oidc.js's callback can only redirect, so
+      // the client's first refresh is where it gets one), keeps a current
+      // device token for when it next has to type the password -- always
+      // with its session's device id.
+      const newDeviceToken = this.issueDeviceToken(user, newSession.deviceId);
+      await commitNow();
+
       // UX-only field -- see getCapabilitiesForRole()'s doc comment.
       const capabilities = await getCapabilitiesForRole(user.role);
       return {
         user: { id: user.id, username: user.username, role: user.role, capabilities },
         accessToken,
         refreshToken: newRefreshToken,
-        // SECURITY (2026-10-05, A1): a kept-signed-in browser, and one that
-        // just came back from SSO (oidc.js's callback can only redirect, so
-        // the client's first refresh is where it gets one), keeps a current
-        // device token for when it next has to type the password -- always
-        // with its session's device id.
-        deviceToken: this.issueDeviceToken(user, newSession.deviceId),
+        deviceToken: newDeviceToken,
+        ...refreshCookieFields(newSession),
       };
     } catch (error) {
       // Every failure returns null (the pre-existing, deliberately
       // uninformative contract for the security cases) EXCEPT a capacity
       // eviction, which is a product fact, not a security one -- see
-      // createRefreshSession()'s tombstone comment. Only that one reason is
-      // allowed to leave this method distinguishable from the rest.
-      if (error.refreshFailureReason === "capacity") {
-        return { refreshFailureReason: "capacity" };
+      // createRefreshSession()'s tombstone comment -- and a lost race between
+      // two refreshes with the same cookie (#19), which only ever tells the
+      // holder of a token just replaced that it was just replaced.
+      if (error.refreshFailureReason === "capacity" || error.refreshFailureReason === "race") {
+        return { refreshFailureReason: error.refreshFailureReason };
       }
       return null;
     }
+  }
+
+  /**
+   * Sign one account out everywhere (#10): POST /api/auth/sessions/revoke-all
+   * for the caller's own account, and the users.manage "sign out" action for
+   * another one. Ends every refresh session and, through tokenGen, every
+   * access token; live sockets are evicted. Signing out someone else is held
+   * to the same ceiling as demoting them (assertCallerCoversTarget).
+   */
+  async revokeAllSessions(userId, { actingUserId } = {}) {
+    return this._withMutex(async () => {
+      const db = await getDb();
+      const user = (db.data.users || []).find((u) => u.id === userId);
+      if (!user) {
+        throw new Error("User not found");
+      }
+      if (actingUserId && String(actingUserId) !== String(userId)) {
+        const role = user.roleId ? await getRoleById(user.roleId) : await getRoleByName(user.role);
+        await assertCallerCoversTarget(actingUserId, delegableCapabilities(role));
+      }
+
+      this.ensureUserAuthState(user);
+      const sessions = user.refreshSessions.length;
+      this.endAllSessions(user);
+      // The current-password pause (#8) stays: an SSO sign-in mints a fresh
+      // session without the password, so whoever holds a linked identity
+      // could otherwise spend the allowance, sign out everywhere and start
+      // again. The owner's next sign-in with the password lifts it (login()).
+      await commitNow();
+      emitSessionRevoked({ scope: "user", userId: user.id });
+      log.info(`Signed out every session of ${user.username}`);
+      return { id: user.id, username: user.username, sessions };
+    });
+  }
+
+  /**
+   * Checks the signed-in account's own password before an action that asks
+   * for it (changing it, generating recovery codes). Counted against the
+   * account's own allowance (currentPasswordThrottle, #8): a wrong password
+   * and a paused account get the same CURRENT_PASSWORD_INCORRECT, the paused
+   * one after a dummy compare so it takes as long.
+   */
+  async verifyCurrentPassword(user, currentPassword) {
+    const incorrect = () =>
+      makeRoleError(ErrorCode.CURRENT_PASSWORD_INCORRECT, "Current password is incorrect", 400);
+    const guess = typeof currentPassword === "string" ? currentPassword : "";
+    const reserved = reserveCurrentPasswordAttempt(user.id);
+    if (!reserved) {
+      await bcrypt.compare(guess, DUMMY_BCRYPT_HASH);
+      throw incorrect();
+    }
+    let valid;
+    try {
+      valid = Boolean(user.password) && (await bcrypt.compare(guess, user.password));
+    } catch (error) {
+      settleLoginAttempt(reserved, false);
+      throw error;
+    }
+    if (!valid || reserved.entry.lockedUntil > Date.now()) {
+      if (settleLoginAttempt(reserved, false)) {
+        log.warn(
+          `Password checks for ${user.username} (changing it, generating recovery codes) paused for ${
+            LOCKOUT_DURATION_MS / 60000
+          } minutes after ${MAX_FAILED_LOGINS} wrong current passwords`,
+        );
+      }
+      throw incorrect();
+    }
+    settleLoginAttempt(reserved, true);
   }
 
   /**
@@ -1477,10 +1863,7 @@ class AuthService {
       );
     }
 
-    const valid = await bcrypt.compare(currentPassword, user.password);
-    if (!valid) {
-      throw new Error("Current password is incorrect");
-    }
+    await this.verifyCurrentPassword(user, currentPassword);
 
     user.password = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     // Bump tokenGen to invalidate all existing refresh tokens
@@ -1506,6 +1889,18 @@ class AuthService {
       roleId: u.roleId || null,
       createdAt: u.createdAt,
       lastLogin: u.lastLogin,
+      // SECURITY (2026-10-08, #13): linked SSO identities, so a wrong or
+      // unexpected link can be seen and removed. The subject is masked:
+      // issuer + subject is what a forged ID token would need to sign in
+      // as this account, and users.manage alone can read this list.
+      externalIdentities: (Array.isArray(u.externalIdentities) ? u.externalIdentities : []).map(
+        (ext) => ({
+          issuer: ext.issuer,
+          subject: maskExternalSubject(ext.subject),
+          email: typeof ext.email === "string" ? ext.email : null,
+          linkedAt: ext.linkedAt || null,
+        }),
+      ),
     }));
   }
 
@@ -1686,12 +2081,15 @@ class AuthService {
    * Link an external identity to an EXISTING local account. This is the
    * data operation only — the route that calls this is responsible for
    * enforcing it's admin-only, the same way the requireRole("admin")
-   * routes elsewhere in this app do.
+   * routes elsewhere in this app do. actingTokenGen: the initiator's
+   * tokenGen when the flow started; a flow outlives neither that admin being
+   * signed out everywhere nor a password change, reset or reuse detection,
+   * so a stolen session can't land a link after its owner was revoked.
    */
   async linkExternalIdentity(
     userId,
     { issuer, subject, email } = {},
-    { actingUserId } = {},
+    { actingUserId, actingTokenGen } = {},
   ) {
     if (
       typeof issuer !== "string" ||
@@ -1713,6 +2111,9 @@ class AuthService {
         const actingUser = users.find((candidate) => candidate.id === actingUserId);
         if (actingUser?.role !== "admin") {
           throw new Error("The initiating administrator is no longer authorized");
+        }
+        if (actingTokenGen !== undefined && (actingUser.tokenGen || 0) !== actingTokenGen) {
+          throw new Error("The initiating administrator's session has ended");
         }
       }
 
@@ -1752,12 +2153,43 @@ class AuthService {
   }
 
   /**
+   * Remove every external identity linked to an account (SECURITY
+   * 2026-10-08, #13): before this, a wrong or hijacked link could only be
+   * undone by deleting the account. The route enforces admin-only, like
+   * linking. Ends the account's sessions too: one may have been started
+   * with the identity being removed, and nothing records which.
+   */
+  async unlinkExternalIdentities(userId) {
+    return this._withMutex(async () => {
+      const db = await getDb();
+      const users = db.data.users || [];
+      const user = users.find((u) => u.id === userId);
+      if (!user) {
+        throw new Error("User not found");
+      }
+
+      const removed = Array.isArray(user.externalIdentities)
+        ? user.externalIdentities.length
+        : 0;
+      if (removed > 0) {
+        user.externalIdentities = [];
+        user.tokenGen = (user.tokenGen || 0) + 1;
+        user.refreshSessions = [];
+        await commitNow();
+        log.info(`Unlinked ${removed} external identit${removed === 1 ? "y" : "ies"} from user: ${user.username}`);
+        emitSessionRevoked({ scope: "user", userId: user.id });
+      }
+      return { id: user.id, username: user.username, removed };
+    });
+  }
+
+  /**
    * Sessions: logout is the one revocation trigger that isn't reached by
    * searching for "what invalidates a credential" -- it doesn't bump
    * tokenGen or touch the password, it just removes one refresh session
    * (single-device, by design; see the class comment above this method's
    * neighbors for why a full-fleet wipe belongs to changePassword/
-   * regenerateJwtSecret instead). That's exactly why it was missing from
+   * regenerateJwtSecret/revokeAllSessions instead). That's exactly why it was missing from
    * the socket-eviction bus (sweep-round2, c0017c7b) until now: every one
    * of the five triggers that bus already covered was found by asking
    * "where does this file invalidate a credential" -- logout ends a
@@ -1775,12 +2207,17 @@ class AuthService {
    * that was revoked -- sockets authenticate off the access token, whose
    * payload carries userId/role/tokenGen but no sessionId, so there is no
    * per-device room to target more narrowly without a bigger change to
-   * what the access token carries. A user logging out on device A briefly
-   * disconnects device B's socket too, but device B's access/refresh
-   * tokens are untouched, so socketAuth.ts's reconnect-with-fresh-token
-   * flow (same mechanism c0017c7b's own comment already relies on) picks
-   * it back up immediately and transparently. Same shape and same
-   * tradeoff every one of the other four triggers already accepts.
+   * what the access token carries. A user logging out on device A also
+   * disconnects device B's socket, and it stays down: socket.io-client
+   * treats a server-side disconnect as final and does not reconnect by
+   * itself. Device B's access/refresh tokens are untouched, so its next
+   * connect (Retry in the connection status, or a reload) goes through
+   * socketAuth.ts with them and succeeds. Same shape and same tradeoff
+   * every one of the other four triggers already accepts. Other tabs of
+   * the browser that signed out hear it from the client itself
+   * (AuthContext.tsx's 'pz-auth' channel) and show the sign-in screen;
+   * their HTTP calls would otherwise keep working until the access token
+   * expires, since this does not revoke access tokens.
    */
   async logout(refreshToken) {
     if (!refreshToken) {
@@ -1833,16 +2270,7 @@ class AuthService {
    * Caller must verify the reset token before calling this.
    */
   async resetPassword(newPassword) {
-    if (
-      !newPassword ||
-      typeof newPassword !== "string" ||
-      newPassword.length < 6
-    ) {
-      throw new Error("Password must be at least 6 characters");
-    }
-    if (newPassword.length > 128) {
-      throw new Error("Password must be 128 characters or fewer");
-    }
+    assertResetPasswordPolicy(newPassword);
 
     const db = await getDb();
     const users = db.data.users || [];
@@ -1852,6 +2280,16 @@ class AuthService {
 
     // Reset the first admin account
     const user = users.find((u) => u.role === "admin") || users[0];
+    return this.resetPasswordForUser(user, newPassword);
+  }
+
+  /**
+   * Set `user`'s password without the old one: the reset token and
+   * --reset-password reach it through resetPassword() above, a recovery code
+   * for the account it belongs to (redeemRecoveryCode() below).
+   */
+  async resetPasswordForUser(user, newPassword) {
+    assertResetPasswordPolicy(newPassword);
     user.password = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     user.tokenGen = (user.tokenGen || 0) + 1;
     user.refreshSessions = [];
@@ -1873,76 +2311,107 @@ class AuthService {
   }
 
   /**
-   * Generate single-use recovery codes for the admin account.
+   * Generate single-use recovery codes for the signed-in admin's own account.
    *
    * Only the hashes are stored, so a database copy cannot be turned back into
    * usable codes. The plaintext is returned once and never recoverable after.
+   *
+   * SECURITY (2026-10-08, #1): codes used to be one global set aimed at the
+   * first admin, whoever generated them, and nothing ever cleared them. A
+   * co-admin, or anyone holding an admin's access token for a few minutes,
+   * could mint a set, silently replacing the owner's own, and after being
+   * deleted or demoted reset the owner's password from the login screen. A
+   * set now belongs to the account that generated it (user.recoveryCodes),
+   * resets only that account, works only while it is still admin, and goes
+   * with the account when it is deleted or leaves the admin role. Asking for
+   * the current password first means a stolen access token alone can't mint
+   * a set either.
    */
-  async generateRecoveryCodes(count = 10) {
-    const db = await getDb();
-    const users = db.data.users || [];
-    const user = users.find((u) => u.role === "admin") || users[0];
-    if (!user) throw new Error("No user accounts exist. Use setup instead.");
-
-    const codes = [];
-    const hashes = [];
-    for (let i = 0; i < count; i++) {
-      const raw = crypto.randomBytes(15).toString("base64url").slice(0, 20).toUpperCase();
-      const code = `${raw.slice(0, 5)}-${raw.slice(5, 10)}-${raw.slice(10, 15)}`;
-      codes.push(code);
-      hashes.push({
-        hash: crypto.createHash("sha256").update(code, "utf8").digest("hex"),
-        usedAt: null,
-      });
+  async generateRecoveryCodes(userId, currentPassword, count = 10) {
+    if (!userId) {
+      throw new Error("Recovery codes belong to an account; sign in to generate them.");
     }
+    const db = await getDb();
+    const caller = (db.data.users || []).find((u) => u.id === userId);
+    if (!caller) throw new Error("User not found");
+    await this.verifyCurrentPassword(caller, currentPassword);
 
-    await setSetting("authRecoveryCodes", JSON.stringify(hashes));
-    await setSetting("authRecoveryCodesCreatedAt", new Date().toISOString());
-    log.info(`Generated ${count} recovery codes for user: ${user.username}`);
-    return { codes, createdAt: new Date().toISOString() };
+    return this._withMutex(async () => {
+      // Re-read inside the mutex: a demotion or delete that landed after the
+      // password check must not be followed by a fresh set for the account.
+      const user = (db.data.users || []).find((u) => u.id === userId);
+      if (!user || user.role !== "admin") {
+        throw new Error("Only an administrator can generate recovery codes.");
+      }
+
+      const codes = [];
+      const entries = [];
+      for (let i = 0; i < count; i++) {
+        const raw = crypto.randomBytes(15).toString("base64url").slice(0, 20).toUpperCase();
+        const code = `${raw.slice(0, 5)}-${raw.slice(5, 10)}-${raw.slice(10, 15)}`;
+        codes.push(code);
+        entries.push({
+          hash: crypto.createHash("sha256").update(code, "utf8").digest("hex"),
+          usedAt: null,
+        });
+      }
+
+      const createdAt = new Date().toISOString();
+      user.recoveryCodes = { createdAt, codes: entries };
+      await commitNow();
+      log.info(`Generated ${count} recovery codes for user: ${user.username}`);
+      return { codes, createdAt };
+    });
   }
 
-  async getRecoveryCodeStatus() {
-    const stored = await getSetting("authRecoveryCodes");
-    const createdAt = await getSetting("authRecoveryCodesCreatedAt");
-    let entries = [];
-    try {
-      entries = stored ? JSON.parse(stored) : [];
-    } catch {
-      entries = [];
-    }
+  /** The signed-in account's own set: how many codes are left and when it was made. */
+  async getRecoveryCodeStatus(userId) {
+    const db = await getDb();
+    const user = (db.data.users || []).find((u) => u.id === userId);
+    const entries = recoveryCodeEntries(user);
     const remaining = entries.filter((entry) => !entry.usedAt).length;
-    return { configured: entries.length > 0, remaining, total: entries.length, createdAt: createdAt || null };
+    return {
+      configured: entries.length > 0,
+      remaining,
+      total: entries.length,
+      createdAt: entries.length > 0 ? user.recoveryCodes.createdAt || null : null,
+    };
+  }
+
+  /** Whether any admin has an unused code, for the login screen's recovery choice. */
+  async hasUsableRecoveryCodes() {
+    const db = await getDb();
+    return (db.data.users || []).some(
+      (user) => user.role === "admin" && recoveryCodeEntries(user).some((entry) => !entry.usedAt),
+    );
   }
 
   /**
-   * Consume a recovery code and set a new password. The code is burned whether
-   * or not the caller knows the old password, so each one works exactly once.
+   * Consume a recovery code and set a new password for the account it
+   * belongs to. The code is burned whether or not the caller knows the old
+   * password, so each one works exactly once. Refused with the same message
+   * as a wrong code when that account is no longer an admin; the global set
+   * older versions kept (settings.authRecoveryCodes) is never read, so it
+   * redeems nothing (#1).
    *
    * Wrapped in _withMutex for the same reason createUser/changeUserRoleById/
    * deleteUser/bootstrapAdminFromExternalIdentity are: this is a check-then-
    * write (is this code still unused? -> mark it used) with an await
-   * (resetPassword's real bcrypt.hash, ~150-300ms) between the check and the
-   * write. Without serializing, two concurrent redemptions of the SAME code
-   * each read their own independent JSON.parse of the stored entries, so
-   * neither sees the other's not-yet-persisted usedAt mark -- both pass
-   * validation and both successfully reset the password, defeating "each
-   * code works exactly once" on an unauthenticated, admin-password-reset
-   * endpoint. Reproduced in server/tests/recoveryCodeRedeemRace.test.js.
+   * (resetPasswordForUser's real bcrypt.hash, ~150-300ms) between the check
+   * and the write. Without serializing, two concurrent redemptions of the
+   * SAME code both pass validation and both successfully reset the password,
+   * defeating "each code works exactly once" on an unauthenticated,
+   * admin-password-reset endpoint. Reproduced in
+   * server/tests/recoveryCodeRedeemRace.test.js.
    */
   async redeemRecoveryCode(code, newPassword) {
     return this._withMutex(async () => {
       if (typeof code !== "string" || !code.trim()) {
         throw new Error("A recovery code is required");
       }
-      const stored = await getSetting("authRecoveryCodes");
-      let entries = [];
-      try {
-        entries = stored ? JSON.parse(stored) : [];
-      } catch {
-        entries = [];
-      }
-      if (entries.length === 0) {
+      const db = await getDb();
+      const admins = (db.data.users || []).filter((user) => user.role === "admin");
+      if (!admins.some((user) => recoveryCodeEntries(user).length > 0)) {
         throw new Error("No recovery codes have been generated for this panel.");
       }
 
@@ -1950,20 +2419,28 @@ class AuthService {
         .createHash("sha256")
         .update(code.trim().toUpperCase(), "utf8")
         .digest();
-      const match = entries.find((entry) => {
-        if (entry.usedAt) return false;
-        const storedDigest = Buffer.from(entry.hash, "hex");
-        if (storedDigest.length !== candidate.length) return false;
-        return crypto.timingSafeEqual(storedDigest, candidate);
-      });
+      let owner = null;
+      let match = null;
+      for (const user of admins) {
+        match = recoveryCodeEntries(user).find((entry) => {
+          if (entry.usedAt || typeof entry.hash !== "string") return false;
+          const storedDigest = Buffer.from(entry.hash, "hex");
+          if (storedDigest.length !== candidate.length) return false;
+          return crypto.timingSafeEqual(storedDigest, candidate);
+        });
+        if (match) {
+          owner = user;
+          break;
+        }
+      }
       if (!match) {
         throw new Error("That recovery code is not valid or has already been used.");
       }
 
-      const result = await this.resetPassword(newPassword);
+      const result = await this.resetPasswordForUser(owner, newPassword);
       match.usedAt = new Date().toISOString();
-      await setSetting("authRecoveryCodes", JSON.stringify(entries));
-      const remaining = entries.filter((entry) => !entry.usedAt).length;
+      await commitNow();
+      const remaining = recoveryCodeEntries(owner).filter((entry) => !entry.usedAt).length;
       log.info(`Recovery code redeemed for ${result.username}; ${remaining} remaining`);
       return { ...result, remaining };
     });

@@ -416,6 +416,9 @@
   "UNEXPECTED_SERVER_ERROR": "{{detail}} This wasn't expected — if it keeps happening, download a support bundle so it can be investigated.",
   "OIDC_CREDENTIALS_REJECTED": "The provider rejected the client ID or client secret. Double-check both against the identity provider's admin screen.",
   "OIDC_TEST_UNDETERMINED": "The issuer is reachable, but this didn't confirm whether the credentials are valid: {{reason}}. Try signing in for a definitive answer.",
+  "OIDC_ISSUER_MISMATCH": "The discovery document at this URL names a different issuer ({{issuer}}). Enter the provider's issuer URL itself, or the discovery URL that issuer publishes.",
+  "OIDC_PROVIDER_FIELDS_ADMIN_ONLY": "Only an administrator can change the issuer URL, client ID, client secret, redirect URI or plain-HTTP setting. You can still change the display name and scope.",
+  "OIDC_CLIENT_SECRET_REQUIRED": "Enter the client secret for this provider. The saved secret is only used with the saved issuer URL and client ID.",
   "PLAYERS_USERNAME_REQUIRED": "Username is required",
   "PLAYERS_INVALID_USERNAME": "Invalid username format",
   "PLAYERS_INVALID_REASON": "Invalid reason format",
@@ -595,5 +598,9 @@
   "ZOMBOID_DATA_FOLDER_REFUSED": "This server's Zomboid data folder holds files the game doesn't keep in a data folder, so the panel won't list or read it. On the My Servers page, edit the server and set its Zomboid Data Path to the game's own data folder: the one with a world save in its Saves folder.",
   "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "This server has no Zomboid data folder set, and the game writes its console log there. On the My Servers page, edit the server and set its Zomboid Data Path.",
   "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "The chat relay posts what people type in its Discord channel in game, which needs {{detail}}. You don't hold it, so you can't turn the relay on or change the channel it listens in (the notification channel, while no relay channel is set).",
-  "DISCORD_CHANNEL_OUTSIDE_GUILD": "The notification channel isn't in the Discord server set up here, so the bot won't post in it. Use a channel of the server whose Guild ID is set, or correct the Guild ID."
+  "DISCORD_CHANNEL_OUTSIDE_GUILD": "The notification channel isn't in the Discord server set up here, so the bot won't post in it. Use a channel of the server whose Guild ID is set, or correct the Guild ID.",
+  "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES": "You can't change, sign out or remove an account or role that holds {{detail}}, because you don't hold it yourself.",
+  "CURRENT_PASSWORD_INCORRECT": "The current password is incorrect. After 10 wrong attempts, password checks pause for 15 minutes, even with the right password.",
+  "RECOVERY_CODES_PASSWORD_REQUIRED": "Enter your current password to generate recovery codes.",
+  "REFRESH_RACE": "This session was just refreshed in another tab. Try again."
 }

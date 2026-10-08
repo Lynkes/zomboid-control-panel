@@ -416,6 +416,9 @@
   "UNEXPECTED_SERVER_ERROR": "{{detail}} Sa a pa t atann — si li kontinye rive, telechaje yon pakè sipò pou yo ka egzamine li.",
   "OIDC_CREDENTIALS_REJECTED": "Founisè a refize client ID a oswa client secret la. Tcheke tou de kont ekran administrasyon founisè idantite a.",
   "OIDC_TEST_UNDETERMINED": "Issuer a reyachab, men sa pa konfime si idantifyan yo valid: {{reason}}. Eseye konekte pou yon repons definitif.",
+  "OIDC_ISSUER_MISMATCH": "Dokiman dekouvèt nan URL sa a bay yon lòt founisè ({{issuer}}). Antre URL founisè a li menm, oswa URL dekouvèt founisè sa a pibliye.",
+  "OIDC_PROVIDER_FIELDS_ADMIN_ONLY": "Se sèlman yon administratè ki ka chanje URL founisè a, ID kliyan an, sekrè kliyan an, URI redireksyon an oswa paramèt HTTP san chifreman an. Ou ka toujou chanje non ki parèt la ak scope la.",
+  "OIDC_CLIENT_SECRET_REQUIRED": "Antre sekrè kliyan pou founisè sa a. Sekrè ki anrejistre a sèvi sèlman ak URL founisè a ak ID kliyan ki anrejistre yo.",
   "PLAYERS_USERNAME_REQUIRED": "Non itilizatè obligatwa",
   "PLAYERS_INVALID_USERNAME": "Fòma non itilizatè envalid",
   "PLAYERS_INVALID_REASON": "Fòma rezon envalid",
@@ -595,5 +598,9 @@
   "ZOMBOID_DATA_FOLDER_REFUSED": "Dosye done Zomboid sèvè sa a gen fichye jwèt la pa mete nan yon dosye done, kidonk panèl la p ap liste l ni li l. Nan paj Sèvè m yo, modifye sèvè a epi mete chemen done Zomboid li sou pwòp dosye done jwèt la: sa ki gen yon sovgad nan dosye Saves li.",
   "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "Sèvè sa a pa gen dosye done Zomboid, epi se la jwèt la ekri jounal konsòl li. Nan paj Sèvè m yo, modifye sèvè a epi mete chemen done Zomboid li.",
   "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "Relè chat la poste nan jwèt la sa moun ekri nan chanèl Discord li a, e sa bezwen {{detail}}. Ou pa gen kapasite sa a, kidonk ou pa ka aktive relè a ni chanje chanèl li koute a (chanèl notifikasyon an, toutotan pa gen chanèl relè ki defini).",
-  "DISCORD_CHANNEL_OUTSIDE_GUILD": "Chanèl notifikasyon an pa nan sèvè Discord ki konfigire isit la, kidonk bot la p ap poste ladan l. Itilize yon chanèl nan sèvè ki gen ID Sèvè (Guild) a, oswa korije ID sa a."
+  "DISCORD_CHANNEL_OUTSIDE_GUILD": "Chanèl notifikasyon an pa nan sèvè Discord ki konfigire isit la, kidonk bot la p ap poste ladan l. Itilize yon chanèl nan sèvè ki gen ID Sèvè (Guild) a, oswa korije ID sa a.",
+  "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES": "Ou pa ka chanje, dekonekte oswa retire yon kont oswa yon wòl ki gen {{detail}}, paske ou pa gen kapasite sa a ou menm.",
+  "CURRENT_PASSWORD_INCORRECT": "Modpas aktyèl la pa bon. Apre 10 move tantativ, verifikasyon modpas la kanpe pandan 15 minit, menm ak bon modpas la.",
+  "RECOVERY_CODES_PASSWORD_REQUIRED": "Antre modpas aktyèl ou pou jenere kòd rekiperasyon.",
+  "REFRESH_RACE": "Yo fèk renouvle sesyon sa a nan yon lòt onglè. Eseye ankò."
 }

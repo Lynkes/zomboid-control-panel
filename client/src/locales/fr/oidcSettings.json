@@ -19,6 +19,7 @@
     "notConfiguredHint": "Renseignez les informations du fournisseur ci-dessous et enregistrez pour l'activer."
   },
   "envPinnedNote": "Défini via une variable d'environnement sur cette installation — modifiez-la là-bas, pas ici.",
+  "providerAdminOnlyNote": "Seul un administrateur peut modifier les champs du fournisseur, du client et de redirection. Vous pouvez modifier le nom d'affichage et le scope.",
   "sections": {
     "provider": "Fournisseur",
     "providerDescription": "Comment ce panneau se connecte à votre fournisseur d'identité, et ce qu'il faut y enregistrer.",

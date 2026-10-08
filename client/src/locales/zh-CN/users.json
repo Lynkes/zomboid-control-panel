@@ -24,12 +24,21 @@
     "never": "从未",
     "actions": "操作",
     "removeTooltip": "移除 {{username}}",
-    "linkSsoTooltip": "将 SSO 关联到 {{username}}"
+    "linkSsoTooltip": "将 SSO 关联到 {{username}}",
+    "unlinkSsoTooltip": "解除 {{username}} 的 SSO 关联",
+    "ssoIdentity": "SSO：{{identity}}",
+    "signOutTooltip": "让 {{username}} 在所有设备上退出"
   },
   "deleteDialog": {
     "title": "移除 {{username}}？",
     "description": "该账户将立即失去对本面板的访问权限——从下一次请求开始生效，而非稍后。此操作无法撤销。",
     "confirm": "移除账户",
+    "cancel": "取消"
+  },
+  "unlinkDialog": {
+    "title": "解除 {{username}} 的 SSO 关联？",
+    "description": "将移除此账户关联的所有 SSO 身份，并在所有设备上注销此账户。密码登录仍然可用，你也可以重新关联 SSO。",
+    "confirm": "解除 SSO 关联",
     "cancel": "取消"
   },
   "manageRolesLink": "管理角色与权限",
@@ -64,6 +73,17 @@
     "ssoLinkedTitle": "SSO 已关联",
     "ssoLinkedDescription": "外部身份现已关联到此账户。",
     "ssoLinkExpired": "SSO 关联会话已过期，请重新开始。",
-    "ssoLinkFailed": "无法将 SSO 身份关联到此账户。"
+    "ssoLinkFailed": "无法将 SSO 身份关联到此账户。",
+    "ssoLinkedDescriptionWithEmail": "{{email}} 现已关联到 {{username}}。如果这不是此人的地址，请解除关联。",
+    "ssoUnlinkedTitle": "已解除 SSO 关联",
+    "ssoUnlinkedDescription": "{{username}} 无法再通过 SSO 登录，并已在所有设备上注销。",
+    "signedOutTitle": "已在所有设备上退出",
+    "signedOutDescription": "{{username}} 已从所有浏览器和设备退出。"
+  },
+  "signOutDialog": {
+    "title": "让 {{username}} 在所有设备上退出？",
+    "description": "所有登录此账户的浏览器和设备都会退出。密码和角色保持不变。",
+    "confirm": "在所有设备上退出",
+    "cancel": "取消"
   }
 }

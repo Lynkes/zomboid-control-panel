@@ -416,6 +416,9 @@
   "UNEXPECTED_SERVER_ERROR": "{{detail}} 这是意外情况——如果问题持续出现，请下载支持包以便排查。",
   "OIDC_CREDENTIALS_REJECTED": "提供商拒绝了客户端 ID 或客户端密钥。请在身份提供商的管理界面中核对这两项。",
   "OIDC_TEST_UNDETERMINED": "颁发者可以访问，但本次检测无法确认凭据是否有效：{{reason}}。请尝试登录以获得确定的结果。",
+  "OIDC_ISSUER_MISMATCH": "此 URL 上的发现文档指向另一个颁发者（{{issuer}}）。请输入提供方本身的颁发者 URL，或该颁发者发布的发现 URL。",
+  "OIDC_PROVIDER_FIELDS_ADMIN_ONLY": "只有管理员可以更改颁发者 URL、客户端 ID、客户端密钥、重定向 URI 或明文 HTTP 设置。你仍可以更改显示名称和作用域。",
+  "OIDC_CLIENT_SECRET_REQUIRED": "请输入此提供方的客户端密钥。已保存的密钥只会与已保存的颁发者 URL 和客户端 ID 一起使用。",
   "PLAYERS_USERNAME_REQUIRED": "用户名为必填项",
   "PLAYERS_INVALID_USERNAME": "用户名格式无效",
   "PLAYERS_INVALID_REASON": "原因格式无效",
@@ -595,5 +598,9 @@
   "ZOMBOID_DATA_FOLDER_REFUSED": "此服务器的 Zomboid 数据文件夹中有游戏不会放在数据文件夹里的文件，因此面板不会列出或读取它。请在「我的服务器」页面编辑该服务器，将其 Zomboid 数据路径设为游戏自己的数据文件夹：Saves 文件夹中有世界存档的那个。",
   "SERVER_CONSOLE_LOG_NO_DATA_FOLDER": "此服务器未设置 Zomboid 数据文件夹，而游戏会把控制台日志写在那里。请在「我的服务器」页面编辑该服务器，设置其 Zomboid 数据路径。",
   "DISCORD_CHAT_RELAY_CAPABILITY_REQUIRED": "聊天中继会把人们在其 Discord 频道中输入的内容发布到游戏中，这需要 {{detail}}。您没有该权限项，因此无法开启中继，也无法更改它监听的频道（未设置中继频道时即为通知频道）。",
-  "DISCORD_CHANNEL_OUTSIDE_GUILD": "通知频道不属于此处设置的 Discord 服务器，因此机器人不会在其中发送消息。请使用已填写服务器（Guild）ID 的那个服务器中的频道，或更正该 ID。"
+  "DISCORD_CHANNEL_OUTSIDE_GUILD": "通知频道不属于此处设置的 Discord 服务器，因此机器人不会在其中发送消息。请使用已填写服务器（Guild）ID 的那个服务器中的频道，或更正该 ID。",
+  "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES": "无法更改、退出登录或删除拥有 {{detail}} 的账户或角色，因为你自己没有该权限。",
+  "CURRENT_PASSWORD_INCORRECT": "当前密码不正确。输错 10 次后，密码验证会暂停 15 分钟，即使输入正确的密码也不行。",
+  "RECOVERY_CODES_PASSWORD_REQUIRED": "请输入当前密码以生成找回代码。",
+  "REFRESH_RACE": "此会话刚刚在另一个标签页中刷新。请重试。"
 }

@@ -24,12 +24,21 @@
     "never": "Nunca",
     "actions": "Ações",
     "removeTooltip": "Remover {{username}}",
-    "linkSsoTooltip": "Vincular SSO a {{username}}"
+    "linkSsoTooltip": "Vincular SSO a {{username}}",
+    "unlinkSsoTooltip": "Desvincular SSO de {{username}}",
+    "ssoIdentity": "SSO: {{identity}}",
+    "signOutTooltip": "Desconectar {{username}} de todos os lugares"
   },
   "deleteDialog": {
     "title": "Remover {{username}}?",
     "description": "Essa pessoa perderá o acesso a este painel imediatamente, já na próxima requisição — não mais tarde. Não é possível desfazer.",
     "confirm": "Remover conta",
+    "cancel": "Cancelar"
+  },
+  "unlinkDialog": {
+    "title": "Desvincular SSO de {{username}}?",
+    "description": "Todas as identidades SSO vinculadas a esta conta são removidas e a conta é desconectada em todos os lugares. O login com senha continua funcionando, e você pode vincular o SSO novamente.",
+    "confirm": "Desvincular SSO",
     "cancel": "Cancelar"
   },
   "manageRolesLink": "Gerenciar cargos e permissões",
@@ -64,6 +73,17 @@
     "ssoLinkedTitle": "SSO vinculado",
     "ssoLinkedDescription": "A identidade externa agora está vinculada a esta conta.",
     "ssoLinkExpired": "A sessão de vinculação do SSO expirou. Inicie a vinculação de novo.",
-    "ssoLinkFailed": "Não foi possível vincular a identidade SSO a esta conta."
+    "ssoLinkFailed": "Não foi possível vincular a identidade SSO a esta conta.",
+    "ssoLinkedDescriptionWithEmail": "{{email}} agora está vinculado a {{username}}. Se esse não for o endereço da pessoa, desvincule.",
+    "ssoUnlinkedTitle": "SSO desvinculado",
+    "ssoUnlinkedDescription": "{{username}} não pode mais entrar com SSO e foi desconectado em todos os lugares.",
+    "signedOutTitle": "Sessões encerradas",
+    "signedOutDescription": "{{username}} foi desconectado de todos os navegadores e dispositivos."
+  },
+  "signOutDialog": {
+    "title": "Desconectar {{username}} de todos os lugares?",
+    "description": "Todos os navegadores e dispositivos conectados a esta conta são desconectados. A senha e a função continuam as mesmas.",
+    "confirm": "Desconectar de todos os lugares",
+    "cancel": "Cancelar"
   }
 }

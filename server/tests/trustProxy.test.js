@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import express from "express";
-import { parseTrustProxySetting } from "../utils/trustProxy.js";
+import { parseTrustProxySetting, trustProxyHopCountWarning } from "../utils/trustProxy.js";
 
 describe("parseTrustProxySetting", () => {
   it.each(["", "0", "false", "off", "none"])(
@@ -35,6 +35,28 @@ describe("parseTrustProxySetting", () => {
     "does not enable an invalid numeric value %j",
     (value) => {
       expect(parseTrustProxySetting(value)).toBe(false);
+    },
+  );
+});
+
+// Auth audit 2026-10-08, #7: a hop count trusts X-Forwarded-For from
+// whatever connects directly. With Docker publishing port 3001 on every
+// address (and bypassing UFW), anyone reaching it named their own address on
+// each sign-in attempt, and with it got a fresh lockout budget. "1" keeps
+// meaning one hop, but the panel says so at startup.
+describe("trustProxyHopCountWarning", () => {
+  it.each(["1", "true", "2"])("warns about the hop count %j", (value) => {
+    const warning = trustProxyHopCountWarning(value);
+
+    expect(warning).toContain(`TRUST_PROXY=${value}`);
+    expect(warning).toContain("PANEL_BIND_ADDRESS=127.0.0.1");
+    expect(warning).toContain("TRUST_PROXY=loopback");
+  });
+
+  it.each(["loopback", "127.0.0.1", "127.0.0.1, 10.0.0.0/8", "false", "", undefined])(
+    "stays quiet for %j, which names the proxy or trusts nothing",
+    (value) => {
+      expect(trustProxyHopCountWarning(value)).toBeNull();
     },
   );
 });

@@ -6,6 +6,8 @@ import {
   getOidcConfig,
   buildOidcAuthorizationRequest,
   handleOidcCallback,
+  testOidcDiscovery,
+  wellKnownUrlMatchesIssuer,
   _resetOidcConfigCacheForTests,
 } from '../services/oidc.js';
 import { makeSigningKey, startMockOidcProvider } from './helpers/mockOidcProvider.js';
@@ -254,5 +256,173 @@ describe('OIDC: discovery failure does not stick around forever', () => {
     } finally {
       await provider.close();
     }
+  });
+});
+
+// SECURITY (2026-10-08, #2): openid-client fetches a URL containing
+// "/.well-known/" as given and skips its own issuer-match check, so a
+// document hosted anywhere could claim the real provider's issuer while
+// pointing token_endpoint and jwks_uri at whoever wrote it.
+describe('OIDC: a /.well-known/ issuer URL must belong to the issuer it names', () => {
+  beforeEach(clearOidcEnv);
+  afterEach(clearOidcEnv);
+
+  async function startForgedDiscovery(claimedIssuer) {
+    let tokenRequests = 0;
+    const server = http.createServer((req, res) => {
+      if (req.url === '/token') tokenRequests += 1;
+      const base = `http://127.0.0.1:${server.address().port}`;
+      res.setHeader('content-type', 'application/json');
+      res.end(
+        JSON.stringify({
+          issuer: claimedIssuer,
+          authorization_endpoint: 'https://real-idp.example/authorize',
+          token_endpoint: `${base}/token`,
+          jwks_uri: `${base}/jwks`,
+          response_types_supported: ['code'],
+          subject_types_supported: ['public'],
+          id_token_signing_alg_values_supported: ['RS256'],
+        }),
+      );
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    return {
+      wellKnownUrl: `http://127.0.0.1:${server.address().port}/.well-known/openid-configuration`,
+      get tokenRequests() {
+        return tokenRequests;
+      },
+      close: () => new Promise((resolve) => server.close(resolve)),
+    };
+  }
+
+  it('rejects a discovery document that claims a different issuer', async () => {
+    const forged = await startForgedDiscovery('https://real-idp.example/application/o/zomboid/');
+    try {
+      process.env.PANEL_OIDC_ISSUER_URL = forged.wellKnownUrl;
+      process.env.PANEL_OIDC_CLIENT_ID = 'panel';
+      process.env.PANEL_OIDC_CLIENT_SECRET = 'panel-secret';
+      process.env.PANEL_OIDC_REDIRECT_URI = 'https://panel.example.com/api/auth/oidc/callback';
+      process.env.PANEL_OIDC_ALLOW_INSECURE_HTTP = 'true';
+      _resetOidcConfigCacheForTests();
+
+      await expect(getOidcConfig()).rejects.toMatchObject({ code: 'OIDC_ISSUER_MISMATCH' });
+
+      const result = await testOidcDiscovery({
+        issuerUrl: forged.wellKnownUrl,
+        clientId: 'panel',
+        clientSecret: 'panel-secret',
+        allowInsecureHttp: true,
+      });
+      expect(result).toMatchObject({ success: false, code: 'OIDC_ISSUER_MISMATCH' });
+      // The credential check never ran, so the secret went nowhere.
+      expect(forged.tokenRequests).toBe(0);
+    } finally {
+      await forged.close();
+    }
+  });
+
+  it("still accepts the provider's own discovery URL", async () => {
+    const provider = await startMockOidcProvider({ clientId: 'panel' });
+    try {
+      process.env.PANEL_OIDC_ISSUER_URL = `${provider.baseUrl}/.well-known/openid-configuration`;
+      process.env.PANEL_OIDC_CLIENT_ID = 'panel';
+      process.env.PANEL_OIDC_CLIENT_SECRET = 'panel-secret';
+      process.env.PANEL_OIDC_REDIRECT_URI = `${provider.baseUrl}/api/auth/oidc/callback`;
+      process.env.PANEL_OIDC_ALLOW_INSECURE_HTTP = 'true';
+      _resetOidcConfigCacheForTests();
+
+      const config = await getOidcConfig();
+      expect(config.serverMetadata().issuer).toBe(provider.baseUrl);
+    } finally {
+      await provider.close();
+    }
+  });
+
+  it('matches both well-known placements for an issuer with a path', () => {
+    const issuer = 'https://sso.example.com/application/o/zomboid/';
+    for (const url of [
+      'https://sso.example.com/application/o/zomboid/.well-known/openid-configuration',
+      'https://sso.example.com/.well-known/openid-configuration/application/o/zomboid',
+      'https://sso.example.com/.well-known/oauth-authorization-server/application/o/zomboid',
+      'https://sso.example.com/application/o/zomboid/',
+    ]) {
+      expect(wellKnownUrlMatchesIssuer(url, issuer)).toBe(true);
+    }
+    for (const url of [
+      'https://evil.example/.well-known/openid-configuration',
+      'https://sso.example.com/application/o/other/.well-known/openid-configuration',
+      'https://sso.example.com/.well-known/openid-configuration',
+    ]) {
+      expect(wellKnownUrlMatchesIssuer(url, issuer)).toBe(false);
+    }
+  });
+
+  // Review of #2: these discovery URLs worked before the check existed, and
+  // their documents name an issuer that differs from the URL.
+  it("accepts Entra, B2C and Okta discovery URLs whose issuer differs from the URL", () => {
+    const tenant = '72f988bf-86f1-41af-91ab-2d7cd011db47';
+    for (const [url, issuer] of [
+      [
+        'https://login.microsoftonline.com/contoso.onmicrosoft.com/v2.0/.well-known/openid-configuration',
+        `https://login.microsoftonline.com/${tenant}/v2.0`,
+      ],
+      [
+        'https://login.microsoftonline.com/contoso.onmicrosoft.com/.well-known/openid-configuration',
+        `https://sts.windows.net/${tenant}/`,
+      ],
+      [
+        'https://contoso.b2clogin.com/contoso.onmicrosoft.com/B2C_1_signin/v2.0/.well-known/openid-configuration',
+        `https://contoso.b2clogin.com/${tenant}/v2.0/`,
+      ],
+      [
+        'https://x.okta.com/oauth2/default/.well-known/oauth-authorization-server',
+        'https://x.okta.com/oauth2/default',
+      ],
+    ]) {
+      expect(wellKnownUrlMatchesIssuer(url, issuer)).toBe(true);
+    }
+  });
+
+  it("refuses a document on another host claiming a real provider's issuer", () => {
+    for (const url of [
+      'https://evil.example/.well-known/openid-configuration',
+      'https://evil.example/accounts/.well-known/openid-configuration',
+      // Only Microsoft's own hosts are exempt, and only over https.
+      'https://contoso.b2clogin.com.evil.example/.well-known/openid-configuration',
+      'http://contoso.b2clogin.com/.well-known/openid-configuration',
+    ]) {
+      expect(wellKnownUrlMatchesIssuer(url, 'https://accounts.google.com')).toBe(false);
+    }
+  });
+});
+
+// SECURITY (2026-10-08, #13): linking must make the provider ask who is
+// signing in, or an admin with a live provider session links their own
+// identity to someone else's account. Ordinary sign-in keeps SSO.
+describe('OIDC: the link flow forces a fresh provider sign-in', () => {
+  let provider;
+
+  beforeAll(async () => {
+    provider = await startMockOidcProvider({ clientId: 'panel' });
+  });
+  afterAll(async () => {
+    await provider.close();
+  });
+  beforeEach(() => {
+    process.env.PANEL_OIDC_ISSUER_URL = provider.baseUrl;
+    process.env.PANEL_OIDC_CLIENT_ID = 'panel';
+    process.env.PANEL_OIDC_CLIENT_SECRET = 'panel-secret';
+    process.env.PANEL_OIDC_REDIRECT_URI = `${provider.baseUrl}/api/auth/oidc/callback`;
+    process.env.PANEL_OIDC_ALLOW_INSECURE_HTTP = 'true';
+    _resetOidcConfigCacheForTests();
+  });
+  afterEach(clearOidcEnv);
+
+  it('the link URL carries prompt=login and the login URL does not', async () => {
+    const link = await buildOidcAuthorizationRequest({ forceLogin: true });
+    expect(new URL(link.authorizationUrl).searchParams.get('prompt')).toBe('login');
+
+    const login = await buildOidcAuthorizationRequest();
+    expect(new URL(login.authorizationUrl).searchParams.has('prompt')).toBe(false);
   });
 });

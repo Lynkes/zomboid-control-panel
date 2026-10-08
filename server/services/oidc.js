@@ -171,6 +171,70 @@ export function hasOpenIdScope(scope) {
   return typeof scope === "string" && scope.split(/\s+/).includes("openid");
 }
 
+function trimTrailingSlash(pathname) {
+  return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+}
+
+// SECURITY (2026-10-08, #2): openid-client fetches a URL containing
+// "/.well-known/" as given and then skips its own check that the document's
+// issuer matches that URL. A document hosted anywhere could then claim the
+// real provider's issuer while pointing token_endpoint and jwks_uri at
+// someone else, who would receive the code, PKCE verifier and client secret
+// and could sign ID tokens for any subject. Such a URL is accepted only when
+// it is a discovery URL the discovered issuer itself would publish (issuer +
+// /.well-known/..., or the RFC 8414 form with the issuer path after it), so
+// pasting the provider's own discovery link keeps working.
+export function wellKnownUrlMatchesIssuer(configuredUrl, discoveredIssuer) {
+  let configured;
+  let issuer;
+  try {
+    configured = new URL(configuredUrl);
+    issuer = new URL(discoveredIssuer);
+  } catch {
+    return false;
+  }
+  if (!configured.href.includes("/.well-known/")) return true;
+  // Microsoft writes every document on these hosts, and its issuer never
+  // repeats the URL: Entra names the tenant GUID where the URL has the
+  // tenant's domain (or sts.windows.net for v1), B2C drops the policy.
+  // openid-client accepts the same mismatch for these hosts when it resolves
+  // the discovery URL itself (handleEntraId, handleB2Clogin).
+  if (isMicrosoftDiscoveryHost(configured)) return true;
+  if (configured.origin !== issuer.origin) return false;
+
+  const issuerPath = trimTrailingSlash(issuer.pathname);
+  const suffix = issuerPath === "/" ? "" : issuerPath;
+  const candidates = [
+    `${suffix}/.well-known/openid-configuration`,
+    `/.well-known/openid-configuration${suffix}`,
+    `/.well-known/oauth-authorization-server${suffix}`,
+    // Okta's custom authorization servers publish this appended form too.
+    `${suffix}/.well-known/oauth-authorization-server`,
+  ];
+  return candidates.includes(trimTrailingSlash(configured.pathname));
+}
+
+function isMicrosoftDiscoveryHost(url) {
+  return (
+    url.protocol === "https:" &&
+    (url.hostname === "login.microsoftonline.com" || url.hostname.endsWith(".b2clogin.com"))
+  );
+}
+
+function issuerMismatchMessage(issuer) {
+  return `The discovery document at this URL names a different issuer (${issuer}). Enter the provider's issuer URL itself, or the discovery URL that issuer publishes.`;
+}
+
+function assertDiscoveredIssuerMatches(configuredUrl, config) {
+  const issuer = config.serverMetadata().issuer;
+  if (!wellKnownUrlMatchesIssuer(configuredUrl, issuer)) {
+    const error = new Error(issuerMismatchMessage(issuer));
+    error.code = ErrorCode.OIDC_ISSUER_MISMATCH;
+    throw error;
+  }
+  return config;
+}
+
 // Discovery is a network call to the IdP — never do it at module import time
 // (that would make the whole panel's startup depend on a third-party
 // service being reachable). Memoized so concurrent requests don't each
@@ -205,6 +269,7 @@ export async function getOidcConfig() {
         undefined,
         { execute, timeout: OIDC_REQUEST_TIMEOUT_SECONDS },
       )
+      .then((config) => assertDiscoveredIssuerMatches(settings.issuerUrl, config))
       .catch((error) => {
         _configPromise = null;
         log.warn(`OIDC discovery against ${settings.issuerUrl} failed: ${error.message}`);
@@ -324,6 +389,19 @@ export async function testOidcDiscovery({
     return { success: false, error: error.message };
   }
 
+  // Before the credential check below, which sends the client secret to
+  // whatever token endpoint the document names.
+  const discoveredIssuer = config.serverMetadata().issuer;
+  if (!wellKnownUrlMatchesIssuer(issuerUrl, discoveredIssuer)) {
+    log.warn(`OIDC test-connection refused: ${issuerUrl} names a different issuer`);
+    return {
+      success: false,
+      code: ErrorCode.OIDC_ISSUER_MISMATCH,
+      error: issuerMismatchMessage(discoveredIssuer),
+      params: sanitizeErrorParams({ issuer: discoveredIssuer }),
+    };
+  }
+
   const bogusCode = `zcp-test-connection-${client.randomState()}`;
   try {
     await client.genericGrantRequest(config, "authorization_code", {
@@ -378,8 +456,15 @@ export async function testOidcDiscovery({
  * Builds the URL to send the browser to at the IdP, plus the PKCE/state/
  * nonce values the caller must persist (e.g. in a short-lived cookie) and
  * hand back to `handleOidcCallback` unchanged.
+ *
+ * `forceLogin` (the admin "Link SSO" flow, SECURITY 2026-10-08 #13): asks
+ * the provider to show its sign-in screen even when this browser already
+ * has a session there. Without it, an admin linking someone else's account
+ * silently linked the admin's own provider identity. Ordinary sign-in keeps
+ * the provider's single sign-on. No max_age either: openid-client would then
+ * require an auth_time claim that not every provider sends.
  */
-export async function buildOidcAuthorizationRequest() {
+export async function buildOidcAuthorizationRequest({ forceLogin = false } = {}) {
   const config = await getOidcConfig();
   if (!config) {
     throw new Error("OIDC is not configured");
@@ -391,14 +476,23 @@ export async function buildOidcAuthorizationRequest() {
   const state = client.randomState();
   const nonce = client.randomNonce();
 
-  const url = client.buildAuthorizationUrl(config, {
+  const parameters = {
     redirect_uri: settings.redirectUri,
     scope: settings.scope,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
     state,
     nonce,
-  });
+  };
+  if (forceLogin) {
+    const advertised = config.serverMetadata().prompt_values_supported;
+    parameters.prompt =
+      Array.isArray(advertised) && advertised.includes("select_account")
+        ? "login select_account"
+        : "login";
+  }
+
+  const url = client.buildAuthorizationUrl(config, parameters);
 
   return { authorizationUrl: url.href, state, nonce, codeVerifier };
 }

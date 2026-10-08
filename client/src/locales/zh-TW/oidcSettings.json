@@ -19,6 +19,7 @@
     "notConfiguredHint": "填寫下方的提供方資訊並儲存即可啟用。"
   },
   "envPinnedNote": "此安裝通過環境變數設定——請在那裡修改，而非此處。",
+  "providerAdminOnlyNote": "只有管理員可以變更提供方、客戶端和重新導向欄位。你可以變更顯示名稱和作用域。",
   "sections": {
     "provider": "提供方",
     "providerDescription": "本面板如何連線身份提供方，以及需要在其中註冊的內容。",

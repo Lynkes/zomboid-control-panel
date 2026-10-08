@@ -19,6 +19,7 @@
     "notConfiguredHint": "Completa los datos del proveedor a continuación y guarda para activarlo."
   },
   "envPinnedNote": "Definido mediante una variable de entorno en esta instalación — edítala ahí, no aquí.",
+  "providerAdminOnlyNote": "Solo un administrador puede cambiar los campos del proveedor, del cliente y de redirección. Usted puede cambiar el nombre para mostrar y el alcance.",
   "sections": {
     "provider": "Proveedor",
     "providerDescription": "Cómo se conecta este panel con el proveedor de identidad, y qué registrar allí.",

@@ -111,5 +111,12 @@
   },
   "languageSwitcher": {
     "label": "Language"
+  },
+  "authSession": {
+    "signOutFailedTitle": "Sign-out did not reach the panel",
+    "signOutFailedDescription": "You are still signed in on this browser. Check your connection to the panel, then try again.",
+    "statusCheckFailedTitle": "Could not check sign-in",
+    "statusCheckFailedDescription": "The panel, or a proxy in front of it, did not answer the sign-in check. Wait a moment, then try again.",
+    "retry": "Retry"
   }
 }

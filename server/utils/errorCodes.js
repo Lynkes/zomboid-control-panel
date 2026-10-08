@@ -1807,6 +1807,21 @@ export const ErrorCode = Object.freeze({
    * false "connection successful". Carries `{{reason}}` (the underlying
    * OAuth error code or failure message, sanitizeError()'d). */
   OIDC_TEST_UNDETERMINED: "OIDC_TEST_UNDETERMINED",
+  /** server/services/oidc.js -- getOidcConfig() and testOidcDiscovery(): the
+   * configured issuer URL is a /.well-known/ document whose issuer is not the
+   * provider that would publish it there, so openid-client's own issuer
+   * check was skipped (security sweep 2026-10-08, #2). params: issuer. */
+  OIDC_ISSUER_MISMATCH: "OIDC_ISSUER_MISMATCH",
+  /** server/routes/oidc.js -- PUT /settings and POST /test-connection (403):
+   * the request changes the issuer URL, client ID, client secret, redirect
+   * URI or plain-HTTP switch and the caller is not an admin. panel.settings
+   * alone keeps the display name and scope (security sweep 2026-10-08, #2). */
+  OIDC_PROVIDER_FIELDS_ADMIN_ONLY: "OIDC_PROVIDER_FIELDS_ADMIN_ONLY",
+  /** server/routes/oidc.js -- PUT /settings and POST /test-connection (400):
+   * the issuer URL (or, for a test, the client ID) differs from the saved
+   * one and no new client secret was entered, so the saved secret would go
+   * to a provider it was never issued for (security sweep 2026-10-08, #12). */
+  OIDC_CLIENT_SECRET_REQUIRED: "OIDC_CLIENT_SECRET_REQUIRED",
 
   // --- server/routes/players.js -- never adopted this registry at all
   // until now (2026-08-26 bug hunt round 2, Angela's find): every
@@ -2561,6 +2576,29 @@ export const ErrorCode = Object.freeze({
    * (security sweep 2026-10-05, M2). */
   DISCORD_CHANNEL_OUTSIDE_GUILD: "DISCORD_CHANNEL_OUTSIDE_GUILD",
   /* --- end security sweep W5: hardening --- */
+  /* --- auth audit 2026-10-08: account security (sec/auth-core) --- */
+  /** server/services/auth.js (changeUserRoleById, deleteUser) and
+   * server/services/permissions.js (updateRole narrowing a role, deleteRole
+   * of a role with members) (403): the account or role being changed holds
+   * capabilities the caller doesn't, so the caller can't take them away.
+   * `params.detail` lists them. The built-in admin role counts as holding
+   * every capability (#3, #5). */
+  ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES: "ROLE_TARGET_EXCEEDS_CALLER_CAPABILITIES",
+  /** server/services/auth.js verifyCurrentPassword() -- POST
+   * /api/auth/change-password and POST /recovery-codes (400): the current
+   * password is wrong, or this account's password checks are paused after
+   * MAX_FAILED_LOGINS wrong ones (the same answer for both, #8). */
+  CURRENT_PASSWORD_INCORRECT: "CURRENT_PASSWORD_INCORRECT",
+  /** server/routes/auth.js -- POST /api/auth/recovery-codes (400): no
+   * currentPassword in the body. Generating codes asks for it, since the
+   * codes reset this admin's password without the old one (#1). */
+  RECOVERY_CODES_PASSWORD_REQUIRED: "RECOVERY_CODES_PASSWORD_REQUIRED",
+  /** server/routes/auth.js -- POST /api/auth/refresh (401): another request
+   * refreshed with the same cookie within the last 30 seconds and got the
+   * new one (two tabs at once). The cookie is not cleared and this doesn't
+   * count as token reuse; the client retries once (#19). */
+  REFRESH_RACE: "REFRESH_RACE",
+  /* --- end auth audit 2026-10-08: account security --- */
 });
 
 /**

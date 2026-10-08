@@ -267,7 +267,7 @@
     "panel": {
       "settings": {
         "label": "Administrar ajustes de todo el panel",
-        "description": "Cambiar la política de CORS, el intervalo de comprobación de mods y otros ajustes a nivel de aplicación — incluyendo apuntar el servidor HTTPS del panel a cualquier archivo de certificado/clave del host — y configurar el inicio de sesión SSO/OIDC (incluido el secreto de cliente)."
+        "description": "Cambiar la política de CORS, el intervalo de comprobación de mods y otros ajustes a nivel de aplicación — incluyendo apuntar el servidor HTTPS del panel a cualquier archivo de certificado/clave del host — y el nombre y el alcance del botón de inicio de sesión SSO/OIDC. Qué proveedor de identidad inicia la sesión de los usuarios (emisor, ID y secreto de cliente, URI de redirección) sigue reservado a los administradores."
       }
     }
   }

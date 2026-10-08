@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isTokenExpiredOrNearExpiry } from './jwt'
+import { decodeJwtUserId, isTokenExpiredOrNearExpiry } from './jwt'
 
 function makeToken(payload: Record<string, unknown>): string {
   const base64url = (obj: unknown) =>
@@ -37,5 +37,17 @@ describe('isTokenExpiredOrNearExpiry', () => {
   it('treats a token whose payload has no exp claim as needing a refresh', () => {
     const token = makeToken({ sub: 'user-1' })
     expect(isTokenExpiredOrNearExpiry(token)).toBe(true)
+  })
+})
+
+describe('decodeJwtUserId', () => {
+  it('reads the account a token was issued to', () => {
+    expect(decodeJwtUserId(makeToken({ userId: 'u-1', exp: 1 }))).toBe('u-1')
+  })
+
+  it('is null for no token, a malformed one, or one without a string userId', () => {
+    expect(decodeJwtUserId(null)).toBeNull()
+    expect(decodeJwtUserId('not-a-real-jwt')).toBeNull()
+    expect(decodeJwtUserId(makeToken({ userId: 42 }))).toBeNull()
   })
 })
