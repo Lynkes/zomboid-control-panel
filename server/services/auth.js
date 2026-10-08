@@ -1775,12 +1775,17 @@ class AuthService {
    * that was revoked -- sockets authenticate off the access token, whose
    * payload carries userId/role/tokenGen but no sessionId, so there is no
    * per-device room to target more narrowly without a bigger change to
-   * what the access token carries. A user logging out on device A briefly
-   * disconnects device B's socket too, but device B's access/refresh
-   * tokens are untouched, so socketAuth.ts's reconnect-with-fresh-token
-   * flow (same mechanism c0017c7b's own comment already relies on) picks
-   * it back up immediately and transparently. Same shape and same
-   * tradeoff every one of the other four triggers already accepts.
+   * what the access token carries. A user logging out on device A also
+   * disconnects device B's socket, and it stays down: socket.io-client
+   * treats a server-side disconnect as final and does not reconnect by
+   * itself. Device B's access/refresh tokens are untouched, so its next
+   * connect (Retry in the connection status, or a reload) goes through
+   * socketAuth.ts with them and succeeds. Same shape and same tradeoff
+   * every one of the other four triggers already accepts. Other tabs of
+   * the browser that signed out hear it from the client itself
+   * (AuthContext.tsx's 'pz-auth' channel) and show the sign-in screen;
+   * their HTTP calls would otherwise keep working until the access token
+   * expires, since this does not revoke access tokens.
    */
   async logout(refreshToken) {
     if (!refreshToken) {

@@ -1,11 +1,12 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { AuthProvider, useAuth } from '../AuthContext'
 import { Toaster } from '../../components/ui/toaster'
 import { clearAccessToken, getAccessToken } from '../../lib/authToken'
 
 // Auth audit 2026-10-08, client session items: the boot check (#23), the
-// shared boot refresh (#19) and sign-out that must reach the panel (#14).
+// shared boot refresh (#19), sign-out that must reach the panel (#14) and
+// sign-out reaching this browser's other tabs (#16).
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -78,6 +79,32 @@ function renderApp() {
 
 const view = () => screen.getByTestId('view').textContent
 
+// A stand-in BroadcastChannel that delivers to the other instances of the
+// same name, like the browser's does between tabs.
+class FakeChannel {
+  static instances: FakeChannel[] = []
+  onmessage: ((event: MessageEvent) => void) | null = null
+  closed = false
+  constructor(public name: string) {
+    FakeChannel.instances.push(this)
+  }
+  postMessage(data: unknown) {
+    for (const other of FakeChannel.instances) {
+      if (other !== this && other.name === this.name && !other.closed) {
+        other.onmessage?.({ data } as MessageEvent)
+      }
+    }
+  }
+  close() {
+    this.closed = true
+  }
+}
+
+beforeEach(() => {
+  FakeChannel.instances = []
+  vi.stubGlobal('BroadcastChannel', FakeChannel)
+})
+
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
@@ -148,6 +175,55 @@ describe('boot refresh goes through the shared refresh (#19)', () => {
     await waitFor(() => expect(view()).toBe('panel'))
     expect(screen.getByTestId('user').textContent).toBe('admin')
     expect(callsTo(fetchMock, '/api/auth/refresh')).toBe(2)
+  })
+})
+
+describe('sign-out reaches every tab of this browser (#16)', () => {
+  it('a logout message on the channel shows the sign-in screen and drops the token', async () => {
+    stubFetch(signedInRoutes)
+    renderApp()
+    await waitFor(() => expect(view()).toBe('panel'))
+    expect(getAccessToken()).not.toBeNull()
+
+    act(() => {
+      new FakeChannel('pz-auth').postMessage({ type: 'logout' })
+    })
+
+    expect(view()).toBe('login')
+    expect(getAccessToken()).toBeNull()
+  })
+
+  it('signing out tells the other tabs on the pz-auth channel', async () => {
+    stubFetch({ ...signedInRoutes, '/api/auth/logout': () => jsonResponse(200, { success: true }) })
+    const otherTab = new FakeChannel('pz-auth')
+    const received: unknown[] = []
+    otherTab.onmessage = (event) => received.push(event.data)
+    renderApp()
+    await waitFor(() => expect(view()).toBe('panel'))
+
+    fireEvent.click(screen.getByText('sign out'))
+
+    await waitFor(() => expect(view()).toBe('login'))
+    expect(received).toEqual([{ type: 'logout' }])
+  })
+
+  it('without BroadcastChannel, localStorage carries it both ways', async () => {
+    vi.stubGlobal('BroadcastChannel', undefined)
+    stubFetch({ ...signedInRoutes, '/api/auth/logout': () => jsonResponse(200, { success: true }) })
+    renderApp()
+    await waitFor(() => expect(view()).toBe('panel'))
+
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: 'pz-auth-signed-out', newValue: '1' }))
+    })
+    expect(view()).toBe('login')
+
+    cleanup()
+    renderApp()
+    await waitFor(() => expect(view()).toBe('panel'))
+    fireEvent.click(screen.getByText('sign out'))
+    await waitFor(() => expect(view()).toBe('login'))
+    expect(localStorage.getItem('pz-auth-signed-out')).toBeTruthy()
   })
 })
 

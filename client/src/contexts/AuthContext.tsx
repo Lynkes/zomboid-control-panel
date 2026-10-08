@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { clearAccessToken, getAccessToken, setAccessToken } from '../lib/authToken'
-import { ApiError, apiFetch, endServerSession, handleResponse, refreshSession } from '../lib/api'
+import { ApiError, apiFetch, bumpAuthGeneration, endServerSession, handleResponse, refreshSession } from '../lib/api'
 import { getUserErrorMessage } from '../lib/errorMessage'
 import { getTrustedDeviceToken, rememberTrustedDeviceToken } from '../lib/trustedDevice'
 import { toast } from '../components/ui/use-toast'
@@ -112,6 +112,13 @@ export function getLoginErrorMessage(error: unknown): string {
   return LOGIN_FAILED_MESSAGE
 }
 
+// Signing out tells this browser's other panel tabs (audit #16), which
+// otherwise stayed fully usable until their access token ran out.
+const AUTH_CHANNEL_NAME = 'pz-auth'
+// The fallback where BroadcastChannel is missing: other tabs get a
+// `storage` event when this key changes.
+const SIGN_OUT_STORAGE_KEY = 'pz-auth-signed-out'
+
 type AuthStatus = { needsSetup?: unknown; authEnabled?: unknown }
 
 async function fetchAuthStatus(): Promise<AuthStatus | null> {
@@ -122,6 +129,22 @@ async function fetchAuthStatus(): Promise<AuthStatus | null> {
     return body && typeof body === 'object' ? (body as AuthStatus) : null
   } catch {
     return null
+  }
+}
+
+function announceSignOut(channel: BroadcastChannel | null) {
+  if (channel) {
+    try {
+      channel.postMessage({ type: 'logout' })
+      return
+    } catch {
+      // Closed under us: fall back to storage below.
+    }
+  }
+  try {
+    localStorage.setItem(SIGN_OUT_STORAGE_KEY, String(Date.now()))
+  } catch {
+    // Storage blocked: other tabs find out at their next refresh.
   }
 }
 
@@ -152,6 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     authEnabled: true,
     statusCheckFailed: false,
   })
+  const channelRef = useRef<BroadcastChannel | null>(null)
 
   // Get stored token
   const getToken = useCallback((): string | null => {
@@ -259,6 +283,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void checkAuth()
   }, [checkAuth])
 
+  useEffect(() => {
+    const signedOutElsewhere = () => {
+      // Drops a refresh this tab has in flight, too.
+      bumpAuthGeneration()
+      clearAccessToken()
+      setState(prev => (prev.authEnabled && prev.isAuthenticated
+        ? { ...prev, user: null, isAuthenticated: false }
+        : prev))
+    }
+    let channel: BroadcastChannel | null = null
+    try {
+      channel = new BroadcastChannel(AUTH_CHANNEL_NAME)
+      channel.onmessage = (event: MessageEvent) => {
+        if ((event.data as { type?: unknown } | null)?.type === 'logout') signedOutElsewhere()
+      }
+    } catch {
+      channel = null
+    }
+    channelRef.current = channel
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === SIGN_OUT_STORAGE_KEY && event.newValue) signedOutElsewhere()
+    }
+    window.addEventListener('storage', onStorage)
+    return () => {
+      channelRef.current = null
+      channel?.close()
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
+
   const login = useCallback(async (username: string, password: string, rememberMe = true) => {
     try {
       // 2026-09-08 (auth-transport-parity): was a raw fetch() constructing
@@ -347,6 +401,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return
       }
       clearAccessToken()
+      announceSignOut(channelRef.current)
       setState(prev => ({
         ...prev,
         user: null,
