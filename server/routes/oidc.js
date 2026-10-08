@@ -222,8 +222,10 @@ router.post("/link", requireRole("admin"), linkRateLimiter, async (req, res) => 
   }
 
   try {
+    // forceLogin: the provider asks for a fresh sign-in, so the identity
+    // linked is whoever signs in now, not the admin's own provider session.
     const { authorizationUrl, state, nonce, codeVerifier } =
-      await buildOidcAuthorizationRequest();
+      await buildOidcAuthorizationRequest({ forceLogin: true });
     rememberIssuedFlow(state, codeVerifier, {
       flowType: "link",
       userId,
@@ -316,7 +318,11 @@ router.get("/callback", async (req, res) => {
         actingUserId: issuedFlow.initiatorUserId,
       });
       log.info(`OIDC identity linked to local user ${issuedFlow.userId}`);
-      return res.redirect("/settings?tab=users&oidcSuccess=linked");
+      // The account id, not the email: the Users screen reads the linked
+      // identity from its own list, so no address lands in the URL.
+      return res.redirect(
+        `/settings?tab=users&oidcSuccess=linked&linkedUser=${encodeURIComponent(issuedFlow.userId)}`,
+      );
     } catch (error) {
       log.warn(`OIDC identity link failed: ${escapeLogText(error.message)}`);
       return res.redirect("/settings?tab=users&oidcError=link_failed");

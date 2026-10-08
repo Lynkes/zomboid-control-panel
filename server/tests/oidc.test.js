@@ -357,3 +357,34 @@ describe('OIDC: a /.well-known/ issuer URL must belong to the issuer it names', 
     }
   });
 });
+
+// SECURITY (2026-10-08, #13): linking must make the provider ask who is
+// signing in, or an admin with a live provider session links their own
+// identity to someone else's account. Ordinary sign-in keeps SSO.
+describe('OIDC: the link flow forces a fresh provider sign-in', () => {
+  let provider;
+
+  beforeAll(async () => {
+    provider = await startMockOidcProvider({ clientId: 'panel' });
+  });
+  afterAll(async () => {
+    await provider.close();
+  });
+  beforeEach(() => {
+    process.env.PANEL_OIDC_ISSUER_URL = provider.baseUrl;
+    process.env.PANEL_OIDC_CLIENT_ID = 'panel';
+    process.env.PANEL_OIDC_CLIENT_SECRET = 'panel-secret';
+    process.env.PANEL_OIDC_REDIRECT_URI = `${provider.baseUrl}/api/auth/oidc/callback`;
+    process.env.PANEL_OIDC_ALLOW_INSECURE_HTTP = 'true';
+    _resetOidcConfigCacheForTests();
+  });
+  afterEach(clearOidcEnv);
+
+  it('the link URL carries prompt=login and the login URL does not', async () => {
+    const link = await buildOidcAuthorizationRequest({ forceLogin: true });
+    expect(new URL(link.authorizationUrl).searchParams.get('prompt')).toBe('login');
+
+    const login = await buildOidcAuthorizationRequest();
+    expect(new URL(login.authorizationUrl).searchParams.has('prompt')).toBe(false);
+  });
+});

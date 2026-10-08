@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import { Users as UsersIcon, UserPlus, ShieldAlert, Loader2, ArrowRight, Trash2, Link2 } from 'lucide-react'
+import { Users as UsersIcon, UserPlus, ShieldAlert, Loader2, ArrowRight, Trash2, Link2, Unlink } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { PageHeader } from '@/components/PageHeader'
@@ -62,6 +62,14 @@ function recoveryActionKeyForRole(role: RoleInfo | undefined): 'lockout.actionMa
   return null
 }
 
+// The address of the account's most recently linked SSO identity, for the
+// "linked" toast: it shows the admin whose identity was actually linked.
+function newestIdentityEmail(user: ManagedUserAccount | undefined): string | null {
+  const identities = [...(user?.externalIdentities ?? [])]
+  identities.sort((a, b) => (a.linkedAt ?? '').localeCompare(b.linkedAt ?? ''))
+  return identities.pop()?.email ?? null
+}
+
 // `embedded`: rendered inside a Settings tab panel instead of as its own
 // route. The tab trigger already carries the page's name/icon, so the full
 // PageHeader (eyebrow/title/description) would be a second, redundant
@@ -91,6 +99,10 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
 
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
   const [linkingUserId, setLinkingUserId] = useState<string | null>(null)
+  const [unlinkingUserId, setUnlinkingUserId] = useState<string | null>(null)
+  // Set from ?oidcSuccess=linked&linkedUser=<id>; toasted once the list has
+  // loaded, so the toast can name the address that was linked.
+  const [linkedUserId, setLinkedUserId] = useState<string | null>(null)
 
   // Focus-restore-after-delete pattern (Pam found the shape; see the block
   // comment above the effect below for the full writeup) -- REPLICATE THIS
@@ -191,11 +203,7 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
     if (!success && !error) return
 
     if (success === 'linked') {
-      toast({
-        title: t('toasts.ssoLinkedTitle'),
-        description: t('toasts.ssoLinkedDescription'),
-        variant: 'success',
-      })
+      setLinkedUserId(params.get('linkedUser') ?? '')
     } else if (error === 'link_expired') {
       toast({
         title: t('toasts.actionFailedTitle'),
@@ -212,9 +220,25 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
 
     params.delete('oidcSuccess')
     params.delete('oidcError')
+    params.delete('linkedUser')
     const query = params.toString()
     window.history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : '') + window.location.hash)
   }, [t, toast])
+
+  useEffect(() => {
+    if (linkedUserId === null || loading) return
+    const user = users?.find((u) => u.id === linkedUserId)
+    const email = newestIdentityEmail(user)
+    toast({
+      title: t('toasts.ssoLinkedTitle'),
+      description:
+        user && email
+          ? t('toasts.ssoLinkedDescriptionWithEmail', { email, username: user.username })
+          : t('toasts.ssoLinkedDescription'),
+      variant: 'success',
+    })
+    setLinkedUserId(null)
+  }, [linkedUserId, loading, users, t, toast])
 
   function openCreateDialog() {
     setUsername('')
@@ -311,6 +335,38 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
         variant: 'destructive',
       })
       setLinkingUserId(null)
+    }
+  }
+
+  async function handleUnlinkSso(user: ManagedUserAccount) {
+    const ok = await confirm({
+      title: t('unlinkDialog.title', { username: user.username }),
+      description: t('unlinkDialog.description'),
+      confirmLabel: t('unlinkDialog.confirm'),
+      cancelLabel: t('unlinkDialog.cancel'),
+      destructive: true,
+    })
+    if (!ok) return
+
+    setUnlinkingUserId(user.id)
+    try {
+      await usersApi.unlinkExternalIdentities(user.id)
+      setUsers((prev) =>
+        prev ? prev.map((u) => (u.id === user.id ? { ...u, externalIdentities: [] } : u)) : prev,
+      )
+      toast({
+        title: t('toasts.ssoUnlinkedTitle'),
+        description: t('toasts.ssoUnlinkedDescription', { username: user.username }),
+        variant: 'success',
+      })
+    } catch (error) {
+      toast({
+        title: t('toasts.actionFailedTitle'),
+        description: getUserErrorMessage(error, t('toasts.unknownError')),
+        variant: 'destructive',
+      })
+    } finally {
+      setUnlinkingUserId(null)
     }
   }
 
@@ -457,9 +513,21 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
                   {(users || []).map((user) => {
                     const isSelf = user.id === currentUser?.id
                     const deleting = deletingIds.has(user.id)
+                    const identities = user.externalIdentities ?? []
                     return (
                       <tr key={user.id} className="border-b border-border/30 last:border-0">
-                        <td className="px-4 py-2.5 font-medium">{user.username}</td>
+                        <td className="px-4 py-2.5 font-medium">
+                          {user.username}
+                          {identities.map((identity, index) => (
+                            <div
+                              key={`${identity.issuer}-${identity.subject}-${index}`}
+                              className="text-xs font-normal text-muted-foreground [overflow-wrap:anywhere]"
+                              title={identity.issuer}
+                            >
+                              {t('table.ssoIdentity', { identity: identity.email || identity.subject })}
+                            </div>
+                          ))}
+                        </td>
                         <td className="px-4 py-2.5">
                           <Badge variant="outline">{user.role}</Badge>
                         </td>
@@ -481,11 +549,26 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
                                 title={t('table.linkSsoTooltip', { username: user.username })}
                                 aria-label={t('table.linkSsoTooltip', { username: user.username })}
                                 onClick={() => handleLinkSso(user)}
-                                disabled={linkingUserId !== null || deleting}
+                                disabled={linkingUserId !== null || unlinkingUserId !== null || deleting}
                               >
                                 <Link2 className="h-4 w-4" />
                               </Button>
                             ) : null}
+                            {canLinkSso && identities.length > 0 && (unlinkingUserId === user.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                title={t('table.unlinkSsoTooltip', { username: user.username })}
+                                aria-label={t('table.unlinkSsoTooltip', { username: user.username })}
+                                onClick={() => handleUnlinkSso(user)}
+                                disabled={linkingUserId !== null || unlinkingUserId !== null || deleting}
+                              >
+                                <Unlink className="h-4 w-4" />
+                              </Button>
+                            ))}
                             {!isSelf && (deleting ? (
                               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                             ) : (

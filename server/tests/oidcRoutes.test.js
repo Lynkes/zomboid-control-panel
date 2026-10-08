@@ -5,6 +5,7 @@ import authService from '../services/auth.js';
 import * as dbModule from '../database/init.js';
 import { _resetOidcConfigCacheForTests } from '../services/oidc.js';
 import oidcRoutes, { _resetIssuedOidcFlowsForTests } from '../routes/oidc.js';
+import authRoutes from '../routes/auth.js';
 import { startMockOidcProvider } from './helpers/mockOidcProvider.js';
 import { acquireOidcTestLock } from './helpers/oidcTestLock.js';
 
@@ -53,6 +54,20 @@ function makeReq({
   user = { userId: 'admin-1', role: 'admin' },
 } = {}) {
   return { cookies, url, headers, secure, body, params, user };
+}
+
+// Runs every handler on a route (gates included), the way Express would.
+async function runRouteChain(router, method, path, req, res) {
+  const layer = router.stack.find((l) => l.route?.path === path && l.route.methods[method]);
+  if (!layer) throw new Error(`No ${method.toUpperCase()} ${path} route registered`);
+  for (const { handle } of layer.route.stack) {
+    let advanced = false;
+    await handle(req, res, () => {
+      advanced = true;
+    });
+    if (!advanced) break;
+  }
+  return res;
 }
 
 function makeRes() {
@@ -388,7 +403,7 @@ describe('routes/oidc.js: /callback', () => {
     const callbackRes = makeRes();
     await getHandler('get', '/callback')(callbackReq({ flow }), callbackRes);
 
-    expect(callbackRes.redirectedTo).toBe('/settings?tab=users&oidcSuccess=linked');
+    expect(callbackRes.redirectedTo).toBe('/settings?tab=users&oidcSuccess=linked&linkedUser=user-42');
     expect(callbackRes.cookies.find((cookie) => cookie.name === 'refreshToken')).toBeUndefined();
     expect(user.externalIdentities).toEqual([
       expect.objectContaining({
@@ -572,10 +587,87 @@ describe('routes/oidc.js: /callback', () => {
     provider.setNextIdToken({ claims: { nonce: flow.nonce, sub: 'alice-sub' } });
     const ownRes = makeRes();
     await getHandler('get', '/callback')(callbackReq({ flow }), ownRes);
-    expect(ownRes.redirectedTo).toBe('/settings?tab=users&oidcSuccess=linked');
+    expect(ownRes.redirectedTo).toBe('/settings?tab=users&oidcSuccess=linked&linkedUser=user-42');
     expect(target.externalIdentities).toEqual([
       expect.objectContaining({ issuer: provider.baseUrl, subject: 'alice-sub' }),
     ]);
+  });
+
+  // SECURITY (2026-10-08, #13): a wrong or hijacked link could only be
+  // removed by deleting the account.
+  it('an admin can unlink an identity, which ends its sessions and its SSO sign-in', async () => {
+    authService.jwtSecret = 'test-oidc-route-secret';
+    vi.spyOn(dbModule, 'commitNow').mockResolvedValue(undefined);
+    const user = {
+      id: 'user-42',
+      username: 'sso.alice',
+      role: 'moderator',
+      tokenGen: 0,
+      refreshSessions: [{ id: 'session-1', expiresAt: new Date(Date.now() + 60_000).toISOString() }],
+      externalIdentities: [
+        { issuer: provider.baseUrl, subject: SUBJECT, email: 'alice@example.com', linkedAt: '2026-10-01T00:00:00.000Z' },
+      ],
+    };
+    vi.spyOn(dbModule, 'getDb').mockResolvedValue({
+      data: { users: [{ id: 'admin-1', username: 'admin', role: 'admin' }, user] },
+    });
+
+    // The users list shows the link, never the full subject.
+    const listed = (await authService.getUsers()).find((u) => u.id === 'user-42');
+    expect(listed.externalIdentities).toEqual([
+      { issuer: provider.baseUrl, subject: '••••', email: 'alice@example.com', linkedAt: '2026-10-01T00:00:00.000Z' },
+    ]);
+
+    const refused = await runRouteChain(
+      authRoutes,
+      'delete',
+      '/users/:id/identities',
+      makeReq({ params: { id: 'user-42' }, user: { userId: 'tech-1', role: 'technician' } }),
+      makeRes(),
+    );
+    expect(refused.statusCode).toBe(403);
+    expect(user.externalIdentities).toHaveLength(1);
+
+    const res = await runRouteChain(
+      authRoutes,
+      'delete',
+      '/users/:id/identities',
+      makeReq({ params: { id: 'user-42' } }),
+      makeRes(),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.jsonBody).toEqual({
+      success: true,
+      user: { id: 'user-42', username: 'sso.alice' },
+      removed: 1,
+    });
+    expect(user.externalIdentities).toEqual([]);
+    expect(user.tokenGen).toBe(1);
+    expect(user.refreshSessions).toEqual([]);
+
+    const flow = await startLoginFlow();
+    provider.setNextIdToken({ claims: { nonce: flow.nonce } });
+    const signIn = makeRes();
+    await getHandler('get', '/callback')(callbackReq({ flow }), signIn);
+    expect(signIn.redirectedTo).toBe('/?oidcError=refused');
+    expect(signIn.cookies.find((c) => c.name === 'refreshToken')).toBeUndefined();
+  });
+
+  it('masks all but the last four characters of a long subject in the users list', async () => {
+    vi.spyOn(dbModule, 'getDb').mockResolvedValue({
+      data: {
+        users: [
+          {
+            id: 'user-42',
+            username: 'alice',
+            role: 'moderator',
+            externalIdentities: [{ issuer: provider.baseUrl, subject: '109876543210987654321', email: null }],
+          },
+        ],
+      },
+    });
+    const [listed] = await authService.getUsers();
+    expect(listed.externalIdentities[0].subject).toBe('••••4321');
   });
 });
 

@@ -441,8 +441,15 @@ export async function testOidcDiscovery({
  * Builds the URL to send the browser to at the IdP, plus the PKCE/state/
  * nonce values the caller must persist (e.g. in a short-lived cookie) and
  * hand back to `handleOidcCallback` unchanged.
+ *
+ * `forceLogin` (the admin "Link SSO" flow, SECURITY 2026-10-08 #13): asks
+ * the provider to show its sign-in screen even when this browser already
+ * has a session there. Without it, an admin linking someone else's account
+ * silently linked the admin's own provider identity. Ordinary sign-in keeps
+ * the provider's single sign-on. No max_age either: openid-client would then
+ * require an auth_time claim that not every provider sends.
  */
-export async function buildOidcAuthorizationRequest() {
+export async function buildOidcAuthorizationRequest({ forceLogin = false } = {}) {
   const config = await getOidcConfig();
   if (!config) {
     throw new Error("OIDC is not configured");
@@ -454,14 +461,23 @@ export async function buildOidcAuthorizationRequest() {
   const state = client.randomState();
   const nonce = client.randomNonce();
 
-  const url = client.buildAuthorizationUrl(config, {
+  const parameters = {
     redirect_uri: settings.redirectUri,
     scope: settings.scope,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
     state,
     nonce,
-  });
+  };
+  if (forceLogin) {
+    const advertised = config.serverMetadata().prompt_values_supported;
+    parameters.prompt =
+      Array.isArray(advertised) && advertised.includes("select_account")
+        ? "login select_account"
+        : "login";
+  }
+
+  const url = client.buildAuthorizationUrl(config, parameters);
 
   return { authorizationUrl: url.href, state, nonce, codeVerifier };
 }

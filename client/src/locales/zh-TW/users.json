@@ -24,12 +24,20 @@
     "never": "從未",
     "actions": "操作",
     "removeTooltip": "移除 {{username}}",
-    "linkSsoTooltip": "將 SSO 連結至 {{username}}"
+    "linkSsoTooltip": "將 SSO 連結至 {{username}}",
+    "unlinkSsoTooltip": "解除 {{username}} 的 SSO 連結",
+    "ssoIdentity": "SSO：{{identity}}"
   },
   "deleteDialog": {
     "title": "移除 {{username}}？",
     "description": "該帳號將立即失去對本面板的訪問權限——從下一次請求開始生效，而非稍後。此操作無法撤銷。",
     "confirm": "移除帳號",
+    "cancel": "取消"
+  },
+  "unlinkDialog": {
+    "title": "解除 {{username}} 的 SSO 連結？",
+    "description": "將移除此帳戶連結的所有 SSO 身分，並在所有裝置上登出此帳戶。密碼登入仍然可用，你也可以重新連結 SSO。",
+    "confirm": "解除 SSO 連結",
     "cancel": "取消"
   },
   "manageRolesLink": "管理角色與權限",
@@ -64,6 +72,9 @@
     "ssoLinkedTitle": "SSO 已連結",
     "ssoLinkedDescription": "外部身分現在已連結至此帳戶。",
     "ssoLinkExpired": "SSO 連結工作階段已過期，請重新開始。",
-    "ssoLinkFailed": "無法將 SSO 身分連結至此帳戶。"
+    "ssoLinkFailed": "無法將 SSO 身分連結至此帳戶。",
+    "ssoLinkedDescriptionWithEmail": "{{email}} 現在已連結至 {{username}}。如果這不是此人的地址，請解除連結。",
+    "ssoUnlinkedTitle": "已解除 SSO 連結",
+    "ssoUnlinkedDescription": "{{username}} 無法再透過 SSO 登入，並已在所有裝置上登出。"
   }
 }

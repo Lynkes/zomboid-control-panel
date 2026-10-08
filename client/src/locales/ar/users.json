@@ -24,12 +24,20 @@
     "never": "أبدًا",
     "actions": "الإجراءات",
     "removeTooltip": "إزالة {{username}}",
-    "linkSsoTooltip": "ربط SSO بـ {{username}}"
+    "linkSsoTooltip": "ربط SSO بـ {{username}}",
+    "unlinkSsoTooltip": "إلغاء ربط SSO من {{username}}",
+    "ssoIdentity": "SSO: {{identity}}"
   },
   "deleteDialog": {
     "title": "إزالة {{username}}؟",
     "description": "سيفقد الوصول إلى هذه اللوحة فورًا، عند أول طلب يرسله — لا لاحقًا. لا يمكن التراجع عن ذلك.",
     "confirm": "إزالة الحساب",
+    "cancel": "إلغاء"
+  },
+  "unlinkDialog": {
+    "title": "إلغاء ربط SSO من {{username}}؟",
+    "description": "ستُزال كل هويات SSO المرتبطة بهذا الحساب وسيُسجَّل خروج الحساب من كل مكان. يظل تسجيل الدخول بكلمة المرور يعمل، ويمكنك ربط SSO مرة أخرى.",
+    "confirm": "إلغاء ربط SSO",
     "cancel": "إلغاء"
   },
   "manageRolesLink": "إدارة الأدوار والصلاحيات",
@@ -64,6 +72,9 @@
     "ssoLinkedTitle": "تم ربط SSO",
     "ssoLinkedDescription": "تم الآن ربط الهوية الخارجية بهذا الحساب.",
     "ssoLinkExpired": "انتهت جلسة ربط SSO. ابدأ الربط مرة أخرى.",
-    "ssoLinkFailed": "تعذر ربط هوية SSO بهذا الحساب."
+    "ssoLinkFailed": "تعذر ربط هوية SSO بهذا الحساب.",
+    "ssoLinkedDescriptionWithEmail": "تم الآن ربط {{email}} بـ {{username}}. إن لم يكن هذا عنوانه، فألغِ الربط.",
+    "ssoUnlinkedTitle": "تم إلغاء ربط SSO",
+    "ssoUnlinkedDescription": "لم يعد بإمكان {{username}} تسجيل الدخول عبر SSO، وتم تسجيل خروجه من كل مكان."
   }
 }
