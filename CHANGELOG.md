@@ -16,11 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Sign-in during a password change:** a sign-in or refresh still in progress when the password is changed or reset no longer gets a session that survives it.
 - **Sessions end:** a kept-signed-in session now ends 30 days after sign-in however often it is used, and a replaced refresh token used again signs that account out everywhere; a copied cookie used to work forever.
 - **Sign out everywhere:** Settings › Security ends every session of your own account, and the Users page can sign another account out everywhere; before, only a password change or a new JWT secret could.
-- **Several tabs at once:** a tab that loses a refresh race to another one no longer clears the sign-in cookie they share, which could sign every tab out.
+- **Several tabs at once:** tabs refreshing together take turns, and one that loses the race no longer clears the sign-in cookie they share, which could sign every tab out; a passing refresh failure no longer leaves a tab that looks signed in while every action fails.
 - **Keep me signed in unticked:** you stay signed in while the browser is open, for up to 12 hours, instead of being signed out 15 minutes after sign-in.
+- **Sign-out has to reach the panel:** if it doesn't, the tab stays signed in and offers Retry; on a shared PC the next person could open the panel as you.
+- **Sign-out reaches every tab:** the browser's other panel tabs sign out too; they stayed usable for up to 15 minutes.
+- **No silent account switch:** a tab whose session refresh comes back as another account reloads; it went on acting as that account under the old name.
+- **Sign-in check at load:** an error from the panel or a proxy shows a Retry card, or the reason when the panel refuses this address; it showed the panel as if logins were off.
 - **Recovery behind a same-host proxy:** a request carrying a proxy's headers no longer counts as coming from the panel host, so strangers can't see whether a reset-token file exists when `TRUST_PROXY` is unset.
 - **SSO provider settings:** only admins can change the issuer, client, secret, redirect URI or plain-HTTP switch, and a discovery URL naming another issuer is refused; a settings-only role could sign in as an admin.
-- **SSO links:** a link callback must come from the browser that started it, and linking asks the provider for a fresh sign-in; a leaked link URL or the admin's own provider session could link the wrong identity.
+- **SSO links:** a link callback must come from the browser that started it, before that admin is signed out everywhere, and linking asks the provider for a fresh sign-in; a leaked link URL or the admin's own provider session could link the wrong identity.
 - **SSO client secret:** Test Connection and a new issuer need that provider's own secret; the saved one could be sent to any issuer.
 - **Linked SSO identities:** Users lists each account's links with an Unlink button that also signs the account out, and a new link names the address it linked.
 - **SSO rate limits:** sign-in and linking have their own budgets and unknown callbacks stop before reaching the provider; one stranger could block SSO behind a shared address.
@@ -42,14 +46,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Leaderboard missed players:** kills and days are now read for everyone online, not only while the Leaderboard page is open, and a death no longer loses kills.
-
-### Security
-
-- **Sign-out has to reach the panel:** if it doesn't, the tab stays signed in and offers Retry; on a shared PC the next person could open the panel as you.
-- **Sign-out reaches every tab:** the browser's other panel tabs sign out too; they stayed usable for up to 15 minutes.
-- **No silent account switch:** a tab whose session refresh comes back as another account reloads; it went on acting as that account under the old name.
-- **Several tabs at once:** tabs refreshing together take turns, and a passing refresh failure no longer leaves a tab that looks signed in while every action fails.
-- **Sign-in check at load:** an error from the panel or a proxy shows a Retry card, or the reason when the panel refuses this address; it showed the panel as if logins were off.
 
 ## [1.4.8] - 2026-10-07
 
