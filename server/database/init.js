@@ -7,7 +7,7 @@ import { getDataPaths, getPanelProgramDir } from "../utils/paths.js";
 import { registerHostFolderSource } from "../utils/sanitize.js";
 import { checkAndExitIfOwnershipBlocked } from "../utils/firstRunOwnershipCheck.js";
 import { createLogger } from "../utils/logger.js";
-import { normalizeMemoryGb } from "../utils/memory.js";
+import { normalizeMemoryGb, normalizeMinMemoryGb } from "../utils/memory.js";
 import { parseClampedInteger } from "../utils/queryNumbers.js";
 import {
   rehydrateRconSecrets,
@@ -2150,7 +2150,7 @@ export function normalizeServerMemory(server) {
     lifecycleProvider: ["systemd", "openrc"].includes(server.lifecycleProvider)
       ? server.lifecycleProvider
       : "direct",
-    minMemory: normalizeMemoryGb(server.minMemory, 4),
+    minMemory: normalizeMinMemoryGb(server.minMemory, 4),
     maxMemory: normalizeMemoryGb(server.maxMemory, 8),
   };
 }
@@ -2255,7 +2255,7 @@ export async function createServer(serverConfig) {
     rconPort: serverConfig.rconPort || 27015,
     rconPassword: serverConfig.rconPassword || "",
     serverPort: serverConfig.serverPort || 16261,
-    minMemory: normalizeMemoryGb(serverConfig.minMemory, 4),
+    minMemory: normalizeMinMemoryGb(serverConfig.minMemory, 4),
     maxMemory: normalizeMemoryGb(serverConfig.maxMemory, 8),
     useNoSteam: serverConfig.useNoSteam || false,
     useDebug: serverConfig.useDebug || false,
@@ -2309,7 +2309,7 @@ export async function updateServer(id, updates) {
     id,
     updatedAt: new Date().toISOString(),
   };
-  db.data.servers[index].minMemory = normalizeMemoryGb(
+  db.data.servers[index].minMemory = normalizeMinMemoryGb(
     db.data.servers[index].minMemory,
     4,
   );

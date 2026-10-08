@@ -35,6 +35,7 @@ import {
   DESTINATION_PORT_MIN,
   DESTINATION_PORT_MAX,
   MEMORY_GB_MIN,
+  MIN_MEMORY_GB_MIN,
   MIN_MEMORY_GB_MAX,
   MAX_MEMORY_GB_MAX,
 } from "./server.js";
@@ -750,7 +751,7 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
       }
 
       if (key === "minMemory") {
-        const minMemoryCheck = requireIntInRange(value, MEMORY_GB_MIN, MIN_MEMORY_GB_MAX, "Minimum memory (GB)");
+        const minMemoryCheck = requireIntInRange(value, MIN_MEMORY_GB_MIN, MIN_MEMORY_GB_MAX, "Minimum memory (GB)");
         if (!minMemoryCheck.ok) {
           return res.status(400).json({ error: minMemoryCheck.message, code: ErrorCode.CONFIG_INVALID_NUMERIC_FIELD, params: sanitizeErrorParams({ message: minMemoryCheck.message }) });
         }

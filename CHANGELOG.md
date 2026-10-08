@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Choose which servers start with the panel:** Settings › Connection lists each local server under the auto-start switch, and the Dashboard's checkbox adds or removes the active one. It used to start only whichever server was active; a setting saved before keeps doing that until you choose.
+- **Automatic minimum memory:** a server's minimum memory can be 0, which starts it without `-Xms`; the JVM starts small and gives back memory it isn't using, where it never goes below a set minimum. A 0 saved before was read as 4 GB.
 
 ### Security
 

@@ -40,7 +40,7 @@ import {
   parseBoundedInteger,
   parseClampedInteger,
 } from "../utils/queryNumbers.js";
-import { normalizeMemoryGb } from "../utils/memory.js";
+import { normalizeMemoryGb, normalizeMinMemoryGb } from "../utils/memory.js";
 import { GAME_PORT_MAX, applyUpnpToIni } from "./server.js";
 import {
   findLaunchTargetRefusal,
@@ -1445,7 +1445,7 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
       rconPassword: config.rconPassword,
       adminPassword: config.adminPassword || "",
       serverPort,
-      minMemory: normalizeMemoryGb(config.minMemory, 4),
+      minMemory: normalizeMinMemoryGb(config.minMemory, 4),
       maxMemory: normalizeMemoryGb(config.maxMemory, 8),
       useNoSteam: config.useNoSteam === true,
       useDebug: config.useDebug === true,
@@ -1723,7 +1723,8 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
 
     // Parse numeric fields
     if (updates.minMemory !== undefined) {
-      updates.minMemory = normalizeMemoryGb(updates.minMemory, 4);
+      // 0 = no -Xms (normalizeMinMemoryGb()).
+      updates.minMemory = normalizeMinMemoryGb(updates.minMemory, 4);
     }
     if (updates.maxMemory !== undefined) {
       updates.maxMemory = normalizeMemoryGb(updates.maxMemory, 8);
