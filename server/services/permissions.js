@@ -1092,6 +1092,7 @@ export async function deleteRole(id, { reassignTo, actingUser } = {}) {
       { count: members.length },
     );
   }
+
   let targetRole = null;
   if (reassignTo) {
     targetRole = await getRoleById(reassignTo);

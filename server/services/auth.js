@@ -2097,7 +2097,7 @@ class AuthService {
    * tokenGen or touch the password, it just removes one refresh session
    * (single-device, by design; see the class comment above this method's
    * neighbors for why a full-fleet wipe belongs to changePassword/
-   * regenerateJwtSecret instead). That's exactly why it was missing from
+   * regenerateJwtSecret/revokeAllSessions instead). That's exactly why it was missing from
    * the socket-eviction bus (sweep-round2, c0017c7b) until now: every one
    * of the five triggers that bus already covered was found by asking
    * "where does this file invalidate a credential" -- logout ends a
