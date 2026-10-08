@@ -69,14 +69,27 @@ afterEach(() => {
   Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
   vi.useRealTimers()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
   clearAccessToken()
   forgetSessionUser()
   localStorage.clear()
 })
 
+const RACE = () => jsonResponse(401, { error: 'Refresh already used', code: 'REFRESH_RACE' })
+
+// Never-answered fetches for the timeout tests: they settle only when the
+// caller aborts them.
+function hangUntilAborted(init?: RequestInit): Promise<Response> {
+  return new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+  })
+}
+
 describe('refresh across tabs (#19)', () => {
-  it('waits about 300 ms after a REFRESH_RACE and retries once, which succeeds', async () => {
+  // The retry waits 150 ms plus Math.random() times 750 ms: 300 ms here.
+  it('waits a random 150-900 ms after a REFRESH_RACE and retries, which succeeds', async () => {
     vi.useFakeTimers()
+    vi.spyOn(Math, 'random').mockReturnValue(0.2)
     const fresh = makeToken('u1')
     const fetchMock = stubFetch({
       '/api/auth/refresh': [
@@ -98,20 +111,110 @@ describe('refresh across tabs (#19)', () => {
     expect(getAccessToken()).toBe(fresh)
   })
 
-  it('a REFRESH_RACE that outlasts its retry fails without dropping the token', async () => {
+  // Integration review: with a fixed 300 ms and one retry, the losers of a
+  // three-tab race came back together and one of them lost again.
+  it('spreads the retries out, up to four of them', async () => {
     vi.useFakeTimers()
+    const random = vi.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(0.999)
+    const fresh = makeToken('u1')
     const fetchMock = stubFetch({
-      '/api/auth/refresh': () => jsonResponse(401, { error: 'Refresh already used', code: 'REFRESH_RACE' }),
+      '/api/auth/refresh': [RACE, RACE, () => jsonResponse(200, { accessToken: fresh, user: user('u1') })],
     })
+    setAccessToken(makeToken('u1', 10))
+
+    const outcome = tryRefreshToken()
+    await vi.advanceTimersByTimeAsync(149)
+    expect(callsTo(fetchMock, '/api/auth/refresh')).toBe(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(callsTo(fetchMock, '/api/auth/refresh')).toBe(2)
+    await vi.advanceTimersByTimeAsync(898)
+    expect(callsTo(fetchMock, '/api/auth/refresh')).toBe(2)
+    await vi.advanceTimersByTimeAsync(1)
+
+    await expect(outcome).resolves.toBe(true)
+    expect(callsTo(fetchMock, '/api/auth/refresh')).toBe(3)
+    expect(random).toHaveBeenCalledTimes(2)
+    expect(getAccessToken()).toBe(fresh)
+  })
+
+  it('a REFRESH_RACE that outlasts its retries fails without dropping the token', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(Math, 'random').mockReturnValue(0.2)
+    const fetchMock = stubFetch({ '/api/auth/refresh': RACE })
     const current = makeToken('u1', 10)
     setAccessToken(current)
 
     const outcome = tryRefreshToken()
-    await vi.advanceTimersByTimeAsync(400)
+    await vi.advanceTimersByTimeAsync(4 * 300)
 
     await expect(outcome).resolves.toBe(false)
-    expect(callsTo(fetchMock, '/api/auth/refresh')).toBe(2)
+    expect(callsTo(fetchMock, '/api/auth/refresh')).toBe(5)
     expect(getAccessToken()).toBe(current)
+  })
+
+  it('a sign-out started while it waits to retry stops the retries', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(Math, 'random').mockReturnValue(0.2)
+    const fetchMock = stubFetch({
+      '/api/auth/refresh': RACE,
+      '/api/auth/logout': () => jsonResponse(200, { success: true }),
+    })
+    setAccessToken(makeToken('u1', 10))
+
+    const refresh = tryRefreshToken()
+    await vi.advanceTimersByTimeAsync(0)
+    const signOut = endServerSession()
+    await vi.advanceTimersByTimeAsync(300)
+
+    await expect(signOut).resolves.toBe(true)
+    await expect(refresh).resolves.toBe(false)
+    expect(callsTo(fetchMock, '/api/auth/refresh')).toBe(1)
+    expect(callsTo(fetchMock, '/api/auth/logout')).toBe(1)
+  })
+
+  // Integration review: a refresh cut at 15 s still rotated the cookie on
+  // the panel, and the browser, which never stored the new one, sent the
+  // replaced one next: reuse, so the account was signed out everywhere.
+  it('a slow refresh is not cut at 15 s, so its answer and cookie land', async () => {
+    vi.useFakeTimers()
+    const fresh = makeToken('u1')
+    stubFetch({
+      '/api/auth/refresh': (init) => new Promise((resolve, reject) => {
+        const timer = setTimeout(() => resolve(jsonResponse(200, { accessToken: fresh, user: user('u1') })), 20_000)
+        init?.signal?.addEventListener('abort', () => {
+          clearTimeout(timer)
+          reject(new DOMException('Aborted', 'AbortError'))
+        })
+      }),
+    })
+    setAccessToken(makeToken('u1', 10))
+
+    const outcome = tryRefreshToken()
+    await vi.advanceTimersByTimeAsync(20_000)
+
+    await expect(outcome).resolves.toBe(true)
+    expect(getAccessToken()).toBe(fresh)
+  })
+
+  it('a refresh that never answers is given up after 2 minutes, keeping the token; a sign-out after 15 s', async () => {
+    vi.useFakeTimers()
+    stubFetch({ '/api/auth/refresh': hangUntilAborted })
+    const current = makeToken('u1', 10)
+    setAccessToken(current)
+
+    const outcome = tryRefreshToken()
+    let settled = false
+    void outcome.then(() => { settled = true })
+    await vi.advanceTimersByTimeAsync(119_999)
+    expect(settled).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    await expect(outcome).resolves.toBe(false)
+    expect(getAccessToken()).toBe(current)
+
+    stubFetch({ '/api/auth/logout': hangUntilAborted })
+    const signOut = endServerSession()
+    await vi.advanceTimersByTimeAsync(15_000)
+    await expect(signOut).resolves.toBe(false)
   })
 
   it('takes the pz-auth-refresh lock when navigator.locks exists, so tabs refresh one at a time', async () => {

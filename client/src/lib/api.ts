@@ -105,8 +105,19 @@ export function bumpAuthGeneration(): void {
 }
 
 const AUTH_LOCK_NAME = "pz-auth-refresh";
-const REFRESH_RACE_RETRY_MS = 300;
+// REFRESH_RACE retries: up to 4, each after a random 150-900 ms, all well
+// inside the panel's 30 s grace. A fixed delay sent the losing tabs back
+// together, so with 3 or more tabs one lost again and ran out of retries.
+const REFRESH_RACE_RETRIES = 4;
+const REFRESH_RACE_RETRY_MIN_MS = 150;
+const REFRESH_RACE_RETRY_SPREAD_MS = 750;
 const AUTH_REQUEST_TIMEOUT_MS = 15000;
+// A refresh is never cut at 15 s: the panel still rotates the cookie when
+// the answer comes late, and a browser that never stored that Set-Cookie
+// sends the replaced one next, which the panel takes for a stolen token
+// and signs the account out everywhere. Sign-out keeps the 15 s limit (an
+// aborted one is reported as failed).
+const REFRESH_REQUEST_TIMEOUT_MS = 120000;
 const RECENT_ROTATION_MS = 5000;
 
 // Every tab shares one refresh cookie and the server rotates it on each use,
@@ -133,9 +144,9 @@ function payloadCode(payload: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
-async function postAuth(path: string): Promise<RefreshAnswer> {
+async function postAuth(path: string, timeoutMs = AUTH_REQUEST_TIMEOUT_MS): Promise<RefreshAnswer> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(path, {
       method: "POST",
@@ -157,12 +168,21 @@ async function postAuth(path: string): Promise<RefreshAnswer> {
 }
 
 async function refreshWithRaceRetry(): Promise<RefreshAnswer> {
-  const answer = await postAuth("/api/auth/refresh");
-  if (answer.status !== 401 || payloadCode(answer.payload) !== "REFRESH_RACE") return answer;
-  // Another tab rotated the cookie a moment ago; by now this browser holds
-  // the new one, so one more try normally succeeds.
-  await new Promise((resolve) => setTimeout(resolve, REFRESH_RACE_RETRY_MS));
-  return postAuth("/api/auth/refresh");
+  const generation = authGeneration;
+  // A sign-out started meanwhile stops the retries: it is waiting for this
+  // refresh, and has no use for its answer.
+  const signingOut = () => generation !== authGeneration;
+  let answer = await postAuth("/api/auth/refresh", REFRESH_REQUEST_TIMEOUT_MS);
+  for (let retry = 0; retry < REFRESH_RACE_RETRIES; retry += 1) {
+    if (answer.status !== 401 || payloadCode(answer.payload) !== "REFRESH_RACE" || signingOut()) break;
+    // Another tab rotated the cookie a moment ago; by now this browser
+    // holds the new one, so another try normally succeeds.
+    const delay = REFRESH_RACE_RETRY_MIN_MS + Math.random() * REFRESH_RACE_RETRY_SPREAD_MS;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    if (signingOut()) break;
+    answer = await postAuth("/api/auth/refresh", REFRESH_REQUEST_TIMEOUT_MS);
+  }
+  return answer;
 }
 
 async function runRefresh(): Promise<RefreshOutcome> {
