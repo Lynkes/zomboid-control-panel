@@ -414,6 +414,43 @@ describe('routes/oidc.js: /callback', () => {
     ]);
   });
 
+  // CodeQL js/user-controlled-bypass on #220: what the callback does follows
+  // the flow this process recorded, not the cookie's own flowType label.
+  it('a link flow relabelled as a sign-in in its cookie still only links, and issues no session', async () => {
+    const user = { id: 'user-42', username: 'alice', role: 'moderator', externalIdentities: [] }
+    vi.spyOn(dbModule, 'getDb').mockResolvedValue({
+      data: { users: [{ id: 'admin-1', username: 'admin', role: 'admin' }, user] },
+    })
+    vi.spyOn(dbModule, 'commitNow').mockResolvedValue(undefined)
+    const flow = await startLinkFlow('user-42')
+    provider.setNextIdToken({ claims: { nonce: flow.nonce, email: 'alice@example.com' } })
+
+    const res = makeRes()
+    await getHandler('get', '/callback')(callbackReq({ flow: { ...flow, flowType: 'login' } }), res)
+
+    expect(res.redirectedTo).toBe('/settings?tab=users&oidcSuccess=linked&linkedUser=user-42')
+    expect(res.cookies.find((cookie) => cookie.name === 'refreshToken')).toBeUndefined()
+    expect(user.externalIdentities).toHaveLength(1)
+  })
+
+  it('a sign-in flow relabelled as a link in its cookie links nothing', async () => {
+    const users = [
+      { id: 'admin-1', username: 'admin', role: 'admin', externalIdentities: [] },
+      { id: 'user-42', username: 'alice', role: 'moderator', externalIdentities: [] },
+    ]
+    vi.spyOn(dbModule, 'getDb').mockResolvedValue({ data: { users } })
+    vi.spyOn(dbModule, 'commitNow').mockResolvedValue(undefined)
+    const flow = await startLoginFlow()
+    provider.setNextIdToken({ claims: { nonce: flow.nonce } })
+
+    const res = makeRes()
+    await getHandler('get', '/callback')(callbackReq({ flow: { ...flow, flowType: 'link', userId: 'user-42' } }), res)
+
+    // Handled as the sign-in it really is: the identity is linked to no one.
+    expect(res.redirectedTo).toBe('/?oidcError=refused')
+    expect(users.every((u) => u.externalIdentities.length === 0)).toBe(true)
+  })
+
   it('refuses a missing local target before starting an identity-provider flow', async () => {
     vi.spyOn(dbModule, 'getDb').mockResolvedValue({
       data: {

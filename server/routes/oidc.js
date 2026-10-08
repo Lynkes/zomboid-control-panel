@@ -94,6 +94,7 @@ function rememberLinkFlow(state, codeVerifier, entry, now = Date.now()) {
   }
   issuedLinkFlows.set(state, {
     ...entry,
+    flowType: "link",
     verifierHash: hashCodeVerifier(codeVerifier),
     expiresAt: now + FLOW_COOKIE_MAX_AGE_MS,
   });
@@ -164,6 +165,16 @@ function takeLoginFlow(flow, now = Date.now()) {
   }
   usedLoginStates.set(flow.state, flow.expiresAt);
   return { flowType: "login" };
+}
+
+// The flow this callback finishes, as this process recorded it, or null. A
+// link flow is proved by the server-side entry and the cookie's verifier, a
+// sign-in flow by the cookie's HMAC tag; either way the returned flowType,
+// never the cookie's own, decides what the callback does. The provider must
+// also have sent back the flow's own state, so only its callback can end it.
+function takeIssuedFlow(flow, returnedState, now = Date.now()) {
+  if (typeof returnedState !== "string" || returnedState !== flow.state) return null;
+  return takeLinkFlow(flow, now) ?? takeLoginFlow(flow, now);
 }
 
 // For tests: forget every issued flow between cases.
@@ -334,20 +345,18 @@ router.get("/callback", async (req, res) => {
   currentUrl.search = queryIndex === -1 ? "" : req.url.slice(queryIndex);
 
   // Before any request to the provider: the flow must be one this process
-  // started, proved by the cookie's verifier, and the provider must have
-  // sent back that same state, so only the flow's own callback can end it.
-  // A link flow never falls back to ordinary sign-in.
-  const isLinkFlow = flow.flowType === "link";
-  let issuedFlow = null;
-  if (currentUrl.searchParams.get("state") === flow.state) {
-    issuedFlow = isLinkFlow ? takeLinkFlow(flow) : takeLoginFlow(flow);
-  }
+  // started (takeIssuedFlow). What the callback then does follows the
+  // verified record: a link flow never falls back to ordinary sign-in, and
+  // a cookie can't turn one kind of flow into the other. The cookie's own
+  // flowType only picks which page an expired flow returns to.
+  const issuedFlow = takeIssuedFlow(flow, currentUrl.searchParams.get("state"));
   if (!issuedFlow) {
     log.warn("OIDC callback for a flow this panel did not start, or one that already ended");
     return res.redirect(
-      isLinkFlow ? "/settings?tab=users&oidcError=link_expired" : "/?oidcError=expired_flow",
+      flow.flowType === "link" ? "/settings?tab=users&oidcError=link_expired" : "/?oidcError=expired_flow",
     );
   }
+  const isLinkFlow = issuedFlow.flowType === "link";
 
   // SECURITY (2026-10-05, H2): everything below that reaches a log line can
   // carry what the caller put in this URL (the query's error/state
