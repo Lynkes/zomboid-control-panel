@@ -434,6 +434,14 @@ const defaultAllowedOrigins = [
   "http://localhost:3001",
 ];
 const allowedOrigins = new Set(defaultAllowedOrigins);
+// SECURITY (2026-10-08, auth audit #4): the origins the operator named
+// (Settings > Remote Access, CORS_ORIGINS). Of the cross-origin callers,
+// only these (plus allow-all and the browser extension) get credentialed
+// CORS. A page on another port of the panel's host is same-site, so
+// SameSite=Strict still sends it the refresh cookie; credentialed CORS for
+// every private-network origin let such a page read an access token from
+// /api/auth/refresh.
+const credentialedOrigins = new Set();
 const MAX_CORS_BLOCK_EVENTS = 50;
 const MAX_CORS_CUSTOM_ORIGINS = 100;
 const MAX_CORS_ORIGIN_LENGTH = 256;
@@ -542,9 +550,8 @@ function recordCorsBlock(origin, source) {
 }
 
 // Allow dynamic HTTPS origins (will be populated at startup if HTTPS is enabled)
-// Capped: this is memoisation of the private-network check, and the Origin
-// header is caller-supplied, so an unbounded Set would grow forever. Refusing
-// to memoise does not refuse the request.
+// Capped as a backstop: every entry comes from settings or the environment,
+// which are themselves capped (MAX_CORS_CUSTOM_ORIGINS).
 const MAX_ALLOWED_ORIGINS = 200;
 function addAllowedOrigin(origin) {
   const normalized = normalizeOrigin(origin);
@@ -560,6 +567,7 @@ function addAllowedOrigin(origin) {
 
 function rebuildAllowedOriginsFromSettings(settings = {}) {
   allowedOrigins.clear();
+  credentialedOrigins.clear();
   for (const origin of defaultAllowedOrigins) {
     addAllowedOrigin(origin);
   }
@@ -568,6 +576,7 @@ function rebuildAllowedOriginsFromSettings(settings = {}) {
   corsState.customOrigins = new Set(customOrigins);
   for (const origin of customOrigins) {
     addAllowedOrigin(origin);
+    credentialedOrigins.add(origin);
   }
 
   const httpsEnabled = settings.httpsEnabled === true;
@@ -585,6 +594,7 @@ function rebuildAllowedOriginsFromSettings(settings = {}) {
     const parsed = parseOriginList(envOrigins);
     for (const origin of parsed) {
       addAllowedOrigin(origin);
+      credentialedOrigins.add(origin);
     }
   }
 }
@@ -621,55 +631,71 @@ async function refreshCorsConfig() {
   return getCorsDebugSnapshot();
 }
 
-// CORS origin checker — shared between Express and Socket.IO
-// Allows localhost + any private/LAN IP (192.168.x, 10.x, 100.x Tailscale, 172.16-31.x)
-function isAllowedOrigin(origin) {
-  if (!origin) return true;
-  if (corsState.allowAll) return true;
+// Browser extension popups call the panel from chrome-extension://<id> and
+// the like, with a Bearer token rather than the cookie. Checked on the raw
+// string: Node's URL.origin is the literal "null" for these schemes.
+function isExtensionOrigin(origin) {
+  if (typeof origin !== "string") return false;
+  const lower = origin.toLowerCase();
+  return (
+    lower.startsWith("chrome-extension://") ||
+    lower.startsWith("moz-extension://") ||
+    lower.startsWith("safari-web-extension://")
+  );
+}
 
-  // Browser extension popups (chrome-extension://, moz-extension://,
-  // safari-web-extension://) must be checked BEFORE normalizeOrigin, because
-  // Node's URL.origin returns the literal string "null" for non-special
-  // schemes, which would otherwise drop these origins on the floor.
-  if (typeof origin === "string") {
-    const lower = origin.toLowerCase();
-    if (
-      lower.startsWith("chrome-extension://") ||
-      lower.startsWith("moz-extension://") ||
-      lower.startsWith("safari-web-extension://")
-    ) {
-      return true;
-    }
-  }
+// CORS origin checker, shared between Express and Socket.IO. "credentialed":
+// no Origin, allow-all, the extension or an origin the operator named.
+// "uncredentialed": the built-in localhost origins, or a private/LAN address
+// (192.168.x, 10.x, 100.x Tailscale, 172.16-31.x, LAN-style names) found by
+// shape. Those are no longer remembered in allowedOrigins, which made them
+// look operator-named. null: refused.
+function classifyOrigin(origin) {
+  if (!origin) return "credentialed";
+  if (corsState.allowAll) return "credentialed";
+  if (isExtensionOrigin(origin)) return "credentialed";
 
   const normalized = normalizeOrigin(origin);
-  if (!normalized) return false;
-  if (allowedOrigins.has(normalized)) return true;
+  if (!normalized) return null;
+  if (credentialedOrigins.has(normalized)) return "credentialed";
+  if (allowedOrigins.has(normalized)) return "uncredentialed";
 
   try {
     const url = new URL(normalized);
-    // Browser extensions (popup pages) call the panel from origins like
-    // chrome-extension://<id> or moz-extension://<id>. We trust these
-    // because the request still has to carry a valid JWT to do anything.
-    if (
-      url.protocol === "chrome-extension:" ||
-      url.protocol === "moz-extension:" ||
-      url.protocol === "safari-web-extension:"
-    ) {
-      return true;
-    }
     if (
       corsState.allowPrivateNetworks &&
       (isPrivateNetworkHost(url.hostname) || isLikelyLanHostname(url.hostname))
     ) {
-      addAllowedOrigin(normalized);
-      return true;
+      return "uncredentialed";
     }
   } catch (_) {
     // Unparseable origin: fall through and deny.
   }
 
-  return false;
+  return null;
+}
+
+function isAllowedOrigin(origin) {
+  return classifyOrigin(origin) !== null;
+}
+
+// The panel's own page: the browser says so (Sec-Fetch-Site, which no page
+// can set), or the Origin names the scheme and host the request was sent
+// to. Browsers ignore CORS headers on same-origin requests anyway; this
+// keeps the answer honest for older browsers and the Vite dev proxy.
+function isSameOriginRequest(req, origin) {
+  if (req.headers["sec-fetch-site"] === "same-origin") return true;
+  const host = req.headers.host;
+  if (typeof origin !== "string" || typeof host !== "string") return false;
+  try {
+    const originUrl = new URL(origin);
+    return (
+      originUrl.protocol === `${req.protocol}:` &&
+      originUrl.host === new URL(`${originUrl.protocol}//${host}`).host
+    );
+  } catch (_) {
+    return false;
+  }
 }
 
 // DNS-rebinding guard. With authentication disabled (authEnabled: false in
@@ -978,19 +1004,25 @@ app.use(
 );
 app.use(permissionsPolicy());
 
+// Delegate form: whether credentials are allowed depends on the request
+// (classifyOrigin, isSameOriginRequest), not only on the Origin. Without
+// Access-Control-Allow-Credentials the browser keeps a credentialed
+// response from the calling page.
 app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (isAllowedOrigin(origin)) {
-        callback(null, true);
-      } else {
-        recordCorsBlock(origin, "http");
-        log.warn(`CORS blocked request from origin: ${describeBlockedOrigin(origin)}`);
-        callback(new Error(CORS_DENY_MESSAGE));
-      }
-    },
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true,
+  cors((req, callback) => {
+    const origin = req.headers.origin;
+    const access = classifyOrigin(origin);
+    if (!access) {
+      recordCorsBlock(origin, "http");
+      log.warn(`CORS blocked request from origin: ${describeBlockedOrigin(origin)}`);
+      callback(new Error(CORS_DENY_MESSAGE));
+      return;
+    }
+    callback(null, {
+      origin: true,
+      methods: ["GET", "POST", "PUT", "DELETE"],
+      credentials: access === "credentialed" || isSameOriginRequest(req, origin),
+    });
   }),
 );
 

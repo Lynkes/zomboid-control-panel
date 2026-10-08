@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Sign-in cookie on other ports:** pages on another port of the panel's host or another LAN address no longer get cookie access to the API, so they can't read a sign-in token; origins in Remote Access or `CORS_ORIGINS` keep it.
+
 ### Added
 
 - **Date format:** pick day/month/year, month/day/year or year-month-day in Settings › General › Appearance, for every date in the panel; Automatic now follows your browser's region too.
