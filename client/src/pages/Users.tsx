@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import { Users as UsersIcon, UserPlus, ShieldAlert, Loader2, ArrowRight, Trash2, Link2, Unlink } from 'lucide-react'
+import { Users as UsersIcon, UserPlus, ShieldAlert, Loader2, ArrowRight, Trash2, Link2, Unlink, LogOut } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { PageHeader } from '@/components/PageHeader'
@@ -100,6 +100,7 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
   const [linkingUserId, setLinkingUserId] = useState<string | null>(null)
   const [unlinkingUserId, setUnlinkingUserId] = useState<string | null>(null)
+  const [signingOutUserId, setSigningOutUserId] = useState<string | null>(null)
   // Set from ?oidcSuccess=linked&linkedUser=<id>; toasted once the list has
   // loaded, so the toast can name the address that was linked.
   const [linkedUserId, setLinkedUserId] = useState<string | null>(null)
@@ -338,6 +339,37 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
+  // Ends every session of another account (a lost device, a shared
+  // password) without changing its password or role. The server refuses an
+  // account whose role holds more than the caller's.
+  async function handleSignOutUser(user: ManagedUserAccount) {
+    const ok = await confirm({
+      title: t('signOutDialog.title', { username: user.username }),
+      description: t('signOutDialog.description'),
+      confirmLabel: t('signOutDialog.confirm'),
+      cancelLabel: t('signOutDialog.cancel'),
+    })
+    if (!ok) return
+
+    setSigningOutUserId(user.id)
+    try {
+      await usersApi.revokeSessions(user.id)
+      toast({
+        title: t('toasts.signedOutTitle'),
+        description: t('toasts.signedOutDescription', { username: user.username }),
+        variant: 'success',
+      })
+    } catch (error) {
+      toast({
+        title: t('toasts.actionFailedTitle'),
+        description: getUserErrorMessage(error, t('toasts.unknownError')),
+        variant: 'destructive',
+      })
+    } finally {
+      setSigningOutUserId(null)
+    }
+  }
+
   async function handleUnlinkSso(user: ManagedUserAccount) {
     const ok = await confirm({
       title: t('unlinkDialog.title', { username: user.username }),
@@ -567,6 +599,21 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
                                 disabled={linkingUserId !== null || unlinkingUserId !== null || deleting}
                               >
                                 <Unlink className="h-4 w-4" />
+                              </Button>
+                            ))}
+                            {!isSelf && (signingOutUserId === user.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                title={t('table.signOutTooltip', { username: user.username })}
+                                aria-label={t('table.signOutTooltip', { username: user.username })}
+                                onClick={() => handleSignOutUser(user)}
+                                disabled={signingOutUserId !== null || deleting}
+                              >
+                                <LogOut className="h-4 w-4 rtl:-scale-x-100" />
                               </Button>
                             ))}
                             {!isSelf && (deleting ? (

@@ -26,7 +26,8 @@
     "removeTooltip": "إزالة {{username}}",
     "linkSsoTooltip": "ربط SSO بـ {{username}}",
     "unlinkSsoTooltip": "إلغاء ربط SSO من {{username}}",
-    "ssoIdentity": "SSO: {{identity}}"
+    "ssoIdentity": "SSO: {{identity}}",
+    "signOutTooltip": "تسجيل خروج {{username}} من كل مكان"
   },
   "deleteDialog": {
     "title": "إزالة {{username}}؟",
@@ -75,6 +76,14 @@
     "ssoLinkFailed": "تعذر ربط هوية SSO بهذا الحساب.",
     "ssoLinkedDescriptionWithEmail": "تم الآن ربط {{email}} بـ {{username}}. إن لم يكن هذا عنوانه، فألغِ الربط.",
     "ssoUnlinkedTitle": "تم إلغاء ربط SSO",
-    "ssoUnlinkedDescription": "لم يعد بإمكان {{username}} تسجيل الدخول عبر SSO، وتم تسجيل خروجه من كل مكان."
+    "ssoUnlinkedDescription": "لم يعد بإمكان {{username}} تسجيل الدخول عبر SSO، وتم تسجيل خروجه من كل مكان.",
+    "signedOutTitle": "تم تسجيل الخروج من كل مكان",
+    "signedOutDescription": "تم تسجيل خروج {{username}} من كل المتصفحات والأجهزة."
+  },
+  "signOutDialog": {
+    "title": "تسجيل خروج {{username}} من كل مكان؟",
+    "description": "يُسجَّل خروج كل متصفح وجهاز مسجّل الدخول بهذا الحساب. تبقى كلمة المرور والدور كما هما.",
+    "confirm": "تسجيل الخروج من كل مكان",
+    "cancel": "إلغاء"
   }
 }

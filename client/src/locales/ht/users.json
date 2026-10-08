@@ -26,7 +26,8 @@
     "removeTooltip": "Retire {{username}}",
     "linkSsoTooltip": "Konekte SSO ak {{username}}",
     "unlinkSsoTooltip": "Dekonekte SSO nan {{username}}",
-    "ssoIdentity": "SSO: {{identity}}"
+    "ssoIdentity": "SSO: {{identity}}",
+    "signOutTooltip": "Dekonekte {{username}} toupatou"
   },
   "deleteDialog": {
     "title": "Retire {{username}}?",
@@ -75,6 +76,14 @@
     "ssoLinkFailed": "Pa t kapab konekte idantite SSO a ak kont sa a.",
     "ssoLinkedDescriptionWithEmail": "{{email}} konekte ak {{username}} kounye a. Si se pa adrès moun sa a, dekonekte li.",
     "ssoUnlinkedTitle": "SSO dekonekte",
-    "ssoUnlinkedDescription": "{{username}} pa ka konekte ak SSO ankò, epi li dekonekte toupatou."
+    "ssoUnlinkedDescription": "{{username}} pa ka konekte ak SSO ankò, epi li dekonekte toupatou.",
+    "signedOutTitle": "Dekonekte toupatou",
+    "signedOutDescription": "Yo dekonekte {{username}} nan tout navigatè ak aparèy."
+  },
+  "signOutDialog": {
+    "title": "Dekonekte {{username}} toupatou?",
+    "description": "Tout navigatè ak aparèy ki konekte ak kont sa a ap dekonekte. Modpas li ak wòl li pa chanje.",
+    "confirm": "Dekonekte toupatou",
+    "cancel": "Anile"
   }
 }

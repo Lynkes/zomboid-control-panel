@@ -26,7 +26,8 @@
     "removeTooltip": "Remove {{username}}",
     "linkSsoTooltip": "Link SSO to {{username}}",
     "unlinkSsoTooltip": "Unlink SSO from {{username}}",
-    "ssoIdentity": "SSO: {{identity}}"
+    "ssoIdentity": "SSO: {{identity}}",
+    "signOutTooltip": "Sign {{username}} out everywhere"
   },
   "deleteDialog": {
     "title": "Remove {{username}}?",
@@ -75,6 +76,14 @@
     "ssoLinkFailed": "The SSO identity could not be linked to this account.",
     "ssoLinkedDescriptionWithEmail": "{{email}} is now linked to {{username}}. If that isn't their address, unlink it.",
     "ssoUnlinkedTitle": "SSO unlinked",
-    "ssoUnlinkedDescription": "{{username}} can no longer sign in with SSO and has been signed out everywhere."
+    "ssoUnlinkedDescription": "{{username}} can no longer sign in with SSO and has been signed out everywhere.",
+    "signedOutTitle": "Signed out everywhere",
+    "signedOutDescription": "{{username}} was signed out of every browser and device."
+  },
+  "signOutDialog": {
+    "title": "Sign {{username}} out everywhere?",
+    "description": "Every browser and device signed in as this account is signed out. Its password and role stay the same.",
+    "confirm": "Sign out everywhere",
+    "cancel": "Cancel"
   }
 }

@@ -657,6 +657,19 @@
     "tipsAdminDesc": "使用管理员命令时请务必谨慎。封禁或踢出玩家等操作难以轻易撤销。",
     "tipsAuthTitle": "身份验证：",
     "tipsAuthDesc": "尚未配置身份验证。请在首次启动时通过设置向导创建账户，以保护此面板的访问安全。",
+    "signOutEverywhere": {
+      "cardTitle": "在所有设备上退出",
+      "cardDesc": "结束你账户的所有会话，包括此浏览器和其他所有浏览器。如果设备丢失或他人可能获得了你的登录信息，请使用此功能。",
+      "button": "在所有设备上退出",
+      "confirmTitle": "退出所有浏览器？",
+      "confirmDesc": "所有登录你账户的浏览器和设备都会退出，包括当前这个。你需要重新登录。",
+      "cancel": "取消",
+      "confirm": "在所有设备上退出",
+      "resultTitle": "已在所有设备上退出",
+      "resultDescription": "你账户的所有会话已结束。正在跳转到登录页…",
+      "failedTitle": "退出失败",
+      "failedFallback": "面板无法结束你的会话。"
+    },
     "regenerateJwt": {
       "cardTitle": "重新生成 JWT 密钥",
       "button": "重新生成 JWT 密钥",

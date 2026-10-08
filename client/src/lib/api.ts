@@ -4093,6 +4093,10 @@ export const authApi = {
     rememberTrustedDeviceFrom(result);
     return result;
   },
+
+  // Ends every session of the caller's own account, this browser included.
+  revokeAllSessions: (): Promise<{ success: boolean }> =>
+    apiPost("/auth/sessions/revoke-all", {}),
 };
 
 // Servers detection API helpers (added to serversApi)
@@ -4519,6 +4523,13 @@ export const usersApi = {
     userId: string,
   ): Promise<{ success: boolean; user: { id: string; username: string } }> =>
     apiDelete(`/auth/users/${encodeURIComponent(userId)}`),
+
+  // Signs another account out of every browser and device, without touching
+  // its password or role (users.manage).
+  revokeSessions: (
+    userId: string,
+  ): Promise<{ success: boolean; user: { id: string; username: string } }> =>
+    apiPost(`/auth/users/${encodeURIComponent(userId)}/sessions/revoke`, {}),
 };
 
 // OIDC settings (server/routes/oidc.js "Settings" section, gated on

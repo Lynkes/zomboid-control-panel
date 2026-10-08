@@ -657,6 +657,19 @@
     "tipsAdminDesc": "Sei vorsichtig mit Admin-Befehlen. Manche Aktionen wie das Bannen oder Kicken von Spielern lassen sich nicht ohne Weiteres rückgängig machen.",
     "tipsAuthTitle": "Authentifizierung:",
     "tipsAuthDesc": "Authentifizierung ist nicht konfiguriert. Lege beim ersten Start über den Einrichtungsassistenten ein Konto an, um den Zugriff auf dieses Panel zu schützen.",
+    "signOutEverywhere": {
+      "cardTitle": "Überall abmelden",
+      "cardDesc": "Beendet jede Sitzung deines Kontos, in diesem Browser und allen anderen. Nutze das, wenn ein Gerät verloren ging oder jemand anderes deine Anmeldung haben könnte.",
+      "button": "Überall abmelden",
+      "confirmTitle": "Von allen Browsern abmelden?",
+      "confirmDesc": "Jeder Browser und jedes Gerät, auf dem du angemeldet bist, wird abgemeldet, auch dieses. Du musst dich danach neu anmelden.",
+      "cancel": "Abbrechen",
+      "confirm": "Überall abmelden",
+      "resultTitle": "Überall abgemeldet",
+      "resultDescription": "Alle Sitzungen deines Kontos wurden beendet. Weiterleitung zur Anmeldung…",
+      "failedTitle": "Abmelden fehlgeschlagen",
+      "failedFallback": "Das Panel konnte deine Sitzungen nicht beenden."
+    },
     "regenerateJwt": {
       "cardTitle": "JWT-Secret neu erzeugen",
       "button": "JWT-Secret neu erzeugen",

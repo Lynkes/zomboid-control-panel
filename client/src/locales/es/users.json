@@ -26,7 +26,8 @@
     "removeTooltip": "Eliminar a {{username}}",
     "linkSsoTooltip": "Vincular SSO a {{username}}",
     "unlinkSsoTooltip": "Desvincular SSO de {{username}}",
-    "ssoIdentity": "SSO: {{identity}}"
+    "ssoIdentity": "SSO: {{identity}}",
+    "signOutTooltip": "Cerrar la sesión de {{username}} en todas partes"
   },
   "deleteDialog": {
     "title": "¿Eliminar a {{username}}?",
@@ -75,6 +76,14 @@
     "ssoLinkFailed": "No se pudo vincular la identidad SSO a esta cuenta.",
     "ssoLinkedDescriptionWithEmail": "{{email}} ya está vinculado a {{username}}. Si no es su dirección, desvincúlelo.",
     "ssoUnlinkedTitle": "SSO desvinculado",
-    "ssoUnlinkedDescription": "{{username}} ya no puede iniciar sesión con SSO y se ha cerrado su sesión en todas partes."
+    "ssoUnlinkedDescription": "{{username}} ya no puede iniciar sesión con SSO y se ha cerrado su sesión en todas partes.",
+    "signedOutTitle": "Sesión cerrada en todas partes",
+    "signedOutDescription": "Se cerró la sesión de {{username}} en todos los navegadores y dispositivos."
+  },
+  "signOutDialog": {
+    "title": "¿Cerrar la sesión de {{username}} en todas partes?",
+    "description": "Se cierra la sesión en todos los navegadores y dispositivos con esta cuenta. Su contraseña y su rol no cambian.",
+    "confirm": "Cerrar sesión en todas partes",
+    "cancel": "Cancelar"
   }
 }

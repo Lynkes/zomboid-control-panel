@@ -658,6 +658,19 @@
     "tipsAdminDesc": "Ten cuidado con los comandos de administración. Algunas acciones, como banear o expulsar jugadores, no se pueden deshacer fácilmente.",
     "tipsAuthTitle": "Autenticación:",
     "tipsAuthDesc": "La autenticación no está configurada. Crea una cuenta mediante el asistente de configuración en el primer inicio para proteger el acceso a este panel.",
+    "signOutEverywhere": {
+      "cardTitle": "Cerrar sesión en todas partes",
+      "cardDesc": "Termina todas las sesiones de tu cuenta, en este navegador y en todos los demás. Úsalo si perdiste un dispositivo o alguien más podría tener tu inicio de sesión.",
+      "button": "Cerrar sesión en todas partes",
+      "confirmTitle": "¿Cerrar sesión en todos los navegadores?",
+      "confirmDesc": "Se cierra la sesión en todos los navegadores y dispositivos con tu cuenta, incluido este. Tendrás que volver a iniciar sesión.",
+      "cancel": "Cancelar",
+      "confirm": "Cerrar sesión en todas partes",
+      "resultTitle": "Sesión cerrada en todas partes",
+      "resultDescription": "Todas las sesiones de tu cuenta terminaron. Redirigiendo al inicio de sesión…",
+      "failedTitle": "No se pudo cerrar la sesión",
+      "failedFallback": "El panel no pudo terminar tus sesiones."
+    },
     "regenerateJwt": {
       "cardTitle": "Regenerar el secreto JWT",
       "button": "Regenerar el secreto JWT",

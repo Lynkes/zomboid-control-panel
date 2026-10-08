@@ -26,7 +26,8 @@
     "removeTooltip": "移除 {{username}}",
     "linkSsoTooltip": "将 SSO 关联到 {{username}}",
     "unlinkSsoTooltip": "解除 {{username}} 的 SSO 关联",
-    "ssoIdentity": "SSO：{{identity}}"
+    "ssoIdentity": "SSO：{{identity}}",
+    "signOutTooltip": "让 {{username}} 在所有设备上退出"
   },
   "deleteDialog": {
     "title": "移除 {{username}}？",
@@ -75,6 +76,14 @@
     "ssoLinkFailed": "无法将 SSO 身份关联到此账户。",
     "ssoLinkedDescriptionWithEmail": "{{email}} 现已关联到 {{username}}。如果这不是此人的地址，请解除关联。",
     "ssoUnlinkedTitle": "已解除 SSO 关联",
-    "ssoUnlinkedDescription": "{{username}} 无法再通过 SSO 登录，并已在所有设备上注销。"
+    "ssoUnlinkedDescription": "{{username}} 无法再通过 SSO 登录，并已在所有设备上注销。",
+    "signedOutTitle": "已在所有设备上退出",
+    "signedOutDescription": "{{username}} 已从所有浏览器和设备退出。"
+  },
+  "signOutDialog": {
+    "title": "让 {{username}} 在所有设备上退出？",
+    "description": "所有登录此账户的浏览器和设备都会退出。密码和角色保持不变。",
+    "confirm": "在所有设备上退出",
+    "cancel": "取消"
   }
 }

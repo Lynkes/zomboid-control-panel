@@ -26,7 +26,8 @@
     "removeTooltip": "{{username}} entfernen",
     "linkSsoTooltip": "SSO mit {{username}} verknüpfen",
     "unlinkSsoTooltip": "SSO-Verknüpfung von {{username}} entfernen",
-    "ssoIdentity": "SSO: {{identity}}"
+    "ssoIdentity": "SSO: {{identity}}",
+    "signOutTooltip": "{{username}} überall abmelden"
   },
   "deleteDialog": {
     "title": "{{username}} entfernen?",
@@ -75,6 +76,14 @@
     "ssoLinkFailed": "Die SSO-Identität konnte nicht mit diesem Konto verknüpft werden.",
     "ssoLinkedDescriptionWithEmail": "{{email}} ist jetzt mit {{username}} verknüpft. Falls das nicht die Adresse dieser Person ist, entfernen Sie die Verknüpfung.",
     "ssoUnlinkedTitle": "SSO-Verknüpfung entfernt",
-    "ssoUnlinkedDescription": "{{username}} kann sich nicht mehr per SSO anmelden und wurde überall abgemeldet."
+    "ssoUnlinkedDescription": "{{username}} kann sich nicht mehr per SSO anmelden und wurde überall abgemeldet.",
+    "signedOutTitle": "Überall abgemeldet",
+    "signedOutDescription": "{{username}} wurde von allen Browsern und Geräten abgemeldet."
+  },
+  "signOutDialog": {
+    "title": "{{username}} überall abmelden?",
+    "description": "Jeder Browser und jedes Gerät mit diesem Konto wird abgemeldet. Passwort und Rolle bleiben unverändert.",
+    "confirm": "Überall abmelden",
+    "cancel": "Abbrechen"
   }
 }

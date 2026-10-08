@@ -26,7 +26,8 @@
     "removeTooltip": "Видалити {{username}}",
     "linkSsoTooltip": "Пов’язати SSO з {{username}}",
     "unlinkSsoTooltip": "Від’єднати SSO від {{username}}",
-    "ssoIdentity": "SSO: {{identity}}"
+    "ssoIdentity": "SSO: {{identity}}",
+    "signOutTooltip": "Вивести {{username}} всюди"
   },
   "deleteDialog": {
     "title": "Видалити {{username}}?",
@@ -75,6 +76,14 @@
     "ssoLinkFailed": "Не вдалося пов’язати особу SSO з цим обліковим записом.",
     "ssoLinkedDescriptionWithEmail": "{{email}} тепер пов’язано з {{username}}. Якщо це не адреса цієї людини, від’єднайте її.",
     "ssoUnlinkedTitle": "SSO від’єднано",
-    "ssoUnlinkedDescription": "{{username}} більше не може входити через SSO, і всі сеанси цього облікового запису завершено."
+    "ssoUnlinkedDescription": "{{username}} більше не може входити через SSO, і всі сеанси цього облікового запису завершено.",
+    "signedOutTitle": "Виведено всюди",
+    "signedOutDescription": "{{username}} виведено з усіх браузерів і пристроїв."
+  },
+  "signOutDialog": {
+    "title": "Вивести {{username}} всюди?",
+    "description": "Усі браузери й пристрої з цим обліковим записом буде виведено із системи. Пароль і роль не змінюються.",
+    "confirm": "Вивести всюди",
+    "cancel": "Скасувати"
   }
 }

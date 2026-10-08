@@ -26,7 +26,8 @@
     "removeTooltip": "Supprimer {{username}}",
     "linkSsoTooltip": "Lier le SSO à {{username}}",
     "unlinkSsoTooltip": "Délier le SSO de {{username}}",
-    "ssoIdentity": "SSO : {{identity}}"
+    "ssoIdentity": "SSO : {{identity}}",
+    "signOutTooltip": "Déconnecter {{username}} partout"
   },
   "deleteDialog": {
     "title": "Supprimer {{username}} ?",
@@ -75,6 +76,14 @@
     "ssoLinkFailed": "L'identité SSO n'a pas pu être liée à ce compte.",
     "ssoLinkedDescriptionWithEmail": "{{email}} est maintenant lié à {{username}}. Si ce n'est pas son adresse, déliez-le.",
     "ssoUnlinkedTitle": "SSO délié",
-    "ssoUnlinkedDescription": "{{username}} ne peut plus se connecter par SSO et a été déconnecté partout."
+    "ssoUnlinkedDescription": "{{username}} ne peut plus se connecter par SSO et a été déconnecté partout.",
+    "signedOutTitle": "Déconnecté partout",
+    "signedOutDescription": "{{username}} a été déconnecté de tous les navigateurs et appareils."
+  },
+  "signOutDialog": {
+    "title": "Déconnecter {{username}} partout ?",
+    "description": "Tous les navigateurs et appareils connectés à ce compte sont déconnectés. Son mot de passe et son rôle ne changent pas.",
+    "confirm": "Déconnecter partout",
+    "cancel": "Annuler"
   }
 }

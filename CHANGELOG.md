@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Change password:** wrong current passwords now count like sign-in failures, 10 per 15 minutes, until you sign in again; anyone holding a session could guess it about 3 times a second.
 - **Sign-in during a password change:** a sign-in or refresh still in progress when the password is changed or reset no longer gets a session that survives it.
 - **Sessions end:** a kept-signed-in session now ends 30 days after sign-in however often it is used, and a replaced refresh token used again signs that account out everywhere; a copied cookie used to work forever.
-- **Sign out everywhere:** `POST /api/auth/sessions/revoke-all` ends every session of your own account, and `POST /api/auth/users/:id/sessions/revoke` another account's, for roles that manage users.
+- **Sign out everywhere:** Settings › Security ends every session of your own account, and the Users page can sign another account out everywhere; before, only a password change or a new JWT secret could.
 - **Several tabs at once:** a tab that loses a refresh race to another one no longer clears the sign-in cookie they share, which could sign every tab out.
 - **Keep me signed in unticked:** you stay signed in while the browser is open, for up to 12 hours, instead of being signed out 15 minutes after sign-in.
 - **Recovery behind a same-host proxy:** a request carrying a proxy's headers no longer counts as coming from the panel host, so strangers can't see whether a reset-token file exists when `TRUST_PROXY` is unset.

@@ -20,6 +20,7 @@ import {
   XCircle,
   Download,
   RefreshCw,
+  LogOut,
   Archive,
   Info,
   Trash2,
@@ -488,6 +489,8 @@ export default function Settings() {
   const [changingPassword, setChangingPassword] = useState(false);
   const [regenerateJwtDialogOpen, setRegenerateJwtDialogOpen] = useState(false);
   const [regeneratingJwtSecret, setRegeneratingJwtSecret] = useState(false);
+  const [signOutEverywhereDialogOpen, setSignOutEverywhereDialogOpen] = useState(false);
+  const [signingOutEverywhere, setSigningOutEverywhere] = useState(false);
   const [recoveryCodeStatus, setRecoveryCodeStatus] = useState<{
     configured: boolean;
     remaining: number;
@@ -2796,6 +2799,30 @@ export default function Settings() {
       });
     } finally {
       setRegeneratingJwtSecret(false);
+    }
+  };
+
+  // Ends every session of this account, this browser included (a lost
+  // device, a sign-in someone else may have), then signs out here.
+  const handleSignOutEverywhere = async () => {
+    setSigningOutEverywhere(true);
+    try {
+      await authApi.revokeAllSessions();
+      setSignOutEverywhereDialogOpen(false);
+      toast({
+        title: t("security.signOutEverywhere.resultTitle"),
+        description: t("security.signOutEverywhere.resultDescription"),
+      });
+      await logout();
+    } catch (error) {
+      toast({
+        title: t("security.signOutEverywhere.failedTitle"),
+        description:
+          getUserErrorMessage(error, t("security.signOutEverywhere.failedFallback")),
+        variant: "destructive",
+      });
+    } finally {
+      setSigningOutEverywhere(false);
     }
   };
 
@@ -6733,6 +6760,51 @@ export default function Settings() {
                         </div>
                       </div>
                     </div>
+
+                    {user && (
+                      <div className="max-w-2xl rounded-xl border border-border/70 bg-background/40 p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">
+                              {t("security.signOutEverywhere.cardTitle")}
+                            </p>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {t("security.signOutEverywhere.cardDesc")}
+                            </p>
+                          </div>
+                          <LogOut className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground rtl:-scale-x-100" />
+                        </div>
+                        <AlertDialog open={signOutEverywhereDialogOpen} onOpenChange={setSignOutEverywhereDialogOpen}>
+                          <AlertDialogTrigger asChild>
+                            <Button type="button" variant="outline">
+                              <LogOut className="me-2 h-4 w-4 rtl:-scale-x-100" />
+                              {t("security.signOutEverywhere.button")}
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>{t("security.signOutEverywhere.confirmTitle")}</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                {t("security.signOutEverywhere.confirmDesc")}
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel disabled={signingOutEverywhere}>{t("security.signOutEverywhere.cancel")}</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  void handleSignOutEverywhere();
+                                }}
+                                disabled={signingOutEverywhere}
+                              >
+                                {signingOutEverywhere && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
+                                {t("security.signOutEverywhere.confirm")}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    )}
 
                     {user?.role === "admin" && (
                       <div className="max-w-2xl rounded-xl border border-destructive/40 bg-destructive/5 p-4 space-y-3">
