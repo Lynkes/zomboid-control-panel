@@ -69,6 +69,9 @@ vi.mock('@/lib/api', async () => {
       getComposedStatus: vi.fn(),
       getResolvedActive: vi.fn(),
       getStatus: vi.fn(),
+      // The servers overview's own fetches; one server unless a test says so.
+      getAll: vi.fn(async () => ({ servers: [] })),
+      getRconStatuses: vi.fn(async () => ({ servers: [] })),
     },
     playersApi: {
       ...actual.playersApi,
@@ -245,6 +248,30 @@ describe('Dashboard.tsx: Auto-start sends a boolean setting', () => {
     await screen.findAllByRole('button', { name: 'Start' })
     await waitFor(() => expect(document.getElementById('autoStartServer')).toBeChecked())
   })
+
+  it('with two servers, moves every auto-start checkbox to the servers overview', async () => {
+    await setUpCommon()
+    getAppSettings.mockResolvedValue({ settings: { autoStartServer: true, autoStartServerIds: ['1'] } })
+    const active = makeServer()
+    const other = makeServer({ id: 2, name: 'Riverside', serverName: 'Riverside', isActive: false })
+    getResolvedActive.mockResolvedValue({ server: active })
+    vi.mocked(serversApi.getAll).mockResolvedValue({ servers: [active, other] } as never)
+    getStatus.mockResolvedValue({
+      running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
+    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+    updateAppSettings.mockResolvedValue({ success: true })
+
+    renderDashboard()
+
+    const row = (await screen.findByText('Riverside')).closest('li') as HTMLElement
+    await waitFor(() => expect(document.getElementById('autoStartServer')).not.toBeInTheDocument())
+    fireEvent.click(within(row).getByRole('checkbox', { name: 'Start with the panel' }))
+
+    await waitFor(() => {
+      expect(updateAppSettings).toHaveBeenCalledWith({ autoStartServer: true, autoStartServerIds: ['1', '2'] })
+    }, { timeout: 500 })
+  })
 })
 
 async function openMoreActionsMenu() {
@@ -263,6 +290,8 @@ async function openMoreActionsMenu() {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  // clearAllMocks keeps a test's mockResolvedValue: back to one server.
+  vi.mocked(serversApi.getAll).mockResolvedValue({ servers: [] } as never)
   mockCanControl = true
   mockCanWipe = true
   mockCanPanelSettings = true

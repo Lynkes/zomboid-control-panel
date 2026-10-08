@@ -174,10 +174,58 @@ export const RCON_USER_ACTION_TIMEOUT_MS = 5000;
 export const RCON_UNREACHABLE_DETAIL = "Unreachable: check host and port";
 export const RCON_AUTH_FAILED_DETAIL = "Authentication failed: check RCON password";
 
+// The `players` command reply as a list of { name, online } -- shared by the
+// connected service and one-off probes (testRconConnection()'s countPlayers).
+export function parsePlayersResponse(response) {
+  // Parse the players response. Format bytecode-confirmed 2026-09-18
+  // against zombie.commands.serverCommands.PlayersCommand.Command() (real
+  // PZ server jar, javap -p -c -constants): GameServer.rcon(cmd) always
+  // calls handleServerCommand(cmd, null) -- a null UdpConnection -- so
+  // that class's own `this.connection == null` branch is always taken,
+  // meaning the row separator is unconditionally a real "\n", never the
+  // "<LINE>" client-markup token used for in-game chat replies. Exact
+  // shape: "Players connected (X):\n-username1\n-username2\n" (trailing
+  // \n, no extra whitespace anywhere -- the "-" sits directly against the
+  // raw username on both sides).
+  const players = [];
+  if (!response) return players;
+
+  const lines = response.split("\n");
+  for (const rawLine of lines) {
+    // Strip only a stray trailing \r (defensive; PZ itself never emits
+    // one per the format above) -- do NOT trim the line, or the name
+    // extracted from it, any further than that. This used to call
+    // `.trim()` on the whole line AND AGAIN on the substring after the
+    // "-", which silently ate any leading/trailing whitespace that was
+    // part of the player's actual username (Steam persona names can
+    // start or end with a space) -- a player named " Bob" or "Bob " came
+    // back from this parser, and therefore from the dashboard, the
+    // Players page, and kick/ban-by-name lookups, as plain "Bob" --
+    // indistinguishable from a different player of the same trimmed name.
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+    if (line.startsWith("-")) {
+      players.push({
+        name: line.substring(1),
+        online: true,
+      });
+    }
+  }
+  return players;
+}
+
 // Tests arbitrary RCON credentials without touching the shared RconService
 // singleton's connection state — used by the "Test Connection" UI so a user
-// can validate host/port/password before saving them.
-export async function testRconConnection({ host, port, password, timeoutMs = RCON_USER_ACTION_TIMEOUT_MS }) {
+// can validate host/port/password before saving them. `countPlayers` also
+// asks the server who is on, for a server the panel holds no connection to
+// (the Dashboard's overview of every server): `players` is the count, or
+// null when the server answered the login but not the command.
+export async function testRconConnection({
+  host,
+  port,
+  password,
+  timeoutMs = RCON_USER_ACTION_TIMEOUT_MS,
+  countPlayers = false,
+}) {
   const reachable = await checkTcpReachable(host, port, timeoutMs);
   if (!reachable) {
     return {
@@ -190,7 +238,16 @@ export async function testRconConnection({ host, port, password, timeoutMs = RCO
   const client = new SourceRconClient({ host, port, timeout: timeoutMs });
   try {
     await client.authenticate(password || "");
-    return { success: true, detail: "Connected" };
+    if (!countPlayers) return { success: true, detail: "Connected" };
+    let players = null;
+    try {
+      players = parsePlayersResponse(
+        await client.execute("players", { timeoutMs }),
+      ).length;
+    } catch {
+      players = null;
+    }
+    return { success: true, detail: "Connected", players };
   } catch {
     return {
       success: false,
@@ -1856,40 +1913,7 @@ export class RconService extends EventEmitter {
   }
 
   parsePlayers(response) {
-    // Parse the players response. Format bytecode-confirmed 2026-09-18
-    // against zombie.commands.serverCommands.PlayersCommand.Command() (real
-    // PZ server jar, javap -p -c -constants): GameServer.rcon(cmd) always
-    // calls handleServerCommand(cmd, null) -- a null UdpConnection -- so
-    // that class's own `this.connection == null` branch is always taken,
-    // meaning the row separator is unconditionally a real "\n", never the
-    // "<LINE>" client-markup token used for in-game chat replies. Exact
-    // shape: "Players connected (X):\n-username1\n-username2\n" (trailing
-    // \n, no extra whitespace anywhere -- the "-" sits directly against the
-    // raw username on both sides).
-    const players = [];
-    if (!response) return players;
-
-    const lines = response.split("\n");
-    for (const rawLine of lines) {
-      // Strip only a stray trailing \r (defensive; PZ itself never emits
-      // one per the format above) -- do NOT trim the line, or the name
-      // extracted from it, any further than that. This used to call
-      // `.trim()` on the whole line AND AGAIN on the substring after the
-      // "-", which silently ate any leading/trailing whitespace that was
-      // part of the player's actual username (Steam persona names can
-      // start or end with a space) -- a player named " Bob" or "Bob " came
-      // back from this parser, and therefore from the dashboard, the
-      // Players page, and kick/ban-by-name lookups, as plain "Bob" --
-      // indistinguishable from a different player of the same trimmed name.
-      const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
-      if (line.startsWith("-")) {
-        players.push({
-          name: line.substring(1),
-          online: true,
-        });
-      }
-    }
-    return players;
+    return parsePlayersResponse(response);
   }
 
   // Player commands

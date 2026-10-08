@@ -1959,9 +1959,14 @@ export const serversApi = {
           }
         : data,
     ),
-  getRconStatuses: () =>
-    apiGet("/servers/rcon-status") as Promise<{
-      servers: Array<{ id: string; status: "connected" | "unreachable" | "auth_failed" | "unconfigured" | "unavailable" }>;
+  // `players: true` also counts who is on each server that answers.
+  getRconStatuses: (options?: { players?: boolean }) =>
+    apiGet(options?.players ? "/servers/rcon-status?players=1" : "/servers/rcon-status") as Promise<{
+      servers: Array<{
+        id: string;
+        status: "connected" | "unreachable" | "auth_failed" | "unconfigured" | "unavailable";
+        players?: number | null;
+      }>;
     }>,
   get: (id: string | number) =>
     apiGet(`/servers/${id}`) as Promise<{ server: ServerInstance }>,

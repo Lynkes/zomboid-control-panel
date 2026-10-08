@@ -303,6 +303,26 @@
     "pending": "等待中",
     "offline": "離線"
   },
+  "serversOverview": {
+    "heading": "伺服器",
+    "runningCount": "{{running}}/{{total}} 執行中",
+    "activeBadge": "活動",
+    "state": {
+      "running": "執行中",
+      "stopped": "已停止",
+      "unknown": "未知"
+    },
+    "playersTitle": "線上玩家：{{players}}",
+    "playersUnknown": "玩家：未知（RCON 無回應）",
+    "gamePortTitle": "遊戲埠",
+    "autoStartLabel": "隨面板啟動",
+    "autoStartOnDesc": "{{name}} 將在面板啟動時啟動",
+    "autoStartOffDesc": "{{name}} 將不再隨面板啟動",
+    "show": "查看",
+    "showAria": "在儀表板上顯示 {{name}}",
+    "noPermissionSwitch": "您的角色無法切換活動伺服器。",
+    "switchFailed": "無法切換到 {{name}}"
+  },
   "maintenance": {
     "heading": "維護",
     "refreshStatus": "重新整理狀態",
