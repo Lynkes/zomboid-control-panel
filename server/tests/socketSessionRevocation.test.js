@@ -1,5 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import WebSocket from "ws";
 
 // sweep-round2 (2026-09-06, dwight): Socket.IO connections authenticate
 // once at handshake (server/index.js's io.use middleware, which calls
@@ -238,5 +240,102 @@ describe("evictRevokedSockets() fails safe on a malformed or unrecognized event"
     expect(() => evictRevokedSockets({ scope: "user" })).not.toThrow();
     expect(disconnectSocketsSpy).not.toHaveBeenCalled();
     expect(inSpy).not.toHaveBeenCalled();
+  });
+});
+
+// Auth audit 2026-10-08, #11: the token was checked once, at the handshake,
+// and nothing looked at its expiry again. A socket opened with a briefly
+// valid token (a ?token= from a proxy log, one copied before sign-out)
+// stayed in rcon-live, logs and players until a revocation or a restart.
+// Now the transport is closed when the token expires (not disconnect(true),
+// so the real client reconnects with a refreshed token), and a reconnect
+// with the same token is refused. Spoken over `ws` directly, like
+// presetupSocketRefused.test.js: socket.io-client lives in client/.
+describe("a live socket ends when its access token expires", () => {
+  let port;
+
+  function connectRawSocket(token) {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/socket.io/?EIO=4&transport=websocket`);
+      const conn = { ws, events: [], closed: false };
+      conn.closedPromise = new Promise((resolveClosed) => {
+        ws.on("close", () => {
+          conn.closed = true;
+          resolveClosed();
+        });
+      });
+      let settled = false;
+      const settle = (outcome, message) => {
+        if (settled) return;
+        settled = true;
+        resolve({ ws, outcome, message, conn });
+      };
+      ws.on("error", (error) => (settled ? null : reject(error)));
+      ws.on("close", () => settle("closed"));
+      ws.on("message", (data) => {
+        const packet = data.toString();
+        if (packet.startsWith("0")) {
+          ws.send(`40${JSON.stringify({ token })}`);
+        } else if (packet === "2") {
+          ws.send("3");
+        } else if (packet.startsWith("40")) {
+          settle("connected");
+        } else if (packet.startsWith("44")) {
+          settle("refused", JSON.parse(packet.slice(2)).message);
+        } else if (packet.startsWith("42")) {
+          conn.events.push(JSON.parse(packet.slice(2))[0]);
+        }
+      });
+    });
+  }
+
+  function shortLivedToken(seconds) {
+    const user = db.data.users[0];
+    return jwt.sign(
+      { userId: user.id, username: user.username, role: user.role, tokenGen: 0 },
+      authService.jwtSecret,
+      { algorithm: "HS256", expiresIn: seconds },
+    );
+  }
+
+  beforeAll(async () => {
+    await new Promise((resolve) => io.httpServer.listen(0, "127.0.0.1", resolve));
+    port = io.httpServer.address().port;
+  });
+
+  afterAll(async () => {
+    io.disconnectSockets(true);
+    await new Promise((resolve) => io.httpServer.close(resolve));
+  });
+
+  beforeEach(() => {
+    resetWith({
+      roles: [ADMIN_ROLE],
+      users: [{ id: "u-admin", username: "admin", role: "admin", roleId: "role-admin", tokenGen: 0, password: "x" }],
+    });
+    authService.jwtSecret = "test-socket-expiry-secret-".padEnd(64, "x");
+  });
+
+  it("closes a socket opened with a 2-second token once it expires, and refuses that token again", async () => {
+    const token = shortLivedToken(2);
+    const first = await connectRawSocket(token);
+    expect(first.outcome).toBe("connected");
+
+    await Promise.race([first.conn.closedPromise, new Promise((resolve) => setTimeout(resolve, 4000))]);
+    expect(first.conn.closed).toBe(true);
+    expect(first.conn.events).toContain("auth:token-expired");
+
+    const again = await connectRawSocket(token);
+    again.ws.close();
+    expect(again.outcome).toBe("refused");
+    expect(again.message).toBe("Invalid or expired token");
+  }, 15000);
+
+  it("leaves a socket with time left on its token open", async () => {
+    const live = await connectRawSocket(shortLivedToken(60));
+    expect(live.outcome).toBe("connected");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(live.conn.closed).toBe(false);
+    live.ws.close();
   });
 });

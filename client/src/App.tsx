@@ -460,14 +460,25 @@ function AppContent() {
       newSocket.auth = createSocketAuthProvider(getToken)
       newSocket.connect()
 
+      // Set when the server closes the connection because the access token
+      // it was opened with expired (server/index.js, closeSocketAtTokenExpiry).
+      // The reconnect that follows, with a refreshed token, is routine every
+      // 15 minutes: it changes no status and shows no toast unless it fails.
+      let tokenExpiryReconnect = false
+      newSocket.on('auth:token-expired', () => {
+        tokenExpiryReconnect = true
+      })
+
       // Connection established
       newSocket.on('connect', () => {
         disposeRecovery?.()
         disposeRecovery = null
+        const routineReconnect = tokenExpiryReconnect
+        tokenExpiryReconnect = false
         setConnectionStatus(prev => {
           // Show toast only on reconnect, not initial connect. error covers
           // a manual Retry after the automatic loop gave up.
-          if (prev.reconnecting || prev.reconnectAttempt > 0 || prev.error) {
+          if (!routineReconnect && (prev.reconnecting || prev.reconnectAttempt > 0 || prev.error)) {
             handleReconnectSuccess()
           }
           return {
@@ -485,6 +496,8 @@ function AppContent() {
 
       // Connection lost
       newSocket.on('disconnect', (reason) => {
+        if (tokenExpiryReconnect && reason === 'transport close') return
+        tokenExpiryReconnect = false
         setConnectionStatus(prev => ({
           ...prev,
           connected: false,
@@ -494,6 +507,7 @@ function AppContent() {
 
       // Connection error with detailed logging (from Socket.IO best practices)
       newSocket.on('connect_error', (err) => {
+        tokenExpiryReconnect = false // the routine reconnect failed: show it
         if (newSocket.active) {
           // Temporary failure, socket will automatically reconnect
           setConnectionStatus(prev => ({
@@ -515,6 +529,7 @@ function AppContent() {
 
       // Reconnection events
       newSocket.io.on('reconnect_attempt', (attempt) => {
+        if (tokenExpiryReconnect) return
         setConnectionStatus(prev => ({
           ...prev,
           reconnecting: true,

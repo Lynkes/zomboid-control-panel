@@ -20,6 +20,7 @@ import { isUncompressedBinaryProxyPath, isEventStreamResponse } from "./utils/co
 import { createServer, STATUS_CODES } from "http";
 import { createServer as createHttpsServer } from "https";
 import { Server } from "socket.io";
+import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import path from "path";
 import fs from "fs";
@@ -2799,6 +2800,8 @@ io.use(async (socket, next) => {
     }
 
     socket.user = payload;
+    // Signature already checked just above; decode only reads its expiry.
+    socket.data.accessTokenExp = jwt.decode(token)?.exp;
     next();
   } catch (error) {
     next(new Error("Authentication error"));
@@ -2911,10 +2914,33 @@ export async function emitToCapabilities(capabilities, event, payload, server = 
   }
 }
 
+// SECURITY (2026-10-08, auth audit #11): a socket's token is checked once,
+// at connect, so a 15-minute token (a ?token= from a proxy log, one copied
+// before sign-out) kept a live feed (rcon-live, logs, players) until a
+// revocation or a restart. At the token's expiry the transport is closed
+// rather than the socket disconnected: the panel's own client then
+// reconnects by itself and its auth provider refreshes the token first
+// (client/src/lib/socketAuth.ts), while io.use refuses a stolen one.
+// auth:token-expired goes out first so the client can treat that reconnect
+// as routine (client/src/App.tsx shows no "Reconnected" toast for it).
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1;
+export function closeSocketAtTokenExpiry(socket, expSeconds, now = Date.now()) {
+  if (!Number.isFinite(expSeconds)) return;
+  const delay = Math.min(Math.max(0, expSeconds * 1000 - now), MAX_TIMER_DELAY_MS);
+  const timer = setTimeout(() => {
+    socket.emit("auth:token-expired");
+    socket.conn.close();
+  }, delay);
+  timer.unref?.();
+  socket.once("disconnect", () => clearTimeout(timer));
+}
+
 io.on("connection", (socket) => {
   log.debug(
     `Client connected: ${socket.id}${socket.user ? ` (${socket.user.username})` : ""}`,
   );
+
+  closeSocketAtTokenExpiry(socket, socket.data?.accessTokenExp);
 
   // Membership for the per-user eviction room used by the
   // onSessionRevoked() subscription below (password change/reset, role
