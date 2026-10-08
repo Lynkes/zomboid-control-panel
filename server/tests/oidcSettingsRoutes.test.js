@@ -789,4 +789,27 @@ describe("the saved client secret stays with the saved provider", () => {
     expect(accepted.status).not.toHaveBeenCalledWith(400);
     expect(settingsStore.get("oidcIssuerUrl")).toBe(other.baseUrl);
   });
+
+  // Review of #12: the form locks an env-pinned secret, so test and save
+  // must agree that a new issuer needs none; sign-in uses the env one.
+  it("with the secret pinned by the environment, a new issuer can be tested as well as saved", async () => {
+    process.env.PANEL_OIDC_CLIENT_SECRET = "env-secret";
+
+    const tested = await runRoute(
+      "/test-connection",
+      "post",
+      makeReq({ body: { issuerUrl: other.baseUrl } }),
+    );
+    expect(tested.status).not.toHaveBeenCalledWith(400);
+    expect(tested.json.mock.calls[0][0].success).toBe(true);
+    expect(other.tokenRequests).toBe(1);
+
+    const savedRes = await runRoute(
+      "/settings",
+      "put",
+      makeReq({ body: { issuerUrl: other.baseUrl } }),
+    );
+    expect(savedRes.status).not.toHaveBeenCalledWith(400);
+    expect(settingsStore.get("oidcIssuerUrl")).toBe(other.baseUrl);
+  });
 });

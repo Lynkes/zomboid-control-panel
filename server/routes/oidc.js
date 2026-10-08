@@ -675,16 +675,20 @@ router.post("/test-connection", requirePermission("panel.settings"), async (req,
       ? allowInsecureHttp.value
       : current.allowInsecureHttp;
 
-  // SECURITY (2026-10-08, #12): the saved (or env) secret goes only to the
-  // saved issuer as the saved client. A test against anything else must
-  // bring its own secret, or the panel would post the real one to whatever
-  // token endpoint the chosen issuer names, without saving or logging it.
+  // SECURITY (2026-10-08, #12): the saved secret goes only to the saved
+  // issuer as the saved client. A test against anything else must bring its
+  // own secret, or the panel would post the real one to whatever token
+  // endpoint the chosen issuer names, without saving or logging it. An
+  // env-pinned secret is the exception, as on save: sign-in sends it to
+  // whichever issuer is saved, whatever this screen says, so refusing would
+  // protect nothing and ask for a secret the form cannot take.
   let clientSecret;
   if (body.clientSecret !== undefined && !isMaskedSecret(body.clientSecret)) {
     clientSecret = String(body.clientSecret);
   } else {
     if (
       current.clientSecret &&
+      !getOidcEnvOverrides().clientSecret &&
       (candidateIssuerUrl !== current.issuerUrl || candidateClientId !== current.clientId)
     ) {
       return res.status(400).json({
