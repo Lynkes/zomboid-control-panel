@@ -944,8 +944,12 @@ router.get("/status", async (req, res) => {
 
 // Lightweight, bounded RCON connectivity probe for every configured server.
 // It creates no persistent connections and never returns credential material.
+// `?players=1` also counts who is on each one that answers (the Dashboard's
+// overview of every server, which the panel's single RCON connection to the
+// active server can't give): `players` is a number, or null when unknown.
 router.get("/rcon-status", async (req, res) => {
   try {
+    const countPlayers = req.query?.players === "1";
     const servers = await getServers();
     const statuses = await mapWithConcurrency(servers, 3, async (server) => {
       const rconHost =
@@ -965,10 +969,12 @@ router.get("/rcon-status", async (req, res) => {
         port: rconPort,
         password: server.rconPassword || "",
         timeoutMs: 3000,
+        countPlayers,
       });
       return {
         id: server.id,
         status: result.success ? "connected" : result.error || "unavailable",
+        ...(countPlayers ? { players: result.success ? (result.players ?? null) : null } : {}),
       };
     });
     res.json({ servers: statuses });

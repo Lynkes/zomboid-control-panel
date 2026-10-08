@@ -306,6 +306,26 @@
     "pending": "pendiente",
     "offline": "sin conexión"
   },
+  "serversOverview": {
+    "heading": "Servidores",
+    "runningCount": "{{running}} de {{total}} en ejecución",
+    "activeBadge": "Activo",
+    "state": {
+      "running": "En ejecución",
+      "stopped": "Detenido",
+      "unknown": "Desconocido"
+    },
+    "playersTitle": "Jugadores en línea: {{players}}",
+    "playersUnknown": "Jugadores: desconocido (RCON no responde)",
+    "gamePortTitle": "Puerto del juego",
+    "autoStartLabel": "Iniciar con el panel",
+    "autoStartOnDesc": "{{name}} se iniciará cuando se inicie el panel",
+    "autoStartOffDesc": "{{name}} ya no se iniciará con el panel",
+    "show": "Ver",
+    "showAria": "Mostrar {{name}} en el Tablero",
+    "noPermissionSwitch": "Tu rol no puede cambiar el servidor activo.",
+    "switchFailed": "No se pudo cambiar a {{name}}"
+  },
   "maintenance": {
     "heading": "Mantenimiento",
     "refreshStatus": "Actualizar estado",
