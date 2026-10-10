@@ -8,6 +8,8 @@ import { registerHostFolderSource } from "../utils/sanitize.js";
 import { checkAndExitIfOwnershipBlocked } from "../utils/firstRunOwnershipCheck.js";
 import { createLogger } from "../utils/logger.js";
 import { normalizeMemoryGb } from "../utils/memory.js";
+import { ErrorCode } from "../utils/errorCodes.js";
+import { findDuplicateLocalServer } from "../utils/serverDuplicate.js";
 import { parseClampedInteger } from "../utils/queryNumbers.js";
 import {
   rehydrateRconSecrets,
@@ -2272,6 +2274,22 @@ export async function getActiveServer() {
 export async function createServer(serverConfig) {
   const db = await getDb();
   if (!db.data.servers) db.data.servers = [];
+
+  // Adding the same server twice (a retry after a request that looked like it
+  // failed, a double click) used to leave two identical cards. Checked here,
+  // in the same tick as the push below, so two concurrent requests cannot
+  // both pass it.
+  const duplicate = findDuplicateLocalServer(db.data.servers, serverConfig);
+  if (duplicate) {
+    const existingName = duplicate.name || duplicate.serverName;
+    const error = new Error(
+      `A server called ${existingName} that uses this data folder is already on the list.`,
+    );
+    error.code = ErrorCode.SERVER_ALREADY_EXISTS;
+    error.status = 409;
+    error.params = { name: existingName };
+    throw error;
+  }
 
   const isFirst = db.data.servers.length === 0;
 

@@ -42,6 +42,7 @@ import { useToast } from '@/components/ui/use-toast'
 import { reportClientError, reportClientWarning } from '@/lib/client-errors'
 import { getResultErrorMessage, getUserErrorMessage } from '@/lib/errorMessage'
 import { useDateFormat } from '@/lib/dateFormat'
+import { useSteamBranches } from '@/hooks/useSteamBranches'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -217,6 +218,14 @@ export function isValidGamePort(port: number): boolean {
   return Number.isInteger(port) && port >= 1 && port <= 65534
 }
 
+// Mirror of server/utils/memory.js's memoryMinExceedsMax(): the start script
+// writes -Xms{min}g -Xmx{max}g and the JVM refuses to start when the initial
+// heap is above the maximum. A blank (NaN) field is the separate
+// "enter a value" refusal, not this one.
+export function isMemoryMinAboveMax(minMemory: number, maxMemory: number): boolean {
+  return Number.isFinite(minMemory) && Number.isFinite(maxMemory) && minMemory > maxMemory
+}
+
 // bug-hunt-2026-09-18 (round 12, client-vs-server validation sweep): client
 // mirror of server/routes/servers.js's SERVER_NAME_REGEX -- the Edit Server
 // dialog's serverName field had no character-set check at all (only
@@ -379,12 +388,6 @@ export default function Servers() {
   const [deleting, setDeleting] = useState(false)
   const [deleteProgress, setDeleteProgress] = useState(0)
   const deleteProgressRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  // Generation counter for the branch-fetch effect below -- steamcmdPath is a
-  // live-typed text input, so a keystroke can re-fire the effect before the
-  // previous fetchBranches() call resolves; without this, a slower response
-  // from an earlier keystroke can land after a newer one and overwrite the
-  // branch list / selected branch with stale data.
-  const branchFetchIdRef = useRef(0)
   const [activating, setActivating] = useState<string | number | null>(null)
 
   // Add server dialog
@@ -532,11 +535,15 @@ export default function Servers() {
   const [updateCheckEverSucceeded, setUpdateCheckEverSucceeded] = useState(false)
   const [updateCheckLastError, setUpdateCheckLastError] = useState<string | null>(null)
   const [gameVersion, setGameVersion] = useState<string | null>(null)
-  const [availableBranches, setAvailableBranches] = useState<Array<{name: string, description: string, buildId?: string | null, timeUpdated?: string | null}>>([
-    { name: 'public', description: t('branches.public') },
-    { name: 'unstable', description: t('branches.unstable') }
-  ])
-  const [loadingBranches, setLoadingBranches] = useState(false)
+  // Steam branch list for the Update / Verify dialog (see the hook for when it refetches).
+  const { availableBranches, loadingBranches } = useSteamBranches({
+    operation: steamOperation,
+    setOperation: setSteamOperation,
+    steamcmdPath,
+    setSteamcmdPath,
+    installedBranch: updateInfo?.installed?.branch,
+    t,
+  })
 
   // Mount discovery — offers a one-click "connect this" profile when PZ
   // server files are found at a common bind-mount path and no profile
@@ -937,77 +944,6 @@ export default function Servers() {
       socket.off('server:updateCheckFailed', handleUpdateCheckFailed)
     }
   }, [socket])
-
-  // Fetch available Steam branches when steam operation dialog opens
-  useEffect(() => {
-    if (!steamOperation) return
-
-    const thisFetchId = ++branchFetchIdRef.current
-
-    const fetchBranches = async () => {
-      setLoadingBranches(true)
-      try {
-        const detection = await serverApi.detectSteamCmd()
-        if (thisFetchId !== branchFetchIdRef.current) return
-        const resolvedSteamcmdPath = detection.found && detection.path ? detection.path : steamcmdPath
-        if (resolvedSteamcmdPath) {
-          // Detection is asynchronous. Do not replace a path the operator
-          // typed after the dialog opened but before detection completed.
-          setSteamcmdPath((currentPath) => currentPath.trim() || resolvedSteamcmdPath)
-        }
-        const data = await serverApi.getBranches(resolvedSteamcmdPath)
-        if (thisFetchId !== branchFetchIdRef.current) return
-        if (data.branches && Array.isArray(data.branches)) {
-          setAvailableBranches(() => {
-            const fetched = data.branches as Array<{ name: string; description: string; buildId?: string | null }>
-            // SteamCMD's anonymous branch listing usually only returns `public`.
-            // Make sure the installed branch, the server's branch, and the currently
-            // selected branch all remain pickable so we never silently drop the user's choice.
-            const extras: typeof fetched = []
-            const have = new Set(fetched.map(b => b.name))
-            const normalize = (v: string | undefined | null) => (v || '').trim().toLowerCase()
-            const candidates = [
-              normalize(updateInfo?.installed?.branch),
-              normalize(steamOperation?.server.branch),
-              normalize(steamOperation?.branch),
-            ].filter(Boolean) as string[]
-            for (const name of candidates) {
-              if (!have.has(name)) {
-                const description = name === 'unstable'
-                  ? t('branches.unstableDesc')
-                  : name === 'iwbums'
-                    ? t('branches.iwbumsDesc')
-                    : t('branches.genericBetaDesc')
-                extras.push({ name, description })
-                have.add(name)
-              }
-            }
-            return [...fetched, ...extras]
-          })
-          // Only reconcile the selected branch if it's truly unknown and not the
-          // installed/server branch. Never override what the server is actually running.
-          setSteamOperation((prev) => {
-            if (!prev) return prev
-            const names = new Set(data.branches.map((b: { name: string }) => b.name))
-            const installed = (updateInfo?.installed?.branch || '').trim().toLowerCase()
-            const serverBranch = (prev.server.branch || '').trim().toLowerCase()
-            if (prev.branch === installed) return prev
-            if (prev.branch === serverBranch) return prev
-            if (names.has(prev.branch)) return prev
-            const fallback = installed || serverBranch || (names.has('public') ? 'public' : data.branches[0]?.name)
-            return fallback ? { ...prev, branch: fallback } : prev
-          })
-        }
-      } catch (error) {
-        reportClientError('Failed to fetch branches.', error)
-        // Keep default branches on error
-      } finally {
-        if (thisFetchId === branchFetchIdRef.current) setLoadingBranches(false)
-      }
-    }
-
-    fetchBranches()
-  }, [steamOperation, steamcmdPath, updateInfo?.installed?.branch, t])
 
   // Listen for server changes
   useEffect(() => {
@@ -1526,6 +1462,10 @@ export default function Servers() {
       toast({ title: t('toasts.error'), description: t('toasts.memoryRequiredError'), variant: 'destructive' })
       return
     }
+    if (!editingServer.isRemote && isMemoryMinAboveMax(editingServer.minMemory, editingServer.maxMemory)) {
+      toast({ title: t('toasts.error'), description: t('toasts.memoryMinAboveMaxError'), variant: 'destructive' })
+      return
+    }
     if (!isValidServerName(editingServer.serverName)) {
       toast({ title: t('toasts.error'), description: t('editDialog.serverNameInvalid'), variant: 'destructive' })
       return
@@ -1564,7 +1504,12 @@ export default function Servers() {
 
     setSavingEdit(true)
     try {
-      const result = await serversApi.update(editingServer.id, editingServer)
+      // This dialog has no UPnP control, so the record's copy of useUpnp is not
+      // an edit: leave it out rather than echo a value that may be stale next
+      // to the ini (Server Config writes UPnP= there directly).
+      const editedFields = { ...editingServer }
+      delete editedFields.useUpnp
+      const result = await serversApi.update(editingServer.id, editedFields)
       const warnings = result.warnings?.filter(Boolean) ?? []
       toast({
         title: warnings.length > 0 ? t('toasts.warningTitle') : t('toasts.savedTitle'),
@@ -1825,6 +1770,10 @@ export default function Servers() {
       toast({ title: t('toasts.error'), description: t('toasts.memoryRequiredError'), variant: 'destructive' })
       return
     }
+    if (addMode === 'local' && isMemoryMinAboveMax(newServer.minMemory, newServer.maxMemory)) {
+      toast({ title: t('toasts.error'), description: t('toasts.memoryMinAboveMaxError'), variant: 'destructive' })
+      return
+    }
 
     // 2026-08-31 quality-pass finding: Add Remote Server had no duplicate
     // detection at all -- resubmitting the identical name+host+port (a
@@ -1882,11 +1831,32 @@ export default function Servers() {
         isRemote: addMode === 'remote'
       } as Partial<ServerInstance> & { importIniFrom?: { dataPath: string; serverName: string } })
 
+      // The server exists from here on: only creating it can make this "add
+      // failed". Activating is a separate step that can be turned away on its
+      // own (409 while another lifecycle action holds the lock), and calling
+      // that a failed add left the dialog open over a server that was already
+      // on the list, so a retry created a second one.
+      let activationError: unknown = null
       if (createResult.server?.id) {
-        await serversApi.activate(createResult.server.id)
+        try {
+          await serversApi.activate(createResult.server.id)
+        } catch (error) {
+          activationError = error
+        }
       }
 
-      toast({ title: t('toasts.serverAddedTitle'), description: t('toasts.serverAddedDesc', { name: newServer.name }) })
+      if (activationError) {
+        toast({
+          title: t('toasts.serverAddedNotActiveTitle'),
+          description: t('toasts.serverAddedNotActiveDesc', {
+            name: createResult.server?.name || newServer.name || newServer.serverName,
+            reason: getUserErrorMessage(activationError, t('toasts.activateFailed')).replace(/[\s.。]+$/u, ''),
+          }),
+          variant: 'warning',
+        })
+      } else {
+        toast({ title: t('toasts.serverAddedTitle'), description: t('toasts.serverAddedDesc', { name: newServer.name }) })
+      }
       setShowAddDialog(false)
       setNewServer(defaultNewServer)
       setDetectResult(null)
@@ -3055,6 +3025,7 @@ export default function Servers() {
                                 value={newServer.minMemory}
                                 className="bg-background"
                                 clamp={n => Math.max(1, n)}
+                                invalid={isMemoryMinAboveMax(newServer.minMemory, newServer.maxMemory)}
                                 onChange={minMemory => setNewServer({ ...newServer, minMemory })}
                               />
                             </div>
@@ -3066,9 +3037,13 @@ export default function Servers() {
                                 value={newServer.maxMemory}
                                 className="bg-background"
                                 clamp={n => Math.max(1, n)}
+                                invalid={isMemoryMinAboveMax(newServer.minMemory, newServer.maxMemory)}
                                 onChange={maxMemory => setNewServer({ ...newServer, maxMemory })}
                               />
                             </div>
+                            {isMemoryMinAboveMax(newServer.minMemory, newServer.maxMemory) && (
+                              <p className="text-xs text-destructive sm:col-span-2" role="alert">{t('toasts.memoryMinAboveMaxError')}</p>
+                            )}
                           </div>
                         </div>
                       )}
@@ -3482,6 +3457,7 @@ export default function Servers() {
                     max={64}
                     value={editingServer.minMemory}
                     clamp={n => Math.max(1, n)}
+                    invalid={isMemoryMinAboveMax(editingServer.minMemory, editingServer.maxMemory)}
                     onChange={minMemory => setEditingServer({ ...editingServer, minMemory })}
                   />
                 </div>
@@ -3492,9 +3468,13 @@ export default function Servers() {
                     max={64}
                     value={editingServer.maxMemory}
                     clamp={n => Math.max(1, n)}
+                    invalid={isMemoryMinAboveMax(editingServer.minMemory, editingServer.maxMemory)}
                     onChange={maxMemory => setEditingServer({ ...editingServer, maxMemory })}
                   />
                 </div>
+                {isMemoryMinAboveMax(editingServer.minMemory, editingServer.maxMemory) && (
+                  <p className="text-xs text-destructive sm:col-span-3" role="alert">{t('toasts.memoryMinAboveMaxError')}</p>
+                )}
                 </>
                 )}
               </div>

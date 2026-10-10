@@ -4116,6 +4116,11 @@ async function start() {
     await refreshCorsConfig();
     log.info("Database ready");
 
+    // Settings > Connection "Auto-reconnect" / "Reconnect interval" for the
+    // RCON loop started at module load above (it re-arms if they differ from
+    // the built-in 60 s default). PUT /app-settings applies later changes.
+    await rconService.loadReconnectSettings();
+
     // Rehydrate any Steam operation (install/update/auto-update) that was
     // still recorded as in-flight when this process last exited -- if that
     // was a genuine crash (not a clean shutdown, which never leaves one

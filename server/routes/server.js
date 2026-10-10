@@ -3304,6 +3304,14 @@ router.get("/setup-plan", requirePermission("server.install"), async (req, res) 
   }
 });
 
+// Does this folder hold a SteamCMD binary of its own (steamcmd.exe on Windows,
+// steamcmd.sh / steamcmd elsewhere)? Unlike getSteamCmdExe() this ignores the
+// system-wide Linux fallbacks, which exist whatever folder was typed.
+function steamCmdFolderHasBinary(dir) {
+  const names = isWindows ? ["steamcmd.exe"] : ["steamcmd.sh", "steamcmd"];
+  return names.some((name) => fs.existsSync(path.join(dir, name)));
+}
+
 // Get available Steam branches for PZ Dedicated Server (App ID 380870)
 router.get("/branches", requirePermission("server.install"), async (req, res) => {
   try {
@@ -3329,6 +3337,23 @@ router.get("/branches", requirePermission("server.install"), async (req, res) =>
     // it the same way /install and /steam-update do before it's ever used.
     if (!isValidPath(steamcmdPath)) {
       return res.status(400).json({ error: "Invalid SteamCMD path", code: ErrorCode.STEAMCMD_PATH_INVALID });
+    }
+
+    // A candidate from the query string is saved below, so only one that is
+    // really a SteamCMD folder gets that far. The Update dialog asks for the
+    // branches as the operator types the path, and each prefix used to be
+    // saved as the steamcmdPath setting ("C:\", "C:\Ste", ...) before
+    // anything checked it existed. A path that is already the saved setting
+    // has nothing new to save, so it keeps the existing lookup below.
+    if (
+      steamcmdPath !== (await getSetting("steamcmdPath")) &&
+      !steamCmdFolderHasBinary(steamcmdPath)
+    ) {
+      return res.json({
+        branches: FALLBACK_BRANCHES,
+        source: "fallback",
+        message: "SteamCMD not found, using fallback branches",
+      });
     }
 
     // Persist a query-string candidate before resolving it into something

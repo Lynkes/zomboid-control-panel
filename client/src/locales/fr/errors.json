@@ -171,6 +171,8 @@
   "INVALID_RCON_PORT": "Le port RCON doit être un nombre entier compris entre 1024 et 65535.",
   "INVALID_MIN_MEMORY": "La mémoire minimale doit être un nombre entier compris entre 1 et 64 (Go).",
   "INVALID_MAX_MEMORY": "La mémoire maximale doit être un nombre entier compris entre 1 et 128 (Go).",
+  "MEMORY_MIN_EXCEEDS_MAX": "La mémoire minimale ({{min}} Go) ne peut pas dépasser la mémoire maximale ({{max}} Go).",
+  "SERVER_ALREADY_EXISTS": "Un serveur nommé {{name}} qui utilise ce dossier de données figure déjà dans la liste.",
   "WRITABLE_PATH_ERROR": "{{label}} n'est pas accessible en écriture : {{path}}. Choisissez un dossier accessible en écriture par le panneau.",
   "WRITABLE_PATH_INSTALL_BAREMETAL": "Le chemin d'installation n'est pas accessible en écriture : {{path}}. L'utilisateur qui exécute le panneau n'est pas propriétaire de ce dossier ou n'a pas la permission d'y écrire -- corrigez cela avec chown/chmod, ou choisissez un dossier dans lequel le panneau peut déjà écrire.",
   "WRITABLE_PATH_INSTALL_CONTAINER": "Le chemin d'installation n'est pas accessible en écriture : {{path}}. Définissez PUID/PGID dans votre fichier .env pour qu'ils correspondent au propriétaire de ce dossier hôte monté (bind-mount) (voir le guide de démarrage rapide dans docker-compose.yml), puis recréez le conteneur.",

@@ -2630,6 +2630,19 @@ export const ErrorCode = Object.freeze({
    * count as token reuse; the client retries once (#19). */
   REFRESH_RACE: "REFRESH_RACE",
   /* --- end auth audit 2026-10-08: account security --- */
+  /* --- servers/settings flows pass 2026-10-10 --- */
+  /** server/routes/servers.js (POST / and PUT /:id) and server/routes/config.js
+   * (PUT /app-settings) -- the minimum memory is higher than the maximum, which
+   * the JVM refuses at start (-Xms above -Xmx). Carries `min` and `max` (GB). */
+  MEMORY_MIN_EXCEEDS_MAX: "MEMORY_MIN_EXCEEDS_MAX",
+  /** server/routes/servers.js (POST /) and server/routes/discovery.js (POST
+   * /create-from-discovery) -- 409: a local server with the same server name
+   * and the same Zomboid data folder is already on the list, so adding it
+   * again would only create a second card for the same files (thrown by
+   * createServer() in database/init.js). Carries the existing server's
+   * display name as the `name` param. */
+  SERVER_ALREADY_EXISTS: "SERVER_ALREADY_EXISTS",
+  /* --- end servers/settings flows pass 2026-10-10 --- */
 });
 
 /**

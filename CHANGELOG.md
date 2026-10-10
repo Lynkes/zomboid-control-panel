@@ -65,6 +65,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Failed restore left a copy of the world behind:** when a restore fails part-way (disk full, write error) it now stops extracting and removes its staging folder, which used to be re-created and filled with the rest of the archive; leftover `.restore-staging-*` folders are cleaned up at start-up and before the next restore.
 - **Backup taken before a restore or wipe is kept:** it is now named `pre-restore-…` / `pre-wipe-…` and the automatic backup limit no longer deletes it (the newest 3 are kept); with "Maximum Backups to Keep" at 1 the next scheduled backup used to delete the only copy of the replaced world.
 - **Backups on a nearly full disk:** a backup, restore or pre-wipe backup is now refused up front with the sizes needed and free (instead of failing part-way and filling the disk the server saves to), and a backup that has reached its count first deletes the oldest backup it would delete anyway when that frees enough.
+- **RCON auto-reconnect setting:** "Auto-reconnect" and "Reconnect interval" in Settings now work (they were saved but ignored and the panel always retried every 60 s); off stops the background retries, the interval is applied at once (5-600 s).
+- **Editing a server undid UPnP:** saving the edit dialog (a rename, say) no longer rewrites UPnP in the server config from an old value or shows a "Warning" toast; only an actual UPnP change is applied.
+- **Update Server dialog:** picking a branch no longer restarts the SteamCMD lookup, and typing the SteamCMD path no longer runs it on every keystroke or saves half-typed paths as the SteamCMD setting (only a folder that holds SteamCMD is saved).
+- **Minimum memory above maximum:** adding or editing a server (and the legacy memory setting) now refuses a minimum above the maximum with a clear message, instead of saving a server whose start script the Java VM rejects.
+- **Install wizard:** the memory sliders now show the saved values instead of always resetting to 4 and 8 GB, and the suggested RCON password is generated with the browser's secure random source.
+- **Add Server when activation is busy:** if the new server was created but could not be made active right away (another action was running), the dialog now closes with a clear "added, not active yet" notice instead of reporting a failed add, so a retry no longer creates a duplicate; adding the same name in the same data folder twice is refused.
 
 ## [1.4.12] - 2026-10-10
 

@@ -171,6 +171,8 @@
   "INVALID_RCON_PORT": "Pò RCON an dwe yon nimewo antye ant 1024 ak 65535.",
   "INVALID_MIN_MEMORY": "Memwa Minimòm dwe yon nimewo antye ant 1 ak 64 (GB).",
   "INVALID_MAX_MEMORY": "Memwa Maksimòm dwe yon nimewo antye ant 1 ak 128 (GB).",
+  "MEMORY_MIN_EXCEEDS_MAX": "Memwa minimòm ({{min}} GB) pa ka pi gran pase memwa maksimòm ({{max}} GB).",
+  "SERVER_ALREADY_EXISTS": "Gen yon sèvè ki rele {{name}} ki itilize dosye done sa a deja nan lis la.",
   "WRITABLE_PATH_ERROR": "{{label}} pa modifyab: {{path}}. Chwazi yon dosye pwosesis panèl la ka ekri ladan l.",
   "WRITABLE_PATH_INSTALL_BAREMETAL": "Chemen enstalasyon pa modifyab: {{path}}. Itilizatè ki fè panèl la fonksyone a pa posede dosye sa a oswa li pa gen dwa ekri ladan l -- korije sa ak chown/chmod, oswa chwazi yon dosye panèl la deja ka ekri ladan l.",
   "WRITABLE_PATH_INSTALL_CONTAINER": "Chemen enstalasyon pa modifyab: {{path}}. Mete PUID/PGID nan fichye .env ou a pou yo matche ak moun ki posede dosye lame ki fè bind-mount sa a (gade seksyon Quick Start nan docker-compose.yml), epi refè kontenè a.",

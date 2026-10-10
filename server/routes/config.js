@@ -43,6 +43,7 @@ import {
   MAX_MEMORY_GB_MAX,
 } from "./server.js";
 import { parseBoundedInteger } from "../utils/queryNumbers.js";
+import { memoryMinExceedsMax, memoryMinExceedsMaxFields } from "../utils/memory.js";
 import { setSteamSessionCredentials } from "../services/steamSessionCredentials.js";
 import { KNOWN_HOSTS_SETTING } from "../services/sftpHostKeys.js";
 
@@ -824,6 +825,25 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
       validEntries.push([key, value]);
     }
 
+    // Each memory value passed its own range above; the pair must also be in
+    // order (-Xms above -Xmx stops the JVM), judged on what the settings will
+    // hold after this save, so changing one value is checked against the
+    // stored other one.
+    const memoryInPayload = validEntries.filter(
+      ([key]) => key === "minMemory" || key === "maxMemory",
+    );
+    if (memoryInPayload.length > 0) {
+      const payloadValue = (key) => memoryInPayload.find(([k]) => k === key)?.[1];
+      const nextMin = payloadValue("minMemory") ?? (await getSetting("minMemory"));
+      const nextMax = payloadValue("maxMemory") ?? (await getSetting("maxMemory"));
+      if (memoryMinExceedsMax(nextMin, nextMax)) {
+        return res.status(400).json({
+          ...memoryMinExceedsMaxFields(nextMin, nextMax),
+          code: ErrorCode.MEMORY_MIN_EXCEEDS_MAX,
+        });
+      }
+    }
+
     // Never overwrite a stored secret with the masked sentinel we send to
     // the client. Without this guard, clicking Save after a page reload
     // (where the input pre-fills with •••...) would silently corrupt
@@ -1021,6 +1041,16 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
           "RCON service failed to reload — reconnect may be required",
         );
       }
+    }
+    // "Auto-reconnect" / "Reconnect interval" apply to the running RCON loop
+    // right away, no restart needed (it also re-reads them on the next boot).
+    if (
+      rconService?.loadReconnectSettings &&
+      filtered.some(
+        ([key]) => key === "autoReconnect" || key === "reconnectInterval",
+      )
+    ) {
+      await rconService.loadReconnectSettings();
     }
     const refreshCorsConfig = req.app.get("refreshCorsConfig");
     if (typeof refreshCorsConfig === "function") {

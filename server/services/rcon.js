@@ -14,6 +14,28 @@ import { parseBoundedInteger } from "../utils/queryNumbers.js";
 import { redactRconCommandSecrets } from "../utils/rconCommandRedaction.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 
+// Settings > Connection > "Reconnect interval" is a number of seconds. The
+// service accepts 5 to 600 whatever is stored (a hand-edited db.json or an
+// older panel version can hold anything), and falls back to the 60 s the loop
+// always used when the value is missing or not a number.
+export const RCON_RECONNECT_MIN_SECONDS = 5;
+export const RCON_RECONNECT_MAX_SECONDS = 600;
+export const RCON_RECONNECT_DEFAULT_SECONDS = 60;
+// The advisory "is the game process there?" scan (a host-wide process listing)
+// runs at most this often, however short the reconnect interval is.
+const ADVISORY_PROCESS_CHECK_MIN_MS = 30000;
+
+export function normalizeReconnectIntervalSeconds(value) {
+  const seconds = typeof value === "string" ? Number(value.trim()) : Number(value);
+  if (value === null || value === undefined || value === "" || !Number.isFinite(seconds)) {
+    return RCON_RECONNECT_DEFAULT_SECONDS;
+  }
+  return Math.min(
+    RCON_RECONNECT_MAX_SECONDS,
+    Math.max(RCON_RECONNECT_MIN_SECONDS, Math.round(seconds)),
+  );
+}
+
 // Ordered classification of the technical error messages execute()'s catch
 // block sees, feeding BOTH getUserFriendlyError()'s user-facing prose and
 // the RCON_EXECUTE_DISCONNECTED code attached alongside it -- one shared
@@ -586,9 +608,21 @@ export class RconService extends EventEmitter {
     this.serverId = null;
     this.serverManager = null; // Reference to ServerManager for server status checks
 
-    // Periodic auto-reconnect when server is running but RCON disconnected
+    // Periodic auto-reconnect when server is running but RCON disconnected.
+    // The two settings below mirror Settings > Connection ("Auto-reconnect" and
+    // "Reconnect interval"); loadReconnectSettings() / applyReconnectSettings()
+    // keep them in step with what was saved. The defaults are the previous
+    // hard-coded behaviour (on, every 60 s) for an install that never saved them.
     this.autoReconnectInterval = null;
-    this.autoReconnectDelay = 60000; // Try to reconnect every 60s if disconnected
+    this.autoReconnectEnabled = true;
+    this.autoReconnectDelay = RCON_RECONNECT_DEFAULT_SECONDS * 1000;
+    // startAutoReconnect() has been called (and stopAutoReconnect() has not):
+    // a settings change re-arms the timer only for a service that is meant to
+    // be running the loop, never for a throwaway instance that was never started.
+    this.autoReconnectRequested = false;
+    this.autoReconnectTickRunning = false;
+    this.lastAdvisoryProcessCheck = 0;
+    this.lastAutoReconnectWarning = 0;
     this.lastSuccessfulCommand = null; // Track when last command succeeded
     this.serverStarting = false; // Flag to prevent reconnects during server startup
     this.serverStartingTimeout = null; // Failsafe timeout to clear serverStarting flag
@@ -654,73 +688,152 @@ export class RconService extends EventEmitter {
     this.serverManager = serverManager;
   }
 
+  // Read Settings > Connection ("Auto-reconnect", "Reconnect interval") and
+  // apply them. Called once at boot, before startAutoReconnect(), and again by
+  // PUT /app-settings after a save, so a change takes effect without a restart.
+  async loadReconnectSettings() {
+    try {
+      const [autoReconnect, reconnectInterval] = await Promise.all([
+        getSetting("autoReconnect"),
+        getSetting("reconnectInterval"),
+      ]);
+      return this.applyReconnectSettings({ autoReconnect, reconnectInterval });
+    } catch (error) {
+      log.debug(`Could not load the RCON reconnect settings: ${error.message}`);
+      return false;
+    }
+  }
+
+  // `autoReconnect` false (or the string "false") turns the background loop
+  // off; anything else, including a setting that was never saved, leaves it on.
+  // `reconnectInterval` is seconds, clamped to 5-600 (see
+  // normalizeReconnectIntervalSeconds). Re-arms the running loop when either
+  // value actually changed; returns whether it did.
+  applyReconnectSettings({ autoReconnect, reconnectInterval } = {}) {
+    const enabled = autoReconnect !== false && autoReconnect !== "false";
+    const delayMs = normalizeReconnectIntervalSeconds(reconnectInterval) * 1000;
+    const changed =
+      enabled !== this.autoReconnectEnabled || delayMs !== this.autoReconnectDelay;
+    this.autoReconnectEnabled = enabled;
+    this.autoReconnectDelay = delayMs;
+    if (!changed || !this.autoReconnectRequested) return false;
+
+    this._clearAutoReconnectTimer();
+    this._armAutoReconnectTimer();
+    return true;
+  }
+
   // Start periodic auto-reconnection attempts
   startAutoReconnect() {
-    if (this.autoReconnectInterval) return;
+    this.autoReconnectRequested = true;
 
-    this.autoReconnectInterval = setInterval(async () => {
-      // Skip if server is starting - startup sequence handles connections
-      if (this.serverStarting) {
-        log.debug("Skipping - server is starting");
-        return;
-      }
-
-      // Skip if already connected
-      if (this.connected) {
-        return;
-      }
-
-      // Skip if any connection attempt is already in progress
-      if (this.connecting || this.reconnecting) {
-        log.debug("Skipping - connection already in progress");
-        return;
-      }
-
-      try {
-        if (this.serverManager) {
-          try {
-            // eslint-disable-next-line local/no-fail-open-check-server-running -- advisory only: the boolean only selects which log line is printed below ("attempting connection" vs "probing RCON port anyway"); the real RCON connection attempt happens unconditionally right after, in every branch.
-            const isRunning = await this.serverManager.checkServerRunning();
-            if (isRunning) {
-              log.info("Server is running, attempting connection...");
-            } else {
-              log.debug(
-                "Process check did not confirm server; probing RCON port anyway",
-              );
-            }
-          } catch (e) {
-            log.debug(`Server check error: ${e.message}`);
-          }
-        }
-
-        const result = await this.connect();
-        if (result) {
-          log.info("Successfully connected!");
-        }
-      } catch (e) {
-        // During server startup, only log at debug level to reduce noise
-        if (this.serverStarting) {
-          log.debug(`Connection failed during startup, retrying: ${e.message}`);
-        } else {
-          log.warn(
-            `Connection failed, retrying in ${this.autoReconnectDelay}ms: ${e.message}`,
-          );
-        }
-        // This loop intentionally uses a fixed interval (autoReconnectDelay),
-        // not exponential backoff — the separate reconnect() method below
-        // implements real backoff (baseReconnectDelay * attempt, capped) for
-        // its own bounded retry sequence. A previous `currentReconnectDelay`
-        // field here was computed on every failure but never actually fed
-        // into this setInterval's delay, so it was pure dead weight that
-        // made the log message above lie about the real retry timing.
-      }
-    }, this.autoReconnectDelay);
-    if (this.autoReconnectInterval.unref) this.autoReconnectInterval.unref();
-
-    // Start health check interval to detect stale connections
+    // Health checks only watch a live connection for going stale; they never
+    // reconnect, so they run whether or not auto-reconnect is turned on.
     this.startHealthCheck();
 
-    log.debug("auto-reconnect enabled (60s interval)");
+    this._armAutoReconnectTimer();
+  }
+
+  _armAutoReconnectTimer() {
+    if (this.autoReconnectInterval) return;
+    if (!this.autoReconnectEnabled) {
+      log.debug("auto-reconnect is turned off in Settings; background reconnect loop not started");
+      return;
+    }
+
+    this.autoReconnectInterval = setInterval(
+      () => this._autoReconnectTick(),
+      this.autoReconnectDelay,
+    );
+    if (this.autoReconnectInterval.unref) this.autoReconnectInterval.unref();
+
+    log.debug(`auto-reconnect enabled (${this.autoReconnectDelay / 1000}s interval)`);
+  }
+
+  _clearAutoReconnectTimer() {
+    if (this.autoReconnectInterval) {
+      clearInterval(this.autoReconnectInterval);
+      this.autoReconnectInterval = null;
+    }
+  }
+
+  // The advisory process scan (a host-wide process listing) is not worth
+  // repeating on a short reconnect interval: it only picks a log line, and the
+  // real connection attempt follows either way. Both callers share this stamp.
+  _advisoryProcessCheckDue() {
+    const now = Date.now();
+    if (now - this.lastAdvisoryProcessCheck < ADVISORY_PROCESS_CHECK_MIN_MS) {
+      return false;
+    }
+    this.lastAdvisoryProcessCheck = now;
+    return true;
+  }
+
+  async _autoReconnectTick() {
+    // Skip if server is starting - startup sequence handles connections
+    if (this.serverStarting) {
+      log.debug("Skipping - server is starting");
+      return;
+    }
+
+    // Skip if already connected
+    if (this.connected) {
+      return;
+    }
+
+    // Skip if any connection attempt is already in progress
+    if (this.connecting || this.reconnecting || this.autoReconnectTickRunning) {
+      log.debug("Skipping - connection already in progress");
+      return;
+    }
+
+    this.autoReconnectTickRunning = true;
+    try {
+      if (this.serverManager && this._advisoryProcessCheckDue()) {
+        try {
+          // eslint-disable-next-line local/no-fail-open-check-server-running -- advisory only: the boolean only selects which log line is printed below ("attempting connection" vs "probing RCON port anyway"); the real RCON connection attempt happens unconditionally right after, in every branch.
+          const isRunning = await this.serverManager.checkServerRunning();
+          if (isRunning) {
+            log.info("Server is running, attempting connection...");
+          } else {
+            log.debug(
+              "Process check did not confirm server; probing RCON port anyway",
+            );
+          }
+        } catch (e) {
+          log.debug(`Server check error: ${e.message}`);
+        }
+      }
+
+      const result = await this.connect();
+      if (result) {
+        log.info("Successfully connected!");
+      }
+    } catch (e) {
+      // During server startup, only log at debug level to reduce noise. On a
+      // short interval the warning is rate-limited like the other connection
+      // failure logs, or a wrong password would print a line every few seconds.
+      const now = Date.now();
+      if (this.serverStarting) {
+        log.debug(`Connection failed during startup, retrying: ${e.message}`);
+      } else if (now - (this.lastAutoReconnectWarning || 0) > this.connectionErrorLogCooldown) {
+        this.lastAutoReconnectWarning = now;
+        log.warn(
+          `Connection failed, retrying in ${this.autoReconnectDelay}ms: ${e.message}`,
+        );
+      } else {
+        log.debug(`Connection failed, retrying in ${this.autoReconnectDelay}ms: ${e.message}`);
+      }
+      // This loop intentionally uses a fixed interval (autoReconnectDelay),
+      // not exponential backoff — the separate reconnect() method below
+      // implements real backoff (baseReconnectDelay * attempt, capped) for
+      // its own bounded retry sequence. A previous `currentReconnectDelay`
+      // field here was computed on every failure but never actually fed
+      // into this setInterval's delay, so it was pure dead weight that
+      // made the log message above lie about the real retry timing.
+    } finally {
+      this.autoReconnectTickRunning = false;
+    }
   }
 
   // Start periodic health checks to detect dead connections
@@ -785,9 +898,9 @@ export class RconService extends EventEmitter {
 
   // Stop periodic auto-reconnection
   stopAutoReconnect() {
+    this.autoReconnectRequested = false;
     if (this.autoReconnectInterval) {
-      clearInterval(this.autoReconnectInterval);
-      this.autoReconnectInterval = null;
+      this._clearAutoReconnectTimer();
       log.info("auto-reconnect disabled");
     }
     this.stopHealthCheck();
@@ -1077,7 +1190,7 @@ export class RconService extends EventEmitter {
     // This check can be slow on some systems, so we allow bypassing it
     const skipServerCheck = process.env.RCON_SKIP_SERVER_CHECK === "true";
 
-    if (!skipServerCheck && this.serverManager) {
+    if (!skipServerCheck && this.serverManager && this._advisoryProcessCheckDue()) {
       // ... serverManager check code ...
       let timeoutId;
       try {
@@ -2339,6 +2452,7 @@ export class RconService extends EventEmitter {
       lastSuccessfulCommand: this.lastSuccessfulCommand,
       reconnectAttempts: this.reconnectAttempts,
       autoReconnectEnabled: !!this.autoReconnectInterval,
+      autoReconnectIntervalSeconds: this.autoReconnectDelay / 1000,
     };
   }
 
