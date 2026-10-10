@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Leaderboard, accounts sharing a SteamID:** a split-screen guest or an alt account on the same Steam account gets its own row instead of adding the other account's kills every time the two switch or the minute sweep runs (PanelBridge update; rows that already merged keep their totals).
 - **Player deaths on the same tile:** a second death on the same tile within 5 minutes (a fixed spawn tile) is no longer dropped from the Discord notice, the player history and the live death event.
 - **RCON auto-reconnect setting:** "Auto-reconnect" and "Reconnect interval" in Settings now work (they were saved but ignored and the panel always retried every 60 s); off stops the background retries, the interval is applied at once (5-600 s).
+- **Editing a server undid UPnP:** saving the edit dialog (a rename, say) no longer rewrites UPnP in the server config from an old value or shows a "Warning" toast; only an actual UPnP change is applied.
 
 ## [1.4.12] - 2026-10-10
 

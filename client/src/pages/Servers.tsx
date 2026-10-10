@@ -1560,7 +1560,12 @@ export default function Servers() {
 
     setSavingEdit(true)
     try {
-      const result = await serversApi.update(editingServer.id, editingServer)
+      // This dialog has no UPnP control, so the record's copy of useUpnp is not
+      // an edit: leave it out rather than echo a value that may be stale next
+      // to the ini (Server Config writes UPnP= there directly).
+      const editedFields = { ...editingServer }
+      delete editedFields.useUpnp
+      const result = await serversApi.update(editingServer.id, editedFields)
       const warnings = result.warnings?.filter(Boolean) ?? []
       toast({
         title: warnings.length > 0 ? t('toasts.warningTitle') : t('toasts.savedTitle'),

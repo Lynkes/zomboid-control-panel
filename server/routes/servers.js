@@ -1809,6 +1809,20 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
       return res.status(400).json({ error: "At least one field is required" });
     }
 
+    // The edit dialog sends the whole record back, useUpnp included, so the
+    // key being PRESENT says nothing about the user having touched UPnP. Only
+    // a value that differs from the stored one is an edit: acting on an echoed
+    // value would rewrite UPnP= in the ini from a stale record (undoing a
+    // change made in Server Config) and raise a warning for a rename. A record
+    // with no stored value counts as on, the same default creation uses.
+    let upnpChanged = false;
+    if (updates.useUpnp !== undefined) {
+      const storedBeforeUpdate = await getServer(serverId);
+      upnpChanged =
+        !storedBeforeUpdate ||
+        (storedBeforeUpdate.useUpnp !== false) !== updates.useUpnp;
+    }
+
     const server = await updateServer(serverId, updates);
     if (!server) {
       return res.status(404).json({ error: "Server not found" });
@@ -1918,7 +1932,7 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
       // server's is never judged when saved -- PATHS-1 verifier pass 2).
       const upnpConfig = server.serverConfigPath ? serverConfigDirOf(server) : null;
       if (
-        Object.prototype.hasOwnProperty.call(updates, "useUpnp") &&
+        upnpChanged &&
         upnpConfig?.refused
       ) {
         reloadWarnings.push(
@@ -1928,7 +1942,7 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
         );
       }
       if (
-        Object.prototype.hasOwnProperty.call(updates, "useUpnp") &&
+        upnpChanged &&
         upnpConfig?.dir &&
         server.serverName
       ) {
