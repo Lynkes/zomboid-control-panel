@@ -1697,6 +1697,7 @@ app.set("modChecker", modChecker);
 app.set("scheduler", scheduler);
 app.set("discordBot", discordBot);
 backupService.setServerManager(serverManager);
+backupService.setRconService(rconService);
 app.set("backupService", backupService);
 app.set("io", io);
 app.set("refreshCorsConfig", refreshCorsConfig);

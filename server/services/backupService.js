@@ -47,6 +47,7 @@ import {
   isSupportedFiveFieldCron,
 } from "../utils/cronValidation.js";
 import { LEGACY_RESTART_SKIP_MESSAGE } from "../utils/backupRestartOverlap.js";
+import { resolveObservedServerRunning } from "../utils/serverStatus.js";
 import { renameWithRetry } from "../utils/renameWithRetry.js";
 
 // Dynamic import for unzipper (CommonJS module)
@@ -450,6 +451,7 @@ export class BackupService {
     this.backupHistory = [];
     this.discordBot = null;
     this.serverManager = null;
+    this.rconService = null;
     this.scheduler = null;
   }
 
@@ -463,6 +465,12 @@ export class BackupService {
 
   setServerManager(serverManager) {
     this.serverManager = serverManager;
+  }
+
+  // Read-only: restoreBackup() asks whether the server is up through the
+  // shared resolveObservedServerRunning() verdict, which looks at RCON too.
+  setRconService(rconService) {
+    this.rconService = rconService;
   }
 
   // Read-only from here: only ever consulted for its .restartInProgress
@@ -1942,20 +1950,7 @@ export class BackupService {
           };
         }
         try {
-          let running;
-          if (typeof this.serverManager.getServerProcessDetails === "function") {
-            const processDetails =
-              await this.serverManager.getServerProcessDetails();
-            if (!processDetails || processDetails.scanFailed) {
-              log.warn("Could not confirm server is stopped: process scan failed");
-              return {
-                success: false,
-                message:
-                  "Could not confirm the server is stopped because process detection failed. Stop the server and try again.",
-              };
-            }
-            running = processDetails.running;
-          } else {
+          if (typeof this.serverManager.getServerProcessDetails !== "function") {
             // No fallback to checkServerRunning() here even for an older
             // injected manager that only implements it -- that call collapses
             // a failed scan into a plain `false`, indistinguishable from a
@@ -1967,6 +1962,24 @@ export class BackupService {
               success: false,
               message:
                 "Could not confirm the server is stopped because process detection is unavailable. Stop the server and try again.",
+            };
+          }
+
+          // The same verdict as the route's gate and the status badge, the
+          // watchdog and Discord (see routes/backup.js's restore route): the
+          // local process scan alone says "stopped" for a server running in
+          // another container, so the container state, RCON and PanelBridge
+          // are consulted too. null = could not tell, which refuses.
+          const running = await resolveObservedServerRunning(
+            this.serverManager,
+            this.rconService,
+          );
+          if (running === null) {
+            log.warn("Could not confirm server is stopped: no signal could tell");
+            return {
+              success: false,
+              message:
+                "Could not confirm the server is stopped because process detection failed. Stop the server and try again.",
             };
           }
 
