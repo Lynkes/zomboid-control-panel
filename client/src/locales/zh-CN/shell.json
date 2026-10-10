@@ -118,5 +118,14 @@
     "statusCheckFailedTitle": "无法检查登录状态",
     "statusCheckFailedDescription": "面板或其前方的代理未响应登录检查。请稍候，然后重试。",
     "retry": "重试"
+  },
+  "connection": {
+    "reconnectedTitle": "已重新连接",
+    "reconnectedDescription": "与服务器的连接已恢复",
+    "lostTitle": "连接已断开",
+    "lostDescription": "无法自动重新连接。此标签页可见或网络恢复后会自动重连，也可以使用连接状态指示器中的“立即重试”。",
+    "serverClosed": "服务器已关闭连接",
+    "error": "连接错误",
+    "reconnectFailed": "多次尝试后重新连接失败"
   }
 }

@@ -120,5 +120,14 @@
     "statusCheckFailedTitle": "Não foi possível verificar o login",
     "statusCheckFailedDescription": "O painel, ou um proxy na frente dele, não respondeu à verificação de login. Aguarde um momento e tente novamente.",
     "retry": "Tentar novamente"
+  },
+  "connection": {
+    "reconnectedTitle": "Reconectado",
+    "reconnectedDescription": "A conexão com o servidor foi restabelecida",
+    "lostTitle": "Conexão perdida",
+    "lostDescription": "Não foi possível reconectar automaticamente. A reconexão será tentada quando esta aba estiver visível ou a rede voltar — ou use “Tentar agora” no indicador de status da conexão.",
+    "serverClosed": "O servidor encerrou a conexão",
+    "error": "Erro de conexão",
+    "reconnectFailed": "Falha ao reconectar após várias tentativas"
   }
 }

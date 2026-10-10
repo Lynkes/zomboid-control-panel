@@ -118,5 +118,14 @@
     "statusCheckFailedTitle": "Could not check sign-in",
     "statusCheckFailedDescription": "The panel, or a proxy in front of it, did not answer the sign-in check. Wait a moment, then try again.",
     "retry": "Retry"
+  },
+  "connection": {
+    "reconnectedTitle": "Reconnected",
+    "reconnectedDescription": "Connection to server restored",
+    "lostTitle": "Connection Lost",
+    "lostDescription": "Unable to reconnect automatically. Reconnecting once this tab is visible or your network is back — or use Retry in the connection status indicator.",
+    "serverClosed": "Server closed connection",
+    "error": "Connection error",
+    "reconnectFailed": "Failed to reconnect after multiple attempts"
   }
 }

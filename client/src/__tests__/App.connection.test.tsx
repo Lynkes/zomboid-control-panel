@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import i18n from '@/i18n'
+import { useToast } from '@/components/ui/use-toast'
 
 // How App.tsx turns socket.io events into the connection notice and toasts.
 // The socket is a hand-driven fake; Layout is reduced to the two connection
@@ -10,6 +11,9 @@ import i18n from '@/i18n'
 const hoisted = vi.hoisted(() => ({
   socket: null as unknown,
   auth: { authEnabled: true },
+  // One identity for every render, as the real AuthProvider keeps: App's
+  // socket effect depends on it and reconnects whenever it changes.
+  getToken: () => 'token',
 }))
 
 vi.mock('socket.io-client', () => ({
@@ -26,7 +30,7 @@ vi.mock('@/contexts/AuthContext', () => ({
     statusCheckFailed: false,
     statusCheckCode: null,
     retryAuthCheck: vi.fn(),
-    getToken: () => 'token',
+    getToken: hoisted.getToken,
   }),
 }))
 
@@ -100,8 +104,85 @@ beforeEach(() => {
 
 afterEach(async () => {
   cleanup()
+  // The toast store is module-wide: close what this test raised, or the next
+  // one starts with it on screen.
+  const toasts = renderHook(() => useToast())
+  act(() => toasts.result.current.dismiss())
+  toasts.unmount()
   vi.unstubAllEnvs()
   if (i18n.language !== 'en') await i18n.changeLanguage('en')
+})
+
+describe('App: connection messages follow the interface language', () => {
+  // The Retry popover shows the stored reason as its technical detail.
+  async function openNoticeText() {
+    fireEvent.click(await screen.findByRole('button', { name: /Live Updates Unavailable|Live-Updates nicht verfügbar/ }))
+    return (await screen.findByRole('dialog')).textContent ?? ''
+  }
+
+  it('toasts and explains a lost connection in English', async () => {
+    await renderApp()
+    await connected(fake)
+    fake.fireManager('reconnect_failed')
+    expect(await screen.findByText('Connection Lost')).toBeInTheDocument()
+    expect(screen.getByText(/Unable to reconnect automatically/)).toBeInTheDocument()
+    expect(await openNoticeText()).toContain('Technical detail: Failed to reconnect after multiple attempts')
+  })
+
+  it('toasts and explains a lost connection in German', async () => {
+    await i18n.changeLanguage('de')
+    await renderApp()
+    await connected(fake)
+    fake.fireManager('reconnect_failed')
+    expect(await screen.findByText('Verbindung verloren')).toBeInTheDocument()
+    expect(screen.queryByText('Connection Lost')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Unable to reconnect automatically/)).not.toBeInTheDocument()
+    const popover = await openNoticeText()
+    expect(popover).toContain('Wiederverbindung nach mehreren Versuchen fehlgeschlagen')
+    expect(popover).not.toContain('Failed to reconnect')
+  })
+
+  it('says the server closed the connection in the interface language', async () => {
+    await i18n.changeLanguage('fr')
+    await renderApp()
+    await connected(fake)
+    fake.fire('connect')
+    fake.fire('disconnect', 'io server disconnect')
+    fireEvent.click(await screen.findByRole('button', { name: /indisponibles/ }))
+    expect((await screen.findByRole('dialog')).textContent).toContain('Le serveur a fermé la connexion')
+  })
+
+  it('labels a refused connection with a translated fallback instead of English', async () => {
+    await i18n.changeLanguage('es')
+    await renderApp()
+    await connected(fake)
+    fake.socket.active = false
+    // An error with no message of its own is what falls back to the label.
+    fake.fire('connect_error', new Error(''))
+    fireEvent.click(await screen.findByRole('button', { name: /no disponibles/ }))
+    const popover = (await screen.findByRole('dialog')).textContent ?? ''
+    expect(popover).toContain('Error de conexión')
+    expect(popover).not.toContain('Connection error')
+  })
+
+  it('toasts a restored connection in the interface language', async () => {
+    await i18n.changeLanguage('de')
+    await renderApp()
+    await connected(fake)
+    fake.fire('connect_error', new Error('xhr poll error'))
+    fake.fire('connect')
+    expect(await screen.findByText('Wieder verbunden')).toBeInTheDocument()
+    expect(screen.getByText('Die Verbindung zum Server wurde wiederhergestellt')).toBeInTheDocument()
+  })
+
+  it('does not drop the socket when the language is switched', async () => {
+    await renderApp()
+    await connected(fake)
+    await act(async () => {
+      await i18n.changeLanguage('de')
+    })
+    expect(fake.socket.close).not.toHaveBeenCalled()
+  })
 })
 
 describe('App: the reconnect attempt counter', () => {

@@ -120,5 +120,14 @@
     "statusCheckFailedTitle": "No se pudo comprobar el inicio de sesión",
     "statusCheckFailedDescription": "El panel, o un proxy delante de él, no respondió a la comprobación de inicio de sesión. Espera un momento e inténtalo de nuevo.",
     "retry": "Reintentar"
+  },
+  "connection": {
+    "reconnectedTitle": "Reconectado",
+    "reconnectedDescription": "Se restableció la conexión con el servidor",
+    "lostTitle": "Conexión perdida",
+    "lostDescription": "No se pudo reconectar automáticamente. Se volverá a intentar cuando esta pestaña esté visible o vuelva la red — o usa «Reintentar ahora» en el indicador de estado de la conexión.",
+    "serverClosed": "El servidor cerró la conexión",
+    "error": "Error de conexión",
+    "reconnectFailed": "No se pudo reconectar tras varios intentos"
   }
 }

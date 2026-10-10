@@ -1,5 +1,5 @@
 import { Routes, Route, Link, Navigate, useLocation } from 'react-router-dom'
-import { useEffect, useState, useCallback, lazy, Suspense } from 'react'
+import { useEffect, useRef, useState, useCallback, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DirectionProvider } from '@radix-ui/react-direction'
 import type { Socket } from 'socket.io-client'
@@ -408,6 +408,12 @@ function NotFoundRoute() {
 
 function AppContent() {
   const { t } = useTranslation('shell')
+  // The socket effect below must not restart (and drop the connection) when
+  // the language changes, so its handlers read the translator through a ref.
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  }, [t])
   const demoMode = isDemoMode()
   const [socket, setSocket] = useState<Socket | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
@@ -424,8 +430,8 @@ function AppContent() {
 
   const handleReconnectSuccess = useCallback(() => {
     toast({
-      title: 'Reconnected',
-      description: 'Connection to server restored',
+      title: tRef.current('connection.reconnectedTitle'),
+      description: tRef.current('connection.reconnectedDescription'),
       variant: 'success' as const,
     })
   }, [toast])
@@ -522,7 +528,7 @@ function AppContent() {
           ...prev,
           connected: false,
           connecting: false,
-          error: reason === 'io server disconnect' ? 'Server closed connection' : null,
+          error: reason === 'io server disconnect' ? tRef.current('connection.serverClosed') : null,
         }))
       })
 
@@ -555,7 +561,7 @@ function AppContent() {
             // socket.io reports reconnect_attempt only after its backoff, so
             // the first failure would otherwise read "Attempt 0/10".
             reconnectAttempt: Math.max(prev.reconnectAttempt, 1),
-            error: getUserErrorMessage(err, 'Connection error'),
+            error: getUserErrorMessage(err, tRef.current('connection.error')),
           }))
         } else {
           // Connection denied by server - needs manual reconnect
@@ -564,7 +570,7 @@ function AppContent() {
             reconnecting: false,
             connecting: false,
             reconnectAttempt: 0,
-            error: getUserErrorMessage(err, 'Connection error'),
+            error: getUserErrorMessage(err, tRef.current('connection.error')),
           })
         }
       })
@@ -605,11 +611,11 @@ function AppContent() {
           reconnecting: false,
           connecting: false,
           reconnectAttempt: 0,
-          error: 'Failed to reconnect after multiple attempts',
+          error: tRef.current('connection.reconnectFailed'),
         })
         toast({
-          title: 'Connection Lost',
-          description: 'Unable to reconnect automatically. Reconnecting once this tab is visible or your network is back — or use Retry in the connection status indicator.',
+          title: tRef.current('connection.lostTitle'),
+          description: tRef.current('connection.lostDescription'),
           variant: 'destructive',
         })
 
