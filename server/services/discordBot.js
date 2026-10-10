@@ -199,18 +199,40 @@ export function commandTierOf(permissions, command) {
   return COMMAND_TIERS.has(tier) ? tier : "admin";
 }
 
+// The nine commands every release up to /leaderboard stores a tier for. A
+// saved object that lacks one of these is damaged (HT4a: "admin"). A command
+// added after them is simply absent from an older save, which is not damage:
+// it reads as its default, or /leaderboard would come up admin-only on every
+// existing install although it is meant for everyone. Add new commands to
+// DEFAULT_COMMAND_PERMISSIONS only, not here.
+const COMMANDS_STORED_BEFORE_LEADERBOARD = new Set([
+  "status",
+  "players",
+  "save",
+  "broadcast",
+  "kick",
+  "start",
+  "stop",
+  "restart",
+  "rcon",
+]);
+
 // Every command's tier from a stored object: its own valid tier, else
-// "admin" (also for every command when the object can't be read). With
-// nothing stored at all, loadConfig() keeps the defaults instead. Every
-// release has written all nine valid tiers, so a saved setup reads exactly
-// as before.
+// "admin" (also for every command when the object can't be read), except a
+// command that postdates the stored object (never stored, see above), which
+// gets its default. With nothing stored at all, loadConfig() keeps the
+// defaults instead. A saved setup with valid tiers reads exactly as before.
 export function normalizeCommandPermissions(stored) {
-  const source = stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+  const readable = stored && typeof stored === "object" && !Array.isArray(stored);
+  const source = readable ? stored : {};
   return Object.fromEntries(
-    Object.keys(DEFAULT_COMMAND_PERMISSIONS).map((command) => [
-      command,
-      commandTierOf(source, command),
-    ]),
+    Object.entries(DEFAULT_COMMAND_PERMISSIONS).map(([command, defaultTier]) => {
+      const neverStored =
+        readable &&
+        !COMMANDS_STORED_BEFORE_LEADERBOARD.has(command) &&
+        !Object.hasOwn(source, command);
+      return [command, neverStored ? defaultTier : commandTierOf(source, command)];
+    }),
   );
 }
 

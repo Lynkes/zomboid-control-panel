@@ -26,6 +26,8 @@ const router = express.Router();
 const DISCORD_COMMAND_CAPABILITY = {
   status: null,
   players: "players.view",
+  // The panel's Leaderboard page is players.view too.
+  leaderboard: "players.view",
   save: "server.control",
   broadcast: "server.world_events",
   kick: "players.moderate",
