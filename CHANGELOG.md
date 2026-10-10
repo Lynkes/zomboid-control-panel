@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Player deaths on the same tile:** a second death on the same tile within 5 minutes (a fixed spawn tile) is no longer dropped from the Discord notice, the player history and the live death event.
 - **Backup on a full disk:** a backup that fails part-way no longer leaves a truncated .zip, deletes your last good backup through retention or tells Discord "backup complete"; a locked final rename is retried.
 - **Restore and wipe with the server in another container:** Restore Backup and Wipe now refuse while RCON shows the server up (or when its state cannot be checked) instead of trusting a process scan that cannot see another container.
+- **Failed restore left a copy of the world behind:** when a restore fails part-way (disk full, write error) it now stops extracting and removes its staging folder, which used to be re-created and filled with the rest of the archive; leftover `.restore-staging-*` folders are cleaned up at start-up and before the next restore.
 
 ## [1.4.12] - 2026-10-10
 

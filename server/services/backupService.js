@@ -49,6 +49,14 @@ import {
 import { LEGACY_RESTART_SKIP_MESSAGE } from "../utils/backupRestartOverlap.js";
 import { resolveObservedServerRunning } from "../utils/serverStatus.js";
 import { renameWithRetry } from "../utils/renameWithRetry.js";
+import {
+  createRestoreStagingDir,
+  extractArchiveToStaging,
+  sweepStaleRestoreStaging,
+} from "./backupRestoreExtract.js";
+
+// Kept exported from here: tests (and any caller) import it by this name.
+export { createRestoreStagingDir };
 
 // Dynamic import for unzipper (CommonJS module)
 let unzipper;
@@ -335,48 +343,6 @@ function attributeBackupFilename(fileName, candidateNames) {
     }
   }
   return winner;
-}
-
-// Create the restore staging directory next to the live save (security
-// audit M4). The name is random and mkdir is non-recursive (EEXIST = try a
-// new name), and the created directory is verified to be a real directory
-// that resolves inside the saves parent -- the old Date.now()-pid name plus
-// recursive mkdir followed a pre-planted symlink, while the zip-slip guard
-// in restoreBackup() is lexical and stayed inside the symlink path.
-// makeName is injectable for tests only.
-export function createRestoreStagingDir(savesParentPath, makeName = randomUUID) {
-  let stagingPath;
-  for (let attempt = 0; ; attempt++) {
-    stagingPath = path.join(savesParentPath, `.restore-staging-${makeName()}`);
-    try {
-      fs.mkdirSync(stagingPath, { recursive: false });
-      break;
-    } catch (error) {
-      if (error.code === "EEXIST" && attempt < 5) continue;
-      throw error;
-    }
-  }
-  try {
-    if (!fs.lstatSync(stagingPath).isDirectory()) {
-      throw new Error("Cannot restore: staging path is not a directory");
-    }
-    const realSavesParent = fs.realpathSync(savesParentPath);
-    if (fs.realpathSync(stagingPath) !== path.join(realSavesParent, path.basename(stagingPath))) {
-      throw new Error("Cannot restore: staging directory resolves outside the saves folder");
-    }
-  } catch (error) {
-    // The caller never receives this path, so it cannot clean it up. Remove
-    // only the entry itself: unlink a link, rmdir an (empty) directory --
-    // never anything recursive that could follow it.
-    try {
-      if (fs.lstatSync(stagingPath).isSymbolicLink()) fs.unlinkSync(stagingPath);
-      else fs.rmdirSync(stagingPath);
-    } catch {
-      /* best effort */
-    }
-    throw error;
-  }
-  return stagingPath;
 }
 
 // The Socket.IO room backup:progress, restore:progress and restore:finished
@@ -702,6 +668,36 @@ export class BackupService {
     } catch (error) {
       log.error(`Failed to get backups path: ${error.message}`);
       return null;
+    }
+  }
+
+  /**
+   * Remove the restore staging folders (.restore-staging-*) that a restore
+   * which failed hard, or was cut off by the panel stopping, left behind in
+   * each local server's Saves/Multiplayer. Run at boot, where no restore can
+   * be running; restoreBackup() also sweeps its own saves folder before it
+   * extracts. Best effort, never throws.
+   */
+  async sweepRestoreStaging() {
+    if (this.restoreInProgress) return;
+    const parents = new Set();
+    try {
+      const savesPath = await this.getSavesPath();
+      if (savesPath) parents.add(path.dirname(savesPath));
+      for (const server of (await getServers()) || []) {
+        if (!server || server.isRemote) continue;
+        const base = await this._resolveServerDataBasePath(server);
+        if (base) parents.add(path.join(base, "Saves", "Multiplayer"));
+      }
+    } catch (error) {
+      log.debug(`Could not list the saves folders to sweep for restore leftovers: ${error.message}`);
+    }
+    for (const parent of parents) {
+      try {
+        sweepStaleRestoreStaging(parent);
+      } catch (error) {
+        log.debug(`Could not sweep ${parent} for restore leftovers: ${error.message}`);
+      }
     }
   }
 
@@ -2088,107 +2084,24 @@ export class BackupService {
         fs.mkdirSync(savesParentPath, { recursive: true });
       }
 
+      // A restore that failed hard or was killed leaves its staging folder
+      // behind (hundreds of MB), and nothing else removes it. Restores run one
+      // at a time, so any .restore-staging-* here is stale.
+      sweepStaleRestoreStaging(savesParentPath);
+
       // Extract into a staging sibling and only swap it in once extraction has
       // fully succeeded. Deleting the live save first meant a truncated or
       // corrupt archive destroyed the world with nothing to fall back to.
       // A sibling keeps the swap on the same filesystem, so it stays a rename.
       stagingPath = createRestoreStagingDir(savesParentPath);
 
-      // Extract the backup with zip-slip protection
+      // Extract the backup with zip-slip protection. On the first error the
+      // extraction stops reading, closes what it has open and only then
+      // rejects, so the staging folder removed below stays removed.
       log.info("Extracting backup to staging area...");
       emitProgress("extracting", 45, "Extracting backup...");
       const unzip = await getUnzipper();
-      const resolvedParent = path.resolve(stagingPath) + path.sep;
-
-      await new Promise((resolve, reject) => {
-        // Settle exactly once. Without this, errors on the read stream AND on
-        // an individual entry write stream could both call reject, or one of
-        // them could fire after `resolve` (a Parse 'close' while a write
-        // stream is still flushing). settle() also lets us forward a
-        // createReadStream error that pipe() does NOT propagate.
-        let settled = false;
-        const settle = (err) => {
-          if (settled) return;
-          settled = true;
-          if (err) reject(err);
-          else resolve();
-        };
-
-        // The parser emits 'close' as soon as it has read the archive, which
-        // can happen while entry files are still flushing. Resolving then
-        // leaves open handles in the staging folder, and renaming a directory
-        // that still has open handles fails with EPERM on Windows.
-        let pendingWrites = 0;
-        let parseClosed = false;
-        const settleIfComplete = () => {
-          if (parseClosed && pendingWrites === 0) settle();
-        };
-
-        const readStream = createReadStream(backupPath);
-        readStream.on("error", settle);
-
-        readStream
-          .pipe(unzip.Parse())
-          .on("entry", (entry) => {
-            try {
-              const entryPath = path.join(stagingPath, entry.path);
-              const resolvedEntry = path.resolve(entryPath);
-
-              // Block zip-slip: entry must resolve inside the target directory
-              if (!resolvedEntry.startsWith(resolvedParent)) {
-                log.error(`Zip slip attempt blocked: ${entry.path}`);
-                entry.autodrain();
-                return;
-              }
-
-              if (entry.type !== "Directory" && entry.type !== "File") {
-                log.warn(
-                  `Skipping unsupported backup entry type ${entry.type}: ${entry.path}`,
-                );
-                entry.autodrain();
-              } else if (entry.type === "Directory") {
-                fs.mkdirSync(resolvedEntry, { recursive: true });
-                entry.autodrain();
-              } else {
-                // Ensure parent directory exists
-                fs.mkdirSync(path.dirname(resolvedEntry), { recursive: true });
-                const writeStream = createWriteStream(resolvedEntry);
-                pendingWrites++;
-                // Per-entry write failures (ENOSPC, EACCES, path too long on
-                // Windows) surface as 'error' on the WriteStream and are NOT
-                // forwarded by pipe(). Without this listener the event is
-                // unhandled and crashes the process.
-                writeStream.on("error", (err) => {
-                  pendingWrites--;
-                  try {
-                    entry.unpipe(writeStream);
-                  } catch {
-                    /* ignore */
-                  }
-                  try {
-                    entry.autodrain();
-                  } catch {
-                    /* ignore */
-                  }
-                  settle(err);
-                });
-                writeStream.on("close", () => {
-                  pendingWrites--;
-                  settleIfComplete();
-                });
-                entry.on("error", settle);
-                entry.pipe(writeStream);
-              }
-            } catch (err) {
-              settle(err);
-            }
-          })
-          .on("close", () => {
-            parseClosed = true;
-            settleIfComplete();
-          })
-          .on("error", settle);
-      });
+      await extractArchiveToStaging(unzip, backupPath, stagingPath);
 
       // Extraction succeeding only proves the archive was PARSEABLE -- the
       // unzipper streaming Parse() this whole block uses reads and discards
