@@ -1310,6 +1310,37 @@ export const schedulerApi = {
 };
 
 // Mods API
+
+// What adding a workshop item to the server ini amounted to (server/routes/
+// mods.js additionStatus): "added" = a mod ID was written to Mods=;
+// "already-configured" = nothing needed changing; "workshop-only" = no mod ID
+// is known yet (not downloaded), so only WorkshopItems= changed and the mod
+// does not load until its ID is known (start the server, then Sync Mod IDs).
+export type ModAdditionStatus = "added" | "already-configured" | "workshop-only";
+
+export interface AddToIniBulkItemResult {
+  workshopId: string;
+  status: ModAdditionStatus | "invalid";
+  addedModIds?: string[];
+  alternativeModIds?: string[];
+  mapFoldersAdded?: string[];
+  workshopAlreadyExisted?: boolean;
+  detectionSource?: string | null;
+  code?: string;
+}
+
+export interface AddToIniBulkResult {
+  success: boolean;
+  total: number;
+  added: number;
+  alreadyConfigured: number;
+  workshopOnly: number;
+  invalid: number;
+  mapFoldersAdded: string[];
+  results: AddToIniBulkItemResult[];
+  backupWarning?: string;
+}
+
 export const modsApi = {
   getStatus: (options?: { retries?: number }) =>
     apiGet("/mods/status", undefined, options?.retries),
@@ -1735,8 +1766,25 @@ export const modsApi = {
       totalModIdsInConfig: number;
       workshopAlreadyExisted: boolean;
       mapFoldersAdded: string[];
+      /** What the add amounted to ("workshop-only": no mod ID known, only WorkshopItems= changed). Absent on older servers. */
+      status?: ModAdditionStatus;
       message: string;
     }>,
+
+  // Add many workshop items in ONE server .ini write (one backup): Import
+  // Collection and re-enabling several deactivated mods. Each entry follows
+  // addModAdvanced's fields; with neither selectedModIds nor includeAllModIds
+  // only the item's default mod is enabled (like addToIni) and the others come
+  // back as alternativeModIds. `track` also tracks every item (an import).
+  addToIniBulk: (
+    mods: Array<{
+      workshopId: string;
+      selectedModIds?: string[];
+      includeAllModIds?: boolean;
+    }>,
+    track?: boolean,
+  ) =>
+    apiPost("/mods/add-to-ini-bulk", { mods, track }) as Promise<AddToIniBulkResult>,
 
   // Mod Presets
   getPresets: () => apiGet("/mods/presets"),
