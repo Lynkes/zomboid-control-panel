@@ -237,6 +237,8 @@ export function normalizeCommandPermissions(stored) {
 }
 
 const LEADERBOARD_NAME_MAX = 32;
+// The longest kick reason RCON gets (rcon.js sanitizeForBanReason()).
+const KICK_REASON_MAX = 100;
 
 // A player name as one short, safe piece of an embed line. A co-op name can
 // hold line breaks and other control characters; left in, a crafted name adds
@@ -1695,7 +1697,13 @@ export class DiscordBot {
     // default into the actual RCON call would send a reason the moderator
     // never typed.
     const rawReason = interaction.options.getString("reason");
-    const displayReason = rawReason || "No reason given";
+    // RCON keeps at most 100 chars of the reason (sanitizeForBanReason()),
+    // and the reply shows the same: a slash option can be 6000 chars, and a
+    // reply over Discord's 2000 would fail AFTER the kick went through, so
+    // the moderator saw an error and the channel notification was skipped.
+    const displayReason = rawReason
+      ? Array.from(rawReason).slice(0, KICK_REASON_MAX).join("")
+      : "No reason given";
 
     await interaction.deferReply();
 
