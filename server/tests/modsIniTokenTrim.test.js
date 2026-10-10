@@ -142,7 +142,8 @@ describe("Mods=/WorkshopItems=/Map= lines with padded tokens", () => {
     fx.writeIni("Mods=Alpha; Beta;Gamma \nWorkshopItems=\n");
     const res = await runRoute("/add-to-ini", "post", { body: { workshopId: WS_B, modId: "Beta" } });
     expect(res.getStatusCode()).toBe(200);
-    expect(fx.iniValue("Mods")).toBe("Alpha;Beta;Gamma");
+    // Beta is already enabled: nothing is appended, whatever the padding.
+    expect(fx.iniValue("Mods").split(";").map((t) => t.trim())).toEqual(["Alpha", "Beta", "Gamma"]);
   });
 });
 

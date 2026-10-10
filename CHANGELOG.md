@@ -40,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Which mod ID gets enabled:** Add mod and Sync Mod IDs now enable the ID the game really loads (the last `id=` line of the newest mod.info) instead of the first, and no longer list the other `id=` lines or older version folders as extra mods.
 - **Conflict scanner, odd folder names:** a mod whose folder is not named after its ID or title is now scanned for conflicts instead of being skipped as inactive.
 - **Missing-dependency resolver:** resolving the dependencies of a long mod list no longer re-reads every downloaded mod once per dependency (so the panel stays responsive), and a request with more than 200 dependencies is refused with a clear message.
+- **Importing a collection keeps your backup:** importing or re-enabling many mods now writes the server .ini once (one backup of the config as it was before) instead of once per mod, which pushed the pre-import backup out of the 10 kept.
+- **Importing mods that are not downloaded yet:** the import looks up their mod IDs on Steam like Add Mod does, and when an ID is still unknown it says the mod was added to WorkshopItems only (start the server to download it, then Sync Mod IDs) instead of "Restart the server to load the new mods".
 
 ## [1.4.12] - 2026-10-10
 

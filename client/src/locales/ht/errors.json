@@ -251,6 +251,8 @@
   "MODS_ADD_ADVANCED_SELECTION_REQUIRED": "selectedModIds oswa includeAllModIds obligatwa",
   "MODS_ADD_ALL_DEPS_REQUIRED": "Pa gen depandans bay",
   "MODS_ADD_ALL_DEPS_TOO_MANY": "Twòp depandans nan yon sèl demann (maksimòm 200)",
+  "MODS_ADD_BULK_MODS_ARRAY_REQUIRED": "Tablo Mods obligatwa",
+  "MODS_ADD_BULK_TOO_MANY": "Maksimòm 500 mods pou chak gwoup",
   "MODS_ADD_MISSING_DEP_WORKSHOP_ID_REQUIRED": "Workshop ID valid obligatwa",
   "MODS_ADD_TO_INI_CONFIG_PATH_NOT_SET": "Chemen konfig sèvè pa defini. Tanpri konfigire sèvè a dabò nan Paramèt.",
   "MODS_AUTO_RESTART_ENABLED_REQUIRED": "`enabled` dwe yon boolean",

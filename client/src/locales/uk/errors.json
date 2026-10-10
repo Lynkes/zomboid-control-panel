@@ -251,6 +251,8 @@
   "MODS_ADD_ADVANCED_SELECTION_REQUIRED": "Потрібно вказати або selectedModIds, або includeAllModIds",
   "MODS_ADD_ALL_DEPS_REQUIRED": "Залежності не надано",
   "MODS_ADD_ALL_DEPS_TOO_MANY": "Забагато залежностей в одному запиті (максимум 200)",
+  "MODS_ADD_BULK_MODS_ARRAY_REQUIRED": "Потрібен масив Mods",
+  "MODS_ADD_BULK_TOO_MANY": "Максимум 500 модів за пакет",
   "MODS_ADD_MISSING_DEP_WORKSHOP_ID_REQUIRED": "Потрібен коректний Workshop ID",
   "MODS_ADD_TO_INI_CONFIG_PATH_NOT_SET": "Шлях до конфігурації сервера не задано. Спершу налаштуйте сервер у Налаштуваннях.",
   "MODS_AUTO_RESTART_ENABLED_REQUIRED": "`enabled` має бути булевим значенням",

@@ -75,6 +75,7 @@ import {
   isModIdVerifiedOnDisk,
   sanitizeModIdListWithDiskBypass,
 } from "../services/workshopModInfo.js";
+import { addWorkshopItemToIni } from "../services/modIniEdit.js";
 
 // The workshop readers live in services/workshopModInfo.js; the route file
 // keeps exporting getModDetailsFromWorkshop for its existing importers.
@@ -2748,62 +2749,32 @@ router.post("/add-to-ini", async (req, res) => {
       });
     }
 
-    // Do all async detection work BEFORE taking the lock
-    let detectedModId = modId;
-    let detectionSource = "provided";
+    // Do all async detection work BEFORE taking the lock.
+    //
     // continuous-bug-hunt round 27 (mod load order / Workshop collection
-    // import): a single workshop item's mod.info can declare several `id=`
-    // lines (getModDetailsFromWorkshop's own comment; findModIdFromWorkshop
-    // below is explicitly documented as "return the first ID found (legacy
-    // behavior)"). This route only ever enabled that one default id in
-    // Mods=, with nothing telling the operator the workshop item actually
-    // bundled more mods -- WorkshopItems= (content downloaded/tracked) and
-    // Mods= (content enabled) silently drifted out of step for every extra
-    // bundled mod, invisibly, on the MAIN "add a mod" path (Mods.tsx's
-    // addToIni, called with no explicit modId for every ordinary add). The
-    // sibling /sync-mod-ids route already solved this correctly -- same
-    // "auto-enable the default, report the rest as `alternatives`" shape,
-    // deliberately NOT auto-enabling every bundled id unasked (a workshop
-    // item's other ids can be genuinely optional sub-content, not always
-    // meant to all load) -- this just brings /add-to-ini in line with that
-    // established pattern instead of silently discarding the same
-    // information the sync route already knows how to report.
-    let alternativeModIds = [];
-
-    if (!detectedModId) {
-      // First, try to find from already downloaded workshop folder
-      if (serverPath) {
-        const availableModIds = findAllModIdsFromWorkshop(
-          String(workshopId),
-          serverPath,
-        );
-        if (availableModIds.length > 0) {
-          detectedModId = availableModIds[0];
-          alternativeModIds = availableModIds.slice(1);
-          detectionSource = "local-files";
-          log.info(
-            `Auto-detected mod ID from local files: ${detectedModId} for workshop ${workshopId}` +
-              (alternativeModIds.length > 0
-                ? ` (${alternativeModIds.length} additional mod id(s) in this workshop item not auto-enabled: ${alternativeModIds.join(", ")})`
-                : ""),
-          );
-        }
-      }
-
-      // If not found locally, try to fetch from Steam Workshop page description
-      if (!detectedModId) {
-        detectedModId = await fetchModIdFromWorkshop(String(workshopId));
-        if (detectedModId) {
-          detectionSource = "steam-workshop";
-          log.info(
-            `Auto-detected mod ID from Steam Workshop: ${detectedModId} for workshop ${workshopId}`,
-          );
-        }
-      }
-    }
+    // import): a single workshop item can bundle several mods (one mod folder
+    // each). This route only ever enabled the default (first) one in Mods=,
+    // with nothing telling the operator the workshop item actually bundled
+    // more mods -- WorkshopItems= (content downloaded/tracked) and Mods=
+    // (content enabled) silently drifted out of step for every extra bundled
+    // mod, invisibly, on the MAIN "add a mod" path (Mods.tsx's addToIni,
+    // called with no explicit modId for every ordinary add). The sibling
+    // /sync-mod-ids route already solved this correctly -- same "auto-enable
+    // the default, report the rest as `alternatives`" shape, deliberately NOT
+    // auto-enabling every bundled id unasked (a workshop item's other mods
+    // can be genuinely optional sub-content, not always meant to all load) --
+    // so does this one (resolveModIdsForAddition, `discover: "first"`).
+    const resolution = await resolveModIdsForAddition({
+      workshopId: String(workshopId),
+      explicitModIds: modId ? [String(modId)] : [],
+      discover: modId ? "none" : "first",
+      serverPath,
+    });
+    const detectedModId = resolution.modIds[0] || null;
+    const detectionSource = resolution.detectionSource;
+    const alternativeModIds = resolution.alternativeModIds;
 
     // Detect map folders (async-safe, doesn't touch INI)
-    let addedMapFolders = [];
     let modMapFolders = [];
     if (serverPath) {
       modMapFolders = findMapFoldersFromWorkshop(
@@ -2814,90 +2785,25 @@ router.post("/add-to-ini", async (req, res) => {
 
     // Atomically read-modify-write inside the lock
     const result = await withIniLock(iniPath, async () => {
-      let content = readTextFile(iniPath);
-
-      // Widened to tolerate whitespace around "=" (hunt-wave13, 3d1921ad) --
-      // see /toggle-mod-id for why the guard AND the read must both change
-      // together (each match variable doubles as the current-value parse
-      // and the exists-check the replace below relies on).
-      const workshopMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
-      const currentWorkshopIds =
-        splitIniList(workshopMatch?.[1]);
-      const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
-      const currentModIds = splitModIdList(modsMatch?.[1]);
+      const applied = addWorkshopItemToIni(readTextFile(iniPath), {
+        workshopId: String(workshopId),
+        modIds: detectedModId ? [detectedModId] : [],
+        mapFolders: modMapFolders,
+        serverPath,
+      });
 
       // Check if mod is already in the list
-      if (currentWorkshopIds.includes(String(workshopId))) {
+      if (applied.workshopAlreadyExisted) {
         return { alreadyExists: true };
       }
 
-      // Add the new workshop ID
-      currentWorkshopIds.push(String(workshopId));
-      const newWorkshopList = sanitizeIniList(currentWorkshopIds);
-
-      // Add the mod ID if we have one (provided or detected)
-      const modIdsBefore = [...currentModIds];
-      if (detectedModId && !currentModIds.includes(detectedModId)) {
-        currentModIds.push(detectedModId);
-      }
-      // Entries already on the line are kept as they are; only the new id is
-      // held to the numeric-workshop-ID filter (a real all-digit mod id is
-      // confirmed by the mod.info of the workshop item being added).
-      const newModList = sanitizeModIdListWithDiskBypass(
-        currentModIds,
-        currentWorkshopIds,
-        serverPath,
-        modIdsBefore,
-      );
-
-      // Update WorkshopItems= -- reuse workshopMatch (computed above) as the
-      // existence check, not a separate .includes() (see this file's first
-      // ini-write site for why).
-      if (workshopMatch) {
-        content = content.replace(
-          /^[ \t]*WorkshopItems[ \t]*=.*/m,
-          () => `WorkshopItems=${newWorkshopList}`,
-        );
-      } else {
-        content += `\nWorkshopItems=${newWorkshopList}`;
-      }
-
-      // Update Mods= if we have a modId -- reuse modsMatch.
-      if (detectedModId) {
-        if (modsMatch) {
-          content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => `Mods=${newModList}`);
-        } else {
-          content += `\nMods=${newModList}`;
-        }
-      }
-
-      // Add map folders if detected
-      if (modMapFolders.length > 0) {
-        const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
-        let currentMaps = mapMatch ? splitIniList(mapMatch[1]) : ["Muldraugh, KY"];
-
-        for (const folder of modMapFolders) {
-          if (!currentMaps.includes(folder)) {
-            currentMaps.unshift(folder);
-            addedMapFolders.push(folder);
-            log.info(`Added map folder: ${folder} for workshop ${workshopId}`);
-          }
-        }
-
-        const newMapList = currentMaps.join(";");
-        if (mapMatch) {
-          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, () => `Map=${newMapList}`);
-        } else {
-          content += `\nMap=${newMapList}`;
-        }
-      }
-
       const backupWarning = backupWarningFor(
-        await writeIniWithBackup(iniPath, content),
+        await writeIniWithBackup(iniPath, applied.content),
       );
       return {
         alreadyExists: false,
-        totalWorkshopItems: currentWorkshopIds.length,
+        totalWorkshopItems: applied.workshopCount,
+        addedMapFolders: applied.addedMapFolders,
         backupWarning,
       };
     });
@@ -2910,6 +2816,7 @@ router.post("/add-to-ini", async (req, res) => {
       });
     }
 
+    const addedMapFolders = result.addedMapFolders;
     log.info(
       `Added mod ${workshopId} to ${iniPath}${addedMapFolders.length > 0 ? ` with map folders: ${addedMapFolders.join(", ")}` : ""}`,
     );
@@ -3020,6 +2927,88 @@ async function fetchModIdFromWorkshop(workshopId) {
     );
     return null;
   }
+}
+
+// Which mod ids should adding a workshop item enable? One answer for POST
+// /add-to-ini, POST /add-mod-advanced and the bulk POST /add-to-ini-bulk.
+//   discover "none"  -- exactly `explicitModIds`, nothing looked up
+//            "first" -- the id the game loads from the item's first mod folder;
+//                       the other mods of the item come back as
+//                       `alternativeModIds` (not enabled unasked)
+//            "all"   -- every mod of the item, plus any explicit ids
+// An item that is not downloaded yet has no mod.info on disk, so when nothing
+// was found and no id was given the Steam Workshop page is asked (unless
+// `allowSteam` is false). No id at all comes back as `modIds: []`: the item can
+// then only be added to WorkshopItems=, and callers must say so.
+async function resolveModIdsForAddition({
+  workshopId,
+  explicitModIds = [],
+  discover,
+  serverPath,
+  allowSteam = true,
+}) {
+  let modIds = [...explicitModIds];
+  let alternativeModIds = [];
+  let detectionSource = modIds.length > 0 ? "provided" : null;
+
+  const found =
+    discover !== "none" && serverPath
+      ? findAllModIdsFromWorkshop(workshopId, serverPath)
+      : [];
+  if (found.length > 0) {
+    if (discover === "all") {
+      for (const id of found) if (!modIds.includes(id)) modIds.push(id);
+    } else if (modIds.length === 0) {
+      modIds = [found[0]];
+      alternativeModIds = found.slice(1);
+    }
+    detectionSource ??= "local-files";
+    log.info(
+      `Auto-detected mod ID from local files: ${found.join(", ")} for workshop ${workshopId}` +
+        (alternativeModIds.length > 0
+          ? ` (${alternativeModIds.length} additional mod id(s) in this workshop item not auto-enabled: ${alternativeModIds.join(", ")})`
+          : ""),
+    );
+  }
+
+  // Not downloaded (or no mod.info yet): the Steam Workshop page description
+  if (modIds.length === 0 && discover !== "none" && allowSteam) {
+    const steamModId = await fetchModIdFromWorkshop(workshopId);
+    if (steamModId) {
+      modIds = [steamModId];
+      detectionSource = "steam-workshop";
+      log.info(
+        `Auto-detected mod ID from Steam Workshop: ${steamModId} for workshop ${workshopId}`,
+      );
+    }
+  }
+
+  return { modIds, alternativeModIds, detectionSource };
+}
+
+// What an addition amounted to, for the response (and the client's toast):
+//   "added"              at least one mod ID was written to Mods=
+//   "already-configured" nothing needed changing (or only the workshop id was new)
+//   "workshop-only"      the item was added to WorkshopItems= but no mod ID is
+//                        known, so nothing was enabled -- it will not load
+function additionStatus(resolvedModIdCount, applied) {
+  if (applied.addedModIds.length > 0) return "added";
+  if (resolvedModIdCount === 0 && !applied.workshopAlreadyExisted) {
+    return "workshop-only";
+  }
+  return "already-configured";
+}
+
+function additionMessage(status, applied) {
+  if (status === "added") {
+    return `Added ${applied.addedModIds.length} mod ID(s): ${applied.addedModIds.join(", ")}`;
+  }
+  if (status === "workshop-only") {
+    return "Workshop ID added to WorkshopItems only: its mod ID is not known yet, so nothing was enabled. Start the server to download it, then use Sync Mod IDs.";
+  }
+  return applied.workshopAlreadyExisted
+    ? "Already configured (the workshop item and its mod IDs were already in the server config)"
+    : "Workshop ID added (mod IDs were already configured)";
 }
 
 export function scoreWorkshopDependencyMatch(query, modId, modName) {
@@ -5519,13 +5508,19 @@ router.post("/add-mod-advanced", async (req, res) => {
       }
     }
 
-    if (includeAllModIds && serverPath) {
-      const allModIds = findAllModIdsFromWorkshop(
-        String(workshopId),
-        serverPath,
-      );
-      modIdsToAdd = [...new Set([...modIdsToAdd, ...allModIds])];
-    }
+    // Which mod ids to enable: the ones asked for, plus every mod of the item
+    // when includeAllModIds is set. An item that is not downloaded yet has
+    // nothing on disk to read, so (like POST /add-to-ini) the Steam Workshop
+    // page is asked for its id; if that finds nothing either, the item goes
+    // into WorkshopItems= alone and the response says so (status
+    // "workshop-only") instead of implying the mod will load after a restart.
+    const resolution = await resolveModIdsForAddition({
+      workshopId: String(workshopId),
+      explicitModIds: modIdsToAdd,
+      discover: includeAllModIds ? "all" : "none",
+      serverPath,
+    });
+    modIdsToAdd = resolution.modIds;
 
     // Detect map folders outside the lock (sync disk reads)
     let modMapFolders = [];
@@ -5537,93 +5532,24 @@ router.post("/add-mod-advanced", async (req, res) => {
     }
 
     // Atomically read-modify-write inside the lock
-    let addedMapFolders = [];
     const lockResult = await withIniLock(iniPath, async () => {
-      let content = readTextFile(iniPath);
-
-      // Widened to tolerate whitespace around "=" (hunt-wave13, 783672aa) --
-      // each match doubles as the exists-check for its replace below.
-      const workshopMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
-      const currentWorkshopIds =
-        splitIniList(workshopMatch?.[1]);
-      const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
-      const currentModIds = splitModIdList(modsMatch?.[1]);
-
-      const workshopAlreadyExists = currentWorkshopIds.includes(
-        String(workshopId),
-      );
-      if (!workshopAlreadyExists) {
-        currentWorkshopIds.push(String(workshopId));
-      }
-
-      const modIdsBefore = [...currentModIds];
-      let addedModIds = [];
-      for (const modId of modIdsToAdd) {
-        if (!currentModIds.includes(modId)) {
-          currentModIds.push(modId);
-          addedModIds.push(modId);
-        }
-      }
-
-      const newWorkshopList = sanitizeIniList(currentWorkshopIds);
-      // Entries already on the line are kept; only the added ids face the
-      // numeric-workshop-ID filter (unless a mod.info on disk confirms them).
-      const newModList = sanitizeModIdListWithDiskBypass(
-        currentModIds,
-        currentWorkshopIds,
+      const applied = addWorkshopItemToIni(readTextFile(iniPath), {
+        workshopId: String(workshopId),
+        modIds: modIdsToAdd,
+        mapFolders: modMapFolders,
         serverPath,
-        modIdsBefore,
-      );
-      // Report only what was really written (a refused id is not "added").
-      const writtenModIds = new Set(newModList.split(";"));
-      addedModIds = addedModIds.filter((id) => writtenModIds.has(id));
+      });
 
-      // Reuse workshopMatch/modsMatch (computed above) instead of a
-      // separate .includes(), same fix as this file's first ini-write site.
-      if (workshopMatch) {
-        content = content.replace(
-          /^[ \t]*WorkshopItems[ \t]*=.*/m,
-          () => `WorkshopItems=${newWorkshopList}`,
+      let backupWarning = null;
+      if (applied.changed) {
+        backupWarning = backupWarningFor(
+          await writeIniWithBackup(iniPath, applied.content),
         );
-      } else {
-        content += `\nWorkshopItems=${newWorkshopList}`;
       }
-
-      if (modsMatch) {
-        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => `Mods=${newModList}`);
-      } else {
-        content += `\nMods=${newModList}`;
-      }
-
-      if (modMapFolders.length > 0) {
-        const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
-        let currentMaps = mapMatch ? splitIniList(mapMatch[1]) : ["Muldraugh, KY"];
-
-        for (const folder of modMapFolders) {
-          if (!currentMaps.includes(folder)) {
-            currentMaps.unshift(folder);
-            addedMapFolders.push(folder);
-          }
-        }
-
-        const newMapList = currentMaps.join(";");
-        if (mapMatch) {
-          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, () => `Map=${newMapList}`);
-        } else {
-          content += `\nMap=${newMapList}`;
-        }
-      }
-
-      const backupWarning = backupWarningFor(
-        await writeIniWithBackup(iniPath, content),
-      );
-      return {
-        addedModIds,
-        totalModIdsInConfig: currentModIds.length,
-        workshopAlreadyExisted: workshopAlreadyExists,
-        backupWarning,
-      };
+      return { applied, backupWarning };
     });
+    const applied = lockResult.applied;
+    const status = additionStatus(modIdsToAdd.length, applied);
 
     // Also add to tracking (and clear from ignore list if present)
     try {
@@ -5638,24 +5564,247 @@ router.post("/add-mod-advanced", async (req, res) => {
     autoSyncCollection("add", String(workshopId)).catch(() => {});
 
     log.info(
-      `Added mod ${workshopId} with ${lockResult.addedModIds.length} mod IDs: ${lockResult.addedModIds.join(", ")}`,
+      `Added mod ${workshopId} with ${applied.addedModIds.length} mod IDs: ${applied.addedModIds.join(", ")} (${status})`,
     );
 
     res.json({
       success: true,
       workshopId,
-      addedModIds: lockResult.addedModIds,
-      totalModIdsInConfig: lockResult.totalModIdsInConfig,
-      workshopAlreadyExisted: lockResult.workshopAlreadyExisted,
-      mapFoldersAdded: addedMapFolders,
-      message:
-        lockResult.addedModIds.length > 0
-          ? `Added ${lockResult.addedModIds.length} mod ID(s): ${lockResult.addedModIds.join(", ")}`
-          : "Workshop ID added (mod IDs were already configured)",
+      addedModIds: applied.addedModIds,
+      totalModIdsInConfig: applied.modCount,
+      workshopAlreadyExisted: applied.workshopAlreadyExisted,
+      mapFoldersAdded: applied.addedMapFolders,
+      // "added": at least one mod ID was written to Mods=. "already-configured":
+      // nothing needed changing. "workshop-only": no mod ID could be found, so
+      // only WorkshopItems= changed -- the mod does not load until its ID is
+      // known (start the server to download it, then Sync Mod IDs).
+      status,
+      detectionSource: resolution.detectionSource,
+      message: additionMessage(status, applied),
       ...(lockResult.backupWarning ? { backupWarning: lockResult.backupWarning } : {}),
     });
   } catch (error) {
     log.error(`Failed to add mod advanced: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// ─── Add many workshop items in ONE ini write ───────────────────────────────
+// Importing a collection (or re-enabling a handful of deactivated mods) used to
+// call POST /add-mod-advanced (or /add-to-ini) once per mod. Each call is a
+// separate ini write and so a separate backup, and a backup keeps only the 10
+// newest: a 60-mod import evicted the pre-import copy of the server config,
+// the one file a bad import needs back. This endpoint does the whole batch
+// under one lock with one write (so exactly one backup); the single-item
+// endpoints stay as they were and share the same edit (addWorkshopItemToIni).
+//
+// Body: { mods: [{ workshopId, selectedModIds?, includeAllModIds? }], track? }
+//   selectedModIds   exactly these mod ids (plus every mod of the item with includeAllModIds)
+//   includeAllModIds every mod of the item
+//   neither          the item's default mod only; the others come back as alternativeModIds
+//   track            also track each item and mirror it into the Workshop
+//                    collection when auto-sync is on (what an import wants)
+const ADD_BULK_MAX = 500;
+const ADD_BULK_RESOLVE_CONCURRENCY = 5;
+// Each Steam lookup can take up to 15 s when Steam is slow; stop asking after
+// this long and add the remaining items to WorkshopItems= alone.
+const ADD_BULK_STEAM_BUDGET_MS = 30_000;
+
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+router.post("/add-to-ini-bulk", async (req, res) => {
+  try {
+    const { mods, track } = req.body || {};
+    if (!Array.isArray(mods) || mods.length === 0) {
+      return res.status(400).json({
+        error: "Mods array is required",
+        code: ErrorCode.MODS_ADD_BULK_MODS_ARRAY_REQUIRED,
+      });
+    }
+    if (mods.length > ADD_BULK_MAX) {
+      return res.status(400).json({
+        error: `Maximum ${ADD_BULK_MAX} mods per batch`,
+        code: ErrorCode.MODS_ADD_BULK_TOO_MANY,
+      });
+    }
+
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
+    if (!serverConfigPath || !serverName) {
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
+    }
+    const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
+    if (!iniPath) {
+      return res.status(400).json({
+        error: "Invalid server name",
+        code: ErrorCode.MODS_INVALID_SERVER_NAME,
+      });
+    }
+    if (!fs.existsSync(iniPath)) {
+      return res.status(400).json({
+        error: "Server config file not found",
+        code: ErrorCode.MODS_CONFIG_FILE_NOT_FOUND,
+      });
+    }
+
+    // Validate every item up front; a bad item is reported, not fatal.
+    const results = [];
+    const valid = [];
+    const seen = new Set();
+    for (const item of mods) {
+      const workshopId = String(item?.workshopId ?? "");
+      if (!/^\d{1,15}$/.test(workshopId)) {
+        results.push({
+          workshopId: workshopId.slice(0, 20),
+          status: "invalid",
+          code: ErrorCode.MODS_INVALID_WORKSHOP_ID_CAP,
+        });
+        continue;
+      }
+      if (seen.has(workshopId)) continue; // the same item twice is one item
+      seen.add(workshopId);
+      const selected = item.selectedModIds ?? [];
+      const badModId = Array.isArray(selected)
+        ? selected.find(
+            (id) =>
+              typeof id !== "string" ||
+              !id.trim() ||
+              /[\r\n;=]/.test(id) ||
+              id.length > 200,
+          )
+        : "";
+      if (!Array.isArray(selected) || badModId !== undefined) {
+        const truncatedModId = String(badModId ?? "").substring(0, 50);
+        results.push({
+          workshopId,
+          status: "invalid",
+          code: ErrorCode.MODS_INVALID_MOD_ID_FORMAT_TEMPLATE,
+          params: sanitizeErrorParams({ modId: truncatedModId }),
+        });
+        continue;
+      }
+      valid.push({
+        workshopId,
+        explicitModIds: selected,
+        discover: item.includeAllModIds ? "all" : selected.length > 0 ? "none" : "first",
+      });
+    }
+
+    // Resolve ids and map folders outside the lock (disk reads, Steam lookups).
+    const steamDeadline = performance.now() + ADD_BULK_STEAM_BUDGET_MS;
+    const planned = await mapWithConcurrency(
+      valid,
+      ADD_BULK_RESOLVE_CONCURRENCY,
+      async (entry) => {
+        const resolution = await resolveModIdsForAddition({
+          workshopId: entry.workshopId,
+          explicitModIds: entry.explicitModIds,
+          discover: entry.discover,
+          serverPath,
+          allowSteam: performance.now() < steamDeadline,
+        });
+        const mapFolders = serverPath
+          ? findMapFoldersFromWorkshop(entry.workshopId, serverPath)
+          : [];
+        return { ...entry, resolution, mapFolders };
+      },
+    );
+
+    // One read, every addition, one write.
+    const lockResult = await withIniLock(iniPath, async () => {
+      let content = readTextFile(iniPath);
+      let changed = false;
+      const outcomes = [];
+      for (const plan of planned) {
+        const applied = addWorkshopItemToIni(content, {
+          workshopId: plan.workshopId,
+          modIds: plan.resolution.modIds,
+          mapFolders: plan.mapFolders,
+          serverPath,
+        });
+        content = applied.content;
+        changed ||= applied.changed;
+        outcomes.push({ plan, applied });
+      }
+      let backupWarning = null;
+      if (changed) {
+        backupWarning = backupWarningFor(await writeIniWithBackup(iniPath, content));
+      }
+      return { outcomes, backupWarning, changed };
+    });
+
+    const mapFoldersAdded = [];
+    for (const { plan, applied } of lockResult.outcomes) {
+      const status = additionStatus(plan.resolution.modIds.length, applied);
+      results.push({
+        workshopId: plan.workshopId,
+        status,
+        addedModIds: applied.addedModIds,
+        alternativeModIds: plan.resolution.alternativeModIds,
+        mapFoldersAdded: applied.addedMapFolders,
+        workshopAlreadyExisted: applied.workshopAlreadyExisted,
+        detectionSource: plan.resolution.detectionSource,
+      });
+      mapFoldersAdded.push(...applied.addedMapFolders);
+    }
+
+    if (track) {
+      for (const { workshopId } of valid) {
+        try {
+          await removeIgnoredMod(workshopId);
+          await addTrackedMod(workshopId, `Workshop Mod ${workshopId}`);
+        } catch {
+          // Ignore if already tracked
+        }
+      }
+      // Best-effort: mirror the adds into the configured Steam Workshop
+      // collection when auto-sync is enabled. Paced like /batch-remove and
+      // never blocks the response.
+      (async () => {
+        for (const { workshopId } of valid) {
+          try {
+            await autoSyncCollection("add", workshopId);
+          } catch {
+            /* logged inside */
+          }
+          await new Promise((r) => setTimeout(r, 250));
+        }
+      })().catch(() => {});
+    }
+
+    const count = (status) => results.filter((r) => r.status === status).length;
+    log.info(
+      `Bulk add: ${valid.length} workshop items, ${count("added")} with new mod IDs, ${count("workshop-only")} workshop-only, ${count("already-configured")} already configured, ${count("invalid")} invalid (${lockResult.changed ? "one ini write" : "no ini write"})`,
+    );
+
+    res.json({
+      success: true,
+      total: mods.length,
+      added: count("added"),
+      alreadyConfigured: count("already-configured"),
+      workshopOnly: count("workshop-only"),
+      invalid: count("invalid"),
+      mapFoldersAdded,
+      results,
+      ...(lockResult.backupWarning ? { backupWarning: lockResult.backupWarning } : {}),
+    });
+  } catch (error) {
+    log.error(`Failed to bulk add mods: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });

@@ -251,6 +251,8 @@
   "MODS_ADD_ADVANCED_SELECTION_REQUIRED": "selectedModIds oder includeAllModIds ist erforderlich",
   "MODS_ADD_ALL_DEPS_REQUIRED": "Keine Abhängigkeiten angegeben",
   "MODS_ADD_ALL_DEPS_TOO_MANY": "Zu viele Abhängigkeiten in einer Anfrage (max. 200)",
+  "MODS_ADD_BULK_MODS_ARRAY_REQUIRED": "Mods-Array ist erforderlich",
+  "MODS_ADD_BULK_TOO_MANY": "Maximal 500 Mods pro Stapel",
   "MODS_ADD_MISSING_DEP_WORKSHOP_ID_REQUIRED": "Gültige Workshop-ID ist erforderlich",
   "MODS_ADD_TO_INI_CONFIG_PATH_NOT_SET": "Serverkonfigurationspfad nicht festgelegt. Server zuerst unter Einstellungen konfigurieren.",
   "MODS_AUTO_RESTART_ENABLED_REQUIRED": "„enabled“ muss ein boolescher Wert sein",

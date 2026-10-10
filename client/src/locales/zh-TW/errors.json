@@ -251,6 +251,8 @@
   "MODS_ADD_ADVANCED_SELECTION_REQUIRED": "selectedModIds 或 includeAllModIds 二者之一為必填項",
   "MODS_ADD_ALL_DEPS_REQUIRED": "未提供依賴項",
   "MODS_ADD_ALL_DEPS_TOO_MANY": "單次請求中的依賴項過多（最多 200 個）",
+  "MODS_ADD_BULK_MODS_ARRAY_REQUIRED": "Mods 陣列為必填項",
+  "MODS_ADD_BULK_TOO_MANY": "每批次最多 500 個模組",
   "MODS_ADD_MISSING_DEP_WORKSHOP_ID_REQUIRED": "需要有效的 Workshop ID",
   "MODS_ADD_TO_INI_CONFIG_PATH_NOT_SET": "未設定伺服器設定路徑。請先在「設定」中設定伺服器。",
   "MODS_AUTO_RESTART_ENABLED_REQUIRED": "`enabled` 必須為布林值",

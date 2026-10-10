@@ -251,6 +251,8 @@
   "MODS_ADD_ADVANCED_SELECTION_REQUIRED": "Se requiere selectedModIds o includeAllModIds",
   "MODS_ADD_ALL_DEPS_REQUIRED": "No se proporcionó ninguna dependencia",
   "MODS_ADD_ALL_DEPS_TOO_MANY": "Demasiadas dependencias en una sola solicitud (máximo 200)",
+  "MODS_ADD_BULK_MODS_ARRAY_REQUIRED": "Se requiere un array de mods",
+  "MODS_ADD_BULK_TOO_MANY": "Máximo 500 mods por lote",
   "MODS_ADD_MISSING_DEP_WORKSHOP_ID_REQUIRED": "Se requiere un ID de Workshop válido",
   "MODS_ADD_TO_INI_CONFIG_PATH_NOT_SET": "La ruta de configuración del servidor no está establecida. Configura primero el servidor en Ajustes.",
   "MODS_AUTO_RESTART_ENABLED_REQUIRED": "`enabled` debe ser un valor booleano",

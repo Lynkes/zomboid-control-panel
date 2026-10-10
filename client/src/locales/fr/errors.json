@@ -251,6 +251,8 @@
   "MODS_ADD_ADVANCED_SELECTION_REQUIRED": "selectedModIds ou includeAllModIds est requis",
   "MODS_ADD_ALL_DEPS_REQUIRED": "Aucune dépendance fournie",
   "MODS_ADD_ALL_DEPS_TOO_MANY": "Trop de dépendances en une seule requête (200 maximum)",
+  "MODS_ADD_BULK_MODS_ARRAY_REQUIRED": "Le tableau de mods est requis",
+  "MODS_ADD_BULK_TOO_MANY": "Maximum 500 mods par lot",
   "MODS_ADD_MISSING_DEP_WORKSHOP_ID_REQUIRED": "Un ID Workshop valide est requis",
   "MODS_ADD_TO_INI_CONFIG_PATH_NOT_SET": "Chemin de configuration du serveur non défini. Veuillez d'abord configurer le serveur dans Paramètres.",
   "MODS_AUTO_RESTART_ENABLED_REQUIRED": "« enabled » doit être un booléen",

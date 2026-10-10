@@ -251,6 +251,8 @@
   "MODS_ADD_ADVANCED_SELECTION_REQUIRED": "Either selectedModIds or includeAllModIds is required",
   "MODS_ADD_ALL_DEPS_REQUIRED": "No dependencies provided",
   "MODS_ADD_ALL_DEPS_TOO_MANY": "Too many dependencies in one request (max 200)",
+  "MODS_ADD_BULK_MODS_ARRAY_REQUIRED": "Mods array is required",
+  "MODS_ADD_BULK_TOO_MANY": "Maximum 500 mods per batch",
   "MODS_ADD_MISSING_DEP_WORKSHOP_ID_REQUIRED": "Valid Workshop ID is required",
   "MODS_ADD_TO_INI_CONFIG_PATH_NOT_SET": "Server config path not set. Please configure the server first in Settings.",
   "MODS_AUTO_RESTART_ENABLED_REQUIRED": "`enabled` must be a boolean",
