@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Player deaths on the same tile:** a second death on the same tile within 5 minutes (a fixed spawn tile) is no longer dropped from the Discord notice, the player history and the live death event.
 - **Map Cleanup, vehicles of a whole cell:** selecting a cell's top-left chunk with Delete vehicles on no longer deletes the vehicles of the cell's other chunks; the whole cell is cleared only when no chunk of it is left.
 - **Map Cleanup, file names:** deleting chunks only accepts the file names the scan lists, so a role with Map Cleanup access can no longer delete players.db, vehicles.db or other save files.
+- **Map Cleanup, live vehicles:** cancelling the force-delete dialog or a refused delete no longer removes the live vehicles; they are removed only after the chunks were deleted.
 
 ## [1.4.12] - 2026-10-10
 
