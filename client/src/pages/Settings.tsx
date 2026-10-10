@@ -116,6 +116,7 @@ import {
 import { getUserErrorMessage } from "@/lib/errorMessage";
 import { rememberTrustedDeviceFrom } from "@/lib/trustedDevice";
 import { classifyPanelUpdateFailure } from "@/lib/panelUpdateFailure";
+import { readRunningPanelPort, resolveRestartOrigin } from "@/lib/panelRestartTarget";
 import {
   RestoreNotStartedError,
   RestoreOutcomeUnknownError,
@@ -428,6 +429,7 @@ export default function Settings() {
   const [restarting, setRestarting] = useState(false);
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restartPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const restartOriginRef = useRef<string | null>(null);
   // bug-hunt-2026-09-07 (client silent-failure lane, update-failure-states
   // pass): set only when the reconnect poll below gives up -- distinct from
   // `restarting` (which just drives the button spinner) so the page can show
@@ -1290,8 +1292,10 @@ export default function Settings() {
     // enough (the plain "Restart Panel" button has no version to compare
     // against, and doesn't need one).
     (expectedVersion?: string | null) => {
-      const newPort = normalizePort(settings.panelPort);
-      const origin = `${window.location.protocol}//${window.location.hostname}:${newPort}`;
+      // Fixed by restartPanelWithReconnect before the restart (see there):
+      // the origin this page is already on, or the new one only when the
+      // panel's port really changes.
+      const origin = restartOriginRef.current ?? `${window.location.protocol}//${window.location.host}`;
       const newUrl = `${origin}${window.location.pathname}${window.location.search}${window.location.hash}`;
       const deadline = Date.now() + RESTART_RECONNECT_TIMEOUT_MS;
 
@@ -1323,7 +1327,7 @@ export default function Settings() {
       restartPollRef.current = setInterval(poll, RESTART_RECONNECT_POLL_INTERVAL_MS);
       poll();
     },
-    [settings.panelPort],
+    [],
   );
 
   const restartPanelWithReconnect = useCallback(
@@ -1337,6 +1341,16 @@ export default function Settings() {
       setRestarting(true);
       setRestartWaitFailed(false);
       try {
+        // Where the restarted panel will answer. Behind a reverse proxy, with
+        // a remapped Docker port or on the HTTPS port it is this page's own
+        // origin, not `hostname:<saved port>` (which never answers there and
+        // left this page waiting three minutes). Read the running port first:
+        // after the restart request only the new process is left to ask.
+        restartOriginRef.current = resolveRestartOrigin(
+          window.location,
+          settings.panelPort,
+          await readRunningPanelPort(serverApi.getPanelInfo),
+        );
         await serverApi.restartPanel();
         toast({
           title: t("toasts.restartingPanel.title"),
@@ -1367,7 +1381,7 @@ export default function Settings() {
         });
       }
     },
-    [toast, t, pollForPanelReconnect, user],
+    [toast, t, pollForPanelReconnect, user, settings.panelPort],
   );
 
   // "Check again" on the hasn't-come-back message: does NOT re-POST
