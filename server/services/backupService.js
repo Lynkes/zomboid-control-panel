@@ -6,7 +6,6 @@ import { createReadStream } from "fs";
 import { crc32 } from "zlib";
 import { randomUUID } from "crypto";
 import { createLogger } from "../utils/logger.js";
-import { escapeRegExp } from "../utils/regex.js";
 import { isPidAlive } from "../utils/pidLiveness.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import {
@@ -49,6 +48,13 @@ import {
 import { LEGACY_RESTART_SKIP_MESSAGE } from "../utils/backupRestartOverlap.js";
 import { resolveObservedServerRunning } from "../utils/serverStatus.js";
 import { renameWithRetry } from "../utils/renameWithRetry.js";
+import {
+  MAX_SAFETY_BACKUPS,
+  attributeBackupFilename,
+  backupSortKey,
+  isSafetyBackupName,
+  safetyBackupPrefix,
+} from "./backupNames.js";
 import {
   createRestoreStagingDir,
   extractArchiveToStaging,
@@ -264,85 +270,6 @@ export async function appendDirectoryToArchive(archive, sourceRoot, destinationR
     if (result.skipped) skipped.push(entryName);
   }
   return skipped;
-}
-
-// Sort key for listBackups(): panel-created backups encode their own
-// creation timestamp (down to the millisecond) plus a numeric collision
-// suffix directly in the filename -- see the timestamp/collision-suffix
-// construction in _doCreateBackup(). Parsing that out and sorting on it,
-// the same fix already applied to configBackup.js's listBackupsFor() (see
-// its own comment), avoids relying on fs.stat().birthtime: several backups
-// created in quick succession (a fast/near-empty world backs up in well
-// under a second) can land with an IDENTICAL birthtime on real
-// filesystems, at which point Array.prototype.sort's stability falls back
-// to readdir()'s order -- unrelated to creation order -- and the brand-new
-// backup can be mistaken for the oldest and pruned instead of a genuinely
-// older one. Falls back to birthtime only for names the panel didn't
-// create this way (uploaded-*.zip, hand-copied files) -- there is no
-// better signal for those, and they're already exempt from automatic
-// pruning regardless.
-// The exact shape _doCreateBackup() writes (see its own timestamp/
-// collision-suffix construction): `new Date().toISOString()` with `:`/`.`
-// swapped for `-` and sliced to 23 chars (drops the trailing "Z"), plus an
-// optional `-N` collision suffix. Kept as one shared string so
-// BACKUP_TIMESTAMP_RE below and round 18b's per-server ownership pattern
-// (backupFilenameOwnerPattern()) can never drift apart on what a real
-// panel-written timestamp looks like.
-const BACKUP_TIMESTAMP_PATTERN =
-  "\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}";
-const BACKUP_TIMESTAMP_RE = new RegExp(
-  `(${BACKUP_TIMESTAMP_PATTERN})(?:-(\\d+))?\\.zip$`,
-);
-function backupSortKey(fileName, stats) {
-  const match = fileName.match(BACKUP_TIMESTAMP_RE);
-  if (match) {
-    return { key: match[1], suffix: match[2] ? parseInt(match[2], 10) : 1 };
-  }
-  return {
-    key: stats.birthtime.toISOString().replace(/[:.]/g, "-").slice(0, 23),
-    suffix: 1,
-  };
-}
-
-// round 18b (god-caught follow-up): a plain name.startsWith(`${name}_`)
-// substring check is not enough to attribute a backup's filename to a
-// server -- SERVER_NAME_REGEX allows underscores, so two configured
-// servers "my" and "my_server" sharing a backups folder both look like
-// they "start with" my_server's own file (my_server_2026-...zip starts
-// with "my_" too), misattributing my_server's own backup as belonging to
-// "my" and hiding/refusing it as foreign. Anchoring the WHOLE filename --
-// `${name}_` immediately followed by the exact BACKUP_TIMESTAMP_PATTERN
-// shape and nothing else -- closes that: "my_server_2026-...zip" only
-// matches candidate "my_server" (nothing valid follows "my_" except
-// "server_2026...", which is not a 4-digit year), never candidate "my".
-function backupFilenameOwnerPattern(serverName) {
-  return new RegExp(
-    `^${escapeRegExp(serverName)}_${BACKUP_TIMESTAMP_PATTERN}(?:-\\d+)?\\.zip$`,
-  );
-}
-
-// Attributes `fileName` to exactly one of `candidateNames`: whichever
-// candidate's anchored pattern matches AND is the LONGEST such match wins,
-// so a longer, more specific name (e.g. "my_server") is never shadowed by
-// a shorter one that happens to be a literal prefix of it (e.g. "my").
-// Callers put the ACTIVE server's own name in `candidateNames` alongside
-// any colliding others, so ties always resolve in favor of a real name
-// (two different currently-configured servers can never share the exact
-// same name) and the active server's own file is never misattributed to
-// someone else as a side effect of this length comparison. Returns null
-// when NO candidate's pattern matches at all -- a legacy backup predating
-// multi-server support, an uploaded archive, or simply a name matching no
-// known server -- callers treat "no clear owner" as "assume mine, don't
-// hide or refuse it", the same conservative default the rest of this
-// round's fix already uses.
-function attributeBackupFilename(fileName, candidateNames) {
-  let winner = null;
-  for (const name of candidateNames) {
-    if (backupFilenameOwnerPattern(name).test(fileName)) {
-      if (!winner || name.length > winner.length) winner = name;
-    }
-  }
-  return winner;
 }
 
 // The Socket.IO room backup:progress, restore:progress and restore:finished
@@ -1026,7 +953,11 @@ export class BackupService {
       .replace(/[:.]/g, "-")
       .slice(0, 23);
     const serverName = activeServer?.serverName || "server";
-    const baseBackupName = `${serverName}_${timestamp}`;
+    // A safety copy taken right before a restore or a wipe is named for what
+    // it is (pre-restore-/pre-wipe-), so retention can leave it alone: with
+    // backupMaxCount=1 the next scheduled backup used to delete the copy of
+    // the world that had just been replaced. See backupNames.js.
+    const baseBackupName = `${safetyBackupPrefix(options)}${serverName}_${timestamp}`;
     let backupName = `${baseBackupName}.zip`;
     let backupPath = path.join(backupsPath, backupName);
     // 2026-09-09 (Kevin's cross-ring sweep, timestamp-tie-breaks): starting
@@ -1514,6 +1445,22 @@ export class BackupService {
     }
   }
 
+  // The active server's own name, for telling its ordinary backups from
+  // safety copies (see isSafetyBackupName()). null when it cannot be read.
+  async _ownServerName(activeServerOverride) {
+    try {
+      const server =
+        activeServerOverride !== undefined
+          ? activeServerOverride
+          : await getActiveServer();
+      return typeof server?.serverName === "string" && server.serverName
+        ? server.serverName
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Delete a backup
    */
@@ -1583,19 +1530,33 @@ export class BackupService {
    * deleteBackupsOlderThan is the other pruning path and is a deliberate
    * choice: it is operator-initiated, not automatic, so it does the
    * opposite and includes uploads -- see its own comment.
+   *
+   * The pre-restore-/pre-wipe- safety copies (see backupNames.js) are exempt
+   * from the maxBackups count the same way: with backupMaxCount=1 the next
+   * routine backup used to delete the copy of the world a restore or wipe had
+   * just replaced. They are kept to the newest MAX_SAFETY_BACKUPS instead, so
+   * a restore every day does not grow the folder without bound.
    */
   async cleanupOldBackups(activeServerOverride) {
     try {
       const settings = await this.getSettings();
       const backups = await this.listBackups(activeServerOverride);
-      const prunable = backups.filter((b) => !b.name.startsWith("uploaded-"));
+      const ownServerName = await this._ownServerName(activeServerOverride);
+      const safety = backups.filter((b) => isSafetyBackupName(b.name, ownServerName));
+      const prunable = backups.filter(
+        (b) => !b.name.startsWith("uploaded-") && !safety.includes(b),
+      );
 
-      if (prunable.length <= settings.maxBackups) {
+      // Both lists are newest first (listBackups() sorts them that way).
+      const toDelete = [
+        ...prunable.slice(settings.maxBackups),
+        ...safety.slice(MAX_SAFETY_BACKUPS),
+      ];
+      if (toDelete.length === 0) {
         return;
       }
 
       // Delete oldest backups
-      const toDelete = prunable.slice(settings.maxBackups);
       for (const backup of toDelete) {
         const deleted = await this.deleteBackup(backup.name);
         if (!deleted?.success) {

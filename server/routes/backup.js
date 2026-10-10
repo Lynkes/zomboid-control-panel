@@ -447,8 +447,18 @@ router.post("/create", requirePermission("backups.manage"), async (req, res) => 
     const backupService = req.app.get("backupService");
     const io = req.app.get("io");
 
+    // isPreRestore and isPreWipe are the service's own flags (restoreBackup()
+    // and /wipe set them for their safety copies): a request must not be able
+    // to name its backup a safety copy, which retention keeps, or to skip the
+    // restore-in-progress guard that isPreRestore lifts.
+    const {
+      isPreRestore: _isPreRestore,
+      isPreWipe: _isPreWipe,
+      ...requestOptions
+    } = req.body || {};
+
     // Pass io for progress updates
-    const result = await backupService.createBackup({ ...req.body, io });
+    const result = await backupService.createBackup({ ...requestOptions, io });
 
     if (result.success) {
       // 2026-08-26 bug hunt: createBackup surfaces skipped files rather than
