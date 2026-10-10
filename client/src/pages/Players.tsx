@@ -494,6 +494,10 @@ export default function Players() {
     tags: string[]
     updated_at: string
   }
+  // GET /players/notes returns the stored rows, which key the player as
+  // snake_case `player_name` (database/init.js upsertPlayerNote); the page's
+  // own state uses `playerName`.
+  type PlayerNoteRow = Omit<PlayerNote, 'playerName'> & { playerName?: string; player_name?: string }
   interface PlayerStat {
     playerName: string
     player_name?: string
@@ -710,7 +714,10 @@ export default function Players() {
       // Convert arrays to lookup objects
       const notesMap: Record<string, PlayerNote> = {}
       if (notesData.notes) {
-        notesData.notes.forEach((n: PlayerNote) => { notesMap[n.playerName] = n })
+        notesData.notes.forEach((n: PlayerNoteRow) => {
+          const key = n.playerName ?? n.player_name
+          if (key) notesMap[key] = { ...n, playerName: key }
+        })
       }
       const statsMap: Record<string, PlayerStat> = {}
       if (statsData.stats) {

@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Old bans missing from the activity log:** kicks, bans and access-level changes are now kept separately (up to 5000) from the connect, disconnect and death rows, so a busy server's join/leave traffic no longer pushes a ban out of the history within days.
 - **Kick and ban reasons:** a reason such as "cheating [RDM]", "RDM / KOS" or one in another alphabet is no longer refused with "Invalid reason format"; it is shortened to what the game can carry (as the form already said), and the SteamID-ban note takes any text.
 - **Players with a space at the start or end of their name:** Kick, Ban, Unban, Access Level and the other player actions now act on "Bob " or " Bob" exactly as listed instead of on the different account "Bob".
+- **Player notes and tags after a reload:** the notes and tags you saved on the Players page show again after reloading the page (the notes tab was empty, so saving again replaced the stored note).
 
 ## [1.4.12] - 2026-10-10
 
