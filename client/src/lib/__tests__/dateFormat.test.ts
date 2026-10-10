@@ -200,6 +200,57 @@ describe('times', () => {
     browserLanguages(['en-GB'])
     expect(formatTime(MORNING, { language: 'en', pad: true })).toBe('09:07')
   })
+
+  // The hour follows the locale's own style: asking for a bare numeric hour
+  // printed '23/06/2026 20:00' beside '8:00' in the locales that pad.
+  const MORNING_8 = new Date(2026, 5, 23, 8, 0, 5)
+  const EVENING_20 = new Date(2026, 5, 23, 20, 0, 5)
+
+  it.each([
+    ['de', 'de', '08:00', '20:00'],
+    ['fr', 'fr', '08:00', '20:00'],
+    ['uk', 'uk', '08:00', '20:00'],
+    ['pt-BR', 'pt-BR', '08:00', '20:00'],
+    ['zh-CN', 'zh-CN', '08:00', '20:00'],
+    ['ht', 'ht', '08:00', '20:00'],
+    ['en-GB', 'en', '08:00', '20:00'],
+  ])('keep the hour padded where %s pads its own', (browser, language, morning, evening) => {
+    browserLanguages([browser])
+    expect(formatTime(MORNING_8, { language })).toBe(morning)
+    expect(formatTime(EVENING_20, { language })).toBe(evening)
+  })
+
+  it.each([
+    ['es', 'es', '8:00', '20:00'],
+    ['zh-TW', 'zh-TW', '上午8:00', '下午8:00'],
+    ['en-US', 'en', '8:00 AM', '8:00 PM'],
+  ])('keep the hour unpadded where %s does not pad its own', (browser, language, morning, evening) => {
+    browserLanguages([browser])
+    expect(formatTime(MORNING_8, { language })).toBe(morning)
+    expect(formatTime(EVENING_20, { language })).toBe(evening)
+  })
+
+  it('keeps an Arabic morning hour unpadded', () => {
+    browserLanguages(['ar'])
+    // Whatever the digits, an unpadded 8:00 is three of them and a padded 08:00 four.
+    expect(formatTime(MORNING_8, { language: 'ar' }).replace(/[^\p{Nd}]/gu, '')).toHaveLength(3)
+  })
+
+  it('pads the morning hour in a date and time under every explicit order', () => {
+    browserLanguages(['de'])
+    for (const pref of ['dmy', 'mdy', 'ymd'] as const) {
+      expect(formatDateTime(MORNING_8, { language: 'de', pref })).toMatch(/ 08:00$/)
+      expect(formatDateTime(EVENING_20, { language: 'de', pref })).toMatch(/ 20:00$/)
+    }
+    expect(formatDateTime(MORNING_8, { language: 'de', pref: 'dmy' })).toBe('23/06/2026 08:00')
+  })
+
+  it('pads the morning hour in an Automatic date and time with seconds and a zone label', () => {
+    browserLanguages(['fr'])
+    expect(formatDateTime(MORNING_8, { language: 'fr', pref: 'auto', seconds: true })).toMatch(/ 08:00:05$/)
+    const utcMorning = new Date(Date.UTC(2026, 5, 23, 8, 0, 5))
+    expect(formatDateTime(utcMorning, { language: 'fr', pref: 'auto', timeZone: 'UTC', timeZoneName: 'short' })).toBe('23/06/2026 08:00 UTC')
+  })
 })
 
 describe('missing or invalid input', () => {
