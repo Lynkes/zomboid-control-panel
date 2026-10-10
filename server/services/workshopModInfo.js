@@ -302,9 +302,15 @@ export function sanitizeModIdListWithDiskBypass(
 // regardless of which layout the author used, instead of relying on a
 // fixed allowlist of folder names.
 //
-// A single mod.info can ALSO declare multiple `id=` lines (sub-mods that
-// share assets). We collect every id rather than letting later lines
-// overwrite earlier ones.
+// The game, though, reads exactly ONE mod.info per mod folder (the best
+// version folder's, else common/) and takes the id from it the way
+// zombie.gameStates.ChooseGameInfo.readModInfoAux does: a line counts only
+// when it STARTS with "id=" (no leading space, lower case), its value is
+// trimmed, a blank value is ignored, and the LAST such line wins. So a
+// mod.info that lists three ids is one mod (the third), not three, and the
+// ids of the older version folders do not exist for the game at all. Each mod
+// folder therefore yields one mod here: the id the game would load. (Several
+// folders in one workshop item are still several mods.)
 function parseModInfoVersionFolder(folderName) {
   if (!/^\d+(?:\.\d+)*$/.test(folderName)) return null;
   return folderName.split(".").map((part) => Number.parseInt(part, 10));
@@ -334,34 +340,40 @@ export function getModDetailsFromWorkshop(workshopId, serverPath) {
   const seenIds = new Set();
   const possiblePaths = getWorkshopPaths(workshopId, serverPath);
 
-  // Parse a mod.info file and return { ids: [...], meta: { name, poster, ... } }.
+  // Parse a mod.info file and return { id, meta: { name, poster, ... } }, where
+  // `id` is the one the game takes (see the note above): the last non-blank
+  // value of a line that starts with "id=", or null.
   function parseModInfoFile(modInfoPath) {
-    const ids = [];
+    let id = null;
     const meta = {};
     let content;
     try {
       content = readTextFile(modInfoPath);
     } catch {
-      return { ids, meta };
+      return { id, meta };
     }
-    if (!content) return { ids, meta };
+    if (!content) return { id, meta };
     if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
     for (const rawLine of content.split(/\r?\n/)) {
+      if (rawLine.startsWith("id=")) {
+        // The game does line.replace("id=", "").trim() (every "id=" goes).
+        const val = rawLine.split("id=").join("").trim();
+        if (val) id = val;
+        continue;
+      }
       const line = rawLine.trim();
       if (!line || line.startsWith("//") || line.startsWith("#")) continue;
       const idx = line.indexOf("=");
       if (idx === -1) continue;
       const key = line.substring(0, idx).trim();
       const val = line.substring(idx + 1).trim();
-      if (!key) continue;
-      if (key.toLowerCase() === "id") {
-        if (val) ids.push(val);
-      } else if (!(key in meta)) {
+      if (!key || key.toLowerCase() === "id") continue;
+      if (!(key in meta)) {
         // First-occurrence wins for non-id fields (name/poster/icon/etc.)
         meta[key] = val;
       }
     }
-    return { ids, meta };
+    return { id, meta };
   }
 
   for (const workshopPath of possiblePaths) {
@@ -411,18 +423,22 @@ export function getModDetailsFromWorkshop(workshopId, serverPath) {
           log.debug(`Failed to scan subdirs for ${modDir}: ${e.message}`);
         }
 
-        // Read every existing mod.info under this mod folder. Multiple
-        // version-specific files may coexist; we union the declared ids.
+        // Version-specific mod.info files may coexist; the game reads one of
+        // them, so take the first (newest version folder, then the mod root,
+        // then common/ ...) that actually declares an id.
         for (const candidate of candidatePaths
           // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
           .filter((item) => fs.existsSync(item.path))
           .sort(compareModInfoCandidatePaths)) {
-          const { ids, meta } = parseModInfoFile(candidate.path);
-          for (const id of ids) {
-            if (seenIds.has(id)) continue;
+          const { id, meta } = parseModInfoFile(candidate.path);
+          if (!id) continue;
+          if (!seenIds.has(id)) {
             seenIds.add(id);
             mods.push({
               id,
+              // The mod folder the id came from. Not necessarily named after
+              // the id or the display name (conflict scanning matches on it).
+              folder: entry.name,
               name: meta.name || id,
               poster: meta.poster,
               icon: meta.icon,
@@ -436,6 +452,7 @@ export function getModDetailsFromWorkshop(workshopId, serverPath) {
                 : [],
             });
           }
+          break;
         }
       }
 
