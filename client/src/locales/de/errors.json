@@ -623,5 +623,8 @@
   "RETRY_AFTER_SECONDS_one": "Versuche es in {{count}} Sekunde erneut.",
   "RETRY_AFTER_SECONDS_other": "Versuche es in {{count}} Sekunden erneut.",
   "RETRY_AFTER_MINUTES_one": "Versuche es in {{count}} Minute erneut.",
-  "RETRY_AFTER_MINUTES_other": "Versuche es in {{count}} Minuten erneut."
+  "RETRY_AFTER_MINUTES_other": "Versuche es in {{count}} Minuten erneut.",
+  "LOGIN_FAILED": "Die Anmeldung hat nicht geklappt. Prüfe Benutzername und Passwort und versuche es erneut.",
+  "LOGIN_CORS_BLOCKED": "Die Verbindung wurde von der Origin-Richtlinie des Browsers blockiert. Setze bei der Ersteinrichtung hinter einem Reverse-Proxy CORS_ORIGINS in der Panel-Umgebung auf diese URL und starte das Panel neu. Öffne das Panel sonst über eine lokale Adresse oder eine Adresse im LAN; nach der Einrichtung verwaltest du die Origins unter Einstellungen > Fernzugriff.",
+  "SETUP_FAILED": "Das Administratorkonto konnte nicht erstellt werden. Versuche es erneut."
 }

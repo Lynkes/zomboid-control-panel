@@ -625,5 +625,8 @@
   "RETRY_AFTER_SECONDS_many": "Inténtalo de nuevo en {{count}} segundos.",
   "RETRY_AFTER_MINUTES_one": "Inténtalo de nuevo en {{count}} minuto.",
   "RETRY_AFTER_MINUTES_other": "Inténtalo de nuevo en {{count}} minutos.",
-  "RETRY_AFTER_MINUTES_many": "Inténtalo de nuevo en {{count}} minutos."
+  "RETRY_AFTER_MINUTES_many": "Inténtalo de nuevo en {{count}} minutos.",
+  "LOGIN_FAILED": "No pudimos iniciar tu sesión. Comprueba tu nombre de usuario y contraseña e inténtalo de nuevo.",
+  "LOGIN_CORS_BLOCKED": "El navegador bloqueó la conexión por su política de origen. Para la primera configuración detrás de un proxy inverso, define CORS_ORIGINS con esta URL en el entorno del panel y reinícialo. Si no, abre el panel desde una dirección local o de la red local; después de la configuración, gestiona los orígenes en Ajustes > Acceso remoto.",
+  "SETUP_FAILED": "No pudimos crear la cuenta de administrador. Inténtalo de nuevo."
 }

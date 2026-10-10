@@ -623,5 +623,8 @@
   "RETRY_AFTER_SECONDS_one": "Try again in {{count}} second.",
   "RETRY_AFTER_SECONDS_other": "Try again in {{count}} seconds.",
   "RETRY_AFTER_MINUTES_one": "Try again in {{count}} minute.",
-  "RETRY_AFTER_MINUTES_other": "Try again in {{count}} minutes."
+  "RETRY_AFTER_MINUTES_other": "Try again in {{count}} minutes.",
+  "LOGIN_FAILED": "We couldn't sign you in. Check your username and password and try again.",
+  "LOGIN_CORS_BLOCKED": "Connection blocked by browser origin policy. For first-time reverse-proxy setup, set CORS_ORIGINS to this URL in the panel environment and restart it. Otherwise open the panel from a local/LAN address; after setup, manage origins in Settings > Remote Access.",
+  "SETUP_FAILED": "We couldn't create the admin account. Try again."
 }

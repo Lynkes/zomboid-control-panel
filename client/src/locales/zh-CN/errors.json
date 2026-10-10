@@ -623,5 +623,8 @@
   "RETRY_AFTER_SECONDS_one": "请在 {{count}} 秒后重试。",
   "RETRY_AFTER_SECONDS_other": "请在 {{count}} 秒后重试。",
   "RETRY_AFTER_MINUTES_one": "请在 {{count}} 分钟后重试。",
-  "RETRY_AFTER_MINUTES_other": "请在 {{count}} 分钟后重试。"
+  "RETRY_AFTER_MINUTES_other": "请在 {{count}} 分钟后重试。",
+  "LOGIN_FAILED": "无法登录。请检查用户名和密码后重试。",
+  "LOGIN_CORS_BLOCKED": "连接被浏览器的同源策略阻止。首次通过反向代理设置时，请在面板环境中将 CORS_ORIGINS 设为此 URL 并重启面板。否则请从本地或局域网地址打开面板；设置完成后，可在“设置 > 远程访问”中管理来源。",
+  "SETUP_FAILED": "无法创建管理员账户。请重试。"
 }

@@ -197,6 +197,13 @@ const KNOWN_CLIENT_ONLY_LOCALE_KEYS = new Set([
   // for either, by definition.
   "NETWORK_ERROR",
   "TIMEOUT",
+  // client/src/contexts/AuthContext.tsx's toLoginError()/setup(): the sign-in
+  // and first-run screens' own failures. A wrong password is an uncoded 401
+  // from the panel, and the screen deliberately shows one text for every auth
+  // failure (no account-enumeration oracle).
+  "LOGIN_FAILED",
+  "LOGIN_CORS_BLOCKED",
+  "SETUP_FAILED",
   // The stock text for a failed response with no message of its own, picked
   // by status in client/src/lib/errorMessage.ts (STATUS_FALLBACK_KEYS). Named
   // HTTP_STATUS_<n>, not the synthesized HTTP_<n> code, so a server-written

@@ -625,5 +625,8 @@
   "RETRY_AFTER_SECONDS_many": "Réessayez dans {{count}} secondes.",
   "RETRY_AFTER_MINUTES_one": "Réessayez dans {{count}} minute.",
   "RETRY_AFTER_MINUTES_other": "Réessayez dans {{count}} minutes.",
-  "RETRY_AFTER_MINUTES_many": "Réessayez dans {{count}} minutes."
+  "RETRY_AFTER_MINUTES_many": "Réessayez dans {{count}} minutes.",
+  "LOGIN_FAILED": "Connexion impossible. Vérifiez votre nom d'utilisateur et votre mot de passe, puis réessayez.",
+  "LOGIN_CORS_BLOCKED": "Connexion bloquée par la politique d'origine du navigateur. Pour une première configuration derrière un reverse proxy, définissez CORS_ORIGINS sur cette URL dans l'environnement du panneau, puis redémarrez-le. Sinon, ouvrez le panneau depuis une adresse locale ou du réseau local ; une fois la configuration terminée, gérez les origines dans Paramètres > Accès distant.",
+  "SETUP_FAILED": "Impossible de créer le compte administrateur. Réessayez."
 }

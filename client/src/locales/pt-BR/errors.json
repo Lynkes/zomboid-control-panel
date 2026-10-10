@@ -625,5 +625,8 @@
   "RETRY_AFTER_SECONDS_many": "Tente novamente em {{count}} segundos.",
   "RETRY_AFTER_MINUTES_one": "Tente novamente em {{count}} minuto.",
   "RETRY_AFTER_MINUTES_other": "Tente novamente em {{count}} minutos.",
-  "RETRY_AFTER_MINUTES_many": "Tente novamente em {{count}} minutos."
+  "RETRY_AFTER_MINUTES_many": "Tente novamente em {{count}} minutos.",
+  "LOGIN_FAILED": "Não foi possível entrar. Verifique seu nome de usuário e senha e tente novamente.",
+  "LOGIN_CORS_BLOCKED": "A conexão foi bloqueada pela política de origem do navegador. Na primeira configuração atrás de um proxy reverso, defina CORS_ORIGINS com esta URL no ambiente do painel e reinicie-o. Caso contrário, abra o painel a partir de um endereço local ou da rede local; depois da configuração, gerencie as origens em Configurações > Acesso remoto.",
+  "SETUP_FAILED": "Não foi possível criar a conta de administrador. Tente novamente."
 }
