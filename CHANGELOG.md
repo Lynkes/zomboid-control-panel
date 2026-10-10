@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **False "Scheduled backup failing":** a scheduled backup tick that arrives while an earlier scheduled or a manual backup is still running is skipped instead of logged as a failed "Backup already in progress" (real failures still show).
 - **Sidebar status dot:** a scheduled restart of a server that isn't the active one no longer turns the active server's dot (and Dashboard/Servers status) to "stopped"; the restart's status updates now name their server.
 - **RESTART_WARNING_MINUTES=0:** the automatic restart countdown honours 0 (restart at once) instead of using 5, and a value above 60 is held to 60 with a log line.
+- **Scheduler DST warnings:** zones that change the clock only around Ramadan (Africa/Casablanca) are now recognised as observing DST, and the spring-forward check is cached so starting with many schedules no longer spends a second or more on it.
 
 ## [1.4.12] - 2026-10-10
 
