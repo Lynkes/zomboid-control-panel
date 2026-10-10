@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Live-updates notice:** the red "Live Updates Unavailable" box no longer flashes on every page load, and no longer stays on the public demo; it only appears once a connection has actually failed.
 - **Reconnecting notice:** the first retry after a failed connection reads "Attempt 1/10" instead of "Attempt 0/10".
 - **Connection messages:** the Reconnected and Connection Lost toasts and the connection-error details in the status popover are translated in every language instead of always English.
+- **Public demo Leaderboard:** the demo shows a sample scoreboard (with a "Not read yet" row and the diagnostics line) instead of "Leaderboard unavailable".
 
 ## [1.4.12] - 2026-10-10
 
