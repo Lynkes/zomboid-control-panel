@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Discord /leaderboard:** anyone in your Discord server can see the top 10 by kills, longest survival or deaths (who can use it is set under Commands, like /players).
+
 ### Fixed
 
 - **Similar server names:** a server called "Survival" no longer claims the running process of "Survival Hard", so Force Stop no longer kills both.
@@ -26,12 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Leaderboard in Arabic and other languages:** the table headers and number columns follow the reading direction, and the days unit after the best days is translated instead of always "d".
 - **Scheduler timezone picker (Arabic):** the search icon and the dropdown arrow no longer overlap in right-to-left layouts.
 - **Collapsed sidebar:** the icon rail has a Sign out button (with the signed-in name in its tooltip), so you can sign out without expanding the sidebar.
-### Added
-
-- **Discord /leaderboard:** anyone in your Discord server can see the top 10 by kills, longest survival or deaths (who can use it is set under Commands, like /players).
-
-### Fixed
-
 - **Discord /kick:** a long reason no longer makes the reply fail after the player was already kicked; the game and the reply both use the first 100 characters.
 - **Discord command access:** a permission change saved while the bot was still registering its commands now reaches Discord instead of waiting for the next restart.
 - **Leaderboard, accounts sharing a SteamID:** a split-screen guest or an alt account on the same Steam account gets its own row instead of adding the other account's kills every time the two switch or the minute sweep runs (PanelBridge update; rows that already merged keep their totals).
