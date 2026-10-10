@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import i18n from '@/i18n'
 
@@ -102,6 +102,36 @@ afterEach(async () => {
   cleanup()
   vi.unstubAllEnvs()
   if (i18n.language !== 'en') await i18n.changeLanguage('en')
+})
+
+describe('App: the reconnect attempt counter', () => {
+  async function openNotice() {
+    fireEvent.click(await screen.findByRole('button', { name: 'Reconnecting...' }))
+    return screen.findByRole('dialog')
+  }
+
+  it('counts the retry after a refused token as attempt 1, not attempt 0', async () => {
+    await renderApp()
+    await connected(fake)
+    fake.socket.active = false
+    fake.fire('connect_error', new Error('Invalid or expired token'))
+    expect(await openNotice()).toHaveTextContent('Attempt 1/10')
+  })
+
+  it('counts the first automatic retry as attempt 1 before socket.io reports it', async () => {
+    await renderApp()
+    await connected(fake)
+    fake.fire('connect_error', new Error('xhr poll error'))
+    expect(await openNotice()).toHaveTextContent('Attempt 1/10')
+  })
+
+  it('follows the attempt number socket.io reports afterwards', async () => {
+    await renderApp()
+    await connected(fake)
+    fake.fire('connect_error', new Error('xhr poll error'))
+    fake.fireManager('reconnect_attempt', 4)
+    expect(await openNotice()).toHaveTextContent('Attempt 4/10')
+  })
 })
 
 describe('App: the live-update notice', () => {

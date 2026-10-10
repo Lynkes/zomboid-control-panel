@@ -535,7 +535,14 @@ function AppContent() {
         if (!newSocket.active && authEnabled && isSocketAuthRefusal(err.message)
           && socketAuthRetry.schedule()) {
           tokenExpiredByServer = true
-          setConnectionStatus(prev => ({ ...prev, connected: false, connecting: false, reconnecting: true }))
+          setConnectionStatus(prev => ({
+            ...prev,
+            connected: false,
+            connecting: false,
+            reconnecting: true,
+            // The popover reads "Attempt n/10": this retry is attempt 1 at least.
+            reconnectAttempt: Math.max(prev.reconnectAttempt, 1),
+          }))
           return
         }
         if (newSocket.active) {
@@ -545,6 +552,9 @@ function AppContent() {
             connected: false,
             connecting: false,
             reconnecting: true,
+            // socket.io reports reconnect_attempt only after its backoff, so
+            // the first failure would otherwise read "Attempt 0/10".
+            reconnectAttempt: Math.max(prev.reconnectAttempt, 1),
             error: getUserErrorMessage(err, 'Connection error'),
           }))
         } else {
