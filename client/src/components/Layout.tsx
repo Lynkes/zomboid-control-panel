@@ -367,7 +367,7 @@ export default function Layout({ children }: LayoutProps) {
   const [servers, setServers] = useState<ServerInstance[] | null>(null)
   const serversConfirmedEmpty = servers !== null && servers.length === 0
   const isBlockedByNoServer = (item: NavItem) => !!item.requiresServer && serversConfirmedEmpty
-  const { can } = useAuth()
+  const { can, user, authEnabled, logout } = useAuth()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   // Not a Radix primitive, so it gets none of Radix's automatic focus
   // trap/restore -- handled manually below.
@@ -1298,6 +1298,27 @@ export default function Layout({ children }: LayoutProps) {
             // 28px squares, each with a tooltip to the right.
             <div className="flex flex-col items-center gap-1.5">
               <ConnectionStatus className="h-7 w-7 justify-center p-0" />
+              {/* The account row (name and Sign out) only exists in the
+                  expanded footer, and the rail is remembered: without this a
+                  collapsed sidebar left no way to sign out. */}
+              {authEnabled && user && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={logout}
+                      className={FOOTER_ICON_BUTTON}
+                      aria-label={t('footer.signOut')}
+                    >
+                      <LogOut className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    {t('footer.signOut')}
+                    <bdi className="block text-muted-foreground">{user.username}</bdi>
+                  </TooltipContent>
+                </Tooltip>
+              )}
               <LanguageSwitcher compact className={FOOTER_ICON_BUTTON} />
               <Tooltip>
                 <TooltipTrigger asChild>
