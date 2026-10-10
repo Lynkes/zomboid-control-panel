@@ -218,6 +218,14 @@ export function isValidGamePort(port: number): boolean {
   return Number.isInteger(port) && port >= 1 && port <= 65534
 }
 
+// Mirror of server/utils/memory.js's memoryMinExceedsMax(): the start script
+// writes -Xms{min}g -Xmx{max}g and the JVM refuses to start when the initial
+// heap is above the maximum. A blank (NaN) field is the separate
+// "enter a value" refusal, not this one.
+export function isMemoryMinAboveMax(minMemory: number, maxMemory: number): boolean {
+  return Number.isFinite(minMemory) && Number.isFinite(maxMemory) && minMemory > maxMemory
+}
+
 // bug-hunt-2026-09-18 (round 12, client-vs-server validation sweep): client
 // mirror of server/routes/servers.js's SERVER_NAME_REGEX -- the Edit Server
 // dialog's serverName field had no character-set check at all (only
@@ -1450,6 +1458,10 @@ export default function Servers() {
       toast({ title: t('toasts.error'), description: t('toasts.memoryRequiredError'), variant: 'destructive' })
       return
     }
+    if (!editingServer.isRemote && isMemoryMinAboveMax(editingServer.minMemory, editingServer.maxMemory)) {
+      toast({ title: t('toasts.error'), description: t('toasts.memoryMinAboveMaxError'), variant: 'destructive' })
+      return
+    }
     if (!isValidServerName(editingServer.serverName)) {
       toast({ title: t('toasts.error'), description: t('editDialog.serverNameInvalid'), variant: 'destructive' })
       return
@@ -1752,6 +1764,10 @@ export default function Servers() {
     }
     if (!Number.isFinite(newServer.minMemory) || !Number.isFinite(newServer.maxMemory)) {
       toast({ title: t('toasts.error'), description: t('toasts.memoryRequiredError'), variant: 'destructive' })
+      return
+    }
+    if (addMode === 'local' && isMemoryMinAboveMax(newServer.minMemory, newServer.maxMemory)) {
+      toast({ title: t('toasts.error'), description: t('toasts.memoryMinAboveMaxError'), variant: 'destructive' })
       return
     }
 
@@ -2984,6 +3000,7 @@ export default function Servers() {
                                 value={newServer.minMemory}
                                 className="bg-background"
                                 clamp={n => Math.max(1, n)}
+                                invalid={isMemoryMinAboveMax(newServer.minMemory, newServer.maxMemory)}
                                 onChange={minMemory => setNewServer({ ...newServer, minMemory })}
                               />
                             </div>
@@ -2995,9 +3012,13 @@ export default function Servers() {
                                 value={newServer.maxMemory}
                                 className="bg-background"
                                 clamp={n => Math.max(1, n)}
+                                invalid={isMemoryMinAboveMax(newServer.minMemory, newServer.maxMemory)}
                                 onChange={maxMemory => setNewServer({ ...newServer, maxMemory })}
                               />
                             </div>
+                            {isMemoryMinAboveMax(newServer.minMemory, newServer.maxMemory) && (
+                              <p className="text-xs text-destructive sm:col-span-2" role="alert">{t('toasts.memoryMinAboveMaxError')}</p>
+                            )}
                           </div>
                         </div>
                       )}
@@ -3411,6 +3432,7 @@ export default function Servers() {
                     max={64}
                     value={editingServer.minMemory}
                     clamp={n => Math.max(1, n)}
+                    invalid={isMemoryMinAboveMax(editingServer.minMemory, editingServer.maxMemory)}
                     onChange={minMemory => setEditingServer({ ...editingServer, minMemory })}
                   />
                 </div>
@@ -3421,9 +3443,13 @@ export default function Servers() {
                     max={64}
                     value={editingServer.maxMemory}
                     clamp={n => Math.max(1, n)}
+                    invalid={isMemoryMinAboveMax(editingServer.minMemory, editingServer.maxMemory)}
                     onChange={maxMemory => setEditingServer({ ...editingServer, maxMemory })}
                   />
                 </div>
+                {isMemoryMinAboveMax(editingServer.minMemory, editingServer.maxMemory) && (
+                  <p className="text-xs text-destructive sm:col-span-3" role="alert">{t('toasts.memoryMinAboveMaxError')}</p>
+                )}
                 </>
                 )}
               </div>

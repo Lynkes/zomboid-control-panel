@@ -170,6 +170,7 @@
   "INVALID_RCON_PORT": "A porta RCON deve ser um número inteiro entre 1024 e 65535.",
   "INVALID_MIN_MEMORY": "A memória mínima deve ser um número inteiro entre 1 e 64 (GB).",
   "INVALID_MAX_MEMORY": "A memória máxima deve ser um número inteiro entre 1 e 128 (GB).",
+  "MEMORY_MIN_EXCEEDS_MAX": "A memória mínima ({{min}} GB) não pode ser maior que a memória máxima ({{max}} GB).",
   "WRITABLE_PATH_ERROR": "{{label}}: sem permissão de escrita em {{path}}. Escolha uma pasta em que o processo do painel possa gravar.",
   "WRITABLE_PATH_INSTALL_BAREMETAL": "Sem permissão de escrita no caminho de instalação: {{path}}. O usuário que executa o painel não é dono desta pasta ou não tem permissão de escrita nela -- corrija com chown/chmod ou escolha uma pasta em que o painel já possa gravar.",
   "WRITABLE_PATH_INSTALL_CONTAINER": "Sem permissão de escrita no caminho de instalação: {{path}}. Defina PUID/PGID no seu arquivo .env para corresponder ao dono desta pasta do host montada via bind mount (veja o Quick Start do docker-compose.yml) e depois recrie o contêiner.",

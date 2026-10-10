@@ -387,6 +387,7 @@
     "rconPortRangeError": "Pò RCON dwe ant 1 ak 65535",
     "gamePortRangeError": "Pò Jwèt la dwe ant 1 ak 65534",
     "memoryRequiredError": "Antre yon valè memwa minimòm ak maksimòm",
+    "memoryMinAboveMaxError": "Memwa minimòm pa ka pi gran pase memwa maksimòm",
     "savedTitle": "Sove",
     "savedDesc": "Paramèt sèvè mete ajou",
     "updateServerFailed": "Mete sèvè a ajou echwe",

@@ -399,6 +399,7 @@
     "rconPortRangeError": "يجب أن يكون منفذ RCON بين 1 و 65535",
     "gamePortRangeError": "يجب أن يكون منفذ اللعبة بين 1 و 65534",
     "memoryRequiredError": "أدخل قيمة دنيا وقيمة قصوى للذاكرة",
+    "memoryMinAboveMaxError": "لا يمكن أن تكون الذاكرة الدنيا أكبر من الذاكرة القصوى",
     "savedTitle": "تم الحفظ",
     "savedDesc": "تم تحديث إعدادات الخادم",
     "updateServerFailed": "فشل تحديث الخادم",

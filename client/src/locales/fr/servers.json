@@ -386,6 +386,7 @@
     "rconPortRangeError": "Le port RCON doit être compris entre 1 et 65535",
     "gamePortRangeError": "Le port du jeu doit être compris entre 1 et 65534",
     "memoryRequiredError": "Indiquez une mémoire minimale et maximale",
+    "memoryMinAboveMaxError": "La mémoire minimale ne peut pas dépasser la mémoire maximale",
     "savedTitle": "Enregistré",
     "savedDesc": "Paramètres du serveur mis à jour",
     "updateServerFailed": "Échec de la mise à jour du serveur",

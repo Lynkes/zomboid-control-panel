@@ -385,6 +385,7 @@
     "rconPortRangeError": "RCON 埠必須介於 1 到 65535 之間",
     "gamePortRangeError": "遊戲埠必須介於 1 到 65534 之間",
     "memoryRequiredError": "請輸入最小和最大記憶體值",
+    "memoryMinAboveMaxError": "最小記憶體不能大於最大記憶體",
     "savedTitle": "已儲存",
     "savedDesc": "伺服器設定已更新",
     "updateServerFailed": "更新伺服器失敗",

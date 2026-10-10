@@ -170,6 +170,7 @@
   "INVALID_RCON_PORT": "RCON port must be a whole number between 1024 and 65535.",
   "INVALID_MIN_MEMORY": "Minimum memory must be a whole number between 1 and 64 (GB).",
   "INVALID_MAX_MEMORY": "Maximum memory must be a whole number between 1 and 128 (GB).",
+  "MEMORY_MIN_EXCEEDS_MAX": "Minimum memory ({{min}} GB) can't be higher than maximum memory ({{max}} GB).",
   "WRITABLE_PATH_ERROR": "{{label}} is not writable: {{path}}. Choose a folder writable by the panel process.",
   "WRITABLE_PATH_INSTALL_BAREMETAL": "Installation path is not writable: {{path}}. The user running the panel does not own this folder or lacks write permission to it -- fix it with chown/chmod, or choose a folder the panel can already write to.",
   "WRITABLE_PATH_INSTALL_CONTAINER": "Installation path is not writable: {{path}}. Set PUID/PGID in your .env file to match the owner of this bind-mounted host folder (see docker-compose.yml's Quick Start), then recreate the container.",

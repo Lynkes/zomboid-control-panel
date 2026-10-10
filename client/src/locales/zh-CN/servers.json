@@ -385,6 +385,7 @@
     "rconPortRangeError": "RCON 端口必须介于 1 到 65535 之间",
     "gamePortRangeError": "游戏端口必须介于 1 到 65534 之间",
     "memoryRequiredError": "请输入最小和最大内存值",
+    "memoryMinAboveMaxError": "最小内存不能大于最大内存",
     "savedTitle": "已保存",
     "savedDesc": "服务器设置已更新",
     "updateServerFailed": "更新服务器失败",
