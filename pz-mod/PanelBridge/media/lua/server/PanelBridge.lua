@@ -6,6 +6,23 @@
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
 
+                vNEXT Changes:
+                - Fix: two accounts behind one SteamID no longer inflate the
+                    leaderboard. Split-screen guests report the host's
+                    SteamID and alt accounts can share one Steam account, and
+                    the row (keyed by SteamID) kept a single kill baseline, so
+                    each switch between the two added the difference of their
+                    kill counters to all-time kills (a 500-kill and a 20-kill
+                    account gained 480 per switch; a co-op host and guest
+                    gained the gap every minute from the sweep) and flipped
+                    the row's name. The first name seen on a SteamID keeps the
+                    row; another name gets its own row, keyed
+                    steam:<id>|<lowercase name>. A row that already merged
+                    names keeps its key, its totals and its last name (its
+                    aliases stay); the other names start their own rows. A
+                    death's counted body is followed per account too.
+                    getLeaderboard rows are otherwise unchanged.
+
                 v1.7.74 Changes:
                 - Fix: the leaderboard tracks every player, not only the ones
                     online while someone had the panel's Leaderboard page
@@ -1617,10 +1634,8 @@ local LEADERBOARD_FLUSH_INTERVAL_MS = 60000
 -- Up to 1.7.73 only a panel read (the Leaderboard page, a character sheet)
 -- did it, so whoever played while nobody watched was never counted.
 local LEADERBOARD_SWEEP_INTERVAL_MS = 60000
--- The store keeps this many of its last resets, and each row this many
--- other names it was seen under.
+-- The store keeps this many of its last resets.
 local MAX_LEADERBOARD_RESETS = 5
-local MAX_LEADERBOARD_ALIASES = 5
 -- Who asked for a getLeaderboard read (args.source); anything else is "panel".
 local LEADERBOARD_PANEL_SOURCES = { page = true, character = true, sampler = true, bundle = true }
 
@@ -1854,9 +1869,42 @@ local function leaderboardIdentity(player)
     return "name:" .. string.lower(tostring(username)), tostring(username)
 end
 
-local function ensureLeaderboardRecord(store, player)
+-- The key of the row a player's reads belong to. A SteamID is not one
+-- account: split-screen guests report the host's, several accounts can sit
+-- behind one Steam account (MaxAccountsPerUser is unlimited by default), and
+-- two SteamID64s can collapse to the same double. A row keeps one kill
+-- baseline (lastObservedKills), so two accounts on one row each added the
+-- other's difference to all-time kills on every switch, and the row's name
+-- flipped. The first name seen on a steam key keeps the key; any other name
+-- gets a row of its own under `<key>|<lowercase name>`. A row that already
+-- merged several names under the old rule keeps its key and its last name.
+local function leaderboardAccountKey(key, username)
+    if string.sub(key, 1, 6) ~= "steam:" then return key end
+    return key .. "|" .. string.lower(username)
+end
+
+local function leaderboardRowKey(store, key, username)
+    local owner = store.players[key]
+    if type(owner) == "table" and type(owner.username) == "string"
+        and string.lower(owner.username) ~= string.lower(username) then
+        return leaderboardAccountKey(key, username)
+    end
+    return key
+end
+
+-- The key of one account for the runtime maps that follow a character: a
+-- steam key alone would let one account's live read let go of another's
+-- counted body.
+local function leaderboardBodyKey(player)
     local key, username = leaderboardIdentity(player)
-    if not key then return nil, nil end
+    if not key then return nil end
+    return leaderboardAccountKey(key, username)
+end
+
+local function ensureLeaderboardRecord(store, player)
+    local identityKey, username = leaderboardIdentity(player)
+    if not identityKey then return nil, nil end
+    local key = leaderboardRowKey(store, identityKey, username)
 
     local record = store.players[key]
     if type(record) ~= "table" then
@@ -1875,21 +1923,9 @@ local function ensureLeaderboardRecord(store, player)
         store.players[key] = record
     end
 
-    -- Another name on the same key: a renamed account, or several accounts
-    -- behind one SteamID (split-screen guests, alts on one Steam account).
-    -- The row shows the last one; the others are kept so a merged row can
-    -- be spotted without changing the key.
-    if type(record.username) == "string" and string.lower(record.username) ~= string.lower(username) then
-        local aliases = {}
-        for _, alias in ipairs(type(record.aliases) == "table" and record.aliases or {}) do
-            if type(alias) == "string" and alias ~= string.lower(username) and alias ~= string.lower(record.username) then
-                aliases[#aliases + 1] = alias
-            end
-        end
-        aliases[#aliases + 1] = string.lower(record.username)
-        while #aliases > MAX_LEADERBOARD_ALIASES do table.remove(aliases, 1) end
-        record.aliases = aliases
-    end
+    -- Only the case of the name can differ from the row's here (see
+    -- leaderboardRowKey). record.aliases, written by 1.7.74 and older when
+    -- accounts merged into one row, stays as it is: it marks that row.
     record.username = username
     record.displayName = PanelBridge.tryGet(player, "getDisplayName") or record.displayName or username
     record.currentKills = tonumber(record.currentKills) or 0
@@ -1935,13 +1971,13 @@ local function syncLeaderboardMetrics(record, player)
     end
 end
 
--- The body of each death recordPlayerDeath counted, by row key. Runtime
--- only: GameServer.getPlayers keeps listing the dead IsoPlayer until its
--- owner respawns (a new object), and its counters belong to a life that is
--- already counted. IsoGameCharacter.DoDeath fires OnCharacterDeath before
--- anything else, so isDead() alone may not cover that event's own window.
--- Cleared by a live read on the key, or by the sweep once nobody on the key
--- is listed.
+-- The body of each death recordPlayerDeath counted, by account
+-- (leaderboardBodyKey). Runtime only: GameServer.getPlayers keeps listing
+-- the dead IsoPlayer until its owner respawns (a new object), and its
+-- counters belong to a life that is already counted.
+-- IsoGameCharacter.DoDeath fires OnCharacterDeath before anything else, so
+-- isDead() alone may not cover that event's own window. Cleared by a live
+-- read on the account, or by the sweep once nobody on it is listed.
 PanelBridge.leaderboardDeadPlayers = PanelBridge.leaderboardDeadPlayers or {}
 
 -- Reads one player's kills and days into their row: the one way every path
@@ -1949,12 +1985,12 @@ PanelBridge.leaderboardDeadPlayers = PanelBridge.leaderboardDeadPlayers or {}
 -- the row, or nil for an animal, a dead character or a counted body.
 -- `dying` is the death's own read, which comes before isDead() turns true.
 local function sampleLeaderboardPlayer(store, player, source, now, dying)
-    local key = leaderboardIdentity(player)
+    local key = leaderboardBodyKey(player)
     if not key then return nil end
     if not dying then
         local body = PanelBridge.leaderboardDeadPlayers[key]
         if body == player or PanelBridge.tryGet(player, "isDead") == true then return nil end
-        -- A live character on this key: the counted body is gone.
+        -- A live character on this account: the counted body is gone.
         if body ~= nil then PanelBridge.leaderboardDeadPlayers[key] = nil end
     end
     local record = ensureLeaderboardRecord(store, player)
@@ -1990,7 +2026,7 @@ function PanelBridge.sweepLeaderboard()
     if playerList then
         local listed = {}
         for _, player in ipairs(playerList) do
-            local key = leaderboardIdentity(player)
+            local key = leaderboardBodyKey(player)
             if key then listed[key] = true end
         end
         local gone = {}
@@ -2037,7 +2073,7 @@ end
 -- 1.7.73 a death only added 1, and both the dying life's unread kills and
 -- the next life's kills up to the next read were lost.
 local function recordPlayerDeath(player)
-    local key = leaderboardIdentity(player)
+    local key = leaderboardBodyKey(player)
     if not key or PanelBridge.leaderboardDeadPlayers[key] == player then return end
     local store = getLeaderboardStore()
     local record = sampleLeaderboardPlayer(store, player, "death", leaderboardNow(), true)
@@ -4864,8 +4900,8 @@ handlers.getLeaderboard = function(args)
         local record = sampleLeaderboardPlayer(store, player, source, now)
         if not record then
             -- A dead player waiting to respawn is still connected.
-            local key = leaderboardIdentity(player)
-            record = key and store.players[key]
+            local identityKey, username = leaderboardIdentity(player)
+            record = identityKey and store.players[leaderboardRowKey(store, identityKey, username)]
         end
         if type(record) == "table" then record.online = true end
     end
