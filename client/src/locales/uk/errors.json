@@ -183,6 +183,7 @@
   "QUICK_SETUP_MISSING_FIELDS": "Відсутні обов'язкові поля: installPath, serverName",
   "QUICK_SETUP_SERVER_FILES_NOT_FOUND": "Файли сервера не знайдено. Переконайтеся, що шлях містить файли виділеного сервера Project Zomboid.",
   "CONFIGURE_RCON_PASSWORD_REQUIRED": "Потрібно вказати пароль RCON",
+  "RCON_PASSWORD_UNSUPPORTED_CHARS": "Пароль RCON не може містити «=» або розрив рядка. Project Zomboid зчитує значення в server.ini лише до першого «=», тому гра матиме інший пароль, ніж панель.",
   "SERVER_CONFIG_PATH_NOT_SET": "Шлях до конфігурації сервера не задано. Спершу виконайте встановлення.",
   "SERVER_CONFIG_FILE_NOT_FOUND": "Конфігурацію сервера не знайдено за шляхом {{path}}. Спершу запустіть сервер один раз, щоб створити файл конфігурації.",
   "RELOAD_LUA_FILENAME_REQUIRED": "Потрібно вказати назву файлу",

@@ -183,6 +183,7 @@
   "QUICK_SETUP_MISSING_FIELDS": "Chan obligatwa manke: installPath, serverName",
   "QUICK_SETUP_SERVER_FILES_NOT_FOUND": "Dosye sèvè pa jwenn. Asire w chemen an gen dosye sèvè dedye Project Zomboid.",
   "CONFIGURE_RCON_PASSWORD_REQUIRED": "Modpas RCON obligatwa",
+  "RCON_PASSWORD_UNSUPPORTED_CHARS": "Modpas RCON an pa ka gen “=” oswa yon chanjman liy. Project Zomboid li yon valè nan server.ini jiska premye “=” sèlman, kidonk jwèt la t ap gen yon modpas ki pa menm ak sa ki nan panèl la.",
   "SERVER_CONFIG_PATH_NOT_SET": "Chemen konfig sèvè pa defini. Tanpri fè enstalasyon an dabò.",
   "SERVER_CONFIG_FILE_NOT_FOUND": "Konfig sèvè pa jwenn nan {{path}}. Demare sèvè a yon fwa dabò pou jenere fichye konfig la.",
   "RELOAD_LUA_FILENAME_REQUIRED": "Non dosye a obligatwa",

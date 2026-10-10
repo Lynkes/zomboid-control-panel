@@ -762,6 +762,12 @@ export const ErrorCode = Object.freeze({
    * rconPassword in the body. Own code from rcon.js's RCON_* codes -- this
    * is the server-config route, not the live rcon.js connection routes. */
   CONFIGURE_RCON_PASSWORD_REQUIRED: "CONFIGURE_RCON_PASSWORD_REQUIRED",
+  /** server/utils/rconPassword.js -- an RCON password with "=" or a line
+   * break, refused where it is saved (server.js /install, /quick-setup,
+   * /configure-rcon; servers.js add and edit; config.js settings). The game
+   * reads a server.ini value only up to the first "=", so it would end up
+   * with a different password than the panel. */
+  RCON_PASSWORD_UNSUPPORTED_CHARS: "RCON_PASSWORD_UNSUPPORTED_CHARS",
   /** server/routes/server.js (sites: /configure-rcon, /configure-network) --
    * no serverConfigPath resolved (install never run). */
   SERVER_CONFIG_PATH_NOT_SET: "SERVER_CONFIG_PATH_NOT_SET",
