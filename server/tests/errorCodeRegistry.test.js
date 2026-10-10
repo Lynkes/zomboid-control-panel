@@ -190,6 +190,36 @@ const KNOWN_CLIENT_ONLY_LOCALE_KEYS = new Set([
   // every other entry in this registry it has no single server call site
   // to point at.
   "UNEXPECTED_SERVER_ERROR",
+
+  // client/src/lib/api.ts's own transport errors (toApiError(), the stock
+  // status texts of buildResponseError()): the browser could not reach the
+  // panel, or the panel's reply carried no message. No server `code:` exists
+  // for either, by definition.
+  "NETWORK_ERROR",
+  "TIMEOUT",
+  // The stock text for a failed response with no message of its own, picked
+  // by status in client/src/lib/errorMessage.ts (STATUS_FALLBACK_KEYS). Named
+  // HTTP_STATUS_<n>, not the synthesized HTTP_<n> code, so a server-written
+  // message is never replaced by one of these.
+  "HTTP_STATUS_400",
+  "HTTP_STATUS_401",
+  "HTTP_STATUS_403",
+  "HTTP_STATUS_404",
+  "HTTP_STATUS_408",
+  "HTTP_STATUS_409",
+  "HTTP_STATUS_413",
+  "HTTP_STATUS_422",
+  "HTTP_STATUS_429",
+  "HTTP_4XX",
+  "HTTP_5XX",
+  // The translated " Try again in N seconds." that follows a response's
+  // Retry-After header (errorMessage.ts translateRetryAfter()); the plural
+  // forms are i18next's own suffixes, English needing only _one/_other.
+  "RETRY_AFTER_MOMENT",
+  "RETRY_AFTER_SECONDS_one",
+  "RETRY_AFTER_SECONDS_other",
+  "RETRY_AFTER_MINUTES_one",
+  "RETRY_AFTER_MINUTES_other",
 ]);
 
 // This is a STRUCTURE check, one level deeper than the fr/en locale parity

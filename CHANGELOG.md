@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discord command access:** a permission change saved while the bot was still registering its commands now reaches Discord instead of waiting for the next restart.
 - **Leaderboard, accounts sharing a SteamID:** a split-screen guest or an alt account on the same Steam account gets its own row instead of adding the other account's kills every time the two switch or the minute sweep runs (PanelBridge update; rows that already merged keep their totals).
 - **Player deaths on the same tile:** a second death on the same tile within 5 minutes (a fixed spawn tile) is no longer dropped from the Discord notice, the player history and the live death event.
+- **Network and server errors:** "Unable to reach the server", request timeouts, the stock "not found / no permission / server unavailable" texts and the "Try again in N seconds" wait are translated in every language instead of always English.
 
 ## [1.4.12] - 2026-10-10
 
