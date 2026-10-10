@@ -291,6 +291,10 @@ export class Scheduler {
     // is waiting for (or running after) that restart -- see
     // _deferScheduledBackupUntilRestartEnds().
     this.deferredBackup = null;
+    // The scheduled backup tick in flight (settling, waiting out a restart or
+    // running), so a tick arriving meanwhile folds into it instead of racing
+    // it -- see _onScheduledBackupTick().
+    this.scheduledBackupTick = null;
     this.runningTasks = new Set(); // Track tasks currently executing to prevent duplicates
     // The install-wide timezone every cron.schedule() call in this class
     // uses, resolved (and migrated, if needed) once by resolveTimezone()
@@ -1246,28 +1250,44 @@ export class Scheduler {
   // is the one overlap left: its countdown usually outlasts the zip, and
   // closing it fully would mean performRestart() waiting on a backup, the
   // reverse of the one-directional rule above.
+  //
+  // One tick at a time: the tick that is settling, waiting out a restart or
+  // zipping is `this.scheduledBackupTick` until it ends, and a tick that
+  // arrives meanwhile folds into it. A backup that outlasts its schedule
+  // interval (a big world on an every-15-minutes schedule) used to get its
+  // next tick through as a second createBackup(), refused with "Backup
+  // already in progress" and written to Schedule History as a failure -- and
+  // the Dashboard's "Scheduled backup failing" warning -- for a backup that
+  // was running fine.
   async _onScheduledBackupTick(settings) {
-    if (this._foldIntoDeferredBackup()) return;
-    if (!this.restartInProgress) {
-      await this.sleep(SAME_SECOND_RESTART_SETTLE_MS);
-      if (this._foldIntoDeferredBackup()) return;
+    if (this._foldIntoBackupInFlight()) return;
+    const tick = { since: Date.now() };
+    this.scheduledBackupTick = tick;
+    try {
+      if (!this.restartInProgress) {
+        await this.sleep(SAME_SECOND_RESTART_SETTLE_MS);
+      }
+      if (this.restartInProgress) {
+        await this._deferScheduledBackupUntilRestartEnds();
+        return;
+      }
+      log.info("Executing scheduled backup");
+      await this._runScheduledBackup(settings);
+    } finally {
+      if (this.scheduledBackupTick === tick) this.scheduledBackupTick = null;
     }
-    if (this.restartInProgress) {
-      await this._deferScheduledBackupUntilRestartEnds();
-      return;
-    }
-    log.info("Executing scheduled backup");
-    await this._runScheduledBackup(settings);
   }
 
-  // A tick landing while an earlier one is still waiting out (or running
-  // after) a restart folds into it: a second queued copy would only race the
-  // first into createBackup()'s "Backup already in progress" refusal and log
-  // a failure for a backup that IS happening.
-  _foldIntoDeferredBackup() {
-    if (!this.deferredBackup) return false;
+  // A tick landing while an earlier one is still in flight -- waiting out (or
+  // running after) a restart, or running -- folds into it: a second copy
+  // would only race the first into createBackup()'s "Backup already in
+  // progress" refusal and log a failure for a backup that IS happening.
+  _foldIntoBackupInFlight() {
+    if (!this.scheduledBackupTick) return false;
     log.info(
-      "Scheduled backup tick folded into the one already held back by a server restart",
+      this.deferredBackup
+        ? "Scheduled backup tick folded into the one already held back by a server restart"
+        : "Scheduled backup tick folded into the scheduled backup that is still running",
     );
     return true;
   }
@@ -1428,6 +1448,20 @@ export class Scheduler {
   }
 
   async _runScheduledBackup(settings, { deferredAt = null } = {}) {
+    // A backup already running -- a manual "Create Backup Now", or the end of
+    // a long scheduled one -- archives the same world, so this slot is
+    // covered. createBackup() would refuse with "Backup already in progress",
+    // which landed in Schedule History as a failure (and as the Dashboard's
+    // "Scheduled backup failing") although nothing went wrong. Nothing is
+    // awaited between this check and createBackup()'s own claim of the flag,
+    // so the flag cannot flip in between; a real failure of a backup this
+    // does start is still logged below.
+    if (this.backupService.backupInProgress) {
+      log.info(
+        "Scheduled backup skipped: another backup is already in progress, which covers this slot",
+      );
+      return;
+    }
     const startTime = Date.now();
     // Schedule History is the only place an unattended backup's story is
     // told -- a held-back run says so, instead of looking like it simply
