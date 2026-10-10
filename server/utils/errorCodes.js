@@ -1101,6 +1101,11 @@ export const ErrorCode = Object.freeze({
   MODS_ADD_ALL_DEPS_REQUIRED: "MODS_ADD_ALL_DEPS_REQUIRED",
   /** server/routes/mods.js -- POST /add-all-resolved-deps, deps.length exceeds 200. */
   MODS_ADD_ALL_DEPS_TOO_MANY: "MODS_ADD_ALL_DEPS_TOO_MANY",
+  /** server/routes/mods.js -- POST /add-to-ini-bulk, `mods` missing/empty/not an array. */
+  MODS_ADD_BULK_MODS_ARRAY_REQUIRED: "MODS_ADD_BULK_MODS_ARRAY_REQUIRED",
+  /** server/routes/mods.js -- POST /add-to-ini-bulk, mods.length exceeds 500 (same cap as
+   * /batch-remove). */
+  MODS_ADD_BULK_TOO_MANY: "MODS_ADD_BULK_TOO_MANY",
   /** server/routes/mods.js -- POST /add-missing-dep, workshopId missing or fails /^\d{1,15}$/. */
   MODS_ADD_MISSING_DEP_WORKSHOP_ID_REQUIRED: "MODS_ADD_MISSING_DEP_WORKSHOP_ID_REQUIRED",
   /** server/routes/mods.js -- POST /add-to-ini, serverConfigPath unresolved. Own wording ("...in
@@ -1318,6 +1323,10 @@ export const ErrorCode = Object.freeze({
    * dependencies provided") -- different route, different phrasing, kept
    * separate. */
   MODS_RESOLVE_DEPS_ARRAY_REQUIRED: "MODS_RESOLVE_DEPS_ARRAY_REQUIRED",
+  /** server/routes/mods.js -- POST /resolve-missing-deps, `deps` longer than 200. Same cap and
+   * wording as MODS_ADD_ALL_DEPS_TOO_MANY above -- own code, per this file's
+   * per-call-site convention. */
+  MODS_RESOLVE_DEPS_TOO_MANY: "MODS_RESOLVE_DEPS_TOO_MANY",
   /** server/routes/mods.js -- POST /resolve-orphan-workshop, workshopIds.length exceeds 500. Same
    * cap and reasoning as MODS_BATCH_REMOVE_TOO_MANY above -- own code, per
    * this file's per-call-site convention. */

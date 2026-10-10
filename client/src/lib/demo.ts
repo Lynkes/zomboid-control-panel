@@ -1520,6 +1520,28 @@ export function installDemoFetchShim(): void {
         message: 'Demo mode: selected mod IDs would be written to the INI.',
       })
     }
+    if (path === '/api/mods/add-to-ini-bulk' && method === 'POST') {
+      const body = await readJsonBody(init)
+      const mods: Array<{ workshopId?: unknown }> = Array.isArray(body.mods) ? body.mods : []
+      return jsonResponse({
+        success: true,
+        total: mods.length,
+        added: mods.length,
+        alreadyConfigured: 0,
+        workshopOnly: 0,
+        invalid: 0,
+        mapFoldersAdded: [],
+        results: mods.map((mod) => ({
+          workshopId: String(mod.workshopId ?? 'demo'),
+          status: 'added',
+          addedModIds: ['DemoModId'],
+          alternativeModIds: [],
+          mapFoldersAdded: [],
+          workshopAlreadyExisted: false,
+          detectionSource: 'local-files',
+        })),
+      })
+    }
     if (path.startsWith('/api/mods/') && method !== 'GET') {
       return jsonResponse({ success: true, message: 'Demo mode: mod action acknowledged (no backend connected).' })
     }

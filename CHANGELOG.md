@@ -71,6 +71,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Minimum memory above maximum:** adding or editing a server (and the legacy memory setting) now refuses a minimum above the maximum with a clear message, instead of saving a server whose start script the Java VM rejects.
 - **Install wizard:** the memory sliders now show the saved values instead of always resetting to 4 and 8 GB, and the suggested RCON password is generated with the browser's secure random source.
 - **Add Server when activation is busy:** if the new server was created but could not be made active right away (another action was running), the dialog now closes with a clear "added, not active yet" notice instead of reporting a failed add, so a retry no longer creates a duplicate; adding the same name in the same data folder twice is refused.
+- **Mod IDs with `$` in them:** adding, removing or reordering mods no longer mangles the server .ini when a mod ID or map folder name contains `$&`, `$'` or `$$`.
+- **Hand-edited Mods= lines:** a padded list such as `Mods=A; B;C ` no longer makes Remove, Disable or Delete silently do nothing for B and C, and the Collection Sync page reads a `WorkshopItems = ...` line with spaces around the `=` like every other page.
+- **Mods with an all-digit ID:** adding, removing, deduplicating, deleting or syncing an unrelated mod no longer drops a mod whose ID is a number (such as 3519629457) from the Mods= line.
+- **Which mod ID gets enabled:** Add mod and Sync Mod IDs now enable the ID the game really loads (the last `id=` line of the newest mod.info) instead of the first, and no longer list the other `id=` lines or older version folders as extra mods.
+- **Conflict scanner, odd folder names:** a mod whose folder is not named after its ID or title is now scanned for conflicts instead of being skipped as inactive.
+- **Missing-dependency resolver:** resolving the dependencies of a long mod list no longer re-reads every downloaded mod once per dependency (so the panel stays responsive), and a request with more than 200 dependencies is refused with a clear message.
+- **Importing a collection keeps your backup:** importing or re-enabling many mods now writes the server .ini once (one backup of the config as it was before) instead of once per mod, which pushed the pre-import backup out of the 10 kept.
+- **Importing mods that are not downloaded yet:** the import looks up their mod IDs on Steam like Add Mod does, and when an ID is still unknown it says the mod was added to WorkshopItems only (start the server to download it, then Sync Mod IDs) instead of "Restart the server to load the new mods".
 
 ## [1.4.12] - 2026-10-10
 

@@ -730,6 +730,8 @@
     "modsAddedToConfigTitle_many": "{{count}} mods ajoute nan konfig sèvè a",
     "modsAddedFailedSuffix": "{{count}} echwe — tcheke konsòl la pou detay",
     "restartToLoadNewMods": "Redemare sèvè a pou chaje nouvo mods yo.",
+    "workshopOnlyDesc": "Ajoute sèlman nan WorkshopItems: ID mod la pa konnen jiskaske fichye yo telechaje. Demare sèvè a, answit itilize \"Senkwonize ID Mod\" pou aktive li.",
+    "workshopOnlyNote": "{{count}} nan yo poko gen ID mod e yo te ajoute sèlman nan WorkshopItems. Demare sèvè a pou yo telechaje, answit itilize \"Senkwonize ID Mod\" pou aktive yo.",
     "importFailedTitle": "Enpòtasyon Echwe",
     "importFailedFallback": "Pa t kapab ajoute mods nan konfig sèvè a. Eseye ankò.",
     "nothingToWriteTitle": "Pa gen Anyen pou Ekri",

@@ -665,6 +665,8 @@
     "modsAddedToConfigTitle_other": "{{count}} mods added to server config",
     "modsAddedFailedSuffix": "{{count}} failed — check the console for details",
     "restartToLoadNewMods": "Restart the server to load the new mods.",
+    "workshopOnlyDesc": "Added to WorkshopItems only: its mod ID is not known until the files are downloaded. Start the server, then use \"Sync Mod IDs\" to enable it.",
+    "workshopOnlyNote": "{{count}} of these have no mod ID yet and were added to WorkshopItems only. Start the server so they download, then use \"Sync Mod IDs\" to enable them.",
     "importFailedTitle": "Import Failed",
     "importFailedFallback": "Could not add mods to server config. Try again.",
     "nothingToWriteTitle": "Nothing to Write",

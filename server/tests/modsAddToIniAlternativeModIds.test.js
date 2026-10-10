@@ -4,9 +4,8 @@ import os from "os";
 import path from "path";
 
 // continuous-bug-hunt round 27 (mod load order / Workshop collection
-// import): a single workshop item's mod.info can declare several `id=`
-// lines (getModDetailsFromWorkshop's own comment/parsing -- confirmed by
-// this test's own fixture). POST /add-to-ini -- the route the Mods page
+// import): a single workshop item can bundle several mods (one mod folder
+// each, every folder with its own mod.info). POST /add-to-ini -- the route the Mods page
 // actually calls for every ordinary "add a mod by workshop ID" action
 // (Mods.tsx's addToIni, called with no explicit modId) -- only ever
 // auto-enabled the FIRST declared id in Mods=, via findModIdFromWorkshop's
@@ -100,7 +99,11 @@ describe("POST /add-to-ini: a multi-id workshop item reports its extra mod ids i
     fs.writeFileSync(path.join(configPath, "TestServer.ini"), "Mods=\nWorkshopItems=\n");
 
     installPath = path.join(dataRoot, "install");
-    const modDir = path.join(
+    // THREE separate mods in one workshop item: one mod folder each. (A single
+    // mod.info with three id= lines is ONE mod for the game -- the last line
+    // wins -- see modsModInfoGameId.test.js.) The folder names sort in the
+    // order the mods should be reported.
+    const modsRoot = path.join(
       installPath,
       "steamapps",
       "workshop",
@@ -108,15 +111,15 @@ describe("POST /add-to-ini: a multi-id workshop item reports its extra mod ids i
       "108600",
       WORKSHOP_ID,
       "mods",
-      "BundledPack",
     );
-    fs.mkdirSync(modDir, { recursive: true });
-    // A single mod.info declaring THREE separate mods (a real, documented
-    // authoring pattern -- see getModDetailsFromWorkshop's own comment).
-    fs.writeFileSync(
-      path.join(modDir, "mod.info"),
-      ["name=Bundled Pack", "id=BundledCore", "id=BundledExtraOne", "id=BundledExtraTwo", ""].join("\n"),
-    );
+    for (const [folder, id] of [
+      ["1_BundledCore", "BundledCore"],
+      ["2_BundledExtraOne", "BundledExtraOne"],
+      ["3_BundledExtraTwo", "BundledExtraTwo"],
+    ]) {
+      fs.mkdirSync(path.join(modsRoot, folder), { recursive: true });
+      fs.writeFileSync(path.join(modsRoot, folder, "mod.info"), ["name=Bundled Pack", `id=${id}`, ""].join("\n"));
+    }
 
     getActiveServer.mockReset().mockResolvedValue({
       id: "server-1",
@@ -156,8 +159,8 @@ describe("POST /add-to-ini: a multi-id workshop item reports its extra mod ids i
   });
 
   it("reports an empty alternativeModIds array when the workshop item declares only one mod id", async () => {
-    // Overwrite the fixture with a single-id mod.info.
-    const modDir = path.join(
+    // Leave only one mod folder, with a single-id mod.info.
+    const modsRoot = path.join(
       installPath,
       "steamapps",
       "workshop",
@@ -165,9 +168,10 @@ describe("POST /add-to-ini: a multi-id workshop item reports its extra mod ids i
       "108600",
       WORKSHOP_ID,
       "mods",
-      "BundledPack",
     );
-    fs.writeFileSync(path.join(modDir, "mod.info"), ["name=Solo Mod", "id=SoloModId", ""].join("\n"));
+    fs.rmSync(path.join(modsRoot, "2_BundledExtraOne"), { recursive: true, force: true });
+    fs.rmSync(path.join(modsRoot, "3_BundledExtraTwo"), { recursive: true, force: true });
+    fs.writeFileSync(path.join(modsRoot, "1_BundledCore", "mod.info"), ["name=Solo Mod", "id=SoloModId", ""].join("\n"));
 
     const res = await runRoute("/add-to-ini", "post", {
       body: { workshopId: WORKSHOP_ID },
