@@ -7,13 +7,19 @@
     (no external Dev1/ working copy, no \\garage SMB deploy — that
     infrastructure is retired; live deployment now happens separately via
     Docker on the production host):
-    0. Pre-flight checks (clean main branch)
+    0. Pre-flight checks (clean main branch, Docker daemon reachable)
     1. Bumps version in package.json — auto-increments if no -Version given
     2. Builds the client (Vite/React)
     3. Builds Windows + Linux binaries (esbuild + pkg) and packages archives
     4. Builds Docker image
     5. Commits and pushes to GitHub
     6. Creates a GitHub Release with Keep a Changelog format notes
+
+    Steps 1-4 rewrite tracked files and then take a while to build. If any of
+    them fails (or the run is interrupted), the files the version bump rewrote
+    are put back with git, so a failed run leaves a clean tree for the next one.
+    Just before the commit, origin/main is fetched again and the run stops (after
+    the same restore) if it moved while the release was building.
 
 .PARAMETER Version
     Explicit version string (e.g., "0.9.0"). If omitted, auto-increments based on -Bump.
@@ -85,6 +91,20 @@ $LinuxBinPath     = "release\ZomboidControlPanel"
 $WinZipPath       = "release\ZomboidControlPanel-windows.zip"
 $LinuxTarPath     = "release\ZomboidControlPanel-linux.tar.gz"
 $ChecksumsPath    = "release\checksums.txt"
+
+# Every tracked file STEP 1 rewrites (the five version files, the PanelBridge
+# Lua and mod.info, and the lock written by check-bridge-version.mjs
+# --write-lock). A failed run puts these back; see Restore-ReleaseBumpFiles.
+# Build output (release/, client/dist, dist-exe) is gitignored and not listed.
+$ReleaseBumpFiles = @(
+    "package.json",
+    "package-lock.json",
+    "client/package.json",
+    "client/package-lock.json",
+    "pz-mod/PanelBridge/media/lua/server/PanelBridge.lua",
+    "pz-mod/PanelBridge/mod.info",
+    "pz-mod/bridge-version.lock.json"
+)
 
 # ============================================
 # HELPERS
@@ -265,6 +285,78 @@ function Format-PowerShellCommandLine($command, $arguments) {
     return $parts -join " "
 }
 
+# STEP 1 rewrites tracked files and nothing but a commit makes that permanent,
+# so a real run starts only from main. A dry run writes nothing and may be
+# tried on any branch. Called before anything is fetched or written.
+function Assert-ReleaseBranch($branch, $isDryRun) {
+    if ($isDryRun) { return }
+    if ($branch -ne "main") {
+        throw "Releases must be run from the main branch; current branch is '$branch'. Nothing was changed (-DryRun previews a release from any branch)."
+    }
+}
+
+# STEP 4 builds the Docker image after STEP 1 has bumped the version and STEP 3
+# has spent minutes on the binaries; a Docker Desktop that was not running used
+# to surface only there, as "Docker build failed". Checked in STEP 0 instead.
+# A machine without Docker on PATH keeps the old behaviour (STEP 4 skips the
+# build with a warning); one that has it but cannot reach the daemon stops here.
+function Assert-DockerReady {
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+        Write-Warn "Docker not found on PATH -- STEP 4 will skip the Docker build"
+        return
+    }
+    $dockerReachable = $false
+    try {
+        & docker info *> $null
+        $dockerReachable = ($LASTEXITCODE -eq 0)
+    } catch {
+        $dockerReachable = $false
+    }
+    if (-not $dockerReachable) {
+        throw "Docker is needed to build the image in STEP 4, but 'docker info' failed (is Docker Desktop running?). Start Docker and run the release again, or pass -SkipDocker to release without building the image. Nothing was changed."
+    }
+    Write-Ok "Docker daemon is reachable"
+}
+
+# Puts back the tracked files STEP 1 rewrote, from HEAD (STEP 0 required a
+# clean tree and nothing is staged before STEP 5, so HEAD is what they held).
+# Returns the paths it restored. Never throws: it runs while another error is
+# already on its way out, and must not replace it.
+function Restore-ReleaseBumpFiles($repoDir, $relativePaths) {
+    $changed = @()
+    try {
+        foreach ($relative in $relativePaths) {
+            $tracked = @(git -C $repoDir ls-files -- $relative 2>$null)
+            if ($tracked.Count -eq 0) { continue }
+            $status = @(git -C $repoDir status --porcelain -- $relative 2>$null)
+            if ($status.Count -gt 0) { $changed += $relative }
+        }
+        if ($changed.Count -eq 0) { return @() }
+        git -C $repoDir checkout HEAD -- @changed 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "Could not restore the version bump automatically. Run: git checkout HEAD -- $($changed -join ' ')"
+            return @()
+        }
+    } catch {
+        Write-Warn "Could not restore the version bump automatically ($($_.Exception.Message)). Run: git checkout HEAD -- $($relativePaths -join ' ')"
+        return @()
+    }
+    return $changed
+}
+
+# The commit in STEP 5 is made on the local main that STEP 0 checked against
+# origin/main. A release takes long enough for someone else to push meanwhile;
+# committing anyway leaves a local "Release vX" commit that cannot be pushed
+# and blocks the next run. Fetch again right before committing and stop instead.
+function Assert-OriginMainUnchanged($repoDir, $expectedCommit) {
+    git -C $repoDir fetch origin main --quiet
+    if ($LASTEXITCODE -ne 0) { throw "Could not refresh origin/main before committing the release" }
+    $currentCommit = "$(git -C $repoDir rev-parse origin/main 2>$null)".Trim()
+    if ($currentCommit -ne $expectedCommit) {
+        throw "origin/main moved from $expectedCommit to $currentCommit while the release was building. Nothing was committed or pushed and the version bump was undone. Pull main and run the release again."
+    }
+}
+
 # ============================================
 # AUTO-VERSION: Increment from current package.json if no -Version given
 # ============================================
@@ -384,6 +476,9 @@ try {
     # .Trim() on that empty result (null even through a [string] cast) would
     # abort the dry run instead of reaching the checks below.
     $currentBranch = "$(git branch --show-current 2>$null)".Trim()
+    # First thing, before the fetch below and long before STEP 1 writes
+    # anything: a real release from another branch stops here.
+    Assert-ReleaseBranch $currentBranch $DryRun
     $upstreamBranch = "$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>$null)".Trim()
     $headCommit = "$(git rev-parse HEAD 2>$null)".Trim()
     $originMainCommit = $null
@@ -410,9 +505,6 @@ if ($ReleaseNotes) {
 }
 Write-Ok "No obsolete standalone release-note files"
 if (-not $DryRun -and -not $SkipGitHub) {
-    if ($currentBranch -ne "main") {
-        throw "Releases must be run from the main branch; current branch is '$currentBranch'."
-    }
     if ($upstreamBranch -ne "origin/main") {
         throw "Releases require an origin/main upstream; current upstream is '$upstreamBranch'."
     }
@@ -424,7 +516,8 @@ if (-not $DryRun -and -not $SkipGitHub) {
     }
     Write-Ok "Release source is cleanly based on origin/main"
 } elseif ($currentBranch -ne "main") {
-    Write-Warn "Dry run or GitHub publishing is skipped on branch '$currentBranch'"
+    # Only a dry run gets here on another branch (Assert-ReleaseBranch above).
+    Write-Warn "Dry run on branch '$currentBranch'; a real release only runs from main"
 }
 if (-not $DryRun) {
     $packageVersionCheck = Join-Path $RepoDir "scripts\verify-package-version.mjs"
@@ -470,332 +563,359 @@ if (Test-Path $changelogFile) {
     Write-Warning "CHANGELOG.md not found -- skipping changelog heading check"
 }
 
-# ============================================
-# STEP 1: Bump version in package.json
-# ============================================
-Write-Step "1/6" "Bumping version to $Version"
-
-$pkgFile = Join-Path $RepoDir "package.json"
-if (Test-Path $pkgFile) {
-    $content = Get-Content $pkgFile -Raw
-    $newContent = $content -replace '"version":\s*"[^"]*"', "`"version`": `"$Version`""
-    if ($DryRun) {
-        Write-Dry "Would update $pkgFile"
-    } else {
-        # Set-Content intermittently throws "Stream was not readable" in some
-        # shells even when the file is writable; direct file I/O is reliable.
-        [System.IO.File]::WriteAllText($pkgFile, $newContent, [System.Text.UTF8Encoding]::new($false))
-        Write-Ok "Updated $pkgFile"
-    }
-} else {
-    Write-Warning "Package file not found: $pkgFile"
+# Last pre-flight check, so a stopped Docker fails here and not after STEP 3.
+if (-not $SkipDocker -and -not $DryRun) {
+    Assert-DockerReady
 }
 
-$rootLockFile = Join-Path $RepoDir "package-lock.json"
-if (Test-Path $rootLockFile) {
-    $rootLockContent = Get-Content $rootLockFile -Raw
-    $rootLockPattern = '("name":\s*"pz-server-manager",\s*\r?\n\s*"version":\s*")[^"]*(")'
-    $rootLockMatchCount = [regex]::Matches($rootLockContent, $rootLockPattern).Count
-    if ($rootLockMatchCount -ne 2) {
-        throw "Expected exactly 2 root package version occurrences in $rootLockFile, found $rootLockMatchCount"
-    }
-    $newRootLockContent = [regex]::Replace($rootLockContent, $rootLockPattern, "`${1}$Version`${2}")
-    if ($DryRun) {
-        Write-Dry "Would update $rootLockFile ($rootLockMatchCount occurrences)"
-    } else {
-        [System.IO.File]::WriteAllText($rootLockFile, $newRootLockContent, [System.Text.UTF8Encoding]::new($false))
-        Write-Ok "Updated $rootLockFile ($rootLockMatchCount occurrences)"
-    }
-} else {
-    throw "Package lock file not found: $rootLockFile"
-}
+# STEPS 1-4 rewrite tracked files (STEP 1) and then spend minutes building. A
+# failure anywhere in them used to leave the bump behind: a dirty tree, which
+# STEP 0 of the next run refuses ("Working tree is dirty"). However this block
+# is left before it completes (a throw, or Ctrl+C), the finally puts the
+# rewritten files back and says so.
+$releaseStepsDone = $false
+try {
+    # ============================================
+    # STEP 1: Bump version in package.json
+    # ============================================
+    Write-Step "1/6" "Bumping version to $Version"
 
-# client/package.json drifted from root for four releases (1.2.2 while root
-# reached 1.2.6) because this step never touched it -- bump it in the same
-# step as root so there's no window where they can disagree. A test
-# (server/tests/clientVersionMatchesRoot.test.js) asserts they match, but
-# this is the fix at the one place versions actually get bumped; the test is
-# the backstop for every OTHER way they could still drift (a hand-edit, a
-# merge like the one that didn't cause this drift but could have).
-$clientPkgFile = Join-Path $RepoDir "client\package.json"
-if (Test-Path $clientPkgFile) {
-    $clientContent = Get-Content $clientPkgFile -Raw
-    $newClientContent = $clientContent -replace '"version":\s*"[^"]*"', "`"version`": `"$Version`""
-    if ($DryRun) {
-        Write-Dry "Would update $clientPkgFile"
+    $pkgFile = Join-Path $RepoDir "package.json"
+    if (Test-Path $pkgFile) {
+        $content = Get-Content $pkgFile -Raw
+        $newContent = $content -replace '"version":\s*"[^"]*"', "`"version`": `"$Version`""
+        if ($DryRun) {
+            Write-Dry "Would update $pkgFile"
+        } else {
+            # Set-Content intermittently throws "Stream was not readable" in some
+            # shells even when the file is writable; direct file I/O is reliable.
+            [System.IO.File]::WriteAllText($pkgFile, $newContent, [System.Text.UTF8Encoding]::new($false))
+            Write-Ok "Updated $pkgFile"
+        }
     } else {
-        [System.IO.File]::WriteAllText($clientPkgFile, $newClientContent, [System.Text.UTF8Encoding]::new($false))
-        Write-Ok "Updated $clientPkgFile"
+        Write-Warning "Package file not found: $pkgFile"
     }
-} else {
-    Write-Warning "Package file not found: $clientPkgFile"
-}
 
-# client/package-lock.json carries the version TWICE (top-level, and again
-# under packages[""]) -- a blind "replace every version string" would also
-# clobber unrelated dependencies that happen to share the same version
-# number (e.g. a dependency pinned to the same "1.2.x" string). Anchor on
-# the package's own name, which appears nowhere else in the file, so only
-# the two real occurrences move.
-$clientLockFile = Join-Path $RepoDir "client\package-lock.json"
-if (Test-Path $clientLockFile) {
-    $lockContent = Get-Content $clientLockFile -Raw
-    $lockPattern = '("name":\s*"pz-server-manager-client",\s*\r?\n\s*"version":\s*")[^"]*(")'
-    # ${1}/${2}, not $1/$2 -- .NET tries to parse digits immediately after a
-    # bare $N as part of the group number, and $Version starts with a digit,
-    # so "$1" + "9.9.9" reads as "reference group 19" (which doesn't exist)
-    # and silently drops the whole backreference instead of falling back to
-    # group 1. Caught this only by actually running it against a scratch
-    # copy -- the pattern read correctly, the substitution didn't.
-    $newLockContent = [regex]::Replace($lockContent, $lockPattern, "`${1}$Version`${2}")
-    $matchCount = [regex]::Matches($lockContent, $lockPattern).Count
-    if ($matchCount -ne 2) {
-        Write-Warning "Expected exactly 2 version occurrences anchored to pz-server-manager-client in $clientLockFile, found $matchCount -- skipping automatic edit, update it by hand"
+    $rootLockFile = Join-Path $RepoDir "package-lock.json"
+    if (Test-Path $rootLockFile) {
+        $rootLockContent = Get-Content $rootLockFile -Raw
+        $rootLockPattern = '("name":\s*"pz-server-manager",\s*\r?\n\s*"version":\s*")[^"]*(")'
+        $rootLockMatchCount = [regex]::Matches($rootLockContent, $rootLockPattern).Count
+        if ($rootLockMatchCount -ne 2) {
+            throw "Expected exactly 2 root package version occurrences in $rootLockFile, found $rootLockMatchCount"
+        }
+        $newRootLockContent = [regex]::Replace($rootLockContent, $rootLockPattern, "`${1}$Version`${2}")
+        if ($DryRun) {
+            Write-Dry "Would update $rootLockFile ($rootLockMatchCount occurrences)"
+        } else {
+            [System.IO.File]::WriteAllText($rootLockFile, $newRootLockContent, [System.Text.UTF8Encoding]::new($false))
+            Write-Ok "Updated $rootLockFile ($rootLockMatchCount occurrences)"
+        }
+    } else {
+        throw "Package lock file not found: $rootLockFile"
+    }
+
+    # client/package.json drifted from root for four releases (1.2.2 while root
+    # reached 1.2.6) because this step never touched it -- bump it in the same
+    # step as root so there's no window where they can disagree. A test
+    # (server/tests/clientVersionMatchesRoot.test.js) asserts they match, but
+    # this is the fix at the one place versions actually get bumped; the test is
+    # the backstop for every OTHER way they could still drift (a hand-edit, a
+    # merge like the one that didn't cause this drift but could have).
+    $clientPkgFile = Join-Path $RepoDir "client\package.json"
+    if (Test-Path $clientPkgFile) {
+        $clientContent = Get-Content $clientPkgFile -Raw
+        $newClientContent = $clientContent -replace '"version":\s*"[^"]*"', "`"version`": `"$Version`""
+        if ($DryRun) {
+            Write-Dry "Would update $clientPkgFile"
+        } else {
+            [System.IO.File]::WriteAllText($clientPkgFile, $newClientContent, [System.Text.UTF8Encoding]::new($false))
+            Write-Ok "Updated $clientPkgFile"
+        }
+    } else {
+        Write-Warning "Package file not found: $clientPkgFile"
+    }
+
+    # client/package-lock.json carries the version TWICE (top-level, and again
+    # under packages[""]) -- a blind "replace every version string" would also
+    # clobber unrelated dependencies that happen to share the same version
+    # number (e.g. a dependency pinned to the same "1.2.x" string). Anchor on
+    # the package's own name, which appears nowhere else in the file, so only
+    # the two real occurrences move.
+    $clientLockFile = Join-Path $RepoDir "client\package-lock.json"
+    if (Test-Path $clientLockFile) {
+        $lockContent = Get-Content $clientLockFile -Raw
+        $lockPattern = '("name":\s*"pz-server-manager-client",\s*\r?\n\s*"version":\s*")[^"]*(")'
+        # ${1}/${2}, not $1/$2 -- .NET tries to parse digits immediately after a
+        # bare $N as part of the group number, and $Version starts with a digit,
+        # so "$1" + "9.9.9" reads as "reference group 19" (which doesn't exist)
+        # and silently drops the whole backreference instead of falling back to
+        # group 1. Caught this only by actually running it against a scratch
+        # copy -- the pattern read correctly, the substitution didn't.
+        $newLockContent = [regex]::Replace($lockContent, $lockPattern, "`${1}$Version`${2}")
+        $matchCount = [regex]::Matches($lockContent, $lockPattern).Count
+        if ($matchCount -ne 2) {
+            Write-Warning "Expected exactly 2 version occurrences anchored to pz-server-manager-client in $clientLockFile, found $matchCount -- skipping automatic edit, update it by hand"
+        } elseif ($DryRun) {
+            Write-Dry "Would update $clientLockFile ($matchCount occurrences)"
+        } else {
+            [System.IO.File]::WriteAllText($clientLockFile, $newLockContent, [System.Text.UTF8Encoding]::new($false))
+            Write-Ok "Updated $clientLockFile ($matchCount occurrences)"
+        }
+    } else {
+        Write-Warning "Package lock file not found: $clientLockFile"
+    }
+
+    $bridgeModInfoPath = Join-Path $RepoDir "pz-mod\PanelBridge\mod.info"
+    if (-not (Test-Path $bridgeModInfoPath)) {
+        throw "PanelBridge manifest not found: $bridgeModInfoPath"
+    }
+    $bridgeLuaContent = Get-Content $bridgeLuaPath -Raw
+    $bridgeModInfoContent = Get-Content $bridgeModInfoPath -Raw
+    $bridgeHeaderPattern = '(?m)^    Version:\s*[^\r\n]+'
+    $bridgeRuntimePattern = '(?m)^    VERSION\s*=\s*"[^"]+"'
+    $bridgeModVersionPattern = '(?m)^modversion=[^\r\n]+'
+    # Unreleased bridge changes are described under "vNEXT Changes:" in the Lua
+    # header (feature branches never bump VERSION); the release names the block.
+    $bridgeNextChangesPattern = '(?m)^(\s*)vNEXT Changes:'
+    $bridgeHeaderMatches = [regex]::Matches($bridgeLuaContent, $bridgeHeaderPattern)
+    $bridgeRuntimeMatches = [regex]::Matches($bridgeLuaContent, $bridgeRuntimePattern)
+    $bridgeModVersionMatches = [regex]::Matches($bridgeModInfoContent, $bridgeModVersionPattern)
+    if ($bridgeHeaderMatches.Count -ne 1 -or $bridgeRuntimeMatches.Count -ne 1 -or $bridgeModVersionMatches.Count -ne 1) {
+        throw "Expected exactly one PanelBridge header, runtime, and manifest version"
+    }
+    $bridgeHeaderReplacement = "    Version: $PanelBridgeVersion"
+    $bridgeRuntimeReplacement = '    VERSION = "' + $PanelBridgeVersion + '"'
+    $bridgeModVersionReplacement = "modversion=$PanelBridgeVersion"
+    # Rewrite only when a declaration actually moves: rewriting unchanged files
+    # would still churn their bytes (line endings, BOM) for a no-op release.
+    $bridgeNeedsRewrite = $bridgeHeaderMatches[0].Value.TrimEnd() -ne $bridgeHeaderReplacement -or
+        $bridgeRuntimeMatches[0].Value -ne $bridgeRuntimeReplacement -or
+        $bridgeModVersionMatches[0].Value.TrimEnd() -ne $bridgeModVersionReplacement -or
+        [regex]::IsMatch($bridgeLuaContent, $bridgeNextChangesPattern)
+    if (-not $bridgeNeedsRewrite) {
+        Write-Ok "PanelBridge Lua and mod.info already declare $PanelBridgeVersion; left untouched"
+    } else {
+        $newBridgeLuaContent = $bridgeLuaContent -replace $bridgeHeaderPattern, $bridgeHeaderReplacement
+        $newBridgeLuaContent = $newBridgeLuaContent -replace $bridgeRuntimePattern, $bridgeRuntimeReplacement
+        $newBridgeLuaContent = [regex]::Replace($newBridgeLuaContent, $bridgeNextChangesPattern, "`${1}v$PanelBridgeVersion Changes:")
+        $newBridgeModInfoContent = $bridgeModInfoContent -replace $bridgeModVersionPattern, $bridgeModVersionReplacement
+        if ($DryRun) {
+            Write-Dry "Would update PanelBridge to $PanelBridgeVersion in Lua and mod.info"
+        } else {
+            [System.IO.File]::WriteAllText($bridgeLuaPath, $newBridgeLuaContent, [System.Text.UTF8Encoding]::new($false))
+            [System.IO.File]::WriteAllText($bridgeModInfoPath, $newBridgeModInfoContent, [System.Text.UTF8Encoding]::new($false))
+            Write-Ok "Updated PanelBridge Lua and mod.info to $PanelBridgeVersion"
+        }
+    }
+
+    $bridgeWorkshopCheck = Join-Path $RepoDir "scripts\workshop\build-item.mjs"
+    if ($DryRun) {
+        Write-Dry "Would run: node scripts/check-bridge-version.mjs --write-lock $PanelBridgeVersion"
+    } else {
+        Assert-ReleaseVersionParity $Version $PanelBridgeVersion
+        Write-Ok "All package, lockfile, and PanelBridge versions are synchronized"
+        & node $bridgeVersionCheck --write-lock $PanelBridgeVersion
+        if ($LASTEXITCODE -ne 0) { throw "Could not write pz-mod\bridge-version.lock.json" }
+        Write-Ok "PanelBridge version lock records $PanelBridgeVersion"
+    }
+    # Read-only, so a dry run runs it too: it previews what the real release would
+    # reject (in a dry run, against the files before the version rewrite).
+    & node $bridgeWorkshopCheck --check
+    if ($LASTEXITCODE -ne 0) { throw "PanelBridge Steam Workshop item check failed" }
+    Write-Ok "PanelBridge Steam Workshop item passes its checks"
+
+    # ============================================
+    # STEP 2: Build client
+    # ============================================
+    Write-Step "2/6" "Building client (Vite/React)"
+
+    if ($SkipBuild) {
+        Write-Skip "Build skipped (-SkipBuild)"
     } elseif ($DryRun) {
-        Write-Dry "Would update $clientLockFile ($matchCount occurrences)"
+        Write-Dry "Would run: cd client && npm run build"
     } else {
-        [System.IO.File]::WriteAllText($clientLockFile, $newLockContent, [System.Text.UTF8Encoding]::new($false))
-        Write-Ok "Updated $clientLockFile ($matchCount occurrences)"
-    }
-} else {
-    Write-Warning "Package lock file not found: $clientLockFile"
-}
-
-$bridgeModInfoPath = Join-Path $RepoDir "pz-mod\PanelBridge\mod.info"
-if (-not (Test-Path $bridgeModInfoPath)) {
-    throw "PanelBridge manifest not found: $bridgeModInfoPath"
-}
-$bridgeLuaContent = Get-Content $bridgeLuaPath -Raw
-$bridgeModInfoContent = Get-Content $bridgeModInfoPath -Raw
-$bridgeHeaderPattern = '(?m)^    Version:\s*[^\r\n]+'
-$bridgeRuntimePattern = '(?m)^    VERSION\s*=\s*"[^"]+"'
-$bridgeModVersionPattern = '(?m)^modversion=[^\r\n]+'
-# Unreleased bridge changes are described under "vNEXT Changes:" in the Lua
-# header (feature branches never bump VERSION); the release names the block.
-$bridgeNextChangesPattern = '(?m)^(\s*)vNEXT Changes:'
-$bridgeHeaderMatches = [regex]::Matches($bridgeLuaContent, $bridgeHeaderPattern)
-$bridgeRuntimeMatches = [regex]::Matches($bridgeLuaContent, $bridgeRuntimePattern)
-$bridgeModVersionMatches = [regex]::Matches($bridgeModInfoContent, $bridgeModVersionPattern)
-if ($bridgeHeaderMatches.Count -ne 1 -or $bridgeRuntimeMatches.Count -ne 1 -or $bridgeModVersionMatches.Count -ne 1) {
-    throw "Expected exactly one PanelBridge header, runtime, and manifest version"
-}
-$bridgeHeaderReplacement = "    Version: $PanelBridgeVersion"
-$bridgeRuntimeReplacement = '    VERSION = "' + $PanelBridgeVersion + '"'
-$bridgeModVersionReplacement = "modversion=$PanelBridgeVersion"
-# Rewrite only when a declaration actually moves: rewriting unchanged files
-# would still churn their bytes (line endings, BOM) for a no-op release.
-$bridgeNeedsRewrite = $bridgeHeaderMatches[0].Value.TrimEnd() -ne $bridgeHeaderReplacement -or
-    $bridgeRuntimeMatches[0].Value -ne $bridgeRuntimeReplacement -or
-    $bridgeModVersionMatches[0].Value.TrimEnd() -ne $bridgeModVersionReplacement -or
-    [regex]::IsMatch($bridgeLuaContent, $bridgeNextChangesPattern)
-if (-not $bridgeNeedsRewrite) {
-    Write-Ok "PanelBridge Lua and mod.info already declare $PanelBridgeVersion; left untouched"
-} else {
-    $newBridgeLuaContent = $bridgeLuaContent -replace $bridgeHeaderPattern, $bridgeHeaderReplacement
-    $newBridgeLuaContent = $newBridgeLuaContent -replace $bridgeRuntimePattern, $bridgeRuntimeReplacement
-    $newBridgeLuaContent = [regex]::Replace($newBridgeLuaContent, $bridgeNextChangesPattern, "`${1}v$PanelBridgeVersion Changes:")
-    $newBridgeModInfoContent = $bridgeModInfoContent -replace $bridgeModVersionPattern, $bridgeModVersionReplacement
-    if ($DryRun) {
-        Write-Dry "Would update PanelBridge to $PanelBridgeVersion in Lua and mod.info"
-    } else {
-        [System.IO.File]::WriteAllText($bridgeLuaPath, $newBridgeLuaContent, [System.Text.UTF8Encoding]::new($false))
-        [System.IO.File]::WriteAllText($bridgeModInfoPath, $newBridgeModInfoContent, [System.Text.UTF8Encoding]::new($false))
-        Write-Ok "Updated PanelBridge Lua and mod.info to $PanelBridgeVersion"
-    }
-}
-
-$bridgeWorkshopCheck = Join-Path $RepoDir "scripts\workshop\build-item.mjs"
-if ($DryRun) {
-    Write-Dry "Would run: node scripts/check-bridge-version.mjs --write-lock $PanelBridgeVersion"
-} else {
-    Assert-ReleaseVersionParity $Version $PanelBridgeVersion
-    Write-Ok "All package, lockfile, and PanelBridge versions are synchronized"
-    & node $bridgeVersionCheck --write-lock $PanelBridgeVersion
-    if ($LASTEXITCODE -ne 0) { throw "Could not write pz-mod\bridge-version.lock.json" }
-    Write-Ok "PanelBridge version lock records $PanelBridgeVersion"
-}
-# Read-only, so a dry run runs it too: it previews what the real release would
-# reject (in a dry run, against the files before the version rewrite).
-& node $bridgeWorkshopCheck --check
-if ($LASTEXITCODE -ne 0) { throw "PanelBridge Steam Workshop item check failed" }
-Write-Ok "PanelBridge Steam Workshop item passes its checks"
-
-# ============================================
-# STEP 2: Build client
-# ============================================
-Write-Step "2/6" "Building client (Vite/React)"
-
-if ($SkipBuild) {
-    Write-Skip "Build skipped (-SkipBuild)"
-} elseif ($DryRun) {
-    Write-Dry "Would run: cd client && npm run build"
-} else {
-    Push-Location (Join-Path $RepoDir "client")
-    try {
-        npm run build
-        if ($LASTEXITCODE -ne 0) { throw "Client build failed" }
-        Write-Ok "Client built successfully"
-    } finally {
-        Pop-Location
-    }
-}
-
-# ============================================
-# STEP 3: Build binaries
-# ============================================
-Write-Step "3/6" "Building Windows + Linux binaries (esbuild + pkg)"
-
-if ($SkipBuild) {
-    Write-Skip "Build skipped (-SkipBuild)"
-} elseif ($DryRun) {
-    Write-Dry "Would run: npm run build:exe:all, then create ZomboidControlPanel-windows.zip"
-} else {
-    Push-Location $RepoDir
-    try {
-        npm run build:exe:all
-        if ($LASTEXITCODE -ne 0) { throw "Binary build failed" }
-
-        $winExe = Join-Path $RepoDir $WinExePath
-        $linuxBin = Join-Path $RepoDir $LinuxBinPath
-        $checksums = Join-Path $RepoDir $ChecksumsPath
-
-        if (-not (Test-Path $winExe)) { throw "Windows binary not found at $winExe" }
-        if (-not (Test-Path $linuxBin)) { throw "Linux binary not found at $linuxBin" }
-        if (-not (Test-Path $checksums)) { throw "Checksums file not found at $checksums" }
-
-        $winSize = [math]::Round((Get-Item $winExe).Length / 1MB, 1)
-        $linuxSize = [math]::Round((Get-Item $linuxBin).Length / 1MB, 1)
-        Write-Ok "Windows binary built: $winSize MB"
-        Write-Ok "Linux binary built: $linuxSize MB"
-        Write-Ok "Checksums and manifest generated"
-
-        # Package Windows release archive (full folder with client/dist, pz-mod, scripts etc.)
-        # Belt-and-braces: explicitly exclude data/db.json and data/backups so a stray
-        # runtime database from local testing can never end up in a public release
-        # (issue #5: clobbering users' admin/server config on extract).
-        $zipPath = Join-Path $RepoDir $WinZipPath
-        if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-        $releaseFolder = Join-Path $RepoDir $ReleaseDir
-        $strayDb = Join-Path $releaseFolder "data\db.json"
-        if (Test-Path $strayDb) {
-            Write-Warn "Removing stray data\db.json from release\ before archiving"
-            Remove-Item $strayDb -Force
-        }
-        $strayBackups = Join-Path $releaseFolder "data\backups"
-        if (Test-Path $strayBackups) {
-            Write-Warn "Removing stray data\backups\ from release\ before archiving"
-            Remove-Item $strayBackups -Recurse -Force
-        }
-        Compress-Archive -Path "$releaseFolder\*" -DestinationPath $zipPath
-        $zipSize = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
-        Write-Ok "Windows archive created: ZomboidControlPanel-windows.zip ($zipSize MB)"
-
-        # build.js already created the Linux archive with explicit per-entry
-        # modes. Do not recreate it with Windows tar: bsdtar strips the
-        # executable bit from the extensionless binary and shell scripts.
-        $tarPath = Join-Path $RepoDir $LinuxTarPath
-        if (-not (Test-Path $tarPath)) {
-            throw "Linux archive not found at $tarPath"
-        }
-        $tarSize = [math]::Round((Get-Item $tarPath).Length / 1MB, 1)
-        Write-Ok "Linux archive verified: ZomboidControlPanel-linux.tar.gz ($tarSize MB)"
-
-        $releaseArtifacts = @(
-            @{ platform = "win";   kind = "binary"; file = "ZomboidControlPanel.exe";          path = $winExe },
-            @{ platform = "linux"; kind = "binary"; file = "ZomboidControlPanel";              path = $linuxBin },
-            @{ platform = "win";   kind = "archive"; file = "ZomboidControlPanel-windows.zip"; path = $zipPath },
-            @{ platform = "linux"; kind = "archive"; file = "ZomboidControlPanel-linux.tar.gz"; path = $tarPath },
-            @{ platform = "browser"; kind = "extension"; file = "zomboid-panel-extension.zip"; path = (Join-Path $RepoDir "release\zomboid-panel-extension.zip") },
-            @{ platform = "docker"; kind = "compose"; file = "docker-compose.install.yml";     path = (Join-Path $RepoDir "docker-compose.install.yml") },
-            @{ platform = "docker"; kind = "dockerfile"; file = "Dockerfile";                  path = (Join-Path $RepoDir "Dockerfile") }
-        )
-
-        $checksumLines = @()
-        foreach ($artifact in $releaseArtifacts) {
-            $hash = (Get-FileHash -Algorithm SHA256 -Path $artifact.path).Hash.ToLowerInvariant()
-            $checksumLines += "$hash  $($artifact.file)"
-        }
-        Set-Content -Path $checksums -Value ($checksumLines -join "`n") -NoNewline
-        Add-Content -Path $checksums -Value ""
-        Write-Ok "Checksums updated for binaries + archives + Docker files"
-    } finally {
-        Pop-Location
-    }
-
-    # Post-build verification
-    $clientDist = Join-Path $RepoDir "client\dist"
-    if (-not (Test-Path $clientDist) -or (Get-ChildItem $clientDist -Recurse -File).Count -eq 0) {
-        throw "Build verification failed: client/dist/ is empty or missing"
-    }
-    Write-Ok "Build verification passed (exe + client/dist validated)"
-}
-
-if (-not $DryRun) {
-    $manifestPath = Join-Path $RepoDir "release\release-manifest.json"
-    if (-not (Test-Path $manifestPath)) {
-        throw "Release manifest not found at $manifestPath. Build the release artifacts before publishing."
-    }
-    try {
-        $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
-    } catch {
-        throw "Release manifest is not valid JSON: $manifestPath"
-    }
-    if ([string]$manifest.version -ne $Version) {
-        throw "Release artifact version mismatch: requested v$Version but release-manifest.json contains v$($manifest.version). Rebuild the artifacts; refusing to publish stale binaries."
-    }
-    $metadataExpected = [pscustomobject]@{
-        version = $manifest.version
-        buildSha = $manifest.buildSha
-        apiContractVersion = $manifest.apiContractVersion
-    }
-    $sourceClientMetadata = Read-BuildMetadata (Join-Path $RepoDir "client\dist\build-info.json") "Source client"
-    $releaseClientMetadata = Read-BuildMetadata (Join-Path $RepoDir "release\client\dist\build-info.json") "Release client"
-    Assert-BuildMetadata $sourceClientMetadata $metadataExpected "Source client"
-    Assert-BuildMetadata $releaseClientMetadata $metadataExpected "Release client"
-    Assert-DirectoryMatches (Join-Path $RepoDir "client\dist") (Join-Path $RepoDir "release\client\dist") "Release client"
-    Assert-DirectoryMatchesManifest (Join-Path $RepoDir "client\dist") $manifest.clientFiles "Source client"
-    foreach ($binary in @(
-        @{ Path = (Join-Path $RepoDir $WinExePath); File = "ZomboidControlPanel.exe" },
-        @{ Path = (Join-Path $RepoDir $LinuxBinPath); File = "ZomboidControlPanel" }
-    )) {
-        if (-not (Test-Path $binary.Path)) {
-            throw "Release binary not found at $($binary.Path)"
-        }
-        $manifestArtifact = @($manifest.artifacts | Where-Object { [string]$_.file -eq $binary.File }) | Select-Object -First 1
-        if (-not $manifestArtifact) {
-            throw "Release manifest is missing the $($binary.File) artifact"
-        }
-        $actualHash = (Get-FileHash -Algorithm SHA256 -Path $binary.Path).Hash.ToLowerInvariant()
-        if ($actualHash -ne [string]$manifestArtifact.sha256.ToLowerInvariant()) {
-            throw "Release binary hash mismatch for $($binary.File); rebuild the artifacts before publishing"
-        }
-    }
-    Write-Ok "Release artifact version verified: v$Version"
-    Write-Ok "Release frontend and binary metadata verified: build $($manifest.buildSha)"
-}
-
-# ============================================
-# STEP 4: Build Docker image
-# ============================================
-Write-Step "4/6" "Building Docker image"
-
-if ($SkipDocker) {
-    Write-Skip "Docker build skipped (-SkipDocker)"
-} elseif ($DryRun) {
-    Write-Dry "Would run: docker build -t zomboid-panel:$TagName"
-} else {
-    $dockerAvailable = Get-Command docker -ErrorAction SilentlyContinue
-    if ($dockerAvailable) {
-        Push-Location $RepoDir
+        Push-Location (Join-Path $RepoDir "client")
         try {
-            docker build -t "zomboid-panel:$TagName" -t "zomboid-panel:latest" .
-            if ($LASTEXITCODE -ne 0) { throw "Docker build failed" }
-            Write-Ok "Docker image built: zomboid-panel:$TagName"
+            npm run build
+            if ($LASTEXITCODE -ne 0) { throw "Client build failed" }
+            Write-Ok "Client built successfully"
         } finally {
             Pop-Location
         }
+    }
+
+    # ============================================
+    # STEP 3: Build binaries
+    # ============================================
+    Write-Step "3/6" "Building Windows + Linux binaries (esbuild + pkg)"
+
+    if ($SkipBuild) {
+        Write-Skip "Build skipped (-SkipBuild)"
+    } elseif ($DryRun) {
+        Write-Dry "Would run: npm run build:exe:all, then create ZomboidControlPanel-windows.zip"
     } else {
-        Write-Warn "Docker not found on PATH — skipping Docker build"
+        Push-Location $RepoDir
+        try {
+            npm run build:exe:all
+            if ($LASTEXITCODE -ne 0) { throw "Binary build failed" }
+
+            $winExe = Join-Path $RepoDir $WinExePath
+            $linuxBin = Join-Path $RepoDir $LinuxBinPath
+            $checksums = Join-Path $RepoDir $ChecksumsPath
+
+            if (-not (Test-Path $winExe)) { throw "Windows binary not found at $winExe" }
+            if (-not (Test-Path $linuxBin)) { throw "Linux binary not found at $linuxBin" }
+            if (-not (Test-Path $checksums)) { throw "Checksums file not found at $checksums" }
+
+            $winSize = [math]::Round((Get-Item $winExe).Length / 1MB, 1)
+            $linuxSize = [math]::Round((Get-Item $linuxBin).Length / 1MB, 1)
+            Write-Ok "Windows binary built: $winSize MB"
+            Write-Ok "Linux binary built: $linuxSize MB"
+            Write-Ok "Checksums and manifest generated"
+
+            # Package Windows release archive (full folder with client/dist, pz-mod, scripts etc.)
+            # Belt-and-braces: explicitly exclude data/db.json and data/backups so a stray
+            # runtime database from local testing can never end up in a public release
+            # (issue #5: clobbering users' admin/server config on extract).
+            $zipPath = Join-Path $RepoDir $WinZipPath
+            if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+            $releaseFolder = Join-Path $RepoDir $ReleaseDir
+            $strayDb = Join-Path $releaseFolder "data\db.json"
+            if (Test-Path $strayDb) {
+                Write-Warn "Removing stray data\db.json from release\ before archiving"
+                Remove-Item $strayDb -Force
+            }
+            $strayBackups = Join-Path $releaseFolder "data\backups"
+            if (Test-Path $strayBackups) {
+                Write-Warn "Removing stray data\backups\ from release\ before archiving"
+                Remove-Item $strayBackups -Recurse -Force
+            }
+            Compress-Archive -Path "$releaseFolder\*" -DestinationPath $zipPath
+            $zipSize = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
+            Write-Ok "Windows archive created: ZomboidControlPanel-windows.zip ($zipSize MB)"
+
+            # build.js already created the Linux archive with explicit per-entry
+            # modes. Do not recreate it with Windows tar: bsdtar strips the
+            # executable bit from the extensionless binary and shell scripts.
+            $tarPath = Join-Path $RepoDir $LinuxTarPath
+            if (-not (Test-Path $tarPath)) {
+                throw "Linux archive not found at $tarPath"
+            }
+            $tarSize = [math]::Round((Get-Item $tarPath).Length / 1MB, 1)
+            Write-Ok "Linux archive verified: ZomboidControlPanel-linux.tar.gz ($tarSize MB)"
+
+            $releaseArtifacts = @(
+                @{ platform = "win";   kind = "binary"; file = "ZomboidControlPanel.exe";          path = $winExe },
+                @{ platform = "linux"; kind = "binary"; file = "ZomboidControlPanel";              path = $linuxBin },
+                @{ platform = "win";   kind = "archive"; file = "ZomboidControlPanel-windows.zip"; path = $zipPath },
+                @{ platform = "linux"; kind = "archive"; file = "ZomboidControlPanel-linux.tar.gz"; path = $tarPath },
+                @{ platform = "browser"; kind = "extension"; file = "zomboid-panel-extension.zip"; path = (Join-Path $RepoDir "release\zomboid-panel-extension.zip") },
+                @{ platform = "docker"; kind = "compose"; file = "docker-compose.install.yml";     path = (Join-Path $RepoDir "docker-compose.install.yml") },
+                @{ platform = "docker"; kind = "dockerfile"; file = "Dockerfile";                  path = (Join-Path $RepoDir "Dockerfile") }
+            )
+
+            $checksumLines = @()
+            foreach ($artifact in $releaseArtifacts) {
+                $hash = (Get-FileHash -Algorithm SHA256 -Path $artifact.path).Hash.ToLowerInvariant()
+                $checksumLines += "$hash  $($artifact.file)"
+            }
+            Set-Content -Path $checksums -Value ($checksumLines -join "`n") -NoNewline
+            Add-Content -Path $checksums -Value ""
+            Write-Ok "Checksums updated for binaries + archives + Docker files"
+        } finally {
+            Pop-Location
+        }
+
+        # Post-build verification
+        $clientDist = Join-Path $RepoDir "client\dist"
+        if (-not (Test-Path $clientDist) -or (Get-ChildItem $clientDist -Recurse -File).Count -eq 0) {
+            throw "Build verification failed: client/dist/ is empty or missing"
+        }
+        Write-Ok "Build verification passed (exe + client/dist validated)"
+    }
+
+    if (-not $DryRun) {
+        $manifestPath = Join-Path $RepoDir "release\release-manifest.json"
+        if (-not (Test-Path $manifestPath)) {
+            throw "Release manifest not found at $manifestPath. Build the release artifacts before publishing."
+        }
+        try {
+            $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+        } catch {
+            throw "Release manifest is not valid JSON: $manifestPath"
+        }
+        if ([string]$manifest.version -ne $Version) {
+            throw "Release artifact version mismatch: requested v$Version but release-manifest.json contains v$($manifest.version). Rebuild the artifacts; refusing to publish stale binaries."
+        }
+        $metadataExpected = [pscustomobject]@{
+            version = $manifest.version
+            buildSha = $manifest.buildSha
+            apiContractVersion = $manifest.apiContractVersion
+        }
+        $sourceClientMetadata = Read-BuildMetadata (Join-Path $RepoDir "client\dist\build-info.json") "Source client"
+        $releaseClientMetadata = Read-BuildMetadata (Join-Path $RepoDir "release\client\dist\build-info.json") "Release client"
+        Assert-BuildMetadata $sourceClientMetadata $metadataExpected "Source client"
+        Assert-BuildMetadata $releaseClientMetadata $metadataExpected "Release client"
+        Assert-DirectoryMatches (Join-Path $RepoDir "client\dist") (Join-Path $RepoDir "release\client\dist") "Release client"
+        Assert-DirectoryMatchesManifest (Join-Path $RepoDir "client\dist") $manifest.clientFiles "Source client"
+        foreach ($binary in @(
+            @{ Path = (Join-Path $RepoDir $WinExePath); File = "ZomboidControlPanel.exe" },
+            @{ Path = (Join-Path $RepoDir $LinuxBinPath); File = "ZomboidControlPanel" }
+        )) {
+            if (-not (Test-Path $binary.Path)) {
+                throw "Release binary not found at $($binary.Path)"
+            }
+            $manifestArtifact = @($manifest.artifacts | Where-Object { [string]$_.file -eq $binary.File }) | Select-Object -First 1
+            if (-not $manifestArtifact) {
+                throw "Release manifest is missing the $($binary.File) artifact"
+            }
+            $actualHash = (Get-FileHash -Algorithm SHA256 -Path $binary.Path).Hash.ToLowerInvariant()
+            if ($actualHash -ne [string]$manifestArtifact.sha256.ToLowerInvariant()) {
+                throw "Release binary hash mismatch for $($binary.File); rebuild the artifacts before publishing"
+            }
+        }
+        Write-Ok "Release artifact version verified: v$Version"
+        Write-Ok "Release frontend and binary metadata verified: build $($manifest.buildSha)"
+    }
+
+    # ============================================
+    # STEP 4: Build Docker image
+    # ============================================
+    Write-Step "4/6" "Building Docker image"
+
+    if ($SkipDocker) {
+        Write-Skip "Docker build skipped (-SkipDocker)"
+    } elseif ($DryRun) {
+        Write-Dry "Would run: docker build -t zomboid-panel:$TagName"
+    } else {
+        $dockerAvailable = Get-Command docker -ErrorAction SilentlyContinue
+        if ($dockerAvailable) {
+            Push-Location $RepoDir
+            try {
+                docker build -t "zomboid-panel:$TagName" -t "zomboid-panel:latest" .
+                if ($LASTEXITCODE -ne 0) { throw "Docker build failed" }
+                Write-Ok "Docker image built: zomboid-panel:$TagName"
+            } finally {
+                Pop-Location
+            }
+        } else {
+            Write-Warn "Docker not found on PATH — skipping Docker build"
+        }
+    }
+
+    # Right before the commit: has main moved while the release was building?
+    if (-not $DryRun -and -not $SkipGitHub) {
+        Assert-OriginMainUnchanged $RepoDir $originMainCommit
+        Write-Ok "origin/main has not moved since the release started"
+    }
+    $releaseStepsDone = $true
+} finally {
+    if (-not $releaseStepsDone -and -not $DryRun) {
+        $restoredFiles = @(Restore-ReleaseBumpFiles $RepoDir $ReleaseBumpFiles)
+        if ($restoredFiles.Count -gt 0) {
+            Write-Warn "The release did not finish. Restored the files the version bump rewrote (git checkout HEAD -- ...), so the working tree is clean again: $($restoredFiles -join ', ')"
+        }
     }
 }
 

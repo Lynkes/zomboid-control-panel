@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Start scripts changed your values:** a data folder like "D:\Games (x86)\PZ Data" or an admin password like P@ss%w0rd!&x$y is now written to the start script exactly as saved (special characters used to be deleted, so the game used another folder or password); a double quote or line break in either is refused when saving.
 - **Data folder with a trailing backslash:** "D:\Zomboid Data\" no longer breaks the game's -cachedir argument, and the panel stores and uses the folder without it.
 - **Spaces around the server name:** Install and Quick Setup no longer create "MyServer .ini" and similar files when the name was typed with spaces around it.
+- **Stopped server shown as running:** a `tail`/`less` on the server log or the start-server script is no longer mistaken for the server process, so Start and Stop act on the real Java server.
+- **RCON log noise and cut-off replies:** the panel log no longer warns "Orphaned RCON response" for every RCON connection and every 30 s Servers-page check, and long replies such as `showoptions` are shown in full instead of cut at 4086 bytes.
 
 ## [1.4.12] - 2026-10-10
 
