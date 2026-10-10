@@ -313,6 +313,7 @@
   "MODS_PRESET_UPDATE_WORKSHOP_IDS_ARRAY": "workshopIds doit être un tableau",
   "MODS_PURGE_INI_NOT_ACCESSIBLE": "Le fichier de configuration du serveur était introuvable ou inaccessible — le mod n'a pas été supprimé du serveur.",
   "MODS_RESOLVE_DEPS_ARRAY_REQUIRED": "Le tableau de dépendances est requis",
+  "MODS_RESOLVE_DEPS_TOO_MANY": "Trop de dépendances en une seule requête (200 maximum)",
   "MODS_RESOLVE_ORPHAN_WORKSHOP_TOO_MANY": "Maximum 500 mods par lot",
   "MODS_RESTART_CHECK_INTERVAL_INVALID": "checkInterval doit être un nombre entier de minutes, de 60000 ms à 7200000 ms",
   "MODS_RESTART_DELAY_IF_PLAYERS_ONLINE_INVALID": "delayIfPlayersOnline doit être un booléen",

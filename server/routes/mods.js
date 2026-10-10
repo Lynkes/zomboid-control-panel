@@ -4520,11 +4520,68 @@ router.post("/resolve-missing-deps", async (req, res) => {
       });
     }
 
+    // Same cap as the sibling POST /add-all-resolved-deps: every dep used to
+    // trigger a synchronous read of every downloaded mod.info, so an
+    // unbounded array pinned the event loop for as long as the caller liked.
+    if (deps.length > 200) {
+      return res.status(400).json({
+        error: "Too many dependencies in one request (max 200)",
+        code: ErrorCode.MODS_RESOLVE_DEPS_TOO_MANY,
+      });
+    }
+
     const serverPath = await getServerPath();
     const resolved = [];
 
+    // mod id -> { workshopId, name } over the downloaded workshop items, built
+    // on the first dep that needs it and shared by the rest of the request
+    // (one pass over the workshop folders instead of one per dep). The first
+    // item to declare an id wins, in the same scan order as before.
+    let localModIndex = null;
+    const buildLocalModIndex = () => {
+      const index = new Map();
+      if (!serverPath) return index;
+      const workshopPaths = [
+        path.join(serverPath, "steamapps", "workshop", "content", "108600"),
+        path.join(
+          serverPath,
+          "..",
+          "steamapps",
+          "workshop",
+          "content",
+          "108600",
+        ),
+      ];
+      for (const workshopBase of workshopPaths) {
+        if (!fs.existsSync(workshopBase)) continue;
+        try {
+          for (const entry of fs.readdirSync(workshopBase, {
+            withFileTypes: true,
+          })) {
+            if (!entry.isDirectory()) continue;
+            try {
+              for (const mod of getModDetailsFromWorkshop(entry.name, serverPath)) {
+                if (!index.has(mod.id)) {
+                  index.set(mod.id, { workshopId: entry.name, name: mod.name });
+                }
+              }
+            } catch (e) {
+              log.debug(
+                `Error reading mod details during dep resolution: ${e.message}`,
+              );
+            }
+          }
+        } catch (e) {
+          log.debug(
+            `Error reading workshop path during dep scan: ${e.message}`,
+          );
+        }
+      }
+      return index;
+    };
+
     for (const dep of deps) {
-      const missingDep = dep.missingDep;
+      const missingDep = dep?.missingDep;
       if (!missingDep || typeof missingDep !== "string") continue;
       if (dep.resolvedWorkshopId) {
         resolved.push(dep);
@@ -4532,56 +4589,17 @@ router.post("/resolve-missing-deps", async (req, res) => {
       }
 
       // Search locally
-      let found = false;
-      if (serverPath) {
-        const workshopPaths = [
-          path.join(serverPath, "steamapps", "workshop", "content", "108600"),
-          path.join(
-            serverPath,
-            "..",
-            "steamapps",
-            "workshop",
-            "content",
-            "108600",
-          ),
-        ];
-        for (const workshopBase of workshopPaths) {
-          if (found || !fs.existsSync(workshopBase)) continue;
-          try {
-            for (const entry of fs.readdirSync(workshopBase, {
-              withFileTypes: true,
-            })) {
-              if (!entry.isDirectory() || found) continue;
-              try {
-                const details = getModDetailsFromWorkshop(
-                  entry.name,
-                  serverPath,
-                );
-                for (const mod of details) {
-                  if (mod.id === missingDep) {
-                    resolved.push({
-                      ...dep,
-                      resolvedWorkshopId: entry.name,
-                      resolvedModName: mod.name,
-                    });
-                    found = true;
-                    break;
-                  }
-                }
-              } catch (e) {
-                log.debug(
-                  `Error reading mod details during dep resolution: ${e.message}`,
-                );
-              }
-            }
-          } catch (e) {
-            log.debug(
-              `Error reading workshop path during dep scan: ${e.message}`,
-            );
-          }
-        }
+      localModIndex ??= buildLocalModIndex();
+      const match = localModIndex.get(missingDep);
+      if (match) {
+        resolved.push({
+          ...dep,
+          resolvedWorkshopId: match.workshopId,
+          resolvedModName: match.name,
+        });
+      } else {
+        resolved.push(dep);
       }
-      if (!found) resolved.push(dep);
     }
 
     res.json({

@@ -313,6 +313,7 @@
   "MODS_PRESET_UPDATE_WORKSHOP_IDS_ARRAY": "workshopIds deve ser um array",
   "MODS_PURGE_INI_NOT_ACCESSIBLE": "O arquivo de configuração do servidor não foi encontrado ou não está acessível — o mod não foi removido do servidor.",
   "MODS_RESOLVE_DEPS_ARRAY_REQUIRED": "O array de dependências é obrigatório",
+  "MODS_RESOLVE_DEPS_TOO_MANY": "Dependências demais em uma única solicitação (máx. 200)",
   "MODS_RESOLVE_ORPHAN_WORKSHOP_TOO_MANY": "Máximo de 500 mods por lote",
   "MODS_RESTART_CHECK_INTERVAL_INVALID": "checkInterval deve ser um número inteiro de minutos, de 60000ms a 7200000ms",
   "MODS_RESTART_DELAY_IF_PLAYERS_ONLINE_INVALID": "delayIfPlayersOnline deve ser um booleano",

@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Mods with an all-digit ID:** adding, removing, deduplicating, deleting or syncing an unrelated mod no longer drops a mod whose ID is a number (such as 3519629457) from the Mods= line.
 - **Which mod ID gets enabled:** Add mod and Sync Mod IDs now enable the ID the game really loads (the last `id=` line of the newest mod.info) instead of the first, and no longer list the other `id=` lines or older version folders as extra mods.
 - **Conflict scanner, odd folder names:** a mod whose folder is not named after its ID or title is now scanned for conflicts instead of being skipped as inactive.
+- **Missing-dependency resolver:** resolving the dependencies of a long mod list no longer re-reads every downloaded mod once per dependency (so the panel stays responsive), and a request with more than 200 dependencies is refused with a clear message.
 
 ## [1.4.12] - 2026-10-10
 
