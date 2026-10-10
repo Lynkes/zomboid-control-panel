@@ -48,7 +48,13 @@ function assertQuotable(text, what) {
 export function quoteForBatch(value, what = "A value") {
   const text = String(value ?? "");
   assertQuotable(text, what);
-  return `"${text.replace(/%/g, "%%").replace(/\\+$/, (run) => run + run)}"`;
+  // Counted with a loop, not /\\+$/: that pattern is polynomial on a long run
+  // of backslashes (CodeQL js/polynomial-redos on #228).
+  let end = text.length;
+  while (end > 0 && text[end - 1] === "\\") end -= 1;
+  const body = text.slice(0, end).replace(/%/g, "%%");
+  const trailingBackslashes = text.slice(end);
+  return `"${body}${trailingBackslashes}${trailingBackslashes}"`;
 }
 
 /**
