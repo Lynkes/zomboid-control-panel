@@ -70,7 +70,9 @@ export function CharacterImportExportDialog({
   const { formatDateTime } = useDateFormat()
   const { toast } = useToast()
 
-  const [characterData, setCharacterData] = useState<string>('')
+  // The exported JSON together with the player it was exported for: the
+  // download is named after that player, not whoever is selected by then.
+  const [exported, setExported] = useState<{ player: string; json: string } | null>(null)
   const [importCharacterData, setImportCharacterData] = useState('')
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -88,16 +90,27 @@ export function CharacterImportExportDialog({
     }
   }, [])
 
+  // A different player was selected: the previous player's export is not
+  // theirs to show, copy or download.
+  const playerRef = useRef(player)
+  useEffect(() => {
+    playerRef.current = player
+    setExported(null)
+  }, [player])
+
   const handleExport = async () => {
+    const exportedPlayer = player
     setExporting(true)
     try {
-      const response = await panelBridgeApi.exportCharacter(player)
+      const response = await panelBridgeApi.exportCharacter(exportedPlayer)
+      // The selection moved on while the bridge was answering.
+      if (playerRef.current !== exportedPlayer) return
       const exportData = response.data || response
       const jsonStr = JSON.stringify(exportData, null, 2)
-      setCharacterData(jsonStr)
+      setExported({ player: exportedPlayer, json: jsonStr })
       toast({
         title: t('toasts.characterExportedTitle'),
-        description: t('toasts.characterExportedDesc', { player }),
+        description: t('toasts.characterExportedDesc', { player: exportedPlayer }),
       })
     } catch (error) {
       toast({
@@ -201,7 +214,7 @@ export function CharacterImportExportDialog({
                 </span>
               </Button>
 
-              {characterData && (
+              {exported && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-medium">{t('importExport.characterDataLabel')}</span>
@@ -211,7 +224,7 @@ export function CharacterImportExportDialog({
                       className="h-7 w-7 p-0"
                       aria-label={copied ? t('importExport.copiedAria') : t('importExport.copyCharacterDataAria')}
                       onClick={() => {
-                        copyText(characterData)
+                        copyText(exported.json)
                         setCopied(true)
                         if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current)
                         copiedTimeoutRef.current = setTimeout(() => setCopied(false), 2000)
@@ -222,7 +235,7 @@ export function CharacterImportExportDialog({
                   </div>
                   <Textarea
                     readOnly
-                    value={characterData}
+                    value={exported.json}
                     className="h-32 resize-none font-mono text-xs"
                   />
                   <Button
@@ -230,11 +243,11 @@ export function CharacterImportExportDialog({
                     variant="outline"
                     className="w-full"
                     onClick={() => {
-                      const blob = new Blob([characterData], { type: 'application/json' })
+                      const blob = new Blob([exported.json], { type: 'application/json' })
                       const url = URL.createObjectURL(blob)
                       const a = document.createElement('a')
                       a.href = url
-                      a.download = `${player}_character.json`
+                      a.download = `${exported.player}_character.json`
                       a.click()
                       URL.revokeObjectURL(url)
                     }}

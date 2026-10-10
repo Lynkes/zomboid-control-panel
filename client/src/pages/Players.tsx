@@ -987,6 +987,19 @@ export default function Players() {
     }
   }, [selectedPlayer, playerNotes])
 
+  // The dialogs' own inputs belong to the player they were filled in for. The
+  // teleport target, the chosen access level and the voice-ban name are kept
+  // while a dialog is closed again without submitting, so without this the
+  // NEXT player's dialog opened pre-filled with the previous player's target
+  // (heading Bob, teleport Alice) or with the level last granted (Set enabled,
+  // already on "admin"). The character export has the same reset in
+  // CharacterImportExportDialog.
+  useEffect(() => {
+    setTeleportTarget('')
+    setAccessLevel('')
+    setVoiceBanUsername('')
+  }, [selectedPlayer])
+
   // `fn` normally resolves to something the caller doesn't inspect (kick,
   // ban, teleport, etc. -- unrelated to bridge verification). A handler that
   // DOES need to override the generic success toast (the godmode/invisible/
@@ -2452,7 +2465,9 @@ export default function Players() {
                   <DisabledReason className="w-full" reason={!canGmTools ? t('permissions.noGmTools') : null}>
                   <Dialog open={teleportDialogOpen} onOpenChange={(open) => {
                     setTeleportDialogOpen(open)
-                    if (open && !teleportTarget) setTeleportTarget(selectedPlayer)
+                    // A target typed over the selected player's name is for this
+                    // opening only; closing without teleporting drops it.
+                    if (!open) setTeleportTarget('')
                   }}>
                     <DialogTrigger asChild>
                       <button type="button" disabled={!canGmTools} className="block h-auto w-full p-0 text-start">

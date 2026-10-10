@@ -80,6 +80,49 @@ describe('CharacterImportExportDialog', () => {
     expect(downloads).toEqual(['Alice_character.json'])
   })
 
+  it("drops one player's export when another player is selected, so it can't be copied or saved as theirs", async () => {
+    exportCharacter.mockResolvedValue(characterJson('Alice') as never)
+    const { rerender } = render(dialog({ player: 'Alice' }))
+
+    fireEvent.click(screen.getByRole('button', { name: /^Export Alice/ }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Download File' })).toBeInTheDocument())
+
+    rerender(dialog({ player: 'Bob' }))
+
+    expect(screen.queryByRole('button', { name: 'Download File' })).not.toBeInTheDocument()
+    expect(screen.queryByDisplayValue(/Alice/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Export Bob/ })).toBeInTheDocument()
+    expect(downloads).toEqual([])
+  })
+
+  it("ignores an export that comes back after another player was selected", async () => {
+    let resolveExport: (value: never) => void = () => {}
+    exportCharacter.mockReturnValue(new Promise((resolve) => { resolveExport = resolve as never }) as never)
+    const { rerender } = render(dialog({ player: 'Alice' }))
+
+    fireEvent.click(screen.getByRole('button', { name: /^Export Alice/ }))
+    rerender(dialog({ player: 'Bob' }))
+    resolveExport(characterJson('Alice') as never)
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Export Bob/ })).not.toBeDisabled())
+    expect(screen.queryByRole('button', { name: 'Download File' })).not.toBeInTheDocument()
+    expect(screen.queryByDisplayValue(/Alice/)).not.toBeInTheDocument()
+  })
+
+  it("an export of the newly selected player downloads under that player's name", async () => {
+    exportCharacter.mockImplementation((async (name: string) => characterJson(name)) as never)
+    const { rerender } = render(dialog({ player: 'Alice' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Export Alice/ }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Download File' })).toBeInTheDocument())
+
+    rerender(dialog({ player: 'Bob' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Export Bob/ }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Download File' })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Download File' }))
+
+    expect(downloads).toEqual(['Bob_character.json'])
+  })
+
   it('asks which player gets overwritten before importing, then imports into that player', async () => {
     importCharacter.mockResolvedValue({ success: true, data: { restored: { perks: 1, items: 0 } } } as never)
     render(dialog())
