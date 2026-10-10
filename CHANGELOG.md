@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Stopped server shown as running:** a `tail`/`less` on the server log or the start-server script is no longer mistaken for the server process, so Start and Stop act on the real Java server.
+
 ## [1.4.12] - 2026-10-10
 
 ### Fixed

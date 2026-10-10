@@ -810,6 +810,20 @@ function runWindowsPowerShell(script, timeoutMs) {
   });
 }
 
+// True when the command line has a JVM executable as a whole token: java,
+// javaw or either with .exe, standing alone or ending a path (`/usr/bin/java`,
+// `"C:\Program Files\Java\bin\javaw.exe"`). A `java` that is only a folder
+// name (`/home/java/Zomboid/...`) or part of a property (`-Djava.awt.headless`)
+// is not one. The fallback rule of both dedicated-server matchers needs it:
+// without it `tail -f .../Zomboid/Logs/..._DebugLog-server.txt`, or the
+// start-server_<name>.sh wrapper still waiting on its java child, counted as
+// the server process (score 0, so the "unattributable" bucket became the
+// answer whenever the real server was stopped).
+const JVM_EXECUTABLE_TOKEN = /(?:^|[\s"'\\/])javaw?(?:\.exe)?(?=$|[\s"'])/;
+function hasJvmExecutableToken(lowerCommandLine) {
+  return JVM_EXECUTABLE_TOKEN.test(lowerCommandLine);
+}
+
 export function isWindowsDedicatedServerCommandLine(commandLine) {
   const normalized =
     typeof commandLine === "string" ? commandLine.toLowerCase() : "";
@@ -834,10 +848,13 @@ export function isWindowsDedicatedServerCommandLine(commandLine) {
     }
   }
 
-  // 3. Fallback for custom generic setups (must explicitly name Zomboid)
+  // 3. Fallback for custom generic setups (must explicitly name Zomboid, and
+  // be a JVM -- see hasJvmExecutableToken: a log viewer or a wrapper script
+  // that merely mentions a zomboid path and "-server" is not the server)
   if (
     normalized.includes("zomboid") &&
-    (normalized.includes("-server") || normalized.includes("startserver"))
+    (normalized.includes("-server") || normalized.includes("startserver")) &&
+    hasJvmExecutableToken(normalized)
   ) {
     return true;
   }
@@ -850,7 +867,7 @@ export function isWindowsDedicatedServerCommandLine(commandLine) {
 // the pidfile fast path can classify a single live command line with the
 // exact same rule the full OS scan uses, instead of a second copy that
 // could drift out of sync.
-function isLinuxDedicatedServerCommandLine(commandLine) {
+export function isLinuxDedicatedServerCommandLine(commandLine) {
   const lower = String(commandLine || "").toLowerCase();
   if (!lower) return false;
   if (lower.includes("zombie.network.gameserver")) return true;
@@ -869,7 +886,8 @@ function isLinuxDedicatedServerCommandLine(commandLine) {
   }
   if (
     lower.includes("zomboid") &&
-    (lower.includes("-server") || lower.includes("startserver"))
+    (lower.includes("-server") || lower.includes("startserver")) &&
+    hasJvmExecutableToken(lower)
   ) {
     return true;
   }
