@@ -344,6 +344,7 @@ import filesRoutes from "./routes/files.js";
 import { PANEL_SERVER_TIMEOUTS, installRequestBodyDeadline } from "./utils/requestBodyDeadline.js";
 import playerCharacterRoutes from "./routes/playerCharacter.js";
 import panelBridge from "./services/panelBridge.js";
+import { bridgeFolderName } from "./utils/bridgeFolderName.js";
 import {
   startFileManagerJanitor,
   stopFileManagerJanitor,
@@ -1351,6 +1352,9 @@ async function findPanelBridgePath() {
   if (!serverName) {
     return { error: "Server name not configured" };
   }
+  // The mod's folder is named after the server with its path-hostile characters
+  // and whitespace replaced (utils/bridgeFolderName.js), not after the name as typed.
+  const bridgeFolder = bridgeFolderName(serverName);
 
   // Check if db.json has a saved bridgePath that exists and has files
   const settings = await getAllSettings();
@@ -1382,7 +1386,7 @@ async function findPanelBridgePath() {
         activeServer.zomboidDataPath,
         "Lua",
         "panelbridge",
-        serverName,
+        bridgeFolder,
       ),
       source: "zomboidDataPath/Lua (cachedir)",
       priority: 1,
@@ -1397,7 +1401,7 @@ async function findPanelBridgePath() {
     for (const item of parentContents) {
       if (item.startsWith("Server_files") || item.match(/Server.*files/i)) {
         possiblePaths.push({
-          p: path.join(parentDir, item, "Lua", "panelbridge", serverName),
+          p: path.join(parentDir, item, "Lua", "panelbridge", bridgeFolder),
           source: `${item}/Lua`,
           priority: 2,
         });
@@ -1408,7 +1412,7 @@ async function findPanelBridgePath() {
   // PRIORITY 3: Lua folder directly in install path (fallback)
   if (activeServer.installPath) {
     possiblePaths.push({
-      p: path.join(activeServer.installPath, "Lua", "panelbridge", serverName),
+      p: path.join(activeServer.installPath, "Lua", "panelbridge", bridgeFolder),
       source: "installPath/Lua",
       priority: 3,
     });

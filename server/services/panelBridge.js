@@ -17,6 +17,7 @@ import {
   applySuspendGapToInFlightSessions,
 } from '../database/init.js';
 import { createLogger } from '../utils/logger.js';
+import { bridgeFolderName } from '../utils/bridgeFolderName.js';
 import { PanelBridgeSftpTransport } from './panelBridgeSftp.js';
 const log = createLogger('Bridge');
 
@@ -274,8 +275,9 @@ class PanelBridge extends EventEmitter {
           ];
 
     for (const base of possibleBases) {
-      // The Lua mod writes to: {base}/Lua/panelbridge/{serverName}/
-      const bridgePath = path.join(base, 'Lua', 'panelbridge', serverName);
+      // The Lua mod writes to: {base}/Lua/panelbridge/{folder}/, where folder is
+      // the server name with whitespace replaced (utils/bridgeFolderName.js)
+      const bridgePath = path.join(base, 'Lua', 'panelbridge', bridgeFolderName(serverName));
       // codeql[js/path-injection] bridgePath here is built from serverName, validated immediately above against /^[a-zA-Z0-9_\- ]{1,64}$/ -- no path-traversal characters are possible in a name matching that pattern.
       if (fs.existsSync(bridgePath)) {
         return this.configure(bridgePath, true); // direct path — already the panelbridge folder
