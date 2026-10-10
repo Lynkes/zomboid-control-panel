@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Leaderboard, accounts sharing a SteamID:** a split-screen guest or an alt account on the same Steam account gets its own row instead of adding the other account's kills every time the two switch or the minute sweep runs (PanelBridge update; rows that already merged keep their totals).
 - **Player deaths on the same tile:** a second death on the same tile within 5 minutes (a fixed spawn tile) is no longer dropped from the Discord notice, the player history and the live death event.
 - **Network and server errors:** "Unable to reach the server", request timeouts, the stock "not found / no permission / server unavailable" texts and the "Try again in N seconds" wait are translated in every language instead of always English.
+- **Sign-in and first-run errors:** the wrong-password, blocked-origin and "could not create the admin account" messages are translated in every language instead of always English, and a login that times out says so instead of "check your password".
+- **Show/hide-password buttons (Arabic):** the eye button in Setup, Settings and Server Setup no longer sits on top of the typed text in right-to-left layouts.
+- **Restart Panel behind a proxy, in Docker or on HTTPS:** Restart Panel and Restart and Apply Update now wait for the panel at the address you are already on instead of `hostname:<saved port>`, so they no longer spin for three minutes and report a failure when the panel is back; only a real port change redirects to the new port.
+- **Settings saved with warnings:** when the server could not reload part of a saved change (server manager, RCON or CORS), Settings now shows a warning listing it instead of a plain green "Settings Saved".
+- **First-run setup that was already completed:** if an admin account already exists when you submit the setup form, the panel now moves on to the sign-in screen instead of leaving "Setup already completed. Use login instead." on a form with no way to log in.
+- **Untranslated defaults:** the confirm dialog's "Are you sure?" title and buttons, the page-loading skeleton, the "frontend and backend versions do not match" screen and the Server Setup version descriptions are translated in every language instead of English.
 
 ## [1.4.12] - 2026-10-10
 
