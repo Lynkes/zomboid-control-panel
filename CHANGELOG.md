@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Leaderboard, accounts sharing a SteamID:** a split-screen guest or an alt account on the same Steam account gets its own row instead of adding the other account's kills every time the two switch or the minute sweep runs (PanelBridge update; rows that already merged keep their totals).
 - **Player deaths on the same tile:** a second death on the same tile within 5 minutes (a fixed spawn tile) is no longer dropped from the Discord notice, the player history and the live death event.
 - **Old bans missing from the activity log:** kicks, bans and access-level changes are now kept separately (up to 5000) from the connect, disconnect and death rows, so a busy server's join/leave traffic no longer pushes a ban out of the history within days.
+- **Kick and ban reasons:** a reason such as "cheating [RDM]", "RDM / KOS" or one in another alphabet is no longer refused with "Invalid reason format"; it is shortened to what the game can carry (as the form already said), and the SteamID-ban note takes any text.
 
 ## [1.4.12] - 2026-10-10
 
