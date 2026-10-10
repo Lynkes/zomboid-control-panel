@@ -1784,7 +1784,9 @@ export const modsApi = {
     }>,
     track?: boolean,
   ) =>
-    apiPost("/mods/add-to-ini-bulk", { mods, track }) as Promise<AddToIniBulkResult>,
+    // An item that is not downloaded yet is looked up on Steam (the server
+    // gives up on those after 30 s), so the default 15 s request timeout is too short.
+    apiPost("/mods/add-to-ini-bulk", { mods, track }, { timeout: 120_000 }) as Promise<AddToIniBulkResult>,
 
   // Mod Presets
   getPresets: () => apiGet("/mods/presets"),
