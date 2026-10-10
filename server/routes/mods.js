@@ -2454,6 +2454,7 @@ router.post("/toggle-mod-id", async (req, res) => {
       // the append branch, creating a duplicate "Mods=" key.
       const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
       let currentModIds = splitModIdList(modsMatch?.[1]);
+      const modIdsBefore = [...currentModIds];
       const currentWorkshopIds = splitIniList(
         content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m)?.[1],
       );
@@ -2489,6 +2490,7 @@ router.post("/toggle-mod-id", async (req, res) => {
         currentModIds,
         currentWorkshopIds,
         serverPath,
+        modIdsBefore,
       );
       // Reuse modsMatch (already computed above) as the existence check --
       // a separate content.includes("Mods=") would match those characters
@@ -2613,6 +2615,7 @@ router.post("/batch-toggle-mod-ids", async (req, res) => {
       // change together.
       const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
       let currentModIds = splitModIdList(modsMatch?.[1]);
+      const modIdsBefore = [...currentModIds];
       const currentWorkshopIds = splitIniList(
         content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m)?.[1],
       );
@@ -2649,6 +2652,7 @@ router.post("/batch-toggle-mod-ids", async (req, res) => {
         currentModIds,
         currentWorkshopIds,
         serverPath,
+        modIdsBefore,
       );
       // Reuse modsMatch (see this file's first ini-write site for why a
       // separate .includes("Mods=") is wrong here).
@@ -2831,10 +2835,19 @@ router.post("/add-to-ini", async (req, res) => {
       const newWorkshopList = sanitizeIniList(currentWorkshopIds);
 
       // Add the mod ID if we have one (provided or detected)
+      const modIdsBefore = [...currentModIds];
       if (detectedModId && !currentModIds.includes(detectedModId)) {
         currentModIds.push(detectedModId);
       }
-      const newModList = sanitizeModIdList(currentModIds);
+      // Entries already on the line are kept as they are; only the new id is
+      // held to the numeric-workshop-ID filter (a real all-digit mod id is
+      // confirmed by the mod.info of the workshop item being added).
+      const newModList = sanitizeModIdListWithDiskBypass(
+        currentModIds,
+        currentWorkshopIds,
+        serverPath,
+        modIdsBefore,
+      );
 
       // Update WorkshopItems= -- reuse workshopMatch (computed above) as the
       // existence check, not a separate .includes() (see this file's first
@@ -3166,6 +3179,7 @@ router.post("/remove-from-ini", async (req, res) => {
       // Get current mod IDs
       const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
       let modIds = splitModIdList(modsMatch?.[1]);
+      const modIdsBefore = [...modIds];
 
       // Remove from workshop items
       workshopIds = workshopIds.filter((id) => id !== String(workshopId));
@@ -3286,7 +3300,8 @@ router.post("/remove-from-ini", async (req, res) => {
       if (modsMatch) {
         content = content.replace(
           /^[ \t]*Mods[ \t]*=.*/m,
-          () => `Mods=${sanitizeModIdList(modIds)}`,
+          () =>
+            `Mods=${sanitizeModIdListWithDiskBypass(modIds, workshopIds, serverPath, modIdsBefore)}`,
         );
       }
 
@@ -3412,6 +3427,7 @@ router.post("/batch-remove", async (req, res) => {
 
             const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
             let iniModIds = splitModIdList(modsMatch?.[1]);
+            const iniModIdsBefore = [...iniModIds];
 
             const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
             let iniMaps = splitIniList(mapMatch?.[1]);
@@ -3451,7 +3467,8 @@ router.post("/batch-remove", async (req, res) => {
             if (modsMatch) {
               content = content.replace(
                 /^[ \t]*Mods[ \t]*=.*/m,
-                () => `Mods=${sanitizeModIdList(iniModIds)}`,
+                () =>
+                  `Mods=${sanitizeModIdListWithDiskBypass(iniModIds, iniWorkshopIds, serverPath, iniModIdsBefore)}`,
               );
             }
             if (mapMatch) {
@@ -3749,9 +3766,10 @@ router.post("/deduplicate-mod-ids", async (req, res) => {
         return { noChanges: true, deduped };
       }
 
+      // Nothing is added here, so every entry is one the line already had.
       content = content.replace(
         /^[ \t]*Mods[ \t]*=.*/m,
-        () => `Mods=${sanitizeModIdList(deduped)}`,
+        () => `Mods=${sanitizeModIdListWithDiskBypass(deduped, [], null, currentMods)}`,
       );
       const backupWarning = backupWarningFor(
         await writeIniWithBackup(iniPath, content),
@@ -3886,16 +3904,25 @@ router.post("/add-missing-dep", async (req, res) => {
         const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
         const currentMods = splitModIdList(modsMatch?.[1]);
         if (!currentMods.includes(resolvedModId)) {
+          const modsBefore = [...currentMods];
           currentMods.push(resolvedModId);
+          // Entries already on the line are kept; only the added id faces the
+          // numeric-workshop-ID filter (unless a mod.info on disk confirms it).
+          const modsValue = sanitizeModIdListWithDiskBypass(
+            currentMods,
+            currentWs,
+            serverPath,
+            modsBefore,
+          );
           // Reuse modsMatch (computed above), same fix as this file's
           // first ini-write site.
           if (modsMatch) {
             content = content.replace(
               /^[ \t]*Mods[ \t]*=.*/m,
-              () => `Mods=${sanitizeModIdList(currentMods)}`,
+              () => `Mods=${modsValue}`,
             );
           } else {
-            content += `\nMods=${sanitizeModIdList(currentMods)}`;
+            content += `\nMods=${modsValue}`;
           }
           modIdAdded = true;
         }
@@ -4037,6 +4064,7 @@ router.post("/add-all-resolved-deps", async (req, res) => {
       const currentMods = new Set(
         splitModIdList(modsMatch?.[1]),
       );
+      const modsBefore = [...currentMods];
       const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
       const currentMaps = splitIniList(mapMatch?.[1]);
 
@@ -4086,7 +4114,14 @@ router.post("/add-all-resolved-deps", async (req, res) => {
       }
 
       const wsLine = Array.from(currentWs).join(";");
-      const modsLine = sanitizeModIdList(Array.from(currentMods));
+      // Entries already on the line are kept; only the added ids face the
+      // numeric-workshop-ID filter (unless a mod.info on disk confirms them).
+      const modsLine = sanitizeModIdListWithDiskBypass(
+        Array.from(currentMods),
+        Array.from(currentWs),
+        serverPath,
+        modsBefore,
+      );
       const mapLine = currentMaps.join(";");
 
       // Reuse wsMatch/modsMatch/mapMatch (computed above) instead of a
@@ -4697,7 +4732,14 @@ router.post("/sync-mod-ids", async (req, res) => {
         }
       }
 
-      const newModList = sanitizeModIdList(finalModIds);
+      // Entries already on the line are kept; the ids added above face the
+      // numeric-workshop-ID filter unless their mod.info on disk confirms them.
+      const newModList = sanitizeModIdListWithDiskBypass(
+        finalModIds,
+        workshopIds,
+        serverPath,
+        currentModIds,
+      );
       // Reuse modsMatch (computed above), same fix as this file's first
       // ini-write site.
       if (modsMatch) {
@@ -5495,7 +5537,8 @@ router.post("/add-mod-advanced", async (req, res) => {
         currentWorkshopIds.push(String(workshopId));
       }
 
-      const addedModIds = [];
+      const modIdsBefore = [...currentModIds];
+      let addedModIds = [];
       for (const modId of modIdsToAdd) {
         if (!currentModIds.includes(modId)) {
           currentModIds.push(modId);
@@ -5504,7 +5547,17 @@ router.post("/add-mod-advanced", async (req, res) => {
       }
 
       const newWorkshopList = sanitizeIniList(currentWorkshopIds);
-      const newModList = sanitizeModIdList(currentModIds);
+      // Entries already on the line are kept; only the added ids face the
+      // numeric-workshop-ID filter (unless a mod.info on disk confirms them).
+      const newModList = sanitizeModIdListWithDiskBypass(
+        currentModIds,
+        currentWorkshopIds,
+        serverPath,
+        modIdsBefore,
+      );
+      // Report only what was really written (a refused id is not "added").
+      const writtenModIds = new Set(newModList.split(";"));
+      addedModIds = addedModIds.filter((id) => writtenModIds.has(id));
 
       // Reuse workshopMatch/modsMatch (computed above) instead of a
       // separate .includes(), same fix as this file's first ini-write site.
@@ -7985,14 +8038,13 @@ router.post("/enable-disk-mod", async (req, res) => {
       // Mods
       const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
       const existing = splitModIdList(modsMatch?.[1]);
-      // Sanitize existing entries (strips mis-pasted workshop IDs), then
-      // union with mod.info-verified IDs — those are authoritative so they
-      // bypass the numeric-ID filter (some mods use their workshop ID as
-      // their mod ID, e.g. "Tear All Clothes" 3519629457).
-      const cleanedExisting = sanitizeModIdList(existing)
-        .split(";")
-        .filter(Boolean);
-      const modsList = [...cleanedExisting];
+      // Keep every entry already on the line (the numeric-ID filter used to
+      // run over it and dropped a legitimate all-digit mod id belonging to
+      // another workshop item), then union with the mod.info-verified IDs --
+      // those are authoritative so they bypass the numeric-ID filter (some
+      // mods use their workshop ID as their mod ID, e.g. "Tear All Clothes"
+      // 3519629457).
+      const modsList = [...existing];
       for (const mid of modIdsToAdd) {
         if (!modsList.includes(mid)) modsList.push(mid);
       }
@@ -8080,9 +8132,11 @@ async function deleteModFromDiskAndIni(wsId) {
     if (modsMatch && modIdsToStrip.length > 0) {
       const modsList = splitModIdList(modsMatch[1])
         .filter((id) => !modIdsToStrip.includes(id));
+      // Only removing: every entry left is one the line already had, so just
+      // the character sanitising applies (no numeric-ID filter).
       content = content.replace(
         /^[ \t]*Mods[ \t]*=.*/m,
-        () => `Mods=${sanitizeModIdList(modsList)}`,
+        () => `Mods=${sanitizeIniList(modsList)}`,
       );
     }
     const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
@@ -8387,9 +8441,11 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
       if (modsMatch && allModIdsToStrip.size > 0) {
         const modsList = splitModIdList(modsMatch[1])
           .filter((id) => !allModIdsToStrip.has(id));
+        // Only removing: every entry left is one the line already had, so
+        // just the character sanitising applies (no numeric-ID filter).
         content = content.replace(
           /^[ \t]*Mods[ \t]*=.*/m,
-          () => `Mods=${sanitizeModIdList(modsList)}`,
+          () => `Mods=${sanitizeIniList(modsList)}`,
         );
       }
       // continuous-bug-hunt, 2026-09-18 (mod-list-drift round): this route
@@ -8609,15 +8665,13 @@ router.post("/resolve-orphan-workshop", async (req, res) => {
         // 783672aa) -- modsMatch is the exists-check for the replace below.
         const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
         const existing = splitModIdList(modsMatch?.[1]);
-        // Sanitize the EXISTING list (strips mis-pasted workshop IDs that
-        // were polluting Mods=), then union with the IDs we just resolved
-        // from mod.info. Those are authoritative, so they bypass the
-        // numeric-ID filter — some mods legitimately use their workshop ID
-        // as their mod ID (e.g. "Tear All Clothes" 3519629457).
-        const cleanedExisting = sanitizeModIdList(existing)
-          .split(";")
-          .filter(Boolean);
-        const finalList = [...cleanedExisting];
+        // Keep the EXISTING list as it is (the numeric-ID filter used to run
+        // over it and dropped a legitimate all-digit mod id of another
+        // workshop item), then union with the IDs we just resolved from
+        // mod.info. Those are authoritative, so they bypass the numeric-ID
+        // filter — some mods legitimately use their workshop ID as their mod
+        // ID (e.g. "Tear All Clothes" 3519629457).
+        const finalList = [...existing];
         for (const m of modIdsToAdd) {
           if (!finalList.includes(m)) finalList.push(m);
         }

@@ -246,15 +246,44 @@ export function isModIdVerifiedOnDisk(modId, currentWorkshopIds, serverPath) {
 // pre-existing numeric-ID mod elsewhere in that list is also at risk of
 // being silently dropped by a completely unrelated toggle if this isn't
 // applied to the FULL list, not just the entry being toggled.
-export function sanitizeModIdListWithDiskBypass(ids, currentWorkshopIds, serverPath) {
+//
+// `keepIds` is the Mods= line as it was before this edit. Every route that
+// rewrites the line (add, remove, dedupe, delete, sync, ...) reads it, changes
+// a few entries and writes the whole list back, so an entry that was already
+// there is never this call's to judge: the numeric filter only applies to what
+// the edit itself adds. Without it, an unrelated edit dropped a legitimate
+// all-digit mod id whose workshop item was not on disk (not downloaded yet, or
+// listed under another folder), exactly like the old sanitizeModIdList did.
+// The disk index is built once, and only when a numeric entry needs it.
+export function sanitizeModIdListWithDiskBypass(
+  ids,
+  currentWorkshopIds,
+  serverPath,
+  keepIds = [],
+) {
+  const keep = new Set((keepIds || []).map((raw) => sanitizeIniValue(raw)));
+  let onDisk = null;
+  const verifiedOnDisk = (value) => {
+    if (!serverPath || !currentWorkshopIds?.length) return false;
+    if (!onDisk) {
+      onDisk = new Set();
+      for (const wsId of currentWorkshopIds) {
+        try {
+          for (const id of findAllModIdsFromWorkshop(wsId, serverPath)) onDisk.add(id);
+        } catch {
+          // Unreadable/missing workshop folder for this ID -- not evidence
+          // either way, keep checking the rest.
+        }
+      }
+    }
+    return onDisk.has(value);
+  };
+
   const out = [];
   for (const raw of ids || []) {
     const v = sanitizeIniValue(raw);
     if (!v) continue;
-    if (
-      looksLikeWorkshopId(v) &&
-      !isModIdVerifiedOnDisk(v, currentWorkshopIds, serverPath)
-    ) {
+    if (looksLikeWorkshopId(v) && !keep.has(v) && !verifiedOnDisk(v)) {
       continue;
     }
     out.push(v);

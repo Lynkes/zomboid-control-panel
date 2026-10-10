@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Player deaths on the same tile:** a second death on the same tile within 5 minutes (a fixed spawn tile) is no longer dropped from the Discord notice, the player history and the live death event.
 - **Mod IDs with `$` in them:** adding, removing or reordering mods no longer mangles the server .ini when a mod ID or map folder name contains `$&`, `$'` or `$$`.
 - **Hand-edited Mods= lines:** a padded list such as `Mods=A; B;C ` no longer makes Remove, Disable or Delete silently do nothing for B and C, and the Collection Sync page reads a `WorkshopItems = ...` line with spaces around the `=` like every other page.
+- **Mods with an all-digit ID:** adding, removing, deduplicating, deleting or syncing an unrelated mod no longer drops a mod whose ID is a number (such as 3519629457) from the Mods= line.
 
 ## [1.4.12] - 2026-10-10
 
