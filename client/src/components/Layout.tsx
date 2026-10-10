@@ -43,6 +43,7 @@ import { SystemHealthBanner } from './SystemHealthBanner'
 import { serversApi, ServerInstance, updateApi, UpdateStatus, serverApi, modsApi, panelUpdateApi } from '@/lib/api'
 import { resolveClientProvider } from '@/lib/serverStatus'
 import { getResultErrorMessage } from '@/lib/errorMessage'
+import { readStored, writeStored } from '@/lib/safeStorage'
 import { SocketContext } from '@/contexts/SocketContext'
 
 import { useAuth } from '@/contexts/AuthContext'
@@ -372,7 +373,7 @@ export default function Layout({ children }: LayoutProps) {
   // trap/restore -- handled manually below.
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null)
   const mobileMenuAsideRef = useRef<HTMLElement>(null)
-  const [sidebarCollapsedPref, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true')
+  const [sidebarCollapsedPref, setSidebarCollapsed] = useState(() => readStored('sidebarCollapsed') === 'true')
   // The icon rail is a desktop layout. Below lg the sidebar is the slide-out
   // drawer, which has no expand button, so a rail saved on desktop must not
   // follow the window down to a tablet or phone.
@@ -505,7 +506,7 @@ export default function Layout({ children }: LayoutProps) {
   const toggleSidebar = () => {
     setSidebarCollapsed(prev => {
       const next = !prev
-      localStorage.setItem('sidebarCollapsed', String(next))
+      writeStored('sidebarCollapsed', String(next))
       return next
     })
   }
@@ -736,7 +737,7 @@ export default function Layout({ children }: LayoutProps) {
       const dismissedKey = data?.installed && data?.latest
         ? `updateBannerDismissed:${data.installed.buildId}->${data.latest.buildId}`
         : null
-      setUpdateDismissed(!!dismissedKey && localStorage.getItem(dismissedKey) === 'true')
+      setUpdateDismissed(!!dismissedKey && readStored(dismissedKey) === 'true')
     }
 
     const handleUpdateCheck = (data: UpdateStatus) => {
@@ -1371,7 +1372,7 @@ export default function Layout({ children }: LayoutProps) {
                     const key = updateInfo && updateInfo.installed && updateInfo.latest
                       ? `updateBannerDismissed:${updateInfo.installed.buildId}->${updateInfo.latest.buildId}`
                       : null
-                    if (key) localStorage.setItem(key, 'true')
+                    if (key) writeStored(key, 'true')
                   }}
                 >
                   {t('updateBanner.dismiss')}
