@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discord command access:** a permission change saved while the bot was still registering its commands now reaches Discord instead of waiting for the next restart.
 - **Leaderboard, accounts sharing a SteamID:** a split-screen guest or an alt account on the same Steam account gets its own row instead of adding the other account's kills every time the two switch or the minute sweep runs (PanelBridge update; rows that already merged keep their totals).
 - **Player deaths on the same tile:** a second death on the same tile within 5 minutes (a fixed spawn tile) is no longer dropped from the Discord notice, the player history and the live death event.
+- **RCON password with `$`:** `Pa$$w0rd` and similar are now written to the server's .ini exactly as typed (characters were lost or duplicated, so RCON login failed after every start).
+- **RCON password with `=` or `;`:** a password with `=` or a line break is now refused (the game reads server.ini only up to the first `=`) instead of being saved as a different one than the game uses, and `;` is written as typed.
+- **Raw editor, backup restore and saved configs:** changing the RCON password or the game/RCON ports there now needs the `server.configure` permission, as the structured editor already did.
+- **Applying a saved config:** it no longer deletes your server's RCON password, server password and tokens.
 
 ## [1.4.12] - 2026-10-10
 

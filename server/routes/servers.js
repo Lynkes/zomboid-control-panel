@@ -11,6 +11,10 @@ import {
 } from "../utils/sanitize.js";
 import { testRconConnection } from "../services/rcon.js";
 import {
+  rconPasswordCannotBeStoredInIni,
+  rconPasswordUnsupportedCharsBody,
+} from "../utils/rconPassword.js";
+import {
   getServers,
   getServer,
   getActiveServer,
@@ -1378,6 +1382,11 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
     ) {
       return res.status(400).json({ error: "Invalid RCON password" });
     }
+    // The game reads server.ini only up to the first "=" and a line ends at
+    // a break: see utils/rconPassword.js. Refused here, not stripped later.
+    if (rconPasswordCannotBeStoredInIni(config.rconPassword)) {
+      return res.status(400).json(rconPasswordUnsupportedCharsBody());
+    }
 
     // The admin password goes into the start scripts: one they can't carry is
     // refused here rather than changed there.
@@ -1717,6 +1726,9 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
         updates.rconPassword.length > RCON_PASSWORD_MAX_LENGTH)
     ) {
       return res.status(400).json({ error: "Invalid RCON password" });
+    }
+    if (rconPasswordCannotBeStoredInIni(updates.rconPassword)) {
+      return res.status(400).json(rconPasswordUnsupportedCharsBody());
     }
 
     // Validate RCON port if provided

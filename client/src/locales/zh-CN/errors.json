@@ -183,6 +183,7 @@
   "QUICK_SETUP_MISSING_FIELDS": "缺少必填字段：installPath、serverName",
   "QUICK_SETUP_SERVER_FILES_NOT_FOUND": "未找到服务器文件。请确认该路径包含 Project Zomboid 专用服务器文件。",
   "CONFIGURE_RCON_PASSWORD_REQUIRED": "RCON 密码为必填项",
+  "RCON_PASSWORD_UNSUPPORTED_CHARS": "RCON 密码不能包含“=”或换行符。Project Zomboid 读取 server.ini 中的值时只读到第一个“=”为止，因此游戏使用的密码会与面板中的不同。",
   "SERVER_CONFIG_PATH_NOT_SET": "未设置服务器配置路径，请先运行安装。",
   "SERVER_CONFIG_FILE_NOT_FOUND": "在 {{path}} 未找到服务器配置。请先启动一次服务器以生成配置文件。",
   "RELOAD_LUA_FILENAME_REQUIRED": "文件名为必填项",

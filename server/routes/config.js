@@ -25,6 +25,10 @@ import {
   RCON_USER_ACTION_TIMEOUT_MS,
 } from "../services/rcon.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import {
+  rconPasswordCannotBeStoredInIni,
+  rconPasswordUnsupportedCharsBody,
+} from "../utils/rconPassword.js";
 import { serverConfigPathIsConfined } from "../utils/serverConfigPath.js";
 import { checkZomboidDataPath } from "../services/zomboidDataPath.js";
 import {
@@ -692,6 +696,13 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
       // onto the same four values, invisible from inside server.js since it
       // lives in a completely different file. Same ranges as server.js's
       // checks so the two doors can't disagree with each other.
+      // The password the panel logs in with is the one written to the
+      // server .ini, which the game reads only up to the first "=": see
+      // utils/rconPassword.js.
+      if (key === "rconPassword" && rconPasswordCannotBeStoredInIni(value)) {
+        return res.status(400).json(rconPasswordUnsupportedCharsBody());
+      }
+
       if (key === "rconPort") {
         // This key is the legacy/single-active-server RCON target that
         // /configure-rcon (server.js) hardcodes to rconHost 127.0.0.1 --

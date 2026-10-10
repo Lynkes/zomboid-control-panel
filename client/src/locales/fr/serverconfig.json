@@ -332,7 +332,7 @@
   "applyTemplateConfirm": {
     "title": "Appliquer la config enregistrée « {{name}} » ?",
     "description": "Remplacer les paramètres actuels du serveur par cette config enregistrée ? Le panneau sauvegarde d'abord la configuration active, vous pourrez donc annuler avec Restaurer si besoin.",
-    "rconWarning": "Le mot de passe RCON n'est pas enregistré dans les configs enregistrées : appliquer celle-ci supprimera le mot de passe RCON de votre serveur, il faudra le ressaisir ensuite.",
+    "secretsKept": "Les configs enregistrées ne contiennent ni mots de passe ni jetons : appliquer celle-ci conserve le mot de passe RCON, le mot de passe du serveur et les jetons actuels de votre serveur.",
     "confirmLabel": "Appliquer"
   },
   "fileBrowserDialog": {

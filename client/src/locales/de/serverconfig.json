@@ -319,7 +319,7 @@
   "applyTemplateConfirm": {
     "title": "Gespeicherte Konfiguration „{{name}}“ anwenden?",
     "description": "Die aktuellen Servereinstellungen durch diese gespeicherte Konfiguration ersetzen? Das Panel sichert zuerst die aktive Konfiguration, sodass du dies bei Bedarf über „Wiederherstellen“ rückgängig machen kannst.",
-    "rconWarning": "Das RCON-Passwort wird nicht in gespeicherten Konfigurationen gespeichert. Beim Anwenden wird das RCON-Passwort deines Servers entfernt — du musst es danach erneut eingeben.",
+    "secretsKept": "Gespeicherte Konfigurationen enthalten keine Passwörter oder Token. Beim Anwenden bleiben das aktuelle RCON-Passwort, das Server-Passwort und die Token deines Servers deshalb erhalten.",
     "confirmLabel": "Anwenden"
   },
   "fileBrowserDialog": {

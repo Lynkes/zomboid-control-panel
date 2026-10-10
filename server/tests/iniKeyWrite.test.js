@@ -73,3 +73,39 @@ describe("iniKeyWrite -- anchored key read/write, not substring matching", () =>
     });
   });
 });
+
+// String.prototype.replace treats a STRING replacement as a template: "$$" is
+// a literal "$", "$&" the matched text, "$'" / "$`" the text after / before
+// it. setIniKeyLine() passed `${key}=${value}` as the replacement, so a value
+// holding any of those was rewritten instead of written: an RCON password
+// "Pa$$w0rd" went to the file as "Pa$w0rd" (and ensureRconConfigured then
+// rewrote that wrong value on every start, so RCON login failed).
+describe("iniKeyWrite -- a value is written as it is, never read as a replace() template", () => {
+  const base = ["PVP=false", "PublicName=Old Name", "RCONPassword=old-secret", "RCONPort=27015"].join(
+    "\n",
+  );
+
+  it.each([
+    ["doubled dollar", "Pa$$w0rd"],
+    ["matched-text token", "a$&b"],
+    ["after-match token", "A$'B"],
+    ["before-match token", "A$`B"],
+    ["numbered group", "x$1y$2"],
+    ["a lone trailing dollar", "price$"],
+  ])("replaces an existing line with a value holding a %s", (_label, value) => {
+    const updated = setIniKeyLine(base, "RCONPassword", value);
+    expect(updated).toBe(
+      ["PVP=false", "PublicName=Old Name", `RCONPassword=${value}`, "RCONPort=27015"].join("\n"),
+    );
+    expect(hasIniKeyValue(updated, "RCONPassword", value)).toBe(true);
+  });
+
+  it("writing the same value twice leaves the file unchanged the second time", () => {
+    const once = setIniKeyLine(base, "RCONPassword", "Pa$$w0rd");
+    expect(setIniKeyLine(once, "RCONPassword", "Pa$$w0rd")).toBe(once);
+  });
+
+  it("appends a new line with a value holding a dollar sequence", () => {
+    expect(setIniKeyLine("PVP=false\n", "PublicName", "A$'B")).toBe("PVP=false\n\nPublicName=A$'B");
+  });
+});

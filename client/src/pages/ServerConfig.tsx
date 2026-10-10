@@ -2577,15 +2577,16 @@ export default function ServerConfig() {
 
   // Apply template
   const handleApplyTemplate = async (template: ConfigTemplate) => {
-    // Templates never store the RCON/join password (POST /templates strips
-    // it at save time -- see stripSensitiveIniLines() in serverFiles.js), so
-    // applying an INI section always removes it from the live config rather
-    // than leaving it untouched. That's an accident-shaped surprise unless
-    // it's said out loud before the click, not after.
+    // Templates never store the RCON/server password or any token
+    // (POST /templates strips them at save time -- see
+    // stripSensitiveIniLines() in utils/iniSecretLines.js), and applying an
+    // INI section keeps the live file's own (keepLiveSecretIniLines()).
+    // Applying used to remove them from the live config, with a warning
+    // that only named the RCON password; now it says they stay.
     const ok = await confirm({
       title: t('applyTemplateConfirm.title', { name: template.name }),
       description: template.hasIni
-        ? `${t('applyTemplateConfirm.description')}\n\n${t('applyTemplateConfirm.rconWarning')}`
+        ? `${t('applyTemplateConfirm.description')}\n\n${t('applyTemplateConfirm.secretsKept')}`
         : t('applyTemplateConfirm.description'),
       confirmLabel: t('applyTemplateConfirm.confirmLabel'),
     })
