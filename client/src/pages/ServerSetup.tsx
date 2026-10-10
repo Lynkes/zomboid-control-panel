@@ -273,8 +273,10 @@ export default function ServerSetup() {
   const [availableBranches, setAvailableBranches] = useState<
     Array<{ name: string; description: string; buildId?: string | null }>
   >([
-    { name: "public", description: "Stable release (Build 42)" },
-    { name: "b41multiplayer", description: "Build 41 Multiplayer" },
+    { name: "public", description: "Current stable release. Recommended for most servers." },
+    { name: "unstable", description: "Build 42 testing branch, including multiplayer. Back up saves and expect mod incompatibilities." },
+    { name: "iwbums", description: "Experimental testing branch. Back up saves before switching." },
+    { name: "legacy41", description: "Legacy Build 41 branch for older worlds and mods." },
   ]);
   const [loadingBranches, setLoadingBranches] = useState(false);
   const [useCustomDataPath, setUseCustomDataPath] = useState(false);
@@ -2243,7 +2245,10 @@ export default function ServerSetup() {
                     <span>
                       {b.name === "public"
                         ? t("full.step2.buildStable")
-                        : b.description || b.name}
+                        : t(`steamDialog.branchDescriptions.${b.name}`, {
+                            ns: "servers",
+                            defaultValue: b.description || b.name,
+                          })}
                     </span>
                     {b.buildId && (
                       <span className="text-xs text-muted-foreground">
