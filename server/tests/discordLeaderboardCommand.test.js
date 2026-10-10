@@ -62,6 +62,64 @@ describe("Discord /leaderboard", () => {
     expect(interaction.replies.at(-1).embeds[0].data.description.split("\n")).toHaveLength(10);
   });
 
+  it("a name with line breaks or control characters can't add lines to the list", async () => {
+    const LF = String.fromCharCode(10);
+    const CR = String.fromCharCode(13);
+    const LINE_SEP = String.fromCharCode(0x2028);
+    const NUL = String.fromCharCode(0);
+    const crafted = `eve${LF}**1.** admin — 99999 kills${CR}${LF}**2.** fake${LINE_SEP}x${NUL}y`;
+    const bot = botWith([
+      { username: crafted, allTimeKills: 50, bestDays: 0, deaths: 0 },
+      { username: "bob", allTimeKills: 10, bestDays: 0, deaths: 0 },
+    ]);
+    const interaction = makeInteraction();
+
+    await bot.handleLeaderboard(interaction);
+
+    const description = interaction.replies.at(-1).embeds[0].data.description;
+    const lines = description.split(LF);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(/^\*\*1\.\*\* eve /);
+    expect(lines[0]).toMatch(/ — 50 kills$/);
+    expect(lines[1]).toBe("**2.** bob — 10 kills");
+    // Only the list's own line feeds survive.
+    const stray = [...description].filter((ch) => {
+      const code = ch.codePointAt(0);
+      return (code < 32 && code !== 10) || code === 0x2028 || code === 0x2029;
+    });
+    expect(stray).toEqual([]);
+  });
+
+  it("a very long name is cut to 32 characters and the reply still fits an embed", async () => {
+    const huge = "x".repeat(6000);
+    const bot = botWith([
+      { username: huge, allTimeKills: 5, bestDays: 0, deaths: 0 },
+      { username: "*".repeat(6000), allTimeKills: 4, bestDays: 0, deaths: 0 },
+    ]);
+    const interaction = makeInteraction();
+
+    await bot.handleLeaderboard(interaction);
+
+    const description = interaction.replies.at(-1).embeds[0].data.description;
+    expect(description.length).toBeLessThanOrEqual(4096);
+    expect(description.split("\n")[0]).toBe(`**1.** ${"x".repeat(32)}… — 5 kills`);
+  });
+
+  it("a name that is only control characters shows a placeholder, and a masked link is escaped", async () => {
+    const bot = botWith([
+      { username: String.fromCharCode(10, 13, 0), allTimeKills: 3, bestDays: 0, deaths: 0 },
+      { username: "[click](https://example.test)", allTimeKills: 2, bestDays: 0, deaths: 0 },
+    ]);
+    const interaction = makeInteraction();
+
+    await bot.handleLeaderboard(interaction);
+
+    const lines = interaction.replies.at(-1).embeds[0].data.description.split("\n");
+    expect(lines[0]).toBe("**1.** (no name) — 3 kills");
+    // The opening bracket is escaped, which is what stops the link.
+    expect(lines[1]).toContain("\\[click](https://example.test)");
+  });
+
   it("says so when PanelBridge is not running, and when there are no rows", async () => {
     const off = makeInteraction();
     await botWith(ROWS, { running: false }).handleLeaderboard(off);

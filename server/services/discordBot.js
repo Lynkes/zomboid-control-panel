@@ -236,6 +236,24 @@ export function normalizeCommandPermissions(stored) {
   );
 }
 
+const LEADERBOARD_NAME_MAX = 32;
+
+// A player name as one short, safe piece of an embed line. A co-op name can
+// hold line breaks and other control characters; left in, a crafted name adds
+// lines of its own to the list. They become spaces here, and the name is cut
+// at LEADERBOARD_NAME_MAX characters (before the markdown escaping, so no
+// escape sequence is cut in half). Masked links are escaped too: an embed
+// description would otherwise render a name like [x](https://...) as a link.
+function leaderboardName(username) {
+  const flat = String(username ?? "")
+    .replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ")
+    .trim();
+  const chars = Array.from(flat);
+  const cut = chars.length > LEADERBOARD_NAME_MAX;
+  const name = chars.slice(0, LEADERBOARD_NAME_MAX).join("").trim();
+  return escapeMarkdown(name || "(no name)", { maskedLink: true }) + (cut ? "…" : "");
+}
+
 const LIFECYCLE_DEDUPE_WINDOW_MS = 60_000;
 const PLAYER_PRESENCE_INTERVAL_MS = 60_000;
 // How long a gateway reconnect must persist before getStatus() reports it —
@@ -1366,9 +1384,29 @@ export class DiscordBot {
       .filter((p) => p && typeof p.username === "string" && p.username)
       .sort((a, b) => metric.value(b) - metric.value(a) || (Number(b.allTimeKills) || 0) - (Number(a.allTimeKills) || 0))
       .slice(0, 10);
-    const description = ranked.length
-      ? ranked.map((p, i) => `**${i + 1}.** ${escapeMarkdown(p.username)} — ${metric.show(p)}`).join(String.fromCharCode(10))
-      : "No players on the leaderboard yet";
+    // Discord caps an embed description at 4096 chars. Ten names of at most
+    // LEADERBOARD_NAME_MAX chars fit with room to spare; the same
+    // incremental cap as handlePlayers() keeps it so whatever the names hold.
+    const MAX_DESC = 4000;
+    let description;
+    if (ranked.length === 0) {
+      description = "No players on the leaderboard yet";
+    } else {
+      const lines = [];
+      let total = 0;
+      let truncated = 0;
+      for (let i = 0; i < ranked.length; i++) {
+        const line = `**${i + 1}.** ${leaderboardName(ranked[i].username)} — ${metric.show(ranked[i])}`;
+        if (total + line.length + 1 > MAX_DESC) {
+          truncated = ranked.length - i;
+          break;
+        }
+        lines.push(line);
+        total += line.length + 1;
+      }
+      if (truncated > 0) lines.push(`… and ${truncated} more`);
+      description = lines.join("\n");
+    }
     const embed = new EmbedBuilder()
       .setTitle(`🏆 Leaderboard — ${metric.title}`)
       .setColor(0xf1c40f)
