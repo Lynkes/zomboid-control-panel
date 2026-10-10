@@ -34,6 +34,22 @@ describe("ini helpers", () => {
     expect(result).toContain("PauseEmpty=true");
   });
 
+  // The replacement used to be the string `${key}=${safeValue}`, which
+  // replace() reads as a template: "$&" is the matched line, "$'" the rest of
+  // the file, "$$" one dollar. A template value such as a server name with
+  // one of those corrupted the file it was applied to.
+  it.each([
+    ["Pa$$w0rd", "Pa$$w0rd"],
+    ["a$&b", "a$&b"],
+    ["A$'B", "A$'B"],
+    ["A$`B", "A$`B"],
+  ])("mergeIniValues writes the value %s exactly as given", (value, expected) => {
+    const content = "PVP=true\nPublicName=Old\nMaxPlayers=16\n";
+    expect(mergeIniValues(content, { PublicName: value })).toBe(
+      `PVP=true\nPublicName=${expected}\nMaxPlayers=16\n`,
+    );
+  });
+
   it("mergeIniValues strips newlines from values to prevent injection", () => {
     const result = mergeIniValues(iniContent, { PVP: "false\nRCONPassword=hacked" });
     expect(result).toContain("PVP=falseRCONPassword=hacked");

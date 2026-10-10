@@ -319,7 +319,7 @@
   "applyTemplateConfirm": {
     "title": "套用已儲存的設定“{{name}}”？",
     "description": "用此已儲存的設定替換當前的伺服器設定？面板會先備份當前生效的設定，如有需要可通過“恢復”撤銷。",
-    "rconWarning": "已儲存的設定不會儲存 RCON 密碼，因此套用後會移除伺服器當前的 RCON 密碼——之後需要重新輸入。",
+    "secretsKept": "已儲存的設定不包含密碼和權杖，因此套用後會保留伺服器當前的 RCON 密碼、伺服器密碼和權杖。",
     "confirmLabel": "套用"
   },
   "restoreBackupConfirm": {

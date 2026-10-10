@@ -1176,6 +1176,10 @@
     "passwordResetFailed": {
       "title": "Falha ao redefinir a senha",
       "fallback": "Não foi possível redefinir sua senha a partir deste servidor."
+    },
+    "settingsSavedWithWarnings": {
+      "title": "Configurações salvas, com avisos",
+      "description": "Suas configurações foram salvas, mas nem tudo pôde ser aplicado de imediato: {{warnings}}"
     }
   },
   "errors": {

@@ -129,5 +129,39 @@
     "serverClosed": "Sèvè a fèmen koneksyon an",
     "error": "Erè koneksyon",
     "reconnectFailed": "Rekoneksyon echwe apre plizyè tantativ"
+  },
+  "confirmDialog": {
+    "defaultTitle": "Èske ou sèten?",
+    "confirm": "Konfime",
+    "cancel": "Anile"
+  },
+  "pageSkeleton": {
+    "defaultTitle": "Paj la ap chaje",
+    "defaultDescription": "N ap prepare done ak kontwòl panèl la.",
+    "defaultEyebrow": "// PANÈL · AP CHAJE",
+    "metrics": {
+      "route": "wout",
+      "auth": "otantifikasyon",
+      "socket": "sokèt"
+    },
+    "labels": {
+      "dashboard": "Tablo a ap chaje",
+      "named": "{{title}} ap chaje",
+      "list": "Paj lis la ap chaje",
+      "console": "Paj konsòl la ap chaje",
+      "form": "Paj fòm nan ap chaje",
+      "map": "Paj kat la ap chaje",
+      "page": "Paj la ap chaje"
+    }
+  },
+  "buildGate": {
+    "checking": "N ap verifye konpatibilite panèl la",
+    "eyebrow": "Rekiperasyon mizajou obligatwa",
+    "title": "Vèsyon frontend ak backend pa matche",
+    "description": "Panèl la sispann anvan otantifikasyon ak koneksyon an dirèk yo te inisyalize. Rekòmanse ak Start.bat pou mizajou a ka fini oswa anile pakè ki pa fini an.",
+    "frontend": "Frontend",
+    "backend": "Backend",
+    "unknown": "enkoni",
+    "checkAgain": "Verifye ankò"
   }
 }

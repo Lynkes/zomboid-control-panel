@@ -209,6 +209,28 @@ describe('Dashboard.tsx: Start replaces Stop within seconds of the server stoppi
     })
   })
 
+  // scheduler.js names the server a restart is about (serverId); a restart of
+  // some other server says nothing about the one this page shows.
+  it('ignores a server:status push that names another server, and follows one that names this server', async () => {
+    setUp()
+    renderDashboard()
+    await within(await statusHeader()).findByRole('button', { name: /^stop$/i }, PROMPT)
+    const composedCallsBefore = getComposedStatus.mock.calls.length
+
+    setServerState(false)
+    await act(async () => {
+      socketHandlers.get('server:status')?.forEach((handler) => handler({ running: false, phase: 'stopped', serverId: 2 }))
+    })
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(getComposedStatus.mock.calls.length).toBe(composedCallsBefore)
+    expect(within(await statusHeader()).getByRole('button', { name: /^stop$/i })).toBeInTheDocument()
+
+    await act(async () => {
+      socketHandlers.get('server:status')?.forEach((handler) => handler({ running: false, phase: 'stopped', serverId: 1 }))
+    })
+    await within(await statusHeader()).findByRole('button', { name: /^start$/i }, PROMPT)
+  })
+
   it('refetches the composed status once its own Stop is confirmed, with no push at all', async () => {
     setUp()
     stop.mockResolvedValue({ success: true, confirmed: false } as never)

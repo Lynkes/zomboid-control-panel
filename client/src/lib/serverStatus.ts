@@ -266,3 +266,27 @@ export async function waitForServerState(
     await new Promise<void>((resolve) => setTimeout(resolve, pollMs))
   }
 }
+
+/**
+ * Whether a `server:status` push is about the server the page is showing.
+ *
+ * The pushes server/index.js and routes/server.js send describe the ACTIVE
+ * server and name none. The ones scheduler.js sends during a restart name the
+ * server the restart is pinned to (`serverId`), because a scheduled task can
+ * restart a server that is not the active one, and the active server can be
+ * switched mid-restart. A push that names another server must change nothing
+ * about the active one: it used to turn the sidebar's dot to "stopped" for
+ * the whole restart of a server the sidebar wasn't showing.
+ *
+ * A push naming a server while no active server is known yet is not applied
+ * either; the status fetch made once the active server loads is the truth.
+ */
+export function isStatusEventForServer(
+  event: { serverId?: string | number | null } | null | undefined,
+  activeServerId: string | number | null | undefined,
+): boolean {
+  const eventServerId = event?.serverId
+  if (eventServerId === undefined || eventServerId === null) return true
+  if (activeServerId === undefined || activeServerId === null) return false
+  return String(eventServerId) === String(activeServerId)
+}

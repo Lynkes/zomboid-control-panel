@@ -528,6 +528,14 @@ export const ErrorCode = Object.freeze({
    * scheduled backup), the server's own Saves/Multiplayer/<name> folder is
    * missing and no other folder can safely be taken for it. */
   BACKUP_SAVES_FOLDER_NOT_FOUND: "BACKUP_SAVES_FOLDER_NOT_FOUND",
+  /** server/services/backupService.js -- POST /api/backup/create (and the
+   * scheduled backup, a restore's or wipe's safety backup, and the restore
+   * itself, which needs room for the extracted world): the volume holding the
+   * backups folder / saves folder has less free space than the archive (or
+   * the extraction) is estimated to need. Carries params {needed, free}
+   * (formatted sizes, e.g. "12.3 GB"). Never raised when the free space or the
+   * world's size cannot be read. */
+  BACKUP_INSUFFICIENT_DISK_SPACE: "BACKUP_INSUFFICIENT_DISK_SPACE",
   /** server/routes/backup.js -- POST /api/backup/restore/:name, active
    * server is remote. Distinct wording/code from BACKUP_REMOTE_NOT_AVAILABLE
    * (create path) -- kept separate rather than merged, same reasoning as
@@ -762,6 +770,12 @@ export const ErrorCode = Object.freeze({
    * rconPassword in the body. Own code from rcon.js's RCON_* codes -- this
    * is the server-config route, not the live rcon.js connection routes. */
   CONFIGURE_RCON_PASSWORD_REQUIRED: "CONFIGURE_RCON_PASSWORD_REQUIRED",
+  /** server/utils/rconPassword.js -- an RCON password with "=" or a line
+   * break, refused where it is saved (server.js /install, /quick-setup,
+   * /configure-rcon; servers.js add and edit; config.js settings). The game
+   * reads a server.ini value only up to the first "=", so it would end up
+   * with a different password than the panel. */
+  RCON_PASSWORD_UNSUPPORTED_CHARS: "RCON_PASSWORD_UNSUPPORTED_CHARS",
   /** server/routes/server.js (sites: /configure-rcon, /configure-network) --
    * no serverConfigPath resolved (install never run). */
   SERVER_CONFIG_PATH_NOT_SET: "SERVER_CONFIG_PATH_NOT_SET",
@@ -1016,8 +1030,12 @@ export const ErrorCode = Object.freeze({
    * `file`. */
   DELETE_CHUNKS_INVALID_FILE_NAME: "DELETE_CHUNKS_INVALID_FILE_NAME",
   /** server/routes/chunks.js -- POST /delete-chunks, a chunk's `file`
-   * normalizes to an absolute path or contains "..". */
+   * normalizes to an absolute path, contains "..", or isn't a file name the
+   * scan emits for the chunk's `source`. */
   DELETE_CHUNKS_INVALID_FILE_PATH: "DELETE_CHUNKS_INVALID_FILE_PATH",
+  /** server/routes/chunks.js -- POST /delete-chunks, a chunk's `source` isn't
+   * map, saveroot or chunkdata. */
+  DELETE_CHUNKS_INVALID_SOURCE: "DELETE_CHUNKS_INVALID_SOURCE",
   /** server/routes/chunks.js -- POST /delete-chunks, a chunk's `x` isn't a
    * finite integer. */
   DELETE_CHUNKS_INVALID_X: "DELETE_CHUNKS_INVALID_X",
@@ -1083,6 +1101,11 @@ export const ErrorCode = Object.freeze({
   MODS_ADD_ALL_DEPS_REQUIRED: "MODS_ADD_ALL_DEPS_REQUIRED",
   /** server/routes/mods.js -- POST /add-all-resolved-deps, deps.length exceeds 200. */
   MODS_ADD_ALL_DEPS_TOO_MANY: "MODS_ADD_ALL_DEPS_TOO_MANY",
+  /** server/routes/mods.js -- POST /add-to-ini-bulk, `mods` missing/empty/not an array. */
+  MODS_ADD_BULK_MODS_ARRAY_REQUIRED: "MODS_ADD_BULK_MODS_ARRAY_REQUIRED",
+  /** server/routes/mods.js -- POST /add-to-ini-bulk, mods.length exceeds 500 (same cap as
+   * /batch-remove). */
+  MODS_ADD_BULK_TOO_MANY: "MODS_ADD_BULK_TOO_MANY",
   /** server/routes/mods.js -- POST /add-missing-dep, workshopId missing or fails /^\d{1,15}$/. */
   MODS_ADD_MISSING_DEP_WORKSHOP_ID_REQUIRED: "MODS_ADD_MISSING_DEP_WORKSHOP_ID_REQUIRED",
   /** server/routes/mods.js -- POST /add-to-ini, serverConfigPath unresolved. Own wording ("...in
@@ -1300,6 +1323,10 @@ export const ErrorCode = Object.freeze({
    * dependencies provided") -- different route, different phrasing, kept
    * separate. */
   MODS_RESOLVE_DEPS_ARRAY_REQUIRED: "MODS_RESOLVE_DEPS_ARRAY_REQUIRED",
+  /** server/routes/mods.js -- POST /resolve-missing-deps, `deps` longer than 200. Same cap and
+   * wording as MODS_ADD_ALL_DEPS_TOO_MANY above -- own code, per this file's
+   * per-call-site convention. */
+  MODS_RESOLVE_DEPS_TOO_MANY: "MODS_RESOLVE_DEPS_TOO_MANY",
   /** server/routes/mods.js -- POST /resolve-orphan-workshop, workshopIds.length exceeds 500. Same
    * cap and reasoning as MODS_BATCH_REMOVE_TOO_MANY above -- own code, per
    * this file's per-call-site convention. */
@@ -2612,6 +2639,19 @@ export const ErrorCode = Object.freeze({
    * count as token reuse; the client retries once (#19). */
   REFRESH_RACE: "REFRESH_RACE",
   /* --- end auth audit 2026-10-08: account security --- */
+  /* --- servers/settings flows pass 2026-10-10 --- */
+  /** server/routes/servers.js (POST / and PUT /:id) and server/routes/config.js
+   * (PUT /app-settings) -- the minimum memory is higher than the maximum, which
+   * the JVM refuses at start (-Xms above -Xmx). Carries `min` and `max` (GB). */
+  MEMORY_MIN_EXCEEDS_MAX: "MEMORY_MIN_EXCEEDS_MAX",
+  /** server/routes/servers.js (POST /) and server/routes/discovery.js (POST
+   * /create-from-discovery) -- 409: a local server with the same server name
+   * and the same Zomboid data folder is already on the list, so adding it
+   * again would only create a second card for the same files (thrown by
+   * createServer() in database/init.js). Carries the existing server's
+   * display name as the `name` param. */
+  SERVER_ALREADY_EXISTS: "SERVER_ALREADY_EXISTS",
+  /* --- end servers/settings flows pass 2026-10-10 --- */
 });
 
 /**

@@ -14,9 +14,11 @@ import { runServerFilesRoute } from "./helpers/serverFilesRoute.js";
 // path: secret-shaped keys (SENSITIVE_FIELD_RE, the same regex GET
 // /app-settings already trusts) are stripped, not masked, before the
 // template is written to disk -- see stripSensitiveIniLines()'s own comment
-// in routes/serverFiles.js for why a placeholder string would be unsafe
-// here (POST /templates/:id/apply writes iniRaw back into the live .ini
-// verbatim, so a masked value would land in the live RCON password field).
+// in utils/iniSecretLines.js for why a placeholder string would be unsafe
+// here (a masked value would land in the live RCON password field on apply).
+// Apply used to write the stripped snapshot over the live .ini as it was,
+// which removed the live RCON password, join password and tokens; it now
+// keeps the live file's secret lines (see templateApplyKeepsSecrets.test.js).
 
 const writeFileAtomic = vi.fn();
 vi.mock("../utils/fileWriteQueue.js", async (importOriginal) => {
@@ -145,8 +147,8 @@ describe("serverFiles.js POST /templates: secret-shaped INI keys never reach the
   });
 });
 
-describe("serverFiles.js POST /templates/:id/apply: applying a secret-stripped template is a safe no-crash outcome, not a masked-value outage", () => {
-  it("applies the remaining fields and leaves the live ini with no RCONPassword line at all (not a placeholder string)", async () => {
+describe("serverFiles.js POST /templates/:id/apply: applying a secret-stripped template keeps the live secrets, never a masked placeholder", () => {
+  it("applies the remaining fields and keeps the live ini's RCONPassword and Password lines (not removed, not a placeholder string)", async () => {
     const saveRes = await postSave();
     const id = saveRes.getBody().id;
 
@@ -160,8 +162,9 @@ describe("serverFiles.js POST /templates/:id/apply: applying a secret-stripped t
     expect(writeFileAtomic).toHaveBeenCalledTimes(1);
     const [writtenPath, writtenContent] = writeFileAtomic.mock.calls[0];
     expect(String(writtenPath)).toContain(`${SERVER_NAME}.ini`);
-    expect(writtenContent).not.toMatch(/RCONPassword/i);
-    expect(writtenContent).not.toContain(RCON_PASSWORD);
+    expect(writtenContent).toContain(`RCONPassword=${RCON_PASSWORD}`);
+    expect(writtenContent).toContain(`Password=${JOIN_PASSWORD}`);
+    expect(writtenContent).not.toContain("••••");
     expect(writtenContent).toContain("PVP=true");
   });
 });

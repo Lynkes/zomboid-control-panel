@@ -56,7 +56,9 @@ export function mergeIniValues(content, updates) {
     const regex = new RegExp(`^[ \\t]*${escapeRegExp(key)}[ \\t]*=.*$`, "m");
     const safeValue = String(value).replace(/[\r\n]/g, "");
     if (regex.test(result)) {
-      result = result.replace(regex, `${key}=${safeValue}`);
+      // A function, not a string: a string replacement is a template, so a
+      // value holding "$$", "$&", "$'" or "$`" would be rewritten by replace().
+      result = result.replace(regex, () => `${key}=${safeValue}`);
     } else {
       result += `${result && !result.endsWith("\n") ? "\n" : ""}${key}=${safeValue}\n`;
     }

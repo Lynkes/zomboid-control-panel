@@ -691,6 +691,8 @@
     "modsAddedToConfigTitle_other": "{{count}} 个模组已添加到服务器配置",
     "modsAddedFailedSuffix": "{{count}} 个失败——请查看控制台了解详情",
     "restartToLoadNewMods": "重启服务器以加载新模组。",
+    "workshopOnlyDesc": "仅添加到 WorkshopItems：文件下载完成前无法得知其 Mod ID。请启动服务器，然后使用“同步 Mod ID”来启用它。",
+    "workshopOnlyNote": "其中 {{count}} 个暂时没有 Mod ID，仅添加到了 WorkshopItems。请启动服务器让它们下载，然后使用“同步 Mod ID”来启用它们。",
     "importFailedTitle": "导入失败",
     "importFailedFallback": "无法将模组添加到服务器配置。请重试。",
     "nothingToWriteTitle": "没有可写入的内容",

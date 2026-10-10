@@ -129,5 +129,39 @@
     "serverClosed": "O servidor encerrou a conexão",
     "error": "Erro de conexão",
     "reconnectFailed": "Falha ao reconectar após várias tentativas"
+  },
+  "confirmDialog": {
+    "defaultTitle": "Tem certeza?",
+    "confirm": "Confirmar",
+    "cancel": "Cancelar"
+  },
+  "pageSkeleton": {
+    "defaultTitle": "Carregando a página",
+    "defaultDescription": "Preparando os dados e os controles do painel.",
+    "defaultEyebrow": "// PAINEL · CARREGANDO",
+    "metrics": {
+      "route": "rota",
+      "auth": "auth",
+      "socket": "socket"
+    },
+    "labels": {
+      "dashboard": "Carregando o dashboard",
+      "named": "Carregando {{title}}",
+      "list": "Carregando a página de lista",
+      "console": "Carregando a página do console",
+      "form": "Carregando a página de formulário",
+      "map": "Carregando a página do mapa",
+      "page": "Carregando a página"
+    }
+  },
+  "buildGate": {
+    "checking": "Verificando a compatibilidade do painel",
+    "eyebrow": "Recuperação da atualização necessária",
+    "title": "As versões do frontend e do backend não correspondem",
+    "description": "O painel parou antes de a autenticação e as conexões ao vivo serem inicializadas. Reinicie com o Start.bat para que o atualizador conclua ou reverta o pacote incompleto.",
+    "frontend": "Frontend",
+    "backend": "Backend",
+    "unknown": "desconhecido",
+    "checkAgain": "Verificar novamente"
   }
 }

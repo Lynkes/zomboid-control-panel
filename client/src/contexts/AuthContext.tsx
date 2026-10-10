@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { clearAccessToken, forgetSessionUser, getAccessToken, setAccessToken } from '../lib/authToken'
 import { ApiError, apiFetch, endServerSession, handleResponse, refreshSession, signedOutInAnotherTab } from '../lib/api'
-import { getUserErrorMessage } from '../lib/errorMessage'
+import { SETUP_FAILED_CODE, SETUP_FAILED_MESSAGE, toLoginError } from '../lib/loginError'
 import { getTrustedDeviceToken, rememberTrustedDeviceToken } from '../lib/trustedDevice'
 import { toast } from '../components/ui/use-toast'
 import { ToastAction } from '../components/ui/toast'
@@ -53,68 +53,6 @@ interface AuthContextType extends AuthState {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
-
-const CORS_LOGIN_MESSAGE = 'Connection blocked by browser origin policy. For first-time reverse-proxy setup, set CORS_ORIGINS to this URL in the panel environment and restart it. Otherwise open the panel from a local/LAN address; after setup, manage origins in Settings > Remote Access.'
-
-export const LOGIN_FAILED_MESSAGE = "We couldn't sign you in. Check your username and password and try again."
-
-// Exported solely so its 5xx-vs-auth-failure branch can be unit tested
-// directly (see __tests__/AuthContext.test.ts) without standing up a
-// rendered AuthProvider + mocked fetch harness this file has never needed
-// before -- the function itself has no dependency on component state.
-export function getLoginErrorMessage(error: unknown): string {
-  if (error instanceof TypeError) {
-    return CORS_LOGIN_MESSAGE
-  }
-  if (error instanceof Error && /cors|origin policy|failed to fetch/i.test(error.message)) {
-    return CORS_LOGIN_MESSAGE
-  }
-  // 2026-09-08 (auth-transport-parity): login() now goes through
-  // lib/api.ts's shared apiFetch/fetchWithRetry instead of a raw fetch() --
-  // that path already converts a browser-level CORS rejection (a TypeError,
-  // usually "Failed to fetch") into an ApiError coded NETWORK_ERROR with a
-  // different message ("Unable to reach the server...") before it ever
-  // reaches this function, so neither check above can match it anymore. The
-  // failure this branch exists to catch is unchanged; only its shape is.
-  if (error instanceof ApiError && error.code === 'NETWORK_ERROR') {
-    return CORS_LOGIN_MESSAGE
-  }
-  // 2026-09-08 (auth-transport-parity): login() now goes through
-  // lib/api.ts's shared apiFetch/fetchWithRetry instead of a raw fetch() --
-  // that path already converts a browser-level CORS rejection (a TypeError,
-  // usually "Failed to fetch") into an ApiError coded NETWORK_ERROR with a
-  // different message ("Unable to reach the server...") before it ever
-  // reaches this function, so neither check above can match it anymore. The
-  // failure this branch exists to catch is unchanged; only its shape is.
-  // 2026-08-26: the enumeration ruling (revealing WHY authentication failed
-  // -- wrong username vs. wrong password vs. locked account -- is an
-  // account-enumeration oracle) only applies to an actual auth failure
-  // (4xx). It says nothing about a genuine server error, which reveals no
-  // information about the account either way -- collapsing a real 500 into
-  // the identical "check your password" text was never required by that
-  // ruling, just an accidental side effect of throwing a plain Error that
-  // discarded the response status. A coded 5xx is preferred to the generic
-  // fallback text here too, via getUserErrorMessage's normal precedence.
-  if (error instanceof ApiError && typeof error.status === 'number' && error.status >= 500) {
-    return getUserErrorMessage(error, LOGIN_FAILED_MESSAGE)
-  }
-  // bug-hunt-2026-09-07 (client silent-failure lane, error-code coverage
-  // pass): a 429 from loginLimiter (server/routes/auth.js) used to fall
-  // through this function's final `return LOGIN_FAILED_MESSAGE` right
-  // alongside an actual wrong-password 401 -- the two are handled by the
-  // same generic branch below, but that branch's text ("check your username
-  // and password") is actively wrong for a rate-limited attempt, not merely
-  // unspecific. The enumeration ruling this function exists to enforce is
-  // about NOT revealing why an auth attempt failed; RATE_LIMIT_LOGIN doesn't
-  // touch that at all -- "too many attempts" is identical regardless of
-  // whether the account exists, so it can safely use its own already-
-  // registered, already-translated text (errors.json) instead of being
-  // swallowed into the credentials hint.
-  if (error instanceof ApiError && error.status === 429) {
-    return getUserErrorMessage(error, LOGIN_FAILED_MESSAGE)
-  }
-  return LOGIN_FAILED_MESSAGE
-}
 
 // Signing out tells this browser's other panel tabs (audit #16), which
 // otherwise stayed fully usable until their access token ran out.
@@ -364,9 +302,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         statusCheckCode: null,
       })
     } catch (error) {
-      throw new ApiError(getLoginErrorMessage(error), {
-        status: error instanceof ApiError ? error.status : undefined,
-      })
+      throw toLoginError(error)
     }
   }, [])
 
@@ -395,7 +331,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error('SETUP_TOKEN_REQUIRED')
       }
       if (error instanceof ApiError) throw error
-      throw new ApiError("We couldn't create the admin account. Try again.")
+      throw new ApiError(SETUP_FAILED_MESSAGE, { code: SETUP_FAILED_CODE })
     }
     setAccessToken(data.accessToken)
     rememberTrustedDeviceToken(data.user?.username ?? username, data.deviceToken)

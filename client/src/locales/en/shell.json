@@ -127,5 +127,39 @@
     "serverClosed": "Server closed connection",
     "error": "Connection error",
     "reconnectFailed": "Failed to reconnect after multiple attempts"
+  },
+  "confirmDialog": {
+    "defaultTitle": "Are you sure?",
+    "confirm": "Confirm",
+    "cancel": "Cancel"
+  },
+  "pageSkeleton": {
+    "defaultTitle": "Loading page",
+    "defaultDescription": "Preparing panel data and controls.",
+    "defaultEyebrow": "// PANEL · LOADING",
+    "metrics": {
+      "route": "route",
+      "auth": "auth",
+      "socket": "socket"
+    },
+    "labels": {
+      "dashboard": "Loading dashboard",
+      "named": "Loading {{title}}",
+      "list": "Loading list page",
+      "console": "Loading console page",
+      "form": "Loading form page",
+      "map": "Loading map page",
+      "page": "Loading page"
+    }
+  },
+  "buildGate": {
+    "checking": "Checking panel compatibility",
+    "eyebrow": "Update recovery required",
+    "title": "Frontend and backend versions do not match",
+    "description": "The panel stopped before authentication and live connections were initialized. Restart with Start.bat to let the updater finish or roll back the incomplete bundle.",
+    "frontend": "Frontend",
+    "backend": "Backend",
+    "unknown": "unknown",
+    "checkAgain": "Check again"
   }
 }

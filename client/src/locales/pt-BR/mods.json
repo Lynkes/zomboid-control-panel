@@ -716,6 +716,8 @@
     "modsAddedToConfigTitle_other": "{{count}} mods adicionados à configuração do servidor",
     "modsAddedFailedSuffix": "{{count}} com falha — veja os detalhes no console",
     "restartToLoadNewMods": "Reinicie o servidor para carregar os novos mods.",
+    "workshopOnlyDesc": "Adicionado apenas ao WorkshopItems: o ID do mod só é conhecido depois que os arquivos forem baixados. Inicie o servidor e use \"Sincronizar IDs de mod\" para ativá-lo.",
+    "workshopOnlyNote": "{{count}} deles ainda não têm ID de mod e foram adicionados apenas ao WorkshopItems. Inicie o servidor para que sejam baixados e use \"Sincronizar IDs de mod\" para ativá-los.",
     "importFailedTitle": "Falha na importação",
     "importFailedFallback": "Não foi possível adicionar mods à configuração do servidor. Tente novamente.",
     "nothingToWriteTitle": "Nada para gravar",

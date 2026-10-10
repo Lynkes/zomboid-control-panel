@@ -2203,53 +2203,6 @@ export default function ChunkCleaner() {
           cellY: c.cellY,
         }));
 
-      // If deleteVehicles is checked and the server is running, also remove
-      // currently loaded vehicles live via PanelBridge so players don't see
-      // a "ghost" car for a second before the next DB load. This is best-effort
-      // — the authoritative cleanup happens server-side against vehicles.db.
-      if (deleteVehicles) {
-        const tilesPerChunk = isB42Ref.current ? 8 : 10;
-        // One rectangle per call, not one call for the whole selection's
-        // extent -- see decomposeIntoRectangles' own comment for why.
-        const rects = decomposeIntoRectangles(selectedChunks);
-        if (rects.length > MAX_VEHICLE_REMOVAL_RECTS) {
-          toast({
-            title: t("toasts.liveVehicleCleanupTooFragmentedTitle"),
-            description: t("toasts.liveVehicleCleanupTooFragmentedDesc"),
-          });
-        } else {
-          for (const rect of rects) {
-            try {
-              await panelBridgeApi.sendCommand("removeVehiclesInArea", {
-                minX: rect.minX * tilesPerChunk,
-                minY: rect.minY * tilesPerChunk,
-                maxX: (rect.maxX + 1) * tilesPerChunk,
-                maxY: (rect.maxY + 1) * tilesPerChunk,
-              });
-            } catch (err) {
-              // Bridge unreachable (server stopped, bridge not running) is
-              // benign here — the authoritative vehicles.db cleanup above
-              // already ran server-side, so live removal was only ever a
-              // cosmetic "no ghost car for a second" nicety. A 403 is a
-              // DIFFERENT failure the operator can act on: it means this
-              // role has chunks.manage (or it couldn't have reached this
-              // far) but not bridge.command -- true for every remaining
-              // rectangle too, so stop issuing more calls instead of
-              // repeating the same failure N times. Previously both cases
-              // hit the same bare catch and looked identical — 2026-08-27
-              // bug-hunt silent-swallow-class fix.
-              if (err instanceof ApiError && err.status === 403) {
-                toast({
-                  title: t("toasts.liveVehicleCleanupNoPermissionTitle"),
-                  description: t("toasts.liveVehicleCleanupNoPermissionDesc"),
-                });
-                break;
-              }
-            }
-          }
-        }
-      }
-
       // Try without force first. If the server-running guard fires, the
       // server returns `code: 'server_running'` + the matched processes;
       // we open the override dialog so the operator can confirm.
@@ -2289,6 +2242,57 @@ export default function ChunkCleaner() {
           result = await tryDelete(true);
         } else {
           throw err;
+        }
+      }
+
+      // If deleteVehicles is checked and the server is running, also remove
+      // currently loaded vehicles live via PanelBridge so players don't see
+      // a "ghost" car for a second before the next DB load. This runs only
+      // once the delete went through: removeVehiclesInArea is permanent and
+      // keeps no backup, so a cancelled force dialog or a refused delete
+      // (server running, state unknown, active server changed) must leave the
+      // live vehicles alone along with the chunks. Best-effort: the
+      // authoritative cleanup happened server-side against vehicles.db.
+      if (deleteVehicles && (result.deleted ?? 0) > 0) {
+        const tilesPerChunk = isB42Ref.current ? 8 : 10;
+        // One rectangle per call, not one call for the whole selection's
+        // extent -- see decomposeIntoRectangles' own comment for why.
+        const rects = decomposeIntoRectangles(selectedChunks);
+        if (rects.length > MAX_VEHICLE_REMOVAL_RECTS) {
+          toast({
+            title: t("toasts.liveVehicleCleanupTooFragmentedTitle"),
+            description: t("toasts.liveVehicleCleanupTooFragmentedDesc"),
+          });
+        } else {
+          for (const rect of rects) {
+            try {
+              await panelBridgeApi.sendCommand("removeVehiclesInArea", {
+                minX: rect.minX * tilesPerChunk,
+                minY: rect.minY * tilesPerChunk,
+                maxX: (rect.maxX + 1) * tilesPerChunk,
+                maxY: (rect.maxY + 1) * tilesPerChunk,
+              });
+            } catch (err) {
+              // Bridge unreachable (server stopped, bridge not running) is
+              // benign here — the authoritative vehicles.db cleanup
+              // already ran server-side, so live removal was only ever a
+              // cosmetic "no ghost car for a second" nicety. A 403 is a
+              // DIFFERENT failure the operator can act on: it means this
+              // role has chunks.manage (or it couldn't have reached this
+              // far) but not bridge.command -- true for every remaining
+              // rectangle too, so stop issuing more calls instead of
+              // repeating the same failure N times. Previously both cases
+              // hit the same bare catch and looked identical — 2026-08-27
+              // bug-hunt silent-swallow-class fix.
+              if (err instanceof ApiError && err.status === 403) {
+                toast({
+                  title: t("toasts.liveVehicleCleanupNoPermissionTitle"),
+                  description: t("toasts.liveVehicleCleanupNoPermissionDesc"),
+                });
+                break;
+              }
+            }
+          }
         }
       }
 

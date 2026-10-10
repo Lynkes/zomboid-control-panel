@@ -12,6 +12,7 @@ import {
   requireAnyPermission,
 } from "../services/permissions.js";
 import { listBackupRecords } from "../services/backupRecords.js";
+import { resolveObservedServerRunning } from "../utils/serverStatus.js";
 import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
@@ -446,8 +447,18 @@ router.post("/create", requirePermission("backups.manage"), async (req, res) => 
     const backupService = req.app.get("backupService");
     const io = req.app.get("io");
 
+    // isPreRestore and isPreWipe are the service's own flags (restoreBackup()
+    // and /wipe set them for their safety copies): a request must not be able
+    // to name its backup a safety copy, which retention keeps, or to skip the
+    // restore-in-progress guard that isPreRestore lifts.
+    const {
+      isPreRestore: _isPreRestore,
+      isPreWipe: _isPreWipe,
+      ...requestOptions
+    } = req.body || {};
+
     // Pass io for progress updates
-    const result = await backupService.createBackup({ ...req.body, io });
+    const result = await backupService.createBackup({ ...requestOptions, io });
 
     if (result.success) {
       // 2026-08-26 bug hunt: createBackup surfaces skipped files rather than
@@ -632,19 +643,37 @@ router.post("/restore/:name", requirePermission("backups.restore"), async (req, 
     // detection scan into a plain `false` -- indistinguishable from a
     // confirmed-stopped server -- which would let this restore silently
     // overwrite the live world save while the server might still be running
-    // and holding those files open. getServerProcessDetails() exposes that
-    // distinction via scanFailed, so use it directly and fail closed when
-    // detection itself failed, same as /wipe, /delete-files and
-    // chunks.js's delete-chunks/delete-region.
-    const processDetails = await serverManager.getServerProcessDetails();
-    if (processDetails.scanFailed) {
+    // and holding those files open. So this fails closed on an undetermined
+    // state, same as /wipe, /delete-files and chunks.js's
+    // delete-chunks/delete-region.
+    //
+    // And the local process scan alone is not the answer for a server the
+    // panel cannot see as a process: with the game in another container (a
+    // docker-local setup, GH#114) the scan succeeds and finds nothing while
+    // the server is up and holding the world open, so the restore went
+    // ahead underneath it. resolveObservedServerRunning() is the verdict the
+    // status badge, the watchdog and Discord already use -- the container's
+    // own state for the Docker providers, RCON and PanelBridge alongside the
+    // scan otherwise -- so this agrees with them: true refuses, null (cannot
+    // tell) refuses as "can't verify".
+    let observedRunning;
+    try {
+      observedRunning = await resolveObservedServerRunning(
+        serverManager,
+        req.app.get("rconService"),
+      );
+    } catch (error) {
+      log.warn(`Could not tell whether the server is running before a restore: ${error.message}`);
+      observedRunning = null;
+    }
+    if (observedRunning === null) {
       return res.status(503).json({
         success: false,
         error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
         code: ErrorCode.SERVER_STATE_UNKNOWN,
       });
     }
-    if (processDetails.running) {
+    if (observedRunning) {
       return res.status(400).json({
         success: false,
         error:

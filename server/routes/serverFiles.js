@@ -12,8 +12,17 @@ import {
   omitSensitiveFields,
   maskSensitiveObject,
   isMaskedSecret,
-  maskSecretValue,
 } from "../utils/sanitize.js";
+import {
+  keepLiveSecretIniLines,
+  maskSensitiveIniLines,
+  reconcileMaskedIniLines,
+  stripSensitiveIniLines,
+} from "../utils/iniSecretLines.js";
+import {
+  INI_KEY_CAPABILITY,
+  governedIniKeysChanged,
+} from "../utils/iniKeyCapability.js";
 import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
 import {
   getBackupPath,
@@ -84,22 +93,29 @@ const router = express.Router();
 // a server file backup.
 router.use(requirePermission("serverfiles.manage"));
 
-// PUT /ini writes any key in the submitted settings object to the same
-// Server/<name>.ini file server.js's own /configure-rcon and
-// /configure-network routes edit under server.configure -- RCONPassword,
-// RCONPort, DefaultPort, UDPPort and UPnP. serverfiles.manage's description
-// ("Edit sandbox options, spawn points and other server config files") gives
-// no hint that holding it also lets a caller rewrite the RCON password or
-// the game's listen port through this generic editor, bypassing
-// server.configure's own dedicated gate on those exact fields. Found in the
-// 2026-08-26 capability-description sweep, finding 4.
-const INI_KEY_CAPABILITY = {
-  RCONPassword: "server.configure",
-  RCONPort: "server.configure",
-  DefaultPort: "server.configure",
-  UDPPort: "server.configure",
-  UPnP: "server.configure",
-};
+// The server .ini keys that need server.configure on top of serverfiles.manage
+// (INI_KEY_CAPABILITY, utils/iniKeyCapability.js) are checked by every route
+// below that writes the .ini, not just PUT /ini: missingIniCapabilities()
+// answers for the caller, governedIniKeysChanged() says which keys a write
+// changes.
+async function missingIniCapabilities(req, changedKeys) {
+  if (changedKeys.length === 0) return [];
+  const role = req.user ? await getRoleByName(req.user.role) : null;
+  const held = Array.isArray(role?.capabilities) ? role.capabilities : [];
+  return changedKeys
+    .map((key) => ({ key, requiredCapability: INI_KEY_CAPABILITY[key] }))
+    .filter(({ requiredCapability }) => !held.includes(requiredCapability));
+}
+
+function missingIniCapabilitiesBody(missing) {
+  const detail = missing
+    .map((m) => `"${m.key}" needs ${m.requiredCapability}`)
+    .join(", ");
+  return {
+    error: `Cannot change ${detail} without holding that capability yourself.`,
+    missing,
+  };
+}
 
 // Thrown by getServerConfigPath()/getServerName() when no server is
 // configured at all (no active server row, and no legacy settings fallback
@@ -664,126 +680,10 @@ export function parseIni(content) {
   return result;
 }
 
-// Drop any `Key=Value` line whose key looks secret-like (SENSITIVE_FIELD_RE
-// -- same regex GET /app-settings already trusts, not a second hand-kept
-// list) from a raw .ini file's text, preserving every other line -- comments,
-// blank lines, formatting -- byte for byte. Used only when SAVING a template
-// snapshot (POST /templates): that snapshot's `iniRaw` is later written
-// VERBATIM into the live .ini on apply (writeFileAtomic(iniPath,
-// template.iniRaw), no merge), so a masked placeholder string here would
-// land in the live RCON/join password field on apply and break RCON --
-// omitting the line entirely just means the applied server has no RCON
-// password configured afterward (a normal, working, fixable state), not a
-// bogus one. Line-level rather than parse-then-reserialize: reusing
-// parseIni()/toIni() here would rewrite every OTHER line too, and toIni()'s
-// own merge semantics keep an omitted key's ORIGINAL line untouched --
-// exactly the opposite of what a strip needs.
-export function stripSensitiveIniLines(content) {
-  const lines = content.split(/\r?\n/);
-  const kept = lines.filter((line) => {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith(";")) {
-      return true;
-    }
-    const eqIndex = trimmed.indexOf("=");
-    if (eqIndex <= 0) return true;
-    const key = trimmed.substring(0, eqIndex).trim();
-    return !SENSITIVE_FIELD_RE.test(key);
-  });
-  return kept.join("\n");
-}
-
-// GET /raw/:type=ini's read-side counterpart to the structured /ini route's
-// maskSensitiveObject(): mask a secret-shaped `Key=Value` line's VALUE in
-// place, byte-for-byte otherwise (everything up to and including the `=`,
-// comments, blank lines, formatting). Unlike stripSensitiveIniLines() above,
-// this can't drop the line -- the raw editor's PUT round-trips this exact
-// text back, and reconcileMaskedIniLines() below needs the line to still be
-// there (by key) to know what it's reconciling against.
-export function maskSensitiveIniLines(content) {
-  const lines = content.split(/\r?\n/);
-  const masked = lines.map((line) => {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith(";")) {
-      return line;
-    }
-    const eqIndex = line.indexOf("=");
-    if (eqIndex <= 0) return line;
-    const key = line.substring(0, eqIndex).trim();
-    const value = line.substring(eqIndex + 1);
-    if (!SENSITIVE_FIELD_RE.test(key) || !value) return line;
-    return `${line.substring(0, eqIndex + 1)}${maskSecretValue(value)}`;
-  });
-  return masked.join("\n");
-}
-
-// PUT /raw/:type=ini's write-side counterpart. Unlike the structured /ini
-// route, the raw editor round-trips ONE FULL TEXT BLOB on every save with no
-// per-line diff against what the operator actually touched -- Save always
-// resubmits the whole thing, regardless of which line changed. So masking
-// the read alone would let ANY raw-mode save (editing an unrelated line)
-// silently overwrite a live secret with the "••••••••xxxx"
-// placeholder text the moment that key's line comes back unchanged.
-//
-// This reconciles by KEY, never by line position -- reordering lines or
-// inserting a new one above a secret must not misalign the match -- and it
-// REFUSES the entire save (returns ok:false, writes nothing) the instant a
-// masked value can't be resolved unambiguously, rather than guessing or
-// best-effort patching part of the file. A rejected save costs the operator
-// one retry; a half-reconciled write costs them their live server config,
-// which is a strictly worse failure than the secret leak this exists to
-// close. Three ways a masked line fails to resolve, all refused the same
-// way: the key doesn't exist in the live file any more; the key exists more
-// than once in either the live file or the incoming submission (which one
-// would even be "the" secret to restore?); or -- the case a naive line-diff
-// would miss entirely -- the key existed live with a real value but is
-// ABSENT from the incoming content altogether, meaning the operator deleted
-// a line that reads as bullets, quite possibly without realizing it was a
-// real credential. All four are treated as "can't safely tell what the
-// operator intended" rather than silently picking a side.
-export function reconcileMaskedIniLines(incomingContent, liveContent) {
-  const indexIniLines = (text) => {
-    const lines = text.split(/\r?\n/);
-    const byKey = new Map();
-    lines.forEach((line, index) => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith(";")) return;
-      const eqIndex = trimmed.indexOf("=");
-      if (eqIndex <= 0) return;
-      const key = trimmed.substring(0, eqIndex).trim();
-      const value = trimmed.substring(eqIndex + 1);
-      if (!byKey.has(key)) byKey.set(key, []);
-      byKey.get(key).push({ index, line, value });
-    });
-    return byKey;
-  };
-
-  const incomingByKey = indexIniLines(incomingContent);
-  const liveByKey = indexIniLines(liveContent);
-  const outLines = incomingContent.split(/\r?\n/);
-
-  for (const [key, entries] of incomingByKey) {
-    if (!SENSITIVE_FIELD_RE.test(key)) continue;
-    const maskedEntries = entries.filter((e) => isMaskedSecret(e.value));
-    if (maskedEntries.length === 0) continue;
-
-    const liveEntries = liveByKey.get(key) || [];
-    if (maskedEntries.length > 1 || liveEntries.length !== 1) {
-      return { ok: false, reason: "unresolvable", key };
-    }
-    outLines[maskedEntries[0].index] = liveEntries[0].line;
-  }
-
-  for (const [key, liveEntries] of liveByKey) {
-    if (!SENSITIVE_FIELD_RE.test(key)) continue;
-    if (liveEntries.length !== 1 || !liveEntries[0].value) continue;
-    if (!incomingByKey.has(key)) {
-      return { ok: false, reason: "removed", key };
-    }
-  }
-
-  return { ok: true, content: outLines.join("\n") };
-}
+// stripSensitiveIniLines / maskSensitiveIniLines / reconcileMaskedIniLines live
+// in ../utils/iniSecretLines.js (with keepLiveSecretIniLines, which template
+// apply uses); re-exported so this file's importers keep working.
+export { stripSensitiveIniLines, maskSensitiveIniLines, reconcileMaskedIniLines };
 
 // Convert object back to INI format
 export function toIni(obj, originalContent = "") {
@@ -1431,32 +1331,17 @@ router.put("/ini", async (req, res) => {
     // which the game then reads for the first time) always needs the
     // capability.
     const touchesGovernedIniKey = Object.keys(submittedSettings).some(
-      (key) => key in INI_KEY_CAPABILITY,
+      (key) => Object.hasOwn(INI_KEY_CAPABILITY, key),
     );
     if (touchesGovernedIniKey) {
       const currentIni = parseIniAsGame(currentIniContent);
-      const missingCapabilities = [];
-      let callerCapabilities = null;
-      for (const [key, value] of Object.entries(submittedSettings)) {
-        const requiredCapability = INI_KEY_CAPABILITY[key];
-        if (!requiredCapability) continue;
-        if (!iniValueChanges(currentIni, key, value)) continue;
-        if (callerCapabilities === null) {
-          const role = req.user ? await getRoleByName(req.user.role) : null;
-          callerCapabilities = Array.isArray(role?.capabilities) ? role.capabilities : [];
-        }
-        if (!callerCapabilities.includes(requiredCapability)) {
-          missingCapabilities.push({ key, requiredCapability });
-        }
-      }
+      const changedGovernedKeys = Object.entries(submittedSettings)
+        .filter(([key]) => Object.hasOwn(INI_KEY_CAPABILITY, key))
+        .filter(([key, value]) => iniValueChanges(currentIni, key, value))
+        .map(([key]) => key);
+      const missingCapabilities = await missingIniCapabilities(req, changedGovernedKeys);
       if (missingCapabilities.length > 0) {
-        const detail = missingCapabilities
-          .map((m) => `"${m.key}" needs ${m.requiredCapability}`)
-          .join(", ");
-        return res.status(403).json({
-          error: `Cannot change ${detail} without holding that capability yourself.`,
-          missing: missingCapabilities,
-        });
+        return res.status(403).json(missingIniCapabilitiesBody(missingCapabilities));
       }
     }
 
@@ -2334,8 +2219,10 @@ router.put("/raw/:type", async (req, res) => {
 
     let backupWarning = null;
     let reconcileFailure = null;
+    let missingCapabilities = [];
     await withFileLock(filePath, async () => {
       let contentToWrite = content;
+      let liveContent = "";
 
       // Only the ini type is Key=Value text that GET /raw ever masks --
       // sandbox/spawnpoints/spawnregions are Lua table syntax, not INI
@@ -2343,7 +2230,7 @@ router.put("/raw/:type", async (req, res) => {
       // no-op and at worst corrupt them. SandboxVars also has no RCON
       // field to protect in the first place.
       if (type === "ini" && fs.existsSync(filePath)) {
-        const liveContent = fs.readFileSync(filePath, "utf-8");
+        liveContent = fs.readFileSync(filePath, "utf-8");
         const reconciled = reconcileMaskedIniLines(content, liveContent);
         if (!reconciled.ok) {
           reconcileFailure = reconciled;
@@ -2353,6 +2240,16 @@ router.put("/raw/:type", async (req, res) => {
       }
 
       if (type === "ini") {
+        // The same server.configure keys PUT /ini guards: this route writes
+        // the same file, so it could set RCONPassword or a port without the
+        // capability. Judged on what the game reads from the text that will
+        // be written (the masked lines are already the live values) against
+        // the live file, so a save that leaves them alone needs nothing more.
+        missingCapabilities = await missingIniCapabilities(
+          req,
+          governedIniKeysChanged(liveContent, contentToWrite),
+        );
+        if (missingCapabilities.length > 0) return;
         backupWarning = backupWarningFor(await writeIniWithBackup(filePath, contentToWrite));
       } else {
         if (fs.existsSync(filePath)) {
@@ -2361,6 +2258,10 @@ router.put("/raw/:type", async (req, res) => {
         writeFileAtomic(filePath, contentToWrite, "utf-8");
       }
     });
+
+    if (missingCapabilities.length > 0) {
+      return res.status(403).json(missingIniCapabilitiesBody(missingCapabilities));
+    }
 
     if (reconcileFailure) {
       const isRemoved = reconcileFailure.reason === "removed";
@@ -2549,7 +2450,23 @@ router.post("/restore/:filename", async (req, res) => {
     // block it. But it must be said plainly: if this failed, the state as
     // of right before this restore is not recoverable through this panel.
     let preRestoreBackupWarning = null;
+    let missingCapabilities = [];
     await withFileLock(targetPath, async () => {
+      // A restored .ini can carry another RCON password, RCON port or game
+      // port than the live one: the same server.configure keys PUT /ini
+      // guards, so the restore needs that capability for any it would change
+      // (judged on what the game reads, against the file it replaces).
+      if (/\.ini$/i.test(originalName)) {
+        const liveContent = fs.existsSync(targetPath)
+          ? fs.readFileSync(targetPath, "utf-8")
+          : "";
+        missingCapabilities = await missingIniCapabilities(
+          req,
+          governedIniKeysChanged(liveContent, backupData.toString("utf-8")),
+        );
+        if (missingCapabilities.length > 0) return;
+      }
+
       if (fs.existsSync(targetPath)) {
         const backup = await createBackup(configPath, originalName);
         if (!backup.backedUp && backup.reason !== "no-source") {
@@ -2559,6 +2476,10 @@ router.post("/restore/:filename", async (req, res) => {
 
       writeFileAtomic(targetPath, backupData);
     });
+
+    if (missingCapabilities.length > 0) {
+      return res.status(403).json(missingIniCapabilitiesBody(missingCapabilities));
+    }
 
     log.info(`Restored from backup: ${filename} -> ${originalName}`);
     res.json({
@@ -2764,8 +2685,8 @@ router.post("/templates", async (req, res) => {
     // password rotation, so secret-shaped keys (RCONPassword, the server
     // join Password, ...) are stripped here rather than masked: see
     // stripSensitiveIniLines()'s own comment for why omission, not a
-    // placeholder, is the safe choice given how POST /templates/:id/apply
-    // writes iniRaw back.
+    // placeholder, is the safe choice. POST /templates/:id/apply puts the
+    // live file's own secret lines back (keepLiveSecretIniLines()).
     if (includeIni) {
       const iniPath = path.join(configPath, `${serverName}.ini`);
       if (fs.existsSync(iniPath)) {
@@ -2856,8 +2777,27 @@ router.post("/templates/:id/apply", async (req, res) => {
     // Apply INI settings
     if (applyIni && template.iniRaw) {
       const iniPath = path.join(configPath, `${serverName}.ini`);
+      let missingCapabilities = [];
 
       await withFileLock(iniPath, async () => {
+        // The template holds no secrets (POST /templates leaves them out), so
+        // the live file's own secret lines -- the RCON password, the join
+        // password, every token -- go into what is written. Writing the
+        // template as it was removed them from a running server.
+        const liveContent = fs.existsSync(iniPath)
+          ? fs.readFileSync(iniPath, "utf-8")
+          : "";
+        const iniToWrite = keepLiveSecretIniLines(template.iniRaw, liveContent);
+
+        // A template can carry another RCON port or game port than the live
+        // file's: the server.configure keys PUT /ini guards. Checked before
+        // anything is written, the Sandbox half included.
+        missingCapabilities = await missingIniCapabilities(
+          req,
+          governedIniKeysChanged(liveContent, iniToWrite),
+        );
+        if (missingCapabilities.length > 0) return;
+
         // Create backup first
         const iniBackupWarning = backupWarningFor(
           await createBackup(configPath, `${serverName}.ini`),
@@ -2865,8 +2805,11 @@ router.post("/templates/:id/apply", async (req, res) => {
         if (iniBackupWarning) backupWarnings.push(iniBackupWarning);
 
         // Write the template INI
-        writeFileAtomic(iniPath, template.iniRaw);
+        writeFileAtomic(iniPath, iniToWrite);
       });
+      if (missingCapabilities.length > 0) {
+        return res.status(403).json(missingIniCapabilitiesBody(missingCapabilities));
+      }
       applied.push("INI");
       log.info(`Applied INI from template: ${template.name}`);
     }

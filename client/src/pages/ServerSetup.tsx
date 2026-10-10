@@ -189,14 +189,55 @@ export function clearInstallInFlightMarker(): void {
   }
 }
 
-function generatePassword(length = 12): string {
-  const chars =
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+// Letters and digits only: the password is written into the server's .ini
+// (and the start scripts), where = ; quotes and whitespace are not safe, and
+// the panel's own ini handling drops them.
+const PASSWORD_CHARS =
+  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+// A uniformly random index below `max` from the browser's CSPRNG. Values at or
+// above the largest multiple of `max` that fits in 32 bits are redrawn, so no
+// character is more likely than another.
+function secureRandomIndex(max: number): number {
+  const limit = Math.floor(0x100000000 / max) * max;
+  const draw = new Uint32Array(1);
+  do {
+    crypto.getRandomValues(draw);
+  } while (draw[0] >= limit);
+  return draw[0] % max;
+}
+
+// The RCON password the wizard proposes. It is the key to remote control of
+// the server, so it comes from crypto.getRandomValues, not Math.random.
+export function generatePassword(length = 12): string {
   let result = "";
   for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+    result += PASSWORD_CHARS.charAt(secureRandomIndex(PASSWORD_CHARS.length));
   }
   return result;
+}
+
+// Memory the panel saved for a server, in GB (a value above 128 is a legacy
+// one in MB, the same reading as server/utils/memory.js), as a wizard slider
+// value. `minGb`/`maxGb` are the slider's own bounds.
+export function savedMemoryToSliderGb(
+  saved: unknown,
+  fallback: number,
+  minGb: number,
+  maxGb: number,
+): number {
+  const value = typeof saved === "string" ? Number(saved.trim()) : Number(saved);
+  if (!Number.isFinite(value) || value <= 0) return fallback;
+  const gb = value > 128 ? Math.round(value / 1024) : Math.round(value);
+  return Math.min(maxGb, Math.max(minGb, gb || fallback));
+}
+
+// Why registering the server failed. When the panel already lists this server
+// (same name, same data folder: SERVER_ALREADY_EXISTS) it says so, instead of the
+// generic text that claims the server will not appear in My Servers.
+function registerFailedDescription(error: unknown, fallback: string): string {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "SERVER_ALREADY_EXISTS" ? getUserErrorMessage(error, fallback) : fallback;
 }
 
 // Format bytes to human readable size
@@ -273,8 +314,10 @@ export default function ServerSetup() {
   const [availableBranches, setAvailableBranches] = useState<
     Array<{ name: string; description: string; buildId?: string | null }>
   >([
-    { name: "public", description: "Stable release (Build 42)" },
-    { name: "b41multiplayer", description: "Build 41 Multiplayer" },
+    { name: "public", description: "Current stable release. Recommended for most servers." },
+    { name: "unstable", description: "Build 42 testing branch, including multiplayer. Back up saves and expect mod incompatibilities." },
+    { name: "iwbums", description: "Experimental testing branch. Back up saves before switching." },
+    { name: "legacy41", description: "Legacy Build 41 branch for older worlds and mods." },
   ]);
   const [loadingBranches, setLoadingBranches] = useState(false);
   const [useCustomDataPath, setUseCustomDataPath] = useState(false);
@@ -564,22 +607,20 @@ export default function ServerSetup() {
           setZomboidDataPath(settings.zomboidDataPath);
           setUseCustomDataPath(true);
         }
-        // Memory is stored in MB, convert to GB for display
-        // Clamp to reasonable values (2-16 GB) to match slider range
-        if (settings.minMemory)
-          setMinMemory(
-            Math.min(
-              16,
-              Math.max(2, Math.round(settings.minMemory / 1024) || 4),
-            ),
-          );
-        if (settings.maxMemory)
-          setMaxMemory(
-            Math.min(
-              16,
-              Math.max(2, Math.round(settings.maxMemory / 1024) || 8),
-            ),
-          );
+        // Saved memory is already in GB (the panel stores GB; dividing by
+        // 1024 here used to turn every real value into 0 and reset the
+        // sliders to 4/8). Kept inside the sliders' own ranges.
+        if (settings.minMemory) {
+          const savedMin = savedMemoryToSliderGb(settings.minMemory, 4, 2, 64);
+          setMinMemory(savedMin);
+          if (settings.maxMemory) {
+            setMaxMemory(
+              Math.max(savedMin, savedMemoryToSliderGb(settings.maxMemory, 8, 2, 128)),
+            );
+          }
+        } else if (settings.maxMemory) {
+          setMaxMemory(savedMemoryToSliderGb(settings.maxMemory, 8, 2, 128));
+        }
         if (settings.serverPort) setServerPort(settings.serverPort);
       } catch (error) {
         reportClientError("Failed to load settings.", error);
@@ -898,7 +939,7 @@ export default function ServerSetup() {
             ]);
             toast({
               title: t("toasts.registerFailedTitle"),
-              description: t("toasts.registerFailedDesc"),
+              description: registerFailedDescription(error, t("toasts.registerFailedDesc")),
               variant: "destructive",
             });
             return;
@@ -1348,7 +1389,7 @@ export default function ServerSetup() {
           addLog("error", t("toasts.registerFailedLog"));
           toast({
             title: t("toasts.registerFailedTitle"),
-            description: t("toasts.registerFailedDesc"),
+            description: registerFailedDescription(error, t("toasts.registerFailedDesc")),
             variant: "destructive",
           });
           return;
@@ -1700,7 +1741,7 @@ export default function ServerSetup() {
                   className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-primary via-primary/80 to-primary/40"
                   aria-hidden="true"
                 />
-                <div className="absolute right-3 top-3">
+                <div className="absolute end-3 top-3">
                   <Badge
                     variant="secondary"
                     className="text-[10px] font-medium uppercase tracking-wide"
@@ -2243,7 +2284,10 @@ export default function ServerSetup() {
                     <span>
                       {b.name === "public"
                         ? t("full.step2.buildStable")
-                        : b.description || b.name}
+                        : t(`steamDialog.branchDescriptions.${b.name}`, {
+                            ns: "servers",
+                            defaultValue: b.description || b.name,
+                          })}
                     </span>
                     {b.buildId && (
                       <span className="text-xs text-muted-foreground">
@@ -2368,7 +2412,7 @@ export default function ServerSetup() {
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="absolute right-1 top-1 h-9 w-9 p-0"
+                    className="absolute end-1 top-1 h-9 w-9 p-0"
                     onClick={() => setShowRconPassword(!showRconPassword)}
                     aria-label={
                       showRconPassword
@@ -2468,7 +2512,7 @@ export default function ServerSetup() {
               type="button"
               variant="ghost"
               size="sm"
-              className="absolute right-1 top-1 h-9 w-9 p-0"
+              className="absolute end-1 top-1 h-9 w-9 p-0"
               onClick={() => setShowAdminPassword(!showAdminPassword)}
               aria-label={
                 showAdminPassword
@@ -3000,7 +3044,7 @@ export default function ServerSetup() {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="absolute right-1 top-1 h-9 w-9 p-0"
+                      className="absolute end-1 top-1 h-9 w-9 p-0"
                       onClick={() => setShowRconPassword(!showRconPassword)}
                       aria-label={
                         showRconPassword
@@ -3102,7 +3146,7 @@ export default function ServerSetup() {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="absolute right-1 top-1 h-9 w-9 p-0"
+                className="absolute end-1 top-1 h-9 w-9 p-0"
                 onClick={() => setShowAdminPassword(!showAdminPassword)}
                 aria-label={
                   showAdminPassword

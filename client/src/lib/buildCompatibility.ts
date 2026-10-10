@@ -45,6 +45,5 @@ export function assessBuildCompatibility(
     : {
         compatible: false as const,
         code: 'version_mismatch' as const,
-        reason: 'The frontend and backend were built from different panel versions.',
       }
 }

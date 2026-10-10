@@ -31,6 +31,20 @@ export class ApiError extends Error {
    * sent it, so "try again later" never said when.
    */
   retryAfterSeconds?: number;
+  /**
+   * True when `message` is this client's own stock English text for `status`
+   * (the failing response carried no message of its own), so
+   * getUserErrorMessage() may swap in the translated equivalent. A message
+   * the server wrote is never marked: it can be more specific than any
+   * stock text, and it is shown as sent.
+   */
+  isStatusFallback: boolean;
+  /**
+   * `message` as it was before the English " Try again in N seconds."
+   * suffix was appended (only set when one was), so getUserErrorMessage()
+   * can put a translated suffix after it instead.
+   */
+  messageBeforeRetryAfter?: string;
 
   constructor(
     message: string,
@@ -42,6 +56,8 @@ export class ApiError extends Error {
       isNetworkError?: boolean;
       data?: unknown;
       retryAfterSeconds?: number;
+      isStatusFallback?: boolean;
+      messageBeforeRetryAfter?: string;
     },
   ) {
     super(message);
@@ -53,6 +69,8 @@ export class ApiError extends Error {
     this.isNetworkError = Boolean(options?.isNetworkError);
     this.data = options?.data;
     this.retryAfterSeconds = options?.retryAfterSeconds;
+    this.isStatusFallback = Boolean(options?.isStatusFallback);
+    this.messageBeforeRetryAfter = options?.messageBeforeRetryAfter;
   }
 }
 
@@ -395,13 +413,14 @@ function getStatusMessage(status: number): string {
       return "The server rejected the submitted values. Review the form and try again.";
     case 429:
       return "Too many requests were sent. Wait a moment and try again.";
-    case 500:
-    case 502:
-    case 503:
-    case 504:
-      return "The server is temporarily unavailable. Try again shortly.";
     default:
-      return `Request failed with status ${status}.`;
+      // Every 5xx reads the same: a proxy's 502/504, Cloudflare's 52x and a
+      // plain 500 with no body are all "the panel is not answering right
+      // now". errorMessage.ts maps each text here to a translated errors.json
+      // key (HTTP_STATUS_<n>, HTTP_5XX, HTTP_4XX); keep the two in step.
+      return status >= 500
+        ? "The server is temporarily unavailable. Try again shortly."
+        : `Request failed with status ${status}.`;
   }
 }
 
@@ -491,7 +510,7 @@ function formatRetryAfter(seconds: number): string {
 // -- not part of this module's public surface for callers, who should keep
 // going through apiFetch/the *Api objects.
 export function buildResponseError(response: Response, payload?: unknown): ApiError {
-  const messageFromPayload =
+  const payloadMessage =
     payload &&
     typeof payload === "object" &&
     "error" in payload &&
@@ -504,7 +523,9 @@ export function buildResponseError(response: Response, payload?: unknown): ApiEr
         ? payload.message
         : typeof payload === "string" && payload.trim()
           ? payload.trim()
-          : getStatusMessage(response.status);
+          : null;
+  const isStatusFallback = payloadMessage === null;
+  const messageFromPayload = payloadMessage ?? getStatusMessage(response.status);
 
   // Every rate limiter in this app sends Retry-After on a 429
   // (express-rate-limit, standardHeaders: true) -- previously discarded
@@ -538,6 +559,8 @@ export function buildResponseError(response: Response, payload?: unknown): ApiEr
       response.status === 408,
     data: payload,
     retryAfterSeconds: retryAfterSeconds ?? undefined,
+    isStatusFallback,
+    messageBeforeRetryAfter: retryAfterSeconds !== null ? messageFromPayload : undefined,
   });
 }
 
@@ -1310,6 +1333,37 @@ export const schedulerApi = {
 };
 
 // Mods API
+
+// What adding a workshop item to the server ini amounted to (server/routes/
+// mods.js additionStatus): "added" = a mod ID was written to Mods=;
+// "already-configured" = nothing needed changing; "workshop-only" = no mod ID
+// is known yet (not downloaded), so only WorkshopItems= changed and the mod
+// does not load until its ID is known (start the server, then Sync Mod IDs).
+export type ModAdditionStatus = "added" | "already-configured" | "workshop-only";
+
+export interface AddToIniBulkItemResult {
+  workshopId: string;
+  status: ModAdditionStatus | "invalid";
+  addedModIds?: string[];
+  alternativeModIds?: string[];
+  mapFoldersAdded?: string[];
+  workshopAlreadyExisted?: boolean;
+  detectionSource?: string | null;
+  code?: string;
+}
+
+export interface AddToIniBulkResult {
+  success: boolean;
+  total: number;
+  added: number;
+  alreadyConfigured: number;
+  workshopOnly: number;
+  invalid: number;
+  mapFoldersAdded: string[];
+  results: AddToIniBulkItemResult[];
+  backupWarning?: string;
+}
+
 export const modsApi = {
   getStatus: (options?: { retries?: number }) =>
     apiGet("/mods/status", undefined, options?.retries),
@@ -1735,8 +1789,27 @@ export const modsApi = {
       totalModIdsInConfig: number;
       workshopAlreadyExisted: boolean;
       mapFoldersAdded: string[];
+      /** What the add amounted to ("workshop-only": no mod ID known, only WorkshopItems= changed). Absent on older servers. */
+      status?: ModAdditionStatus;
       message: string;
     }>,
+
+  // Add many workshop items in ONE server .ini write (one backup): Import
+  // Collection and re-enabling several deactivated mods. Each entry follows
+  // addModAdvanced's fields; with neither selectedModIds nor includeAllModIds
+  // only the item's default mod is enabled (like addToIni) and the others come
+  // back as alternativeModIds. `track` also tracks every item (an import).
+  addToIniBulk: (
+    mods: Array<{
+      workshopId: string;
+      selectedModIds?: string[];
+      includeAllModIds?: boolean;
+    }>,
+    track?: boolean,
+  ) =>
+    // An item that is not downloaded yet is looked up on Steam (the server
+    // gives up on those after 30 s), so the default 15 s request timeout is too short.
+    apiPost("/mods/add-to-ini-bulk", { mods, track }, { timeout: 120_000 }) as Promise<AddToIniBulkResult>,
 
   // Mod Presets
   getPresets: () => apiGet("/mods/presets"),

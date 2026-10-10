@@ -80,11 +80,25 @@ function renderSettings(socket: Socket) {
   )
 }
 
-function stubLocation() {
+function stubLocation(pageUrl?: string) {
   const original = window.location
+  const page = pageUrl ? new URL(pageUrl) : null
   Object.defineProperty(window, 'location', {
     configurable: true,
-    value: { ...original, href: original.href },
+    value: page
+      ? {
+          ...original,
+          href: page.href,
+          protocol: page.protocol,
+          host: page.host,
+          hostname: page.hostname,
+          port: page.port,
+          origin: page.origin,
+          pathname: page.pathname,
+          search: page.search,
+          hash: page.hash,
+        }
+      : { ...original, href: original.href },
   })
   return () => {
     Object.defineProperty(window, 'location', { configurable: true, value: original })
@@ -134,6 +148,14 @@ describe('Settings.tsx: restartPanelWithReconnect polls for the panel to come ba
     let healthCall = 0
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString()
+      if (url.includes('/api/panel-info')) {
+        // The process is running on the port this page is served on, and the
+        // saved port (3001) differs: the port really changes.
+        return new Response(JSON.stringify({ localIp: '127.0.0.1', port: 3000, url: 'http://127.0.0.1:3000' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
       if (!url.includes('/api/health')) {
         return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
       }
@@ -238,4 +260,90 @@ describe('Settings.tsx: restartPanelWithReconnect polls for the panel to come ba
       restoreLocation()
     }
   }, 120_000)
+
+  // The poll used to go to hostname:<saved port> every time. Behind a reverse
+  // proxy, with a remapped Docker port or on the HTTPS port that address never
+  // answers, so the page spun for three minutes and then reported a failure
+  // although the panel was back.
+  describe('where it polls', () => {
+    async function restartAndApply(options: { pageUrl: string; savedPort: string; runningPort: number | null }) {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const restoreLocation = stubLocation(options.pageUrl)
+
+      getAppSettings.mockResolvedValue({ settings: { panelPort: options.savedPort } })
+      preflight.mockResolvedValue({
+        ok: true, blockers: [], warnings: [], blockerDetails: [], warningDetails: [],
+        info: { isPackaged: true, platform: 'win32', updateMode: 'direct', restartAssessment: { gameServers: 'preserved', requiresConfirmation: false }, temporaryDirectory: 'C:/tmp', applyLogPath: 'C:/tmp/log.txt' },
+      })
+      getStatus.mockResolvedValue({
+        currentVersion: '1.2.15', updateAvailable: true, latestVersion: '1.2.16',
+        releaseUrl: null, releaseNotes: null, publishedAt: null,
+        isChecking: false, isDownloading: false, downloadProgress: 0,
+        lastCheck: null, lastError: null, updateMode: 'direct',
+        stagedUpdate: { version: '1.2.16', path: 'C:/panel/update.new.exe' },
+        lastApplyResult: null,
+      })
+      restartPanel.mockResolvedValue({ success: true })
+
+      const healthUrls: string[] = []
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString()
+        const json = { status: 200, headers: { 'content-type': 'application/json' } }
+        if (url.includes('/api/panel-info')) {
+          if (options.runningPort === null) return new Response('{}', json)
+          return new Response(JSON.stringify({ localIp: '10.0.0.5', port: options.runningPort, url: 'x' }), json)
+        }
+        if (url.includes('/api/health')) {
+          healthUrls.push(url)
+          return new Response(JSON.stringify({ status: 'ok', version: '1.2.16' }), json)
+        }
+        return new Response('{}', json)
+      }))
+
+      try {
+        const { socket } = createFakeSocket()
+        renderSettings(socket)
+        const restartButton = await screen.findByRole('button', { name: 'Restart and Apply Update' })
+        restartButton.click()
+        const confirmButton = await screen.findByRole('button', { name: 'Restart and apply' })
+        confirmButton.click()
+        await vi.waitFor(() => expect(restartPanel).toHaveBeenCalledTimes(1))
+        await vi.advanceTimersByTimeAsync(3000 + 2000)
+        await vi.waitFor(() => expect(healthUrls.length).toBeGreaterThan(0))
+        return { healthUrls }
+      } finally {
+        restoreLocation()
+      }
+    }
+
+    it('polls the origin the page is on behind a reverse proxy, not hostname:<saved port>', async () => {
+      const { healthUrls } = await restartAndApply({ pageUrl: 'https://panel.example.com/settings?tab=updates', savedPort: '3001', runningPort: 3001 })
+      expect(new Set(healthUrls)).toEqual(new Set(['https://panel.example.com/api/health']))
+    })
+
+    it('polls the origin the page is on when Docker publishes the panel under another port', async () => {
+      const { healthUrls } = await restartAndApply({ pageUrl: 'http://nas.local:8080/settings?tab=updates', savedPort: '3001', runningPort: 3001 })
+      expect(new Set(healthUrls)).toEqual(new Set(['http://nas.local:8080/api/health']))
+    })
+
+    it('polls the origin the page is on over the HTTPS port', async () => {
+      const { healthUrls } = await restartAndApply({ pageUrl: 'https://192.168.1.5:3443/settings?tab=updates', savedPort: '3001', runningPort: 3001 })
+      expect(new Set(healthUrls)).toEqual(new Set(['https://192.168.1.5:3443/api/health']))
+    })
+
+    it('polls the same address when the port did not change', async () => {
+      const { healthUrls } = await restartAndApply({ pageUrl: 'http://192.168.1.5:3001/settings?tab=updates', savedPort: '3001', runningPort: 3001 })
+      expect(new Set(healthUrls)).toEqual(new Set(['http://192.168.1.5:3001/api/health']))
+    })
+
+    it('polls the new port when the saved port differs from the one the page is served on', async () => {
+      const { healthUrls } = await restartAndApply({ pageUrl: 'http://192.168.1.5:3001/settings?tab=updates', savedPort: '3002', runningPort: 3001 })
+      expect(new Set(healthUrls)).toEqual(new Set(['http://192.168.1.5:3002/api/health']))
+    })
+
+    it('polls the page origin when the running port cannot be read', async () => {
+      const { healthUrls } = await restartAndApply({ pageUrl: 'http://192.168.1.5:3001/settings?tab=updates', savedPort: '3002', runningPort: null })
+      expect(new Set(healthUrls)).toEqual(new Set(['http://192.168.1.5:3001/api/health']))
+    })
+  })
 })
