@@ -1697,6 +1697,7 @@ app.set("modChecker", modChecker);
 app.set("scheduler", scheduler);
 app.set("discordBot", discordBot);
 backupService.setServerManager(serverManager);
+backupService.setRconService(rconService);
 app.set("backupService", backupService);
 app.set("io", io);
 app.set("refreshCorsConfig", refreshCorsConfig);
@@ -4691,6 +4692,11 @@ async function start() {
         }
         await logExposureWarningIfNeeded({ needsSetup, boundPort, localIp });
         await logSetupTokenIfNeeded(needsSetup);
+
+        // A restore that failed hard, or was cut off by the panel stopping,
+        // leaves its .restore-staging-* folder (a whole world's worth of
+        // files) in Saves/Multiplayer; nothing else removes it.
+        void backupService.sweepRestoreStaging();
 
         // If PZ server files were bind-mounted in but no server profile has
         // been created yet, point the user at Settings instead of leaving

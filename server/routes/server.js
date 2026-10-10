@@ -59,6 +59,7 @@ import { ProgressCode } from "../utils/progressCodes.js";
 import { invalidateMapFolderScan } from "./chunks.js";
 import { codedActionResultFields, emitActionResult } from "./scheduler.js";
 import panelBridge from "../services/panelBridge.js";
+import { resolveObservedServerRunning } from "../utils/serverStatus.js";
 import { candidateIniPaths } from "../utils/zomboidPaths.js";
 import { serverHasWorldFolder } from "../utils/savesFolder.js";
 import { adminPasswordStartScriptRefusal } from "../services/startScriptValues.js";
@@ -7808,15 +7809,33 @@ router.post("/wipe", requirePermission("server.wipe"), async (req, res) => {
     // (same as a confirmed-stopped server), which would let this destructive
     // wipe proceed against a server we simply failed to see was running.
     // getServerProcessDetails() exposes that distinction via scanFailed, so
-    // use it directly here and fail closed when detection itself failed.
-    const processDetails = await serverManager.getServerProcessDetails();
-    if (processDetails.scanFailed) {
+    // fail closed when detection itself failed.
+    //
+    // The local process scan alone is also blind to a server running in
+    // another container (a docker-local setup, GH#114): it succeeds and finds
+    // nothing while the world is open in a live server. So the verdict is
+    // resolveObservedServerRunning(), the one the status badge, the watchdog
+    // and Discord use and POST /backup/restore/:name now gates on -- the
+    // container's own state for the Docker providers, RCON and PanelBridge
+    // alongside the scan otherwise. true refuses; null (cannot tell) refuses
+    // as "can't verify".
+    let observedRunning;
+    try {
+      observedRunning = await resolveObservedServerRunning(
+        serverManager,
+        req.app.get("rconService"),
+      );
+    } catch (error) {
+      log.warn(`Could not tell whether the server is running before a wipe: ${error.message}`);
+      observedRunning = null;
+    }
+    if (observedRunning === null) {
       return res.status(503).json({
         error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
         code: ErrorCode.SERVER_STATE_UNKNOWN,
       });
     }
-    if (processDetails.running) {
+    if (observedRunning) {
       return res.status(400).json({
         error: "Server must be stopped before wiping. Stop the server first.",
         code: ErrorCode.WIPE_SERVER_RUNNING,

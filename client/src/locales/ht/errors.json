@@ -124,6 +124,7 @@
   "BACKUP_INVALID_FILE": "Dosye kopi sovgad envalid",
   "BACKUP_NOT_FOUND": "Kopi sovgad pa jwenn",
   "BACKUP_SAVES_FOLDER_NOT_FOUND": "Pa jwenn dosye mond sèvè sa a, kidonk pa gen anyen pou sovgade. Lanse sèvè a yon fwa pou li kreye mond li, oswa verifye non sèvè a ak dosye done a nan paramèt sèvè a.",
+  "BACKUP_INSUFFICIENT_DISK_SPACE": "Pa gen ase espas lib sou disk la pou kopi sovgad sa a: bezwen apeprè {{needed}} e gen {{free}} lib. Lage kèk espas sou disk la oswa bese \"Maksimòm Kopi Sovgad pou Kenbe\", epi eseye ankò.",
   "BACKUP_RESTORE_REMOTE_NOT_AVAILABLE": "Retabli kopi sovgad pa disponib pou sèvè aleka. Sistèm dosye sèvè a pa aksesib soti nan panèl sa a.",
   "BACKUP_RESTORE_SERVER_RUNNING": "Sèvè a dwe sispann anvan w retabli yon kopi sovgad. Tanpri sispann sèvè a dabò.",
   "BACKUP_INVALID_DAYS_PARAMETER": "Paramèt jou envalid. Dwe yon nonm antye >= 1",
