@@ -2227,7 +2227,7 @@ router.post("/write-to-ini", async (req, res) => {
       // three writers need to agree on what a key line looks like; this
       // brings mods.js's match+replace in line with the other two.
       if (content.match(/^[ \t]*Mods[ \t]*=.*/m)) {
-        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, `Mods=${modIdList}`);
+        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => `Mods=${modIdList}`);
       } else {
         content += `\nMods=${modIdList}`;
       }
@@ -2236,7 +2236,7 @@ router.post("/write-to-ini", async (req, res) => {
       if (content.match(/^[ \t]*WorkshopItems[ \t]*=.*/m)) {
         content = content.replace(
           /^[ \t]*WorkshopItems[ \t]*=.*/m,
-          `WorkshopItems=${workshopIdList}`,
+          () => `WorkshopItems=${workshopIdList}`,
         );
       } else {
         content += `\nWorkshopItems=${workshopIdList}`;
@@ -2245,7 +2245,7 @@ router.post("/write-to-ini", async (req, res) => {
       // Update or add Map= (only if we have custom maps)
       if (detectedMapFolders && detectedMapFolders.length > 0) {
         if (content.match(/^[ \t]*Map[ \t]*=.*/m)) {
-          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, `Map=${mapList}`);
+          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, () => `Map=${mapList}`);
         } else {
           content += `\nMap=${mapList}`;
         }
@@ -2493,7 +2493,7 @@ router.post("/toggle-mod-id", async (req, res) => {
       // no-ops. See the 2026-08-27 comment on this file's first ini-write
       // site for the full explanation.
       if (modsMatch) {
-        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, `Mods=${newModList}`);
+        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => `Mods=${newModList}`);
       } else {
         content += `\nMods=${newModList}`;
       }
@@ -2650,7 +2650,7 @@ router.post("/batch-toggle-mod-ids", async (req, res) => {
       // Reuse modsMatch (see this file's first ini-write site for why a
       // separate .includes("Mods=") is wrong here).
       if (modsMatch) {
-        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, `Mods=${newModList}`);
+        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => `Mods=${newModList}`);
       } else {
         content += `\nMods=${newModList}`;
       }
@@ -2839,7 +2839,7 @@ router.post("/add-to-ini", async (req, res) => {
       if (workshopMatch) {
         content = content.replace(
           /^[ \t]*WorkshopItems[ \t]*=.*/m,
-          `WorkshopItems=${newWorkshopList}`,
+          () => `WorkshopItems=${newWorkshopList}`,
         );
       } else {
         content += `\nWorkshopItems=${newWorkshopList}`;
@@ -2848,7 +2848,7 @@ router.post("/add-to-ini", async (req, res) => {
       // Update Mods= if we have a modId -- reuse modsMatch.
       if (detectedModId) {
         if (modsMatch) {
-          content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, `Mods=${newModList}`);
+          content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => `Mods=${newModList}`);
         } else {
           content += `\nMods=${newModList}`;
         }
@@ -2871,7 +2871,7 @@ router.post("/add-to-ini", async (req, res) => {
 
         const newMapList = currentMaps.join(";");
         if (mapMatch) {
-          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, `Map=${newMapList}`);
+          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, () => `Map=${newMapList}`);
         } else {
           content += `\nMap=${newMapList}`;
         }
@@ -3264,7 +3264,7 @@ router.post("/remove-from-ini", async (req, res) => {
 
           const newMapList = currentMaps.join(";");
           if (mapMatch) {
-            content = content.replace(/^[ \t]*Map[ \t]*=.*/m, `Map=${newMapList}`);
+            content = content.replace(/^[ \t]*Map[ \t]*=.*/m, () => `Map=${newMapList}`);
           } else {
             content += `\nMap=${newMapList}`;
           }
@@ -3277,7 +3277,7 @@ router.post("/remove-from-ini", async (req, res) => {
       if (workshopMatch) {
         content = content.replace(
           /^[ \t]*WorkshopItems[ \t]*=.*/m,
-          `WorkshopItems=${sanitizeIniList(workshopIds)}`,
+          () => `WorkshopItems=${sanitizeIniList(workshopIds)}`,
         );
       }
 
@@ -3285,7 +3285,7 @@ router.post("/remove-from-ini", async (req, res) => {
       if (modsMatch) {
         content = content.replace(
           /^[ \t]*Mods[ \t]*=.*/m,
-          `Mods=${sanitizeModIdList(modIds)}`,
+          () => `Mods=${sanitizeModIdList(modIds)}`,
         );
       }
 
@@ -3444,19 +3444,19 @@ router.post("/batch-remove", async (req, res) => {
             if (workshopMatch) {
               content = content.replace(
                 /^[ \t]*WorkshopItems[ \t]*=.*/m,
-                `WorkshopItems=${sanitizeIniList(iniWorkshopIds)}`,
+                () => `WorkshopItems=${sanitizeIniList(iniWorkshopIds)}`,
               );
             }
             if (modsMatch) {
               content = content.replace(
                 /^[ \t]*Mods[ \t]*=.*/m,
-                `Mods=${sanitizeModIdList(iniModIds)}`,
+                () => `Mods=${sanitizeModIdList(iniModIds)}`,
               );
             }
             if (mapMatch) {
               content = content.replace(
                 /^[ \t]*Map[ \t]*=.*/m,
-                `Map=${sanitizeIniList(iniMaps)}`,
+                () => `Map=${sanitizeIniList(iniMaps)}`,
               );
             }
 
@@ -3639,7 +3639,7 @@ router.post("/repair-map-entries", async (req, res) => {
         // Reuse mapMatch (computed above), same fix as this file's first
         // ini-write site.
         if (mapMatch) {
-          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, `Map=${newMapLine}`);
+          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, () => `Map=${newMapLine}`);
         }
         backupWarning = backupWarningFor(
           await writeIniWithBackup(iniPath, content),
@@ -3750,7 +3750,7 @@ router.post("/deduplicate-mod-ids", async (req, res) => {
 
       content = content.replace(
         /^[ \t]*Mods[ \t]*=.*/m,
-        `Mods=${sanitizeModIdList(deduped)}`,
+        () => `Mods=${sanitizeModIdList(deduped)}`,
       );
       const backupWarning = backupWarningFor(
         await writeIniWithBackup(iniPath, content),
@@ -3872,7 +3872,7 @@ router.post("/add-missing-dep", async (req, res) => {
         // Reuse wsMatch (computed above), same fix as this file's first
         // ini-write site.
         if (wsMatch) {
-          content = content.replace(/^[ \t]*WorkshopItems[ \t]*=.*/m, wsLine);
+          content = content.replace(/^[ \t]*WorkshopItems[ \t]*=.*/m, () => wsLine);
         } else {
           content += `\n${wsLine}`;
         }
@@ -3891,7 +3891,7 @@ router.post("/add-missing-dep", async (req, res) => {
           if (modsMatch) {
             content = content.replace(
               /^[ \t]*Mods[ \t]*=.*/m,
-              `Mods=${sanitizeModIdList(currentMods)}`,
+              () => `Mods=${sanitizeModIdList(currentMods)}`,
             );
           } else {
             content += `\nMods=${sanitizeModIdList(currentMods)}`;
@@ -3917,7 +3917,7 @@ router.post("/add-missing-dep", async (req, res) => {
           if (mapMatch)
             content = content.replace(
               /^[ \t]*Map[ \t]*=.*/m,
-              `Map=${currentMaps.join(";")}`,
+              () => `Map=${currentMaps.join(";")}`,
             );
           else content += `\nMap=${currentMaps.join(";")}`;
         }
@@ -4093,15 +4093,15 @@ router.post("/add-all-resolved-deps", async (req, res) => {
       if (wsMatch)
         content = content.replace(
           /^[ \t]*WorkshopItems[ \t]*=.*/m,
-          `WorkshopItems=${wsLine}`,
+          () => `WorkshopItems=${wsLine}`,
         );
       else content += `\nWorkshopItems=${wsLine}`;
       if (modsMatch)
-        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, `Mods=${modsLine}`);
+        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => `Mods=${modsLine}`);
       else content += `\nMods=${modsLine}`;
       if (allMapFolders.length > 0) {
         if (mapMatch)
-          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, `Map=${mapLine}`);
+          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, () => `Map=${mapLine}`);
         else content += `\nMap=${mapLine}`;
       }
 
@@ -4700,7 +4700,7 @@ router.post("/sync-mod-ids", async (req, res) => {
       // Reuse modsMatch (computed above), same fix as this file's first
       // ini-write site.
       if (modsMatch) {
-        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, `Mods=${newModList}`);
+        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => `Mods=${newModList}`);
       } else {
         content += `\nMods=${newModList}`;
       }
@@ -5109,7 +5109,7 @@ router.post("/presets/:id/apply", async (req, res) => {
       // ini-write site for why.
       const workshopLine = `WorkshopItems=${sanitizeIniList(preset.workshop_ids || [])}`;
       if (content.match(/^[ \t]*WorkshopItems[ \t]*=.*/m)) {
-        content = content.replace(/^[ \t]*WorkshopItems[ \t]*=.*/m, workshopLine);
+        content = content.replace(/^[ \t]*WorkshopItems[ \t]*=.*/m, () => workshopLine);
       } else {
         content += `\n${workshopLine}`;
       }
@@ -5123,7 +5123,7 @@ router.post("/presets/:id/apply", async (req, res) => {
       // sanitization here, same bypass already used for disk-verified IDs.
       const modsLine = `Mods=${sanitizeIniList(preset.mods || [])}`;
       if (content.match(/^[ \t]*Mods[ \t]*=.*/m)) {
-        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, modsLine);
+        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => modsLine);
       } else {
         content += `\n${modsLine}`;
       }
@@ -5208,7 +5208,7 @@ router.post("/save-order", async (req, res) => {
       // Same fix as this file's first ini-write site: check the anchored
       // regex, not a plain .includes().
       if (content.match(/^[ \t]*Mods[ \t]*=.*/m)) {
-        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, modsLine);
+        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => modsLine);
       } else {
         content += `\n${modsLine}`;
       }
@@ -5510,14 +5510,14 @@ router.post("/add-mod-advanced", async (req, res) => {
       if (workshopMatch) {
         content = content.replace(
           /^[ \t]*WorkshopItems[ \t]*=.*/m,
-          `WorkshopItems=${newWorkshopList}`,
+          () => `WorkshopItems=${newWorkshopList}`,
         );
       } else {
         content += `\nWorkshopItems=${newWorkshopList}`;
       }
 
       if (modsMatch) {
-        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, `Mods=${newModList}`);
+        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => `Mods=${newModList}`);
       } else {
         content += `\nMods=${newModList}`;
       }
@@ -5537,7 +5537,7 @@ router.post("/add-mod-advanced", async (req, res) => {
 
         const newMapList = currentMaps.join(";");
         if (mapMatch) {
-          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, `Map=${newMapList}`);
+          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, () => `Map=${newMapList}`);
         } else {
           content += `\nMap=${newMapList}`;
         }
@@ -7988,7 +7988,7 @@ router.post("/enable-disk-mod", async (req, res) => {
       if (!wsList.includes(wsId)) wsList.push(wsId);
       const wsLine = `WorkshopItems=${sanitizeIniList(wsList)}`;
       content = wsMatch
-        ? content.replace(/^[ \t]*WorkshopItems[ \t]*=.*/m, wsLine)
+        ? content.replace(/^[ \t]*WorkshopItems[ \t]*=.*/m, () => wsLine)
         : content.trimEnd() + `\n${wsLine}\n`;
 
       // Mods
@@ -8007,7 +8007,7 @@ router.post("/enable-disk-mod", async (req, res) => {
       }
       const modsLine = `Mods=${sanitizeIniList(modsList)}`;
       content = modsMatch
-        ? content.replace(/^[ \t]*Mods[ \t]*=.*/m, modsLine)
+        ? content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => modsLine)
         : content.trimEnd() + `\n${modsLine}\n`;
 
       backupWarning = backupWarningFor(
@@ -8084,7 +8084,7 @@ async function deleteModFromDiskAndIni(wsId) {
         .filter((id) => id !== wsId);
       content = content.replace(
         /^[ \t]*WorkshopItems[ \t]*=.*/m,
-        `WorkshopItems=${sanitizeIniList(wsList)}`,
+        () => `WorkshopItems=${sanitizeIniList(wsList)}`,
       );
     }
     const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
@@ -8095,7 +8095,7 @@ async function deleteModFromDiskAndIni(wsId) {
         .filter((id) => !modIdsToStrip.includes(id));
       content = content.replace(
         /^[ \t]*Mods[ \t]*=.*/m,
-        `Mods=${sanitizeModIdList(modsList)}`,
+        () => `Mods=${sanitizeModIdList(modsList)}`,
       );
     }
     const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
@@ -8107,7 +8107,7 @@ async function deleteModFromDiskAndIni(wsId) {
       if (mapList.length === 0) mapList = ["Muldraugh, KY"];
       content = content.replace(
         /^[ \t]*Map[ \t]*=.*/m,
-        `Map=${sanitizeIniList(mapList)}`,
+        () => `Map=${sanitizeIniList(mapList)}`,
       );
     }
     backupWarning = backupWarningFor(
@@ -8397,7 +8397,7 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
           .filter((id) => !cleaned.includes(id));
         content = content.replace(
           /^[ \t]*WorkshopItems[ \t]*=.*/m,
-          `WorkshopItems=${sanitizeIniList(wsList)}`,
+          () => `WorkshopItems=${sanitizeIniList(wsList)}`,
         );
       }
       const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
@@ -8408,7 +8408,7 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
           .filter((id) => !allModIdsToStrip.has(id));
         content = content.replace(
           /^[ \t]*Mods[ \t]*=.*/m,
-          `Mods=${sanitizeModIdList(modsList)}`,
+          () => `Mods=${sanitizeModIdList(modsList)}`,
         );
       }
       // continuous-bug-hunt, 2026-09-18 (mod-list-drift round): this route
@@ -8429,7 +8429,7 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
         if (mapList.length === 0) mapList = ["Muldraugh, KY"];
         content = content.replace(
           /^[ \t]*Map[ \t]*=.*/m,
-          `Map=${sanitizeIniList(mapList)}`,
+          () => `Map=${sanitizeIniList(mapList)}`,
         );
       }
       backupWarning = backupWarningFor(
@@ -8622,7 +8622,7 @@ router.post("/resolve-orphan-workshop", async (req, res) => {
             .filter((id) => !wsToDrop.has(id));
           content = content.replace(
             /^[ \t]*WorkshopItems[ \t]*=.*/m,
-            `WorkshopItems=${sanitizeIniList(wsList)}`,
+            () => `WorkshopItems=${sanitizeIniList(wsList)}`,
           );
         }
       }
@@ -8646,7 +8646,7 @@ router.post("/resolve-orphan-workshop", async (req, res) => {
         }
         const newLine = `Mods=${sanitizeIniList(finalList)}`;
         content = modsMatch
-          ? content.replace(/^[ \t]*Mods[ \t]*=.*/m, newLine)
+          ? content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => newLine)
           : content.trimEnd() + `\n${newLine}\n`;
       }
 
