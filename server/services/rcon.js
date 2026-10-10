@@ -76,9 +76,11 @@ const RCON_ERROR_CLASSIFICATIONS = [
 // accident, not by design. Transliterating first means "repete" instead:
 // degraded but recognisable, and consistent regardless of which RCON text
 // field (broadcast, ban reason, etc.) the string passes through. Bounded to
-// Latin-1 Supplement + Latin Extended-A (players.js's own SAFE_TEXT_REGEX
-// accepts exactly this range, À-ɏ) -- other scripts still fall
-// through to foldToRconAscii()'s final drop, same as before.
+// Latin-1 Supplement + Latin Extended-A (À-ɏ) -- other scripts still fall
+// through to foldToRconAscii()'s final drop, same as before. players.js
+// accepts any reason text (control characters and length aside) and leaves
+// the narrowing to this fold, so a reason in another script is sent as an
+// empty one rather than refused.
 // Exported (round 16b, bug-hunt-2026-09-18) so a drift-detection test can
 // assert equality against client/src/lib/rconTextPreview.ts's own hand copy
 // of this exact table, rather than only exercising it indirectly through
@@ -1705,12 +1707,17 @@ export class RconService extends EventEmitter {
     return String(input).replace(/["\\]|[\x00-\x1F\x7F]/g, "");
   }
 
+  // The value is NOT trimmed: PZ accepts usernames with a leading or trailing
+  // space (parsePlayers() reports " Bob", "Bob " and "Bob" as three different
+  // players) and its command tokenizer keeps spaces inside quotes, so trimming
+  // here made kick/ban/unban/access-level hit the account "Bob" instead of
+  // the one that was asked for. Only a blank value is refused.
   sanitizeQuotedArg(input, label = "RCON argument", maxLength = 128) {
     if (input === null || input === undefined) {
       throw new Error(`${label} is required`);
     }
-    const value = String(input).trim();
-    if (!value) {
+    const value = String(input);
+    if (!value.trim()) {
       throw new Error(`${label} is required`);
     }
     if (value.length > maxLength) {

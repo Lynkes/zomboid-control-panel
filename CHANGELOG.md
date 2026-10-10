@@ -45,6 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Settings saved with warnings:** when the server could not reload part of a saved change (server manager, RCON or CORS), Settings now shows a warning listing it instead of a plain green "Settings Saved".
 - **First-run setup that was already completed:** if an admin account already exists when you submit the setup form, the panel now moves on to the sign-in screen instead of leaving "Setup already completed. Use login instead." on a form with no way to log in.
 - **Untranslated defaults:** the confirm dialog's "Are you sure?" title and buttons, the page-loading skeleton, the "frontend and backend versions do not match" screen and the Server Setup version descriptions are translated in every language instead of English.
+- **Old bans missing from the activity log:** kicks, bans and access-level changes are now kept separately (up to 5000) from the connect, disconnect and death rows, so a busy server's join/leave traffic no longer pushes a ban out of the history within days.
+- **Kick and ban reasons:** a reason such as "cheating [RDM]", "RDM / KOS" or one in another alphabet is no longer refused with "Invalid reason format"; it is shortened to what the game can carry (as the form already said), and the SteamID-ban note takes any text.
+- **Players with a space at the start or end of their name:** Kick, Ban, Unban, Access Level and the other player actions now act on "Bob " or " Bob" exactly as listed instead of on the different account "Bob".
+- **Player notes and tags after a reload:** the notes and tags you saved on the Players page show again after reloading the page (the notes tab was empty, so saving again replaced the stored note).
+- **Player dialogs kept the last player's input:** after cancelling Teleport for one player, the next player's Teleport dialog no longer teleports the first one; Access Level no longer opens pre-set to the level just granted; the Voice Ban name and the character export (and its downloaded file name) follow the selected player.
+- **Switching the active server on the Players page:** the selected player, the God mode / Invisible badges of a same-named player, the vitals, playtime, SteamID bans, whitelist and the activity log of the previous server are cleared (the open log reloads), and a slow answer for the old server can no longer overwrite the new server's data.
 
 ## [1.4.12] - 2026-10-10
 

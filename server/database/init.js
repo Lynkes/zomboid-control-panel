@@ -79,7 +79,12 @@ export function redactPanelBridgeSftpPasswordForWrite(data) {
 
 const RETENTION = {
   command_history: 500,
+  // player_logs holds two kinds of rows, capped separately (see
+  // capPlayerLogs): the automatic connect / disconnect / death rows
+  // (player_logs) and every deliberate panel action, i.e. kicks, bans,
+  // access-level changes, whitelist edits and so on (moderation_logs).
   player_logs: 1000,
+  moderation_logs: 5000,
   server_events: 500,
   schedule_history: 500,
   // 24h at 60-sec intervals. Keep this in sync with the perf polling interval
@@ -944,7 +949,8 @@ export function validateData(data) {
  * This DB layer uses two conventions depending on how a collection is
  * consumed: `newest: true` (default) unshifts the new item to the front and
  * caps by dropping from the end — used by command_history, bridge_logs,
- * player_logs, server_events, schedule_history, all of whose readers do
+ * server_events, schedule_history (player_logs follows the same order but
+ * has its own two-kind cap, capPlayerLogs), all of whose readers do
  * `.slice(0, limit)` expecting newest-first order. `newest: false` pushes to
  * the end and caps by dropping from the front — used by
  * performance_history, whose reader does `.slice(-limit)` expecting
@@ -954,6 +960,40 @@ export function validateData(data) {
  * so any new capped collection has one obvious place to reach for instead of
  * re-deriving the pattern.
  */
+// Rows the game or the bridge produce on their own, many per hour on a busy
+// server. Everything else in player_logs is something a moderator did.
+const ROUTINE_PLAYER_LOG_ACTIONS = new Set(["connect", "disconnect", "death"]);
+
+/**
+ * Cap a newest-first player_logs array. Kicks, bans and the other moderator
+ * actions used to share one 1000-row ring with every connect, disconnect and
+ * death row, so on a busy server a ban from a few days earlier was evicted by
+ * join/leave traffic. The two kinds are capped independently now: the newest
+ * RETENTION.player_logs routine rows and the newest RETENTION.moderation_logs
+ * moderator rows are kept, interleaved in their original order. Rows already
+ * stored stay as they are, which is also the migration: the first cap after
+ * an upgrade simply stops evicting the moderator rows still in the ring.
+ * Returns the same array when nothing needs to go.
+ */
+export function capPlayerLogs(logs) {
+  if (!Array.isArray(logs) || logs.length <= RETENTION.player_logs) return logs;
+  let routine = 0;
+  let moderation = 0;
+  const kept = [];
+  for (const row of logs) {
+    if (ROUTINE_PLAYER_LOG_ACTIONS.has(row?.action)) {
+      if (routine < RETENTION.player_logs) {
+        routine++;
+        kept.push(row);
+      }
+    } else if (moderation < RETENTION.moderation_logs) {
+      moderation++;
+      kept.push(row);
+    }
+  }
+  return kept.length === logs.length ? logs : kept;
+}
+
 function appendCapped(arr, item, max, { newest = true } = {}) {
   if (newest) {
     arr.unshift(item);
@@ -982,7 +1022,7 @@ function compactData(data) {
     data.command_history,
     RETENTION.command_history,
   );
-  data.player_logs = trimArray(data.player_logs, RETENTION.player_logs);
+  data.player_logs = capPlayerLogs(data.player_logs);
   data.server_events = trimArray(data.server_events, RETENTION.server_events);
   data.schedule_history = trimArray(
     data.schedule_history,
@@ -1735,7 +1775,8 @@ export async function logPlayerAction(playerName, action, details = null) {
     logged_at: new Date().toISOString(),
   };
 
-  appendCapped(db.data.player_logs, entry, RETENTION.player_logs);
+  db.data.player_logs.unshift(entry);
+  db.data.player_logs = capPlayerLogs(db.data.player_logs);
   scheduleWrite();
   return entry;
 }
