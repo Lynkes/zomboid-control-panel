@@ -51,7 +51,9 @@ import {
   formatRestartWarning,
   getRestartWarningNotice,
   getRestartWarningPresetTemplates,
+  MAX_RESTART_WARNING_MINUTES,
   normalizeRestartWarningSettings,
+  parseDefaultRestartWarningMinutes,
   RESTART_WARNING_SETTING_KEY,
   validateRestartWarningSettings,
 } from "../utils/restartWarning.js";
@@ -257,16 +259,26 @@ const RESTART_SEQUENCE_BUDGET_MS = 20 * 60 * 1000;
 // 60-minute one would otherwise spend half the budget above before its
 // stop/start sequence even began.
 const COUNTDOWN_MINUTE_OVERRUN_MS = 30 * 1000;
-// POST /scheduler/restart-now's own cap on the countdown. Only used if the
-// wait can't see the running restart's real countdown (defensive: both are
-// set together in performRestart()).
-const MAX_RESTART_WARNING_MINUTES = 60;
+// MAX_RESTART_WARNING_MINUTES (utils/restartWarning.js) is POST
+// /scheduler/restart-now's own cap on the countdown, and what the deferred
+// backup's wait uses if it can't see the running restart's real countdown
+// (defensive: both are set together in performRestart()).
 
 // performRestart()'s countdown when its caller passes none -- every
 // scheduled task restart and AUTO_RESTART_CRON. One function so the
 // restart-overlap warning predicts the countdown performRestart() uses.
-function defaultRestartWarningMinutes() {
-  return parseInt(process.env.RESTART_WARNING_MINUTES, 10) || 5;
+// RESTART_WARNING_MINUTES=0 is honoured (an immediate restart) and a value
+// above the cap is held to it; what was changed is logged once per value,
+// not on every restart.
+let lastReportedRestartWarningEnv;
+export function defaultRestartWarningMinutes() {
+  const raw = process.env.RESTART_WARNING_MINUTES;
+  const { minutes, note } = parseDefaultRestartWarningMinutes(raw);
+  if (note && raw !== lastReportedRestartWarningEnv) {
+    lastReportedRestartWarningEnv = raw;
+    log.warn(note);
+  }
+  return minutes;
 }
 
 export class Scheduler {
