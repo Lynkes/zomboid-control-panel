@@ -124,6 +124,7 @@
   "BACKUP_INVALID_FILE": "Archivo de copia de seguridad no válido",
   "BACKUP_NOT_FOUND": "No se encontró la copia de seguridad",
   "BACKUP_SAVES_FOLDER_NOT_FOUND": "No se encontró la carpeta del mundo de este servidor, así que no hay nada que respaldar. Inicia el servidor una vez para que cree su mundo, o revisa el nombre del servidor y la carpeta de datos en los ajustes del servidor.",
+  "BACKUP_INSUFFICIENT_DISK_SPACE": "No hay suficiente espacio libre en disco para esta copia de seguridad: se necesitan unos {{needed}} y hay {{free}} libres. Libera espacio en disco o reduce «Máximo de copias de seguridad a conservar» e inténtalo de nuevo.",
   "BACKUP_RESTORE_REMOTE_NOT_AVAILABLE": "La restauración de copias de seguridad no está disponible para servidores remotos. El sistema de archivos del servidor no es accesible desde este panel.",
   "BACKUP_RESTORE_SERVER_RUNNING": "El servidor debe estar detenido antes de restaurar una copia de seguridad. Detén primero el servidor.",
   "BACKUP_INVALID_DAYS_PARAMETER": "Parámetro de días no válido. Debe ser un número entero mayor o igual que 1",

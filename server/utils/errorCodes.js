@@ -528,6 +528,14 @@ export const ErrorCode = Object.freeze({
    * scheduled backup), the server's own Saves/Multiplayer/<name> folder is
    * missing and no other folder can safely be taken for it. */
   BACKUP_SAVES_FOLDER_NOT_FOUND: "BACKUP_SAVES_FOLDER_NOT_FOUND",
+  /** server/services/backupService.js -- POST /api/backup/create (and the
+   * scheduled backup, a restore's or wipe's safety backup, and the restore
+   * itself, which needs room for the extracted world): the volume holding the
+   * backups folder / saves folder has less free space than the archive (or
+   * the extraction) is estimated to need. Carries params {needed, free}
+   * (formatted sizes, e.g. "12.3 GB"). Never raised when the free space or the
+   * world's size cannot be read. */
+  BACKUP_INSUFFICIENT_DISK_SPACE: "BACKUP_INSUFFICIENT_DISK_SPACE",
   /** server/routes/backup.js -- POST /api/backup/restore/:name, active
    * server is remote. Distinct wording/code from BACKUP_REMOTE_NOT_AVAILABLE
    * (create path) -- kept separate rather than merged, same reasoning as

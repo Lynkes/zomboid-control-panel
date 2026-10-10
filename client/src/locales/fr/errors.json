@@ -124,6 +124,7 @@
   "BACKUP_INVALID_FILE": "Fichier de sauvegarde invalide",
   "BACKUP_NOT_FOUND": "Sauvegarde introuvable",
   "BACKUP_SAVES_FOLDER_NOT_FOUND": "Le dossier du monde de ce serveur est introuvable, il n'y a donc rien à sauvegarder. Démarrez le serveur une fois pour qu'il crée son monde, ou vérifiez le nom du serveur et le dossier de données dans les paramètres du serveur.",
+  "BACKUP_INSUFFICIENT_DISK_SPACE": "Espace disque libre insuffisant pour cette sauvegarde : environ {{needed}} sont nécessaires et {{free}} sont libres. Libérez de l'espace disque ou réduisez « Nombre maximum de sauvegardes à conserver », puis réessayez.",
   "BACKUP_RESTORE_REMOTE_NOT_AVAILABLE": "La restauration de sauvegarde n'est pas disponible pour les serveurs distants. Le système de fichiers du serveur n'est pas accessible depuis ce panneau.",
   "BACKUP_RESTORE_SERVER_RUNNING": "Le serveur doit être arrêté avant de restaurer une sauvegarde. Veuillez d'abord arrêter le serveur.",
   "BACKUP_INVALID_DAYS_PARAMETER": "Paramètre de jours invalide. Doit être un nombre entier >= 1",

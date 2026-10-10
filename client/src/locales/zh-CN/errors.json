@@ -124,6 +124,7 @@
   "BACKUP_INVALID_FILE": "备份文件无效",
   "BACKUP_NOT_FOUND": "未找到备份",
   "BACKUP_SAVES_FOLDER_NOT_FOUND": "未找到此服务器的世界文件夹，因此没有可备份的内容。请启动一次服务器以生成世界，或在服务器设置中检查服务器名称和数据文件夹。",
+  "BACKUP_INSUFFICIENT_DISK_SPACE": "磁盘可用空间不足，无法创建此备份：大约需要 {{needed}}，当前可用 {{free}}。请释放磁盘空间或调低“最大保留备份数”，然后重试。",
   "BACKUP_RESTORE_REMOTE_NOT_AVAILABLE": "远程服务器不支持备份还原。此面板无法访问该服务器的文件系统。",
   "BACKUP_RESTORE_SERVER_RUNNING": "还原备份前必须先停止服务器，请先停止服务器。",
   "BACKUP_INVALID_DAYS_PARAMETER": "天数参数无效，必须为大于等于 1 的整数",

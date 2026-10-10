@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Restore and wipe with the server in another container:** Restore Backup and Wipe now refuse while RCON shows the server up (or when its state cannot be checked) instead of trusting a process scan that cannot see another container.
 - **Failed restore left a copy of the world behind:** when a restore fails part-way (disk full, write error) it now stops extracting and removes its staging folder, which used to be re-created and filled with the rest of the archive; leftover `.restore-staging-*` folders are cleaned up at start-up and before the next restore.
 - **Backup taken before a restore or wipe is kept:** it is now named `pre-restore-…` / `pre-wipe-…` and the automatic backup limit no longer deletes it (the newest 3 are kept); with "Maximum Backups to Keep" at 1 the next scheduled backup used to delete the only copy of the replaced world.
+- **Backups on a nearly full disk:** a backup, restore or pre-wipe backup is now refused up front with the sizes needed and free (instead of failing part-way and filling the disk the server saves to), and a backup that has reached its count first deletes the oldest backup it would delete anyway when that frees enough.
 
 ## [1.4.12] - 2026-10-10
 

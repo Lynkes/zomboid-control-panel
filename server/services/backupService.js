@@ -48,6 +48,14 @@ import {
 import { LEGACY_RESTART_SKIP_MESSAGE } from "../utils/backupRestartOverlap.js";
 import { resolveObservedServerRunning } from "../utils/serverStatus.js";
 import { renameWithRetry } from "../utils/renameWithRetry.js";
+import { measureFolder, walkDirectory } from "./backupFolderWalk.js";
+import {
+  estimateArchiveBytes,
+  formatBytes,
+  freeBytesAt,
+  insufficientSpaceError,
+  onSameVolume,
+} from "./backupDiskSpace.js";
 import {
   MAX_SAFETY_BACKUPS,
   attributeBackupFilename,
@@ -77,64 +85,6 @@ async function getUnzipper() {
 // currentRestore/lastRestore comment) -- anything else gets a server-made
 // one. It is echoed back in GET /backup/status, so it stays short and plain.
 const RESTORE_REQUEST_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
-
-async function* walkDirectory(rootDir) {
-  const pending = [{ dirPath: rootDir, archivePath: "", isRoot: true }];
-
-  while (pending.length > 0) {
-    const current = pending.pop();
-    let directory;
-    try {
-      directory = await fs.promises.opendir(current.dirPath);
-    } catch (error) {
-      if (current.isRoot) throw error;
-      continue;
-    }
-
-    try {
-      let entry;
-      while ((entry = await directory.read()) !== null) {
-        const archivePath = current.archivePath
-          ? `${current.archivePath}/${entry.name}`
-          : entry.name;
-        const fullPath = path.join(current.dirPath, entry.name);
-
-        if (entry.isSymbolicLink()) {
-          // Deliberately not followed (zip-slip in reverse -- a symlink
-          // inside the save tree pointing outside it must never leak
-          // arbitrary filesystem content into the archive), but that
-          // decision has to be VISIBLE the same way a vanished file already
-          // is via waitForArchiveEntry's ENOENT handling below -- silently
-          // dropping it here meant a pre-restore/pre-wipe backup could be
-          // incomplete with skippedFiles staying empty, defeating the
-          // "any skip is a failure" policy those call sites rely on.
-          yield { entry, fullPath, archivePath, isSymlink: true };
-          continue;
-        }
-
-        if (entry.isDirectory()) {
-          pending.push({
-            dirPath: fullPath,
-            archivePath,
-            isRoot: false,
-          });
-        }
-
-        yield { entry, fullPath, archivePath };
-      }
-    } finally {
-      await directory.close().catch(() => {});
-    }
-  }
-}
-
-async function countFiles(rootDir) {
-  let count = 0;
-  for await (const { entry } of walkDirectory(rootDir)) {
-    if (!entry.isDirectory()) count++;
-  }
-  return count;
-}
 
 // Orphan temp sweep, hunt-wave11-2026-08-29 follow-up. Dwight found this
 // while copying this function as the model for fileWriteQueue.js's own
@@ -896,6 +846,7 @@ export class BackupService {
         success: false,
         message: sanitizeError(error.message),
         ...(error.errorCode ? { code: error.errorCode } : {}),
+        ...(error.errorParams ? { params: error.errorParams } : {}),
       };
     } finally {
       this.backupInProgress = false;
@@ -994,11 +945,16 @@ export class BackupService {
 
     emitProgress("preparing", 10, "Scanning files...");
 
-    // Count total files for progress without materializing directory listings.
+    // Count total files for progress without materializing directory listings,
+    // and add up their sizes for the free-space check below (null when the
+    // walk fails: then the check has nothing to compare and does not block).
     let totalFiles = 0;
+    let sourceBytes = null;
 
     try {
-      totalFiles = await countFiles(savesPath);
+      const measured = await measureFolder(savesPath);
+      totalFiles = measured.files;
+      sourceBytes = measured.bytes;
     } catch (err) {
       log.warn(`Failed to count files: ${err.message}`);
       totalFiles = 1000; // Fallback estimate
@@ -1019,8 +975,26 @@ export class BackupService {
       if (fs.existsSync(dbPath)) {
         dbPathToInclude = dbPath;
         totalFiles++;
+        try {
+          if (sourceBytes !== null) sourceBytes += fs.statSync(dbPath).size;
+        } catch {
+          /* the archive step reports an unreadable db.json */
+        }
       }
     }
+
+    // Backups are written under <data folder>/backups, on the same volume as
+    // the live world: one that does not fit fails part-way after minutes of
+    // archiving and, worse, fills the disk the running game saves to. Refuse
+    // a clear shortfall now, with the numbers. For a routine backup that has
+    // reached its count, the oldest backup retention would delete after this
+    // one is made is deleted first when that frees enough.
+    await this._ensureSpaceForBackup({
+      backupsPath,
+      sourceBytes,
+      safetyCopy: Boolean(options.isPreRestore || options.isPreWipe),
+      activeServer,
+    });
 
     emitProgress("archiving", 15, `Found ${totalFiles} files to backup...`, {
       totalFiles,
@@ -1330,6 +1304,151 @@ export class BackupService {
 
       void appendBackupContents();
     });
+  }
+
+  /**
+   * Refuses (throws BACKUP_INSUFFICIENT_DISK_SPACE) a backup whose archive is
+   * estimated not to fit in the free space on the backups folder's volume.
+   * An unknown world size or an unreadable free-space figure never blocks.
+   *
+   * `safetyCopy` -- the pre-restore / pre-wipe backup: never frees room by
+   * deleting other backups, since the operator is about to lose the world it
+   * protects, and those copies are exactly what retention keeps.
+   */
+  async _ensureSpaceForBackup({ backupsPath, sourceBytes, safetyCopy, activeServer }) {
+    let needed = null;
+    let free = null;
+    let backups = [];
+    try {
+      if (!Number.isFinite(sourceBytes) || sourceBytes <= 0) return;
+      free = await freeBytesAt(backupsPath);
+      if (free === null) return;
+      backups = await this.listBackups(activeServer);
+      // The newest archive is the best guide to the next one's size; an
+      // upload came from somewhere else and says nothing about this world.
+      const previous = backups.find((b) => !b.name.startsWith("uploaded-"));
+      needed = estimateArchiveBytes(sourceBytes, previous?.size);
+    } catch (error) {
+      log.debug(`Free-space check skipped: ${error.message}`);
+      return;
+    }
+    if (needed === null || free >= needed) return;
+
+    if (!safetyCopy) {
+      const freeAfterPrune = await this._pruneOldestToFit({
+        backups,
+        needed,
+        free,
+        backupsPath,
+        activeServer,
+      });
+      if (freeAfterPrune >= needed) return;
+      free = freeAfterPrune;
+    }
+    log.warn(
+      `Backup refused: about ${formatBytes(needed)} needed, ${formatBytes(free)} free on the backups drive`,
+    );
+    throw insufficientSpaceError(needed, free);
+  }
+
+  /**
+   * Makes room for the next backup by deleting the oldest backups that
+   * retention would delete once it exists (the ones beyond backupMaxCount - 1
+   * of the prunable list, so retention math is unchanged), oldest first, but
+   * only when that frees enough: a backup is never deleted for a new one that
+   * would still not fit. Uploads and the pre-restore / pre-wipe safety copies
+   * are never touched. Returns the free bytes afterwards (unchanged when
+   * nothing was deleted).
+   */
+  async _pruneOldestToFit({ backups, needed, free, backupsPath, activeServer }) {
+    try {
+      const settings = await this.getSettings();
+      const ownServerName = await this._ownServerName(activeServer);
+      const prunable = backups.filter(
+        (b) => !b.name.startsWith("uploaded-") && !isSafetyBackupName(b.name, ownServerName),
+      );
+      // newest first: what retention will delete after this backup is made
+      const deletable = prunable.slice(Math.max(settings.maxBackups - 1, 0));
+      const reclaimable = deletable.reduce((sum, b) => sum + (b.size || 0), 0);
+      if (deletable.length === 0 || free + reclaimable < needed) return free;
+
+      let freed = 0;
+      for (const backup of [...deletable].reverse()) {
+        if (free + freed >= needed) break;
+        const deleted = await this.deleteBackup(backup.name);
+        if (!deleted?.success) {
+          log.warn(
+            `Could not remove ${backup.name} to make room for a backup: ${deleted?.message || "unknown error"}`,
+          );
+          continue;
+        }
+        freed += backup.size || 0;
+        log.warn(
+          `Not enough free disk space for the next backup: removed the oldest backup ${backup.name} ahead of retention (it would be removed once the new backup exists)`,
+        );
+      }
+      const measured = await freeBytesAt(backupsPath);
+      return measured !== null ? measured : free + freed;
+    } catch (error) {
+      log.warn(`Could not make room for a backup: ${error.message}`);
+      return free;
+    }
+  }
+
+  /**
+   * Refuses a restore whose extraction (plus, unless skipped, its pre-restore
+   * safety backup) is estimated not to fit. The extracted world is staged next
+   * to the live one on the saves volume, the safety backup goes to the backups
+   * folder; when both are on one volume their needs add up. Unknown sizes or
+   * free space never block.
+   */
+  async _ensureSpaceForRestore({ backupPath, savesPath, backupsPath, withSafetyBackup }) {
+    let stagingBytes = 0;
+    let safetyBytes = 0;
+    let savesFree = null;
+    let backupsFree = null;
+    try {
+      try {
+        const unzip = await getUnzipper();
+        const archive = await unzip.Open.file(backupPath);
+        stagingBytes = archive.files.reduce(
+          (sum, file) =>
+            file.type === "File" && Number.isFinite(file.uncompressedSize)
+              ? sum + file.uncompressedSize
+              : sum,
+          0,
+        );
+      } catch {
+        // An unreadable archive is reported by the extraction itself.
+      }
+      if (withSafetyBackup && fs.existsSync(savesPath)) {
+        const measured = await measureFolder(savesPath);
+        const previous = (await this.listBackups()).find((b) => !b.name.startsWith("uploaded-"));
+        safetyBytes = estimateArchiveBytes(measured.bytes, previous?.size) ?? 0;
+      }
+      if (stagingBytes <= 0 && safetyBytes <= 0) return;
+      savesFree = await freeBytesAt(path.dirname(savesPath));
+      backupsFree = await freeBytesAt(backupsPath);
+    } catch (error) {
+      log.debug(`Restore free-space check skipped: ${error.message}`);
+      return;
+    }
+
+    const shortfalls = [];
+    if (onSameVolume(path.dirname(savesPath), backupsPath)) {
+      const free = savesFree ?? backupsFree;
+      if (free !== null) shortfalls.push({ needed: stagingBytes + safetyBytes, free });
+    } else {
+      if (savesFree !== null) shortfalls.push({ needed: stagingBytes, free: savesFree });
+      if (backupsFree !== null) shortfalls.push({ needed: safetyBytes, free: backupsFree });
+    }
+    const short = shortfalls.find(({ needed, free }) => needed > 0 && free < needed);
+    if (short) {
+      log.warn(
+        `Restore refused: about ${formatBytes(short.needed)} needed (extracted world${withSafetyBackup ? " plus the safety backup" : ""}), ${formatBytes(short.free)} free`,
+      );
+      throw insufficientSpaceError(short.needed, short.free);
+    }
   }
 
   /**
@@ -1995,6 +2114,16 @@ export class BackupService {
         );
       }
 
+      // The extracted world is staged beside the live one and (unless the
+      // caller opted out) the current world is backed up first: refuse now,
+      // with the numbers, rather than fail part-way with both on the disk.
+      await this._ensureSpaceForRestore({
+        backupPath,
+        savesPath,
+        backupsPath,
+        withSafetyBackup: options.createPreRestoreBackup !== false,
+      });
+
       log.info(`Starting restore from: ${safeName}`);
       log.info(`Destination: ${savesPath}`);
 
@@ -2184,7 +2313,12 @@ export class BackupService {
           `Restore failure event could not be logged: ${eventError.message}`,
         );
       }
-      return { success: false, message: error.message };
+      return {
+        success: false,
+        message: error.message,
+        ...(error.errorCode ? { code: error.errorCode } : {}),
+        ...(error.errorParams ? { params: error.errorParams } : {}),
+      };
     } finally {
       // try/finally (not manual resets at each return) so this always runs,
       // including the early return above when the pre-restore backup fails.
