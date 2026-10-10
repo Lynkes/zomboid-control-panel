@@ -47,6 +47,7 @@ import {
   isSupportedFiveFieldCron,
 } from "../utils/cronValidation.js";
 import { LEGACY_RESTART_SKIP_MESSAGE } from "../utils/backupRestartOverlap.js";
+import { renameWithRetry } from "../utils/renameWithRetry.js";
 
 // Dynamic import for unzipper (CommonJS module)
 let unzipper;
@@ -1103,8 +1104,20 @@ export class BackupService {
     const skippedFiles = [];
 
     return new Promise((resolve, reject) => {
+      // Set by the FIRST failure on the output stream, the archive or the
+      // append loop. A write error (a full disk, an I/O error) fires 'error'
+      // and then 'close' on the output stream, and 'close' used to carry on as
+      // if the archive had been written: it renamed the truncated .zip.tmp to
+      // a real .zip, saved a record, logged backup_created, sent the Discord
+      // "backup complete" and ran retention, which deleted the last good
+      // backup in favour of the truncated one (probe: ENOSPC with
+      // backupMaxCount=1). Everything after the archive is written is skipped
+      // once this is set.
+      let failed = false;
+
       // Track progress during archiving
       archive.on("entry", (entry) => {
+        if (failed) return;
         filesProcessed++;
         const percent = Math.min(
           15 + Math.round((filesProcessed / totalFiles) * 75),
@@ -1124,21 +1137,87 @@ export class BackupService {
         }
       });
 
-      output.on("close", async () => {
+      // Best-effort: remove whatever partial bytes made it to disk so a
+      // failed run doesn't leave a stray .tmp file behind. Not the listed
+      // backup name (already excluded by listBackups()'s .zip filter), so
+      // this is cleanliness, not the safety property -- that's the rename.
+      // Retries because an antivirus scan or the search indexer can hold the
+      // file for a moment right after its handle closes.
+      const removeTemp = async () => {
+        try {
+          await fs.promises.rm(tempBackupPath, {
+            force: true,
+            maxRetries: 3,
+            retryDelay: 100,
+          });
+        } catch (cleanupErr) {
+          log.warn(
+            `Could not remove incomplete backup file ${tempBackupPath}: ${cleanupErr.message}`,
+          );
+        }
+      };
+
+      // Closes the output stream (a no-op when it is already closed) and
+      // waits for its handle to be released, so the partial file can be
+      // deleted. The timeout is only a backstop for a stream that never
+      // reports 'close'.
+      const releaseOutput = () =>
+        new Promise((released) => {
+          if (output.closed) {
+            released();
+            return;
+          }
+          const timer = setTimeout(released, 2000);
+          timer.unref?.();
+          output.once("close", () => {
+            clearTimeout(timer);
+            released();
+          });
+          output.destroy();
+        });
+
+      // The one failure path: output stream error, archive error or warning,
+      // the append loop throwing, or the final rename giving up. Only the
+      // first call acts. It stops the archive (so nothing keeps reading the
+      // world, and anything awaiting an entry is released with the error),
+      // and rejects once the partial file is gone.
+      const fail = (error, progressMessage) => {
+        if (failed) return;
+        failed = true;
+        emitProgress("error", 0, progressMessage ?? `Backup failed: ${error.message}`);
+        try {
+          archive.abort();
+        } catch {
+          /* already finalized or aborted */
+        }
+        try {
+          archive.destroy(error);
+        } catch {
+          /* already destroyed */
+        }
+        void releaseOutput()
+          .then(removeTemp)
+          .then(() => reject(error));
+      };
+
+      const finish = async () => {
         emitProgress("finalizing", 95, "Finalizing backup...");
 
         // Only now, with the archive fully written and closed, does it become
         // the real backup. Anything that dies before this line leaves nothing
-        // but an already-excluded .tmp file behind.
+        // but an already-excluded .tmp file behind. A lock on the finished
+        // file (antivirus, the search indexer) is waited out briefly; a
+        // rename that still fails removes the temp file instead of leaving a
+        // whole backup-sized .zip.tmp behind.
         try {
-          fs.renameSync(tempBackupPath, backupPath);
+          await renameWithRetry(tempBackupPath, backupPath, {
+            onRetry: (renameError, attempt) =>
+              log.warn(
+                `Could not move ${backupName} into place (${renameError.code}), retrying (attempt ${attempt})`,
+              ),
+          });
         } catch (renameError) {
-          emitProgress(
-            "error",
-            0,
-            `Backup failed: ${renameError.message}`,
-          );
-          reject(renameError);
+          fail(renameError, `Backup failed: ${renameError.message}`);
           return;
         }
 
@@ -1251,40 +1330,35 @@ export class BackupService {
           duration: parseFloat(duration),
           skippedFiles,
         });
-      });
-
-      // Best-effort: remove whatever partial bytes made it to disk so a
-      // failed run doesn't leave a stray .tmp file behind. Not the listed
-      // backup name (already excluded by listBackups()'s .zip filter), so
-      // this is cleanliness, not the safety property -- that's the rename.
-      const cleanupTemp = () => {
-        fs.rm(tempBackupPath, { force: true }, (cleanupErr) => {
-          if (cleanupErr) {
-            log.warn(
-              `Could not remove incomplete backup file ${tempBackupPath}: ${cleanupErr.message}`,
-            );
-          }
-        });
       };
 
+      output.on("close", () => {
+        // A failed backup is already being torn down by fail(): its partial
+        // file is removed there, and none of the success steps in finish()
+        // (rename, record, event, retention, Discord) may run for it.
+        if (failed) return;
+        // 'close' normally follows 'error', but do not rely on the order.
+        const streamError = output.errored || archive.errored;
+        if (streamError) {
+          fail(streamError);
+          return;
+        }
+        finish().catch((error) => fail(error));
+      });
+
       output.on("error", (err) => {
-        emitProgress("error", 0, `Backup failed: ${err.message}`);
-        cleanupTemp();
-        reject(err);
+        fail(err, `Backup failed: ${err.message}`);
       });
 
       archive.on("error", (err) => {
-        emitProgress("error", 0, `Archive error: ${err.message}`);
-        cleanupTemp();
-        reject(err);
+        fail(err, `Archive error: ${err.message}`);
       });
 
       archive.on("warning", (err) => {
         if (err.code === "ENOENT") {
           log.warn(`Backup warning: ${err.message}`);
         } else {
-          cleanupTemp();
-          reject(err);
+          fail(err, `Archive error: ${err.message}`);
         }
       });
 
@@ -1315,9 +1389,7 @@ export class BackupService {
 
           await archive.finalize();
         } catch (error) {
-          archive.abort();
-          cleanupTemp();
-          reject(error);
+          fail(error);
         }
       };
 
