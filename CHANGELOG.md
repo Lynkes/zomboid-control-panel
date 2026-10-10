@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Players with a space at the start or end of their name:** Kick, Ban, Unban, Access Level and the other player actions now act on "Bob " or " Bob" exactly as listed instead of on the different account "Bob".
 - **Player notes and tags after a reload:** the notes and tags you saved on the Players page show again after reloading the page (the notes tab was empty, so saving again replaced the stored note).
 - **Player dialogs kept the last player's input:** after cancelling Teleport for one player, the next player's Teleport dialog no longer teleports the first one; Access Level no longer opens pre-set to the level just granted; the Voice Ban name and the character export (and its downloaded file name) follow the selected player.
+- **Switching the active server on the Players page:** the selected player, the God mode / Invisible badges of a same-named player, the vitals, playtime, SteamID bans, whitelist and the activity log of the previous server are cleared (the open log reloads), and a slow answer for the old server can no longer overwrite the new server's data.
 
 ## [1.4.12] - 2026-10-10
 

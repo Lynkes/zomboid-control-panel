@@ -633,9 +633,12 @@ export default function Players() {
   // players.view the base roster list itself uses. Silent no-op on failure
   // (bridge down, permission denied): the roster still renders fine without
   // this, it just won't show the health/infection indicator.
+  const vitalsGuard = useRequestGuard()
   const fetchRosterVitals = useCallback(async () => {
+    const requestId = vitalsGuard.next()
     try {
       const res = await panelBridgeApi.getAllPlayerDetails()
+      if (vitalsGuard.isStale(requestId)) return
       if (!res.success || !res.data?.players) return
       const next: Record<string, { health?: number; isInfected?: boolean }> = {}
       for (const p of res.data.players) {
@@ -646,7 +649,7 @@ export default function Players() {
       // Bridge down or unreachable -- leave whatever was last fetched (or
       // nothing) rather than clearing it on a single transient failure.
     }
-  }, [])
+  }, [vitalsGuard])
 
   // bridge-tri-state sweep (2026-09-10): this used to run once, inline in
   // the mount effect below, and never again -- unlike Events.tsx (10s
@@ -673,7 +676,13 @@ export default function Players() {
   // right now. The Notes/Log tab's own load when it opens (the effect below)
   // is left on the default: opening a tab is navigation loading its content,
   // not a human retrying or refreshing something already on screen.
+  //
+  // The log is per server: a response for the server that was active when it
+  // was requested must not land after a switch (activityGuard, same shape as
+  // playersGuard above).
+  const activityGuard = useRequestGuard()
   const fetchActivityLogs = useCallback(async (playerFilter?: string, opts?: { manual?: boolean }) => {
+    const requestId = activityGuard.next()
     setLogsLoading(true)
     try {
       const data = await playersApi.getActivityLogs(
@@ -681,17 +690,19 @@ export default function Players() {
         ACTIVITY_LOG_FETCH_LIMIT,
         opts?.manual ? { retries: 0 } : undefined,
       )
+      if (activityGuard.isStale(requestId)) return
       if (data.logs) {
         setActivityLogs(data.logs)
       }
       setLogsError(null)
     } catch (error) {
+      if (activityGuard.isStale(requestId)) return
       reportClientError('Failed to fetch activity logs.', error)
       setLogsError(getErrorMessage(error, t('loadErrors.activityLogs')))
     } finally {
-      setLogsLoading(false)
+      if (!activityGuard.isStale(requestId)) setLogsLoading(false)
     }
-  }, [t])
+  }, [t, activityGuard])
 
   // The Notes & Log tab reads the activity log whenever it opens, however it
   // opens: a click, the keyboard, or ?tab=notes on a reload or Back (the tab
@@ -703,7 +714,13 @@ export default function Players() {
   // 2026-09-08 (retry-stacking sweep): `manual` gates only the notes tab's
   // own Retry button -- mount and the server-change handler keep the
   // default automatic retry.
+  //
+  // Playtime (the stats half) is per server, so this is guarded like the
+  // roster (notesGuard): the answer for the server that was active when it
+  // was requested must not overwrite the new server's.
+  const notesGuard = useRequestGuard()
   const fetchNotesAndStats = useCallback(async (opts?: { manual?: boolean }) => {
+    const requestId = notesGuard.next()
     const retries = opts?.manual ? { retries: 0 } : undefined
     setNotesLoading(true)
     try {
@@ -711,6 +728,7 @@ export default function Players() {
         playersApi.getNotes(retries),
         playersApi.getStats(retries)
       ])
+      if (notesGuard.isStale(requestId)) return
       // Convert arrays to lookup objects
       const notesMap: Record<string, PlayerNote> = {}
       if (notesData.notes) {
@@ -735,12 +753,13 @@ export default function Players() {
       setPlayerStats(statsMap)
       setNotesError(null)
     } catch (error) {
+      if (notesGuard.isStale(requestId)) return
       reportClientError('Failed to fetch notes and stats.', error)
       setNotesError(getErrorMessage(error, t('loadErrors.notesAndStats')))
     } finally {
-      setNotesLoading(false)
+      if (!notesGuard.isStale(requestId)) setNotesLoading(false)
     }
-  }, [t])
+  }, [t, notesGuard])
 
   const handleSaveNote = async () => {
     if (!selectedPlayer) return
@@ -856,17 +875,21 @@ export default function Players() {
     }
   }, [t])
 
+  // The SteamID ban list is per server too (bansGuard).
+  const bansGuard = useRequestGuard()
   const fetchBannedSteamIds = useCallback(async () => {
+    const requestId = bansGuard.next()
     setLoadingBans(true)
     try {
       const res = await playersApi.getSteamIdBans()
+      if (bansGuard.isStale(requestId)) return
       setBannedSteamIds(res.bans || [])
     } catch {
       // Silently fail — list will be empty, manual input still works
     } finally {
-      setLoadingBans(false)
+      if (!bansGuard.isStale(requestId)) setLoadingBans(false)
     }
-  }, [])
+  }, [bansGuard])
 
   // bug-hunt-2026-09-18 (round: whitelist/access-level/admin accounts):
   // same shape as fetchPlayers' own playersGuard above -- fetchWhitelist
@@ -902,14 +925,20 @@ export default function Players() {
     }
   }, [t, whitelistGuard])
 
+  // The access levels come from the active server's own role table
+  // (accessLevelsGuard).
+  const accessLevelsGuard = useRequestGuard()
   const fetchAccessLevels = useCallback(async () => {
+    const requestId = accessLevelsGuard.next()
     try {
       const result = await playersApi.getAccessLevels()
+      if (accessLevelsGuard.isStale(requestId)) return
       setAccessLevelOptions(result.levels || [])
     } catch (error) {
+      if (accessLevelsGuard.isStale(requestId)) return
       reportClientError('Failed to fetch access levels.', error)
     }
-  }, [])
+  }, [accessLevelsGuard])
 
   useEffect(() => {
     mountedRef.current = true
@@ -951,9 +980,36 @@ export default function Players() {
   // excluded: GET /players/perks returns a static hardcoded catalog, not
   // server-scoped data (server/routes/players.js:713-715), so refetching it
   // would be pure waste, not a correctness fix.
+  //
+  // Everything the page holds about the OLD server is dropped first: the
+  // selected player (and with it the open dialogs' targets), the GM-power
+  // badges kept per player NAME (a same-named player on the new server would
+  // show the old one's God/Invisible), the vitals, playtime, SteamID bans,
+  // whitelist and the activity log. The log is refetched at once when its tab
+  // is open (otherwise when the tab opens).
+  const activeTabRef = useRef(activeTab)
+  const logPlayerFilterRef = useRef(logPlayerFilter)
+  useEffect(() => {
+    activeTabRef.current = activeTab
+    logPlayerFilterRef.current = logPlayerFilter
+  }, [activeTab, logPlayerFilter])
   useEffect(() => {
     if (!socket) return
     const handleActiveServerChanged = () => {
+      setSelectedPlayer('')
+      setTypingManualTarget(false)
+      setSettledManualTarget('')
+      setPlayers([])
+      setPlayerPowers({})
+      setRosterVitals({})
+      setPlayerStats({})
+      setBannedSteamIds([])
+      setWhitelistAccounts([])
+      setAllowedSteamIds([])
+      setActivityLogs([])
+      setLogsError(null)
+      activityGuard.next()
+      if (activeTabRef.current === 'notes') void fetchActivityLogs(logPlayerFilterRef.current || undefined)
       fetchPlayers()
       fetchNotesAndStats()
       fetchBannedSteamIds()
@@ -966,7 +1022,7 @@ export default function Players() {
     return () => {
       socket.off('activeServerChanged', handleActiveServerChanged)
     }
-  }, [socket, fetchPlayers, fetchNotesAndStats, fetchBannedSteamIds, fetchWhitelist, fetchAccessLevels, fetchRosterVitals, checkBridgeStatus, canGmTools])
+  }, [socket, fetchPlayers, fetchNotesAndStats, fetchBannedSteamIds, fetchWhitelist, fetchAccessLevels, fetchRosterVitals, fetchActivityLogs, activityGuard, checkBridgeStatus, canGmTools])
 
   const requestedPlayerAppliedRef = useRef(false)
   useEffect(() => {
