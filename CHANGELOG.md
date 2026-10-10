@@ -38,6 +38,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **RCON password with `=` or `;`:** a password with `=` or a line break is now refused (the game reads server.ini only up to the first `=`) instead of being saved as a different one than the game uses, and `;` is written as typed.
 - **Raw editor, backup restore and saved configs:** changing the RCON password or the game/RCON ports there now needs the `server.configure` permission, as the structured editor already did.
 - **Applying a saved config:** it no longer deletes your server's RCON password, server password and tokens.
+- **Network and server errors:** "Unable to reach the server", request timeouts, the stock "not found / no permission / server unavailable" texts and the "Try again in N seconds" wait are translated in every language instead of always English.
+- **Sign-in and first-run errors:** the wrong-password, blocked-origin and "could not create the admin account" messages are translated in every language instead of always English, and a login that times out says so instead of "check your password".
+- **Show/hide-password buttons (Arabic):** the eye button in Setup, Settings and Server Setup no longer sits on top of the typed text in right-to-left layouts.
+- **Restart Panel behind a proxy, in Docker or on HTTPS:** Restart Panel and Restart and Apply Update now wait for the panel at the address you are already on instead of `hostname:<saved port>`, so they no longer spin for three minutes and report a failure when the panel is back; only a real port change redirects to the new port.
+- **Settings saved with warnings:** when the server could not reload part of a saved change (server manager, RCON or CORS), Settings now shows a warning listing it instead of a plain green "Settings Saved".
+- **First-run setup that was already completed:** if an admin account already exists when you submit the setup form, the panel now moves on to the sign-in screen instead of leaving "Setup already completed. Use login instead." on a form with no way to log in.
+- **Untranslated defaults:** the confirm dialog's "Are you sure?" title and buttons, the page-loading skeleton, the "frontend and backend versions do not match" screen and the Server Setup version descriptions are translated in every language instead of English.
 
 ## [1.4.12] - 2026-10-10
 

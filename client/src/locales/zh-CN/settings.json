@@ -1162,6 +1162,10 @@
     "passwordResetFailed": {
       "title": "密码重置失败",
       "fallback": "面板无法从此服务器重置密码。"
+    },
+    "settingsSavedWithWarnings": {
+      "title": "设置已保存，但有警告",
+      "description": "设置已保存，但并非所有内容都能立即生效：{{warnings}}"
     }
   },
   "errors": {

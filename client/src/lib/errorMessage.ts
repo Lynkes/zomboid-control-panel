@@ -104,6 +104,53 @@ function wrapUncodedServerError(status: number | undefined, message: string): st
   return resolveRegisteredTranslation('errors', GENERIC_SERVER_ERROR_KEY, { detail })
 }
 
+// api.ts's getStatusMessage() writes a stock English sentence when a failed
+// response carries no message of its own (a proxy's bare 502, an empty 404),
+// and flags the ApiError isStatusFallback. These are the errors.json keys of
+// those sentences. They are deliberately NOT named after the synthesized
+// HTTP_<status> code: getRegisteredTranslation(code) would otherwise replace
+// a message the server DID send ("Username is required", code HTTP_400) with
+// a stock one. Any 4xx/5xx without its own entry falls into the family keys.
+const STATUS_FALLBACK_KEYS: Readonly<Record<number, string>> = {
+  400: 'HTTP_STATUS_400',
+  401: 'HTTP_STATUS_401',
+  403: 'HTTP_STATUS_403',
+  404: 'HTTP_STATUS_404',
+  408: 'HTTP_STATUS_408',
+  409: 'HTTP_STATUS_409',
+  413: 'HTTP_STATUS_413',
+  422: 'HTTP_STATUS_422',
+  429: 'HTTP_STATUS_429',
+}
+
+function translateStatusFallback(status: number | undefined): string | null {
+  if (typeof status !== 'number') return null
+  const key = STATUS_FALLBACK_KEYS[status] ?? (status >= 500 ? 'HTTP_5XX' : 'HTTP_4XX')
+  return resolveRegisteredTranslation('errors', key, { status })
+}
+
+// The translated " Try again in N seconds." that api.ts's buildResponseError
+// appends in English to a response carrying a Retry-After header. Mirrors
+// formatRetryAfter() there: under a minute counts seconds, past it rounds the
+// minutes up. null when the keys are missing, so the caller keeps the English
+// message it already has rather than printing a bare key.
+function translateRetryAfter(seconds: number): string | null {
+  let key: string
+  let options: { ns: string; count?: number }
+  if (seconds <= 0) {
+    key = 'RETRY_AFTER_MOMENT'
+    options = { ns: 'errors' }
+  } else if (seconds < 60) {
+    key = 'RETRY_AFTER_SECONDS'
+    options = { ns: 'errors', count: seconds }
+  } else {
+    key = 'RETRY_AFTER_MINUTES'
+    options = { ns: 'errors', count: Math.ceil(seconds / 60) }
+  }
+  const text = i18n.t(key, options)
+  return typeof text === 'string' && text && text !== key ? text : null
+}
+
 // Sibling to getUserErrorMessage() below, for the OTHER common error shape
 // in this app: a 200 OK response body carrying { error, code?, params? } (a
 // route's own "success: false" convention -- e.g. rconService.execute(),
@@ -135,9 +182,22 @@ export function getUserErrorMessage(error: unknown, fallback: string): string {
   if (translated) return translated
 
   if (error instanceof ApiError) {
-    const message = error.message?.trim()
+    // A 429/503 carrying Retry-After has "Try again in N seconds." appended
+    // to its message in English; swap in the translated sentence. (A
+    // registered translation returned above never carried the wait, and
+    // still doesn't.)
+    const retryAfter =
+      typeof error.retryAfterSeconds === 'number' && error.messageBeforeRetryAfter !== undefined
+        ? translateRetryAfter(error.retryAfterSeconds)
+        : null
+    const withRetryAfter = (text: string) => (retryAfter ? `${text} ${retryAfter}` : text)
+
+    const stockText = error.isStatusFallback ? translateStatusFallback(error.status) : null
+    if (stockText) return withRetryAfter(stockText)
+
+    const message = (retryAfter ? error.messageBeforeRetryAfter : error.message)?.trim()
     if (message && message.toLowerCase() !== 'unknown error') {
-      return wrapUncodedServerError(error.status, message) ?? message
+      return withRetryAfter(wrapUncodedServerError(error.status, message) ?? message)
     }
     return fallback
   }

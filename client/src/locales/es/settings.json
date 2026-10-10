@@ -1164,6 +1164,10 @@
     "passwordResetFailed": {
       "title": "Error al restablecer la contraseña",
       "fallback": "El panel no pudo restablecer tu contraseña desde este servidor."
+    },
+    "settingsSavedWithWarnings": {
+      "title": "Ajustes guardados, con advertencias",
+      "description": "Tus ajustes se guardaron, pero no todo se pudo aplicar de inmediato: {{warnings}}"
     }
   },
   "errors": {

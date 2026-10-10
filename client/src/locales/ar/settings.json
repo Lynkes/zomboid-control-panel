@@ -1180,6 +1180,10 @@
     "passwordResetFailed": {
       "title": "فشلت إعادة تعيين كلمة المرور",
       "fallback": "تعذّر على اللوحة إعادة تعيين كلمة مرورك من هذا الخادم."
+    },
+    "settingsSavedWithWarnings": {
+      "title": "تم حفظ الإعدادات مع تحذيرات",
+      "description": "تم حفظ إعداداتك، لكن تعذّر تطبيق كل شيء على الفور: {{warnings}}"
     }
   },
   "errors": {

@@ -1164,6 +1164,10 @@
     "passwordResetFailed": {
       "title": "Échec de la réinitialisation du mot de passe",
       "fallback": "Le panneau n'a pas pu réinitialiser votre mot de passe depuis ce serveur."
+    },
+    "settingsSavedWithWarnings": {
+      "title": "Paramètres enregistrés, avec des avertissements",
+      "description": "Vos paramètres ont été enregistrés, mais tout n'a pas pu être appliqué immédiatement : {{warnings}}"
     }
   },
   "errors": {

@@ -273,8 +273,10 @@ export default function ServerSetup() {
   const [availableBranches, setAvailableBranches] = useState<
     Array<{ name: string; description: string; buildId?: string | null }>
   >([
-    { name: "public", description: "Stable release (Build 42)" },
-    { name: "b41multiplayer", description: "Build 41 Multiplayer" },
+    { name: "public", description: "Current stable release. Recommended for most servers." },
+    { name: "unstable", description: "Build 42 testing branch, including multiplayer. Back up saves and expect mod incompatibilities." },
+    { name: "iwbums", description: "Experimental testing branch. Back up saves before switching." },
+    { name: "legacy41", description: "Legacy Build 41 branch for older worlds and mods." },
   ]);
   const [loadingBranches, setLoadingBranches] = useState(false);
   const [useCustomDataPath, setUseCustomDataPath] = useState(false);
@@ -1700,7 +1702,7 @@ export default function ServerSetup() {
                   className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-primary via-primary/80 to-primary/40"
                   aria-hidden="true"
                 />
-                <div className="absolute right-3 top-3">
+                <div className="absolute end-3 top-3">
                   <Badge
                     variant="secondary"
                     className="text-[10px] font-medium uppercase tracking-wide"
@@ -2243,7 +2245,10 @@ export default function ServerSetup() {
                     <span>
                       {b.name === "public"
                         ? t("full.step2.buildStable")
-                        : b.description || b.name}
+                        : t(`steamDialog.branchDescriptions.${b.name}`, {
+                            ns: "servers",
+                            defaultValue: b.description || b.name,
+                          })}
                     </span>
                     {b.buildId && (
                       <span className="text-xs text-muted-foreground">
@@ -2368,7 +2373,7 @@ export default function ServerSetup() {
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="absolute right-1 top-1 h-9 w-9 p-0"
+                    className="absolute end-1 top-1 h-9 w-9 p-0"
                     onClick={() => setShowRconPassword(!showRconPassword)}
                     aria-label={
                       showRconPassword
@@ -2468,7 +2473,7 @@ export default function ServerSetup() {
               type="button"
               variant="ghost"
               size="sm"
-              className="absolute right-1 top-1 h-9 w-9 p-0"
+              className="absolute end-1 top-1 h-9 w-9 p-0"
               onClick={() => setShowAdminPassword(!showAdminPassword)}
               aria-label={
                 showAdminPassword
@@ -3000,7 +3005,7 @@ export default function ServerSetup() {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="absolute right-1 top-1 h-9 w-9 p-0"
+                      className="absolute end-1 top-1 h-9 w-9 p-0"
                       onClick={() => setShowRconPassword(!showRconPassword)}
                       aria-label={
                         showRconPassword
@@ -3102,7 +3107,7 @@ export default function ServerSetup() {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="absolute right-1 top-1 h-9 w-9 p-0"
+                className="absolute end-1 top-1 h-9 w-9 p-0"
                 onClick={() => setShowAdminPassword(!showAdminPassword)}
                 aria-label={
                   showAdminPassword

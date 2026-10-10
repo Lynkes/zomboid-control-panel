@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
-import { AuthProvider, useAuth, LOGIN_FAILED_MESSAGE } from '../AuthContext'
+import { AuthProvider, useAuth } from '../AuthContext'
+import { LOGIN_FAILED_MESSAGE } from '../../lib/loginError'
 import { rawErrorMessageIntentional } from '../../lib/errorMessage'
 
 // 2026-09-08 (auth-transport-parity): login()/setup() used to construct their
@@ -73,6 +74,26 @@ function LoginHarness() {
         go
       </button>
       {message && <div data-testid="result">{message}</div>}
+    </div>
+  )
+}
+
+// Shows the CODE login() threw (not its message): the screens translate by
+// code, so a wrong password must arrive as LOGIN_FAILED, a blocked origin as
+// LOGIN_CORS_BLOCKED, and a rate limit with its own server code.
+function LoginCodeHarness() {
+  const { login } = useAuth()
+  const [code, setCode] = useState<string | null>(null)
+  return (
+    <div>
+      <button
+        onClick={() => {
+          login('someone', 'wrong').catch((e) => setCode(String((e as { code?: unknown }).code)))
+        }}
+      >
+        go
+      </button>
+      {code && <div data-testid="result">{code}</div>}
     </div>
   )
 }
@@ -202,5 +223,57 @@ describe('AuthContext login()/setup(): shared-transport migration preserves ever
     const message = screen.getByTestId('result').textContent
     expect(message).not.toBe(LOGIN_FAILED_MESSAGE)
     expect(message).toContain('Too many login attempts')
+  })
+
+  it('login(): a wrong password reaches the screen as the coded LOGIN_FAILED error, so it can be translated', async () => {
+    vi.stubGlobal(
+      'fetch',
+      baseFetchRouter({
+        '/api/auth/login': () => jsonResponse(401, { error: 'Invalid username or password' }),
+      }),
+    )
+    render(<AuthProvider><LoginCodeHarness /></AuthProvider>)
+    await waitFor(() => expect(screen.getByRole('button')).toBeInTheDocument())
+
+    act(() => { screen.getByRole('button').click() })
+    await waitFor(() => expect(screen.getByTestId('result')).toBeInTheDocument())
+
+    expect(screen.getByTestId('result').textContent).toBe('LOGIN_FAILED')
+  })
+
+  it('login(): a network-level failure reaches the screen as the coded LOGIN_CORS_BLOCKED error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === 'string' ? input : input.toString()
+        if (url.includes('/api/auth/login')) throw new TypeError('Failed to fetch')
+        if (url.includes('/api/auth/status')) return jsonResponse(200, { needsSetup: false, authEnabled: true })
+        if (url.includes('/api/auth/refresh')) return jsonResponse(401, { error: 'no session' })
+        throw new Error(`Unhandled fetch in test: ${url}`)
+      }),
+    )
+    render(<AuthProvider><LoginCodeHarness /></AuthProvider>)
+    await waitFor(() => expect(screen.getByRole('button')).toBeInTheDocument())
+
+    act(() => { screen.getByRole('button').click() })
+    await waitFor(() => expect(screen.getByTestId('result')).toBeInTheDocument())
+
+    expect(screen.getByTestId('result').textContent).toBe('LOGIN_CORS_BLOCKED')
+  })
+
+  it('login(): a 429 keeps its own server code instead of being re-coded', async () => {
+    vi.stubGlobal(
+      'fetch',
+      baseFetchRouter({
+        '/api/auth/login': () => jsonResponse(429, { error: 'Too many login attempts. Please try again later.', code: 'RATE_LIMIT_LOGIN' }),
+      }),
+    )
+    render(<AuthProvider><LoginCodeHarness /></AuthProvider>)
+    await waitFor(() => expect(screen.getByRole('button')).toBeInTheDocument())
+
+    act(() => { screen.getByRole('button').click() })
+    await waitFor(() => expect(screen.getByTestId('result')).toBeInTheDocument())
+
+    expect(screen.getByTestId('result').textContent).toBe('RATE_LIMIT_LOGIN')
   })
 })

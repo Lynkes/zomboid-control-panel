@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { Skeleton } from '@/components/ui/skeleton'
 
 const SKELETON_WIDTHS = ['w-[62%]', 'w-[78%]', 'w-[55%]', 'w-[90%]', 'w-[68%]', 'w-[82%]', 'w-[47%]', 'w-[73%]', 'w-[60%]', 'w-[85%]', 'w-[52%]', 'w-[76%]']
@@ -10,12 +11,16 @@ interface PageSkeletonProps {
   metrics?: string[]
 }
 
-function SkeletonHeader({
-  title = 'Loading page',
-  description = 'Preparing panel data and controls.',
-  eyebrow = '// PANEL · LOADING',
-  metrics = ['route', 'auth', 'socket'],
-}: Omit<PageSkeletonProps, 'variant'>) {
+function SkeletonHeader(props: Omit<PageSkeletonProps, 'variant'>) {
+  const { t } = useTranslation('shell')
+  const title = props.title ?? t('pageSkeleton.defaultTitle')
+  const description = props.description ?? t('pageSkeleton.defaultDescription')
+  const eyebrow = props.eyebrow ?? t('pageSkeleton.defaultEyebrow')
+  const metrics = props.metrics ?? [
+    t('pageSkeleton.metrics.route'),
+    t('pageSkeleton.metrics.auth'),
+    t('pageSkeleton.metrics.socket'),
+  ]
   return (
     <section className="page-header-shell rounded-lg border border-border/40 bg-card/40 px-4 py-3 sm:px-5 sm:py-4" aria-hidden="true">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -43,11 +48,15 @@ function SkeletonHeader({
 }
 
 export function PageSkeleton({ variant = 'default', title, description, eyebrow, metrics }: PageSkeletonProps) {
+  const { t } = useTranslation('shell')
+  // The caller's own title when it gave one, else the stock text for the layout.
+  const loadingLabel = (fallbackKey: string) =>
+    title ? t('pageSkeleton.labels.named', { title }) : t(fallbackKey)
   const header = <SkeletonHeader title={title} description={description} eyebrow={eyebrow} metrics={metrics} />
 
   if (variant === 'dashboard') {
     return (
-      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label="Loading dashboard" aria-busy="true">
+      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={t('pageSkeleton.labels.dashboard')} aria-busy="true">
         {header}
         {/* Stat cards skeleton */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -76,7 +85,7 @@ export function PageSkeleton({ variant = 'default', title, description, eyebrow,
 
   if (variant === 'list') {
     return (
-      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={`Loading ${title || 'list page'}`} aria-busy="true">
+      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={loadingLabel('pageSkeleton.labels.list')} aria-busy="true">
         {header}
         <div className="rounded-xl border bg-card">
           <div className="p-4 border-b">
@@ -99,7 +108,7 @@ export function PageSkeleton({ variant = 'default', title, description, eyebrow,
 
   if (variant === 'console') {
     return (
-      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={`Loading ${title || 'console page'}`} aria-busy="true">
+      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={loadingLabel('pageSkeleton.labels.console')} aria-busy="true">
         {header}
         <div className="flex gap-2">
           <Skeleton className="h-10 flex-1 max-w-[200px]" />
@@ -126,7 +135,7 @@ export function PageSkeleton({ variant = 'default', title, description, eyebrow,
 
   if (variant === 'form') {
     return (
-      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={`Loading ${title || 'form page'}`} aria-busy="true">
+      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={loadingLabel('pageSkeleton.labels.form')} aria-busy="true">
         {header}
         <div className="rounded-xl border bg-card p-6 space-y-6">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -143,7 +152,7 @@ export function PageSkeleton({ variant = 'default', title, description, eyebrow,
 
   if (variant === 'map') {
     return (
-      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={`Loading ${title || 'map page'}`} aria-busy="true">
+      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={loadingLabel('pageSkeleton.labels.map')} aria-busy="true">
         {header}
         <div className="grid gap-4 lg:grid-cols-[18rem_1fr]">
           <div className="rounded-xl border bg-card p-4 space-y-4">
@@ -171,7 +180,7 @@ export function PageSkeleton({ variant = 'default', title, description, eyebrow,
 
   // Default
   return (
-    <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={`Loading ${title || 'page'}`} aria-busy="true">
+    <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={loadingLabel('pageSkeleton.labels.page')} aria-busy="true">
       {header}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {Array.from({ length: 4 }).map((_, i) => (

@@ -127,5 +127,39 @@
     "serverClosed": "Der Server hat die Verbindung beendet",
     "error": "Verbindungsfehler",
     "reconnectFailed": "Wiederverbindung nach mehreren Versuchen fehlgeschlagen"
+  },
+  "confirmDialog": {
+    "defaultTitle": "Bist du sicher?",
+    "confirm": "Bestätigen",
+    "cancel": "Abbrechen"
+  },
+  "pageSkeleton": {
+    "defaultTitle": "Seite wird geladen",
+    "defaultDescription": "Paneldaten und Bedienelemente werden vorbereitet.",
+    "defaultEyebrow": "// PANEL · LÄDT",
+    "metrics": {
+      "route": "Route",
+      "auth": "Auth",
+      "socket": "Socket"
+    },
+    "labels": {
+      "dashboard": "Dashboard wird geladen",
+      "named": "{{title}} wird geladen",
+      "list": "Listenseite wird geladen",
+      "console": "Konsolenseite wird geladen",
+      "form": "Formularseite wird geladen",
+      "map": "Kartenseite wird geladen",
+      "page": "Seite wird geladen"
+    }
+  },
+  "buildGate": {
+    "checking": "Panel-Kompatibilität wird geprüft",
+    "eyebrow": "Update-Wiederherstellung erforderlich",
+    "title": "Die Versionen von Frontend und Backend stimmen nicht überein",
+    "description": "Das Panel wurde angehalten, bevor Anmeldung und Live-Verbindungen initialisiert wurden. Starte es mit Start.bat neu, damit der Updater das unvollständige Paket abschließen oder zurücksetzen kann.",
+    "frontend": "Frontend",
+    "backend": "Backend",
+    "unknown": "unbekannt",
+    "checkAgain": "Erneut prüfen"
   }
 }

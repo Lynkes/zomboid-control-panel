@@ -129,5 +129,39 @@
     "serverClosed": "El servidor cerró la conexión",
     "error": "Error de conexión",
     "reconnectFailed": "No se pudo reconectar tras varios intentos"
+  },
+  "confirmDialog": {
+    "defaultTitle": "¿Estás seguro?",
+    "confirm": "Confirmar",
+    "cancel": "Cancelar"
+  },
+  "pageSkeleton": {
+    "defaultTitle": "Cargando la página",
+    "defaultDescription": "Preparando los datos y controles del panel.",
+    "defaultEyebrow": "// PANEL · CARGANDO",
+    "metrics": {
+      "route": "ruta",
+      "auth": "auth",
+      "socket": "socket"
+    },
+    "labels": {
+      "dashboard": "Cargando el tablero",
+      "named": "Cargando {{title}}",
+      "list": "Cargando la página de lista",
+      "console": "Cargando la página de la consola",
+      "form": "Cargando la página de formulario",
+      "map": "Cargando la página del mapa",
+      "page": "Cargando la página"
+    }
+  },
+  "buildGate": {
+    "checking": "Comprobando la compatibilidad del panel",
+    "eyebrow": "Se requiere recuperar la actualización",
+    "title": "Las versiones del frontend y del backend no coinciden",
+    "description": "El panel se detuvo antes de inicializar la autenticación y las conexiones en vivo. Reinícialo con Start.bat para que el actualizador termine o revierta el paquete incompleto.",
+    "frontend": "Frontend",
+    "backend": "Backend",
+    "unknown": "desconocido",
+    "checkAgain": "Comprobar de nuevo"
   }
 }

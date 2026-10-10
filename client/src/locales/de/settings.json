@@ -1162,6 +1162,10 @@
     "passwordResetFailed": {
       "title": "Zurücksetzen des Passworts fehlgeschlagen",
       "fallback": "Das Panel konnte dein Passwort von diesem Server aus nicht zurücksetzen."
+    },
+    "settingsSavedWithWarnings": {
+      "title": "Einstellungen gespeichert, mit Warnungen",
+      "description": "Deine Einstellungen wurden gespeichert, aber nicht alles ließ sich sofort anwenden: {{warnings}}"
     }
   },
   "errors": {
