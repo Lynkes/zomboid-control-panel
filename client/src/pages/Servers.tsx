@@ -42,6 +42,7 @@ import { useToast } from '@/components/ui/use-toast'
 import { reportClientError, reportClientWarning } from '@/lib/client-errors'
 import { getResultErrorMessage, getUserErrorMessage } from '@/lib/errorMessage'
 import { useDateFormat } from '@/lib/dateFormat'
+import { useSteamBranches } from '@/hooks/useSteamBranches'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -379,12 +380,6 @@ export default function Servers() {
   const [deleting, setDeleting] = useState(false)
   const [deleteProgress, setDeleteProgress] = useState(0)
   const deleteProgressRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  // Generation counter for the branch-fetch effect below -- steamcmdPath is a
-  // live-typed text input, so a keystroke can re-fire the effect before the
-  // previous fetchBranches() call resolves; without this, a slower response
-  // from an earlier keystroke can land after a newer one and overwrite the
-  // branch list / selected branch with stale data.
-  const branchFetchIdRef = useRef(0)
   const [activating, setActivating] = useState<string | number | null>(null)
 
   // Add server dialog
@@ -532,11 +527,15 @@ export default function Servers() {
   const [updateCheckEverSucceeded, setUpdateCheckEverSucceeded] = useState(false)
   const [updateCheckLastError, setUpdateCheckLastError] = useState<string | null>(null)
   const [gameVersion, setGameVersion] = useState<string | null>(null)
-  const [availableBranches, setAvailableBranches] = useState<Array<{name: string, description: string, buildId?: string | null, timeUpdated?: string | null}>>([
-    { name: 'public', description: t('branches.public') },
-    { name: 'unstable', description: t('branches.unstable') }
-  ])
-  const [loadingBranches, setLoadingBranches] = useState(false)
+  // Steam branch list for the Update / Verify dialog (see the hook for when it refetches).
+  const { availableBranches, loadingBranches } = useSteamBranches({
+    operation: steamOperation,
+    setOperation: setSteamOperation,
+    steamcmdPath,
+    setSteamcmdPath,
+    installedBranch: updateInfo?.installed?.branch,
+    t,
+  })
 
   // Mount discovery — offers a one-click "connect this" profile when PZ
   // server files are found at a common bind-mount path and no profile
@@ -933,77 +932,6 @@ export default function Servers() {
       socket.off('server:updateCheckFailed', handleUpdateCheckFailed)
     }
   }, [socket])
-
-  // Fetch available Steam branches when steam operation dialog opens
-  useEffect(() => {
-    if (!steamOperation) return
-
-    const thisFetchId = ++branchFetchIdRef.current
-
-    const fetchBranches = async () => {
-      setLoadingBranches(true)
-      try {
-        const detection = await serverApi.detectSteamCmd()
-        if (thisFetchId !== branchFetchIdRef.current) return
-        const resolvedSteamcmdPath = detection.found && detection.path ? detection.path : steamcmdPath
-        if (resolvedSteamcmdPath) {
-          // Detection is asynchronous. Do not replace a path the operator
-          // typed after the dialog opened but before detection completed.
-          setSteamcmdPath((currentPath) => currentPath.trim() || resolvedSteamcmdPath)
-        }
-        const data = await serverApi.getBranches(resolvedSteamcmdPath)
-        if (thisFetchId !== branchFetchIdRef.current) return
-        if (data.branches && Array.isArray(data.branches)) {
-          setAvailableBranches(() => {
-            const fetched = data.branches as Array<{ name: string; description: string; buildId?: string | null }>
-            // SteamCMD's anonymous branch listing usually only returns `public`.
-            // Make sure the installed branch, the server's branch, and the currently
-            // selected branch all remain pickable so we never silently drop the user's choice.
-            const extras: typeof fetched = []
-            const have = new Set(fetched.map(b => b.name))
-            const normalize = (v: string | undefined | null) => (v || '').trim().toLowerCase()
-            const candidates = [
-              normalize(updateInfo?.installed?.branch),
-              normalize(steamOperation?.server.branch),
-              normalize(steamOperation?.branch),
-            ].filter(Boolean) as string[]
-            for (const name of candidates) {
-              if (!have.has(name)) {
-                const description = name === 'unstable'
-                  ? t('branches.unstableDesc')
-                  : name === 'iwbums'
-                    ? t('branches.iwbumsDesc')
-                    : t('branches.genericBetaDesc')
-                extras.push({ name, description })
-                have.add(name)
-              }
-            }
-            return [...fetched, ...extras]
-          })
-          // Only reconcile the selected branch if it's truly unknown and not the
-          // installed/server branch. Never override what the server is actually running.
-          setSteamOperation((prev) => {
-            if (!prev) return prev
-            const names = new Set(data.branches.map((b: { name: string }) => b.name))
-            const installed = (updateInfo?.installed?.branch || '').trim().toLowerCase()
-            const serverBranch = (prev.server.branch || '').trim().toLowerCase()
-            if (prev.branch === installed) return prev
-            if (prev.branch === serverBranch) return prev
-            if (names.has(prev.branch)) return prev
-            const fallback = installed || serverBranch || (names.has('public') ? 'public' : data.branches[0]?.name)
-            return fallback ? { ...prev, branch: fallback } : prev
-          })
-        }
-      } catch (error) {
-        reportClientError('Failed to fetch branches.', error)
-        // Keep default branches on error
-      } finally {
-        if (thisFetchId === branchFetchIdRef.current) setLoadingBranches(false)
-      }
-    }
-
-    fetchBranches()
-  }, [steamOperation, steamcmdPath, updateInfo?.installed?.branch, t])
 
   // Listen for server changes
   useEffect(() => {

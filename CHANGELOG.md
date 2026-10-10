@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Player deaths on the same tile:** a second death on the same tile within 5 minutes (a fixed spawn tile) is no longer dropped from the Discord notice, the player history and the live death event.
 - **RCON auto-reconnect setting:** "Auto-reconnect" and "Reconnect interval" in Settings now work (they were saved but ignored and the panel always retried every 60 s); off stops the background retries, the interval is applied at once (5-600 s).
 - **Editing a server undid UPnP:** saving the edit dialog (a rename, say) no longer rewrites UPnP in the server config from an old value or shows a "Warning" toast; only an actual UPnP change is applied.
+- **Update Server dialog:** picking a branch no longer restarts the SteamCMD lookup, and typing the SteamCMD path no longer runs it on every keystroke or saves half-typed paths as the SteamCMD setting (only a folder that holds SteamCMD is saved).
 
 ## [1.4.12] - 2026-10-10
 
