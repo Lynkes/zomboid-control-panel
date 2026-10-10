@@ -1011,6 +1011,16 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
         );
       }
     }
+    // "Auto-reconnect" / "Reconnect interval" apply to the running RCON loop
+    // right away, no restart needed (it also re-reads them on the next boot).
+    if (
+      rconService?.loadReconnectSettings &&
+      filtered.some(
+        ([key]) => key === "autoReconnect" || key === "reconnectInterval",
+      )
+    ) {
+      await rconService.loadReconnectSettings();
+    }
     const refreshCorsConfig = req.app.get("refreshCorsConfig");
     if (typeof refreshCorsConfig === "function") {
       try {
