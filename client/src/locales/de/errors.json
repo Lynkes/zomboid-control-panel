@@ -235,6 +235,7 @@
   "SQLITE_ENGINE_UNAVAILABLE": "Die SQLite-Engine des Panels konnte nicht starten, daher kann vehicles.db nicht bereinigt werden. Es wurden keine Dateien gelöscht. Panel aktualisieren oder neu installieren und danach neu starten.",
   "DELETE_CHUNKS_INVALID_FILE_NAME": "Ungültiger Chunk-Dateiname",
   "DELETE_CHUNKS_INVALID_FILE_PATH": "Ungültiger Chunk-Dateipfad",
+  "DELETE_CHUNKS_INVALID_SOURCE": "Ungültige Chunk-Quelle",
   "DELETE_CHUNKS_INVALID_X": "Ungültige Chunk-X-Koordinate — muss eine Ganzzahl sein",
   "DELETE_CHUNKS_INVALID_Y": "Ungültige Chunk-Y-Koordinate — muss eine Ganzzahl sein",
   "CHUNKS_SAVE_NOT_FOUND": "Spielstand nicht gefunden",

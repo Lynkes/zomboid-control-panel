@@ -235,6 +235,7 @@
   "SQLITE_ENGINE_UNAVAILABLE": "面板的 SQLite 引擎无法启动，因此无法清理 vehicles.db。未删除任何文件。请更新或重新安装面板，然后重启。",
   "DELETE_CHUNKS_INVALID_FILE_NAME": "区块文件名无效",
   "DELETE_CHUNKS_INVALID_FILE_PATH": "区块文件路径无效",
+  "DELETE_CHUNKS_INVALID_SOURCE": "区块来源无效",
   "DELETE_CHUNKS_INVALID_X": "区块 x 坐标无效——必须为整数",
   "DELETE_CHUNKS_INVALID_Y": "区块 y 坐标无效——必须为整数",
   "CHUNKS_SAVE_NOT_FOUND": "未找到存档",

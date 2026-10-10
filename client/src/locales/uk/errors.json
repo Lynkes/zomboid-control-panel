@@ -235,6 +235,7 @@
   "SQLITE_ENGINE_UNAVAILABLE": "Не вдалося запустити рушій SQLite панелі, тому vehicles.db неможливо очистити. Жодного файлу не видалено. Оновіть або перевстановіть панель, а потім перезапустіть її.",
   "DELETE_CHUNKS_INVALID_FILE_NAME": "Некоректна назва файлу чанка",
   "DELETE_CHUNKS_INVALID_FILE_PATH": "Некоректний шлях до файлу чанка",
+  "DELETE_CHUNKS_INVALID_SOURCE": "Некоректне джерело чанка",
   "DELETE_CHUNKS_INVALID_X": "Некоректна координата x чанка — має бути цілим числом",
   "DELETE_CHUNKS_INVALID_Y": "Некоректна координата y чанка — має бути цілим числом",
   "CHUNKS_SAVE_NOT_FOUND": "Збереження не знайдено",
