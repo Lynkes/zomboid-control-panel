@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Reconnecting notice:** the first retry after a failed connection reads "Attempt 1/10" instead of "Attempt 0/10".
 - **Connection messages:** the Reconnected and Connection Lost toasts and the connection-error details in the status popover are translated in every language instead of always English.
 - **Public demo Leaderboard:** the demo shows a sample scoreboard (with a "Not read yet" row and the diagnostics line) instead of "Leaderboard unavailable".
+- **Leaderboard in Arabic and other languages:** the table headers and number columns follow the reading direction, and the days unit after the best days is translated instead of always "d".
 
 ## [1.4.12] - 2026-10-10
 
