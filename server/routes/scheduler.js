@@ -16,7 +16,10 @@ import {
 } from '../database/init.js';
 import { requirePermission } from '../services/permissions.js';
 import { hostPathViewFor } from '../utils/hostPathView.js';
-import { requiredCapabilityForScheduledCommand } from '../services/scheduler.js';
+import {
+  classifyScheduledCommand,
+  requiredCapabilityForScheduledCommand,
+} from '../services/scheduler.js';
 import {
   hasUnsupportedCronFieldCount,
   isCronTooFrequent,
@@ -83,6 +86,9 @@ const CODED_ACTION_RESULT_CODES = new Set([
   ErrorCode.SERVER_RESTART_RCON_UNAVAILABLE,
   ErrorCode.SERVER_RESTART_SAVE_FAILED,
   ErrorCode.SERVER_RESTART_STOP_UNCONFIRMED,
+  // performRestart()'s refusal of a remote server -- a scheduled restart task
+  // or the auto-restart job pointed at one (a shown "Run now" included).
+  ErrorCode.SCHEDULER_RESTART_REMOTE_NOT_SUPPORTED,
 ]);
 
 export function codedActionResultFields(err) {
@@ -181,6 +187,18 @@ async function requireCapabilityInline(capability, req, res) {
     passed = true;
   });
   return passed;
+}
+
+// A `restart` task stops and relaunches the game process, which this panel
+// only manages for a local server. performRestart() refuses a remote one when
+// the task fires (it used to send the warnings, save and quit and then find
+// nothing to start), so the task is refused when it is saved, too: an
+// operator finds out now, not at the first 4am tick.
+function refuseRemoteRestartTask(res) {
+  return res.status(400).json({
+    error: 'Cannot restart a remote server. The process is not managed by this panel.',
+    code: ErrorCode.SCHEDULER_RESTART_REMOTE_NOT_SUPPORTED,
+  });
 }
 
 // Get scheduler status
@@ -361,14 +379,18 @@ router.post('/tasks', async (req, res) => {
     // Validate the target server exists, if one was explicitly given —
     // createScheduledTask() falls back to the active server when omitted.
     let resolvedServerId = serverId ?? null;
+    let targetServer = null;
     if (resolvedServerId) {
-      const target = await getServer(resolvedServerId);
-      if (!target) {
+      targetServer = await getServer(resolvedServerId);
+      if (!targetServer) {
         return res.status(400).json({ error: 'Target server not found', code: ErrorCode.SCHEDULER_TARGET_SERVER_NOT_FOUND });
       }
     } else {
-      const active = await getActiveServer();
-      resolvedServerId = active ? active.id : null;
+      targetServer = await getActiveServer();
+      resolvedServerId = targetServer ? targetServer.id : null;
+    }
+    if (classifyScheduledCommand(command) === 'restart' && targetServer?.isRemote) {
+      return refuseRemoteRestartTask(res);
     }
 
     const result = await createScheduledTask(name, cronExpression, command, resolvedServerId);
@@ -511,10 +533,35 @@ router.put('/tasks/:id', async (req, res) => {
     }
 
     // Validate the target server, if reassignment was requested
+    let requestedTarget = null;
     if (serverId !== undefined && serverId !== null) {
-      const target = await getServer(serverId);
-      if (!target) {
+      requestedTarget = await getServer(serverId);
+      if (!requestedTarget) {
         return res.status(400).json({ error: 'Target server not found', code: ErrorCode.SCHEDULER_TARGET_SERVER_NOT_FOUND });
+      }
+    }
+
+    // What the task would be after this update: a restart task that ends up
+    // enabled on a remote server is refused, whichever of the command, the
+    // server or the enabled flag this request changes. One that ends up
+    // disabled is not -- disabling (or moving) a task saved before this check
+    // existed has to keep working, that being how it gets fixed.
+    {
+      const effectiveCommand = command !== undefined ? command : previousTaskRecord?.command;
+      const effectiveEnabled = normalizedEnabled !== undefined
+        ? normalizedEnabled === 1
+        : Boolean(previousTaskRecord?.enabled);
+      if (effectiveEnabled && classifyScheduledCommand(effectiveCommand) === 'restart') {
+        let effectiveTarget = requestedTarget;
+        if (serverId === undefined) {
+          const previousServerId = previousTaskRecord?.server_id ?? null;
+          effectiveTarget = previousServerId
+            ? await getServer(previousServerId)
+            : await getActiveServer();
+        } else if (serverId === null) {
+          effectiveTarget = await getActiveServer();
+        }
+        if (effectiveTarget?.isRemote) return refuseRemoteRestartTask(res);
       }
     }
 

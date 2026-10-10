@@ -1015,6 +1015,28 @@ export class ModChecker extends EventEmitter {
       return { success: false, retry: true, reason: "scheduler_unavailable" };
     }
 
+    // The panel does not manage a remote server's process, so there is no
+    // restart to make (performRestart() refuses one). Say nothing to its
+    // players about a restart that will not happen, and count the update as
+    // handled rather than retrying it every cycle.
+    try {
+      if ((await getActiveServer())?.isRemote) {
+        log.info(
+          "Mod updates detected on a remote server -- not restarting it: the panel does not manage its process",
+        );
+        if (this._isPendingRestartCurrent(token)) this._clearPendingRestart();
+        return {
+          success: true,
+          skipped: true,
+          markProcessed: true,
+          reason: "server_remote",
+        };
+      }
+    } catch (error) {
+      log.debug(`Could not check whether the server is remote: ${error.message}`);
+    }
+    if (!this._isPendingRestartCurrent(token)) return this._cancelledMeanwhileResult(context);
+
     // Cancelled while this waited on RCON below.
     const cancelledMeanwhile = () => this._cancelledMeanwhileResult(context);
 

@@ -1767,12 +1767,40 @@ export class Scheduler {
     // the 409 message it drives) can finally carry a real server id instead
     // of always falling back to serverManager?.serverName.
     let pinnedServerId = serverManager._serverId ?? null;
+    let targetServer = null;
     if (pinnedServerId == null) {
       try {
-        pinnedServerId = (await getActiveServer())?.id ?? null;
+        targetServer = await getActiveServer();
+        pinnedServerId = targetServer?.id ?? null;
       } catch (error) {
         log.debug(`Could not pin restart target: ${error.message}`);
       }
+    } else {
+      try {
+        targetServer = await getServer(pinnedServerId);
+      } catch (error) {
+        log.debug(`Could not read restart target: ${error.message}`);
+      }
+    }
+
+    // A remote server's process is not this panel's to stop or start. Every
+    // entry point that reaches here unattended (the AUTO_RESTART_CRON job, a
+    // scheduled `restart` task, the mod-update restart) had no such check
+    // -- only POST /restart-now and POST /server/restart refuse a remote
+    // server -- so the sequence below ran its whole warning countdown, sent
+    // the RCON save and quit, and only then found startServer() had nothing
+    // to launch ("Server path not configured"): the remote game was left
+    // down. Refused up front, before the lifecycle lock, the restart flag
+    // and any RCON traffic, so nothing is announced, saved or stopped.
+    if (targetServer?.isRemote) {
+      const message =
+        "Cannot restart a remote server. The process is not managed by this panel.";
+      log.warn(`Restart refused: ${message}`);
+      return {
+        success: false,
+        message,
+        code: ErrorCode.SCHEDULER_RESTART_REMOTE_NOT_SUPPORTED,
+      };
     }
 
     // Prevent concurrent restarts -- ATOMIC with the acquire+set immediately

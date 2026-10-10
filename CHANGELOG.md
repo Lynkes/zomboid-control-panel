@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discord command access:** a permission change saved while the bot was still registering its commands now reaches Discord instead of waiting for the next restart.
 - **Leaderboard, accounts sharing a SteamID:** a split-screen guest or an alt account on the same Steam account gets its own row instead of adding the other account's kills every time the two switch or the minute sweep runs (PanelBridge update; rows that already merged keep their totals).
 - **Player deaths on the same tile:** a second death on the same tile within 5 minutes (a fixed spawn tile) is no longer dropped from the Discord notice, the player history and the live death event.
+- **Scheduled restart of a remote server:** a restart task, the auto-restart job, the mod-update restart and Discord /restart no longer shut a remote server down and then fail to start it; they refuse up front, and a restart task can't be saved for a remote server.
 
 ## [1.4.12] - 2026-10-10
 
