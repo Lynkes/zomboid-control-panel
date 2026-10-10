@@ -332,7 +332,7 @@
   "applyTemplateConfirm": {
     "title": "Aplicar a configuração salva \"{{name}}\"?",
     "description": "Substituir as opções atuais do servidor por esta configuração salva? O painel faz backup do que está em uso antes, então Restaurar pode desfazer se necessário.",
-    "rconWarning": "A senha RCON não é armazenada nas configurações salvas, então aplicar esta vai remover a senha RCON do seu servidor — você precisará digitá-la novamente depois.",
+    "secretsKept": "As configurações salvas não armazenam senhas nem tokens, então aplicar esta mantém a senha RCON, a senha do servidor e os tokens atuais do seu servidor.",
     "confirmLabel": "Aplicar"
   },
   "restoreBackupConfirm": {

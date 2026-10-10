@@ -319,7 +319,7 @@
   "applyTemplateConfirm": {
     "title": "应用已保存的配置“{{name}}”？",
     "description": "用此已保存的配置替换当前的服务器设置？面板会先备份当前生效的配置，如有需要可通过“恢复”撤销。",
-    "rconWarning": "已保存的配置不会保存 RCON 密码，因此应用后会移除服务器当前的 RCON 密码——之后需要重新输入。",
+    "secretsKept": "已保存的配置不包含密码和令牌，因此应用后会保留服务器当前的 RCON 密码、加入密码和令牌。",
     "confirmLabel": "应用"
   },
   "fileBrowserDialog": {

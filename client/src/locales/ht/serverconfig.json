@@ -332,7 +332,7 @@
   "applyTemplateConfirm": {
     "title": "Aplike konfigirasyon sove \"{{name}}\"?",
     "description": "Ranplase paramèt sèvè aktyèl ou yo ak konfigirasyon sove sa a? Panèl la fè yon sovgad anvan, kidonk ou ka anile sa ak Restore si w bezwen l.",
-    "rconWarning": "Konfigirasyon sove yo pa konsève modpas RCON, kidonk aplike sa a ap retire modpas RCON sèvè ou a — w ap bezwen antre l ankò apre.",
+    "secretsKept": "Konfigirasyon sove yo pa konsève modpas ni jeton, kidonk aplike sa a ap kenbe modpas RCON, modpas sèvè ak jeton aktyèl sèvè ou a jan yo ye a.",
     "confirmLabel": "Aplike"
   },
   "restoreBackupConfirm": {
