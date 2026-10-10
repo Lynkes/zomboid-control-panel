@@ -120,5 +120,14 @@
     "statusCheckFailedTitle": "Pa t kapab verifye si ou konekte",
     "statusCheckFailedDescription": "Panèl la, oswa yon proxy ki devan l, pa t reponn verifikasyon koneksyon an. Tann yon ti moman, epi eseye ankò.",
     "retry": "Eseye ankò"
+  },
+  "connection": {
+    "reconnectedTitle": "Rekonekte",
+    "reconnectedDescription": "Koneksyon ak sèvè a retabli",
+    "lostTitle": "Koneksyon pèdi",
+    "lostDescription": "Pa kapab rekonekte otomatikman. Li pral eseye ankò lè onglè sa a vizib oswa lè rezo a retounen — oswa itilize « Eseye ankò kounye a » nan endikatè eta koneksyon an.",
+    "serverClosed": "Sèvè a fèmen koneksyon an",
+    "error": "Erè koneksyon",
+    "reconnectFailed": "Rekoneksyon echwe apre plizyè tantativ"
   }
 }

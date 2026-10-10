@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Discord /leaderboard:** anyone in your Discord server can see the top 10 by kills, longest survival or deaths (who can use it is set under Commands, like /players).
+
+### Fixed
+
+- **Similar server names:** a server called "Survival" no longer claims the running process of "Survival Hard", so Force Stop no longer kills both.
+- **Backups of the wrong world:** when a server's own world folder is missing, a backup or restore no longer uses another server's folder in its place, and a server whose world folder is spelled a little differently is no longer refused a start.
+- **PanelBridge with a spaced server name:** a server whose name has spaces (e.g. "AU-NZ Auckland PvE") now auto-connects to the bridge folder the mod actually creates, instead of never finding it.
+- **Start scripts changed your values:** a data folder like "D:\Games (x86)\PZ Data" or an admin password like P@ss%w0rd!&x$y is now written to the start script exactly as saved (special characters used to be deleted, so the game used another folder or password); a double quote or line break in either is refused when saving.
+- **Data folder with a trailing backslash:** "D:\Zomboid Data\" no longer breaks the game's -cachedir argument, and the panel stores and uses the folder without it.
+- **Spaces around the server name:** Install and Quick Setup no longer create "MyServer .ini" and similar files when the name was typed with spaces around it.
+- **Stopped server shown as running:** a `tail`/`less` on the server log or the start-server script is no longer mistaken for the server process, so Start and Stop act on the real Java server.
+- **RCON log noise and cut-off replies:** the panel log no longer warns "Orphaned RCON response" for every RCON connection and every 30 s Servers-page check, and long replies such as `showoptions` are shown in full instead of cut at 4086 bytes.
+- **Backups and times:** the hour keeps two digits in the languages that write it that way (German, French, Ukrainian, Portuguese, Chinese, Haitian Creole), so `20:00` is no longer followed by `8:00`.
+- **Blocked browser storage:** the sidebar and the update banner no longer crash the whole panel in a browser that blocks site data; they just forget the collapsed state and dismissal between visits.
+- **Live-updates notice:** the red "Live Updates Unavailable" box no longer flashes on every page load, and no longer stays on the public demo; it only appears once a connection has actually failed.
+- **Reconnecting notice:** the first retry after a failed connection reads "Attempt 1/10" instead of "Attempt 0/10".
+- **Connection messages:** the Reconnected and Connection Lost toasts and the connection-error details in the status popover are translated in every language instead of always English.
+- **Public demo Leaderboard:** the demo shows a sample scoreboard (with a "Not read yet" row and the diagnostics line) instead of "Leaderboard unavailable".
+- **Leaderboard in Arabic and other languages:** the table headers and number columns follow the reading direction, and the days unit after the best days is translated instead of always "d".
+- **Scheduler timezone picker (Arabic):** the search icon and the dropdown arrow no longer overlap in right-to-left layouts.
+- **Collapsed sidebar:** the icon rail has a Sign out button (with the signed-in name in its tooltip), so you can sign out without expanding the sidebar.
+- **Discord /kick:** a long reason no longer makes the reply fail after the player was already kicked; the game and the reply both use the first 100 characters.
+- **Discord command access:** a permission change saved while the bot was still registering its commands now reaches Discord instead of waiting for the next restart.
+- **Leaderboard, accounts sharing a SteamID:** a split-screen guest or an alt account on the same Steam account gets its own row instead of adding the other account's kills every time the two switch or the minute sweep runs (PanelBridge update; rows that already merged keep their totals).
+- **Player deaths on the same tile:** a second death on the same tile within 5 minutes (a fixed spawn tile) is no longer dropped from the Discord notice, the player history and the live death event.
+
 ## [1.4.12] - 2026-10-10
 
 ### Fixed

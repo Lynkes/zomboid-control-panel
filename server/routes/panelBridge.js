@@ -61,6 +61,7 @@ import {
   validateRemoteConfigTransport,
 } from "../services/remoteConfigFiles.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { bridgeFolderName } from "../utils/bridgeFolderName.js";
 import {
   HostKeyTrustError,
   getHostKeyRefusal,
@@ -674,7 +675,10 @@ router.post("/auto-configure", requirePermission("bridge.setup"), async (req, re
       });
     }
 
-    // The PanelBridge mod writes to: {RuntimeDataPath}/Lua/panelbridge/{serverName}/
+    // The PanelBridge mod writes to: {RuntimeDataPath}/Lua/panelbridge/{bridgeFolder}/,
+    // where bridgeFolder is the server name with path-hostile characters and
+    // whitespace replaced (utils/bridgeFolderName.js), not the name as typed.
+    const bridgeFolder = bridgeFolderName(serverName);
     // For dedicated servers, the runtime data folder is often separate from the install folder
     // Pattern: Server_Data/DoomerZ_B42 (install) + Server_files_B42 (runtime data via -cachedir)
     const possiblePaths = [];
@@ -718,7 +722,7 @@ router.post("/auto-configure", requirePermission("bridge.setup"), async (req, re
           targetServer.zomboidDataPath,
           "Lua",
           "panelbridge",
-          serverName,
+          bridgeFolder,
         ),
         "zomboidDataPath/Lua (cachedir)",
         1,
@@ -728,7 +732,7 @@ router.post("/auto-configure", requirePermission("bridge.setup"), async (req, re
     // PRIORITY 2 (fallback): default ~/Zomboid folder — works on both Windows and Linux when
     // the server runs without a custom -cachedir (e.g., most Linux dedicated server setups)
     addPath(
-      path.join(os.homedir(), "Zomboid", "Lua", "panelbridge", serverName),
+      path.join(os.homedir(), "Zomboid", "Lua", "panelbridge", bridgeFolder),
       "default Zomboid folder",
       2,
     );
@@ -746,7 +750,7 @@ router.post("/auto-configure", requirePermission("bridge.setup"), async (req, re
             item,
             "Lua",
             "panelbridge",
-            serverName,
+            bridgeFolder,
           );
           addPath(luaPath, `${item}/Lua`, 3);
         }
@@ -763,7 +767,7 @@ router.post("/auto-configure", requirePermission("bridge.setup"), async (req, re
               item,
               "Lua",
               "panelbridge",
-              serverName,
+              bridgeFolder,
             );
             addPath(luaPath, `${item}/Lua`, 4);
           }
@@ -772,7 +776,7 @@ router.post("/auto-configure", requirePermission("bridge.setup"), async (req, re
 
       // PRIORITY 5: Lua folder directly in install path (fallback)
       addPath(
-        path.join(targetServer.installPath, "Lua", "panelbridge", serverName),
+        path.join(targetServer.installPath, "Lua", "panelbridge", bridgeFolder),
         "installPath/Lua",
         5,
       );
@@ -886,6 +890,10 @@ router.get("/scan-server/:serverId", requirePermission("bridge.setup"), async (r
         });
     }
 
+    // The mod's folder is named after the server with path-hostile characters and
+    // whitespace replaced (utils/bridgeFolderName.js), not after the name as typed.
+    const bridgeFolder = bridgeFolderName(serverName);
+
     const possiblePaths = [];
 
     // Helper to safely read directory contents
@@ -922,7 +930,7 @@ router.get("/scan-server/:serverId", requirePermission("bridge.setup"), async (r
       "Zomboid",
       "Lua",
       "panelbridge",
-      serverName,
+      bridgeFolder,
     );
     addPath(defaultZomboidPath, "default Zomboid folder", 0);
 
@@ -938,7 +946,7 @@ router.get("/scan-server/:serverId", requirePermission("bridge.setup"), async (r
             item,
             "Lua",
             "panelbridge",
-            serverName,
+            bridgeFolder,
           );
           addPath(luaPath, `${item}`, 1);
         }
@@ -955,7 +963,7 @@ router.get("/scan-server/:serverId", requirePermission("bridge.setup"), async (r
               item,
               "Lua",
               "panelbridge",
-              serverName,
+              bridgeFolder,
             );
             addPath(luaPath, `${item} (grandparent)`, 2);
           }
@@ -963,12 +971,12 @@ router.get("/scan-server/:serverId", requirePermission("bridge.setup"), async (r
       }
 
       addPath(
-        path.join(targetServer.installPath, "Lua", "panelbridge", serverName),
+        path.join(targetServer.installPath, "Lua", "panelbridge", bridgeFolder),
         "installPath/Lua",
         3,
       );
       addPath(
-        path.join(parentDir, "Lua", "panelbridge", serverName),
+        path.join(parentDir, "Lua", "panelbridge", bridgeFolder),
         "parent/Lua",
         4,
       );
@@ -980,7 +988,7 @@ router.get("/scan-server/:serverId", requirePermission("bridge.setup"), async (r
           targetServer.zomboidDataPath,
           "Lua",
           "panelbridge",
-          serverName,
+          bridgeFolder,
         ),
         "zomboidDataPath",
         1,

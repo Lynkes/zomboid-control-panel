@@ -62,7 +62,7 @@ vi.stubGlobal(
   vi.fn(async () => ({ ok: false, status: 401, json: async () => ({}) })),
 );
 
-const { DiscordBot } = await import("../services/discordBot.js");
+const { DiscordBot, normalizeCommandPermissions } = await import("../services/discordBot.js");
 const { default: router } = await import("../routes/discord.js");
 
 const GUILD = "100000000000000001";
@@ -70,7 +70,8 @@ const ADMIN_ROLE = "200000000000000001";
 const MOD_ROLE = "300000000000000001";
 const CHANNEL = "400000000000000001";
 
-const DEFAULT_TIERS = {
+// The nine tiers every release before /leaderboard stores.
+const LEGACY_DEFAULT_TIERS = {
   status: "everyone",
   players: "everyone",
   save: "moderator",
@@ -81,6 +82,8 @@ const DEFAULT_TIERS = {
   restart: "admin",
   rcon: "admin",
 };
+
+const DEFAULT_TIERS = { ...LEGACY_DEFAULT_TIERS, leaderboard: "everyone" };
 
 function seedConfiguredBot(storedTiers) {
   settings.clear();
@@ -202,7 +205,7 @@ describe("a stored tier that is missing, empty or not a tier reads as admin ever
     seedConfiguredBot("{not json");
     const bot = await makeBot();
 
-    expect(Object.values(bot.getCommandPermissions())).toEqual(Array(9).fill("admin"));
+    expect(Object.values(bot.getCommandPermissions())).toEqual(Array(10).fill("admin"));
   });
 });
 
@@ -216,12 +219,56 @@ describe("legit: valid stored tiers and a fresh install read as before", () => {
   });
 
   it("every tier stored, as 1.4.5 writes them: unchanged", async () => {
-    const saved = { ...DEFAULT_TIERS, players: "moderator", rcon: "moderator" };
+    const saved = { ...LEGACY_DEFAULT_TIERS, players: "moderator", rcon: "moderator" };
     seedConfiguredBot(JSON.stringify(saved));
     const bot = await makeBot();
 
-    expect(bot.getCommandPermissions()).toEqual(saved);
+    expect(bot.getCommandPermissions()).toEqual({ ...saved, leaderboard: "everyone" });
     expect(bot.checkPermission(modRoleHolder, "rcon")).toBe(true);
+  });
+
+  it("an install saved before /leaderboard existed gets it at its default, everyone", async () => {
+    seedConfiguredBot(JSON.stringify(LEGACY_DEFAULT_TIERS));
+    const bot = await makeBot();
+
+    expect(bot.getCommandPermissions().leaderboard).toBe("everyone");
+    expect(bot.checkPermission({ user: { id: "1" }, guild: { ownerId: "2" }, member: { roles: [] } }, "leaderboard")).toBe(true);
+  });
+
+  it("a stored /leaderboard tier is kept as saved", async () => {
+    seedConfiguredBot(JSON.stringify({ ...DEFAULT_TIERS, leaderboard: "moderator" }));
+    const bot = await makeBot();
+
+    expect(bot.getCommandPermissions().leaderboard).toBe("moderator");
+  });
+
+  it("a stored /leaderboard tier that is not a tier still reads admin", async () => {
+    for (const bad of ["", null, "superuser", 3]) {
+      seedConfiguredBot(JSON.stringify({ ...DEFAULT_TIERS, leaderboard: bad }));
+      const bot = await makeBot();
+
+      expect(bot.getCommandPermissions().leaderboard, String(bad)).toBe("admin");
+    }
+  });
+
+  it("an unreadable or non-object stored value never gives /leaderboard its default", () => {
+    for (const stored of [null, undefined, "x", 5, [], ["everyone"]]) {
+      expect(Object.values(normalizeCommandPermissions(stored)), String(stored)).toEqual(
+        Array(10).fill("admin"),
+      );
+    }
+  });
+
+  it("only a command that postdates the stored tiers gets its default; the nine original ones stay admin", () => {
+    const { leaderboard, ...withoutLeaderboard } = LEGACY_DEFAULT_TIERS;
+    expect(leaderboard).toBeUndefined();
+    expect(normalizeCommandPermissions(withoutLeaderboard)).toEqual(DEFAULT_TIERS);
+    const { kick, ...withoutKick } = LEGACY_DEFAULT_TIERS;
+    expect(kick).toBe("moderator");
+    expect(normalizeCommandPermissions(withoutKick)).toEqual({
+      ...DEFAULT_TIERS,
+      kick: "admin",
+    });
   });
 
   it("a wipe by a caller holding every capability puts damaged tiers back to their defaults", async () => {

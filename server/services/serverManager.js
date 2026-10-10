@@ -810,6 +810,20 @@ function runWindowsPowerShell(script, timeoutMs) {
   });
 }
 
+// True when the command line has a JVM executable as a whole token: java,
+// javaw or either with .exe, standing alone or ending a path (`/usr/bin/java`,
+// `"C:\Program Files\Java\bin\javaw.exe"`). A `java` that is only a folder
+// name (`/home/java/Zomboid/...`) or part of a property (`-Djava.awt.headless`)
+// is not one. The fallback rule of both dedicated-server matchers needs it:
+// without it `tail -f .../Zomboid/Logs/..._DebugLog-server.txt`, or the
+// start-server_<name>.sh wrapper still waiting on its java child, counted as
+// the server process (score 0, so the "unattributable" bucket became the
+// answer whenever the real server was stopped).
+const JVM_EXECUTABLE_TOKEN = /(?:^|[\s"'\\/])javaw?(?:\.exe)?(?=$|[\s"'])/;
+function hasJvmExecutableToken(lowerCommandLine) {
+  return JVM_EXECUTABLE_TOKEN.test(lowerCommandLine);
+}
+
 export function isWindowsDedicatedServerCommandLine(commandLine) {
   const normalized =
     typeof commandLine === "string" ? commandLine.toLowerCase() : "";
@@ -834,10 +848,13 @@ export function isWindowsDedicatedServerCommandLine(commandLine) {
     }
   }
 
-  // 3. Fallback for custom generic setups (must explicitly name Zomboid)
+  // 3. Fallback for custom generic setups (must explicitly name Zomboid, and
+  // be a JVM -- see hasJvmExecutableToken: a log viewer or a wrapper script
+  // that merely mentions a zomboid path and "-server" is not the server)
   if (
     normalized.includes("zomboid") &&
-    (normalized.includes("-server") || normalized.includes("startserver"))
+    (normalized.includes("-server") || normalized.includes("startserver")) &&
+    hasJvmExecutableToken(normalized)
   ) {
     return true;
   }
@@ -850,7 +867,7 @@ export function isWindowsDedicatedServerCommandLine(commandLine) {
 // the pidfile fast path can classify a single live command line with the
 // exact same rule the full OS scan uses, instead of a second copy that
 // could drift out of sync.
-function isLinuxDedicatedServerCommandLine(commandLine) {
+export function isLinuxDedicatedServerCommandLine(commandLine) {
   const lower = String(commandLine || "").toLowerCase();
   if (!lower) return false;
   if (lower.includes("zombie.network.gameserver")) return true;
@@ -869,7 +886,8 @@ function isLinuxDedicatedServerCommandLine(commandLine) {
   }
   if (
     lower.includes("zomboid") &&
-    (lower.includes("-server") || lower.includes("startserver"))
+    (lower.includes("-server") || lower.includes("startserver")) &&
+    hasJvmExecutableToken(lower)
   ) {
     return true;
   }
@@ -961,14 +979,44 @@ function extractLaunchArgValue(commandLine, flag) {
 // `-servername AU-NZ Auckland PvE` and extractLaunchArgValue() sees only
 // "AU-NZ": a running server whose name has spaces then looked like another
 // server's, was not detected, and the panel offered a second start (#223).
-// True when the text after the flag begins with the whole expected value.
-function launchArgStartsWith(commandLine, flag, expected, normalize = (v) => v.toLowerCase()) {
+// True when the text after the flag is the whole expected value: it ends
+// there, a closing quote follows, or the next launch flag (whitespace then
+// "-<letter>") follows. A longer value that merely starts with the expected
+// name ("Survival Hard" for a profile named "Survival") is NOT a match, or
+// one profile would claim (and Force Stop kill) another profile's process.
+// `skipSeparators` lets a path match when it was written with extra trailing
+// separators.
+function launchArgStartsWith(commandLine, flag, expected, normalize = (v) => v.toLowerCase(), skipSeparators = false) {
   const want = normalize(String(expected || "")).trim();
   if (!want) return false;
   const match = String(commandLine || "").match(new RegExp(`(?:^|\\s)-${flag}(?:\\s*=\\s*|\\s+)(.*)$`, "i"));
   if (!match) return false;
   const rest = normalize(match[1].replace(/^["']/, "")).trim();
-  return rest === want || rest.startsWith(want + " ") || rest.startsWith(want + '"');
+  if (rest === want) return true;
+  if (!rest.startsWith(want)) return false;
+  let after = rest.slice(want.length);
+  if (skipSeparators) after = after.replace(/^\/+/, "");
+  if (after === "" || after[0] === '"' || after[0] === "'") return true;
+  return /^\s+-[a-z]/i.test(after);
+}
+
+// Whether the -<flag> argument of a command line names `expected`. A quoted
+// value (Windows keeps the quotes) is delimited, so it is compared exactly; an
+// unquoted one only ends at the next launch flag, so it goes through
+// launchArgStartsWith() above, which also covers a value the process listing
+// split on its spaces.
+function launchArgMatches(commandLine, flag, expected, normalize = (v) => v.toLowerCase(), skipSeparators = false) {
+  const pattern = new RegExp(
+    `(?:^|\\s)-${flag}(?:\\s*=\\s*|\\s+)("[^"]*"|'[^']*'|\\S+)`,
+    "i",
+  );
+  const match = String(commandLine || "").match(pattern);
+  if (!match) return false;
+  const raw = match[1];
+  if (raw.length > 1 && (raw[0] === '"' || raw[0] === "'") && raw.endsWith(raw[0])) {
+    return normalize(raw.slice(1, -1).trim()) === normalize(String(expected || "").trim());
+  }
+  return launchArgStartsWith(commandLine, flag, expected, normalize, skipSeparators);
 }
 
 function normalizePathForCompare(value) {
@@ -1044,10 +1092,7 @@ export function scoreServerProcessOwnership(commandLine, descriptor = {}) {
 
   const nameArg = extractLaunchArgValue(cmd, "servername");
   if (nameArg && descriptor.serverName) {
-    if (
-      nameArg.toLowerCase() !== String(descriptor.serverName).toLowerCase() &&
-      !launchArgStartsWith(cmd, "servername", descriptor.serverName)
-    ) {
+    if (!launchArgMatches(cmd, "servername", descriptor.serverName)) {
       return -1;
     }
     score += 3;
@@ -1055,10 +1100,7 @@ export function scoreServerProcessOwnership(commandLine, descriptor = {}) {
 
   const cacheArg = extractLaunchArgValue(cmd, "cachedir");
   if (cacheArg && descriptor.savePath) {
-    if (
-      normalizePathForCompare(cacheArg) !== normalizePathForCompare(descriptor.savePath) &&
-      !launchArgStartsWith(cmd, "cachedir", descriptor.savePath, normalizePathForCompare)
-    ) {
+    if (!launchArgMatches(cmd, "cachedir", descriptor.savePath, normalizePathForCompare, true)) {
       return -1;
     }
     score += 2;

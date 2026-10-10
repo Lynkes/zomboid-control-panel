@@ -68,6 +68,9 @@ function startFakeServer({ execDelayMs }) {
           buf = buf.subarray(totalLen);
 
           if (type === TYPE_AUTH) {
+            // The real B42 server answers AUTH with an empty
+            // SERVERDATA_RESPONSE_VALUE (same id) before the auth response.
+            socket.write(encodePacket(id, TYPE_RESPONSE_VALUE, ""));
             socket.write(encodePacket(id, TYPE_AUTH_RESPONSE, ""));
           } else if (type === TYPE_EXECCOMMAND) {
             setTimeout(() => {
@@ -113,6 +116,15 @@ describe("SourceRconClient._onData: orphaned responses (no matching _pending ent
 
     expect(warnCalls.length).toBe(1);
     expect(warnCalls[0]).toMatch(/Orphaned RCON response/);
+  });
+
+  it("does NOT log an orphan warning for the empty response the server sends before its auth response", async () => {
+    server = await startFakeServer({ execDelayMs: 0 });
+    client = new SourceRconClient({ host: "127.0.0.1", port: server.address().port, timeout: 3000 });
+    await client.authenticate("pw");
+    await sleep(50);
+
+    expect(warnCalls).toEqual([]);
   });
 
   it("does NOT log an orphan warning on the normal, on-time path", async () => {

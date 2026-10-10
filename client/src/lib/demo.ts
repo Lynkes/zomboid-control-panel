@@ -716,6 +716,88 @@ export function getDemoBackupList() {
   return { backups: demoBackups }
 }
 
+// GET /api/panel-bridge/leaderboard in the demo. Times are relative to now so
+// the "updated" and "last read" lines never look months old. One row has no
+// read time (a player the bridge has only seen die), which is what shows the
+// "Not read yet" badge. The shape is getLeaderboard's in api.ts.
+export function getDemoLeaderboard(now: number = Date.now()) {
+  const ago = (minutes: number) => now - minutes * 60_000
+  const day = 24 * 60
+  const player = (
+    id: string,
+    username: string,
+    displayName: string,
+    stats: {
+      online: boolean
+      currentKills: number
+      allTimeKills: number
+      currentDays: number
+      bestDays: number
+      deaths: number
+      favoriteWeapon: string | null
+      favoriteWeaponKills: number
+      lastSeenAt: number
+      lastSampledAt?: number
+      lastSampleSource?: string
+      everRead: boolean
+      aliases?: string[]
+      awaitingNewLife?: boolean
+    },
+  ) => ({ id: `steam:${id}`, username, displayName, aliases: [], awaitingNewLife: false, ...stats })
+  return {
+    success: true,
+    data: {
+      players: [
+        player('76561198000000101', 'marlow_k', 'Marlow K', {
+          online: true, currentKills: 312, allTimeKills: 4218, currentDays: 18.4, bestDays: 61.7, deaths: 9,
+          favoriteWeapon: 'Baseball Bat', favoriteWeaponKills: 1536,
+          lastSeenAt: ago(0), lastSampledAt: ago(0.5), lastSampleSource: 'sweep', everRead: true,
+        }),
+        player('76561198000000102', 'jess.rae', 'Jess Rae', {
+          online: true, currentKills: 148, allTimeKills: 2977, currentDays: 9.2, bestDays: 44, deaths: 14,
+          favoriteWeapon: 'Crowbar', favoriteWeaponKills: 801,
+          lastSeenAt: ago(0), lastSampledAt: ago(0.5), lastSampleSource: 'sweep', everRead: true,
+          aliases: ['jessrae_alt'],
+        }),
+        player('76561198000000103', 'tomasz', 'Tomasz W', {
+          online: false, currentKills: 0, allTimeKills: 3560, currentDays: 0, bestDays: 52.3, deaths: 11,
+          favoriteWeapon: 'Sledgehammer', favoriteWeaponKills: 1189,
+          lastSeenAt: ago(190), lastSampledAt: ago(195), lastSampleSource: 'death', everRead: true,
+          awaitingNewLife: true,
+        }),
+        player('76561198000000104', 'wren', 'Wren', {
+          online: false, currentKills: 76, allTimeKills: 1204, currentDays: 5.8, bestDays: 22.5, deaths: 6,
+          favoriteWeapon: 'Hand Axe', favoriteWeaponKills: 402,
+          lastSeenAt: ago(day + 95), lastSampledAt: ago(day + 100), lastSampleSource: 'sweep', everRead: true,
+        }),
+        player('76561198000000105', 'ghostrider_77', 'GhostRider77', {
+          online: false, currentKills: 410, allTimeKills: 1890, currentDays: 27.9, bestDays: 27.9, deaths: 3,
+          favoriteWeapon: 'Pistol', favoriteWeaponKills: 655,
+          lastSeenAt: ago(2 * day + 30), lastSampledAt: ago(2 * day + 35), lastSampleSource: 'sweep', everRead: true,
+        }),
+        // Seen once, never read: only the death was counted.
+        player('76561198000000106', 'nate_b', 'Nate B', {
+          online: false, currentKills: 0, allTimeKills: 0, currentDays: 0, bestDays: 0, deaths: 1,
+          favoriteWeapon: null, favoriteWeaponKills: 0,
+          lastSeenAt: ago(5 * day), everRead: false,
+        }),
+      ],
+      generatedAt: now,
+      trackingStartedAt: ago(38 * day),
+      diagnostics: {
+        bridgeVersion: '1.7.74',
+        sweepIntervalMs: 60_000,
+        lastSweepAt: ago(0.4),
+        sweepCount: 2314,
+        lastSweepPlayers: 2,
+        loadedFrom: 'leaderboard.json',
+        flushSeq: 2301,
+        resets: [],
+      },
+    },
+  }
+}
+
 function demoBackupHistory() {
   const server = demoServer()
   return {
@@ -1065,6 +1147,9 @@ export function installDemoFetchShim(): void {
     }
     if (path === '/api/panel-bridge/status') {
       return jsonResponse({ configured: true, isRunning: false, modConnected: false, modStatus: null })
+    }
+    if (path === '/api/panel-bridge/leaderboard') {
+      return jsonResponse(getDemoLeaderboard())
     }
     if (path === '/api/panel-bridge/delivery') {
       if (method === 'GET') return jsonResponse(getDemoBridgeDelivery())

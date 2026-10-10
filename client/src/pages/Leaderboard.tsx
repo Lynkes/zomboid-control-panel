@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, Check, Clock3, Copy, Crown, Flame, RefreshCw, Search, Skull, Trophy, Users, WifiOff } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { BridgeStatusBadge } from '@/components/BridgeStatusBadge'
@@ -84,8 +85,8 @@ function formatDate(value: number | undefined, language: string): string | null 
   return formatDateTime(value, { language, style: 'medium' })
 }
 
-function metricValue(player: LeaderboardPlayer, metric: LeaderboardMetric, language: string): string {
-  if (metric === 'bestDays') return `${formatDays(player.bestDays, language)} d`
+function metricValue(player: LeaderboardPlayer, metric: LeaderboardMetric, language: string, t: TFunction): string {
+  if (metric === 'bestDays') return t('daysShort', { value: formatDays(player.bestDays, language) })
   if (metric === 'favoriteWeapon') return player.favoriteWeapon || '—'
   return formatNumber(player[metric], language)
 }
@@ -121,6 +122,7 @@ function PodiumPlace({ player, place, metric, language }: {
   metric: LeaderboardMetric
   language: string
 }) {
+  const { t } = useTranslation('leaderboard')
   const placeTone = place === 1
     ? 'border-amber-400/45 bg-amber-400/10'
     : place === 2
@@ -141,7 +143,7 @@ function PodiumPlace({ player, place, metric, language }: {
         </div>
       </div>
       <div className="shrink-0 text-end font-mono text-sm font-semibold tabular-nums text-foreground">
-        {metricValue(player, metric, language)}
+        {metricValue(player, metric, language, t)}
       </div>
     </div>
   )
@@ -354,7 +356,7 @@ export default function Leaderboard() {
             <StatTile icon={<Users className="h-3.5 w-3.5" />} label={t('summary.players')} value={formatNumber(players.length, language)} detail={t('summary.playersDetail', { online: onlineCount })} />
             <StatTile icon={<Flame className="h-3.5 w-3.5" />} label={t('summary.allTimeKills')} value={formatNumber(totalKills, language)} detail={t('summary.allTimeKillsDetail')} tone="amber" />
             <StatTile icon={<Skull className="h-3.5 w-3.5" />} label={t('summary.deaths')} value={formatNumber(totalDeaths, language)} detail={t('summary.deathsDetail')} tone="red" />
-            <StatTile icon={<Crown className="h-3.5 w-3.5" />} label={t('summary.leader')} value={leader ? metricValue(leader, metric, language) : '—'} detail={leader?.displayName || t('summary.noLeader')} tone="blue" />
+            <StatTile icon={<Crown className="h-3.5 w-3.5" />} label={t('summary.leader')} value={leader ? metricValue(leader, metric, language, t) : '—'} detail={leader?.displayName || t('summary.noLeader')} tone="blue" />
           </div>
 
           <section className="space-y-3" aria-labelledby="leaderboard-podium-heading">
@@ -411,13 +413,13 @@ export default function Leaderboard() {
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[720px] text-sm">
                     <thead>
-                      <tr className="border-b border-border/40 text-left text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+                      <tr className="border-b border-border/40 text-start text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
                         <th scope="col" className="w-16 px-3 py-3 text-center sm:px-4">#</th>
                         <th scope="col" className="px-3 py-3 sm:px-4">{t('table.player')}</th>
-                        <th scope="col" className="px-3 py-3 text-right sm:px-4">{t('table.days')}</th>
-                        <th scope="col" className="px-3 py-3 text-right sm:px-4">{t('table.currentKills')}</th>
-                        <th scope="col" className="px-3 py-3 text-right sm:px-4">{t('table.allTimeKills')}</th>
-                        <th scope="col" className="px-3 py-3 text-right sm:px-4">{t('table.deaths')}</th>
+                        <th scope="col" className="px-3 py-3 text-end sm:px-4">{t('table.days')}</th>
+                        <th scope="col" className="px-3 py-3 text-end sm:px-4">{t('table.currentKills')}</th>
+                        <th scope="col" className="px-3 py-3 text-end sm:px-4">{t('table.allTimeKills')}</th>
+                        <th scope="col" className="px-3 py-3 text-end sm:px-4">{t('table.deaths')}</th>
                         <th scope="col" className="px-3 py-3 sm:px-4">{t('table.weapon')}</th>
                       </tr>
                     </thead>
@@ -434,10 +436,10 @@ export default function Leaderboard() {
                               </div>
                             </div>
                           </td>
-                          <td className="px-3 py-3 text-right font-mono tabular-nums text-foreground sm:px-4" title={t('table.currentDaysTitle', { value: formatDays(player.currentDays, language) })}>{formatDays(player.bestDays, language)} d</td>
-                          <td className="px-3 py-3 text-right font-mono tabular-nums text-foreground sm:px-4">{formatNumber(player.currentKills, language)}</td>
-                          <td className="px-3 py-3 text-right font-mono tabular-nums text-foreground sm:px-4">{formatNumber(player.allTimeKills, language)}</td>
-                          <td className="px-3 py-3 text-right font-mono tabular-nums text-foreground sm:px-4">{formatNumber(player.deaths, language)}</td>
+                          <td className="px-3 py-3 text-end font-mono tabular-nums text-foreground sm:px-4" title={t('table.currentDaysTitle', { value: formatDays(player.currentDays, language) })}>{t('daysShort', { value: formatDays(player.bestDays, language) })}</td>
+                          <td className="px-3 py-3 text-end font-mono tabular-nums text-foreground sm:px-4">{formatNumber(player.currentKills, language)}</td>
+                          <td className="px-3 py-3 text-end font-mono tabular-nums text-foreground sm:px-4">{formatNumber(player.allTimeKills, language)}</td>
+                          <td className="px-3 py-3 text-end font-mono tabular-nums text-foreground sm:px-4">{formatNumber(player.deaths, language)}</td>
                           <td className="max-w-40 truncate px-3 py-3 text-muted-foreground sm:px-4" title={player.favoriteWeapon || undefined}>{player.favoriteWeapon || '—'}</td>
                         </tr>
                       ))}

@@ -118,5 +118,14 @@
     "statusCheckFailedTitle": "Anmeldestatus konnte nicht geprüft werden",
     "statusCheckFailedDescription": "Das Panel oder ein vorgeschalteter Proxy hat auf die Anmeldeprüfung nicht geantwortet. Warte einen Moment und versuche es dann erneut.",
     "retry": "Erneut versuchen"
+  },
+  "connection": {
+    "reconnectedTitle": "Wieder verbunden",
+    "reconnectedDescription": "Die Verbindung zum Server wurde wiederhergestellt",
+    "lostTitle": "Verbindung verloren",
+    "lostDescription": "Die automatische Wiederverbindung ist fehlgeschlagen. Das Panel verbindet sich erneut, sobald dieser Tab sichtbar ist oder dein Netzwerk wieder da ist — oder nutze „Jetzt erneut versuchen“ in der Verbindungsanzeige.",
+    "serverClosed": "Der Server hat die Verbindung beendet",
+    "error": "Verbindungsfehler",
+    "reconnectFailed": "Wiederverbindung nach mehreren Versuchen fehlgeschlagen"
   }
 }

@@ -60,6 +60,13 @@ import { invalidateMapFolderScan } from "./chunks.js";
 import { codedActionResultFields, emitActionResult } from "./scheduler.js";
 import panelBridge from "../services/panelBridge.js";
 import { candidateIniPaths } from "../utils/zomboidPaths.js";
+import { serverHasWorldFolder } from "../utils/savesFolder.js";
+import { adminPasswordStartScriptRefusal } from "../services/startScriptValues.js";
+import {
+  quoteForBatch,
+  quoteForShell,
+  textForScriptComment,
+} from "../utils/startScriptQuoting.js";
 import {
   checkZomboidDataPath,
   describeRefusal,
@@ -835,13 +842,10 @@ export function isFirstBootMissingAdminPassword(activeServer) {
   ) {
     return false;
   }
-  const saveDir = path.join(
-    activeServer.zomboidDataPath,
-    "Saves",
-    "Multiplayer",
-    activeServer.serverName,
-  );
-  return !fs.existsSync(saveDir);
+  // The folder may be spelled a little differently from the configured name
+  // (backupService's getSavesPath() knows the same spellings): a server whose
+  // world is there has booted, and must not be refused a start for it.
+  return !serverHasWorldFolder(activeServer.zomboidDataPath, activeServer.serverName);
 }
 
 // candidateIniPaths() moved to utils/zomboidPaths.js (services need it too);
@@ -1060,22 +1064,16 @@ export async function getActiveServerPaths() {
   };
 }
 
-// Security: Sanitize string for use in batch files/commands
-function sanitizeForBatch(str) {
-  if (!str) return "";
-  // Remove or escape dangerous characters for batch files
-  return String(str)
-    .replace(/[\x00-\x1F\x7F]/g, "") // Remove control chars (CR/LF included --
-    // a newline here closes out the current script line early and starts a
-    // new one that the supervisor then executes as its own command)
-    .replace(/[&|<>^%"`;$(){}[\]!]/g, "") // Remove shell metacharacters
-    .replace(/\.\./g, "") // Remove path traversal
-    .trim();
-}
-
 // Security: Validate server name (alphanumeric, underscore, hyphen, space allowed)
 // Spaces are permitted mid-name to match PZ server names like "The Gang Goes To Louisville".
 // Leading/trailing spaces are trimmed before validation.
+// A client-supplied server name, trimmed once where it is read: it is the
+// trimmed text isValidServerName() judges, so that same text is what must be
+// used for the .ini, the start scripts and the settings.
+function trimmedServerName(name) {
+  return typeof name === "string" ? name.trim() : name;
+}
+
 function isValidServerName(name) {
   if (!name || typeof name !== "string") return false;
   const trimmed = name.trim();
@@ -1128,7 +1126,12 @@ export function resolveZomboidPaths(installPath, zomboidDataPath) {
   const defaultZomboidDataPath = envSavePathApplies
     ? environmentDataPath.dataPath
     : path.join(path.dirname(installPath), `${path.basename(installPath)}_Data`);
-  const zomboidPath = zomboidDataPath || defaultZomboidDataPath;
+  // path.resolve(): the folder as the game gets it and the profile stores it
+  // (servers.js saves path.resolve() too), without a trailing separator. A
+  // pasted "D:\Zomboid Data\" otherwise reached the start script as-is, where
+  // its last backslash escaped the closing quote of -cachedir, and no longer
+  // matched the folder the profile stores.
+  const zomboidPath = path.resolve(String(zomboidDataPath || defaultZomboidDataPath));
 
   return {
     zomboidPath,
@@ -1468,14 +1471,16 @@ export function generateStartupScripts(options) {
     useDebug = false,
   } = options;
 
-  // Sanitize inputs
-  const safeServerName = sanitizeForBatch(serverName);
-  const safeAdminPassword = adminPassword
-    ? sanitizeForBatch(adminPassword)
-    : "";
-  const safeZomboidDataPath = zomboidDataPath
-    ? sanitizeForBatch(zomboidDataPath)
-    : "";
+  // The server name, data folder and admin password reach the game exactly as
+  // stored, each quoted for the script it goes into (utils/startScriptQuoting.js).
+  // They used to be stripped of every shell metacharacter, which silently
+  // pointed the game at another folder and gave it another password; a value
+  // that can't be quoted (a double quote, a control character) now stops the
+  // script from being generated instead.
+  const nameText = String(serverName ?? "");
+  const dataPathText = zomboidDataPath ? String(zomboidDataPath) : "";
+  const adminPasswordText = adminPassword ? String(adminPassword) : "";
+  const commentName = textForScriptComment(nameText);
   const normalizedMinMemory = normalizeMemoryGb(minMemory, 4);
   const normalizedMaxMemory = normalizeMemoryGb(maxMemory, 8);
 
@@ -1523,24 +1528,30 @@ export function generateStartupScripts(options) {
     "-Djava.security.egd=file:/dev/urandom",
   ];
 
-  // Build game arguments (shared)
-  const gameArgs = [`-servername "${safeServerName}"`];
+  // Build game arguments: the same list for both scripts, each value quoted
+  // the way its script reads it (a .bat is read by cmd.exe, a .sh by bash).
+  const buildGameArgs = (quote) => {
+    const args = [`-servername ${quote(nameText, "The server name")}`];
 
-  if (safeZomboidDataPath) {
-    gameArgs.push(`-cachedir="${safeZomboidDataPath}"`);
-  }
+    if (dataPathText) {
+      args.push(`-cachedir=${quote(dataPathText, "The Zomboid data folder")}`);
+    }
 
-  if (safeAdminPassword) {
-    gameArgs.push(`-adminpassword "${safeAdminPassword}"`);
-  }
+    if (adminPasswordText) {
+      args.push(`-adminpassword ${quote(adminPasswordText, "The admin password")}`);
+    }
 
-  if (serverPort !== 16261) {
-    gameArgs.push(`-port ${serverPort}`);
-  }
+    if (serverPort !== 16261) {
+      args.push(`-port ${serverPort}`);
+    }
 
-  if (useNoSteam) {
-    gameArgs.push("-nosteam");
-  }
+    if (useNoSteam) {
+      args.push("-nosteam");
+    }
+    return args;
+  };
+  const batchGameArgs = buildGameArgs(quoteForBatch);
+  const shellGameArgs = buildGameArgs(quoteForShell);
 
   const classpathEntries = buildClasspathEntries(installPath);
 
@@ -1577,20 +1588,22 @@ export function generateStartupScripts(options) {
   ].join(":");
 
   // Windows batch file
+  // disabledelayedexpansion: with it on (a machine-wide default some hosts
+  // set) cmd.exe would eat the !...! in a path or password.
   const batchContent = `@echo off
-@setlocal enableextensions
+@setlocal enableextensions disabledelayedexpansion
 @cd /d "%~dp0"
 
 REM =====================================================
 REM Project Zomboid Server Startup Script
 REM Generated by PZ Server Manager
-REM Server Name: ${safeServerName}
+REM Server Name: ${commentName}
 REM Memory: ${normalizedMinMemory}GB - ${normalizedMaxMemory}GB
 REM =====================================================
 
 SET PZ_CLASSPATH=${classpathEntries.join(";")}
 
-".\\jre64\\bin\\java.exe" ${jvmArgs.join(" ")} -Djava.library.path=${formatJavaLibraryPath(windowsLibraryDirs.dirs, "win32")} -cp %PZ_CLASSPATH% zombie.network.GameServer ${gameArgs.join(" ")}
+".\\jre64\\bin\\java.exe" ${jvmArgs.join(" ")} -Djava.library.path=${formatJavaLibraryPath(windowsLibraryDirs.dirs, "win32")} -cp %PZ_CLASSPATH% zombie.network.GameServer ${batchGameArgs.join(" ")}
 
 PAUSE
 `;
@@ -1602,7 +1615,7 @@ cd "\$(dirname "\$0")"
 # =====================================================
 # Project Zomboid Server Startup Script
 # Generated by PZ Server Manager
-# Server Name: ${safeServerName}
+# Server Name: ${commentName}
 # Memory: ${normalizedMinMemory}GB - ${normalizedMaxMemory}GB
 # =====================================================
 
@@ -1631,7 +1644,7 @@ fi
 INSTDIR="$(dirname "$0")"
 export LD_LIBRARY_PATH="${linuxLdLibraryPath}"
 
-"$JAVA_CMD" ${linuxJvmArgs.join(" ")} -Djava.library.path=${formatJavaLibraryPath(linuxLibraryDirs.dirs, "linux")} -cp "$PZ_CLASSPATH" zombie.network.GameServer ${gameArgs.join(" ")}
+"$JAVA_CMD" ${linuxJvmArgs.join(" ")} -Djava.library.path=${formatJavaLibraryPath(linuxLibraryDirs.dirs, "linux")} -cp "$PZ_CLASSPATH" zombie.network.GameServer ${shellGameArgs.join(" ")}
 `;
 
   return { bat: batchContent, sh: shellContent };
@@ -3533,7 +3546,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     const {
       steamcmdPath: suppliedSteamcmdPath,
       installPath,
-      serverName,
+      serverName: suppliedServerName,
       branch,
       useUnstable, // Legacy support
       // New options
@@ -3549,6 +3562,11 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
       rconPassword,
       rconPort = 27015,
     } = req.body;
+
+    // Trimmed once, here: isValidServerName() judges the trimmed text, so the
+    // untrimmed " MyServer " it accepted used to name the .ini "MyServer .ini"
+    // and the start scripts StartServer_ MyServer .bat.
+    const serverName = trimmedServerName(suppliedServerName);
 
     // steamcmd-install-detect-fallback, 2026-09-09: an explicitly supplied
     // steamcmdPath always wins; only fall back to findSteamCmdPath() (the
@@ -3600,6 +3618,11 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
 
     if (zomboidDataPath && !isValidPath(zomboidDataPath)) {
       return res.status(400).json({ error: "Invalid Zomboid data path", code: ErrorCode.ZOMBOID_DATA_PATH_INVALID });
+    }
+
+    const adminPasswordRefusal = adminPasswordStartScriptRefusal(adminPassword);
+    if (adminPasswordRefusal) {
+      return res.status(400).json(adminPasswordRefusal);
     }
 
     const { zomboidPath, serverConfigPath, usesEnvironmentDataPath } =
@@ -3719,9 +3742,6 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     const safeMaxMemory = maxMemoryCheck.value;
     const safeServerPort = serverPortCheck.value;
     const safeRconPort = rconPortCheck.value;
-
-    // Sanitize string inputs for batch file
-    const safeAdminPassword = sanitizeForBatch(adminPassword);
 
     // Check if steamcmd exists — auto-download it instead of hard-failing
     // on either platform (see ensureSteamCmdInstalled for why: fresh
@@ -4000,10 +4020,11 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
               await setSetting("serverPort", serverPort);
               await setSetting("useUpnp", useUpnp);
 
-              if (zomboidDataPath) {
-                await setSetting("zomboidDataPath", zomboidDataPath);
-              } else {
-                await setSetting("zomboidDataPath", zomboidPath);
+              // zomboidPath is the folder as the game gets it (resolved, no
+              // trailing separator); the same text goes into the start script
+              // and the profile.
+              await setSetting("zomboidDataPath", zomboidPath);
+              if (!zomboidDataPath) {
                 io.to("install").emit("install:log", {
                   type: "stdout",
                   text: `Using ${usesEnvironmentDataPath ? "configured" : "isolated"} data folder: ${zomboidPath}`,
@@ -4165,7 +4186,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
                 minMemory: safeMinMemory,
                 maxMemory: safeMaxMemory,
                 zomboidDataPath: zomboidPath,
-                adminPassword: safeAdminPassword,
+                adminPassword,
                 serverPort: safeServerPort,
                 useNoSteam,
                 useDebug,
@@ -4372,7 +4393,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
 router.post("/quick-setup", requirePermission("server.install"), async (req, res) => {
   try {
     const {
-      serverName,
+      serverName: suppliedServerName,
       zomboidDataPath,
       minMemory = 4,
       maxMemory = 8,
@@ -4384,6 +4405,9 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
       rconPassword,
       rconPort = 27015,
     } = req.body;
+    // Trimmed once, here: isValidServerName() judges the trimmed text, so the
+    // untrimmed " MyServer " it accepted used to name the .ini "MyServer .ini".
+    const serverName = trimmedServerName(suppliedServerName);
     // let, not const: host-vs-container translation below (see the
     // existence check further down) can substitute the container-side
     // equivalent of a host path the operator typed, so the rest of this
@@ -4412,6 +4436,11 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
 
     if (zomboidDataPath && !isValidPath(zomboidDataPath)) {
       return res.status(400).json({ error: "Invalid Zomboid data path", code: ErrorCode.ZOMBOID_DATA_PATH_INVALID });
+    }
+
+    const adminPasswordRefusal = adminPasswordStartScriptRefusal(adminPassword);
+    if (adminPasswordRefusal) {
+      return res.status(400).json(adminPasswordRefusal);
     }
 
     // Check if server files exist
@@ -4570,7 +4599,6 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
     const safeMaxMemory = maxMemoryCheck.value;
     const safeServerPort = serverPortCheck.value;
     const safeRconPort = rconPortCheck.value;
-    const safeAdminPassword = sanitizeForBatch(adminPassword);
 
     log.info(
       `Quick setup: Creating server config for ${serverName} using files from ${installPath}`,
@@ -4592,10 +4620,10 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
     await setSetting("serverPort", safeServerPort);
     await setSetting("useUpnp", useUpnp);
 
-    if (zomboidDataPath) {
-      await setSetting("zomboidDataPath", zomboidDataPath);
-    } else {
-      await setSetting("zomboidDataPath", zomboidPath);
+    // zomboidPath is the folder as the game gets it (resolved, no trailing
+    // separator); the same text goes into the start script and the profile.
+    await setSetting("zomboidDataPath", zomboidPath);
+    if (!zomboidDataPath) {
       log.info(
         `Using ${usesEnvironmentDataPath ? "configured" : "isolated"} data folder: ${zomboidPath}`,
       );
@@ -4670,7 +4698,7 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
       minMemory: safeMinMemory,
       maxMemory: safeMaxMemory,
       zomboidDataPath: zomboidPath,
-      adminPassword: safeAdminPassword,
+      adminPassword,
       serverPort: safeServerPort,
       useNoSteam,
       useDebug,

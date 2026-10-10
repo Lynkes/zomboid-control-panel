@@ -120,5 +120,14 @@
     "statusCheckFailedTitle": "Impossible de vérifier l'état de connexion",
     "statusCheckFailedDescription": "Le panneau, ou un proxy placé devant lui, n'a pas répondu à la vérification de connexion. Patientez un instant, puis réessayez.",
     "retry": "Réessayer"
+  },
+  "connection": {
+    "reconnectedTitle": "Reconnecté",
+    "reconnectedDescription": "La connexion au serveur est rétablie",
+    "lostTitle": "Connexion perdue",
+    "lostDescription": "Impossible de se reconnecter automatiquement. La reconnexion reprendra dès que cet onglet sera visible ou que votre réseau sera rétabli — ou utilisez « Réessayer maintenant » dans l'indicateur d'état de la connexion.",
+    "serverClosed": "Le serveur a fermé la connexion",
+    "error": "Erreur de connexion",
+    "reconnectFailed": "Échec de la reconnexion après plusieurs tentatives"
   }
 }
