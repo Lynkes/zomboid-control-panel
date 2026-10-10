@@ -196,6 +196,20 @@ export function findMapFoldersFromWorkshop(workshopId, serverPath) {
   return mapFolders;
 }
 
+// The mod (from getModDetailsFromWorkshop) that lives in the mod folder
+// `folderName`. The folder getModDetailsFromWorkshop recorded is the exact
+// answer; matching the folder name against a mod's id or display name is the
+// older heuristic, kept as the fallback because plenty of mods name the folder
+// after themselves. A mod whose folder is named after neither used to match
+// nothing -- the conflict scan then treated the folder name as its id and
+// skipped it as "not in Mods=".
+export function findModForFolder(modDetails, folderName) {
+  return (
+    modDetails.find((m) => m.folder === folderName) ||
+    modDetails.find((m) => m.id === folderName || m.name === folderName)
+  );
+}
+
 // Helper function to find ALL mod IDs from workshop folder (returns array)
 export function findAllModIdsFromWorkshop(workshopId, serverPath) {
   const mods = getModDetailsFromWorkshop(workshopId, serverPath);

@@ -71,6 +71,7 @@ import {
   findMapFoldersFromWorkshop,
   findAllModIdsFromWorkshop,
   findModIdFromWorkshop,
+  findModForFolder,
   isModIdVerifiedOnDisk,
   sanitizeModIdListWithDiskBypass,
 } from "../services/workshopModInfo.js";
@@ -6339,9 +6340,7 @@ export async function buildFileIndex(
         }
       }
       if (mediaPaths.length === 0) continue;
-      const matchingMod = modDetails.find(
-        (m) => m.id === modDir.name || m.name === modDir.name,
-      );
+      const matchingMod = findModForFolder(modDetails, modDir.name);
       const modId = matchingMod?.id || modDir.name;
       const modName = matchingMod?.name || modDir.name;
       // Skip mod directories that aren't in the active Mods= list
@@ -7624,9 +7623,7 @@ router.get("/conflicts/diff", async (req, res) => {
 
       for (const modDir of modEntries) {
         if (!modDir.isDirectory()) continue;
-        const matchingMod = modDetails.find(
-          (m) => m.id === modDir.name || m.name === modDir.name,
-        );
+        const matchingMod = findModForFolder(modDetails, modDir.name);
         const modId = matchingMod?.id || modDir.name;
         const modDirPath = path.join(searchBase, modDir.name);
 
