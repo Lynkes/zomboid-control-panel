@@ -236,6 +236,7 @@
   "SQLITE_ENGINE_UNAVAILABLE": "Motè SQLite panèl la pa t ka demare, kidonk yo pa ka netwaye vehicles.db. Okenn fichye pa t efase. Mete panèl la ajou oswa reenstale l, epi rekòmanse l.",
   "DELETE_CHUNKS_INVALID_FILE_NAME": "Non dosye kawo envalid",
   "DELETE_CHUNKS_INVALID_FILE_PATH": "Chemen dosye kawo envalid",
+  "DELETE_CHUNKS_INVALID_SOURCE": "Sous kawo envalid",
   "DELETE_CHUNKS_INVALID_X": "Kowòdone x kawo envalid — dwe yon nonm antye",
   "DELETE_CHUNKS_INVALID_Y": "Kowòdone y kawo envalid — dwe yon nonm antye",
   "CHUNKS_SAVE_NOT_FOUND": "Sovgad pa jwenn",

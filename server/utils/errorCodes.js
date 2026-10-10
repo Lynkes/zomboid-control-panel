@@ -1022,8 +1022,12 @@ export const ErrorCode = Object.freeze({
    * `file`. */
   DELETE_CHUNKS_INVALID_FILE_NAME: "DELETE_CHUNKS_INVALID_FILE_NAME",
   /** server/routes/chunks.js -- POST /delete-chunks, a chunk's `file`
-   * normalizes to an absolute path or contains "..". */
+   * normalizes to an absolute path, contains "..", or isn't a file name the
+   * scan emits for the chunk's `source`. */
   DELETE_CHUNKS_INVALID_FILE_PATH: "DELETE_CHUNKS_INVALID_FILE_PATH",
+  /** server/routes/chunks.js -- POST /delete-chunks, a chunk's `source` isn't
+   * map, saveroot or chunkdata. */
+  DELETE_CHUNKS_INVALID_SOURCE: "DELETE_CHUNKS_INVALID_SOURCE",
   /** server/routes/chunks.js -- POST /delete-chunks, a chunk's `x` isn't a
    * finite integer. */
   DELETE_CHUNKS_INVALID_X: "DELETE_CHUNKS_INVALID_X",

@@ -51,6 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Player notes and tags after a reload:** the notes and tags you saved on the Players page show again after reloading the page (the notes tab was empty, so saving again replaced the stored note).
 - **Player dialogs kept the last player's input:** after cancelling Teleport for one player, the next player's Teleport dialog no longer teleports the first one; Access Level no longer opens pre-set to the level just granted; the Voice Ban name and the character export (and its downloaded file name) follow the selected player.
 - **Switching the active server on the Players page:** the selected player, the God mode / Invisible badges of a same-named player, the vitals, playtime, SteamID bans, whitelist and the activity log of the previous server are cleared (the open log reloads), and a slow answer for the old server can no longer overwrite the new server's data.
+- **Map Cleanup, vehicles of a whole cell:** selecting a cell's top-left chunk with Delete vehicles on no longer deletes the vehicles of the cell's other chunks; the whole cell is cleared only when no chunk of it is left.
+- **Map Cleanup, file names:** deleting chunks only accepts the file names the scan lists, so a role with Map Cleanup access can no longer delete players.db, vehicles.db or other save files.
+- **Map Cleanup, live vehicles:** cancelling the force-delete dialog or a refused delete no longer removes the live vehicles; they are removed only after the chunks were deleted.
+- **World map tiles stalling:** when the map service blocks its description files, tiles no longer wait up to 8 s for them on every request, and an expired map-build lookup no longer holds up every tile; the last known build is served while it refreshes in the background.
 
 ## [1.4.12] - 2026-10-10
 

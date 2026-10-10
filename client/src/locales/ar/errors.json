@@ -236,6 +236,7 @@
   "SQLITE_ENGINE_UNAVAILABLE": "تعذّر تشغيل محرك SQLite في اللوحة، لذا لا يمكن تنظيف vehicles.db. لم يُحذف أي ملف. حدّث اللوحة أو أعد تثبيتها، ثم أعد تشغيلها.",
   "DELETE_CHUNKS_INVALID_FILE_NAME": "اسم ملف chunk غير صالح",
   "DELETE_CHUNKS_INVALID_FILE_PATH": "مسار ملف chunk غير صالح",
+  "DELETE_CHUNKS_INVALID_SOURCE": "مصدر chunk غير صالح",
   "DELETE_CHUNKS_INVALID_X": "إحداثي x للـ chunk غير صالح — يجب أن يكون عددًا صحيحًا",
   "DELETE_CHUNKS_INVALID_Y": "إحداثي y للـ chunk غير صالح — يجب أن يكون عددًا صحيحًا",
   "CHUNKS_SAVE_NOT_FOUND": "لم يُعثر على الحفظ",
