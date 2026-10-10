@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Discord /leaderboard:** anyone in your Discord server can see the top 10 by kills, longest survival or deaths (who can use it is set under Commands, like /players).
 
+### Fixed
+
+- **Discord /kick:** a long reason no longer makes the reply fail after the player was already kicked; the game and the reply both use the first 100 characters.
+- **Discord command access:** a permission change saved while the bot was still registering its commands now reaches Discord instead of waiting for the next restart.
+
 ## [1.4.12] - 2026-10-10
 
 ### Fixed
