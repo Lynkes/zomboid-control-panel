@@ -74,6 +74,7 @@ const CHANNEL = "400000000000000001";
 const DEFAULT_TIERS = {
   status: "everyone",
   players: "everyone",
+  leaderboard: "everyone",
   save: "moderator",
   broadcast: "moderator",
   kick: "moderator",
@@ -88,6 +89,7 @@ const DEFAULT_TIERS = {
 const ADMIN_TIERS = {
   status: "admin",
   players: "admin",
+  leaderboard: "admin",
   save: "admin",
   broadcast: "admin",
   kick: "admin",
@@ -164,7 +166,7 @@ describe("POST /discord/reset keeps the tiers the caller couldn't change", () =>
     expect(response.json).toHaveBeenCalledWith(
       expect.objectContaining({
         success: true,
-        keptCommandPermissions: ["players", "save", "broadcast", "kick", "rcon"],
+        keptCommandPermissions: ["players", "leaderboard", "save", "broadcast", "kick", "rcon"],
       }),
     );
     // The rest of the wipe still happens.
@@ -211,7 +213,7 @@ describe("POST /discord/reset keeps the tiers the caller couldn't change", () =>
     });
     expect(response.json).toHaveBeenCalledWith(
       expect.objectContaining({
-        keptCommandPermissions: ["players", "save", "broadcast", "rcon"],
+        keptCommandPermissions: ["players", "leaderboard", "save", "broadcast", "rcon"],
       }),
     );
   });

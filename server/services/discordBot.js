@@ -173,6 +173,7 @@ export function allowedChatTypesForScope(scope) {
 const DEFAULT_COMMAND_PERMISSIONS = {
   status: "everyone",
   players: "everyone",
+  leaderboard: "everyone",
   save: "moderator",
   broadcast: "moderator",
   kick: "moderator",
@@ -198,19 +199,61 @@ export function commandTierOf(permissions, command) {
   return COMMAND_TIERS.has(tier) ? tier : "admin";
 }
 
+// The nine commands every release up to /leaderboard stores a tier for. A
+// saved object that lacks one of these is damaged (HT4a: "admin"). A command
+// added after them is simply absent from an older save, which is not damage:
+// it reads as its default, or /leaderboard would come up admin-only on every
+// existing install although it is meant for everyone. Add new commands to
+// DEFAULT_COMMAND_PERMISSIONS only, not here.
+const COMMANDS_STORED_BEFORE_LEADERBOARD = new Set([
+  "status",
+  "players",
+  "save",
+  "broadcast",
+  "kick",
+  "start",
+  "stop",
+  "restart",
+  "rcon",
+]);
+
 // Every command's tier from a stored object: its own valid tier, else
-// "admin" (also for every command when the object can't be read). With
-// nothing stored at all, loadConfig() keeps the defaults instead. Every
-// release has written all nine valid tiers, so a saved setup reads exactly
-// as before.
+// "admin" (also for every command when the object can't be read), except a
+// command that postdates the stored object (never stored, see above), which
+// gets its default. With nothing stored at all, loadConfig() keeps the
+// defaults instead. A saved setup with valid tiers reads exactly as before.
 export function normalizeCommandPermissions(stored) {
-  const source = stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+  const readable = stored && typeof stored === "object" && !Array.isArray(stored);
+  const source = readable ? stored : {};
   return Object.fromEntries(
-    Object.keys(DEFAULT_COMMAND_PERMISSIONS).map((command) => [
-      command,
-      commandTierOf(source, command),
-    ]),
+    Object.entries(DEFAULT_COMMAND_PERMISSIONS).map(([command, defaultTier]) => {
+      const neverStored =
+        readable &&
+        !COMMANDS_STORED_BEFORE_LEADERBOARD.has(command) &&
+        !Object.hasOwn(source, command);
+      return [command, neverStored ? defaultTier : commandTierOf(source, command)];
+    }),
   );
+}
+
+const LEADERBOARD_NAME_MAX = 32;
+// The longest kick reason RCON gets (rcon.js sanitizeForBanReason()).
+const KICK_REASON_MAX = 100;
+
+// A player name as one short, safe piece of an embed line. A co-op name can
+// hold line breaks and other control characters; left in, a crafted name adds
+// lines of its own to the list. They become spaces here, and the name is cut
+// at LEADERBOARD_NAME_MAX characters (before the markdown escaping, so no
+// escape sequence is cut in half). Masked links are escaped too: an embed
+// description would otherwise render a name like [x](https://...) as a link.
+function leaderboardName(username) {
+  const flat = String(username ?? "")
+    .replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ")
+    .trim();
+  const chars = Array.from(flat);
+  const cut = chars.length > LEADERBOARD_NAME_MAX;
+  const name = chars.slice(0, LEADERBOARD_NAME_MAX).join("").trim();
+  return escapeMarkdown(name || "(no name)", { maskedLink: true }) + (cut ? "…" : "");
 }
 
 const LIFECYCLE_DEDUPE_WINDOW_MS = 60_000;
@@ -337,6 +380,9 @@ export class DiscordBot {
     // boot; without a lock the two REST.put() calls race and either set
     // can win, leaving Discord in an inconsistent state.
     this._registerInFlight = null;
+    // The one registration waiting for _registerInFlight to settle, shared by
+    // every registerCommands() call made meanwhile (see registerCommands()).
+    this._registerFollowUp = null;
 
     // Remember the last guildId we registered commands for so that
     // changing guilds via updateConfig() can clean up the OLD guild's
@@ -868,6 +914,22 @@ export class DiscordBot {
       },
       {
         builder: new SlashCommandBuilder()
+          .setName("leaderboard")
+          .setDescription("Show the stats leaderboard")
+          .addStringOption((option) =>
+            option
+              .setName("sort")
+              .setDescription("What to rank by (default: all-time kills)")
+              .addChoices(
+                { name: "All-time kills", value: "kills" },
+                { name: "Longest survival", value: "days" },
+                { name: "Deaths", value: "deaths" },
+              ),
+          ),
+        name: "leaderboard",
+      },
+      {
+        builder: new SlashCommandBuilder()
           .setName("start")
           .setDescription("Start the Project Zomboid server"),
         name: "start",
@@ -976,8 +1038,33 @@ export class DiscordBot {
 
     // Serialise concurrent registrations — a fresh boot can hit this via
     // both start() and updateCommandPermissions() within the same tick.
+    // The registration in flight built its command list (tiers, roles) when
+    // it started, so handing a later caller that same promise would never
+    // push the change this caller was made for (a tier saved while the
+    // earlier PUT was out stayed unpushed until the next restart). Instead
+    // one follow-up registration runs once the current one settles, builds
+    // its list then, and is shared by every caller that arrives meanwhile.
+    if (this._registerFollowUp) {
+      return this._registerFollowUp;
+    }
     if (this._registerInFlight) {
-      return this._registerInFlight;
+      const inFlight = this._registerInFlight;
+      const followUp = (async () => {
+        try {
+          await inFlight;
+        } catch {
+          // Its own caller got that error; this caller's change still needs
+          // pushing.
+        }
+        this._registerFollowUp = null;
+        // The bot may have been stopped or reconfigured away in the
+        // meantime: nothing left to push then, and not an error for a
+        // caller that only saved a setting.
+        if (!this.token || !this.guildId || !this.client?.user) return;
+        return this.registerCommands();
+      })();
+      this._registerFollowUp = followUp;
+      return followUp;
     }
 
     const targetGuildId = this.guildId;
@@ -1114,6 +1201,9 @@ export class DiscordBot {
           break;
         case "players":
           await this.handlePlayers(interaction);
+          break;
+        case "leaderboard":
+          await this.handleLeaderboard(interaction);
           break;
         case "start":
           await this.handleStart(interaction);
@@ -1293,6 +1383,66 @@ export class DiscordBot {
       .setFooter({ text: `${players.length} player(s)` })
       .setTimestamp();
 
+    await interaction.editReply({ embeds: [embed] });
+  }
+
+  // The stats leaderboard PanelBridge keeps (kills, longest survival, deaths):
+  // the same rows the panel's Leaderboard page shows, top 10 by one metric.
+  async handleLeaderboard(interaction) {
+    await interaction.deferReply();
+    const bridge = this.panelBridge;
+    if (!bridge?.isRunning) {
+      await interaction.editReply("❌ PanelBridge is not running, so there is no leaderboard to show.");
+      return;
+    }
+    let result;
+    try {
+      result = await bridge.getLeaderboard({ source: "discord" });
+    } catch (error) {
+      await interaction.editReply(`❌ Could not read the leaderboard: ${sanitizeError(error.message)}`);
+      return;
+    }
+    const rows = Array.isArray(result?.data?.players) ? result.data.players : [];
+    const sort = interaction.options?.getString?.("sort") || "kills";
+    const metrics = {
+      kills: { title: "All-time kills", value: (p) => Number(p.allTimeKills) || 0, show: (p) => `${Number(p.allTimeKills) || 0} kills` },
+      days: { title: "Longest survival", value: (p) => Number(p.bestDays) || 0, show: (p) => `${(Number(p.bestDays) || 0).toFixed(1)} days` },
+      deaths: { title: "Deaths", value: (p) => Number(p.deaths) || 0, show: (p) => `${Number(p.deaths) || 0} deaths` },
+    };
+    const metric = metrics[sort] || metrics.kills;
+    const ranked = rows
+      .filter((p) => p && typeof p.username === "string" && p.username)
+      .sort((a, b) => metric.value(b) - metric.value(a) || (Number(b.allTimeKills) || 0) - (Number(a.allTimeKills) || 0))
+      .slice(0, 10);
+    // Discord caps an embed description at 4096 chars. Ten names of at most
+    // LEADERBOARD_NAME_MAX chars fit with room to spare; the same
+    // incremental cap as handlePlayers() keeps it so whatever the names hold.
+    const MAX_DESC = 4000;
+    let description;
+    if (ranked.length === 0) {
+      description = "No players on the leaderboard yet";
+    } else {
+      const lines = [];
+      let total = 0;
+      let truncated = 0;
+      for (let i = 0; i < ranked.length; i++) {
+        const line = `**${i + 1}.** ${leaderboardName(ranked[i].username)} — ${metric.show(ranked[i])}`;
+        if (total + line.length + 1 > MAX_DESC) {
+          truncated = ranked.length - i;
+          break;
+        }
+        lines.push(line);
+        total += line.length + 1;
+      }
+      if (truncated > 0) lines.push(`… and ${truncated} more`);
+      description = lines.join("\n");
+    }
+    const embed = new EmbedBuilder()
+      .setTitle(`🏆 Leaderboard — ${metric.title}`)
+      .setColor(0xf1c40f)
+      .setDescription(description)
+      .setFooter({ text: `${rows.length} player(s) tracked` })
+      .setTimestamp();
     await interaction.editReply({ embeds: [embed] });
   }
 
@@ -1575,7 +1725,13 @@ export class DiscordBot {
     // default into the actual RCON call would send a reason the moderator
     // never typed.
     const rawReason = interaction.options.getString("reason");
-    const displayReason = rawReason || "No reason given";
+    // RCON keeps at most 100 chars of the reason (sanitizeForBanReason()),
+    // and the reply shows the same: a slash option can be 6000 chars, and a
+    // reply over Discord's 2000 would fail AFTER the kick went through, so
+    // the moderator saw an error and the channel notification was skipped.
+    const displayReason = rawReason
+      ? Array.from(rawReason).slice(0, KICK_REASON_MAX).join("")
+      : "No reason given";
 
     await interaction.deferReply();
 

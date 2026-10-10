@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Leaderboard in Arabic and other languages:** the table headers and number columns follow the reading direction, and the days unit after the best days is translated instead of always "d".
 - **Scheduler timezone picker (Arabic):** the search icon and the dropdown arrow no longer overlap in right-to-left layouts.
 - **Collapsed sidebar:** the icon rail has a Sign out button (with the signed-in name in its tooltip), so you can sign out without expanding the sidebar.
+### Added
+
+- **Discord /leaderboard:** anyone in your Discord server can see the top 10 by kills, longest survival or deaths (who can use it is set under Commands, like /players).
+
+### Fixed
+
+- **Discord /kick:** a long reason no longer makes the reply fail after the player was already kicked; the game and the reply both use the first 100 characters.
+- **Discord command access:** a permission change saved while the bot was still registering its commands now reaches Discord instead of waiting for the next restart.
 
 ## [1.4.12] - 2026-10-10
 

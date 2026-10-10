@@ -1317,6 +1317,8 @@ const discordBot = new DiscordBot(
   scheduler,
   logTailer,
 );
+// /leaderboard reads the stats PanelBridge keeps.
+discordBot.panelBridge = panelBridge;
 const backupService = new BackupService();
 
 // Connect services for cross-communication

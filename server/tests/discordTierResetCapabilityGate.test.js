@@ -69,6 +69,7 @@ const CHANNEL = "400000000000000001";
 const RAISED_TIERS = {
   status: "everyone",
   players: "everyone",
+  leaderboard: "everyone",
   save: "admin",
   broadcast: "admin",
   kick: "admin",
@@ -191,6 +192,20 @@ describe("PUT /discord/permissions can't reset tiers it doesn't name", () => {
 
     expect(response.status).toHaveBeenCalledWith(403);
     expect(bot.getCommandPermissions().save).toBe("admin");
+  });
+
+  it("naming /leaderboard needs players.view, like /players", async () => {
+    const bot = await makeBot();
+
+    const response = await run(
+      bot,
+      "/permissions",
+      { permissions: { leaderboard: "admin" } },
+      "integrations_only",
+    );
+
+    expect(response.status).toHaveBeenCalledWith(403);
+    expect(bot.getCommandPermissions().leaderboard).toBe("everyone");
   });
 
   it("the full set the settings page sends still saves for a caller holding every capability", async () => {
