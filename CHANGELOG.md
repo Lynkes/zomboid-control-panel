@@ -37,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Map Cleanup, vehicles of a whole cell:** selecting a cell's top-left chunk with Delete vehicles on no longer deletes the vehicles of the cell's other chunks; the whole cell is cleared only when no chunk of it is left.
 - **Map Cleanup, file names:** deleting chunks only accepts the file names the scan lists, so a role with Map Cleanup access can no longer delete players.db, vehicles.db or other save files.
 - **Map Cleanup, live vehicles:** cancelling the force-delete dialog or a refused delete no longer removes the live vehicles; they are removed only after the chunks were deleted.
+- - **Sign-in and first-run errors:** the wrong-password, blocked-origin and "could not create the admin account" messages are translated in every language instead of always English, and a login that times out says so instead of "check your password".
+- - **Show/hide-password buttons (Arabic):** the eye button in Setup, Settings and Server Setup no longer sits on top of the typed text in right-to-left layouts.
+- **World map tiles stalling:** when the map service blocks its description files, tiles no longer wait up to 8 s for them on every request, and an expired map-build lookup no longer holds up every tile; the last known build is served while it refreshes in the background.
 
 ## [1.4.12] - 2026-10-10
 

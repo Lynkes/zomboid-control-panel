@@ -680,7 +680,13 @@ const TOP_CONTENT_TYPES = {
   jpeg: "image/jpeg",
   png: "image/png",
 };
-const _topFormatCache = new Map(); // directory -> format
+const _topFormatCache = new Map(); // directory -> format read from the build's own descriptor
+// When the descriptor can't be read (blocked host, 404), the fallback format is
+// remembered for a while instead of asking upstream again on every request:
+// every /toptiles request needs the format first, even one answered from the
+// disk cache, and a blocked curl takes up to CURL_TIMEOUT_S.
+const TOP_FORMAT_FALLBACK_TTL_MS = 10 * 60 * 1000;
+const _topFormatFallbackUntil = new Map(); // directory -> time the fallback is asked about again
 // Same coalescing problem and fix as _b42ResolvePromise above: a cold cache
 // means every concurrent toptiles request independently curls the same
 // base_top/layer0.dzi descriptor instead of sharing the one in flight.
@@ -689,13 +695,27 @@ const _topFormatInflight = new Map(); // directory -> Promise<format>
 async function getB42TopFormat(directory) {
   const cached = _topFormatCache.get(directory);
   if (cached) return cached;
-  const pending = _topFormatInflight.get(directory);
-  if (pending) return pending;
-  const resolvePromise = resolveB42TopFormat(directory).finally(() => {
-    _topFormatInflight.delete(directory);
-  });
-  _topFormatInflight.set(directory, resolvePromise);
-  return resolvePromise;
+  const fallbackUntil = _topFormatFallbackUntil.get(directory);
+  if (fallbackUntil !== undefined) {
+    // Descriptor unreadable last time: answer with the fallback right away,
+    // and once the interval is up look again in the background so this
+    // request isn't the one that waits for it.
+    if (Date.now() >= fallbackUntil) startTopFormatResolve(directory);
+    return TOP_FORMAT_FALLBACK;
+  }
+  return startTopFormatResolve(directory);
+}
+
+// One descriptor request per directory at a time, whoever asks. Never rejects.
+function startTopFormatResolve(directory) {
+  let pending = _topFormatInflight.get(directory);
+  if (!pending) {
+    pending = resolveB42TopFormat(directory).finally(() => {
+      _topFormatInflight.delete(directory);
+    });
+    _topFormatInflight.set(directory, pending);
+  }
+  return pending;
 }
 
 async function resolveB42TopFormat(directory) {
@@ -709,12 +729,14 @@ async function resolveB42TopFormat(directory) {
       const format = xml.match(/Format="(\w+)"/)?.[1]?.toLowerCase();
       if (format && TOP_CONTENT_TYPES[format]) {
         _topFormatCache.set(directory, format);
+        _topFormatFallbackUntil.delete(directory);
         return format;
       }
     }
   } catch {
     // Fall through to the default below.
   }
+  _topFormatFallbackUntil.set(directory, Date.now() + TOP_FORMAT_FALLBACK_TTL_MS);
   return TOP_FORMAT_FALLBACK;
 }
 
@@ -765,6 +787,22 @@ async function getB42Map() {
   if (_b42Map && now - _b42DirFetchedAt < B42_DIR_TTL_MS) {
     return _b42Map;
   }
+  if (_b42Map) {
+    // Expired, but there is a map to serve (the last resolved build, or the
+    // fallback after a failed attempt): every tile request goes through here,
+    // so none of them waits for discovery (two tiers of curl calls, ~16 s when
+    // the hosts drop packets). One refresh runs in the background.
+    if (!_b42ResolvePromise) {
+      _b42ResolvePromise = resolveB42Map(now).finally(() => {
+        _b42ResolvePromise = null;
+      });
+      _b42ResolvePromise.catch((err) => {
+        log.warn(`B42 map refresh failed: ${err.message}`);
+      });
+    }
+    return _b42Map;
+  }
+  // Cold: nothing to serve yet, so wait (all callers share the one attempt).
   if (_b42ResolvePromise) return _b42ResolvePromise;
   _b42ResolvePromise = resolveB42Map(now).finally(() => {
     _b42ResolvePromise = null;
