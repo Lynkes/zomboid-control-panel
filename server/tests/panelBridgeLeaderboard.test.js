@@ -305,7 +305,8 @@ setOnline({ AliceAgain })
     // screen and never came back.
     const bridge = loadPanelBridge(LUA_PATH, STUBS);
     const keepsBody = () => {
-      bridge.run(`KEEPS_BODY = PanelBridgeModule.leaderboardDeadPlayers[${JSON.stringify(ALICE_KEY)}] ~= nil`);
+      // Bodies are followed per account, not per SteamID.
+      bridge.run(`KEEPS_BODY = PanelBridgeModule.leaderboardDeadPlayers[${JSON.stringify(`${ALICE_KEY}|alice`)}] ~= nil`);
       return bridge.getGlobal('KEEPS_BODY');
     };
     bridge.callHandler('getLeaderboard');
@@ -375,29 +376,191 @@ describe('PanelBridge leaderboard and animals', () => {
   });
 });
 
-describe('PanelBridge leaderboard aliases', () => {
-  it('keeps the other names a row was seen under, without changing its key', () => {
+// A SteamID is not one account: split-screen guests report the host's, alts
+// can share a Steam account, and two SteamID64s can collapse to the same
+// double. The row keeps one kill baseline, so two names on it used to add the
+// difference of their kill counters to all-time kills on every switch.
+const ALT_KEY = `${ALICE_KEY}|alicealt`;
+const GUEST_KEY = `${ALICE_KEY}|guest`;
+
+function rowById(result, id) {
+  expect(result.ok).toBe(true);
+  return result.data.players.find((player) => player.id === id);
+}
+
+// A store a previous session left in the bridge folder (what the sweep loads).
+const SAVED_STORE_FILE = 'panelbridge/TestServer/leaderboard.json.txt';
+function savedStoreStubs(players) {
+  const store = { version: 2, worldId: 'saved-world', trackingStartedAt: 500, flushSeq: 1, players, complete: true };
+  return `${STUBS}
+ModData.stores.PanelBridgeLeaderboardWorld = { id = "saved-world" }
+FILES[${JSON.stringify(SAVED_STORE_FILE)}] = [==[${JSON.stringify(store)}]==]
+getFileReader = function(path)
+  local value = FILES[path]
+  if value == nil then return nil end
+  local reader = { value = value, done = false }
+  function reader:readLine()
+    if self.done then return nil end
+    self.done = true
+    return self.value
+  end
+  function reader:close() end
+  return reader
+end
+`;
+}
+
+describe('PanelBridge leaderboard accounts that share a SteamID', () => {
+  it('gives a second account on one SteamID its own row, so switching adds nothing', () => {
+    const bridge = loadPanelBridge(LUA_PATH, `${STUBS}
+Alice.kills = 500
+AliceAlt = makePlayer("AliceAlt", "76561198000000001", 20, 10)
+setOnline({ Alice })
+`);
+    bridge.callHandler('getLeaderboard');
+    for (let round = 0; round < 3; round += 1) {
+      bridge.run('setOnline({ AliceAlt })');
+      bridge.callHandler('getLeaderboard');
+      bridge.run('setOnline({ Alice })');
+      bridge.callHandler('getLeaderboard');
+    }
+
+    const result = bridge.callHandler('getLeaderboard');
+    expect(result.data.players.map((player) => player.id).sort()).toEqual([ALICE_KEY, ALT_KEY]);
+    expect(rowById(result, ALICE_KEY)).toEqual(expect.objectContaining({
+      username: 'Alice', allTimeKills: 500, currentKills: 500, online: true,
+    }));
+    expect(rowById(result, ALT_KEY)).toEqual(expect.objectContaining({
+      username: 'AliceAlt', allTimeKills: 20, currentKills: 20, online: false,
+    }));
+    expect(rowById(result, ALICE_KEY).aliases ?? null).toBeNull();
+    expect(rowById(result, ALT_KEY).aliases ?? null).toBeNull();
+
+    // Each account's own kills still count, on its own row.
+    bridge.run('Alice.kills = 503; AliceAlt.kills = 24; setOnline({ Alice, AliceAlt })');
+    const later = bridge.callHandler('getLeaderboard');
+    expect(rowById(later, ALICE_KEY).allTimeKills).toBe(503);
+    expect(rowById(later, ALT_KEY).allTimeKills).toBe(24);
+  });
+
+  it('keeps a co-op host and guest apart, with no gain from the sweep', () => {
+    const bridge = loadPanelBridge(LUA_PATH, `${STUBS}
+Alice.kills = 100
+Guest = makePlayer("Guest", "76561198000000001", 5, 1)
+setOnline({ Alice, Guest })
+`);
+    tickAt(bridge, 70000);
+    for (const now of [130000, 190000, 250000]) tickAt(bridge, now);
+    expect(storeRow(bridge, ALICE_KEY)).toEqual(expect.objectContaining({
+      username: 'Alice', currentKills: 100, allTimeKills: 100,
+    }));
+    expect(storeRow(bridge, GUEST_KEY)).toEqual(expect.objectContaining({
+      username: 'Guest', currentKills: 5, allTimeKills: 5,
+    }));
+
+    // Kills each account really makes land on its own row.
+    bridge.run('Alice.kills = 103; Guest.kills = 6');
+    tickAt(bridge, 310000);
+    expect(storeRow(bridge, ALICE_KEY).allTimeKills).toBe(103);
+    expect(storeRow(bridge, GUEST_KEY).allTimeKills).toBe(6);
+
+    // And so do a kill's weapon and a death.
+    bridge.run('ZombieAttacker = Guest; Guest.kills = 7; OnZombieDeadHandler(Zombie)');
+    bridge.run('Guest.kills = 9; OnCharacterDeathHandler(Guest)');
+    expect(storeRow(bridge, GUEST_KEY)).toEqual(expect.objectContaining({
+      allTimeKills: 9, deaths: 1, favoriteWeapon: 'Axe', favoriteWeaponKills: 1, awaitingNewLife: true,
+    }));
+    expect(storeRow(bridge, ALICE_KEY)).toEqual(expect.objectContaining({
+      allTimeKills: 103, deaths: 0, favoriteWeaponKills: 0,
+    }));
+
+    // The guest's body is still connected until the respawn: its own row shows online.
+    const whileDead = bridge.callHandler('getLeaderboard');
+    expect(rowById(whileDead, GUEST_KEY)).toEqual(expect.objectContaining({ online: true, deaths: 1, allTimeKills: 9 }));
+    expect(rowById(whileDead, ALICE_KEY)).toEqual(expect.objectContaining({ online: true, allTimeKills: 103 }));
+  });
+
+  it('keeps a row that already merged names under its key and starts the other names apart', () => {
+    // Saved by 1.7.74 or older after Alice and AliceAlt shared the row: the
+    // totals are the merged pile and the name is the last one seen.
+    const merged = {
+      username: 'AliceAlt', displayName: 'AliceAlt Survivor',
+      currentKills: 20, allTimeKills: 530, currentDays: 0.4, bestDays: 2,
+      deaths: 2, favoriteWeaponKills: 0, weaponKills: {},
+      lastObservedKills: 20, aliases: ['alice'], lastSeenAt: 900,
+    };
+    const bridge = loadPanelBridge(LUA_PATH, `${savedStoreStubs({ [ALICE_KEY]: merged })}
+Alice.kills = 500
+AliceAlt = makePlayer("AliceAlt", "76561198000000001", 20, 10)
+setOnline({ AliceAlt })
+`);
+    // The name the row holds carries on with it, with no jump.
+    let result = bridge.callHandler('getLeaderboard');
+    expect(result.data.diagnostics.loadedFrom).not.toBe('new');
+    expect(rowById(result, ALICE_KEY)).toEqual(expect.objectContaining({
+      username: 'AliceAlt', allTimeKills: 530, deaths: 2, aliases: ['alice'], online: true,
+    }));
+
+    // The other name gets a row of its own; the merged row is not touched by it.
+    for (let round = 0; round < 3; round += 1) {
+      bridge.run('setOnline({ Alice })');
+      result = bridge.callHandler('getLeaderboard');
+      bridge.run('setOnline({ AliceAlt })');
+      result = bridge.callHandler('getLeaderboard');
+    }
+    expect(result.data.players.map((player) => player.id).sort()).toEqual([ALICE_KEY, `${ALICE_KEY}|alice`]);
+    expect(rowById(result, ALICE_KEY)).toEqual(expect.objectContaining({
+      username: 'AliceAlt', allTimeKills: 530, currentKills: 20, aliases: ['alice'],
+    }));
+    expect(rowById(result, `${ALICE_KEY}|alice`)).toEqual(expect.objectContaining({
+      username: 'Alice', allTimeKills: 500, currentKills: 500, online: false,
+    }));
+
+    // The sweep finds both, and a dead body is matched to the row it belongs to.
+    bridge.run('setOnline({ Alice, AliceAlt })');
+    tickAt(bridge, 70000);
+    expect(storeRow(bridge, ALICE_KEY).allTimeKills).toBe(530);
+    expect(storeRow(bridge, `${ALICE_KEY}|alice`).allTimeKills).toBe(500);
+    bridge.run('OnCharacterDeathHandler(Alice)');
+    const whileDead = bridge.callHandler('getLeaderboard');
+    expect(rowById(whileDead, `${ALICE_KEY}|alice`)).toEqual(expect.objectContaining({ deaths: 1, online: true }));
+    expect(rowById(whileDead, ALICE_KEY)).toEqual(expect.objectContaining({ deaths: 2, online: true }));
+  });
+
+  it('keeps one row for one account across relogs, respawns and a change of case', () => {
     const bridge = loadPanelBridge(LUA_PATH, STUBS);
     bridge.callHandler('getLeaderboard');
-    bridge.run('Alice.username = "AliceAlt"');
-    const renamed = bridge.callHandler('getLeaderboard');
-    const row = rowFor(renamed, 'AliceAlt');
-    expect(row.id).toBe(ALICE_KEY);
-    expect(row.aliases).toEqual(['alice']);
-    expect(rowFor(renamed, 'Alice')).toBeUndefined();
+    bridge.run('setOnline({ Bob })');
+    bridge.callHandler('getLeaderboard');
 
-    bridge.run('Alice.username = "Alice"');
-    expect(rowFor(bridge.callHandler('getLeaderboard'), 'Alice').aliases).toEqual(['alicealt']);
-
-    // At most five, the most recent kept; a change of case is no new name.
+    // Back as a new object (a reconnect), with kills made elsewhere.
     bridge.run(`
-for i = 1, 7 do
-  Alice.username = "Name" .. i
-  PanelBridgeModule.handlers.getLeaderboard({})
-end
-Alice.username = "NAME7"
+AliceAgain = makePlayer("Alice", "76561198000000001", 20, 60)
+setOnline({ AliceAgain, Bob })
 `);
-    expect(rowFor(bridge.callHandler('getLeaderboard'), 'NAME7').aliases)
-      .toEqual(['name2', 'name3', 'name4', 'name5', 'name6']);
+    let result = bridge.callHandler('getLeaderboard');
+    expect(result.data.players.map((player) => player.id).sort()).toEqual([ALICE_KEY, 'steam:76561198000000002']);
+    expect(rowById(result, ALICE_KEY)).toEqual(expect.objectContaining({
+      username: 'Alice', allTimeKills: 20, currentKills: 20, online: true,
+    }));
+    expect(rowById(result, ALICE_KEY).aliases ?? null).toBeNull();
+
+    // A name typed in another case is the same account.
+    bridge.run('AliceAgain.username = "ALICE"; AliceAgain.kills = 22');
+    result = bridge.callHandler('getLeaderboard');
+    expect(result.data.players.map((player) => player.id).sort()).toEqual([ALICE_KEY, 'steam:76561198000000002']);
+    expect(rowById(result, ALICE_KEY)).toEqual(expect.objectContaining({ username: 'ALICE', allTimeKills: 22 }));
+  });
+
+  it('keeps accounts without a SteamID apart by name, as before', () => {
+    const bridge = loadPanelBridge(LUA_PATH, `${STUBS}
+Dan = makePlayer("Dan", "0", 4, 1)
+Eve = makePlayer("Eve", "0", 9, 1)
+setOnline({ Dan, Eve })
+`);
+    const result = bridge.callHandler('getLeaderboard');
+    expect(result.data.players.map((player) => player.id).sort()).toEqual(['name:dan', 'name:eve']);
+    expect(rowById(result, 'name:dan').allTimeKills).toBe(4);
+    expect(rowById(result, 'name:eve').allTimeKills).toBe(9);
   });
 });
