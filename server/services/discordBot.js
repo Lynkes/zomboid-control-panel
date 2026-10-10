@@ -380,6 +380,9 @@ export class DiscordBot {
     // boot; without a lock the two REST.put() calls race and either set
     // can win, leaving Discord in an inconsistent state.
     this._registerInFlight = null;
+    // The one registration waiting for _registerInFlight to settle, shared by
+    // every registerCommands() call made meanwhile (see registerCommands()).
+    this._registerFollowUp = null;
 
     // Remember the last guildId we registered commands for so that
     // changing guilds via updateConfig() can clean up the OLD guild's
@@ -1035,8 +1038,33 @@ export class DiscordBot {
 
     // Serialise concurrent registrations — a fresh boot can hit this via
     // both start() and updateCommandPermissions() within the same tick.
+    // The registration in flight built its command list (tiers, roles) when
+    // it started, so handing a later caller that same promise would never
+    // push the change this caller was made for (a tier saved while the
+    // earlier PUT was out stayed unpushed until the next restart). Instead
+    // one follow-up registration runs once the current one settles, builds
+    // its list then, and is shared by every caller that arrives meanwhile.
+    if (this._registerFollowUp) {
+      return this._registerFollowUp;
+    }
     if (this._registerInFlight) {
-      return this._registerInFlight;
+      const inFlight = this._registerInFlight;
+      const followUp = (async () => {
+        try {
+          await inFlight;
+        } catch {
+          // Its own caller got that error; this caller's change still needs
+          // pushing.
+        }
+        this._registerFollowUp = null;
+        // The bot may have been stopped or reconfigured away in the
+        // meantime: nothing left to push then, and not an error for a
+        // caller that only saved a setting.
+        if (!this.token || !this.guildId || !this.client?.user) return;
+        return this.registerCommands();
+      })();
+      this._registerFollowUp = followUp;
+      return followUp;
     }
 
     const targetGuildId = this.guildId;
