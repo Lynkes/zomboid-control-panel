@@ -29,6 +29,18 @@ const TYPE_RESPONSE_VALUE = 0;
 // silently discard a legitimately large response as "corrupt".
 const MAX_PACKET_SIZE = 8 * 1024 * 1024;
 
+// Source RCON packets are capped at 4096 bytes after the 4-byte length field
+// (id 4 + type 4 + body + two terminators), so the biggest body one packet can
+// carry is 4086 bytes. PZ splits a longer reply (`showoptions` is ~4.9 KB) into
+// several packets that share the command's request id, with no terminator
+// packet -- the only sign a reply is complete is a packet shorter than this.
+const MAX_FULL_PACKET_BODY_BYTES = 4086;
+
+// After a packet that filled the limit exactly, the reply may continue. If the
+// next same-id packet has not arrived within this quiet window (the reply was
+// an exact multiple of the packet size), the reply is complete.
+const CONTINUATION_QUIET_MS = 150;
+
 let nextRequestId = 1;
 function allocRequestId() {
   // Wrap well before Java's Integer range to stay a safe, boring positive int.
@@ -58,8 +70,16 @@ function encodePacket(id, type, body) {
  * they become available.
  */
 export class PacketReader {
-  constructor() {
+  /**
+   * `keepRaw` adds the undecoded body bytes to each packet as `raw`. The
+   * client needs them: a reply PZ splits across packets can be cut in the
+   * middle of a multi-byte character, which only decodes correctly once the
+   * parts are joined, and the split is recognized by the packet's byte length
+   * (re-encoding a decoded string would not give it back).
+   */
+  constructor({ keepRaw = false } = {}) {
     this._buf = Buffer.alloc(0);
+    this._keepRaw = keepRaw;
   }
 
   push(chunk) {
@@ -83,7 +103,12 @@ export class PacketReader {
       const type = this._buf.readInt32LE(8);
       // body runs from offset 12 to totalLen - 2 (strip the two null terminators)
       const body = this._buf.toString('utf8', 12, totalLen - 2);
-      packets.push({ id, type, body });
+      if (this._keepRaw) {
+        // Copy: the buffer is re-sliced on the next push and may be recycled.
+        packets.push({ id, type, body, raw: Buffer.from(this._buf.subarray(12, totalLen - 2)) });
+      } else {
+        packets.push({ id, type, body });
+      }
 
       this._buf = this._buf.subarray(totalLen);
     }
@@ -105,8 +130,9 @@ export class SourceRconClient {
     this.port = port;
     this.timeout = timeout;
     this.socket = null;
-    this.reader = new PacketReader();
-    this._pending = new Map(); // requestId -> { resolve, reject, timer, parts }
+    this.reader = new PacketReader({ keepRaw: true });
+    // requestId -> { resolve, reject, timer, parts (raw Buffers), bytes, quietTimer }
+    this._pending = new Map();
     this._authPending = null;
     this._destroyed = false;
   }
@@ -178,11 +204,7 @@ export class SourceRconClient {
     }
     // Reject every in-flight command; the caller's own reconnect logic
     // handles re-establishing the connection.
-    for (const [, entry] of this._pending) {
-      clearTimeout(entry.timer);
-      entry.reject(err);
-    }
-    this._pending.clear();
+    this._settleAllPending(err);
   }
 
   _onClose() {
@@ -192,11 +214,24 @@ export class SourceRconClient {
       this._authPending = null;
       pending.reject(closeErr);
     }
-    for (const [, entry] of this._pending) {
-      clearTimeout(entry.timer);
-      entry.reject(closeErr);
-    }
+    this._settleAllPending(closeErr);
+  }
+
+  // Ends every in-flight command when the connection is lost. A command whose
+  // reply already started (see _onResponsePacket's quiet window) is answered
+  // with what arrived instead of failed: the server did reply.
+  _settleAllPending(err) {
+    const entries = [...this._pending.values()];
     this._pending.clear();
+    for (const entry of entries) {
+      clearTimeout(entry.timer);
+      if (entry.quietTimer !== null) {
+        clearTimeout(entry.quietTimer);
+        entry.resolve(Buffer.concat(entry.parts).toString('utf8'));
+      } else {
+        entry.reject(err);
+      }
+    }
   }
 
   _onData(chunk) {
@@ -212,37 +247,54 @@ export class SourceRconClient {
         }
         continue;
       }
-      // Some servers send an empty SERVERDATA_RESPONSE_VALUE immediately
-      // before the real SERVERDATA_AUTH_RESPONSE during auth -- harmless,
-      // just ignore it (there is no pending command yet at that point, so
-      // the lookup below simply won't find a match).
-      if (packet.type === TYPE_RESPONSE_VALUE) {
-        const entry = this._pending.get(packet.id);
-        if (entry) {
-          entry.parts.push(packet.body);
-          // PZ / most Source RCON servers reply with a single packet per
-          // command. Resolve on the first response for that id; if a
-          // server ever splits a large response across multiple packets
-          // sharing the same id, this would need the multi-packet
-          // terminator trick -- not needed for PZ's typical output sizes.
-          clearTimeout(entry.timer);
-          this._pending.delete(packet.id);
-          entry.resolve(entry.parts.join(''));
-        } else {
-          // timeout-handling-consistency-sweep, 2026-09-10: the server DID
-          // answer -- just not before execute()'s own timer (above) already
-          // fired, rejected the caller with "RCON command timed out", and
-          // deleted this id from _pending. Without this log, that answer
-          // vanishes with zero trace -- the identical orphan-response class
-          // panelBridge.js's processResult() was just fixed for (b7177e1b),
-          // unfixed here because that fix's scope never reached this file.
-          // No timestamp is available to report lateness (unlike
-          // panelBridge's file-based results, a raw RCON response packet
-          // carries no send-time of its own), so this only names the id.
-          log.warn(`Orphaned RCON response for id=${packet.id} -- arrived after its command's own timeout had already fired; discarded, caller already saw a timeout failure`);
-        }
+      if (packet.type !== TYPE_RESPONSE_VALUE) continue;
+      // The server answers AUTH with an empty SERVERDATA_RESPONSE_VALUE (same
+      // id) before the real SERVERDATA_AUTH_RESPONSE -- the B42 dedicated
+      // server does this on every connection. It is not a command's reply
+      // and not an orphan: skip it, and only while auth is still pending.
+      if (this._authPending && !this._pending.has(packet.id)) continue;
+      const entry = this._pending.get(packet.id);
+      if (entry) {
+        this._onResponsePacket(packet, entry);
+      } else {
+        // timeout-handling-consistency-sweep, 2026-09-10: the server DID
+        // answer -- just not before execute()'s own timer (above) already
+        // fired, rejected the caller with "RCON command timed out", and
+        // deleted this id from _pending. Without this log, that answer
+        // vanishes with zero trace -- the identical orphan-response class
+        // panelBridge.js's processResult() was just fixed for (b7177e1b),
+        // unfixed here because that fix's scope never reached this file.
+        // No timestamp is available to report lateness (unlike
+        // panelBridge's file-based results, a raw RCON response packet
+        // carries no send-time of its own), so this only names the id.
+        log.warn(`Orphaned RCON response for id=${packet.id} -- arrived after its command's own timeout had already fired; discarded, caller already saw a timeout failure`);
       }
     }
+  }
+
+  // Adds one reply packet to its command. A packet shorter than the packet
+  // limit ends the reply; one that filled it exactly may be followed by more
+  // packets with the same id, so the command stays open for a short quiet
+  // window and each further packet restarts it.
+  _onResponsePacket(packet, entry) {
+    entry.parts.push(packet.raw);
+    entry.bytes += packet.raw.length;
+    if (entry.quietTimer !== null) clearTimeout(entry.quietTimer);
+    if (packet.raw.length === MAX_FULL_PACKET_BODY_BYTES && entry.bytes < MAX_PACKET_SIZE) {
+      // The reply has started, so the command's own timeout no longer
+      // applies: the quiet window decides when it ends.
+      clearTimeout(entry.timer);
+      entry.quietTimer = setTimeout(() => this._completePending(packet.id, entry), CONTINUATION_QUIET_MS);
+      return;
+    }
+    this._completePending(packet.id, entry);
+  }
+
+  _completePending(id, entry) {
+    clearTimeout(entry.timer);
+    if (entry.quietTimer !== null) clearTimeout(entry.quietTimer);
+    this._pending.delete(id);
+    entry.resolve(Buffer.concat(entry.parts).toString('utf8'));
   }
 
   /**
@@ -259,7 +311,7 @@ export class SourceRconClient {
         this._pending.delete(id);
         reject(new Error(`RCON command timed out: ${command}`));
       }, timeoutMs);
-      this._pending.set(id, { resolve, reject, timer, parts: [] });
+      this._pending.set(id, { resolve, reject, timer, parts: [], bytes: 0, quietTimer: null });
       this.socket.write(encodePacket(id, TYPE_EXECCOMMAND, command), (err) => {
         if (err) {
           clearTimeout(timer);

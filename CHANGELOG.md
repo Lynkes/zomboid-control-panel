@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Stopped server shown as running:** a `tail`/`less` on the server log or the start-server script is no longer mistaken for the server process, so Start and Stop act on the real Java server.
+- **RCON log noise and cut-off replies:** the panel log no longer warns "Orphaned RCON response" for every RCON connection and every 30 s Servers-page check, and long replies such as `showoptions` are shown in full instead of cut at 4086 bytes.
 
 ## [1.4.12] - 2026-10-10
 
