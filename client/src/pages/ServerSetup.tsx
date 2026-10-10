@@ -1700,7 +1700,7 @@ export default function ServerSetup() {
                   className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-primary via-primary/80 to-primary/40"
                   aria-hidden="true"
                 />
-                <div className="absolute right-3 top-3">
+                <div className="absolute end-3 top-3">
                   <Badge
                     variant="secondary"
                     className="text-[10px] font-medium uppercase tracking-wide"
@@ -2368,7 +2368,7 @@ export default function ServerSetup() {
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="absolute right-1 top-1 h-9 w-9 p-0"
+                    className="absolute end-1 top-1 h-9 w-9 p-0"
                     onClick={() => setShowRconPassword(!showRconPassword)}
                     aria-label={
                       showRconPassword
@@ -2468,7 +2468,7 @@ export default function ServerSetup() {
               type="button"
               variant="ghost"
               size="sm"
-              className="absolute right-1 top-1 h-9 w-9 p-0"
+              className="absolute end-1 top-1 h-9 w-9 p-0"
               onClick={() => setShowAdminPassword(!showAdminPassword)}
               aria-label={
                 showAdminPassword
@@ -3000,7 +3000,7 @@ export default function ServerSetup() {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="absolute right-1 top-1 h-9 w-9 p-0"
+                      className="absolute end-1 top-1 h-9 w-9 p-0"
                       onClick={() => setShowRconPassword(!showRconPassword)}
                       aria-label={
                         showRconPassword
@@ -3102,7 +3102,7 @@ export default function ServerSetup() {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="absolute right-1 top-1 h-9 w-9 p-0"
+                className="absolute end-1 top-1 h-9 w-9 p-0"
                 onClick={() => setShowAdminPassword(!showAdminPassword)}
                 aria-label={
                   showAdminPassword

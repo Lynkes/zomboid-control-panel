@@ -5846,7 +5846,7 @@ export default function Settings() {
                     <button
                       type="button"
                       onClick={() => setShowSteamApiKey(!showSteamApiKey)}
-                      className="absolute right-3 inset-y-0 flex items-center text-muted-foreground hover:text-foreground"
+                      className="absolute end-3 inset-y-0 flex items-center text-muted-foreground hover:text-foreground"
                       aria-label={
                         showSteamApiKey ? t("mods.hideApiKey") : t("mods.showApiKey")
                       }
@@ -6361,7 +6361,7 @@ export default function Settings() {
                           onClick={() =>
                             setShowCurrentPassword(!showCurrentPassword)
                           }
-                          className="absolute right-3 inset-y-0 flex items-center text-muted-foreground hover:text-foreground"
+                          className="absolute end-3 inset-y-0 flex items-center text-muted-foreground hover:text-foreground"
                           aria-label={
                             showCurrentPassword
                               ? t("security.hidePassword")
@@ -6389,7 +6389,7 @@ export default function Settings() {
                         <button
                           type="button"
                           onClick={() => setShowNewPassword(!showNewPassword)}
-                          className="absolute right-3 inset-y-0 flex items-center text-muted-foreground hover:text-foreground"
+                          className="absolute end-3 inset-y-0 flex items-center text-muted-foreground hover:text-foreground"
                           aria-label={
                             showNewPassword ? t("security.hidePassword") : t("security.showPassword")
                           }
@@ -6668,7 +6668,7 @@ export default function Settings() {
                                           !showLocalResetPassword,
                                         )
                                       }
-                                      className="absolute right-3 inset-y-0 flex items-center text-muted-foreground hover:text-foreground"
+                                      className="absolute end-3 inset-y-0 flex items-center text-muted-foreground hover:text-foreground"
                                       aria-label={
                                         showLocalResetPassword
                                           ? t("security.hidePassword")
@@ -8106,7 +8106,7 @@ function WorkshopCollectionSyncCard({
                   <button
                     type="button"
                     onClick={() => setItemSearch("")}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    className="absolute end-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                     aria-label={t("workshopSync.clearSearch")}
                   >
                     <XCircle className="w-3.5 h-3.5" />
