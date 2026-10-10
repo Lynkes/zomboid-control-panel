@@ -189,14 +189,47 @@ export function clearInstallInFlightMarker(): void {
   }
 }
 
-function generatePassword(length = 12): string {
-  const chars =
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+// Letters and digits only: the password is written into the server's .ini
+// (and the start scripts), where = ; quotes and whitespace are not safe, and
+// the panel's own ini handling drops them.
+const PASSWORD_CHARS =
+  "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+// A uniformly random index below `max` from the browser's CSPRNG. Values at or
+// above the largest multiple of `max` that fits in 32 bits are redrawn, so no
+// character is more likely than another.
+function secureRandomIndex(max: number): number {
+  const limit = Math.floor(0x100000000 / max) * max;
+  const draw = new Uint32Array(1);
+  do {
+    crypto.getRandomValues(draw);
+  } while (draw[0] >= limit);
+  return draw[0] % max;
+}
+
+// The RCON password the wizard proposes. It is the key to remote control of
+// the server, so it comes from crypto.getRandomValues, not Math.random.
+export function generatePassword(length = 12): string {
   let result = "";
   for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
+    result += PASSWORD_CHARS.charAt(secureRandomIndex(PASSWORD_CHARS.length));
   }
   return result;
+}
+
+// Memory the panel saved for a server, in GB (a value above 128 is a legacy
+// one in MB, the same reading as server/utils/memory.js), as a wizard slider
+// value. `minGb`/`maxGb` are the slider's own bounds.
+export function savedMemoryToSliderGb(
+  saved: unknown,
+  fallback: number,
+  minGb: number,
+  maxGb: number,
+): number {
+  const value = typeof saved === "string" ? Number(saved.trim()) : Number(saved);
+  if (!Number.isFinite(value) || value <= 0) return fallback;
+  const gb = value > 128 ? Math.round(value / 1024) : Math.round(value);
+  return Math.min(maxGb, Math.max(minGb, gb || fallback));
 }
 
 // Format bytes to human readable size
@@ -564,22 +597,20 @@ export default function ServerSetup() {
           setZomboidDataPath(settings.zomboidDataPath);
           setUseCustomDataPath(true);
         }
-        // Memory is stored in MB, convert to GB for display
-        // Clamp to reasonable values (2-16 GB) to match slider range
-        if (settings.minMemory)
-          setMinMemory(
-            Math.min(
-              16,
-              Math.max(2, Math.round(settings.minMemory / 1024) || 4),
-            ),
-          );
-        if (settings.maxMemory)
-          setMaxMemory(
-            Math.min(
-              16,
-              Math.max(2, Math.round(settings.maxMemory / 1024) || 8),
-            ),
-          );
+        // Saved memory is already in GB (the panel stores GB; dividing by
+        // 1024 here used to turn every real value into 0 and reset the
+        // sliders to 4/8). Kept inside the sliders' own ranges.
+        if (settings.minMemory) {
+          const savedMin = savedMemoryToSliderGb(settings.minMemory, 4, 2, 64);
+          setMinMemory(savedMin);
+          if (settings.maxMemory) {
+            setMaxMemory(
+              Math.max(savedMin, savedMemoryToSliderGb(settings.maxMemory, 8, 2, 128)),
+            );
+          }
+        } else if (settings.maxMemory) {
+          setMaxMemory(savedMemoryToSliderGb(settings.maxMemory, 8, 2, 128));
+        }
         if (settings.serverPort) setServerPort(settings.serverPort);
       } catch (error) {
         reportClientError("Failed to load settings.", error);
