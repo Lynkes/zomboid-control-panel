@@ -183,8 +183,9 @@ export function getUserErrorMessage(error: unknown, fallback: string): string {
 
   if (error instanceof ApiError) {
     // A 429/503 carrying Retry-After has "Try again in N seconds." appended
-    // to its message in English; swap in the translated sentence. The wait is
-    // left off a registered translation above on purpose (it never had one).
+    // to its message in English; swap in the translated sentence. (A
+    // registered translation returned above never carried the wait, and
+    // still doesn't.)
     const retryAfter =
       typeof error.retryAfterSeconds === 'number' && error.messageBeforeRetryAfter !== undefined
         ? translateRetryAfter(error.retryAfterSeconds)
