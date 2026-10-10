@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Spaces around the server name:** Install and Quick Setup no longer create "MyServer .ini" and similar files when the name was typed with spaces around it.
 - **Stopped server shown as running:** a `tail`/`less` on the server log or the start-server script is no longer mistaken for the server process, so Start and Stop act on the real Java server.
 - **RCON log noise and cut-off replies:** the panel log no longer warns "Orphaned RCON response" for every RCON connection and every 30 s Servers-page check, and long replies such as `showoptions` are shown in full instead of cut at 4086 bytes.
+- **Backups and times:** the hour keeps two digits in the languages that write it that way (German, French, Ukrainian, Portuguese, Chinese, Haitian Creole), so `20:00` is no longer followed by `8:00`.
+- **Blocked browser storage:** the sidebar and the update banner no longer crash the whole panel in a browser that blocks site data; they just forget the collapsed state and dismissal between visits.
+- **Live-updates notice:** the red "Live Updates Unavailable" box no longer flashes on every page load, and no longer stays on the public demo; it only appears once a connection has actually failed.
+- **Reconnecting notice:** the first retry after a failed connection reads "Attempt 1/10" instead of "Attempt 0/10".
+- **Connection messages:** the Reconnected and Connection Lost toasts and the connection-error details in the status popover are translated in every language instead of always English.
+- **Public demo Leaderboard:** the demo shows a sample scoreboard (with a "Not read yet" row and the diagnostics line) instead of "Leaderboard unavailable".
+- **Leaderboard in Arabic and other languages:** the table headers and number columns follow the reading direction, and the days unit after the best days is translated instead of always "d".
+- **Scheduler timezone picker (Arabic):** the search icon and the dropdown arrow no longer overlap in right-to-left layouts.
+- **Collapsed sidebar:** the icon rail has a Sign out button (with the signed-in name in its tooltip), so you can sign out without expanding the sidebar.
 
 ## [1.4.12] - 2026-10-10
 

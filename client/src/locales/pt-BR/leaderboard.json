@@ -38,6 +38,7 @@
     "subtitle": "Classificado por {{metric}}"
   },
   "trackingSince": "Monitorando desde {{date}}",
+  "daysShort": "{{value}} d",
   "table": {
     "title": "Todos os sobreviventes",
     "updated": "Atualizado em {{date}}",

@@ -118,5 +118,14 @@
     "statusCheckFailedTitle": "無法檢查登入狀態",
     "statusCheckFailedDescription": "面板或其前方的代理伺服器未回應登入檢查。請稍候，然後重試。",
     "retry": "重試"
+  },
+  "connection": {
+    "reconnectedTitle": "已重新連線",
+    "reconnectedDescription": "與伺服器的連線已恢復",
+    "lostTitle": "連線中斷",
+    "lostDescription": "無法自動重新連線。此分頁顯示或網路恢復後會自動重新連線，也可以使用連線狀態指示器中的「立即重試」。",
+    "serverClosed": "伺服器已關閉連線",
+    "error": "連線錯誤",
+    "reconnectFailed": "多次嘗試後重新連線失敗"
   }
 }

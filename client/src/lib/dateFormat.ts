@@ -167,9 +167,31 @@ function orderedDate(date: Date, locale: string, pref: Exclude<DateFormatPref, '
   return `${year}${mark}-${month}${mark}-${day}`
 }
 
-function timeOptions(options: TimeOptions): Intl.DateTimeFormatOptions {
+const twoDigitHourCache = new Map<string, boolean>()
+
+// Whether a locale writes a morning hour with two digits on its own ('08:00'
+// in de, fr, uk, pt-BR, zh-CN, en-GB; '8:00' in es, zh-TW, ar, en-US). Asking
+// for hour: 'numeric' in those gives '8:00' beside '20:00', so the hour is
+// only left at 'numeric' for the locales whose own style is unpadded.
+function localePadsHour(locale: string): boolean {
+  let pads = twoDigitHourCache.get(locale)
+  if (pads === undefined) {
+    try {
+      const hour = new Intl.DateTimeFormat(locale, { timeStyle: 'short', timeZone: 'UTC' })
+        .formatToParts(new Date(Date.UTC(2026, 0, 1, 8, 5)))
+        .find((p) => p.type === 'hour')?.value
+      pads = hour?.length === 2
+    } catch {
+      pads = false
+    }
+    twoDigitHourCache.set(locale, pads)
+  }
+  return pads
+}
+
+function timeOptions(options: TimeOptions, locale: string): Intl.DateTimeFormatOptions {
   return {
-    hour: options.pad ? '2-digit' : 'numeric',
+    hour: options.pad || localePadsHour(locale) ? '2-digit' : 'numeric',
     minute: '2-digit',
     ...(options.seconds ? { second: '2-digit' } : {}),
     timeZone: options.timeZone,
@@ -191,7 +213,7 @@ function formatDateTimeIn(locale: string, pref: DateFormatPref, value: DateInput
   const date = toDate(value)
   if (!date) return ''
   if (pref !== 'auto') {
-    return `${orderedDate(date, locale, pref, options.timeZone)} ${formatter(locale, timeOptions(options)).format(date)}`
+    return `${orderedDate(date, locale, pref, options.timeZone)} ${formatter(locale, timeOptions(options, locale)).format(date)}`
   }
   // Intl refuses timeZoneName next to dateStyle/timeStyle, so a labelled
   // medium date is spelled out field by field.
@@ -205,13 +227,13 @@ function formatDateTimeIn(locale: string, pref: DateFormatPref, value: DateInput
   const dateFields: Intl.DateTimeFormatOptions = options.style === 'medium'
     ? { year: 'numeric', month: 'short', day: 'numeric' }
     : { year: 'numeric', month: 'numeric', day: 'numeric' }
-  return formatter(locale, { ...dateFields, ...timeOptions(options) }).format(date)
+  return formatter(locale, { ...dateFields, ...timeOptions(options, locale) }).format(date)
 }
 
 function formatTimeIn(locale: string, value: DateInput, options: TimeOptions): string {
   const date = toDate(value)
   if (!date) return ''
-  return formatter(locale, timeOptions(options)).format(date)
+  return formatter(locale, timeOptions(options, locale)).format(date)
 }
 
 /** A date without the time, in the saved order; '' for a missing or invalid value. */

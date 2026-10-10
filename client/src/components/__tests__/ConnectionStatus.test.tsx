@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import type { Socket } from 'socket.io-client'
 import { ConnectionStatus, ConnectionAnnouncer } from '../ConnectionStatus'
@@ -26,6 +26,8 @@ const connected: Status = { connected: true, reconnecting: false, reconnectAttem
 const reconnectingEarly: Status = { connected: false, reconnecting: true, reconnectAttempt: 1, error: null }
 const reconnecting: Status = { connected: false, reconnecting: true, reconnectAttempt: 3, error: null }
 const disconnected: Status = { connected: false, reconnecting: false, reconnectAttempt: 0, error: null }
+// The page just loaded and the first connect has not settled either way.
+const connecting: Status = { connected: false, reconnecting: false, connecting: true, reconnectAttempt: 0, error: null }
 const disconnectedWithError: Status = {
   connected: false,
   reconnecting: false,
@@ -33,7 +35,32 @@ const disconnectedWithError: Status = {
   error: 'socket hang up',
 }
 
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
 describe('ConnectionStatus', () => {
+  it('renders nothing while the first connect is still under way -- nothing has failed yet', () => {
+    const { container } = renderWithStatus(connecting, { showLabel: true })
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('shows the disconnected notice once the first connect has failed, with connecting cleared', () => {
+    renderWithStatus({ ...connecting, connecting: false }, { showLabel: true })
+    expect(screen.getByText(en.disconnected.label)).toBeInTheDocument()
+  })
+
+  it('shows the reconnect notice even if a connecting flag is still set', () => {
+    renderWithStatus({ ...reconnectingEarly, connecting: true }, { showLabel: true })
+    expect(screen.getByText(en.reconnecting.label)).toBeInTheDocument()
+  })
+
+  it('renders nothing in the public demo, which never opens a socket', () => {
+    vi.stubEnv('VITE_DEMO_MODE', 'true')
+    const { container } = renderWithStatus(disconnected, { showLabel: true })
+    expect(container).toBeEmptyDOMElement()
+  })
+
   it('renders nothing when fully connected -- a stale "connected" badge would be noise, not signal', () => {
     const { container } = renderWithStatus(connected)
     expect(container).toBeEmptyDOMElement()
@@ -138,6 +165,17 @@ describe('ConnectionAnnouncer', () => {
   it('keeps an empty live region while connected, so a later drop is announced', () => {
     renderAnnouncer(connected)
     expect(screen.getByRole('status')).toBeEmptyDOMElement()
+  })
+
+  it('keeps the live region empty while the first connect is still under way', () => {
+    renderAnnouncer(connecting)
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
+  })
+
+  it('renders no live region in the public demo', () => {
+    vi.stubEnv('VITE_DEMO_MODE', 'true')
+    renderAnnouncer(disconnected)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
   it('announces a dropped connection and a reconnect in progress', () => {
