@@ -164,6 +164,8 @@
   "INSTALL_MISSING_FIELDS": "Champs requis manquants : steamcmdPath, installPath, serverName",
   "SERVER_NAME_FORMAT_INVALID": "Nom de serveur invalide. Utilisez uniquement des lettres, chiffres, tirets bas, tirets et espaces (64 caractères max)",
   "ZOMBOID_DATA_PATH_INVALID": "Chemin de données Zomboid invalide",
+  "ZOMBOID_DATA_PATH_UNSUPPORTED_CHARACTERS": "Le chemin du dossier de données Zomboid ne peut pas contenir de guillemet double, car le script de démarrage du serveur ne peut pas le transmettre en toute sécurité. Renommez le dossier ou choisissez-en un autre.",
+  "ADMIN_PASSWORD_UNSUPPORTED_CHARACTERS": "Le mot de passe administrateur ne peut pas contenir de guillemet double ni de caractère de contrôle (comme un saut de ligne), car le script de démarrage du serveur ne peut pas le transmettre en toute sécurité. Choisissez un autre mot de passe.",
   "INVALID_SERVER_PORT": "Le port du jeu doit être un nombre entier compris entre 1024 et 65534.",
   "INVALID_RCON_PORT": "Le port RCON doit être un nombre entier compris entre 1024 et 65535.",
   "INVALID_MIN_MEMORY": "La mémoire minimale doit être un nombre entier compris entre 1 et 64 (Go).",

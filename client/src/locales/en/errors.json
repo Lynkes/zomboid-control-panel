@@ -164,6 +164,8 @@
   "INSTALL_MISSING_FIELDS": "Missing required fields: steamcmdPath, installPath, serverName",
   "SERVER_NAME_FORMAT_INVALID": "Invalid server name. Use only letters, numbers, underscores, hyphens, and spaces (max 64 chars)",
   "ZOMBOID_DATA_PATH_INVALID": "Invalid Zomboid data path",
+  "ZOMBOID_DATA_PATH_UNSUPPORTED_CHARACTERS": "The Zomboid data folder's path can't contain a double quote, because the server's start script can't carry it safely. Rename the folder or choose another.",
+  "ADMIN_PASSWORD_UNSUPPORTED_CHARACTERS": "The admin password can't contain a double quote or a control character (such as a line break), because the server's start script can't carry it safely. Choose a different password.",
   "INVALID_SERVER_PORT": "Game port must be a whole number between 1024 and 65534.",
   "INVALID_RCON_PORT": "RCON port must be a whole number between 1024 and 65535.",
   "INVALID_MIN_MEMORY": "Minimum memory must be a whole number between 1 and 64 (GB).",

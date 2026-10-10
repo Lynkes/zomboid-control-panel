@@ -164,6 +164,8 @@
   "INSTALL_MISSING_FIELDS": "Campos obrigatórios ausentes: steamcmdPath, installPath, serverName",
   "SERVER_NAME_FORMAT_INVALID": "Nome de servidor inválido. Use apenas letras, números, sublinhados, hifens e espaços (máx. 64 caracteres)",
   "ZOMBOID_DATA_PATH_INVALID": "Caminho de dados do Zomboid inválido",
+  "ZOMBOID_DATA_PATH_UNSUPPORTED_CHARACTERS": "O caminho da pasta de dados do Zomboid não pode conter aspas duplas, porque o script de inicialização do servidor não consegue transportá-lo com segurança. Renomeie a pasta ou escolha outra.",
+  "ADMIN_PASSWORD_UNSUPPORTED_CHARACTERS": "A senha de administrador não pode conter aspas duplas nem caracteres de controle (como uma quebra de linha), porque o script de inicialização do servidor não consegue transportá-la com segurança. Escolha outra senha.",
   "INVALID_SERVER_PORT": "A porta do jogo deve ser um número inteiro entre 1024 e 65534.",
   "INVALID_RCON_PORT": "A porta RCON deve ser um número inteiro entre 1024 e 65535.",
   "INVALID_MIN_MEMORY": "A memória mínima deve ser um número inteiro entre 1 e 64 (GB).",

@@ -164,6 +164,8 @@
   "INSTALL_MISSING_FIELDS": "Chan obligatwa manke: steamcmdPath, installPath, serverName",
   "SERVER_NAME_FORMAT_INVALID": "Non sèvè envalid. Itilize sèlman lèt, chif, tirè anba, tirè, ak espas (maksimòm 64 karaktè)",
   "ZOMBOID_DATA_PATH_INVALID": "Chemen done Zomboid envalid",
+  "ZOMBOID_DATA_PATH_UNSUPPORTED_CHARACTERS": "Chemen dosye done Zomboid la pa ka genyen yon gimè doub, paske script demaraj sèvè a pa ka pote l an sekirite. Chanje non dosye a oswa chwazi yon lòt.",
+  "ADMIN_PASSWORD_UNSUPPORTED_CHARACTERS": "Modpas administratè a pa ka genyen yon gimè doub ni yon karaktè kontwòl (tankou yon chanjman liy), paske script demaraj sèvè a pa ka pote l an sekirite. Chwazi yon lòt modpas.",
   "INVALID_SERVER_PORT": "Pò Jwèt la dwe yon nimewo antye ant 1024 ak 65534.",
   "INVALID_RCON_PORT": "Pò RCON an dwe yon nimewo antye ant 1024 ak 65535.",
   "INVALID_MIN_MEMORY": "Memwa Minimòm dwe yon nimewo antye ant 1 ak 64 (GB).",

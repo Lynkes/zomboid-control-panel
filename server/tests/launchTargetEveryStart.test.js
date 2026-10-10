@@ -110,12 +110,15 @@ function quietManager(ServerManager) {
 const PLATFORMS = [
   {
     platform: "linux",
+    // A .sh single-quotes its values; a .bat double-quotes them.
+    quote: (value) => "'" + value + "'",
     named: "start-server_Restored.sh",
     stock: "start-server.sh",
     spawnedScript: (call) => (call.command === "bash" ? call.args[0] : null),
   },
   {
     platform: "win32",
+    quote: (value) => '"' + value + '"',
     named: "StartServer_Restored.bat",
     stock: "StartServer64.bat",
     // cmd.exe /c "<full path to the .bat>" > log 2>&1 -- see
@@ -168,7 +171,7 @@ function readIni() {
   return fs.readFileSync(path.join(zomboidDataPath, "Server", "Restored.ini"), "utf8");
 }
 
-describe.each(PLATFORMS)("GH #167 on $platform", ({ platform, named, stock, spawnedScript }) => {
+describe.each(PLATFORMS)("GH #167 on $platform", ({ platform, quote, named, stock, spawnedScript }) => {
   let m;
 
   beforeEach(async () => {
@@ -199,9 +202,9 @@ describe.each(PLATFORMS)("GH #167 on $platform", ({ platform, named, stock, spaw
 
     expect(result.success).toBe(true);
     const script = fs.readFileSync(path.join(installPath, named), "utf8");
-    expect(script).toContain('-servername "Restored"');
-    expect(script).toContain(`-cachedir="${zomboidDataPath}"`);
-    expect(script).toContain('-adminpassword "admin-pw"');
+    expect(script).toContain(`-servername ${quote("Restored")}`);
+    expect(script).toContain(`-cachedir=${quote(zomboidDataPath)}`);
+    expect(script).toContain(`-adminpassword ${quote("admin-pw")}`);
     expect(spawnCalls).toHaveLength(1);
     expect(spawnedScript(spawnCalls[0])).toBe(named);
   });
@@ -242,7 +245,7 @@ describe.each(PLATFORMS)("GH #167 on $platform", ({ platform, named, stock, spaw
     db.server = { ...db.server, adminPassword: "old-admin" };
     await m.refreshLaunchTargetBeforeStart(db.server);
     expect(fs.readFileSync(path.join(installPath, named), "utf8")).toContain(
-      '-adminpassword "old-admin"',
+      `-adminpassword ${quote("old-admin")}`,
     );
     const manager = quietManager(m.ServerManager);
     await manager.loadConfig();
@@ -259,7 +262,7 @@ describe.each(PLATFORMS)("GH #167 on $platform", ({ platform, named, stock, spaw
     expect(readIni()).toContain("RCONPassword=new-rcon");
     expect(readIni()).not.toContain("RCONPassword=old-rcon");
     const script = fs.readFileSync(path.join(installPath, named), "utf8");
-    expect(script).toContain('-adminpassword "new-admin"');
+    expect(script).toContain(`-adminpassword ${quote("new-admin")}`);
     expect(script).not.toContain("old-admin");
     expect(spawnedScript(spawnCalls[0])).toBe(named);
   });
@@ -293,7 +296,7 @@ describe.each(PLATFORMS)("GH #167 on $platform", ({ platform, named, stock, spaw
     const result = await manager.startServer({ skipRunningCheck: true });
 
     expect(result.success).toBe(true);
-    expect(fs.readFileSync(path.join(launchFolder, named), "utf8")).toContain('-servername "Restored"');
+    expect(fs.readFileSync(path.join(launchFolder, named), "utf8")).toContain(`-servername ${quote("Restored")}`);
     expect(fs.existsSync(path.join(installPath, named))).toBe(false);
     expect(spawnedScript(spawnCalls[0])).toBe(named);
   });
@@ -588,7 +591,7 @@ describe("the refresh targets the server being launched", () => {
 
     expect(readIni()).toContain("RCONPassword=fresh-rcon");
     expect(fs.readFileSync(path.join(installPath, "start-server_Restored.sh"), "utf8")).toContain(
-      '-adminpassword "fresh-admin"',
+      "-adminpassword 'fresh-admin'",
     );
   });
 

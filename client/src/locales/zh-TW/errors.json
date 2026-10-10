@@ -164,6 +164,8 @@
   "INSTALL_MISSING_FIELDS": "缺少必填欄位：steamcmdPath、installPath、serverName",
   "SERVER_NAME_FORMAT_INVALID": "伺服器名稱無效。僅可使用字母、數字、下劃線、連字元和空格（最多 64 個字元）",
   "ZOMBOID_DATA_PATH_INVALID": "Zomboid 資料路徑無效",
+  "ZOMBOID_DATA_PATH_UNSUPPORTED_CHARACTERS": "Zomboid 資料夾的路徑不能包含雙引號，因為伺服器的啟動指令碼無法安全地攜帶它。請重新命名該資料夾或選擇其他資料夾。",
+  "ADMIN_PASSWORD_UNSUPPORTED_CHARACTERS": "管理員密碼不能包含雙引號或控制字元（如換行字元），因為伺服器的啟動指令碼無法安全地攜帶它。請選擇其他密碼。",
   "INVALID_SERVER_PORT": "遊戲埠必須是介於 1024 到 65534 之間的整數。",
   "INVALID_RCON_PORT": "RCON 埠必須是介於 1024 到 65535 之間的整數。",
   "INVALID_MIN_MEMORY": "最小記憶體必須是介於 1 到 64（GB）之間的整數。",

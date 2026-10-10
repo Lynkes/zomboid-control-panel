@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Similar server names:** a server called "Survival" no longer claims the running process of "Survival Hard", so Force Stop no longer kills both.
 - **Backups of the wrong world:** when a server's own world folder is missing, a backup or restore no longer uses another server's folder in its place, and a server whose world folder is spelled a little differently is no longer refused a start.
 - **PanelBridge with a spaced server name:** a server whose name has spaces (e.g. "AU-NZ Auckland PvE") now auto-connects to the bridge folder the mod actually creates, instead of never finding it.
+- **Start scripts changed your values:** a data folder like "D:\Games (x86)\PZ Data" or an admin password like P@ss%w0rd!&x$y is now written to the start script exactly as saved (special characters used to be deleted, so the game used another folder or password); a double quote or line break in either is refused when saving.
+- **Data folder with a trailing backslash:** "D:\Zomboid Data\" no longer breaks the game's -cachedir argument, and the panel stores and uses the folder without it.
+- **Spaces around the server name:** Install and Quick Setup no longer create "MyServer .ini" and similar files when the name was typed with spaces around it.
 
 ## [1.4.12] - 2026-10-10
 

@@ -708,6 +708,15 @@ export const ErrorCode = Object.freeze({
    * (every place a data folder is saved): not an absolute path, too long,
    * control characters, or an existing file rather than a folder. */
   ZOMBOID_DATA_PATH_INVALID: "ZOMBOID_DATA_PATH_INVALID",
+  /** server/services/zomboidDataPath.js (every place a data folder is saved)
+   * -- the path has a double quote in it, which the generated start scripts
+   * can't carry safely (utils/startScriptQuoting.js). */
+  ZOMBOID_DATA_PATH_UNSUPPORTED_CHARACTERS: "ZOMBOID_DATA_PATH_UNSUPPORTED_CHARACTERS",
+  /** server/routes/servers.js (POST /, PUT /:id), server/routes/server.js
+   * (/install, /quick-setup) -- the admin password has a double quote or a
+   * control character in it, which the generated start scripts can't carry
+   * safely. */
+  ADMIN_PASSWORD_UNSUPPORTED_CHARACTERS: "ADMIN_PASSWORD_UNSUPPORTED_CHARACTERS",
   /** server/routes/server.js (sites: /install, /quick-setup,
    * /configure-network) -- serverPort isn't an integer in [1024, 65535].
    * Refused rather than coerced: requireIntInRange(), not validateInt()'s

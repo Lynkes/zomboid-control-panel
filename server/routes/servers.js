@@ -55,6 +55,7 @@ import { ErrorCode } from "../utils/errorCodes.js";
 import { canSeeHostPaths, hideHostPaths } from "../utils/hostPathView.js";
 import { serverConfigDirOf, serverConfigPathIsConfined, serverFolderProblem } from "../utils/serverConfigPath.js";
 import { checkZomboidDataPath } from "../services/zomboidDataPath.js";
+import { adminPasswordStartScriptRefusal } from "../services/startScriptValues.js";
 import {
   buildLifecycleTemplate,
   createLinuxServiceLifecycle,
@@ -1378,6 +1379,13 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
       return res.status(400).json({ error: "Invalid RCON password" });
     }
 
+    // The admin password goes into the start scripts: one they can't carry is
+    // refused here rather than changed there.
+    const adminPasswordRefusal = adminPasswordStartScriptRefusal(config.adminPassword);
+    if (adminPasswordRefusal) {
+      return res.status(400).json(adminPasswordRefusal);
+    }
+
     // Validate serverName against path traversal. This value becomes the PZ
     // dedicated server's own internal name -- it names the .ini file and the
     // Saves/Multiplayer/<serverName> folder the panel reads and writes.
@@ -1682,6 +1690,14 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
     for (const key of ["rconPassword", "adminPassword"]) {
       if (updates[key] !== undefined && isMaskedSecret(updates[key])) {
         delete updates[key];
+      }
+    }
+
+    // See POST /: the admin password goes into the start scripts.
+    if (updates.adminPassword !== undefined) {
+      const adminPasswordRefusal = adminPasswordStartScriptRefusal(updates.adminPassword);
+      if (adminPasswordRefusal) {
+        return res.status(400).json(adminPasswordRefusal);
       }
     }
 

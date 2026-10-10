@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { startScriptValueProblem } from "../utils/startScriptQuoting.js";
 import { holdsSaveFiles, inspectZomboidPath, normalizeUserPath } from "../utils/zomboidPaths.js";
 import { RENAME_TEMP_SUFFIX, TRASH_DIR_NAME, UPLOAD_TEMP_SUFFIX } from "./fileManagerContract.js";
 
@@ -586,6 +587,18 @@ export function checkZomboidDataPath(value, { expand = true } = {}) {
           ? `Invalid Zomboid data path: ${raw}. Use the folder's full path.`
           : "Invalid Zomboid data path",
         code: ErrorCode.ZOMBOID_DATA_PATH_INVALID,
+      },
+    };
+  }
+  // The folder goes into the start scripts as -cachedir, where a double quote
+  // can't be carried safely (utils/startScriptQuoting.js). Refused here, where
+  // it is saved, instead of being dropped from the path there.
+  if (startScriptValueProblem(target)) {
+    return {
+      ok: false,
+      body: {
+        error: `Invalid Zomboid data path: ${raw}. A folder with a double quote in its path can't be put in the server's start script; rename the folder or choose another.`,
+        code: ErrorCode.ZOMBOID_DATA_PATH_UNSUPPORTED_CHARACTERS,
       },
     };
   }
