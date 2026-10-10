@@ -157,8 +157,8 @@ describe("ServerSetup -- memory step", () => {
 
   it("shows the memory the panel saved instead of resetting to 4 and 8", async () => {
     host.settings = {
-      steamcmdPath: "D:\steamcmd\steamcmd.exe",
-      serverPath: "D:\Servers\PZ",
+      steamcmdPath: "D:\\steamcmd\\steamcmd.exe",
+      serverPath: "D:\\Servers\\PZ",
       serverName: "servertest",
       minMemory: 6,
       maxMemory: 12,
@@ -172,8 +172,8 @@ describe("ServerSetup -- memory step", () => {
 
   it("proposes a 12-character letters-and-digits RCON password", async () => {
     host.settings = {
-      steamcmdPath: "D:\steamcmd\steamcmd.exe",
-      serverPath: "D:\Servers\PZ",
+      steamcmdPath: "D:\\steamcmd\\steamcmd.exe",
+      serverPath: "D:\\Servers\\PZ",
       serverName: "servertest",
     };
 
