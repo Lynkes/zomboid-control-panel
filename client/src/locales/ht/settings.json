@@ -883,7 +883,8 @@
     "recoveryUnavailable": { "title": "Rekiperasyon Pa Disponib", "fallback": "Panèl la pa t kapab prepare rekiperasyon modpas sou sèvè sa a." },
     "recoveryTokenMissing": { "title": "Jeton rekiperasyon manke" },
     "passwordReset": { "title": "Modpas Reyinisyalize", "description": "Modpas ou reyinisyalize. Konekte ankò ak nouvo modpas la." },
-    "passwordResetFailed": { "title": "Reyinisyalizasyon Modpas Echwe", "fallback": "Panèl la pa t kapab reyinisyalize modpas ou soti nan sèvè sa a." }
+    "passwordResetFailed": { "title": "Reyinisyalizasyon Modpas Echwe", "fallback": "Panèl la pa t kapab reyinisyalize modpas ou soti nan sèvè sa a." },
+    "settingsSavedWithWarnings": { "title": "Paramèt Sove, ak Avètisman", "description": "Paramèt ou yo sove, men pa tout bagay te ka aplike touswit: {{warnings}}" }
   },
 
   "errors": {

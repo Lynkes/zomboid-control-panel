@@ -117,6 +117,7 @@ import { getUserErrorMessage } from "@/lib/errorMessage";
 import { rememberTrustedDeviceFrom } from "@/lib/trustedDevice";
 import { classifyPanelUpdateFailure } from "@/lib/panelUpdateFailure";
 import { readRunningPanelPort, resolveRestartOrigin } from "@/lib/panelRestartTarget";
+import { extractSaveWarnings } from "@/lib/saveWarnings";
 import {
   RestoreNotStartedError,
   RestoreOutcomeUnknownError,
@@ -1185,7 +1186,7 @@ export default function Settings() {
 
     setSaving(true);
     try {
-      await configApi.updateAppSettings(
+      const result = await configApi.updateAppSettings(
         settings as unknown as Record<string, unknown>,
       );
       setOriginalSettings(settings); // Reset dirty state after save
@@ -1194,11 +1195,25 @@ export default function Settings() {
       } catch {
         // Settings are already saved; diagnostics refresh is best-effort.
       }
-      toast({
-        title: t("toasts.settingsSaved.title"),
-        description: t("toasts.settingsSaved.description"),
-        variant: "success" as const,
-      });
+      // The save succeeded, but the server may have failed to apply some of it
+      // live (server manager / RCON / CORS reload): it says so in `warnings`.
+      // A plain green "saved" would hide that a restart is needed.
+      const warnings = extractSaveWarnings(result);
+      if (warnings.length > 0) {
+        toast({
+          title: t("toasts.settingsSavedWithWarnings.title"),
+          description: t("toasts.settingsSavedWithWarnings.description", {
+            warnings: warnings.join("; "),
+          }),
+          variant: "warning" as const,
+        });
+      } else {
+        toast({
+          title: t("toasts.settingsSaved.title"),
+          description: t("toasts.settingsSaved.description"),
+          variant: "success" as const,
+        });
+      }
     } catch (error) {
       toast({
         title: t("toasts.settingsSaveFailed.title"),
