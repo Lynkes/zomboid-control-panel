@@ -346,9 +346,22 @@ export class Scheduler {
   // -- see that function's own comment for why "the new instance is up" and
   // "RCON is ready" are different claims (2026-09-07 STARTING-state fix).
   // Display-only, same as everywhere else this phase is threaded through.
-  _emitVerifiedTransition(running, phase = running ? "running" : "stopped") {
+  //
+  // `serverId` is the server the restart is pinned to. Every other
+  // server:status push describes the ACTIVE server, but a scheduled task can
+  // restart a different one (and the active server can be switched mid-
+  // restart), so this payload says which server it is about: clients apply a
+  // push that names another server to nothing (the sidebar dot used to flip
+  // to "stopped" for the whole restart of a server it wasn't showing). Left
+  // out when the restart's target couldn't be pinned, which reads as "the
+  // active server", as every unlabelled push does.
+  _emitVerifiedTransition(running, phase = running ? "running" : "stopped", serverId = null) {
     if (typeof this.io?.emit === "function") {
-      this.io.emit("server:status", { running, phase });
+      this.io.emit("server:status", {
+        running,
+        phase,
+        ...(serverId != null ? { serverId } : {}),
+      });
     }
   }
 
@@ -2340,7 +2353,7 @@ export class Scheduler {
         // of RCON waiting below). The heartbeat goes first, for the same
         // reason the watchdog orders it before its own push.
         await this._expireBridgeHeartbeatAfterVerifiedStop(pinnedServerId);
-        this._emitVerifiedTransition(false);
+        this._emitVerifiedTransition(false, "stopped", pinnedServerId);
 
         // Extra delay after stop — give OS time to fully reap the process
         // (zombie processes on Linux, WMI cache on Windows)
@@ -2451,6 +2464,7 @@ export class Scheduler {
           serverStarting: rconService.serverStarting,
           rconConnected: rconService.connected,
         }),
+        pinnedServerId,
       );
 
       // Wait for RCON to be ready (PZ server takes 60-180s to fully initialize)
@@ -2556,6 +2570,7 @@ export class Scheduler {
       this._emitVerifiedTransition(
         true,
         resolveServerPhase({ running: true, serverStarting: false, rconConnected }),
+        pinnedServerId,
       );
 
       const restartDuration = Date.now() - restartStartTime;

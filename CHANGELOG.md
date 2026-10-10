@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Player deaths on the same tile:** a second death on the same tile within 5 minutes (a fixed spawn tile) is no longer dropped from the Discord notice, the player history and the live death event.
 - **Scheduled restart of a remote server:** a restart task, the auto-restart job, the mod-update restart and Discord /restart no longer shut a remote server down and then fail to start it; they refuse up front, and a restart task can't be saved for a remote server.
 - **False "Scheduled backup failing":** a scheduled backup tick that arrives while an earlier scheduled or a manual backup is still running is skipped instead of logged as a failed "Backup already in progress" (real failures still show).
+- **Sidebar status dot:** a scheduled restart of a server that isn't the active one no longer turns the active server's dot (and Dashboard/Servers status) to "stopped"; the restart's status updates now name their server.
 
 ## [1.4.12] - 2026-10-10
 

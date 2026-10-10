@@ -41,7 +41,7 @@ import { cn } from '@/lib/utils'
 import { ConnectionStatus, ConnectionAnnouncer } from './ConnectionStatus'
 import { SystemHealthBanner } from './SystemHealthBanner'
 import { serversApi, ServerInstance, updateApi, UpdateStatus, serverApi, modsApi, panelUpdateApi } from '@/lib/api'
-import { resolveClientProvider } from '@/lib/serverStatus'
+import { isStatusEventForServer, resolveClientProvider } from '@/lib/serverStatus'
 import { getResultErrorMessage } from '@/lib/errorMessage'
 import { readStored, writeStored } from '@/lib/safeStorage'
 import { SocketContext } from '@/contexts/SocketContext'
@@ -574,7 +574,11 @@ export default function Layout({ children }: LayoutProps) {
       running?: boolean
       isRunning?: boolean
       phase?: 'starting' | 'running' | 'stopped' | 'unresponsive' | 'unknown'
+      // Set by a scheduled restart of one particular server (scheduler.js),
+      // which need not be the active one this dot shows.
+      serverId?: string | number | null
     }) => {
+      if (!isStatusEventForServer(data, activeServer?.id)) return
       // Fast path: for a native server, a pushed boolean is as trustworthy
       // as a fresh fetch and avoids a round trip. Everything else needs the
       // composed status to know what the push actually means.
@@ -594,7 +598,7 @@ export default function Layout({ children }: LayoutProps) {
     }
     socket.on('server:status', onStatus)
     return () => { socket.off('server:status', onStatus) }
-  }, [socket, provider, refreshServerRunState])
+  }, [socket, provider, refreshServerRunState, activeServer?.id])
 
   // Track mod updates available count for Mod Manager nav badge
   useEffect(() => {
