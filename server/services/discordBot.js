@@ -26,6 +26,7 @@ import { activeServerConfigDir, serverConfigDirRefusal } from "../utils/serverCo
 import { describeRefusal, logRefusalOnce } from "./zomboidDataPath.js";
 import { runManagedLifecycle } from "./managedContainer.js";
 import { resolveObservedServerRunning } from "../utils/serverStatus.js";
+import { isUnmanagedRemoteServer } from "../utils/serverStatusModel.js";
 import {
   collectKnownSecretValues,
   redactKnownSecrets,
@@ -1598,7 +1599,7 @@ export class DiscordBot {
       // The panel does not manage a remote server's process, and
       // performRestart() refuses it -- say so before announcing a restart
       // that cannot happen (POST /api/server/restart refuses it the same way).
-      if (activeServerForLock?.isRemote) {
+      if (isUnmanagedRemoteServer(activeServerForLock)) {
         await interaction.editReply(
           "❌ Cannot restart a remote server. The process is not managed by this panel.",
         );

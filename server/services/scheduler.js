@@ -13,6 +13,7 @@ import {
 } from "./lifecycleCoordinator.js";
 import { createBackupIfChanged } from "../utils/configBackup.js";
 import { resolveServerPhase } from "../utils/serverStatus.js";
+import { isUnmanagedRemoteServer } from "../utils/serverStatusModel.js";
 import { candidateIniPaths } from "../routes/server.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { serverConfigDirOf, serverConfigDirRefusalReason } from "../utils/serverConfigPath.js";
@@ -1850,8 +1851,10 @@ export class Scheduler {
     // the RCON save and quit, and only then found startServer() had nothing
     // to launch ("Server path not configured"): the remote game was left
     // down. Refused up front, before the lifecycle lock, the restart flag
-    // and any RCON traffic, so nothing is announced, saved or stopped.
-    if (targetServer?.isRemote) {
+    // and any RCON traffic, so nothing is announced, saved or stopped. (A
+    // server with a Docker container mapped to it is restarted through
+    // Docker below, remote flag or not, and is not refused here.)
+    if (isUnmanagedRemoteServer(targetServer)) {
       const message =
         "Cannot restart a remote server. The process is not managed by this panel.";
       log.warn(`Restart refused: ${message}`);

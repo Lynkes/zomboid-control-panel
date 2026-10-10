@@ -32,6 +32,15 @@ export function resolveProvider(server) {
   return server?.isRemote ? "remote-sftp" : "native";
 }
 
+// Whether this panel has no way to stop or start the server's process: it is
+// a remote (SFTP) server. A server with a Docker container mapped to it keeps
+// a restart path of its own (`docker restart`, see managedContainer.js)
+// whatever its isRemote says, which is why this asks for the provider rather
+// than the flag alone.
+export function isUnmanagedRemoteServer(server) {
+  return resolveProvider(server) === "remote-sftp";
+}
+
 // Kept as a local list rather than importing linuxServiceLifecycle.js's
 // isManagedLifecycleProvider(): this module stays free of the fs/exec
 // dependencies that one carries.

@@ -16,6 +16,7 @@ import {
 } from '../database/init.js';
 import { requirePermission } from '../services/permissions.js';
 import { hostPathViewFor } from '../utils/hostPathView.js';
+import { isUnmanagedRemoteServer } from '../utils/serverStatusModel.js';
 import {
   classifyScheduledCommand,
   requiredCapabilityForScheduledCommand,
@@ -389,7 +390,7 @@ router.post('/tasks', async (req, res) => {
       targetServer = await getActiveServer();
       resolvedServerId = targetServer ? targetServer.id : null;
     }
-    if (classifyScheduledCommand(command) === 'restart' && targetServer?.isRemote) {
+    if (classifyScheduledCommand(command) === 'restart' && isUnmanagedRemoteServer(targetServer)) {
       return refuseRemoteRestartTask(res);
     }
 
@@ -561,7 +562,7 @@ router.put('/tasks/:id', async (req, res) => {
         } else if (serverId === null) {
           effectiveTarget = await getActiveServer();
         }
-        if (effectiveTarget?.isRemote) return refuseRemoteRestartTask(res);
+        if (isUnmanagedRemoteServer(effectiveTarget)) return refuseRemoteRestartTask(res);
       }
     }
 

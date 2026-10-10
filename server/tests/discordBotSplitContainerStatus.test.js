@@ -117,6 +117,11 @@ describe("Discord commands vs. a split-container deployment (scan clean, RCON co
   });
 
   it("handleRestart proceeds (does not refuse with 'not running')", async () => {
+    // A split-container server the panel restarts through Docker (a container
+    // mapped to it). Without that mapping the panel has no way to bring a
+    // remote server back, and handleRestart refuses before announcing
+    // anything (schedulerRemoteRestartRefusal.test.js).
+    getActiveServer.mockResolvedValue({ id: "s1", isRemote: true, dockerContainerName: "pz-server" });
     const bot = Object.create(DiscordBot.prototype);
     bot.serverManager = splitContainerServerManager();
     bot.rconService = { connected: true };
@@ -125,7 +130,11 @@ describe("Discord commands vs. a split-container deployment (scan clean, RCON co
     const interaction = makeInteraction();
     interaction.options = { getInteger: () => 5 };
 
-    await bot.handleRestart(interaction);
+    try {
+      await bot.handleRestart(interaction);
+    } finally {
+      getActiveServer.mockResolvedValue({ id: "s1", isRemote: true });
+    }
 
     expect(interaction.replies.some((r) => /not running/i.test(r))).toBe(false);
     expect(bot.scheduler.performRestart).toHaveBeenCalled();

@@ -64,6 +64,9 @@ const { default: router, codedActionResultFields } = await import("../routes/sch
 
 const REMOTE = { id: 7, name: "Hosted", serverName: "Hosted", isRemote: true };
 const LOCAL = { id: 1, name: "Home", serverName: "Home", isRemote: false };
+// Flagged remote, but a Docker container is mapped to it: the panel restarts it
+// through Docker (runManagedLifecycle), whatever isRemote says.
+const REMOTE_BUT_CONTAINER_MANAGED = { ...REMOTE, id: 8, dockerContainerName: "pz-server" };
 
 function makeRcon() {
   return {
@@ -152,6 +155,24 @@ describe("performRestart() refuses a remote server before touching it", () => {
     expect(result.code).toBe(ErrorCode.SCHEDULER_RESTART_REMOTE_NOT_SUPPORTED);
     expectNothingTouched(rcon, manager);
     expect(getServer).toHaveBeenCalledWith(REMOTE.id);
+  });
+
+  it("a server flagged remote that has a Docker container mapped is not refused: it restarts through Docker", async () => {
+    getActiveServer.mockResolvedValue(REMOTE_BUT_CONTAINER_MANAGED);
+    runManagedLifecycle.mockResolvedValue({ handled: true, success: true });
+    const rcon = makeRcon();
+    const manager = makeManager();
+    const scheduler = new Scheduler(rcon, manager);
+    scheduler.sleep = async () => {};
+
+    const result = await scheduler.performRestart(0);
+
+    expect(result.code).toBeUndefined();
+    expect(result.success).toBe(true);
+    expect(runManagedLifecycle).toHaveBeenCalledWith("restart", { serverId: REMOTE_BUT_CONTAINER_MANAGED.id });
+    // Docker did the restart: no RCON quit, no spawn.
+    expect(rcon.quit).not.toHaveBeenCalled();
+    expect(manager.startServer).not.toHaveBeenCalled();
   });
 
   it("still restarts a local server (control)", async () => {
@@ -334,6 +355,18 @@ describe("POST /api/scheduler/tasks refuses a restart task for a remote server",
     expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
   });
 
+  it("a restart task for a remote server that has a Docker container mapped is accepted", async () => {
+    getActiveServer.mockResolvedValue(REMOTE_BUT_CONTAINER_MANAGED);
+    createScheduledTask.mockResolvedValue({ id: 7 });
+    const scheduler = fakeScheduler();
+    const response = createResponse();
+
+    await getHandler("/tasks", "post")(req(scheduler, { body }), response);
+
+    expect(response.status).not.toHaveBeenCalled();
+    expect(scheduler.scheduleTask).toHaveBeenCalled();
+  });
+
   it("a restart task for a local server is still created (control)", async () => {
     getActiveServer.mockResolvedValue(LOCAL);
     createScheduledTask.mockResolvedValue({ id: 6 });
@@ -409,5 +442,18 @@ describe("PUT /api/scheduler/tasks/:id refuses a restart task that would be enab
     const { response, scheduler } = await put({ serverId: LOCAL.id, enabled: true }, stored());
     expect(response.status).not.toHaveBeenCalled();
     expect(scheduler.scheduleTask).toHaveBeenCalled();
+  });
+});
+
+describe("isUnmanagedRemoteServer()", () => {
+  it("is true for a remote server with no container, false for local and for a container-managed one", async () => {
+    const { isUnmanagedRemoteServer } = await import("../utils/serverStatusModel.js");
+    expect(isUnmanagedRemoteServer({ isRemote: true })).toBe(true);
+    expect(isUnmanagedRemoteServer({ isRemote: true, dockerContainerName: "" })).toBe(true);
+    expect(isUnmanagedRemoteServer({ isRemote: true, dockerContainerName: "pz" })).toBe(false);
+    expect(isUnmanagedRemoteServer({ isRemote: true, dockerContainerId: "abc123" })).toBe(false);
+    expect(isUnmanagedRemoteServer({ isRemote: false })).toBe(false);
+    expect(isUnmanagedRemoteServer(null)).toBe(false);
+    expect(isUnmanagedRemoteServer(undefined)).toBe(false);
   });
 });

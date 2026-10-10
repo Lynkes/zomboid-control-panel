@@ -15,6 +15,7 @@ import fs from "fs";
 import path from "path";
 import { EventEmitter } from "events";
 import { sanitizeError } from "../utils/sanitize.js";
+import { isUnmanagedRemoteServer } from "../utils/serverStatusModel.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import panelBridge from "./panelBridge.js";
 import { getWorkshopRelease } from "./bridgeWorkshopRelease.js";
@@ -1020,7 +1021,7 @@ export class ModChecker extends EventEmitter {
     // players about a restart that will not happen, and count the update as
     // handled rather than retrying it every cycle.
     try {
-      if ((await getActiveServer())?.isRemote) {
+      if (isUnmanagedRemoteServer(await getActiveServer())) {
         log.info(
           "Mod updates detected on a remote server -- not restarting it: the panel does not manage its process",
         );
