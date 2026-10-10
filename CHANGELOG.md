@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Player deaths on the same tile:** a second death on the same tile within 5 minutes (a fixed spawn tile) is no longer dropped from the Discord notice, the player history and the live death event.
 - **Old bans missing from the activity log:** kicks, bans and access-level changes are now kept separately (up to 5000) from the connect, disconnect and death rows, so a busy server's join/leave traffic no longer pushes a ban out of the history within days.
 - **Kick and ban reasons:** a reason such as "cheating [RDM]", "RDM / KOS" or one in another alphabet is no longer refused with "Invalid reason format"; it is shortened to what the game can carry (as the form already said), and the SteamID-ban note takes any text.
+- **Players with a space at the start or end of their name:** Kick, Ban, Unban, Access Level and the other player actions now act on "Bob " or " Bob" exactly as listed instead of on the different account "Bob".
 
 ## [1.4.12] - 2026-10-10
 

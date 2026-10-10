@@ -92,10 +92,11 @@ const MAX_REASON_LENGTH = 256;
 const CONTROL_CHARACTER_REGEX = /[\x00-\x1F\x7F]/;
 const ITEM_REGEX = /^[A-Za-z0-9_]+\.[A-Za-z0-9_&#+.\-]+$/;
 
+// The name is checked as given, not trimmed first: PZ allows usernames with a
+// leading or trailing space, and rcon.js sends them untrimmed.
 function isValidUsername(username) {
   if (typeof username !== 'string') return false;
-  const trimmed = username.trim();
-  return trimmed.length > 0 && USERNAME_REGEX.test(trimmed);
+  return username.trim().length > 0 && USERNAME_REGEX.test(username);
 }
 
 // A kick/ban reason is free text. What reaches the game is narrowed by
