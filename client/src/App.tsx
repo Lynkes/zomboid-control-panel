@@ -413,6 +413,9 @@ function AppContent() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
     connected: false,
     reconnecting: false,
+    // Until the first connect settles, so the footer does not flash (or, with
+    // no socket at all, keep) a "Live Updates Unavailable" notice.
+    connecting: true,
     reconnectAttempt: 0,
     error: null,
   })
@@ -500,6 +503,7 @@ function AppContent() {
           return {
             connected: true,
             reconnecting: false,
+            connecting: false,
             reconnectAttempt: 0,
             error: null,
           }
@@ -517,6 +521,7 @@ function AppContent() {
         setConnectionStatus(prev => ({
           ...prev,
           connected: false,
+          connecting: false,
           error: reason === 'io server disconnect' ? 'Server closed connection' : null,
         }))
       })
@@ -530,7 +535,7 @@ function AppContent() {
         if (!newSocket.active && authEnabled && isSocketAuthRefusal(err.message)
           && socketAuthRetry.schedule()) {
           tokenExpiredByServer = true
-          setConnectionStatus(prev => ({ ...prev, connected: false, reconnecting: true }))
+          setConnectionStatus(prev => ({ ...prev, connected: false, connecting: false, reconnecting: true }))
           return
         }
         if (newSocket.active) {
@@ -538,6 +543,7 @@ function AppContent() {
           setConnectionStatus(prev => ({
             ...prev,
             connected: false,
+            connecting: false,
             reconnecting: true,
             error: getUserErrorMessage(err, 'Connection error'),
           }))
@@ -546,6 +552,7 @@ function AppContent() {
           setConnectionStatus({
             connected: false,
             reconnecting: false,
+            connecting: false,
             reconnectAttempt: 0,
             error: getUserErrorMessage(err, 'Connection error'),
           })
@@ -557,6 +564,7 @@ function AppContent() {
         if (tokenExpiryReconnect) return
         setConnectionStatus(prev => ({
           ...prev,
+          connecting: false,
           reconnecting: true,
           reconnectAttempt: attempt,
         }))
@@ -585,6 +593,7 @@ function AppContent() {
         setConnectionStatus({
           connected: false,
           reconnecting: false,
+          connecting: false,
           reconnectAttempt: 0,
           error: 'Failed to reconnect after multiple attempts',
         })

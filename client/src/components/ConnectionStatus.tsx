@@ -3,6 +3,7 @@ import { Wifi, WifiOff, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useConnectionStatus, useSocket } from '@/contexts/SocketContext'
 import { cn } from '@/lib/utils'
+import { isDemoMode } from '@/lib/demo'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
@@ -13,7 +14,7 @@ interface ConnectionStatusProps {
 
 export function ConnectionStatus({ className, showLabel = false }: ConnectionStatusProps) {
   const { t } = useTranslation('connectionStatus')
-  const { connected, reconnecting, reconnectAttempt, error } = useConnectionStatus()
+  const { connected, reconnecting, connecting = false, reconnectAttempt, error } = useConnectionStatus()
   const socket = useSocket()
   const [open, setOpen] = useState(false)
   const labelId = useId()
@@ -34,6 +35,9 @@ export function ConnectionStatus({ className, showLabel = false }: ConnectionSta
 
   // Only show when not connected — a permanently visible "Connected" badge is noise
   if (connected && !reconnecting) return null
+  // The public demo has no server to connect to, and a first connect that is
+  // still under way has not failed: neither is "Live Updates Unavailable".
+  if (isDemoMode() || (connecting && !reconnecting)) return null
 
   // Reaching this component's render at all means the page itself loaded
   // over HTTP successfully -- so a stuck reconnect or a terminal disconnect
@@ -168,8 +172,9 @@ export function ConnectionStatus({ className, showLabel = false }: ConnectionSta
 // connected) so the live region exists before its text changes.
 export function ConnectionAnnouncer() {
   const { t } = useTranslation('connectionStatus')
-  const { connected, reconnecting } = useConnectionStatus()
-  const message = connected && !reconnecting
+  const { connected, reconnecting, connecting = false } = useConnectionStatus()
+  if (isDemoMode()) return null
+  const message = (connected && !reconnecting) || (connecting && !reconnecting)
     ? ''
     : t(reconnecting ? 'reconnecting.label' : 'disconnected.label')
   return <p role="status" className="sr-only">{message}</p>

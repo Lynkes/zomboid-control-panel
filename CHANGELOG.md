@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Backups and times:** the hour keeps two digits in the languages that write it that way (German, French, Ukrainian, Portuguese, Chinese, Haitian Creole), so `20:00` is no longer followed by `8:00`.
 - **Blocked browser storage:** the sidebar and the update banner no longer crash the whole panel in a browser that blocks site data; they just forget the collapsed state and dismissal between visits.
+- **Live-updates notice:** the red "Live Updates Unavailable" box no longer flashes on every page load, and no longer stays on the public demo; it only appears once a connection has actually failed.
 
 ## [1.4.12] - 2026-10-10
 
