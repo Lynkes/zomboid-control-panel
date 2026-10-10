@@ -19,6 +19,19 @@ import {
 //    boot and timezone change repeats it per task. The Intl formatters are now
 //    reused and the answer is cached per zone and fire times for the day.
 
+// Whether this runtime's time zone data knows Morocco's Ramadan clock change
+// (it is in tzdata since 2018, but a Node build with older ICU data reports a
+// flat +01:00 all year, and then there is nothing for the panel to detect).
+function runtimeKnowsMoroccoRamadanDst() {
+  const formatter = new Intl.DateTimeFormat("en-US", { timeZone: "Africa/Casablanca", timeZoneName: "shortOffset" });
+  const offsets = new Set();
+  for (let day = 0; day <= 800; day += 7) {
+    const part = formatter.formatToParts(new Date(Date.UTC(2026, 9, 10) + day * 86400000)).find((p) => p.type === "timeZoneName");
+    offsets.add(part?.value);
+  }
+  return offsets.size > 1;
+}
+const casablancaIt = runtimeKnowsMoroccoRamadanDst() ? it : it.skip;
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-10-10T12:00:00Z"));
@@ -30,7 +43,7 @@ afterEach(() => {
 });
 
 describe("timezoneObservesDst() sees zones whose DST is not in January or July", () => {
-  it("Africa/Casablanca (Ramadan DST) observes DST, whatever the date it is asked on", () => {
+  casablancaIt("Africa/Casablanca (Ramadan DST) observes DST, whatever the date it is asked on", () => {
     for (const asked of ["2026-01-01T00:00:00Z", "2026-07-01T00:00:00Z", "2026-10-10T12:00:00Z", "2027-05-20T00:00:00Z"]) {
       vi.setSystemTime(new Date(asked));
       _resetDstCachesForTests();
@@ -51,7 +64,7 @@ describe("timezoneObservesDst() sees zones whose DST is not in January or July",
     expect(timezoneObservesDst("Not/AZone")).toBe(false);
   });
 
-  it("the DST warnings that gate on it now fire for Casablanca", () => {
+  casablancaIt("the DST warnings that gate on it now fire for Casablanca", () => {
     expect(dstFallBackWarning("*/15 * * * *", "Africa/Casablanca", "Ping")).toContain("Africa/Casablanca");
     const warning = dstSpringForwardWarning("30 2 * * *", "Africa/Casablanca", "Nightly");
     expect(warning).toContain('"Nightly"');
