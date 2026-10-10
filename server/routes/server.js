@@ -60,6 +60,7 @@ import { invalidateMapFolderScan } from "./chunks.js";
 import { codedActionResultFields, emitActionResult } from "./scheduler.js";
 import panelBridge from "../services/panelBridge.js";
 import { candidateIniPaths } from "../utils/zomboidPaths.js";
+import { serverHasWorldFolder } from "../utils/savesFolder.js";
 import {
   checkZomboidDataPath,
   describeRefusal,
@@ -835,13 +836,10 @@ export function isFirstBootMissingAdminPassword(activeServer) {
   ) {
     return false;
   }
-  const saveDir = path.join(
-    activeServer.zomboidDataPath,
-    "Saves",
-    "Multiplayer",
-    activeServer.serverName,
-  );
-  return !fs.existsSync(saveDir);
+  // The folder may be spelled a little differently from the configured name
+  // (backupService's getSavesPath() knows the same spellings): a server whose
+  // world is there has booted, and must not be refused a start for it.
+  return !serverHasWorldFolder(activeServer.zomboidDataPath, activeServer.serverName);
 }
 
 // candidateIniPaths() moved to utils/zomboidPaths.js (services need it too);

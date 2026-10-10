@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Similar server names:** a server called "Survival" no longer claims the running process of "Survival Hard", so Force Stop no longer kills both.
+- **Backups of the wrong world:** when a server's own world folder is missing, a backup or restore no longer uses another server's folder in its place, and a server whose world folder is spelled a little differently is no longer refused a start.
 
 ## [1.4.12] - 2026-10-10
 

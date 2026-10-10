@@ -123,6 +123,7 @@
   "BACKUPS_FOLDER_NOT_FOUND": "未找到備份資料夾",
   "BACKUP_INVALID_FILE": "備份檔案無效",
   "BACKUP_NOT_FOUND": "未找到備份",
+  "BACKUP_SAVES_FOLDER_NOT_FOUND": "找不到此伺服器的世界資料夾，因此沒有可備份的內容。請啟動一次伺服器以產生世界，或在伺服器設定中檢查伺服器名稱與資料路徑。",
   "BACKUP_RESTORE_REMOTE_NOT_AVAILABLE": "遠端伺服器不支援備份還原。此面板無法訪問該伺服器的檔案系統。",
   "BACKUP_RESTORE_SERVER_RUNNING": "還原備份前必須先停止伺服器，請先停止伺服器。",
   "BACKUP_INVALID_DAYS_PARAMETER": "天數引數無效，必須為大於等於 1 的整數",

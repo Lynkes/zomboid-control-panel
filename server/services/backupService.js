@@ -8,6 +8,12 @@ import { randomUUID } from "crypto";
 import { createLogger } from "../utils/logger.js";
 import { escapeRegExp } from "../utils/regex.js";
 import { isPidAlive } from "../utils/pidLiveness.js";
+import { ErrorCode } from "../utils/errorCodes.js";
+import {
+  listWorldFolders,
+  saveFolderBelongsToName,
+  saveFolderKey,
+} from "../utils/savesFolder.js";
 const log = createLogger("Backup");
 import {
   getActiveServer,
@@ -404,6 +410,28 @@ function dataFolderUsable(server, dataPath) {
   return false;
 }
 
+function sameFolderPath(a, b) {
+  const norm = (p) => {
+    const resolved = path.resolve(String(p));
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  };
+  return norm(a) === norm(b);
+}
+
+// getSavesPath() runs on every Backups/Dashboard status poll, so a warning
+// about the same unresolved or stood-in folder would repeat every few
+// seconds: once per name per hour.
+const SAVES_WARN_INTERVAL_MS = 60 * 60 * 1000;
+const savesWarnedAt = new Map();
+function warnSavesFolderOnce(key, message) {
+  const now = Date.now();
+  const last = savesWarnedAt.get(key);
+  if (last !== undefined && now - last < SAVES_WARN_INTERVAL_MS) return;
+  if (savesWarnedAt.size >= 200) savesWarnedAt.clear();
+  savesWarnedAt.set(key, now);
+  log.warn(message);
+}
+
 // The text routes/backup.js sends with BACKUP_REMOTE_NOT_AVAILABLE, for the
 // scheduled backup job, which reaches createBackup() without the route.
 const REMOTE_BACKUPS_MESSAGE =
@@ -441,6 +469,86 @@ export class BackupService {
   // reference.
   setScheduler(scheduler) {
     this.scheduler = scheduler;
+  }
+
+  /**
+   * The names of the other local server profiles that keep their data in the
+   * same Zomboid data folder as `activeServer`, i.e. whose worlds sit beside
+   * its own under Saves/Multiplayer. null when the profiles cannot be read:
+   * then nothing can be ruled out.
+   */
+  async _otherProfileNamesInDataFolder(activeServer) {
+    let allServers;
+    try {
+      allServers = await getServers();
+    } catch (error) {
+      log.warn(`Could not read the server profiles to attribute a save folder: ${error.message}`);
+      return null;
+    }
+    const names = [];
+    for (const other of allServers || []) {
+      if (!other || other.isRemote) continue;
+      if (String(other.id) === String(activeServer?.id ?? "")) continue;
+      if (typeof other.serverName !== "string" || !other.serverName) continue;
+      const otherBase = await this._resolveServerDataBasePath(other);
+      if (otherBase && sameFolderPath(otherBase, activeServer.zomboidDataPath)) {
+        names.push(other.serverName);
+      }
+    }
+    return names;
+  }
+
+  /**
+   * The folder under Saves/Multiplayer that stands in for a server's own
+   * (missing) world folder, or null. Another server's world must never be
+   * taken for it, because a backup would archive that world under this
+   * server's name and a restore would replace it. So a folder qualifies only
+   * when it is the only one that matches the server's name -- ignoring letter
+   * case, then ignoring everything but letters and digits -- or the only
+   * world folder there is, and in both cases no other server profile sharing
+   * the data folder is named for it.
+   */
+  async _findSavesFolderStandIn(activeServer, baseSavesPath) {
+    const name = activeServer.serverName;
+    const folders = listWorldFolders(baseSavesPath);
+    if (folders.length === 0) return null; // no Saves/Multiplayer yet, or no world in it
+
+    const otherNames = await this._otherProfileNamesInDataFolder(activeServer);
+    const ownedByAnother = (folder) =>
+      otherNames === null || otherNames.some((other) => saveFolderBelongsToName(folder, other));
+    const onlyUnowned = (candidates) =>
+      candidates.length === 1 && !ownedByAnother(candidates[0]) ? candidates[0] : null;
+
+    const sameIgnoringCase = onlyUnowned(
+      folders.filter((f) => f.toLowerCase() === name.toLowerCase()),
+    );
+    if (sameIgnoringCase) return sameIgnoringCase;
+
+    const key = saveFolderKey(name);
+    const sameKey = key ? onlyUnowned(folders.filter((f) => saveFolderKey(f) === key)) : null;
+    if (sameKey) {
+      warnSavesFolderOnce(
+        `${baseSavesPath}|${name}|${sameKey}`,
+        `Save folder "${name}" not found; using "${sameKey}", the only folder with the same letters and digits`,
+      );
+      return sameKey;
+    }
+
+    const onlyFolder = folders.length === 1 ? onlyUnowned(folders) : null;
+    if (onlyFolder) {
+      warnSavesFolderOnce(
+        `${baseSavesPath}|${name}|${onlyFolder}`,
+        `Save folder "${name}" not found; using "${onlyFolder}", the only world folder and no other server profile is named for it`,
+      );
+      return onlyFolder;
+    }
+
+    const shown = folders.slice(0, 5).join(", ") + (folders.length > 5 ? ", ..." : "");
+    warnSavesFolderOnce(
+      `${baseSavesPath}|${name}|-`,
+      `No save folder under ${baseSavesPath} can be attributed to server "${name}" (found: ${shown}); backups and restores will not use another server's world`,
+    );
+    return null;
   }
 
   /**
@@ -484,38 +592,24 @@ export class BackupService {
         if (fs.existsSync(savesPath)) {
           return savesPath;
         }
-        // Try without serverName subfolder - but only if the folder matches the expected name
+        // The exact folder is not there. Another folder stands in for it
+        // only when it can be attributed to THIS server (see
+        // _findSavesFolderStandIn()); a guess here would back up, or worse
+        // restore over, another server's world.
         const baseSavesPath = path.join(
           activeServer.zomboidDataPath,
           "Saves",
           "Multiplayer",
         );
-        if (fs.existsSync(baseSavesPath)) {
-          // Look for a folder that matches the server name (case-insensitive)
-          const folders = fs
-            .readdirSync(baseSavesPath, { withFileTypes: true })
-            .filter((d) => d.isDirectory())
-            .map((d) => d.name);
-          // First try exact match
-          const exactMatch = folders.find((f) => f === activeServer.serverName);
-          if (exactMatch) {
-            return path.join(baseSavesPath, exactMatch);
-          }
-          // Then try case-insensitive match
-          const caseInsensitiveMatch = folders.find(
-            (f) => f.toLowerCase() === activeServer.serverName.toLowerCase(),
-          );
-          if (caseInsensitiveMatch) {
-            return path.join(baseSavesPath, caseInsensitiveMatch);
-          }
-          // Only use first folder as last resort with a warning
-          if (folders.length > 0) {
-            log.warn(
-              `Could not find save folder matching "${activeServer.serverName}", using first available: ${folders[0]}`,
-            );
-            return path.join(baseSavesPath, folders[0]);
-          }
+        const standIn = await this._findSavesFolderStandIn(activeServer, baseSavesPath);
+        if (standIn) {
+          return path.join(baseSavesPath, standIn);
         }
+        // No world of this server's yet (or none that can be told from
+        // another's): the folder it will have. A backup then reports it
+        // missing, and a restore creates it, instead of touching a
+        // different server's folder.
+        return savesPath;
       }
 
       // Fallback to legacy settings
@@ -866,7 +960,11 @@ export class BackupService {
         0,
         `Backup failed: ${sanitizeError(error.message)}`,
       );
-      return { success: false, message: sanitizeError(error.message) };
+      return {
+        success: false,
+        message: sanitizeError(error.message),
+        ...(error.errorCode ? { code: error.errorCode } : {}),
+      };
     } finally {
       this.backupInProgress = false;
     }
@@ -906,7 +1004,9 @@ export class BackupService {
     }
 
     if (!fs.existsSync(savesPath)) {
-      throw new Error(`Saves folder not found: ${savesPath}`);
+      const notFound = new Error(`Saves folder not found: ${savesPath}`);
+      notFound.errorCode = ErrorCode.BACKUP_SAVES_FOLDER_NOT_FOUND;
+      throw notFound;
     }
 
     // PT1: created only now, with a world save there to write into it.

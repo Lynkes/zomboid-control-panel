@@ -123,6 +123,7 @@
   "BACKUPS_FOLDER_NOT_FOUND": "Backup-Ordner nicht gefunden",
   "BACKUP_INVALID_FILE": "Ungültige Backup-Datei",
   "BACKUP_NOT_FOUND": "Backup nicht gefunden",
+  "BACKUP_SAVES_FOLDER_NOT_FOUND": "Der Weltordner dieses Servers wurde nicht gefunden, daher gibt es nichts zu sichern. Starte den Server einmal, damit er seine Welt anlegt, oder prüfe Servername und Datenordner in den Servereinstellungen.",
   "BACKUP_RESTORE_REMOTE_NOT_AVAILABLE": "Die Backup-Wiederherstellung ist für externe Server nicht verfügbar. Das Server-Dateisystem ist von diesem Panel aus nicht zugänglich.",
   "BACKUP_RESTORE_SERVER_RUNNING": "Der Server muss gestoppt werden, bevor ein Backup wiederhergestellt wird. Stoppe zuerst den Server.",
   "BACKUP_INVALID_DAYS_PARAMETER": "Ungültiger days-Parameter. Muss eine ganze Zahl ≥ 1 sein",

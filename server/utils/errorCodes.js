@@ -524,6 +524,10 @@ export const ErrorCode = Object.freeze({
   /** server/routes/backup.js -- GET /api/backup/download/:name, no file at
    * the resolved path. */
   BACKUP_NOT_FOUND: "BACKUP_NOT_FOUND",
+  /** server/services/backupService.js -- POST /api/backup/create (and the
+   * scheduled backup), the server's own Saves/Multiplayer/<name> folder is
+   * missing and no other folder can safely be taken for it. */
+  BACKUP_SAVES_FOLDER_NOT_FOUND: "BACKUP_SAVES_FOLDER_NOT_FOUND",
   /** server/routes/backup.js -- POST /api/backup/restore/:name, active
    * server is remote. Distinct wording/code from BACKUP_REMOTE_NOT_AVAILABLE
    * (create path) -- kept separate rather than merged, same reasoning as
