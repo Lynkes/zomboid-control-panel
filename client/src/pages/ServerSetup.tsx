@@ -232,6 +232,14 @@ export function savedMemoryToSliderGb(
   return Math.min(maxGb, Math.max(minGb, gb || fallback));
 }
 
+// Why registering the server failed. When the panel already lists this server
+// (same name, same data folder: SERVER_ALREADY_EXISTS) it says so, instead of the
+// generic text that claims the server will not appear in My Servers.
+function registerFailedDescription(error: unknown, fallback: string): string {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "SERVER_ALREADY_EXISTS" ? getUserErrorMessage(error, fallback) : fallback;
+}
+
 // Format bytes to human readable size
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -929,7 +937,7 @@ export default function ServerSetup() {
             ]);
             toast({
               title: t("toasts.registerFailedTitle"),
-              description: t("toasts.registerFailedDesc"),
+              description: registerFailedDescription(error, t("toasts.registerFailedDesc")),
               variant: "destructive",
             });
             return;
@@ -1379,7 +1387,7 @@ export default function ServerSetup() {
           addLog("error", t("toasts.registerFailedLog"));
           toast({
             title: t("toasts.registerFailedTitle"),
-            description: t("toasts.registerFailedDesc"),
+            description: registerFailedDescription(error, t("toasts.registerFailedDesc")),
             variant: "destructive",
           });
           return;

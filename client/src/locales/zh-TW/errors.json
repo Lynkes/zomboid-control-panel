@@ -171,6 +171,7 @@
   "INVALID_MIN_MEMORY": "最小記憶體必須是介於 1 到 64（GB）之間的整數。",
   "INVALID_MAX_MEMORY": "最大記憶體必須是介於 1 到 128（GB）之間的整數。",
   "MEMORY_MIN_EXCEEDS_MAX": "最小記憶體（{{min}} GB）不能大於最大記憶體（{{max}} GB）。",
+  "SERVER_ALREADY_EXISTS": "清單中已有名為 {{name}} 且使用此資料夾的伺服器。",
   "WRITABLE_PATH_ERROR": "{{label}}不可寫：{{path}}。請選擇面板程序可寫入的資料夾。",
   "WRITABLE_PATH_INSTALL_BAREMETAL": "安裝路徑不可寫：{{path}}。執行面板的使用者不是此資料夾的所有者，或沒有寫入權限 -- 請使用 chown/chmod 修復，或選擇一個面板已經可以寫入的資料夾。",
   "WRITABLE_PATH_INSTALL_CONTAINER": "安裝路徑不可寫：{{path}}。請在 .env 檔案中設定 PUID/PGID，使其與此繫結掛載的主機資料夾的所有者一致（參見 docker-compose.yml 中的快速入門說明），然後重新建立容器。",

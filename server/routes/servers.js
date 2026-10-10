@@ -5,6 +5,7 @@ import { createLogger } from "../utils/logger.js";
 const log = createLogger("API:Servers");
 import {
   sanitizeError,
+  sanitizeErrorParams,
   sanitizeServerResponse,
   sanitizeServerResponseList,
   isMaskedSecret,
@@ -1479,6 +1480,13 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
       message: "Server created successfully",
     });
   } catch (error) {
+    if (error?.code === ErrorCode.SERVER_ALREADY_EXISTS) {
+      return res.status(409).json({
+        error: error.message,
+        code: ErrorCode.SERVER_ALREADY_EXISTS,
+        params: sanitizeErrorParams(error.params),
+      });
+    }
     log.error(`Failed to create server: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }

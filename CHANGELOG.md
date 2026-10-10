@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Update Server dialog:** picking a branch no longer restarts the SteamCMD lookup, and typing the SteamCMD path no longer runs it on every keystroke or saves half-typed paths as the SteamCMD setting (only a folder that holds SteamCMD is saved).
 - **Minimum memory above maximum:** adding or editing a server (and the legacy memory setting) now refuses a minimum above the maximum with a clear message, instead of saving a server whose start script the Java VM rejects.
 - **Install wizard:** the memory sliders now show the saved values instead of always resetting to 4 and 8 GB, and the suggested RCON password is generated with the browser's secure random source.
+- **Add Server when activation is busy:** if the new server was created but could not be made active right away (another action was running), the dialog now closes with a clear "added, not active yet" notice instead of reporting a failed add, so a retry no longer creates a duplicate; adding the same name in the same data folder twice is refused.
 
 ## [1.4.12] - 2026-10-10
 

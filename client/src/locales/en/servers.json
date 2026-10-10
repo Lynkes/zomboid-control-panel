@@ -386,6 +386,8 @@
     "gamePortRangeError": "Game port must be between 1 and 65534",
     "memoryRequiredError": "Enter a minimum and maximum memory value",
     "memoryMinAboveMaxError": "Minimum memory can't be higher than maximum memory",
+    "serverAddedNotActiveTitle": "Server added, not active yet",
+    "serverAddedNotActiveDesc": "\"{{name}}\" is on the list, but it could not be made the active server ({{reason}}). Use Set Active on its card to try again.",
     "savedTitle": "Saved",
     "savedDesc": "Server settings updated",
     "updateServerFailed": "Failed to update server",

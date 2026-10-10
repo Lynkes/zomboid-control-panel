@@ -400,6 +400,8 @@
     "gamePortRangeError": "يجب أن يكون منفذ اللعبة بين 1 و 65534",
     "memoryRequiredError": "أدخل قيمة دنيا وقيمة قصوى للذاكرة",
     "memoryMinAboveMaxError": "لا يمكن أن تكون الذاكرة الدنيا أكبر من الذاكرة القصوى",
+    "serverAddedNotActiveTitle": "تمت إضافة الخادم ولكنه ليس نشطًا بعد",
+    "serverAddedNotActiveDesc": "\"{{name}}\" موجود في القائمة، لكن تعذّر تعيينه كخادم نشط ({{reason}}). استخدم \"تعيينه نشطًا\" في بطاقته للمحاولة مرة أخرى.",
     "savedTitle": "تم الحفظ",
     "savedDesc": "تم تحديث إعدادات الخادم",
     "updateServerFailed": "فشل تحديث الخادم",

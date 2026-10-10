@@ -1827,11 +1827,32 @@ export default function Servers() {
         isRemote: addMode === 'remote'
       } as Partial<ServerInstance> & { importIniFrom?: { dataPath: string; serverName: string } })
 
+      // The server exists from here on: only creating it can make this "add
+      // failed". Activating is a separate step that can be turned away on its
+      // own (409 while another lifecycle action holds the lock), and calling
+      // that a failed add left the dialog open over a server that was already
+      // on the list, so a retry created a second one.
+      let activationError: unknown = null
       if (createResult.server?.id) {
-        await serversApi.activate(createResult.server.id)
+        try {
+          await serversApi.activate(createResult.server.id)
+        } catch (error) {
+          activationError = error
+        }
       }
 
-      toast({ title: t('toasts.serverAddedTitle'), description: t('toasts.serverAddedDesc', { name: newServer.name }) })
+      if (activationError) {
+        toast({
+          title: t('toasts.serverAddedNotActiveTitle'),
+          description: t('toasts.serverAddedNotActiveDesc', {
+            name: createResult.server?.name || newServer.name || newServer.serverName,
+            reason: getUserErrorMessage(activationError, t('toasts.activateFailed')).replace(/[\s.。]+$/u, ''),
+          }),
+          variant: 'warning',
+        })
+      } else {
+        toast({ title: t('toasts.serverAddedTitle'), description: t('toasts.serverAddedDesc', { name: newServer.name }) })
+      }
       setShowAddDialog(false)
       setNewServer(defaultNewServer)
       setDetectResult(null)

@@ -171,6 +171,7 @@
   "INVALID_MIN_MEMORY": "Der minimale Arbeitsspeicher muss eine ganze Zahl zwischen 1 und 64 (GB) sein.",
   "INVALID_MAX_MEMORY": "Der maximale Arbeitsspeicher muss eine ganze Zahl zwischen 1 und 128 (GB) sein.",
   "MEMORY_MIN_EXCEEDS_MAX": "Der minimale Arbeitsspeicher ({{min}} GB) darf nicht größer sein als der maximale ({{max}} GB).",
+  "SERVER_ALREADY_EXISTS": "Ein Server namens {{name}} mit diesem Datenordner steht bereits in der Liste.",
   "WRITABLE_PATH_ERROR": "{{label}} ist nicht beschreibbar: {{path}}. Wähle einen Ordner, der vom Panel-Prozess beschrieben werden kann.",
   "WRITABLE_PATH_INSTALL_BAREMETAL": "Der Installationspfad ist nicht beschreibbar: {{path}}. Der Benutzer, unter dem das Panel läuft, besitzt diesen Ordner nicht oder hat keine Schreibberechtigung dafür -- behebe dies mit chown/chmod, oder wähle einen Ordner, in den das Panel bereits schreiben kann.",
   "WRITABLE_PATH_INSTALL_CONTAINER": "Der Installationspfad ist nicht beschreibbar: {{path}}. Setze PUID/PGID in deiner .env-Datei passend zum Besitzer dieses per Bind-Mount eingebundenen Host-Ordners (siehe Quick Start in docker-compose.yml) und erstelle den Container anschließend neu.",

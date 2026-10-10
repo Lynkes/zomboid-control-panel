@@ -388,6 +388,8 @@
     "gamePortRangeError": "Pò Jwèt la dwe ant 1 ak 65534",
     "memoryRequiredError": "Antre yon valè memwa minimòm ak maksimòm",
     "memoryMinAboveMaxError": "Memwa minimòm pa ka pi gran pase memwa maksimòm",
+    "serverAddedNotActiveTitle": "Sèvè ajoute, poko aktif",
+    "serverAddedNotActiveDesc": "\"{{name}}\" nan lis la, men yo pa t ka fè l sèvè aktif la ({{reason}}). Itilize \"Fè Aktif\" sou kat li pou eseye ankò.",
     "savedTitle": "Sove",
     "savedDesc": "Paramèt sèvè mete ajou",
     "updateServerFailed": "Mete sèvè a ajou echwe",

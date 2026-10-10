@@ -387,6 +387,8 @@
     "gamePortRangeError": "A porta do jogo deve estar entre 1 e 65534",
     "memoryRequiredError": "Informe um valor de memória mínima e máxima",
     "memoryMinAboveMaxError": "A memória mínima não pode ser maior que a máxima",
+    "serverAddedNotActiveTitle": "Servidor adicionado, ainda não ativo",
+    "serverAddedNotActiveDesc": "O servidor \"{{name}}\" está na lista, mas não pôde ser definido como ativo ({{reason}}). Use \"Definir como ativo\" no card dele para tentar de novo.",
     "savedTitle": "Salvo",
     "savedDesc": "Configurações do servidor salvas",
     "updateServerFailed": "Falha ao salvar as alterações do servidor",
