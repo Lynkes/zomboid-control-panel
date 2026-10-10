@@ -203,6 +203,29 @@ describe('Servers.tsx: the selected card offers Start as soon as the server is s
     expect(card().textContent).toMatch(/Process\s*Down/)
   })
 
+  // scheduler.js names the server a restart is about (serverId): a restart of
+  // some other server must not touch the active card.
+  it('ignores a server:status push that names another server, and follows one that names this server', async () => {
+    setUpFixtures(true)
+    renderServers(fakeSocket)
+
+    await within(await screen.findByText('Maze with friends').then(card)).findByRole('button', { name: en.card.stop }, PROMPT)
+    const callsBefore = getStatus.mock.calls.length
+
+    setServerState(false)
+    await act(async () => {
+      socketHandlers.get('server:status')?.forEach((handler) => handler({ running: false, phase: 'stopped', serverId: 99 }))
+    })
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(getStatus.mock.calls.length).toBe(callsBefore)
+    expect(within(card()).getByRole('button', { name: en.card.stop })).toBeInTheDocument()
+
+    await act(async () => {
+      socketHandlers.get('server:status')?.forEach((handler) => handler({ running: false, phase: 'stopped', serverId: 1 }))
+    })
+    await within(card()).findByRole('button', { name: en.card.start }, PROMPT)
+  })
+
   it('switches to Start right after its own confirmed inline Stop, without waiting for a push or the 10s poll', async () => {
     setUpFixtures(true)
     stop.mockResolvedValue({ success: true, confirmed: false } as never)
