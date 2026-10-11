@@ -319,7 +319,7 @@
   "applyTemplateConfirm": {
     "title": "Apply saved config \"{{name}}\"?",
     "description": "Replace your current server settings with this saved config? The panel backs up what's live first, so Restore can undo it if needed.",
-    "rconWarning": "The RCON password isn't stored in saved configs, so applying this one will remove your server's RCON password — you'll need to re-enter it afterward.",
+    "secretsKept": "Saved configs don't store passwords or tokens, so applying this one keeps your server's current RCON password, server password and tokens.",
     "confirmLabel": "Apply"
   },
   "restoreBackupConfirm": {

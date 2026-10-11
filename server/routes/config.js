@@ -25,6 +25,10 @@ import {
   RCON_USER_ACTION_TIMEOUT_MS,
 } from "../services/rcon.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import {
+  rconPasswordCannotBeStoredInIni,
+  rconPasswordUnsupportedCharsBody,
+} from "../utils/rconPassword.js";
 import { serverConfigPathIsConfined } from "../utils/serverConfigPath.js";
 import { checkZomboidDataPath } from "../services/zomboidDataPath.js";
 import {
@@ -39,6 +43,7 @@ import {
   MAX_MEMORY_GB_MAX,
 } from "./server.js";
 import { parseBoundedInteger } from "../utils/queryNumbers.js";
+import { memoryMinExceedsMax, memoryMinExceedsMaxFields } from "../utils/memory.js";
 import { setSteamSessionCredentials } from "../services/steamSessionCredentials.js";
 import { KNOWN_HOSTS_SETTING } from "../services/sftpHostKeys.js";
 
@@ -692,6 +697,13 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
       // onto the same four values, invisible from inside server.js since it
       // lives in a completely different file. Same ranges as server.js's
       // checks so the two doors can't disagree with each other.
+      // The password the panel logs in with is the one written to the
+      // server .ini, which the game reads only up to the first "=": see
+      // utils/rconPassword.js.
+      if (key === "rconPassword" && rconPasswordCannotBeStoredInIni(value)) {
+        return res.status(400).json(rconPasswordUnsupportedCharsBody());
+      }
+
       if (key === "rconPort") {
         // This key is the legacy/single-active-server RCON target that
         // /configure-rcon (server.js) hardcodes to rconHost 127.0.0.1 --
@@ -811,6 +823,25 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
       }
 
       validEntries.push([key, value]);
+    }
+
+    // Each memory value passed its own range above; the pair must also be in
+    // order (-Xms above -Xmx stops the JVM), judged on what the settings will
+    // hold after this save, so changing one value is checked against the
+    // stored other one.
+    const memoryInPayload = validEntries.filter(
+      ([key]) => key === "minMemory" || key === "maxMemory",
+    );
+    if (memoryInPayload.length > 0) {
+      const payloadValue = (key) => memoryInPayload.find(([k]) => k === key)?.[1];
+      const nextMin = payloadValue("minMemory") ?? (await getSetting("minMemory"));
+      const nextMax = payloadValue("maxMemory") ?? (await getSetting("maxMemory"));
+      if (memoryMinExceedsMax(nextMin, nextMax)) {
+        return res.status(400).json({
+          ...memoryMinExceedsMaxFields(nextMin, nextMax),
+          code: ErrorCode.MEMORY_MIN_EXCEEDS_MAX,
+        });
+      }
     }
 
     // Never overwrite a stored secret with the masked sentinel we send to
@@ -1010,6 +1041,16 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
           "RCON service failed to reload — reconnect may be required",
         );
       }
+    }
+    // "Auto-reconnect" / "Reconnect interval" apply to the running RCON loop
+    // right away, no restart needed (it also re-reads them on the next boot).
+    if (
+      rconService?.loadReconnectSettings &&
+      filtered.some(
+        ([key]) => key === "autoReconnect" || key === "reconnectInterval",
+      )
+    ) {
+      await rconService.loadReconnectSettings();
     }
     const refreshCorsConfig = req.app.get("refreshCorsConfig");
     if (typeof refreshCorsConfig === "function") {

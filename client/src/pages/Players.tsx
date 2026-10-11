@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { reportClientError } from '@/lib/client-errors'
@@ -23,9 +23,6 @@ import {
   AlertTriangle,
   Loader2,
   Download,
-  Upload,
-  Copy,
-  Check,
   MapPin,
   Mic,
   MicOff,
@@ -101,7 +98,8 @@ import { DisabledReason } from '@/components/DisabledReason'
 import { useAuth } from '@/contexts/AuthContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { useSocket } from '@/contexts/SocketContext'
-import { cn, copyText } from '@/lib/utils'
+import { cn } from '@/lib/utils'
+import { CharacterImportExportDialog, type SavedCharacterExport } from '@/components/players/CharacterImportExportDialog'
 import { CharacterTab } from '@/components/players/CharacterTab'
 import { CharacterHintsBadge } from '@/components/players/CharacterHintsBadge'
 import { useCharacterSheet } from '@/components/players/useCharacterSheet'
@@ -157,7 +155,8 @@ export function isPlayerConfirmedNotWhitelisted(
 
 // The activity log table has no pagination -- when a fetch returns exactly
 // this many rows, older entries may exist and be silently excluded (the
-// server retains up to 1000, see server/database/init.js). Shown as a hint
+// server keeps up to 1000 connect/disconnect/death rows plus up to 5000
+// moderator actions, see server/database/init.js). Shown as a hint
 // rather than a hard truth ("logs.length === LIMIT" could also mean the
 // real total happens to equal the limit) because there's no cheap way to
 // distinguish the two without a separate total-count query.
@@ -455,15 +454,8 @@ export default function Players() {
   // Player search filter
   const [playerSearchFilter, setPlayerSearchFilter] = useState('')
 
-  // Character Export/Import states
-  const [characterData, setCharacterData] = useState<string>('')
-  const [importCharacterData, setImportCharacterData] = useState('')
-  const [exporting, setExporting] = useState(false)
-  const [importing, setImporting] = useState(false)
-  const [copied, setCopied] = useState(false)
+  // Character Export/Import dialog (its own state lives in the component)
   const [importExportOpen, setImportExportOpen] = useState(false)
-  const [importConfirmOpen, setImportConfirmOpen] = useState(false)
-  const [pendingImportData, setPendingImportData] = useState<Record<string, unknown> | null>(null)
 
   // Bridge status for character export/import
   const [bridgeConnected, setBridgeConnected] = useState(false)
@@ -476,24 +468,13 @@ export default function Players() {
 
   // Auto-export on login
   const [autoExportEnabled, setAutoExportEnabled] = useState(false)
-  const [savedExports, setSavedExports] = useState<Array<{ username: string; filename: string; size: number; timestamp: string }>>([])
+  const [savedExports, setSavedExports] = useState<SavedCharacterExport[]>([])
 
-  // Ref for copy timeout cleanup
-  const copiedTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   // Guards checkBridgeStatus's setState calls the same way Events.tsx's own
   // mountedRef does -- it's called from the 15s interval and the
   // activeServerChanged handler, both of which can fire after unmount.
   const mountedRef = useRef(true)
-
-  // Cleanup copy timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (copiedTimeoutRef.current) {
-        clearTimeout(copiedTimeoutRef.current)
-      }
-    }
-  }, [])
 
   // Activity Log states
   interface ActivityLog {
@@ -514,6 +495,10 @@ export default function Players() {
     tags: string[]
     updated_at: string
   }
+  // GET /players/notes returns the stored rows, which key the player as
+  // snake_case `player_name` (database/init.js upsertPlayerNote); the page's
+  // own state uses `playerName`.
+  type PlayerNoteRow = Omit<PlayerNote, 'playerName'> & { playerName?: string; player_name?: string }
   interface PlayerStat {
     playerName: string
     player_name?: string
@@ -649,9 +634,12 @@ export default function Players() {
   // players.view the base roster list itself uses. Silent no-op on failure
   // (bridge down, permission denied): the roster still renders fine without
   // this, it just won't show the health/infection indicator.
+  const vitalsGuard = useRequestGuard()
   const fetchRosterVitals = useCallback(async () => {
+    const requestId = vitalsGuard.next()
     try {
       const res = await panelBridgeApi.getAllPlayerDetails()
+      if (vitalsGuard.isStale(requestId)) return
       if (!res.success || !res.data?.players) return
       const next: Record<string, { health?: number; isInfected?: boolean }> = {}
       for (const p of res.data.players) {
@@ -662,7 +650,7 @@ export default function Players() {
       // Bridge down or unreachable -- leave whatever was last fetched (or
       // nothing) rather than clearing it on a single transient failure.
     }
-  }, [])
+  }, [vitalsGuard])
 
   // bridge-tri-state sweep (2026-09-10): this used to run once, inline in
   // the mount effect below, and never again -- unlike Events.tsx (10s
@@ -689,7 +677,13 @@ export default function Players() {
   // right now. The Notes/Log tab's own load when it opens (the effect below)
   // is left on the default: opening a tab is navigation loading its content,
   // not a human retrying or refreshing something already on screen.
+  //
+  // The log is per server: a response for the server that was active when it
+  // was requested must not land after a switch (activityGuard, same shape as
+  // playersGuard above).
+  const activityGuard = useRequestGuard()
   const fetchActivityLogs = useCallback(async (playerFilter?: string, opts?: { manual?: boolean }) => {
+    const requestId = activityGuard.next()
     setLogsLoading(true)
     try {
       const data = await playersApi.getActivityLogs(
@@ -697,17 +691,19 @@ export default function Players() {
         ACTIVITY_LOG_FETCH_LIMIT,
         opts?.manual ? { retries: 0 } : undefined,
       )
+      if (activityGuard.isStale(requestId)) return
       if (data.logs) {
         setActivityLogs(data.logs)
       }
       setLogsError(null)
     } catch (error) {
+      if (activityGuard.isStale(requestId)) return
       reportClientError('Failed to fetch activity logs.', error)
       setLogsError(getErrorMessage(error, t('loadErrors.activityLogs')))
     } finally {
-      setLogsLoading(false)
+      if (!activityGuard.isStale(requestId)) setLogsLoading(false)
     }
-  }, [t])
+  }, [t, activityGuard])
 
   // The Notes & Log tab reads the activity log whenever it opens, however it
   // opens: a click, the keyboard, or ?tab=notes on a reload or Back (the tab
@@ -719,7 +715,13 @@ export default function Players() {
   // 2026-09-08 (retry-stacking sweep): `manual` gates only the notes tab's
   // own Retry button -- mount and the server-change handler keep the
   // default automatic retry.
+  //
+  // Playtime (the stats half) is per server, so this is guarded like the
+  // roster (notesGuard): the answer for the server that was active when it
+  // was requested must not overwrite the new server's.
+  const notesGuard = useRequestGuard()
   const fetchNotesAndStats = useCallback(async (opts?: { manual?: boolean }) => {
+    const requestId = notesGuard.next()
     const retries = opts?.manual ? { retries: 0 } : undefined
     setNotesLoading(true)
     try {
@@ -727,10 +729,14 @@ export default function Players() {
         playersApi.getNotes(retries),
         playersApi.getStats(retries)
       ])
+      if (notesGuard.isStale(requestId)) return
       // Convert arrays to lookup objects
       const notesMap: Record<string, PlayerNote> = {}
       if (notesData.notes) {
-        notesData.notes.forEach((n: PlayerNote) => { notesMap[n.playerName] = n })
+        notesData.notes.forEach((n: PlayerNoteRow) => {
+          const key = n.playerName ?? n.player_name
+          if (key) notesMap[key] = { ...n, playerName: key }
+        })
       }
       const statsMap: Record<string, PlayerStat> = {}
       if (statsData.stats) {
@@ -748,12 +754,13 @@ export default function Players() {
       setPlayerStats(statsMap)
       setNotesError(null)
     } catch (error) {
+      if (notesGuard.isStale(requestId)) return
       reportClientError('Failed to fetch notes and stats.', error)
       setNotesError(getErrorMessage(error, t('loadErrors.notesAndStats')))
     } finally {
-      setNotesLoading(false)
+      if (!notesGuard.isStale(requestId)) setNotesLoading(false)
     }
-  }, [t])
+  }, [t, notesGuard])
 
   const handleSaveNote = async () => {
     if (!selectedPlayer) return
@@ -869,17 +876,21 @@ export default function Players() {
     }
   }, [t])
 
+  // The SteamID ban list is per server too (bansGuard).
+  const bansGuard = useRequestGuard()
   const fetchBannedSteamIds = useCallback(async () => {
+    const requestId = bansGuard.next()
     setLoadingBans(true)
     try {
       const res = await playersApi.getSteamIdBans()
+      if (bansGuard.isStale(requestId)) return
       setBannedSteamIds(res.bans || [])
     } catch {
       // Silently fail — list will be empty, manual input still works
     } finally {
-      setLoadingBans(false)
+      if (!bansGuard.isStale(requestId)) setLoadingBans(false)
     }
-  }, [])
+  }, [bansGuard])
 
   // bug-hunt-2026-09-18 (round: whitelist/access-level/admin accounts):
   // same shape as fetchPlayers' own playersGuard above -- fetchWhitelist
@@ -915,14 +926,20 @@ export default function Players() {
     }
   }, [t, whitelistGuard])
 
+  // The access levels come from the active server's own role table
+  // (accessLevelsGuard).
+  const accessLevelsGuard = useRequestGuard()
   const fetchAccessLevels = useCallback(async () => {
+    const requestId = accessLevelsGuard.next()
     try {
       const result = await playersApi.getAccessLevels()
+      if (accessLevelsGuard.isStale(requestId)) return
       setAccessLevelOptions(result.levels || [])
     } catch (error) {
+      if (accessLevelsGuard.isStale(requestId)) return
       reportClientError('Failed to fetch access levels.', error)
     }
-  }, [])
+  }, [accessLevelsGuard])
 
   useEffect(() => {
     mountedRef.current = true
@@ -964,9 +981,36 @@ export default function Players() {
   // excluded: GET /players/perks returns a static hardcoded catalog, not
   // server-scoped data (server/routes/players.js:713-715), so refetching it
   // would be pure waste, not a correctness fix.
+  //
+  // Everything the page holds about the OLD server is dropped first: the
+  // selected player (and with it the open dialogs' targets), the GM-power
+  // badges kept per player NAME (a same-named player on the new server would
+  // show the old one's God/Invisible), the vitals, playtime, SteamID bans,
+  // whitelist and the activity log. The log is refetched at once when its tab
+  // is open (otherwise when the tab opens).
+  const activeTabRef = useRef(activeTab)
+  const logPlayerFilterRef = useRef(logPlayerFilter)
+  useEffect(() => {
+    activeTabRef.current = activeTab
+    logPlayerFilterRef.current = logPlayerFilter
+  }, [activeTab, logPlayerFilter])
   useEffect(() => {
     if (!socket) return
     const handleActiveServerChanged = () => {
+      setSelectedPlayer('')
+      setTypingManualTarget(false)
+      setSettledManualTarget('')
+      setPlayers([])
+      setPlayerPowers({})
+      setRosterVitals({})
+      setPlayerStats({})
+      setBannedSteamIds([])
+      setWhitelistAccounts([])
+      setAllowedSteamIds([])
+      setActivityLogs([])
+      setLogsError(null)
+      activityGuard.next()
+      if (activeTabRef.current === 'notes') void fetchActivityLogs(logPlayerFilterRef.current || undefined)
       fetchPlayers()
       fetchNotesAndStats()
       fetchBannedSteamIds()
@@ -979,7 +1023,7 @@ export default function Players() {
     return () => {
       socket.off('activeServerChanged', handleActiveServerChanged)
     }
-  }, [socket, fetchPlayers, fetchNotesAndStats, fetchBannedSteamIds, fetchWhitelist, fetchAccessLevels, fetchRosterVitals, checkBridgeStatus, canGmTools])
+  }, [socket, fetchPlayers, fetchNotesAndStats, fetchBannedSteamIds, fetchWhitelist, fetchAccessLevels, fetchRosterVitals, fetchActivityLogs, activityGuard, checkBridgeStatus, canGmTools])
 
   const requestedPlayerAppliedRef = useRef(false)
   useEffect(() => {
@@ -999,6 +1043,19 @@ export default function Players() {
       setCurrentTags([])
     }
   }, [selectedPlayer, playerNotes])
+
+  // The dialogs' own inputs belong to the player they were filled in for. The
+  // teleport target, the chosen access level and the voice-ban name are kept
+  // while a dialog is closed again without submitting, so without this the
+  // NEXT player's dialog opened pre-filled with the previous player's target
+  // (heading Bob, teleport Alice) or with the level last granted (Set enabled,
+  // already on "admin"). The character export has the same reset in
+  // CharacterImportExportDialog.
+  useEffect(() => {
+    setTeleportTarget('')
+    setAccessLevel('')
+    setVoiceBanUsername('')
+  }, [selectedPlayer])
 
   // `fn` normally resolves to something the caller doesn't inspect (kick,
   // ban, teleport, etc. -- unrelated to bridge verification). A handler that
@@ -1056,43 +1113,6 @@ export default function Players() {
       setSelectedPlayer('')
       searchInputRef.current?.focus()
     }, selectedPlayer)
-  }
-
-  // Overwrites the target player's XP/perks/skills/traits/inventory/wornItems --
-  // split out of the Apply button so the confirm dialog can hold the parsed
-  // data until the operator confirms the target player by name.
-  const runCharacterImport = async (data: Record<string, unknown>) => {
-    setImporting(true)
-    try {
-      const { panelBridgeApi } = await import('@/lib/api')
-      const response = await panelBridgeApi.importCharacter(selectedPlayer, data)
-      const restored = response.data?.restored
-      // Submitted a non-empty perks/inventory section but restored
-      // nothing from it: the Lua side counts honestly (see
-      // PanelBridge.lua importPlayerData) but a caller that only
-      // reads the counts from the description, not the title,
-      // would still see an unconditionally success-styled toast.
-      const submittedPerks = data && typeof data.perks === 'object' && data.perks !== null && Object.keys(data.perks).length > 0
-      const submittedItems = Array.isArray((data as { inventory?: unknown[] })?.inventory) && (data as { inventory: unknown[] }).inventory.length > 0
-      const noneApplied = (restored?.perks ?? 0) === 0 && (restored?.items ?? 0) === 0 && (submittedPerks || submittedItems)
-      toast({
-        title: t(noneApplied ? 'toasts.characterImportedTitleNoneApplied' : 'toasts.characterImportedTitle'),
-        description: noneApplied
-          ? t('toasts.characterImportedDescNoneApplied', { player: selectedPlayer })
-          : t('toasts.characterImportedDesc', { perks: restored?.perks ?? 0, items: restored?.items ?? 0, player: selectedPlayer }),
-      })
-      setImportCharacterData('')
-    } catch (error) {
-      toast({
-        title: t('toasts.importFailedTitle'),
-        description: getUserErrorMessage(error, t('toasts.importFailedFallback')),
-        variant: 'destructive',
-      })
-    } finally {
-      setImporting(false)
-      setImportConfirmOpen(false)
-      setPendingImportData(null)
-    }
   }
 
   const handleBan = () => {
@@ -2502,7 +2522,9 @@ export default function Players() {
                   <DisabledReason className="w-full" reason={!canGmTools ? t('permissions.noGmTools') : null}>
                   <Dialog open={teleportDialogOpen} onOpenChange={(open) => {
                     setTeleportDialogOpen(open)
-                    if (open && !teleportTarget) setTeleportTarget(selectedPlayer)
+                    // A target typed over the selected player's name is for this
+                    // opening only; closing without teleporting drops it.
+                    if (!open) setTeleportTarget('')
                   }}>
                     <DialogTrigger asChild>
                       <button type="button" disabled={!canGmTools} className="block h-auto w-full p-0 text-start">
@@ -3560,317 +3582,18 @@ export default function Players() {
         </Card>
       </div>
 
-      {/* Import/Export Character Dialog */}
-      <Dialog open={importExportOpen} onOpenChange={setImportExportOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Download className="w-5 h-5" />
-              {t('importExport.title')}
-            </DialogTitle>
-            <DialogDescription>
-              {t('importExport.description')}
-            </DialogDescription>
-          </DialogHeader>
-          {!bridgeStatusLoading && !bridgeConnected && (
-            <Alert className="border-warning/40 bg-warning/10">
-              <AlertTriangle className="h-4 w-4 text-warning" />
-              <AlertTitle className="text-warning">{t('importExport.bridgeOfflineTitle')}</AlertTitle>
-              <AlertDescription>
-                <Trans
-                  i18nKey="importExport.bridgeOfflineDesc"
-                  t={t}
-                  components={{ 1: <Link to="/settings" className="text-primary underline hover:text-foreground" /> }}
-                />
-              </AlertDescription>
-            </Alert>
-          )}
-          <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-4", !bridgeConnected && 'opacity-60 pointer-events-none')}>
-            {/* Export */}
-            <div className="space-y-3">
-              <h4 className="text-sm font-medium flex items-center gap-2">
-                <Download className="w-4 h-4" />
-                {t('importExport.exportTitle')}
-              </h4>
-              <p className="text-xs text-muted-foreground">{t('importExport.exportDesc')}</p>
-              <Button
-                variant="outline"
-                disabled={!selectedPlayer || exporting}
-                onClick={async () => {
-                  setExporting(true)
-                  try {
-                    const { panelBridgeApi } = await import('@/lib/api')
-                    const response = await panelBridgeApi.exportCharacter(selectedPlayer)
-                    const exportData = response.data || response
-                    const jsonStr = JSON.stringify(exportData, null, 2)
-                    setCharacterData(jsonStr)
-                    toast({
-                      title: t('toasts.characterExportedTitle'),
-                      description: t('toasts.characterExportedDesc', { player: selectedPlayer }),
-                    })
-                  } catch (error) {
-                    toast({
-                      title: t('toasts.exportFailedTitle'),
-                      description: getUserErrorMessage(error, t('toasts.exportFailedFallback')),
-                      variant: 'destructive',
-                    })
-                  } finally {
-                    setExporting(false)
-                  }
-                }}
-                size="sm"
-                className="w-full"
-              >
-                {exporting ? (
-                  <Loader2 className="w-4 h-4 me-2 animate-spin" />
-                ) : (
-                  <Download className="w-4 h-4 me-2" />
-                )}
-                {/* A 32-char username (PZ's own limit) cut the label and
-                    pushed the Import column off a phone screen; it truncates
-                    inside the button now, full name in the title. */}
-                <span className="min-w-0 truncate" title={selectedPlayer || undefined}>
-                  {t('importExport.exportButton', { player: selectedPlayer || t('importExport.exportButtonFallback') })}
-                </span>
-              </Button>
-
-              {characterData && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium">{t('importExport.characterDataLabel')}</span>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 w-7 p-0"
-                      aria-label={copied ? t('importExport.copiedAria') : t('importExport.copyCharacterDataAria')}
-                      onClick={() => {
-                        copyText(characterData)
-                        setCopied(true)
-                        if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current)
-                        copiedTimeoutRef.current = setTimeout(() => setCopied(false), 2000)
-                      }}
-                    >
-                      {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                    </Button>
-                  </div>
-                  <Textarea
-                    readOnly
-                    value={characterData}
-                    className="h-32 resize-none font-mono text-xs"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => {
-                      const blob = new Blob([characterData], { type: 'application/json' })
-                      const url = URL.createObjectURL(blob)
-                      const a = document.createElement('a')
-                      a.href = url
-                      a.download = `${selectedPlayer}_character.json`
-                      a.click()
-                      URL.revokeObjectURL(url)
-                    }}
-                  >
-                    <Download className="w-4 h-4 me-2" />
-                    {t('importExport.downloadFileButton')}
-                  </Button>
-                </div>
-              )}
-            </div>
-
-            {/* Import */}
-            <div className="space-y-3">
-              <h4 className="text-sm font-medium flex items-center gap-2">
-                <Upload className="w-4 h-4" />
-                {t('importExport.importTitle')}
-              </h4>
-              <p className="text-xs text-muted-foreground">{t('importExport.importDesc')}</p>
-              <Textarea
-                value={importCharacterData}
-                onChange={(e) => setImportCharacterData(e.target.value)}
-                placeholder={t('importExport.importPlaceholder')}
-                className="h-24 resize-none font-mono text-xs"
-              />
-              <div className="flex gap-2">
-                <Button
-                  disabled={importing || !selectedPlayer || !importCharacterData.trim()}
-                  onClick={() => {
-                    let data
-                    try {
-                      data = JSON.parse(importCharacterData)
-                    } catch {
-                      toast({
-                        title: t('toasts.invalidJsonTitle'),
-                        description: t('toasts.invalidJsonDesc'),
-                        variant: 'destructive',
-                      })
-                      return
-                    }
-                    setPendingImportData(data)
-                    setImportConfirmOpen(true)
-                  }}
-                  size="sm"
-                  className="flex-1"
-                >
-                  {importing ? (
-                    <Loader2 className="w-4 h-4 me-2 animate-spin" />
-                  ) : (
-                    <Upload className="w-4 h-4 me-2" />
-                  )}
-                  {t('importExport.applyButton')}
-                </Button>
-                <label className="cursor-pointer">
-                  <Button variant="outline" size="sm" asChild>
-                    <span>
-                      <Upload className="w-4 h-4 me-1" />
-                      {t('importExport.fileButton')}
-                    </span>
-                  </Button>
-                  <input
-                    type="file"
-                    accept=".json"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) {
-                        if (file.size > 5 * 1024 * 1024) {
-                          toast({
-                            title: t('toasts.fileTooLargeTitle'),
-                            description: t('toasts.fileTooLargeDesc'),
-                            variant: 'destructive',
-                          })
-                          e.target.value = ''
-                          return
-                        }
-                        const reader = new FileReader()
-                        reader.onload = (ev) => {
-                          setImportCharacterData(ev.target?.result as string || '')
-                        }
-                        reader.readAsText(file)
-                      }
-                      e.target.value = ''
-                    }}
-                  />
-                </label>
-              </div>
-              <p className="text-xs text-muted-foreground">{t('importExport.playerMustBeOnline')}</p>
-            </div>
-          </div>
-
-          {/* Auto-export on login */}
-          <div className="border-t border-border/40 pt-4 mt-2 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <h4 className="text-sm font-medium">{t('importExport.autoExportTitle')}</h4>
-                <p className="text-xs text-muted-foreground">{t('importExport.autoExportDesc')}</p>
-              </div>
-              <Checkbox
-                id="autoExportOnLogin"
-                checked={autoExportEnabled}
-                onCheckedChange={async (checked: boolean) => {
-                  setAutoExportEnabled(checked)
-                  try {
-                    await configApi.updateAppSettings({ autoExportOnLogin: checked })
-                  } catch {
-                    setAutoExportEnabled(!checked)
-                    toast({ title: t('toasts.updateSettingFailed'), variant: 'destructive' })
-                  }
-                }}
-              />
-            </div>
-
-            {savedExports.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="text-xs font-medium text-muted-foreground">{t('importExport.savedExportsTitle', { count: savedExports.length })}</h4>
-                <ScrollArea className="max-h-[180px]">
-                  <div className="space-y-1">
-                    {savedExports.map((exp) => (
-                      <div key={`${exp.username}-${exp.filename}`} className="flex items-center justify-between gap-2 rounded-md border border-border/40 px-3 py-1.5 text-xs">
-                        <div className="min-w-0 flex-1">
-                          <span className="font-medium">{exp.username}</span>
-                          <span className="text-muted-foreground ms-2">{formatDateTime(exp.timestamp, { seconds: true })}</span>
-                          <span className="text-muted-foreground ms-2">{t('importExport.sizeKb', { size: (exp.size / 1024).toFixed(1) })}</span>
-                        </div>
-                        <div className="flex gap-1 shrink-0">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0"
-                            title={t('importExport.downloadTitle')}
-                            aria-label={t('importExport.downloadExportAria', { username: exp.username })}
-                            onClick={async () => {
-                              try {
-                                const data = await playersApi.getExport(exp.username, exp.filename)
-                                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-                                const url = URL.createObjectURL(blob)
-                                const a = document.createElement('a')
-                                a.href = url
-                                a.download = exp.filename
-                                a.click()
-                                URL.revokeObjectURL(url)
-                              } catch {
-                                toast({ title: t('toasts.downloadFailed'), variant: 'destructive' })
-                              }
-                            }}
-                          >
-                            <Download className="w-3 h-3" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 w-6 p-0 text-destructive hover:text-destructive"
-                            title={t('importExport.deleteTitle')}
-                            aria-label={t('importExport.deleteExportAria', { username: exp.username })}
-                            onClick={async () => {
-                              try {
-                                await playersApi.deleteExport(exp.username, exp.filename)
-                                setSavedExports(prev => prev.filter(e => e.filename !== exp.filename || e.username !== exp.username))
-                              } catch {
-                                toast({ title: t('toasts.deleteFailed'), variant: 'destructive' })
-                              }
-                            }}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Character Import Confirmation -- the failure mode here is the wrong
-          player, so the target's name is the title, not a line inside the
-          body. Pam's panelBridge.js snapshots the target's current data to
-          Saved Exports before overwriting; if that snapshot fails the server
-          refuses the import instead of proceeding, so this is honestly
-          recoverable and the copy says so. */}
-      <AlertDialog open={importConfirmOpen} onOpenChange={(open) => { if (!open) { setImportConfirmOpen(false); setPendingImportData(null) } }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('importConfirm.title', { player: selectedPlayer })}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('importConfirm.description', { player: selectedPlayer })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={importing}>{t('importConfirm.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={importing}
-              onClick={(e) => { e.preventDefault(); if (pendingImportData) runCharacterImport(pendingImportData) }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {importing ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
-              {t('importConfirm.confirm')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Import/Export Character Dialog + import confirmation */}
+      <CharacterImportExportDialog
+        open={importExportOpen}
+        onOpenChange={setImportExportOpen}
+        player={selectedPlayer}
+        bridgeConnected={bridgeConnected}
+        bridgeStatusLoading={bridgeStatusLoading}
+        autoExportEnabled={autoExportEnabled}
+        onAutoExportEnabledChange={setAutoExportEnabled}
+        savedExports={savedExports}
+        onSavedExportsChange={setSavedExports}
+      />
 
       {/* Spawn browser dialogs — items + vehicles, stay-open workflow */}
       <SpawnBrowser

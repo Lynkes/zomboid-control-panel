@@ -28,3 +28,25 @@ export function normalizeMemoryGb(value, fallback) {
   }
   return parsed;
 }
+
+/**
+ * True when both values are whole numbers and the minimum is above the
+ * maximum. The start script writes them as -Xms{min}g -Xmx{max}g, and the JVM
+ * refuses to start with an initial heap larger than its maximum.
+ */
+export function memoryMinExceedsMax(minGb, maxGb) {
+  const min = Number(minGb);
+  const max = Number(maxGb);
+  return Number.isFinite(min) && Number.isFinite(max) && min > max;
+}
+
+/**
+ * The `error` text and `params` of the 400 for memoryMinExceedsMax(); the route
+ * adds `code: ErrorCode.MEMORY_MIN_EXCEEDS_MAX`, which the client translates.
+ */
+export function memoryMinExceedsMaxFields(minGb, maxGb) {
+  return {
+    error: `Minimum memory (${minGb} GB) cannot be higher than maximum memory (${maxGb} GB).`,
+    params: { min: Number(minGb), max: Number(maxGb) },
+  };
+}

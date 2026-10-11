@@ -127,5 +127,39 @@
     "serverClosed": "伺服器已關閉連線",
     "error": "連線錯誤",
     "reconnectFailed": "多次嘗試後重新連線失敗"
+  },
+  "confirmDialog": {
+    "defaultTitle": "確定要繼續嗎？",
+    "confirm": "確認",
+    "cancel": "取消"
+  },
+  "pageSkeleton": {
+    "defaultTitle": "正在載入頁面",
+    "defaultDescription": "正在準備面板資料與控制項。",
+    "defaultEyebrow": "// 面板 · 載入中",
+    "metrics": {
+      "route": "路由",
+      "auth": "驗證",
+      "socket": "Socket"
+    },
+    "labels": {
+      "dashboard": "正在載入儀表板",
+      "named": "正在載入：{{title}}",
+      "list": "正在載入清單頁面",
+      "console": "正在載入主控台頁面",
+      "form": "正在載入表單頁面",
+      "map": "正在載入地圖頁面",
+      "page": "正在載入頁面"
+    }
+  },
+  "buildGate": {
+    "checking": "正在檢查面板相容性",
+    "eyebrow": "需要復原更新",
+    "title": "前端與後端版本不相符",
+    "description": "面板在身分驗證與即時連線初始化之前就已停止。請使用 Start.bat 重新啟動，讓更新程式完成或還原未完成的更新套件。",
+    "frontend": "前端",
+    "backend": "後端",
+    "unknown": "未知",
+    "checkAgain": "重新檢查"
   }
 }

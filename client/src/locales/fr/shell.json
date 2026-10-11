@@ -129,5 +129,39 @@
     "serverClosed": "Le serveur a fermé la connexion",
     "error": "Erreur de connexion",
     "reconnectFailed": "Échec de la reconnexion après plusieurs tentatives"
+  },
+  "confirmDialog": {
+    "defaultTitle": "Êtes-vous sûr ?",
+    "confirm": "Confirmer",
+    "cancel": "Annuler"
+  },
+  "pageSkeleton": {
+    "defaultTitle": "Chargement de la page",
+    "defaultDescription": "Préparation des données et des commandes du panneau.",
+    "defaultEyebrow": "// PANNEAU · CHARGEMENT",
+    "metrics": {
+      "route": "route",
+      "auth": "auth",
+      "socket": "socket"
+    },
+    "labels": {
+      "dashboard": "Chargement du tableau de bord",
+      "named": "Chargement : {{title}}",
+      "list": "Chargement de la page de liste",
+      "console": "Chargement de la page de la console",
+      "form": "Chargement de la page de formulaire",
+      "map": "Chargement de la page de la carte",
+      "page": "Chargement de la page"
+    }
+  },
+  "buildGate": {
+    "checking": "Vérification de la compatibilité du panneau",
+    "eyebrow": "Récupération de la mise à jour requise",
+    "title": "Les versions du frontend et du backend ne correspondent pas",
+    "description": "Le panneau s'est arrêté avant l'initialisation de l'authentification et des connexions en direct. Redémarrez-le avec Start.bat pour laisser le programme de mise à jour terminer ou annuler le paquet incomplet.",
+    "frontend": "Frontend",
+    "backend": "Backend",
+    "unknown": "inconnu",
+    "checkAgain": "Vérifier à nouveau"
   }
 }

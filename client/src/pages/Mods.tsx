@@ -1454,6 +1454,14 @@ export default function Mods() {
           }),
           variant: 'success' as const,
         })
+      } else if (result.status === 'workshop-only') {
+        // No mod ID is known yet (not downloaded, Steam had none): only
+        // WorkshopItems= changed, so the mod will not load until the ID is
+        // known. Say what to do instead of promising it will be discovered.
+        toast({
+          title: t('toasts.workshopIdAddedTitle'),
+          description: t('toasts.workshopOnlyDesc'),
+        })
       } else if (result.workshopAlreadyExisted) {
         toast({
           title: t('toasts.alreadyConfiguredTitle'),
@@ -1556,39 +1564,38 @@ export default function Mods() {
     }
   }
 
-  // Bulk: re-enable every selected deactivated mod. Falls back to sequential
-  // addToIni calls because there's no dedicated batch endpoint and the volume
-  // is expected to be small (handful of leftovers).
+  // Bulk: re-enable every selected deactivated mod in ONE ini write (one
+  // backup) through the bulk endpoint. One addToIni call per mod meant one
+  // backup per mod, and only the newest 10 backups are kept.
   const handleBulkEnable = async (workshopIds: string[]) => {
     if (workshopIds.length === 0 || busyRef.current || !canManageMods) return
     busyRef.current = true
     setLoading(true)
-    let ok = 0
-    let failed = 0
-    // continuous-bug-hunt round 27: same alternativeModIds surfacing as
-    // handleEnableMod above, aggregated across every workshop item in this
-    // batch rather than lost per-call.
-    const allAlternatives: string[] = []
     try {
-      for (const id of workshopIds) {
-        try {
-          const result = await modsApi.addToIni(id)
-          if (Array.isArray(result?.alternativeModIds)) {
-            allAlternatives.push(...result.alternativeModIds)
-          }
-          ok++
-        } catch {
-          failed++
-        }
-      }
+      const result = await modsApi.addToIniBulk(workshopIds.map((workshopId) => ({ workshopId })))
+      const results = result.results ?? []
+      const failed = results.filter((r) => r.status === 'invalid').length
+      const ok = workshopIds.length - failed
+      // continuous-bug-hunt round 27: same alternativeModIds surfacing as
+      // handleEnableMod above, aggregated across every workshop item in this
+      // batch rather than lost per-call.
+      const allAlternatives = results.flatMap((r) => r.alternativeModIds ?? [])
+      const workshopOnly = results.filter((r) => r.status === 'workshop-only').length
       toast({
         title: failed === 0 ? t('toasts.modsReEnabledTitle') : t('toasts.partialReEnableTitle'),
         description: t('toasts.reEnabledDesc', { count: ok, failedSuffix: failed > 0 ? t('toasts.reEnableFailedSuffix', { count: failed }) : '' })
-          + (allAlternatives.length > 0 ? t('toasts.additionalModsFoundSuffix', { count: allAlternatives.length, ids: allAlternatives.join(', ') }) : ''),
+          + (allAlternatives.length > 0 ? t('toasts.additionalModsFoundSuffix', { count: allAlternatives.length, ids: allAlternatives.join(', ') }) : '')
+          + (workshopOnly > 0 ? ` ${t('toasts.workshopOnlyNote', { count: workshopOnly })}` : ''),
         variant: failed === 0 ? ('success' as const) : ('destructive' as const),
       })
       setSelectedMods(new Set())
       fetchData()
+    } catch (error) {
+      toast({
+        title: t('toasts.enableFailedTitle'),
+        description: getUserErrorMessage(error, t('toasts.enableFailedFallbackShort')),
+        variant: 'destructive',
+      })
     } finally {
       setLoading(false)
       busyRef.current = false
@@ -1877,34 +1884,41 @@ export default function Mods() {
 
     setLoading(true)
     try {
-      const results = await Promise.allSettled(
-        selectedModsList.map(async (mod) => {
-          // Write each mod directly to the server .ini (workshopId + mod IDs + map folders)
+      // Every selected mod goes to the server in ONE request, which edits the
+      // .ini once (workshopId + mod IDs + map folders) and so takes one backup.
+      // One request per mod meant one backup per mod, and a backup keeps only
+      // the newest 10: a 60-mod import pushed the pre-import config out.
+      const bulk = await modsApi.addToIniBulk(
+        selectedModsList.map((mod) => {
           const selectedModIds = mod.modId ? [mod.modId] : undefined
-          await modsApi.addModAdvanced(
-            mod.workshopId,
+          return {
+            workshopId: mod.workshopId,
             selectedModIds,
-            !selectedModIds, // includeAllModIds when no explicit modId was set
-            mod.name,
-            mod.isMap ? mod.mapFolder : undefined,
-          )
-          return mod.workshopId
-        })
+            includeAllModIds: !selectedModIds, // every mod of the item when no explicit modId was set
+          }
+        }),
+        true, // track each mod (and mirror into the Workshop collection if auto-sync is on)
       )
 
-      const added = results.filter(r => r.status === 'fulfilled').length
-      const failed = results.filter(r => r.status === 'rejected').length
-      results.forEach((result, index) => {
-        if (result.status === 'rejected') {
-          reportClientWarning(`Failed to add mod ${selectedModsList[index].workshopId}.`, result.reason)
-        }
+      const results = bulk.results ?? []
+      const invalid = results.filter(r => r.status === 'invalid')
+      const failed = invalid.length
+      const added = selectedModsList.length - failed
+      invalid.forEach((item) => {
+        reportClientWarning(`Failed to add mod ${item.workshopId}.`, item.code)
       })
+      // "Restart to load" is only true for mods that got a mod ID. One that
+      // was not downloaded and has no ID yet only went into WorkshopItems=.
+      const workshopOnly = results.filter(r => r.status === 'workshop-only').length
+      const needsRestart = results.length === 0 || results.some(r => r.status === 'added')
 
       toast({
         title: t('toasts.modsAddedToConfigTitle', { count: added }),
-        description: failed > 0
-          ? t('toasts.modsAddedFailedSuffix', { count: failed })
-          : t('toasts.restartToLoadNewMods'),
+        description: [
+          failed > 0 ? t('toasts.modsAddedFailedSuffix', { count: failed }) : null,
+          failed === 0 && needsRestart ? t('toasts.restartToLoadNewMods') : null,
+          workshopOnly > 0 ? t('toasts.workshopOnlyNote', { count: workshopOnly }) : null,
+        ].filter(Boolean).join(' '),
         variant: failed > 0 ? 'destructive' : 'success' as const,
       })
 

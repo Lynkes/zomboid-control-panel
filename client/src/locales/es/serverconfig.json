@@ -332,7 +332,7 @@
   "applyTemplateConfirm": {
     "title": "¿Aplicar la config guardada «{{name}}»?",
     "description": "¿Reemplazar la configuración actual del servidor con esta config guardada? El panel hace primero una copia de seguridad de lo que está activo, así que puedes deshacerlo con Restaurar si lo necesitas.",
-    "rconWarning": "La contraseña de RCON no se guarda en las configs guardadas, así que aplicar esta eliminará la contraseña de RCON de tu servidor; tendrás que volver a introducirla después.",
+    "secretsKept": "Las configs guardadas no incluyen contraseñas ni tokens, así que aplicar esta conserva la contraseña de RCON, la contraseña del servidor y los tokens actuales de tu servidor.",
     "confirmLabel": "Aplicar"
   },
   "fileBrowserDialog": {

@@ -182,29 +182,85 @@ export function subHourlyIntervalMinutes(expression) {
   return Math.round(60 / minutes.size);
 }
 
-// Whether `zone` observes DST at all -- compares the UTC offset for the
-// same IANA zone in January and July of a fixed reference year. A zone with
-// no DST (UTC, most of Asia, Arizona, ...) reports the identical offset
-// both times; a DST-observing zone does not. Deliberately not based on
-// "does the zone name contain a region known to have DST" (fragile,
-// incomplete) -- this asks Intl the same way node-cron itself resolves
-// offsets, so there is no gap between what this predicts and what node-cron
-// will actually do.
-export function timezoneObservesDst(zone) {
-  try {
-    const offsetOf = (date) =>
-      new Intl.DateTimeFormat("en-US", {
-        timeZone: zone,
-        timeZoneName: "shortOffset",
-      })
-        .formatToParts(date)
-        .find((part) => part.type === "timeZoneName")?.value;
-    const january = offsetOf(new Date(Date.UTC(2026, 0, 1)));
-    const july = offsetOf(new Date(Date.UTC(2026, 6, 1)));
-    return Boolean(january && july && january !== july);
-  } catch {
-    return false;
+// Intl.DateTimeFormat construction is what the DST checks below spend their
+// time on (a spring-forward scan builds thousands of them), and a formatter
+// is stateless, so one per (kind, zone) is kept. A zone Intl rejects throws
+// from the constructor and is never stored.
+const MAX_CACHED_FORMATTERS = 64;
+const formatterCache = new Map();
+function cachedFormatter(kind, zone, options) {
+  const key = `${kind}|${zone}`;
+  let formatter = formatterCache.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-US", { timeZone: zone, ...options });
+    if (formatterCache.size >= MAX_CACHED_FORMATTERS) formatterCache.clear();
+    formatterCache.set(key, formatter);
   }
+  return formatter;
+}
+function offsetFormatter(zone) {
+  return cachedFormatter("offset", zone, { timeZoneName: "shortOffset" });
+}
+
+// The DST checks' answers depend on the zone, the cron's fire times and
+// today's date (they look forward from now), so they are cached per UTC day:
+// a boot or a timezone change schedules every task, backup and auto-restart
+// in one go, and each of them used to run the whole scan again for the same
+// zone and times. A new day recomputes, which also keeps a reported
+// transition date from going stale.
+const MAX_CACHED_DST_RESULTS = 256;
+function utcDayKey(now) {
+  return new Date(now).toISOString().slice(0, 10);
+}
+function remember(cache, key, value) {
+  if (cache.size >= MAX_CACHED_DST_RESULTS) cache.clear();
+  cache.set(key, value);
+  return value;
+}
+
+// Weekly samples across this year and next: a zone whose clocks change only
+// for a few weeks (Morocco's Ramadan "DST" lasts about 30 days, and January
+// and July 2026 happen to read the same there) is still caught, and a zone
+// that stopped observing DST in the meantime is not reported as observing it.
+const DST_SAMPLE_STEP_DAYS = 7;
+const DST_SAMPLE_SPAN_DAYS = 2 * 366;
+const dstObservedCache = new Map();
+
+// Whether `zone` observes DST at all -- compares the UTC offset for the
+// same IANA zone at weekly samples from now to two years ahead. A zone with
+// no DST (UTC, most of Asia, Arizona, ...) reports the identical offset
+// every time; a DST-observing zone does not. (January against July of one
+// fixed year, as this used to do, missed any zone whose offset changes in
+// neither of those two months.) Deliberately not based on "does the zone
+// name contain a region known to have DST" (fragile, incomplete) -- this asks
+// Intl the same way node-cron itself resolves offsets, so there is no gap
+// between what this predicts and what node-cron will actually do.
+export function timezoneObservesDst(zone) {
+  const now = Date.now();
+  const key = `${utcDayKey(now)}|${zone}`;
+  const known = dstObservedCache.get(key);
+  if (known !== undefined) return known;
+
+  let observes = false;
+  try {
+    const offsetOf = (at) =>
+      offsetFormatter(zone)
+        .formatToParts(new Date(at))
+        .find((part) => part.type === "timeZoneName")?.value;
+    const first = offsetOf(now);
+    if (first) {
+      for (let day = DST_SAMPLE_STEP_DAYS; day <= DST_SAMPLE_SPAN_DAYS; day += DST_SAMPLE_STEP_DAYS) {
+        const sampled = offsetOf(now + day * 86400000);
+        if (sampled && sampled !== first) {
+          observes = true;
+          break;
+        }
+      }
+    }
+  } catch {
+    observes = false;
+  }
+  return remember(dstObservedCache, key, observes);
 }
 
 // Composes the two checks above into the one-line warning scheduleTask()
@@ -269,10 +325,7 @@ const DST_SPRING_FORWARD_MAX_FIRE_COMBINATIONS = 8; // (hour,minute) pairs; keep
 // round 28: exported for cronNextRun.js -- same reasoning as
 // expandCronField's own export comment above.
 export function utcOffsetMinutes(date, zone) {
-  const value = new Intl.DateTimeFormat("en-US", {
-    timeZone: zone,
-    timeZoneName: "shortOffset",
-  })
+  const value = offsetFormatter(zone)
     .formatToParts(date)
     .find((part) => part.type === "timeZoneName")?.value;
   const match = /GMT([+-])(\d{1,2})(?::?(\d{2}))?/.exec(value || "");
@@ -284,8 +337,7 @@ export function utcOffsetMinutes(date, zone) {
 // round 28: exported for cronNextRun.js -- same reasoning as
 // expandCronField's own export comment above.
 export function zonedDateParts(date, zone) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: zone,
+  const parts = cachedFormatter("parts", zone, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -334,6 +386,33 @@ function wallTimeExists(year, month, day, hour, minute, zone) {
   return readsBack(candidate1) || readsBack(candidate2);
 }
 
+// The first (hour, minute, date) of the given fire times that the zone skips
+// within the scan window, or null. The scan is the expensive part (about a
+// year of days, each checked per fire time), so its result is cached per zone
+// and fire times for the day -- the label is not part of it.
+const springForwardCache = new Map();
+function firstSpringForwardGap(timezone, hours, minutes) {
+  const now = Date.now();
+  const key = `${utcDayKey(now)}|${timezone}|${[...hours].join(",")}|${[...minutes].join(",")}`;
+  const known = springForwardCache.get(key);
+  if (known !== undefined) return known;
+
+  let gap = null;
+  scan: for (let dayOffset = 0; dayOffset <= DST_TRANSITION_SCAN_DAYS; dayOffset += 1) {
+    const probe = new Date(now + dayOffset * 86400000);
+    const { year, month, day } = zonedDateParts(probe, timezone);
+    for (const h of hours) {
+      for (const m of minutes) {
+        if (!wallTimeExists(year, month, day, h, m, timezone)) {
+          gap = { hour: h, minute: m, year, month, day };
+          break scan;
+        }
+      }
+    }
+  }
+  return remember(springForwardCache, key, gap);
+}
+
 export function dstSpringForwardWarning(expression, timezone, label) {
   if (hasUnsupportedCronFieldCount(expression)) return null;
   if (!timezoneObservesDst(timezone)) return null;
@@ -345,26 +424,24 @@ export function dstSpringForwardWarning(expression, timezone, label) {
     return null;
   }
 
-  const now = new Date();
-  for (let dayOffset = 0; dayOffset <= DST_TRANSITION_SCAN_DAYS; dayOffset += 1) {
-    const probe = new Date(now.getTime() + dayOffset * 86400000);
-    const { year, month, day } = zonedDateParts(probe, timezone);
-    for (const h of hours) {
-      for (const m of minutes) {
-        if (!wallTimeExists(year, month, day, h, m, timezone)) {
-          const name = label ? `"${label}" ` : "";
-          const pad = (n) => String(n).padStart(2, "0");
-          const dateLabel = `${year}-${pad(month)}-${pad(day)}`;
-          return (
-            `Schedule ${name}is set to fire at ${pad(h)}:${pad(m)}; on ` +
-            `${dateLabel}, ${timezone} springs forward and that local time ` +
-            "does not occur -- that day's run will be silently skipped. " +
-            "This is a limitation of the underlying scheduler (node-cron), " +
-            "not a bug in the panel."
-          );
-        }
-      }
-    }
-  }
-  return null;
+  const gap = firstSpringForwardGap(timezone, hours, minutes);
+  if (!gap) return null;
+  const name = label ? `"${label}" ` : "";
+  const pad = (n) => String(n).padStart(2, "0");
+  const dateLabel = `${gap.year}-${pad(gap.month)}-${pad(gap.day)}`;
+  return (
+    `Schedule ${name}is set to fire at ${pad(gap.hour)}:${pad(gap.minute)}; on ` +
+    `${dateLabel}, ${timezone} springs forward and that local time ` +
+    "does not occur -- that day's run will be silently skipped. " +
+    "This is a limitation of the underlying scheduler (node-cron), " +
+    "not a bug in the panel."
+  );
+}
+
+// Test hook: drops the cached formatters and DST results, so a test that
+// moves the clock or counts Intl constructions starts from nothing.
+export function _resetDstCachesForTests() {
+  formatterCache.clear();
+  dstObservedCache.clear();
+  springForwardCache.clear();
 }

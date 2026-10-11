@@ -49,6 +49,26 @@ describe("ServerManager.saveServerConfig() -- write is verified by reading it ba
     expect(onDisk).toMatch(/MaxPlayers=16/);
   });
 
+  // The replacement used to be the string `${key}=${safeValue}`, which
+  // replace() reads as a template: "$&" is the matched line, "$'" the rest of
+  // the file, "$$" one dollar. The read-back above compares the file with the
+  // (already corrupted) content it meant to write, so it could not see this.
+  it.each(["Pa$$w0rd", "a$&b", "A$'B", "A$`B"])(
+    "writes the value %s exactly as given, not as a replace() template",
+    async (value) => {
+      const manager = makeManager(tmpRoot, "TestServer");
+      const iniPath = path.join(tmpRoot, "TestServer.ini");
+      fs.writeFileSync(iniPath, "PVP=false\nPublicName=Old\nMaxPlayers=16\n", "utf-8");
+
+      const result = await manager.saveServerConfig({ PublicName: value });
+
+      expect(result.success).toBe(true);
+      expect(fs.readFileSync(iniPath, "utf-8")).toBe(
+        `PVP=false\nPublicName=${value}\nMaxPlayers=16\n`,
+      );
+    },
+  );
+
   it("throws instead of reporting success when the file on disk doesn't match what was intended", async () => {
     const manager = makeManager(tmpRoot, "TestServer");
     const iniPath = path.join(tmpRoot, "TestServer.ini");

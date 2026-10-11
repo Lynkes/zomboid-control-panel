@@ -27,6 +27,7 @@ import { describeRefusal, logRefusalOnce } from "./zomboidDataPath.js";
 import { runManagedLifecycle } from "./managedContainer.js";
 import { readConfiguredMaxPlayers } from "./serverCapacity.js";
 import { resolveObservedServerRunning } from "../utils/serverStatus.js";
+import { isUnmanagedRemoteServer } from "../utils/serverStatusModel.js";
 import {
   collectKnownSecretValues,
   redactKnownSecrets,
@@ -1595,6 +1596,16 @@ export class DiscordBot {
 
     try {
       const minutes = interaction.options.getInteger("minutes") ?? 5;
+
+      // The panel does not manage a remote server's process, and
+      // performRestart() refuses it -- say so before announcing a restart
+      // that cannot happen (POST /api/server/restart refuses it the same way).
+      if (isUnmanagedRemoteServer(activeServerForLock)) {
+        await interaction.editReply(
+          "❌ Cannot restart a remote server. The process is not managed by this panel.",
+        );
+        return;
+      }
 
       // See handleStart()'s comment: the raw local scan alone can't see a
       // split-container/docker-managed server.

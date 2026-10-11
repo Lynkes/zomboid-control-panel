@@ -3961,7 +3961,10 @@ export class ServerManager {
           // Strip newlines from values to prevent INI injection
           const safeValue = String(value).replace(/[\r\n]/g, "");
           if (content.match(regex)) {
-            content = content.replace(regex, `${key}=${safeValue}`);
+            // A function, not a string: a string replacement is a template,
+            // so a value holding "$$", "$&", "$'" or "$`" would be rewritten
+            // by replace().
+            content = content.replace(regex, () => `${key}=${safeValue}`);
           } else {
             content += `\n${key}=${safeValue}`;
           }

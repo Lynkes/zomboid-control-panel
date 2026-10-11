@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   assessBuildCompatibility,
   compiledBuildMetadata,
@@ -11,6 +12,7 @@ type GateState =
   | { status: 'mismatch'; backend: BackendBuildMetadata }
 
 export function BuildCompatibilityGate({ children }: { children: ReactNode }) {
+  const { t } = useTranslation('shell')
   const [state, setState] = useState<GateState>({ status: 'checking' })
 
   useEffect(() => {
@@ -43,25 +45,25 @@ export function BuildCompatibilityGate({ children }: { children: ReactNode }) {
   }, [])
 
   if (state.status === 'checking') {
-    return <main className="min-h-screen bg-background" aria-label="Checking panel compatibility" />
+    return <main className="min-h-screen bg-background" aria-label={t('buildGate.checking')} />
   }
   if (state.status === 'mismatch') {
     const frontend = compiledBuildMetadata()
-    const backendVersion = state.backend.panelVersion || state.backend.version || 'unknown'
+    const backendVersion = state.backend.panelVersion || state.backend.version || t('buildGate.unknown')
     return (
       <main className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
         <section className="w-full max-w-xl rounded-lg border border-destructive/40 bg-card p-6 shadow-lg">
-          <p className="text-sm font-semibold uppercase tracking-wide text-destructive">Update recovery required</p>
-          <h1 className="mt-2 text-2xl font-bold">Frontend and backend versions do not match</h1>
+          <p className="text-sm font-semibold uppercase tracking-wide text-destructive">{t('buildGate.eyebrow')}</p>
+          <h1 className="mt-2 text-2xl font-bold">{t('buildGate.title')}</h1>
           <p className="mt-3 text-sm text-muted-foreground">
-            The panel stopped before authentication and live connections were initialized. Restart with Start.bat to let the updater finish or roll back the incomplete bundle.
+            {t('buildGate.description')}
           </p>
           <dl className="mt-5 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-            <dt>Frontend</dt><dd className="font-mono">{frontend.panelVersion} ({frontend.buildSha.slice(0, 12)})</dd>
-            <dt>Backend</dt><dd className="font-mono">{backendVersion} ({String(state.backend.buildSha || 'unknown').slice(0, 12)})</dd>
+            <dt>{t('buildGate.frontend')}</dt><dd className="font-mono">{frontend.panelVersion} ({frontend.buildSha.slice(0, 12)})</dd>
+            <dt>{t('buildGate.backend')}</dt><dd className="font-mono">{backendVersion} ({String(state.backend.buildSha || t('buildGate.unknown')).slice(0, 12)})</dd>
           </dl>
           <button className="mt-6 rounded-md bg-primary px-4 py-2 text-primary-foreground" onClick={() => window.location.reload()}>
-            Check again
+            {t('buildGate.checkAgain')}
           </button>
         </section>
       </main>

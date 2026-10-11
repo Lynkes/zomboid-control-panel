@@ -5,11 +5,16 @@ import { createLogger } from "../utils/logger.js";
 const log = createLogger("API:Servers");
 import {
   sanitizeError,
+  sanitizeErrorParams,
   sanitizeServerResponse,
   sanitizeServerResponseList,
   isMaskedSecret,
 } from "../utils/sanitize.js";
 import { testRconConnection } from "../services/rcon.js";
+import {
+  rconPasswordCannotBeStoredInIni,
+  rconPasswordUnsupportedCharsBody,
+} from "../utils/rconPassword.js";
 import {
   getServers,
   getServer,
@@ -40,7 +45,7 @@ import {
   parseBoundedInteger,
   parseClampedInteger,
 } from "../utils/queryNumbers.js";
-import { normalizeMemoryGb } from "../utils/memory.js";
+import { memoryMinExceedsMax, memoryMinExceedsMaxFields, normalizeMemoryGb } from "../utils/memory.js";
 import { GAME_PORT_MAX, applyUpnpToIni } from "./server.js";
 import {
   findLaunchTargetRefusal,
@@ -1378,6 +1383,11 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
     ) {
       return res.status(400).json({ error: "Invalid RCON password" });
     }
+    // The game reads server.ini only up to the first "=" and a line ends at
+    // a break: see utils/rconPassword.js. Refused here, not stripped later.
+    if (rconPasswordCannotBeStoredInIni(config.rconPassword)) {
+      return res.status(400).json(rconPasswordUnsupportedCharsBody());
+    }
 
     // The admin password goes into the start scripts: one they can't carry is
     // refused here rather than changed there.
@@ -1440,6 +1450,18 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
       return res.status(409).json(noSteamWorkshopConflictResponse());
     }
 
+    // -Xms above -Xmx makes the JVM refuse to start, so refuse the pair here
+    // instead of saving a server that can never launch. A remote server's
+    // memory is never used by this panel.
+    const newMinMemory = normalizeMemoryGb(config.minMemory, 4);
+    const newMaxMemory = normalizeMemoryGb(config.maxMemory, 8);
+    if (!isRemote && memoryMinExceedsMax(newMinMemory, newMaxMemory)) {
+      return res.status(400).json({
+        ...memoryMinExceedsMaxFields(newMinMemory, newMaxMemory),
+        code: ErrorCode.MEMORY_MIN_EXCEEDS_MAX,
+      });
+    }
+
     const server = await createServer({
       name: config.name,
       serverName,
@@ -1453,8 +1475,8 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
       rconPassword: config.rconPassword,
       adminPassword: config.adminPassword || "",
       serverPort,
-      minMemory: normalizeMemoryGb(config.minMemory, 4),
-      maxMemory: normalizeMemoryGb(config.maxMemory, 8),
+      minMemory: newMinMemory,
+      maxMemory: newMaxMemory,
       useNoSteam: config.useNoSteam === true,
       useDebug: config.useDebug === true,
       useUpnp: config.useUpnp !== false,
@@ -1467,6 +1489,13 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
       message: "Server created successfully",
     });
   } catch (error) {
+    if (error?.code === ErrorCode.SERVER_ALREADY_EXISTS) {
+      return res.status(409).json({
+        error: error.message,
+        code: ErrorCode.SERVER_ALREADY_EXISTS,
+        params: sanitizeErrorParams(error.params),
+      });
+    }
     log.error(`Failed to create server: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
@@ -1718,6 +1747,9 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
     ) {
       return res.status(400).json({ error: "Invalid RCON password" });
     }
+    if (rconPasswordCannotBeStoredInIni(updates.rconPassword)) {
+      return res.status(400).json(rconPasswordUnsupportedCharsBody());
+    }
 
     // Validate RCON port if provided
     if (updates.rconPort !== undefined) {
@@ -1743,6 +1775,21 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
     }
     if (updates.maxMemory !== undefined) {
       updates.maxMemory = normalizeMemoryGb(updates.maxMemory, 8);
+    }
+    // Judged on the pair the record will hold after this edit (an edit of one
+    // value is checked against the stored other one), see POST /. A remote
+    // server's memory is never used, and its edit dialog hides the fields.
+    if (updates.minMemory !== undefined || updates.maxMemory !== undefined) {
+      const storedMemory = await getServer(serverId);
+      const nextMin = updates.minMemory !== undefined ? updates.minMemory : storedMemory?.minMemory;
+      const nextMax = updates.maxMemory !== undefined ? updates.maxMemory : storedMemory?.maxMemory;
+      const nextIsRemote = updates.isRemote !== undefined ? updates.isRemote : storedMemory?.isRemote;
+      if (!nextIsRemote && memoryMinExceedsMax(nextMin, nextMax)) {
+        return res.status(400).json({
+          ...memoryMinExceedsMaxFields(nextMin, nextMax),
+          code: ErrorCode.MEMORY_MIN_EXCEEDS_MAX,
+        });
+      }
     }
 
     // Parse boolean fields
@@ -1807,6 +1854,20 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
       );
     if (Object.keys(updates).length === 0 && !maskedSecretsOnly) {
       return res.status(400).json({ error: "At least one field is required" });
+    }
+
+    // The edit dialog sends the whole record back, useUpnp included, so the
+    // key being PRESENT says nothing about the user having touched UPnP. Only
+    // a value that differs from the stored one is an edit: acting on an echoed
+    // value would rewrite UPnP= in the ini from a stale record (undoing a
+    // change made in Server Config) and raise a warning for a rename. A record
+    // with no stored value counts as on, the same default creation uses.
+    let upnpChanged = false;
+    if (updates.useUpnp !== undefined) {
+      const storedBeforeUpdate = await getServer(serverId);
+      upnpChanged =
+        !storedBeforeUpdate ||
+        (storedBeforeUpdate.useUpnp !== false) !== updates.useUpnp;
     }
 
     const server = await updateServer(serverId, updates);
@@ -1918,7 +1979,7 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
       // server's is never judged when saved -- PATHS-1 verifier pass 2).
       const upnpConfig = server.serverConfigPath ? serverConfigDirOf(server) : null;
       if (
-        Object.prototype.hasOwnProperty.call(updates, "useUpnp") &&
+        upnpChanged &&
         upnpConfig?.refused
       ) {
         reloadWarnings.push(
@@ -1928,7 +1989,7 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
         );
       }
       if (
-        Object.prototype.hasOwnProperty.call(updates, "useUpnp") &&
+        upnpChanged &&
         upnpConfig?.dir &&
         server.serverName
       ) {

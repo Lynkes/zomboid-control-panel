@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { useAuth } from '../contexts/AuthContext'
-import { rawErrorMessageIntentional, getUserErrorMessage } from '../lib/errorMessage'
+import { getUserErrorMessage } from '../lib/errorMessage'
 import { apiFetch, handleResponse } from '../lib/api'
 import { rememberTrustedDeviceFrom } from '../lib/trustedDevice'
 import { Button, buttonVariants } from '../components/ui/button'
@@ -199,15 +199,12 @@ export default function Login() {
       setDeviceFailedAttempts(0)
       try { localStorage.removeItem(LOGIN_DEVICE_FAILURE_KEY) } catch { /* ignore */ }
     } catch (err) {
-      // 2026-08-26: NOT a getUserErrorMessage() site -- AuthContext's
-      // login() already resolves and translates the final message itself
-      // (see its getLoginErrorMessage(), which routes a genuine 5xx through
-      // getUserErrorMessage() before this ever sees it, and keeps the
-      // account-enumeration-safe generic text for an actual auth failure).
-      // Calling getUserErrorMessage() here too would double-process an
-      // already-translated string. rawErrorMessageIntentional() documents
-      // that this is a deliberate exception, not a missed conversion.
-      setError(rawErrorMessageIntentional(err, t('errors.loginFailed')))
+      // login() throws a coded error (AuthContext's toLoginError()): the
+      // account-enumeration-safe LOGIN_FAILED for an actual auth failure,
+      // LOGIN_CORS_BLOCKED for a blocked origin, or the transport/server
+      // error itself for a 5xx or a 429. getUserErrorMessage() translates
+      // each by its code.
+      setError(getUserErrorMessage(err, t('errors.loginFailed')))
       setDeviceFailedAttempts((prev) => {
         const next = prev + 1
         try { localStorage.setItem(LOGIN_DEVICE_FAILURE_KEY, String(next)) } catch { /* ignore */ }

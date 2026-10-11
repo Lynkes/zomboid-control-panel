@@ -100,9 +100,9 @@ describe("performRestart() pushes server:status at its own verified transitions"
     expect(result.success).toBe(true);
     const calls = emit.mock.calls.filter(([event]) => event === "server:status");
     expect(calls).toEqual([
-      ["server:status", { running: false, phase: "stopped" }],
-      ["server:status", { running: true, phase: "running" }],
-      ["server:status", { running: true, phase: "running" }],
+      ["server:status", { running: false, phase: "stopped", serverId: 1 }],
+      ["server:status", { running: true, phase: "running", serverId: 1 }],
+      ["server:status", { running: true, phase: "running", serverId: 1 }],
     ]);
   });
 
@@ -127,8 +127,8 @@ describe("performRestart() pushes server:status at its own verified transitions"
     expect(result.success).toBe(true);
     const calls = emit.mock.calls.filter(([event]) => event === "server:status");
     expect(calls).toEqual([
-      ["server:status", { running: true, phase: "running" }],
-      ["server:status", { running: true, phase: "running" }],
+      ["server:status", { running: true, phase: "running", serverId: 1 }],
+      ["server:status", { running: true, phase: "running", serverId: 1 }],
     ]);
   });
 
@@ -181,9 +181,9 @@ describe("performRestart() pushes server:status at its own verified transitions"
     expect(result.success).toBe(true);
     const calls = emit.mock.calls.filter(([event]) => event === "server:status");
     expect(calls).toEqual([
-      ["server:status", { running: false, phase: "stopped" }],
-      ["server:status", { running: true, phase: "starting" }],
-      ["server:status", { running: true, phase: "running" }],
+      ["server:status", { running: false, phase: "stopped", serverId: 1 }],
+      ["server:status", { running: true, phase: "starting", serverId: 1 }],
+      ["server:status", { running: true, phase: "running", serverId: 1 }],
     ]);
   });
 
@@ -221,10 +221,72 @@ describe("performRestart() pushes server:status at its own verified transitions"
     expect(result.success).toBe(true);
     const calls = emit.mock.calls.filter(([event]) => event === "server:status");
     expect(calls).toEqual([
-      ["server:status", { running: false, phase: "stopped" }],
-      ["server:status", { running: true, phase: "starting" }],
-      ["server:status", { running: true, phase: "unresponsive" }],
+      ["server:status", { running: false, phase: "stopped", serverId: 1 }],
+      ["server:status", { running: true, phase: "starting", serverId: 1 }],
+      ["server:status", { running: true, phase: "unresponsive", serverId: 1 }],
     ]);
+  });
+
+  // Restarting the tasks of a NON-active server used to flip the sidebar's
+  // dot for the active one: the push carried no server id, so every client
+  // read it as being about the server it was showing. The id the restart is
+  // pinned to now rides along on every push, and clients apply a push that
+  // names another server to nothing (Layout.statusEventServer.test.tsx).
+  function restartHarness(serverManagerExtra) {
+    const emit = vi.fn();
+    const scheduler = new Scheduler({}, {});
+    scheduler.sleep = async () => {};
+    scheduler.setIo({ emit });
+    const rconService = makeRconService();
+    const serverManager = {
+      getServerProcessDetails: vi
+        .fn()
+        .mockResolvedValueOnce({ running: true, scanFailed: false })
+        .mockResolvedValue({ running: false, scanFailed: false }),
+      startServer: vi.fn().mockResolvedValue({ success: true }),
+      ...serverManagerExtra,
+    };
+    const pushes = () =>
+      emit.mock.calls.filter(([event]) => event === "server:status").map(([, payload]) => payload);
+    return { scheduler, rconService, serverManager, pushes };
+  }
+
+  it("a restart pinned to a server that is NOT the active one names that server on every push", async () => {
+    getServer.mockResolvedValue({ id: 7 });
+    getActiveServer.mockResolvedValue({ id: 1 });
+    runManagedLifecycle.mockResolvedValue({ handled: false });
+    const { scheduler, rconService, serverManager, pushes } = restartHarness({ _serverId: 7 });
+
+    const result = await scheduler.performRestart(0, { rconService, serverManager });
+
+    expect(result.success).toBe(true);
+    const all = pushes();
+    expect(all).toHaveLength(3);
+    for (const payload of all) expect(payload.serverId).toBe(7);
+  });
+
+  it("a restart of the active server through the shared manager (no pinned id yet) names the active server's id", async () => {
+    getServer.mockResolvedValue(null);
+    getActiveServer.mockResolvedValue({ id: "srv-3" });
+    runManagedLifecycle.mockResolvedValue({ handled: false });
+    const { scheduler, rconService, serverManager, pushes } = restartHarness({});
+
+    await scheduler.performRestart(0, { rconService, serverManager });
+
+    expect(pushes().map((payload) => payload.serverId)).toEqual(["srv-3", "srv-3", "srv-3"]);
+  });
+
+  it("names no server when the restart's target could not be pinned (clients read that as the active server)", async () => {
+    getServer.mockResolvedValue(null);
+    getActiveServer.mockResolvedValue(null);
+    runManagedLifecycle.mockResolvedValue({ handled: false });
+    const { scheduler, rconService, serverManager, pushes } = restartHarness({});
+
+    await scheduler.performRestart(0, { rconService, serverManager });
+
+    const all = pushes();
+    expect(all).toHaveLength(3);
+    for (const payload of all) expect(payload).not.toHaveProperty("serverId");
   });
 
   // The old process's last PanelBridge heartbeat outlives it

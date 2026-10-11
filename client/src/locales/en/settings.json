@@ -881,7 +881,8 @@
     "recoveryUnavailable": { "title": "Recovery Unavailable", "fallback": "The panel could not prepare password recovery on this server." },
     "recoveryTokenMissing": { "title": "Recovery token missing" },
     "passwordReset": { "title": "Password Reset", "description": "Your password has been reset. Sign in again with the new password." },
-    "passwordResetFailed": { "title": "Password Reset Failed", "fallback": "The panel could not reset your password from this server." }
+    "passwordResetFailed": { "title": "Password Reset Failed", "fallback": "The panel could not reset your password from this server." },
+    "settingsSavedWithWarnings": { "title": "Settings Saved, With Warnings", "description": "Your settings were saved, but not everything could be applied right away: {{warnings}}" }
   },
 
   "errors": {

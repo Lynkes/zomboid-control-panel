@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../contexts/AuthContext'
+import { ApiError } from '../lib/api'
 import { getUserErrorMessage } from '../lib/errorMessage'
+import { toast } from '../components/ui/use-toast'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
@@ -38,7 +40,7 @@ function scorePassword(pw: string): PasswordStrength {
 
 export default function Setup() {
   const { t } = useTranslation('setup')
-  const { setup } = useAuth()
+  const { setup, retryAuthCheck } = useAuth()
   const [username, setUsername] = useState('admin')
   const [setupToken, setSetupToken] = useState('')
   const [password, setPassword] = useState('')
@@ -97,6 +99,17 @@ export default function Setup() {
     try {
       await setup(username, password, rememberMe, panelPort, setupToken.trim())
     } catch (err) {
+      // An account exists already (finished in another tab or browser, or the
+      // panel was set up while this form was open). Nothing is left to do
+      // here, and this screen is only shown while the panel believes setup is
+      // pending, so re-check: the app then moves on to the sign-in screen.
+      // Saying "use login instead" next to a form with no way to log in was a
+      // dead end.
+      if (err instanceof ApiError && err.code === 'SETUP_ALREADY_COMPLETED') {
+        toast({ description: getUserErrorMessage(err, t('errors.setupFailed')) })
+        retryAuthCheck()
+        return
+      }
       const message = err instanceof Error ? err.message : ''
       setError(
         message === 'SETUP_TOKEN_REQUIRED'
@@ -252,6 +265,7 @@ export default function Setup() {
               onBlur={() => setCapsLockOn(false)}
               placeholder="••••••••"
               autoComplete="new-password"
+              className="pe-10"
               disabled={loading}
               aria-describedby={[passwordHintId, errorId].filter(Boolean).join(' ')}
               aria-invalid={Boolean(error && !passwordLongEnough)}
@@ -260,7 +274,7 @@ export default function Setup() {
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="absolute end-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               title={showPassword ? t('password.hidePassword') : t('password.showPassword')}
               aria-label={showPassword ? t('password.hidePassword') : t('password.showPassword')}
               aria-pressed={showPassword}

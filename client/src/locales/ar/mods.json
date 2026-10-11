@@ -954,6 +954,8 @@
     "modsAddedToConfigTitle_other": "تمت إضافة {{count}} من المودات إلى إعدادات الخادم",
     "modsAddedFailedSuffix": "{{count}} فشلت — راجع وحدة التحكّم للتفاصيل",
     "restartToLoadNewMods": "أعد تشغيل الخادم لتحميل المودات الجديدة.",
+    "workshopOnlyDesc": "أُضيف إلى WorkshopItems فقط: لا يُعرف معرّف المود إلا بعد تنزيل الملفات. شغّل الخادم ثم استخدم \"مزامنة معرّفات المودات\" لتفعيله.",
+    "workshopOnlyNote": "{{count}} منها بلا معرّف مود حتى الآن وأُضيفت إلى WorkshopItems فقط. شغّل الخادم لتنزيلها ثم استخدم \"مزامنة معرّفات المودات\" لتفعيلها.",
     "importFailedTitle": "فشل الاستيراد",
     "importFailedFallback": "تعذّرت إضافة المودات إلى إعدادات الخادم. حاول مرة أخرى.",
     "nothingToWriteTitle": "لا شيء لكتابته",

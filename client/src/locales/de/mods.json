@@ -692,6 +692,8 @@
     "modsAddedToConfigTitle_other": "{{count}} Mods zur Serverkonfiguration hinzugefügt",
     "modsAddedFailedSuffix": "{{count}} fehlgeschlagen — Details in der Konsole",
     "restartToLoadNewMods": "Starte den Server neu, um die neuen Mods zu laden.",
+    "workshopOnlyDesc": "Nur zu WorkshopItems hinzugefügt: Die Mod-ID ist erst nach dem Download der Dateien bekannt. Starte den Server und verwende dann „Mod-IDs synchronisieren“, um den Mod zu aktivieren.",
+    "workshopOnlyNote": "{{count}} davon haben noch keine Mod-ID und wurden nur zu WorkshopItems hinzugefügt. Starte den Server, damit sie heruntergeladen werden, und verwende dann „Mod-IDs synchronisieren“, um sie zu aktivieren.",
     "importFailedTitle": "Import fehlgeschlagen",
     "importFailedFallback": "Mods konnten nicht zur Serverkonfiguration hinzugefügt werden. Versuche es erneut.",
     "nothingToWriteTitle": "Nichts zu schreiben",

@@ -340,7 +340,10 @@ Connection** now tells the two failure modes apart the same way:
 - `Authentication failed` / `Connected to the server, but authentication
   failed. Check the RCON password in server settings.` — the panel reached
   the server and got a response, but the password you gave doesn't match
-  `RCONPassword` in the PZ server's `.ini`.
+  `RCONPassword` in the PZ server's `.ini`. Keep `=` and line breaks out of
+  that password: the game reads an `.ini` value only up to the first `=`, so
+  it would use a shorter password than the one you typed here (the panel
+  refuses to save one like that; `;`, `$`, `#` and quotes are fine).
 
 (The exact wording differs slightly between the two entry points, but both
 now distinguish the same two causes — neither collapses them into one

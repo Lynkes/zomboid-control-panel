@@ -28,7 +28,7 @@ import { scheduledAttemptMessage, scheduledBackupHealth } from '@/lib/scheduledB
 import { useRuntimeInfo } from '@/hooks/useRuntimeInfo'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
-import { resolveClientProvider, deriveDashboardStatus, waitForServerState } from '@/lib/serverStatus'
+import { isStatusEventForServer, resolveClientProvider, deriveDashboardStatus, waitForServerState } from '@/lib/serverStatus'
 import { ServerUptime } from '@/components/ServerUptime'
 import { useSocket } from '@/contexts/SocketContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -722,7 +722,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!socket) return
-    const onStatus = (data: Partial<ServerStatus>) => {
+    const onStatus = (data: Partial<ServerStatus> & { serverId?: string | number | null }) => {
+      // A restart of a server other than the active one (scheduler.js names
+      // it in serverId) says nothing about the one shown here.
+      if (!isStatusEventForServer(data, activeServer?.id)) return
       setStatus(prev => {
         if (prev) return { ...prev, ...data }
         // Every real server:status emit (server/index.js, routes/server.js,
@@ -781,7 +784,7 @@ export default function Dashboard() {
       socket.off('activeServerChanged', onActiveServer)
       socket.off('panelBridge:modStatus', onBridgeMod)
     }
-  }, [socket, fetchStatus, fetchComposedStatus, fetchPlayers, fetchBridgeStatus, fetchActiveServer, wipeDialog])
+  }, [socket, fetchStatus, fetchComposedStatus, fetchPlayers, fetchBridgeStatus, fetchActiveServer, wipeDialog, activeServer?.id])
 
   // Zombie count changes continuously while the server runs -- unlike
   // bridgeStatus (pushed live over the socket), nothing pushes this, so it

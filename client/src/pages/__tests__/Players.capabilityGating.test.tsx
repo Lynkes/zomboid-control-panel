@@ -163,7 +163,9 @@ async function setUpFixtures() {
   getPerks.mockResolvedValue({ catalog: [{ id: 'Sprinting', label: 'Sprinting', category: 'Combat' }] })
   getAccessLevels.mockResolvedValue({ levels: ['admin', 'moderator', 'gm', 'observer', 'priority', 'user', 'none'], available: true })
   getSteamIdBans.mockResolvedValue({ bans: [{ steamId: '76561198000000002', banned_at: new Date().toISOString() }] })
-  getNotes.mockResolvedValue({ notes: [{ playerName: 'TestPlayer', note: 'existing note', tags: [], updated_at: new Date().toISOString() }] })
+  // The row as GET /players/notes sends it: the stored record, which names the
+  // player in snake_case `player_name` (server/database/init.js upsertPlayerNote).
+  getNotes.mockResolvedValue({ notes: [{ id: 'n1', player_name: 'TestPlayer', note: 'existing note', tags: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString() }] })
   getStats.mockResolvedValue({ stats: [] })
   getExports.mockResolvedValue({ exports: [] })
   getActivityLogs.mockResolvedValue({ logs: [] })
