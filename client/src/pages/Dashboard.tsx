@@ -90,7 +90,7 @@ interface ServerStatus {
 }
 interface Player { name: string; online: boolean }
 interface PerformancePoint {
-  time: string; timestamp?: string; playerCount: number; memoryMB: number
+  time: string; timestamp?: string; playerCount: number; maxPlayers?: number; memoryMB: number
   pzMemMB?: number; cpuPercent?: number; hostMemUsedGB?: number; hostMemTotalGB?: number
   hostDiskUsedGB?: number; hostDiskTotalGB?: number
   hostSwapUsedGB?: number; hostSwapTotalGB?: number
@@ -589,6 +589,7 @@ export default function Dashboard() {
           time: formatTime(h.timestamp as string, { language: i18n.language }),
           timestamp: h.timestamp as string,
           playerCount: (h.playerCount as number) || 0,
+          maxPlayers: (h.maxPlayers as number) || undefined,
           memoryMB: Math.round(((h.memoryUsed as number) || 0) / (1024 * 1024)),
           pzMemMB: h.pzMemUsed ? Math.round((h.pzMemUsed as number) / (1024 * 1024)) : undefined,
           cpuPercent: h.cpuUsage != null ? Math.round(h.cpuUsage as number) : undefined,
@@ -853,6 +854,7 @@ export default function Dashboard() {
         time: formatTime(new Date(), { language: i18n.language }),
         timestamp: new Date().toISOString(),
         playerCount: (snap.playerCount as number) || 0,
+        maxPlayers: (snap.maxPlayers as number) || undefined,
         memoryMB: Math.round(((snap.memoryUsed as number) || 0) / (1024 * 1024)),
         pzMemMB: snap.pzMemUsed ? Math.round((snap.pzMemUsed as number) / (1024 * 1024)) : undefined,
         cpuPercent: snap.cpuUsage != null ? Math.round(snap.cpuUsage as number) : undefined,

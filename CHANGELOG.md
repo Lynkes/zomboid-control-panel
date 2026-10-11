@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Dashboard memory of a Docker-managed server:** the PZ Memory row shows the game container's real memory use now (it used to show the panel's own memory, ~0.1 GB, because the game runs in its own container and the panel could not see its process).
+- **Empty players bar:** the dashboard's players row fills its bar against MaxPlayers from the server's own INI now (`3 / 4` online), instead of rendering an empty track next to the count.
 - **Similar server names:** a server called "Survival" no longer claims the running process of "Survival Hard", so Force Stop no longer kills both.
 - **Backups of the wrong world:** when a server's own world folder is missing, a backup or restore no longer uses another server's folder in its place, and a server whose world folder is spelled a little differently is no longer refused a start.
 - **PanelBridge with a spaced server name:** a server whose name has spaces (e.g. "AU-NZ Auckland PvE") now auto-connects to the bridge folder the mod actually creates, instead of never finding it.

@@ -25,6 +25,7 @@ import { readIniValues } from "../utils/templateFiles.js";
 import { activeServerConfigDir, serverConfigDirRefusal } from "../utils/serverConfigPath.js";
 import { describeRefusal, logRefusalOnce } from "./zomboidDataPath.js";
 import { runManagedLifecycle } from "./managedContainer.js";
+import { readConfiguredMaxPlayers } from "./serverCapacity.js";
 import { resolveObservedServerRunning } from "../utils/serverStatus.js";
 import {
   collectKnownSecretValues,
@@ -1999,55 +2000,11 @@ export class DiscordBot {
   }
 
   async getConfiguredMaxPlayers() {
-    try {
-      const activeServer = await getActiveServer();
-      const serverName = activeServer?.serverName || (await getSetting("serverName"));
-      // SECURITY (2026-10-05, PATHS-2): MaxPlayers goes out in the bot's
-      // public presence, so it is read only from the config folder Server
-      // Files uses: a configured one only while it is inside the data folder
-      // in effect (utils/serverConfigPath.js).
-      const legacy = activeServer?.zomboidDataPath
-        ? {}
-        : {
-            serverConfigPath: await getSetting("serverConfigPath"),
-            zomboidDataPath: await getSetting("zomboidDataPath"),
-          };
-      const config = activeServerConfigDir(activeServer, legacy);
-      // SECURITY (2026-10-05, PT3/PT5): refused, the presence leaves
-      // MaxPlayers out, and the presence is public, so the reason goes to
-      // the log -- with its code and what to set, at warn once per folder
-      // and reason (this runs on every presence update), then at debug.
-      if (config.refused) {
-        logRefusalOnce(
-          log,
-          `Discord presence: not reading MaxPlayers (Zomboid data folder: ${config.dataPath || "not set"}): ${describeRefusal(serverConfigDirRefusal(config))}`,
-        );
-      }
-      const configPath = config.dir;
-
-      if (
-        !configPath ||
-        !serverName ||
-        typeof serverName !== "string" ||
-        path.basename(serverName) !== serverName ||
-        serverName.includes("..")
-      ) {
-        return null;
-      }
-
-      const iniPath = path.join(configPath, `${serverName}.ini`);
-      if (!fs.existsSync(iniPath)) return null;
-
-      const content = fs.readFileSync(iniPath, "utf8");
-      const maxPlayers = Number.parseInt(
-        readIniValues(content, ["MaxPlayers"]).MaxPlayers,
-        10,
-      );
-      return Number.isInteger(maxPlayers) && maxPlayers > 0 ? maxPlayers : null;
-    } catch (error) {
-      log.debug(`Could not read MaxPlayers for Discord presence: ${error.message}`);
-      return null;
-    }
+    // The reader itself moved to services/serverCapacity.js: index.js needs
+    // the same number for the dashboard perf snapshot ("players 3 / 4") and
+    // could not import it from here (circular). Kept as a method because
+    // tests mock it and exercise it through the bot.
+    return readConfiguredMaxPlayers();
   }
 
   async updatePlayerPresence() {
