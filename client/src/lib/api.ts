@@ -1376,6 +1376,8 @@ export const modsApi = {
   getIgnoredMods: (options?: { retries?: number }) =>
     apiGet("/mods/ignored", undefined, options?.retries),
   unignoreMod: (workshopId: string) => apiDelete(`/mods/ignored/${workshopId}`),
+  unignoreMods: (workshopIds: string[]) =>
+    apiPost<{ success: boolean; removed: number; message?: string }>("/mods/ignored/remove", { workshopIds }),
   clearAllIgnoredMods: () => apiDelete("/mods/ignored"),
 
   // Ignored mod-conflict pairs (false positives on the variant detector)

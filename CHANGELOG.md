@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Mod Manager ignored list (#232):** tick several ignored mods and remove them in one go, or clear the whole list from a toolbar above the list (it asks first); the per-row button is now called Un-ignore with a tooltip, and the trash tooltip says the entry stays on the list.
 - **Dashboard memory of a Docker-managed server:** the PZ Memory row shows the game container's real memory use now (it used to show the panel's own memory, ~0.1 GB, because the game runs in its own container and the panel could not see its process).
 - **Empty players bar:** the dashboard's players row fills its bar against MaxPlayers from the server's own INI now (`3 / 4` online), instead of rendering an empty track next to the count. The count itself now prefers the PanelBridge's live roster while its heartbeat is alive — the RCON-poll fallback froze at the last known roster through RCON outages (exactly the window in which players disconnect), so the row could keep showing the pre-outage count.
 - **Similar server names:** a server called "Survival" no longer claims the running process of "Survival Hard", so Force Stop no longer kills both.
