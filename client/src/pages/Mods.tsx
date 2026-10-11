@@ -404,6 +404,8 @@ export default function Mods() {
   const [confirmBulkRemove, setConfirmBulkRemove] = useState(false)
   const [ignoredMods, setIgnoredMods] = useState<Array<{ workshop_id: string; name: string | null; ignored_at: string }>>([])
   const [ignoredModsOpen, setIgnoredModsOpen] = useState(false)
+  // Rows ticked in the ignored list, for "Remove selected" (issue #232).
+  const [selectedIgnored, setSelectedIgnored] = useState<Set<string>>(() => new Set())
   // Conflict pairs the user has explicitly dismissed as false positives.
   const [ignoredPairs, setIgnoredPairs] = useState<Array<{ mod_a: string; mod_b: string; reason?: string | null }>>([])
   const [confirmRemoveWorkshop, setConfirmRemoveWorkshop] = useState<{ wsId: string; knownModIds: string[] } | null>(null) // wsId for config tab remove
@@ -1698,8 +1700,58 @@ export default function Mods() {
     }
   }
 
+  const toggleIgnoredSelect = useCallback((workshopId: string) => {
+    setSelectedIgnored(prev => {
+      const next = new Set(prev)
+      if (next.has(workshopId)) next.delete(workshopId)
+      else next.add(workshopId)
+      return next
+    })
+  }, [])
+
+  // Drop selections whose entry is gone (after a refresh, a clear or a server switch).
+  useEffect(() => {
+    setSelectedIgnored(prev => {
+      if (prev.size === 0) return prev
+      const present = new Set(ignoredMods.map(m => m.workshop_id))
+      const next = new Set([...prev].filter(id => present.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [ignoredMods])
+
+  const handleUnignoreSelected = async () => {
+    if (busyRef.current || !canManageMods || selectedIgnored.size === 0) return
+    busyRef.current = true
+    setLoading(true)
+    try {
+      const result = await modsApi.unignoreMods([...selectedIgnored])
+      setSelectedIgnored(new Set())
+      toast({
+        title: t('toasts.ignoreSelectedRemovedTitle'),
+        description: t('toasts.ignoreSelectedRemovedDesc', { n: result?.removed ?? 0 }),
+      })
+      fetchData()
+    } catch (error) {
+      toast({
+        title: t('toasts.unIgnoreFailedTitle'),
+        description: getUserErrorMessage(error, t('toasts.unknownError')),
+        variant: 'destructive',
+      })
+    } finally {
+      setLoading(false)
+      busyRef.current = false
+    }
+  }
+
   const handleClearAllIgnored = async () => {
     if (busyRef.current || !canManageMods) return
+    const confirmed = await confirm({
+      title: t('toasts.clearIgnoredConfirmTitle'),
+      description: t('toasts.clearIgnoredConfirmDesc', { n: ignoredMods.length }),
+      confirmLabel: t('toasts.clearIgnoredConfirmLabel'),
+    })
+    if (!confirmed) return
+    if (busyRef.current) return
     busyRef.current = true
     setLoading(true)
     try {
@@ -2326,6 +2378,7 @@ export default function Mods() {
       setMods([])
       setDisabledMods([])
       setIgnoredMods([])
+      setSelectedIgnored(new Set())
 
       // pz-bughunt round 18: depSearchOpen/depSearchData/depAdding/
       // depAddResults are the SAME lifted state used by both this page's
@@ -4394,68 +4447,114 @@ export default function Mods() {
                   <ChevronRight className={`w-4 h-4 transition-transform ${ignoredModsOpen ? 'rotate-90' : ''}`} />
                 </button>
                 {ignoredModsOpen && (
-                  <div className="border-t border-border/30 px-4 py-2 space-y-1">
-                    {ignoredMods.map((mod) => (
-                      <div key={mod.workshop_id} className="flex items-center justify-between gap-3 py-1.5 text-sm">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <EyeOff className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
-                          <span className="truncate text-muted-foreground">{mod.name || t('ignoredPanel.workshopModFallback', { id: mod.workshop_id })}</span>
-                          <span className="text-xs text-muted-foreground/50 tabular-nums shrink-0">{mod.workshop_id}</span>
-                        </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            onClick={() => handleUnignoreMod(mod.workshop_id)}
-                            disabled={loading || deletingId !== null || !canManageMods}
-                          >
-                            {t('ignoredPanel.reTrack')}
-                          </Button>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="iconDense"
-                                className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                                onClick={() => handleDeleteDiskMod(mod.workshop_id, mod.name || undefined)}
-                                disabled={deletingId !== null || loading || !canManageMods}
-                              >
-                                {deletingId === mod.workshop_id ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                )}
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>{t('ignoredPanel.deleteFromDisk')}</TooltipContent>
-                          </Tooltip>
-                        </div>
+                  <div className="border-t border-border/30">
+                    {/* The bulk actions sit above the list, not below it: with hundreds of
+                        entries the bottom of the list is a long scroll away. */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/20 px-4 py-2">
+                      <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-muted-foreground">
+                        <Checkbox
+                          checked={selectedIgnored.size === ignoredMods.length}
+                          onCheckedChange={() =>
+                            setSelectedIgnored(
+                              selectedIgnored.size === ignoredMods.length
+                                ? new Set()
+                                : new Set(ignoredMods.map(m => m.workshop_id)),
+                            )
+                          }
+                          disabled={loading || deletingId !== null || !canManageMods}
+                        />
+                        {t('ignoredPanel.selectAll')}
+                      </label>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={handleUnignoreSelected}
+                          disabled={selectedIgnored.size === 0 || loading || deletingId !== null || !canManageMods}
+                        >
+                          {t('ignoredPanel.removeSelected', { n: selectedIgnored.size })}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={handleClearAllIgnored}
+                          disabled={loading || deletingId !== null || !canManageMods}
+                        >
+                          {t('ignoredPanel.clearAllIgnored')}
+                        </Button>
                       </div>
-                    ))}
-                    <div className="flex justify-end gap-1 pt-1 pb-0.5 border-t border-border/20 mt-1">
+                    </div>
+                    <div className="max-h-96 space-y-1 overflow-y-auto px-4 py-2">
+                      {ignoredMods.map((mod) => {
+                        const label = mod.name || t('ignoredPanel.workshopModFallback', { id: mod.workshop_id })
+                        return (
+                          <div key={mod.workshop_id} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <Checkbox
+                                checked={selectedIgnored.has(mod.workshop_id)}
+                                onCheckedChange={() => toggleIgnoredSelect(mod.workshop_id)}
+                                disabled={loading || deletingId !== null || !canManageMods}
+                                aria-label={t('ignoredPanel.selectRow', { name: label })}
+                              />
+                              <EyeOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+                              <span className="truncate text-muted-foreground">{label}</span>
+                              <span className="shrink-0 text-xs tabular-nums text-muted-foreground/50">{mod.workshop_id}</span>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1">
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={() => handleUnignoreMod(mod.workshop_id)}
+                                    disabled={loading || deletingId !== null || !canManageMods}
+                                  >
+                                    {t('ignoredPanel.reTrack')}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs">{t('ignoredPanel.reTrackHint')}</TooltipContent>
+                              </Tooltip>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="iconDense"
+                                    className="h-7 w-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                    onClick={() => handleDeleteDiskMod(mod.workshop_id, mod.name || undefined)}
+                                    disabled={deletingId !== null || loading || !canManageMods}
+                                    aria-label={t('ignoredPanel.deleteFromDisk')}
+                                  >
+                                    {deletingId === mod.workshop_id ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent className="max-w-xs">{t('ignoredPanel.deleteFromDisk')}</TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <div className="flex justify-end gap-1 border-t border-border/20 px-4 pb-2 pt-1">
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                        className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
                         onClick={handleDeleteAllIgnoredFromDisk}
                         disabled={loading || deletingId !== null || !canManageMods}
                       >
                         {deletingId === '__batch_ignored__' ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="h-3.5 w-3.5" />
                         )}
                         <span className="ms-1.5">{t('ignoredPanel.deleteAllFromDisk')}</span>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs text-destructive hover:text-destructive"
-                        onClick={handleClearAllIgnored}
-                        disabled={loading || deletingId !== null || !canManageMods}
-                      >
-                        {t('ignoredPanel.clearAllIgnored')}
                       </Button>
                     </div>
                   </div>

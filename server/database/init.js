@@ -2043,6 +2043,27 @@ export async function removeIgnoredMod(workshopId) {
   return true;
 }
 
+// Take several mods off the active server's ignored list in one pass
+// (the Mod Manager's multi-select). Same scoping as removeIgnoredMod: this
+// server's entries plus legacy entries with no server id.
+export async function removeIgnoredMods(workshopIds) {
+  const db = await getDb();
+  if (!db.data.ignored_mods) db.data.ignored_mods = [];
+  const serverId = await getActiveServerId();
+  const wanted = new Set(Array.from(workshopIds || [], String));
+  const before = db.data.ignored_mods.length;
+  db.data.ignored_mods = db.data.ignored_mods.filter(
+    (m) =>
+      !(
+        wanted.has(String(m.workshop_id)) &&
+        (m.server_id === serverId || !m.server_id)
+      ),
+  );
+  const removed = before - db.data.ignored_mods.length;
+  if (removed > 0) scheduleWrite();
+  return removed;
+}
+
 export async function clearAllIgnoredMods() {
   const db = await getDb();
   if (!db.data.ignored_mods) db.data.ignored_mods = [];

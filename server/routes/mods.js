@@ -19,6 +19,7 @@ import {
   addIgnoredMod,
   getIgnoredMods,
   removeIgnoredMod,
+  removeIgnoredMods,
   clearAllIgnoredMods,
   isModIgnored,
   getIgnoredModPairs,
@@ -638,6 +639,38 @@ router.delete("/ignored/:workshopId", async (req, res) => {
     res.json({ success: true, message: "Mod removed from ignore list" });
   } catch (error) {
     log.error(`Failed to un-ignore mod: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Un-ignore several mods at once (multi-select in the ignored list). Ids that
+// are not on the list are skipped, so the count says what actually changed.
+router.post("/ignored/remove", async (req, res) => {
+  try {
+    const { workshopIds } = req.body || {};
+    if (!Array.isArray(workshopIds) || workshopIds.length === 0) {
+      return res.status(400).json({
+        error: "workshopIds must be a non-empty array",
+        code: ErrorCode.MODS_WORKSHOP_IDS_ARRAY_REQUIRED,
+      });
+    }
+    const cleaned = workshopIds
+      .map(String)
+      .filter((id) => /^\d{1,15}$/.test(id));
+    if (cleaned.length === 0) {
+      return res.status(400).json({
+        error: "No valid workshop IDs provided",
+        code: ErrorCode.MODS_NO_VALID_WORKSHOP_IDS,
+      });
+    }
+    const removed = await removeIgnoredMods(cleaned);
+    res.json({
+      success: true,
+      message: `Removed ${removed} mod${removed !== 1 ? "s" : ""} from the ignore list`,
+      removed,
+    });
+  } catch (error) {
+    log.error(`Failed to un-ignore mods: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
