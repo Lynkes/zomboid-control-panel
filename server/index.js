@@ -3572,7 +3572,17 @@ async function startPerfPolling() {
         // performance-history chart's running/stopped annotation, nothing
         // gates on it), but it perpetuated the same wrong answer those other
         // sites were fixed to stop giving.
-        playerCount: lastPlayerList.length,
+        // Player count: prefer the PanelBridge's event-driven roster while its
+        // heartbeat is alive. The RCON-poll fallback (lastPlayerList) freezes
+        // at the last known roster whenever RCON is unreachable -- which is
+        // exactly the window in which players disconnect (server restarts, RCON
+        // blips) -- so the telemetry row kept insisting "2/4" through an outage
+        // the bridge was reporting truthfully. The status watchdog already
+        // expires stale bridge state to alive:false, so the fallback engages
+        // on its own.
+        playerCount: panelBridge.modStatus?.alive
+          ? panelBridge.modStatus.playerCount
+          : lastPlayerList.length,
         // MaxPlayers from the server's own INI, so the telemetry players bar
         // can be a fraction of capacity ("3 / 4"). Null when unknown (read
         // refused, INI missing) -- the client then hides the bar and keeps
