@@ -56,6 +56,7 @@ import {
 import { RconService } from "./services/rcon.js";
 import { findOtherRunningServers, ServerManager } from "./services/serverManager.js";
 import { DockerClient } from "./services/dockerClient.js";
+import { readConfiguredMaxPlayers } from "./services/serverCapacity.js";
 import {
   runManagedLifecycle,
   setDockerClient,
@@ -3387,7 +3388,66 @@ async function getSwapSnapshot() {
   return lastSwapSample.value;
 }
 
+// MaxPlayers for the dashboard's players telemetry bar ("3 / 4" online of
+// capacity). The INI value only changes when someone edits the config (and
+// restarts the server), so it is cached instead of re-read on every tick; a
+// read that fails or is refused caches as null for the same window rather
+// than hammering the disk or the log -- the refusal itself is warned once
+// per folder by the reader (services/serverCapacity.js).
+// The cache is keyed by the active server: switching servers must not show the
+// previous server's capacity for the rest of the window.
+let lastMaxPlayersSample = { at: 0, key: null, value: null };
+const MAX_PLAYERS_SAMPLE_INTERVAL_MS = 300000;
+
+async function getMaxPlayersSample() {
+  const now = Date.now();
+  let key = null;
+  try {
+    const activeServer = await getActiveServer();
+    key = `${activeServer?.id ?? ""}|${activeServer?.serverName ?? ""}`;
+  } catch {
+    // unkeyed: re-read below
+  }
+  if (
+    key !== null &&
+    key === lastMaxPlayersSample.key &&
+    now - lastMaxPlayersSample.at < MAX_PLAYERS_SAMPLE_INTERVAL_MS
+  ) {
+    return lastMaxPlayersSample.value;
+  }
+  lastMaxPlayersSample.at = now;
+  lastMaxPlayersSample.key = key;
+  try {
+    lastMaxPlayersSample.value = await readConfiguredMaxPlayers();
+  } catch {
+    lastMaxPlayersSample.value = null;
+  }
+  return lastMaxPlayersSample.value;
+}
+
 async function getPzProcessMemory() {
+  // A Docker-managed server's JVM lives in another container's PID namespace,
+  // so the `ps` probe below -- written for a panel-hosted server -- can never
+  // see it: for a container-hosted deployment this resolved null forever, and
+  // the dashboard silently plotted the panel's OWN Node heap in its place
+  // (DashboardPerformanceCharts falls back from pzMemMB to memoryMB), reading
+  // ~0.1 GB while the game sat at 5.7 GB. Ask Docker for the active server's
+  // managed container stats instead -- the same number the Docker page shows,
+  // and only ever for the container named in this panel's own server profile.
+  // Falls through to the process probe when there is no managed container (a
+  // panel-hosted server), Docker control is off, or the query fails -- which
+  // includes a stopped container, whose /stats call errors.
+  try {
+    const activeServer = await getActiveServer();
+    const containerRef =
+      activeServer?.dockerContainerName || activeServer?.dockerContainerId;
+    if (containerRef && dockerClient.enabled) {
+      const stats = await dockerClient.getContainerStats(containerRef);
+      if (stats?.memoryUsed > 0) return stats.memoryUsed;
+    }
+  } catch {
+    // fall through to the local process probe
+  }
   // Get PZ server Java process memory from OS
   return new Promise((resolve) => {
     const timeout = setTimeout(() => resolve(null), 5000);
@@ -3513,6 +3573,11 @@ async function startPerfPolling() {
         // gates on it), but it perpetuated the same wrong answer those other
         // sites were fixed to stop giving.
         playerCount: lastPlayerList.length,
+        // MaxPlayers from the server's own INI, so the telemetry players bar
+        // can be a fraction of capacity ("3 / 4"). Null when unknown (read
+        // refused, INI missing) -- the client then hides the bar and keeps
+        // the count, same reader the Discord presence uses.
+        maxPlayers: await getMaxPlayersSample(),
         serverRunning: Boolean(await getObservedServerRunning()),
       };
 

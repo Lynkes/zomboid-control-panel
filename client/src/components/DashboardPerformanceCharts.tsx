@@ -6,6 +6,9 @@ export interface DashboardPerformancePoint {
   time: string
   timestamp?: string
   playerCount: number
+  /** MaxPlayers from the server INI. undefined = unknown: the players row is
+   *  a bare count and renders without a bar rather than a made-up fraction. */
+  maxPlayers?: number
   memoryMB: number
   pzMemMB?: number
   cpuPercent?: number
@@ -120,13 +123,25 @@ function DashboardPerformanceCharts({
 
       // A flat line at zero is a dead cell. Who is online is answered in the verdict band.
       if (performanceHistory.some(point => point.playerCount > 0)) {
+        // The bar is the reading only where a real ceiling exists: MaxPlayers
+        // from the server INI (absent when the read is refused or pre-1.4.13
+        // snapshots) leaves the row a count with no bar -- a bare track with
+        // no fill reads as a broken bar, which is what this used to render
+        // for every server (see the ratio contract on Metric.ratio).
+        const maxPlayers = latest.maxPlayers
         m.push({
           key: 'players',
           label: t('players'),
-          value: latest.playerCount,
+          value: maxPlayers
+            ? `${latest.playerCount} / ${maxPlayers}`
+            : latest.playerCount,
           unit: t('onlineUnit'),
           dataKey: 'playerCount',
+          // Deliberately not loadTone(): a nearly-full server is a full
+          // house, not a warning -- colour reads "anyone home", the bar and
+          // the right-hand % read how full.
           tone: latest.playerCount > 0 ? 'good' : 'neutral',
+          ratio: maxPlayers && maxPlayers > 0 ? latest.playerCount / maxPlayers : null,
         })
       }
     }
