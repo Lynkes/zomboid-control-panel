@@ -10,8 +10,6 @@ import {
   MessageFlags,
   escapeMarkdown,
 } from "discord.js";
-import fs from "fs";
-import path from "path";
 import { request as undiciRequest, Headers as UndiciHeaders } from "undici";
 import { STATUS_CODES } from "http";
 import { types } from "util";
@@ -21,9 +19,6 @@ import { getActiveServer, getSetting, setSetting } from "../database/init.js";
 import { loadUiSecret, writeUiSecretFile } from "../utils/uiSecretFile.js";
 import { sanitizeError } from "../utils/sanitize.js";
 import { describeStartFailure } from "./discordStartFailure.js";
-import { readIniValues } from "../utils/templateFiles.js";
-import { activeServerConfigDir, serverConfigDirRefusal } from "../utils/serverConfigPath.js";
-import { describeRefusal, logRefusalOnce } from "./zomboidDataPath.js";
 import { runManagedLifecycle } from "./managedContainer.js";
 import { readConfiguredMaxPlayers } from "./serverCapacity.js";
 import { resolveObservedServerRunning } from "../utils/serverStatus.js";

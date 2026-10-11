@@ -3394,15 +3394,29 @@ async function getSwapSnapshot() {
 // read that fails or is refused caches as null for the same window rather
 // than hammering the disk or the log -- the refusal itself is warned once
 // per folder by the reader (services/serverCapacity.js).
-let lastMaxPlayersSample = { at: 0, value: null };
+// The cache is keyed by the active server: switching servers must not show the
+// previous server's capacity for the rest of the window.
+let lastMaxPlayersSample = { at: 0, key: null, value: null };
 const MAX_PLAYERS_SAMPLE_INTERVAL_MS = 300000;
 
 async function getMaxPlayersSample() {
   const now = Date.now();
-  if (now - lastMaxPlayersSample.at < MAX_PLAYERS_SAMPLE_INTERVAL_MS) {
+  let key = null;
+  try {
+    const activeServer = await getActiveServer();
+    key = `${activeServer?.id ?? ""}|${activeServer?.serverName ?? ""}`;
+  } catch {
+    // unkeyed: re-read below
+  }
+  if (
+    key !== null &&
+    key === lastMaxPlayersSample.key &&
+    now - lastMaxPlayersSample.at < MAX_PLAYERS_SAMPLE_INTERVAL_MS
+  ) {
     return lastMaxPlayersSample.value;
   }
   lastMaxPlayersSample.at = now;
+  lastMaxPlayersSample.key = key;
   try {
     lastMaxPlayersSample.value = await readConfiguredMaxPlayers();
   } catch {
@@ -3425,7 +3439,8 @@ async function getPzProcessMemory() {
   // includes a stopped container, whose /stats call errors.
   try {
     const activeServer = await getActiveServer();
-    const containerRef = activeServer?.dockerContainerName;
+    const containerRef =
+      activeServer?.dockerContainerName || activeServer?.dockerContainerId;
     if (containerRef && dockerClient.enabled) {
       const stats = await dockerClient.getContainerStats(containerRef);
       if (stats?.memoryUsed > 0) return stats.memoryUsed;
