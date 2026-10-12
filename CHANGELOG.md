@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **PanelBridge updates from the Steam Workshop (#235):** a new bridge version now triggers the same warned auto-restart as any other mod update; Steam's public API never lists the bridge item, so the panel read its update time from the item's change notes instead.
 - **Kill Player (PanelBridge update):** the Kill button now kills the player; it always failed with "not dead" (and had already removed godmode) because the bridge dropped the one argument the game needs.
+- **Events Clock day (PanelBridge update):** the Clock card shows the real day of the month (it showed one less) and Set Time sets the day you typed (it set one more), including the 1st, which it used to refuse.
 
 ## [1.4.13] - 2026-10-11
 

@@ -13,6 +13,14 @@
                     with "No implementation found", leaving the player alive
                     with godmode already stripped. invoke() now passes every
                     argument it was given, nil or not.
+                - Fix: the Events page's Clock shows and sets the right day.
+                    GameTime counts the day from 0, so getGameTime reported
+                    day 14 on the 15th, typing 20 set the 21st, and on the
+                    1st of a month the 0 it read back was refused when sent
+                    to Set Time. getGameTime (and getServerInfo's gameTime)
+                    now report the calendar day (1 = the 1st) and setGameTime
+                    takes it; a day below 1 is refused before anything is
+                    written.
 
                 v1.7.75 Changes:
                 - Fix: two accounts behind one SteamID no longer inflate the
@@ -3222,7 +3230,7 @@ handlers.getServerInfo = function(args)
                 minute = math.floor((tod - hour) * 60)
             end
             gameTimeData = {
-                day = gameTime:getDay(),
+                day = gameTime:getDay() + 1, -- getDay() is zero-based (the 1st is 0), like getMonth()
                 month = gameTime:getMonth() + 1, -- Lua 1-indexed
                 year = gameTime:getYear(),
                 hour = hour,
@@ -4477,7 +4485,13 @@ handlers.getGameTime = function(args)
     return true, {
         year = gameTime:getYear(),
         month = gameTime:getMonth() + 1, -- Lua 1-indexed
-        day = gameTime:getDay(),
+        -- GameTime.getDay() is the zero-based day field (the 1st of a month
+        -- is 0, vanilla DebugDemoTime.lua shows getDay()+1 and rolls the
+        -- month over at getDay() >= daysInMonth). getDayPlusOne() is
+        -- exactly that +1; the plain getter plus 1 is used because vanilla
+        -- Lua never calls getDayPlusOne (see the note on probes above).
+        -- setGameTime takes the same calendar day back.
+        day = gameTime:getDay() + 1,
         hour = timeOfDay,
         minute = math.floor((timeOfDay - hour) * 60),
         dayOfWeek = 0,
@@ -4509,6 +4523,14 @@ handlers.setGameTime = function(args)
 
     local updated = {}
 
+    -- Checked before any field is written: a day below 1 would land on
+    -- setDay(-1), and the hour (written first) must not have been changed
+    -- already when that is refused.
+    local dayArg = args.day ~= nil and tonumber(args.day) or nil
+    if dayArg and dayArg < 1 then
+        return false, nil, "day must be 1 or higher (1 is the first of the month)"
+    end
+
     local function setAndVerify(methodName, value, getterName, expected)
         local ok, err = PanelBridge.invoke(gameTime, methodName, value)
         if not ok then
@@ -4529,13 +4551,12 @@ handlers.setGameTime = function(args)
         updated.hour = hour
     end
 
-    if args.day ~= nil then
-        local day = tonumber(args.day)
-        if day then
-            local ok, err = setAndVerify("setDay", day, "getDay", day)
-            if not ok then return false, nil, err end
-            updated.day = day
-        end
+    if dayArg then
+        -- dayArg is the calendar day (1 = the 1st), the same value
+        -- getGameTime returns; GameTime.setDay/getDay are zero-based.
+        local ok, err = setAndVerify("setDay", dayArg - 1, "getDay", dayArg - 1)
+        if not ok then return false, nil, err end
+        updated.day = dayArg
     end
 
     if args.month ~= nil then

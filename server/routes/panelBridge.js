@@ -2814,7 +2814,7 @@ router.get("/commands", (req, res) => {
         description: "Set game time/date (only sent fields are changed)",
         args: {
           hour: "number (optional)",
-          day: "number (optional)",
+          day: "number 1-31, the day of the month (optional)",
           month: "number 1-12 (optional)",
           year: "number (optional)",
         },
