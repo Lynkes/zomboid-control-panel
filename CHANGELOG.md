@@ -39,6 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Frozen server on a damaged bridge file (PanelBridge update):** a truncated or hand-edited command or queue file in the bridge folder no longer hangs the game forever (and again after every restart); it is reported as unreadable.
 - **Bridge memory growth (PanelBridge update):** the bridge forgets old command ids again; the list of already-run commands grew with every command until the server restarted.
 - **Commands run after a timeout:** a bridge command that waited behind a long task is skipped once the panel has reported it timed out (it used to run 15-30 s later anyway, so a retry doubled hordes, airdrops and item gifts).
+- **Templates hidden built-ins:** hiding a built-in template now shows it in the Hidden section (with its Restore button) right away instead of after a page reload.
+- **Server Finder version filter:** "Clear all filters" now resets the version filter too, and a refresh that drops the filtered version falls back to all versions instead of leaving an empty list.
+- **Leaderboard after a server switch:** the board now clears and reloads for the new server at once instead of showing the old server's players for up to 30 seconds, and a slow answer for the old server can no longer overwrite it.
+- **Game clock edits reverted by the poll:** a picked hour, day or month on the Events page's Game clock now stays put until you apply it, instead of being reset to the game's time within 10 seconds.
+- **Events Bridge tools without bridge.command:** roles without the permission (Technician, Moderator by default) no longer see the section or poll safehouse/faction lists into endless 403s with a permanent "could not refresh lists" message.
+- **Server Config after switching to a never-started server:** the Server Settings, Spawn Points and Spawn Regions tabs now empty instead of showing the previous server's values (and saving them into the new server).
+- **Server Config unsaved edits:** switching tabs or between Form and Raw with unsaved edits now asks first (raw edits used to be dropped silently), and the leave-page warning also covers raw Spawn Points and Spawn Regions edits.
 
 ## [1.4.13] - 2026-10-11
 

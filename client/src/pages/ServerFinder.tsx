@@ -344,6 +344,15 @@ export default function ServerFinder() {
     })
   }, [servers])
 
+  // A refresh can drop the version the operator filtered on (the last server
+  // running it went offline). The Select then shows nothing selected and the
+  // list stays empty with no visible reason, so fall back to "all versions".
+  useEffect(() => {
+    if (versionFilter !== 'all' && !availableVersions.includes(versionFilter)) {
+      setVersionFilter('all')
+    }
+  }, [availableVersions, versionFilter])
+
   // Calculate pagination from filtered servers
   const totalPages = Math.max(1, Math.ceil(filteredServers.length / ITEMS_PER_PAGE))
 
@@ -749,6 +758,7 @@ export default function ServerFinder() {
                       setHideFull(false)
                       setHidePrivate(false)
                       setShowVacOnly(false)
+                      setVersionFilter('all')
                     }
                   }}
                 />

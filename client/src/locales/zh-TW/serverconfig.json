@@ -327,6 +327,14 @@
     "description": "將當前檔案替換為「{{filename}}」？即時設定中未儲存的變更將會遺失。",
     "confirmLabel": "恢復"
   },
+  "switchEditorConfirm": {
+    "rawTitle": "放棄未儲存的原始編輯？",
+    "rawDescription": "原始編輯器中有未儲存的變更。繼續將放棄這些變更，並從磁碟重新載入檔案。",
+    "rawConfirm": "放棄變更",
+    "formTitle": "不帶表單變更開啟原始編輯器？",
+    "formDescription": "原始編輯器顯示磁碟上的檔案，不包含您在表單中未儲存的變更。從原始編輯器儲存會取代這些變更。",
+    "formConfirm": "開啟原始編輯器"
+  },
   "fileBrowserDialog": {
     "title": "選擇圖片檔案",
     "description": "瀏覽並選擇伺服器要使用的 PNG 圖片檔案。",

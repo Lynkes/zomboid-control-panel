@@ -71,6 +71,7 @@ const SERVER_SCOPED_PAGES = [
   "Chat.tsx",
   "Debug.tsx",
   "WorldMap.tsx",
+  "Leaderboard.tsx",
 ] as const;
 
 // Tolerates both quote styles and an optional-chaining socket reference

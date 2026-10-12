@@ -340,6 +340,14 @@
     "description": "Ranplase fichye aktyèl la ak \"{{filename}}\"? Chanjman ki pa sove nan konfigirasyon aktif la ap pèdi.",
     "confirmLabel": "Retabli"
   },
+  "switchEditorConfirm": {
+    "rawTitle": "Jete chanjman ou pa sove nan editè brit la?",
+    "rawDescription": "Editè brit la gen chanjman ki pa sove. Si w kontinye, yo ap jete epi fichye a ap chaje ankò soti nan disk la.",
+    "rawConfirm": "Jete chanjman yo",
+    "formTitle": "Louvri editè brit la san chanjman fòm nan?",
+    "formDescription": "Editè brit la montre fichye a jan li ye sou disk la, san chanjman fòm ou pa sove yo. Sove nan editè brit la ranplase yo.",
+    "formConfirm": "Louvri editè brit la"
+  },
   "fileBrowserDialog": {
     "title": "Chwazi Fichye Imaj",
     "description": "Navige pou jwenn yon fichye imaj PNG pou sèvè ou a.",
