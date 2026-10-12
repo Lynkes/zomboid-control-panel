@@ -6,6 +6,14 @@
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
 
+                vNEXT Changes:
+                - Fix: Kill Player can kill. invoke() lost a trailing nil
+                    argument, so Kill(nil) reached the game as Kill() with no
+                    argument (every Kill overload takes 1 to 4) and failed
+                    with "No implementation found", leaving the player alive
+                    with godmode already stripped. invoke() now passes every
+                    argument it was given, nil or not.
+
                 v1.7.75 Changes:
                 - Fix: two accounts behind one SteamID no longer inflate the
                     leaderboard. Split-screen guests report the host's
@@ -963,9 +971,15 @@ function PanelBridge.invoke(obj, methodName, ...)
         return false, "Method '" .. methodName .. "' not available on this build"
     end
 
+    -- Count the arguments up front: `{ ... }` plus a bare unpack(args) stops at
+    -- the first trailing nil (the length operator treats it as the end), so
+    -- invoke(player, "Kill", nil) used to call player:Kill() with NO argument
+    -- and the game, whose Kill overloads all take 1-4, raised "No
+    -- implementation found for function: Kill". Pass all n through.
+    local argCount = select("#", ...)
     local args = { ... }
     local success, result = pcall(function()
-        return obj[methodName](obj, unpack(args))
+        return obj[methodName](obj, unpack(args, 1, argCount))
     end)
 
     if success then
