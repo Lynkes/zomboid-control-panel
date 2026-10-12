@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **RCON password ending in a space or tab:** a password pasted with a trailing blank is now refused when saving (the game trims the end of each server.ini line, so its password differed from the panel's and every RCON login failed).
 - **Backups on a nearly full disk:** with a backup count of 1 the only backup is no longer deleted to make room for its replacement (the backup is refused for lack of space instead), so a failed new archive can never leave you with none.
 - **RCON reconnect interval:** Settings, the API and the RCON service now all use 5-600 s (1-4 used to save fine but silently run at 5), and a never-saved interval shows and saves as the old 60 s instead of 5.
+- **Mods= backslash prefixes:** adding a mod to the server no longer strips the `\` prefix from the other entries on the Mods= line (the game ignores it, but your file keeps it).
 
 ## [1.4.13] - 2026-10-11
 

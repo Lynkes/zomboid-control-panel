@@ -1,5 +1,5 @@
-import { splitIniList, splitModIdList } from "../utils/modIni.js";
-import { sanitizeIniList } from "../utils/sanitize.js";
+import { splitIniList, splitModIdTokens } from "../utils/modIni.js";
+import { sanitizeIniList, sanitizeIniValue } from "../utils/sanitize.js";
 import { sanitizeModIdListWithDiskBypass } from "./workshopModInfo.js";
 
 // Pure edits of a server .ini's text for "add this workshop item": no file
@@ -33,9 +33,11 @@ function setIniLine(content, lineRe, key, value) {
  *
  * - WorkshopItems=: the id is appended unless it is already listed.
  * - Mods=: each of `modIds` not already on the line is appended. Entries that
- *   were already on the line stay as they are; an added all-digit id (which
- *   normally means a workshop id landed in Mods=) is kept only when a mod.info
- *   on disk confirms it. `addedModIds` is what was really written.
+ *   were already on the line stay as they were written (a "\" prefix, which
+ *   the game ignores, included; only the padding around them goes) and count
+ *   as there with or without it. An added all-digit id (which normally means
+ *   a workshop id landed in Mods=) is kept only when a mod.info on disk
+ *   confirms it. `addedModIds` is what was really written.
  * - Map=: each of `mapFolders` not already listed is put in front (a missing
  *   Map= line starts from the vanilla map).
  *
@@ -56,7 +58,8 @@ export function addWorkshopItemToIni(
     text = setIniLine(text, WORKSHOP_ITEMS_LINE_RE, "WorkshopItems", sanitizeIniList(workshopIds));
   }
 
-  const modsBefore = splitModIdList(text.match(MODS_RE)?.[1]);
+  const modTokens = splitModIdTokens(text.match(MODS_RE)?.[1]);
+  const modsBefore = modTokens.map((entry) => entry.id);
   const modsAfter = [...modsBefore];
   let addedModIds = [];
   for (const modId of modIds) {
@@ -77,9 +80,18 @@ export function addWorkshopItemToIni(
     const written = new Set(newModList.split(";"));
     addedModIds = addedModIds.filter((id) => written.has(id));
     if (addedModIds.length > 0) {
-      text = setIniLine(text, MODS_LINE_RE, "Mods", newModList);
+      // The entries that were already there keep the text they were written
+      // with (a "\" prefix and all): the game ignores the backslashes, but the
+      // file is the operator's. The sanitizer's list says what is new.
+      const addedSet = new Set(addedModIds);
+      const kept = modTokens.map((entry) => sanitizeIniValue(entry.raw)).filter(Boolean);
+      const newEntries = newModList.split(";").filter((id) => addedSet.has(id));
+      const mods = [...kept, ...newEntries];
+      text = setIniLine(text, MODS_LINE_RE, "Mods", mods.join(";"));
+      modCount = mods.length;
+    } else {
+      modCount = newModList ? newModList.split(";").length : 0;
     }
-    modCount = newModList ? newModList.split(";").length : 0;
   }
 
   const addedMapFolders = [];
