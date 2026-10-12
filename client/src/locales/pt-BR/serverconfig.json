@@ -340,6 +340,14 @@
     "description": "Substituir o arquivo atual por \"{{filename}}\"? As alterações não salvas na configuração em uso serão perdidas.",
     "confirmLabel": "Restaurar"
   },
+  "switchEditorConfirm": {
+    "rawTitle": "Descartar as alterações não salvas do texto?",
+    "rawDescription": "O editor de texto tem alterações não salvas. Se continuar, elas serão descartadas e o arquivo será carregado de novo do disco.",
+    "rawConfirm": "Descartar alterações",
+    "formTitle": "Abrir o editor de texto sem as alterações do formulário?",
+    "formDescription": "O editor de texto mostra o arquivo como está no disco, sem as alterações não salvas do formulário. Salvar pelo editor de texto as substitui.",
+    "formConfirm": "Abrir editor de texto"
+  },
   "fileBrowserDialog": {
     "title": "Selecionar arquivo de imagem",
     "description": "Procure um arquivo de imagem PNG para o seu servidor.",

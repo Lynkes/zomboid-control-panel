@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Game clock edits reverted by the poll:** a picked hour, day or month on the Events page's Game clock now stays put until you apply it, instead of being reset to the game's time within 10 seconds.
 - **Events Bridge tools without bridge.command:** roles without the permission (Technician, Moderator by default) no longer see the section or poll safehouse/faction lists into endless 403s with a permanent "could not refresh lists" message.
 - **Server Config after switching to a never-started server:** the Server Settings, Spawn Points and Spawn Regions tabs now empty instead of showing the previous server's values (and saving them into the new server).
+- **Server Config unsaved edits:** switching tabs or between Form and Raw with unsaved edits now asks first (raw edits used to be dropped silently), and the leave-page warning also covers raw Spawn Points and Spawn Regions edits.
 
 ## [1.4.13] - 2026-10-11
 

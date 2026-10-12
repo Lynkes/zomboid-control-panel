@@ -418,6 +418,14 @@
     "description": "将当前文件替换为“{{filename}}”？实时配置中未保存的更改将丢失。",
     "confirmLabel": "恢复"
   },
+  "switchEditorConfirm": {
+    "rawTitle": "放弃未保存的原始编辑？",
+    "rawDescription": "原始编辑器中有未保存的更改。继续将放弃这些更改，并从磁盘重新加载文件。",
+    "rawConfirm": "放弃更改",
+    "formTitle": "不带表单更改打开原始编辑器？",
+    "formDescription": "原始编辑器显示磁盘上的文件，不包含您在表单中未保存的更改。从原始编辑器保存会替换这些更改。",
+    "formConfirm": "打开原始编辑器"
+  },
   "iniSettings": {
     "general": {
       "PublicName": {

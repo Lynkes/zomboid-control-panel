@@ -1687,6 +1687,73 @@ export default function ServerConfig() {
     return JSON.stringify(sandboxData) !== JSON.stringify(originalSandboxData)
   }, [editorMode, activeTab, rawContent, originalRawContent, sandboxData, originalSandboxData])
 
+  // Unsaved edits in the raw textarea, whichever file it shows. The Raw
+  // buttons and a tab change in raw mode all reload the textarea from disk
+  // (loadRawContent), so they ask before replacing such edits.
+  const hasRawEdits = editorMode === 'raw' && rawContent !== originalRawContent
+  // Unsaved changes in the Form of the tab on screen: the raw editor shows
+  // the file as it is on disk, without them.
+  const hasFormEdits = editorMode === 'structured'
+    && ((activeTab === 'ini' && hasIniChanges) || (activeTab === 'sandbox' && hasSandboxChanges))
+
+  const confirmDiscardRawEdits = () => confirm({
+    title: t('switchEditorConfirm.rawTitle'),
+    description: t('switchEditorConfirm.rawDescription'),
+    confirmLabel: t('switchEditorConfirm.rawConfirm'),
+    destructive: true,
+  })
+
+  const showRawEditor = (type: 'ini' | 'sandbox' | 'spawnpoints' | 'spawnregions') => {
+    setEditorMode('raw')
+    void loadRawContent(type)
+  }
+
+  // Form button: leaving the raw editor drops what was typed there.
+  const openFormEditor = () => {
+    if (!hasRawEdits) {
+      setEditorMode('structured')
+      return
+    }
+    void confirmDiscardRawEdits().then((ok) => { if (ok) setEditorMode('structured') })
+  }
+
+  // Raw button: loads the file from disk into the textarea. Pressed while the
+  // raw editor is already open it reloads, which drops the edits in it too.
+  const openRawEditor = (type: 'ini' | 'sandbox' | 'spawnpoints' | 'spawnregions') => {
+    if (hasRawEdits) {
+      void confirmDiscardRawEdits().then((ok) => { if (ok) showRawEditor(type) })
+    } else if (hasFormEdits) {
+      void confirm({
+        title: t('switchEditorConfirm.formTitle'),
+        description: t('switchEditorConfirm.formDescription'),
+        confirmLabel: t('switchEditorConfirm.formConfirm'),
+        variant: 'warning',
+      }).then((ok) => { if (ok) showRawEditor(type) })
+    } else {
+      showRawEditor(type)
+    }
+  }
+
+  const handleTabChange = (value: string) => {
+    const switchTab = () => {
+      setActiveTab(value)
+      if (editorMode === 'raw') {
+        const typeMap: Record<string, 'ini' | 'sandbox' | 'spawnpoints' | 'spawnregions'> = {
+          ini: 'ini',
+          sandbox: 'sandbox',
+          spawnpoints: 'spawnpoints',
+          spawnregions: 'spawnregions'
+        }
+        void loadRawContent(typeMap[value] || 'ini')
+      }
+    }
+    if (!hasRawEdits) {
+      switchTab()
+      return
+    }
+    void confirmDiscardRawEdits().then((ok) => { if (ok) switchTab() })
+  }
+
   // GET/PUT /server-files/ini and /sandbox both resolve "the active server"
   // fresh per-request rather than taking a server id (see loadData() and
   // handleSaveIni/handleSaveSandbox), so if the active server changes while
@@ -1714,11 +1781,11 @@ export default function ServerConfig() {
   // Warn before leaving with unsaved changes
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => { e.preventDefault() }
-    if (hasIniChanges || hasSandboxChanges) {
+    if (hasIniChanges || hasSandboxChanges || hasRawEdits) {
       window.addEventListener('beforeunload', handler)
     }
     return () => window.removeEventListener('beforeunload', handler)
-  }, [hasIniChanges, hasSandboxChanges])
+  }, [hasIniChanges, hasSandboxChanges, hasRawEdits])
 
   // Create manual backup
   const handleCreateBackup = async (type: 'ini' | 'sandbox' | 'spawnpoints' | 'spawnregions') => {
@@ -2275,6 +2342,8 @@ export default function ServerConfig() {
         description: result?.restartRequired ? t('toasts.savedRestartToApply') : t('toasts.spawnPointsSavedDesc'),
       })
       if (editorMode === 'raw') {
+        // What is in the textarea is now the file: not an unsaved edit.
+        setOriginalRawContent(rawContent)
         loadData()
       }
     } catch (error) {
@@ -2307,6 +2376,8 @@ export default function ServerConfig() {
         description: result?.restartRequired ? t('toasts.savedRestartToApply') : t('toasts.spawnRegionsSavedDesc'),
       })
       if (editorMode === 'raw') {
+        // What is in the textarea is now the file: not an unsaved edit.
+        setOriginalRawContent(rawContent)
         loadData()
       }
     } catch (error) {
@@ -3076,18 +3147,7 @@ export default function ServerConfig() {
       </TacticalPanel>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={(v) => {
-        setActiveTab(v)
-        if (editorMode === 'raw') {
-          const typeMap: Record<string, 'ini' | 'sandbox' | 'spawnpoints' | 'spawnregions'> = {
-            ini: 'ini',
-            sandbox: 'sandbox',
-            spawnpoints: 'spawnpoints',
-            spawnregions: 'spawnregions'
-          }
-          loadRawContent(typeMap[v] || 'ini')
-        }
-      }}>
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className="flex h-auto flex-wrap gap-1 bg-muted/30 border border-border/50 p-1 rounded-md w-full">
           {([
             // pathsInfo is null both for a genuinely-unconfigured panel (where
@@ -3301,7 +3361,7 @@ export default function ServerConfig() {
                     <Button
                       variant={editorMode === 'structured' ? 'secondary' : 'ghost'}
                       size="sm"
-                      onClick={() => setEditorMode('structured')}
+                      onClick={() => openFormEditor()}
                       className="h-7 gap-1.5 px-2 text-xs font-medium"
                       aria-pressed={editorMode === 'structured'}
                     >
@@ -3310,10 +3370,7 @@ export default function ServerConfig() {
                     <Button
                       variant={editorMode === 'raw' ? 'secondary' : 'ghost'}
                       size="sm"
-                      onClick={() => {
-                        setEditorMode('raw')
-                        loadRawContent('ini')
-                      }}
+                      onClick={() => openRawEditor('ini')}
                       className="h-7 gap-1.5 px-2 text-xs font-medium"
                       aria-pressed={editorMode === 'raw'}
                     >
@@ -3755,7 +3812,7 @@ export default function ServerConfig() {
                     <Button
                       variant={editorMode === 'structured' ? 'secondary' : 'ghost'}
                       size="sm"
-                      onClick={() => setEditorMode('structured')}
+                      onClick={() => openFormEditor()}
                       className="h-7 gap-1.5 px-2 text-xs font-medium"
                       aria-pressed={editorMode === 'structured'}
                     >
@@ -3764,10 +3821,7 @@ export default function ServerConfig() {
                     <Button
                       variant={editorMode === 'raw' ? 'secondary' : 'ghost'}
                       size="sm"
-                      onClick={() => {
-                        setEditorMode('raw')
-                        loadRawContent('sandbox')
-                      }}
+                      onClick={() => openRawEditor('sandbox')}
                       className="h-7 gap-1.5 px-2 text-xs font-medium"
                       aria-pressed={editorMode === 'raw'}
                     >
@@ -4195,7 +4249,7 @@ export default function ServerConfig() {
                     <Button
                       variant={editorMode === 'structured' ? 'secondary' : 'ghost'}
                       size="sm"
-                      onClick={() => setEditorMode('structured')}
+                      onClick={() => openFormEditor()}
                       className="h-7 gap-1.5 px-2 text-xs font-medium"
                       aria-pressed={editorMode === 'structured'}
                     >
@@ -4204,10 +4258,7 @@ export default function ServerConfig() {
                     <Button
                       variant={editorMode === 'raw' ? 'secondary' : 'ghost'}
                       size="sm"
-                      onClick={() => {
-                        setEditorMode('raw')
-                        loadRawContent('spawnpoints')
-                      }}
+                      onClick={() => openRawEditor('spawnpoints')}
                       className="h-7 gap-1.5 px-2 text-xs font-medium"
                       aria-pressed={editorMode === 'raw'}
                     >
@@ -4286,10 +4337,7 @@ export default function ServerConfig() {
                   <div className="mt-6">
                     <Button
                       variant="outline"
-                      onClick={() => {
-                        setEditorMode('raw')
-                        loadRawContent('spawnpoints')
-                      }}
+                      onClick={() => openRawEditor('spawnpoints')}
                       className="gap-1.5 text-xs font-medium"
                     >
                       <Code className="h-3.5 w-3.5" /> {t('spawnPointsTab.openRawFile')}
@@ -4314,7 +4362,7 @@ export default function ServerConfig() {
                     <Button
                       variant={editorMode === 'structured' ? 'secondary' : 'ghost'}
                       size="sm"
-                      onClick={() => setEditorMode('structured')}
+                      onClick={() => openFormEditor()}
                       className="h-7 gap-1.5 px-2 text-xs font-medium"
                       aria-pressed={editorMode === 'structured'}
                     >
@@ -4323,10 +4371,7 @@ export default function ServerConfig() {
                     <Button
                       variant={editorMode === 'raw' ? 'secondary' : 'ghost'}
                       size="sm"
-                      onClick={() => {
-                        setEditorMode('raw')
-                        loadRawContent('spawnregions')
-                      }}
+                      onClick={() => openRawEditor('spawnregions')}
                       className="h-7 gap-1.5 px-2 text-xs font-medium"
                       aria-pressed={editorMode === 'raw'}
                     >
