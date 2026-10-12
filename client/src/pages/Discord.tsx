@@ -111,7 +111,7 @@ interface WebhookEvent {
 }
 
 type WebhookEvents = Record<string, WebhookEvent>;
-type FlashMessage = { type: "success" | "error"; text: string };
+type FlashMessage = { type: "success" | "warning" | "error"; text: string };
 
 // Small helper to copy text to clipboard
 function CopyButton({ text, label }: { text: string; label?: string }) {
@@ -159,15 +159,29 @@ function InlineFeedback({
 
   return (
     <Alert
-      variant={message.type === "error" ? "destructive" : "default"}
+      variant={
+        message.type === "error"
+          ? "destructive"
+          : message.type === "warning"
+            ? "warning"
+            : "default"
+      }
       className={className}
     >
       {message.type === "error" ? (
         <AlertCircle className="h-4 w-4" />
+      ) : message.type === "warning" ? (
+        <AlertTriangle className="h-4 w-4" />
       ) : (
         <CheckCircle2 className="h-4 w-4" />
       )}
-      <AlertTitle>{message.type === "error" ? t("shared.errorTitle") : t("shared.successTitle")}</AlertTitle>
+      <AlertTitle>
+        {message.type === "error"
+          ? t("shared.errorTitle")
+          : message.type === "warning"
+            ? t("shared.warningTitle")
+            : t("shared.successTitle")}
+      </AlertTitle>
       <AlertDescription>{message.text}</AlertDescription>
     </Alert>
   );
@@ -1937,11 +1951,20 @@ export default function Discord() {
                   if (!canManageIntegrations) return;
                   try {
                     setSavingPermissions(true);
-                    await discordApi.updatePermissions(commandPermissions);
-                    setPermissionsMessage({
-                      type: "success",
-                      text: t("management.commandPermissions.savedMessage"),
-                    });
+                    const saved = await discordApi.updatePermissions(commandPermissions);
+                    // The tiers are saved either way; this only says whether
+                    // Discord took the slash command update that goes with them.
+                    setPermissionsMessage(
+                      saved?.commandsRegistered === false
+                        ? {
+                            type: "warning",
+                            text: t("management.commandPermissions.savedNotRegistered"),
+                          }
+                        : {
+                            type: "success",
+                            text: t("management.commandPermissions.savedMessage"),
+                          },
+                    );
                   } catch (error: unknown) {
                     const msg = getUserErrorMessage(error, t("management.commandPermissions.saveFailedFallback"));
                     setPermissionsMessage({ type: "error", text: msg });

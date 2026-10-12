@@ -5,6 +5,7 @@
     "errorTitle": "خطأ",
     "noPermission": "ليست لديك صلاحية إدارة تكامل Discord.",
     "successTitle": "نجاح",
+    "warningTitle": "تحذير",
     "unknownError": "خطأ غير معروف"
   },
   "events": {
@@ -242,6 +243,7 @@
       "save": "حفظ الصلاحيات",
       "saving": "جارٍ الحفظ...",
       "savedMessage": "تم حفظ صلاحيات الأوامر. وأُعيد تسجيل أوامر السلاش.",
+      "savedNotRegistered": "تم حفظ صلاحيات الأوامر، لكن فشل تحديث أوامر السلاش في Discord. ستُحدَّث عند تشغيل البوت في المرة القادمة أو عند الحفظ مرة أخرى.",
       "saveFailedFallback": "فشل حفظ الصلاحيات"
     },
     "configuration": {

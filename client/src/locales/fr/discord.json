@@ -5,6 +5,7 @@
     "errorTitle": "Erreur",
     "noPermission": "Vous n'avez pas la permission de gérer l'intégration Discord.",
     "successTitle": "Succès",
+    "warningTitle": "Avertissement",
     "unknownError": "erreur inconnue"
   },
   "events": {
@@ -260,6 +261,7 @@
       "save": "Enregistrer les permissions",
       "saving": "Enregistrement...",
       "savedMessage": "Permissions des commandes enregistrées. Commandes slash réenregistrées.",
+      "savedNotRegistered": "Permissions des commandes enregistrées, mais la mise à jour des commandes slash dans Discord a échoué. Elles seront mises à jour au prochain démarrage du bot ou au prochain enregistrement.",
       "saveFailedFallback": "Échec de l'enregistrement des permissions"
     },
     "configuration": {

@@ -5,6 +5,7 @@
     "errorTitle": "错误",
     "noPermission": "您没有权限管理 Discord 集成。",
     "successTitle": "成功",
+    "warningTitle": "警告",
     "unknownError": "未知错误"
   },
   "events": {
@@ -260,6 +261,7 @@
       "save": "保存权限",
       "saving": "保存中…",
       "savedMessage": "命令权限已保存，斜杠命令已重新注册。",
+      "savedNotRegistered": "命令权限已保存，但在 Discord 中更新斜杠命令失败。下次机器人启动或再次保存时会更新。",
       "saveFailedFallback": "保存权限失败"
     },
     "configuration": {

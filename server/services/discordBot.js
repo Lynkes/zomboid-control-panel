@@ -927,11 +927,24 @@ export class DiscordBot {
       JSON.stringify(this.commandPermissions),
     );
 
-    // Re-register commands to update Discord-side default permissions
+    // Re-register commands to update Discord-side default permissions. The
+    // tiers are saved by now, so a Discord outage or a rate limit here must
+    // not turn the save into an error: it is reported as `commandsRegistered:
+    // false` and the commands catch up at the next registration (a restart of
+    // the bot, or the next save). null = nothing to register (bot not running).
+    let commandsRegistered = null;
     if (this.isRunning && this.client?.user) {
-      await this.registerCommands();
+      try {
+        await this.registerCommands();
+        commandsRegistered = true;
+      } catch (e) {
+        commandsRegistered = false;
+        log.warn(
+          `Command tiers saved, but re-registering the slash commands failed: ${e.message}`,
+        );
+      }
     }
-    return this.commandPermissions;
+    return { permissions: this.commandPermissions, commandsRegistered };
   }
 
   getCommandPermissions() {

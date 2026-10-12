@@ -5,6 +5,7 @@
     "errorTitle": "Error",
     "noPermission": "You don't have permission to manage the Discord integration.",
     "successTitle": "Success",
+    "warningTitle": "Warning",
     "unknownError": "unknown error"
   },
   "events": {
@@ -242,6 +243,7 @@
       "save": "Save Permissions",
       "saving": "Saving...",
       "savedMessage": "Command permissions saved. Slash commands re-registered.",
+      "savedNotRegistered": "Command permissions saved, but updating the slash commands in Discord failed. They update the next time the bot starts or you save again.",
       "saveFailedFallback": "Failed to save permissions"
     },
     "configuration": {

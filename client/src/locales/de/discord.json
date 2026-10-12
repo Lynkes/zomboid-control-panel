@@ -5,6 +5,7 @@
     "errorTitle": "Fehler",
     "noPermission": "Sie haben keine Berechtigung, die Discord-Integration zu verwalten.",
     "successTitle": "Erfolg",
+    "warningTitle": "Warnung",
     "unknownError": "unbekannter Fehler"
   },
   "events": {
@@ -260,6 +261,7 @@
       "save": "Berechtigungen speichern",
       "saving": "Wird gespeichert …",
       "savedMessage": "Befehlsberechtigungen gespeichert. Slash-Commands wurden neu registriert.",
+      "savedNotRegistered": "Befehlsberechtigungen gespeichert, aber die Slash-Commands konnten in Discord nicht aktualisiert werden. Sie werden beim nächsten Start des Bots oder beim nächsten Speichern aktualisiert.",
       "saveFailedFallback": "Berechtigungen konnten nicht gespeichert werden"
     },
     "configuration": {

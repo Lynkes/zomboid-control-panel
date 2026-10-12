@@ -5,6 +5,7 @@
     "errorTitle": "Erro",
     "noPermission": "Você não tem permissão para gerenciar a integração com o Discord.",
     "successTitle": "Sucesso",
+    "warningTitle": "Aviso",
     "unknownError": "erro desconhecido"
   },
   "events": {
@@ -242,6 +243,7 @@
       "save": "Salvar permissões",
       "saving": "Salvando...",
       "savedMessage": "Permissões de comandos salvas. Comandos de barra registrados novamente.",
+      "savedNotRegistered": "Permissões de comandos salvas, mas não foi possível atualizar os comandos de barra no Discord. Eles serão atualizados na próxima vez que o bot iniciar ou que você salvar novamente.",
       "saveFailedFallback": "Falha ao salvar as permissões"
     },
     "configuration": {

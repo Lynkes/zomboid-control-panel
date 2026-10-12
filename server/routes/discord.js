@@ -885,8 +885,15 @@ router.put("/permissions", async (req, res) => {
         });
       }
 
-      const updated = await discordBot.updateCommandPermissions(permissions);
-      res.json({ success: true, permissions: updated });
+      const { permissions: updated, commandsRegistered } =
+        await discordBot.updateCommandPermissions(permissions);
+      // The tiers are saved either way. When pushing them to Discord failed,
+      // say so (the page shows a warning) instead of reporting a failed save.
+      res.json({
+        success: true,
+        permissions: updated,
+        ...(commandsRegistered === false ? { commandsRegistered: false } : {}),
+      });
     });
   } catch (error) {
     log.error(`Failed to update command permissions: ${error.message}`);

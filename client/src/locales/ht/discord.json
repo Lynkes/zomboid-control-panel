@@ -5,6 +5,7 @@
     "errorTitle": "Erè",
     "noPermission": "Ou pa gen pèmisyon pou jere entegrasyon Discord la.",
     "successTitle": "Siksè",
+    "warningTitle": "Avètisman",
     "unknownError": "erè enkoni"
   },
   "events": {
@@ -242,6 +243,7 @@
       "save": "Sove Otorizasyon",
       "saving": "N ap sove...",
       "savedMessage": "Otorizasyon kòmand sove. Kòmand slash re-anrejistre.",
+      "savedNotRegistered": "Otorizasyon kòmand sove, men mizajou kòmand slash yo nan Discord echwe. Yo ap mete ajou pwochen fwa bot la demare oswa lè w sove ankò.",
       "saveFailedFallback": "Echwe pou sove otorizasyon"
     },
     "configuration": {

@@ -2074,6 +2074,9 @@ export const discordApi = {
     apiPut("/discord/permissions", { permissions }) as Promise<{
       success: boolean;
       permissions: Record<string, string>;
+      // false when the tiers were saved but pushing the slash commands to
+      // Discord failed; absent otherwise.
+      commandsRegistered?: boolean;
     }>,
 };
 
