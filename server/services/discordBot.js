@@ -1400,7 +1400,14 @@ export class DiscordBot {
       let truncated = 0;
       for (let i = 0; i < players.length; i++) {
         const p = players[i];
-        const line = `• ${escapeMarkdown(String(typeof p === "object" ? (p.name ?? "") : p))}`;
+        // Masked links escaped, as in /leaderboard and the notifications: an
+        // embed description renders a name like [x](https://...) as a link.
+        // Flattened and capped too (a co-op name can hold line breaks).
+        const { text: shown, cut } = flattenForDiscord(
+          typeof p === "object" ? (p.name ?? "") : p,
+          NOTIFICATION_VALUE_MAX,
+        );
+        const line = `• ${escapeMarkdown(shown, { maskedLink: true })}${cut ? "…" : ""}`;
         if (total + line.length + 1 > MAX_DESC) {
           truncated = players.length - i;
           break;

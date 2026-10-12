@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discord /start on a remote server:** it now says the panel cannot start a remote server (like /restart and the Start button) instead of launching a local process from its settings.
 - **Discord "Send test message" after a failure:** it now goes out even while the bot has paused posting to the channel after repeated errors, and a successful test (or saving another channel, server or token) resumes notifications at once instead of after up to 30 minutes.
 - **Discord notifications with odd player names:** a name containing line breaks or a very long name can no longer add lines to, or fill, a join/death/leave message (names are flattened and cut at 64 characters).
+- **Discord /players with link-like names:** a player named like a link ("[x](https://...)") is shown as plain text instead of a clickable link.
 
 ## [1.4.13] - 2026-10-11
 
