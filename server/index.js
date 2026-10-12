@@ -2247,6 +2247,12 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
     } catch {
       /* best effort */
     }
+    // All-in-one container: the container restarting ends every game server
+    // in it, same as `docker stop` (see gracefulShutdown()). Save and quit
+    // them first rather than have them SIGKILLed.
+    if (isAllInOneContainer()) {
+      await stopGameServersBeforeContainerExit();
+    }
     // Detect if we're running under an orchestrator that will restart us.
     // - systemd sets INVOCATION_ID (service unit) or NOTIFY_SOCKET
     // - Docker creates /.dockerenv at root (or /run/.containerenv on podman)

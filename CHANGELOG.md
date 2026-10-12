@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Docker container Start/Stop/Restart on the Servers page:** the page now waits up to 3 minutes for Docker (it gave up at 15 s and showed a failed toast while the stop was still running), so a heavy world no longer looks like a failure or invites a second click.
 - **Restart Panel in the Docker image:** the panel now exits non-zero when restarted from the dashboard, so a container with `restart: on-failure` comes back instead of staying stopped.
 - **Restart Panel on Windows:** the Start.bat window no longer closes after a plain restart (the panel exits for Start.bat to relaunch it instead of starting a copy of itself), so a later Restart and Apply has a supervisor to apply the update.
-- **All-in-one Docker stop:** `docker stop`, a reboot or an image update now saves and quits the running game servers first (up to 90 s) instead of killing them mid-run; Docker gets a 120 s stop timeout from the compose file.
+- **All-in-one Docker stop:** `docker stop`, a reboot, an image update or Restart Panel now saves and quits the running game servers first (up to 90 s) instead of killing them mid-run; Docker gets a 120 s stop timeout from the compose file.
 - **PanelBridge updates from the Steam Workshop (#235):** a new bridge version now triggers the same warned auto-restart as any other mod update; Steam's public API never lists the bridge item, so the panel read its update time from the item's change notes instead.
 
 ## [1.4.13] - 2026-10-11

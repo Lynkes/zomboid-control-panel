@@ -25,6 +25,14 @@ vi.mock("child_process", async (importOriginal) => {
   return { ...actual, default: { ...actual, spawn: spawnMock.fn }, spawn: spawnMock.fn };
 });
 
+vi.mock("../services/containerShutdown.js", async (importOriginal) => {
+  const { vi: vitest } = await import("vitest");
+  return {
+    ...(await importOriginal()),
+    saveAndStopLocalServers: vitest.fn(async () => ({ attempted: 1, stopped: true })),
+  };
+});
+
 vi.mock("../services/panelBridge.js", async () => {
   const { EventEmitter } = await import("events");
   const { vi: vitest } = await import("vitest");
@@ -206,5 +214,42 @@ describe("isOrchestratedProcess", () => {
         },
       }),
     ).toBe(false);
+  });
+});
+
+// In the all-in-one image the game servers die with the container, and the
+// container is what restarts: same as `docker stop`, they are saved and
+// quit first (gracefulShutdownContainer.test.js covers the SIGTERM path).
+describe("plain Restart Panel in the all-in-one container", () => {
+  it("saves and quits the game servers before exiting", async () => {
+    const { saveAndStopLocalServers } = await import("../services/containerShutdown.js");
+    saveAndStopLocalServers.mockClear();
+    process.pkg = undefined;
+    setPlatform("linux");
+    process.env.INVOCATION_ID = "0123456789abcdef";
+    process.env.PANEL_ALL_IN_ONE = "true";
+    try {
+      await restartAndWaitForExit();
+    } finally {
+      delete process.env.PANEL_ALL_IN_ONE;
+    }
+
+    expect(saveAndStopLocalServers).toHaveBeenCalledTimes(1);
+    expect(saveAndStopLocalServers.mock.invocationCallOrder[0]).toBeLessThan(
+      process.exit.mock.invocationCallOrder[0],
+    );
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  it("leaves the servers alone everywhere else", async () => {
+    const { saveAndStopLocalServers } = await import("../services/containerShutdown.js");
+    saveAndStopLocalServers.mockClear();
+    process.pkg = undefined;
+    setPlatform("linux");
+    process.env.INVOCATION_ID = "0123456789abcdef";
+
+    await restartAndWaitForExit();
+
+    expect(saveAndStopLocalServers).not.toHaveBeenCalled();
   });
 });
