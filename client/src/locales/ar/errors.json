@@ -186,7 +186,7 @@
   "QUICK_SETUP_MISSING_FIELDS": "حقول مطلوبة مفقودة: installPath, serverName",
   "QUICK_SETUP_SERVER_FILES_NOT_FOUND": "لم يُعثر على ملفات الخادم. تأكد من أن المسار يحتوي على ملفات خادم Project Zomboid المخصص.",
   "CONFIGURE_RCON_PASSWORD_REQUIRED": "كلمة مرور RCON مطلوبة",
-  "RCON_PASSWORD_UNSUPPORTED_CHARS": "لا يمكن أن تحتوي كلمة مرور RCON على «=» أو على فاصل سطر. يقرأ Project Zomboid القيمة في server.ini حتى أول «=» فقط، لذلك ستختلف كلمة المرور في اللعبة عن كلمة المرور في اللوحة.",
+  "RCON_PASSWORD_UNSUPPORTED_CHARS": "لا يمكن أن تحتوي كلمة مرور RCON على «=» أو على فاصل سطر، ولا أن تنتهي بمسافة أو بعلامة جدولة. يقرأ Project Zomboid القيمة في server.ini حتى أول «=» فقط ويحذف الفراغات من نهاية السطر، لذلك ستختلف كلمة المرور في اللعبة عن كلمة المرور في اللوحة.",
   "SERVER_CONFIG_PATH_NOT_SET": "لم يُضبط مسار إعدادات الخادم. يرجى تشغيل التثبيت أولًا.",
   "SERVER_CONFIG_FILE_NOT_FOUND": "لم يُعثر على إعدادات الخادم في {{path}}. شغّل الخادم مرة واحدة أولًا لتوليد ملف الإعدادات.",
   "RELOAD_LUA_FILENAME_REQUIRED": "اسم الملف مطلوب",

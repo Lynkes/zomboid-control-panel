@@ -12,20 +12,27 @@
  *   - the line is split on "=" and the value is the piece after the first
  *     one, so "ab=cd" is "ab" to the game (the same run read "ab=cd" back as
  *     "ab");
+ *   - each line is trimmed with Java's String.trim() before it is split, which
+ *     takes every char up to U+0020 off its END (a space, a tab, any control
+ *     char; not a no-break space or DEL): "RCONPassword=abc " reads back as
+ *     "abc". Nothing is taken off the start of the value, so " abc" is kept
+ *     as it is;
  *   - nothing else is special inside a value: ";" and "#" (only a "#" at the
  *     start of a line starts a comment), quotes, "$" and backslashes all come
  *     back exactly as written.
- * So only "=" and line breaks can't be written in a form the game reads back
- * identically. They are refused when the password is saved, not stripped
- * from the .ini copy: stripping left the game on a different password than
- * the panel, and every RCON login failed with no hint why. ";" used to be
- * stripped too (sanitizeIniValue is made for the ";"-separated list fields)
- * and is written as it is now.
+ * So "=", line breaks and a blank at the very end can't be written in a form
+ * the game reads back identically. They are refused when the password is
+ * saved, not stripped from the .ini copy: stripping left the game on a
+ * different password than the panel, and every RCON login failed with no
+ * hint why. ";" used to be stripped too (sanitizeIniValue is made for the
+ * ";"-separated list fields) and is written as it is now.
  */
 
 import { ErrorCode } from "./errorCodes.js";
 
-const UNREADABLE_IN_INI = /[=\r\n]/;
+// "=" and line breaks anywhere; a char the game's trim() removes (up to
+// U+0020) as the last one.
+const UNREADABLE_IN_INI = /[=\r\n]|[\x00-\x20]$/;
 
 /**
  * Whether the game would read a different value than `password` from a
@@ -45,7 +52,7 @@ export function rconPasswordCannotBeStoredInIni(password) {
 export function rconPasswordUnsupportedCharsBody() {
   return {
     error:
-      'The RCON password cannot contain "=" or a line break: Project Zomboid reads a server.ini value only up to the first "=", so the game would end up with a different password than the panel.',
+      'The RCON password cannot contain "=" or a line break, or end with a space or tab: Project Zomboid reads a server.ini value only up to the first "=" and trims blanks off the end of the line, so the game would end up with a different password than the panel.',
     code: ErrorCode.RCON_PASSWORD_UNSUPPORTED_CHARS,
   };
 }

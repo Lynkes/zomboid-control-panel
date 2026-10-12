@@ -923,7 +923,7 @@ export async function ensureRconConfigured(server = null) {
     if (rconPasswordCannotBeStoredInIni(rconPassword)) {
       logRefusalOnce(
         log,
-        `ensureRconConfigured: not writing the RCON password for ${activeServer.name || serverName} -- it contains "=" or a line break, which Project Zomboid cannot read back from server.ini (it reads a value only up to the first "="), so the panel's RCON login would not match the game's. server.ini is left as it is; set a different RCON password for this server in the panel and in server.ini [${ErrorCode.RCON_PASSWORD_UNSUPPORTED_CHARS}]`,
+        `ensureRconConfigured: not writing the RCON password for ${activeServer.name || serverName} -- it contains "=" or a line break, or ends with a space or tab, which Project Zomboid cannot read back from server.ini (it reads a value only up to the first "=" and trims the end of the line), so the panel's RCON login would not match the game's. server.ini is left as it is; set a different RCON password for this server in the panel and in server.ini [${ErrorCode.RCON_PASSWORD_UNSUPPORTED_CHARS}]`,
       );
       return false;
     }

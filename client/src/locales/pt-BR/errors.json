@@ -186,7 +186,7 @@
   "QUICK_SETUP_MISSING_FIELDS": "Campos obrigatórios ausentes: installPath, serverName",
   "QUICK_SETUP_SERVER_FILES_NOT_FOUND": "Arquivos do servidor não encontrados. Verifique se o caminho contém os arquivos do servidor dedicado do Project Zomboid.",
   "CONFIGURE_RCON_PASSWORD_REQUIRED": "A senha RCON é obrigatória",
-  "RCON_PASSWORD_UNSUPPORTED_CHARS": "A senha RCON não pode conter “=” nem quebra de linha. O Project Zomboid lê um valor do server.ini somente até o primeiro “=”, então o jogo ficaria com uma senha diferente da do painel.",
+  "RCON_PASSWORD_UNSUPPORTED_CHARS": "A senha RCON não pode conter “=” nem quebra de linha, nem terminar com espaço ou tabulação. O Project Zomboid lê um valor do server.ini somente até o primeiro “=” e remove os espaços em branco do fim da linha, então o jogo ficaria com uma senha diferente da do painel.",
   "SERVER_CONFIG_PATH_NOT_SET": "Caminho de configuração do servidor não definido. Execute a instalação primeiro.",
   "SERVER_CONFIG_FILE_NOT_FOUND": "Configuração do servidor não encontrada em {{path}}. Inicie o servidor uma vez para gerar o arquivo de configuração.",
   "RELOAD_LUA_FILENAME_REQUIRED": "O nome do arquivo é obrigatório",
