@@ -1,5 +1,9 @@
+import fs from "fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isWindowsPanelSupervisor } from "../utils/restartSupervisor.js";
+import {
+  isOrchestratedProcess,
+  isWindowsPanelSupervisor,
+} from "../utils/restartSupervisor.js";
 
 // POST /api/panel/restart with NO staged update: what the process does on its
 // way out decides whether the thing that launched it brings it back.
@@ -139,5 +143,68 @@ describe("plain Restart Panel (no staged update)", () => {
 
     expect(spawnMock.fn).not.toHaveBeenCalled();
     expect(process.exit).toHaveBeenCalledWith(75);
+  });
+});
+
+// The Docker image runs `node server/index.js`, so it is never `process.pkg`.
+// Orchestrator detection only ran for the packaged exe, so the unpackaged
+// panel exited 0 and a container with `restart: on-failure` (or no policy)
+// stayed stopped after the Restart button. Exit 1 makes any policy restart it.
+describe("plain Restart Panel of an unpackaged panel (the Docker image)", () => {
+  it("exits 1 under systemd", async () => {
+    process.pkg = undefined;
+    setPlatform("linux");
+    process.env.INVOCATION_ID = "0123456789abcdef";
+
+    await restartAndWaitForExit();
+
+    expect(spawnMock.fn).not.toHaveBeenCalled();
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  it("exits 1 inside a container", async () => {
+    process.pkg = undefined;
+    setPlatform("linux");
+    // /.dockerenv exists in the container; stand in for it.
+    const real = fs.existsSync;
+    vi.spyOn(fs, "existsSync").mockImplementation((target) =>
+      target === "/.dockerenv" ? true : real(target),
+    );
+
+    await restartAndWaitForExit();
+
+    expect(process.exit).toHaveBeenCalledWith(1);
+  });
+
+  it("still exits 0 when nothing will restart it (a dev run)", async () => {
+    process.pkg = undefined;
+    setPlatform("linux");
+
+    await restartAndWaitForExit();
+
+    expect(spawnMock.fn).not.toHaveBeenCalled();
+    expect(process.exit).toHaveBeenCalledWith(0);
+  });
+});
+
+describe("isOrchestratedProcess", () => {
+  it("recognises systemd, Docker and Podman", () => {
+    const none = () => false;
+    expect(isOrchestratedProcess({ env: { INVOCATION_ID: "x" }, existsSync: none })).toBe(true);
+    expect(isOrchestratedProcess({ env: { NOTIFY_SOCKET: "/run/systemd/notify" }, existsSync: none })).toBe(true);
+    expect(isOrchestratedProcess({ env: {}, existsSync: (p) => p === "/.dockerenv" })).toBe(true);
+    expect(isOrchestratedProcess({ env: {}, existsSync: (p) => p === "/run/.containerenv" })).toBe(true);
+    expect(isOrchestratedProcess({ env: {}, existsSync: none })).toBe(false);
+  });
+
+  it("treats a failing filesystem check as not orchestrated", () => {
+    expect(
+      isOrchestratedProcess({
+        env: {},
+        existsSync: () => {
+          throw new Error("EACCES");
+        },
+      }),
+    ).toBe(false);
   });
 });

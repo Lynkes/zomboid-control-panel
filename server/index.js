@@ -114,6 +114,7 @@ import { discoverMounts } from "./services/mountDiscovery.js";
 import { shouldAutoOpenBrowser } from "./utils/browserLaunch.js";
 import {
   isLinuxPanelSupervisor,
+  isOrchestratedProcess,
   isWindowsPanelSupervisor,
 } from "./utils/restartSupervisor.js";
 import {
@@ -2252,7 +2253,12 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
     // In those cases we don't self-respawn — the orchestrator handles respawn.
     // Respawning ourselves under systemd causes a duplicate process; under
     // Docker (PID 1) the detached child dies with the container anyway.
-    let orchestrated = false;
+    // Decided for an unpackaged panel too: the Docker image runs
+    // `node server/index.js`, and exiting 0 there left a `restart: on-failure`
+    // (or no policy) container stopped for good after the Restart button.
+    const orchestrated = isOrchestratedProcess({
+      existsSync: (target) => fs.existsSync(target),
+    });
     const linuxSupervisor = isLinuxPanelSupervisor();
     // Start.bat (supervisor v2) relaunches on exit 75 and treats exit 0 as an
     // operator stop: self-respawning here left the supervisor quitting
@@ -2260,19 +2266,6 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
     // supervised, so a later restart-and-apply exited 75 with nobody to apply.
     const windowsSupervisor = isWindowsPanelSupervisor();
     if (isPackaged) {
-      try {
-        if (process.env.INVOCATION_ID || process.env.NOTIFY_SOCKET)
-          orchestrated = true;
-        if (
-          fs.existsSync("/.dockerenv") ||
-          fs.existsSync("/run/.containerenv")
-        ) {
-          orchestrated = true;
-        }
-      } catch {
-        /* best effort */
-      }
-
       if (!orchestrated && !linuxSupervisor && !windowsSupervisor) {
         // Running as packaged exe standalone — spawn self, then exit.
         // On Linux, prefer the freshly-applied binary path (linuxRespawnPath)
@@ -2294,6 +2287,10 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
           "Running under the Linux supervisor — exiting for start.sh to relaunch",
         );
       }
+    } else if (orchestrated) {
+      log.info(
+        "Running under orchestrator (systemd/Docker) — exiting for external restart",
+      );
     }
     // Exit code matters under an orchestrator. The shipped systemd unit uses
     // `Restart=on-failure` (zomboid-panel.service), which treats exit 0 as a
