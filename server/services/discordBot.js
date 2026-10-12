@@ -304,6 +304,33 @@ export const START_ALREADY_IN_PROGRESS = Symbol(
   "discord-start-already-in-progress",
 );
 
+// A failure that is the network's or Discord's own outage (DNS, a dropped
+// connection, a 5xx, a login that never became ready) and not the
+// configuration: worth trying again later, unlike a bad token or missing
+// intents. error.status is set by both of @discordjs/rest's error classes, so
+// checking it is exact; the message check covers undici's network errors.
+export function isTransientDiscordError(error) {
+  if (
+    typeof error?.status === "number" &&
+    error.status >= 500 &&
+    error.status < 600
+  ) {
+    return true;
+  }
+  if (error?.code === "ReadyTimeout") return true;
+  return /EAI_AGAIN|ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|Connect Timeout|fetch failed|UND_ERR/i.test(
+    `${error?.message || ""} ${error?.cause?.code || ""}`,
+  );
+}
+
+// Pauses before each background retry of a failed boot-time auto-start: the
+// network is often not up yet when the panel starts with the machine. Short
+// at first, then spaced out; after the last one the bot stays stopped until
+// someone starts it.
+export const AUTO_START_RETRY_DELAYS_MS = [
+  15_000, 30_000, 60_000, 120_000, 300_000, 600_000,
+];
+
 export class DiscordBot {
   constructor(rconService, serverManager, scheduler, logTailer = null) {
     this.client = null;
@@ -320,6 +347,7 @@ export class DiscordBot {
     // Claimed synchronously at the top of start(), released in a finally --
     // see start()'s own comment for the double-start race this closes.
     this._starting = false;
+    this._autoStartRetryTimer = null; // see scheduleAutoStartRetry()
     // Claimed synchronously at the top of stop(), released once it's done --
     // see the 'shardDisconnect' handler's own comment (round 19) for the
     // race this closes: an intentional stop() calls client.destroy(), which
@@ -899,6 +927,7 @@ export class DiscordBot {
     this.chatRelayChannelId = null;
     this.chatRelayScope = "public";
     this._registeredGuildId = null;
+    this.cancelAutoStartRetry();
     this._channelBreakers.clear();
     this._outsideGuildRefusals.clear();
     this._lastLifecycleState = null;
@@ -2025,13 +2054,7 @@ export class DiscordBot {
       // error.status is set by both of @discordjs/rest's own error classes
       // (DiscordAPIError, HTTPError) — checking it is exact, unlike sniffing
       // error.message for a status-shaped substring.
-      const transient =
-        (typeof error.status === "number" &&
-          error.status >= 500 &&
-          error.status < 600) ||
-        /EAI_AGAIN|ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|Connect Timeout|fetch failed|UND_ERR/i.test(
-          error.message || "",
-        );
+      const transient = isTransientDiscordError(error);
 
       // Open the circuit on N consecutive failures of ANY kind. For
       // non-transient errors (channel deleted, missing perms, invalid token)
@@ -2523,7 +2546,13 @@ export class DiscordBot {
       // message to send), so it's outside the ErrorCode registry's remit
       // (server/utils/errorCodes.js) despite mirroring discord.js's own
       // internal error codes (TokenInvalid, DisallowedIntents, ...).
-      this.lastStartError = { kind: error.code || null, message: error.message };
+      this.lastStartError = {
+        kind: error.code || null,
+        message: error.message,
+        // Internal (getStatus() does not pass it on): decides whether the
+        // boot-time auto-start tries again.
+        transient: isTransientDiscordError(error),
+      };
       if (this.logTailer && this._onGameChat) {
         try {
           this.logTailer.off("chatMessage", this._onGameChat);
@@ -2545,7 +2574,57 @@ export class DiscordBot {
       return false;
     }
   }
+  // Boot-time auto-start that failed because of the network (see
+  // isTransientDiscordError()) tries again in the background, so the bot comes
+  // up by itself once Discord is reachable and nobody has to notice it is
+  // down. Never blocks the caller. Ends on success, on a failure that is not
+  // the network's (bad token, missing intents), when the bot was started or
+  // stopped by hand, or after the last delay; stop() and a wipe cancel it, so
+  // a bot an operator stopped is not started behind their back.
+  scheduleAutoStartRetry(delaysMs = AUTO_START_RETRY_DELAYS_MS) {
+    this.cancelAutoStartRetry();
+    const attempt = (index) => {
+      if (index >= delaysMs.length) {
+        log.warn(
+          "Discord bot is still not connected after the last automatic retry; start it from the Discord page once Discord is reachable.",
+        );
+        return;
+      }
+      const timer = setTimeout(async () => {
+        if (this._autoStartRetryTimer !== timer) return;
+        this._autoStartRetryTimer = null;
+        if (this.isRunning || !this.token || !this.guildId) return;
+        log.info(
+          `Retrying the Discord bot start (attempt ${index + 1} of ${delaysMs.length})...`,
+        );
+        let started;
+        try {
+          // The same critical section POST /start takes.
+          started = await this.withConfigMutex(() => this.start());
+        } catch (error) {
+          log.warn(`Discord bot start retry failed: ${error.message}`);
+          started = false;
+        }
+        if (started === START_ALREADY_IN_PROGRESS || this.isRunning) return;
+        if (started === false && this.lastStartError?.transient) {
+          attempt(index + 1);
+        }
+      }, delaysMs[index]);
+      if (typeof timer.unref === "function") timer.unref();
+      this._autoStartRetryTimer = timer;
+    };
+    attempt(0);
+  }
+
+  cancelAutoStartRetry() {
+    if (this._autoStartRetryTimer) {
+      clearTimeout(this._autoStartRetryTimer);
+      this._autoStartRetryTimer = null;
+    }
+  }
+
   async stop() {
+    this.cancelAutoStartRetry();
     // See the constructor's own comment on this flag: client.destroy()
     // below closes the gateway itself, which can fire 'shardDisconnect'
     // before this function reaches its own isRunning=false a few lines

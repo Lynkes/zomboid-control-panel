@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discord /kick reason and history:** the reply shows the reason the server actually received (accents are folded, unsupported characters dropped), and the kick now appears in the player action history like a kick from the Players page.
 - **Discord settings saved but the bot could not reconnect:** changing the token or server ID now shows a warning with the reason when the bot fails to reconnect, instead of "saved successfully".
 - **Discord event messages cut at 500 characters:** the template box stops at 500 characters, the length the server keeps, instead of silently dropping the rest on save.
+- **Discord bot not coming up after a reboot:** when Discord or the network is unreachable as the panel starts, the bot now keeps retrying in the background (15 s up to 10 min) instead of staying down until you start it by hand; a bad token still isn't retried.
 
 ## [1.4.13] - 2026-10-11
 

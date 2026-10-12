@@ -487,6 +487,8 @@ router.post("/stop", async (req, res) => {
     // HT4d: under the config mutex, see POST /start above.
     await discordBot.withConfigMutex(async () => {
       if (!discordBot.isRunning) {
+        // A stop request also ends a boot-time start retry still waiting.
+        discordBot.cancelAutoStartRetry?.();
         return res.json({ success: true, message: "Bot is not running" });
       }
 

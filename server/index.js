@@ -4399,7 +4399,17 @@ async function start() {
     await discordBot.loadConfig();
     const discordAutoStart = await getSetting("discordAutoStart");
     if (discordBot.token && discordBot.guildId && discordAutoStart !== false) {
-      await discordBot.start();
+      const discordStarted = await discordBot.start();
+      // The network is often not up yet when the panel starts with the
+      // machine. A failure that is Discord's or the network's (not a bad token
+      // or missing intents) is retried in the background, with backoff, rather
+      // than leaving the bot down until someone notices.
+      if (discordStarted === false && discordBot.lastStartError?.transient) {
+        log.warn(
+          `Discord bot could not start (${discordBot.lastStartError.message}); retrying in the background`,
+        );
+        discordBot.scheduleAutoStartRetry();
+      }
     } else if (
       discordBot.token &&
       discordBot.guildId &&
