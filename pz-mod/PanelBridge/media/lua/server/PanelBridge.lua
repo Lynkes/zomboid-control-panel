@@ -21,6 +21,14 @@
                     now report the calendar day (1 = the 1st) and setGameTime
                     takes it; a day below 1 is refused before anything is
                     written.
+                - Fix: a truncated or hand-edited inbox command or queue-state
+                    file could freeze the game thread. json.decode looped
+                    forever on a character that is no JSON token (a cut-off
+                    nul, a bare word: {"a":x} or [x]) and pcall cannot stop
+                    that, so the bridge hung again after every restart (the
+                    command cursor had not moved past the file). It now
+                    reports a parse error and the file is treated as
+                    unreadable.
 
                 v1.7.75 Changes:
                 - Fix: two accounts behind one SteamID no longer inflate the
@@ -1511,6 +1519,7 @@ function json.decode(str)
                 return obj
             end
             while pos <= #str do
+                local passStart = pos
                 skip_whitespace()
                 if pos > #str then break end
                 local key = parse_value()
@@ -1531,6 +1540,16 @@ function json.decode(str)
                 elseif c == ',' then
                     pos = pos + 1
                 end
+                -- A pass that consumed nothing (a character that is no JSON
+                -- token, such as the x in {"a":x} or a truncated nul) would
+                -- read that same character again forever, and pcall cannot
+                -- interrupt an infinite loop. Raise instead, so the pcall
+                -- around parse_value returns nil. Anything a pass did consume
+                -- (a stray comma, a trailing comma before }) still decodes as
+                -- it always did.
+                if pos == passStart then
+                    error("unexpected character '" .. c .. "' at position " .. pos)
+                end
             end
             return obj
         elseif c == '[' then
@@ -1544,6 +1563,7 @@ function json.decode(str)
                 return arr
             end
             while pos <= #str do
+                local passStart = pos
                 idx = idx + 1
                 local value = parse_value()
                 -- See json.null above: preserve the slot (and every later
@@ -1558,6 +1578,11 @@ function json.decode(str)
                     return arr
                 elseif c == ',' then
                     pos = pos + 1
+                end
+                -- Same guard as the object loop: a pass that consumed nothing
+                -- (the x in [x]) would repeat forever, growing arr each time.
+                if pos == passStart then
+                    error("unexpected character '" .. c .. "' at position " .. pos)
                 end
             end
             return arr
