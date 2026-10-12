@@ -15,7 +15,12 @@ import { STATUS_CODES } from "http";
 import { types } from "util";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("Discord");
-import { getActiveServer, getSetting, setSetting } from "../database/init.js";
+import {
+  getActiveServer,
+  getSetting,
+  logPlayerAction,
+  setSetting,
+} from "../database/init.js";
 import { loadUiSecret, writeUiSecretFile } from "../utils/uiSecretFile.js";
 import { sanitizeError } from "../utils/sanitize.js";
 import { describeStartFailure } from "./discordStartFailure.js";
@@ -1811,9 +1816,10 @@ export class DiscordBot {
     // and the reply shows the same: a slash option can be 6000 chars, and a
     // reply over Discord's 2000 would fail AFTER the kick went through, so
     // the moderator saw an error and the channel notification was skipped.
-    const displayReason = rawReason
+    // Used only when the kick result does not say what it sent.
+    const typedReason = rawReason
       ? Array.from(rawReason).slice(0, KICK_REASON_MAX).join("")
-      : "No reason given";
+      : "";
 
     await interaction.deferReply();
 
@@ -1840,6 +1846,18 @@ export class DiscordBot {
     }
 
     if (result.success) {
+      // The reason that reached the server, not the one typed: RCON folds
+      // accents and drops characters it cannot carry (sentReason, as /ban
+      // reports it), so a reason of only such characters was sent as none.
+      const sentReason = result.sentReason ?? typedReason;
+      const displayReason = sentReason || "No reason given";
+      // Recorded like POST /api/players/kick does; the kick has happened, so a
+      // failure to write the history entry must not fail the command.
+      try {
+        await logPlayerAction(player, "kick", sentReason || null);
+      } catch (err) {
+        log.debug(`Failed to log Discord kick of ${player}: ${err.message}`);
+      }
       const safeName = escapeMarkdown(String(player));
       const safeTag = escapeMarkdown(String(interaction.user.tag));
       const safeReason = escapeMarkdown(String(displayReason));

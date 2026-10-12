@@ -2018,7 +2018,12 @@ export class RconService extends EventEmitter {
     const safeReason = this.sanitizeForBanReason(reason);
     let cmd = `kickuser "${safeUser}"`;
     if (safeReason) cmd += ` -r "${safeReason}"`;
-    return this.execute(cmd);
+    const result = await this.execute(cmd);
+    // sentReason: what actually reached the server (folded, whitelisted and
+    // cut at 100 characters), as banPlayer() returns it, so a caller that
+    // shows or records the reason can use what was sent rather than what was
+    // typed.
+    return { ...result, sentReason: safeReason };
   }
 
   sanitizeForBanReason(input) {

@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discord slash commands re-registered on every save:** saving the Discord settings with the admin or mod role left empty no longer re-sends the slash commands to Discord each time.
 - **Discord command permissions "failed" after saving:** if Discord is unreachable when the slash commands are updated, the save now succeeds and the page warns that the commands will update later, instead of reporting an error for tiers that were stored.
 - **"Scheduled restart cancelled" with the event switched off:** the Discord cancellation notice now follows the Scheduled restart toggle instead of posting about a restart Discord was never told about.
+- **Discord /kick reason and history:** the reply shows the reason the server actually received (accents are folded, unsupported characters dropped), and the kick now appears in the player action history like a kick from the Players page.
 
 ## [1.4.13] - 2026-10-11
 
