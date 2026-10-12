@@ -1591,7 +1591,9 @@ export class RconService extends EventEmitter {
         this.consecutiveHealthFailures = 0;
       }
 
-      log.debug(`response: ${response}`);
+      // A reply can echo the command it answers, `adduser "name" "password"`
+      // included: same redaction as the executing line above.
+      log.debug(`response: ${redactRconCommandSecrets(response)}`);
 
       // The server answers a command it refuses to run with a normal RCON
       // reply, so without this check -- and without checking it BEFORE the
@@ -1650,7 +1652,7 @@ export class RconService extends EventEmitter {
       // Use debug for connection-related failures to avoid log spam
       if (isConnectionError || isServerOffline) {
         log.debug(
-          `command skipped (${isServerOffline ? "server offline" : "connection error"}): ${command}`,
+          `command skipped (${isServerOffline ? "server offline" : "connection error"}): ${redactRconCommandSecrets(command)}`,
         );
       } else {
         log.warn(`command failed: ${errorMsg}`);

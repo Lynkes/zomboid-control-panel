@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Console log that appears later:** if the game's log did not exist when you opened the Console page, the log pane now shows up as soon as the file is created instead of staying on "not found".
 - **Console log after a game restart:** every open Console tab now resyncs when the game recreates its log, not just the first one to poll.
 - **Stopping the server over RCON:** Stop no longer answers "failed" when the game closes the RCON connection as it shuts down, and a dropped RCON connection is now noticed (and retried) on the very command that hit it.
+- **Passwords in the debug log:** an `adduser "name" "password"` run over RCON no longer shows the password in the panel's debug log lines (the reply and "command skipped" lines were not redacted).
 
 ## [1.4.13] - 2026-10-11
 
