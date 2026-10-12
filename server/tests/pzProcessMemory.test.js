@@ -108,6 +108,25 @@ describe("resolvePzMemoryBytes", () => {
     expect(serverManager.getServerProcessDetails).not.toHaveBeenCalled();
   });
 
+  it("plots the container's anonymous memory, not its page cache", async () => {
+    const dockerClient = {
+      enabled: true,
+      getContainerStats: vi.fn(async () => ({
+        memoryUsed: 5_700_000_000,
+        memoryAnon: 1_500_000_000,
+      })),
+    };
+
+    const bytes = await resolvePzMemoryBytes({
+      activeServer: { id: "d", dockerContainerName: "pz" },
+      serverManager: { getServerProcessDetails: vi.fn() },
+      dockerClient,
+      readMemory: vi.fn(),
+    });
+
+    expect(bytes).toBe(1_500_000_000);
+  });
+
   it("falls back to the process when the container's stats are unavailable (a stopped container)", async () => {
     const dockerClient = {
       enabled: true,
