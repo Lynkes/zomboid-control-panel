@@ -431,6 +431,14 @@
     "description": "Remplacer le fichier actuel par « {{filename}} » ? Les modifications non enregistrées de la config active seront perdues.",
     "confirmLabel": "Restaurer"
   },
+  "switchEditorConfirm": {
+    "rawTitle": "Ignorer vos modifications brutes non enregistrées ?",
+    "rawDescription": "L'éditeur brut contient des modifications non enregistrées. Continuer les ignore et recharge le fichier depuis le disque.",
+    "rawConfirm": "Ignorer les modifications",
+    "formTitle": "Ouvrir l'éditeur brut sans vos modifications du formulaire ?",
+    "formDescription": "L'éditeur brut affiche le fichier tel qu'il est sur le disque, sans vos modifications non enregistrées du formulaire. Enregistrer depuis l'éditeur brut les remplace.",
+    "formConfirm": "Ouvrir l'éditeur brut"
+  },
   "iniSettings": {
     "general": {
       "PublicName": {

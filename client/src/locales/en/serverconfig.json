@@ -327,6 +327,14 @@
     "description": "Replace the current file with \"{{filename}}\"? Unsaved changes to the live config will be lost.",
     "confirmLabel": "Restore"
   },
+  "switchEditorConfirm": {
+    "rawTitle": "Discard your unsaved raw edits?",
+    "rawDescription": "The raw editor has unsaved changes. Continuing discards them and loads the file from disk.",
+    "rawConfirm": "Discard edits",
+    "formTitle": "Open the raw editor without your form changes?",
+    "formDescription": "The raw editor shows the file as it is on disk, without your unsaved form changes. Saving from the raw editor replaces them.",
+    "formConfirm": "Open raw editor"
+  },
   "fileBrowserDialog": {
     "title": "Select Image File",
     "description": "Browse to find a PNG image file for your server.",

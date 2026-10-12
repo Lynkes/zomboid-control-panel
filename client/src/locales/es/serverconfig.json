@@ -431,6 +431,14 @@
     "description": "¿Reemplazar el archivo actual por «{{filename}}»? Se perderán los cambios sin guardar de la configuración activa.",
     "confirmLabel": "Restaurar"
   },
+  "switchEditorConfirm": {
+    "rawTitle": "¿Descartar los cambios sin guardar del texto plano?",
+    "rawDescription": "El editor de texto plano tiene cambios sin guardar. Si continúas, se descartan y el archivo se vuelve a cargar desde el disco.",
+    "rawConfirm": "Descartar cambios",
+    "formTitle": "¿Abrir el texto plano sin los cambios del formulario?",
+    "formDescription": "El editor de texto plano muestra el archivo tal como está en el disco, sin los cambios sin guardar del formulario. Guardar desde el texto plano los reemplaza.",
+    "formConfirm": "Abrir texto plano"
+  },
   "iniSettings": {
     "general": {
       "PublicName": {

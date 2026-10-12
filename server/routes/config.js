@@ -23,6 +23,8 @@ import {
   RCON_UNREACHABLE_DETAIL,
   RCON_AUTH_FAILED_DETAIL,
   RCON_USER_ACTION_TIMEOUT_MS,
+  RCON_RECONNECT_MIN_SECONDS,
+  RCON_RECONNECT_MAX_SECONDS,
 } from "../services/rcon.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import {
@@ -791,9 +793,16 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
       // same loop, not worth its own investigation. Gated by autoReconnect
       // via FEATURE_GATED_FIELDS above (2026-08-26 bug hunt finding 12).
       if (key === "reconnectInterval") {
-        const interval = parseBoundedInteger(value, null, 1, 60);
+        // The range the RCON service applies (it clamps to the same bounds),
+        // so what is accepted here is what actually runs.
+        const interval = parseBoundedInteger(
+          value,
+          null,
+          RCON_RECONNECT_MIN_SECONDS,
+          RCON_RECONNECT_MAX_SECONDS,
+        );
         if (interval === null) {
-          const message = "reconnectInterval must be a whole number from 1 to 60";
+          const message = `reconnectInterval must be a whole number from ${RCON_RECONNECT_MIN_SECONDS} to ${RCON_RECONNECT_MAX_SECONDS}`;
           return res.status(400).json({
             error: message,
             code: ErrorCode.CONFIG_INVALID_NUMERIC_FIELD,

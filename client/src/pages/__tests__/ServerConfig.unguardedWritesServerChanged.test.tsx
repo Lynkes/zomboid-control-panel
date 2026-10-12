@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor, fireEvent, act, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { ConfirmProvider } from '@/contexts/ConfirmContext'
 import ServerConfig from '../ServerConfig'
 import { serverFilesApi, serversApi, panelBridgeApi } from '@/lib/api'
 
@@ -78,7 +79,9 @@ function renderServerConfig(initialEntries = ['/server-config']) {
   return render(
     <MemoryRouter initialEntries={initialEntries}>
       <TooltipProvider>
-        <ServerConfig />
+        <ConfirmProvider>
+          <ServerConfig />
+        </ConfirmProvider>
       </TooltipProvider>
     </MemoryRouter>,
   )
@@ -103,8 +106,12 @@ function mockCommonLoads() {
 // Radix's TabsTrigger activates on mousedown (button === 0), not click --
 // see @radix-ui/react-tabs's TabsTrigger onMouseDown -- so a plain
 // fireEvent.click never switches tabs here.
-function clickTab(name: RegExp) {
+//
+// The raw editor holds an unsaved edit at that point (that is how these
+// cases trip the guard), and leaving its tab asks before dropping it: confirm.
+async function clickTab(name: RegExp) {
   fireEvent.mouseDown(screen.getByRole('tab', { name }), { button: 0 })
+  fireEvent.click(await screen.findByRole('button', { name: 'Discard edits' }))
 }
 
 async function makeServerChangedSinceLoadTrue() {
@@ -126,7 +133,7 @@ describe('ServerConfig.tsx: the remaining write actions also block once the acti
     await waitFor(() => expect(getIni).toHaveBeenCalledTimes(1))
     await makeServerChangedSinceLoadTrue()
 
-    clickTab(/spawn points/i)
+    await clickTab(/spawn points/i)
     await waitFor(() => expect(getRaw).toHaveBeenCalledWith('spawnpoints'))
     const saveButton = await screen.findByRole('button', { name: /^save$/i })
     expect(saveButton).toBeDisabled()
@@ -142,7 +149,7 @@ describe('ServerConfig.tsx: the remaining write actions also block once the acti
     await waitFor(() => expect(getIni).toHaveBeenCalledTimes(1))
     await makeServerChangedSinceLoadTrue()
 
-    clickTab(/spawn regions/i)
+    await clickTab(/spawn regions/i)
     await waitFor(() => expect(getRaw).toHaveBeenCalledWith('spawnregions'))
     const saveButton = await screen.findByRole('button', { name: /^save$/i })
     expect(saveButton).toBeDisabled()
@@ -190,7 +197,7 @@ describe('ServerConfig.tsx: the remaining write actions also block once the acti
     await waitFor(() => expect(getIni).toHaveBeenCalledTimes(1))
     await makeServerChangedSinceLoadTrue()
 
-    clickTab(/mod settings/i)
+    await clickTab(/mod settings/i)
     await waitFor(() => expect(sendCommand).toHaveBeenCalledWith('getAllSandboxOptions', {}, expect.anything()))
     // Mod groups render collapsed by default -- searching auto-expands any
     // matching group (isFiltering), same as a real operator would use to

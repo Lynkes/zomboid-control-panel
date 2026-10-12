@@ -433,6 +433,10 @@ export default function Console() {
   const serverLogRef = useRef<HTMLDivElement>(null)
   const serverLogIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const serverLogSizeRef = useRef(0) // Track size without recreating interval
+  // Identity token of the log file serverLogSizeRef belongs to, echoed back to
+  // /console-log/stream so a recreated log is reported to THIS page too
+  // (empty until the server has given one).
+  const serverLogIdentityRef = useRef('')
   const hasActiveServer = !!activeServer
   // Identity of the server every panel below is showing. hasActiveServer /
   // hasServerLogSource / hasRconConfig are booleans, so they do NOT change when
@@ -652,6 +656,7 @@ export default function Console() {
         setServerLogError(null)
         serverLogErrorCountRef.current = 0
         serverLogSizeRef.current = 0
+        serverLogIdentityRef.current = ''
       }
       setServerLogLoading(false)
       return
@@ -669,19 +674,31 @@ export default function Console() {
         setServerLogLines(data.lines || [])
         setServerLogSize(data.size || 0)
         serverLogSizeRef.current = data.size || 0
+        serverLogIdentityRef.current = typeof data.identity === 'string' ? data.identity : ''
         setServerLogPath(data.path || '')
         setServerLogExists(data.exists || false)
         setServerLogRefusal(data.refusal ?? null)
       } else {
         // Stream new content - use ref to avoid stale closure
-        const data = await serverApi.streamConsoleLog(serverLogSizeRef.current)
+        const data = serverLogIdentityRef.current
+          ? await serverApi.streamConsoleLog(serverLogSizeRef.current, serverLogIdentityRef.current)
+          : await serverApi.streamConsoleLog(serverLogSizeRef.current)
         if (generation !== serverLogGenerationRef.current) return
+        if (typeof data.identity === 'string') serverLogIdentityRef.current = data.identity
+        // The log can first appear after this page loaded (the game had not
+        // started yet): the initial fetch said "no file" and nothing else
+        // ever turned the pane on, so the lines the stream returned stayed
+        // hidden behind the empty state.
+        if (data.exists !== false && typeof data.currentSize === 'number') {
+          setServerLogExists(true)
+        }
         if (data.newLines && data.newLines.length > 0) {
           setServerLogLines(prev => [...prev, ...data.newLines].slice(-500))
         }
         if (data.rotated) {
-          // File was rotated, replace all content
-          setServerLogLines(data.newLines || [])
+          // File was rotated, replace all content (the same 500-line window
+          // as above: the pane renders every line it holds)
+          setServerLogLines((data.newLines || []).slice(-500))
         }
         setServerLogSize(data.currentSize || serverLogSizeRef.current)
         serverLogSizeRef.current = data.currentSize || serverLogSizeRef.current
@@ -783,6 +800,7 @@ export default function Console() {
     setServerLogLines([])
     setServerLogSize(0)
     serverLogSizeRef.current = 0
+    serverLogIdentityRef.current = ''
     setServerLogPath('')
     setServerLogExists(false)
     setServerLogRefusal(null)

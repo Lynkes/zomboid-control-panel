@@ -6,6 +6,11 @@ services:
       dockerfile: docker/all-in-one/Dockerfile
     container_name: zomboid-panel
     restart: unless-stopped
+    # The Project Zomboid servers run inside this container. On a stop (docker
+    # stop, compose down, a host reboot, an image update) the panel saves and
+    # quits them first, which can take a minute on a big world; Docker's default
+    # of 10 s would SIGKILL them mid-save.
+    stop_grace_period: 120s
     ports:
       # Every host address by default. Docker publishes past UFW, so behind a
       # reverse proxy on this host set PANEL_BIND_ADDRESS=127.0.0.1 in .env

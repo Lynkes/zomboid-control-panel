@@ -217,15 +217,22 @@ export default function Chat() {
   // Dashboard.tsx before their own fixes -- the player roster (used to
   // target admin/general chat) is a read-only display with no unsaved-edit
   // risk, so this reloads unconditionally, matching the Console-shape
-  // precedent. chatHistory is deliberately left alone, same call Console.tsx
-  // made for its own liveLog: it's a display of past activity, and sending
-  // always goes through panelBridgeApi, which resolves against whichever
-  // server is active server-side regardless of what this array shows.
+  // precedent. chatHistory used to be left alone here (Console.tsx's liveLog
+  // was too, until it started clearing on a switch): the lines already shown
+  // came from the server that was active before, `chat:message` carries no
+  // server id, and they stayed under the new server's name next to its own
+  // lines. They are cleared now. There is no chat history endpoint to refetch
+  // from -- the page is a live view of the log tailer, which the switch
+  // repoints at the new server -- so what follows is that server's chat.
   useEffect(() => {
     if (!socket) return
-    socket.on('activeServerChanged', fetchPlayers)
+    const onActiveServerChanged = () => {
+      setChatHistory([])
+      fetchPlayers()
+    }
+    socket.on('activeServerChanged', onActiveServerChanged)
     return () => {
-      socket.off('activeServerChanged', fetchPlayers)
+      socket.off('activeServerChanged', onActiveServerChanged)
     }
   }, [socket, fetchPlayers])
 

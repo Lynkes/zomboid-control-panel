@@ -190,6 +190,13 @@ export class LogTailer extends EventEmitter {
     this.consoleRemainder = '';
     this.chatRemainder = '';
     this.userRemainder = '';
+    // "Files created after this point are new sessions": this is a fresh watch
+    // (a different server, or the same one after an edit), so the constructor's
+    // boot time is stale. Left alone, any log born after the panel booted --
+    // the current session's chat and user logs once the panel had run a while
+    // -- looked brand new here and was read from byte zero, replaying the whole
+    // chat to Discord and the Chat page and logging old deaths again.
+    this.watchStartedAt = Date.now();
     await this.findLogPath();
     log.info(`LogTailer repointed (console: ${this.logPath || 'none'}, chatLog: ${this.chatLogPath || 'none'}, userLog: ${this.userLogPath || 'none'})`);
   }
@@ -235,6 +242,10 @@ export class LogTailer extends EventEmitter {
             try {
                 fs.accessSync(consoleLogPath, fs.constants.R_OK);
                 this.logPath = consoleLogPath;
+                // reloadConfig() zeroes currentSize, so without this a repointed
+                // tailer re-read the whole console log (init() overwrites it in
+                // startWatching(), which is why only a repoint showed it).
+                this.currentSize = this.startOffsetFor(consoleLogPath);
                 log.info(`Found console log at ${consoleLogPath}`);
             } catch (e) {
                 log.warn(`Console log exists but is not readable (check permissions): ${consoleLogPath}`);

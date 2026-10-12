@@ -49,7 +49,14 @@ FakePlayer = {
 function FakePlayer:getUsername() return self.username end
 function FakePlayer:setGodMod(v) self.godMod = v end
 function FakePlayer:setInvincible(v) self.invincible = v end
-function FakePlayer:Kill(x)
+-- IsoGameCharacter has Kill overloads taking 1 to 4 arguments and none taking
+-- zero (javap, 42.21), so Kahlua raises this when the call carries no
+-- argument at all. A stub that accepted Kill() stayed green while the real
+-- game rejected every kill (a trailing nil argument was dropped by invoke()).
+function FakePlayer:Kill(...)
+  if select("#", ...) < 1 then
+    error("No implementation found for function: Kill")
+  end
   if ${killSticks} then self.killed = true end
   return true
 end

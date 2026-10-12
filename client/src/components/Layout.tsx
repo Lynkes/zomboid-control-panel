@@ -478,7 +478,12 @@ export default function Layout({ children }: LayoutProps) {
 
   const navigate = useNavigate()
   const location = useLocation()
-  const playerCountLabel = playerCount > 99 ? '99+' : String(playerCount)
+  // The roster only moves on players:update, which stops when the server does,
+  // so a stopped (or not yet confirmed) server kept its last count on the
+  // Players badge. The count is shown only while the server is running, as the
+  // sidebar's active-server strip already did.
+  const shownPlayerCount = serverRunState === 'running' ? playerCount : 0
+  const playerCountLabel = shownPlayerCount > 99 ? '99+' : String(shownPlayerCount)
 
   // Panel Users/Roles & Permissions/Single Sign-On (USERS section) link
   // straight into Settings' own tabs via ?tab=, so a plain pathname-only
@@ -711,6 +716,8 @@ export default function Layout({ children }: LayoutProps) {
     if (!socket) return
 
     const handleActiveServerChanged = async () => {
+      // The count is the previous server's until its roster arrives.
+      setPlayerCount(0)
       try {
         const data = await serversApi.getAll()
         setServers(data.servers || [])
@@ -1017,7 +1024,7 @@ export default function Layout({ children }: LayoutProps) {
             const tone = sectionToneStyles[section.color as keyof typeof sectionToneStyles] || sectionToneStyles.slate
             const sectionHasSignal =
               (section.id === 'server' && modUpdatesAvailable > 0) ||
-              (section.id === 'users' && playerCount > 0) ||
+              (section.id === 'users' && shownPlayerCount > 0) ||
               (section.id === 'panel' && !!panelUpdateAvailable)
             const visibleItems = section.items.filter((item) => !item.capability || can(item.capability))
 
@@ -1180,7 +1187,7 @@ export default function Layout({ children }: LayoutProps) {
                             {item.badge}
                           </Badge>
                         )}
-                        {item.to === '/players' && playerCount > 0 && (
+                        {item.to === '/players' && shownPlayerCount > 0 && (
                           <Badge
                             variant={isActive ? 'secondary' : 'success'}
                             className="ms-auto min-w-[24px] justify-center px-1.5 py-0 text-[10px] leading-tight"

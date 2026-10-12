@@ -27,7 +27,9 @@ describe("standalone launchers", () => {
 
     expect(unit).toContain("ExecStart=/opt/zomboid-panel/start.sh");
     expect(unit).toContain("KillMode=process");
-    expect(server).toContain("process.exit(linuxSupervisor ? 75");
+    // The Linux supervisor (start.sh under systemd) and, since the Windows
+    // Start.bat fix, the Windows one both relaunch the panel on exit 75.
+    expect(server).toContain("process.exit(linuxSupervisor || windowsSupervisor ? 75");
   });
 
   it("ships an explicit service installer that backs up existing units", () => {

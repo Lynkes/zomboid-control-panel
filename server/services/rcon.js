@@ -69,6 +69,14 @@ const RCON_ERROR_CLASSIFICATIONS = [
     disconnect: true,
   },
   {
+    // utils/sourceRcon.js rejects every in-flight command with "RCON
+    // connection closed" when the server closes the socket (a clean FIN, as
+    // `quit` and a restart do), which none of the codes above name.
+    test: (msg) => msg.includes("connection closed"),
+    message: "Connection was closed by the server. It may have stopped or restarted.",
+    disconnect: true,
+  },
+  {
     test: (msg) => msg.includes("authentication") || msg.includes("password"),
     message: "Authentication failed. Check RCON password in server settings.",
     disconnect: false,
@@ -1583,7 +1591,9 @@ export class RconService extends EventEmitter {
         this.consecutiveHealthFailures = 0;
       }
 
-      log.debug(`response: ${response}`);
+      // A reply can echo the command it answers, `adduser "name" "password"`
+      // included: same redaction as the executing line above.
+      log.debug(`response: ${redactRconCommandSecrets(response)}`);
 
       // The server answers a command it refuses to run with a normal RCON
       // reply, so without this check -- and without checking it BEFORE the
@@ -1630,14 +1640,19 @@ export class RconService extends EventEmitter {
         errorMsg.includes("not connected") ||
         errorMsg.includes("timeout") ||
         errorMsg.includes("timed out") ||
-        errorMsg.includes("socket");
+        errorMsg.includes("socket") ||
+        // The server closed the connection on its side (sourceRcon.js's
+        // _onClose): the client is dead, so it has to be dropped and, if
+        // asked, reconnected like any other transport failure -- and a
+        // `quit` that ends this way did reach a server that is shutting down.
+        errorMsg.includes("connection closed");
 
       const isServerOffline = errorMsg.includes("Server is not running");
 
       // Use debug for connection-related failures to avoid log spam
       if (isConnectionError || isServerOffline) {
         log.debug(
-          `command skipped (${isServerOffline ? "server offline" : "connection error"}): ${command}`,
+          `command skipped (${isServerOffline ? "server offline" : "connection error"}): ${redactRconCommandSecrets(command)}`,
         );
       } else {
         log.warn(`command failed: ${errorMsg}`);
@@ -2018,7 +2033,12 @@ export class RconService extends EventEmitter {
     const safeReason = this.sanitizeForBanReason(reason);
     let cmd = `kickuser "${safeUser}"`;
     if (safeReason) cmd += ` -r "${safeReason}"`;
-    return this.execute(cmd);
+    const result = await this.execute(cmd);
+    // sentReason: what actually reached the server (folded, whitelisted and
+    // cut at 100 characters), as banPlayer() returns it, so a caller that
+    // shows or records the reason can use what was sent rather than what was
+    // typed.
+    return { ...result, sentReason: safeReason };
   }
 
   sanitizeForBanReason(input) {

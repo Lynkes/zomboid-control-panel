@@ -418,6 +418,14 @@
     "description": "Die aktuelle Datei ersetzen durch: „{{filename}}“? Nicht gespeicherte Änderungen an der aktiven Konfiguration gehen verloren.",
     "confirmLabel": "Wiederherstellen"
   },
+  "switchEditorConfirm": {
+    "rawTitle": "Nicht gespeicherte Raw-Änderungen verwerfen?",
+    "rawDescription": "Der Raw-Editor enthält nicht gespeicherte Änderungen. Wenn du fortfährst, gehen sie verloren und die Datei wird von der Festplatte geladen.",
+    "rawConfirm": "Änderungen verwerfen",
+    "formTitle": "Raw-Editor ohne deine Formularänderungen öffnen?",
+    "formDescription": "Der Raw-Editor zeigt die Datei so, wie sie auf der Festplatte liegt, ohne deine nicht gespeicherten Formularänderungen. Speichern im Raw-Editor ersetzt sie.",
+    "formConfirm": "Raw-Editor öffnen"
+  },
   "iniSettings": {
     "general": {
       "PublicName": {

@@ -5,6 +5,7 @@
     "errorTitle": "Erreur",
     "noPermission": "Vous n'avez pas la permission de gérer l'intégration Discord.",
     "successTitle": "Succès",
+    "warningTitle": "Avertissement",
     "unknownError": "erreur inconnue"
   },
   "events": {
@@ -260,6 +261,7 @@
       "save": "Enregistrer les permissions",
       "saving": "Enregistrement...",
       "savedMessage": "Permissions des commandes enregistrées. Commandes slash réenregistrées.",
+      "savedNotRegistered": "Permissions des commandes enregistrées, mais la mise à jour des commandes slash dans Discord a échoué. Elles seront mises à jour au prochain démarrage du bot ou au prochain enregistrement.",
       "saveFailedFallback": "Échec de l'enregistrement des permissions"
     },
     "configuration": {
@@ -333,6 +335,7 @@
     "invalidAdminRoleIdFormat": "Format d'ID de rôle admin invalide (doit être un nombre de 17 à 19 chiffres)",
     "invalidModRoleIdFormat": "Format d'ID de rôle modérateur invalide (doit être un nombre de 17 à 19 chiffres)",
     "configSavedBotStartFailed": "Configuration enregistrée, mais le bot n'a pas pu démarrer : {{reason}}",
+    "configSavedBotReconnectFailed": "Configuration enregistrée, mais le bot n'a pas pu se reconnecter : {{reason}}",
     "configSavedAndStarted": "Configuration enregistrée et bot démarré !",
     "configSaved": "Configuration Discord enregistrée avec succès",
     "saveConfigFailedFallback": "Échec de l'enregistrement de la configuration",

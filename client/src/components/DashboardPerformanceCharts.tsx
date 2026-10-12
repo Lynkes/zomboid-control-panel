@@ -82,7 +82,11 @@ function DashboardPerformanceCharts({
   // rejects with "Rendered more hooks than during the previous render".
   const latest = performanceHistory[performanceHistory.length - 1]
 
-  const pzMem = latest?.pzMemMB ?? latest?.memoryMB ?? 0
+  // Only the game's own memory counts. When the panel could not read it
+  // (pzMemMB absent: a remote server, a stopped one, a process it cannot see)
+  // this used to fall back to memoryMB -- the PANEL's own Node heap -- and show
+  // it as "PZ memory"; the row is hidden instead.
+  const pzMem = latest?.pzMemMB ?? 0
   const cpu = latest?.cpuPercent ?? 0
   const hostUsed = latest?.hostMemUsedGB
   const hostTotal = latest?.hostMemTotalGB
@@ -108,18 +112,19 @@ function DashboardPerformanceCharts({
     if (!latest) return m
 
     if (serverRunning) {
-      const pzDataKey = latest.pzMemMB != null ? 'pzMemMB' : 'memoryMB'
-      m.push({
-        key: 'pzMem',
-        label: t('pzMemory'),
-        value: maxMemoryGB != null
-          ? `${pzMemoryGB.toFixed(1)} / ${maxMemoryGB}`
-          : pzMem > 1024 ? pzMemoryGB.toFixed(1) : pzMem,
-        unit: maxMemoryGB != null || pzMem > 1024 ? 'GB' : 'MB',
-        dataKey: pzDataKey,
-        tone: 'neutral',
-        ratio: pzRatio,
-      })
+      if (latest.pzMemMB != null) {
+        m.push({
+          key: 'pzMem',
+          label: t('pzMemory'),
+          value: maxMemoryGB != null
+            ? `${pzMemoryGB.toFixed(1)} / ${maxMemoryGB}`
+            : pzMem > 1024 ? pzMemoryGB.toFixed(1) : pzMem,
+          unit: maxMemoryGB != null || pzMem > 1024 ? 'GB' : 'MB',
+          dataKey: 'pzMemMB',
+          tone: 'neutral',
+          ratio: pzRatio,
+        })
+      }
 
       // A flat line at zero is a dead cell. Who is online is answered in the verdict band.
       if (performanceHistory.some(point => point.playerCount > 0)) {

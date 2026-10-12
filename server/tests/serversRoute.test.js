@@ -1157,6 +1157,75 @@ describe("POST /api/servers/:id/activate: a live-service reload failure must not
   });
 });
 
+// Switching to a server with NO RCON password used to skip
+// rconService.reloadConfig() entirely (the whole block was gated on
+// server.rconPassword). The service had just been disconnected but kept
+// configLoaded=true, so the next execute()/auto-reconnect reconnected with the
+// PREVIOUS server's host, port and password and kept its serverId: player
+// kicks, Dashboard Stop and the player poll then hit the wrong server.
+describe("POST /api/servers/:id/activate and DELETE /api/servers/:id: a server with no RCON password must still repoint the RCON service", () => {
+  let rconService;
+  let io;
+
+  function buildReq(id) {
+    return {
+      params: { id },
+      user: { role: "admin" },
+      app: {
+        get: (key) => ({ rconService, io, modChecker: null })[key],
+      },
+    };
+  }
+
+  beforeEach(() => {
+    setActiveServer.mockReset();
+    getServer.mockReset();
+    getActiveServer.mockReset();
+    deleteServer.mockReset();
+    io = { emit: vi.fn() };
+    rconService = {
+      isConnected: vi.fn(() => true),
+      disconnect: vi.fn(async () => {}),
+      reloadConfig: vi.fn(async () => {}),
+      connect: vi.fn(async () => true),
+    };
+  });
+
+  it("activating a password-less server reloads the RCON config but does not try to connect", async () => {
+    setActiveServer.mockResolvedValue({ id: "2", name: "No Password", rconPassword: "" });
+
+    const response = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), response);
+
+    expect(rconService.disconnect).toHaveBeenCalled();
+    expect(rconService.reloadConfig).toHaveBeenCalledTimes(1);
+    expect(rconService.connect).not.toHaveBeenCalled();
+    expect(response.status).not.toHaveBeenCalledWith(500);
+  });
+
+  it("activating a server that has a password still reloads then connects (control)", async () => {
+    setActiveServer.mockResolvedValue({ id: "2", name: "With Password", rconPassword: "secret" });
+
+    const response = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), response);
+
+    expect(rconService.reloadConfig).toHaveBeenCalledTimes(1);
+    expect(rconService.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it("deleting the active server and promoting a password-less one reloads the RCON config too", async () => {
+    getServer.mockResolvedValue({ id: "deleted-1", name: "Deleted", isActive: true });
+    deleteServer.mockResolvedValue(true);
+    getActiveServer.mockResolvedValue({ id: "promoted-2", name: "Promoted", isActive: true });
+
+    const response = createResponse();
+    await runRoute("/:id", "delete", buildReq("deleted-1"), response);
+
+    expect(rconService.reloadConfig).toHaveBeenCalledTimes(1);
+    expect(rconService.connect).not.toHaveBeenCalled();
+  });
+});
+
 // reloadServicesForNewActiveServer reloaded serverManager/workshop/RCON on a
 // server switch but never touched the LogTailer, which
 // resolves its watched paths once and only rescans for a NEWER file inside
@@ -1359,5 +1428,57 @@ describe("POST /api/servers/:id/activate: switching the active server must reset
 
     expect(resetPlayerPollingBaseline).toHaveBeenCalledTimes(1);
     expect(response.status).not.toHaveBeenCalledWith(500);
+  });
+});
+
+// The status watchdog (index.js checkServerStatusNow) keeps module-level
+// lastKnownRunning/lastKnownPhase baselines. Left from the previous server,
+// the first tick after a switch posted a false "Server Stopped"/"Server
+// Started" to Discord, so activation clears them like the player baseline.
+describe("POST /api/servers/:id/activate: switching the active server must reset the status watchdog baseline", () => {
+  let io;
+  let resetStatusWatchdogBaseline;
+
+  function buildReq(id) {
+    return {
+      params: { id },
+      user: { role: "admin" },
+      app: {
+        get: (key) =>
+          ({ io, modChecker: null, discordBot: null, resetStatusWatchdogBaseline })[key],
+      },
+    };
+  }
+
+  beforeEach(() => {
+    setActiveServer.mockReset();
+    io = { emit: vi.fn() };
+  });
+
+  it("resets the watchdog baseline when activating a different server", async () => {
+    setActiveServer.mockResolvedValue({ id: "2", name: "Server B" });
+    resetStatusWatchdogBaseline = vi.fn();
+
+    const response = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), response);
+
+    expect(resetStatusWatchdogBaseline).toHaveBeenCalled();
+    expect(response.status).not.toHaveBeenCalledWith(500);
+  });
+
+  it("still reports success when the watchdog reset is unavailable or throws", async () => {
+    setActiveServer.mockResolvedValue({ id: "2", name: "Server B" });
+
+    resetStatusWatchdogBaseline = undefined;
+    const missing = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), missing);
+    expect(missing.status).not.toHaveBeenCalledWith(500);
+
+    resetStatusWatchdogBaseline = vi.fn(() => {
+      throw new Error("unexpected");
+    });
+    const throwing = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), throwing);
+    expect(throwing.status).not.toHaveBeenCalledWith(500);
   });
 });

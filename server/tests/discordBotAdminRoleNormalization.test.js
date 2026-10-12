@@ -71,6 +71,34 @@ describe("DiscordBot.updateConfig(): adminRoleId normalization matches modRoleId
     expect(bot.adminRoleId).toBeNull();
   });
 
+  // PUT /config calls loadConfig() before updateConfig() on every save.
+  // updateConfig() stores a missing role as "", loadConfig() used to read that
+  // back as "", and "" !== null looked like a role change each time.
+  it("does not re-register commands on a save that follows loadConfig() with both roles empty", async () => {
+    const bot = runningBot();
+    await bot.updateConfig("tok", "guild1", "", "chan1", "");
+
+    await bot.loadConfig();
+    expect(bot.adminRoleId).toBeNull();
+    expect(bot.modRoleId).toBeNull();
+    bot.registerCommands.mockClear();
+
+    await bot.updateConfig("tok", "guild1", "", "chan1", "");
+
+    expect(bot.registerCommands).not.toHaveBeenCalled();
+  });
+
+  it("still re-registers commands after loadConfig() when a role is then set", async () => {
+    const bot = runningBot();
+    await bot.updateConfig("tok", "guild1", "", "chan1", "");
+    await bot.loadConfig();
+    bot.registerCommands.mockClear();
+
+    await bot.updateConfig("tok", "guild1", "", "chan1", "mod-456");
+
+    expect(bot.registerCommands).toHaveBeenCalledOnce();
+  });
+
   it("still re-registers commands when the admin role genuinely changes", async () => {
     const bot = runningBot();
 

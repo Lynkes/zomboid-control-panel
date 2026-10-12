@@ -225,12 +225,42 @@ describe("a routine backup that has reached its count makes room first, but only
   it("spares the safety copy but still removes the ordinary oldest when that is enough", async () => {
     fakeBackup(`pre-restore-${named(1)}`, 300 * KB);
     fakeBackup(named(2), 300 * KB);
+    fakeBackup(named(3), 10 * KB);
     leaveFree(100 * KB);
 
     const result = await createService({ maxBackups: 1 }).createBackup({});
 
     expect(result.success).toBe(true);
+    // (the routine retention that follows a successful backup removes the
+    // older ordinary backup; only the safety copy and the new one stay)
     expect(backupNames()).toEqual([`pre-restore-${named(1)}`, result.backup.name].sort());
+  });
+
+  it("never deletes the only backup for its replacement, even with a count of 1: the backup is refused instead", async () => {
+    // Deleting it would leave nothing if the new archive then failed.
+    fakeBackup(named(1), 300 * KB);
+    leaveFree(100 * KB);
+
+    const result = await createService({ maxBackups: 1 }).createBackup({});
+
+    expect(result.success).toBe(false);
+    expect(result.code).toBe("BACKUP_INSUFFICIENT_DISK_SPACE");
+    expect(backupNames()).toEqual([named(1)]);
+  });
+
+  it("with a count of 1 spares the newest backup even when the older ones alone would not free enough", async () => {
+    // The next archive is estimated from the newest one (600 KB * 1.1 = 660 KB):
+    // the 300 KB older backup plus 100 KB free is not enough, and the newest
+    // backup is not taken to make up the rest.
+    fakeBackup(named(1), 300 * KB);
+    fakeBackup(named(2), 600 * KB);
+    leaveFree(100 * KB);
+
+    const result = await createService({ maxBackups: 1 }).createBackup({});
+
+    expect(result.success).toBe(false);
+    expect(result.code).toBe("BACKUP_INSUFFICIENT_DISK_SPACE");
+    expect(backupNames()).toEqual([named(1), named(2)]);
   });
 
   it("does not delete any backup for a pre-restore or pre-wipe safety backup", async () => {

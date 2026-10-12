@@ -1354,10 +1354,10 @@ export class BackupService {
   /**
    * Makes room for the next backup by deleting the oldest backups that
    * retention would delete once it exists (the ones beyond backupMaxCount - 1
-   * of the prunable list, so retention math is unchanged), oldest first, but
-   * only when that frees enough: a backup is never deleted for a new one that
-   * would still not fit. Uploads and the pre-restore / pre-wipe safety copies
-   * are never touched. Returns the free bytes afterwards (unchanged when
+   * of the prunable list, so retention math is unchanged, but always sparing
+   * the newest one), oldest first, but only when that frees enough: a backup
+   * is never deleted for a new one that would still not fit. Uploads and the
+   * pre-restore / pre-wipe safety copies are never touched. Returns the free bytes afterwards (unchanged when
    * nothing was deleted).
    */
   async _pruneOldestToFit({ backups, needed, free, backupsPath, activeServer }) {
@@ -1367,8 +1367,12 @@ export class BackupService {
       const prunable = backups.filter(
         (b) => !b.name.startsWith("uploaded-") && !isSafetyBackupName(b.name, ownServerName),
       );
-      // newest first: what retention will delete after this backup is made
-      const deletable = prunable.slice(Math.max(settings.maxBackups - 1, 0));
+      // newest first: what retention will delete after this backup is made.
+      // Never the newest remaining one, even with backupMaxCount=1: its
+      // replacement does not exist yet, and if the new archive then fails
+      // that would leave no backup at all. With a count of 1 the backup is
+      // refused for lack of space instead.
+      const deletable = prunable.slice(Math.max(settings.maxBackups - 1, 1));
       const reclaimable = deletable.reduce((sum, b) => sum + (b.size || 0), 0);
       if (deletable.length === 0 || free + reclaimable < needed) return free;
 

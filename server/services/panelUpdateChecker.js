@@ -665,9 +665,13 @@ export class PanelUpdateChecker {
   }
 
   /**
-   * Download the update binary and prepare for restart
+   * The refusal downloadUpdate() would return right now before it does any
+   * work, or null when none applies. The Docker update route asks first, so
+   * it never saves and stops the game server for an update that is then
+   * refused (an update that is no longer available, a download or an apply
+   * already under way).
    */
-  async downloadUpdate() {
+  getDownloadRefusal() {
     if (this.isDownloading) {
       // See "Should the download request be held open at all?" (Pam's
       // 0924a187, god-dispatched 2026-09-07): POST /panel/update-download
@@ -703,6 +707,15 @@ export class PanelUpdateChecker {
         code: "no_update",
       };
     }
+    return null;
+  }
+
+  /**
+   * Download the update binary and prepare for restart
+   */
+  async downloadUpdate() {
+    const refusal = this.getDownloadRefusal();
+    if (refusal) return refusal;
 
     // Claim the guard NOW, before the first `await` below, not after it.
     // preflight() is async (real disk/permission checks), so the old code

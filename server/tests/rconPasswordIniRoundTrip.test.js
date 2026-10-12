@@ -151,6 +151,19 @@ describe("ensureRconConfigured() with a saved password the game can't read back 
     expect(warnings[0]).toMatch(/"="/);
   });
 
+  it.each([["abc "], ["abc\t"]])(
+    "leaves the ini as it is for %j: the game trims the end of the line, so it would read a different password",
+    async (password) => {
+      const before = "RCONPassword=abc\nRCONPort=27015\n";
+      fs.writeFileSync(iniPath, before, "utf-8");
+      getActiveServer.mockResolvedValue({ ...server(password), name: `Blank End ${JSON.stringify(password)}` });
+
+      expect(await ensureRconConfigured()).toBe(false);
+
+      expect(fs.readFileSync(iniPath, "utf-8")).toBe(before);
+    },
+  );
+
   it("does not create an ini, or inject a second line, for a password with a line break", async () => {
     getActiveServer.mockResolvedValue(server("ab\nPublic=true"));
 
@@ -221,7 +234,7 @@ describe("POST /configure-rcon", () => {
     },
   );
 
-  it.each([["ab=cd"], ["=lead"], ["trail="], ["line\nbreak"], ["carriage\rreturn"]])(
+  it.each([["ab=cd"], ["=lead"], ["trail="], ["line\nbreak"], ["carriage\rreturn"], ["trailing space "], ["trailing tab\t"]])(
     "refuses %j with a translated code and changes nothing",
     async (password) => {
       const before = "PVP=false\nRCONPassword=old\nRCONPort=27015\n";

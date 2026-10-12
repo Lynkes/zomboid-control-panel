@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { backupApi, serverApi, panelBridgeApi, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from "../api";
+import { backupApi, dockerApi, serverApi, panelBridgeApi, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from "../api";
 import { clearAccessToken } from "../authToken";
 
 // bug-hunt-2026-09-07 (Windows updater hardening lane, widened by god to a
@@ -89,6 +89,11 @@ describe("long-running mutation timeouts", () => {
   const threeMinuteCases: Array<[string, () => Promise<unknown>]> = [
     ["serverApi.stop", () => serverApi.stop()],
     ["serverApi.forceStop", () => serverApi.forceStop()],
+    // POST /docker/containers/:id/:action answers once Docker is done: the
+    // container's StopTimeout plus 30 s (60 s for a restart).
+    ["dockerApi.runAction stop", () => dockerApi.runAction("pz", "stop", 1)],
+    ["dockerApi.runAction restart", () => dockerApi.runAction("pz", "restart", 1)],
+    ["dockerApi.runAction start", () => dockerApi.runAction("pz", "start", 1)],
   ];
 
   it.each(threeMinuteCases)(

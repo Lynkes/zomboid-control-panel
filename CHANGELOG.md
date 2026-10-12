@@ -9,7 +9,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Docker updater stuck on a stalled download:** the updater now gives up on a silent or stalled release download (30 s connect, 60 s below 1 KB/s, 30 min total), so the next update is accepted instead of answered "already in progress" until its container is restarted.
+- **Paused or crash-looping Docker game container:** it no longer reads as "running" (the dashboard says it is paused or restarting), Start on a paused container tells you to unpause it instead of "already running", and Stop works on both.
+- **Docker update stopped the server for nothing:** the panel now checks that the update is still available and that the update controller is reachable, accepts its token and is idle before it saves and stops the game server, instead of leaving the server down after a refused update.
+- **Docker container Start/Stop/Restart on the Servers page:** the page now waits up to 3 minutes for Docker (it gave up at 15 s and showed a failed toast while the stop was still running), so a heavy world no longer looks like a failure or invites a second click.
+- **Restart Panel in the Docker image:** the panel now exits non-zero when restarted from the dashboard, so a container with `restart: on-failure` comes back instead of staying stopped.
+- **Restart Panel on Windows:** the Start.bat window no longer closes after a plain restart (the panel exits for Start.bat to relaunch it instead of starting a copy of itself), so a later Restart and Apply has a supervisor to apply the update.
+- **All-in-one Docker stop:** `docker stop`, a reboot, an image update or Restart Panel now saves and quits the running game servers first (up to 90 s) instead of killing them mid-run; Docker gets a 120 s stop timeout from the compose file.
 - **PanelBridge updates from the Steam Workshop (#235):** a new bridge version now triggers the same warned auto-restart as any other mod update; Steam's public API never lists the bridge item, so the panel read its update time from the item's change notes instead.
+- **Discord "Server Stopped/Started" after switching servers:** activating a different server no longer posts a false stop or start notice for it.
+- **Discord join/leave flood after a restart:** restarting the panel or the PanelBridge, or switching servers, no longer posts a "joined"/"left" message for every player who was already online.
+- **"Server Started" posted twice:** starting the server from the panel posts one Discord notice instead of two (the second used to arrive when RCON came up).
+- **Discord /start on a remote server:** it now says the panel cannot start a remote server (like /restart and the Start button) instead of launching a local process from its settings.
+- **Discord "Send test message" after a failure:** it now goes out even while the bot has paused posting to the channel after repeated errors, and a successful test (or saving another channel, server or token) resumes notifications at once instead of after up to 30 minutes.
+- **Discord notifications with odd player names:** a name containing line breaks or a very long name can no longer add lines to, or fill, a join/death/leave message (names are flattened and cut at 64 characters).
+- **Discord /players with link-like names:** a player named like a link ("[x](https://...)") is shown as plain text instead of a clickable link.
+- **Discord setup saved a placeholder as the bot token:** saving the Discord settings with the token field left alone when no token was saved yet now asks for the token, instead of storing the word "KEEP_EXISTING" and trying to log in with it.
+- **Discord slash commands re-registered on every save:** saving the Discord settings with the admin or mod role left empty no longer re-sends the slash commands to Discord each time.
+- **Discord command permissions "failed" after saving:** if Discord is unreachable when the slash commands are updated, the save now succeeds and the page warns that the commands will update later, instead of reporting an error for tiers that were stored.
+- **"Scheduled restart cancelled" with the event switched off:** the Discord cancellation notice now follows the Scheduled restart toggle instead of posting about a restart Discord was never told about.
+- **Discord /kick reason and history:** the reply shows the reason the server actually received (accents are folded, unsupported characters dropped), and the kick now appears in the player action history like a kick from the Players page.
+- **Discord settings saved but the bot could not reconnect:** changing the token or server ID now shows a warning with the reason when the bot fails to reconnect, instead of "saved successfully".
+- **Discord event messages cut at 500 characters:** the template box stops at 500 characters, the length the server keeps, instead of silently dropping the rest on save.
+- **Discord bot not coming up after a reboot:** when Discord or the network is unreachable as the panel starts, the bot now keeps retrying in the background (15 s up to 10 min) instead of staying down until you start it by hand; a bad token still isn't retried.
+- **Switching to a server with no RCON password:** the panel no longer keeps talking to the previous server's RCON (kicks, bans, Stop and the player list went to the wrong server); it repoints and just stays disconnected until a password is set.
+- **Old chat reposted after switching servers or saving the active server:** the log watcher no longer re-reads the whole current chat and death log from the top, so Discord, the Chat page and death notices don't repeat old messages.
+- **Console log load:** opening the Console page no longer pulls the whole `server-console.txt` (hundreds of MB on an old server) in one go; the stream sends at most the last 256 KB and the pane keeps its 500 lines.
+- **Console log that appears later:** if the game's log did not exist when you opened the Console page, the log pane now shows up as soon as the file is created instead of staying on "not found".
+- **Console log after a game restart:** every open Console tab now resyncs when the game recreates its log, not just the first one to poll.
+- **Stopping the server over RCON:** Stop no longer answers "failed" when the game closes the RCON connection as it shuts down, and a dropped RCON connection is now noticed (and retried) on the very command that hit it.
+- **Passwords in the debug log:** an `adduser "name" "password"` run over RCON no longer shows the password in the panel's debug log lines (the reply and "command skipped" lines were not redacted).
+- **Dashboard PZ memory:** the memory row now reads the active server's own game process (not the first Project Zomboid process on the machine), and a remote server, or one the panel can't see, shows no PZ memory row instead of the panel's own memory.
+- **After switching or stopping a server:** the Dashboard telemetry no longer shows the previous server's last sample for up to a minute, the sidebar Players badge no longer keeps the old count after a stop or a switch, and the Chat page drops the previous server's messages.
+- **Kill Player (PanelBridge update):** the Kill button now kills the player; it always failed with "not dead" (and had already removed godmode) because the bridge dropped the one argument the game needs.
+- **Events Clock day (PanelBridge update):** the Clock card shows the real day of the month (it showed one less) and Set Time sets the day you typed (it set one more), including the 1st, which it used to refuse.
+- **Frozen server on a damaged bridge file (PanelBridge update):** a truncated or hand-edited command or queue file in the bridge folder no longer hangs the game forever (and again after every restart); it is reported as unreadable.
+- **Bridge memory growth (PanelBridge update):** the bridge forgets old command ids again; the list of already-run commands grew with every command until the server restarted.
+- **Commands run after a timeout:** a bridge command that waited behind a long task is skipped once the panel has reported it timed out (it used to run 15-30 s later anyway, so a retry doubled hordes, airdrops and item gifts).
+- **Templates hidden built-ins:** hiding a built-in template now shows it in the Hidden section (with its Restore button) right away instead of after a page reload.
+- **Server Finder version filter:** "Clear all filters" now resets the version filter too, and a refresh that drops the filtered version falls back to all versions instead of leaving an empty list.
+- **Leaderboard after a server switch:** the board now clears and reloads for the new server at once instead of showing the old server's players for up to 30 seconds, and a slow answer for the old server can no longer overwrite it.
+- **Game clock edits reverted by the poll:** a picked hour, day or month on the Events page's Game clock now stays put until you apply it, instead of being reset to the game's time within 10 seconds.
+- **Events Bridge tools without bridge.command:** roles without the permission (Technician, Moderator by default) no longer see the section or poll safehouse/faction lists into endless 403s with a permanent "could not refresh lists" message.
+- **Server Config after switching to a never-started server:** the Server Settings, Spawn Points and Spawn Regions tabs now empty instead of showing the previous server's values (and saving them into the new server).
+- **Server Config unsaved edits:** switching tabs or between Form and Raw with unsaved edits now asks first (raw edits used to be dropped silently), and the leave-page warning also covers raw Spawn Points and Spawn Regions edits.
+- **RCON password ending in a space or tab:** a password pasted with a trailing blank is now refused when saving (the game trims the end of each server.ini line, so its password differed from the panel's and every RCON login failed).
+- **Backups on a nearly full disk:** with a backup count of 1 the only backup is no longer deleted to make room for its replacement (the backup is refused for lack of space instead), so a failed new archive can never leave you with none.
+- **RCON reconnect interval:** Settings, the API and the RCON service now all use 5-600 s (1-4 used to save fine but silently run at 5), and a never-saved interval shows and saves as the old 60 s instead of 5.
+- **Mods= backslash prefixes:** adding a mod to the server no longer strips the `\` prefix from the other entries on the Mods= line (the game ignores it, but your file keeps it).
 
 ## [1.4.13] - 2026-10-11
 

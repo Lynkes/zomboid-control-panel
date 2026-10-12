@@ -23,10 +23,20 @@ export function splitIniList(value) {
 }
 
 // Mods= additionally loses every backslash before it is split (the game
-// runs value.replace("\\", "").split(";") over the whole line).
-export function splitModIdList(value) {
+// runs value.replace("\\", "").split(";") over the whole line). Each entry
+// pairs the id the game reads with the token as it was written (trimmed,
+// backslashes kept), so an edit can write the entries it did not touch back
+// exactly as they were.
+export function splitModIdTokens(value) {
   if (typeof value !== "string") return [];
-  return splitIniList(value.replace(/\\/g, ""));
+  return value
+    .split(";")
+    .map((token) => ({ raw: token.trim(), id: token.replace(/\\/g, "").trim() }))
+    .filter((entry) => entry.id !== "");
+}
+
+export function splitModIdList(value) {
+  return splitModIdTokens(value).map((entry) => entry.id);
 }
 
 // Read a text file as UTF-8 with BOM stripping and CRLF normalisation

@@ -1074,8 +1074,15 @@ export const serverApi = {
   // Server Console Log (server-console.txt)
   getConsoleLog: (lines?: number) =>
     apiGet(`/server/console-log${lines ? `?lines=${lines}` : ""}`),
-  streamConsoleLog: (lastSize: number) =>
-    apiGet(`/server/console-log/stream?lastSize=${lastSize}`),
+  // `identity` is the token the previous answer carried: it names the file
+  // lastSize belongs to, so the server can tell this page the log was
+  // recreated even when another page already saw it happen.
+  streamConsoleLog: (lastSize: number, identity?: string) =>
+    apiGet(
+      `/server/console-log/stream?lastSize=${lastSize}${
+        identity ? `&identity=${encodeURIComponent(identity)}` : ""
+      }`,
+    ),
   getConsoleErrorCount: (): Promise<{
     exists: boolean
     count: number
@@ -2049,7 +2056,15 @@ export const discordApi = {
       chatRelayEnabled,
       chatRelayChannelId,
       chatRelayScope,
-    }),
+    }) as Promise<{
+      success: boolean;
+      message?: string;
+      // Only present when a changed token or guild needed the bot to
+      // reconnect: false = it could not (botStartError says why), null = a
+      // start/stop from elsewhere was already in progress.
+      botStarted?: boolean | null;
+      botStartError?: string;
+    }>,
   // keptCommandPermissions: commands whose tier the wipe kept because
   // changing it needs a capability the caller doesn't hold.
   resetConfig: () =>
@@ -2074,6 +2089,9 @@ export const discordApi = {
     apiPut("/discord/permissions", { permissions }) as Promise<{
       success: boolean;
       permissions: Record<string, string>;
+      // false when the tiers were saved but pushing the slash commands to
+      // Discord failed; absent otherwise.
+      commandsRegistered?: boolean;
     }>,
 };
 
@@ -2380,8 +2398,12 @@ export const dockerApi = {
   getStats: () => apiGet("/docker/stats") as Promise<{
     containers: Record<string, DockerContainerStats>;
   }>,
+  // The route answers only once Docker has finished: a stop waits out the
+  // container's own StopTimeout (a heavy B42 world sets 90 s or more) and a
+  // restart pays that plus a start (dockerClient.lifecycleTimeoutMs), so the
+  // generic 15 s timeout reported a failure while Docker was still working.
   runAction: (id: string, action: "start" | "stop" | "restart", serverId: string | number) =>
-    apiPost(`/docker/containers/${encodeURIComponent(id)}/${action}`, { serverId }) as Promise<{
+    apiPost(`/docker/containers/${encodeURIComponent(id)}/${action}`, { serverId }, { timeout: 3 * 60 * 1000 }) as Promise<{
       success: boolean;
       message?: string;
       error?: string;
