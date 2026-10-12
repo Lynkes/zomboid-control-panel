@@ -1109,6 +1109,12 @@ export default function Events() {
   // triggers stay ungated here -- they're server.world_events, the page's
   // own broadly-held baseline, not this specific mismatch.
   const canEndangerOrImpersonate = can('players.endanger_or_impersonate')
+  // Every Bridge Ops operation (and the safehouse/faction/vehicle lists that
+  // fill its pickers) goes through POST /panel-bridge/command, which needs
+  // bridge.command. The default Technician and Moderator roles lack it, so
+  // for them the section is hidden and its lists are not polled (they would
+  // 403 every 30 s and show a permanent "could not refresh lists" message).
+  const canBridgeCommand = can('bridge.command')
   const vehicles = useMemo(() => getVehiclePresets(t), [t])
   const bridgeOperationTemplates = useMemo(() => getBridgeOperationTemplates(t), [t])
   const bridgeOperationForms = useMemo(() => getBridgeOperationForms(t), [t])
@@ -1303,6 +1309,11 @@ export default function Events() {
   const socket = useSocket()
 
   const [activeSection, setActiveSection] = useState<EventSectionKey>('rain')
+  // The role can change while the page is open (capabilities reload): never
+  // leave the operator on a section they can no longer use.
+  useEffect(() => {
+    if (activeSection === 'bridgeOps' && !canBridgeCommand) setActiveSection('rain')
+  }, [activeSection, canBridgeCommand])
   const [sectionQuery, setSectionQuery] = useState('')
   const [activity, setActivity] = useState<ActivityEntry[]>([])
   // Below `lg` the sidebar/content grid collapses to one column, so the full
@@ -1601,7 +1612,7 @@ export default function Events() {
   }, [socket, fetchPlayers, checkBridgeStatus])
 
   useEffect(() => {
-    if (!bridgeConnected) {
+    if (!bridgeConnected || !canBridgeCommand) {
       setBridgeSafehouseOptions([])
       setBridgeFactionOptions([])
       setBridgeVehicleOptions([])
@@ -1731,7 +1742,7 @@ export default function Events() {
       active = false
       clearInterval(interval)
     }
-  }, [activeSection, bridgeConnected, bridgeOptionsRefreshTick, i18n.language])
+  }, [activeSection, bridgeConnected, canBridgeCommand, bridgeOptionsRefreshTick, i18n.language])
 
   const pushActivity = useCallback((label: string, ok: boolean) => {
     setActivity((prev) => [
@@ -2348,11 +2359,12 @@ export default function Events() {
   const filteredGroups = EVENT_SECTION_GROUPS
     .map((group) => ({
       group: group.group,
-      items: normalizedQuery
+      items: (normalizedQuery
         ? group.items.filter((item) =>
             `${item.label} ${item.hint} ${item.keywords} ${group.group}`.toLowerCase().includes(normalizedQuery)
           )
-        : group.items,
+        : group.items
+      ).filter((item) => item.id !== 'bridgeOps' || canBridgeCommand),
     }))
     .filter((group) => group.items.length > 0)
   const activeMeta = EVENT_SECTION_INDEX[activeSection]
@@ -3663,7 +3675,7 @@ export default function Events() {
           </TacticalPanel>
         )}
 
-        {activeSection === 'bridgeOps' && (
+        {activeSection === 'bridgeOps' && canBridgeCommand && (
           <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className={!bridgeConnected ? 'opacity-95' : ''}>
             <SectionHeader
               label={activeMeta.label}
