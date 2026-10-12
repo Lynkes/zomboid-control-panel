@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Docker updater stuck on a stalled download:** the updater now gives up on a silent or stalled release download (30 s connect, 60 s below 1 KB/s, 30 min total), so the next update is accepted instead of answered "already in progress" until its container is restarted.
 - **Paused or crash-looping Docker game container:** it no longer reads as "running" (the dashboard says it is paused or restarting), Start on a paused container tells you to unpause it instead of "already running", and Stop works on both.
 - **Docker update stopped the server for nothing:** the panel now checks that the update is still available and that the update controller is reachable, accepts its token and is idle before it saves and stops the game server, instead of leaving the server down after a refused update.
 - **Docker container Start/Stop/Restart on the Servers page:** the page now waits up to 3 minutes for Docker (it gave up at 15 s and showed a failed toast while the stop was still running), so a heavy world no longer looks like a failure or invites a second click.

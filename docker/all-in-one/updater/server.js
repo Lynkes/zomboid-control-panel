@@ -20,6 +20,16 @@ const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || "fpsacha/zomboid-cont
 // deployment that wants verification pins the expected archive hash here.
 const UPDATE_SHA256 = String(process.env.UPDATE_SHA256 || "").trim().toLowerCase();
 const HEALTH_TIMEOUT_MS = 120000;
+// curl has no timeout of its own. A download that stalled (a dropped
+// connection that never closes) left updateState "running" for good, and
+// every later update was answered 409 until this container restarted. Give up
+// on a host that does not answer, on a transfer that falls below
+// --speed-limit bytes/s for --speed-time seconds, and on one that simply
+// takes too long.
+const DOWNLOAD_CONNECT_TIMEOUT_SEC = 30;
+const DOWNLOAD_STALL_SEC = 60;
+const DOWNLOAD_STALL_BYTES_PER_SEC = 1024;
+const DOWNLOAD_MAX_SEC = 30 * 60;
 
 let updateState = { status: "idle", version: null, message: null, startedAt: null, completedAt: null };
 
@@ -109,7 +119,15 @@ async function update(version) {
   updateState = { status: "running", version, message: "Downloading release source", startedAt: new Date().toISOString(), completedAt: null };
   try {
     await fs.mkdir(extractedDir, { recursive: true });
-    await run("curl", ["--fail", "--location", "--silent", "--show-error", "--output", archivePath, `https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/v${version}.tar.gz`]);
+    await run("curl", [
+      "--fail", "--location", "--silent", "--show-error",
+      "--connect-timeout", String(DOWNLOAD_CONNECT_TIMEOUT_SEC),
+      "--speed-limit", String(DOWNLOAD_STALL_BYTES_PER_SEC),
+      "--speed-time", String(DOWNLOAD_STALL_SEC),
+      "--max-time", String(DOWNLOAD_MAX_SEC),
+      "--output", archivePath,
+      `https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/v${version}.tar.gz`,
+    ]);
     // security audit M5: verify the archive when a checksum is pinned, and say
     // so loudly when it is not. The updater holds the Docker socket, so an
     // unverified archive is a root-code path.
