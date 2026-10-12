@@ -581,9 +581,15 @@ export default function Dashboard() {
     try { const d = await playersApi.getActivityLogs(undefined, 15); if (d.logs) setPlayerActivity(d.logs.slice(0, 12)) }
     catch { setPlayerActivity([]) }
   }, [])
+  // The history is the ACTIVE server's: a fetch still in flight when the
+  // operator switches servers must not put the old server's samples back
+  // after onActiveServer has cleared them.
+  const perfHistoryGuard = useRequestGuard()
   const fetchPerformanceHistory = useCallback(async () => {
+    const requestId = perfHistoryGuard.next()
     try {
       const data = await debugApi.getPerformanceHistory(60)
+      if (perfHistoryGuard.isStale(requestId)) return
       if (data.history) {
         setPerformanceHistory(data.history.map((h: Record<string, unknown>) => ({
           time: formatTime(h.timestamp as string, { language: i18n.language }),
@@ -608,7 +614,7 @@ export default function Dashboard() {
     } catch {
       // Ignore missing telemetry history so the rest of the dashboard can render.
     }
-  }, [i18n.language])
+  }, [i18n.language, perfHistoryGuard])
   const fetchAutoStartSetting = useCallback(async () => {
     try {
       const r = await configApi.getAppSettings()
@@ -758,6 +764,13 @@ export default function Dashboard() {
     const onActiveServer = (d?: { server?: ServerInstance | null }) => {
       if (d?.server !== undefined) setActiveServer(d.server); else fetchActiveServer()
       fetchStatus(); fetchComposedStatus(); fetchPlayers(); fetchBridgeStatus()
+      // The telemetry rows read the LAST sample, which is the previous
+      // server's for up to a minute (the next tick) unless it is dropped and
+      // the new server's history fetched. The guard bump also discards a
+      // fetch still in flight for the old server when the charts are hidden.
+      perfHistoryGuard.next()
+      setPerformanceHistory([])
+      if (showPerformanceCharts) void fetchPerformanceHistory()
       // See wipeServerChangedSinceOpen's own comment above.
       if (wipeDialog) setWipeServerChangedSinceOpen(true)
     }
@@ -784,7 +797,7 @@ export default function Dashboard() {
       socket.off('activeServerChanged', onActiveServer)
       socket.off('panelBridge:modStatus', onBridgeMod)
     }
-  }, [socket, fetchStatus, fetchComposedStatus, fetchPlayers, fetchBridgeStatus, fetchActiveServer, wipeDialog, activeServer?.id])
+  }, [socket, fetchStatus, fetchComposedStatus, fetchPlayers, fetchBridgeStatus, fetchActiveServer, fetchPerformanceHistory, perfHistoryGuard, showPerformanceCharts, wipeDialog, activeServer?.id])
 
   // Zombie count changes continuously while the server runs -- unlike
   // bridgeStatus (pushed live over the socket), nothing pushes this, so it

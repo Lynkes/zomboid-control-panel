@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Stopping the server over RCON:** Stop no longer answers "failed" when the game closes the RCON connection as it shuts down, and a dropped RCON connection is now noticed (and retried) on the very command that hit it.
 - **Passwords in the debug log:** an `adduser "name" "password"` run over RCON no longer shows the password in the panel's debug log lines (the reply and "command skipped" lines were not redacted).
 - **Dashboard PZ memory:** the memory row now reads the active server's own game process (not the first Project Zomboid process on the machine), and a remote server, or one the panel can't see, shows no PZ memory row instead of the panel's own memory.
+- **After switching or stopping a server:** the Dashboard telemetry no longer shows the previous server's last sample for up to a minute, the sidebar Players badge no longer keeps the old count after a stop or a switch, and the Chat page drops the previous server's messages.
 
 ## [1.4.13] - 2026-10-11
 
