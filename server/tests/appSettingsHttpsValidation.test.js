@@ -203,8 +203,23 @@ describe("PUT /app-settings -- reconnectInterval validation (same missing-range-
   it("rejects an out-of-range value", async () => {
     const tooLow = await putAppSettings({ autoReconnect: true, reconnectInterval: 0 });
     expect(tooLow.getStatusCode()).toBe(400);
-    const tooHigh = await putAppSettings({ autoReconnect: true, reconnectInterval: 61 });
+    const tooHigh = await putAppSettings({ autoReconnect: true, reconnectInterval: 601 });
     expect(tooHigh.getStatusCode()).toBe(400);
+  });
+
+  // The RCON service clamps whatever is stored to 5-600 s, so a 1-4 that was
+  // accepted here would silently run as 5, and 61-600 (valid for the service)
+  // used to be refused.
+  it.each([1, 4, "3"])("rejects %j, below the 5 s the service would run it at", async (value) => {
+    const res = await putAppSettings({ autoReconnect: true, reconnectInterval: value });
+    expect(res.getStatusCode()).toBe(400);
+    expect(res.getBody().error).toMatch(/from 5 to 600/);
+  });
+
+  it.each([5, 60, 61, 300, "600", 600])("accepts %j, a value the service applies as it is", async (value) => {
+    const res = await putAppSettings({ autoReconnect: true, reconnectInterval: value });
+    expect(res.getStatusCode()).toBe(200);
+    expect(res.getBody().success).toBe(true);
   });
 
   it("rejects scientific notation instead of coercing it", async () => {

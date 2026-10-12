@@ -380,7 +380,9 @@ export default function Settings() {
     steamLoginSecure: "",
     darkMode: true,
     autoReconnect: true,
-    reconnectInterval: "5",
+    // The loop retried every 60 s before the setting existed (the RCON
+    // service's own default), so an install that never saved it stays there.
+    reconnectInterval: "60",
     panelPort: "3001",
     httpsEnabled: false,
     httpsPort: "3443",
@@ -4584,8 +4586,8 @@ export default function Settings() {
                         updateSetting("reconnectInterval", e.target.value)
                       }
                       onWheel={(e) => e.currentTarget.blur()}
-                      min="1"
-                      max="60"
+                      min="5"
+                      max="600"
                       inputMode="numeric"
                     />
                   </div>
