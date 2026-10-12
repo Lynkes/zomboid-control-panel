@@ -13,6 +13,8 @@ import { PageHeader } from '@/components/PageHeader'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { formatDateTime } from '@/lib/dateFormat'
 import { panelBridgeApi } from '@/lib/api'
+import { useRequestGuard } from '@/hooks/useRequestGuard'
+import { useSocket } from '@/contexts/SocketContext'
 import {
   leaderboardRowRead,
   redactLeaderboardDiagnostics,
@@ -189,13 +191,23 @@ export default function Leaderboard() {
   const [diagnostics, setDiagnostics] = useState<LeaderboardDiagnostics | null>(null)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const copyResetTimer = useRef<number | undefined>(undefined)
+  const socket = useSocket()
+
+  // refresh() runs on the 30 s poll, on the buttons and on activeServerChanged.
+  // A request sent for the server that was active a moment ago can resolve
+  // AFTER the one for the new server and would overwrite its board with the
+  // old server's players; the guard drops a response once a newer request
+  // has started.
+  const refreshGuard = useRequestGuard()
 
   const refresh = useCallback(async () => {
+    const requestId = refreshGuard.next()
     setRefreshing(true)
     const [leaderboardResult, statusResult] = await Promise.allSettled([
       panelBridgeApi.getLeaderboard(),
       panelBridgeApi.getStatus(),
     ])
+    if (refreshGuard.isStale(requestId)) return
 
     if (statusResult.status === 'fulfilled') {
       setBridgeRunning(Boolean(statusResult.value.isRunning))
@@ -223,7 +235,7 @@ export default function Leaderboard() {
 
     setLoading(false)
     setRefreshing(false)
-  }, [t])
+  }, [t, refreshGuard])
 
   useEffect(() => {
     void refresh()
@@ -232,6 +244,30 @@ export default function Leaderboard() {
     }, 30000)
     return () => window.clearInterval(interval)
   }, [refresh])
+
+  // The board belongs to one server. On a switch, drop the old server's data
+  // at once (it would otherwise stay up until the next poll, up to 30 s, and
+  // look like the new server's) and load the new one.
+  useEffect(() => {
+    if (!socket) return
+    const handleActiveServerChanged = () => {
+      setPlayers([])
+      setTrackingStartedAt(undefined)
+      setGeneratedAt(undefined)
+      setLastUpdated(undefined)
+      setDiagnostics(null)
+      setError(null)
+      setBridgeRunning(false)
+      setBridgeConnected(false)
+      setBridgeStatusLoading(true)
+      setLoading(true)
+      void refresh()
+    }
+    socket.on('activeServerChanged', handleActiveServerChanged)
+    return () => {
+      socket.off('activeServerChanged', handleActiveServerChanged)
+    }
+  }, [socket, refresh])
 
   useEffect(() => () => window.clearTimeout(copyResetTimer.current), [])
 
