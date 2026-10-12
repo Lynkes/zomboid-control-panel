@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **PanelBridge updates from the Steam Workshop (#235):** a new bridge version now triggers the same warned auto-restart as any other mod update; Steam's public API never lists the bridge item, so the panel read its update time from the item's change notes instead.
 - **Switching to a server with no RCON password:** the panel no longer keeps talking to the previous server's RCON (kicks, bans, Stop and the player list went to the wrong server); it repoints and just stays disconnected until a password is set.
 - **Old chat reposted after switching servers or saving the active server:** the log watcher no longer re-reads the whole current chat and death log from the top, so Discord, the Chat page and death notices don't repeat old messages.
+- **Console log load:** opening the Console page no longer pulls the whole `server-console.txt` (hundreds of MB on an old server) in one go; the stream sends at most the last 256 KB and the pane keeps its 500 lines.
+- **Console log that appears later:** if the game's log did not exist when you opened the Console page, the log pane now shows up as soon as the file is created instead of staying on "not found".
+- **Console log after a game restart:** every open Console tab now resyncs when the game recreates its log, not just the first one to poll.
 
 ## [1.4.13] - 2026-10-11
 

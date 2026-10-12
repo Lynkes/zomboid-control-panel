@@ -1074,8 +1074,15 @@ export const serverApi = {
   // Server Console Log (server-console.txt)
   getConsoleLog: (lines?: number) =>
     apiGet(`/server/console-log${lines ? `?lines=${lines}` : ""}`),
-  streamConsoleLog: (lastSize: number) =>
-    apiGet(`/server/console-log/stream?lastSize=${lastSize}`),
+  // `identity` is the token the previous answer carried: it names the file
+  // lastSize belongs to, so the server can tell this page the log was
+  // recreated even when another page already saw it happen.
+  streamConsoleLog: (lastSize: number, identity?: string) =>
+    apiGet(
+      `/server/console-log/stream?lastSize=${lastSize}${
+        identity ? `&identity=${encodeURIComponent(identity)}` : ""
+      }`,
+    ),
   getConsoleErrorCount: (): Promise<{
     exists: boolean
     count: number

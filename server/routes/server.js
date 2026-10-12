@@ -6790,6 +6790,11 @@ router.get("/console-log", requirePermission("server.world_events"), async (req,
 
     // Read only the tail of the file to prevent DoS with large log files
     const stats = fs.statSync(consoleLogPath);
+    // The page streams from `size` right after this, so this is the file its
+    // offset belongs to: seed the identity record (the first stream poll of a
+    // path used to count as "never seen" and re-read the whole log) and hand
+    // the client the token to echo back.
+    observeConsoleLogIdentity(consoleLogPath, stats);
     const MAX_READ_BYTES = 5 * 1024 * 1024; // 5MB cap
     let content;
     if (stats.size > MAX_READ_BYTES) {
@@ -6829,6 +6834,7 @@ router.get("/console-log", requirePermission("server.world_events"), async (req,
       path: view.path(consoleLogPath),
       lastModified: stats.mtime.toISOString(),
       size: stats.size,
+      identity: consoleLogIdentityToken(stats),
     });
   } catch (error) {
     log.error(`Failed to read server console log: ${error.message}`);
@@ -7037,26 +7043,37 @@ function splitConsoleStreamLines(consoleLogPath, resumeFromSize, content) {
 // server-side fact (which file currently sits at this path), not
 // per-reader state, so there is no round-13b-style "one poller's entry
 // clobbers another's" risk here.
+//
+// 2026-10-12 (console audit): that map alone gave only the FIRST poller
+// after a recreate its rotation -- it updated the shared record while
+// answering, so a second open Console tab compared itself with the record
+// the first tab had just refreshed, saw "no change", and read its stale
+// lastSize range out of the new file. A client now echoes the identity token
+// (`identity`) it was last given, and the comparison is made against THAT, so
+// every tab sees its own rotation. The shared map stays: it holds the
+// birthtime proof below, and is the baseline for a client that sends no
+// token (a page loaded before this change). GET /console-log seeds it, so
+// the first stream poll of a path is not "never seen" just because the
+// panel process has not streamed it yet.
 let consoleStreamKnownIdentity = new Map(); // path -> {birthtimeMs, ino, ctimeMs, birthtimeProvenReal}
 
-// Returns true only when a PREVIOUSLY recorded identity for this exact
-// path no longer matches the file currently there -- deleted and
-// recreated since we last looked (a new inode, or a new birthtime when
-// inode is unavailable), whether from a PZ restart or an active-server
-// switch to a different consoleLogPath. The very first time a path is
-// seen there is nothing yet to contradict, so this records a baseline and
-// returns false rather than forcing a resync -- the client's normal flow
-// already establishes a correct lastSize via its initial GET
-// /console-log fetch moments before its first /stream poll, so treating
-// "never seen before" as "assume changed" would force a needless full
-// re-read (and a visible content reset in the UI) on every ordinary page
-// load, not just a genuine rotation.
-//
-// Combined with (not replacing) the existing size-shrink check below: a
-// `copytruncate`-style external rotation tool can truncate the SAME inode
-// in place (birthtime and inode both unchanged, only size and mtime
-// change), which an identity comparison alone would miss.
-function consoleLogIdentityChanged(consoleLogPath, stats) {
+// What a client holds on to and sends back: inode and birth time of the file
+// its lastSize belongs to. Whether the birth time counts is the server's
+// call (birthtimeProvenReal), so the token always carries both.
+function consoleLogIdentityToken(stats) {
+  return `${stats.ino || 0}:${stats.birthtimeMs || 0}`;
+}
+
+function parseConsoleLogIdentityToken(token) {
+  if (typeof token !== "string" || token.length > 64) return null;
+  const match = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(token);
+  if (!match) return null;
+  return { ino: Number(match[1]), birthtimeMs: Number(match[2]) };
+}
+
+// Records what is at this path now (and the birthtime proof) and hands back
+// the record it replaced, if any.
+function observeConsoleLogIdentity(consoleLogPath, stats) {
   const known = consoleStreamKnownIdentity.get(consoleLogPath);
   const ctimeMs = stats.ctimeMs || 0;
   const birthtimeMs = stats.birthtimeMs || 0;
@@ -7097,37 +7114,91 @@ function consoleLogIdentityChanged(consoleLogPath, stats) {
     birthtimeProvenReal,
   };
   consoleStreamKnownIdentity.set(consoleLogPath, current);
-  // Never tracked this exact path before -- this is either this process's
-  // genuine first-ever poll of it, OR the active server just switched to a
-  // path this process has never seen, carrying a lastSize that was
-  // calibrated for a DIFFERENT file entirely. The two are indistinguishable
-  // from state alone, and only ONE of them is safe to treat as unchanged --
-  // so treat "unknown" as "changed" and force a full resync. The cost is
-  // bounded and one-time: once ANY poll establishes a baseline for a path,
-  // every later poll against that SAME path (by this or any other client)
-  // stops forcing a resync unless the file genuinely changes identity, so
-  // this only fires once per path per panel-process-lifetime for the
-  // ordinary case -- not on every page load, since the map is shared
-  // across every poller, not per-client.
-  if (!known) return true;
-  // Inode equality alone is not sufficient proof of "same file": a
-  // delete+recreate at the same path can have its inode number handed
-  // straight back by the filesystem (routine on tmpfs -- which is what
-  // os.tmpdir()/CI's /tmp commonly is on Linux, and not uncommon on ext4
-  // for a near-empty directory, exactly what a fresh temp dir or PZ's own
-  // Server/ folder looks like). birthtime, when proven real for this path
-  // (see above), is unaffected by inode reuse and catches that case.
-  const inoKnown = current.ino && known.ino;
-  if (inoKnown && current.ino !== known.ino) return true;
-  const birthtimeKnown = current.birthtimeMs && known.birthtimeMs;
+  return { known, current };
+}
+
+// Is `current` still the file `before` ({ino, birthtimeMs}) described?
+//
+// Inode equality alone is not sufficient proof of "same file": a
+// delete+recreate at the same path can have its inode number handed
+// straight back by the filesystem (routine on tmpfs -- which is what
+// os.tmpdir()/CI's /tmp commonly is on Linux, and not uncommon on ext4
+// for a near-empty directory, exactly what a fresh temp dir or PZ's own
+// Server/ folder looks like). birthtime, when proven real for this path
+// (see observeConsoleLogIdentity), is unaffected by inode reuse and
+// catches that case.
+function isSameConsoleLogFile(before, current) {
+  const inoKnown = current.ino && before.ino;
+  if (inoKnown && current.ino !== before.ino) return false;
+  const birthtimeKnown = current.birthtimeMs && before.birthtimeMs;
   if (
-    birthtimeProvenReal &&
+    current.birthtimeProvenReal &&
     birthtimeKnown &&
-    current.birthtimeMs !== known.birthtimeMs
+    current.birthtimeMs !== before.birthtimeMs
   ) {
-    return true;
+    return false;
   }
-  return false; // neither available/trustworthy signal differs -- no worse than before this fix
+  return true; // neither available/trustworthy signal differs -- no worse than before this fix
+}
+
+// Returns true when the file at this path is not the one the caller's
+// lastSize belongs to -- deleted and recreated since it last looked (a PZ
+// restart, or an active-server switch to a different consoleLogPath).
+//
+// `clientIdentity` is the token this route gave the client with its previous
+// answer. With one, the client's own file is the baseline. Without one (a
+// page loaded before tokens existed, or a first request that had nothing to
+// echo), the shared record is: a path never seen before is treated as
+// "changed" and forces a full resync, because it is either this process's
+// first look at the path or an active-server switch to a path carrying a
+// lastSize calibrated for a DIFFERENT file, and the two cannot be told
+// apart. GET /console-log seeds the record, so an ordinary page load is
+// neither.
+function consoleLogIdentityChanged(consoleLogPath, stats, clientIdentity) {
+  const { known, current } = observeConsoleLogIdentity(consoleLogPath, stats);
+  const claimed = parseConsoleLogIdentityToken(clientIdentity);
+  if (claimed) return !isSameConsoleLogFile(claimed, current);
+  if (!known) return true;
+  return !isSameConsoleLogFile(known, current);
+}
+
+// The most one /console-log/stream response reads from the file. The route
+// used to read the whole file on a rotation (the first poll of every path in
+// a process counted as one) and every byte since lastSize otherwise, so a
+// log of hundreds of megabytes, or a client returning after a long absence,
+// became one huge read, response and render. Past this the answer is the
+// last stretch of the range, with `truncated: true`.
+const CONSOLE_STREAM_MAX_READ_BYTES = 256 * 1024;
+
+// Bytes [start, end) of the file as text, at most the last
+// CONSOLE_STREAM_MAX_READ_BYTES of them. When the range is longer the read
+// starts that far from the end and the first line, probably cut, is dropped.
+function readConsoleLogRange(consoleLogPath, start, end) {
+  let from = start;
+  let truncated = false;
+  if (end - start > CONSOLE_STREAM_MAX_READ_BYTES) {
+    from = end - CONSOLE_STREAM_MAX_READ_BYTES;
+    truncated = true;
+  }
+  const length = Math.max(0, end - from);
+  const buffer = Buffer.alloc(length);
+  let bytesRead = 0;
+  const fd = fs.openSync(consoleLogPath, "r");
+  try {
+    bytesRead = fs.readSync(fd, buffer, 0, length, from);
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  let text = buffer.toString("utf-8", 0, bytesRead);
+  if (truncated) {
+    const firstNewline = text.indexOf("\n");
+    text = firstNewline >= 0 ? text.slice(firstNewline + 1) : "";
+  }
+  return { text, truncated };
 }
 
 // Stream server console log (long-polling for new content)
@@ -7168,7 +7239,15 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
       Number.MAX_SAFE_INTEGER,
     );
     const stats = fs.statSync(consoleLogPath);
-    const identityChanged = consoleLogIdentityChanged(consoleLogPath, stats);
+    const identityChanged = consoleLogIdentityChanged(
+      consoleLogPath,
+      stats,
+      req.query.identity,
+    );
+    // Echoed back by the client with its next poll (see
+    // consoleLogIdentityChanged); also what lets a second open page notice a
+    // rotation the first one already consumed.
+    const identity = consoleLogIdentityToken(stats);
 
     // If file is smaller than last known size, OR a different file (by
     // inode/birthtime) now exists at this same path -- PZ recreated its
@@ -7178,7 +7257,13 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
     // file is already >= lastSize by the time this poll runs.
     if (identityChanged || stats.size < lastSize) {
       clearConsoleStreamRemaindersForPath(consoleLogPath);
-      const content = fs.readFileSync(consoleLogPath, "utf-8");
+      // Only the end of the new file: a long log is not worth shipping whole
+      // to a pane that keeps the last few hundred lines.
+      const { text: content, truncated } = readConsoleLogRange(
+        consoleLogPath,
+        0,
+        stats.size,
+      );
       const { completeLines, remainder } = splitConsoleStreamLines(
         consoleLogPath,
         -1,
@@ -7192,6 +7277,8 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
         newLines: lines,
         currentSize: stats.size,
         rotated: true,
+        ...(truncated ? { truncated: true } : {}),
+        identity,
         filterLevel,
         lastModified: stats.mtime.toISOString(),
       });
@@ -7203,29 +7290,24 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
         success: true,
         newLines: [],
         currentSize: stats.size,
+        identity,
         filterLevel,
         lastModified: stats.mtime.toISOString(),
       });
     }
 
-    // Read only new content from the last known position
-    const fd = fs.openSync(consoleLogPath, "r");
-    const newBytes = stats.size - lastSize;
-    const buffer = Buffer.alloc(newBytes);
-    try {
-      fs.readSync(fd, buffer, 0, newBytes, lastSize);
-    } finally {
-      try {
-        fs.closeSync(fd);
-      } catch (_) {
-        /* ignore */
-      }
-    }
-
-    const newContent = buffer.toString("utf-8");
-    const { completeLines, remainder } = splitConsoleStreamLines(
+    // Read only new content from the last known position -- the last
+    // CONSOLE_STREAM_MAX_READ_BYTES of it when the client is further behind
+    // than that, in which case the held-back fragment of its old position no
+    // longer belongs in front of what is read (resume -1).
+    const { text: newContent, truncated } = readConsoleLogRange(
       consoleLogPath,
       lastSize,
+      stats.size,
+    );
+    const { completeLines, remainder } = splitConsoleStreamLines(
+      consoleLogPath,
+      truncated ? -1 : lastSize,
       newContent,
     );
     storeConsoleStreamRemainder(consoleLogPath, stats.size, remainder);
@@ -7236,6 +7318,8 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
       success: true,
       newLines,
       currentSize: stats.size,
+      ...(truncated ? { truncated: true } : {}),
+      identity,
       filterLevel,
       lastModified: stats.mtime.toISOString(),
     });
