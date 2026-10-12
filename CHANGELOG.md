@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.13] - 2026-10-11
+
 ### Added
 
 - **Discord /leaderboard:** anyone in your Discord server can see the top 10 by kills, longest survival or deaths (who can use it is set under Commands, like /players).
@@ -82,11 +84,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Missing-dependency resolver:** resolving the dependencies of a long mod list no longer re-reads every downloaded mod once per dependency (so the panel stays responsive), and a request with more than 200 dependencies is refused with a clear message.
 - **Importing a collection keeps your backup:** importing or re-enabling many mods now writes the server .ini once (one backup of the config as it was before) instead of once per mod, which pushed the pre-import backup out of the 10 kept.
 - **Importing mods that are not downloaded yet:** the import looks up their mod IDs on Steam like Add Mod does, and when an ID is still unknown it says the mod was added to WorkshopItems only (start the server to download it, then Sync Mod IDs) instead of "Restart the server to load the new mods".
-
-## [1.4.12] - 2026-10-10
-
-### Fixed
-
 - **Server name with spaces:** a running server whose name contains spaces is detected again, so the panel no longer shows it stopped and then refuses a second start with "RCON port already in use" (#223).
 
 ## [1.4.11] - 2026-10-10
