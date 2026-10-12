@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Docker update stopped the server for nothing:** the panel now checks that the update is still available and that the update controller is reachable, accepts its token and is idle before it saves and stops the game server, instead of leaving the server down after a refused update.
 - **Docker container Start/Stop/Restart on the Servers page:** the page now waits up to 3 minutes for Docker (it gave up at 15 s and showed a failed toast while the stop was still running), so a heavy world no longer looks like a failure or invites a second click.
 - **Restart Panel in the Docker image:** the panel now exits non-zero when restarted from the dashboard, so a container with `restart: on-failure` comes back instead of staying stopped.
 - **Restart Panel on Windows:** the Start.bat window no longer closes after a plain restart (the panel exits for Start.bat to relaunch it instead of starting a copy of itself), so a later Restart and Apply has a supervisor to apply the update.

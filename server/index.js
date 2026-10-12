@@ -2413,6 +2413,33 @@ export async function handlePanelUpdateDownload(req, res) {
           });
         }
 
+        // downloadUpdate() below can still refuse (the update is no longer
+        // known, a download or apply is already under way) and the update
+        // controller can be unreachable, reject the token or be busy. Ask
+        // all of that first: past this point the world is saved and the
+        // server stopped, and a refusal after that leaves it down for
+        // nothing.
+        const refusal =
+          typeof checker.getDownloadRefusal === "function"
+            ? checker.getDownloadRefusal()
+            : null;
+        if (refusal) {
+          return res
+            .status(refusal.code === "already_downloading" ? 409 : 400)
+            .json(refusal);
+        }
+        const controller =
+          typeof checker.dockerUpdateProxy.checkReady === "function"
+            ? await checker.dockerUpdateProxy.checkReady()
+            : { ok: true };
+        if (!controller.ok) {
+          return res.status(400).json({
+            success: false,
+            error: controller.error,
+            ...(controller.code ? { code: controller.code } : {}),
+          });
+        }
+
         // Recreating the container stops every Project Zomboid server in
         // it, and only the active one is saved and stopped below. Checked
         // first, so a refusal here never leaves the active server stopped.
