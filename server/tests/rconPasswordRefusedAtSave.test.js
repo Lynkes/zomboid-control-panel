@@ -69,7 +69,9 @@ async function runRoute(router, routePath, method, req, res) {
   return res;
 }
 
-const REFUSED = [["ab=cd"], ["=x"], ["x="], ["a\nb"], ["a\rb"], ["a\r\nPublic=true"]];
+// Also a blank at the very end: the game trims the end of each ini line, so
+// "RCONPassword=abc " is "abc" to it while the panel would log in with "abc ".
+const REFUSED = [["ab=cd"], ["=x"], ["x="], ["a\nb"], ["a\rb"], ["a\r\nPublic=true"], ["abc "], ["abc\t"], ["  spaced  "]];
 
 beforeEach(() => {
   createServer.mockReset().mockResolvedValue({ id: "server-id", name: "Remote" });
@@ -101,7 +103,7 @@ describe("POST /api/servers", () => {
     expect(createServer).not.toHaveBeenCalled();
   });
 
-  it.each([["Pa$$w0rd;x#y"], ['q"uote'], ["  spaced  "]])("saves %j as typed", async (password) => {
+  it.each([["Pa$$w0rd;x#y"], ['q"uote'], ["  spaced and inner"]])("saves %j as typed", async (password) => {
     const res = await runRoute(
       serversRouter, "/", "post",
       { body: body(password), user: { role: "admin" } },
@@ -167,11 +169,16 @@ describe("PUT /api/config/app-settings (the single-server settings)", () => {
 describe("POST /api/server/install and /quick-setup", () => {
   // The password is judged before anything on disk is looked at, so a bare
   // body is enough to reach it.
-  it.each(["/install", "/quick-setup"])("%s refuses a password with '=' before doing anything else", async (routePath) => {
+  it.each(
+    ["/install", "/quick-setup"].flatMap((routePath) => [
+      [routePath, "ab=cd"],
+      [routePath, "abc "],
+    ]),
+  )("%s refuses the password %j before doing anything else", async (routePath, rconPassword) => {
     const res = await runRoute(
       serverRouter, routePath, "post",
       {
-        body: { rconPassword: "ab=cd", installPath: "/does/not/exist", serverName: "servertest" },
+        body: { rconPassword, installPath: "/does/not/exist", serverName: "servertest" },
         user: { role: "admin" },
         app: { get: () => ({ emit: vi.fn(), to: () => ({ emit: vi.fn() }) }) },
       },
