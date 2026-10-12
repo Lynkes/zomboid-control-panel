@@ -2,8 +2,11 @@ import http from "http";
 import https from "https";
 
 const REQUEST_TIMEOUT_MS = 15000;
+// The readiness probe runs before the game server is stopped, so a controller
+// that does not answer should fail fast rather than hold the request open.
+const READINESS_TIMEOUT_MS = 5000;
 
-function postJson(urlString, token, payload) {
+function requestJson(method, urlString, token, payload, timeoutMs = REQUEST_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     let target;
     try {
@@ -18,18 +21,20 @@ function postJson(urlString, token, payload) {
       return;
     }
 
-    const body = JSON.stringify(payload);
+    const body = payload === undefined ? null : JSON.stringify(payload);
+    const headers = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    if (body !== null) {
+      headers["Content-Type"] = "application/json";
+      headers["Content-Length"] = Buffer.byteLength(body);
+    }
     const client = target.protocol === "https:" ? https : http;
     const request = client.request(
       target,
       {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(body),
-        },
-        timeout: REQUEST_TIMEOUT_MS,
+        method,
+        headers,
+        timeout: timeoutMs,
       },
       (response) => {
         let responseBody = "";
@@ -48,9 +53,12 @@ function postJson(urlString, token, payload) {
 
           if (response.statusCode < 200 || response.statusCode >= 300) {
             reject(
-              new Error(
-                parsed.error ||
-                  `Docker update controller returned HTTP ${response.statusCode}`,
+              Object.assign(
+                new Error(
+                  parsed.error ||
+                    `Docker update controller returned HTTP ${response.statusCode}`,
+                ),
+                { statusCode: response.statusCode },
               ),
             );
             return;
@@ -64,8 +72,12 @@ function postJson(urlString, token, payload) {
       request.destroy(new Error("Docker update controller timed out"));
     });
     request.on("error", reject);
-    request.end(body);
+    request.end(body ?? undefined);
   });
+}
+
+function postJson(urlString, token, payload) {
+  return requestJson("POST", urlString, token, payload);
 }
 
 export class DockerUpdateProxy {
@@ -81,6 +93,58 @@ export class DockerUpdateProxy {
 
   get mode() {
     return this.enabled ? "docker" : "binary";
+  }
+
+  /**
+   * Whether the update controller would take an update right now, asked
+   * before the game server is saved and stopped for it: it must answer on
+   * /health, accept the panel's token on /status and not be running an update
+   * already. Changes nothing. Resolves { ok: true }, or { ok: false, error,
+   * code? } with a message that says nothing was stopped.
+   */
+  async checkReady() {
+    if (!this.enabled) {
+      return {
+        ok: false,
+        error: "Docker update controller is not configured",
+        code: "docker_updater_not_configured",
+      };
+    }
+    if (this.isApplying) {
+      return {
+        ok: false,
+        error: "A Docker update is already in progress",
+        code: "apply_in_progress",
+      };
+    }
+    try {
+      await requestJson("GET", `${this.url}/health`, "", undefined, READINESS_TIMEOUT_MS);
+    } catch (error) {
+      return {
+        ok: false,
+        error: `The Docker update controller could not be reached (${error.message}), so the update was not started and the game server was not stopped. Check that the updater container is running.`,
+      };
+    }
+    let status;
+    try {
+      status = await requestJson("GET", `${this.url}/status`, this.token, undefined, READINESS_TIMEOUT_MS);
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error.statusCode === 401
+            ? "The Docker update controller did not accept the panel's update token, so the update was not started and the game server was not stopped. Check that PANEL_DOCKER_UPDATER_TOKEN matches in both containers."
+            : `The Docker update controller did not answer its status check (${error.message}), so the update was not started and the game server was not stopped.`,
+      };
+    }
+    if (status?.status === "running") {
+      return {
+        ok: false,
+        error: "A Docker update is already in progress",
+        code: "apply_in_progress",
+      };
+    }
+    return { ok: true };
   }
 
   async apply(version) {

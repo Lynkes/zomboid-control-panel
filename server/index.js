@@ -112,7 +112,11 @@ import {
 import { resolveObservedServerRunning, resolveServerPhase } from "./utils/serverStatus.js";
 import { discoverMounts } from "./services/mountDiscovery.js";
 import { shouldAutoOpenBrowser } from "./utils/browserLaunch.js";
-import { isLinuxPanelSupervisor } from "./utils/restartSupervisor.js";
+import {
+  isLinuxPanelSupervisor,
+  isOrchestratedProcess,
+  isWindowsPanelSupervisor,
+} from "./utils/restartSupervisor.js";
 import {
   acquireLifecycleLock,
   setBeforeLaunchHook,
@@ -218,6 +222,18 @@ process.on("unhandledRejection", (reason) => {
 // Graceful shutdown handling
 let isShuttingDown = false;
 
+// Save and quit the game servers running in this (all-in-one) container; see
+// services/containerShutdown.js.
+function stopGameServersBeforeContainerExit() {
+  return saveAndStopLocalServers({
+    rconService,
+    serverManager,
+    getActiveServer,
+    findOtherRunningServers,
+    scanHost: () => new ServerManager().scanHostForServerProcesses(),
+  });
+}
+
 async function gracefulShutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
@@ -269,6 +285,15 @@ async function gracefulShutdown(signal) {
     stopLeaderboardSampler();
     closeFileManagerSftpPool().catch(() => {});
 
+    // All-in-one container: the game servers live in this container, so when
+    // it stops (docker stop/down, a host reboot, a Watchtower recreate) they
+    // are SIGKILLed the moment this process exits. Save and quit them first,
+    // while RCON is still connected. Anywhere else the panel does not stop
+    // servers it merely supervises. Bounded (~90 s) and never throws.
+    if (isAllInOneContainer()) {
+      await stopGameServersBeforeContainerExit();
+    }
+
     // Stop PanelBridge
     if (panelBridge?.isRunning) {
       panelBridge.stop();
@@ -312,6 +337,7 @@ async function gracefulShutdown(signal) {
 
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+export { gracefulShutdown };
 
 // Routes
 import serverRoutes, {
@@ -359,6 +385,10 @@ import { startLeaderboardSampler, stopLeaderboardSampler } from "./services/lead
 import { pruneCharacterStore } from "./services/characterStore.js";
 import { waitForProcessExit } from "./utils/processScanRetry.js";
 import { resolvePzMemoryBytes } from "./utils/pzProcessMemory.js";
+import {
+  isAllInOneContainer,
+  saveAndStopLocalServers,
+} from "./services/containerShutdown.js";
 
 dotenv.config();
 
@@ -2226,29 +2256,32 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
     } catch {
       /* best effort */
     }
+    // All-in-one container: the container restarting ends every game server
+    // in it, same as `docker stop` (see gracefulShutdown()). Save and quit
+    // them first rather than have them SIGKILLed.
+    if (isAllInOneContainer()) {
+      await stopGameServersBeforeContainerExit();
+    }
     // Detect if we're running under an orchestrator that will restart us.
     // - systemd sets INVOCATION_ID (service unit) or NOTIFY_SOCKET
     // - Docker creates /.dockerenv at root (or /run/.containerenv on podman)
     // In those cases we don't self-respawn — the orchestrator handles respawn.
     // Respawning ourselves under systemd causes a duplicate process; under
     // Docker (PID 1) the detached child dies with the container anyway.
-    let orchestrated = false;
+    // Decided for an unpackaged panel too: the Docker image runs
+    // `node server/index.js`, and exiting 0 there left a `restart: on-failure`
+    // (or no policy) container stopped for good after the Restart button.
+    const orchestrated = isOrchestratedProcess({
+      existsSync: (target) => fs.existsSync(target),
+    });
     const linuxSupervisor = isLinuxPanelSupervisor();
+    // Start.bat (supervisor v2) relaunches on exit 75 and treats exit 0 as an
+    // operator stop: self-respawning here left the supervisor quitting
+    // ("Panel exited cleanly") while the new panel still claimed to be
+    // supervised, so a later restart-and-apply exited 75 with nobody to apply.
+    const windowsSupervisor = isWindowsPanelSupervisor();
     if (isPackaged) {
-      try {
-        if (process.env.INVOCATION_ID || process.env.NOTIFY_SOCKET)
-          orchestrated = true;
-        if (
-          fs.existsSync("/.dockerenv") ||
-          fs.existsSync("/run/.containerenv")
-        ) {
-          orchestrated = true;
-        }
-      } catch {
-        /* best effort */
-      }
-
-      if (!orchestrated && !linuxSupervisor) {
+      if (!orchestrated && !linuxSupervisor && !windowsSupervisor) {
         // Running as packaged exe standalone — spawn self, then exit.
         // On Linux, prefer the freshly-applied binary path (linuxRespawnPath)
         // since process.execPath may point at a .new slot we just renamed away.
@@ -2260,11 +2293,19 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
         log.info(
           "Running under orchestrator (systemd/Docker) — exiting for external restart",
         );
+      } else if (windowsSupervisor) {
+        log.info(
+          "Running under the Windows supervisor — exiting for Start.bat to relaunch",
+        );
       } else {
         log.info(
           "Running under the Linux supervisor — exiting for start.sh to relaunch",
         );
       }
+    } else if (orchestrated) {
+      log.info(
+        "Running under orchestrator (systemd/Docker) — exiting for external restart",
+      );
     }
     // Exit code matters under an orchestrator. The shipped systemd unit uses
     // `Restart=on-failure` (zomboid-panel.service), which treats exit 0 as a
@@ -2273,7 +2314,7 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
     // non-zero so `on-failure`/`always` units respawn us; Docker
     // `restart: unless-stopped`/`always` restart regardless of code, so this is
     // safe there too. Standalone (already self-respawned) exits 0 as normal.
-    process.exit(linuxSupervisor ? 75 : orchestrated ? 1 : 0);
+    process.exit(linuxSupervisor || windowsSupervisor ? 75 : orchestrated ? 1 : 0);
   }, 1000);
 });
 
@@ -2384,6 +2425,33 @@ export async function handlePanelUpdateDownload(req, res) {
             error:
               "Confirm the Docker update before recreating the all-in-one container.",
             code: "confirmation_required",
+          });
+        }
+
+        // downloadUpdate() below can still refuse (the update is no longer
+        // known, a download or apply is already under way) and the update
+        // controller can be unreachable, reject the token or be busy. Ask
+        // all of that first: past this point the world is saved and the
+        // server stopped, and a refusal after that leaves it down for
+        // nothing.
+        const refusal =
+          typeof checker.getDownloadRefusal === "function"
+            ? checker.getDownloadRefusal()
+            : null;
+        if (refusal) {
+          return res
+            .status(refusal.code === "already_downloading" ? 409 : 400)
+            .json(refusal);
+        }
+        const controller =
+          typeof checker.dockerUpdateProxy.checkReady === "function"
+            ? await checker.dockerUpdateProxy.checkReady()
+            : { ok: true };
+        if (!controller.ok) {
+          return res.status(400).json({
+            success: false,
+            error: controller.error,
+            ...(controller.code ? { code: controller.code } : {}),
           });
         }
 

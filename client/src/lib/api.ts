@@ -2398,8 +2398,12 @@ export const dockerApi = {
   getStats: () => apiGet("/docker/stats") as Promise<{
     containers: Record<string, DockerContainerStats>;
   }>,
+  // The route answers only once Docker has finished: a stop waits out the
+  // container's own StopTimeout (a heavy B42 world sets 90 s or more) and a
+  // restart pays that plus a start (dockerClient.lifecycleTimeoutMs), so the
+  // generic 15 s timeout reported a failure while Docker was still working.
   runAction: (id: string, action: "start" | "stop" | "restart", serverId: string | number) =>
-    apiPost(`/docker/containers/${encodeURIComponent(id)}/${action}`, { serverId }) as Promise<{
+    apiPost(`/docker/containers/${encodeURIComponent(id)}/${action}`, { serverId }, { timeout: 3 * 60 * 1000 }) as Promise<{
       success: boolean;
       message?: string;
       error?: string;

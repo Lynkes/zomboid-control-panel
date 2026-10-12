@@ -270,3 +270,82 @@ describe("resolveDockerHostSignal", () => {
     expect(result).toEqual({ running: false, scanFailed: false });
   });
 });
+
+// Docker keeps State.Running === true for a paused container and for one
+// waiting out its restart policy between crashes. Reading Running alone made
+// a crash-looping `restart: always` container look like a healthy running
+// server and a paused one answer Start with "already running".
+describe("paused and restarting containers", () => {
+  const paused = { State: { Running: true, Paused: true, Status: "paused" } };
+  const restarting = { State: { Running: true, Restarting: true, Status: "restarting" } };
+
+  it("a paused container is not 'already running' for Start: it says to unpause", async () => {
+    getActiveServer.mockResolvedValue({ dockerContainerName: "pz" });
+    const client = createClient({ inspectManagedContainer: vi.fn(async () => paused) });
+
+    const result = await runManagedLifecycle("start", { dockerClient: client });
+
+    expect(result.success).toBe(false);
+    expect(result.alreadyRunning).toBeUndefined();
+    expect(result.error).toMatch(/paused/);
+    expect(result.error).toMatch(/docker unpause pz/);
+    expect(client.runManagedAction).not.toHaveBeenCalled();
+  });
+
+  it("a restarting container is not reported as 'already running' either; Docker decides", async () => {
+    getActiveServer.mockResolvedValue({ dockerContainerName: "pz" });
+    const client = createClient({ inspectManagedContainer: vi.fn(async () => restarting) });
+
+    const result = await runManagedLifecycle("start", { dockerClient: client });
+
+    expect(result.alreadyRunning).toBeUndefined();
+    expect(client.runManagedAction).toHaveBeenCalledWith("pz", "start");
+  });
+
+  it.each([
+    ["paused", paused],
+    ["restarting", restarting],
+  ])("Stop still stops a %s container instead of calling it already stopped", async (_name, container) => {
+    getActiveServer.mockResolvedValue({ dockerContainerName: "pz" });
+    const client = createClient({ inspectManagedContainer: vi.fn(async () => container) });
+
+    const result = await runManagedLifecycle("stop", { dockerClient: client });
+
+    expect(client.runManagedAction).toHaveBeenCalledWith("pz", "stop");
+    expect(result.success).toBe(true);
+  });
+
+  it("resolveManagedContainer reports them as not running but alive", async () => {
+    getActiveServer.mockResolvedValue({ dockerContainerName: "pz" });
+    const resolvedPaused = await resolveManagedContainer({
+      dockerClient: createClient({ inspectManagedContainer: vi.fn(async () => paused) }),
+    });
+    const resolvedRestarting = await resolveManagedContainer({
+      dockerClient: createClient({ inspectManagedContainer: vi.fn(async () => restarting) }),
+    });
+
+    expect(resolvedPaused).toMatchObject({ running: false, alive: true, containerState: "paused" });
+    expect(resolvedRestarting).toMatchObject({ running: false, alive: true, containerState: "restarting" });
+  });
+
+  it.each([
+    ["paused", paused],
+    ["restarting", restarting],
+  ])("the host signal of a %s container is not running, and says why", async (state, container) => {
+    const client = createClient({ inspectManagedContainer: vi.fn(async () => container) });
+
+    const result = await resolveDockerHostSignal({ id: 1, dockerContainerName: "pz" }, client);
+
+    expect(result).toEqual({ running: false, scanFailed: false, containerState: state });
+  });
+
+  it("a healthy running container still reads exactly as before", async () => {
+    const client = createClient({
+      inspectManagedContainer: vi.fn(async () => ({ State: { Running: true, Status: "running" } })),
+    });
+
+    const result = await resolveDockerHostSignal({ id: 1, dockerContainerName: "pz" }, client);
+
+    expect(result).toEqual({ running: true, scanFailed: false });
+  });
+});

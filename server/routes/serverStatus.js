@@ -53,7 +53,12 @@ router.get("/active/status", async (req, res) => {
       processDetails = dockerSignal;
       dockerContainer = dockerSignal.scanFailed
         ? { handled: true, error: "Docker container status unavailable" }
-        : { handled: true, running: dockerSignal.running, startedAt: dockerSignal.startedAt };
+        : {
+            handled: true,
+            running: dockerSignal.running,
+            startedAt: dockerSignal.startedAt,
+            containerState: dockerSignal.containerState,
+          };
     } else {
       processDetails = typeof serverManager?.getServerProcessDetails === "function"
         ? await serverManager.getServerProcessDetails()

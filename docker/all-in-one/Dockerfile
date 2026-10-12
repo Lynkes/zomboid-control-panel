@@ -36,7 +36,10 @@ COPY pz-mod/ ./pz-mod/
 COPY browser-extension/ ./browser-extension/
 COPY docker/all-in-one/entrypoint.sh /entrypoint.sh
 
+# setpriv (util-linux) is how the entrypoint drops to the steam user; fail the
+# build, not the first start, if a base image update ever drops it.
 RUN chmod +x /entrypoint.sh \
+    && command -v setpriv >/dev/null \
     && mkdir -p /pz-server /pz-servers /zomboid /app/data /app/logs
 
 # PANEL_ALL_IN_ONE tells the panel it runs in this image. The two PZ_*

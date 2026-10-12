@@ -157,6 +157,47 @@ describe("POST /api/docker/containers/:id/:action", () => {
     expect(response.json).toHaveBeenCalledWith({ success: true });
   });
 
+  it("refuses to start a paused container with a message that says to unpause it", async () => {
+    const response = createResponse();
+    const runManagedAction = vi.fn();
+    const inspectManagedContainer = vi.fn(async () => ({
+      State: { Running: true, Paused: true, Status: "paused" },
+    }));
+    getServer.mockResolvedValue({ id: "server-1", dockerContainerName: "managed" });
+
+    await runRoute("/containers/:id/:action", "post", {
+      user: { role: "admin" },
+      params: { id: "managed", action: "start" },
+      body: { serverId: "server-1" },
+      app: { get: () => ({ enabled: true, available: true, inspectManagedContainer, runManagedAction }) },
+    }, response);
+
+    expect(response.status).toHaveBeenCalledWith(409);
+    expect(response.json.mock.calls[0][0].error).toMatch(/docker unpause managed/);
+    expect(runManagedAction).not.toHaveBeenCalled();
+  });
+
+  it("stops a crash-looping container without a world save (RCON cannot answer), instead of refusing", async () => {
+    const response = createResponse();
+    const runManagedAction = vi.fn(async () => ({ success: true }));
+    const inspectManagedContainer = vi.fn(async () => ({
+      State: { Running: true, Restarting: true, Status: "restarting" },
+    }));
+    getServer.mockResolvedValue({ id: "server-1", dockerContainerName: "managed" });
+    connect.mockResolvedValue(false);
+
+    await runRoute("/containers/:id/:action", "post", {
+      user: { role: "admin" },
+      params: { id: "managed", action: "stop" },
+      body: { serverId: "server-1" },
+      app: { get: () => ({ enabled: true, available: true, inspectManagedContainer, runManagedAction }) },
+    }, response);
+
+    expect(connect).not.toHaveBeenCalled();
+    expect(runManagedAction).toHaveBeenCalledWith("managed", "stop");
+    expect(response.json).toHaveBeenCalledWith({ success: true });
+  });
+
   it("does not stop a container when the world save fails", async () => {
     const response = createResponse();
     const runManagedAction = vi.fn();

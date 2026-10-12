@@ -142,6 +142,11 @@ function describeStopReason(stopReason) {
   }
 }
 
+const CONTAINER_STATE_DETAILS = {
+  paused: "Container is paused",
+  restarting: "Container is restarting (it keeps stopping; check its logs)",
+};
+
 export function buildHostSignal(provider, isRunning, scanFailed = false, dockerContainer = null, stopReason = null) {
   if (provider === "native") {
     if (scanFailed) {
@@ -167,7 +172,11 @@ export function buildHostSignal(provider, isRunning, scanFailed = false, dockerC
     return {
       status: dockerContainer.running ? "running" : "stopped",
       label: "Container",
-      detail: null,
+      // Docker keeps calling a paused container, or one waiting out its
+      // restart policy between crashes, "running"; say what it is doing.
+      detail: dockerContainer.running
+        ? null
+        : CONTAINER_STATE_DETAILS[dockerContainer.containerState] || null,
     };
   }
   if (provider === "remote-sftp") {
