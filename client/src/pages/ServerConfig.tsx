@@ -1496,6 +1496,20 @@ export default function ServerConfig() {
     setDuplicateKeys(iniData.duplicateKeys || [])
   }
 
+  // The INI form's state for a server with no server.ini (never started): the
+  // same empty state a fresh mount shows. loadData() calls this so a switch
+  // from a server that had one doesn't leave that server's values on screen.
+  const clearIniData = () => {
+    setIniSettings({})
+    setOriginalIniSettings({})
+    setIniDefaultedKeys(new Set())
+    setIniMisnamedKeys({})
+    setIniMisnamedValues({})
+    setIniFatalLines([])
+    setIniMaskedCutAtEqualsKeys([])
+    setDuplicateKeys([])
+  }
+
   // 2026-09-08 (retry-stacking sweep, page 5 of 5): `manual` distinguishes
   // this page's THREE human-initiated triggers (two Retry buttons on the
   // error/server-changed banners, plus the page header's own Refresh
@@ -1518,8 +1532,14 @@ export default function ServerConfig() {
       setPathsInfo(paths)
 
       // Load files that exist
+      // A file that is missing on THIS server must clear what the previous
+      // server left in its state (this runs again on a server switch): the
+      // forms would otherwise show server A's values, and saving spawn
+      // points or regions would write A's data into B.
       if (paths.exists.ini) {
         applyIniData(await serverFilesApi.getIni(retries))
+      } else {
+        clearIniData()
       }
 
       const sandboxRes = paths.exists.sandbox
@@ -1533,11 +1553,15 @@ export default function ServerConfig() {
       if (paths.exists.spawnpoints) {
         const spawnRes = await serverFilesApi.getSpawnPoints(retries)
         setSpawnPoints(spawnRes.spawnpoints)
+      } else {
+        setSpawnPoints({})
       }
 
       if (paths.exists.spawnregions) {
         const regionsRes = await serverFilesApi.getSpawnRegions(retries)
         setSpawnRegions(regionsRes.spawnregions)
+      } else {
+        setSpawnRegions([])
       }
       setLoadError(null)
     } catch (error) {
