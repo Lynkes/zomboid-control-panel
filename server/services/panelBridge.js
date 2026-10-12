@@ -58,6 +58,18 @@ const MIN_ORPHAN_TMP_AGE_MS = 60_000;
 // actually notice happened.
 const SUSPEND_GAP_THRESHOLD_MS = 10_000;
 
+// A queued command carries expiresAt, and the mod (processSingleCommand in
+// PanelBridge.lua) refuses to start one that is past it, answering "Command
+// expired before mod could process it". That check exists so a command the
+// caller was already told timed out (sendCommand rejects after
+// commandTimeoutMs) does not run afterwards anyway: a retry would then do
+// the work twice (a horde, an airdrop, giveItem). So expiresAt is the
+// timeout plus only this allowance for the two clocks disagreeing: the mod
+// compares it with the game host's clock, which over SFTP is not the
+// panel's. It used to be twice the timeout, which let a command stuck behind
+// a long handler run 15-30 s after the caller had given up.
+const COMMAND_EXPIRY_SKEW_MS = 5_000;
+
 // Fails toward KEEPING the file on any ambiguity (stat failure means "can't
 // prove this is safe to delete"), matching pidLiveness.js's isPidAlive()
 // philosophy: an inconclusive signal never authorises a destructive action.
@@ -976,14 +988,15 @@ class PanelBridge extends EventEmitter {
 
     const seq = this.queueState.nextCommandSeq;
     const commandFile = this.getCommandFileBySeq(seq);
+    const createdAt = Date.now();
     const payload = {
       protocolVersion: this.protocolVersion,
       seq,
       id,
       action,
       args,
-      createdAt: Date.now(),
-      expiresAt: Date.now() + (this.config.commandTimeoutMs * 2)
+      createdAt,
+      expiresAt: createdAt + this.config.commandTimeoutMs + COMMAND_EXPIRY_SKEW_MS
     };
 
     const tempFile = `${commandFile}.tmp`;

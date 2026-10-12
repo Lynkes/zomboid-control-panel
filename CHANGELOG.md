@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Events Clock day (PanelBridge update):** the Clock card shows the real day of the month (it showed one less) and Set Time sets the day you typed (it set one more), including the 1st, which it used to refuse.
 - **Frozen server on a damaged bridge file (PanelBridge update):** a truncated or hand-edited command or queue file in the bridge folder no longer hangs the game forever (and again after every restart); it is reported as unreadable.
 - **Bridge memory growth (PanelBridge update):** the bridge forgets old command ids again; the list of already-run commands grew with every command until the server restarted.
+- **Commands run after a timeout:** a bridge command that waited behind a long task is skipped once the panel has reported it timed out (it used to run 15-30 s later anyway, so a retry doubled hordes, airdrops and item gifts).
 
 ## [1.4.13] - 2026-10-11
 
