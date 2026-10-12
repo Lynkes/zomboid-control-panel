@@ -139,6 +139,9 @@ export default function Templates() {
       if (!result.success) throw new Error(result.error || t('toasts.deleteFailedFallback'))
       toast({ title: template.isBuiltin ? t('toasts.templateHiddenTitle') : t('toasts.templateDeletedTitle'), variant: 'success' as const })
       fetchTemplates()
+      // Hiding a built-in moves it into the "hidden templates" section; without
+      // this refetch that section stayed stale (no Restore button) until reload.
+      fetchHiddenTemplates()
     } catch (error) {
       toast({
         title: t('toasts.deleteFailedTitle'),
