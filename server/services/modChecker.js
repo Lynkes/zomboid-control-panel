@@ -264,6 +264,41 @@ async function bridgeWorkshopIds() {
   return ids;
 }
 
+// Steam's public details API never lists the PanelBridge item (it answers
+// result 9: the item is unlisted), so its updates were invisible to the check
+// that sees every other Workshop mod -- a new bridge only reached a server
+// when something else restarted it (#235). The item's public change-note page
+// does list every update, and each note's id is the Unix time it was made, so
+// that time stands in for time_updated. Steam stamps the note a little after
+// it stamps the content (34 s for 1.7.75), so the comparison with the time the
+// server downloaded the item leaves a slack: a note counts as news only when
+// it is more than BRIDGE_NOTE_SLACK_SECONDS newer than the local copy.
+export const BRIDGE_NOTE_SLACK_SECONDS = 10 * 60;
+const BRIDGE_NOTE_MIN_EPOCH = 1_500_000_000;
+const BRIDGE_NOTE_PAGE_MAX_CHARS = 2_000_000;
+
+// The newest change note's time in a changelog page, or null when the page
+// has no notes (or is not a changelog page at all).
+export function newestChangeNoteTime(html, nowSeconds = Date.now() / 1000) {
+  if (typeof html !== "string" || html.length === 0) return null;
+  const blocks = html.slice(0, BRIDGE_NOTE_PAGE_MAX_CHARS).split("changeLogCtn").slice(1);
+  let newest = 0;
+  for (const block of blocks) {
+    const match = /<p id="(\d{9,11})"/.exec(block);
+    if (!match) continue;
+    const seconds = Number(match[1]);
+    // A time in the future is not a note this panel can act on.
+    if (seconds > newest && seconds <= nowSeconds + 86_400) newest = seconds;
+  }
+  return newest >= BRIDGE_NOTE_MIN_EPOCH ? newest : null;
+}
+
+// The time Steam would report for a Workshop item, with the slack that
+// applies to it: only an item whose time came from a change note has any.
+export function steamUpdateTimeFor(steam) {
+  return (steam?.time_updated || 0) - (steam?.slackSeconds || 0);
+}
+
 export class ModChecker extends EventEmitter {
   constructor() {
     super();
@@ -1647,6 +1682,31 @@ export class ModChecker extends EventEmitter {
   // This compares timeupdated vs latest_timeupdated in Steam's cache
   // Query Steam Web API for latest workshop item timestamps
   // Uses ISteamRemoteStorage/GetPublishedFileDetails (no API key required)
+  // When the PanelBridge item was last updated, read from its public change-
+  // note page (see BRIDGE_NOTE_SLACK_SECONDS). Null when the page can't be read.
+  async fetchBridgeUpdateTime(workshopId) {
+    let timeout;
+    try {
+      const controller = new AbortController();
+      timeout = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch(
+        `https://steamcommunity.com/sharedfiles/filedetails/changelog/${encodeURIComponent(workshopId)}`,
+        { signal: controller.signal, headers: { "Accept-Language": "en" } },
+      );
+      if (!res?.ok || typeof res.text !== "function") return null;
+      const noteTime = newestChangeNoteTime(await res.text());
+      if (noteTime === null) {
+        log.debug(`PanelBridge item ${workshopId}: no change notes found on its Workshop page`);
+      }
+      return noteTime;
+    } catch (err) {
+      log.debug(`PanelBridge item ${workshopId}: change-note page unavailable: ${err.message}`);
+      return null;
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
+
   async fetchSteamTimestamps(workshopIds) {
     const result = new Map(); // workshopId -> { time_updated, title }
     // workshopId -> { resultCode, reason }, for every id Steam answered with
@@ -1777,6 +1837,26 @@ export class ModChecker extends EventEmitter {
         `Steam's public Workshop listing doesn't show the PanelBridge item ${id} (result ${info.resultCode}); ` +
           "servers can still download it while Steam reviews it. Settings › PanelBridge reports on it.",
       );
+    }
+
+    // Steam answered, but not for the bridge item: take its update time from
+    // the item's change notes instead. Not when the whole call failed (no
+    // answer at all): then the ACF-only comparison runs, and a lone entry here
+    // would stop it from running for every other mod.
+    if (result.size > 0 || unavailable.size > 0) {
+      for (const id of bridgeIds) {
+        if (!unavailable.has(id)) continue;
+        const noteTime = await this.fetchBridgeUpdateTime(id);
+        if (noteTime === null) continue;
+        result.set(id, {
+          time_updated: noteTime,
+          slackSeconds: BRIDGE_NOTE_SLACK_SECONDS,
+          title: null,
+          file_type: 0,
+          creator_app_id: 0,
+          preview_url: null,
+        });
+      }
     }
 
     return result;
@@ -1992,7 +2072,7 @@ export class ModChecker extends EventEmitter {
           const steam = steamData.get(workshopId);
           if (!steam) continue; // Not found on Steam (deleted/hidden)
 
-          if (steam.time_updated > localTime) {
+          if (steamUpdateTimeFor(steam) > localTime) {
             if (
               relevantWorkshopIds &&
               !relevantWorkshopIds.has(String(workshopId))
@@ -2255,11 +2335,15 @@ export class ModChecker extends EventEmitter {
           steamInfo?.time_updated ||
           details.latest_timeupdated ||
           installed.timeupdated;
+        // Only a time that came from Steam carries a slack (see steamUpdateTimeFor).
+        const compareTime = steamInfo?.time_updated
+          ? steamUpdateTimeFor(steamInfo)
+          : latestTime;
         result[workshopId] = {
           size: installed.size,
           timeupdated: installed.timeupdated,
           latest_timeupdated: latestTime,
-          needsUpdate: latestTime > installed.timeupdated,
+          needsUpdate: compareTime > installed.timeupdated,
         };
       }
 
