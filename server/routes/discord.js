@@ -208,10 +208,12 @@ router.put("/config", async (req, res) => {
       // Load current config to check for existing token
       await discordBot.loadConfig();
 
-      // Handle KEEP_EXISTING token marker
+      // Handle KEEP_EXISTING token marker. With no token saved there is
+      // nothing to keep: the marker is a placeholder the page sends, never a
+      // token, and used to be stored as one (and then logged in with).
       const finalToken =
-        token === "KEEP_EXISTING" && discordBot.token
-          ? discordBot.token
+        token === "KEEP_EXISTING"
+          ? discordBot.token || null
           : token;
 
       if (!finalToken || !guildId) {
