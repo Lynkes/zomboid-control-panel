@@ -1361,3 +1361,55 @@ describe("POST /api/servers/:id/activate: switching the active server must reset
     expect(response.status).not.toHaveBeenCalledWith(500);
   });
 });
+
+// The status watchdog (index.js checkServerStatusNow) keeps module-level
+// lastKnownRunning/lastKnownPhase baselines. Left from the previous server,
+// the first tick after a switch posted a false "Server Stopped"/"Server
+// Started" to Discord, so activation clears them like the player baseline.
+describe("POST /api/servers/:id/activate: switching the active server must reset the status watchdog baseline", () => {
+  let io;
+  let resetStatusWatchdogBaseline;
+
+  function buildReq(id) {
+    return {
+      params: { id },
+      user: { role: "admin" },
+      app: {
+        get: (key) =>
+          ({ io, modChecker: null, discordBot: null, resetStatusWatchdogBaseline })[key],
+      },
+    };
+  }
+
+  beforeEach(() => {
+    setActiveServer.mockReset();
+    io = { emit: vi.fn() };
+  });
+
+  it("resets the watchdog baseline when activating a different server", async () => {
+    setActiveServer.mockResolvedValue({ id: "2", name: "Server B" });
+    resetStatusWatchdogBaseline = vi.fn();
+
+    const response = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), response);
+
+    expect(resetStatusWatchdogBaseline).toHaveBeenCalled();
+    expect(response.status).not.toHaveBeenCalledWith(500);
+  });
+
+  it("still reports success when the watchdog reset is unavailable or throws", async () => {
+    setActiveServer.mockResolvedValue({ id: "2", name: "Server B" });
+
+    resetStatusWatchdogBaseline = undefined;
+    const missing = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), missing);
+    expect(missing.status).not.toHaveBeenCalledWith(500);
+
+    resetStatusWatchdogBaseline = vi.fn(() => {
+      throw new Error("unexpected");
+    });
+    const throwing = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), throwing);
+    expect(throwing.status).not.toHaveBeenCalledWith(500);
+  });
+});

@@ -1693,6 +1693,7 @@ app.set("rconService", rconService);
 app.set("serverManager", serverManager);
 app.set("resyncPanelBridgeForActiveServer", resyncPanelBridgeForActiveServer);
 app.set("resetPlayerPollingBaseline", resetPlayerPollingBaseline);
+app.set("resetStatusWatchdogBaseline", resetStatusWatchdogBaseline);
 app.set("dockerClient", dockerClient);
 app.set("modChecker", modChecker);
 app.set("scheduler", scheduler);
@@ -3624,6 +3625,23 @@ let lastKnownPhase = null;
 // observed anything yet"). See checkServerStatusNow()'s own comment on the
 // `running === null` branch for why a THIRD state is needed here.
 let lastObservationWasUnknown = false;
+
+// Switching the active server (or deleting the active one) repoints the
+// singletons this watchdog observes at a DIFFERENT server, so the three
+// baselines above describe a server that is no longer being watched. Left in
+// place, the next tick compared server B's state to server A's and posted a
+// false "Server Stopped"/"Server Started" to Discord. Called by
+// routes/servers.js's reloadServicesForNewActiveServer() through
+// app.get("resetStatusWatchdogBaseline"), the same pattern as
+// resetPlayerPollingBaseline(). The first observation afterwards seeds the
+// baseline silently (no Discord post). `lastObservationWasUnknown` is set so
+// that observation is still pushed over the socket once, which corrects
+// clients that kept showing the previous server's dot.
+export function resetStatusWatchdogBaseline() {
+  lastKnownRunning = null;
+  lastKnownPhase = null;
+  lastObservationWasUnknown = true;
+}
 
 // Thin, no-arg wrapper over utils/serverStatus.js's shared
 // resolveObservedServerRunning() -- see that function's own doc comment for

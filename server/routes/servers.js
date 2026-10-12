@@ -2130,6 +2130,13 @@ async function reloadServicesForNewActiveServer(req, server) {
   const rconService = req.app.get("rconService");
   const serverManager = req.app.get("serverManager");
 
+  // The status watchdog's last-known state belongs to the server that was
+  // active until now. Cleared up front so a tick that lands while the
+  // services below are being repointed cannot compare the new server to the
+  // old one and post a false "Server Stopped"/"Server Started" to Discord,
+  // and again at the end so a baseline taken mid-reload is discarded.
+  resetStatusWatchdogBaseline(req);
+
   if (serverManager && serverManager.reloadConfig) {
     await serverManager.reloadConfig();
     log.info(`ServerManager reloaded config for server: ${server.name}`);
@@ -2206,6 +2213,21 @@ async function reloadServicesForNewActiveServer(req, server) {
     }
   } catch (pollErr) {
     log.warn(`Failed to reset player-polling baseline for new server: ${pollErr.message}`);
+  }
+
+  resetStatusWatchdogBaseline(req);
+}
+
+// Best-effort, same posture as every reload step in
+// reloadServicesForNewActiveServer: never block a successful activation.
+function resetStatusWatchdogBaseline(req) {
+  try {
+    const reset = req.app.get("resetStatusWatchdogBaseline");
+    if (typeof reset === "function") {
+      reset();
+    }
+  } catch (err) {
+    log.warn(`Failed to reset the status watchdog baseline for new server: ${err.message}`);
   }
 }
 
