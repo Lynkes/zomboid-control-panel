@@ -1157,6 +1157,75 @@ describe("POST /api/servers/:id/activate: a live-service reload failure must not
   });
 });
 
+// Switching to a server with NO RCON password used to skip
+// rconService.reloadConfig() entirely (the whole block was gated on
+// server.rconPassword). The service had just been disconnected but kept
+// configLoaded=true, so the next execute()/auto-reconnect reconnected with the
+// PREVIOUS server's host, port and password and kept its serverId: player
+// kicks, Dashboard Stop and the player poll then hit the wrong server.
+describe("POST /api/servers/:id/activate and DELETE /api/servers/:id: a server with no RCON password must still repoint the RCON service", () => {
+  let rconService;
+  let io;
+
+  function buildReq(id) {
+    return {
+      params: { id },
+      user: { role: "admin" },
+      app: {
+        get: (key) => ({ rconService, io, modChecker: null })[key],
+      },
+    };
+  }
+
+  beforeEach(() => {
+    setActiveServer.mockReset();
+    getServer.mockReset();
+    getActiveServer.mockReset();
+    deleteServer.mockReset();
+    io = { emit: vi.fn() };
+    rconService = {
+      isConnected: vi.fn(() => true),
+      disconnect: vi.fn(async () => {}),
+      reloadConfig: vi.fn(async () => {}),
+      connect: vi.fn(async () => true),
+    };
+  });
+
+  it("activating a password-less server reloads the RCON config but does not try to connect", async () => {
+    setActiveServer.mockResolvedValue({ id: "2", name: "No Password", rconPassword: "" });
+
+    const response = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), response);
+
+    expect(rconService.disconnect).toHaveBeenCalled();
+    expect(rconService.reloadConfig).toHaveBeenCalledTimes(1);
+    expect(rconService.connect).not.toHaveBeenCalled();
+    expect(response.status).not.toHaveBeenCalledWith(500);
+  });
+
+  it("activating a server that has a password still reloads then connects (control)", async () => {
+    setActiveServer.mockResolvedValue({ id: "2", name: "With Password", rconPassword: "secret" });
+
+    const response = createResponse();
+    await runRoute("/:id/activate", "post", buildReq("2"), response);
+
+    expect(rconService.reloadConfig).toHaveBeenCalledTimes(1);
+    expect(rconService.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it("deleting the active server and promoting a password-less one reloads the RCON config too", async () => {
+    getServer.mockResolvedValue({ id: "deleted-1", name: "Deleted", isActive: true });
+    deleteServer.mockResolvedValue(true);
+    getActiveServer.mockResolvedValue({ id: "promoted-2", name: "Promoted", isActive: true });
+
+    const response = createResponse();
+    await runRoute("/:id", "delete", buildReq("deleted-1"), response);
+
+    expect(rconService.reloadConfig).toHaveBeenCalledTimes(1);
+    expect(rconService.connect).not.toHaveBeenCalled();
+  });
+});
+
 // reloadServicesForNewActiveServer reloaded serverManager/workshop/RCON on a
 // server switch but never touched the LogTailer, which
 // resolves its watched paths once and only rescans for a NEWER file inside

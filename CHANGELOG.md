@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **PanelBridge updates from the Steam Workshop (#235):** a new bridge version now triggers the same warned auto-restart as any other mod update; Steam's public API never lists the bridge item, so the panel read its update time from the item's change notes instead.
+- **Switching to a server with no RCON password:** the panel no longer keeps talking to the previous server's RCON (kicks, bans, Stop and the player list went to the wrong server); it repoints and just stays disconnected until a password is set.
 
 ## [1.4.13] - 2026-10-11
 

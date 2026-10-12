@@ -2155,11 +2155,20 @@ async function reloadServicesForNewActiveServer(req, server) {
     await rconService.disconnect();
   }
 
-  if (rconService && server.rconPassword) {
+  // The reload is unconditional: a server with no RCON password still has to
+  // repoint the service (host, port, serverId, empty password). Skipping it
+  // left the previous server's cached config loaded, so the next command or
+  // auto-reconnect silently talked to the OLD server. Only the connect is
+  // gated on a password being present.
+  if (rconService) {
     try {
       await rconService.reloadConfig();
-      await rconService.connect();
-      log.info(`RCON reconnected for server: ${server.name}`);
+      if (server.rconPassword) {
+        await rconService.connect();
+        log.info(`RCON reconnected for server: ${server.name}`);
+      } else {
+        log.info(`RCON repointed to server without a password: ${server.name}`);
+      }
     } catch (rconErr) {
       log.warn(`Failed to connect RCON for new server: ${rconErr.message}`);
     }
