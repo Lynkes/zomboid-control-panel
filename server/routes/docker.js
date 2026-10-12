@@ -148,6 +148,14 @@ router.post("/containers/:id/:action", requirePermission("docker.manage"), async
         code: ErrorCode.CONTAINER_NOT_MANAGED,
       });
     }
+    // Docker keeps calling a paused container "running" but refuses `docker
+    // start` for it with a bare 409; say what to do instead.
+    if (req.params.action === "start" && dockerSignal.containerState === "paused") {
+      return res.status(409).json({
+        success: false,
+        error: `Container "${req.params.id}" is paused. Unpause it (docker unpause ${req.params.id}) or stop it, then start it again.`,
+      });
+    }
     if (["stop", "restart"].includes(req.params.action) && dockerSignal.running) {
       rconService = new RconService();
       await rconService.loadConfig(server.id);
