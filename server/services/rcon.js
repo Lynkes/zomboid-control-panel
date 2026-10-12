@@ -69,6 +69,14 @@ const RCON_ERROR_CLASSIFICATIONS = [
     disconnect: true,
   },
   {
+    // utils/sourceRcon.js rejects every in-flight command with "RCON
+    // connection closed" when the server closes the socket (a clean FIN, as
+    // `quit` and a restart do), which none of the codes above name.
+    test: (msg) => msg.includes("connection closed"),
+    message: "Connection was closed by the server. It may have stopped or restarted.",
+    disconnect: true,
+  },
+  {
     test: (msg) => msg.includes("authentication") || msg.includes("password"),
     message: "Authentication failed. Check RCON password in server settings.",
     disconnect: false,
@@ -1630,7 +1638,12 @@ export class RconService extends EventEmitter {
         errorMsg.includes("not connected") ||
         errorMsg.includes("timeout") ||
         errorMsg.includes("timed out") ||
-        errorMsg.includes("socket");
+        errorMsg.includes("socket") ||
+        // The server closed the connection on its side (sourceRcon.js's
+        // _onClose): the client is dead, so it has to be dropped and, if
+        // asked, reconnected like any other transport failure -- and a
+        // `quit` that ends this way did reach a server that is shutting down.
+        errorMsg.includes("connection closed");
 
       const isServerOffline = errorMsg.includes("Server is not running");
 
