@@ -17,6 +17,7 @@ function makeDeps(overrides = {}) {
   const order = [];
   const rconService = {
     connected: true,
+    stopAutoReconnect: vi.fn(),
     save: vi.fn(async () => {
       order.push("save");
       return { success: true };
@@ -77,6 +78,7 @@ describe("saveAndStopLocalServers", () => {
     expect(deps.scanHost.mock.calls.length).toBeGreaterThan(2);
     expect(deps.stopOverRcon).not.toHaveBeenCalled();
     expect(rconService.save).toHaveBeenCalledTimes(1);
+    expect(rconService.stopAutoReconnect).toHaveBeenCalledTimes(1);
     expect(outcome).toMatchObject({ attempted: 1, stopped: true, timedOut: false });
   });
 

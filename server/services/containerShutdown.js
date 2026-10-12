@@ -208,6 +208,14 @@ export async function saveAndStopLocalServers({
       }
     }
 
+    // The server is on its way out: don't let the panel's RCON keep trying to
+    // reconnect to it while the wait below runs.
+    try {
+      rconService?.stopAutoReconnect?.();
+    } catch {
+      /* best effort */
+    }
+
     // Wait for every Project Zomboid process on the host to be gone.
     let polls = 0;
     const read = async () => {
