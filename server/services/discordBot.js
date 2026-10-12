@@ -1468,6 +1468,18 @@ export class DiscordBot {
 
     try {
       const activeServer = activeServerForLock;
+
+      // The panel does not manage a remote server's process, so there is
+      // nothing for it to start -- startServer() would spawn a LOCAL process
+      // from the remote server's settings. Refused before the running check
+      // exactly like /restart, and like POST /api/server/start.
+      if (isUnmanagedRemoteServer(activeServer)) {
+        await interaction.editReply(
+          "❌ Cannot start a remote server. The process is not managed by this panel.",
+        );
+        return;
+      }
+
       // Use the shared provider-aware verdict so split-container servers do
       // not look stopped merely because their process is outside this host.
       const observedRunning = await resolveObservedServerRunning(

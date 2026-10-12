@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discord "Server Stopped/Started" after switching servers:** activating a different server no longer posts a false stop or start notice for it.
 - **Discord join/leave flood after a restart:** restarting the panel or the PanelBridge, or switching servers, no longer posts a "joined"/"left" message for every player who was already online.
 - **"Server Started" posted twice:** starting the server from the panel posts one Discord notice instead of two (the second used to arrive when RCON came up).
+- **Discord /start on a remote server:** it now says the panel cannot start a remote server (like /restart and the Start button) instead of launching a local process from its settings.
 
 ## [1.4.13] - 2026-10-11
 

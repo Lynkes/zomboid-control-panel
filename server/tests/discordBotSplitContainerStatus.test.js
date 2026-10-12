@@ -86,6 +86,10 @@ describe("Discord commands vs. a split-container deployment (scan clean, RCON co
   });
 
   it("handleStart refuses with 'already running', not a launch attempt", async () => {
+    // A container mapped to the server keeps a start path of its own; a
+    // remote server without one is refused before the running check
+    // (discordStartRemoteRefusal.test.js).
+    getActiveServer.mockResolvedValue({ id: "s1", isRemote: true, dockerContainerName: "pz-server" });
     const bot = Object.create(DiscordBot.prototype);
     bot.serverManager = splitContainerServerManager({
       startServer: vi.fn(async () => ({ success: true })),
@@ -93,7 +97,11 @@ describe("Discord commands vs. a split-container deployment (scan clean, RCON co
     bot.rconService = { connected: true };
     const interaction = makeInteraction();
 
-    await bot.handleStart(interaction);
+    try {
+      await bot.handleStart(interaction);
+    } finally {
+      getActiveServer.mockResolvedValue({ id: "s1", isRemote: true });
+    }
 
     expect(interaction.replies[0]).toMatch(/already running/i);
     expect(bot.serverManager.startServer).not.toHaveBeenCalled();
