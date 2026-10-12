@@ -358,6 +358,7 @@ import {
 import { startLeaderboardSampler, stopLeaderboardSampler } from "./services/leaderboardSampler.js";
 import { pruneCharacterStore } from "./services/characterStore.js";
 import { waitForProcessExit } from "./utils/processScanRetry.js";
+import { resolvePzMemoryBytes } from "./utils/pzProcessMemory.js";
 
 dotenv.config();
 
@@ -3425,76 +3426,19 @@ async function getMaxPlayersSample() {
   return lastMaxPlayersSample.value;
 }
 
+// Memory of the ACTIVE server's own game process (null when there is no
+// reading: a remote server, a stopped one, a process the panel cannot see). See
+// utils/pzProcessMemory.js for why this is no longer "the first PZ java process
+// on the host" -- and for the Docker-managed path, which reads the container's
+// stats.
 async function getPzProcessMemory() {
-  // A Docker-managed server's JVM lives in another container's PID namespace,
-  // so the `ps` probe below -- written for a panel-hosted server -- can never
-  // see it: for a container-hosted deployment this resolved null forever, and
-  // the dashboard silently plotted the panel's OWN Node heap in its place
-  // (DashboardPerformanceCharts falls back from pzMemMB to memoryMB), reading
-  // ~0.1 GB while the game sat at 5.7 GB. Ask Docker for the active server's
-  // managed container stats instead -- the same number the Docker page shows,
-  // and only ever for the container named in this panel's own server profile.
-  // Falls through to the process probe when there is no managed container (a
-  // panel-hosted server), Docker control is off, or the query fails -- which
-  // includes a stopped container, whose /stats call errors.
+  let activeServer = null;
   try {
-    const activeServer = await getActiveServer();
-    const containerRef =
-      activeServer?.dockerContainerName || activeServer?.dockerContainerId;
-    if (containerRef && dockerClient.enabled) {
-      const stats = await dockerClient.getContainerStats(containerRef);
-      if (stats?.memoryUsed > 0) return stats.memoryUsed;
-    }
+    activeServer = await getActiveServer();
   } catch {
-    // fall through to the local process probe
+    // resolved without it: the process lookup still names the active server
   }
-  // Get PZ server Java process memory from OS
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => resolve(null), 5000);
-
-    if (process.platform === "win32") {
-      // Windows: Get working set of java.exe processes, find the PZ one
-      exec(
-        'powershell -Command "Get-CimInstance Win32_Process -Filter \\"Name=\'java.exe\'\\" | Select-Object ProcessId, WorkingSetSize, CommandLine | Format-List"',
-        { timeout: 8000 },
-        (err, stdout) => {
-          clearTimeout(timeout);
-          if (err || !stdout) return resolve(null);
-
-          // Parse output — look for PZ server process
-          const blocks = stdout
-            .split(/ProcessId/)
-            .filter((b) =>
-              b.toLowerCase().includes("zombie.network.gameserver"),
-            );
-          if (blocks.length === 0) return resolve(null);
-
-          const wsMatch = blocks[0].match(/WorkingSetSize\s*:\s*(\d+)/i);
-          if (!wsMatch) return resolve(null);
-
-          resolve(parseInt(wsMatch[1], 10)); // bytes
-        },
-      );
-    } else {
-      // Linux: Use ps to find PZ server RSS
-      exec(
-        'ps aux --no-headers | grep -i "zombie.network.[Gg]ame[Ss]erver" | grep -v grep',
-        { timeout: 5000 },
-        (err, stdout) => {
-          clearTimeout(timeout);
-          if (err || !stdout || !stdout.trim()) return resolve(null);
-
-          // RSS is the 6th column in ps aux (in KB)
-          const parts = stdout.trim().split(/\s+/);
-          if (parts.length >= 6) {
-            const rssKB = parseInt(parts[5], 10);
-            if (!isNaN(rssKB)) return resolve(rssKB * 1024); // convert to bytes
-          }
-          resolve(null);
-        },
-      );
-    }
-  });
+  return resolvePzMemoryBytes({ activeServer, serverManager, dockerClient });
 }
 
 async function startPerfPolling() {
