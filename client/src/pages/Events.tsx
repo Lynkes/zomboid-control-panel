@@ -1060,6 +1060,10 @@ interface EventSectionMeta {
 // Sections whose commands act on a chosen player rather than the whole world.
 const TARGETED_SECTIONS: EventSectionKey[] = ['quickSounds', 'targetedSounds', 'horde', 'teleport']
 
+// How long an un-applied Clock pick (hour/day/month) is protected from the
+// 10 s bridge poll after the last edit.
+const CLOCK_EDIT_HOLD_MS = 120_000
+
 // getClimateFloats() reports the real, server-authoritative min/max for each
 // ClimateFloat (PanelBridge.lua handlers.getClimateFloats -> cf:getMin()/cf:getMax()).
 // Binding the sliders to a hardcoded 0-100 (or -30..45 for temperature) instead of this
@@ -1362,6 +1366,16 @@ export default function Events() {
   const markTimeSpeedDirty = useCallback(() => {
     timeSpeedDirtyUntilRef.current = Date.now() + 2500
   }, [])
+  // The Clock card's hour/day/month are edited first and sent later with
+  // "Apply time and date", so a 2.5 s drag window is far too short: the 10 s
+  // poll would put the game's time back over a pending pick (Dusk, then Apply
+  // some seconds later). Hold the poll off until the edit is applied (which
+  // clears this), the server changes, or the operator stops touching the card
+  // for CLOCK_EDIT_HOLD_MS.
+  const clockDirtyUntilRef = useRef(0)
+  const markClockDirty = useCallback(() => {
+    clockDirtyUntilRef.current = Date.now() + CLOCK_EDIT_HOLD_MS
+  }, [])
 
   // continuous-bug-hunt round 26 (PanelBridge command queue and response
   // matching): same race shape as fetchPlayers above (round 9), on the SAME
@@ -1459,9 +1473,12 @@ export default function Events() {
         }
 
         if (timeRes.status === 'fulfilled' && timeRes.value.success && timeRes.value.data) {
-          setGameHour(Math.floor(timeRes.value.data.hour))
-          setGameDay(timeRes.value.data.day)
-          setGameMonth(timeRes.value.data.month)
+          // Don't clobber a pick that has not been applied yet.
+          if (Date.now() >= clockDirtyUntilRef.current) {
+            setGameHour(Math.floor(timeRes.value.data.hour))
+            setGameDay(timeRes.value.data.day)
+            setGameMonth(timeRes.value.data.month)
+          }
           // getGameTime's multiplier field is the game speed RCON's
           // setTimeSpeed command writes (confirmed via the real jar:
           // SetTimeSpeedCommand calls GameTime.getInstance().setMultiplier(),
@@ -1557,6 +1574,8 @@ export default function Events() {
   useEffect(() => {
     if (!socket) return
     const handleActiveServerChanged = () => {
+      // A pending clock pick was made against the old server's time.
+      clockDirtyUntilRef.current = 0
       fetchPlayers()
       checkBridgeStatus()
       // bug-hunt-2026-09-18 (round 20): `selectedPlayer` names a specific
@@ -3048,20 +3067,21 @@ export default function Events() {
                     </Label>
                     <span className="font-mono text-[11px] tabular-nums text-primary">{String(gameHour).padStart(2, '0')}:00</span>
                   </div>
-                  <Slider aria-label={t('clock.hourAria')} value={[gameHour]} onValueChange={([val]) => setGameHour(val)} min={0} max={23} step={1} disabled={!bridgeConnected} />
+                  <Slider aria-label={t('clock.hourAria')} value={[gameHour]} onValueChange={([val]) => { markClockDirty(); setGameHour(val) }} min={0} max={23} step={1} disabled={!bridgeConnected} />
                 </div>
 
                 <div className="flex flex-wrap gap-1.5">
-                  <Button variant={gameHour === 6 ? 'secondary' : 'outline'} size="sm" onClick={() => setGameHour(6)} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Sunrise className="w-3 h-3" /> {t('clock.dawn')}</Button>
-                  <Button variant={gameHour === 12 ? 'secondary' : 'outline'} size="sm" onClick={() => setGameHour(12)} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Sun className="w-3 h-3" /> {t('clock.noon')}</Button>
-                  <Button variant={gameHour === 18 ? 'secondary' : 'outline'} size="sm" onClick={() => setGameHour(18)} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Sunset className="w-3 h-3" /> {t('clock.dusk')}</Button>
-                  <Button variant={gameHour === 0 ? 'secondary' : 'outline'} size="sm" onClick={() => setGameHour(0)} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Moon className="w-3 h-3" /> {t('clock.midnight')}</Button>
+                  <Button variant={gameHour === 6 ? 'secondary' : 'outline'} size="sm" onClick={() => { markClockDirty(); setGameHour(6) }} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Sunrise className="w-3 h-3" /> {t('clock.dawn')}</Button>
+                  <Button variant={gameHour === 12 ? 'secondary' : 'outline'} size="sm" onClick={() => { markClockDirty(); setGameHour(12) }} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Sun className="w-3 h-3" /> {t('clock.noon')}</Button>
+                  <Button variant={gameHour === 18 ? 'secondary' : 'outline'} size="sm" onClick={() => { markClockDirty(); setGameHour(18) }} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Sunset className="w-3 h-3" /> {t('clock.dusk')}</Button>
+                  <Button variant={gameHour === 0 ? 'secondary' : 'outline'} size="sm" onClick={() => { markClockDirty(); setGameHour(0) }} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Moon className="w-3 h-3" /> {t('clock.midnight')}</Button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 pt-2">
                   <div className="space-y-1">
                     <Label htmlFor="game-day" className="text-xs font-medium text-muted-foreground">{t('clock.day')}</Label>
                     <Input id="game-day" aria-label={t('clock.dayAria')} type="number" min={1} max={31} value={gameDay} disabled={!bridgeConnected} onChange={(e) => {
+                      markClockDirty()
                       const parsed = parseInt(e.target.value, 10)
                       if (Number.isNaN(parsed)) { setGameDay(1); return }
                       setGameDay(Math.min(31, Math.max(1, parsed)))
@@ -3069,7 +3089,7 @@ export default function Events() {
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="game-month" className="text-xs font-medium text-muted-foreground">{t('clock.month')}</Label>
-                    <Select value={String(gameMonth)} onValueChange={(v) => setGameMonth(parseInt(v))} disabled={!bridgeConnected}>
+                    <Select value={String(gameMonth)} onValueChange={(v) => { markClockDirty(); setGameMonth(parseInt(v)) }} disabled={!bridgeConnected}>
                       <SelectTrigger id="game-month" aria-label={t('clock.monthAria')} className="h-9 font-mono text-[12px]">
                         <SelectValue />
                       </SelectTrigger>
@@ -3091,7 +3111,7 @@ export default function Events() {
                   </div>
                 </div>
 
-                <Button variant="outline" onClick={() => handleBridgeAction('Set Time', () => panelBridgeApi.setGameTime({ hour: gameHour, day: gameDay, month: gameMonth }))} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
+                <Button variant="outline" onClick={() => handleBridgeAction('Set Time', () => panelBridgeApi.setGameTime({ hour: gameHour, day: gameDay, month: gameMonth }), (success) => { if (success) clockDirtyUntilRef.current = 0 })} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
                   {bridgeLoading === 'Set Time' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
                   {t('clock.applyTimeDate')}
                 </Button>

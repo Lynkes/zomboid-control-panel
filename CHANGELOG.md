@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Templates hidden built-ins:** hiding a built-in template now shows it in the Hidden section (with its Restore button) right away instead of after a page reload.
 - **Server Finder version filter:** "Clear all filters" now resets the version filter too, and a refresh that drops the filtered version falls back to all versions instead of leaving an empty list.
 - **Leaderboard after a server switch:** the board now clears and reloads for the new server at once instead of showing the old server's players for up to 30 seconds, and a slow answer for the old server can no longer overwrite it.
+- **Game clock edits reverted by the poll:** a picked hour, day or month on the Events page's Game clock now stays put until you apply it, instead of being reset to the game's time within 10 seconds.
 
 ## [1.4.13] - 2026-10-11
 
