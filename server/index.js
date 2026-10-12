@@ -112,7 +112,10 @@ import {
 import { resolveObservedServerRunning, resolveServerPhase } from "./utils/serverStatus.js";
 import { discoverMounts } from "./services/mountDiscovery.js";
 import { shouldAutoOpenBrowser } from "./utils/browserLaunch.js";
-import { isLinuxPanelSupervisor } from "./utils/restartSupervisor.js";
+import {
+  isLinuxPanelSupervisor,
+  isWindowsPanelSupervisor,
+} from "./utils/restartSupervisor.js";
 import {
   acquireLifecycleLock,
   setBeforeLaunchHook,
@@ -2251,6 +2254,11 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
     // Docker (PID 1) the detached child dies with the container anyway.
     let orchestrated = false;
     const linuxSupervisor = isLinuxPanelSupervisor();
+    // Start.bat (supervisor v2) relaunches on exit 75 and treats exit 0 as an
+    // operator stop: self-respawning here left the supervisor quitting
+    // ("Panel exited cleanly") while the new panel still claimed to be
+    // supervised, so a later restart-and-apply exited 75 with nobody to apply.
+    const windowsSupervisor = isWindowsPanelSupervisor();
     if (isPackaged) {
       try {
         if (process.env.INVOCATION_ID || process.env.NOTIFY_SOCKET)
@@ -2265,7 +2273,7 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
         /* best effort */
       }
 
-      if (!orchestrated && !linuxSupervisor) {
+      if (!orchestrated && !linuxSupervisor && !windowsSupervisor) {
         // Running as packaged exe standalone — spawn self, then exit.
         // On Linux, prefer the freshly-applied binary path (linuxRespawnPath)
         // since process.execPath may point at a .new slot we just renamed away.
@@ -2276,6 +2284,10 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
       } else if (orchestrated) {
         log.info(
           "Running under orchestrator (systemd/Docker) — exiting for external restart",
+        );
+      } else if (windowsSupervisor) {
+        log.info(
+          "Running under the Windows supervisor — exiting for Start.bat to relaunch",
         );
       } else {
         log.info(
@@ -2290,7 +2302,7 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
     // non-zero so `on-failure`/`always` units respawn us; Docker
     // `restart: unless-stopped`/`always` restart regardless of code, so this is
     // safe there too. Standalone (already self-respawned) exits 0 as normal.
-    process.exit(linuxSupervisor ? 75 : orchestrated ? 1 : 0);
+    process.exit(linuxSupervisor || windowsSupervisor ? 75 : orchestrated ? 1 : 0);
   }, 1000);
 });
 
