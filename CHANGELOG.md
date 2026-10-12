@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **PanelBridge updates from the Steam Workshop (#235):** a new bridge version now triggers the same warned auto-restart as any other mod update; Steam's public API never lists the bridge item, so the panel read its update time from the item's change notes instead.
 - **Templates hidden built-ins:** hiding a built-in template now shows it in the Hidden section (with its Restore button) right away instead of after a page reload.
+- **Server Finder version filter:** "Clear all filters" now resets the version filter too, and a refresh that drops the filtered version falls back to all versions instead of leaving an empty list.
 
 ## [1.4.13] - 2026-10-11
 
