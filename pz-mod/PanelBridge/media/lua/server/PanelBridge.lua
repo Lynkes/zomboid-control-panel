@@ -6,6 +6,36 @@
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
 
+                vNEXT Changes:
+                - Fix: Kill Player can kill. invoke() lost a trailing nil
+                    argument, so Kill(nil) reached the game as Kill() with no
+                    argument (every Kill overload takes 1 to 4) and failed
+                    with "No implementation found", leaving the player alive
+                    with godmode already stripped. invoke() now passes every
+                    argument it was given, nil or not.
+                - Fix: the Events page's Clock shows and sets the right day.
+                    GameTime counts the day from 0, so getGameTime reported
+                    day 14 on the 15th, typing 20 set the 21st, and on the
+                    1st of a month the 0 it read back was refused when sent
+                    to Set Time. getGameTime (and getServerInfo's gameTime)
+                    now report the calendar day (1 = the 1st) and setGameTime
+                    takes it; a day below 1 is refused before anything is
+                    written.
+                - Fix: a truncated or hand-edited inbox command or queue-state
+                    file could freeze the game thread. json.decode looped
+                    forever on a character that is no JSON token (a cut-off
+                    nul, a bare word: {"a":x} or [x]) and pcall cannot stop
+                    that, so the bridge hung again after every restart (the
+                    command cursor had not moved past the file). It now
+                    reports a parse error and the file is treated as
+                    unreadable.
+                - Fix: the memory of already-run command ids is trimmed again.
+                    The trim sat behind an early return that is taken
+                    whenever the legacy commands.json is empty (always, with
+                    the numbered queue), so the id list grew by one for every
+                    command until the server restarted. It runs on each new
+                    id now and keeps at most the newest 500.
+
                 v1.7.75 Changes:
                 - Fix: two accounts behind one SteamID no longer inflate the
                     leaderboard. Split-screen guests report the host's
@@ -963,9 +993,15 @@ function PanelBridge.invoke(obj, methodName, ...)
         return false, "Method '" .. methodName .. "' not available on this build"
     end
 
+    -- Count the arguments up front: `{ ... }` plus a bare unpack(args) stops at
+    -- the first trailing nil (the length operator treats it as the end), so
+    -- invoke(player, "Kill", nil) used to call player:Kill() with NO argument
+    -- and the game, whose Kill overloads all take 1-4, raised "No
+    -- implementation found for function: Kill". Pass all n through.
+    local argCount = select("#", ...)
     local args = { ... }
     local success, result = pcall(function()
-        return obj[methodName](obj, unpack(args))
+        return obj[methodName](obj, unpack(args, 1, argCount))
     end)
 
     if success then
@@ -1489,6 +1525,7 @@ function json.decode(str)
                 return obj
             end
             while pos <= #str do
+                local passStart = pos
                 skip_whitespace()
                 if pos > #str then break end
                 local key = parse_value()
@@ -1509,6 +1546,16 @@ function json.decode(str)
                 elseif c == ',' then
                     pos = pos + 1
                 end
+                -- A pass that consumed nothing (a character that is no JSON
+                -- token, such as the x in {"a":x} or a truncated nul) would
+                -- read that same character again forever, and pcall cannot
+                -- interrupt an infinite loop. Raise instead, so the pcall
+                -- around parse_value returns nil. Anything a pass did consume
+                -- (a stray comma, a trailing comma before }) still decodes as
+                -- it always did.
+                if pos == passStart then
+                    error("unexpected character '" .. c .. "' at position " .. pos)
+                end
             end
             return obj
         elseif c == '[' then
@@ -1522,6 +1569,7 @@ function json.decode(str)
                 return arr
             end
             while pos <= #str do
+                local passStart = pos
                 idx = idx + 1
                 local value = parse_value()
                 -- See json.null above: preserve the slot (and every later
@@ -1536,6 +1584,11 @@ function json.decode(str)
                     return arr
                 elseif c == ',' then
                     pos = pos + 1
+                end
+                -- Same guard as the object loop: a pass that consumed nothing
+                -- (the x in [x]) would repeat forever, growing arr each time.
+                if pos == passStart then
+                    error("unexpected character '" .. c .. "' at position " .. pos)
                 end
             end
             return arr
@@ -2637,12 +2690,41 @@ local function invalidateLiveStateCache()
     end
 end
 
+-- Sliding window over the ids processSingleCommand has already run: once more
+-- than this many are remembered, the oldest half is dropped.
+local MAX_PROCESSED_IDS = 500
+
+-- Walks processedIdOrder (true insertion order) instead of pairs(), whose
+-- iteration order over processedIds is unspecified in Lua -- iterating
+-- pairs() here used to drop an ARBITRARY half rather than the oldest half.
+local function trimProcessedIds()
+    if PanelBridge.processedIdCount <= MAX_PROCESSED_IDS then return end
+    local oldCount = PanelBridge.processedIdCount
+    local skip = math.floor(oldCount / 2)
+    local newOrder = {}
+    local newSet = {}
+    for i = skip + 1, #PanelBridge.processedIdOrder do
+        local id = PanelBridge.processedIdOrder[i]
+        newOrder[#newOrder + 1] = id
+        newSet[id] = true
+    end
+    PanelBridge.processedIds = newSet
+    PanelBridge.processedIdOrder = newOrder
+    PanelBridge.processedIdCount = #newOrder
+    PanelBridge.debug("Trimmed processed IDs", { previous = oldCount, kept = PanelBridge.processedIdCount })
+end
+
 -- Marks a command id as processed, keeping processedIds (O(1) lookup) and
--- processedIdOrder (insertion order, for the trim in processCommands) in sync.
+-- processedIdOrder (insertion order, for the trim above) in sync. The trim
+-- runs here, on every mark: it used to sit at the end of processCommands,
+-- behind the early return taken whenever the legacy commands.json is empty
+-- (always, with the numbered queue), so both tables grew by one entry per
+-- command for as long as the server stayed up.
 local function markProcessed(id)
     PanelBridge.processedIds[id] = true
     table.insert(PanelBridge.processedIdOrder, id)
     PanelBridge.processedIdCount = PanelBridge.processedIdCount + 1
+    trimProcessedIds()
 end
 
 local function processSingleCommand(cmd)
@@ -3208,7 +3290,7 @@ handlers.getServerInfo = function(args)
                 minute = math.floor((tod - hour) * 60)
             end
             gameTimeData = {
-                day = gameTime:getDay(),
+                day = gameTime:getDay() + 1, -- getDay() is zero-based (the 1st is 0), like getMonth()
                 month = gameTime:getMonth() + 1, -- Lua 1-indexed
                 year = gameTime:getYear(),
                 hour = hour,
@@ -4463,7 +4545,13 @@ handlers.getGameTime = function(args)
     return true, {
         year = gameTime:getYear(),
         month = gameTime:getMonth() + 1, -- Lua 1-indexed
-        day = gameTime:getDay(),
+        -- GameTime.getDay() is the zero-based day field (the 1st of a month
+        -- is 0, vanilla DebugDemoTime.lua shows getDay()+1 and rolls the
+        -- month over at getDay() >= daysInMonth). getDayPlusOne() is
+        -- exactly that +1; the plain getter plus 1 is used because vanilla
+        -- Lua never calls getDayPlusOne (see the note on probes above).
+        -- setGameTime takes the same calendar day back.
+        day = gameTime:getDay() + 1,
         hour = timeOfDay,
         minute = math.floor((timeOfDay - hour) * 60),
         dayOfWeek = 0,
@@ -4495,6 +4583,14 @@ handlers.setGameTime = function(args)
 
     local updated = {}
 
+    -- Checked before any field is written: a day below 1 would land on
+    -- setDay(-1), and the hour (written first) must not have been changed
+    -- already when that is refused.
+    local dayArg = args.day ~= nil and tonumber(args.day) or nil
+    if dayArg and dayArg < 1 then
+        return false, nil, "day must be 1 or higher (1 is the first of the month)"
+    end
+
     local function setAndVerify(methodName, value, getterName, expected)
         local ok, err = PanelBridge.invoke(gameTime, methodName, value)
         if not ok then
@@ -4515,13 +4611,12 @@ handlers.setGameTime = function(args)
         updated.hour = hour
     end
 
-    if args.day ~= nil then
-        local day = tonumber(args.day)
-        if day then
-            local ok, err = setAndVerify("setDay", day, "getDay", day)
-            if not ok then return false, nil, err end
-            updated.day = day
-        end
+    if dayArg then
+        -- dayArg is the calendar day (1 = the 1st), the same value
+        -- getGameTime returns; GameTime.setDay/getDay are zero-based.
+        local ok, err = setAndVerify("setDay", dayArg - 1, "getDay", dayArg - 1)
+        if not ok then return false, nil, err end
+        updated.day = dayArg
     end
 
     if args.month ~= nil then
@@ -10865,25 +10960,8 @@ function PanelBridge.processCommands()
         end
     end
 
-    -- Cleanup old processed IDs (sliding window: drop oldest half)
-    -- Walks processedIdOrder (true insertion order) instead of pairs(), whose
-    -- iteration order over processedIds is unspecified in Lua \u2014 iterating
-    -- pairs() here used to drop an ARBITRARY half rather than the oldest half.
-    if PanelBridge.processedIdCount > 500 then
-        local oldCount = PanelBridge.processedIdCount
-        local skip = math.floor(oldCount / 2)
-        local newOrder = {}
-        local newSet = {}
-        for i = skip + 1, #PanelBridge.processedIdOrder do
-            local id = PanelBridge.processedIdOrder[i]
-            newOrder[#newOrder + 1] = id
-            newSet[id] = true
-        end
-        PanelBridge.processedIds = newSet
-        PanelBridge.processedIdOrder = newOrder
-        PanelBridge.processedIdCount = #newOrder
-        PanelBridge.debug("Trimmed processed IDs", { previous = oldCount, kept = PanelBridge.processedIdCount })
-    end
+    -- The processed-id window is trimmed in markProcessed, not here: this
+    -- point is only reached when the legacy commands.json had content.
 end
 
 function PanelBridge.updateStatus()

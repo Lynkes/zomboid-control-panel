@@ -34,6 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Passwords in the debug log:** an `adduser "name" "password"` run over RCON no longer shows the password in the panel's debug log lines (the reply and "command skipped" lines were not redacted).
 - **Dashboard PZ memory:** the memory row now reads the active server's own game process (not the first Project Zomboid process on the machine), and a remote server, or one the panel can't see, shows no PZ memory row instead of the panel's own memory.
 - **After switching or stopping a server:** the Dashboard telemetry no longer shows the previous server's last sample for up to a minute, the sidebar Players badge no longer keeps the old count after a stop or a switch, and the Chat page drops the previous server's messages.
+- **Kill Player (PanelBridge update):** the Kill button now kills the player; it always failed with "not dead" (and had already removed godmode) because the bridge dropped the one argument the game needs.
+- **Events Clock day (PanelBridge update):** the Clock card shows the real day of the month (it showed one less) and Set Time sets the day you typed (it set one more), including the 1st, which it used to refuse.
+- **Frozen server on a damaged bridge file (PanelBridge update):** a truncated or hand-edited command or queue file in the bridge folder no longer hangs the game forever (and again after every restart); it is reported as unreadable.
+- **Bridge memory growth (PanelBridge update):** the bridge forgets old command ids again; the list of already-run commands grew with every command until the server restarted.
+- **Commands run after a timeout:** a bridge command that waited behind a long task is skipped once the panel has reported it timed out (it used to run 15-30 s later anyway, so a retry doubled hordes, airdrops and item gifts).
 
 ## [1.4.13] - 2026-10-11
 
