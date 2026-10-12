@@ -711,6 +711,7 @@ export class DiscordBot {
 
     const previousGuildId = this.guildId;
     const previousToken = this.token;
+    const previousChannelId = this.channelId;
     const rolesChanged =
       this.adminRoleId !== (adminRoleId || null) ||
       this.modRoleId !== (modRoleId || null);
@@ -719,6 +720,18 @@ export class DiscordBot {
     this.adminRoleId = adminRoleId || null;
     this.modRoleId = modRoleId || null;
     this.channelId = channelId;
+
+    // A circuit that opened because of the old token, guild or channel says
+    // nothing about the new one: the fix for "misconfigured" IS this change,
+    // and the breaker would otherwise keep dropping sends for up to 30 min.
+    if (
+      (previousChannelId || null) !== (channelId || null) ||
+      (previousGuildId || null) !== (guildId || null) ||
+      previousToken !== token
+    ) {
+      this._channelBreakers.clear();
+      this._outsideGuildRefusals.clear();
+    }
 
     // If we changed guilds and the bot is currently running, clean up the
     // old guild's command list — otherwise the old guild keeps showing
@@ -1832,20 +1845,29 @@ export class DiscordBot {
     await interaction.editReply(response);
   }
 
-  async sendNotification(message) {
+  // `probe` is for POST /test-message: a person asking "does it work now?".
+  // It goes out even while the channel's circuit is open and, when it gets
+  // through, closes the circuit -- otherwise a fixed channel keeps answering
+  // "rejected" for up to 30 minutes after the failures that opened it.
+  async sendNotification(message, { probe = false } = {}) {
     if (!this.channelId || !this.client) return false;
     log.info(
       `Sending Discord notification: ${String(message).substring(0, 80)}`,
     );
     return await this._sendToChannel(this.channelId, message, {
       label: "notification",
+      probe,
     });
   }
 
   // Centralized channel send with circuit-breaker. All Discord-bound message
   // sends (notifications, webhook events, chat relay) should go through here
   // so a Discord outage doesn't spam logs from multiple code paths.
-  async _sendToChannel(channelId, message, { label = "message" } = {}) {
+  async _sendToChannel(
+    channelId,
+    message,
+    { label = "message", probe = false } = {},
+  ) {
     if (!channelId || !this.client) return false;
 
     const FAILURE_THRESHOLD = 3;
@@ -1867,7 +1889,7 @@ export class DiscordBot {
     const now = Date.now();
     const breaker = this._breakerFor(channelId);
 
-    if (now < breaker.openUntil) {
+    if (!probe && now < breaker.openUntil) {
       breaker.suppressed++;
       return false;
     }
@@ -1913,7 +1935,7 @@ export class DiscordBot {
           ? `${message.slice(0, 1997)}...`
           : message;
       await withDiscordTimeout(channel.send(safeMessage), "send");
-      if (breaker.failures > 0 || breaker.suppressed > 0) {
+      if (breaker.failures > 0 || breaker.suppressed > 0 || breaker.openUntil > 0) {
         if (breaker.suppressed > 0) {
           log.info(
             `Discord channel ${channelId} recovered — ${breaker.suppressed} send(s) were suppressed during the outage`,
@@ -1921,10 +1943,18 @@ export class DiscordBot {
         }
         breaker.failures = 0;
         breaker.suppressed = 0;
+        breaker.openUntil = 0;
       }
       return true;
     } catch (error) {
       this._outsideGuildRefusals.delete(channelId);
+      if (probe) {
+        // A manual probe is a question, not traffic: a failed one reports the
+        // error and leaves the breaker as it was (it must not push an open
+        // circuit's cooldown further out, or count towards opening one).
+        log.error(`Failed to send Discord ${label}: ${error.message}`);
+        return false;
+      }
       breaker.failures++;
       // A 5xx is Discord's own outage, not our configuration — classify it
       // alongside the network-level codes below rather than lumping it in

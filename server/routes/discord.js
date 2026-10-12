@@ -651,8 +651,11 @@ router.post("/test-message", async (req, res) => {
       });
     }
 
+    // probe: sent even while the channel's circuit breaker is open, so a
+    // fixed channel can be confirmed right away (and the breaker closes).
     const sent = await discordBot.sendNotification(
       "🧪 **Test message** from PZ Server Manager",
+      { probe: true },
     );
     if (!sent) {
       // SECURITY (2026-10-05, M2): the bot posts only in a channel of the
