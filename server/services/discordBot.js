@@ -253,7 +253,15 @@ function leaderboardName(username) {
   return escapeMarkdown(name || "(no name)", { maskedLink: true }) + (cut ? "…" : "");
 }
 
-const LIFECYCLE_DEDUPE_WINDOW_MS = 60_000;
+// How long a repeat of the SAME lifecycle state is treated as one transition.
+// A stop is reported by the route and the watchdog within seconds of each
+// other. A start is reported twice by design: the watchdog the moment the
+// process appears, and the start route once RCON answers, which takes PZ
+// 60-180 s and is given up on after 5 minutes. A one-minute window let the
+// second report through as a second "Server Started" on every panel start;
+// ten minutes covers the whole RCON wait. A real stop in between always flips
+// the state first, so a genuine restart still posts.
+const LIFECYCLE_DEDUPE_WINDOW_MS = { running: 600_000, stopped: 60_000 };
 const PLAYER_PRESENCE_INTERVAL_MS = 60_000;
 // How long a gateway reconnect must persist before getStatus() reports it —
 // well above the ~2-3s a real RESUME took in
@@ -610,7 +618,7 @@ export class DiscordBot {
       newState = eventType === "serverStart" ? "running" : "stopped";
       if (
         this._lastLifecycleState === newState &&
-        Date.now() - this._lastLifecycleAt < LIFECYCLE_DEDUPE_WINDOW_MS
+        Date.now() - this._lastLifecycleAt < LIFECYCLE_DEDUPE_WINDOW_MS[newState]
       ) {
         return; // already notified for this transition
       }

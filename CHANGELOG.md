@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **PanelBridge updates from the Steam Workshop (#235):** a new bridge version now triggers the same warned auto-restart as any other mod update; Steam's public API never lists the bridge item, so the panel read its update time from the item's change notes instead.
 - **Discord "Server Stopped/Started" after switching servers:** activating a different server no longer posts a false stop or start notice for it.
 - **Discord join/leave flood after a restart:** restarting the panel or the PanelBridge, or switching servers, no longer posts a "joined"/"left" message for every player who was already online.
+- **"Server Started" posted twice:** starting the server from the panel posts one Discord notice instead of two (the second used to arrive when RCON came up).
 
 ## [1.4.13] - 2026-10-11
 
