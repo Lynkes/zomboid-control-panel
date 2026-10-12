@@ -1658,7 +1658,13 @@ panelBridge.on("modStatus", (status) => {
 // and auto-export through ITS connect/disconnect events instead of RCON's —
 // see the corresponding guard in startPlayerPolling() below that skips these
 // same side effects while the bridge is alive, so they fire exactly once.
-panelBridge.on("playerConnect", (playerName) => {
+//
+// A `silent` event is the panel's own bookkeeping, not a player arriving or
+// leaving: the first status read after a panel/bridge restart or a server
+// switch lists everyone already online, and stop() closes their sessions.
+// Neither is announced to Discord or queued for auto-export.
+panelBridge.on("playerConnect", (playerName, { silent = false } = {}) => {
+  if (silent) return;
   discordBot
     .sendEventNotification("playerJoin", { player: playerName })
     .catch((err) =>
@@ -1673,7 +1679,8 @@ panelBridge.on("playerConnect", (playerName) => {
     .catch(() => {});
 });
 
-panelBridge.on("playerDisconnect", (playerName) => {
+panelBridge.on("playerDisconnect", (playerName, { silent = false } = {}) => {
+  if (silent) return;
   discordBot
     .sendEventNotification("playerLeave", { player: playerName })
     .catch((err) =>

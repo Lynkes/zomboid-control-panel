@@ -134,6 +134,9 @@ class PanelBridge extends EventEmitter {
     this.lastQueueCleanupAt = 0;
     this.modStatus = null;
     this.previousPlayers = new Set(); // Track previous player list for connect/disconnect detection
+    // False until the first alive status read of this bridge session: that
+    // read only establishes who is already online (see checkModStatus()).
+    this.playersBaselined = false;
     // Which of the deaths status.json lists were already reported (see
     // trackPlayerDeaths()); null until the first status of this bridge path.
     this.deathTracking = null;
@@ -822,7 +825,12 @@ class PanelBridge extends EventEmitter {
     // different path. This way the session actually closes (playtime
     // accumulated) before the phantom reconnect opens a new one -- a split
     // session instead of lost time.
-    this.trackPlayerActivity([]);
+    //
+    // silent: this is the panel closing its own books (a bridge restart, a
+    // switch to another server, a panel shutdown), not anyone leaving, so
+    // the Discord/auto-export listeners must not announce it.
+    this.trackPlayerActivity([], { silent: true });
+    this.playersBaselined = false;
     this.watcherRetries = 0;
     this.modStatus = null;
     this.deathTracking = null;
@@ -1681,7 +1689,13 @@ class PanelBridge extends EventEmitter {
 
       // Track player connections and disconnections
       if (status.alive && status.players) {
-        this.trackPlayerActivity(status.players);
+        // The first alive read of a bridge session (panel restart, bridge
+        // restart, server switch) only learns who is already online: those
+        // players did not just join, so it is recorded silently. The RCON
+        // poll does the same with playerBaselineReady.
+        const baseline = !this.playersBaselined;
+        this.playersBaselined = true;
+        this.trackPlayerActivity(status.players, { silent: baseline });
       }
       if (status.alive) {
         this.trackPlayerDeaths(status);
@@ -1823,9 +1837,14 @@ class PanelBridge extends EventEmitter {
   }
 
   /**
-   * Track player connect/disconnect events
+   * Track player connect/disconnect events.
+   *
+   * `silent` still records the sessions and player history but tells the
+   * playerConnect/playerDisconnect listeners (second argument, `{ silent }`)
+   * that nobody actually joined or left, so Discord posts and auto-export
+   * skip them.
    */
-  trackPlayerActivity(currentPlayers) {
+  trackPlayerActivity(currentPlayers, { silent = false } = {}) {
     // Normalize players: PanelBridge.lua's own JSON encoder (kind_of()) defaults an empty table to
     // [] on the wire, not {} -- but handle both shapes defensively anyway, since nothing here
     // depends on which one actually arrives and a future encoder change shouldn't be able to break this.
@@ -1838,7 +1857,7 @@ class PanelBridge extends EventEmitter {
       if (!previous.has(player)) {
         logPlayerAction(player, 'connect', 'Player connected to server').catch(err => log.debug(`Failed to log player connect: ${err.message}`));
         recordPlayerSession(player, 'connect').catch(err => log.debug(`Failed to record player connect session: ${err.message}`));
-        this.emit('playerConnect', player);
+        this.emit('playerConnect', player, { silent });
       }
     }
 
@@ -1847,7 +1866,7 @@ class PanelBridge extends EventEmitter {
       if (!current.has(player)) {
         logPlayerAction(player, 'disconnect', 'Player disconnected from server').catch(err => log.debug(`Failed to log player disconnect: ${err.message}`));
         recordPlayerSession(player, 'disconnect').catch(err => log.debug(`Failed to record player disconnect session: ${err.message}`));
-        this.emit('playerDisconnect', player);
+        this.emit('playerDisconnect', player, { silent });
       }
     }
 
