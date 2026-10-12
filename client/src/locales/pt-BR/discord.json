@@ -317,6 +317,7 @@
     "invalidAdminRoleIdFormat": "Formato de ID do cargo de admin inválido (deve ser um número de 17 a 19 dígitos)",
     "invalidModRoleIdFormat": "Formato de ID do cargo de moderador inválido (deve ser um número de 17 a 19 dígitos)",
     "configSavedBotStartFailed": "Configuração salva, mas o bot não conseguiu iniciar: {{reason}}",
+    "configSavedBotReconnectFailed": "Configuração salva, mas o bot não conseguiu se reconectar com ela: {{reason}}",
     "configSavedAndStarted": "Configuração salva e bot iniciado!",
     "configSaved": "Configuração do Discord salva com sucesso",
     "saveConfigFailedFallback": "Falha ao salvar a configuração",

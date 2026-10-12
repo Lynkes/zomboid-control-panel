@@ -112,3 +112,74 @@ describe('Discord.tsx: saving command permissions', () => {
     expect(screen.queryByText('Warning')).not.toBeInTheDocument()
   })
 })
+
+describe('Discord.tsx: saving the bot configuration', () => {
+  const clickSave = () => fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+
+  it('warns, naming the error, when the saved settings could not reconnect the bot', async () => {
+    await renderPage()
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({
+        success: true,
+        message: 'Discord bot configuration saved, but the bot failed to reconnect.',
+        botStarted: false,
+        botStartError: 'Invalid token. Check the token below and save again.',
+      }),
+    )
+
+    clickSave()
+
+    expect(
+      await screen.findByText(
+        'Configuration saved, but the bot could not reconnect with it: Invalid token. Check the token below and save again.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Warning')).toBeInTheDocument()
+    expect(screen.queryByText('Discord configuration saved successfully')).not.toBeInTheDocument()
+  })
+
+  it('still reports a plain success when no reconnect was needed', async () => {
+    await renderPage()
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ success: true, message: 'Discord bot configuration updated' }))
+
+    clickSave()
+
+    expect(await screen.findByText('Discord configuration saved successfully')).toBeInTheDocument()
+    expect(screen.queryByText('Warning')).not.toBeInTheDocument()
+  })
+})
+
+describe('Discord.tsx: event message templates', () => {
+  it('stops at the 500 characters the server keeps', async () => {
+    getStatus.mockResolvedValue({ running: true, configured: true })
+    getConfig.mockResolvedValue({
+      token: null,
+      hasToken: true,
+      guildId: GUILD,
+      adminRoleId: '',
+      modRoleId: '',
+      channelId: CHANNEL,
+      autoStart: true,
+      chatRelayEnabled: true,
+      chatRelayChannelId: '',
+      chatRelayScope: 'public',
+    })
+    getWebhookEvents.mockResolvedValue({ events: { playerJoin: { enabled: true, template: '{player} joined' } } })
+    getPermissions.mockResolvedValue({ permissions: {} })
+    render(
+      <TooltipProvider>
+        <ConfirmProvider>
+          <Discord />
+        </ConfirmProvider>
+      </TooltipProvider>,
+    )
+
+    const field = await waitFor(() => {
+      const el = document.getElementById('template-playerJoin')
+      expect(el).not.toBeNull()
+      return el as HTMLTextAreaElement
+    })
+
+    expect(field.maxLength).toBe(500)
+  })
+})

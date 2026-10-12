@@ -317,6 +317,7 @@
     "invalidAdminRoleIdFormat": "Неправильний формат ID адмінської ролі — має бути число з 17–19 цифр",
     "invalidModRoleIdFormat": "Неправильний формат ID модераторської ролі — має бути число з 17–19 цифр",
     "configSavedBotStartFailed": "Конфігурацію збережено, але бот не запустився: {{reason}}",
+    "configSavedBotReconnectFailed": "Конфігурацію збережено, але бот не зміг перепідключитися з нею: {{reason}}",
     "configSavedAndStarted": "Конфігурацію збережено, бота запущено!",
     "configSaved": "Конфігурацію Discord успішно збережено",
     "saveConfigFailedFallback": "Не вдалося зберегти конфігурацію",

@@ -335,6 +335,7 @@
     "invalidAdminRoleIdFormat": "Formato de ID del rol de administrador no válido (debe ser un número de 17 a 19 dígitos)",
     "invalidModRoleIdFormat": "Formato de ID del rol de moderador no válido (debe ser un número de 17 a 19 dígitos)",
     "configSavedBotStartFailed": "Configuración guardada, pero el bot no pudo iniciarse: {{reason}}",
+    "configSavedBotReconnectFailed": "Configuración guardada, pero el bot no pudo volver a conectarse con ella: {{reason}}",
     "configSavedAndStarted": "¡Configuración guardada y bot iniciado!",
     "configSaved": "Configuración de Discord guardada correctamente",
     "saveConfigFailedFallback": "No se pudo guardar la configuración",

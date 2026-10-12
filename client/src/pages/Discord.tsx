@@ -111,6 +111,8 @@ interface WebhookEvent {
 }
 
 type WebhookEvents = Record<string, WebhookEvent>;
+// Same cap as routes/discord.js applies to a saved template.
+const EVENT_TEMPLATE_MAX_LENGTH = 500;
 type FlashMessage = { type: "success" | "warning" | "error"; text: string };
 
 // Small helper to copy text to clipboard
@@ -556,7 +558,7 @@ export default function Discord() {
 
       const tokenToSave = token || "KEEP_EXISTING";
 
-      await discordApi.updateConfig(
+      const saved = await discordApi.updateConfig(
         tokenToSave,
         guildId,
         adminRoleId || undefined,
@@ -570,6 +572,22 @@ export default function Discord() {
         chatRelayChannelId,
         chatRelayScope,
       );
+
+      // The settings are stored, but the new token or guild needed the bot to
+      // reconnect and it could not: say so instead of reporting a plain save.
+      // (botStarted is absent when no reconnect was needed, null when one was
+      // already under way elsewhere.)
+      if (saved?.botStarted === false) {
+        setConfigMessage({
+          type: "warning",
+          text: t("toasts.configSavedBotReconnectFailed", {
+            reason: saved.botStartError || t("shared.unknownError"),
+          }),
+        });
+        setToken("");
+        await loadData();
+        return;
+      }
 
       if (andStart) {
         try {
@@ -2369,6 +2387,10 @@ export default function Discord() {
                         }
                         placeholder={t("management.webhookEvents.templatePlaceholder")}
                         rows={3}
+                        // The server keeps the first 500 characters
+                        // (PUT /discord/webhook-events), so the field stops
+                        // there instead of silently cutting what was typed.
+                        maxLength={EVENT_TEMPLATE_MAX_LENGTH}
                       />
                       <p className="text-xs text-muted-foreground">
                         {t("management.webhookEvents.variablesLabel", { variables })}

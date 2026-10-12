@@ -2049,7 +2049,15 @@ export const discordApi = {
       chatRelayEnabled,
       chatRelayChannelId,
       chatRelayScope,
-    }),
+    }) as Promise<{
+      success: boolean;
+      message?: string;
+      // Only present when a changed token or guild needed the bot to
+      // reconnect: false = it could not (botStartError says why), null = a
+      // start/stop from elsewhere was already in progress.
+      botStarted?: boolean | null;
+      botStartError?: string;
+    }>,
   // keptCommandPermissions: commands whose tier the wipe kept because
   // changing it needs a capability the caller doesn't hold.
   resetConfig: () =>

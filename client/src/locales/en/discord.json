@@ -317,6 +317,7 @@
     "invalidAdminRoleIdFormat": "Invalid Admin Role ID format (should be 17-19 digit number)",
     "invalidModRoleIdFormat": "Invalid Moderator Role ID format (should be 17-19 digit number)",
     "configSavedBotStartFailed": "Configuration saved, but the bot failed to start: {{reason}}",
+    "configSavedBotReconnectFailed": "Configuration saved, but the bot could not reconnect with it: {{reason}}",
     "configSavedAndStarted": "Configuration saved and bot started!",
     "configSaved": "Discord configuration saved successfully",
     "saveConfigFailedFallback": "Failed to save configuration",

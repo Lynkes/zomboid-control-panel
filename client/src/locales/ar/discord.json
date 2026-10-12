@@ -317,6 +317,7 @@
     "invalidAdminRoleIdFormat": "صيغة معرّف دور المسؤول غير صالحة (يجب أن يكون رقمًا من 17 إلى 19 خانة)",
     "invalidModRoleIdFormat": "صيغة معرّف دور المشرف غير صالحة (يجب أن يكون رقمًا من 17 إلى 19 خانة)",
     "configSavedBotStartFailed": "تم حفظ الإعدادات، لكن فشل تشغيل البوت: {{reason}}",
+    "configSavedBotReconnectFailed": "تم حفظ الإعدادات، لكن تعذّرت إعادة اتصال البوت بها: {{reason}}",
     "configSavedAndStarted": "تم حفظ الإعدادات وتشغيل البوت!",
     "configSaved": "تم حفظ إعدادات Discord بنجاح",
     "saveConfigFailedFallback": "فشل حفظ الإعدادات",

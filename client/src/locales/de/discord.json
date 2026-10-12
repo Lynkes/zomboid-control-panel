@@ -335,6 +335,7 @@
     "invalidAdminRoleIdFormat": "Ungültiges Admin-Rollen-ID-Format (sollte eine 17-19-stellige Zahl sein)",
     "invalidModRoleIdFormat": "Ungültiges Moderator-Rollen-ID-Format (sollte eine 17-19-stellige Zahl sein)",
     "configSavedBotStartFailed": "Konfiguration gespeichert, aber der Bot konnte nicht gestartet werden: {{reason}}",
+    "configSavedBotReconnectFailed": "Konfiguration gespeichert, aber der Bot konnte sich damit nicht neu verbinden: {{reason}}",
     "configSavedAndStarted": "Konfiguration gespeichert und Bot gestartet!",
     "configSaved": "Discord-Konfiguration erfolgreich gespeichert",
     "saveConfigFailedFallback": "Konfiguration konnte nicht gespeichert werden",

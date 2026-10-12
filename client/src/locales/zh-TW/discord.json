@@ -335,6 +335,7 @@
     "invalidAdminRoleIdFormat": "管理員角色 ID 格式無效（應為 17-19 位數字）",
     "invalidModRoleIdFormat": "協管員角色 ID 格式無效（應為 17-19 位數字）",
     "configSavedBotStartFailed": "設定已儲存，但機器人啟動失敗：{{reason}}",
+    "configSavedBotReconnectFailed": "設定已儲存，但機器人無法使用新設定重新連線：{{reason}}",
     "configSavedAndStarted": "設定已儲存，機器人已啟動！",
     "configSaved": "Discord 設定儲存成功",
     "saveConfigFailedFallback": "儲存設定失敗",

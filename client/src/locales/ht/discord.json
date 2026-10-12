@@ -317,6 +317,7 @@
     "invalidAdminRoleIdFormat": "Fòma ID Wòl Administratè envalid (dwe yon nonb 17-19 chif)",
     "invalidModRoleIdFormat": "Fòma ID Wòl Moderatè envalid (dwe yon nonb 17-19 chif)",
     "configSavedBotStartFailed": "Konfigirasyon sove, men bot la echwe pou demare: {{reason}}",
+    "configSavedBotReconnectFailed": "Konfigirasyon sove, men bot la pa t kapab rekonekte avèk li: {{reason}}",
     "configSavedAndStarted": "Konfigirasyon sove epi bot demare!",
     "configSaved": "Konfigirasyon Discord sove avèk siksè",
     "saveConfigFailedFallback": "Echwe pou sove konfigirasyon",
