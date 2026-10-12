@@ -234,6 +234,9 @@ export function normalizeCommandPermissions(stored) {
 }
 
 const LEADERBOARD_NAME_MAX = 32;
+// The longest a value substituted into an event notification (a player name,
+// a location) may be, so one crafted name cannot swamp the message.
+const NOTIFICATION_VALUE_MAX = 64;
 // The longest kick reason RCON gets (rcon.js sanitizeForBanReason()).
 const KICK_REASON_MAX = 100;
 
@@ -244,13 +247,23 @@ const KICK_REASON_MAX = 100;
 // escape sequence is cut in half). Masked links are escaped too: an embed
 // description would otherwise render a name like [x](https://...) as a link.
 function leaderboardName(username) {
-  const flat = String(username ?? "")
+  const { text, cut } = flattenForDiscord(username, LEADERBOARD_NAME_MAX);
+  return escapeMarkdown(text || "(no name)", { maskedLink: true }) + (cut ? "…" : "");
+}
+
+// Control characters (line breaks included) become spaces and the text is cut
+// at `max` characters, so a value stays one short piece of a line. Returns the
+// text UNescaped, for the caller to escape: escaping first could cut an
+// escape sequence in half.
+function flattenForDiscord(value, max) {
+  const flat = String(value ?? "")
     .replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ")
     .trim();
   const chars = Array.from(flat);
-  const cut = chars.length > LEADERBOARD_NAME_MAX;
-  const name = chars.slice(0, LEADERBOARD_NAME_MAX).join("").trim();
-  return escapeMarkdown(name || "(no name)", { maskedLink: true }) + (cut ? "…" : "");
+  return {
+    text: chars.slice(0, max).join("").trim(),
+    cut: chars.length > max,
+  };
 }
 
 // How long a repeat of the SAME lifecycle state is treated as one transition.
@@ -663,9 +676,14 @@ export class DiscordBot {
       message = message.replace(re, (_, k) => {
         const v = variables[k];
         if (v === undefined || v === null) return "";
-        return escapeMarkdown(typeof v === "string" ? v : String(v), {
-          maskedLink: true,
-        });
+        // A name can hold line breaks (a co-op player's does not pass the
+        // server's username check), which would add lines of its own to the
+        // message; it is flattened and capped like a leaderboard name.
+        const { text, cut } = flattenForDiscord(
+          typeof v === "string" ? v : String(v),
+          NOTIFICATION_VALUE_MAX,
+        );
+        return escapeMarkdown(text, { maskedLink: true }) + (cut ? "…" : "");
       });
     }
 
