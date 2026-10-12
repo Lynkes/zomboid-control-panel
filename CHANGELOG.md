@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discord setup saved a placeholder as the bot token:** saving the Discord settings with the token field left alone when no token was saved yet now asks for the token, instead of storing the word "KEEP_EXISTING" and trying to log in with it.
 - **Discord slash commands re-registered on every save:** saving the Discord settings with the admin or mod role left empty no longer re-sends the slash commands to Discord each time.
 - **Discord command permissions "failed" after saving:** if Discord is unreachable when the slash commands are updated, the save now succeeds and the page warns that the commands will update later, instead of reporting an error for tiers that were stored.
+- **"Scheduled restart cancelled" with the event switched off:** the Discord cancellation notice now follows the Scheduled restart toggle instead of posting about a restart Discord was never told about.
 
 ## [1.4.13] - 2026-10-11
 
