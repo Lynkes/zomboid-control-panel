@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discord notifications with odd player names:** a name containing line breaks or a very long name can no longer add lines to, or fill, a join/death/leave message (names are flattened and cut at 64 characters).
 - **Discord /players with link-like names:** a player named like a link ("[x](https://...)") is shown as plain text instead of a clickable link.
 - **Discord setup saved a placeholder as the bot token:** saving the Discord settings with the token field left alone when no token was saved yet now asks for the token, instead of storing the word "KEEP_EXISTING" and trying to log in with it.
+- **Discord slash commands re-registered on every save:** saving the Discord settings with the admin or mod role left empty no longer re-sends the slash commands to Discord each time.
 
 ## [1.4.13] - 2026-10-11
 

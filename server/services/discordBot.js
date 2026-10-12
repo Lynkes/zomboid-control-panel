@@ -539,9 +539,13 @@ export class DiscordBot {
       log,
     });
     this.guildId = await getSetting("discordGuildId");
-    this.adminRoleId = await getSetting("discordAdminRoleId");
-    this.modRoleId = await getSetting("discordModRoleId");
-    this.channelId = await getSetting("discordChannelId");
+    // updateConfig() stores a missing role or channel as "", but keeps it as
+    // null in memory. Read back raw, "" !== null made every PUT /config (which
+    // loads first) look like a role change and re-register the slash commands
+    // each time the roles were left empty.
+    this.adminRoleId = (await getSetting("discordAdminRoleId")) || null;
+    this.modRoleId = (await getSetting("discordModRoleId")) || null;
+    this.channelId = (await getSetting("discordChannelId")) || null;
 
     // Load command permissions. HT4a: through normalizeCommandPermissions(),
     // so a missing or broken tier reads as "admin" everywhere; a stored
@@ -737,7 +741,7 @@ export class DiscordBot {
     this.guildId = guildId;
     this.adminRoleId = adminRoleId || null;
     this.modRoleId = modRoleId || null;
-    this.channelId = channelId;
+    this.channelId = channelId || null;
 
     // A circuit that opened because of the old token, guild or channel says
     // nothing about the new one: the fix for "misconfigured" IS this change,
