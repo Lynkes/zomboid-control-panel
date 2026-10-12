@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **PanelBridge updates from the Steam Workshop (#235):** a new bridge version now triggers the same warned auto-restart as any other mod update; Steam's public API never lists the bridge item, so the panel read its update time from the item's change notes instead.
 - **RCON password ending in a space or tab:** a password pasted with a trailing blank is now refused when saving (the game trims the end of each server.ini line, so its password differed from the panel's and every RCON login failed).
+- **Backups on a nearly full disk:** with a backup count of 1 the only backup is no longer deleted to make room for its replacement (the backup is refused for lack of space instead), so a failed new archive can never leave you with none.
 
 ## [1.4.13] - 2026-10-11
 
