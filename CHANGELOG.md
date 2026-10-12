@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Kill Player (PanelBridge update):** the Kill button now kills the player; it always failed with "not dead" (and had already removed godmode) because the bridge dropped the one argument the game needs.
 - **Events Clock day (PanelBridge update):** the Clock card shows the real day of the month (it showed one less) and Set Time sets the day you typed (it set one more), including the 1st, which it used to refuse.
 - **Frozen server on a damaged bridge file (PanelBridge update):** a truncated or hand-edited command or queue file in the bridge folder no longer hangs the game forever (and again after every restart); it is reported as unreadable.
+- **Bridge memory growth (PanelBridge update):** the bridge forgets old command ids again; the list of already-run commands grew with every command until the server restarted.
 
 ## [1.4.13] - 2026-10-11
 

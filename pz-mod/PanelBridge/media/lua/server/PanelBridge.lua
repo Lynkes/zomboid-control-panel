@@ -29,6 +29,12 @@
                     command cursor had not moved past the file). It now
                     reports a parse error and the file is treated as
                     unreadable.
+                - Fix: the memory of already-run command ids is trimmed again.
+                    The trim sat behind an early return that is taken
+                    whenever the legacy commands.json is empty (always, with
+                    the numbered queue), so the id list grew by one for every
+                    command until the server restarted. It runs on each new
+                    id now and keeps at most the newest 500.
 
                 v1.7.75 Changes:
                 - Fix: two accounts behind one SteamID no longer inflate the
@@ -2684,12 +2690,41 @@ local function invalidateLiveStateCache()
     end
 end
 
+-- Sliding window over the ids processSingleCommand has already run: once more
+-- than this many are remembered, the oldest half is dropped.
+local MAX_PROCESSED_IDS = 500
+
+-- Walks processedIdOrder (true insertion order) instead of pairs(), whose
+-- iteration order over processedIds is unspecified in Lua -- iterating
+-- pairs() here used to drop an ARBITRARY half rather than the oldest half.
+local function trimProcessedIds()
+    if PanelBridge.processedIdCount <= MAX_PROCESSED_IDS then return end
+    local oldCount = PanelBridge.processedIdCount
+    local skip = math.floor(oldCount / 2)
+    local newOrder = {}
+    local newSet = {}
+    for i = skip + 1, #PanelBridge.processedIdOrder do
+        local id = PanelBridge.processedIdOrder[i]
+        newOrder[#newOrder + 1] = id
+        newSet[id] = true
+    end
+    PanelBridge.processedIds = newSet
+    PanelBridge.processedIdOrder = newOrder
+    PanelBridge.processedIdCount = #newOrder
+    PanelBridge.debug("Trimmed processed IDs", { previous = oldCount, kept = PanelBridge.processedIdCount })
+end
+
 -- Marks a command id as processed, keeping processedIds (O(1) lookup) and
--- processedIdOrder (insertion order, for the trim in processCommands) in sync.
+-- processedIdOrder (insertion order, for the trim above) in sync. The trim
+-- runs here, on every mark: it used to sit at the end of processCommands,
+-- behind the early return taken whenever the legacy commands.json is empty
+-- (always, with the numbered queue), so both tables grew by one entry per
+-- command for as long as the server stayed up.
 local function markProcessed(id)
     PanelBridge.processedIds[id] = true
     table.insert(PanelBridge.processedIdOrder, id)
     PanelBridge.processedIdCount = PanelBridge.processedIdCount + 1
+    trimProcessedIds()
 end
 
 local function processSingleCommand(cmd)
@@ -10925,25 +10960,8 @@ function PanelBridge.processCommands()
         end
     end
 
-    -- Cleanup old processed IDs (sliding window: drop oldest half)
-    -- Walks processedIdOrder (true insertion order) instead of pairs(), whose
-    -- iteration order over processedIds is unspecified in Lua \u2014 iterating
-    -- pairs() here used to drop an ARBITRARY half rather than the oldest half.
-    if PanelBridge.processedIdCount > 500 then
-        local oldCount = PanelBridge.processedIdCount
-        local skip = math.floor(oldCount / 2)
-        local newOrder = {}
-        local newSet = {}
-        for i = skip + 1, #PanelBridge.processedIdOrder do
-            local id = PanelBridge.processedIdOrder[i]
-            newOrder[#newOrder + 1] = id
-            newSet[id] = true
-        end
-        PanelBridge.processedIds = newSet
-        PanelBridge.processedIdOrder = newOrder
-        PanelBridge.processedIdCount = #newOrder
-        PanelBridge.debug("Trimmed processed IDs", { previous = oldCount, kept = PanelBridge.processedIdCount })
-    end
+    -- The processed-id window is trimmed in markProcessed, not here: this
+    -- point is only reached when the legacy commands.json had content.
 end
 
 function PanelBridge.updateStatus()
