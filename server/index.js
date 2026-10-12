@@ -218,6 +218,18 @@ process.on("unhandledRejection", (reason) => {
 // Graceful shutdown handling
 let isShuttingDown = false;
 
+// Save and quit the game servers running in this (all-in-one) container; see
+// services/containerShutdown.js.
+function stopGameServersBeforeContainerExit() {
+  return saveAndStopLocalServers({
+    rconService,
+    serverManager,
+    getActiveServer,
+    findOtherRunningServers,
+    scanHost: () => new ServerManager().scanHostForServerProcesses(),
+  });
+}
+
 async function gracefulShutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
@@ -269,6 +281,15 @@ async function gracefulShutdown(signal) {
     stopLeaderboardSampler();
     closeFileManagerSftpPool().catch(() => {});
 
+    // All-in-one container: the game servers live in this container, so when
+    // it stops (docker stop/down, a host reboot, a Watchtower recreate) they
+    // are SIGKILLed the moment this process exits. Save and quit them first,
+    // while RCON is still connected. Anywhere else the panel does not stop
+    // servers it merely supervises. Bounded (~90 s) and never throws.
+    if (isAllInOneContainer()) {
+      await stopGameServersBeforeContainerExit();
+    }
+
     // Stop PanelBridge
     if (panelBridge?.isRunning) {
       panelBridge.stop();
@@ -312,6 +333,7 @@ async function gracefulShutdown(signal) {
 
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+export { gracefulShutdown };
 
 // Routes
 import serverRoutes, {
@@ -358,6 +380,10 @@ import {
 import { startLeaderboardSampler, stopLeaderboardSampler } from "./services/leaderboardSampler.js";
 import { pruneCharacterStore } from "./services/characterStore.js";
 import { waitForProcessExit } from "./utils/processScanRetry.js";
+import {
+  isAllInOneContainer,
+  saveAndStopLocalServers,
+} from "./services/containerShutdown.js";
 
 dotenv.config();
 
