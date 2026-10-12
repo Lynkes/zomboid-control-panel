@@ -1769,6 +1769,11 @@ export class Scheduler {
   // it isn't. Best-effort — a cancellation must never fail because of Discord.
   async _notifyRestartCancelled() {
     if (!this.discordBot) return;
+    // The announcement it follows is the "Scheduled restart" event, which the
+    // operator can switch off on the Discord page. With that off nothing was
+    // announced, and a cancellation notice would be about a restart Discord
+    // never heard of.
+    if (!this.discordBot.webhookEvents?.scheduledRestart?.enabled) return;
     try {
       await this.discordBot.sendNotification(
         "✅ **Scheduled restart cancelled** — the server is staying up.",

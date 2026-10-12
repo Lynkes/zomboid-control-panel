@@ -5,6 +5,7 @@
     "errorTitle": "错误",
     "noPermission": "您没有权限管理 Discord 集成。",
     "successTitle": "成功",
+    "warningTitle": "警告",
     "unknownError": "未知错误"
   },
   "events": {
@@ -260,6 +261,7 @@
       "save": "保存权限",
       "saving": "保存中…",
       "savedMessage": "命令权限已保存，斜杠命令已重新注册。",
+      "savedNotRegistered": "命令权限已保存，但在 Discord 中更新斜杠命令失败。下次机器人启动或再次保存时会更新。",
       "saveFailedFallback": "保存权限失败"
     },
     "configuration": {
@@ -333,6 +335,7 @@
     "invalidAdminRoleIdFormat": "管理员角色 ID 格式无效（应为 17-19 位数字）",
     "invalidModRoleIdFormat": "协管员角色 ID 格式无效（应为 17-19 位数字）",
     "configSavedBotStartFailed": "配置已保存，但机器人启动失败：{{reason}}",
+    "configSavedBotReconnectFailed": "配置已保存，但机器人无法使用新配置重新连接：{{reason}}",
     "configSavedAndStarted": "配置已保存，机器人已启动！",
     "configSaved": "Discord 配置保存成功",
     "saveConfigFailedFallback": "保存配置失败",

@@ -111,7 +111,9 @@ interface WebhookEvent {
 }
 
 type WebhookEvents = Record<string, WebhookEvent>;
-type FlashMessage = { type: "success" | "error"; text: string };
+// Same cap as routes/discord.js applies to a saved template.
+const EVENT_TEMPLATE_MAX_LENGTH = 500;
+type FlashMessage = { type: "success" | "warning" | "error"; text: string };
 
 // Small helper to copy text to clipboard
 function CopyButton({ text, label }: { text: string; label?: string }) {
@@ -159,15 +161,29 @@ function InlineFeedback({
 
   return (
     <Alert
-      variant={message.type === "error" ? "destructive" : "default"}
+      variant={
+        message.type === "error"
+          ? "destructive"
+          : message.type === "warning"
+            ? "warning"
+            : "default"
+      }
       className={className}
     >
       {message.type === "error" ? (
         <AlertCircle className="h-4 w-4" />
+      ) : message.type === "warning" ? (
+        <AlertTriangle className="h-4 w-4" />
       ) : (
         <CheckCircle2 className="h-4 w-4" />
       )}
-      <AlertTitle>{message.type === "error" ? t("shared.errorTitle") : t("shared.successTitle")}</AlertTitle>
+      <AlertTitle>
+        {message.type === "error"
+          ? t("shared.errorTitle")
+          : message.type === "warning"
+            ? t("shared.warningTitle")
+            : t("shared.successTitle")}
+      </AlertTitle>
       <AlertDescription>{message.text}</AlertDescription>
     </Alert>
   );
@@ -542,7 +558,7 @@ export default function Discord() {
 
       const tokenToSave = token || "KEEP_EXISTING";
 
-      await discordApi.updateConfig(
+      const saved = await discordApi.updateConfig(
         tokenToSave,
         guildId,
         adminRoleId || undefined,
@@ -556,6 +572,22 @@ export default function Discord() {
         chatRelayChannelId,
         chatRelayScope,
       );
+
+      // The settings are stored, but the new token or guild needed the bot to
+      // reconnect and it could not: say so instead of reporting a plain save.
+      // (botStarted is absent when no reconnect was needed, null when one was
+      // already under way elsewhere.)
+      if (saved?.botStarted === false) {
+        setConfigMessage({
+          type: "warning",
+          text: t("toasts.configSavedBotReconnectFailed", {
+            reason: saved.botStartError || t("shared.unknownError"),
+          }),
+        });
+        setToken("");
+        await loadData();
+        return;
+      }
 
       if (andStart) {
         try {
@@ -1937,11 +1969,20 @@ export default function Discord() {
                   if (!canManageIntegrations) return;
                   try {
                     setSavingPermissions(true);
-                    await discordApi.updatePermissions(commandPermissions);
-                    setPermissionsMessage({
-                      type: "success",
-                      text: t("management.commandPermissions.savedMessage"),
-                    });
+                    const saved = await discordApi.updatePermissions(commandPermissions);
+                    // The tiers are saved either way; this only says whether
+                    // Discord took the slash command update that goes with them.
+                    setPermissionsMessage(
+                      saved?.commandsRegistered === false
+                        ? {
+                            type: "warning",
+                            text: t("management.commandPermissions.savedNotRegistered"),
+                          }
+                        : {
+                            type: "success",
+                            text: t("management.commandPermissions.savedMessage"),
+                          },
+                    );
                   } catch (error: unknown) {
                     const msg = getUserErrorMessage(error, t("management.commandPermissions.saveFailedFallback"));
                     setPermissionsMessage({ type: "error", text: msg });
@@ -2346,6 +2387,10 @@ export default function Discord() {
                         }
                         placeholder={t("management.webhookEvents.templatePlaceholder")}
                         rows={3}
+                        // The server keeps the first 500 characters
+                        // (PUT /discord/webhook-events), so the field stops
+                        // there instead of silently cutting what was typed.
+                        maxLength={EVENT_TEMPLATE_MAX_LENGTH}
                       />
                       <p className="text-xs text-muted-foreground">
                         {t("management.webhookEvents.variablesLabel", { variables })}

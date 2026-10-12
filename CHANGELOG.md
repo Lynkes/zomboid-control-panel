@@ -10,6 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **PanelBridge updates from the Steam Workshop (#235):** a new bridge version now triggers the same warned auto-restart as any other mod update; Steam's public API never lists the bridge item, so the panel read its update time from the item's change notes instead.
+- **Discord "Server Stopped/Started" after switching servers:** activating a different server no longer posts a false stop or start notice for it.
+- **Discord join/leave flood after a restart:** restarting the panel or the PanelBridge, or switching servers, no longer posts a "joined"/"left" message for every player who was already online.
+- **"Server Started" posted twice:** starting the server from the panel posts one Discord notice instead of two (the second used to arrive when RCON came up).
+- **Discord /start on a remote server:** it now says the panel cannot start a remote server (like /restart and the Start button) instead of launching a local process from its settings.
+- **Discord "Send test message" after a failure:** it now goes out even while the bot has paused posting to the channel after repeated errors, and a successful test (or saving another channel, server or token) resumes notifications at once instead of after up to 30 minutes.
+- **Discord notifications with odd player names:** a name containing line breaks or a very long name can no longer add lines to, or fill, a join/death/leave message (names are flattened and cut at 64 characters).
+- **Discord /players with link-like names:** a player named like a link ("[x](https://...)") is shown as plain text instead of a clickable link.
+- **Discord setup saved a placeholder as the bot token:** saving the Discord settings with the token field left alone when no token was saved yet now asks for the token, instead of storing the word "KEEP_EXISTING" and trying to log in with it.
+- **Discord slash commands re-registered on every save:** saving the Discord settings with the admin or mod role left empty no longer re-sends the slash commands to Discord each time.
+- **Discord command permissions "failed" after saving:** if Discord is unreachable when the slash commands are updated, the save now succeeds and the page warns that the commands will update later, instead of reporting an error for tiers that were stored.
+- **"Scheduled restart cancelled" with the event switched off:** the Discord cancellation notice now follows the Scheduled restart toggle instead of posting about a restart Discord was never told about.
+- **Discord /kick reason and history:** the reply shows the reason the server actually received (accents are folded, unsupported characters dropped), and the kick now appears in the player action history like a kick from the Players page.
+- **Discord settings saved but the bot could not reconnect:** changing the token or server ID now shows a warning with the reason when the bot fails to reconnect, instead of "saved successfully".
+- **Discord event messages cut at 500 characters:** the template box stops at 500 characters, the length the server keeps, instead of silently dropping the rest on save.
+- **Discord bot not coming up after a reboot:** when Discord or the network is unreachable as the panel starts, the bot now keeps retrying in the background (15 s up to 10 min) instead of staying down until you start it by hand; a bad token still isn't retried.
 
 ## [1.4.13] - 2026-10-11
 

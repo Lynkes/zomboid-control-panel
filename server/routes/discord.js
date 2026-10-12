@@ -208,10 +208,12 @@ router.put("/config", async (req, res) => {
       // Load current config to check for existing token
       await discordBot.loadConfig();
 
-      // Handle KEEP_EXISTING token marker
+      // Handle KEEP_EXISTING token marker. With no token saved there is
+      // nothing to keep: the marker is a placeholder the page sends, never a
+      // token, and used to be stored as one (and then logged in with).
       const finalToken =
-        token === "KEEP_EXISTING" && discordBot.token
-          ? discordBot.token
+        token === "KEEP_EXISTING"
+          ? discordBot.token || null
           : token;
 
       if (!finalToken || !guildId) {
@@ -485,6 +487,8 @@ router.post("/stop", async (req, res) => {
     // HT4d: under the config mutex, see POST /start above.
     await discordBot.withConfigMutex(async () => {
       if (!discordBot.isRunning) {
+        // A stop request also ends a boot-time start retry still waiting.
+        discordBot.cancelAutoStartRetry?.();
         return res.json({ success: true, message: "Bot is not running" });
       }
 
@@ -651,8 +655,11 @@ router.post("/test-message", async (req, res) => {
       });
     }
 
+    // probe: sent even while the channel's circuit breaker is open, so a
+    // fixed channel can be confirmed right away (and the breaker closes).
     const sent = await discordBot.sendNotification(
       "🧪 **Test message** from PZ Server Manager",
+      { probe: true },
     );
     if (!sent) {
       // SECURITY (2026-10-05, M2): the bot posts only in a channel of the
@@ -880,8 +887,15 @@ router.put("/permissions", async (req, res) => {
         });
       }
 
-      const updated = await discordBot.updateCommandPermissions(permissions);
-      res.json({ success: true, permissions: updated });
+      const { permissions: updated, commandsRegistered } =
+        await discordBot.updateCommandPermissions(permissions);
+      // The tiers are saved either way. When pushing them to Discord failed,
+      // say so (the page shows a warning) instead of reporting a failed save.
+      res.json({
+        success: true,
+        permissions: updated,
+        ...(commandsRegistered === false ? { commandsRegistered: false } : {}),
+      });
     });
   } catch (error) {
     log.error(`Failed to update command permissions: ${error.message}`);

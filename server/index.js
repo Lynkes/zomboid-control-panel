@@ -1658,7 +1658,13 @@ panelBridge.on("modStatus", (status) => {
 // and auto-export through ITS connect/disconnect events instead of RCON's —
 // see the corresponding guard in startPlayerPolling() below that skips these
 // same side effects while the bridge is alive, so they fire exactly once.
-panelBridge.on("playerConnect", (playerName) => {
+//
+// A `silent` event is the panel's own bookkeeping, not a player arriving or
+// leaving: the first status read after a panel/bridge restart or a server
+// switch lists everyone already online, and stop() closes their sessions.
+// Neither is announced to Discord or queued for auto-export.
+panelBridge.on("playerConnect", (playerName, { silent = false } = {}) => {
+  if (silent) return;
   discordBot
     .sendEventNotification("playerJoin", { player: playerName })
     .catch((err) =>
@@ -1673,7 +1679,8 @@ panelBridge.on("playerConnect", (playerName) => {
     .catch(() => {});
 });
 
-panelBridge.on("playerDisconnect", (playerName) => {
+panelBridge.on("playerDisconnect", (playerName, { silent = false } = {}) => {
+  if (silent) return;
   discordBot
     .sendEventNotification("playerLeave", { player: playerName })
     .catch((err) =>
@@ -1693,6 +1700,7 @@ app.set("rconService", rconService);
 app.set("serverManager", serverManager);
 app.set("resyncPanelBridgeForActiveServer", resyncPanelBridgeForActiveServer);
 app.set("resetPlayerPollingBaseline", resetPlayerPollingBaseline);
+app.set("resetStatusWatchdogBaseline", resetStatusWatchdogBaseline);
 app.set("dockerClient", dockerClient);
 app.set("modChecker", modChecker);
 app.set("scheduler", scheduler);
@@ -3625,6 +3633,23 @@ let lastKnownPhase = null;
 // `running === null` branch for why a THIRD state is needed here.
 let lastObservationWasUnknown = false;
 
+// Switching the active server (or deleting the active one) repoints the
+// singletons this watchdog observes at a DIFFERENT server, so the three
+// baselines above describe a server that is no longer being watched. Left in
+// place, the next tick compared server B's state to server A's and posted a
+// false "Server Stopped"/"Server Started" to Discord. Called by
+// routes/servers.js's reloadServicesForNewActiveServer() through
+// app.get("resetStatusWatchdogBaseline"), the same pattern as
+// resetPlayerPollingBaseline(). The first observation afterwards seeds the
+// baseline silently (no Discord post). `lastObservationWasUnknown` is set so
+// that observation is still pushed over the socket once, which corrects
+// clients that kept showing the previous server's dot.
+export function resetStatusWatchdogBaseline() {
+  lastKnownRunning = null;
+  lastKnownPhase = null;
+  lastObservationWasUnknown = true;
+}
+
 // Thin, no-arg wrapper over utils/serverStatus.js's shared
 // resolveObservedServerRunning() -- see that function's own doc comment for
 // why the branching logic (remote / docker-local / docker-managed / local
@@ -4374,7 +4399,17 @@ async function start() {
     await discordBot.loadConfig();
     const discordAutoStart = await getSetting("discordAutoStart");
     if (discordBot.token && discordBot.guildId && discordAutoStart !== false) {
-      await discordBot.start();
+      const discordStarted = await discordBot.start();
+      // The network is often not up yet when the panel starts with the
+      // machine. A failure that is Discord's or the network's (not a bad token
+      // or missing intents) is retried in the background, with backoff, rather
+      // than leaving the bot down until someone notices.
+      if (discordStarted === false && discordBot.lastStartError?.transient) {
+        log.warn(
+          `Discord bot could not start (${discordBot.lastStartError.message}); retrying in the background`,
+        );
+        discordBot.scheduleAutoStartRetry();
+      }
     } else if (
       discordBot.token &&
       discordBot.guildId &&

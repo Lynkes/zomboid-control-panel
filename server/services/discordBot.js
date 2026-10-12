@@ -15,7 +15,12 @@ import { STATUS_CODES } from "http";
 import { types } from "util";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("Discord");
-import { getActiveServer, getSetting, setSetting } from "../database/init.js";
+import {
+  getActiveServer,
+  getSetting,
+  logPlayerAction,
+  setSetting,
+} from "../database/init.js";
 import { loadUiSecret, writeUiSecretFile } from "../utils/uiSecretFile.js";
 import { sanitizeError } from "../utils/sanitize.js";
 import { describeStartFailure } from "./discordStartFailure.js";
@@ -234,6 +239,9 @@ export function normalizeCommandPermissions(stored) {
 }
 
 const LEADERBOARD_NAME_MAX = 32;
+// The longest a value substituted into an event notification (a player name,
+// a location) may be, so one crafted name cannot swamp the message.
+const NOTIFICATION_VALUE_MAX = 64;
 // The longest kick reason RCON gets (rcon.js sanitizeForBanReason()).
 const KICK_REASON_MAX = 100;
 
@@ -244,16 +252,34 @@ const KICK_REASON_MAX = 100;
 // escape sequence is cut in half). Masked links are escaped too: an embed
 // description would otherwise render a name like [x](https://...) as a link.
 function leaderboardName(username) {
-  const flat = String(username ?? "")
+  const { text, cut } = flattenForDiscord(username, LEADERBOARD_NAME_MAX);
+  return escapeMarkdown(text || "(no name)", { maskedLink: true }) + (cut ? "…" : "");
+}
+
+// Control characters (line breaks included) become spaces and the text is cut
+// at `max` characters, so a value stays one short piece of a line. Returns the
+// text UNescaped, for the caller to escape: escaping first could cut an
+// escape sequence in half.
+function flattenForDiscord(value, max) {
+  const flat = String(value ?? "")
     .replace(/[\p{Cc}\p{Zl}\p{Zp}]+/gu, " ")
     .trim();
   const chars = Array.from(flat);
-  const cut = chars.length > LEADERBOARD_NAME_MAX;
-  const name = chars.slice(0, LEADERBOARD_NAME_MAX).join("").trim();
-  return escapeMarkdown(name || "(no name)", { maskedLink: true }) + (cut ? "…" : "");
+  return {
+    text: chars.slice(0, max).join("").trim(),
+    cut: chars.length > max,
+  };
 }
 
-const LIFECYCLE_DEDUPE_WINDOW_MS = 60_000;
+// How long a repeat of the SAME lifecycle state is treated as one transition.
+// A stop is reported by the route and the watchdog within seconds of each
+// other. A start is reported twice by design: the watchdog the moment the
+// process appears, and the start route once RCON answers, which takes PZ
+// 60-180 s and is given up on after 5 minutes. A one-minute window let the
+// second report through as a second "Server Started" on every panel start;
+// ten minutes covers the whole RCON wait. A real stop in between always flips
+// the state first, so a genuine restart still posts.
+const LIFECYCLE_DEDUPE_WINDOW_MS = { running: 600_000, stopped: 60_000 };
 const PLAYER_PRESENCE_INTERVAL_MS = 60_000;
 // How long a gateway reconnect must persist before getStatus() reports it —
 // well above the ~2-3s a real RESUME took in
@@ -278,6 +304,33 @@ export const START_ALREADY_IN_PROGRESS = Symbol(
   "discord-start-already-in-progress",
 );
 
+// A failure that is the network's or Discord's own outage (DNS, a dropped
+// connection, a 5xx, a login that never became ready) and not the
+// configuration: worth trying again later, unlike a bad token or missing
+// intents. error.status is set by both of @discordjs/rest's error classes, so
+// checking it is exact; the message check covers undici's network errors.
+export function isTransientDiscordError(error) {
+  if (
+    typeof error?.status === "number" &&
+    error.status >= 500 &&
+    error.status < 600
+  ) {
+    return true;
+  }
+  if (error?.code === "ReadyTimeout") return true;
+  return /EAI_AGAIN|ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|Connect Timeout|fetch failed|UND_ERR/i.test(
+    `${error?.message || ""} ${error?.cause?.code || ""}`,
+  );
+}
+
+// Pauses before each background retry of a failed boot-time auto-start: the
+// network is often not up yet when the panel starts with the machine. Short
+// at first, then spaced out; after the last one the bot stays stopped until
+// someone starts it.
+export const AUTO_START_RETRY_DELAYS_MS = [
+  15_000, 30_000, 60_000, 120_000, 300_000, 600_000,
+];
+
 export class DiscordBot {
   constructor(rconService, serverManager, scheduler, logTailer = null) {
     this.client = null;
@@ -294,6 +347,7 @@ export class DiscordBot {
     // Claimed synchronously at the top of start(), released in a finally --
     // see start()'s own comment for the double-start race this closes.
     this._starting = false;
+    this._autoStartRetryTimer = null; // see scheduleAutoStartRetry()
     // Claimed synchronously at the top of stop(), released once it's done --
     // see the 'shardDisconnect' handler's own comment (round 19) for the
     // race this closes: an intentional stop() calls client.destroy(), which
@@ -518,9 +572,13 @@ export class DiscordBot {
       log,
     });
     this.guildId = await getSetting("discordGuildId");
-    this.adminRoleId = await getSetting("discordAdminRoleId");
-    this.modRoleId = await getSetting("discordModRoleId");
-    this.channelId = await getSetting("discordChannelId");
+    // updateConfig() stores a missing role or channel as "", but keeps it as
+    // null in memory. Read back raw, "" !== null made every PUT /config (which
+    // loads first) look like a role change and re-register the slash commands
+    // each time the roles were left empty.
+    this.adminRoleId = (await getSetting("discordAdminRoleId")) || null;
+    this.modRoleId = (await getSetting("discordModRoleId")) || null;
+    this.channelId = (await getSetting("discordChannelId")) || null;
 
     // Load command permissions. HT4a: through normalizeCommandPermissions(),
     // so a missing or broken tier reads as "admin" everywhere; a stored
@@ -610,7 +668,7 @@ export class DiscordBot {
       newState = eventType === "serverStart" ? "running" : "stopped";
       if (
         this._lastLifecycleState === newState &&
-        Date.now() - this._lastLifecycleAt < LIFECYCLE_DEDUPE_WINDOW_MS
+        Date.now() - this._lastLifecycleAt < LIFECYCLE_DEDUPE_WINDOW_MS[newState]
       ) {
         return; // already notified for this transition
       }
@@ -655,9 +713,14 @@ export class DiscordBot {
       message = message.replace(re, (_, k) => {
         const v = variables[k];
         if (v === undefined || v === null) return "";
-        return escapeMarkdown(typeof v === "string" ? v : String(v), {
-          maskedLink: true,
-        });
+        // A name can hold line breaks (a co-op player's does not pass the
+        // server's username check), which would add lines of its own to the
+        // message; it is flattened and capped like a leaderboard name.
+        const { text, cut } = flattenForDiscord(
+          typeof v === "string" ? v : String(v),
+          NOTIFICATION_VALUE_MAX,
+        );
+        return escapeMarkdown(text, { maskedLink: true }) + (cut ? "…" : "");
       });
     }
 
@@ -703,6 +766,7 @@ export class DiscordBot {
 
     const previousGuildId = this.guildId;
     const previousToken = this.token;
+    const previousChannelId = this.channelId;
     const rolesChanged =
       this.adminRoleId !== (adminRoleId || null) ||
       this.modRoleId !== (modRoleId || null);
@@ -710,7 +774,19 @@ export class DiscordBot {
     this.guildId = guildId;
     this.adminRoleId = adminRoleId || null;
     this.modRoleId = modRoleId || null;
-    this.channelId = channelId;
+    this.channelId = channelId || null;
+
+    // A circuit that opened because of the old token, guild or channel says
+    // nothing about the new one: the fix for "misconfigured" IS this change,
+    // and the breaker would otherwise keep dropping sends for up to 30 min.
+    if (
+      (previousChannelId || null) !== (channelId || null) ||
+      (previousGuildId || null) !== (guildId || null) ||
+      previousToken !== token
+    ) {
+      this._channelBreakers.clear();
+      this._outsideGuildRefusals.clear();
+    }
 
     // If we changed guilds and the bot is currently running, clean up the
     // old guild's command list — otherwise the old guild keeps showing
@@ -851,6 +927,7 @@ export class DiscordBot {
     this.chatRelayChannelId = null;
     this.chatRelayScope = "public";
     this._registeredGuildId = null;
+    this.cancelAutoStartRetry();
     this._channelBreakers.clear();
     this._outsideGuildRefusals.clear();
     this._lastLifecycleState = null;
@@ -884,11 +961,24 @@ export class DiscordBot {
       JSON.stringify(this.commandPermissions),
     );
 
-    // Re-register commands to update Discord-side default permissions
+    // Re-register commands to update Discord-side default permissions. The
+    // tiers are saved by now, so a Discord outage or a rate limit here must
+    // not turn the save into an error: it is reported as `commandsRegistered:
+    // false` and the commands catch up at the next registration (a restart of
+    // the bot, or the next save). null = nothing to register (bot not running).
+    let commandsRegistered = null;
     if (this.isRunning && this.client?.user) {
-      await this.registerCommands();
+      try {
+        await this.registerCommands();
+        commandsRegistered = true;
+      } catch (e) {
+        commandsRegistered = false;
+        log.warn(
+          `Command tiers saved, but re-registering the slash commands failed: ${e.message}`,
+        );
+      }
     }
-    return this.commandPermissions;
+    return { permissions: this.commandPermissions, commandsRegistered };
   }
 
   getCommandPermissions() {
@@ -1361,7 +1451,14 @@ export class DiscordBot {
       let truncated = 0;
       for (let i = 0; i < players.length; i++) {
         const p = players[i];
-        const line = `• ${escapeMarkdown(String(typeof p === "object" ? (p.name ?? "") : p))}`;
+        // Masked links escaped, as in /leaderboard and the notifications: an
+        // embed description renders a name like [x](https://...) as a link.
+        // Flattened and capped too (a co-op name can hold line breaks).
+        const { text: shown, cut } = flattenForDiscord(
+          typeof p === "object" ? (p.name ?? "") : p,
+          NOTIFICATION_VALUE_MAX,
+        );
+        const line = `• ${escapeMarkdown(shown, { maskedLink: true })}${cut ? "…" : ""}`;
         if (total + line.length + 1 > MAX_DESC) {
           truncated = players.length - i;
           break;
@@ -1460,6 +1557,18 @@ export class DiscordBot {
 
     try {
       const activeServer = activeServerForLock;
+
+      // The panel does not manage a remote server's process, so there is
+      // nothing for it to start -- startServer() would spawn a LOCAL process
+      // from the remote server's settings. Refused before the running check
+      // exactly like /restart, and like POST /api/server/start.
+      if (isUnmanagedRemoteServer(activeServer)) {
+        await interaction.editReply(
+          "❌ Cannot start a remote server. The process is not managed by this panel.",
+        );
+        return;
+      }
+
       // Use the shared provider-aware verdict so split-container servers do
       // not look stopped merely because their process is outside this host.
       const observedRunning = await resolveObservedServerRunning(
@@ -1736,9 +1845,10 @@ export class DiscordBot {
     // and the reply shows the same: a slash option can be 6000 chars, and a
     // reply over Discord's 2000 would fail AFTER the kick went through, so
     // the moderator saw an error and the channel notification was skipped.
-    const displayReason = rawReason
+    // Used only when the kick result does not say what it sent.
+    const typedReason = rawReason
       ? Array.from(rawReason).slice(0, KICK_REASON_MAX).join("")
-      : "No reason given";
+      : "";
 
     await interaction.deferReply();
 
@@ -1765,6 +1875,18 @@ export class DiscordBot {
     }
 
     if (result.success) {
+      // The reason that reached the server, not the one typed: RCON folds
+      // accents and drops characters it cannot carry (sentReason, as /ban
+      // reports it), so a reason of only such characters was sent as none.
+      const sentReason = result.sentReason ?? typedReason;
+      const displayReason = sentReason || "No reason given";
+      // Recorded like POST /api/players/kick does; the kick has happened, so a
+      // failure to write the history entry must not fail the command.
+      try {
+        await logPlayerAction(player, "kick", sentReason || null);
+      } catch (err) {
+        log.debug(`Failed to log Discord kick of ${player}: ${err.message}`);
+      }
       const safeName = escapeMarkdown(String(player));
       const safeTag = escapeMarkdown(String(interaction.user.tag));
       const safeReason = escapeMarkdown(String(displayReason));
@@ -1812,20 +1934,29 @@ export class DiscordBot {
     await interaction.editReply(response);
   }
 
-  async sendNotification(message) {
+  // `probe` is for POST /test-message: a person asking "does it work now?".
+  // It goes out even while the channel's circuit is open and, when it gets
+  // through, closes the circuit -- otherwise a fixed channel keeps answering
+  // "rejected" for up to 30 minutes after the failures that opened it.
+  async sendNotification(message, { probe = false } = {}) {
     if (!this.channelId || !this.client) return false;
     log.info(
       `Sending Discord notification: ${String(message).substring(0, 80)}`,
     );
     return await this._sendToChannel(this.channelId, message, {
       label: "notification",
+      probe,
     });
   }
 
   // Centralized channel send with circuit-breaker. All Discord-bound message
   // sends (notifications, webhook events, chat relay) should go through here
   // so a Discord outage doesn't spam logs from multiple code paths.
-  async _sendToChannel(channelId, message, { label = "message" } = {}) {
+  async _sendToChannel(
+    channelId,
+    message,
+    { label = "message", probe = false } = {},
+  ) {
     if (!channelId || !this.client) return false;
 
     const FAILURE_THRESHOLD = 3;
@@ -1847,7 +1978,7 @@ export class DiscordBot {
     const now = Date.now();
     const breaker = this._breakerFor(channelId);
 
-    if (now < breaker.openUntil) {
+    if (!probe && now < breaker.openUntil) {
       breaker.suppressed++;
       return false;
     }
@@ -1893,7 +2024,7 @@ export class DiscordBot {
           ? `${message.slice(0, 1997)}...`
           : message;
       await withDiscordTimeout(channel.send(safeMessage), "send");
-      if (breaker.failures > 0 || breaker.suppressed > 0) {
+      if (breaker.failures > 0 || breaker.suppressed > 0 || breaker.openUntil > 0) {
         if (breaker.suppressed > 0) {
           log.info(
             `Discord channel ${channelId} recovered — ${breaker.suppressed} send(s) were suppressed during the outage`,
@@ -1901,10 +2032,18 @@ export class DiscordBot {
         }
         breaker.failures = 0;
         breaker.suppressed = 0;
+        breaker.openUntil = 0;
       }
       return true;
     } catch (error) {
       this._outsideGuildRefusals.delete(channelId);
+      if (probe) {
+        // A manual probe is a question, not traffic: a failed one reports the
+        // error and leaves the breaker as it was (it must not push an open
+        // circuit's cooldown further out, or count towards opening one).
+        log.error(`Failed to send Discord ${label}: ${error.message}`);
+        return false;
+      }
       breaker.failures++;
       // A 5xx is Discord's own outage, not our configuration — classify it
       // alongside the network-level codes below rather than lumping it in
@@ -1915,13 +2054,7 @@ export class DiscordBot {
       // error.status is set by both of @discordjs/rest's own error classes
       // (DiscordAPIError, HTTPError) — checking it is exact, unlike sniffing
       // error.message for a status-shaped substring.
-      const transient =
-        (typeof error.status === "number" &&
-          error.status >= 500 &&
-          error.status < 600) ||
-        /EAI_AGAIN|ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|Connect Timeout|fetch failed|UND_ERR/i.test(
-          error.message || "",
-        );
+      const transient = isTransientDiscordError(error);
 
       // Open the circuit on N consecutive failures of ANY kind. For
       // non-transient errors (channel deleted, missing perms, invalid token)
@@ -2413,7 +2546,13 @@ export class DiscordBot {
       // message to send), so it's outside the ErrorCode registry's remit
       // (server/utils/errorCodes.js) despite mirroring discord.js's own
       // internal error codes (TokenInvalid, DisallowedIntents, ...).
-      this.lastStartError = { kind: error.code || null, message: error.message };
+      this.lastStartError = {
+        kind: error.code || null,
+        message: error.message,
+        // Internal (getStatus() does not pass it on): decides whether the
+        // boot-time auto-start tries again.
+        transient: isTransientDiscordError(error),
+      };
       if (this.logTailer && this._onGameChat) {
         try {
           this.logTailer.off("chatMessage", this._onGameChat);
@@ -2435,7 +2574,57 @@ export class DiscordBot {
       return false;
     }
   }
+  // Boot-time auto-start that failed because of the network (see
+  // isTransientDiscordError()) tries again in the background, so the bot comes
+  // up by itself once Discord is reachable and nobody has to notice it is
+  // down. Never blocks the caller. Ends on success, on a failure that is not
+  // the network's (bad token, missing intents), when the bot was started or
+  // stopped by hand, or after the last delay; stop() and a wipe cancel it, so
+  // a bot an operator stopped is not started behind their back.
+  scheduleAutoStartRetry(delaysMs = AUTO_START_RETRY_DELAYS_MS) {
+    this.cancelAutoStartRetry();
+    const attempt = (index) => {
+      if (index >= delaysMs.length) {
+        log.warn(
+          "Discord bot is still not connected after the last automatic retry; start it from the Discord page once Discord is reachable.",
+        );
+        return;
+      }
+      const timer = setTimeout(async () => {
+        if (this._autoStartRetryTimer !== timer) return;
+        this._autoStartRetryTimer = null;
+        if (this.isRunning || !this.token || !this.guildId) return;
+        log.info(
+          `Retrying the Discord bot start (attempt ${index + 1} of ${delaysMs.length})...`,
+        );
+        let started;
+        try {
+          // The same critical section POST /start takes.
+          started = await this.withConfigMutex(() => this.start());
+        } catch (error) {
+          log.warn(`Discord bot start retry failed: ${error.message}`);
+          started = false;
+        }
+        if (started === START_ALREADY_IN_PROGRESS || this.isRunning) return;
+        if (started === false && this.lastStartError?.transient) {
+          attempt(index + 1);
+        }
+      }, delaysMs[index]);
+      if (typeof timer.unref === "function") timer.unref();
+      this._autoStartRetryTimer = timer;
+    };
+    attempt(0);
+  }
+
+  cancelAutoStartRetry() {
+    if (this._autoStartRetryTimer) {
+      clearTimeout(this._autoStartRetryTimer);
+      this._autoStartRetryTimer = null;
+    }
+  }
+
   async stop() {
+    this.cancelAutoStartRetry();
     // See the constructor's own comment on this flag: client.destroy()
     // below closes the gateway itself, which can fire 'shardDisconnect'
     // before this function reaches its own isRunning=false a few lines
