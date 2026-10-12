@@ -25,6 +25,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discord settings saved but the bot could not reconnect:** changing the token or server ID now shows a warning with the reason when the bot fails to reconnect, instead of "saved successfully".
 - **Discord event messages cut at 500 characters:** the template box stops at 500 characters, the length the server keeps, instead of silently dropping the rest on save.
 - **Discord bot not coming up after a reboot:** when Discord or the network is unreachable as the panel starts, the bot now keeps retrying in the background (15 s up to 10 min) instead of staying down until you start it by hand; a bad token still isn't retried.
+- **Switching to a server with no RCON password:** the panel no longer keeps talking to the previous server's RCON (kicks, bans, Stop and the player list went to the wrong server); it repoints and just stays disconnected until a password is set.
+- **Old chat reposted after switching servers or saving the active server:** the log watcher no longer re-reads the whole current chat and death log from the top, so Discord, the Chat page and death notices don't repeat old messages.
+- **Console log load:** opening the Console page no longer pulls the whole `server-console.txt` (hundreds of MB on an old server) in one go; the stream sends at most the last 256 KB and the pane keeps its 500 lines.
+- **Console log that appears later:** if the game's log did not exist when you opened the Console page, the log pane now shows up as soon as the file is created instead of staying on "not found".
+- **Console log after a game restart:** every open Console tab now resyncs when the game recreates its log, not just the first one to poll.
+- **Stopping the server over RCON:** Stop no longer answers "failed" when the game closes the RCON connection as it shuts down, and a dropped RCON connection is now noticed (and retried) on the very command that hit it.
+- **Passwords in the debug log:** an `adduser "name" "password"` run over RCON no longer shows the password in the panel's debug log lines (the reply and "command skipped" lines were not redacted).
+- **Dashboard PZ memory:** the memory row now reads the active server's own game process (not the first Project Zomboid process on the machine), and a remote server, or one the panel can't see, shows no PZ memory row instead of the panel's own memory.
+- **After switching or stopping a server:** the Dashboard telemetry no longer shows the previous server's last sample for up to a minute, the sidebar Players badge no longer keeps the old count after a stop or a switch, and the Chat page drops the previous server's messages.
 
 ## [1.4.13] - 2026-10-11
 

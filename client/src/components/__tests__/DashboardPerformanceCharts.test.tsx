@@ -123,6 +123,30 @@ describe('DashboardPerformanceCharts', () => {
     )
     expect(screen.getByText('2.0 / 8')).toBeInTheDocument()
   })
+
+  it("hides the PZ memory row when the game's memory is unknown, instead of showing the panel's own heap as PZ memory", () => {
+    // memoryMB (512) is the PANEL process; the server could not be measured
+    // (remote server, or its process is not visible to the panel).
+    render(
+      <DashboardPerformanceCharts
+        performanceHistory={[point({ memoryMB: 512 })]}
+        maxMemoryGB={8}
+      />
+    )
+    expect(screen.queryByText('PZ memory')).not.toBeInTheDocument()
+    expect(screen.queryByText(/0\.5 \/ 8/)).not.toBeInTheDocument()
+    expect(screen.getByText('Host CPU')).toBeInTheDocument()
+  })
+
+  it('still shows the PZ memory row once the game reports its memory', () => {
+    render(
+      <DashboardPerformanceCharts
+        performanceHistory={[point({ pzMemMB: 4096 })]}
+        maxMemoryGB={8}
+      />
+    )
+    expect(screen.getByText('PZ memory')).toBeInTheDocument()
+  })
 })
 
 // Tonin96's Discord report (2026-08-26): HOST MEMORY 7.4/7.8 GB, 95%, red --
