@@ -112,8 +112,11 @@ export async function readProcessMemoryBytes(
 }
 
 // The active server's game memory in bytes, or null when there is no reading.
-//  - a Docker-managed server: its container's memory, the number the Docker
-//    page shows -- the JVM is in another PID namespace the panel cannot see;
+//  - a Docker-managed server: its container's memory -- anonymous memory
+//    when the cgroup reports it, so the multi-GB page cache of the game's
+//    mmap'd files does not read as "always full" (the Docker page keeps
+//    cache-inclusive usage, matching `docker stats`) -- the JVM is in
+//    another PID namespace the panel cannot see;
 //  - a remote server: null, whatever is running on this host is not it;
 //  - otherwise the server's own process, resolved through `serverManager`.
 export async function resolvePzMemoryBytes({
@@ -126,7 +129,15 @@ export async function resolvePzMemoryBytes({
     const containerRef = activeServer?.dockerContainerName || activeServer?.dockerContainerId;
     if (containerRef && dockerClient?.enabled) {
       const stats = await dockerClient.getContainerStats(containerRef);
-      if (stats?.memoryUsed > 0) return stats.memoryUsed;
+      if (stats?.memoryUsed > 0) {
+        // Anonymous memory (see parseContainerStats): real pressure, not page
+        // cache. Cache-inclusive usage sits near the limit on a game server
+        // full of mmap'd files, which reads as "always full" and signals
+        // nothing; page cache is reclaimed on demand instead of getting the
+        // container killed. Fall back to usage where the cgroup reports no
+        // anon figure.
+        return stats.memoryAnon > 0 ? stats.memoryAnon : stats.memoryUsed;
+      }
     }
   } catch {
     // fall through to the process lookup

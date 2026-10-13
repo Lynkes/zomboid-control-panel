@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **PZ Memory row reads "always full":** the dashboard now plots the game container's anonymous memory (heap and native -- the figure that predicts an OOM kill) instead of Docker's cache-inclusive usage. A game server mmaps gigabytes of textures and map files, so usage sat at 4-5 GB of a 6 GB limit while only ~1.5 GB was actually in use; page cache is reclaimed on demand and never gets a container killed. The Docker page still reports cache-inclusive usage, matching `docker stats`.
 - **Docker updater stuck on a stalled download:** the updater now gives up on a silent or stalled release download (30 s connect, 60 s below 1 KB/s, 30 min total), so the next update is accepted instead of answered "already in progress" until its container is restarted.
 - **Paused or crash-looping Docker game container:** it no longer reads as "running" (the dashboard says it is paused or restarting), Start on a paused container tells you to unpause it instead of "already running", and Stop works on both.
 - **Docker update stopped the server for nothing:** the panel now checks that the update is still available and that the update controller is reachable, accepts its token and is idle before it saves and stops the game server, instead of leaving the server down after a refused update.

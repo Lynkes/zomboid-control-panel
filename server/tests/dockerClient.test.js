@@ -90,12 +90,28 @@ describe("parseContainerStats", () => {
       cpuPercent: 60,
       memoryUsed: 512,
       memoryLimit: 1024,
+      memoryAnon: 0,
       memoryPercent: 50,
       networkRx: 15,
       networkTx: 27,
       diskRead: 3,
       diskWrite: 4,
     });
+  });
+
+  it("extracts anonymous memory across cgroup versions, falling back to 0", () => {
+    // cgroup v2
+    expect(parseContainerStats({
+      memory_stats: { usage: 512, limit: 1024, stats: { anon: 300, file: 212 } },
+    }).memoryAnon).toBe(300);
+    // cgroup v1
+    expect(parseContainerStats({
+      memory_stats: { usage: 512, limit: 1024, stats: { total_rss: 250, total_inactive_file: 200 } },
+    }).memoryAnon).toBe(250);
+    // no per-counter stats at all: 0, so callers keep the usage fallback
+    expect(parseContainerStats({
+      memory_stats: { usage: 512, limit: 1024 },
+    }).memoryAnon).toBe(0);
   });
 });
 
