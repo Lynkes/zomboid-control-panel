@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.14] - 2026-10-13
+
 ### Fixed
 
 - **PZ Memory row reads "always full":** the dashboard now plots the game container's anonymous memory (heap and native -- the figure that predicts an OOM kill) instead of Docker's cache-inclusive usage. A game server mmaps gigabytes of textures and map files, so usage sat at 4-5 GB of a 6 GB limit while only ~1.5 GB was actually in use; page cache is reclaimed on demand and never gets a container killed. The Docker page still reports cache-inclusive usage, matching `docker stats`.
