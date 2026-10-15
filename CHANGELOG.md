@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.15] - 2026-10-15
+
 ### Fixed
 
 - **Server Configuration raw editor:** duplicate tab-change events no longer trigger duplicate raw-file reloads.
