@@ -6,6 +6,10 @@
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
 
+                vNEXT Changes:
+                - Add: bounded per-player kill-counter audit events to
+                    leaderboard diagnostics, including before/after totals.
+
                 v1.7.76 Changes:
                 - Fix: Kill Player can kill. invoke() lost a trailing nil
                     argument, so Kill(nil) reached the game as Kill() with no
@@ -1689,6 +1693,8 @@ local LEADERBOARD_FLUSH_INTERVAL_MS = 60000
 local LEADERBOARD_SWEEP_INTERVAL_MS = 60000
 -- The store keeps this many of its last resets.
 local MAX_LEADERBOARD_RESETS = 5
+local MAX_LEADERBOARD_KILL_AUDIT = 24
+local MAX_LEADERBOARD_KILL_AUDIT_DIAGNOSTICS = 100
 -- Who asked for a getLeaderboard read (args.source); anything else is "panel".
 local LEADERBOARD_PANEL_SOURCES = { page = true, character = true, sampler = true, bundle = true }
 
@@ -1994,26 +2000,79 @@ local function ensureLeaderboardRecord(store, player)
     return record, key
 end
 
-local function syncLeaderboardMetrics(record, player)
+local function appendLeaderboardKillAudit(record, key, kind, source, at, previousKills, currentKills, addedKills, allTimeBefore)
+    if type(record.killAudit) ~= "table" then record.killAudit = {} end
+    table.insert(record.killAudit, {
+        at = tonumber(at) or leaderboardNow(),
+        kind = kind,
+        source = type(source) == "string" and source or "panel",
+        previousKills = tonumber(previousKills),
+        currentKills = tonumber(currentKills),
+        addedKills = tonumber(addedKills) or 0,
+        allTimeBefore = tonumber(allTimeBefore) or 0,
+        allTimeAfter = tonumber(record.allTimeKills) or 0,
+    })
+    while #record.killAudit > MAX_LEADERBOARD_KILL_AUDIT do
+        table.remove(record.killAudit, 1)
+    end
+    PanelBridge.leaderboardDirty = true
+    PanelBridge.leaderboardDirtyRows[key] = true
+end
+
+local function syncLeaderboardMetrics(record, key, player, source, sampledAt)
     local currentKills = tonumber(PanelBridge.tryGet(player, "getZombieKills"))
     if currentKills then
         local lastObserved = tonumber(record.lastObservedKills)
+        local allTimeBefore = tonumber(record.allTimeKills) or 0
+        local hasAudit = type(record.killAudit) == "table" and #record.killAudit > 0
+        local kind
+        local addedKills = 0
         if record.awaitingNewLife then
             -- The first read of the life after a death recordPlayerDeath
             -- counted: that life was read to its end, so every kill on
             -- this counter is new.
-            record.allTimeKills = record.allTimeKills + currentKills
+            addedKills = currentKills
+            record.allTimeKills = allTimeBefore + addedKills
             record.awaitingNewLife = nil
+            kind = "new-life"
         elseif not lastObserved then
             record.allTimeKills = math.max(record.allTimeKills, currentKills)
+            addedKills = record.allTimeKills - allTimeBefore
+            kind = "baseline"
         elseif currentKills >= lastObserved then
-            record.allTimeKills = record.allTimeKills + (currentKills - lastObserved)
+            addedKills = currentKills - lastObserved
+            record.allTimeKills = allTimeBefore + addedKills
+            if addedKills > 0 then kind = "increase" end
+        else
+            kind = "counter-drop"
         end
         record.currentKills = currentKills
         -- A new character starts its vanilla kill counter at zero. The
         -- decrease means "new life", not lost all-time kills; reset the
         -- observation point so future kills on that life are counted.
         record.lastObservedKills = currentKills
+
+        local shouldAudit = kind ~= nil
+        if kind == "increase" and source == "kill" and addedKills <= 1 and hasAudit then
+            shouldAudit = false
+        end
+        if not shouldAudit and not hasAudit then
+            kind = "baseline"
+            shouldAudit = true
+        end
+        if shouldAudit then
+            appendLeaderboardKillAudit(
+                record,
+                key,
+                kind,
+                source,
+                sampledAt,
+                lastObserved,
+                currentKills,
+                addedKills,
+                allTimeBefore
+            )
+        end
     end
 
     local hoursSurvived = tonumber(PanelBridge.tryGet(player, "getHoursSurvived"))
@@ -2048,8 +2107,9 @@ local function sampleLeaderboardPlayer(store, player, source, now, dying)
     end
     local record = ensureLeaderboardRecord(store, player)
     if not record then return nil end
-    syncLeaderboardMetrics(record, player)
-    record.lastSampledAt = now or leaderboardNow()
+    local sampledAt = now or leaderboardNow()
+    syncLeaderboardMetrics(record, key, player, source, sampledAt)
+    record.lastSampledAt = sampledAt
     record.lastSampleSource = source
     return record
 end
@@ -2135,6 +2195,17 @@ local function recordPlayerDeath(player)
     record.awaitingNewLife = true
     record.currentKills = 0
     record.currentDays = 0
+    appendLeaderboardKillAudit(
+        record,
+        key,
+        "death",
+        "death",
+        leaderboardNow(),
+        record.lastObservedKills,
+        record.lastObservedKills,
+        0,
+        record.allTimeKills
+    )
     PanelBridge.leaderboardDeadPlayers[key] = player
 end
 
@@ -5031,6 +5102,31 @@ handlers.getLeaderboard = function(args)
         end
     end
 
+    local killAudit = {}
+    for _, record in pairs(store.players) do
+        if type(record) == "table" and type(record.killAudit) == "table" then
+            for _, entry in ipairs(record.killAudit) do
+                table.insert(killAudit, {
+                    username = record.username,
+                    at = entry.at,
+                    source = entry.source,
+                    kind = entry.kind,
+                    previousKills = entry.previousKills,
+                    currentKills = entry.currentKills,
+                    addedKills = entry.addedKills,
+                    allTimeBefore = entry.allTimeBefore,
+                    allTimeAfter = entry.allTimeAfter,
+                })
+            end
+        end
+    end
+    table.sort(killAudit, function(left, right)
+        return (tonumber(left.at) or 0) < (tonumber(right.at) or 0)
+    end)
+    while #killAudit > MAX_LEADERBOARD_KILL_AUDIT_DIAGNOSTICS do
+        table.remove(killAudit, 1)
+    end
+
     local sweep = PanelBridge.leaderboardSweep
     return true, {
         players = players,
@@ -5045,6 +5141,7 @@ handlers.getLeaderboard = function(args)
             loadedFrom = PanelBridge.leaderboardLoadedFrom,
             flushSeq = store.flushSeq,
             resets = store.resets,
+            killAudit = killAudit,
         },
     }
 end

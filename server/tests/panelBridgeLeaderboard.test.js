@@ -245,6 +245,59 @@ describe('PanelBridge leaderboard sweep (players nobody is watching)', () => {
       lastSampleSource: 'kill',
     }));
   });
+
+  it('audits a large kill-counter jump with the before and after totals, and persists it', () => {
+    const bridge = loadPanelBridge(LUA_PATH, STUBS);
+    bridge.run('Alice.kills = 2200');
+    bridge.callHandler('getLeaderboard', { source: 'page' });
+
+    bridge.run('Now = 70000; Alice.kills = 86348');
+    tickAt(bridge, 70000);
+    const result = bridge.callHandler('getLeaderboard', { source: 'page' });
+    const audit = result.data.diagnostics.killAudit.filter((entry) => entry.username === 'Alice');
+
+    expect(audit.at(-1)).toMatchObject({
+      at: 70000,
+      source: 'sweep',
+      kind: 'increase',
+      previousKills: 2200,
+      currentKills: 86348,
+      addedKills: 84148,
+      allTimeBefore: 2200,
+      allTimeAfter: 86348,
+    });
+
+    bridge.run('PanelBridgeModule.flushLeaderboard(true)');
+    const saved = Object.values(bridge.getGlobal('FILES')).map((text) => JSON.parse(text))
+      .reduce((newest, copy) => (copy.flushSeq > newest.flushSeq ? copy : newest));
+    expect(saved.players[ALICE_KEY].killAudit.at(-1)).toMatchObject({
+      at: 70000,
+      source: 'sweep',
+      kind: 'increase',
+      previousKills: 2200,
+      currentKills: 86348,
+      addedKills: 84148,
+      allTimeBefore: 2200,
+      allTimeAfter: 86348,
+    });
+  });
+
+  it('keeps only the newest 24 kill-audit entries per player', () => {
+    const bridge = loadPanelBridge(LUA_PATH, STUBS);
+    bridge.callHandler('getLeaderboard');
+
+    for (let index = 0; index < 30; index += 1) {
+      const kills = 13 + index;
+      const now = 2000 + index * 60000;
+      bridge.run(`Now = ${now}; Alice.kills = ${kills}`);
+      bridge.callHandler('getLeaderboard', { source: 'page' });
+    }
+
+    const audit = storeRow(bridge, ALICE_KEY).killAudit;
+    expect(audit).toHaveLength(24);
+    expect(audit[0].currentKills).toBe(19);
+    expect(audit.at(-1).currentKills).toBe(42);
+  });
 });
 
 describe('PanelBridge leaderboard deaths', () => {

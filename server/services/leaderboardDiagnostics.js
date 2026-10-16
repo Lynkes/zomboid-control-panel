@@ -10,6 +10,7 @@
 // A failing read repeats (the page polls every 30 s, the sampler every
 // 2 minutes): one warning per this window, the rest at debug.
 export const LEADERBOARD_WARN_INTERVAL_MS = 10 * 60 * 1000;
+const MAX_LEADERBOARD_KILL_AUDIT_DIAGNOSTICS = 100;
 
 let lastWarnAt = null;
 
@@ -38,6 +39,24 @@ function redactResets(resets) {
     .map((entry) => ({ at: finiteOrNull(entry.at), reason: shortText(entry.reason) }));
 }
 
+function redactKillAudit(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .filter((entry) => entry && typeof entry === "object")
+    .slice(-MAX_LEADERBOARD_KILL_AUDIT_DIAGNOSTICS)
+    .map((entry) => ({
+      username: shortText(entry.username, 128),
+      at: finiteOrNull(entry.at),
+      source: shortText(entry.source),
+      kind: shortText(entry.kind),
+      previousKills: finiteOrNull(entry.previousKills),
+      currentKills: finiteOrNull(entry.currentKills),
+      addedKills: finiteOrNull(entry.addedKills),
+      allTimeBefore: finiteOrNull(entry.allTimeBefore),
+      allTimeAfter: finiteOrNull(entry.allTimeAfter),
+    }));
+}
+
 /**
  * The redacted summary of a getLeaderboard answer (`data`). `bridge` is null
  * when the bridge sends no diagnostics (1.7.73 and older, which read kills
@@ -57,6 +76,7 @@ export function redactLeaderboardDiagnostics(data) {
         loadedFrom: shortText(raw.loadedFrom),
         flushSeq: finiteOrNull(raw.flushSeq),
         resets: redactResets(raw.resets),
+        killAudit: redactKillAudit(raw.killAudit),
       }
     : null;
   const rows = players.map((player) => ({

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.16] - 2026-10-16
+
+### Added
+
+- **Leaderboard diagnostics now include a bounded, SteamID-redacted audit of kill-counter baselines, jumps, resets, deaths, and new lives, with totals before and after each recorded change.**
+
 ## [1.4.15] - 2026-10-15
 
 ### Fixed

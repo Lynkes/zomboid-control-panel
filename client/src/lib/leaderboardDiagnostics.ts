@@ -10,6 +10,18 @@ export interface LeaderboardReset {
   reason?: string
 }
 
+export interface LeaderboardKillAudit {
+  username?: string
+  at?: number
+  source?: string
+  kind?: string
+  previousKills?: number
+  currentKills?: number
+  addedKills?: number
+  allTimeBefore?: number
+  allTimeAfter?: number
+}
+
 /** getLeaderboard's diagnostics block; absent from bridges up to 1.7.73. */
 export interface LeaderboardDiagnostics {
   bridgeVersion?: string
@@ -20,6 +32,7 @@ export interface LeaderboardDiagnostics {
   loadedFrom?: string
   flushSeq?: number
   resets?: LeaderboardReset[]
+  killAudit?: LeaderboardKillAudit[]
 }
 
 interface LeaderboardRowInput {
@@ -78,6 +91,20 @@ export function redactLeaderboardDiagnostics(data: LeaderboardDataInput) {
         resets: (Array.isArray(raw.resets) ? raw.resets : [])
           .filter((entry) => entry && typeof entry === 'object')
           .map((entry) => ({ at: finiteOrNull(entry.at), reason: shortText(entry.reason) })),
+        killAudit: (Array.isArray(raw.killAudit) ? raw.killAudit : [])
+          .filter((entry) => entry && typeof entry === 'object')
+          .slice(-100)
+          .map((entry) => ({
+            username: shortText(entry.username, 128),
+            at: finiteOrNull(entry.at),
+            source: shortText(entry.source),
+            kind: shortText(entry.kind),
+            previousKills: finiteOrNull(entry.previousKills),
+            currentKills: finiteOrNull(entry.currentKills),
+            addedKills: finiteOrNull(entry.addedKills),
+            allTimeBefore: finiteOrNull(entry.allTimeBefore),
+            allTimeAfter: finiteOrNull(entry.allTimeAfter),
+          })),
       }
     : null
   const rows = players.map((player) => ({
