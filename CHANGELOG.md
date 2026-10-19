@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Stop and Force stop during a restart:** they now cancel the restart and turn the server off instead of being refused with "A 'restart' operation is already in progress"; a cancelled restart ends at once (countdown, save, stop, start or RCON wait) and starts nothing.
+- **Sandbox labels match the game:** settings showing another setting's text (Stats Decrease and Endurance as food spoilage, Locked Houses as house alarms, Fish/Nature Abundance as farming, zombie Strength as the XP multiplier, half-English Animal Aging) now use the game's own wording in every language. Legacy Farming reads as farming speed (1 = Very Fast), and Spawn Zone Clear's options no longer run backwards.
 
 ## [1.4.16] - 2026-10-16
 

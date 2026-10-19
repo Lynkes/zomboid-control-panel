@@ -491,15 +491,6 @@
         },
         "6": {
           "label": "0 - 5 années"
-        },
-        "7": {
-          "label": "2 - 6 mois"
-        },
-        "8": {
-          "label": "6 - 12 mois"
-        },
-        "9": {
-          "label": "Désactivée"
         }
       }
     },
@@ -711,7 +702,7 @@
           "label": "Lente"
         },
         "5": {
-          "label": "Très lente"
+          "label": "Très Lente"
         }
       }
     },
@@ -785,7 +776,7 @@
       }
     },
     "EndRegen": {
-      "label": "Récupération d'endurance",
+      "label": "Régénération de l'endurance",
       "options": {
         "1": {
           "label": "Très rapide"
@@ -998,7 +989,7 @@
       }
     },
     "LockedHouses": {
-      "label": "Fréquence de verrouillage des maisons",
+      "label": "Fréquence de fermeture des maisons",
       "options": {
         "1": {
           "label": "Jamais"
@@ -1086,7 +1077,7 @@
       }
     },
     "FishAbundance": {
-      "label": "Abondance de poissons",
+      "label": "Abondance de la pêche",
       "options": {
         "1": {
           "label": "Très pauvre"
@@ -1719,22 +1710,22 @@
       "label": "Jours de l'indice maximale de vermine"
     },
     "Farming": {
-      "label": "Multiplicateur d'agriculture",
+      "label": "Vitesse de l'agriculture (Farming)",
       "options": {
         "1": {
-          "label": "Très basse"
+          "label": "Très rapide"
         },
         "2": {
-          "label": "Basse"
+          "label": "Rapide"
         },
         "3": {
           "label": "Normale"
         },
         "4": {
-          "label": "Haute"
+          "label": "Lente"
         },
         "5": {
-          "label": "Très haute"
+          "label": "Très lente"
         }
       }
     },
@@ -1834,10 +1825,10 @@
           "label": "Jamais"
         },
         "2": {
-          "label": "Très rarement"
+          "label": "Très rare"
         },
         "3": {
-          "label": "Rarement"
+          "label": "Rare"
         },
         "4": {
           "label": "Parfois"
@@ -1860,10 +1851,10 @@
           "label": "Jamais"
         },
         "2": {
-          "label": "Très rarement"
+          "label": "Très rare"
         },
         "3": {
-          "label": "Rarement"
+          "label": "Rare"
         },
         "4": {
           "label": "Parfois"
@@ -2103,7 +2094,7 @@
       "label": "Multiplicateur de dégâts de chute des Z"
     },
     "DisableFakeDead": {
-      "label": "Zombies qui se réaniment",
+      "label": "Réanimation des zombies feignant la mort",
       "options": {
         "1": {
           "label": "Zombies dans le monde"
@@ -2112,27 +2103,24 @@
           "label": "Zombie dans le monde et ceux tués"
         },
         "3": {
-          "label": "Aucun"
+          "label": "Jamais"
         }
       }
     },
     "PlayerSpawnZombieRemoval": {
-      "label": "Spawn Zone Clear",
+      "label": "Zone d'apparition du joueur",
       "options": {
         "1": {
-          "label": "None"
+          "label": "Dans le bâtiment et autour"
         },
         "2": {
-          "label": "Small"
+          "label": "Dans le bâtiment"
         },
         "3": {
-          "label": "Medium"
+          "label": "Dans la pièce"
         },
         "4": {
-          "label": "Large"
-        },
-        "5": {
-          "label": "Very Large"
+          "label": "Les zombies peuvent apparaître partout"
         }
       }
     },
@@ -2143,7 +2131,7 @@
       "label": "Multiplicateur de dégâts aux clôtures"
     },
     "DoorOpeningPercentage": {
-      "label": "Random Door Opening Amount"
+      "label": "Taux aléatoire de Z qui ouvrent les portes"
     },
     "CrawlUnderVehicle": {
       "label": "Zombies pouvant ramper sous les véhicules",
@@ -2172,7 +2160,7 @@
       }
     },
     "SprinterPercentage": {
-      "label": "Random Sprinter Amount"
+      "label": "Taux aléatoire de sprinteurs"
     },
     "Reanimate": {
       "label": "Temps de réanimation",
@@ -2298,7 +2286,7 @@
       "label": "Multiplicateur de cuisine"
     },
     "Farming": {
-      "label": "Multiplicateur d'XP d'agriculture"
+      "label": "Multiplicateur d'agriculture"
     },
     "Doctor": {
       "label": "Multiplicateur de premiers secours"
@@ -2374,28 +2362,28 @@
   },
   "basement": {
     "SpawnFrequency": {
-      "label": "Basement Spawn Frequency",
+      "label": "Fréquence d'apparition des sous-sols",
       "options": {
         "1": {
-          "label": "None"
+          "label": "Jamais"
         },
         "2": {
-          "label": "Very Rare"
+          "label": "Extrêmement rare"
         },
         "3": {
           "label": "Rare"
         },
         "4": {
-          "label": "Sometimes"
+          "label": "Parfois"
         },
         "5": {
-          "label": "Often"
+          "label": "Souvent"
         },
         "6": {
-          "label": "Very Often"
+          "label": "Très souvent"
         },
         "7": {
-          "label": "Always"
+          "label": "Le plus possible"
         }
       }
     }

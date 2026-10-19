@@ -491,15 +491,6 @@
         },
         "6": {
           "label": "0 a 5 Anos"
-        },
-        "7": {
-          "label": "2 a 6 Meses"
-        },
-        "8": {
-          "label": "6 a 12 Meses"
-        },
-        "9": {
-          "label": "Desativado"
         }
       }
     },
@@ -2130,9 +2121,6 @@
         },
         "4": {
           "label": "Zumbis podem aparecer em qualquer lugar"
-        },
-        "5": {
-          "label": "Muito Grande"
         }
       }
     },
