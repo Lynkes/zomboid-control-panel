@@ -157,6 +157,7 @@
     "descPrefix": "Kole yon URL oswa ID Steam Workshop — oswa",
     "importCollectionLink": "enpòte yon koleksyon konplè",
     "inputLabel": "URL oswa ID Workshop",
+    "discoveringHint": "N ap chèche ID mod yo. Yon mod sèvè a poko genyen telechaje depi Steam anvan, sa ka pran yon minit.",
     "inputPlaceholder": "Kole URL Workshop oswa antre ID...",
     "discover": "Dekouvri",
     "example": "Egzanp: https://steamcommunity.com/sharedfiles/filedetails/?id=3616536783",

@@ -157,6 +157,7 @@
     "descPrefix": "Cole uma URL ou um ID da Workshop da Steam — ou",
     "importCollectionLink": "importe uma coleção inteira",
     "inputLabel": "URL ou ID da Workshop",
+    "discoveringHint": "Buscando os IDs do mod. Um mod que o servidor ainda não tem é baixado primeiro da Steam, o que pode levar um minuto.",
     "inputPlaceholder": "Cole a URL da Workshop ou digite o ID...",
     "discover": "Detectar",
     "example": "Exemplo: https://steamcommunity.com/sharedfiles/filedetails/?id=3616536783",

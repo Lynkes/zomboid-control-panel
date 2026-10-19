@@ -1317,7 +1317,10 @@ export default function Mods() {
     setSelectedModIds(new Set())
 
     try {
-      const result = await modsApi.discoverModIds(workshopId, undefined, { signal: controller.signal })
+      // download: an item the server does not have yet is fetched with SteamCMD so its
+      // mod IDs are known now and get enabled with it (otherwise it is only added to
+      // WorkshopItems= and the server downloads it on a later boot, too late to enable it).
+      const result = await modsApi.discoverModIds(workshopId, undefined, { signal: controller.signal, download: true })
 
       // Filter out duplicate mod IDs (case-insensitive)
       const seenIds = new Set<string>()
@@ -3662,6 +3665,9 @@ export default function Mods() {
                     </div>
 
                     {/* Loading skeleton */}
+                    {discoveringMod && (
+                      <p className="text-xs text-muted-foreground" role="status">{t('addModDialog.discoveringHint')}</p>
+                    )}
                     {discoveringMod && (
                       <div className="space-y-3 p-4 border rounded-lg bg-muted/30 animate-pulse">
                         <div className="flex items-start justify-between">

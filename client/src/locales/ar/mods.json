@@ -334,6 +334,7 @@
     "descPrefix": "الصق رابط ورشة Steam أو المعرّف — أو",
     "importCollectionLink": "استورد مجموعة كاملة",
     "inputLabel": "رابط الورشة أو المعرّف",
+    "discoveringHint": "جارٍ البحث عن معرّفات المود. المود الذي لا يملكه الخادم بعد يُنزَّل أولًا من Steam، وقد يستغرق ذلك دقيقة.",
     "inputPlaceholder": "الصق رابط الورشة أو أدخل المعرّف...",
     "discover": "اكتشاف",
     "example": "مثال: https://steamcommunity.com/sharedfiles/filedetails/?id=3616536783",

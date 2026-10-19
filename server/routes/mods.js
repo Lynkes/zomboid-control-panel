@@ -77,6 +77,7 @@ import {
   sanitizeModIdListWithDiskBypass,
 } from "../services/workshopModInfo.js";
 import { addWorkshopItemToIni } from "../services/modIniEdit.js";
+import { downloadWorkshopItem } from "../services/workshopDownload.js";
 
 // The workshop readers live in services/workshopModInfo.js; the route file
 // keeps exporting getModDetailsFromWorkshop for its existing importers.
@@ -5357,6 +5358,48 @@ router.post("/discover-mod-ids", async (req, res) => {
       }
     }
 
+    // 1b. Not on disk yet: have SteamCMD download it (the add dialog asks for
+    // this), so the mod IDs and map folders come from the item's own files.
+    // Without them a mod whose description does not state its mod IDs was added
+    // to WorkshopItems= only; the server downloaded it on the next boot, after
+    // it had read Mods=, and the mod was never enabled. The server skips what
+    // is already downloaded and current. Skipped for a remote server and when
+    // SteamCMD is not set up (the description below is used as before).
+    let downloadedFromSteam = false;
+    let downloadSkippedReason = null;
+    if (discoveredModIds.length === 0 && serverPath && req.body?.download === true) {
+      const activeServer = await getActiveServer();
+      if (activeServer?.isRemote) {
+        downloadSkippedReason = "remote-server";
+      } else {
+        const abort = new AbortController();
+        res.on?.("close", () => {
+          if (!res.writableEnded) abort.abort(); // the dialog was closed: stop SteamCMD
+        });
+        const buildEnv =
+          process.platform === "win32"
+            ? null
+            : (await import("./server.js")).buildLinuxSteamCmdEnv;
+        const download = await downloadWorkshopItem(String(wsId), {
+          serverPath,
+          signal: abort.signal,
+          buildEnv,
+        });
+        if (download.success) {
+          downloadedFromSteam = true;
+          for (const modId of findAllModIdsFromWorkshop(String(wsId), serverPath)) {
+            if (!discoveredModIds.includes(modId)) {
+              discoveredModIds.push(modId);
+              sources.push({ modId, source: "steamcmd-download" });
+            }
+          }
+        } else {
+          downloadSkippedReason = download.reason;
+          log.info(`discover-mod-ids ${wsId}: SteamCMD download not used (${download.reason}: ${download.error})`);
+        }
+      }
+    }
+
     // 2. Try Steam Workshop API to get mod info (with timeout)
     let modInfo = null;
     try {
@@ -5455,6 +5498,8 @@ router.post("/discover-mod-ids", async (req, res) => {
         ? findAllModIdsFromWorkshop(String(wsId), serverPath).length > 0
         : false,
       tags: modInfo?.tags?.map((t) => t.tag) || [],
+      downloadedFromSteam,
+      downloadSkippedReason,
     });
   } catch (error) {
     log.error(`Failed to discover mod IDs: ${error.message}`);

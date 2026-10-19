@@ -244,6 +244,7 @@
     "descPrefix": "Встав URL або ID зі Steam Workshop — або",
     "importCollectionLink": "імпортуй усю колекцію",
     "inputLabel": "URL або ID Workshop",
+    "discoveringHint": "Пошук ID моду. Мод, якого сервер ще не має, спершу завантажується зі Steam, це може тривати хвилину.",
     "inputPlaceholder": "Встав URL Workshop або введи ID...",
     "discover": "Визначити",
     "example": "Приклад: https://steamcommunity.com/sharedfiles/filedetails/?id=3616536783",
