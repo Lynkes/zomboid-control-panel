@@ -1133,6 +1133,7 @@ export class Scheduler {
   cancelRestart() {
     if (this.restartInProgress) {
       this.restartCancelled = true;
+      this._wakeRestartWaits();
       log.info("Restart cancellation requested");
       return { success: true, message: "Restart cancellation requested" };
     }
@@ -2005,7 +2006,7 @@ export class Scheduler {
         }
 
         // Wait a bit and verify it started
-        await this.sleep(10000);
+        await this._restartSleep(10000);
         const postStartDetails = await readProcessDetails();
         const isNowRunning =
           rconService.connected ||
@@ -2130,6 +2131,22 @@ export class Scheduler {
       // verified" fix in this file.
       let failedWarningBroadcasts = 0;
 
+      // Stop and Force stop cancel a restart at any point (an operator must be
+      // able to turn the server off while it restarts), not only during the
+      // countdown: every wait below ends the moment the restart is cancelled
+      // and the next step is not taken. Nothing is started again.
+      const stopCancelledRestart = async (stage) => {
+        log.info(`Auto-restart: cancelled (${stage})`);
+        if (serverManager.stopIntent === "restart") serverManager.stopIntent = null;
+        if (rconService.setServerStarting) {
+          rconService.setServerStarting(false);
+        } else {
+          rconService.serverStarting = false;
+        }
+        await this._notifyRestartCancelled();
+        return { success: false, message: "Restart cancelled" };
+      };
+
       // Notify Discord at the start of the restart sequence
       if (this.discordBot) {
         this.discordBot
@@ -2165,7 +2182,7 @@ export class Scheduler {
           if (!delivered) failedWarningBroadcasts++;
 
           if (i > 1) {
-            await this.sleep(60000); // Wait 1 minute
+            await this._restartSleep(60000); // Wait 1 minute
           }
         }
 
@@ -2184,7 +2201,7 @@ export class Scheduler {
           { wait: 1000, count: 1 },
         ];
         for (const tick of finalTicks) {
-          await this.sleep(tick.wait);
+          await this._restartSleep(tick.wait);
           if (this.restartCancelled) {
             log.info("Auto-restart: Cancelled during final countdown");
             await this._broadcastRestartMessage(
@@ -2202,7 +2219,7 @@ export class Scheduler {
         }
 
         // One last second, then go.
-        await this.sleep(1000);
+        await this._restartSleep(1000);
         if (
           !(await this._broadcastRestartMessage(
             getRestartWarningNotice(restartWarning, "restarting"),
@@ -2211,7 +2228,7 @@ export class Scheduler {
         ) {
           failedWarningBroadcasts++;
         }
-        await this.sleep(2000);
+        await this._restartSleep(2000);
       } else {
         // Immediate restart - just a brief message
         if (
@@ -2222,8 +2239,10 @@ export class Scheduler {
         ) {
           failedWarningBroadcasts++;
         }
-        await this.sleep(2000);
+        await this._restartSleep(2000);
       }
+
+      if (this.restartCancelled) return stopCancelledRestart("before the save");
 
       // Save world - skip logging for automated save
       log.info("Auto-restart: Saving world...");
@@ -2255,7 +2274,8 @@ export class Scheduler {
           params: { reason },
         };
       }
-      await this.sleep(3000);
+      await this._restartSleep(3000);
+      if (this.restartCancelled) return stopCancelledRestart("after the save");
 
       // A container-managed server restarts through Docker. RCON quit only
       // kills PID 1: the container exits, its restart policy races the panel to
@@ -2289,7 +2309,7 @@ export class Scheduler {
             `Auto-restart: quit command failed (${quit?.error || "unknown error"}), falling back to a forced stop`,
           );
         }
-        await this.sleep(10000);
+        await this._restartSleep(10000);
 
         // Wait for server to stop: 60 looks a second apart, as before, now
         // also capped at 2 minutes so scans that keep running into their
@@ -2362,7 +2382,7 @@ export class Scheduler {
               logged: true,
             };
           }
-          await this.sleep(5000);
+          await this._restartSleep(5000);
         }
 
         // The old process is now confirmed stopped (either the while loop
@@ -2377,7 +2397,7 @@ export class Scheduler {
 
         // Extra delay after stop — give OS time to fully reap the process
         // (zombie processes on Linux, WMI cache on Windows)
-        await this.sleep(3000);
+        await this._restartSleep(3000);
       }
 
       // See _backupConfigBeforeRestart()'s own comment: config files are
@@ -2385,6 +2405,7 @@ export class Scheduler {
       // started yet), on both the managed-container and directly-spawned
       // paths below, so this runs unconditionally regardless of which one
       // this restart takes.
+      if (this.restartCancelled) return stopCancelledRestart("before the start");
       await this._backupConfigBeforeRestart(pinnedServerId);
 
       // No launch-target refresh here: serverManager.startServer() below
@@ -2426,7 +2447,8 @@ export class Scheduler {
 
         // Wait for server process to be running (up to 60 seconds)
         for (let i = 0; i < 60; i++) {
-          await this.sleep(1000);
+          await this._restartSleep(1000);
+          if (this.restartCancelled) return stopCancelledRestart("while the server starts");
           const processDetails = await readProcessDetails();
           if (
             rconService.connected ||
@@ -2498,7 +2520,8 @@ export class Scheduler {
         log.info(
           `Auto-restart: RCON waiting ${delaySeconds}s before attempt ${i + 1}/${rconDelays.length}...`,
         );
-        await this.sleep(rconDelays[i]);
+        await this._restartSleep(rconDelays[i]);
+        if (this.restartCancelled) return stopCancelledRestart("waiting for RCON");
 
         // If RCON connected during the wait (via auto-reconnect), we're done
         if (rconService.connected) {
@@ -2783,6 +2806,31 @@ export class Scheduler {
 
   sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // The waits inside performRestart: this.sleep(), but over the moment the
+  // restart is cancelled (cancelRestart), and none at all once it was. Kept
+  // apart from sleep() on purpose: other loops (a backup waiting out a
+  // restart) call sleep() while restartCancelled is set and must still wait.
+  async _restartSleep(ms) {
+    if (this.restartCancelled) return;
+    if (!this._restartWaiters) this._restartWaiters = new Set();
+    let wake;
+    const cancelled = new Promise((resolve) => {
+      wake = resolve;
+      this._restartWaiters.add(resolve);
+    });
+    try {
+      await Promise.race([this.sleep(ms), cancelled]);
+    } finally {
+      this._restartWaiters.delete(wake);
+    }
+  }
+
+  _wakeRestartWaits() {
+    if (!this._restartWaiters) return;
+    for (const wake of [...this._restartWaiters]) wake();
+    this._restartWaiters.clear();
   }
 
   shutdown() {
