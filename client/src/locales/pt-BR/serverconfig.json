@@ -3233,7 +3233,7 @@
       },
       "FarmingSpeedNew": {
         "label": "Velocidade de Cultivo",
-        "description": "Multiplicador da velocidade de crescimento. Menor = mais rápido."
+        "description": "Multiplicador da velocidade de crescimento das plantas. Maior = mais rápido (2 = duas vezes mais rápido)."
       },
       "FarmingAmountNew": {
         "label": "Abundância da Colheita",
