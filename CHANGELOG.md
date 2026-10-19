@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Mod Manager, "Not enabled" filter:** a chip on Active on server lists only the workshop items that have a mod ID which is not enabled (the gap in "170 of 186 IDs enabled"); a server with no multi-ID items no longer opens an empty list behind the Multi-ID filter.
+
 ### Fixed
 
 - **Farming Speed description:** it now says higher is faster (2 = twice as fast) in every language; it used to say the opposite.

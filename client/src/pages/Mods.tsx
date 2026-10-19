@@ -415,6 +415,8 @@ export default function Mods() {
   // "Active on server" list shape. Compact hides the per-ID chip grid (still
   // reachable in the inspector); warnings render in both densities.
   const [filterAttention, setFilterAttention] = useLocalStorageState<boolean>('zcp:mods:active:attentionOnly', false)
+  // Only the workshop items that have a mod ID which is not in Mods= (the "170 of 186 IDs enabled" gap).
+  const [filterNotEnabled, setFilterNotEnabled] = useLocalStorageState<boolean>('zcp:mods:active:notEnabledOnly', false)
   const [activeDensity, setActiveDensity] = useLocalStorageState<'compact' | 'detailed'>('zcp:mods:active:density', 'compact')
   const [modManagerSearch, setModManagerSearch] = useState('')
   const [deferredModManagerSearch, setDeferredModManagerSearch] = useState('')
@@ -4606,8 +4608,16 @@ export default function Mods() {
                   }
                   const attentionCount = groups.filter(g => groupAttention(g).any).length
 
-                  let displayGroups = filterMultiId ? filteredGroups.filter(g => g.mods.length > 1) : filteredGroups
+                  // IDs that are listed under a workshop item but not enabled: the
+                  // difference between the header's "enabled" and "total" counts.
+                  const notEnabledCount = groups.reduce((s, g) => s + g.mods.filter(m => !m.enabled).length, 0)
+
+                  // The Multi-ID chip only exists while some item has several IDs: with none,
+                  // leaving its filter on would hide every (single-ID) item behind no chip to turn it off.
+                  const multiIdFilterOn = filterMultiId && multiIdCount > 0
+                  let displayGroups = multiIdFilterOn ? filteredGroups.filter(g => g.mods.length > 1) : filteredGroups
                   if (filterAttention) displayGroups = displayGroups.filter(g => groupAttention(g).any)
+                  if (filterNotEnabled) displayGroups = displayGroups.filter(g => !g.allEnabled)
                   const totalModCount = groups.reduce((s, g) => s + g.mods.length, 0)
                   const q = deferredModManagerSearch.toLowerCase().trim()
                   const inspectedGroup = groups.find(g => g.wsId === selectedActiveWsId) || displayGroups[0] || null
@@ -4914,6 +4924,24 @@ export default function Mods() {
                                 >
                                   <Filter className="h-3 w-3" aria-hidden="true" />
                                   {t('activeMods.multiId', { count: multiIdCount })}
+                                </button>
+                              )}
+                              {/* Kept while the filter is on even at zero, so it can be switched off again. */}
+                              {(notEnabledCount > 0 || filterNotEnabled) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    // Turning it on lists every item with a not-enabled ID, single-ID ones included:
+                                    // the Multi-ID filter (on by default) would otherwise hide most of them.
+                                    if (!filterNotEnabled) setFilterMultiId(false)
+                                    setFilterNotEnabled(!filterNotEnabled)
+                                  }}
+                                  aria-pressed={filterNotEnabled}
+                                  title={t('activeMods.notEnabledTooltip')}
+                                  className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-[11px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 ${filterNotEnabled ? 'bg-primary/20 border-primary/50 text-primary' : 'border-border/40 text-muted-foreground hover:bg-muted/35 hover:text-foreground'}`}
+                                >
+                                  <Filter className="h-3 w-3" aria-hidden="true" />
+                                  {t('activeMods.notEnabled', { count: notEnabledCount })}
                                 </button>
                               )}
                               {missingDepsMap.size > 0 && (
@@ -5358,7 +5386,7 @@ export default function Mods() {
                               {/* PanelBridge's mod id shows here until Steam has
                                   downloaded its Workshop item (the first start
                                   after a switch), so the same lock applies. */}
-                              {!filterMultiId && orphaned.filter(id => !q || id.toLowerCase().includes(q)).map(id => {
+                              {!multiIdFilterOn && !filterNotEnabled && orphaned.filter(id => !q || id.toLowerCase().includes(q)).map(id => {
                                 const orphanBridgeLocked = isBridgeManagedMod(iniConfig?.bridgeManaged, null, [id])
                                 return (
                                 <div key={`orphan-${id}`} className="group flex items-center gap-3 px-3 py-1.5 opacity-60">
@@ -5398,6 +5426,13 @@ export default function Mods() {
                               <>
                                 <p className="text-success">{t('activeMods.nothingNeedsAttention')}</p>
                                 <button type="button" onClick={() => setFilterAttention(false)} className="underline underline-offset-2 hover:text-foreground">
+                                  {t('activeMods.showAllItems')}
+                                </button>
+                              </>
+                            ) : filterNotEnabled && notEnabledCount === 0 ? (
+                              <>
+                                <p className="text-success">{t('activeMods.everythingEnabled')}</p>
+                                <button type="button" onClick={() => setFilterNotEnabled(false)} className="underline underline-offset-2 hover:text-foreground">
                                   {t('activeMods.showAllItems')}
                                 </button>
                               </>
