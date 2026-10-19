@@ -3233,7 +3233,7 @@
       },
       "FarmingSpeedNew": {
         "label": "Velocidad De Agricultura",
-        "description": "Growth speed multiplier. Lower = faster."
+        "description": "Plant growth speed multiplier. Higher = faster (2 = twice as fast)."
       },
       "FarmingAmountNew": {
         "label": "Abundancia De Agricultura",

@@ -3220,7 +3220,7 @@
       },
       "FarmingSpeedNew": {
         "label": "作物生长速率",
-        "description": "作物生长速度。"
+        "description": "作物生长速度倍率。数值越高生长越快（2 = 两倍速度）。"
       },
       "FarmingAmountNew": {
         "label": "作物产量",

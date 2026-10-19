@@ -3793,7 +3793,7 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
   {
     key: 'FarmingSpeedNew',
     label: 'Farming Speed',
-    description: 'Growth speed multiplier. Lower = faster.',
+    description: 'Plant growth speed multiplier. Higher = faster (2 = twice as fast).',
     type: 'number',
     // 2026-09-18, round 15: bytecode-confirmed
     // `newDoubleOption("FarmingSpeedNew", 0.1, 100.0, 1.0)` -- min was
